@@ -23,6 +23,12 @@ check:
   description.clocks === soc.mini_soc_clocks ~is #true
   description.memory_regions[0].address_set ~is soc.mini_soc_ram_params.service.address_sets[0]
   description.boot.rom.address_set ~is soc.mini_soc_fabric_params.platform.bootrom.rom_params.service.address_sets[0]
+  description.boot.rom.size_bytes ~is 0x2000
+  soc.mini_soc_fabric_params.platform.bootrom.rom_config(description).image.bytes.drop(
+    soc.mini_soc_fabric_params.boot.device_tree_offset
+  ) ~is (
+    description.to_device_tree().to_dtb().to_list()
+  )
   description.aclint.region.address_set ~is soc.mini_soc_fabric_params.platform.aclint.service.address_sets[0]
   description.uart.region.address_set ~is soc.mini_soc_fabric_params.platform.uart.service.address_sets[0]
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base).home === simple.simple_soc_home ~is #true

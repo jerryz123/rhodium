@@ -20,7 +20,8 @@ check:
   soc.simple_soc_home_map.entry(0xbfffffff).home === soc.simple_soc_home ~is #true
   soc.simple_soc_home_map.entry(0xc0000000) ~is #false
   soc.simple_soc_home_map.entry(0x00010000).home === soc.simple_soc_device_home ~is #true
-  soc.simple_soc_home_map.entry(0x00011000) ~is #false
+  soc.simple_soc_home_map.entry(0x00011fff).home === soc.simple_soc_device_home ~is #true
+  soc.simple_soc_home_map.entry(0x00012000) ~is #false
   soc.simple_soc_home_map.entry(0x02000000).home === soc.simple_soc_device_home ~is #true
   soc.simple_soc_home_map.entry(0x02010000) ~is #false
   soc.simple_soc_home_map.entry(0x10000000).home === soc.simple_soc_device_home ~is #true
@@ -45,6 +46,10 @@ check:
   description.clocks === soc.simple_soc_params.clocks ~is #true
   description.memory_regions[0].address_set ~is soc.simple_soc_memory_service.address_sets[0]
   description.boot.rom.address_set ~is soc.simple_soc_platform.bootrom.rom_params.service.address_sets[0]
+  description.boot.rom.size_bytes ~is 0x2000
+  soc.simple_soc_bootrom_config.image.bytes.drop(soc.simple_soc_params.fabric.boot.device_tree_offset) ~is (
+    description.to_device_tree().to_dtb().to_list()
+  )
   description.aclint.region.address_set ~is soc.simple_soc_aclint_params.service.address_sets[0]
   description.uart.region.address_set ~is soc.simple_soc_uart_params.service.address_sets[0]
   compact_soc_params.llc_config.sets ~is 16

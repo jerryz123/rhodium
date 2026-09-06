@@ -58,9 +58,9 @@ contiguous architectural memory region.
 Calling `.description.to_device_tree()` produces a deterministic generic
 `DeviceTree`. It describes the root identity, architectural memory, clock and
 timebase frequencies, every hart's ISA, MMU, L1 caches, and local interrupt
-controller, plus the shared CLINT-compatible ACLINT. The resulting DTS and DTB
-remain host artifacts; they are not yet included in the BootROM or passed to a
-payload.
+controller, plus the shared CLINT-compatible ACLINT. Each SoC serializes this
+same description directly into its BootROM at offset `0x100`; the reset program
+passes the resulting eight-byte-aligned address to hart zero in `a1`.
 
 The generated tree includes the present 16550-compatible UART as disabled.
 Its register window and input clock are accurate, but the current SoCs expose
@@ -78,11 +78,12 @@ address. No SoC contains FESVR behavior, DPI calls, or a simulator-specific
 loader.
 
 [`boot.rhdl`](boot.rhdl) owns the shared reset address, payload address, ROM
-image, executable non-cacheable PMA entry, and multihart release distributor.
-The default 4 KiB BootROM occupies `0x00010000..0x00010fff`. Hart zero jumps to
-the configured normal-memory payload; every secondary hart parks in the ROM's
-`WFI` loop. Instruction fetches reach the ROM as uncached four-byte
-`ReadNoSnp` requests and do not fill L1I.
+layout and finalized image, executable non-cacheable PMA entry, and multihart
+release distributor. Every current SoC uses an 8 KiB BootROM at
+`0x00010000..0x00011fff`. Hart zero receives its embedded DTB address in `a1`
+and jumps to the configured normal-memory payload; every secondary hart parks
+in the ROM's `WFI` loop. Instruction fetches reach the ROM as uncached
+four-byte `ReadNoSnp` requests and do not fill L1I.
 
 [`peripherals.rhdl`](peripherals.rhdl) aggregates the BootROM, ACLINT, and UART
 service occurrences into one platform HN-I map and owns the UART pin interface.
@@ -110,7 +111,7 @@ flowchart LR
   MemoryHome["Inclusive HN-F<br/>NodeID 5"]
   ExternalMemory["External SN-F<br/>NodeID 9"]
   DeviceHome["HN-I<br/>NodeID 6"]
-  BootROM["BootROM SN-I<br/>NodeID 12<br/>0x00010000..0x00010fff"]
+  BootROM["BootROM SN-I<br/>NodeID 12<br/>0x00010000..0x00011fff"]
   ACLINT["ACLINT SN-I<br/>NodeID 10<br/>0x02000000..0x0200ffff"]
   UART["UART SN-I<br/>NodeID 11<br/>0x10000000..0x10000007"]
 

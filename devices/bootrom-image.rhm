@@ -39,18 +39,32 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
 //
 //   csrr  a0, mhartid
 //   bnez  a0, park
-//   li    a1, 0
+//   auipc a1, device_tree_upper
+//   addi  a1, a1, device_tree_lower
 //   auipc t0, payload_upper
 //   jalr  zero, payload_lower(t0)
 // park:
 //   wfi
 //   j     park
 fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
-                        payload_address :: Nat = RiscvBootROMPayloadAddress):
+                        payload_address :: Nat = RiscvBootROMPayloadAddress,
+                        ~device_tree_address: device_tree_address :: Nat = 0):
   unless reset_address mod 4 == 0
   | error(~who: #'riscv_bootrom_image, "reset address must be four-byte aligned")
   unless payload_address mod 4 == 0
   | error(~who: #'riscv_bootrom_image, "payload address must be four-byte aligned")
+  unless device_tree_address mod 8 == 0
+  | error(~who: #'riscv_bootrom_image, "device-tree address must be eight-byte aligned")
+
+  fun pc_relative_immediates(instruction_address :: Nat,
+                             target_address :: Nat,
+                             target_name :: String):
+    def delta = target_address - instruction_address
+    def upper = (delta + 0x800) >> 12
+    unless upper >= -(1 << 19) && upper < (1 << 19)
+    | error(~who: #'riscv_bootrom_image,
+            target_name ++ " is outside the AUIPC PC-relative range")
+    [upper << 12, delta - (upper << 12)]
 
   // a0 receives mhartid. Nonzero harts branch over the primary-hart
   // trampoline and remain in the WFI loop at the end of the image.
@@ -63,25 +77,30 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
     BNE.encode([
       rs1.constrain(10),
       rs2.constrain(0)
-    ], ~immediate: 16),
-    ADDI.encode([
-      rd.constrain(11),
-      rs1.constrain(0)
-    ], ~immediate: 0)
+    ], ~immediate: 20)
   ]
 
-  def auipc_address = reset_address + (words.length() * 4)
-  def delta = payload_address - auipc_address
-  def upper = (delta + 0x800) >> 12
-  unless upper >= -(1 << 19) && upper < (1 << 19)
-  | error(~who: #'riscv_bootrom_image,
-          "payload is outside the AUIPC/JALR PC-relative range")
-  def lower = delta - (upper << 12)
-  words := words ++ [AUIPC.encode([rd.constrain(5)], ~immediate: upper << 12),
+  def device_tree_immediates = pc_relative_immediates(
+    reset_address + 8,
+    device_tree_address,
+    "device tree"
+  )
+  words := words ++ [AUIPC.encode([rd.constrain(11)], ~immediate: device_tree_immediates[0]),
+                     ADDI.encode([
+                       rd.constrain(11),
+                       rs1.constrain(11)
+                     ], ~immediate: device_tree_immediates[1])]
+
+  def payload_immediates = pc_relative_immediates(
+    reset_address + (words.length() * 4),
+    payload_address,
+    "payload"
+  )
+  words := words ++ [AUIPC.encode([rd.constrain(5)], ~immediate: payload_immediates[0]),
                      JALR.encode([
                        rd.constrain(0),
                        rs1.constrain(5)
-                     ], ~immediate: lower)]
+                     ], ~immediate: payload_immediates[1])]
 
   words := words ++ [WFI.encode([]), JAL.encode([rd.constrain(0)], ~immediate: -4)]
   BootROMImage(instruction_words_to_bytes(words))

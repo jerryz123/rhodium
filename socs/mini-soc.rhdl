@@ -59,8 +59,7 @@ sync_circuit MiniSoC(params :: MiniSoCParams = mini_soc_params):
   interface uart(SoCUartInterface(), ~role: soc)
 
   inst fabric(simple.SimpleSoCFabric(fabric_params,
-                                     params.core_profile,
-                                     params.clocks))
+                                     params.description))
   inst ram(CHIRam(fabric_params.ram_config))
 
   host <=> fabric.host

@@ -8,12 +8,11 @@ import:
   lib("chi/main.rhdl") open
   "bootrom-image.rhm" open
 
-def CHIBootROMDefaultWindowBytes = 0x1000
+def CHIBootROMDefaultWindowBytes = 0x2000
 def CHIBootROMMaximumTransferBytes = 64
 
-class CHIBootROMConfig(flit :: CHIFlitParams,
-                       window_bytes :: Pow2Int,
-                       image :: BootROMImage):
+class CHIBootROMLayout(flit :: CHIFlitParams,
+                       window_bytes :: Pow2Int):
   implements StableCircuitParam
 
   property transfers: TransferSizes(1, CHIBootROMMaximumTransferBytes)
@@ -21,18 +20,28 @@ class CHIBootROMConfig(flit :: CHIFlitParams,
     [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers)]
 
   constructor (flit :: CHIFlitParams,
-               ~window_bytes: window_bytes :: Pow2Int = CHIBootROMDefaultWindowBytes,
-               ~image: image :: BootROMImage = DefaultRiscvBootROMImage):
+               ~window_bytes: window_bytes :: Pow2Int = CHIBootROMDefaultWindowBytes):
     unless window_bytes >= CHIBootROMMaximumTransferBytes
-    | error(~who: #'CHIBootROMConfig,
+    | error(~who: #'CHIBootROMLayout,
             "window must contain at least one maximum-size transfer")
-    unless image.size_bytes <= window_bytes
+    super(flit, window_bytes)
+
+class CHIBootROMConfig(layout :: CHIBootROMLayout,
+                       image :: BootROMImage):
+  implements StableCircuitParam
+
+  property flit: layout.flit
+  property window_bytes: layout.window_bytes
+
+  constructor (layout :: CHIBootROMLayout,
+               ~image: image :: BootROMImage = DefaultRiscvBootROMImage):
+    unless image.size_bytes <= layout.window_bytes
     | error(~who: #'CHIBootROMConfig, "image must fit in the BootROM window")
-    super(flit, window_bytes, image)
+    super(layout, image)
 
 class CHIBootROMParams(name :: NonemptyString,
                        node_id :: Nat,
-                       config :: CHIBootROMConfig,
+                       layout :: CHIBootROMLayout,
                        base_address :: Nat):
 
   property node:
@@ -56,24 +65,24 @@ class CHIBootROMParams(name :: NonemptyString,
   property service:
     CHISubordinateServiceParams(
       icn_port,
-      [AddressSet(base_address, config.window_bytes - 1)],
-      config.requests
+      [AddressSet(base_address, layout.window_bytes - 1)],
+      layout.requests
     )
 
   constructor (name :: NonemptyString,
                node_id :: Nat,
-               config :: CHIBootROMConfig,
+               layout :: CHIBootROMLayout,
                ~base_address: base_address :: Nat = RiscvBootROMResetAddress):
-    unless base_address mod config.window_bytes == 0
+    unless base_address mod layout.window_bytes == 0
     | error(~who: #'CHIBootROMParams,
             "base address must be aligned to the BootROM window")
-    unless bits.length((base_address + config.window_bytes) - 1) <= config.flit.request_address_width
+    unless bits.length((base_address + layout.window_bytes) - 1) <= layout.flit.request_address_width
     | error(~who: #'CHIBootROMParams,
             "BootROM window must fit in the CHI request address width")
-    unless bits.length(node_id) <= config.flit.node_id_width
+    unless bits.length(node_id) <= layout.flit.node_id_width
     | error(~who: #'CHIBootROMParams,
             "NodeID must fit in the physical NodeID width")
-    super(name, node_id, config, base_address)
+    super(name, node_id, layout, base_address)
 
 bundle CHIBootROMIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
@@ -163,6 +172,7 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
 export:
   CHIBootROMDefaultWindowBytes
   CHIBootROMMaximumTransferBytes
+  CHIBootROMLayout
   CHIBootROMConfig
   CHIBootROMParams
   CHIBootROMIdentity

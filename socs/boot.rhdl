@@ -11,32 +11,70 @@ import:
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/bootrom-image.rhm") open
   lib("devices/bootrom.rhdl") open
+  "description.rhm".RiscvSoCDescription
+
+def SoCBootROMWindowBytes = CHIBootROMDefaultWindowBytes
+def SoCBootROMDeviceTreeOffset = 0x100
 
 class SoCBootConfig(reset_address :: Nat,
                     payload_address :: Nat,
                     window_bytes :: Pow2Int,
-                    image :: BootROMImage):
+                    device_tree_offset :: Nat,
+                    program :: BootROMImage):
   implements StableCircuitParam
+
+  property device_tree_address :: Nat:
+    reset_address + device_tree_offset
+
+  method image_for(description :: RiscvSoCDescription):
+    unless description.boot.reset_address == reset_address && (
+      description.boot.payload_address == payload_address
+    ) && description.boot.rom.base == reset_address && (
+      description.boot.rom.size_bytes == window_bytes
+    )
+    | error(~who: #'image_for,
+            "SoC description boot layout must match the BootROM configuration")
+    def device_tree_bytes = description.to_device_tree().to_dtb().to_list()
+    def image = BootROMImage(
+      program.bytes ++ (
+        for List (_index in program.size_bytes..device_tree_offset): 0
+      ) ++ device_tree_bytes
+    )
+    unless image.size_bytes <= window_bytes
+    | error(~who: #'image_for, "generated device tree must fit in the BootROM window")
+    image
 
   constructor (~reset_address: reset_address :: Nat,
                ~payload_address: payload_address :: Nat,
                ~window_bytes: window_bytes :: Pow2Int,
-               ~image: image :: BootROMImage):
+               ~device_tree_offset: device_tree_offset :: Nat,
+               ~program: program :: BootROMImage):
     unless reset_address mod window_bytes == 0
     | error(~who: #'SoCBootConfig,
             "reset address must be aligned to the BootROM window")
-    unless image.size_bytes <= window_bytes
-    | error(~who: #'SoCBootConfig, "image must fit in the BootROM window")
-    super(reset_address, payload_address, window_bytes, image)
+    unless device_tree_offset mod 8 == 0
+    | error(~who: #'SoCBootConfig, "device-tree offset must be eight-byte aligned")
+    unless program.size_bytes <= device_tree_offset
+    | error(~who: #'SoCBootConfig,
+            "reset program must fit before the embedded device tree")
+    unless device_tree_offset < window_bytes
+    | error(~who: #'SoCBootConfig, "device-tree offset must lie in the BootROM window")
+    super(reset_address, payload_address, window_bytes, device_tree_offset, program)
 
 fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMResetAddress,
                           ~payload_address: payload_address :: Nat = RiscvBootROMPayloadAddress,
-                          ~window_bytes: window_bytes :: Pow2Int = CHIBootROMDefaultWindowBytes):
+                          ~window_bytes: window_bytes :: Pow2Int = SoCBootROMWindowBytes,
+                          ~device_tree_offset: device_tree_offset :: Nat = SoCBootROMDeviceTreeOffset):
   SoCBootConfig(
     ~reset_address: reset_address,
     ~payload_address: payload_address,
     ~window_bytes: window_bytes,
-    ~image: riscv_bootrom_image(reset_address, payload_address)
+    ~device_tree_offset: device_tree_offset,
+    ~program: riscv_bootrom_image(
+      reset_address,
+      payload_address,
+      ~device_tree_address: reset_address + device_tree_offset
+    )
   )
 
 def DefaultSoCBootConfig = riscv_soc_boot_config()
@@ -48,14 +86,14 @@ class SoCBootROMParams(flit :: CHIFlitParams,
                        boot :: SoCBootConfig):
   implements StableCircuitParam
 
-  property rom_config:
-    CHIBootROMConfig(flit,
-                     ~window_bytes: boot.window_bytes,
-                     ~image: boot.image)
+  property rom_layout:
+    CHIBootROMLayout(flit, ~window_bytes: boot.window_bytes)
+  method rom_config(description :: RiscvSoCDescription):
+    CHIBootROMConfig(rom_layout, ~image: boot.image_for(description))
   property rom_params:
     CHIBootROMParams("soc-bootrom",
                      node_id,
-                     rom_config,
+                     rom_layout,
                      ~base_address: boot.reset_address)
   property region:
     RV5StageCHIRegion(
@@ -90,6 +128,8 @@ sync_circuit SoCBootDistributor(width :: PosInt,
     assert(!released, "soc_boot_release_once")
 
 export:
+  SoCBootROMWindowBytes
+  SoCBootROMDeviceTreeOffset
   SoCBootConfig
   riscv_soc_boot_config
   DefaultSoCBootConfig

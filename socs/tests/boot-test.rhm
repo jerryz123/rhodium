@@ -3,8 +3,10 @@
 
 import:
   "../../rhodium/core/main.rhm" open
+  "../../rhodium/std/interconnect.rhdl".AddressSet
   "../../devices/bootrom-image.rhm" open
   "../boot.rhdl" as boot
+  "../description.rhm" open
   "boot-fixture.rhdl" as fixture
 
 def top = fixture.design.modules.find(
@@ -14,11 +16,44 @@ def module_names = fixture.design.modules.map(fun (module_def): module_def.name)
 def assertion_labels = top.operations.filter(
   ~keep: fun (operation): operation.opcode == "verif.assert"
 ).map(fun (operation): operation.attribute("label"))
+def tiny_boot = boot.SoCBootConfig(
+  ~reset_address: 0x10000,
+  ~payload_address: 0x80000000,
+  ~window_bytes: 64,
+  ~device_tree_offset: 32,
+  ~program: BootROMImage(for List (_index in 0..32): 0)
+)
+def tiny_description = RiscvSoCDescription(
+  ~model: "Rhodium tiny-ROM fixture",
+  ~compatible: ["rhodium,tiny-rom-fixture"],
+  ~harts: fixture.description.harts,
+  ~core_profile: fixture.description.core_profile,
+  ~clocks: fixture.description.clocks,
+  ~memory_regions: fixture.description.memory_regions,
+  ~boot: RiscvBootLayout(
+    ~rom: SoCAddressRegion(AddressSet(0x10000, 63)),
+    ~reset_address: 0x10000,
+    ~payload_address: 0x80000000
+  ),
+  ~aclint: fixture.description.aclint
+)
 
 check:
   fixture.boot.reset_address ~is RiscvBootROMResetAddress
   fixture.boot.payload_address ~is RiscvBootROMPayloadAddress
-  fixture.boot.window_bytes ~is 0x1000
+  fixture.boot.window_bytes ~is boot.SoCBootROMWindowBytes
+  fixture.boot.window_bytes ~is 0x2000
+  fixture.boot.device_tree_offset ~is boot.SoCBootROMDeviceTreeOffset
+  fixture.boot.device_tree_address ~is 0x10100
+  fixture.image.bytes[fixture.boot.device_tree_offset] ~is 0xd0
+  fixture.image.bytes[fixture.boot.device_tree_offset + 1] ~is 0x0d
+  fixture.image.bytes[fixture.boot.device_tree_offset + 2] ~is 0xfe
+  fixture.image.bytes[fixture.boot.device_tree_offset + 3] ~is 0xed
+  fixture.image.bytes.drop(fixture.boot.device_tree_offset) ~is (
+    fixture.description.to_device_tree().to_dtb().to_list()
+  )
+  fixture.image.size_bytes <= fixture.boot.window_bytes ~is #true
+  fixture.params.rom_config(fixture.description).image.bytes ~is fixture.image.bytes
   fixture.params.rom_params.base_address ~is RiscvBootROMResetAddress
   fixture.params.rom_params.node.node_id ~is 12
   fixture.params.region.home === fixture.home ~is #true
@@ -41,9 +76,12 @@ check:
   verify_design(fixture.design) ~is #void
 
   boot.riscv_soc_boot_config(~reset_address: 0x10004) ~throws "aligned"
+  boot.riscv_soc_boot_config(~device_tree_offset: 0x104) ~throws "eight-byte aligned"
+  tiny_boot.image_for(tiny_description) ~throws "device tree must fit"
   boot.SoCBootConfig(
     ~reset_address: 0x10000,
     ~payload_address: 0x80000000,
     ~window_bytes: 64,
-    ~image: BootROMImage(for List (_index in 0..65): 0)
-  ) ~throws "image must fit"
+    ~device_tree_offset: 32,
+    ~program: BootROMImage(for List (_index in 0..33): 0)
+  ) ~throws "reset program must fit"

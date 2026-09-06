@@ -79,7 +79,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
     inst transit(TransitTile(entry.tile_params))
   inst host_tile(HostTile(implementation.host.tile_params))
   inst device_home(DeviceHomeTile(implementation.device_home.tile_params))
-  inst bootrom(CHIBootROM(implementation.platform.bootrom.rom_config))
+  inst bootrom(CHIBootROM(implementation.platform.bootrom.rom_config(config.description)))
   inst boot(SoCBootDistributor(64, implementation.rv5stages.length(), config.boot.reset_address))
   inst aclint(AclintTile(implementation.aclint.tile_params))
   inst uart_device(UartTile(implementation.uart.tile_params))

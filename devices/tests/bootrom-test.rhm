@@ -21,48 +21,58 @@ fun sign_extend(value :: Nat, width :: PosInt):
   def sign = 1 << (width - 1)
   if value >= sign | value - (1 << width) | value
 
-fun trampoline_target(image :: BootROMImage,
-                      reset_address :: Nat,
-                      auipc_index :: Nat):
+fun pc_relative_target(image :: BootROMImage,
+                       reset_address :: Nat,
+                       auipc_index :: Nat):
   def auipc_word = image_word(image, auipc_index)
-  def jalr_word = image_word(image, auipc_index + 1)
+  def immediate_word = image_word(image, auipc_index + 1)
   reset_address + (auipc_index * 4) + sign_extend(UImmediate.decode(auipc_word), 32) + (
-    sign_extend(IImmediate.decode(jalr_word), 12)
+    sign_extend(IImmediate.decode(immediate_word), 12)
   )
 
 def default_image = DefaultRiscvBootROMImage
-def relocated_image = riscv_bootrom_image(0x20000, 0x7f000000)
+def relocated_image = riscv_bootrom_image(
+  0x20000,
+  0x7f000000,
+  ~device_tree_address: 0x20800
+)
 def default_words = for List (index in 0..(default_image.size_bytes / 4)):
   image_word(default_image, index)
 def flit = chi.CHIFlitParams()
-def config = bootrom.CHIBootROMConfig(flit, ~window_bytes: 64)
-def params = bootrom.CHIBootROMParams("test-bootrom", 12, config)
+def layout = bootrom.CHIBootROMLayout(flit, ~window_bytes: 64)
+def config = bootrom.CHIBootROMConfig(layout)
+def params = bootrom.CHIBootROMParams("test-bootrom", 12, layout)
 
 check:
-  default_image.size_bytes ~is 28
+  default_image.size_bytes ~is 32
   default_words ~is [
     0xf1402573,
-    0x00051863,
-    0x00000593,
+    0x00051a63,
+    0xffff0597,
+    0xff858593,
     0x7fff0297,
-    0xff428067,
+    0xff028067,
     0x10500073,
     0xffdff06f
   ]
   CSRRS.matches(default_words[0]) ~is #true
   BNE.matches(default_words[1]) ~is #true
-  ADDI.matches(default_words[2]) ~is #true
-  AUIPC.matches(default_words[3]) ~is #true
-  JALR.matches(default_words[4]) ~is #true
-  WFI.matches(default_words[5]) ~is #true
-  JAL.matches(default_words[6]) ~is #true
-  BImmediate.decode(default_words[1]) ~is 16
-  JImmediate.decode(default_words[6]) ~is 0x1ffffc
-  trampoline_target(default_image, RiscvBootROMResetAddress, 3) ~is RiscvBootROMPayloadAddress
+  AUIPC.matches(default_words[2]) ~is #true
+  ADDI.matches(default_words[3]) ~is #true
+  AUIPC.matches(default_words[4]) ~is #true
+  JALR.matches(default_words[5]) ~is #true
+  WFI.matches(default_words[6]) ~is #true
+  JAL.matches(default_words[7]) ~is #true
+  BImmediate.decode(default_words[1]) ~is 20
+  JImmediate.decode(default_words[7]) ~is 0x1ffffc
+  pc_relative_target(default_image, RiscvBootROMResetAddress, 2) ~is 0
+  pc_relative_target(default_image, RiscvBootROMResetAddress, 4) ~is RiscvBootROMPayloadAddress
 
-  trampoline_target(relocated_image, 0x20000, 3) ~is 0x7f000000
+  pc_relative_target(relocated_image, 0x20000, 2) ~is 0x20800
+  pc_relative_target(relocated_image, 0x20000, 4) ~is 0x7f000000
   BootROMImage([0xaa, 0x55]).padded_bytes(4) ~is [0xaa, 0x55, 0, 0]
 
+  bootrom.CHIBootROMLayout(flit).window_bytes ~is 0x2000
   config.image === DefaultRiscvBootROMImage ~is #true
   params.node.kind ~is chi.CHINodeKind.SNI
   params.node.max_outstanding ~is 1
@@ -73,14 +83,18 @@ check:
   params.service.supports(chi.CHIReqOpcode.WriteNoSnpFull, 4) ~is #false
 
   BootROMImage([0x100]) ~throws "image elements must be bytes"
-  bootrom.CHIBootROMConfig(flit, ~window_bytes: 32) ~throws "maximum-size transfer"
+  bootrom.CHIBootROMLayout(flit, ~window_bytes: 32) ~throws "maximum-size transfer"
   bootrom.CHIBootROMConfig(
-    flit,
-    ~window_bytes: 64,
+    layout,
     ~image: BootROMImage(for List (_index in 0..65): 0)
   ) ~throws "image must fit"
-  bootrom.CHIBootROMParams("misaligned", 12, config, ~base_address: 0x10020) ~throws "aligned"
-  bootrom.CHIBootROMParams("wide-node", 128, config) ~throws "NodeID"
+  bootrom.CHIBootROMParams("misaligned", 12, layout, ~base_address: 0x10020) ~throws "aligned"
+  bootrom.CHIBootROMParams("wide-node", 128, layout) ~throws "NodeID"
   riscv_bootrom_image(0x10002, 0x80000000) ~throws "reset address"
   riscv_bootrom_image(0x10000, 0x80000002) ~throws "payload address"
+  riscv_bootrom_image(
+    0x10000,
+    0x80000000,
+    ~device_tree_address: 0x10104
+  ) ~throws "device-tree address"
   riscv_bootrom_image(0, 0x80000000) ~throws "PC-relative range"

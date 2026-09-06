@@ -23,6 +23,12 @@ check:
   description.memory_regions[0].base ~is 0x80000000
   description.memory_regions[0].size_bytes ~is 0x8000
   description.boot.rom.address_set ~is compiled.platform.bootrom.rom_params.service.address_sets[0]
+  description.boot.rom.size_bytes ~is 0x2000
+  compiled.platform.bootrom.rom_config(description).image.bytes.drop(
+    tiled.default_tiled_soc_config.boot.device_tree_offset
+  ) ~is (
+    description.to_device_tree().to_dtb().to_list()
+  )
   description.aclint.region.address_set ~is compiled.platform.aclint.service.address_sets[0]
   description.uart.region.address_set ~is compiled.platform.uart.service.address_sets[0]
   compiled.host.node.node_id ~is 24
@@ -65,15 +71,15 @@ check:
   compiled.home_map.entry(0x80007fff).target_node_id ~is 35
   compiled.home_map.entry(0x80008000) ~is #false
   compiled.home_map.entry(0x00010000).target_node_id ~is 36
-  compiled.home_map.entry(0x00010fff).target_node_id ~is 36
-  compiled.home_map.entry(0x00011000) ~is #false
+  compiled.home_map.entry(0x00011fff).target_node_id ~is 36
+  compiled.home_map.entry(0x00012000) ~is #false
   compiled.home_map.entry(0x02000000).target_node_id ~is 36
   compiled.home_map.entry(0x0200ffff).target_node_id ~is 36
   compiled.home_map.entry(0x10000000).target_node_id ~is 36
   compiled.home_map.entry(0x10000007).target_node_id ~is 36
   compiled.home_map.entry(0x10000008) ~is #false
   compiled.home_map.entries.map(fun (entry): entry.address_set.mask) ~is (
-    [0x7f3f, 0x7f3f, 0x7f3f, 0x7f3f, 0xfff, 0xffff, 0x7]
+    [0x7f3f, 0x7f3f, 0x7f3f, 0x7f3f, 0x1fff, 0xffff, 0x7]
   )
   compiled.llcs.map(fun (llc): llc.ram_params.base_address) ~is [0, 0, 0, 0]
   compiled.llcs.map(fun (llc): llc.projector_params.project(0x80000100 + (llc.projector_params.bank_index * 64))) ~is (

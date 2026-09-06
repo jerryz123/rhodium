@@ -74,7 +74,9 @@ make soc-test
 
 This target also generates native DTBs for SimpleSoC, MiniSoC, and TiledSoC,
 round-trips their inspection DTS through `dtc`, and checks architectural
-properties with `fdtdump` and `fdtget`. Generated artifacts remain temporary.
+properties with `fdtdump` and `fdtget`. It also checks that the same native DTB
+bytes are finalized into each SoC's BootROM image. Generated artifacts remain
+temporary.
 
 Use the package-local target while iterating:
 

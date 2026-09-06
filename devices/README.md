@@ -91,25 +91,27 @@ the synthesizable UART pins through and do not instantiate `UartDPI`; the
 
 [`bootrom-image.rhm`](bootrom-image.rhm) owns `BootROMImage` validation,
 zero-padding, and the XLEN-independent RISC-V reset-program generator. The
-default 28-byte program:
+default 32-byte program:
 
 1. reads the Zicsr `mhartid` CSR into `a0`;
-2. leaves hart zero with `a1 = 0` and jumps to the configured payload through
-   an `AUIPC`/`JALR` trampoline; and
-3. parks every nonzero hart in a `WFI` loop.
+2. loads a configurable, eight-byte-aligned device-tree address into hart zero's
+   `a1` through an `AUIPC`/`ADDI` pair;
+3. jumps to the configured payload through an `AUIPC`/`JALR` trampoline; and
+4. parks every nonzero hart in a `WFI` loop.
 
-`riscv_bootrom_image` requires four-byte-aligned reset and payload addresses
-within the trampoline's PC-relative range. `BootROMImage` requires a nonempty
-list of bytes, and `CHIBootROMConfig` requires that the image fit its
-power-of-two window. Platforms that need a device-tree pointer, secondary-hart
-release protocol, or different reset policy must provide another image and
-own that policy themselves.
+`riscv_bootrom_image` requires four-byte-aligned reset and payload addresses,
+an eight-byte-aligned device-tree address, and PC-relative targets within the
+trampolines' range. `BootROMImage` requires a nonempty
+list of bytes. `CHIBootROMLayout` owns the stable CHI transfer and window
+contract used by address maps, while `CHIBootROMConfig` combines that layout
+with an image that fits the window. Platforms own the pointed-to device-tree
+bytes, secondary-hart release protocol, and any different reset policy.
 
 [`bootrom.rhdl`](bootrom.rhdl) pads the unused portion of the configured window
 with zero and returns native multi-beat data for transfers through 64 bytes.
 It is immutable: writes and unsupported, misaligned, out-of-window, or
 wrong-target requests assert rather than changing storage. The default window
-is 4 KiB and the default parameter base is the reset address, but an integrating
+is 8 KiB and the default parameter base is the reset address, but an integrating
 platform still owns the actual reset vector and mapped occurrence.
 
 ## Integrate ACLINT

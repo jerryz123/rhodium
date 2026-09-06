@@ -3,12 +3,36 @@
 
 import:
   lib("chi/main.rhdl") open
+  lib("cores/rv5stage/profile.rhm").RVCoreProfile
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("riscv/isa/xlen.rhm").XLen
   lib("socs/boot.rhdl") open
+  lib("socs/description.rhm") open
 
 def boot = riscv_soc_boot_config()
 def flit = CHIFlitParams()
 def home = CHIHomeParams("boot-home", 6, CHINodeKind.HNI, ~max_outstanding: 1)
 def params = SoCBootROMParams(flit, home, 12, boot)
+def description = RiscvSoCDescription(
+  ~model: "Rhodium boot fixture",
+  ~compatible: ["rhodium,boot-fixture"],
+  ~harts: [0, 1, 2, 3],
+  ~core_profile: RVCoreProfile(~xlen: XLen.X64),
+  ~clocks: SoCClockConfig(
+    ~clock_frequency_hz: 100000000,
+    ~timebase_frequency_hz: 1000000
+  ),
+  ~memory_regions: [SoCAddressRegion(AddressSet(0x80000000, 0xffff))],
+  ~boot: RiscvBootLayout(
+    ~rom: SoCAddressRegion(params.rom_params.service.address_sets[0]),
+    ~reset_address: boot.reset_address,
+    ~payload_address: boot.payload_address
+  ),
+  ~aclint: RiscvAclintDescription(
+    SoCAddressRegion(AddressSet(0x02000000, 0xffff))
+  )
+)
+def image = boot.image_for(description)
 def design = elaborate(SoCBootDistributor(64, 4, boot.reset_address))
 
 export:
@@ -16,4 +40,6 @@ export:
   flit
   home
   params
+  description
+  image
   design

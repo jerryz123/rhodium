@@ -9,7 +9,9 @@ import:
 
 def design = embedded.run_elaboration(
   fun (): bootrom.CHIBootROM(
-    bootrom.CHIBootROMConfig(chi.CHIFlitParams(), ~window_bytes: 64)
+    bootrom.CHIBootROMConfig(
+      bootrom.CHIBootROMLayout(chi.CHIFlitParams(), ~window_bytes: 64)
+    )
   )
 )
 print(emit_circt(design))

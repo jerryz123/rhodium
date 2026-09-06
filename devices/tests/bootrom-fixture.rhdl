@@ -6,12 +6,14 @@ import:
   lib("chi/main.rhdl").CHIFlitParams
 
 def flit = CHIFlitParams()
-def config = CHIBootROMConfig(flit, ~window_bytes: 64)
-def params = CHIBootROMParams("test-bootrom", 12, config)
+def layout = CHIBootROMLayout(flit, ~window_bytes: 64)
+def config = CHIBootROMConfig(layout)
+def params = CHIBootROMParams("test-bootrom", 12, layout)
 def design = elaborate(CHIBootROM(config))
 
 export:
   flit
+  layout
   config
   params
   design
