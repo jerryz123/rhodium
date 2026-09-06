@@ -14,6 +14,8 @@ import:
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
   "../../../riscv/isa/privileged.rhm" open
+  "../../../riscv/model/formats.rhm" as riscv_fields
+  "../../../riscv/rtl/instruction-fields.rhdl".instruction_immediate
   lib("rhodium/std/decode.rhdl") open
 
 hardware_enum OperandASelect:
@@ -32,6 +34,13 @@ hardware_enum ImmediateSelect:
   B
   U
   J
+  method decode(select, instruction :: Bits(32), width :: PosInt) :: Bits(width):
+    mux_lookup(select, ~default: bits(0, width)):
+      ImmediateSelect.I: instruction_immediate(riscv_fields.IImmediate, instruction, width)
+      ImmediateSelect.S: instruction_immediate(riscv_fields.SImmediate, instruction, width)
+      ImmediateSelect.B: instruction_immediate(riscv_fields.BImmediate, instruction, width)
+      ImmediateSelect.U: instruction_immediate(riscv_fields.UImmediate, instruction, width)
+      ImmediateSelect.J: instruction_immediate(riscv_fields.JImmediate, instruction, width)
 
 bundle OperandControl():
   uses_rs1: Bool

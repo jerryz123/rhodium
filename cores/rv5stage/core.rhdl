@@ -223,22 +223,7 @@ sync_circuit RV5StageCore(xlen :: XLen,
   def rd = instruction_field(riscv_fields.rd, instruction)
   def frs3 = instruction_field(riscv_fields.rs3, instruction)
   def fp_rounding = riscv_rounding_mode(instruction_field(riscv_fields.rm, instruction), csrs.frm)
-  def decoded_immediate = mux_lookup(
-    control.operand.immediate,
-    ~default: bits(0, width),
-    [
-      [ImmediateSelect.I,
-       instruction_immediate(riscv_fields.IImmediate, instruction, width)],
-      [ImmediateSelect.S,
-       instruction_immediate(riscv_fields.SImmediate, instruction, width)],
-      [ImmediateSelect.B,
-       instruction_immediate(riscv_fields.BImmediate, instruction, width)],
-      [ImmediateSelect.U,
-       instruction_immediate(riscv_fields.UImmediate, instruction, width)],
-      [ImmediateSelect.J,
-       instruction_immediate(riscv_fields.JImmediate, instruction, width)]
-    ]
-  )
+  def decoded_immediate = control.operand.immediate.decode(instruction, width)
 
   registers.read_address_1 <== id_ex.bits.rs1
   registers.read_address_2 <== id_ex.bits.rs2
