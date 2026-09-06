@@ -1,0 +1,57 @@
+#lang rhombus
+// Defines the ratified Zimop may-be-operation instruction catalog.
+
+import:
+  "../../support/annotations.rhm" open
+  "../model/main.rhm" open
+  "integer-common.rhm" open
+
+def mop_bit31 = BitField("MOP bit 31", 31, 31)
+def mop_bit30 = BitField("MOP index bit 4", 30, 30)
+def mop_bits29_28 = BitField("MOP bits 29:28", 29, 28)
+def mop_bit27 = BitField("MOP index bit 3", 27, 27)
+def mop_bit26 = BitField("MOP index bit 2", 26, 26)
+def mop_bits25_22 = BitField("MOP.R bits 25:22", 25, 22)
+def mop_bit25 = BitField("MOP.RR bit 25", 25, 25)
+def mop_bit21 = BitField("MOP.R index bit 1", 21, 21)
+def mop_bit20 = BitField("MOP.R index bit 0", 20, 20)
+def mop_destination = RegisterOperand("rd", rd, "destination")
+def MopRFormat = InstructionFormat("MOP.R", [mop_destination], #false, [rs1])
+def MopRRFormat = InstructionFormat("MOP.RR", [mop_destination], #false, [rs1, rs2])
+
+fun mop_index_bit(index :: Nat, bit :: Nat):
+  (index bits.(>>) bit) bits.and 1
+
+fun mop_r(index :: Nat):
+  instruction(
+    "MOP.R." ++ to_string(index),
+    MopRFormat,
+    [opcode.constrain(SYSTEM), funct3.constrain(4), mop_bit31.constrain(1),
+     mop_bit30.constrain(mop_index_bit(index, 4)), mop_bits29_28.constrain(0),
+     mop_bit27.constrain(mop_index_bit(index, 3)), mop_bit26.constrain(mop_index_bit(index, 2)),
+     mop_bits25_22.constrain(7), mop_bit21.constrain(mop_index_bit(index, 1)),
+     mop_bit20.constrain(mop_index_bit(index, 0))]
+  )
+
+fun mop_rr(index :: Nat):
+  instruction(
+    "MOP.RR." ++ to_string(index),
+    MopRRFormat,
+    [opcode.constrain(SYSTEM), funct3.constrain(4), mop_bit31.constrain(1),
+     mop_bit30.constrain(mop_index_bit(index, 2)), mop_bits29_28.constrain(0),
+     mop_bit27.constrain(mop_index_bit(index, 1)), mop_bit26.constrain(mop_index_bit(index, 0)),
+     mop_bit25.constrain(1)]
+  )
+
+def MopRInstructions = for List (index in 0..32): mop_r(index)
+def MopRRInstructions = for List (index in 0..8): mop_rr(index)
+def ZimopInstructions = MopRInstructions ++ MopRRInstructions
+def ZimopRevision = "Zimop 1.0"
+def Zimop = InstructionCatalog("Zimop", ZimopRevision, ZimopInstructions)
+
+export:
+  MopRInstructions
+  MopRRInstructions
+  ZimopInstructions
+  ZimopRevision
+  Zimop

@@ -12,6 +12,7 @@ import:
   "../../../riscv/isa/zicond.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
@@ -86,10 +87,10 @@ fun branch_cases(instructions :: List.of(InstructionSpec)):
 def RV32IBranchCases = branch_cases(rv32.RV32IInstructions)
 def RV64IBranchCases = branch_cases(RV64IInstructions)
 def RV32RV5StageBranchCases = branch_cases(
-  rv32.RV32IInstructions ++ RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions
+  rv32.RV32IInstructions ++ RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions
 )
 def RV64RV5StageBranchCases = branch_cases(
-  RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions
+  RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions
 )
 def RV32IBranchDecode = ValidDecodeGen(RV32IBranchCases)
 def RV64IBranchDecode = ValidDecodeGen(RV64IBranchCases)

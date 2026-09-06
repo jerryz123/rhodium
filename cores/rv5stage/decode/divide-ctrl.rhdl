@@ -13,6 +13,7 @@ import:
   "../../../riscv/isa/zmmul.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   lib("rhodium/std/decode.rhdl") open
@@ -72,11 +73,11 @@ def RV64MDivideControlCases = RV32MDivideControlCases ++ decode_groups(
 
 def unused_divide = pattern(RV5StageDivideControl(), _)
 def RV32RV5StageDivideCases = instruction_cases(
-  rv32.RV32IInstructions ++ RV32ZmmulInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions,
+  rv32.RV32IInstructions ++ RV32ZmmulInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   unused_divide
 ) ++ RV32MDivideControlCases
 def RV64RV5StageDivideCases = instruction_cases(
-  RV64IInstructions ++ RV64ZmmulInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions,
+  RV64IInstructions ++ RV64ZmmulInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   unused_divide
 ) ++ RV64MDivideControlCases
 

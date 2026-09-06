@@ -1,0 +1,28 @@
+#lang rhombus
+// Defines the ratified Zcmop compressed may-be-operation catalog.
+
+import:
+  "../../support/annotations.rhm" open
+  "../model/main.rhm" open
+  "compressed.rhm" open
+  "integer-common.rhm" open
+
+def zcmop_zero_immediate = BitField("C.MOP zero immediate", 6, 2)
+
+fun compressed_mop(index :: Nat):
+  compressed_instruction(
+    "C.MOP." ++ to_string(index),
+    quadrant_requirements(1, 3) ++ [compressed_bit12.constrain(0),
+                                    compressed_rd_rs1.constrain(index),
+                                    zcmop_zero_immediate.constrain(0)],
+    expansion(ADDI, [bind(rd, zero_register), bind(rs1, zero_register)], 0)
+  )
+
+def ZcmopInstructions = for List (index in [1, 3, 5, 7, 9, 11, 13, 15]): compressed_mop(index)
+def ZcmopRevision = "Zcmop 1.0"
+def Zcmop = CompressedInstructionCatalog("Zcmop", ZcmopRevision, ZcmopInstructions)
+
+export:
+  ZcmopInstructions
+  ZcmopRevision
+  Zcmop

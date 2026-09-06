@@ -6,6 +6,7 @@ import:
   "../isa/zca.rhm" open
   "../isa/zcf.rhm" open
   "../isa/zcd.rhm" open
+  "../isa/zcmop.rhm" open
   "../isa/fp-profile.rhm" open
   "../isa/xlen.rhm" open
 def addi = RV32Zca.matching(0x0085)
@@ -27,6 +28,7 @@ check:
   compressed_extensions_report_misa_c(XLen.X64, FloatingPointProfile.D, ZcaCompressedExtensions) ~is #false
   compressed_extensions_report_misa_c(XLen.X64, FloatingPointProfile.D, CCompressedExtensions) ~is #true
   compressed_extensions(CompressedExtension.Zcb) ~throws "Zcb requires Zca or C"
+  compressed_extensions(CompressedExtension.Zcmop) ~throws "Zcmop requires Zca or C"
   compressed_extensions(CompressedExtension.Zca, CompressedExtension.Zca) ~throws "duplicate compressed extension"
   compressed_extensions(CompressedExtension.C, CompressedExtension.Zca) ~throws "C already supplies"
   compressed_extensions_instructions(XLen.X64, FloatingPointProfile.None, ZcaCompressedExtensions, []) ~throws "downstream decoder"
@@ -42,6 +44,9 @@ check:
   lui_hint.expand(0x6005) ~is 0x00001037
   RV64Zca.matching(0x0000) ~is #false
   RV64Zca.matching(0x6081) ~is #false
+  Zcmop.matching(0x6081).name ~is "C.MOP.1"
+  Zcmop.matching(0x6781).name ~is "C.MOP.15"
+  Zcmop.matching(0x6101) ~is #false
   RV64Zca.matching(0x6101) ~is #false
   RV64Zca.matching(0x2005) ~is #false
   RV64Zca.matching(0x2085).name ~is "C.ADDIW"

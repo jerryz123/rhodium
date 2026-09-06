@@ -13,6 +13,7 @@ import:
   "../../../riscv/isa/zicond.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   "../../../riscv/model/formats.rhm" as riscv_fields
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_immediate
@@ -168,7 +169,7 @@ def no_operands = partial_pattern(OperandControl()):
 def RV5StageSystemOperandCases = combine_case_groups([
   instruction_cases([CSRRW, CSRRS, CSRRC], csr_register_operands),
   instruction_cases([CSRRWI, CSRRSI, CSRRCI], csr_immediate_operands),
-  instruction_cases(PrivilegedInstructions ++ ZifenceiInstructions, no_operands)
+  instruction_cases(PrivilegedInstructions ++ ZifenceiInstructions ++ ZimopInstructions, no_operands)
 ])
 def shared_bitmanip_register_instructions = [
   zba.SH1ADD, zba.SH2ADD, zba.SH3ADD,

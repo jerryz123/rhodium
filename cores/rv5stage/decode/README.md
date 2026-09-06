@@ -21,8 +21,8 @@ instruction catalogs before hardware is generated:
 
 | Specialization | Selected rows |
 |---|---|
-| RV32, FP disabled | RV32I plus the RV32 forms of M, A, and B, followed by Zicond, Zicsr, Zifencei, and the supported privileged instructions |
-| RV64, FP disabled | RV64I plus the RV64 forms of M, A, and B, followed by Zicond, Zicsr, Zifencei, and the supported privileged instructions |
+| RV32, FP disabled | RV32I plus the RV32 forms of M, A, and B, followed by Zicond, Zimop, Zicsr, Zifencei, and the supported privileged instructions |
+| RV64, FP disabled | RV64I plus the RV64 forms of M, A, and B, followed by Zicond, Zimop, Zicsr, Zifencei, and the supported privileged instructions |
 | RV32F | The RV32 core rows plus the RV32F catalog |
 | RV64D | The RV64 core rows plus the RV64F and RV64D catalogs |
 
@@ -46,7 +46,7 @@ With FP disabled, the prebuilt RV32 or RV64 core relation is selected instead.
 ```mermaid
 flowchart LR
     PARAMS["xlen + FP profile + half profile + Zfa"]
-    CORECAT["Selected core catalog<br/>I + M + A + B + Zicond + system"]
+    CORECAT["Selected core catalog<br/>I + M + A + B + Zicond + Zimop + system"]
     FPCAT["Selected FP catalog<br/>F / F+D / optional Zfhmin, Zfh, or Zfa"]
     COLUMNS["Component relations<br/>ALU, operands, branch, memory,<br/>multiply, divide, writeback, system, fence"]
     COREROWS["compose_control_cases<br/>core RV5StageControl rows"]

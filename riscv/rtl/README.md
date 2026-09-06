@@ -46,6 +46,7 @@ Dependency enforcement and extension workflow are documented in
 | [`instruction-pattern.rhdl`](instruction-pattern.rhdl) | `encoding_pattern`, `instruction_pattern` | Convert pure value/care images to typed Rhodium `Pattern`s |
 | [`instruction-fields.rhdl`](instruction-fields.rhdl) | `instruction_field`, `immediate_bits`, `instruction_immediate` | Materialize descriptor-owned slices and extended immediates |
 | [`compressed.rhdl`](compressed.rhdl) | `RiscvCompressedExpansion`, `RiscvCompressedExpander`, `compressed_selector_cases` | Recognize legal C encodings and emit canonical 32-bit instructions |
+| [`mop.rhdl`](mop.rhdl) | `resolve_mop_decode_cases` | Overlay extension meanings on fallback MOP decode space by explicit pattern subtraction |
 | [`csr.rhdl`](csr.rhdl) | `CsrBank`, `csr_bits`, `csr_bank` | Convert `CsrId` and define exact-key CSR recognition, reads, and writes |
 | [`counters.rhdl`](counters.rhdl) | `RiscvCounterWrite`, `RiscvBaseCounters` | Reusable 64-bit `mcycle` and `minstret` state for RV32/RV64 |
 | [`trap.rhdl`](trap.rhdl) | `exception_cause_bits` | Convert architectural synchronous causes to width-specialized hardware |
@@ -102,17 +103,25 @@ catalog. `CCompressedExtensions` selects this exact architectural composition:
 | `XLen.X64` | `None` or `F` | RV64Zca |
 | `XLen.X64` | `D` | RV64Zca + RV64Zcd |
 
-The circuit derives its selector relation from the pure descriptors, checks
-their nonzero-field and nonzero-immediate legality constraints in hardware,
+The circuit derives its selector relation from the pure descriptors and lowers
+their nonzero-field and nonzero-immediate legality constraints into disjoint
+accepted input patterns before hardware decode,
 validates their required targets against the supplied canonical 32-bit
 instruction names, and materializes their target operand and immediate
 bindings. Optional Zcb descriptors are selected from the same target catalog,
 implementing Zbb, Zba, and M/Zmmul prerequisites without duplicating feature
-flags. An unmatched,
+flags. Optional Zcmop descriptors then occupy the C.LUI zero-immediate holes
+without a priority decoder. An unmatched,
 reserved, or unsupported encoding deasserts `valid`; consumers must use
 `valid` to qualify the instruction bits. Architectural hints that the pure
 catalog accepts remain valid and expand to their canonical no-effect base
 instruction. There is no parallel operation enum or handwritten opcode table.
+
+[`mop.rhdl`](mop.rhdl) supports later extensions that redefine only part of a
+MOP encoding. `resolve_mop_decode_cases` puts explicit override rows first and
+subtracts their input sets from the fallback rows, returning one disjoint
+relation. Core decode therefore need not depend on row priority when a future
+extension assigns architectural behavior to selected MOP operands.
 
 The [pure-model guide](../README.md#compressed-instruction-expansion) explains
 the shared host and hardware expansion path.

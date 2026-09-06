@@ -12,6 +12,7 @@ import:
   "../../../riscv/isa/zmmul.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
@@ -22,6 +23,7 @@ hardware_enum WritebackSelect:
   Multiply
   Divide
   Csr
+  Zero
 
 bundle WritebackControl():
   enable: Bool
@@ -45,6 +47,9 @@ def divide_writeback = pattern(WritebackControl()):
 def csr_writeback = pattern(WritebackControl()):
   enable: Bool(#true)
   source: WritebackSelect.Csr
+def zero_writeback = pattern(WritebackControl()):
+  enable: Bool(#true)
+  source: WritebackSelect.Zero
 def no_writeback = partial_pattern(WritebackControl()):
   enable: Bool(#false)
 
@@ -86,7 +91,10 @@ def RV32RV5StageWritebackCases = RV32IWritebackCases ++ instruction_cases(
 ) ++ instruction_cases(
   RV32MDivideInstructions,
   divide_writeback
-) ++ instruction_cases(RV32BInstructions ++ ZicondInstructions, alu_writeback) ++ RV5StageSystemWritebackCases
+) ++ instruction_cases(RV32BInstructions ++ ZicondInstructions, alu_writeback) ++ instruction_cases(
+  ZimopInstructions,
+  zero_writeback
+) ++ RV5StageSystemWritebackCases
 def RV64RV5StageWritebackCases = RV64IWritebackCases ++ instruction_cases(
   RV64AInstructions,
   memory_writeback
@@ -96,7 +104,10 @@ def RV64RV5StageWritebackCases = RV64IWritebackCases ++ instruction_cases(
 ) ++ instruction_cases(
   RV64MDivideInstructions,
   divide_writeback
-) ++ instruction_cases(RV64BInstructions ++ ZicondInstructions, alu_writeback) ++ RV5StageSystemWritebackCases
+) ++ instruction_cases(RV64BInstructions ++ ZicondInstructions, alu_writeback) ++ instruction_cases(
+  ZimopInstructions,
+  zero_writeback
+) ++ RV5StageSystemWritebackCases
 def RV32IWritebackDecode = ValidDecodeGen(RV32IWritebackCases)
 def RV64IWritebackDecode = ValidDecodeGen(RV64IWritebackCases)
 

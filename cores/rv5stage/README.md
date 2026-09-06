@@ -30,7 +30,7 @@ Contributors changing the core should read
 | Private caches | Separate configurable L1I and blocking write-back L1D; fixed 64-byte lines |
 | External memory | Separate instruction and data CHI RN-F channels plus a shared uncached RN-I channel |
 
-The integer decode includes RV32I/RV64I, A, B, M, Zicond, Zicsr, Zifencei, and
+The integer decode includes RV32I/RV64I, A, B, M, Zicond, Zimop, Zicsr, Zifencei, and
 the supported privileged instructions. Optional C expansion follows the
 selected XLEN and FP profile; RV32F or RV64F and RV64D rows, plus optional
 Zfhmin, Zfh, and Zfa rows, are added only by their matching FP specialization. Zicntr
@@ -287,7 +287,7 @@ specialized core definition to be stamped at multiple placements.
 | `~floating_point` | `None`, RV32F, or RV64D-compatible FP profile |
 | `~half_precision` | `None`, `Zfhmin`, or `Zfh`; requires an enabled F/D profile |
 | `~zfa` | Enables Zfa for the selected F/D formats and full-Zfh half precision; defaults to false |
-| `~compressed` | A validated list of `CompressedExtension` values; defaults to none, with `ZcaCompressedExtensions` and `CCompressedExtensions` as presets and Zcb independently composable |
+| `~compressed` | A validated list of `CompressedExtension` values; defaults to none, with `ZcaCompressedExtensions` and `CCompressedExtensions` as presets and Zcb or Zcmop independently composable over Zca/C |
 | `~icache` | L1I set and way geometry; defaults to `RV5StageCacheConfig(64, 1)` |
 | `~dcache` | L1D set and way geometry; defaults independently to `RV5StageCacheConfig(64, 1)` |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |
@@ -295,9 +295,10 @@ specialized core definition to be stamped at multiple placements.
 All supported compressed-extension selections include Zca and permit two-byte
 instruction alignment. A Zca-only integer core may advertise `misa.C`; once F
 or D is present, `misa.C` is advertised only by the complete C composition
-containing the corresponding Zcf or Zcd subset. Zcb is independently selected,
-uses the same canonical 32-bit decode and execution paths, and does not affect
-`misa.C`.
+containing the corresponding Zcf or Zcd subset. Zcb is independently selected
+and uses the same canonical 32-bit decode and execution paths. Zcmop is also
+independently selected, expands its eight encodings to a canonical no-effect
+instruction, and does not depend on Zimop. Neither extension affects `misa.C`.
 
 Cache line size is fixed at 64 bytes and is not a generator parameter. Each way
 contributes one XLEN-wide word to a data-array row, and a core lookup selects one

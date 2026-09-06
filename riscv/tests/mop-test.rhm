@@ -1,0 +1,46 @@
+#lang rhodium
+// Checks Zimop and Zcmop encodings, semantics, and explicit fallback overrides.
+
+import:
+  "../isa/zimop.rhm" open
+  "../isa/zcmop.rhm" open
+  "../model/formats.rhm" open
+  "../rtl/instruction-pattern.rhdl" open
+  "../rtl/mop.rhdl" open
+  lib("rhodium/std/decode.rhdl") open
+
+fun selected_output(cases :: List.of(DecodeCase), input):
+  def selected = cases.find(fun (case :: DecodeCase): case.input.matches(input))
+  if selected | selected.output.value_bits | #false
+
+def fallback = DecodeCase(Pattern(~value: bits(0, 4), ~care: bits(0, 4)), as_pattern(bits(0, 2)))
+def override = DecodeCase(Pattern(~value: bits(2, 4), ~care: bits(3, 4)), as_pattern(bits(1, 2)))
+def resolved = resolve_mop_decode_cases([fallback], [override])
+
+check:
+  Zimop.instructions.length() ~is 40
+  MopRInstructions.length() ~is 32
+  MopRRInstructions.length() ~is 8
+  Zimop.find("MOP.R.0").encoding.value ~is 0x81c04073
+  Zimop.find("MOP.R.0").encoding.care ~is 0xfff0707f
+  Zimop.find("MOP.R.31").encoding.value ~is 0xcdf04073
+  Zimop.find("MOP.RR.0").encoding.value ~is 0x82004073
+  Zimop.find("MOP.RR.0").encoding.care ~is 0xfe00707f
+  Zimop.find("MOP.RR.7").encoding.value ~is 0xce004073
+  Zimop.find("MOP.R.0").operands.map(fun (operand): operand.name) ~is ["rd"]
+  Zimop.find("MOP.RR.0").operands.map(fun (operand): operand.name) ~is ["rd"]
+  Zimop.find("MOP.R.9").encode([rd.constrain(8), rs1.constrain(11)]) ~is 0x89d5c473
+  Zimop.find("MOP.RR.5").encode([rd.constrain(8), rs1.constrain(11), rs2.constrain(12)]) ~is 0xc6c5c473
+  Zcmop.instructions.map(fun (instruction): instruction.name) ~is [
+    "C.MOP.1", "C.MOP.3", "C.MOP.5", "C.MOP.7",
+    "C.MOP.9", "C.MOP.11", "C.MOP.13", "C.MOP.15"
+  ]
+  Zcmop.instructions.map(fun (instruction): instruction.encodings[0].value) ~is [
+    0x6081, 0x6181, 0x6281, 0x6381, 0x6481, 0x6581, 0x6681, 0x6781
+  ]
+  (for all (instruction in Zcmop.instructions):
+     instruction.expand(instruction.encodings[0].value) == 0x00000013) ~is #true
+  resolved.length() ~is 3
+  selected_output(resolved, bits(2, 4)) ~is 1
+  selected_output(resolved, bits(6, 4)) ~is 1
+  selected_output(resolved, bits(1, 4)) ~is 0

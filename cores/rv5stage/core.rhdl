@@ -439,9 +439,12 @@ sync_circuit RV5StageCore(xlen :: XLen,
     id_ex.bits.instruction[15..20].zext(width),
     forwarded_rs1
   )
-  def execute_result = mux(id_ex.bits.writeback_source === WritebackSelect.SequentialPc,
-                           id_ex.bits.sequential_pc,
-                           alu.result)
+  def execute_result = mux_lookup(
+    id_ex.bits.writeback_source,
+    ~default: alu.result,
+    [[WritebackSelect.Zero, zero],
+     [WritebackSelect.SequentialPc, id_ex.bits.sequential_pc]]
+  )
   def execute_is_multiply = id_ex.bits.writeback_source === WritebackSelect.Multiply
   def execute_needs_multiplier = execute_is_multiply & id_ex.bits.writeback_enable & or_reduce(id_ex.bits.rd)
   def memory_has_multiply = memory.valid & (memory.bits.writeback_source === WritebackSelect.Multiply) & memory.bits.writeback_enable & or_reduce(memory.bits.rd)

@@ -14,6 +14,7 @@ import:
   "../../../riscv/isa/zicond.rhm" as zicond
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   lib("rhodium/std/decode.rhdl") open
@@ -206,14 +207,14 @@ def RV32RV5StageAluCases = RV32ICompleteAluCases ++ RV32BAluCases ++ ZicondAluCa
   RV32AInstructions,
   address_alu
 ) ++ instruction_cases(
-  RV32MInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions,
+  RV32MInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   unused_alu
 )
 def RV64RV5StageAluCases = RV64ICompleteAluCases ++ RV64BAluCases ++ ZicondAluCases ++ instruction_cases(
   RV64AInstructions,
   address_alu
 ) ++ instruction_cases(
-  RV64MInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions,
+  RV64MInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   unused_alu
 )
 def RV32ICompleteAluDecode = ValidDecodeGen(RV32ICompleteAluCases)

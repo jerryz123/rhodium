@@ -13,6 +13,7 @@ import:
   "../../../riscv/isa/zicond.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
@@ -214,11 +215,11 @@ def RV64AOnlyMemoryCases = decode_groups(
 
 def RV64AMemoryCases = RV32AMemoryCases ++ RV64AOnlyMemoryCases
 def RV32RV5StageMemoryCases = RV32IMemoryCases ++ instruction_cases(
-  RV32MInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions,
+  RV32MInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   no_memory
 ) ++ RV32AMemoryCases
 def RV64RV5StageMemoryCases = RV64IMemoryCases ++ instruction_cases(
-  RV64MInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions,
+  RV64MInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   no_memory
 ) ++ RV64AMemoryCases
 def RV32IMemoryDecode = ValidDecodeGen(RV32IMemoryCases)

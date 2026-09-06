@@ -7,6 +7,7 @@ import:
   "xlen.rhm" open
   "zca.rhm" open
   "zcb.rhm" open
+  "zcmop.rhm" open
   "zcf.rhm" open
   "zcd.rhm" open
 
@@ -14,6 +15,7 @@ enum CompressedExtension
 | C
 | Zca
 | Zcb
+| Zcmop
 | Zcf
 | Zcd
 
@@ -34,6 +36,8 @@ fun validate_compressed_extensions(extensions :: List.of(CompressedExtension)):
           "C already supplies its applicable Zca, Zcf, and Zcd subsets")
   when extensions.contains(CompressedExtension.Zcb) && !has_zca
   | error(~who: #'compressed_extensions, "Zcb requires Zca or C")
+  when extensions.contains(CompressedExtension.Zcmop) && !has_zca
+  | error(~who: #'compressed_extensions, "Zcmop requires Zca or C")
   when extensions.contains(CompressedExtension.Zcf) && !has_zca
   | error(~who: #'compressed_extensions, "Zcf requires Zca or C")
   when extensions.contains(CompressedExtension.Zcd) && !has_zca
@@ -46,6 +50,7 @@ fun compressed_extensions(extension :: CompressedExtension, ...):
   for (candidate in [CompressedExtension.C,
                      CompressedExtension.Zca,
                      CompressedExtension.Zcb,
+                     CompressedExtension.Zcmop,
                      CompressedExtension.Zcf,
                      CompressedExtension.Zcd]):
     when supplied.contains(candidate)
@@ -120,6 +125,8 @@ fun compressed_extensions_instructions(
     )
   when extensions.contains(CompressedExtension.Zcb)
   | instructions := instructions ++ zcb_instructions(xlen, supported_instruction_names)
+  when extensions.contains(CompressedExtension.Zcmop)
+  | instructions := instructions ++ ZcmopInstructions
   for (instruction in instructions):
     unless supported_instruction_names.contains(instruction.expansion.target.name)
     | error(~who: #'compressed_extensions_instructions,

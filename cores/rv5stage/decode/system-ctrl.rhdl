@@ -11,6 +11,7 @@ import:
   "../../../riscv/isa/zicond.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/decode.rhdl") open
@@ -85,11 +86,11 @@ fun base_system_cases(instructions :: List.of(InstructionSpec)):
 def RV32ISystemCases = base_system_cases(rv32.RV32IInstructions)
 def RV64ISystemCases = base_system_cases(RV64IInstructions)
 def RV32RV5StageSystemCases = RV32ISystemCases ++ instruction_cases(
-  RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions,
+  RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZimopInstructions,
   no_system
 ) ++ ZicsrSystemCases ++ PrivilegedSystemCases ++ instruction_cases(ZifenceiInstructions, no_system)
 def RV64RV5StageSystemCases = RV64ISystemCases ++ instruction_cases(
-  RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions,
+  RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZimopInstructions,
   no_system
 ) ++ ZicsrSystemCases ++ PrivilegedSystemCases ++ instruction_cases(ZifenceiInstructions, no_system)
 

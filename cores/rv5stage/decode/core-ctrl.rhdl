@@ -29,6 +29,7 @@ import:
   "../../../riscv/isa/zicond.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   "../../../riscv/model/instruction.rhm".InstructionSpec
   "../../../riscv/model/formats.rhm" open
@@ -172,10 +173,10 @@ def RV64IControlCases = compose_control_cases(
   RV64IFenceCases
 )
 def RV32RV5StageInstructions = rv32.RV32IInstructions ++ RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ (
-  ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions
+  ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions
 )
 def RV64RV5StageInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ (
-  ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions
+  ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions
 )
 fun rv5stage_instructions(xlen :: XLen,
                           profile :: FloatingPointProfile,

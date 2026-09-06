@@ -6,6 +6,7 @@ import:
   "../isa/fp-profile.rhm" open
   "../isa/xlen.rhm" open
   "../model/expansion.rhm" open
+  "../model/encoding.rhm".InstructionEncoding
   "../model/formats.rhm" open
   "instruction-fields.rhdl" open
   "instruction-pattern.rhdl" open
@@ -22,26 +23,29 @@ fun compressed_selector_cases(instructions :: NonemptyList.of(CompressedInstruct
   for (instruction in instructions,
        index in 0..instructions.length()):
     for (encoding in instruction.encodings):
-      cases := cases ++ [DecodeCase(encoding_pattern(encoding), as_pattern(bits(index, operation_width)))]
+      for (term in compressed_instruction_patterns(instruction, encoding).terms):
+        cases := cases ++ [DecodeCase(term, as_pattern(bits(index, operation_width)))]
   cases
 
-fun expansion_constraint_matches(constraint :: ExpansionConstraint,
-                                 compressed :: Bits(16)):
+fun constraint_zero_pattern(constraint :: ExpansionConstraint):
+  def mutable care = 0
   cond
   | constraint is_a NonzeroFieldConstraint:
-      or_reduce(instruction_field(constraint.field, compressed.zext(32)))
+      care := constraint.field.mask()
   | constraint is_a NonzeroImmediateConstraint:
-      or_reduce(immediate_bits(constraint.immediate, compressed.zext(32)))
+      for (field in constraint.immediate.source_fields()):
+        care := care bits.or field.mask()
   | ~else:
-      error(~who: #'expansion_constraint_matches,
+      error(~who: #'constraint_zero_pattern,
             "unknown instruction-expansion legality constraint")
+  Pattern(~value: bits(0, 16), ~care: bits(care, 16))
 
-fun compressed_instruction_legal(instruction :: CompressedInstructionSpec,
-                                 compressed :: Bits(16)):
-  def mutable legal = Bool(#true)
+fun compressed_instruction_patterns(instruction :: CompressedInstructionSpec,
+                                    encoding :: InstructionEncoding):
+  def mutable accepted = as_pattern_set(encoding_pattern(encoding))
   for (constraint in instruction.constraints):
-    legal := legal & expansion_constraint_matches(constraint, compressed)
-  legal
+    accepted := accepted.subtract(constraint_zero_pattern(constraint))
+  accepted
 
 fun expansion_source_bits(source :: ExpansionValueSource,
                           width :: PosInt,
@@ -96,17 +100,15 @@ circuit RiscvCompressedExpander(xlen :: XLen,
   def operation_width = index_width(instructions.length())
   def decode = ValidDecodeGen(compressed_selector_cases(instructions))
   def decoded :: DecodeResult(Bits(operation_width)) = decode(compressed)
-  def legality_cases = for List (instruction in instructions,
-                                 index in 0..instructions.length()):
-    [index, compressed_instruction_legal(instruction, compressed)]
   def expansion_cases = for List (instruction in instructions,
                                   index in 0..instructions.length()):
     [index, materialize_expansion(instruction.expansion, compressed)]
   expansion <== RiscvCompressedExpansion():
-    valid: decoded.valid & mux_lookup(decoded.value, ~default: Bool(#false), legality_cases)
+    valid: decoded.valid
     instruction: mux_lookup(decoded.value, ~default: bits(0, 32), expansion_cases)
 
 export:
   RiscvCompressedExpansion
+  compressed_instruction_patterns
   compressed_selector_cases
   RiscvCompressedExpander

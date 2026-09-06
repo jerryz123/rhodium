@@ -121,6 +121,7 @@ encodings.
 | [`isa/zbs.rhm`](isa/zbs.rhm) | `RV32Zbs`, `RV64Zbs` | Ratified Zbs 1.0.0 single-bit operations |
 | [`isa/b.rhm`](isa/b.rhm) | `RV32B`, `RV64B` | Standard B 1.0.0 composition of Zba, Zbb, and Zbs; no Zbc or crypto subsets |
 | [`isa/zicond.rhm`](isa/zicond.rhm) | `RV32Zicond`, `RV64Zicond` | Zicond 1.0.0 `CZERO.EQZ` and `CZERO.NEZ` |
+| [`isa/zimop.rhm`](isa/zimop.rhm) | `Zimop` | Zimop 1.0's 32 `MOP.R.n` and eight `MOP.RR.n` encodings |
 | [`isa/zicsr.rhm`](isa/zicsr.rhm) | `Zicsr` | Six XLEN-independent Zicsr 2.0 encodings |
 | [`isa/zifencei.rhm`](isa/zifencei.rhm) | `Zifencei` | XLEN-independent Zifencei 2.0 `FENCE.I` encoding |
 
@@ -136,9 +137,10 @@ responsibilities.
 | [`isa/compressed.rhm`](isa/compressed.rhm) | `CompressedInstructionSpec`, `CompressedInstructionCatalog` | Shared 16-bit encoding, legality, and canonical-expansion descriptors |
 | [`isa/zca.rhm`](isa/zca.rhm) | `RV32Zca`, `RV64Zca` | Zca 1.0.0 compressed integer instructions |
 | [`isa/zcb.rhm`](isa/zcb.rhm) | `RV32Zcb`, `RV64Zcb`, `zcb_instructions` | Zcb 1.0.0 instructions with target-catalog prerequisite filtering |
+| [`isa/zcmop.rhm`](isa/zcmop.rhm) | `Zcmop` | Zcmop 1.0's eight exact compressed MOP encodings and no-effect expansions |
 | [`isa/zcf.rhm`](isa/zcf.rhm) | `RV32Zcf` | Zcf 1.0.0 RV32 compressed single-precision loads and stores |
 | [`isa/zcd.rhm`](isa/zcd.rhm) | `RV32Zcd`, `RV64Zcd` | Zcd 1.0.0 compressed double-precision loads and stores |
-| [`isa/c.rhm`](isa/c.rhm) | `CompressedExtension`, `compressed_extensions`, `compressed_extensions_instructions` | Validates and composes independent C, Zca, Zcb, Zcf, and Zcd selections |
+| [`isa/c.rhm`](isa/c.rhm) | `CompressedExtension`, `compressed_extensions`, `compressed_extensions_instructions` | Validates and composes independent C, Zca, Zcb, Zcmop, Zcf, and Zcd selections |
 
 See [Compressed-instruction expansion](#compressed-instruction-expansion) for
 the pure descriptor and hardware materialization path.
@@ -177,7 +179,7 @@ policy.
 ## Compressed-instruction expansion
 
 [`isa/compressed.rhm`](isa/compressed.rhm) defines the shared compressed
-descriptor machinery. The Zca, Zcb, Zcf, and Zcd catalogs retain each 16-bit
+descriptor machinery. The Zca, Zcb, Zcmop, Zcf, and Zcd catalogs retain each 16-bit
 encoding, legality constraint, compressed field, immediate layout, operand binding, and canonical
 `InstructionSpec` target as pure host data. A `CompressedInstructionCatalog`
 checks unique names and nonoverlapping base encodings. Matching additionally
@@ -202,7 +204,8 @@ flowchart LR
 orthogonal subsets without multiplying profile variants. C composes Zca with
 Zcf on RV32F and with Zcd when D is present; Zcb requires Zca or C and enables
 only instructions whose canonical targets are supported by the downstream
-decoder. A Zca-only integer configuration can report `misa.C`, but an
+decoder. Zcmop also requires Zca or C and fills the eight legal `C.LUI xn, 0`
+holes with no-effect operations; it does not require Zimop. A Zca-only integer configuration can report `misa.C`, but an
 FP-capable Zca-only configuration cannot because it omits the FP subset
 required by C. Zcb does not affect `misa.C`.
 [`rtl/compressed.rhdl`](rtl/compressed.rhdl) materializes the selected pure

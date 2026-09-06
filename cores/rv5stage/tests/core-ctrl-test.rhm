@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks base, A, B, M, Zicond, CSR, and system controls in the decoder.
+// Checks base, A, B, M, Zicond, Zimop, CSR, and system controls in the decoder.
 
 import:
   "../../../rhodium/core/main.rhm" open
@@ -15,6 +15,7 @@ import:
   "../../../riscv/isa/zicond.rhm" as zicond
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" as zimop
   "../../../riscv/isa/privileged.rhm" open
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../../alu.rhdl" as alu
@@ -159,6 +160,9 @@ def divide_writeback = writeback_controls.WritebackControl():
 def bitmanip_writeback = writeback_controls.WritebackControl():
   enable: bool.Bool(#true)
   source: writeback_controls.WritebackSelect.Alu
+def zero_writeback = writeback_controls.WritebackControl():
+  enable: bool.Bool(#true)
+  source: writeback_controls.WritebackSelect.Zero
 def ecall_system = system_controls.SystemControl():
   csr: system_controls.CsrOperation.None
   immediate: bool.Bool(#false)
@@ -205,6 +209,12 @@ def add_operand_b = operand_controls.OperandControl():
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Register
   immediate: operand_controls.ImmediateSelect.I
+def no_operand_sources = operand_controls.OperandControl():
+  uses_rs1: bool.Bool(#false)
+  uses_rs2: bool.Bool(#false)
+  left: operand_controls.OperandASelect.Zero
+  right: operand_controls.OperandBSelect.Register
+  immediate: operand_controls.ImmediateSelect.None
 def no_branch_a = branch_value(#false, #false, #false, #false, #false, #false)
 def no_branch_b = branch_value(#false, #true, #true, #true, #true, #true)
 def store_memory_a = memory_controls.MemoryControl():
@@ -285,6 +295,8 @@ check:
   control_for_instruction(writeback_controls.RV64RV5StageWritebackCases, DIV).matches(divide_writeback) ~is #true
   control_for_instruction(writeback_controls.RV64RV5StageWritebackCases, zbb.ANDN).matches(bitmanip_writeback) ~is #true
   control_for_instruction(writeback_controls.RV64RV5StageWritebackCases, zicond.CZERO_EQZ).matches(bitmanip_writeback) ~is #true
+  control_for_instruction(writeback_controls.RV64RV5StageWritebackCases, zimop.Zimop.find("MOP.R.0")).matches(zero_writeback) ~is #true
+  control_for_instruction(operand_controls.RV64RV5StageOperandCases, zimop.Zimop.find("MOP.RR.7")).matches(no_operand_sources) ~is #true
   control_for(writeback_controls.RV64IWritebackCases, "BEQ").matches(no_writeback_a) ~is #true
   control_for(writeback_controls.RV64IWritebackCases, "BEQ").matches(no_writeback_b) ~is #true
   // Address generation requires addition; instructions with no ALU consumer
@@ -311,8 +323,8 @@ check:
   ).packed_value() != 0 ~is #true
   controls.RV64IControlDecode.table.packed_cases.length() ~is 52
   controls.RV32IControlDecode.table.packed_cases.length() ~is 40
-  controls.RV64RV5StageControlDecode.table.packed_cases.length() ~is 140
-  controls.RV32RV5StageControlDecode.table.packed_cases.length() ~is 101
+  controls.RV64RV5StageControlDecode.table.packed_cases.length() ~is controls.RV64RV5StageInstructions.length()
+  controls.RV32RV5StageControlDecode.table.packed_cases.length() ~is controls.RV32RV5StageInstructions.length()
   record_field(
     control_for_instruction(controls.RV64RV5StageControlCases, MUL).care,
     "multiply"

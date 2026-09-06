@@ -11,6 +11,7 @@ import:
   "../../../riscv/isa/zicond.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
@@ -50,14 +51,14 @@ fun base_fence_cases(instructions :: List.of(InstructionSpec)):
 def RV32IFenceCases = base_fence_cases(rv32.RV32IInstructions)
 def RV64IFenceCases = base_fence_cases(RV64IInstructions)
 def RV32RV5StageFenceCases = RV32IFenceCases ++ instruction_cases(
-  RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ excluding_instructions(PrivilegedInstructions, [SFENCE_VMA]),
+  RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZimopInstructions ++ excluding_instructions(PrivilegedInstructions, [SFENCE_VMA]),
   no_fence
 ) ++ instruction_cases(ZifenceiInstructions, instruction_fence) ++ instruction_cases(
   [SFENCE_VMA],
   address_translation_fence
 )
 def RV64RV5StageFenceCases = RV64IFenceCases ++ instruction_cases(
-  RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ excluding_instructions(PrivilegedInstructions, [SFENCE_VMA]),
+  RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZimopInstructions ++ excluding_instructions(PrivilegedInstructions, [SFENCE_VMA]),
   no_fence
 ) ++ instruction_cases(ZifenceiInstructions, instruction_fence) ++ instruction_cases(
   [SFENCE_VMA],
