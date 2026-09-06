@@ -74,6 +74,7 @@ bundle ExecuteMemory(xlen :: XLen):
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
   instruction: Bits(32)
+  replay: Bool
   data_request_valid: Bool
   data_request: RV5StageDataReq(xlen)
   writeback_source: WritebackSelect

@@ -22,7 +22,7 @@ Contributors changing the core should read
 |---|---|
 | Pipeline | Fetch, Decode, Execute, Memory, Writeback |
 | Issue and retirement | Single issue; ordered WB commit |
-| Pipeline boundaries | Producer-owned fetch queue, elastic IF/ID and ID/EX, then feed-forward EX/MEM and MEM/WB |
+| Pipeline boundaries | Producer-owned fetch queue and elastic IF/ID, then feed-forward ID/EX, EX/MEM, and MEM/WB |
 | Deferred work | Loads, atomics, multiply, divide, and FP results may complete after their scalar token retires |
 | Integer widths | RV32 and RV64 selected by `XLen.X32` or `XLen.X64` |
 | Floating point | Disabled by default; RV32F or RV64D, with optional Zfhmin, Zfh, or Zfa |
@@ -55,7 +55,7 @@ flowchart LR
         FQ["Fetch queue<br/>5 entries, non-pipe"]
         IFID["IF/ID<br/>elastic Pipe"]
         ID["Decode (ID)<br/>decode and hazards"]
-        IDEX["ID/EX<br/>elastic Pipe"]
+        IDEX["ID/EX<br/>feed-forward ValidPipe"]
         EX["Execute (EX)<br/>forwarding, branch, AGU"]
         EXMEM["EX/MEM<br/>feed-forward ValidPipe"]
         MEM["Memory (MEM)<br/>DTLB, request, redirect, replay"]
@@ -85,7 +85,8 @@ flowchart LR
     WB -. "bypass" .-> EX
 
     SCORE["Integer and FP scoreboards"] -. "RAW / WAW stalls" .-> ID
-    EX -->|"reserve FP compute / load destination"| SCORE
+    EX -->|"reserve FP compute destination"| SCORE
+    MEM -->|"reserve FP load destination"| SCORE
     WB -->|"reserve scalar deferred destination"| SCORE
     COMPLETE -->|"release GPR destination"| SCORE
     FP -->|"release FPR destination"| SCORE
@@ -101,8 +102,8 @@ flowchart LR
 | Region | Output boundary | May hold? | Primary responsibility |
 |---|---|---:|---|
 | Fetch | Five-entry `Queue`, then IF/ID `Pipe` | Yes | Producer-owned PC generation, L1I request correlation, and redirect flushing |
-| Decode | ID/EX `Pipe` | Yes | Structured decode, serialization, and RAW/WAW hazard checks |
-| Execute | EX/MEM `ValidPipe` | Before transfer | Live operand reads, forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, and accepted FP compute dispatch |
+| Decode | ID/EX `ValidPipe` | No | Structured decode, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
+| Execute | EX/MEM `ValidPipe` | No | Live operand reads, forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP compute dispatch, and structural replay |
 | Memory | MEM/WB `ValidPipe` | No | DTLB lookup, PMA/cache request, data-fault classification, branch recovery, replay generation, and bypass |
 | Writeback | Ordered commit | At defined architectural waits | Scalar register and CSR effects, traps, fences, and scalar deferred-destination reservation |
 
@@ -120,11 +121,10 @@ state. A wrong-path refill may finish internally but cannot return an
 instruction to Fetch; an in-flight uncached read is drained without publishing
 its response.
 
-Decode holds an instruction before Execute until its operands and local
-execution resources are available. ID/EX stores register indices rather than
-captured values; Execute reads the integer register file live and applies MEM
-and WB forwarding. This lets a held instruction observe a write after the
-ordinary forwarding window has passed.
+Decode holds an instruction in IF/ID until its operands and locally reserved
+execution resources are available. Once admitted, its ID/EX token advances on
+the next edge. ID/EX stores register indices rather than captured values;
+Execute reads the integer register file live and applies MEM and WB forwarding.
 
 Once Execute transfers an instruction into EX/MEM, no later scalar stage can
 backpressure it. Execute registers branch decisions, effective virtual
@@ -151,7 +151,7 @@ register completion, not out-of-order instruction issue.
 |---|---|---|
 | Integer ALU, branch link, immediate, and ordinary CSR result | Scalar pipeline | Ordinary WB register-file port |
 | Load or atomic result | Memory request accepted in MEM; GPR reserved at WB | L1D or uncached response to the deferred completion arbiter |
-| Multiply or divide | Execution resource claimed in EX; GPR reserved and request issued at WB | Deferred completion arbiter |
+| Multiply or divide | Execution resource reserved in Decode; GPR reserved and request issued at WB | Deferred completion arbiter |
 | FP result targeting an integer register | FP request and GPR reservation accepted from EX | FP completion to deferred completion arbiter |
 | FP result targeting an FP register | FP request and FPR reservation accepted from EX | FP pipeline's internal FP register-file port |
 | FP load | Memory request and FPR reservation accepted in MEM | Memory response to FP pipeline's load port |
@@ -176,16 +176,18 @@ flushes retained, queued, or outstanding wrong-path data on redirects.
 
 The optional [FP subsystem](fp/README.md) owns the FP register file, FPR
 scoreboard, execution lanes, LSU bridges, and completion arbitration. FP
-compute requests dispatch irrevocably from EX while their scalar tokens
-continue to WB. Accepted requests are non-speculative and must eventually
-complete. FP state updates accrue exception flags and mark `mstatus.FS` dirty.
+requests attempt dispatch from EX while their scalar tokens continue to WB. A
+structurally rejected request becomes an ordered replay; an accepted request is
+non-speculative and must eventually complete. FP state updates accrue exception
+flags and mark `mstatus.FS` dirty.
 
 FP loads and stores share the scalar address generator, MMU, PMA checks, ordered
 L1D, and uncached path. An FP load reserves its destination only when its MEM
-request is accepted. An FP store holds EX for the FP register file's one-cycle
-store-data response, carries that data through EX/MEM, and issues the ordinary
-memory request from MEM. The cache data path remains XLEN-wide: half and single
-stores occupy its low 16 or 32 bits, and half and single loads are NaN-boxed into
+request is accepted. Decode launches an FP store's one-cycle register-file read
+as the instruction enters ID/EX, aligning its data with the instruction in EX;
+a missing or stale response replays instead of holding EX. The cache data path
+remains XLEN-wide: half and single stores occupy its low 16 or 32 bits, and half
+and single loads are NaN-boxed into
 the selected 32- or 64-bit FP register width. Exact precision metadata follows
 a load through the MMU and cache response path.
 

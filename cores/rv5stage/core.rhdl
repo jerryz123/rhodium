@@ -81,15 +81,14 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
                  exception_cause_bits(load_cause, width))
       value: address
   reg faulted(~init: Bool(#false))
-  reg fp_store_requested(~init: Bool(#false))
   reg pending_exception_valid(~init: Bool(#false))
   reg pending_exception(MemoryWriteback(xlen))
 
-  // IF/ID and ID/EX are elastic. Once Execute admits an instruction, the
-  // EX/MEM and MEM/WB boundaries advance feed-forward; rejected memory
-  // attempts return as ordered replay tokens instead of backpressure.
+  // IF/ID is elastic so Decode can hold hazards. Every boundary after Decode
+  // advances feed-forward; rejected execution or memory attempts return as
+  // ordered replay tokens instead of backpressure.
   inst if_id_pipe(Pipe(FetchDecode(xlen), 1))
-  inst id_ex_pipe(Pipe(DecodeExecute(xlen), 1))
+  inst id_ex_pipe(ValidPipe(DecodeExecute(xlen), 1))
   inst ex_mem_pipe(ValidPipe(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipe(MemoryWriteback(xlen), 1))
 
@@ -226,6 +225,14 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def frs3 = instruction_field(riscv_fields.rs3, instruction)
   def fp_rounding = riscv_rounding_mode(instruction_field(riscv_fields.rm, instruction), csrs.frm)
   def decoded_immediate = control.operand.immediate.decode(instruction, width)
+  def decoded_illegal = decode_bits.compressed_illegal ||| !decoder.valid ||| (
+    control.floating_point_valid & (
+      !csrs.fp_enabled ||| (
+        control.floating_point.execution.uses_rounding_mode & !fp_rounding.valid
+      )
+    )
+  )
+  def decoded_fault = decode_bits.instruction_page_fault ||| decode_bits.instruction_access_fault ||| decoded_illegal
 
   registers.read_address_1 <== id_ex.bits.rs1
   registers.read_address_2 <== id_ex.bits.rs2
@@ -311,10 +318,42 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   )
   def serializing_waits_for_deferred = serializing_operation(control.system, control.fence) & deferred_state_pending
   def fence_waits_for_data = control.fence.is_fence_operation() & !data_access.drained
+  def decoded_needs_multiplier = (control.writeback.source === WritebackSelect.Multiply) & control.writeback.enable & or_reduce(rd)
+  def id_ex_has_multiply = id_ex.valid & (id_ex.bits.writeback_source === WritebackSelect.Multiply) & id_ex.bits.writeback_enable & or_reduce(id_ex.bits.rd)
+  def memory_has_multiply = memory.valid & (memory.bits.writeback_source === WritebackSelect.Multiply) & memory.bits.writeback_enable & or_reduce(memory.bits.rd)
+  def commit_has_multiply = commit_valid & (commit.bits.writeback_source === WritebackSelect.Multiply) & commit.bits.write_enable & or_reduce(commit.bits.rd)
+  def multiply_resource_hazard = decoded_needs_multiplier & !decoded_fault & (
+    !multiplier.available ||| id_ex_has_multiply ||| memory_has_multiply ||| commit_has_multiply
+  )
+  def decoded_needs_divider = (control.writeback.source === WritebackSelect.Divide) & control.writeback.enable & or_reduce(rd)
+  def id_ex_has_divide = id_ex.valid & (id_ex.bits.writeback_source === WritebackSelect.Divide) & id_ex.bits.writeback_enable & or_reduce(id_ex.bits.rd)
+  def memory_has_divide = memory.valid & (memory.bits.writeback_source === WritebackSelect.Divide) & memory.bits.writeback_enable & or_reduce(memory.bits.rd)
+  def commit_has_divide = commit_valid & (commit.bits.writeback_source === WritebackSelect.Divide) & commit.bits.write_enable & or_reduce(commit.bits.rd)
+  def divide_resource_hazard = decoded_needs_divider & !decoded_fault & (
+    !divider.available ||| id_ex_has_divide ||| memory_has_divide ||| commit_has_divide
+  )
+  def decoded_fp_execution_control :: RV5StageFloatExecutionControl() = control.floating_point.execution
+  def decoded_fp_memory = control.floating_point_valid & (
+    decoded_fp_execution_control.unit === RV5StageFloatUnit.Memory
+  )
+  def decoded_fp_store = decoded_fp_memory & decoded_fp_execution_control.memory_write
+  def id_ex_fp_execution_control :: RV5StageFloatExecutionControl() = id_ex.bits.floating_point_control.execution
+  def id_ex_fp_compute = id_ex.valid & id_ex.bits.floating_point_valid & (
+    id_ex_fp_execution_control.unit =/= RV5StageFloatUnit.Memory
+  )
+  def fp_store_resource_hazard = decoded_fp_store & !decoded_fault & id_ex_fp_compute
+  def local_resource_hazard = multiply_resource_hazard ||| divide_resource_hazard ||| fp_store_resource_hazard
   def pipeline_hazard = deferred_dependency_hazard ||| scoreboard_raw_hazard ||| (
     scoreboard_waw_hazard ||| fp_source_hazard ||| fp_destination_hazard
-  ) ||| serializing_in_flight ||| serializing_waits_for_deferred ||| fence_waits_for_data ||| waiting_for_interrupt ||| csrs.interrupt_request ||| exception_in_flight
-  (
+  ) ||| local_resource_hazard ||| serializing_in_flight ||| serializing_waits_for_deferred ||| fence_waits_for_data ||| waiting_for_interrupt ||| csrs.interrupt_request ||| exception_in_flight
+  def decode_transfer = decode_valid & !pipeline_hazard
+
+  fp.store_request.valid <== decode_transfer & decoded_fp_store & !decoded_fault
+  fp.store_request.bits <== RV5StageFpStoreRequest(Bits(width)):
+    context: decode_bits.pc
+    precision: decoded_fp_execution_control.source_precision
+    rs: rs2
+  def decoded_operation:
     if_id_pipe.egress
       |> filter_flow(_fetched => !squash)
       |> gate_flow(!pipeline_hazard)
@@ -342,13 +381,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
           writeback_source: control.writeback.source
           system: control.system
           fence: control.fence
-          illegal: fetched.compressed_illegal ||| !decoder.valid ||| (
-            control.floating_point_valid & (
-              !csrs.fp_enabled ||| (
-                control.floating_point.execution.uses_rounding_mode & !fp_rounding.valid
-              )
-            )
-          )
+          illegal: decoded_illegal
           instruction_page_fault: fetched.instruction_page_fault
           instruction_access_fault: fetched.instruction_access_fault
           instruction_fault_address: fetched.instruction_fault_address
@@ -357,10 +390,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
           rs2: rs2
           rd: rd
           frs3: frs3
-  ) |> id_ex_pipe.ingress
+  decoded_operation |> to_valid() |> id_ex_pipe.ingress
 
-  // Execute (EX) consumes the registered ID/EX token. Forwarding is live and
-  // sampled together with the other effects when Execute transfers.
+  // Execute (EX) consumes exactly one registered ID/EX cycle. Forwarding is
+  // live and sampled together with the other effects when the token advances.
   fun forwarded_register_value(index :: Bits(5),
                                register_value :: Bits(width)):
     mux(
@@ -406,7 +439,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def execute_fp_store = execute_fp_memory & fp_execution_control.memory_write
   def execute_fp_load = execute_fp_memory & !fp_execution_control.memory_write
   def execute_fp_compute = execute_is_fp & !execute_fp_memory
-  def execute_admission_fault = id_ex.bits.instruction_page_fault ||| id_ex.bits.instruction_access_fault ||| id_ex.bits.illegal ||| (
+  def execute_request_fault = id_ex.bits.instruction_page_fault ||| id_ex.bits.instruction_access_fault ||| id_ex.bits.illegal ||| (
     execute_is_memory & !memory_aligned
   )
   def redirect_fault = redirect_requested & !redirect_aligned
@@ -447,21 +480,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
     [[WritebackSelect.Zero, zero],
      [WritebackSelect.SequentialPc, id_ex.bits.sequential_pc]]
   )
-  def execute_is_multiply = id_ex.bits.writeback_source === WritebackSelect.Multiply
-  def execute_needs_multiplier = execute_is_multiply & id_ex.bits.writeback_enable & or_reduce(id_ex.bits.rd)
-  def memory_has_multiply = memory.valid & (memory.bits.writeback_source === WritebackSelect.Multiply) & memory.bits.writeback_enable & or_reduce(memory.bits.rd)
-  def commit_has_multiply = commit_valid & (commit.bits.writeback_source === WritebackSelect.Multiply) & commit.bits.write_enable & or_reduce(commit.bits.rd)
-  def multiplier_available = multiplier.available & !memory_has_multiply & !commit_has_multiply
   def execute_multiply_issue = RV5StageMultiplyIssue(xlen):
     left: forwarded_rs1
     right: forwarded_rs2
     control: id_ex.bits.multiply_control
     rd: id_ex.bits.rd
-  def execute_is_divide = id_ex.bits.writeback_source === WritebackSelect.Divide
-  def execute_needs_divider = execute_is_divide & id_ex.bits.writeback_enable & or_reduce(id_ex.bits.rd)
-  def memory_has_divide = memory.valid & (memory.bits.writeback_source === WritebackSelect.Divide) & memory.bits.writeback_enable & or_reduce(memory.bits.rd)
-  def commit_has_divide = commit_valid & (commit.bits.writeback_source === WritebackSelect.Divide) & commit.bits.write_enable & or_reduce(commit.bits.rd)
-  def divider_available = divider.available & !memory_has_divide & !commit_has_divide
   def execute_divide_issue = RV5StageDivideIssue(xlen):
     dividend: forwarded_rs1
     divisor: forwarded_rs2
@@ -478,38 +501,23 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
     frd: id_ex.bits.rd
     integer_operand: forwarded_rs1
     rounding_mode: id_ex.bits.floating_point_rounding_mode
-  fp.store_request.valid <== id_ex.valid & execute_fp_store & !fp_store_requested & !older_pipeline_squash & !execute_admission_fault
-  fp.store_request.bits <== RV5StageFpStoreRequest(Bits(width)):
-    context: id_ex.bits.pc
-    precision: fp_execution_control.source_precision
-    rs: id_ex.bits.rs2
-
-  // Execute is the final admission point. Local arithmetic and FP resources
-  // may hold ID/EX, but MMU and cache availability are resolved as replay in
-  // MEM and never propagate readiness back into Execute.
-  def execute_multiplier_ready = !execute_needs_multiplier ||| multiplier_available
-  def execute_divider_ready = !execute_needs_divider ||| divider_available
-  def execute_fp_store_data_ready = execute_admission_fault ||| !execute_fp_store ||| (
-    fp_store_requested & fp.store_response.valid
-  )
-  def execute_fp_compute_ready = execute_admission_fault ||| !execute_fp_compute ||| fp.issue.ready
-  def execute_ready = execute_multiplier_ready & execute_divider_ready & (
-    execute_fp_store_data_ready & execute_fp_compute_ready
-  )
-  def execute_transfer = id_ex.valid & execute_ready & !older_pipeline_squash
+  // EX is feed-forward. FP structural rejection and a missing or mismatched
+  // prefetched store operand become ordered replay tokens in MEM.
+  def execute_transfer = id_ex.valid & !older_pipeline_squash
   fp.issue.valid <== execute_transfer & execute_fp_compute & !execute_exception.valid
-  fp.store_response.ready <== execute_transfer & execute_fp_store
-  id_ex.ready <== older_pipeline_squash ||| execute_ready
+  def fp_store_response_match = fp.store_response.valid & (
+    fp.store_response.bits.context === id_ex.bits.pc
+  )
+  def execute_fp_compute_replay = fp.issue.valid & !fp.issue.ready
+  def execute_fp_store_replay = execute_transfer & execute_fp_store & !execute_exception.valid & !fp_store_response_match
+  def execute_replay = execute_fp_compute_replay ||| execute_fp_store_replay
+  assert(!(execute_replay & execute_exception.valid),
+         "rv5stage_execute_fault_does_not_replay")
   branch_resolver.request.valid <== execute_transfer
   branch_resolver.request.bits <== BranchResolverRequest(width):
     left: forwarded_rs1
     right: forwarded_rs2
     control: id_ex.bits.branch_control
-
-  when (fp.store_request.fire()):
-    fp_store_requested <== Bool(#true)
-  elsewhen (execute_transfer ||| older_pipeline_squash):
-    fp_store_requested <== Bool(#false)
 
   def execute_data_request = RV5StageDataReq(xlen):
     address: alu.result
@@ -536,7 +544,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
     resume_pc: mux(redirect_requested, computed_redirect_target, id_ex.bits.sequential_pc)
     redirect_valid: redirect_requested & !execute_exception.valid
     instruction: id_ex.bits.instruction
-    data_request_valid: execute_is_memory & !execute_admission_fault
+    replay: execute_replay
+    data_request_valid: execute_is_memory & !execute_request_fault & !execute_replay
     data_request: execute_data_request
     writeback_source: id_ex.bits.writeback_source
     writeback_enable: id_ex.bits.writeback_enable & !execute_exception.valid
@@ -562,12 +571,12 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
             memory_exception_path,
             memory_replay_path,
             fp_load_reserve_path) = live_memory |> fork_valid(6)
-  def memory_request_attempt = memory_stage_valid & memory.bits.data_request_valid & !memory.bits.exception_valid
+  def memory_request_attempt = memory_stage_valid & !memory.bits.replay & memory.bits.data_request_valid & !memory.bits.exception_valid
   def memory_fp_load = memory.bits.data_request.destination === RV5StageDataDestination.FloatingPoint
   def memory_fp_load_ready = !memory_fp_load ||| fp.load_reserve.ready
   def memory_request:
     memory_request_path
-      |> filter_valid(operation => operation.data_request_valid & !operation.exception_valid & memory_fp_load_ready)
+      |> filter_valid(operation => !operation.replay & operation.data_request_valid & !operation.exception_valid & memory_fp_load_ready)
       |> map_valid(operation => operation.data_request)
   memory_request |> eject_flow(
     ~valid: data_access.request.valid,
@@ -580,6 +589,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def memory_request_replay = memory_request_attempt & (!memory_fp_load_ready ||| (
     !memory_data_fault & !data_access.request.ready
   ))
+  def memory_replay = memory.bits.replay ||| memory_request_replay
   wire memory_exception: RV5StageException(xlen)
   when (memory.bits.exception_valid):
     memory_exception <== RV5StageException(xlen):
@@ -608,7 +618,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   memory_exception_event_flow |> memory_exception_link.left
   def memory_replay_event_flow:
     memory_replay_path
-      |> filter_valid(operation => memory_request_replay)
+      |> filter_valid(operation => memory_replay)
       |> map_valid(operation => operation.pc)
   memory_replay_event_flow |> memory_replay_link.left
 
@@ -634,9 +644,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
         pc: operation.pc
         resume_pc: operation.resume_pc
         instruction: operation.instruction
-        replay: memory_request_replay
+        replay: memory_replay
         writeback_source: operation.writeback_source
-        write_enable: operation.writeback_enable & !memory_exception.valid & !memory_request_replay
+        write_enable: operation.writeback_enable & !memory_exception.valid & !memory_replay
         rd: operation.rd
         value: operation.result
         multiply_issue: operation.multiply_issue
@@ -652,7 +662,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
 
   def memory_bypass:
     memory_bypass_path
-      |> filter_valid(operation => !memory_exception.valid & !memory_request_replay & operation.writeback_enable & !deferred_writeback(
+      |> filter_valid(operation => !memory_exception.valid & !memory_replay & operation.writeback_enable & !deferred_writeback(
         operation.writeback_source
       ) & (operation.writeback_source =/= WritebackSelect.Csr) & or_reduce(operation.rd))
       |> map_valid(operation => RV5StageBypass(xlen)):
@@ -729,6 +739,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
         ) & committed.write_enable & or_reduce(committed.rd))
       |> map_valid(committed => committed.multiply_issue)
   ) |> multiplier.issue
+  when commit_has_multiply:
+    assert(multiplier.available, "rv5stage_multiplier_commit_reserved")
   (
     commit
       |> filter_valid(committed => !committed.replay & (
@@ -736,6 +748,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
         ) & committed.write_enable & or_reduce(committed.rd))
       |> map_valid(committed => committed.divide_issue)
   ) |> divider.issue
+  when commit_has_divide:
+    assert(divider.available, "rv5stage_divider_commit_reserved")
 
   fp_integer_scoreboard.set.valid <== fp.issue.fire() & (
     fp.issue.bits.control.registers.destination === RV5StageFloatDestination.Integer

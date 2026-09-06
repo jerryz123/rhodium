@@ -61,8 +61,8 @@ sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
   interface completion(Irrevocable(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
-  interface store_request(Decoupled(RV5StageFpStoreRequest(Context)), ~role: consumer)
-  interface store_response(Irrevocable(RV5StageFpStoreResponse(Context)), ~role: producer)
+  interface store_request(Valid(RV5StageFpStoreRequest(Context)), ~role: consumer)
+  interface store_response(Valid(RV5StageFpStoreResponse(Context)), ~role: producer)
   interface state_update(Valid(Bits(5)), ~role: producer)
   output busy: Mask(register_count)
   output drained: Bool
@@ -71,7 +71,6 @@ sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
   completion.valid <== Bool(#false)
   completion.bits <== dont_care(Completion)
   load_reserve.ready <== Bool(#false)
-  store_request.ready <== Bool(#false)
   store_response.valid <== Bool(#false)
   store_response.bits <== dont_care(RV5StageFpStoreResponse(Context))
   state_update.valid <== Bool(#false)
@@ -99,8 +98,8 @@ sync_circuit RV5StageFpPipeline(
   interface completion(Irrevocable(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
-  interface store_request(Decoupled(RV5StageFpStoreRequest(Context)), ~role: consumer)
-  interface store_response(Irrevocable(RV5StageFpStoreResponse(Context)), ~role: producer)
+  interface store_request(Valid(RV5StageFpStoreRequest(Context)), ~role: consumer)
+  interface store_response(Valid(RV5StageFpStoreResponse(Context)), ~role: producer)
   interface state_update(Valid(Bits(5)), ~role: producer)
   output busy: Mask(register_count)
   output drained: Bool
@@ -206,13 +205,14 @@ sync_circuit RV5StageFpPipeline(
   division_request |> div_sqrt.request
   def issue_fire = issue.fire()
 
-  // The register file is read only for a transferred instruction. Its third
-  // port is shared with the serialized store-data bridge below.
+  // The third read port is shared by accepted execution and store-read events.
+  // Store data advances as a one-cycle pulse aligned with the scalar ID/EX.
   def store_source_free = !register_busy(store_request.bits.rs)
-  inst stores(Pipe(RV5StageFpStoreResponse(Context), 1))
+  def store_request_safe = !issue.valid & store_source_free
+  inst stores(ValidPipe(RV5StageFpStoreResponse(Context), 1))
   stores.egress |> store_response
   (
-    store_request |> gate_flow(!issue.valid & store_source_free) |> map_flow(request):
+    store_request |> filter_valid(_request => store_request_safe) |> map_valid(request):
       RV5StageFpStoreResponse(Context):
         context: request.context
         data: fp_store_value(profile, request.precision, registers.read_data_3)
@@ -224,7 +224,7 @@ sync_circuit RV5StageFpPipeline(
     store_request.bits.rs,
     issue.bits.frs3
   )
-  when (store_request.fire()):
+  when (store_request.valid & store_request_safe):
     assert((store_request.bits.precision =/= RV5StageFloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_store_precision_supported")
     assert((store_request.bits.precision =/= RV5StageFloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_store_supported")
 
