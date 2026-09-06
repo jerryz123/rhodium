@@ -61,7 +61,7 @@ flowchart LR
     UART["Uart16550<br/>registers + FIFOs"] --> Pins["RX / TX / interrupt"]
   end
 
-  Home -.->|"available integration point"| Boot
+  Home --> Boot
   Home --> ACLINT
   Home --> UART
   ACLINT -->|"mtime, MTIP, MSIP"| Requester
@@ -74,15 +74,16 @@ flowchart LR
   Model -.->|"optional RX hookup"| Pins
 ```
 
-The solid ACLINT and UART paths match the current SoC integrations.
-`SimpleSoC` and `MiniSoC` instantiate both devices through the shared
-[`SoCPeripheralParams`](../socs/peripherals.rhdl); `TiledSoC` places them in
-dedicated [`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl) and
+The solid paths match the current SoC integrations. `SimpleSoC` and `MiniSoC`
+instantiate all three devices through the shared
+[`SoCPlatformParams`](../socs/peripherals.rhdl); `TiledSoC` colocates its
+BootROM with the device Home and places the other devices in dedicated
+[`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl) and
 [`UartTile`](../socs/tiled-soc/tiles/uart.rhdl) wrappers. Follow the
 [SoC guide](../socs/README.md) for their addresses, NodeIDs, routes, and
 processor connections rather than duplicating those system contracts here.
 
-No current SoC instantiates `CHIBootROM`. The current simulator harnesses pass
+All current SoCs instantiate `CHIBootROM`. The current simulator harnesses pass
 the synthesizable UART pins through and do not instantiate `UartDPI`; the
 [simulation guide](../sims/README.md) owns that executable boundary.
 

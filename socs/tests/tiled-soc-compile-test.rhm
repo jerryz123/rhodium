@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks one-step TiledSoC compilation into placement, routing, device, and tile parameters.
+// Checks one-step TiledSoC compilation into boot, placement, routing, device, and tile parameters.
 
 import:
   "../../chi/main.rhdl" as chi
@@ -24,9 +24,11 @@ check:
   )
   compiled.device_home.home_params.requester_endpoints.map(fun (port): port.node_id) ~is [16, 17, 18, 19, 20, 21, 22, 23]
   compiled.device_home.home.node_id ~is 36
+  compiled.bootrom.device.node.node_id ~is 54
   compiled.aclint.device.node.node_id ~is 52
   compiled.uart.device.node.node_id ~is 53
   compiled.device_home.home_params.requester_endpoints.length() ~is 8
+  compiled.device_home.home_params.subordinate_map.entry(0x00010000).target_node_id ~is 54
   compiled.device_home.home_params.subordinate_map.entry(0x02000000).target_node_id ~is 52
   compiled.device_home.home_params.subordinate_map.entry(0x10000000).target_node_id ~is 53
   compiled.llcs.map(fun (llc): llc.ram_params.node_id) ~is [48, 49, 50, 51]
@@ -48,13 +50,16 @@ check:
   compiled.home_map.entry(0x80000100).target_node_id ~is 32
   compiled.home_map.entry(0x80007fff).target_node_id ~is 35
   compiled.home_map.entry(0x80008000) ~is #false
+  compiled.home_map.entry(0x00010000).target_node_id ~is 36
+  compiled.home_map.entry(0x00010fff).target_node_id ~is 36
+  compiled.home_map.entry(0x00011000) ~is #false
   compiled.home_map.entry(0x02000000).target_node_id ~is 36
   compiled.home_map.entry(0x0200ffff).target_node_id ~is 36
   compiled.home_map.entry(0x10000000).target_node_id ~is 36
   compiled.home_map.entry(0x10000007).target_node_id ~is 36
   compiled.home_map.entry(0x10000008) ~is #false
   compiled.home_map.entries.map(fun (entry): entry.address_set.mask) ~is (
-    [0x7f3f, 0x7f3f, 0x7f3f, 0x7f3f, 0xffff, 0x7]
+    [0x7f3f, 0x7f3f, 0x7f3f, 0x7f3f, 0xfff, 0xffff, 0x7]
   )
   compiled.llcs.map(fun (llc): llc.ram_params.base_address) ~is [0, 0, 0, 0]
   compiled.llcs.map(fun (llc): llc.projector_params.project(0x80000100 + (llc.projector_params.bank_index * 64))) ~is (
@@ -99,6 +104,8 @@ check:
   compiled.device_home.tile_params.router.attachment.hni_requester_locals[0].req.site_keys ~is [6]
   compiled.device_home.tile_params.router.attachment.hn_subordinate_locals.length() ~is 1
   compiled.device_home.tile_params.router.attachment.hn_subordinate_locals[0].req.site_keys ~is [6]
+  compiled.device_home.tile_params.router.attachment.sn_locals.length() ~is 1
+  compiled.device_home.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [6]
   compiled.aclint.tile_params.router.attachment.sn_locals.length() ~is 1
   compiled.aclint.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [10]
   compiled.uart.tile_params.router.attachment.sn_locals.length() ~is 1
@@ -112,16 +119,16 @@ check:
   compiled.rv5stages.length() ~is 8
   compiled.transits.length() ~is 0
   compiled.llcs.length() ~is 4
-  compiled.connections.length() ~is 78
+  compiled.connections.length() ~is 79
   compiled.connections.filter(
     ~keep: fun (connection): connection is_a chi.CHISNConnection
-  ).length() ~is 2
-  compiled.node_ids.length() ~is 36
+  ).length() ~is 3
+  compiled.node_ids.length() ~is 37
   compiled.node_ids.sort(fun (left, right): left < right) ~is (
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
      16, 17, 18, 19, 20, 21, 22, 23,
      24,
-     32, 33, 34, 35, 36, 48, 49, 50, 51, 52, 53]
+     32, 33, 34, 35, 36, 48, 49, 50, 51, 52, 53, 54]
   )
 
 check:
@@ -147,24 +154,28 @@ check:
    compiled.host.placement.coordinate.y] ~is [0, 2]
   [compiled.device_home.placement.coordinate.x,
    compiled.device_home.placement.coordinate.y] ~is [1, 2]
+  [compiled.bootrom.placement.coordinate.x,
+   compiled.bootrom.placement.coordinate.y] ~is [1, 2]
   [compiled.aclint.placement.coordinate.x,
    compiled.aclint.placement.coordinate.y] ~is [2, 2]
   [compiled.uart.placement.coordinate.x,
    compiled.uart.placement.coordinate.y] ~is [3, 2]
   compiled.device_home.placement.requester_site.node_id ~is 36
   compiled.device_home.placement.subordinate_site.node_id ~is 36
+  compiled.bootrom.placement.site.node_id ~is 54
   compiled.aclint.placement.site.node_id ~is 52
   compiled.uart.placement.site.node_id ~is 53
   compiled.device_home.placement.requester_site.router === compiled.device_home.placement.router ~is #true
   compiled.device_home.placement.subordinate_site.router === compiled.device_home.placement.router ~is #true
+  compiled.bootrom.placement.site.router === compiled.device_home.placement.router ~is #true
   compiled.aclint.placement.site.router === compiled.aclint.placement.router ~is #true
   compiled.uart.placement.site.router === compiled.uart.placement.router ~is #true
 
 check:
-  compiled.compilations.req.routes.length() ~is 78
-  compiled.compilations.rsp.routes.length() ~is 154
+  compiled.compilations.req.routes.length() ~is 79
+  compiled.compilations.rsp.routes.length() ~is 155
   compiled.snp_compilation.routes.length() ~is 68
-  compiled.compilations.dat.routes.length() ~is 156
+  compiled.compilations.dat.routes.length() ~is 158
   compiled.families.req.members.length() ~is 16
   compiled.families.rsp.members.length() ~is 16
   compiled.families.snp.members.length() ~is 16

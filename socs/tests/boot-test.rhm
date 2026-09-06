@@ -1,0 +1,49 @@
+#lang rhombus
+// Checks shared SoC BootROM metadata, generated reset programs, and release distribution.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../devices/bootrom-image.rhm" open
+  "../boot.rhdl" as boot
+  "boot-fixture.rhdl" as fixture
+
+def top = fixture.design.modules.find(
+  fun (module_def): module_def.name == "SoCBootDistributor"
+)
+def module_names = fixture.design.modules.map(fun (module_def): module_def.name)
+def assertion_labels = top.operations.filter(
+  ~keep: fun (operation): operation.opcode == "verif.assert"
+).map(fun (operation): operation.attribute("label"))
+
+check:
+  fixture.boot.reset_address ~is RiscvBootROMResetAddress
+  fixture.boot.payload_address ~is RiscvBootROMPayloadAddress
+  fixture.boot.window_bytes ~is 0x1000
+  fixture.params.rom_params.base_address ~is RiscvBootROMResetAddress
+  fixture.params.rom_params.node.node_id ~is 12
+  fixture.params.region.home === fixture.home ~is #true
+  fixture.params.region.physical.attributes.readable ~is #true
+  fixture.params.region.physical.attributes.writable ~is #false
+  fixture.params.region.physical.attributes.executable ~is #true
+  fixture.params.region.physical.attributes.cacheable ~is #false
+  fixture.params.region.physical.attributes.atomic ~is #false
+  fixture.params.region.physical.attributes.device ~is #false
+  fixture.params.region.physical.attributes.read_idempotent ~is #true
+  module_names.contains("Broadcast") ~is #true
+  top.inputs.map(fun (port): port.name) ~is [
+    "clock", "reset", "release_in",
+    "start_0_in", "start_1_in", "start_2_in", "start_3_in"
+  ]
+  top.outputs.map(fun (port): port.name) ~is [
+    "release_out", "start_0_out", "start_1_out", "start_2_out", "start_3_out"
+  ]
+  assertion_labels.contains("soc_boot_release_once") ~is #true
+  verify_design(fixture.design) ~is #void
+
+  boot.riscv_soc_boot_config(~reset_address: 0x10004) ~throws "aligned"
+  boot.SoCBootConfig(
+    ~reset_address: 0x10000,
+    ~payload_address: 0x80000000,
+    ~window_bytes: 64,
+    ~image: BootROMImage(for List (_index in 0..65): 0)
+  ) ~throws "image must fit"

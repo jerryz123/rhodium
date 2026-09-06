@@ -1,5 +1,5 @@
 #lang rhodium
-// Attaches both sides of the shared device HN-I to one CHI service-row router.
+// Attaches both HN-I sides and exposes colocated subordinate endpoints on one CHI router.
 
 import:
   lib("chi/main.rhdl") open
@@ -15,6 +15,7 @@ sync_circuit DeviceHomeTile(params :: DeviceHomeTileParams):
   def Link = chi_noc_link_type(router_params)
 
   input site_key: Bits(site_width)
+  interface subordinate[router_params.attachment.sn_locals.length()](CHISNChannels(p), ~role: icn)
   interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
   interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
 
@@ -24,6 +25,7 @@ sync_circuit DeviceHomeTile(params :: DeviceHomeTileParams):
   router.site_key <== site_key
   home.port.requester <=> router.hni_requester_local[0]
   home.port.subordinate <=> router.hn_subordinate_local[0]
+  subordinate <=> router.sn_local
   router.incoming_links <=> incoming_links
   router.outgoing_links <=> outgoing_links
 

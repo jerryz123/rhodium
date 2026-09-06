@@ -1,5 +1,5 @@
 #lang rhodium
-// Wraps MiniSoC with FESVR while passing its synthesizable UART pins through.
+// Wraps bootable MiniSoC with FESVR while passing its synthesizable UART pins through.
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
@@ -15,9 +15,14 @@ sync_circuit SoCHarness():
   inst soc(mini.MiniSoC())
 
   requester.port <=> soc.host.memory
-  requester.start |> soc.host.start
+  def boot_entry_matches = requester.start.bits === bits(mini.mini_soc_fabric_params.boot.payload_address, 64)
+  soc.host.release.valid <== requester.start.valid & boot_entry_matches
+  requester.start.ready <== soc.host.release.ready & boot_entry_matches
   uart <=> soc.uart
   exit <== requester.exit
+
+  when (requester.start.valid):
+    assert(boot_entry_matches, "fesvr_entry_matches_boot_payload")
 
 def design = elaborate(SoCHarness())
 

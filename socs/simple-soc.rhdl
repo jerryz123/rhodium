@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes a host-facing RV5Stage, routed ACLINT/UART devices, and external CHI memory.
+// Composes a host-facing RV5Stage, BootROM, routed platform devices, and external CHI memory.
 
 import:
   lib("support/annotations.rhm") open
@@ -16,9 +16,11 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/rtl/pma.rhdl") open
+  lib("devices/bootrom.rhdl") open
   lib("devices/aclint.rhdl") open
   lib("devices/uart16550.rhdl") open
   "host-interface.rhdl".SoCHostInterface
+  "boot.rhdl" open
   "peripherals.rhdl" open
 
 def simple_soc_flit = CHIFlitParams()
@@ -59,10 +61,19 @@ def simple_soc_host_port = requester_icn_endpoint(simple_soc_host_node)
 // so on-chip and external-memory SoCs can configure that range independently.
 class SimpleSoCFabricParams(memory_name :: NonemptyString,
                             memory_base :: Nat,
-                            memory_bytes :: Pow2Int):
+                            memory_bytes :: Pow2Int,
+                            boot :: SoCBootConfig):
   implements StableCircuitParam
 
   property flit: simple_soc_flit
+  property platform:
+    SoCPlatformParams(flit,
+                      1,
+                      simple_soc_device_home,
+                      boot,
+                      12,
+                      10,
+                      11)
   property rv5stage_config:
     RV5StageCHIConfig(
       flit,
@@ -72,7 +83,7 @@ class SimpleSoCFabricParams(memory_name :: NonemptyString,
            simple_soc_memory_attributes
          ),
          simple_soc_home
-       )] ++ soc_peripheral_regions(simple_soc_device_home)
+       )] ++ platform.regions
     )
   property home_map: rv5stage_config.home_map
   property rv5stage_params:
@@ -83,13 +94,6 @@ class SimpleSoCFabricParams(memory_name :: NonemptyString,
     requester_icn_endpoint(rv5stage_params.data_node)
   property uncached_port:
     requester_icn_endpoint(rv5stage_params.uncached_node)
-  property peripherals:
-    SoCPeripheralParams(flit,
-                        1,
-                        simple_soc_device_home,
-                        [uncached_port],
-                        10,
-                        11)
   property ram_config:
     CHIRamConfig(flit,
                  memory_bytes,
@@ -119,7 +123,16 @@ class SimpleSoCFabricParams(memory_name :: NonemptyString,
                  memory_port,
                  memory_service)
   property device_home_params:
-    peripherals.home_params
+    platform.home_params([uncached_port])
+
+  constructor (memory_name :: NonemptyString,
+               memory_base :: Nat,
+               memory_bytes :: Pow2Int,
+               ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory_base)):
+    unless AddressSet(memory_base, memory_bytes - 1).contains(boot.payload_address)
+    | error(~who: #'SimpleSoCFabricParams,
+            "BootROM payload address must lie in normal memory")
+    super(memory_name, memory_base, memory_bytes, boot)
 
 // Couples the external-memory fabric contract with the inclusive LLC geometry
 // selected by the complete SimpleSoC composition.
@@ -169,10 +182,13 @@ def simple_soc_memory_service = CHISubordinateServiceParams(
 def simple_soc_home_config = simple_soc_params.fabric.home_config
 def simple_soc_home_params = simple_soc_params.fabric.home_params
 def simple_soc_device_home_params = simple_soc_params.fabric.device_home_params
-def simple_soc_aclint_config = simple_soc_params.fabric.peripherals.aclint_config
-def simple_soc_aclint_params = simple_soc_params.fabric.peripherals.aclint
-def simple_soc_uart_config = simple_soc_params.fabric.peripherals.uart_config
-def simple_soc_uart_params = simple_soc_params.fabric.peripherals.uart
+def simple_soc_platform = simple_soc_params.fabric.platform
+def simple_soc_bootrom_config = simple_soc_platform.bootrom.rom_config
+def simple_soc_bootrom_params = simple_soc_platform.bootrom.rom_params
+def simple_soc_aclint_config = simple_soc_platform.aclint_config
+def simple_soc_aclint_params = simple_soc_platform.aclint
+def simple_soc_uart_config = simple_soc_platform.uart_config
+def simple_soc_uart_params = simple_soc_platform.uart
 
 // The logical RN-I/RN-F relationships compile independently onto the four
 // transport planes while sharing one physical single-router topology.
@@ -204,6 +220,9 @@ def simple_soc_device_home_subordinate_site = CHISNICNSite(
   simple_soc_device_home.node_id,
   simple_soc_router
 )
+def simple_soc_bootrom_site = CHISNSite(NamePath(["devices", "bootrom"]),
+                                        simple_soc_bootrom_params.node.node_id,
+                                        simple_soc_router)
 def simple_soc_aclint_site = CHISNSite(NamePath(["devices", "aclint"]),
                                        simple_soc_aclint_params.node.node_id,
                                        simple_soc_router)
@@ -216,6 +235,8 @@ def simple_soc_connections = [
   CHIRNFConnection(simple_soc_data_site, simple_soc_home_requester_site),
   CHIRNIConnection(simple_soc_uncached_site,
                    simple_soc_device_home_requester_site),
+  CHISNConnection(simple_soc_device_home_subordinate_site,
+                  simple_soc_bootrom_site),
   CHISNConnection(simple_soc_device_home_subordinate_site,
                   simple_soc_aclint_site),
   CHISNConnection(simple_soc_device_home_subordinate_site,
@@ -264,8 +285,10 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params
                          ~chi: params.rv5stage_config))
   inst home(home_module)
   inst device_home(CHIHNI(params.device_home_params))
-  inst aclint(Aclint(params.peripherals.aclint_config))
-  inst uart_device(Uart16550(params.peripherals.uart_config))
+  inst bootrom(CHIBootROM(params.platform.bootrom.rom_config))
+  inst aclint(Aclint(params.platform.aclint_config))
+  inst uart_device(Uart16550(params.platform.uart_config))
+  inst boot(SoCBootDistributor(64, 1, params.boot.reset_address))
   inst req_router(SimpleRouter(CHIReqFlit(simple_soc_flit), simple_soc_req_router_config))
   inst rsp_router(SimpleRouter(CHIRspFlit(simple_soc_flit), simple_soc_rsp_router_config))
   inst snp_router(SimpleRouter(CHISnpFlit(simple_soc_flit), simple_soc_snp_router_config))
@@ -279,12 +302,15 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params
     home_node_id: bits(params.home_params.home.node_id, simple_soc_flit.node_id_width)
     subordinate_node_id: bits(params.home_params.subordinate_endpoint.node_id, simple_soc_flit.node_id_width)
     service_base: bits(params.memory_base, simple_soc_flit.request_address_width)
+  bootrom.identity <== CHIBootROMIdentity(simple_soc_flit):
+    node_id: bits(params.platform.bootrom.rom_params.node.node_id, simple_soc_flit.node_id_width)
+    base_address: bits(params.boot.reset_address, simple_soc_flit.request_address_width)
   aclint.identity <== AclintIdentity(simple_soc_flit):
-    node_id: bits(params.peripherals.aclint.node.node_id, simple_soc_flit.node_id_width)
-    base_address: bits(params.peripherals.aclint.base_address, simple_soc_flit.request_address_width)
+    node_id: bits(params.platform.aclint.node.node_id, simple_soc_flit.node_id_width)
+    base_address: bits(params.platform.aclint.base_address, simple_soc_flit.request_address_width)
   uart_device.identity <== Uart16550Identity(simple_soc_flit):
-    node_id: bits(params.peripherals.uart.node.node_id, simple_soc_flit.node_id_width)
-    base_address: bits(params.peripherals.uart.base_address, simple_soc_flit.request_address_width)
+    node_id: bits(params.platform.uart.node.node_id, simple_soc_flit.node_id_width)
+    base_address: bits(params.platform.uart.base_address, simple_soc_flit.request_address_width)
 
   connect_chi_rnf_node(host.memory,
                        ~node: simple_soc_host_site,
@@ -340,6 +366,13 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params
                              ~dat_ingress: dat_router.ingress,
                              ~dat_targets: dat_router.target,
                              ~adapters: simple_soc_adapter_plans)
+  connect_chi_sn_node(bootrom.port,
+                      ~node: simple_soc_bootrom_site,
+                      ~req_targets: req_router.target,
+                      ~rsp_ingress: rsp_router.ingress,
+                      ~dat_targets: dat_router.target,
+                      ~dat_ingress: dat_router.ingress,
+                      ~adapters: simple_soc_adapter_plans)
   connect_chi_sn_node(aclint.port,
                       ~node: simple_soc_aclint_site,
                       ~req_targets: req_router.target,
@@ -359,7 +392,8 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params
   uart_device.rx <== uart.rx
   uart.tx <== uart_device.tx
   uart.interrupt <== uart_device.interrupt
-  host.start |> rv5stage.start
+  host.release |> boot.release
+  boot.start[0] |> rv5stage.start
   rv5stage.interrupts <== RV5StageInterrupts():
     supervisor_software: Bool(#false)
     machine_software: aclint.machine_software[0]
@@ -418,6 +452,9 @@ export:
   simple_soc_memory_service
   simple_soc_home_config
   simple_soc_home_params
+  simple_soc_platform
+  simple_soc_bootrom_config
+  simple_soc_bootrom_params
   simple_soc_aclint_config
   simple_soc_aclint_params
   simple_soc_uart_config
@@ -432,6 +469,7 @@ export:
   simple_soc_home_requester_site
   simple_soc_device_home_requester_site
   simple_soc_device_home_subordinate_site
+  simple_soc_bootrom_site
   simple_soc_aclint_site
   simple_soc_uart_site
   simple_soc_connections

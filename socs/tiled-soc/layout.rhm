@@ -1,11 +1,12 @@
 #lang rhombus/and_meta
-// Defines the author-facing TiledSoC layout language and immutable configuration.
+// Defines the author-facing TiledSoC layout, NodeIDs, boot policy, and immutable configuration.
 
 import:
   rhombus/meta open
   "../../noc/std/topology/rectangular-mesh.rhm".MeshCoordinate
   "../../chi/params.rhdl".CHIFlitParams
   "../../rhodium/frontend/foundation.rhm".StableCircuitParam
+  "../boot.rhdl" open
 
 export:
   RV5StageTileSpec
@@ -128,6 +129,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                    llc_home_base :: Nat,
                    device_home :: Nat,
                    backing_memory_base :: Nat,
+                   bootrom_subordinate :: Nat,
                    aclint_subordinate :: Nat,
                    uart_subordinate :: Nat):
   constructor (~rv5stage_coherent_base: rv5stage_coherent_base :: Nat,
@@ -136,6 +138,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                ~llc_home_base: llc_home_base :: Nat,
                ~device_home: device_home :: Nat,
                ~backing_memory_base: backing_memory_base :: Nat,
+               ~bootrom_subordinate: bootrom_subordinate :: Nat,
                ~aclint_subordinate: aclint_subordinate :: Nat,
                ~uart_subordinate: uart_subordinate :: Nat):
     super(rv5stage_coherent_base,
@@ -144,6 +147,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
           llc_home_base,
           device_home,
           backing_memory_base,
+          bootrom_subordinate,
           aclint_subordinate,
           uart_subordinate)
 
@@ -174,7 +178,8 @@ class TiledSoCConfig(layout :: TileGrid,
                      memory :: StripedMemory,
                      llc :: LLCGeometry,
                      timebase_period_cycles :: PosInt,
-                     flit :: CHIFlitParams):
+                     flit :: CHIFlitParams,
+                     boot :: SoCBootConfig):
   implements StableCircuitParam
 
   constructor (~layout: layout :: TileGrid,
@@ -182,14 +187,15 @@ class TiledSoCConfig(layout :: TileGrid,
                ~memory: memory :: StripedMemory,
                ~llc: llc :: LLCGeometry,
                ~timebase_period_cycles: timebase_period_cycles :: PosInt,
-               ~flit: flit :: CHIFlitParams = CHIFlitParams()):
+               ~flit: flit :: CHIFlitParams = CHIFlitParams(),
+               ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory.base)):
     unless memory.stripe_bytes >= 64
     | error(~who: #'TiledSoCConfig,
             "striped-memory stripes must contain a complete LLC line")
     unless llc.capacity_bytes <= memory.bank_bytes
     | error(~who: #'TiledSoCConfig,
             "each LLC must fit within its backing-memory bank")
-    super(layout, node_ids, memory, llc, timebase_period_cycles, flit)
+    super(layout, node_ids, memory, llc, timebase_period_cycles, flit, boot)
 
 meta:
   fun tile_run(entry :: Syntax):

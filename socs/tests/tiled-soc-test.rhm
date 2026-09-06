@@ -1,14 +1,17 @@
 #lang rhombus
-// Verifies the complete tiled SoC hierarchy with split device-home, ACLINT, and UART tiles.
+// Verifies the bootable tiled SoC hierarchy with its device-home and subordinate tiles.
 
 import:
   "../../rhodium/core/main.rhm" open
+  "../tiled-soc/compile.rhdl" as compiler
   "tiled-soc-fixture.rhdl" as fixture
 
 def module_names = fixture.tiled_soc_design.modules.map(fun (module_def): module_def.name)
 def top = fixture.tiled_soc_design.modules.find(fun (module_def): module_def.name == "TiledSoC")
 def compact_module_names = fixture.compact_tiled_soc_design.modules.map(fun (module_def): module_def.name)
 def compact_top = fixture.compact_tiled_soc_design.modules.find(fun (module_def): module_def.name == "TiledSoC")
+def boot_distributor = fixture.tiled_soc_design.modules.find(fun (module_def): module_def.name == "SoCBootDistributor")
+def compact_implementation = compiler.compile_tiled_soc(fixture.compact_config)
 
 check:
   module_names.contains("TiledSoC") ~is #true
@@ -23,6 +26,8 @@ check:
   module_names.contains("RV5Stage") ~is #true
   module_names.contains("CHIInclusiveHNF") ~is #true
   module_names.contains("CHIHNI") ~is #true
+  module_names.contains("CHIBootROM") ~is #true
+  module_names.contains("SoCBootDistributor") ~is #true
   module_names.contains("Aclint") ~is #true
   module_names.contains("Uart16550") ~is #true
   module_names.contains("CHIAddressProjector") ~is #true
@@ -44,9 +49,11 @@ check:
   module_names.filter(~keep: fun (name): name == "CHIInclusiveHNF").length() ~is 1
   module_names.filter(~keep: fun (name): name == "CHIAddressProjector").length() ~is 1
   module_names.filter(~keep: fun (name): name == "CHIRam").length() ~is 1
+  boot_distributor.inputs.length() ~is 11
+  boot_distributor.outputs.length() ~is 9
   top.inputs.map(fun (input): input.name) ~is ["clock", "reset", "host_in", "uart_in"]
   top.outputs.map(fun (output): output.name) ~is ["host_out", "uart_out", "faults"]
-  top.find_input("host_in").type.field("start").type.field("bits").type.width ~is 64
+  top.find_input("host_in").type.field("release").type.field("valid").type.bit_width() ~is 1
   verify_design(fixture.tiled_soc_design) ~is #void
 
 check:
@@ -56,9 +63,14 @@ check:
   fixture.compact_config.layout.llcs.length() ~is 2
   fixture.compact_config.layout.transits.length() ~is 1
   fixture.compact_config.timebase_period_cycles ~is 8
+  compact_implementation.bootrom.device.node.node_id ~is 11
+  compact_implementation.bootrom.placement.router === compact_implementation.device_home.placement.router ~is #true
+  compact_implementation.home_map.entry(fixture.compact_config.boot.reset_address).home === compact_implementation.device_home.home ~is #true
+  compact_implementation.device_home.tile_params.router.attachment.sn_locals.length() ~is 1
   compact_module_names.contains("RV5StageTile") ~is #true
   compact_module_names.contains("LLCTile") ~is #true
   compact_module_names.contains("CHIInclusiveHNF") ~is #true
+  compact_module_names.contains("CHIBootROM") ~is #true
   compact_module_names.contains("TransitTile") ~is #true
   compact_module_names.contains("TiledTimeSweeper") ~is #true
   compact_module_names.contains("TiledTimeReceiver") ~is #true

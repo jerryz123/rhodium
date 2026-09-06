@@ -1,0 +1,98 @@
+#lang rhodium
+// Defines shared SoC BootROM configuration, PMA metadata, and multihart release distribution.
+
+import:
+  lib("support/annotations.rhm") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/flow/broadcast.rhdl").Broadcast
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("chi/main.rhdl") open
+  lib("cores/rv5stage/chi.rhdl").RV5StageCHIRegion
+  lib("riscv/rtl/pma.rhdl") open
+  lib("devices/bootrom-image.rhm") open
+  lib("devices/bootrom.rhdl") open
+
+class SoCBootConfig(reset_address :: Nat,
+                    payload_address :: Nat,
+                    window_bytes :: Pow2Int,
+                    image :: BootROMImage):
+  implements StableCircuitParam
+
+  constructor (~reset_address: reset_address :: Nat,
+               ~payload_address: payload_address :: Nat,
+               ~window_bytes: window_bytes :: Pow2Int,
+               ~image: image :: BootROMImage):
+    unless reset_address mod window_bytes == 0
+    | error(~who: #'SoCBootConfig,
+            "reset address must be aligned to the BootROM window")
+    unless image.size_bytes <= window_bytes
+    | error(~who: #'SoCBootConfig, "image must fit in the BootROM window")
+    super(reset_address, payload_address, window_bytes, image)
+
+fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMResetAddress,
+                          ~payload_address: payload_address :: Nat = RiscvBootROMPayloadAddress,
+                          ~window_bytes: window_bytes :: Pow2Int = CHIBootROMDefaultWindowBytes):
+  SoCBootConfig(
+    ~reset_address: reset_address,
+    ~payload_address: payload_address,
+    ~window_bytes: window_bytes,
+    ~image: riscv_bootrom_image(reset_address, payload_address)
+  )
+
+def DefaultSoCBootConfig = riscv_soc_boot_config()
+def soc_bootrom_attributes = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)
+
+class SoCBootROMParams(flit :: CHIFlitParams,
+                       home :: CHIHomeParams,
+                       node_id :: Nat,
+                       boot :: SoCBootConfig):
+  implements StableCircuitParam
+
+  property rom_config:
+    CHIBootROMConfig(flit,
+                     ~window_bytes: boot.window_bytes,
+                     ~image: boot.image)
+  property rom_params:
+    CHIBootROMParams("soc-bootrom",
+                     node_id,
+                     rom_config,
+                     ~base_address: boot.reset_address)
+  property region:
+    RV5StageCHIRegion(
+      RiscvPhysicalMemoryRegion(
+        AddressSet(boot.reset_address, boot.window_bytes - 1),
+        soc_bootrom_attributes
+      ),
+      home
+    )
+
+sync_circuit SoCBootDistributor(width :: PosInt,
+                                hart_count :: PosInt,
+                                reset_address :: Nat):
+  unless bits.length(reset_address) <= width
+  | error(~who: #'SoCBootDistributor,
+          "reset address must fit the processor start width")
+
+  interface release(IrrevocableCtrl(), ~role: consumer)
+  interface start[hart_count](Irrevocable(Bits(width)), ~role: producer)
+
+  inst broadcast(Broadcast(Bits(width), hart_count))
+  reg released(~init: Bool(#false))
+
+  broadcast.ingress.valid <== release.valid & !released
+  broadcast.ingress.bits <== bits(reset_address, width)
+  release.ready <== broadcast.ingress.ready & !released
+  start <=> broadcast.egress
+
+  when (release.fire()):
+    released <== Bool(#true)
+  when (release.valid):
+    assert(!released, "soc_boot_release_once")
+
+export:
+  SoCBootConfig
+  riscv_soc_boot_config
+  DefaultSoCBootConfig
+  soc_bootrom_attributes
+  SoCBootROMParams
+  SoCBootDistributor

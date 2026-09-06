@@ -20,6 +20,7 @@ def compact_config = TiledSoCConfig(
     ~llc_home_base: 4,
     ~device_home: 6,
     ~backing_memory_base: 7,
+    ~bootrom_subordinate: 11,
     ~aclint_subordinate: 9,
     ~uart_subordinate: 10
   ),

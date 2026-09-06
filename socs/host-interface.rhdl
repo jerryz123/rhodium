@@ -1,8 +1,8 @@
 #lang rhodium
-// Defines the common coherent loader-memory and boot-entry boundary exposed by SoCs.
+// Defines the common coherent loader-memory and boot-release boundary exposed by SoCs.
 
 import:
-  lib("rhodium/std/ready-valid.rhdl").Irrevocable
+  lib("rhodium/std/ready-valid.rhdl").IrrevocableCtrl
   lib("chi/main.rhdl").CHIFlitParams
   lib("chi/main.rhdl").CHIRNChannels
 
@@ -15,7 +15,7 @@ interface SoCHostInterface(p :: CHIFlitParams):
     memory: CHIRNChannels(p)
 
   host -> soc:
-    start: Irrevocable(Bits(64))
+    release: IrrevocableCtrl()
 
 export:
   SoCHostInterface

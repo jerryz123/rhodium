@@ -33,10 +33,11 @@ flowchart LR
 
   subgraph Harness["Generated SoCHarness top - sims ownership"]
     FESVR["FesvrRequester<br/>coherent host RN-F"]
-    SoC["Selected SoC instance<br/>hardware owned by socs/"]
+    SoC["Selected SoC instance<br/>BootROM + hardware owned by socs/"]
     DPIMemory["CHIDPIMemory<br/>SimpleSoC only"]
 
     FESVR <--> SoC
+    FESVR -.->|"release after load"| SoC
     SoC <--> DPIMemory
   end
 
@@ -105,6 +106,11 @@ make -C sims run SOC=tiled BINARY=/absolute/path/to/program.elf
 argument vector through VPI to `DirectMemoryHtif`. FESVR owns ELF parsing,
 segment loading, entry-point discovery, `tohost`/`fromhost` polling, and exit
 status; the Makefile and RTL do not implement a separate binary loader.
+
+Each harness requires the ELF entry point reported by FESVR to match the SoC's
+configured BootROM payload address. It then converts that entry notification
+into a one-shot release; every hart starts at the reset address, hart zero
+jumps to the loaded payload, and secondary harts park in the ROM.
 
 `DirectMemoryHtif` presents FESVR's abstract memory chunks as one-outstanding,
 aligned 32-bit transactions. Target XLEN may be 32 or 64; addresses and entry

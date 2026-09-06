@@ -1,5 +1,5 @@
 #lang rhodium
-// Wraps SimpleSoC with FESVR, simulation memory, and pass-through UART pins.
+// Wraps bootable SimpleSoC with FESVR, simulation memory, and pass-through UART pins.
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
@@ -18,13 +18,18 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
   inst memory(chi.CHIDPIMemory(fabric_params.ram_config))
 
   requester.port <=> soc.host.memory
-  requester.start |> soc.host.start
+  def boot_entry_matches = requester.start.bits === bits(fabric_params.boot.payload_address, 64)
+  soc.host.release.valid <== requester.start.valid & boot_entry_matches
+  requester.start.ready <== soc.host.release.ready & boot_entry_matches
   uart <=> soc.uart
   soc.memory <=> memory.port
   memory.identity <== chi.CHIRamIdentity(fabric_params.flit):
     node_id: bits(fabric_params.ram_params.node_id, fabric_params.flit.node_id_width)
     base_address: bits(fabric_params.ram_params.base_address, fabric_params.flit.request_address_width)
   exit <== requester.exit
+
+  when (requester.start.valid):
+    assert(boot_entry_matches, "fesvr_entry_matches_boot_payload")
 
 def design = elaborate(SoCHarness())
 

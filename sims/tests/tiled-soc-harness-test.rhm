@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the FESVR-backed TiledSoC harness and pass-through UART boundary.
+// Checks the BootROM-aware FESVR TiledSoC harness and pass-through UART boundary.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -8,6 +8,9 @@ import:
 def design = harness.design
 def top = design.modules.find(fun (module_def): module_def.name == "SoCHarness")
 def module_names = design.modules.map(fun (module_def): module_def.name)
+def assertion_labels = top.operations.filter(
+  ~keep: fun (operation): operation.opcode == "verif.assert"
+).map(fun (operation): operation.attribute("label"))
 
 check:
   top.inputs.map(fun (port): port.name) ~is ["clock", "reset", "uart_in"]
@@ -16,6 +19,9 @@ check:
   module_names.contains("SimpleSoC") ~is #false
   module_names.contains("MiniSoC") ~is #false
   module_names.contains("Uart16550") ~is #true
+  module_names.contains("CHIBootROM") ~is #true
+  module_names.contains("SoCBootDistributor") ~is #true
   module_names.contains("FesvrRequester") ~is #true
   module_names.contains("FesvrSnoopResponder") ~is #true
+  assertion_labels.contains("fesvr_entry_matches_boot_payload") ~is #true
   verify_design(design) ~is #void

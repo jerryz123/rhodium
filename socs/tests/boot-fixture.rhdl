@@ -1,0 +1,19 @@
+#lang rhodium
+// Elaborates shared SoC BootROM metadata and a four-hart boot-release distributor.
+
+import:
+  lib("chi/main.rhdl") open
+  lib("socs/boot.rhdl") open
+
+def boot = riscv_soc_boot_config()
+def flit = CHIFlitParams()
+def home = CHIHomeParams("boot-home", 6, CHINodeKind.HNI, ~max_outstanding: 1)
+def params = SoCBootROMParams(flit, home, 12, boot)
+def design = elaborate(SoCBootDistributor(64, 4, boot.reset_address))
+
+export:
+  boot
+  flit
+  home
+  params
+  design

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines the shared ACLINT and UART address, CHI-service, and pin contracts for SoCs.
+// Defines shared BootROM, ACLINT, UART, PMA, and HN-I platform contracts for SoCs.
 
 import:
   lib("chi/main.rhdl") open
@@ -7,6 +7,7 @@ import:
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/aclint.rhdl") open
   lib("devices/uart16550.rhdl") open
+  "boot.rhdl" open
 
 def SoCAclintBase = 0x02000000
 def SoCUartBase = 0x10000000
@@ -41,17 +42,20 @@ interface SoCUartInterface():
     tx: Bits(1)
     interrupt: Bool
 
-// Keeps every SoC's device PMA entries and HN-I subordinate map derived from
-// the same pair of device descriptions.
-class SoCPeripheralParams(flit :: CHIFlitParams,
-                          hart_count :: PosInt,
-                          home :: CHIHomeParams,
-                          requester_endpoints :: NonemptyList.of(CHIICNPortParams),
-                          aclint_node_id :: Nat,
-                          uart_node_id :: Nat,
-                          uart_fifo_depth :: Int.in(1 ..= Uart16550MaximumFifoDepth) = SoCUartFifoDepth):
+// Keeps every SoC's uncached PMA entries and HN-I subordinate map derived from
+// the same BootROM, ACLINT, and UART descriptions.
+class SoCPlatformParams(flit :: CHIFlitParams,
+                        hart_count :: PosInt,
+                        home :: CHIHomeParams,
+                        boot :: SoCBootConfig,
+                        bootrom_node_id :: Nat,
+                        aclint_node_id :: Nat,
+                        uart_node_id :: Nat,
+                        uart_fifo_depth :: Int.in(1 ..= Uart16550MaximumFifoDepth) = SoCUartFifoDepth):
   implements StableCircuitParam
 
+  property bootrom:
+    SoCBootROMParams(flit, home, bootrom_node_id, boot)
   property aclint_config: AclintConfig(flit, hart_count)
   property aclint:
     AclintParams("soc-aclint", aclint_node_id, aclint_config, SoCAclintBase)
@@ -59,10 +63,11 @@ class SoCPeripheralParams(flit :: CHIFlitParams,
   property uart:
     Uart16550Params("soc-uart", uart_node_id, uart_config, SoCUartBase)
   property subordinate_map:
-    CHISubordinateMap(flit, [aclint.service, uart.service])
-  property home_params:
+    CHISubordinateMap(flit, [bootrom.rom_params.service, aclint.service, uart.service])
+  property regions: [bootrom.region] ++ soc_peripheral_regions(home)
+
+  method home_params(requester_endpoints :: NonemptyList.of(CHIICNPortParams)):
     CHIHNIParams(home, requester_endpoints, subordinate_map)
-  property regions: soc_peripheral_regions(home)
 
 export:
   SoCAclintBase
@@ -71,4 +76,4 @@ export:
   soc_device_attributes
   soc_peripheral_regions
   SoCUartInterface
-  SoCPeripheralParams
+  SoCPlatformParams

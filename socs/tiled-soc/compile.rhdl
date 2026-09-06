@@ -1,5 +1,5 @@
 #lang rhodium
-// Privately compiles one TiledSoC configuration into placement, fabric, and tile parameters.
+// Privately compiles one TiledSoC configuration into boot, placement, fabric, and tile parameters.
 
 import:
   lib("chi/main.rhdl") open
@@ -10,8 +10,10 @@ import:
   lib("noc/rtl/router.rhdl") open
   lib("cores/rv5stage/chi.rhdl") open
   lib("riscv/rtl/pma.rhdl") open
+  lib("devices/bootrom.rhdl").CHIBootROMParams
   lib("devices/aclint.rhdl").AclintParams
   lib("devices/uart16550.rhdl").Uart16550Params
+  "../boot.rhdl" open
   "../peripherals.rhdl" open
   "tiles/main.rhdl" open
   "layout.rhm" open
@@ -45,6 +47,11 @@ class TiledDeviceHomePlacement(coordinate :: MeshCoordinate,
                                node_id :: Nat,
                                requester_site :: CHIRNICNSite,
                                subordinate_site :: CHISNICNSite)
+
+class TiledBootROMPlacement(coordinate :: MeshCoordinate,
+                            router :: NodeRef,
+                            node_id :: Nat,
+                            site :: CHISNSite)
 
 class TiledAclintPlacement(coordinate :: MeshCoordinate,
                            router :: NodeRef,
@@ -87,6 +94,9 @@ class DeviceHomeTileInstance(placement :: TiledDeviceHomePlacement,
                              home_params :: CHIHNIParams,
                              tile_params :: DeviceHomeTileParams)
 
+class BootROMInstance(placement :: TiledBootROMPlacement,
+                      device :: CHIBootROMParams)
+
 class AclintTileInstance(placement :: TiledAclintPlacement,
                          device :: AclintParams,
                          tile_params :: AclintTileParams)
@@ -113,12 +123,13 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
                              llc_config :: CHIInclusiveHNFConfig,
                              ram_config :: CHIRamConfig,
                              fragmenter_config :: CHITransferFragmenterConfig,
-                             peripherals :: SoCPeripheralParams,
+                             platform :: SoCPlatformParams,
                              router_configs :: CHIRouterFamilyConfigs,
                              rv5stages :: NonemptyList.of(RV5StageTileInstance),
                              llcs :: NonemptyList.of(LLCTileInstance),
                              host :: HostTileInstance,
                              device_home :: DeviceHomeTileInstance,
+                             bootrom :: BootROMInstance,
                              aclint :: AclintTileInstance,
                              uart :: UartTileInstance,
                              transits :: List.of(TransitTileInstance)):
@@ -227,6 +238,13 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                  device_home_router)
   )
 
+  def bootrom_placement = TiledBootROMPlacement(
+    device_home_cell.coordinate,
+    device_home_router,
+    ids.bootrom_subordinate,
+    CHISNSite(NamePath(["devices", "bootrom"]), ids.bootrom_subordinate, device_home_router)
+  )
+
   def aclint_cell = layout.aclints[0]
   def aclint_router = mesh.node_at(aclint_cell.coordinate.x, aclint_cell.coordinate.y)
   def aclint_placement = TiledAclintPlacement(
@@ -266,6 +284,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   for (requester in uncached_sites):
     connections := connections ++ [CHIRNIConnection(requester, device_home_placement.requester_site)]
   connections := connections ++ [
+    CHISNConnection(device_home_placement.subordinate_site, bootrom_placement.site),
     CHISNConnection(device_home_placement.subordinate_site, aclint_placement.site),
     CHISNConnection(device_home_placement.subordinate_site, uart_placement.site)
   ]
@@ -297,6 +316,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     fun (placement): placement.subordinate_node_id
   ) ++ [host_placement.node_id,
         device_home_placement.node_id,
+        bootrom_placement.node_id,
         aclint_placement.node_id,
         uart_placement.node_id]
   require_unique_tiled_node_ids(node_ids)
@@ -337,6 +357,15 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                                   device_home_placement.node_id,
                                   CHINodeKind.HNI,
                                   ~max_outstanding: 1)
+  def platform = SoCPlatformParams(
+    flit,
+    rv5stage_placements.length(),
+    device_home,
+    config.boot,
+    bootrom_placement.node_id,
+    aclint_placement.node_id,
+    uart_placement.node_id
+  )
 
   def memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
   def rv5stage_config = RV5StageCHIConfig(
@@ -349,8 +378,11 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
            memory_attributes
          ),
          home
-       )) ++ soc_peripheral_regions(device_home)
+       )) ++ platform.regions
   )
+  unless for any (placement in llc_placements):
+    projector_config.address_set(memory.base, placement.bank_index).contains(config.boot.payload_address)
+  | error(~who: #'compile_tiled_soc, "BootROM payload address must lie in normal memory")
 
   def rv5stage_chi_params:
     for List (placement in rv5stage_placements):
@@ -368,14 +400,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     fun (params): tiled_requester_icn_endpoint(params.uncached_node)
   )
 
-  def peripherals = SoCPeripheralParams(
-    flit,
-    rv5stage_placements.length(),
-    device_home,
-    uncached_ports,
-    aclint_placement.node_id,
-    uart_placement.node_id
-  )
+  def device_home_params = platform.home_params(uncached_ports)
 
   def ram_config = CHIRamConfig(flit,
                                 memory.bank_bytes,
@@ -473,7 +498,8 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       adapter_plans,
       CHIRouterAttachments(
         ~hni_requester_sites: [[device_home_placement.requester_site]],
-        ~hn_subordinate_sites: [[device_home_placement.subordinate_site]]
+        ~hn_subordinate_sites: [[device_home_placement.subordinate_site]],
+        ~sn_sites: [[bootrom_placement.site]]
       )
     )
   )
@@ -522,9 +548,9 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                                       fragmenter_config,
                                       ram_config,
                                       llc_router_params)
-  def device_home_tile_params = DeviceHomeTileParams(peripherals.home_params, device_home_router_params)
-  def aclint_tile_params = AclintTileParams(peripherals.aclint_config, aclint_router_params)
-  def uart_tile_params = UartTileParams(peripherals.uart_config, uart_router_params)
+  def device_home_tile_params = DeviceHomeTileParams(device_home_params, device_home_router_params)
+  def aclint_tile_params = AclintTileParams(platform.aclint_config, aclint_router_params)
+  def uart_tile_params = UartTileParams(platform.uart_config, uart_router_params)
   def host_tile_params = HostTileParams(host_router_params)
   def transit_tile_params = TransitTileParams(transit_router_params)
 
@@ -546,9 +572,10 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                       ram,
                       llc_tile_params)
   def host = HostTileInstance(host_placement, host_node, host_port, host_tile_params)
-  def device_home_instance = DeviceHomeTileInstance(device_home_placement, device_home, peripherals.home_params, device_home_tile_params)
-  def aclint = AclintTileInstance(aclint_placement, peripherals.aclint, aclint_tile_params)
-  def uart = UartTileInstance(uart_placement, peripherals.uart, uart_tile_params)
+  def device_home_instance = DeviceHomeTileInstance(device_home_placement, device_home, device_home_params, device_home_tile_params)
+  def bootrom = BootROMInstance(bootrom_placement, platform.bootrom.rom_params)
+  def aclint = AclintTileInstance(aclint_placement, platform.aclint, aclint_tile_params)
+  def uart = UartTileInstance(uart_placement, platform.uart, uart_tile_params)
   def transits:
     for List (placement in transit_placements):
       TransitTileInstance(placement, transit_tile_params)
@@ -569,12 +596,13 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     llc_config,
     ram_config,
     fragmenter_config,
-    peripherals,
+    platform,
     router_configs,
     rv5stages,
     llcs,
     host,
     device_home_instance,
+    bootrom,
     aclint,
     uart,
     transits
@@ -585,6 +613,7 @@ export:
   TiledHostPlacement
   TiledLLCPlacement
   TiledDeviceHomePlacement
+  TiledBootROMPlacement
   TiledAclintPlacement
   TiledUartPlacement
   TiledTransitPlacement
@@ -593,6 +622,7 @@ export:
   LLCTileInstance
   HostTileInstance
   DeviceHomeTileInstance
+  BootROMInstance
   AclintTileInstance
   UartTileInstance
   TransitTileInstance

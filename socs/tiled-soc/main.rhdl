@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes the author-facing TiledSoC configuration and structural circuit.
+// Exposes the author-facing bootable TiledSoC configuration and structural circuit.
 
 import:
   lib("chi/main.rhdl") open
@@ -7,6 +7,7 @@ import:
   lib("rhodium/std/flow/demux.rhdl").Demux
   lib("cores/rv5stage/chi.rhdl").RV5StageCHIIdentity
   lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
+  lib("devices/bootrom.rhdl") open
   lib("devices/aclint.rhdl").AclintIdentity
   lib("devices/uart16550.rhdl").Uart16550Identity
   lib("riscv/isa/c.rhm") open
@@ -17,6 +18,7 @@ import:
   "tiles/main.rhdl" open
   "../host-interface.rhdl".SoCHostInterface
   "../peripherals.rhdl".SoCUartInterface
+  "../boot.rhdl".SoCBootDistributor
 
 def default_tiled_soc_layout = tile_grid:
   row [llc(4)]
@@ -33,6 +35,7 @@ def default_tiled_soc_config = TiledSoCConfig(
     ~llc_home_base: 32,
     ~device_home: 36,
     ~backing_memory_base: 48,
+    ~bootrom_subordinate: 54,
     ~aclint_subordinate: 52,
     ~uart_subordinate: 53
   ),
@@ -68,6 +71,8 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
     inst transit(TransitTile(entry.tile_params))
   inst host_tile(HostTile(implementation.host.tile_params))
   inst device_home(DeviceHomeTile(implementation.device_home.tile_params))
+  inst bootrom(CHIBootROM(implementation.platform.bootrom.rom_config))
+  inst boot(SoCBootDistributor(64, implementation.rv5stages.length(), config.boot.reset_address))
   inst aclint(AclintTile(implementation.aclint.tile_params))
   inst uart_device(UartTile(implementation.uart.tile_params))
   // Platform time advances at the configured architectural timebase; each
@@ -93,10 +98,9 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
       supervisor_external: Bool(#false)
       machine_external: Bool(#false)
     time_demux.egress[index] <=> rv5stages[index].time_beat
-  host.start |> rv5stages[0].start
-  for (index in 1..implementation.rv5stages.length()):
-    rv5stages[index].start.valid <== Bool(#false)
-    rv5stages[index].start.bits <== dont_care(Bits(64))
+  host.release |> boot.release
+  for (index in 0..implementation.rv5stages.length()):
+    boot.start[index] |> rv5stages[index].start
 
   for (index in 0..implementation.llcs.length()):
     def entry = implementation.llcs[index]
@@ -119,6 +123,10 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
   host_tile.site_key <== bits(implementation.site_key(implementation.host.placement.router), site_width)
   host.memory <=> host_tile.host
   device_home.site_key <== bits(implementation.site_key(implementation.device_home.placement.router), site_width)
+  bootrom.identity <== CHIBootROMIdentity(p):
+    node_id: bits(implementation.bootrom.device.node_id, p.node_id_width)
+    base_address: bits(implementation.bootrom.device.base_address, p.request_address_width)
+  bootrom.port <=> device_home.subordinate[0]
   aclint.identity <== AclintTileIdentity(p, site_width):
     site_key: bits(implementation.site_key(implementation.aclint.placement.router), site_width)
     aclint: (AclintIdentity(p):

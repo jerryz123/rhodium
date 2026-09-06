@@ -8,6 +8,7 @@ all: rtl-elaboration-test tiled-compile-test tiled-elaboration-test
 
 rtl-elaboration-test:
 	cd $(REPO_DIR) && RACO="$(RACO)" tools/run-racket-tests.sh \
+	  socs/tests/boot-test.rhm \
 	  socs/tests/simple-soc-test.rhm \
 	  socs/tests/mini-soc-test.rhm
 
