@@ -65,8 +65,8 @@ sync_circuit TiledTimeSweeper(hart_count :: PosInt):
 
 // Accepts one fixed-length packet at a time and exposes a timestamp only after
 // the final chunk transfers, so partial updates are never architecturally visible.
-sync_circuit TiledTimeReceiver(hart_count :: PosInt):
-  interface ingress(Decoupled(TiledTimeBeat(hart_count)), ~role: consumer)
+sync_circuit TiledTimeReceiver():
+  interface ingress(Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: consumer)
   output value: Bits(64)
 
   inst reassembler(Reassembler(Bits(64), TiledTimeChunkWidth))
@@ -74,7 +74,7 @@ sync_circuit TiledTimeReceiver(hart_count :: PosInt):
 
   ingress.ready <== reassembler.ingress.ready
   reassembler.ingress.valid <== ingress.valid
-  reassembler.ingress.bits <== ingress.bits.flit
+  reassembler.ingress.bits <== ingress.bits
   reassembler.egress.ready <== Bool(#true)
   value <== mux(reassembler.egress.valid, reassembler.egress.bits, time_value)
 

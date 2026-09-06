@@ -1,0 +1,280 @@
+#lang rhodium
+// Routes packetized time and convergent interrupt state across the tiled platform mesh.
+
+import:
+  lib("noc/model/main.rhm") open
+  lib("noc/authoring/main.rhm") open
+  lib("noc/plan/main.rhm") open
+  lib("noc/rtl/main.rhdl") open
+  lib("noc/std/routing/main.rhm") open
+  lib("noc/std/topology/main.rhm") open
+  lib("rhodium/std/flow.rhdl") open
+  "time.rhdl" open
+
+bundle TiledHartInterrupts():
+  machine_software: Bool
+  machine_timer: Bool
+
+def NoTiledHartInterrupts = TiledHartInterrupts():
+  machine_software: Bool(#false)
+  machine_timer: Bool(#false)
+
+tagged_union TiledDistributionMessage:
+  Time(FramedFixedFlit(Bits(TiledTimeChunkWidth)))
+  Interrupt(TiledHartInterrupts())
+
+class TiledDistributionHartPlan(index :: Nat,
+                                site_key :: Nat,
+                                time_target_index :: Nat,
+                                interrupt_target_index :: Nat)
+
+class TiledDistributionPlan(network :: NetworkCompilation,
+                            family :: RouterFamilyPlan,
+                            physical :: RouterFamilyPhysicalPlan,
+                            router :: SimpleRouterFamilyConfig,
+                            source_site_key :: Nat,
+                            time_input_index :: Nat,
+                            interrupt_input_index :: Nat,
+                            time_route_keys :: NonemptyList.of(Nat),
+                            interrupt_route_keys :: NonemptyList.of(Nat),
+                            harts :: NonemptyList.of(TiledDistributionHartPlan)):
+  implements StableCircuitParam
+
+fun tiled_distribution_injection_ref(kind :: String) :: InjectionRef:
+  InjectionRef(["aclint", kind])
+
+fun tiled_distribution_ejection_ref(kind :: String,
+                                    index :: Nat) :: EjectionRef:
+  EjectionRef(["rv5stage", to_string(index), kind])
+
+fun tiled_distribution_route_ref(kind :: String,
+                                 index :: Nat) :: RouteClassRef:
+  RouteClassRef(["aclint", kind, "rv5stage", to_string(index)])
+
+fun compile_tiled_distribution(
+      mesh :: RectangularMesh,
+      aclint_router :: NodeRef,
+      hart_routers :: NonemptyList.of(NodeRef)) :: TiledDistributionPlan:
+  def time_source = tiled_distribution_injection_ref("time")
+  def interrupt_source = tiled_distribution_injection_ref("interrupt")
+  def terminals = TerminalPlacement(
+    [InjectionTerminalSpec(time_source, aclint_router),
+     InjectionTerminalSpec(interrupt_source, aclint_router)],
+    (for List (router in hart_routers, index in 0..hart_routers.length()):
+       EjectionTerminalSpec(tiled_distribution_ejection_ref("time", index), router)) ++ (
+      for List (router in hart_routers, index in 0..hart_routers.length()):
+        EjectionTerminalSpec(tiled_distribution_ejection_ref("interrupt", index), router)
+    )
+  )
+  def routes = (
+    for List (_router in hart_routers, index in 0..hart_routers.length()):
+      RouteClassSpec(
+        tiled_distribution_route_ref("time", index),
+        time_source,
+        tiled_distribution_ejection_ref("time", index)
+      )
+  ) ++ (
+    for List (_router in hart_routers, index in 0..hart_routers.length()):
+      RouteClassSpec(
+        tiled_distribution_route_ref("interrupt", index),
+        interrupt_source,
+        tiled_distribution_ejection_ref("interrupt", index)
+      )
+  )
+  def network = compile_network(
+    mesh.spec,
+    terminals,
+    routes,
+    xy_dimension_order(mesh, ~vc_groups: ["transport"])
+  )
+  def family = RouterFamilyPlan(network.network_plan)
+  def physical = RouterFamilyPhysicalPlan(family)
+  def router = compile_simple_router_family(family)
+  def source_node = network.router_id(aclint_router)
+  def source_plan = network.router_plan(aclint_router)
+  fun route_key(kind :: String, index :: Nat) :: Nat:
+    source_plan.route_key(
+      network.lowered_routes.route_class(tiled_distribution_route_ref(kind, index))
+    )
+  def time_port = family.injection_port(network.injection_terminal(time_source).id)
+  def interrupt_port = family.injection_port(network.injection_terminal(interrupt_source).id)
+  def harts:
+    for List (router_ref in hart_routers, index in 0..hart_routers.length()):
+      def time_port = family.ejection_port(
+        network.ejection_terminal(tiled_distribution_ejection_ref("time", index)).id
+      )
+      def interrupt_port = family.ejection_port(
+        network.ejection_terminal(tiled_distribution_ejection_ref("interrupt", index)).id
+      )
+      TiledDistributionHartPlan(
+        index,
+        time_port.site_key,
+        time_port.target_index - family.egress_count,
+        interrupt_port.target_index - family.egress_count
+      )
+  TiledDistributionPlan(
+    network,
+    family,
+    physical,
+    router,
+    family.site_key(source_node),
+    time_port.input_index,
+    interrupt_port.input_index,
+    for List (index in 0..hart_routers.length()): route_key("time", index),
+    for List (index in 0..hart_routers.length()): route_key("interrupt", index),
+    harts
+  )
+
+fun distribution_route_key(keys :: NonemptyList.of(Nat),
+                           index :: Bits(index_width(keys.length())),
+                           route_width :: PosInt) :~ Bits(route_width):
+  vec(for List (key in keys): bits(key, route_width)).lookup(
+    index,
+    ~default: bits(0, route_width)
+  )
+
+// Adapts one uniform simple-router occurrence to typed one-VC physical links.
+sync_circuit TiledDistributionRouter(config :: SimpleRouterFamilyConfig):
+  def family = config.router_family_plan
+  def Beat = RoutedBeat(TiledDistributionMessage, config.route_decoder.route_width)
+  input site_key: Bits(config.route_decoder.site_width)
+  interface injection[family.injection_count](Decoupled(Beat), ~role: consumer)
+  interface ejection[family.ejection_count](Decoupled(Beat), ~role: producer)
+  interface incoming_links[family.ingress_count](VcLink(Beat, 1), ~role: destination)
+  interface outgoing_links[family.egress_count](VcLink(Beat, 1), ~role: source)
+
+  inst router(SimpleRouterFamily(TiledDistributionMessage, config))
+
+  router.site_key <== site_key
+  for (index in 0..family.injection_count):
+    injection[index] <=> router.ingress[index]
+  for (index in 0..family.ingress_count):
+    def input :: Endpoint = router.ingress[family.injection_count + index]
+    input.valid <== incoming_links[index].beat.valid
+    input.bits <== incoming_links[index].beat.bits.payload
+    incoming_links[index].beat.ready <== input.ready
+    incoming_links[index].vc_ready <== vec([input.ready])
+    assert(!incoming_links[index].beat.valid ||| (incoming_links[index].beat.bits.vc === bits(0, 1)),
+           "tiled_distribution_vc_is_zero")
+  for (index in 0..family.egress_count):
+    def target :: Endpoint = router.target[index]
+    outgoing_links[index].beat.valid <== target.egress.valid
+    outgoing_links[index].beat.bits <== VcBeat(Beat, 1):
+      vc: bits(0, 1)
+      payload: target.egress.bits
+    target.egress.ready <== outgoing_links[index].beat.ready
+    target.available <== outgoing_links[index].vc_ready[0]
+  for (index in 0..family.ejection_count):
+    def target :: Endpoint = router.target[family.egress_count + index]
+    target.egress <=> ejection[index]
+    target.available <== target.egress.ready
+
+fun distribution_link_index(connections :: List.of(RouterFamilyLinkConnection),
+                            connection :: RouterFamilyLinkConnection) :: Nat:
+  def found = connections.find_index(
+    fun (candidate): link_id_equal(candidate.link.id, connection.link.id)
+  )
+  unless found != #false
+  | error(~who: #'TiledDistributionNetwork,
+          "distribution link is absent from its router site")
+  found
+
+// Owns the complete platform overlay; generic NoC code remains hierarchy-neutral.
+sync_circuit TiledDistributionNetwork(plan :: TiledDistributionPlan):
+  def family = plan.family
+  def config = plan.router
+  def route_width = config.route_decoder.route_width
+  def site_width = config.route_decoder.site_width
+  def hart_count = plan.harts.length()
+  def Beat = RoutedBeat(TiledDistributionMessage, route_width)
+
+  interface time_ingress(Irrevocable(TiledTimeBeat(hart_count)), ~role: consumer)
+  interface interrupt_ingress(Irrevocable(IndexedState(TiledHartInterrupts(), hart_count)), ~role: consumer)
+  interface time_egress[hart_count](Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: producer)
+  interface interrupt_egress[hart_count](Decoupled(TiledHartInterrupts()), ~role: producer)
+
+  def routers = for InstanceArray (_ in plan.family.members):
+    inst router(TiledDistributionRouter(config))
+  inst time_injector(RoutedFlowInjector(TiledTimeBeat(hart_count), TiledDistributionMessage, route_width))
+  inst interrupt_injector(RoutedFlowInjector(IndexedState(TiledHartInterrupts(), hart_count), TiledDistributionMessage, route_width))
+
+  time_ingress <=> time_injector.ingress
+  time_injector.route_valid <== time_ingress.bits.hart <= bits(hart_count - 1, index_width(hart_count))
+  time_injector.route_key <== distribution_route_key(plan.time_route_keys, time_ingress.bits.hart, route_width)
+  time_injector.payload <== TiledDistributionMessage.Time(time_ingress.bits.flit)
+  interrupt_ingress <=> interrupt_injector.ingress
+  interrupt_injector.route_valid <== interrupt_ingress.bits.index <= bits(hart_count - 1, index_width(hart_count))
+  interrupt_injector.route_key <== distribution_route_key(plan.interrupt_route_keys, interrupt_ingress.bits.index, route_width)
+  interrupt_injector.payload <== TiledDistributionMessage.Interrupt(interrupt_ingress.bits.value)
+
+  assert(!time_ingress.valid ||| time_injector.route_valid,
+         "tiled_time_destination_in_range")
+  assert(!interrupt_ingress.valid ||| interrupt_injector.route_valid,
+         "tiled_interrupt_destination_in_range")
+
+  for (member in family.members):
+    def router = routers[member.site_key]
+    router.site_key <== bits(member.site_key, site_width)
+    for (index in 0..family.injection_count):
+      unless member.site_key == plan.source_site_key && (
+        index == plan.time_input_index || index == plan.interrupt_input_index
+      )
+      | router.injection[index].valid <== Bool(#false)
+        router.injection[index].bits <== dont_care(Beat)
+    def site = family.sites[member.site_key]
+    for (index in site.incoming_links.length()..family.ingress_count):
+      router.incoming_links[index].beat.valid <== Bool(#false)
+      router.incoming_links[index].beat.bits <== dont_care(VcBeat(Beat, 1))
+    for (index in site.outgoing_links.length()..family.egress_count):
+      router.outgoing_links[index].beat.ready <== Bool(#false)
+      router.outgoing_links[index].vc_ready <== vec([Bool(#false)])
+    for (index in 0..family.ejection_count):
+      unless plan.harts.find(
+        fun (hart): hart.site_key == member.site_key && (
+          hart.time_target_index == index || hart.interrupt_target_index == index
+        )
+      )
+      | router.ejection[index].ready <== Bool(#false)
+
+  time_injector.egress <=> routers[plan.source_site_key].injection[plan.time_input_index]
+  interrupt_injector.egress <=> routers[plan.source_site_key].injection[plan.interrupt_input_index]
+
+  for (connection in family.link_connections):
+    def source = routers[connection.source_site_key]
+    def destination = routers[connection.destination_site_key]
+    def source_index = distribution_link_index(
+      family.sites[connection.source_site_key].outgoing_links,
+      connection
+    )
+    def destination_index = distribution_link_index(
+      family.sites[connection.destination_site_key].incoming_links,
+      connection
+    )
+    source.outgoing_links[source_index] <=> destination.incoming_links[destination_index]
+
+  for (hart in plan.harts):
+    def router = routers[hart.site_key]
+    def time_source :: Endpoint = router.ejection[hart.time_target_index]
+    def interrupt_source :: Endpoint = router.ejection[hart.interrupt_target_index]
+    def time_view = time_source.bits.payload.view(TiledDistributionMessage.Time)
+    def interrupt_view = interrupt_source.bits.payload.view(TiledDistributionMessage.Interrupt)
+    time_egress[hart.index].valid <== time_source.valid
+    time_egress[hart.index].bits <== time_view.payload
+    time_source.ready <== time_egress[hart.index].ready
+    interrupt_egress[hart.index].valid <== interrupt_source.valid
+    interrupt_egress[hart.index].bits <== interrupt_view.payload
+    interrupt_source.ready <== interrupt_egress[hart.index].ready
+    assert(!time_source.valid ||| time_view.valid.into(Bool),
+           "tiled_distribution_time_variant")
+    assert(!interrupt_source.valid ||| interrupt_view.valid.into(Bool),
+           "tiled_distribution_interrupt_variant")
+
+export:
+  TiledHartInterrupts
+  NoTiledHartInterrupts
+  TiledDistributionMessage
+  TiledDistributionHartPlan
+  TiledDistributionPlan
+  compile_tiled_distribution
+  TiledDistributionRouter
+  TiledDistributionNetwork

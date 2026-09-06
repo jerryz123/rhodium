@@ -67,6 +67,16 @@ check:
   )
 
 check:
+  compiled.distribution.family.members.length() ~is 16
+  compiled.distribution.family.link_connections.length() ~is 48
+  compiled.distribution.family.injection_count ~is 2
+  compiled.distribution.family.ejection_count ~is 2
+  compiled.distribution.harts.length() ~is 8
+  (compiled.distribution.time_route_keys ++ compiled.distribution.interrupt_route_keys).sort(
+    fun (left, right): left < right
+  ) ~is (0..16).to_list()
+
+check:
   compiled.router_configs.req.router_family_plan.members.length() ~is 16
   compiled.router_configs.rsp.router_family_plan.members.length() ~is 16
   compiled.router_configs.snp.router_family_plan.members.length() ~is 16

@@ -3,6 +3,8 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/flow/state.rhdl").StateReplica
+  lib("rhodium/std/flit.rhdl").FramedFixedFlit
   lib("chi/main.rhdl") open
   lib("cores/rv5stage/chi.rhdl") open
   lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
@@ -11,6 +13,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/fp-profile.rhm") open
   "../time.rhdl" open
+  "../distribution.rhdl" open
 
 class RV5StageTileParams(rv5stage :: RV5StageCHIConfig,
                          router :: CHIRouterParams,
@@ -34,21 +37,29 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams,
 
   input identity: RV5StageTileIdentity(p, site_width)
   interface start(Irrevocable(Bits(64)), ~role: consumer)
-  input interrupts: RV5StageInterrupts()
-  interface time_beat(Decoupled(TiledTimeBeat(params.hart_count)), ~role: consumer)
+  interface interrupt_update(Decoupled(TiledHartInterrupts()), ~role: consumer)
+  interface time_beat(Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: consumer)
   output fault: Bool
   interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
   interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
 
   inst rv5stage(RV5Stage(XLen.X64, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_extensions, ~chi: params.rv5stage))
-  inst time_receiver(TiledTimeReceiver(params.hart_count))
+  inst time_receiver(TiledTimeReceiver())
+  inst interrupt_replica(StateReplica(TiledHartInterrupts(), NoTiledHartInterrupts))
   inst router(CHIRouter(router_params))
 
   rv5stage.chi_identity <== identity.chi
-  rv5stage.interrupts <== interrupts
+  rv5stage.interrupts <== RV5StageInterrupts():
+    supervisor_software: Bool(#false)
+    machine_software: interrupt_replica.current.machine_software
+    supervisor_timer: Bool(#false)
+    machine_timer: interrupt_replica.current.machine_timer
+    supervisor_external: Bool(#false)
+    machine_external: Bool(#false)
   rv5stage.hart_id <== identity.hart_id
   rv5stage.time_counter <== time_receiver.value
   time_beat <=> time_receiver.ingress
+  interrupt_update <=> interrupt_replica.ingress
   router.site_key <== identity.site_key
   start |> rv5stage.start
   fault <== rv5stage.fault

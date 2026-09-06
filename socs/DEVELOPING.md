@@ -38,6 +38,7 @@ configure and connect those public contracts, not fork their behavior.
 | Tiled public entrypoint | [`tiled-soc/main.rhdl`](tiled-soc/main.rhdl) |
 | Tiled layout and authoring form | [`tiled-soc/layout.rhm`](tiled-soc/layout.rhm) |
 | Private tiled configuration compiler | [`tiled-soc/compile.rhdl`](tiled-soc/compile.rhdl) |
+| Tiled time and interrupt distribution overlay | [`tiled-soc/distribution.rhdl`](tiled-soc/distribution.rhdl) |
 | Concrete tile implementations | [`tiled-soc/tiles/`](tiled-soc/tiles/) |
 | Focused tests | [`tests/`](tests/) and [`Makefile`](Makefile) |
 

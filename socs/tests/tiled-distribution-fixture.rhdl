@@ -1,0 +1,38 @@
+#lang rhodium
+// Elaborates a compact two-hart platform distribution network for focused testing.
+
+import:
+  lib("noc/authoring/main.rhm").VCGroup
+  lib("noc/std/topology/main.rhm").rectangular_mesh
+  lib("rhodium/std/flow.rhdl") open
+  "../tiled-soc/distribution.rhdl" open
+  "../tiled-soc/time.rhdl" open
+
+def DistributionHartCount = 2
+def distribution_mesh = rectangular_mesh(2, 2, [VCGroup("transport", 1)])
+def distribution_plan = compile_tiled_distribution(
+  distribution_mesh,
+  distribution_mesh.node_at(0, 1),
+  [distribution_mesh.node_at(0, 0), distribution_mesh.node_at(1, 0)]
+)
+
+sync_circuit TiledDistributionFixture():
+  interface time_ingress(Irrevocable(TiledTimeBeat(DistributionHartCount)), ~role: consumer)
+  interface interrupt_ingress(Irrevocable(IndexedState(TiledHartInterrupts(), DistributionHartCount)), ~role: consumer)
+  interface time_egress[DistributionHartCount](Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: producer)
+  interface interrupt_egress[DistributionHartCount](Decoupled(TiledHartInterrupts()), ~role: producer)
+
+  inst network(TiledDistributionNetwork(distribution_plan))
+  time_ingress <=> network.time_ingress
+  interrupt_ingress <=> network.interrupt_ingress
+  network.time_egress <=> time_egress
+  network.interrupt_egress <=> interrupt_egress
+
+def distribution_design = elaborate(TiledDistributionFixture())
+
+export:
+  DistributionHartCount
+  distribution_mesh
+  distribution_plan
+  TiledDistributionFixture
+  distribution_design

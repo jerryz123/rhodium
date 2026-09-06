@@ -17,6 +17,7 @@ import:
   "../peripherals.rhdl" open
   "tiles/main.rhdl" open
   "layout.rhm" open
+  "distribution.rhdl" open
 
 class TiledRV5StagePlacement(index :: Nat,
                              coordinate :: MeshCoordinate,
@@ -114,6 +115,7 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
                              compilations :: CHIChannelCompilations,
                              families :: TiledChannelFamilyPlans,
                              physical_plan :: RouterFamilyPhysicalPlan,
+                             distribution :: TiledDistributionPlan,
                              node_ids :: NonemptyList.of(Nat),
                              flit :: CHIFlitParams,
                              home_map :: CHIHomeMap,
@@ -303,6 +305,11 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   physical_plan.require_match(families.rsp)
   physical_plan.require_match(families.snp)
   physical_plan.require_match(families.dat)
+  def distribution = compile_tiled_distribution(
+    mesh,
+    aclint_placement.router,
+    rv5stage_placements.map(fun (placement): placement.router)
+  )
 
   def node_ids = rv5stage_placements.map(
     fun (placement): placement.instruction_node_id
@@ -587,6 +594,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     compilations,
     families,
     physical_plan,
+    distribution,
     node_ids,
     flit,
     rv5stage_config.home_map,

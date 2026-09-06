@@ -4,7 +4,8 @@
 import:
   lib("chi/main.rhdl") open
   lib("devices/aclint.rhdl") open
-  lib("rhodium/std/ready-valid.rhdl").Irrevocable
+  lib("rhodium/std/flow.rhdl") open
+  "../distribution.rhdl" open
   "../time.rhdl" open
 
 class AclintTileParams(aclint :: AclintConfig,
@@ -24,13 +25,13 @@ sync_circuit AclintTile(params :: AclintTileParams):
   input identity: AclintTileIdentity(p, site_width)
   input tick: Bool
   interface time_beat(Irrevocable(TiledTimeBeat(params.aclint.hart_count)), ~role: producer)
-  output machine_software: Vec(params.aclint.hart_count, Bool)
-  output machine_timer: Vec(params.aclint.hart_count, Bool)
+  interface interrupt_update(Irrevocable(IndexedState(TiledHartInterrupts(), params.aclint.hart_count)), ~role: producer)
   interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
   interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
 
   inst aclint(Aclint(params.aclint))
   inst time_sweeper(TiledTimeSweeper(params.aclint.hart_count))
+  inst interrupt_source(StateChangeSource(TiledHartInterrupts(), params.aclint.hart_count, NoTiledHartInterrupts))
   inst router(CHIRouter(router_params))
 
   aclint.identity <== identity.aclint
@@ -39,8 +40,13 @@ sync_circuit AclintTile(params :: AclintTileParams):
   aclint.port <=> router.sn_local[0]
   aclint.time_update <=> time_sweeper.update
   time_sweeper.egress <=> time_beat
-  machine_software <== aclint.machine_software
-  machine_timer <== aclint.machine_timer
+  interrupt_source.current <== vec(
+    for List (index in 0..params.aclint.hart_count):
+      TiledHartInterrupts():
+        machine_software: aclint.machine_software[index]
+        machine_timer: aclint.machine_timer[index]
+  )
+  interrupt_source.egress <=> interrupt_update
   router.incoming_links <=> incoming_links
   router.outgoing_links <=> outgoing_links
 

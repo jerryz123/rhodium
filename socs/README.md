@@ -216,27 +216,36 @@ RV5Stage's two RN-F ports and its RN-I device port. A
 `LLCTile` attaches one blocking `CHIInclusiveHNF` and keeps its address
 projector, transfer fragmenter, and `CHIRam` on the HN's direct subordinate
 side. The device HN-I is reachable only through the uncached RN-I routes. The
-ACLINT computes the MSIP and MTIP vectors centrally and drives their
-corresponding RV5Stage tiles directly. Its shared `mtime` value instead enters
-a narrow ready-valid stream owned by the tiled platform. The default timebase
-produces one tick every 100 SoC cycles, and ACLINT emits an update only for
-that tick or an `mtime` MMIO write. `TiledTimeSweeper` freezes one snapshot,
-uses the standard `Packetizer` to send its four 16-bit framed flits to each
-hart in index order, and retains only the newest snapshot that arrives while a
-sweep is active. A standard `Demux` selects one hart per beat; each
-`TiledTimeReceiver` uses the standard `Reassembler` and publishes its 64-bit
-value only after the final flit transfers. Harts therefore receive the same
-snapshot with bounded index-ordered skew instead of requiring a global 64-bit
-time bus. This stream is independent of CHI routing. The UART tile passes its
-serial boundary to the SoC.
+ACLINT computes the MSIP and MTIP vectors centrally, and a standard
+`StateChangeSource` emits only changed `(hart, interrupt-state)` entries. Its
+shared `mtime` value enters a separate narrow ready-valid stream. The default
+timebase produces one tick every 100 SoC cycles, and ACLINT emits an update
+only for that tick or an `mtime` MMIO write. `TiledTimeSweeper` freezes one
+snapshot, uses the standard `Packetizer` to send its four 16-bit framed flits
+to each hart in index order, and retains only the newest snapshot that arrives
+while a sweep is active.
+
+Both streams enter a tiled-platform distribution overlay compiled from the
+same mesh placement as CHI. Typed tagged-union messages share one routed beat
+format, while time and interrupt traffic retain distinct injection and
+ejection terminals. Each directed mesh edge carries one narrow one-VC
+`VcLink`; ordinary ready-valid backpressure is preserved across every hop.
+At each hart, a standard `Reassembler` publishes `mtime` only after its final
+flit transfers, and a standard `StateReplica` retains the latest delivered
+MSIP and MTIP state. Harts therefore converge on the latest interrupt state
+and receive each time snapshot with bounded index-ordered skew without global
+interrupt vectors or a 64-bit time bus. This overlay is structurally
+independent of CHI routing. The UART tile passes its serial boundary to the
+SoC.
 
 Every tile exposes the family's uniform maximum of four incoming and four
 outgoing physical links, each bundling the independent REQ/RSP/SNP/DAT
 transports. `TiledSoC` alone applies the compiled
 `RouterFamilyLinkConnection` manifest and explicitly closes unused edge and
 corner slots. There is no whole-network CHI router wrapper under `noc/rtl`;
-platform-specific time delivery remains ordinary ready-valid composition in
-`tiled-soc/` rather than a second NoC planning path.
+the separate platform distribution network is owned and composed by
+`tiled-soc/` from the generic NoC planning, routing, router, and `VcLink`
+pieces.
 
 ## Focused validation
 

@@ -4,9 +4,7 @@
 import:
   lib("chi/main.rhdl") open
   lib("rhodium/std/counter.rhdl").Counter
-  lib("rhodium/std/flow/demux.rhdl").Demux
   lib("cores/rv5stage/chi.rhdl").RV5StageCHIIdentity
-  lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
   lib("devices/bootrom.rhdl") open
   lib("devices/aclint.rhdl").AclintIdentity
   lib("devices/uart16550.rhdl").Uart16550Identity
@@ -14,6 +12,7 @@ import:
   lib("riscv/isa/fp-profile.rhm") open
   "layout.rhm" open
   "compile.rhdl".compile_tiled_soc
+  "distribution.rhdl" open
   "time.rhdl" open
   "tiles/main.rhdl" open
   "../host-interface.rhdl".SoCHostInterface
@@ -75,11 +74,11 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
   inst boot(SoCBootDistributor(64, implementation.rv5stages.length(), config.boot.reset_address))
   inst aclint(AclintTile(implementation.aclint.tile_params))
   inst uart_device(UartTile(implementation.uart.tile_params))
-  // Platform time advances at the configured architectural timebase; each
-  // resulting snapshot crosses the shared boundary as a narrow hart sweep.
-  inst timebase(Counter(config.timebase_period_cycles))
   def hart_count = implementation.rv5stages.length()
-  inst time_demux(Demux(TiledTimeBeat(hart_count), hart_count))
+  inst distribution(TiledDistributionNetwork(implementation.distribution))
+  // Platform time advances at the configured architectural timebase; each
+  // resulting snapshot and each interrupt change cross the narrow platform NoC.
+  inst timebase(Counter(config.timebase_period_cycles))
 
   for (index in 0..implementation.rv5stages.length()):
     def entry = implementation.rv5stages[index]
@@ -90,14 +89,8 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
               instruction_node_id: bits(entry.chi.instruction_node_id, p.node_id_width)
               data_node_id: bits(entry.chi.data_node_id, p.node_id_width)
               uncached_node_id: bits(entry.chi.uncached_node_id, p.node_id_width))
-    rv5stages[index].interrupts <== RV5StageInterrupts():
-      supervisor_software: Bool(#false)
-      machine_software: aclint.machine_software[index]
-      supervisor_timer: Bool(#false)
-      machine_timer: aclint.machine_timer[index]
-      supervisor_external: Bool(#false)
-      machine_external: Bool(#false)
-    time_demux.egress[index] <=> rv5stages[index].time_beat
+    distribution.interrupt_egress[index] <=> rv5stages[index].interrupt_update
+    distribution.time_egress[index] <=> rv5stages[index].time_beat
   host.release |> boot.release
   for (index in 0..implementation.rv5stages.length()):
     boot.start[index] |> rv5stages[index].start
@@ -134,8 +127,8 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
                base_address: bits(implementation.aclint.device.base_address, p.request_address_width))
   timebase.enable <== Bool(#true)
   aclint.tick <== timebase.wrap
-  aclint.time_beat <=> time_demux.ingress
-  time_demux.select <== aclint.time_beat.bits.hart
+  aclint.time_beat <=> distribution.time_ingress
+  aclint.interrupt_update <=> distribution.interrupt_ingress
   uart_device.identity <== UartTileIdentity(p, site_width):
     site_key: bits(implementation.site_key(implementation.uart.placement.router), site_width)
     uart: (Uart16550Identity(p):
