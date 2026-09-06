@@ -1,0 +1,344 @@
+#lang rhodium
+// Implements a configurable SiFive-compatible level-sensitive PLIC as a CHI SN-I device.
+
+import:
+  lib("support/annotations.rhm").NonemptyString
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/interconnect.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/reduction.rhdl").tree_reduce
+  lib("chi/main.rhdl") open
+
+def PlicAddressWidth = 26
+def PlicWindowBytes = 0x04000000
+def PlicPriorityOffset = 0x000000
+def PlicPendingOffset = 0x001000
+def PlicEnableOffset = 0x002000
+def PlicEnableContextBytes = 0x80
+def PlicContextOffset = 0x200000
+def PlicContextBytes = 0x1000
+def PlicMaximumSources = 1023
+def PlicMaximumContexts = 15872
+
+class PlicConfig(flit :: CHIFlitParams,
+                 source_count :: Int.in(1 ..= PlicMaximumSources),
+                 context_count :: Int.in(1 ..= PlicMaximumContexts),
+                 priority_width :: Int.in(1 ..= 31)):
+  implements StableCircuitParam
+
+  property data_bytes: flit.data_bytes
+  property transfers: TransferSizes(4, 4)
+  property requests:
+    [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
+     CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
+     CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
+
+class PlicParams(name :: NonemptyString,
+                 node_id :: Nat,
+                 config :: PlicConfig,
+                 base_address :: Nat):
+
+  property node:
+    CHINodeParams(
+      name,
+      node_id,
+      CHINodeKind.SNI,
+      ~emits: CHIChannelCapabilities(
+        ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+        ~dat: [CHIDatOpcode.CompData]
+      ),
+      ~supports: CHIChannelCapabilities(
+        ~req: [CHIReqOpcode.ReadNoSnp,
+               CHIReqOpcode.WriteNoSnpFull,
+               CHIReqOpcode.WriteNoSnpPtl],
+        ~dat: [CHIDatOpcode.NonCopyBackWriteData]
+      ),
+      ~max_outstanding: 1
+    )
+  property icn_port:
+    CHIICNPortParams(
+      name ++ "-icn",
+      node_id,
+      CHINodeKind.SNI,
+      ~emits: node.supports,
+      ~supports: node.emits,
+      ~max_outstanding: 1
+    )
+  property service:
+    CHISubordinateServiceParams(
+      icn_port,
+      [AddressSet(base_address, PlicWindowBytes - 1)],
+      config.requests
+    )
+
+  constructor (name :: NonemptyString,
+               node_id :: Nat,
+               config :: PlicConfig,
+               base_address :: Nat):
+    unless base_address mod PlicWindowBytes == 0
+    | error(~who: #'PlicParams,
+            "base address must be aligned to the PLIC window size")
+    unless bits.length((base_address + PlicWindowBytes) - 1) <= config.flit.request_address_width
+    | error(~who: #'PlicParams,
+            "PLIC window must fit in the CHI request address width")
+    unless bits.length(node_id) <= config.flit.node_id_width
+    | error(~who: #'PlicParams,
+            "NodeID must fit in the physical NodeID width")
+    super(name, node_id, config, base_address)
+
+bundle PlicIdentity(p :: CHIFlitParams):
+  node_id: Bits(p.node_id_width)
+  base_address: Bits(p.request_address_width)
+
+bundle PlicCandidate(priority_width :: PosInt, source_id_width :: PosInt):
+  valid: Bool
+  priority: Bits(priority_width)
+  source_id: Bits(source_id_width)
+
+hardware_enum PlicState:
+  Idle
+  ReadResponse
+  WriteDBID
+  WriteData
+  WriteResponse
+
+sync_circuit Plic(config :: PlicConfig):
+  def p = config.flit
+  def source_count = config.source_count
+  def context_count = config.context_count
+  def priority_width = config.priority_width
+  def source_index_width = index_width(source_count)
+  def source_id_width = index_width(source_count + 1)
+  def context_index_width = index_width(context_count)
+  def data_bytes = p.data_bytes
+  def lane_width = alignment_bits(data_bytes)
+  def initial_priorities = vec(for List (_source in 0..source_count): bits(0, priority_width))
+  def initial_enables = vec(
+    for List (_context in 0..context_count): Mask(source_count)(0)
+  )
+  def initial_thresholds = vec(for List (_context in 0..context_count): bits(0, priority_width))
+
+  input identity: PlicIdentity(p)
+  input sources: Vec(source_count, Bool)
+  interface port(CHISNChannels(p), ~role: node)
+  output context_interrupts: Vec(context_count, Bool)
+
+  reg state(~init: PlicState.Idle)
+  reg request(CHIReqFlit(p))
+  reg read_response_data(Bits(p.data_width))
+  reg priorities(Vec(source_count, Bits(priority_width)), ~init: initial_priorities)
+  reg pending(~init: Mask(source_count)(0))
+  reg gateway_busy(~init: Mask(source_count)(0))
+  reg enables(Vec(context_count, Mask(source_count)), ~init: initial_enables)
+  reg thresholds(Vec(context_count, Bits(priority_width)), ~init: initial_thresholds)
+
+  def idle = state === PlicState.Idle
+  def incoming = port.req.bits
+  def incoming_opcode :: CHIReqOpcode = incoming.opcode
+  def ordinary_request = incoming_opcode =/= CHIReqOpcode.ReqLCrdReturn
+  def incoming_write = incoming_opcode.is_initial_write()
+  def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
+  def incoming_in_window = (incoming.address >= identity.base_address) & !or_reduce(
+    incoming_relative_full[PlicAddressWidth..p.request_address_width]
+  )
+  def incoming_opcode_supported = (incoming_opcode === CHIReqOpcode.ReadNoSnp) ||| (
+    incoming_opcode === CHIReqOpcode.WriteNoSnpFull
+  ) ||| (incoming_opcode === CHIReqOpcode.WriteNoSnpPtl)
+  def incoming_supported = incoming_opcode_supported & incoming_in_window & (
+    incoming.size_or_num_req === bits(2, 6)
+  ) & is_aligned(incoming.address, 4) & (incoming.tgt_id === identity.node_id)
+  port.req.ready <== !ordinary_request ||| (idle & incoming_supported)
+  def request_fire = port.req.fire() & ordinary_request
+  def incoming_relative :: Bits(PlicAddressWidth) = incoming_relative_full[0..PlicAddressWidth]
+  def request_relative_full :: Bits(p.request_address_width) = request.address - identity.base_address
+  def request_relative :: Bits(PlicAddressWidth) = request_relative_full[0..PlicAddressWidth]
+  def active_address :: Bits(PlicAddressWidth) = mux(request_fire & !incoming_write, incoming_relative, request_relative)
+
+  def priority_source_id :: Bits(10) = active_address[2..12]
+  def priority_index :: Bits(source_index_width) = (
+    priority_source_id - bits(1, 10)
+  )[0..source_index_width]
+  def priority_access = (active_address < bits(PlicPendingOffset, PlicAddressWidth)) & (
+    priority_source_id > bits(0, 10)
+  ) & (priority_source_id <= bits(source_count, 10))
+  def pending_relative = active_address - bits(PlicPendingOffset, PlicAddressWidth)
+  def pending_word :: Bits(5) = pending_relative[2..7]
+  def pending_access = (active_address >= bits(PlicPendingOffset, PlicAddressWidth)) & (
+    active_address < bits(PlicPendingOffset + 0x80, PlicAddressWidth)
+  )
+  def enable_relative = active_address - bits(PlicEnableOffset, PlicAddressWidth)
+  def enable_context_raw :: Bits(14) = enable_relative[7..21]
+  def enable_context :: Bits(context_index_width) = enable_context_raw[0..context_index_width]
+  def enable_word :: Bits(5) = enable_relative[2..7]
+  def enable_access = (active_address >= bits(PlicEnableOffset, PlicAddressWidth)) & (
+    active_address < bits(PlicContextOffset, PlicAddressWidth)
+  ) & (enable_context_raw < bits(context_count, 14))
+  def context_relative = active_address - bits(PlicContextOffset, PlicAddressWidth)
+  def context_raw :: Bits(14) = context_relative[12..26]
+  def active_context :: Bits(context_index_width) = context_raw[0..context_index_width]
+  def context_register_offset :: Bits(12) = context_relative[0..12]
+  def context_access = (active_address >= bits(PlicContextOffset, PlicAddressWidth)) & (
+    context_raw < bits(context_count, 14)
+  )
+  def threshold_access = context_access & (context_register_offset === bits(0, 12))
+  def claim_access = context_access & (context_register_offset === bits(4, 12))
+
+  fun prefer_candidate(left :: PlicCandidate(priority_width, source_id_width),
+                       right :: PlicCandidate(priority_width, source_id_width)):
+    def right_wins = right.valid & (!left.valid ||| (right.priority > left.priority) ||| (
+      (right.priority === left.priority) & (right.source_id < left.source_id)
+    ))
+    mux(right_wins, right, left)
+
+  def pending_bits = pending.as_bits()
+  def winners = vec(
+    for List (context in 0..context_count):
+      def enable_bits = enables[context].as_bits()
+      tree_reduce(
+        for List (source in 0..source_count):
+          def priority = priorities[source]
+          PlicCandidate(priority_width, source_id_width):
+            valid: pending_bits[source].into(Bool) & enable_bits[source].into(Bool) & (
+              priority =/= bits(0, priority_width)
+            )
+            priority: priority
+            source_id: bits(source + 1, source_id_width),
+        prefer_candidate
+      )
+  )
+  def selected_winner = winners[active_context]
+  context_interrupts <== vec(
+    for List (context in 0..context_count):
+      winners[context].valid & (winners[context].priority > thresholds[context])
+  )
+
+  def pending_word_value = (
+    (pending_bits.zext(source_count + 32) << 1) >> (pending_word ++ bits(0, 5))
+  )[0..32]
+  def selected_enable_bits = enables[enable_context].as_bits()
+  def enable_word_value = (
+    (selected_enable_bits.zext(source_count + 32) << 1) >> (enable_word ++ bits(0, 5))
+  )[0..32]
+  def priority_value = priorities[priority_index].zext(32)
+  def threshold_value = thresholds[active_context].zext(32)
+  def claim_value = selected_winner.source_id.zext(32)
+  def selected_value = mux(
+    priority_access,
+    priority_value,
+    mux(pending_access,
+        pending_word_value,
+        mux(enable_access,
+            enable_word_value,
+            mux(threshold_access, threshold_value, mux(claim_access, claim_value, bits(0, 32)))))
+  )
+
+  def register_lane = active_address[0..lane_width]
+  def register_shift = register_lane ++ bits(0, 3)
+  def register_data :: Bits(p.data_width) = port.dat.request.bits.data >> register_shift
+  def register_mask :: Bits(data_bytes) = port.dat.request.bits.byte_enable >> register_lane
+  def write_value = register_data[0..32]
+  def register_read_data = selected_value.zext(p.data_width) << register_shift
+
+  def incoming_data = port.dat.request.bits
+  def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
+  def write_data_expected = state === PlicState.WriteData
+  def write_data_supported = (incoming_data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (
+    incoming_data.txn_id === bits(0, 12)
+  ) & (incoming_data.src_id === request.src_id) & (incoming_data.tgt_id === identity.node_id)
+  def write_mask_supported = register_mask === bits(0xf, data_bytes)
+  port.dat.request.ready <== !ordinary_data ||| (write_data_expected & write_data_supported)
+  def write_data_fire = port.dat.request.fire() & ordinary_data
+
+  def claim_fire = request_fire & !incoming_write & claim_access
+  def completion_source_id = write_value
+  def completion_source_index :: Bits(source_index_width) = (
+    completion_source_id - bits(1, 32)
+  )[0..source_index_width]
+  def completion_source_valid = (completion_source_id > bits(0, 32)) & (
+    completion_source_id <= bits(source_count, 32)
+  )
+  def completion_enabled = enables[active_context].as_bits().as_vec(Bool)[completion_source_index]
+  def completion_fire = write_data_fire & claim_access & completion_source_valid & completion_enabled
+  def next_pending = vec(
+    for List (source in 0..source_count):
+      def forwarded = !gateway_busy.as_bits()[source].into(Bool) & sources[source]
+      def claimed = claim_fire & selected_winner.valid & (
+        selected_winner.source_id === bits(source + 1, source_id_width)
+      )
+      (pending_bits[source].into(Bool) ||| forwarded) & !claimed
+  ).into(Mask(source_count))
+  def next_gateway_busy = vec(
+    for List (source in 0..source_count):
+      def forwarded = !gateway_busy.as_bits()[source].into(Bool) & sources[source]
+      def completed = completion_fire & (completion_source_id === bits(source + 1, 32))
+      (gateway_busy.as_bits()[source].into(Bool) ||| forwarded) & !completed
+  ).into(Mask(source_count))
+  def next_enable = vec(
+    for List (source in 0..source_count):
+      def source_id = source + 1
+      mux(enable_word === bits(source_id div 32, 5),
+          write_value[source_id mod 32].into(Bool),
+          selected_enable_bits[source].into(Bool))
+  ).into(Mask(source_count))
+
+  def dbid_response = chi_sn_dbid_response(p, identity.node_id, request, bits(0, 1))
+  def write_completion = chi_sn_write_completion(p, identity.node_id, request, bits(0, 1))
+  port.rsp.valid <== (state === PlicState.WriteDBID) ||| (state === PlicState.WriteResponse)
+  port.rsp.bits <== mux(state === PlicState.WriteDBID, dbid_response, write_completion)
+  def response_fire = port.rsp.fire()
+  def dbid_fire = response_fire & (state === PlicState.WriteDBID)
+  def write_response_fire = response_fire & (state === PlicState.WriteResponse)
+
+  port.dat.response.valid <== state === PlicState.ReadResponse
+  port.dat.response.bits <== chi_sn_read_completion(p,
+                                                    identity.node_id,
+                                                    request,
+                                                    bits(0, 2),
+                                                    read_response_data)
+  def read_response_fire = port.dat.response.fire()
+
+  when request_fire:
+    request <== incoming
+    state <== mux(incoming_write, PlicState.WriteDBID, PlicState.ReadResponse)
+    when (!incoming_write):
+      read_response_data <== register_read_data
+  elsewhen dbid_fire:
+    state <== PlicState.WriteData
+  elsewhen write_data_fire:
+    state <== PlicState.WriteResponse
+  elsewhen (read_response_fire ||| write_response_fire):
+    state <== PlicState.Idle
+
+  pending <== next_pending
+  gateway_busy <== next_gateway_busy
+  when (write_data_fire & priority_access):
+    priorities[priority_index] <== write_value[0..priority_width]
+  when (write_data_fire & enable_access):
+    enables[enable_context] <== next_enable
+  when (write_data_fire & threshold_access):
+    thresholds[active_context] <== write_value[0..priority_width]
+
+  when (port.req.valid & ordinary_request):
+    assert(incoming_supported, "plic_request_supported")
+  when (port.dat.request.valid & ordinary_data):
+    assert(write_data_expected, "plic_write_data_expected")
+    assert(write_data_supported, "plic_write_data_supported")
+    assert(write_mask_supported, "plic_write_mask_supported")
+
+export:
+  PlicAddressWidth
+  PlicWindowBytes
+  PlicPriorityOffset
+  PlicPendingOffset
+  PlicEnableOffset
+  PlicEnableContextBytes
+  PlicContextOffset
+  PlicContextBytes
+  PlicMaximumSources
+  PlicMaximumContexts
+  PlicConfig
+  PlicParams
+  PlicIdentity
+  PlicCandidate
+  PlicState
+  Plic

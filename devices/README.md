@@ -21,6 +21,7 @@ SoC address map:
 | --- | --- | --- | --- |
 | `CHIBootROM` | Immutable boot storage | One-outstanding CHI SN-I; `ReadNoSnp`, 1--64 bytes | CHI flits, power-of-two window, and `BootROMImage` |
 | `Aclint` | Per-hart machine software and timer interrupts | One-outstanding CHI SN-I; `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`, 1--8 bytes; explicit `tick` | CHI flits and 1--4095 harts |
+| `Plic` | Prioritized external interrupt delivery | One-outstanding CHI SN-I; 32-bit `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`; level-sensitive source inputs and per-context interrupt outputs | CHI flits, sources, contexts, and priority width |
 | `Uart8N1Transmitter` / `Uart8N1Receiver` | Reusable serial engines | Byte flow plus serial pins and a 16x oversample tick | Fixed 8-N-1 framing |
 | `Uart16550` | Byte-addressed UART registers, FIFOs, and interrupts | One-outstanding CHI SN-I; one-byte `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`; RX/TX pins | CHI flits and FIFO depth 1--16 |
 
@@ -58,13 +59,16 @@ flowchart LR
   subgraph Hardware["devices/ - synthesizable"]
     Image["BootROMImage"] --> Boot["CHIBootROM<br/>read-only SN-I"]
     ACLINT["Aclint<br/>timer + software interrupts"]
+    PLIC["Plic<br/>external interrupts"]
     UART["Uart16550<br/>registers + FIFOs"] --> Pins["RX / TX / interrupt"]
   end
 
   Home --> Boot
   Home --> ACLINT
+  Home -.-> PLIC
   Home --> UART
   ACLINT -->|"mtime, MTIP, MSIP"| Requester
+  PLIC -.->|"external interrupt contexts"| Requester
 
   subgraph Simulation["device-level simulation only"]
     Model["UartDPI"] <--> PTY["uart_dpi.cc<br/>host PTY"]
@@ -74,8 +78,9 @@ flowchart LR
   Model -.->|"optional RX hookup"| Pins
 ```
 
-The solid paths match the current SoC integrations. `SimpleSoC` and `MiniSoC`
-instantiate all three devices through the shared
+The solid paths match the current SoC integrations; the dashed PLIC path is the
+standalone device boundary introduced ahead of SoC adoption. `SimpleSoC` and
+`MiniSoC` instantiate all three devices through the shared
 [`SoCPlatformParams`](../socs/peripherals.rhdl); `TiledSoC` colocates its
 BootROM with the device Home and places the other devices in dedicated
 [`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl) and
@@ -134,6 +139,36 @@ exactly when a tick or an `mtime` MMIO write changes the timer; idle cycles
 produce no update event.
 The device provides one MSIP and MTIP level per configured hart; it does not
 provide an external interrupt controller or supervisor interrupt block.
+
+## Integrate the PLIC
+
+[`plic.rhdl`](plic.rhdl) implements a SiFive-compatible platform-level
+interrupt controller in a fixed 64 MiB window. Source ID 0 is reserved;
+configured level-sensitive inputs map to IDs 1 through `source_count`. Priority
+zero disables a source, higher numeric priorities win, and equal priorities
+select the lower source ID. Each context has an independent enable mask and
+threshold, while pending and gateway-busy state are global to the source.
+
+| Offset | Register | Behavior |
+| ---: | --- | --- |
+| `0x000000 + 4 * source` | priority | WARL priority, truncated to the configured width |
+| `0x001000 + 4 * word` | pending | Read-only pending bits, indexed by architectural source ID |
+| `0x002000 + 0x80 * context + 4 * word` | enable | Per-context source enables |
+| `0x200000 + 0x1000 * context` | threshold | Context delivery threshold |
+| `0x200004 + 0x1000 * context` | claim/complete | Read claims the best pending source; write completes an enabled source |
+
+Claims ignore the threshold, atomically return and clear the selected global
+pending bit, and return zero when no enabled nonzero-priority source is
+pending. Completion is silently ignored for source zero, an out-of-range
+source, or a source disabled in that context. A level that remains asserted is
+forwarded again only after a valid completion releases its gateway; removing a
+level after forwarding does not retract an already-pending request.
+
+The first implementation deliberately accepts only aligned four-byte MMIO
+transactions and level-sensitive sources. It does not yet provide edge-trigger
+gateways, MSI injection, virtualization, or SoC interrupt routing. The
+containing platform still owns the PLIC base address, NodeID, source numbering,
+context-to-hart privilege mapping, and reset wiring.
 
 ## Integrate the 16550-style UART
 

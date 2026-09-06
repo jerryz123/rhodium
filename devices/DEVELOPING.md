@@ -25,6 +25,7 @@ Rhodium logic; do not put DPI calls in a SoC.
 | Boot image and reset trampoline | [`bootrom-image.rhm`](bootrom-image.rhm) |
 | CHI BootROM endpoint | [`bootrom.rhdl`](bootrom.rhdl) |
 | ACLINT registers, interrupts, and CHI endpoint | [`aclint.rhdl`](aclint.rhdl) |
+| PLIC priorities, gateways, contexts, and CHI endpoint | [`plic.rhdl`](plic.rhdl) |
 | 8-N-1 serial engines | [`uart.rhdl`](uart.rhdl) |
 | 16550-style registers, FIFOs, and CHI endpoint | [`uart16550.rhdl`](uart16550.rhdl) |
 | Rhodium PTY adapter | [`uart-dpi.rhdl`](uart-dpi.rhdl) |
@@ -61,11 +62,11 @@ The target runs package-boundary checks, every `devices/tests/*-test.rhm`, and
 [`run-uart-dpi-cpp.sh`](tests/run-uart-dpi-cpp.sh). The Rhombus test wrapper
 creates a fresh compiled root when the caller has not supplied one.
 
-To lower and simulate only the four device fixtures through CIRCT and
+To lower and simulate only the five device fixtures through CIRCT and
 Verilator, run:
 
 ```sh
-FIXTURES='bootrom aclint uart16550 uart-dpi' \
+FIXTURES='bootrom aclint plic uart16550 uart-dpi' \
   bash tests/backend/run-circt.sh --simulate-only
 ```
 

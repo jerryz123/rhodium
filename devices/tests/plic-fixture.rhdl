@@ -1,0 +1,17 @@
+#lang rhodium
+// Elaborates a three-source, two-context PLIC fixture for host and backend verification.
+
+import:
+  lib("devices/plic.rhdl") open
+  lib("chi/main.rhdl").CHIFlitParams
+
+def flit = CHIFlitParams()
+def config = PlicConfig(flit, 3, 2, 3)
+def params = PlicParams("test-plic", 13, config, 0x0c000000)
+def design = elaborate(Plic(config))
+
+export:
+  flit
+  config
+  params
+  design

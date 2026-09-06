@@ -1,0 +1,34 @@
+#lang rhombus
+// Checks PLIC host configuration, CHI service metadata, elaboration, and parameter rejection.
+
+import:
+  "../../rhodium/core/main.rhm".verify_design
+  "../../chi/main.rhdl" as chi
+  "../plic.rhdl" as plic
+  "plic-fixture.rhdl" as fixture
+
+def flit = chi.CHIFlitParams()
+def config = plic.PlicConfig(flit, 3, 2, 3)
+def params = plic.PlicParams("test-plic", 13, config, 0x0c000000)
+
+check:
+  config.source_count ~is 3
+  config.context_count ~is 2
+  config.priority_width ~is 3
+  config.data_bytes ~is 16
+  params.node.kind ~is chi.CHINodeKind.SNI
+  params.node.max_outstanding ~is 1
+  params.service.address_sets[0] ~is chi.AddressSet(0x0c000000, 0x03ffffff)
+  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 4) ~is #true
+  params.service.supports(chi.CHIReqOpcode.WriteNoSnpPtl, 4) ~is #true
+  params.service.supports(chi.CHIReqOpcode.WriteNoSnpFull, 4) ~is #true
+  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 1) ~is #false
+  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 8) ~is #false
+  verify_design(fixture.design) ~is #void
+  plic.PlicConfig(flit, 0, 2, 3) ~throws "PlicMaximumSources"
+  plic.PlicConfig(flit, 3, 0, 3) ~throws "PlicMaximumContexts"
+  plic.PlicConfig(flit, 3, 2, 0) ~throws "Int.in"
+  plic.PlicParams("", 13, config, 0x0c000000) ~throws "NonemptyString"
+  plic.PlicParams("misaligned", 13, config, 0x0c001000) ~throws "aligned"
+  plic.PlicParams("outside", 13, config, 0x100000000000) ~throws "must fit"
+  plic.PlicParams("wide-node", 128, config, 0x0c000000) ~throws "NodeID"
