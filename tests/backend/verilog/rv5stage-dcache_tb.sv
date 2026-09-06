@@ -440,6 +440,12 @@ module rv5stage_dcache_tb;
     send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd3);
     assert (!core_out.drained)
       else $fatal(1, "data cache reported drained during a refill");
+    // The first miss may stop internal queue drain, but its SRAM result must
+    // not feed back into request acceptance while structural capacity remains.
+    tick();
+    assert (core_out.request.ready)
+      else $fatal(1, "data cache request readiness depended on a lookup miss");
+    send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd4);
     accept_request(READ_CLEAN, ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
     send_response(PCRD_GRANT, 12'd0, 12'd0, 4'd6);
     send_response(RETRY_ACK, 12'd0, 12'd0, 4'd6);
@@ -448,8 +454,6 @@ module rv5stage_dcache_tb;
     return_line(ADDRESS, LINE, 3'b001);
     accept_comp_ack();
     expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd3);
-
-    send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd4);
     expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd4);
 
     // An AMO to a shared line acquires Unique ownership, returns the old

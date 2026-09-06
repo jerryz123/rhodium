@@ -17,7 +17,7 @@ Contributors changing the L1D implementation should read
 |---|---|
 | Organization | Physically indexed, physically tagged, set-associative, blocking, write-back, write-allocate |
 | Geometry | Power-of-two set count of at least two, positive way count, fixed 64-byte lines |
-| Core throughput | Consecutive load hits can enter and return one per cycle; a miss or ownership acquisition blocks later cache requests |
+| Core throughput | A two-entry structural request queue sustains one load hit per cycle after initial buffering; a miss or ownership acquisition blocks queue drain |
 | Core protocol | Ordered `Decoupled` requests and non-backpressurable `Valid` responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
@@ -51,11 +51,12 @@ are not architectural results.
 
 The pipeline checks architectural alignment. The cache owns XLEN-word
 alignment within the line, byte masks, and load/store lane generation.
-`drained` is true only when no request is accepted that cycle and no core
-lookup, acquisition/refill, dirty-line drain, gather, or refill installation
-remains active. It does not include the response pipe or an independently
-serviced snoop; the parent serialization logic separately waits for older
-deferred completions. It is an observation, not a separate fence transaction.
+`drained` is true only when no request is accepted that cycle and no queued
+request, core lookup, acquisition/refill, dirty-line drain, gather, or refill
+installation remains active. It does not include the response pipe or an
+independently serviced snoop; the parent serialization logic separately waits
+for older deferred completions. It is an observation, not a separate fence
+transaction.
 
 ## Data path and arrays
 
@@ -64,7 +65,8 @@ into shared engines:
 
 ```mermaid
 flowchart LR
-  Core["Core request<br/>Decoupled"] --> Lookup["One-stage lookup Pipe<br/>tag + state + XLEN word SRAMs"]
+  Core["Core request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
+  Queue --> Lookup["One-stage lookup Pipe<br/>tag + state + XLEN word SRAMs"]
   Lookup -->|load hit| Load["LoadGen"]
   Lookup -->|owned store / SC / AMO| Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
   Load --> Response["One-stage ValidPipe<br/>ordered response"]
@@ -91,12 +93,15 @@ XLEN word per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. An aligned scalar load, store, LR/SC, or AMO therefore
 touches one data row even though coherent transfers operate on a whole line.
 
-A one-stage `Pipe` carries request context alongside the synchronous SRAM
-lookup. Consecutive load hits advance every cycle. A mandatory one-stage
-`ValidPipe` aligns the non-backpressurable hit response with WB. A store, SC,
-or AMO that already has Unique ownership updates the selected byte lanes and
-sets UniqueDirty without emitting REQ or DAT traffic; an AMO returns the value
-from before that update.
+A two-entry, non-flow-through `Queue` makes core request readiness solely a
+function of registered queue occupancy. Tag, state, and data results may decide
+whether its egress drains, but cannot feed back combinationally into acceptance.
+A one-stage `Pipe` carries issued request context alongside the synchronous SRAM
+lookup. Once the queue is primed, consecutive load hits advance every cycle. A
+mandatory one-stage `ValidPipe` registers the non-backpressurable response. A
+store, SC, or AMO that already has Unique ownership updates the selected byte
+lanes and sets UniqueDirty without emitting REQ or DAT traffic; an AMO returns
+the value from before that update.
 
 ## Miss, acquisition, and replacement flow
 

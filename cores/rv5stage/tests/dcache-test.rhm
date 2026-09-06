@@ -99,6 +99,9 @@ check:
   instance_names(cache).filter(
     ~keep: fun (name): name.starts_with("Pipe")
   ).length() ~is 1
+  instance_names(cache).filter(
+    ~keep: fun (name): name.starts_with("Queue")
+  ).length() ~is 1
   instance_names(cache).contains("RV5StageLineRefill") ~is #true
   instance_names(cache).contains("RV5StageDataSnoop") ~is #true
   instance_names(cache).contains("RV5StageLineWriteback") ~is #true

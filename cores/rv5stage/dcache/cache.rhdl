@@ -71,12 +71,16 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   refill.node_id <== node_id
   snoop.node_id <== node_id
   writeback.node_id <== node_id
+  // This non-flow-through queue makes core acceptance depend only on its
+  // registered capacity. Lookup results control internal drain but cannot
+  // propagate combinationally to core request readiness.
+  inst core_requests(Queue(RV5StageDataReq(xlen), 2))
   // Hits leave the lookup stage directly. Ownership acquisitions and misses
   // transfer their complete request context into the refill engine, after a
   // dirty victim has drained when replacement is necessary.
   inst lookup(Pipe(RV5StageDataReq(xlen), 1))
-  // This mandatory register after the SRAM lookup aligns a hit issued from EX
-  // with the instruction's WB stage. Responses cannot be backpressured.
+  // This mandatory register isolates the SRAM result path. Responses cannot
+  // be backpressured.
   inst responses(ValidPipe(RV5StageDataResp(xlen), 1))
   inst protocol_requests(Arbiter(CHIReqFlit(p), 2))
   inst protocol_responses(Arbiter(CHIRspFlit(p), 2))
@@ -136,8 +140,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   )
   refill_response |> refill.responses
   writeback_response |> writeback.responses
-  def request_set_value = core.request.bits.address[offset_width..(offset_width + set_width)]
-  def request_data_address = core.request.bits.address[word_offset_width..(offset_width + set_width)]
+  def issue_request :: RV5StageDataReq(xlen) = core_requests.egress.bits
+  def issue_set = issue_request.address[offset_width..(offset_width + set_width)]
+  def issue_data_address = issue_request.address[word_offset_width..(offset_width + set_width)]
   def lookup_request :: RV5StageDataReq(xlen) = lookup.egress.bits
   def lookup_set = lookup_request.address[offset_width..(offset_width + set_width)]
   def lookup_tag = lookup_request.address[(offset_width + set_width)..width]
@@ -287,10 +292,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   assert(refill.command.ready ||| writeback.command.ready,
          "l1d_backing_owner_exclusive")
 
-  // Loads can follow hit lookups every cycle. A miss blocks until refill, and
-  // a store blocks only the cache-request stream while its one-entry backing
-  // write buffer drains; the store completion enters the response register at
-  // lookup and reaches the pipeline in WB.
+  // Once the request queue is primed, loads can follow hit lookups every cycle.
+  // A miss blocks queue drain until refill, and a store blocks drain while its
+  // one-entry backing write buffer completes the local SRAM update.
   // Active backing transactions have already captured their cache context and
   // do not occupy the SRAM ports. Serving snoops here prevents a Home waiting
   // on this RN-F from deadlocking behind this RN-F's queued request.
@@ -330,13 +334,15 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
               gathered_line,
               bits(0, RV5StageCacheLineBytes * 8)).as_vec(Bits(64))
 
+  core.request |> core_requests.ingress
   def lookup_accepts_input = refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !snoop_pending & !lookup_needs_refill & !local_mutation
-  core.request |> gate_flow(lookup_accepts_input) |> lookup.ingress
-  def request_fire = core.request.fire()
-  // A fence observes accepted lookup work, active refills, and the backing
-  // store buffer. Same-cycle acceptance is included so no request can cross
-  // the reported quiescent boundary.
-  core.drained <== !request_fire & !lookup.egress.valid & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
+  core_requests.egress |> gate_flow(lookup_accepts_input) |> lookup.ingress
+  def request_accept = core.request.fire()
+  def lookup_issue = lookup.ingress.fire()
+  // A fence observes accepted or queued requests, lookup work, active refills,
+  // and the backing store buffer. Same-cycle acceptance is included so no
+  // request can cross the reported quiescent boundary.
+  core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
   def produces_load_hit = lookup_load & line_hit
   def produces_failed_sc = lookup_sc & !reservation_matches
   def produces_response = produces_load_hit ||| local_mutation ||| produces_failed_sc ||| install_refill
@@ -367,18 +373,18 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     for (byte in 0..word_bytes):
       repeated_line_write_bytes := repeated_line_write_bytes ++ [line_write_bytes[byte]]
 
-  tags.port.request.valid <== request_fire ||| install_refill ||| snoop_lookup_start
+  tags.port.request.valid <== lookup_issue ||| install_refill ||| snoop_lookup_start
   tags.port.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
     address: mux(install_refill,
                  completion_set,
                  mux(snoop_lookup_start,
                      snoop_set,
-                     request_set_value))
+                     issue_set))
     write: install_refill
     data: vec(for List (_way in 0..ways): completion_tag)
     mask: install_way_mask
   def update_snoop_state = snoop.update.valid & !snoop.update.bits.invalidate
-  states.port.request.valid <== request_fire ||| install_refill ||| local_mutation ||| snoop_lookup_start ||| update_snoop_state
+  states.port.request.valid <== lookup_issue ||| install_refill ||| local_mutation ||| snoop_lookup_start ||| update_snoop_state
   def refill_cache_state = mux(refill.completion.bits.state === CHIResponseState.Unique,
                                CHICacheState.UniqueClean,
                                CHICacheState.SharedClean)
@@ -396,18 +402,18 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
                          snoop_set,
                          mux(update_snoop_state,
                              snoop.update.bits.address[offset_width..(offset_width + set_width)],
-                             request_set_value))))
+                             issue_set))))
     write: install_refill ||| local_mutation ||| update_snoop_state
     data: vec(for List (_way in 0..ways): state_write_data)
     mask: state_write_mask
   def local_mutation_address = lookup_request.address[word_offset_width..(offset_width + set_width)]
   def refill_install_address = (completion_set ++ refill_install_index)
   def gather_address = (gather_set ++ gather_issue_index)
-  lines.port.request.valid <== request_fire ||| cache_write ||| gather_issue
+  lines.port.request.valid <== lookup_issue ||| cache_write ||| gather_issue
   lines.port.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: mux(cache_write,
                  mux(local_mutation, local_mutation_address, refill_install_address),
-                 mux(gather_issue, gather_address, request_data_address))
+                 mux(gather_issue, gather_address, issue_data_address))
     write: cache_write
     data: vec(repeated_line_write_bytes)
     mask: mux(local_mutation, local_mutation_lane_mask, refill_lane_mask)
