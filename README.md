@@ -26,13 +26,14 @@ IR through CIRCT, which owns RTL generation.
 
 - Racket 9.2 or a compatible current release
 - Rhombus 1.1
+- Device Tree Compiler for DTB interoperability tests and FESVR simulations
 - CIRCT and Verilator only for external backend integration tests
 - Rosette only for optional equivalence, reachability, and output-property tests
 
 On a Homebrew-based macOS setup:
 
 ```sh
-brew install minimal-racket
+brew install minimal-racket dtc
 raco pkg install --auto rhombus
 ```
 
@@ -194,6 +195,8 @@ SystemVerilog.
 
 ### Explore hardware libraries and systems
 
+- [`devicetree/README.md`](devicetree/README.md) — validated host-side device
+  trees with native DTS and DTB encoding
 - [`noc/README.md`](noc/README.md) — graph-validated NoC authoring and hardware
   bridge
 - [`riscv/README.md`](riscv/README.md) — RISC-V instruction model and Rhodium

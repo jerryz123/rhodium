@@ -1,0 +1,40 @@
+#lang rhombus
+// Writes one representative native DTB and its DTS rendering for external-tool interoperability checks.
+
+import:
+  rhombus/cmdline open
+  "../main.rhm" open
+
+def arguments = current_command_line()
+unless arguments.length() == 1
+| error(~who: #'write_fixture, "expected one output-directory argument")
+
+def interrupt_controller = DeviceTreeLabel("cpu_intc_0")
+def tree = DeviceTree(
+  DeviceTreeNode(
+    "",
+    [DeviceTreeProperty("compatible", DeviceTreeString("rhodium,dtb-test")),
+     DeviceTreeProperty("#address-cells", DeviceTreeU32(2)),
+     DeviceTreeProperty("#size-cells", DeviceTreeU32(2))],
+    [DeviceTreeNode(
+       "memory@80000000",
+       [DeviceTreeProperty("device_type", DeviceTreeString("memory")),
+        DeviceTreeProperty("reg", DeviceTreeCells([
+          DeviceTreeU64(0x80000000),
+          DeviceTreeU64(0x2000000)
+        ]))]),
+     DeviceTreeNode(
+       "interrupt-controller",
+       [DeviceTreeProperty("interrupt-controller", DeviceTreeEmpty()),
+        DeviceTreeProperty("#interrupt-cells", DeviceTreeU32(1))],
+       [],
+       ~label: interrupt_controller),
+     DeviceTreeNode(
+       "consumer",
+       [DeviceTreeProperty("interrupt-parent", DeviceTreePhandle(interrupt_controller))])]),
+  [DeviceTreeReservation(0x81fff000, 0x1000)]
+)
+
+def output_directory = arguments[0]
+filesystem.write_bytes(Path.add(output_directory, "native.dtb"), tree.to_dtb(), ~exists: #'truncate)
+filesystem.write_string(Path.add(output_directory, "native.dts"), tree.to_dts(), ~exists: #'truncate)

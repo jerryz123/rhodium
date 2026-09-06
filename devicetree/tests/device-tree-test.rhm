@@ -1,0 +1,150 @@
+#lang rhombus
+// Checks typed device-tree construction, validation, deterministic rendering, and DTB layout.
+
+import:
+  "../main.rhm" open
+
+fun be32(bytes :: Bytes, offset :: Nat):
+  (bytes[offset] * 0x1000000) + (bytes[offset + 1] * 0x10000) + (bytes[offset + 2] * 0x100) + bytes[offset + 3]
+
+def cpu_intc = DeviceTreeLabel("cpu_intc_0")
+def tree = DeviceTree(
+  DeviceTreeNode(
+    "",
+    [DeviceTreeProperty("compatible", DeviceTreeStringList(["rhodium,test-soc", "simple-bus"])),
+     DeviceTreeProperty("#address-cells", DeviceTreeU32(2)),
+     DeviceTreeProperty("#size-cells", DeviceTreeU32(2))],
+    [DeviceTreeNode(
+       "cpus",
+       [DeviceTreeProperty("timebase-frequency", DeviceTreeU32(1000000))],
+       [DeviceTreeNode(
+          "cpu@0",
+          [DeviceTreeProperty("device_type", DeviceTreeString("cpu"))],
+          [DeviceTreeNode(
+             "interrupt-controller",
+             [DeviceTreeProperty("interrupt-controller", DeviceTreeEmpty())],
+             [],
+             ~label: cpu_intc)])]),
+     DeviceTreeNode(
+       "memory@80000000",
+       [DeviceTreeProperty("device_type", DeviceTreeString("memory")),
+        DeviceTreeProperty("reg", DeviceTreeCells([
+          DeviceTreeU64(0x80000000),
+          DeviceTreeU64(0x10000000)
+        ]))]),
+     DeviceTreeNode(
+       "soc",
+       [DeviceTreeProperty("ranges", DeviceTreeEmpty()),
+        DeviceTreeProperty("interrupt-parent", DeviceTreePhandle(cpu_intc)),
+        DeviceTreeProperty("interrupts-extended", DeviceTreeCells([
+          DeviceTreePhandle(cpu_intc),
+          DeviceTreeU32(3),
+          DeviceTreePhandle(cpu_intc),
+          DeviceTreeU32(7)
+        ]))])]),
+  [DeviceTreeReservation(0x81000000, 0x1000)],
+  ~boot_cpuid: 0
+)
+
+def expected_dts = String.join([
+  "/dts-v1/;",
+  "",
+  "/memreserve/ 0x81000000 0x1000;",
+  "",
+  "/ {",
+  "  compatible = \"rhodium,test-soc\", \"simple-bus\";",
+  "  #address-cells = <0x2>;",
+  "  #size-cells = <0x2>;",
+  "",
+  "  cpus {",
+  "    timebase-frequency = <0xf4240>;",
+  "",
+  "    cpu@0 {",
+  "      device_type = \"cpu\";",
+  "",
+  "      cpu_intc_0: interrupt-controller {",
+  "        phandle = <0x1>;",
+  "        interrupt-controller;",
+  "      };",
+  "    };",
+  "  };",
+  "",
+  "  memory@80000000 {",
+  "    device_type = \"memory\";",
+  "    reg = <0x0 0x80000000 0x0 0x10000000>;",
+  "  };",
+  "",
+  "  soc {",
+  "    ranges;",
+  "    interrupt-parent = <&cpu_intc_0>;",
+  "    interrupts-extended = <&cpu_intc_0 0x3 &cpu_intc_0 0x7>;",
+  "  };",
+  "};",
+  ""
+], "\n")
+
+def dtb = tree.to_dtb()
+def first_label = DeviceTreeLabel("first")
+def second_label = DeviceTreeLabel("second")
+def two_label_tree = DeviceTree(
+  DeviceTreeNode(
+    "",
+    [],
+    [DeviceTreeNode("outer", [], [DeviceTreeNode("inner", [], [], ~label: first_label)]),
+     DeviceTreeNode("sibling", [], [], ~label: second_label)]
+  )
+)
+
+check:
+  tree.phandle_for(cpu_intc) ~is 1
+  two_label_tree.phandle_for(first_label) ~is 1
+  two_label_tree.phandle_for(second_label) ~is 2
+  tree.to_dts() ~is expected_dts
+  tree.to_dtb() ~is dtb
+  dtb is_a ImmutableBytes ~is #true
+  be32(dtb, 0) ~is 0xd00dfeed
+  be32(dtb, 4) ~is dtb.length()
+  be32(dtb, 8) mod 4 ~is 0
+  be32(dtb, 12) mod 4 ~is 0
+  be32(dtb, 16) ~is 40
+  be32(dtb, 20) ~is 17
+  be32(dtb, 24) ~is 16
+  be32(dtb, 28) ~is 0
+  be32(dtb, 12) + be32(dtb, 32) ~is dtb.length()
+  be32(dtb, 8) + be32(dtb, 36) ~is be32(dtb, 12)
+
+check:
+  DeviceTreeU32(0x100000000) ~throws "unsigned 32-bit cell"
+  DeviceTreeU64(0x10000000000000000) ~throws "unsigned 64-bit value"
+  DeviceTreeString("bad\0string") ~throws "cannot contain NUL"
+  DeviceTreeStringList(["valid", "bad\0string"]) ~throws "cannot contain NUL"
+  DeviceTreeLabel("9bad") ~throws "invalid device-tree label"
+  DeviceTreeNode("bad/name") ~throws "invalid device-tree node name"
+  DeviceTreeProperty("bad@name", DeviceTreeEmpty()) ~throws "invalid device-tree property name"
+  DeviceTreeProperty("phandle", DeviceTreeU32(7)) ~throws "owned by the device-tree encoder"
+  DeviceTreeNode(
+    "duplicate-properties",
+    [DeviceTreeProperty("status", DeviceTreeString("okay")),
+     DeviceTreeProperty("status", DeviceTreeString("disabled"))]
+  ) ~throws "duplicate property status"
+  DeviceTreeNode(
+    "duplicate-children",
+    [],
+    [DeviceTreeNode("child"), DeviceTreeNode("child")]
+  ) ~throws "duplicate child node child"
+  DeviceTree(DeviceTreeNode("not-root")) ~throws "root node must have an empty name"
+  DeviceTree(DeviceTreeNode("", [], [DeviceTreeNode("")])) ~throws "non-root nodes must have a name"
+  DeviceTree(
+    DeviceTreeNode(
+      "",
+      [DeviceTreeProperty("reference", DeviceTreePhandle(DeviceTreeLabel("missing")))]
+    )
+  ) ~throws "unresolved device-tree label missing"
+  DeviceTree(
+    DeviceTreeNode(
+      "",
+      [],
+      [DeviceTreeNode("left", [], [], ~label: DeviceTreeLabel("same")),
+       DeviceTreeNode("right", [], [], ~label: DeviceTreeLabel("same"))]
+    )
+  ) ~throws "duplicate device-tree label same"

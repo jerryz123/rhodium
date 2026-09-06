@@ -93,6 +93,9 @@ check_matrix_entry noc/rtl/router.rhdl host_matrix ci-host-socs-test
 check_matrix_entry noc/rtl/router.rhdl circt_matrix ci-circt-protocols-test
 check_matrix_entry hardfloat/rtl/recode.rhdl host_matrix ci-host-models-test
 check_matrix_entry hardfloat/rtl/recode.rhdl circt_matrix ci-circt-cores-test
+check_matrix_entry devicetree/main.rhm host_matrix ci-host-models-test
+check_field devicetree/main.rhm circt false
+check_field devicetree/main.rhm simulation false
 check_field hardfloat/tests/verilator/representation_tb.sv simulation true
 check_matrix_entry chi/link.rhdl host_matrix ci-host-protocols-test
 check_matrix_entry chi/link.rhdl host_matrix ci-host-socs-test

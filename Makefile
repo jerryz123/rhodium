@@ -1,11 +1,12 @@
 # Build and test entry points for Rhodium's Rhombus and CIRCT-based toolchain.
 
 .PHONY: sram-test
-.PHONY: test host-test host-checks support-annotation-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-cores-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-cores-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
 
 CORE_TESTS := $(sort $(wildcard tests/core/*-test.rhm))
 ANALYSIS_TESTS := $(sort $(wildcard tests/analysis/*-test.rhm))
 SUPPORT_ANNOTATION_TESTS := $(sort $(wildcard support/tests/*-test.rhm))
+DEVICETREE_TESTS := $(sort $(wildcard devicetree/tests/*-test.rhm))
 FRONTEND_TESTS := $(sort $(wildcard tests/frontend/*-test.rhm))
 BACKEND_TESTS := $(sort $(wildcard tests/backend/*-test.rhm))
 FORMAL_TESTS := tests/formal/suite.rkt
@@ -35,7 +36,7 @@ RV5STAGE_EXAMPLES := $(sort $(shell find examples/rv5stage -type f \( -name '*.r
 EXAMPLES := $(sort $(shell find examples -path examples/formal -prune -o -type f \( -name '*.rhm' -o -name '*.rhdl' \) -print) $(RFPL_EXAMPLES))
 RACKET_COMPILE_SOURCES := $(sort \
   $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
-  $(BACKEND_TESTS) $(RFPL_TESTS) $(NOC_TESTS) $(RISCV_TESTS) \
+  $(BACKEND_TESTS) $(RFPL_TESTS) $(DEVICETREE_TESTS) devicetree/tests/write-fixture.rhm $(NOC_TESTS) $(RISCV_TESTS) \
   $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(HARDFLOAT_TESTS) $(RV5STAGE_TESTS) $(EXAMPLES) \
   $(wildcard tests/backend/emit-*.rhm) \
   $(wildcard sims/tests/*.rhm) \
@@ -68,6 +69,17 @@ install-git-hooks:
 
 support-annotation-test:
 	tools/run-racket-tests.sh $(SUPPORT_ANNOTATION_TESTS)
+
+devicetree-test:
+	@devicetree_compiled_root="$${PLTCOMPILEDROOTS:-}"; \
+	owns_compiled_root=false; \
+	if [ -z "$$devicetree_compiled_root" ]; then \
+		devicetree_compiled_root="$$(mktemp -d /tmp/rhodium-devicetree-compiled.XXXXXX)"; \
+		owns_compiled_root=true; \
+	fi; \
+	trap 'if [ "$$owns_compiled_root" = true ]; then rm -rf "$$devicetree_compiled_root"; fi' EXIT; \
+	env PLTCOMPILEDROOTS="$$devicetree_compiled_root" tools/run-racket-tests.sh $(DEVICETREE_TESTS); \
+	env PLTCOMPILEDROOTS="$$devicetree_compiled_root" bash devicetree/tests/run-dtc.sh
 
 frontend-test: check-boundaries
 	tools/run-racket-tests.sh $(CORE_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS)
@@ -182,13 +194,13 @@ update-verilog-goldens:
 	bash tools/check-example-verilog.sh --allow-empty
 	bash tests/backend/run-circt.sh --update-goldens
 
-host-checks: check-parameter-annotations support-annotation-test unit-test rfpl-unit-test noc-test riscv-test device-test chi-test soc-test hardfloat-host-test rv5stage-host-test
+host-checks: check-parameter-annotations support-annotation-test devicetree-test unit-test rfpl-unit-test noc-test riscv-test device-test chi-test soc-test hardfloat-host-test rv5stage-host-test
 
 ci-host-foundation-test: support-annotation-test frontend-test lop-test
 
 ci-host-backend-test: backend-test
 
-ci-host-models-test: noc-test riscv-test hardfloat-host-test
+ci-host-models-test: devicetree-test noc-test riscv-test hardfloat-host-test
 
 ci-host-protocols-test: rfpl-unit-test device-test chi-test
 

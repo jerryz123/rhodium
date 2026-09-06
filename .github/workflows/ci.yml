@@ -115,6 +115,11 @@ jobs:
           racket-version: "${{ env.RACKET_VERSION }}"
           rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
           artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install device-tree test tools
+        if: matrix.target == 'ci-host-models-test'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes device-tree-compiler
       - name: Run affected host test group
         run: make "${{ matrix.target }}"
 

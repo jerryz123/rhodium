@@ -37,6 +37,7 @@ this mirrored tree:
 |---|---|---|
 | Language-layer equivalence | `make lop-test` | [Frontend](../rhodium/frontend/README.md) |
 | Logical diagrams | `make diagram-test` | [Diagrams](../rhodium/diagram/README.md) |
+| Device-tree model and encoders | `make devicetree-test` | [Device trees](../devicetree/README.md) |
 | RFPL views and constraints | `make rfpl-test` | [RFPL](../rfpl/README.md) |
 | Pure NoC model and hardware planning | `make noc-test` | [NoC](../noc/README.md) |
 | RISC-V model and instruction catalogs | `make riscv-test` | [RISC-V](../riscv/README.md) |
