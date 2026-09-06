@@ -4,6 +4,7 @@ module aclint_tb;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } rsp_forward_t;
   typedef struct packed { logic valid; CHIDatFlit bits; } dat_forward_t;
+  typedef struct packed { logic valid; logic [63:0] bits; } valid_u64_t;
   typedef struct packed {
     struct packed { ready_t response; } rsp;
     req_forward_t req;
@@ -36,12 +37,25 @@ module aclint_tb;
   logic tick;
   sn_in_t port_in;
   sn_out_t port_out;
+  valid_u64_t time_update_out;
   logic [63:0] time_counter;
   logic [1:0] machine_software;
   logic [1:0] machine_timer;
+  logic [3:0] time_update_count;
+  logic [63:0] last_time_update;
 
   Aclint dut (.*);
   always #5 clock = ~clock;
+
+  always_ff @(posedge clock) begin
+    if (reset) begin
+      time_update_count <= '0;
+      last_time_update <= '0;
+    end else if (time_update_out.valid) begin
+      time_update_count <= time_update_count + 1'b1;
+      last_time_update <= time_update_out.bits;
+    end
+  end
 
   task automatic cycle;
     begin
@@ -191,14 +205,20 @@ module aclint_tb;
     tick = 1'b1;
     cycle();
     tick = 1'b0;
-    assert (time_counter == 1)
-      else $fatal(1, "ACLINT tick did not increment mtime");
+    assert (time_counter == 1 && time_update_count == 1 && last_time_update == 1)
+      else $fatal(1, "ACLINT tick did not emit the incremented mtime");
 
     write_register(12'h101, MTIME, 6'd3, 16'hff00, 128'h0);
+    assert (time_update_count == 2 && last_time_update == 0)
+      else $fatal(1, "ACLINT full mtime write did not emit its new value");
     write_register(12'h102, MTIME + 44'd4, 6'd2, 16'hf000,
                    128'h12345678_00000000_00000000_00000000);
+    assert (time_update_count == 3 && last_time_update == 64'h12345678_00000000)
+      else $fatal(1, "ACLINT partial mtime write did not emit its new value");
     read_register(12'h103, MTIME, 6'd3, 16'hff00,
                   128'h12345678_00000000_00000000_00000000);
+    assert (time_update_count == 3)
+      else $fatal(1, "ACLINT read emitted a spurious time update");
 
     write_register(12'h104, MTIMECMP0, 6'd3, 16'h00ff,
                    128'h12345678_00000002);
@@ -207,7 +227,8 @@ module aclint_tb;
     tick = 1'b1;
     repeat (2) cycle();
     tick = 1'b0;
-    assert (machine_timer[0] && !machine_timer[1])
+    assert (machine_timer[0] && !machine_timer[1] &&
+            time_update_count == 5 && last_time_update == 64'h12345678_00000002)
       else $fatal(1, "per-hart MTIP levels are incorrect");
 
     write_register(12'h105, MSWI1, 6'd2, 16'h0010, 128'h00000001_00000000);

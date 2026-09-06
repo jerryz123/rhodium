@@ -168,6 +168,12 @@ module rv5stage_mmu_replay_tb;
   end
 
   initial begin
+    wait (!reset);
+    repeat (120) @(posedge clock);
+    $fatal(1, "DTLB walk or replay did not complete");
+  end
+
+  initial begin
     data_request_valid = 1'b0;
     privilege = PRIVILEGE_S;
     mstatus = '0;
@@ -185,26 +191,18 @@ module rv5stage_mmu_replay_tb;
     @(posedge clock);
     #1 data_request_valid = 1'b0;
 
-    fork
-      begin
-        wait (pte_requests == 3 && data_out.drained);
-        @(negedge clock);
-        data_request_valid = 1'b1;
-        #1;
-        assert (data_out.request.ready && data_memory_out.request.valid &&
-                data_memory_out.request.bits.address == PHYSICAL_ADDRESS)
-          else $fatal(1, "replayed request did not hit the filled DTLB");
-        @(posedge clock);
-        #1 data_request_valid = 1'b0;
-        assert (translated_request_seen)
-          else $fatal(1, "translated replay was not accepted downstream");
-        $display("RV5Stage DTLB pulse-and-replay translation passed");
-        $finish;
-      end
-      begin
-        repeat (120) @(posedge clock);
-        $fatal(1, "DTLB walk or replay did not complete");
-      end
-    join_any
+    wait (pte_requests == 3 && data_out.drained);
+    @(negedge clock);
+    data_request_valid = 1'b1;
+    #1;
+    assert (data_out.request.ready && data_memory_out.request.valid &&
+            data_memory_out.request.bits.address == PHYSICAL_ADDRESS)
+      else $fatal(1, "replayed request did not hit the filled DTLB");
+    @(posedge clock);
+    #1 data_request_valid = 1'b0;
+    assert (translated_request_seen)
+      else $fatal(1, "translated replay was not accepted downstream");
+    $display("RV5Stage DTLB pulse-and-replay translation passed");
+    $finish;
   end
 endmodule
