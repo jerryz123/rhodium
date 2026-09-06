@@ -5,6 +5,10 @@ import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../isa/c.rhm" open
+  "../isa/rv32i.rhm" as rv32i
+  "../isa/rv64i.rhm" as rv64i
+  "../isa/f.rhm" as riscv_f
+  "../isa/d.rhm" as riscv_d
   "../isa/zca.rhm" open
   "../isa/zcf.rhm" open
   "../isa/zcd.rhm" open
@@ -12,17 +16,25 @@ import:
   "../isa/xlen.rhm" open
   "../rtl/compressed.rhdl" open
 
+fun instruction_names(instructions):
+  instructions.map(fun (instruction): instruction.name)
+
+def rv32f_instruction_names = instruction_names(rv32i.RV32IInstructions ++ riscv_f.RV32FInstructions)
+def rv32d_instruction_names = instruction_names(rv32i.RV32IInstructions ++ riscv_f.RV32FInstructions ++ riscv_d.RV32DInstructions)
+def rv64d_instruction_names = instruction_names(rv64i.RV64IInstructions ++ riscv_f.RV64FInstructions ++ riscv_d.RV64DInstructions)
+def rv64i_instruction_names = instruction_names(rv64i.RV64IInstructions)
+
 def rv32_design = embedded.run_elaboration(
-  fun (): RiscvCompressedExpander(XLen.X32, FloatingPointProfile.F)
+  fun (): RiscvCompressedExpander(XLen.X32, FloatingPointProfile.F, ~supported_instructions: rv32f_instruction_names)
 )
 def rv64_design = embedded.run_elaboration(
-  fun (): RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D)
+  fun (): RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D, ~supported_instructions: rv64d_instruction_names)
 )
 def rv32d_design = embedded.run_elaboration(
-  fun (): RiscvCompressedExpander(XLen.X32, FloatingPointProfile.D)
+  fun (): RiscvCompressedExpander(XLen.X32, FloatingPointProfile.D, ~supported_instructions: rv32d_instruction_names)
 )
 def rv64_zca_design = embedded.run_elaboration(
-  fun (): RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D, CompressedProfile.Zca)
+  fun (): RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D, ZcaCompressedExtensions, ~supported_instructions: rv64i_instruction_names)
 )
 def addi = RV32Zca.matching(0x0085)
 def lui_hint = RV64Zca.matching(0x6005)
@@ -34,14 +46,18 @@ fun expansions_match_targets(catalog :: CompressedInstructionCatalog):
     | #true
 
 check:
-  compressed_profile_enabled(CompressedProfile.None) ~is #false
-  compressed_profile_enabled(CompressedProfile.Zca) ~is #true
-  compressed_profile_enabled(CompressedProfile.C) ~is #true
-  compressed_profile_reports_misa_c(CompressedProfile.None, FloatingPointProfile.None) ~is #false
-  compressed_profile_reports_misa_c(CompressedProfile.Zca, FloatingPointProfile.None) ~is #true
-  compressed_profile_reports_misa_c(CompressedProfile.Zca, FloatingPointProfile.F) ~is #false
-  compressed_profile_reports_misa_c(CompressedProfile.Zca, FloatingPointProfile.D) ~is #false
-  compressed_profile_reports_misa_c(CompressedProfile.C, FloatingPointProfile.D) ~is #true
+  compressed_extensions_enabled(NoCompressedExtensions) ~is #false
+  compressed_extensions_enabled(ZcaCompressedExtensions) ~is #true
+  compressed_extensions_enabled(CCompressedExtensions) ~is #true
+  compressed_extensions_report_misa_c(XLen.X64, FloatingPointProfile.None, NoCompressedExtensions) ~is #false
+  compressed_extensions_report_misa_c(XLen.X64, FloatingPointProfile.None, ZcaCompressedExtensions) ~is #true
+  compressed_extensions_report_misa_c(XLen.X64, FloatingPointProfile.F, ZcaCompressedExtensions) ~is #false
+  compressed_extensions_report_misa_c(XLen.X64, FloatingPointProfile.D, ZcaCompressedExtensions) ~is #false
+  compressed_extensions_report_misa_c(XLen.X64, FloatingPointProfile.D, CCompressedExtensions) ~is #true
+  compressed_extensions(CompressedExtension.Zcb) ~throws "Zcb requires Zca or C"
+  compressed_extensions(CompressedExtension.Zca, CompressedExtension.Zca) ~throws "duplicate compressed extension"
+  compressed_extensions(CompressedExtension.C, CompressedExtension.Zca) ~throws "C already supplies"
+  compressed_extensions_instructions(XLen.X64, FloatingPointProfile.None, ZcaCompressedExtensions, []) ~throws "downstream decoder"
   zca_instructions(XLen.X32).map(fun (instruction): instruction.name).contains("C.FLW") ~is #false
   c_instructions(XLen.X32, FloatingPointProfile.F).map(fun (instruction): instruction.name).contains("C.FLW") ~is #true
   c_instructions(XLen.X32, FloatingPointProfile.D).map(fun (instruction): instruction.name).contains("C.FLD") ~is #true

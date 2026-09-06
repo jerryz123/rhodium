@@ -1,0 +1,69 @@
+#lang rhombus
+// Checks Zcb encodings, canonical expansions, prerequisites, and Zca composition.
+
+import:
+  "../isa/b.rhm" as riscv_b
+  "../isa/compressed.rhm" open
+  "../isa/rv32i.rhm" as rv32i
+  "../isa/rv64i.rhm" as rv64i
+  "../isa/xlen.rhm" open
+  "../isa/zca.rhm" open
+  "../isa/zcb.rhm" open
+  "../isa/zmmul.rhm" as zmmul
+
+fun instruction_names(instructions):
+  instructions.map(fun (instruction): instruction.name)
+
+def rv32_base_names = instruction_names(rv32i.RV32IInstructions)
+def rv64_base_names = instruction_names(rv64i.RV64IInstructions)
+def rv32_bitmanip_names = instruction_names(rv32i.RV32IInstructions ++ riscv_b.RV32BInstructions)
+def rv32_full_names = instruction_names(rv32i.RV32IInstructions ++ riscv_b.RV32BInstructions ++ zmmul.RV32ZmmulInstructions)
+def rv64_full_names = instruction_names(rv64i.RV64IInstructions ++ riscv_b.RV64BInstructions ++ zmmul.RV64ZmmulInstructions)
+def RV32ZcaZcb = CompressedInstructionCatalog(
+  "RV32ZcaZcb", "Zca 1.0.0 plus Zcb 1.0.0", RV32ZcaInstructions ++ RV32ZcbInstructions
+)
+def RV64ZcaZcb = CompressedInstructionCatalog(
+  "RV64ZcaZcb", "Zca 1.0.0 plus Zcb 1.0.0", RV64ZcaInstructions ++ RV64ZcbInstructions
+)
+
+fun expansions_match_targets(catalog :: CompressedInstructionCatalog):
+  for all (word in 0..0x10000):
+    def instruction = catalog.matching(word)
+    if instruction | instruction.expansion.target.matches(instruction.expand(word)) | #true
+
+check:
+  RV32Zcb.instructions.map(fun (instruction): instruction.name) ~is [
+    "C.LBU", "C.LHU", "C.LH", "C.SB", "C.SH", "C.ZEXT.B", "C.NOT",
+    "C.SEXT.B", "C.ZEXT.H", "C.SEXT.H", "C.MUL"
+  ]
+  RV64Zcb.instructions.map(fun (instruction): instruction.name) ~is [
+    "C.LBU", "C.LHU", "C.LH", "C.SB", "C.SH", "C.ZEXT.B", "C.NOT",
+    "C.SEXT.B", "C.ZEXT.H", "C.SEXT.H", "C.ZEXT.W", "C.MUL"
+  ]
+  RV32Zcb.find("C.LBU").encodings[0].value ~is 0x8000
+  RV32Zcb.find("C.LBU").encodings[0].care ~is 0xfc03
+  RV32Zcb.find("C.LH").encodings[0].value ~is 0x8440
+  RV32Zcb.find("C.LH").encodings[0].care ~is 0xfc43
+  RV32Zcb.find("C.SB").encodings[0].value ~is 0x8800
+  RV32Zcb.find("C.ZEXT.B").encodings[0].value ~is 0x9c61
+  RV32Zcb.find("C.ZEXT.B").encodings[0].care ~is 0xfc7f
+  RV32Zcb.find("C.MUL").encodings[0].value ~is 0x9c41
+  RV32Zcb.find("C.MUL").encodings[0].care ~is 0xfc63
+  RV64Zcb.find("C.ZEXT.W").encodings[0].value ~is 0x9c71
+  RV32Zcb.find("C.LBU").expand(0x8060) ~is 0x00344403
+  RV32Zcb.find("C.SH").expand(0x8c20) ~is 0x00841123
+  RV32Zcb.find("C.ZEXT.B").expand(0x9c61) ~is 0x0ff47413
+  RV32Zcb.find("C.SEXT.B").expand(0x9c65) ~is 0x60441413
+  RV32Zcb.find("C.MUL").expand(0x9c41) ~is 0x02840433
+  RV64Zcb.find("C.ZEXT.W").expand(0x9c71) ~is 0x0804043b
+  instruction_names(zcb_instructions(XLen.X32, rv32_base_names)) ~is [
+    "C.LBU", "C.LHU", "C.LH", "C.SB", "C.SH", "C.ZEXT.B", "C.NOT"
+  ]
+  zcb_instructions(XLen.X32, rv32_bitmanip_names).length() ~is 10
+  zcb_instructions(XLen.X32, rv32_full_names).length() ~is 11
+  zcb_instructions(XLen.X64, rv64_base_names).length() ~is 7
+  zcb_instructions(XLen.X64, rv64_full_names).length() ~is 12
+  RV32ZcaZcb.instructions.length() ~is RV32ZcaInstructions.length() + 11
+  RV64ZcaZcb.instructions.length() ~is RV64ZcaInstructions.length() + 12
+  expansions_match_targets(RV32Zcb) ~is #true
+  expansions_match_targets(RV64Zcb) ~is #true

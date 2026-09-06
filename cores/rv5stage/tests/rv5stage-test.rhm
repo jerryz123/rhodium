@@ -4,6 +4,7 @@
 import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../riscv/isa/c.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../cache.rhdl" as cache
   "../chi.rhdl" as chi
@@ -28,6 +29,13 @@ def architectural_registers = register_file.operations.find(fun (operation): ope
 def rv32_design = embedded.run_elaboration(fun (): rv5stage.RV5Stage(XLen.X32, ~chi: config))
 def rv32_top = rv32_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def rv32_register_file = rv32_design.modules.find(fun (module_def): module_def.name == "RV5StageRegisterFile")
+def zcb_design = embedded.run_elaboration(
+  fun (): rv5stage.RV5Stage(
+    XLen.X64,
+    ~compressed: compressed_extensions(CompressedExtension.Zca, CompressedExtension.Zcb),
+    ~chi: config
+  )
+)
 def associative_design = embedded.run_elaboration(
   fun (): rv5stage.RV5Stage(
     XLen.X64,
@@ -99,6 +107,7 @@ check:
   core_instances.contains("Queue") ~is #false
   instance_names(fetch).filter(~keep: fun (name): name.starts_with("Queue")).length() ~is 1
   design.modules.map(fun (module_def): module_def.name).contains("RiscvCompressedExpander") ~is #false
+  zcb_design.modules.map(fun (module_def): module_def.name).contains("RiscvCompressedExpander") ~is #true
   core_instances.length() ~is 17
   l1i_instances.filter(~keep: fun (name): name.starts_with("SyncRam1RW")).length() ~is 3
   l1i_instances.filter(~keep: fun (name): name.starts_with("Queue")).length() ~is 1
@@ -135,6 +144,7 @@ check:
   ).results[0].type.type_equal(VectorType(32, Bits(32))) ~is #true
   verify_design(design) ~is #void
   verify_design(rv32_design) ~is #void
+  verify_design(zcb_design) ~is #void
   verify_design(associative_design) ~is #void
   embedded.run_elaboration(
     fun (): rv5stage.RV5Stage(XLen.X32,

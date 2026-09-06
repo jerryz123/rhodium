@@ -22,7 +22,7 @@ sync_circuit RV5Stage(xlen :: XLen,
                       ~floating_point: profile :: FloatingPointProfile = DefaultFloatingPointProfile,
                       ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
                       ~zfa: zfa_enabled :: Boolean = #false,
-                      ~compressed: compressed_profile :: CompressedProfile = DefaultCompressedProfile,
+                      ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions,
                       ~icache: instruction_cache :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
                       ~dcache: data_cache :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
                       ~chi: config :: RV5StageCHIConfig):
@@ -39,7 +39,7 @@ sync_circuit RV5Stage(xlen :: XLen,
   interface umem(CHIRNIChannels(p), ~role: node)
   output fault: Bool
 
-  inst core(RV5StageCore(xlen, profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_profile))
+  inst core(RV5StageCore(xlen, profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_extensions))
   inst mmu(RV5StageMmu(xlen, config.physical_map))
   inst l1i(RV5StageL1ICache(xlen, instruction_cache, ~chi: config))
   inst l1d(RV5StageL1DCache(xlen, data_cache, ~chi: config))

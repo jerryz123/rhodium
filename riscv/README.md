@@ -135,9 +135,10 @@ responsibilities.
 |---|---|---|
 | [`isa/compressed.rhm`](isa/compressed.rhm) | `CompressedInstructionSpec`, `CompressedInstructionCatalog` | Shared 16-bit encoding, legality, and canonical-expansion descriptors |
 | [`isa/zca.rhm`](isa/zca.rhm) | `RV32Zca`, `RV64Zca` | Zca 1.0.0 compressed integer instructions |
+| [`isa/zcb.rhm`](isa/zcb.rhm) | `RV32Zcb`, `RV64Zcb`, `zcb_instructions` | Zcb 1.0.0 instructions with target-catalog prerequisite filtering |
 | [`isa/zcf.rhm`](isa/zcf.rhm) | `RV32Zcf` | Zcf 1.0.0 RV32 compressed single-precision loads and stores |
 | [`isa/zcd.rhm`](isa/zcd.rhm) | `RV32Zcd`, `RV64Zcd` | Zcd 1.0.0 compressed double-precision loads and stores |
-| [`isa/c.rhm`](isa/c.rhm) | `CompressedProfile`, `c_instructions` | Selects no compressed support, Zca alone, or C composed from Zca and applicable FP subsets |
+| [`isa/c.rhm`](isa/c.rhm) | `CompressedExtension`, `compressed_extensions`, `compressed_extensions_instructions` | Validates and composes independent C, Zca, Zcb, Zcf, and Zcd selections |
 
 See [Compressed-instruction expansion](#compressed-instruction-expansion) for
 the pure descriptor and hardware materialization path.
@@ -176,7 +177,7 @@ policy.
 ## Compressed-instruction expansion
 
 [`isa/compressed.rhm`](isa/compressed.rhm) defines the shared compressed
-descriptor machinery. The Zca, Zcf, and Zcd catalogs retain each 16-bit
+descriptor machinery. The Zca, Zcb, Zcf, and Zcd catalogs retain each 16-bit
 encoding, legality constraint, compressed field, immediate layout, operand binding, and canonical
 `InstructionSpec` target as pure host data. A `CompressedInstructionCatalog`
 checks unique names and nonoverlapping base encodings. Matching additionally
@@ -194,11 +195,16 @@ flowchart LR
   Canonical --> Decoder["existing 32-bit decoder"]
 ```
 
-[`isa/c.rhm`](isa/c.rhm) provides `CompressedProfile.None`, `.Zca`, and `.C`.
-The C profile composes Zca with Zcf on RV32F and with Zcd when D is present;
-Zca remains independently selectable even for an FP-capable processor. A
-Zca-only integer configuration can report `misa.C`, but an FP-capable Zca-only
-configuration cannot because it omits the FP subset required by C.
+[`isa/c.rhm`](isa/c.rhm) represents compressed support as a normalized list of
+`CompressedExtension` values. `ZcaCompressedExtensions` and
+`CCompressedExtensions` are concise presets, while combinations such as
+`compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb)` add
+orthogonal subsets without multiplying profile variants. C composes Zca with
+Zcf on RV32F and with Zcd when D is present; Zcb requires Zca or C and enables
+only instructions whose canonical targets are supported by the downstream
+decoder. A Zca-only integer configuration can report `misa.C`, but an
+FP-capable Zca-only configuration cannot because it omits the FP subset
+required by C. Zcb does not affect `misa.C`.
 [`rtl/compressed.rhdl`](rtl/compressed.rhdl) materializes the selected pure
 composition as combinational hardware. Reserved encodings produce
 `valid = #false`; architectural hint encodings remain legal and expand to the
@@ -253,6 +259,8 @@ Zicond follows the ratified
 [integer conditional-operations extension](https://docs.riscv.org/reference/isa/unpriv/zicond.html),
 and C follows the ratified
 [compressed-instruction extension](https://docs.riscv.org/reference/isa/unpriv/c-st-ext.html).
+Zcb follows the ratified
+[Zc code-size-reduction specification](https://docs.riscv.org/reference/isa/unpriv/zc.html).
 Zfhmin and Zfh follow the ratified
 [half-precision floating-point extension](https://github.com/riscv/riscv-isa-manual/blob/main/src/unpriv/zfh.adoc).
 Zfa follows the ratified

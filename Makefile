@@ -144,7 +144,7 @@ rv5stage-host-test: check-boundaries
 	tools/run-racket-tests.sh $(RV5STAGE_TESTS) $(RV5STAGE_BACKEND_TESTS)
 
 rv5stage-test: rv5stage-host-test
-	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-decode rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed rv5stage-fp-decoder rv5stage-fp-register-file rv5stage-fp-pipeline rv5stage-register-file rv5stage-csr rv5stage-atomic rv5stage-fetch rv5stage-core rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-multiply rv5stage-divide rv5stage-core-rv32 rv5stage-icache rv5stage-dcache rv5stage-dcache-rv32' bash tests/backend/run-circt.sh
+	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-decode rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed rv5stage-fp-decoder rv5stage-fp-register-file rv5stage-fp-pipeline rv5stage-register-file rv5stage-csr rv5stage-atomic rv5stage-fetch rv5stage-core rv5stage-zcb rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-multiply rv5stage-divide rv5stage-core-rv32 rv5stage-icache rv5stage-dcache rv5stage-dcache-rv32' bash tests/backend/run-circt.sh
 
 circt-test: check-example-verilog
 	bash tests/backend/run-circt.sh

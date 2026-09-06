@@ -31,6 +31,11 @@ export:
   shift6_immediate
   andi
   compressed_alu
+  bind
+  expansion
+  compressed_instruction
+  compressed_instruction_encodings
+  quadrant_requirements
   branch
   slli
   stack_load

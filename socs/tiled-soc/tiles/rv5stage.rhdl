@@ -26,7 +26,7 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams,
                           ~floating_point: profile :: FloatingPointProfile = DefaultFloatingPointProfile,
                           ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
                           ~zfa: zfa_enabled :: Boolean = #false,
-                          ~compressed: compressed_profile :: CompressedProfile = DefaultCompressedProfile):
+                          ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions):
   def router_params = params.router
   def p = params.rv5stage.flit
   def site_width = router_params.routers.req.route_decoder.site_width
@@ -40,7 +40,7 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams,
   interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
   interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
 
-  inst rv5stage(RV5Stage(XLen.X64, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_profile, ~chi: params.rv5stage))
+  inst rv5stage(RV5Stage(XLen.X64, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_extensions, ~chi: params.rv5stage))
   inst time_receiver(TiledTimeReceiver(params.hart_count))
   inst router(CHIRouter(router_params))
 

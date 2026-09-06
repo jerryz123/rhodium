@@ -269,7 +269,7 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params
                              ~zfa: zfa_enabled :: Boolean = #false,
                              ~icache: instruction_cache :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
                              ~dcache: data_cache :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
-                             ~compressed: compressed_profile :: CompressedProfile = DefaultCompressedProfile,
+                             ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions,
                              ~home: home_module = CHIHNF(params.home_config)):
   interface host(SoCHostInterface(simple_soc_flit), ~role: soc)
   interface memory(CHISNChannels(simple_soc_flit), ~role: icn)
@@ -279,7 +279,7 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params
                          ~floating_point: profile,
                          ~half_precision: half_precision,
                          ~zfa: zfa_enabled,
-                         ~compressed: compressed_profile,
+                         ~compressed: compressed_extensions,
                          ~icache: instruction_cache,
                          ~dcache: data_cache,
                          ~chi: params.rv5stage_config))
@@ -410,14 +410,14 @@ sync_circuit SimpleSoC(params :: SimpleSoCParams = simple_soc_params,
                        ~floating_point: profile :: FloatingPointProfile = FloatingPointProfile.D,
                        ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
                        ~zfa: zfa_enabled :: Boolean = #false,
-                       ~compressed: compressed_profile :: CompressedProfile = CompressedProfile.C):
+                       ~compressed: compressed_extensions :: List.of(CompressedExtension) = CCompressedExtensions):
   def fabric_params = params.fabric
   interface host(SoCHostInterface(fabric_params.flit), ~role: soc)
   interface memory(CHISNChannels(fabric_params.flit), ~role: icn)
   interface uart(SoCUartInterface(), ~role: soc)
 
   def HomeModule = CHIInclusiveHNF(params.llc_config)
-  inst fabric(SimpleSoCFabric(fabric_params, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_profile, ~home: HomeModule))
+  inst fabric(SimpleSoCFabric(fabric_params, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_extensions, ~home: HomeModule))
 
   host <=> fabric.host
   fabric.memory <=> memory

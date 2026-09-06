@@ -25,9 +25,10 @@ bundle RV5StageFetchWord(xlen :: XLen):
 
 sync_circuit RV5StageInstructionFetch(xlen :: XLen,
                                       profile :: FloatingPointProfile = DefaultFloatingPointProfile,
-                                      ~compressed: compressed_profile :: CompressedProfile = DefaultCompressedProfile):
+                                      ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions,
+                                      ~supported_instructions: supported_instruction_names :: List.of(String)):
   def width = xlen.width
-  def compressed_enabled = compressed_profile_enabled(compressed_profile)
+  def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   input active: Bool
   input flush: Bool
   input restart_valid: Bool
@@ -70,7 +71,7 @@ sync_circuit RV5StageInstructionFetch(xlen :: XLen,
   wire compressed_legal: Bool
   if compressed_enabled
   | block:
-      inst expander(RiscvCompressedExpander(xlen, profile, compressed_profile))
+      inst expander(RiscvCompressedExpander(xlen, profile, compressed_extensions, ~supported_instructions: supported_instruction_names))
       expander.compressed <== raw_instruction[0..16]
       expanded_instruction <== mux(instruction_is_compressed, expander.expansion.instruction, raw_instruction)
       compressed_legal <== expander.expansion.valid

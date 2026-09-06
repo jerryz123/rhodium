@@ -41,12 +41,13 @@ sync_circuit RV5StageCore(xlen :: XLen,
                           profile :: FloatingPointProfile = DefaultFloatingPointProfile,
                           ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
                           ~zfa: zfa_enabled :: Boolean = #false,
-                          ~compressed: compressed_profile :: CompressedProfile = DefaultCompressedProfile):
+                          ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   def width = xlen.width
-  def compressed_enabled = compressed_profile_enabled(compressed_profile)
+  def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled).map(fun (instruction): instruction.name)
 
   interface start(Irrevocable(Bits(width)), ~role: consumer)
   input interrupts: RV5StageInterrupts()
@@ -100,8 +101,8 @@ sync_circuit RV5StageCore(xlen :: XLen,
   inst fp_integer_scoreboard(Scoreboard(register_count))
   def FpModule = if floating_point_supports_f(profile) | RV5StageFpPipeline(xlen, effective_fp_profile, Bits(width), ~half_precision: half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst fp(FpModule)
-  inst csrs(RV5StageCsrFile(xlen, profile, ~compressed: compressed_profile))
-  inst fetch(RV5StageInstructionFetch(xlen, profile, ~compressed: compressed_profile))
+  inst csrs(RV5StageCsrFile(xlen, profile, ~compressed: compressed_extensions))
+  inst fetch(RV5StageInstructionFetch(xlen, profile, ~compressed: compressed_extensions, ~supported_instructions: supported_instruction_names))
   csrs.interrupts <== interrupts
   csrs.hart_id <== hart_id
   csrs.time_counter <== time_counter

@@ -85,13 +85,14 @@ consumers select a descriptor instead of copying slice maps.
 ## Compressed-instruction expansion
 
 [`compressed.rhdl`](compressed.rhdl) defines the combinational
-`RiscvCompressedExpander(xlen, floating_point, compressed_profile)` circuit.
+`RiscvCompressedExpander(xlen, floating_point, compressed_extensions,
+~supported_instructions: names)` circuit.
 Its input is `Bits(16)` and
 its `RiscvCompressedExpansion` output contains `valid: Bool` plus the canonical
 `instruction: Bits(32)` for the existing 32-bit decoder.
 
-`CompressedProfile.Zca` always selects only the XLEN-appropriate Zca catalog.
-`CompressedProfile.C` selects this exact architectural composition:
+`ZcaCompressedExtensions` always selects only the XLEN-appropriate Zca
+catalog. `CCompressedExtensions` selects this exact architectural composition:
 
 | `XLen` | Floating-point profile | Included compressed catalogs |
 |---|---|---|
@@ -103,11 +104,15 @@ its `RiscvCompressedExpansion` output contains `valid: Bool` plus the canonical
 
 The circuit derives its selector relation from the pure descriptors, checks
 their nonzero-field and nonzero-immediate legality constraints in hardware,
-and materializes their target operand and immediate bindings. An unmatched or
-reserved encoding deasserts `valid`; consumers must use `valid` to qualify the
-instruction bits. Architectural hints that the pure catalog accepts remain
-valid and expand to their canonical no-effect base instruction. There is no
-parallel operation enum or handwritten opcode table.
+validates their required targets against the supplied canonical 32-bit
+instruction names, and materializes their target operand and immediate
+bindings. Optional Zcb descriptors are selected from the same target catalog,
+implementing Zbb, Zba, and M/Zmmul prerequisites without duplicating feature
+flags. An unmatched,
+reserved, or unsupported encoding deasserts `valid`; consumers must use
+`valid` to qualify the instruction bits. Architectural hints that the pure
+catalog accepts remain valid and expand to their canonical no-effect base
+instruction. There is no parallel operation enum or handwritten opcode table.
 
 The [pure-model guide](../README.md#compressed-instruction-expansion) explains
 the shared host and hardware expansion path.

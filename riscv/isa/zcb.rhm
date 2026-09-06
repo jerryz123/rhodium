@@ -1,0 +1,117 @@
+#lang rhombus
+// Defines prerequisite-aware RV32 and RV64 Zcb compressed-integer catalogs.
+
+import:
+  "../../support/annotations.rhm" open
+  "../model/main.rhm" open
+  "compressed.rhm" open
+  "rv32i.rhm" as rv32i
+  "rv64i.rhm" as rv64i
+  "xlen.rhm" open
+  "zba.rhm" as zba
+  "zbb.rhm" as zbb
+  "zmmul.rhm" as zmmul
+
+def zcb_funct6 = BitField("Zcb funct6", 15, 10)
+def zcb_bit6 = BitField("Zcb bit 6", 6, 6)
+def zcb_bit5 = BitField("Zcb bit 5", 5, 5)
+def zcb_funct5 = BitField("Zcb funct5", 6, 2)
+def zcb_compact_rd_rs2 = FieldExpansionValue(BitField("Zcb rd'/rs2'", 4, 2), 8)
+def zcb_compact_rs1 = FieldExpansionValue(BitField("Zcb rs1'", 9, 7), 8)
+def zcb_byte_offset = ImmediateLayout(
+  "Zcb byte offset", 2, #false,
+  [ImmediatePiece(zcb_bit5, 1, 1), ImmediatePiece(zcb_bit6, 0, 0)]
+)
+def zcb_half_offset = ImmediateLayout(
+  "Zcb halfword offset", 2, #false,
+  [ImmediatePiece(zcb_bit5, 1, 1)],
+  [0]
+)
+
+fun zcb_memory(name :: NonemptyString,
+               target :: InstructionSpec,
+               funct6 :: Nat,
+               ~store: store :: Boolean = #false,
+               ~half: half :: Boolean = #false,
+               ~signed: signed :: Boolean = #false):
+  def requirements = [zcb_funct6.constrain(funct6), compressed_quadrant.constrain(0)] ++ (
+    if half | [zcb_bit6.constrain(if signed | 1 | 0)] | []
+  )
+  def bindings = if store | [bind(rs1, zcb_compact_rs1), bind(rs2, zcb_compact_rd_rs2)] | [bind(rd, zcb_compact_rd_rs2), bind(rs1, zcb_compact_rs1)]
+  compressed_instruction(name,
+                         requirements,
+                         expansion(target, bindings, if half | zcb_half_offset | zcb_byte_offset))
+
+fun zcb_unary(name :: NonemptyString,
+              target :: InstructionSpec,
+              operation :: Nat,
+              immediate :~ False || Nat = #false):
+  compressed_instruction(
+    name,
+    [zcb_funct6.constrain(0x27), zcb_funct5.constrain(operation), compressed_quadrant.constrain(1)],
+    expansion(target, [bind(rd, zcb_compact_rs1), bind(rs1, zcb_compact_rs1)], immediate)
+  )
+
+fun zcb_zext_w():
+  compressed_instruction(
+    "C.ZEXT.W",
+    [zcb_funct6.constrain(0x27), zcb_funct5.constrain(0x1c), compressed_quadrant.constrain(1)],
+    expansion(zba.ADD_UW,
+              [bind(rd, zcb_compact_rs1), bind(rs1, zcb_compact_rs1), bind(rs2, zero_register)])
+  )
+
+fun zcb_base_instructions(lbu :: InstructionSpec,
+                          lhu :: InstructionSpec,
+                          lh :: InstructionSpec,
+                          sb :: InstructionSpec,
+                          sh :: InstructionSpec,
+                          andi :: InstructionSpec,
+                          xori :: InstructionSpec):
+  [zcb_memory("C.LBU", lbu, 0x20),
+   zcb_memory("C.LHU", lhu, 0x21, ~half: #true),
+   zcb_memory("C.LH", lh, 0x21, ~half: #true, ~signed: #true),
+   zcb_memory("C.SB", sb, 0x22, ~store: #true),
+   zcb_memory("C.SH", sh, 0x23, ~store: #true, ~half: #true),
+   zcb_unary("C.ZEXT.B", andi, 0x18, 0xff),
+   zcb_unary("C.NOT", xori, 0x1d, 0xfff)]
+
+fun zcb_zbb_instructions(zext_h :: InstructionSpec):
+  [zcb_unary("C.SEXT.B", zbb.SEXT_B, 0x19),
+   zcb_unary("C.ZEXT.H", zext_h, 0x1a),
+   zcb_unary("C.SEXT.H", zbb.SEXT_H, 0x1b)]
+
+def RV32ZcbBaseInstructions = zcb_base_instructions(
+  rv32i.LBU, rv32i.LHU, rv32i.LH, rv32i.SB, rv32i.SH, rv32i.ANDI, rv32i.XORI
+)
+def RV64ZcbBaseInstructions = zcb_base_instructions(
+  rv64i.LBU, rv64i.LHU, rv64i.LH, rv64i.SB, rv64i.SH, rv64i.ANDI, rv64i.XORI
+)
+def RV32ZcbOptionalInstructions = zcb_zbb_instructions(zbb.RV32_ZEXT_H) ++ [
+  compressed_alu("C.MUL", zmmul.MUL, 1, 2)
+]
+def RV64ZcbOptionalInstructions = zcb_zbb_instructions(zbb.ZEXT_H) ++ [
+  zcb_zext_w(),
+  compressed_alu("C.MUL", zmmul.MUL, 1, 2)
+]
+def RV32ZcbInstructions = RV32ZcbBaseInstructions ++ RV32ZcbOptionalInstructions
+def RV64ZcbInstructions = RV64ZcbBaseInstructions ++ RV64ZcbOptionalInstructions
+
+fun zcb_instructions(xlen :: XLen,
+                     supported_instruction_names :: List.of(String)):
+  def base = if xlen == XLen.X32 | RV32ZcbBaseInstructions | RV64ZcbBaseInstructions
+  def optional = if xlen == XLen.X32 | RV32ZcbOptionalInstructions | RV64ZcbOptionalInstructions
+  base ++ optional.filter(~keep: fun (instruction): supported_instruction_names.contains(instruction.expansion.target.name))
+
+def RV32Zcb = CompressedInstructionCatalog("RV32Zcb", "Zcb 1.0.0", RV32ZcbInstructions)
+def RV64Zcb = CompressedInstructionCatalog("RV64Zcb", "Zcb 1.0.0", RV64ZcbInstructions)
+
+export:
+  RV32ZcbBaseInstructions
+  RV64ZcbBaseInstructions
+  RV32ZcbOptionalInstructions
+  RV64ZcbOptionalInstructions
+  RV32ZcbInstructions
+  RV64ZcbInstructions
+  zcb_instructions
+  RV32Zcb
+  RV64Zcb

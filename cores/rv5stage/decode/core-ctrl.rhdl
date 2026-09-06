@@ -30,6 +30,7 @@ import:
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
   "../../../riscv/isa/privileged.rhm" open
+  "../../../riscv/model/instruction.rhm".InstructionSpec
   "../../../riscv/model/formats.rhm" open
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   lib("rhodium/std/decode.rhdl") open
@@ -176,6 +177,15 @@ def RV32RV5StageInstructions = rv32.RV32IInstructions ++ RV32MInstructions ++ RV
 def RV64RV5StageInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ (
   ZicsrInstructions ++ ZifenceiInstructions ++ PrivilegedInstructions
 )
+fun rv5stage_instructions(xlen :: XLen,
+                          profile :: FloatingPointProfile,
+                          half_precision :: HalfPrecisionProfile,
+                          ~zfa: zfa_enabled :: Boolean = #false) :: List.of(InstructionSpec):
+  check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  def integer_instructions = if xlen == XLen.X32 | RV32RV5StageInstructions | RV64RV5StageInstructions
+  if profile == FloatingPointProfile.None
+  | integer_instructions
+  | integer_instructions ++ rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled)
 def RV32RV5StageControlCases = compose_control_cases(
   RV32RV5StageInstructions,
   RV32RV5StageAluCases,
@@ -249,6 +259,7 @@ export:
   RV64IControlDecode
   RV32RV5StageInstructions
   RV64RV5StageInstructions
+  rv5stage_instructions
   RV32RV5StageControlCases
   RV64RV5StageControlCases
   RV32RV5StageControlDecode

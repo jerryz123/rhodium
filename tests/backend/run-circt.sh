@@ -96,7 +96,7 @@ integration_fixtures=(
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
   credited-flow credited-monitor credited-monitor-overgrant flit-formats
   aclint bootrom uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
-  rv5stage-core rv5stage-wfi rv5stage-multiply rv5stage-dcache
+  rv5stage-core rv5stage-zcb rv5stage-wfi rv5stage-multiply rv5stage-dcache
 )
 
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -671,6 +671,7 @@ direct_fixture_specs=(
   'rv5stage-access-fault|rv5stage_access_fault_tb'
   'rv5stage-fetch|rv5stage_fetch_tb'
   'rv5stage-core|rv5stage_core_tb'
+  'rv5stage-zcb|rv5stage_zcb_tb'
   'rv5stage-core-rv32f|'
   'rv5stage-core-rv64d|'
   'rv5stage-data-fault|rv5stage_data_fault_tb'

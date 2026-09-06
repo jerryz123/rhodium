@@ -55,7 +55,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
                       ~floating_point: profile :: FloatingPointProfile = DefaultFloatingPointProfile,
                       ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
                       ~zfa: zfa_enabled :: Boolean = #false,
-                      ~compressed: compressed_profile :: CompressedProfile = CompressedProfile.C):
+                      ~compressed: compressed_extensions :: List.of(CompressedExtension) = CCompressedExtensions):
   def implementation = compile_tiled_soc(config)
   def p = implementation.flit
   def site_width = implementation.router_configs.req.route_decoder.site_width
@@ -64,7 +64,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
   output faults: Vec(implementation.rv5stages.length(), Bool)
 
   def rv5stages = for InstanceArray (entry in implementation.rv5stages):
-    inst rv5stage(RV5StageTile(entry.tile_params, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_profile))
+    inst rv5stage(RV5StageTile(entry.tile_params, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_extensions))
   def llcs = for InstanceArray (entry in implementation.llcs):
     inst llc(LLCTile(entry.tile_params))
   def transits = for InstanceArray (entry in implementation.transits):

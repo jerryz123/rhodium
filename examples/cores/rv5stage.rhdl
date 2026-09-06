@@ -5,7 +5,7 @@ import:
   lib("cores/rv5stage/rv5stage.rhdl") open
   lib("cores/rv5stage/chi.rhdl") open
   lib("chi/main.rhdl") open
-  lib("riscv/isa/c.rhm").CompressedProfile
+  lib("riscv/isa/c.rhm") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/pma.rhdl") open
 
@@ -22,7 +22,7 @@ def example_chi_config = RV5StageCHIConfig(
      example_home
    )]
 )
-def design = elaborate(RV5Stage(XLen.X64, ~compressed: CompressedProfile.Zca, ~chi: example_chi_config))
+def design = elaborate(RV5Stage(XLen.X64, ~compressed: compressed_extensions(CompressedExtension.Zca, CompressedExtension.Zcb), ~chi: example_chi_config))
 
 export:
   design

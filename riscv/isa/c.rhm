@@ -1,29 +1,90 @@
 #lang rhombus
-// Composes Zca, Zcf, and Zcd into selectable compressed-instruction profiles.
+// Composes independently selected Zc extensions into validated instruction catalogs.
 
 import:
   "compressed.rhm" open
   "fp-profile.rhm" open
   "xlen.rhm" open
   "zca.rhm" open
+  "zcb.rhm" open
   "zcf.rhm" open
   "zcd.rhm" open
 
-enum CompressedProfile
-| None
-| Zca
+enum CompressedExtension
 | C
+| Zca
+| Zcb
+| Zcf
+| Zcd
 
-def DefaultCompressedProfile = CompressedProfile.None
+def NoCompressedExtensions :: List.of(CompressedExtension) = []
+def ZcaCompressedExtensions = [CompressedExtension.Zca]
+def CCompressedExtensions = [CompressedExtension.C]
+def DefaultCompressedExtensions = NoCompressedExtensions
 
-fun compressed_profile_enabled(profile :: CompressedProfile):
-  profile != CompressedProfile.None
-
-fun compressed_profile_reports_misa_c(profile :: CompressedProfile,
-                                      floating_point :: FloatingPointProfile):
-  (profile == CompressedProfile.C) || (
-    (profile == CompressedProfile.Zca) && !floating_point_supports_f(floating_point)
+fun validate_compressed_extensions(extensions :: List.of(CompressedExtension)):
+  for (extension in extensions):
+    when extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
+    | error(~who: #'compressed_extensions, "duplicate compressed extension")
+  def has_zca = extensions.contains(CompressedExtension.C) || extensions.contains(CompressedExtension.Zca)
+  when extensions.contains(CompressedExtension.C) && (
+    extensions.contains(CompressedExtension.Zca) || extensions.contains(CompressedExtension.Zcf) || extensions.contains(CompressedExtension.Zcd)
   )
+  | error(~who: #'compressed_extensions,
+          "C already supplies its applicable Zca, Zcf, and Zcd subsets")
+  when extensions.contains(CompressedExtension.Zcb) && !has_zca
+  | error(~who: #'compressed_extensions, "Zcb requires Zca or C")
+  when extensions.contains(CompressedExtension.Zcf) && !has_zca
+  | error(~who: #'compressed_extensions, "Zcf requires Zca or C")
+  when extensions.contains(CompressedExtension.Zcd) && !has_zca
+  | error(~who: #'compressed_extensions, "Zcd requires Zca or C")
+  extensions
+
+fun compressed_extensions(extension :: CompressedExtension, ...):
+  def supplied = validate_compressed_extensions([extension, ...])
+  def mutable normalized = []
+  for (candidate in [CompressedExtension.C,
+                     CompressedExtension.Zca,
+                     CompressedExtension.Zcb,
+                     CompressedExtension.Zcf,
+                     CompressedExtension.Zcd]):
+    when supplied.contains(candidate)
+    | normalized := normalized ++ [candidate]
+  normalized
+
+fun compressed_extensions_enabled(extensions :: List.of(CompressedExtension)):
+  validate_compressed_extensions(extensions).length() != 0
+
+fun validate_compressed_configuration(xlen :: XLen,
+                                      floating_point :: FloatingPointProfile,
+                                      extensions :: List.of(CompressedExtension)):
+  validate_compressed_extensions(extensions)
+  when extensions.contains(CompressedExtension.Zcf) && xlen != XLen.X32
+  | error(~who: #'compressed_extensions_instructions, "Zcf is available only for RV32")
+  when extensions.contains(CompressedExtension.Zcf) && !floating_point_supports_f(floating_point)
+  | error(~who: #'compressed_extensions_instructions, "Zcf requires F")
+  when extensions.contains(CompressedExtension.Zcd) && !floating_point_supports_d(floating_point)
+  | error(~who: #'compressed_extensions_instructions, "Zcd requires D")
+  extensions
+
+fun compressed_extensions_report_misa_c(
+  xlen :: XLen,
+  floating_point :: FloatingPointProfile,
+  extensions :: List.of(CompressedExtension)
+):
+  validate_compressed_configuration(xlen, floating_point, extensions)
+  if extensions.contains(CompressedExtension.C)
+  | #true
+  | block:
+      def zca = extensions.contains(CompressedExtension.Zca)
+      def zcf = extensions.contains(CompressedExtension.Zcf)
+      def zcd = extensions.contains(CompressedExtension.Zcd)
+      zca && cond
+      | floating_point_supports_d(floating_point):
+          if xlen == XLen.X32 | zcf && zcd | zcd
+      | floating_point_supports_f(floating_point):
+          xlen == XLen.X32 && zcf
+      | ~else: #true
 
 fun zca_instructions(xlen :: XLen):
   if xlen == XLen.X32 | RV32ZcaInstructions | RV64ZcaInstructions
@@ -39,23 +100,43 @@ fun c_instructions(xlen :: XLen, floating_point :: FloatingPointProfile):
       if floating_point_supports_d(floating_point) | RV64ZcdInstructions | []
     )
 
-fun compressed_profile_instructions(xlen :: XLen,
-                                    floating_point :: FloatingPointProfile,
-                                    compressed :: CompressedProfile):
-  cond
-  | compressed == CompressedProfile.Zca: zca_instructions(xlen)
-  | compressed == CompressedProfile.C: c_instructions(xlen, floating_point)
-  | ~else:
-      error(~who: #'compressed_profile_instructions,
-            "the None profile has no compressed instructions")
+fun compressed_extensions_instructions(
+  xlen :: XLen,
+  floating_point :: FloatingPointProfile,
+  extensions :: List.of(CompressedExtension),
+  supported_instruction_names :: List.of(String)
+):
+  validate_compressed_configuration(xlen, floating_point, extensions)
+  unless extensions.length() != 0
+  | error(~who: #'compressed_extensions_instructions,
+          "no compressed extensions were selected")
+  def c_selected = extensions.contains(CompressedExtension.C)
+  def mutable instructions = if c_selected | c_instructions(xlen, floating_point) | zca_instructions(xlen)
+  when extensions.contains(CompressedExtension.Zcf) && !c_selected
+  | instructions := instructions ++ RV32ZcfInstructions
+  when extensions.contains(CompressedExtension.Zcd) && !c_selected
+  | instructions := instructions ++ (
+      if xlen == XLen.X32 | RV32ZcdInstructions | RV64ZcdInstructions
+    )
+  when extensions.contains(CompressedExtension.Zcb)
+  | instructions := instructions ++ zcb_instructions(xlen, supported_instruction_names)
+  for (instruction in instructions):
+    unless supported_instruction_names.contains(instruction.expansion.target.name)
+    | error(~who: #'compressed_extensions_instructions,
+            "the downstream decoder does not support " ++ instruction.expansion.target.name)
+  instructions
 
 export:
   CompressedInstructionSpec
   CompressedInstructionCatalog
-  CompressedProfile
-  DefaultCompressedProfile
-  compressed_profile_enabled
-  compressed_profile_reports_misa_c
+  CompressedExtension
+  NoCompressedExtensions
+  ZcaCompressedExtensions
+  CCompressedExtensions
+  DefaultCompressedExtensions
+  compressed_extensions
+  compressed_extensions_enabled
+  compressed_extensions_report_misa_c
   zca_instructions
   c_instructions
-  compressed_profile_instructions
+  compressed_extensions_instructions

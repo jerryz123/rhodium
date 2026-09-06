@@ -3,6 +3,12 @@
 
 import:
   lib("riscv/isa/c.rhm") open
+  lib("riscv/isa/rv32i.rhm") as rv32i
+  lib("riscv/isa/rv64i.rhm") as rv64i
+  lib("riscv/isa/f.rhm") as riscv_f
+  lib("riscv/isa/d.rhm") as riscv_d
+  lib("riscv/isa/b.rhm") as riscv_b
+  lib("riscv/isa/zmmul.rhm") as zmmul
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/compressed.rhdl") open
@@ -13,19 +19,28 @@ circuit RiscvCompressedFixture():
   output rv32d: RiscvCompressedExpansion()
   output rv64d: RiscvCompressedExpansion()
   output rv64_zca: RiscvCompressedExpansion()
+  output rv64_zcb: RiscvCompressedExpansion()
 
-  inst expand_rv32f(RiscvCompressedExpander(XLen.X32, FloatingPointProfile.F))
-  inst expand_rv32d(RiscvCompressedExpander(XLen.X32, FloatingPointProfile.D))
-  inst expand_rv64d(RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D))
-  inst expand_rv64_zca(RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D, CompressedProfile.Zca))
+  def rv32f_instructions = (rv32i.RV32IInstructions ++ riscv_f.RV32FInstructions).map(fun (instruction): instruction.name)
+  def rv32d_instructions = (rv32i.RV32IInstructions ++ riscv_f.RV32FInstructions ++ riscv_d.RV32DInstructions).map(fun (instruction): instruction.name)
+  def rv64d_instructions = (rv64i.RV64IInstructions ++ riscv_f.RV64FInstructions ++ riscv_d.RV64DInstructions).map(fun (instruction): instruction.name)
+  def rv64i_instructions = rv64i.RV64IInstructions.map(fun (instruction): instruction.name)
+  def rv64_zcb_instructions = (rv64i.RV64IInstructions ++ riscv_b.RV64BInstructions ++ zmmul.RV64ZmmulInstructions).map(fun (instruction): instruction.name)
+  inst expand_rv32f(RiscvCompressedExpander(XLen.X32, FloatingPointProfile.F, ~supported_instructions: rv32f_instructions))
+  inst expand_rv32d(RiscvCompressedExpander(XLen.X32, FloatingPointProfile.D, ~supported_instructions: rv32d_instructions))
+  inst expand_rv64d(RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D, ~supported_instructions: rv64d_instructions))
+  inst expand_rv64_zca(RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D, ZcaCompressedExtensions, ~supported_instructions: rv64i_instructions))
+  inst expand_rv64_zcb(RiscvCompressedExpander(XLen.X64, FloatingPointProfile.None, compressed_extensions(CompressedExtension.Zca, CompressedExtension.Zcb), ~supported_instructions: rv64_zcb_instructions))
   expand_rv32f.compressed <== compressed
   expand_rv32d.compressed <== compressed
   expand_rv64d.compressed <== compressed
   expand_rv64_zca.compressed <== compressed
+  expand_rv64_zcb.compressed <== compressed
   rv32f <== expand_rv32f.expansion
   rv32d <== expand_rv32d.expansion
   rv64d <== expand_rv64d.expansion
   rv64_zca <== expand_rv64_zca.expansion
+  rv64_zcb <== expand_rv64_zcb.expansion
 
 export:
   RiscvCompressedFixture

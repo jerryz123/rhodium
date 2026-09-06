@@ -87,11 +87,12 @@ fun materialize_expansion(expansion :: InstructionExpansion,
 
 circuit RiscvCompressedExpander(xlen :: XLen,
                                 floating_point :: FloatingPointProfile = DefaultFloatingPointProfile,
-                                compressed_profile :: CompressedProfile = CompressedProfile.C):
+                                compressed_extensions :: List.of(CompressedExtension) = CCompressedExtensions,
+                                ~supported_instructions: supported_instruction_names :: List.of(String)):
   input compressed: Bits(16)
   output expansion: RiscvCompressedExpansion()
 
-  def instructions = compressed_profile_instructions(xlen, floating_point, compressed_profile)
+  def instructions = compressed_extensions_instructions(xlen, floating_point, compressed_extensions, supported_instruction_names)
   def operation_width = index_width(instructions.length())
   def decode = ValidDecodeGen(compressed_selector_cases(instructions))
   def decoded :: DecodeResult(Bits(operation_width)) = decode(compressed)
