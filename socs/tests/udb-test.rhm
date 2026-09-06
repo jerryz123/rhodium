@@ -1,0 +1,12 @@
+#lang rhombus
+// Checks the core-neutral catalog of concrete RISC-V UDB configurations.
+
+import:
+  "../udb.rhm" open
+
+check:
+  RiscvUdbConfigurationNames ~is ["simple-soc", "mini-soc", "tiled-soc"]
+  riscv_udb_configuration("simple-soc").name ~is "rhodium-rv5stage-simple-rv64"
+  riscv_udb_configuration("mini-soc").name ~is "rhodium-rv5stage-mini-rv64"
+  riscv_udb_configuration("tiled-soc").name ~is "rhodium-rv5stage-tiled-rv64"
+  riscv_udb_configuration("unknown") ~throws "expected one of simple-soc, mini-soc, tiled-soc"

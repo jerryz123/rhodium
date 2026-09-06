@@ -1,0 +1,98 @@
+#lang rhombus
+// Defines a small typed model and deterministic YAML encoder for UDB architecture configurations.
+
+import:
+  "../support/annotations.rhm".NonemptyString
+
+fun yaml_string(value :: String) :: String:
+  to_string(value, ~mode: #'expr)
+
+interface UdbParameterValue:
+  method to_yaml() :: String
+
+class UdbBooleanValue(value :: Boolean):
+  implements UdbParameterValue
+  override method to_yaml(): if value | "true" | "false"
+
+class UdbNaturalValue(value :: Nat):
+  implements UdbParameterValue
+  override method to_yaml(): to_string(value)
+
+class UdbStringValue(value :: String):
+  implements UdbParameterValue
+  override method to_yaml(): yaml_string(value)
+
+class UdbNaturalListValue(values :: NonemptyList.of(Nat)):
+  implements UdbParameterValue
+  override method to_yaml():
+    "[" ++ String.join(values.map(to_string), ", ") ++ "]"
+
+class UdbBooleanListValue(values :: NonemptyList.of(Boolean)):
+  implements UdbParameterValue
+  override method to_yaml():
+    "[" ++ String.join(
+      values.map(fun (value): if value | "true" | "false"),
+      ", "
+    ) ++ "]"
+
+class UdbExtension(name :: NonemptyString,
+                   version :: NonemptyString):
+  method to_yaml() :: String:
+    "  - { name: " ++ yaml_string(name) ++ ", version: " ++ yaml_string("= " ++ version) ++ " }"
+
+class UdbParameter(name :: NonemptyString,
+                   value :: UdbParameterValue):
+  method to_yaml() :: String:
+    "  " ++ name ++ ": " ++ value.to_yaml()
+
+fun duplicate_extension(extensions :: NonemptyList.of(UdbExtension)):
+  for any (extension in extensions):
+    extensions.filter(
+      ~keep: fun (candidate): candidate.name == extension.name
+    ).length() != 1
+
+fun duplicate_parameter(parameters :: NonemptyList.of(UdbParameter)):
+  for any (parameter in parameters):
+    parameters.filter(
+      ~keep: fun (candidate): candidate.name == parameter.name
+    ).length() != 1
+
+class UdbConfiguration(name :: NonemptyString,
+                       description :: NonemptyString,
+                       extensions :: NonemptyList.of(UdbExtension),
+                       parameters :: NonemptyList.of(UdbParameter)):
+  constructor (name :: NonemptyString,
+               description :: NonemptyString,
+               extensions :: NonemptyList.of(UdbExtension),
+               parameters :: NonemptyList.of(UdbParameter)):
+    when duplicate_extension(extensions)
+    | error(~who: #'UdbConfiguration, "extension names must be unique")
+    when duplicate_parameter(parameters)
+    | error(~who: #'UdbConfiguration, "parameter names must be unique")
+    super(name, description, extensions, parameters)
+
+  method to_yaml() :: String:
+    def header = [
+      "# Generated UDB architecture configuration; do not edit.",
+      "# yaml-language-server: $schema=https://raw.githubusercontent.com/riscv/riscv-unified-db/main/spec/schemas/config_schema.json",
+      "---",
+      "$schema: config_schema.json#",
+      "kind: architecture configuration",
+      "type: fully configured",
+      "name: " ++ yaml_string(name),
+      "description: " ++ yaml_string(description),
+      "implemented_extensions:"
+    ]
+    def lines = header ++ extensions.map(fun (extension): extension.to_yaml()) ++ ["params:"] ++ parameters.map(fun (parameter): parameter.to_yaml()) ++ [""]
+    String.join(lines, "\n")
+
+export:
+  UdbParameterValue
+  UdbBooleanValue
+  UdbNaturalValue
+  UdbStringValue
+  UdbNaturalListValue
+  UdbBooleanListValue
+  UdbExtension
+  UdbParameter
+  UdbConfiguration

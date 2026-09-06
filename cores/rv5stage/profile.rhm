@@ -47,7 +47,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
   method compressed_misa_c(xlen :: XLen) :: Boolean:
     compressed_extensions_report_misa_c(xlen, floating_point, compressed)
 
-  method names(xlen :: XLen, mmu_mode :: RV5StageMmuMode) :: NonemptyList.of(String):
+  method names(xlen :: XLen, _mmu_mode :: RV5StageMmuMode) :: NonemptyList.of(String):
     def mutable single_letter = ["i", "m", "a"]
     when floating_point_supports_f(floating_point)
     | single_letter := single_letter ++ ["f"]
@@ -57,7 +57,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
     | single_letter := single_letter ++ ["c"]
     single_letter := single_letter ++ ["b"]
 
-    def mutable multi_letter = if mmu_mode == RV5StageMmuMode.Sv39 | ["svade"] | []
+    def mutable multi_letter = []
     multi_letter := multi_letter ++ ["zba", "zbb", "zbs"]
     unless compressed.contains(CompressedExtension.C)
     | block:
@@ -69,6 +69,8 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
         | multi_letter := multi_letter ++ ["zcd"]
         when compressed.contains(CompressedExtension.Zcf)
         | multi_letter := multi_letter ++ ["zcf"]
+    when compressed.contains(CompressedExtension.Zcmop)
+    | multi_letter := multi_letter ++ ["zcmop"]
     when zfa
     | multi_letter := multi_letter ++ ["zfa"]
     cond
@@ -78,7 +80,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
         multi_letter := multi_letter ++ ["zfhmin"]
     | ~else: #void
     def cache_block = if zicbop | ["zicbop"] | []
-    single_letter ++ multi_letter ++ cache_block ++ ["zicntr", "zicond", "zicsr", "zifencei"]
+    single_letter ++ multi_letter ++ cache_block ++ ["zicntr", "zicond", "zicsr", "zifencei", "zimop"]
 
 class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
                             data :: RV5StageCacheConfig):

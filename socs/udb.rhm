@@ -1,0 +1,41 @@
+#lang rhombus
+// Catalogs generated UDB configurations for concrete RISC-V SoC and core combinations.
+
+import:
+  "../support/annotations.rhm".NonemptyString
+  "../riscv/udb.rhm".UdbConfiguration
+  "../cores/rv5stage/udb.rhm".rv5stage_udb_configuration
+  "core-profiles.rhm" open
+
+def RiscvUdbConfigurationNames = ["simple-soc", "mini-soc", "tiled-soc"]
+
+fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfiguration:
+  match configuration_name
+  | "simple-soc":
+      rv5stage_udb_configuration(
+        simple_soc_core_profile,
+        "rhodium-rv5stage-simple-rv64",
+        "RV5Stage configuration instantiated by Rhodium SimpleSoC",
+        DefaultRhodiumSoCRequestAddressWidth
+      )
+  | "mini-soc":
+      rv5stage_udb_configuration(
+        mini_soc_core_profile,
+        "rhodium-rv5stage-mini-rv64",
+        "RV5Stage configuration instantiated by Rhodium MiniSoC",
+        DefaultRhodiumSoCRequestAddressWidth
+      )
+  | "tiled-soc":
+      rv5stage_udb_configuration(
+        tiled_soc_core_profile,
+        "rhodium-rv5stage-tiled-rv64",
+        "RV5Stage configuration instantiated by Rhodium TiledSoC",
+        DefaultRhodiumSoCRequestAddressWidth
+      )
+  | ~else:
+      error(~who: #'riscv_udb_configuration,
+            "unknown RISC-V UDB configuration " ++ configuration_name ++ "; expected one of " ++ String.join(RiscvUdbConfigurationNames, ", "))
+
+export:
+  RiscvUdbConfigurationNames
+  riscv_udb_configuration

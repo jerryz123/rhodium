@@ -1,0 +1,201 @@
+#lang rhombus
+// Projects an RV5Stage architectural profile and physical-address contract into a UDB configuration.
+
+import:
+  "../../support/annotations.rhm".NonemptyString
+  "../../riscv/udb.rhm" open
+  "../../riscv/isa/c.rhm" open
+  "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/xlen.rhm".XLen
+  "profile.rhm" open
+
+fun extension(name :: NonemptyString, version :: NonemptyString):
+  UdbExtension(name, version)
+
+fun boolean_parameter(name :: NonemptyString, value :: Boolean):
+  UdbParameter(name, UdbBooleanValue(value))
+
+fun natural_parameter(name :: NonemptyString, value :: Nat):
+  UdbParameter(name, UdbNaturalValue(value))
+
+fun string_parameter(name :: NonemptyString, value :: String):
+  UdbParameter(name, UdbStringValue(value))
+
+fun natural_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Nat)):
+  UdbParameter(name, UdbNaturalListValue(elements))
+
+fun boolean_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Boolean)):
+  UdbParameter(name, UdbBooleanListValue(elements))
+
+def NoHpmCounters = for List (_index in 0..32): #false
+def BaseCountersDelegatable = [#true, #true, #true] ++ for List (_index in 0..29): #false
+
+fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExtension):
+  def selected = profile.extensions
+  def xlen = profile.xlen
+  def mutable result = [
+    extension("I", "2.1"),
+    extension("M", "2.0"),
+    extension("Zmmul", "1.0.0"),
+    extension("A", "2.1.0"),
+    extension("Zaamo", "1.0.0"),
+    extension("Zalrsc", "1.0.0"),
+    extension("B", "1.0.0"),
+    extension("Zba", "1.0.0"),
+    extension("Zbb", "1.0.0"),
+    extension("Zbs", "1.0.0")
+  ]
+  when floating_point_supports_f(selected.floating_point)
+  | result := result ++ [extension("F", "2.2.0")]
+  when floating_point_supports_d(selected.floating_point)
+  | result := result ++ [extension("D", "2.2.0")]
+  when selected.half_precision == HalfPrecisionProfile.Zfhmin
+  | result := result ++ [extension("Zfhmin", "1.0.0")]
+  when selected.half_precision == HalfPrecisionProfile.Zfh
+  | result := result ++ [extension("Zfhmin", "1.0.0"), extension("Zfh", "1.0.0")]
+  when selected.zfa
+  | result := result ++ [extension("Zfa", "1.0.0")]
+  when selected.zicbop
+  | result := result ++ [extension("Zicbop", "1.0.0")]
+  when selected.compressed_misa_c(xlen)
+  | result := result ++ [extension("C", "2.0")]
+  when compressed_extensions_enabled(selected.compressed)
+  | result := result ++ [extension("Zca", "1.0.0")]
+  when selected.compressed.contains(CompressedExtension.Zcb)
+  | result := result ++ [extension("Zcb", "1.0.0")]
+  when selected.compressed.contains(CompressedExtension.Zcmop)
+  | result := result ++ [extension("Zcmop", "1.0.0")]
+  when (selected.compressed.contains(CompressedExtension.C) && xlen == XLen.X32 && floating_point_supports_f(selected.floating_point)) || selected.compressed.contains(CompressedExtension.Zcf)
+  | result := result ++ [extension("Zcf", "1.0.0")]
+  when (selected.compressed.contains(CompressedExtension.C) && floating_point_supports_d(selected.floating_point)) || selected.compressed.contains(CompressedExtension.Zcd)
+  | result := result ++ [extension("Zcd", "1.0.0")]
+  result := result ++ [
+    extension("Zicntr", "2.0"),
+    extension("Zicond", "1.0.0"),
+    extension("Zicsr", "2.0"),
+    extension("Zifencei", "2.0.0"),
+    extension("Zimop", "1.0.0"),
+    extension("U", "1.0.0"),
+    extension("S", "1.11.0"),
+    extension("Sm", "1.11.0"),
+    extension("Svbare", "1.0.0")
+  ]
+  when profile.mmu_mode == RV5StageMmuMode.Sv39
+  | result := result ++ [extension("Sv39", "1.0.0")]
+  result
+
+fun rv5stage_udb_parameters(profile :: RVCoreProfile,
+                            physical_address_width :: PosInt,
+                            pma_granularity_log2 :: PosInt) :: NonemptyList.of(UdbParameter):
+  when physical_address_width > 64
+  | error(~who: #'rv5stage_udb_parameters, "physical address width must not exceed 64")
+  when profile.xlen == XLen.X32 && physical_address_width > 32
+  | error(~who: #'rv5stage_udb_parameters, "RV32 RV5Stage physical address width must not exceed 32")
+  unless pma_granularity_log2 >= 2 && pma_granularity_log2 <= 66
+  | error(~who: #'rv5stage_udb_parameters, "PMA granularity log2 must be between 2 and 66")
+  def xlen = profile.xlen.width
+  def selected = profile.extensions
+  def mutable result = [
+    natural_parameter("MXLEN", xlen),
+    natural_parameter("PHYS_ADDR_WIDTH", physical_address_width),
+    natural_parameter("PMA_GRANULARITY", pma_granularity_log2),
+    boolean_parameter("PRECISE_SYNCHRONOUS_EXCEPTIONS", #true),
+    boolean_parameter("TRAP_ON_ECALL_FROM_M", #true),
+    boolean_parameter("TRAP_ON_EBREAK", #true),
+    boolean_parameter("TRAP_ON_ILLEGAL_WLRL", #false),
+    boolean_parameter("TRAP_ON_UNIMPLEMENTED_INSTRUCTION", #true),
+    boolean_parameter("TRAP_ON_RESERVED_INSTRUCTION", #true),
+    boolean_parameter("TRAP_ON_UNIMPLEMENTED_CSR", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_BREAKPOINT", #false),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_LOAD_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION", #true),
+    natural_parameter("MTVAL_WIDTH", xlen),
+    boolean_parameter("MARCHID_IMPLEMENTED", #false),
+    boolean_parameter("MIMPID_IMPLEMENTED", #false),
+    natural_parameter("VENDOR_ID_BANK", 0),
+    natural_parameter("VENDOR_ID_OFFSET", 0),
+    boolean_parameter("MISALIGNED_LDST", #false),
+    string_parameter("MISALIGNED_LDST_EXCEPTION_PRIORITY", "high"),
+    string_parameter("M_MODE_ENDIANNESS", "little"),
+    boolean_parameter("MISA_CSR_IMPLEMENTED", #true),
+    string_parameter("MTVEC_ACCESS", "rw"),
+    natural_list_parameter("MTVEC_MODES", [0]),
+    natural_parameter("MTVEC_BASE_ALIGNMENT_DIRECT", 4),
+    string_parameter("MTVEC_ILLEGAL_WRITE_BEHAVIOR", "custom"),
+    boolean_parameter("MCOUNTINHIBIT_IMPLEMENTED", #false),
+    boolean_list_parameter("HPM_COUNTER_EN", NoHpmCounters),
+    boolean_list_parameter("MCOUNTENABLE_EN", BaseCountersDelegatable),
+    natural_parameter("NUM_PMP_ENTRIES", 0),
+    boolean_parameter("MUTABLE_MISA_M", #false),
+    boolean_parameter("MUTABLE_MISA_A", #false),
+    boolean_parameter("MUTABLE_MISA_B", #false),
+    boolean_parameter("MISALIGNED_AMO", #false),
+    string_parameter("LRSC_RESERVATION_STRATEGY", "reserve exactly enough to cover the access"),
+    boolean_parameter("LRSC_FAIL_ON_VA_SYNONYM", #false),
+    string_parameter("LRSC_MISALIGNED_BEHAVIOR", "always raise misaligned exception"),
+    boolean_parameter("LRSC_FAIL_ON_NON_EXACT_LRSC", #true),
+    boolean_parameter("TIME_CSR_IMPLEMENTED", #true),
+    boolean_parameter("MUTABLE_MISA_U", #false),
+    string_parameter("U_MODE_ENDIANNESS", "little"),
+    natural_list_parameter("UXLEN", [xlen]),
+    boolean_parameter("TRAP_ON_ECALL_FROM_U", #true),
+    boolean_parameter("MUTABLE_MISA_S", #false),
+    natural_parameter("ASID_WIDTH", 0),
+    string_parameter("S_MODE_ENDIANNESS", "little"),
+    natural_list_parameter("SXLEN", [xlen]),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_LOAD_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_STORE_AMO_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_BREAKPOINT", #false),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_LOAD_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_STORE_AMO_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_MISALIGNED", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_LOAD_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_STORE_AMO_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_ACCESS_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_LOAD_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_STORE_AMO_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_PAGE_FAULT", #true),
+    boolean_parameter("REPORT_ENCODING_IN_STVAL_ON_ILLEGAL_INSTRUCTION", #true),
+    natural_parameter("STVAL_WIDTH", xlen),
+    boolean_list_parameter("SCOUNTENABLE_EN", BaseCountersDelegatable),
+    natural_list_parameter("STVEC_MODES", [0]),
+    boolean_parameter("SATP_MODE_BARE", #true),
+    boolean_parameter("TRAP_ON_ECALL_FROM_S", #true),
+    natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", [0]),
+    natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", if floating_point_supports_f(selected.floating_point) | [0, 1, 2, 3] | [0])
+  ]
+  when selected.zicbop
+  | result := result ++ [natural_parameter("CACHE_BLOCK_SIZE", RV5StageCacheLineBytes)]
+  when floating_point_supports_f(selected.floating_point)
+  | result := result ++ [
+      boolean_parameter("MUTABLE_MISA_F", #false),
+      string_parameter("HW_MSTATUS_FS_DIRTY_UPDATE", "precise")
+    ]
+  when floating_point_supports_d(selected.floating_point)
+  | result := result ++ [boolean_parameter("MUTABLE_MISA_D", #false)]
+  when selected.compressed_misa_c(profile.xlen)
+  | result := result ++ [boolean_parameter("MUTABLE_MISA_C", #false)]
+  result
+
+fun rv5stage_udb_configuration(profile :: RVCoreProfile,
+                               name :: NonemptyString,
+                               description :: NonemptyString,
+                               physical_address_width :: PosInt,
+                               pma_granularity_log2 :: PosInt = 3):
+  UdbConfiguration(
+    name,
+    description,
+    rv5stage_udb_extensions(profile),
+    rv5stage_udb_parameters(profile, physical_address_width, pma_granularity_log2)
+  )
+
+export:
+  rv5stage_udb_extensions
+  rv5stage_udb_parameters
+  rv5stage_udb_configuration

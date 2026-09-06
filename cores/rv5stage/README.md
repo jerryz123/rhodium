@@ -315,6 +315,39 @@ refill contains four, two, or one DAT packet for a supplied 128-, 256-, or
 512-bit CHI data width, respectively; the default `CHIFlitParams()` width is 128
 bits.
 
+### UDB configuration
+
+[`udb.rhm`](udb.rhm) projects an `RVCoreProfile` into a Unified Database fully
+configured architecture. The profile selects XLEN, FP, compressed, and MMU
+extensions. The projection adds the core's fixed architectural behavior,
+including U/S/M privilege, direct-only `mtvec` and `stvec`, read-only `misa`,
+no PMP or HPM counters, trapping misaligned accesses, exact-address-and-width
+LR/SC reservations, and the implemented base counters. Physical address width
+and PMA granularity remain explicit inputs because they are properties of the
+core's integration rather than `RVCoreProfile`.
+
+The projection conservatively declares `S` and `Sm` 1.11. RV5Stage faults on
+unset Sv39 A/D bits, but does not advertise the post-1.12 `Svade` extension
+name because the core does not yet implement the mandatory 1.12 `mconfigptr`
+and RV32 `mstatush` CSRs.
+
+Generate the configuration for one checked-in SoC composition from the
+repository root:
+
+```sh
+make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-soc
+```
+
+The [SoC UDB configuration catalog](../../socs/README.md#risc-v-udb-configuration-catalog)
+documents the available keys and output controls. Its RV5Stage entries read
+the selected SoC's actual core profile and CHI request-address width and use a
+PMA granularity of three, matching the shared platform's smallest eight-byte
+PMA region.
+
+The generated configuration is the architectural input to ACT4 test
+selection. It is not the entire ACT target bundle: simulator macros, linker
+and Sail configuration, and the execution command remain simulation-owned.
+
 ### Top-level ports
 
 | Port | Contract |

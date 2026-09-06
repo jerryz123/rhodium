@@ -32,6 +32,8 @@ configure and connect those public contracts, not fork their behavior.
 | Concern | Owner |
 |---|---|
 | Architectural host description and device-tree projection | [`description.rhm`](description.rhm) |
+| Concrete processor profiles and physical-address inputs shared with host generators | [`core-profiles.rhm`](core-profiles.rhm) |
+| Core-neutral catalog of concrete RISC-V UDB configurations | [`udb.rhm`](udb.rhm) |
 | Common coherent host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
 | Shared device windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
 | Primary external-memory composition | [`simple-soc.rhdl`](simple-soc.rhdl) |

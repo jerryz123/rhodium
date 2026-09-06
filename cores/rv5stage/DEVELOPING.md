@@ -24,6 +24,7 @@ each other; share external transaction machinery through the CHI package.
 | Area | Ownership |
 |---|---|
 | [`profile.rhm`](profile.rhm) | Immutable ISA, MMU, and cache specialization description |
+| [`udb.rhm`](udb.rhm) | Exact-version UDB extension closure and fixed RV5Stage architectural parameter claims |
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
@@ -57,6 +58,27 @@ each other; share external transaction machinery through the CHI package.
    the composed core. Do not add an elaboration snapshot for every submodule.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,
    or deliberate limits change.
+
+## Maintain the UDB projection
+
+Keep selectable extension membership derived from `RVCoreProfile`. Keep fixed
+CSR, trap, alignment, counter, PMP, and LR/SC facts in `udb.rhm`, and pass
+physical address width and PMA granularity from the integration boundary. When
+one of those behaviors changes, update its RTL owner and UDB claim together.
+
+Run the pure UDB encoder and RV5Stage projection tests, generate a concrete
+configuration, and validate it with the UDB version pinned by the ACT4 checkout:
+
+```sh
+tools/run-racket-tests.sh riscv/tests/udb-test.rhm cores/rv5stage/tests/udb-test.rhm
+make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-soc
+bundle exec --gemfile riscv/riscv-arch-test/framework/src/act/data/Gemfile \
+  udb validate cfg /tmp/rhodium-udb/simple-soc.yaml
+```
+
+UDB semantic validation is required before changing an extension version or
+parameter set because schema validation alone does not detect missing
+extension-dependent parameters. Keep generated YAML out of version control.
 
 ## Generated detailed diagrams
 

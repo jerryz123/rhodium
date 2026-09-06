@@ -37,6 +37,7 @@ architectural state, and retirement in concrete cores. The package-local
 | Compact-to-canonical bindings | [`model/expansion.rhm`](model/expansion.rhm) |
 | Pure-model facade | [`model/main.rhm`](model/main.rhm) |
 | Architectural catalogs and profiles | [`isa/`](isa/) |
+| Typed UDB document values and deterministic YAML serialization | [`udb.rhm`](udb.rhm) |
 | Hardware materialization | [`rtl/DEVELOPING.md`](rtl/DEVELOPING.md) |
 | Model, catalog, and adapter tests | [`tests/`](tests/) |
 

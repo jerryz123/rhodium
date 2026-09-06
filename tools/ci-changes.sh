@@ -201,6 +201,11 @@ classify_path() {
     tools/write-rv5stage-core-diagram.rhm)
       mark_example_rv5stage
       ;;
+    tools/write-riscv-udb-config.rhm)
+      host_models=true
+      host_cores=true
+      host_socs=true
+      ;;
     tools/write-noc-router-diagram.rhm)
       mark_example_noc
       ;;

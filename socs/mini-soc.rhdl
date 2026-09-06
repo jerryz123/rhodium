@@ -10,6 +10,7 @@ import:
   lib("socs/simple-soc.rhdl") as simple
   lib("socs/host-interface.rhdl").SoCHostInterface
   lib("socs/peripherals.rhdl").SoCUartInterface
+  "core-profiles.rhm".mini_soc_core_profile
 
 def mini_soc_memory_base = 0x80000000
 def mini_soc_memory_bytes = 0x10000
@@ -22,16 +23,7 @@ def mini_soc_home_map = mini_soc_fabric_params.home_map
 def mini_soc_host_node = simple.simple_soc_host_node
 def mini_soc_ram_config = mini_soc_fabric_params.ram_config
 def mini_soc_ram_params = mini_soc_fabric_params.ram_params
-def mini_soc_l1_cache_config = RV5StageCacheConfig(32, 1)
-def mini_soc_core_profile = RVCoreProfile(
-  ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(~zicbop: #true),
-  ~mmu_mode: RV5StageMmuMode.Sv39,
-  ~cache_geometry: RV5StageCacheGeometry(
-    ~instruction: mini_soc_l1_cache_config,
-    ~data: mini_soc_l1_cache_config
-  )
-)
+def mini_soc_l1_cache_config = mini_soc_core_profile.cache_geometry.instruction
 def mini_soc_clocks = simple.simple_soc_clocks
 
 class MiniSoCParams(fabric :: simple.SimpleSoCFabricParams,

@@ -1,7 +1,10 @@
 # Build and test entry points for Rhodium's Rhombus and CIRCT-based toolchain.
 
 .PHONY: sram-test
-.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-cores-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-cores-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+
+RISCV_UDB_CONFIGURATION ?= simple-soc
+RISCV_UDB_OUTPUT ?= /tmp/rhodium-udb/$(RISCV_UDB_CONFIGURATION).yaml
 
 CORE_TESTS := $(sort $(wildcard tests/core/*-test.rhm))
 ANALYSIS_TESTS := $(sort $(wildcard tests/analysis/*-test.rhm))
@@ -39,6 +42,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   $(BACKEND_TESTS) $(RFPL_TESTS) $(DEVICETREE_TESTS) devicetree/tests/write-fixture.rhm $(NOC_TESTS) $(RISCV_TESTS) \
   $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(HARDFLOAT_TESTS) $(RV5STAGE_TESTS) $(EXAMPLES) \
   socs/tests/write-device-trees.rhm \
+  tools/write-riscv-udb-config.rhm \
   $(wildcard tests/backend/emit-*.rhm) \
   $(wildcard sims/tests/*.rhm) \
   $(wildcard sims/emit-*.rhm) \
@@ -164,6 +168,19 @@ emacs-test:
 
 rv5stage-host-test: check-boundaries
 	tools/run-racket-tests.sh $(RV5STAGE_TESTS) $(RV5STAGE_BACKEND_TESTS)
+
+riscv-udb-config:
+	@set -e; \
+	mkdir -p "$(dir $(RISCV_UDB_OUTPUT))"; \
+	udb_compiled_root="$${PLTCOMPILEDROOTS:-}"; \
+	owns_compiled_root=false; \
+	if [ -z "$$udb_compiled_root" ]; then \
+	  udb_compiled_root="$$(mktemp -d /tmp/rhodium-udb-compiled.XXXXXX)"; \
+	  owns_compiled_root=true; \
+	fi; \
+	trap 'if [ "$$owns_compiled_root" = true ]; then rm -rf "$$udb_compiled_root"; fi' EXIT; \
+	env PLTCOMPILEDROOTS="$$udb_compiled_root" PLTCOLLECTS="$(CURDIR)": \
+	  racket -y tools/write-riscv-udb-config.rhm "$(RISCV_UDB_CONFIGURATION)" "$(RISCV_UDB_OUTPUT)"
 
 rv5stage-test: rv5stage-host-test
 	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-decode rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed rv5stage-fp-decoder rv5stage-fp-register-file rv5stage-fp-pipeline rv5stage-register-file rv5stage-csr rv5stage-atomic rv5stage-fetch rv5stage-core rv5stage-zcb rv5stage-mop rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-multiply rv5stage-divide rv5stage-core-rv32 rv5stage-icache rv5stage-dcache rv5stage-dcache-rv32' bash tests/backend/run-circt.sh

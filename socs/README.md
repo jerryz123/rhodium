@@ -70,6 +70,25 @@ its interrupt at the pin boundary instead of connecting it to a platform
 interrupt controller. Enabling the node before that connection exists would
 misrepresent usable hardware to firmware.
 
+## RISC-V UDB configuration catalog
+
+[`udb.rhm`](udb.rhm) catalogs concrete RISC-V Unified Database configurations
+for repository SoC and processor combinations. It joins a named core's UDB
+projection with integration-owned facts such as physical-address width and PMA
+granularity. The generic writer and Make target know only the catalog key, so a
+future processor adds its own projection and a catalog entry rather than a new
+command.
+
+Generate one entry from the repository root:
+
+```sh
+make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-soc
+```
+
+The current keys are `simple-soc`, `mini-soc`, and `tiled-soc`. Output defaults
+to `/tmp/rhodium-udb/<key>.yaml`; set `RISCV_UDB_OUTPUT` to choose another path.
+Generated configurations are build artifacts and must not be committed.
+
 ## Common host and platform contract
 
 The external host loads and observes memory with coherent `ReadClean` and

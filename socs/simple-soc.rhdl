@@ -10,13 +10,10 @@ import:
   lib("noc/language/main.rhm").topology
   lib("noc/rtl/router.rhdl") open
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
-  lib("cores/rv5stage/cache.rhdl").RV5StageCacheConfig
   lib("cores/rv5stage/profile.rhm") open
   lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
   lib("cores/rv5stage/chi/foundation.rhdl") open
-  lib("riscv/isa/c.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/bootrom.rhdl") open
   lib("devices/aclint.rhdl") open
@@ -25,22 +22,14 @@ import:
   "boot.rhdl" open
   "description.rhm" open
   "peripherals.rhdl" open
+  "core-profiles.rhm" open
 
-def simple_soc_flit = CHIFlitParams()
+def simple_soc_flit = CHIFlitParams(~request_address_width: DefaultRhodiumSoCRequestAddressWidth)
 def simple_soc_home = CHIHomeParams("simple-home", 5, CHINodeKind.HNF, ~max_outstanding: 1)
 def simple_soc_device_home = CHIHomeParams("simple-device-home", 6, CHINodeKind.HNI, ~max_outstanding: 1)
 def simple_soc_memory_base = 0x80000000
 def simple_soc_memory_bytes = 0x40000000
 def simple_soc_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
-def simple_soc_core_profile = RVCoreProfile(
-  ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(
-    ~floating_point: FloatingPointProfile.D,
-    ~zicbop: #true,
-    ~compressed: CCompressedExtensions
-  ),
-  ~mmu_mode: RV5StageMmuMode.Sv39
-)
 def simple_soc_clocks = SoCClockConfig(
   ~clock_frequency_hz: 100000000,
   ~timebase_frequency_hz: 100000000

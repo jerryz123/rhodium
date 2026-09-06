@@ -1,0 +1,16 @@
+#lang rhombus
+// Writes one concrete RISC-V UDB configuration selected from the repository catalog.
+
+import:
+  rhombus/cmdline open
+  "../socs/udb.rhm".riscv_udb_configuration
+
+def arguments = current_command_line()
+unless arguments.length() == 2
+| error(~who: #'write_riscv_udb_config,
+        "expected one configuration name and one output-file argument")
+
+def config = riscv_udb_configuration(arguments[0])
+
+filesystem.write_string(arguments[1], config.to_yaml(), ~exists: #'truncate)
+println("wrote " ++ arguments[1])

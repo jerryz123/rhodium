@@ -20,6 +20,7 @@ Contributors extending the model or catalogs should read
 | Expand a 16-bit C instruction to its canonical 32-bit instruction | [Compressed-instruction expansion](#compressed-instruction-expansion) |
 | Turn descriptions into hardware patterns or extracted fields | [RISC-V/Rhodium adapter](rtl/README.md) |
 | Build CSR, PMA, Sv39, counter, trap, interrupt, or FP hardware | [Adapter component map](rtl/README.md#component-map) |
+| Serialize a concrete core description for Unified Database tooling | [UDB configuration model](#udb-configuration-model) |
 | Run the focused package checks | [Validation](#validation) |
 | Initialize the architectural test sources | [Architectural tests](#architectural-tests) |
 
@@ -43,6 +44,26 @@ flowchart LR
 Concrete processors consume these packages but do not define their contracts;
 core-specific decode, execution, fetch, pipeline, CSR policy, and retirement
 belong under [`../cores/`](../cores/README.md).
+
+## UDB configuration model
+
+[`udb.rhm`](udb.rhm) defines typed extension, parameter-value, parameter, and
+fully configured architecture values with deterministic YAML serialization.
+It owns the UDB document shape only. A concrete processor owns the exact
+extension versions and architectural parameter values that it claims; for
+RV5Stage, that projection is documented in the
+[`RV5Stage generator contract`](../cores/rv5stage/README.md#udb-configuration).
+
+The encoder has no Ruby or UDB runtime dependency. Its output is intended for
+the official [`riscv-unified-db`](https://github.com/riscv/riscv-unified-db)
+semantic validator and consumers such as ACT4. Generated YAML is a build
+artifact and is not checked into Rhodium.
+
+Repository configurations are selected through the
+[core-neutral SoC catalog](../socs/README.md#risc-v-udb-configuration-catalog).
+Generate one with `make
+riscv-udb-config RISCV_UDB_CONFIGURATION=<name>`; adding another processor does
+not require a new Make target or writer.
 
 ## Pure model
 

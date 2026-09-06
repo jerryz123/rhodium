@@ -129,6 +129,9 @@ check_matrix_entry examples/cores/rv5stage.rhdl example_matrix examples-cores
 check_matrix_entry examples/cores/rv5stage.rhdl circt_matrix ci-circt-cores-test
 check_matrix_entry examples/rv5stage/core-diagram.rhdl example_matrix examples-rv5stage
 check_matrix_entry tools/write-rv5stage-core-diagram.rhm example_matrix examples-rv5stage
+check_matrix_entry tools/write-riscv-udb-config.rhm host_matrix ci-host-models-test
+check_matrix_entry tools/write-riscv-udb-config.rhm host_matrix ci-host-cores-test
+check_matrix_entry tools/write-riscv-udb-config.rhm host_matrix ci-host-socs-test
 check_matrix_entry tools/write-noc-router-diagram.rhm example_matrix examples-noc
 check_field tools/run-racket-tests.sh host true
 check_field tools/run-racket-tests.sh circt false
