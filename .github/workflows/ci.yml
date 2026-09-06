@@ -243,8 +243,8 @@ jobs:
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
           test -n "$verilator_root"
           make -C sims dpi-compile-check VERILATOR_ROOT="$verilator_root"
-      - name: Elaborate SoC harnesses
-        run: make -C sims elaboration-test
+      - name: Test FESVR transport
+        run: make -C sims transport-test
       - name: Build reusable SoC simulators
         run: |
           make -C sims simulator SOC=simple
