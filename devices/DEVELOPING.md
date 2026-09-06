@@ -29,7 +29,7 @@ Rhodium logic; do not put DPI calls in a SoC.
 | 16550-style registers, FIFOs, and CHI endpoint | [`uart16550.rhdl`](uart16550.rhdl) |
 | Rhodium PTY adapter | [`uart-dpi.rhdl`](uart-dpi.rhdl) |
 | PTY ABI and host implementation | [`dpi/uart_dpi.h`](dpi/uart_dpi.h), [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) |
-| Host checks and elaboration fixtures | [`tests/`](tests/) |
+| Host image, configuration, parameter, and ABI checks | [`tests/`](tests/) |
 | CIRCT emitters and Verilator benches | [`../tests/backend/`](../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
 
 ## Add or change a device
@@ -42,14 +42,15 @@ Rhodium logic; do not put DPI calls in a SoC.
    timer protocols explicit in the public README contract.
 4. If host interaction is required, define a narrow ABI and test its C++ model
    independently before integrating the Rhodium DPI adapter.
-5. Add a focused host test and elaboration fixture. Add a CIRCT/Verilator
-   fixture when generated RTL, pins, or DPI behavior changes.
+5. Use a host test for image construction, parameters, or ABI validation. Test
+   register effects, interrupts, serial timing, and transactions in a
+   CIRCT/Verilator fixture; do not add a separate internal-shape snapshot.
 6. Update [`../socs/`](../socs/README.md) only when a concrete platform adopts
    the device or changes its address, NodeID, PMA, Home, or interrupt policy.
 
 ## Focused validation
 
-Run all device host checks and the standalone C++ PTY test from the repository
+Run device host contracts and the standalone C++ PTY test from the repository
 root:
 
 ```sh

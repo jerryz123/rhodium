@@ -1,51 +1,18 @@
 #lang rhombus
-// Checks the bootable external-memory SimpleSoC, routed devices, and four NoC planes.
+// Checks bootable SimpleSoC host configuration, address maps, and routing plans.
 
 import:
-  "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
   "../../chi/main.rhdl" as chi
   "../../socs/simple-soc.rhdl" as soc
 
-def soc_design = soc.design
-def soc_top = soc_design.modules.find(
-  fun (module_def): module_def.name == "SimpleSoC"
-)
-def module_names = soc_design.modules.map(fun (module_def): module_def.name)
 def snp_adapters :: chi.CHIChannelAdapterPlan = soc.simple_soc_adapter_plans.snp
 def compact_soc_params = soc.SimpleSoCParams(
   soc.simple_soc_params.fabric,
   ~llc_sets: 16,
   ~llc_ways: 2
 )
-def compact_soc_design = embedded.run_elaboration(
-  fun (): soc.SimpleSoC(compact_soc_params)
-)
 
 check:
-  soc_design.dpi_imports ~is []
-  module_names.contains("RV5Stage") ~is #true
-  module_names.contains("RiscvCompressedExpander") ~is #true
-  module_names.contains("RV5StageFpPipeline") ~is #true
-  module_names.contains("RV5StageDisabledFpPipeline") ~is #false
-  module_names.contains("CHIInclusiveHNF") ~is #true
-  module_names.contains("CHIHNF") ~is #false
-  module_names.contains("CHIHNI") ~is #true
-  module_names.contains("CHITransferFragmenter") ~is #false
-  module_names.contains("CHIRam") ~is #false
-  module_names.contains("CHIBootROM") ~is #true
-  module_names.contains("SoCBootDistributor") ~is #true
-  module_names.contains("Aclint") ~is #true
-  module_names.contains("Uart16550") ~is #true
-  module_names.contains("SimpleRouter") ~is #true
-  module_names.contains("CHIReqNoCInjector") ~is #true
-  module_names.contains("CHIReqNoCEjector") ~is #true
-  module_names.contains("CHIRspNoCInjector") ~is #true
-  module_names.contains("CHIRspNoCEjector") ~is #true
-  module_names.contains("CHISnpNoCInjector") ~is #true
-  module_names.contains("CHISnpNoCEjector") ~is #true
-  module_names.contains("CHIDatNoCInjector") ~is #true
-  module_names.contains("CHIDatNoCEjector") ~is #true
   soc.simple_soc_topology.injections ~is []
   soc.simple_soc_topology.ejections ~is []
   soc.simple_soc_home_map.entry(0x80000000).home === soc.simple_soc_home ~is #true
@@ -110,13 +77,6 @@ check:
   soc.simple_soc_device_home_subordinate_site.req.terminal.describe() ~is "device-home/subordinate/req"
   soc.simple_soc_bootrom_site.req.terminal.describe() ~is "devices/bootrom/req"
   soc.simple_soc_uart_site.req.terminal.describe() ~is "devices/uart/req"
-  soc_top.name ~is "SimpleSoC"
-  soc_top.inputs.map(fun (port): port.name) ~is [
-    "clock", "reset", "host_in", "memory_in", "uart_in"
-  ]
-  soc_top.outputs.map(fun (port): port.name) ~is ["host_out", "memory_out", "uart_out"]
-  verify_design(soc_design) ~is #void
-  verify_design(compact_soc_design) ~is #void
   soc.SimpleSoCFabricParams(
     "invalid-boot-payload",
     0x90000000,

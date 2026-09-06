@@ -1,75 +1,11 @@
 #lang rhombus
-// Checks standalone RV5Stage FP pipeline specialization, ports, and hierarchy.
+// Checks RV5Stage FP issue and completion bundle specialization.
 
 import:
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../fp-bundles.rhdl" as bundles
-  "../fp-pipeline.rhdl" as pipeline
-
-def single_design = embedded.run_elaboration(
-  fun (): pipeline.RV5StageFpPipeline(
-    XLen.X32,
-    FloatingPointProfile.F,
-    Bits(8)
-  )
-)
-def double_design = embedded.run_elaboration(
-  fun (): pipeline.RV5StageFpPipeline(
-    XLen.X64,
-    FloatingPointProfile.D,
-    Bits(8)
-  )
-)
-def half_design = embedded.run_elaboration(
-  fun (): pipeline.RV5StageFpPipeline(
-    XLen.X64,
-    FloatingPointProfile.D,
-    Bits(8),
-    ~half_precision: HalfPrecisionProfile.Zfh
-  )
-)
-def half_minimum_design = embedded.run_elaboration(
-  fun (): pipeline.RV5StageFpPipeline(
-    XLen.X64,
-    FloatingPointProfile.D,
-    Bits(8),
-    ~half_precision: HalfPrecisionProfile.Zfhmin
-  )
-)
-def zfa_design = embedded.run_elaboration(
-  fun (): pipeline.RV5StageFpPipeline(
-    XLen.X64,
-    FloatingPointProfile.D,
-    Bits(8),
-    ~half_precision: HalfPrecisionProfile.Zfh,
-    ~zfa: #true
-  )
-)
-def single = single_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageFpPipeline"
-)
-def double = double_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageFpPipeline"
-)
-def half = half_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageFpPipeline"
-)
-def half_minimum = half_minimum_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageFpPipeline"
-)
-def zfa = zfa_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageFpPipeline"
-)
-def half_minimum_fixed = half_minimum_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageFpFixedDHalf"
-)
-fun instance_names(module_def):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.instance"
-  ).map(fun (operation): operation.attribute("module").name)
 
 check:
   bundles.RV5StageFpIssue(
@@ -87,23 +23,3 @@ check:
     FloatingPointProfile.D,
     Bits(8)
   ).field("fp_value").type.type_equal(Bits(64)) ~is #true
-  single.find_input("issue_in").type.field("bits").type.field("context").type.type_equal(Bits(8)) ~is #true
-  double.find_output("completion_out").type.field("bits").type.field("fp_value").type.type_equal(Bits(64)) ~is #true
-  instance_names(single).contains("RV5StageFloatingPointRegisterFile") ~is #true
-  instance_names(single).contains("RV5StageFpFixedF") ~is #true
-  instance_names(single).contains("RV5StageFpDivSqrtF") ~is #true
-  instance_names(double).contains("RV5StageFpFixedD") ~is #true
-  instance_names(double).contains("RV5StageFpDivSqrtD") ~is #true
-  instance_names(half).contains("RV5StageFpFixedDHalf") ~is #true
-  instance_names(half).contains("RV5StageFpDivSqrtDHalf") ~is #true
-  instance_names(half_minimum).contains("RV5StageFpFixedDHalf") ~is #true
-  instance_names(half_minimum).contains("RV5StageFpDivSqrtD") ~is #true
-  instance_names(half_minimum_fixed).contains("RV5StageFpHalfMinimalDatapath") ~is #true
-  instance_names(zfa).contains("RV5StageFpFixedDHalf") ~is #true
-  (zfa_design.modules.find(fun (module_def): module_def.name == "RV5StageZfaFormatDatapath") != #false) ~is #true
-  (double_design.modules.find(fun (module_def): module_def.name == "RV5StageDisabledZfaFormatDatapath") != #false) ~is #true
-  verify_design(single_design) ~is #void
-  verify_design(double_design) ~is #void
-  verify_design(half_design) ~is #void
-  verify_design(half_minimum_design) ~is #void
-  verify_design(zfa_design) ~is #void

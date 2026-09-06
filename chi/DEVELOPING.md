@@ -37,7 +37,7 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 | Homes and storage | [`subordinate-slots.rhdl`](subordinate-slots.rhdl), [`home.rhdl`](home.rhdl), [`coherent-home.rhdl`](coherent-home.rhdl), [`inclusive-home.rhdl`](inclusive-home.rhdl), [`ram.rhdl`](ram.rhdl), [`dpi-memory.rhdl`](dpi-memory.rhdl), [`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl), [`address-projector.rhdl`](address-projector.rhdl) | Transaction allocation, Home engines, backing memory, fragmentation, and address projection |
 | NoC | [`noc-authoring.rhm`](noc-authoring.rhm), [`noc-adapter.rhdl`](noc-adapter.rhdl), [`noc-router.rhdl`](noc-router.rhdl) | Logical connections, validated channel plans, adapters, and router-family composition |
 | Facade | [`main.rhdl`](main.rhdl) | Public exports for the supported package surface |
-| Host coverage | [`tests/`](tests/) | Host behavior, elaboration, and invalid connections |
+| Host coverage | [`tests/`](tests/) | Protocol models, parameters, routing plans, and invalid connections |
 | Backend coverage | [`../tests/backend/`](../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) | CIRCT fixtures and Verilator benches |
 
 ## Extend a protocol layer
@@ -56,9 +56,10 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
    transaction state machine.
 5. Compile CHI relationships through the pure NoC bridge, then consume only
    validated route and family plans in RTL.
-6. Add positive host behavior, intentional invalid connections, and a backend
-   fixture for observable hardware changes. Update [README.md](README.md) when
-   the supported public profile changes.
+6. Add host coverage for pure protocol/configuration behavior and intentional
+   invalid connections. Test observable hardware behavior in a backend fixture;
+   do not duplicate it with internal-shape assertions. Update
+   [README.md](README.md) when the supported public profile changes.
 
 ## Focused validation
 
@@ -72,7 +73,8 @@ make chi-test
 This target includes package-boundary checking, every
 `chi/tests/*-test.rhm` host test, and the negative cases under
 [`tests/invalid/`](tests/invalid/). Use `tools/run-racket-tests.sh` for one host
-file so it receives a fresh compiled root.
+file so it receives a fresh compiled root. Do not add a host test merely to
+inspect a component's elaborated shape.
 
 The backend protocol group covers CHI flit, link, monitor, transaction, Home,
 RAM, NoC, router, and fragmenter paths:

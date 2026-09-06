@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage's cache-line refill flow contract, state ownership, and geometry.
+// Checks RV5Stage's public cache-line refill types and geometry validation.
 
 import:
   "../../../rhodium/core/main.rhm" open
@@ -10,13 +10,6 @@ import:
 def config = test_params.test_rv5stage_chi_config
 def design = embedded.run_elaboration(fun (): refill.RV5StageLineRefill(Bits(5), 32, config))
 def engine = design.modules.find(fun (module_def): module_def.name == "RV5StageLineRefill")
-def control = design.modules.find(
-  fun (module_def): module_def.name == "CHIRetryableTransactionControl"
-)
-fun register_names(module_def):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-  ).map(fun (operation): operation.attribute("name"))
 
 check:
   engine.find_input("command_in").type.field("bits").type.field("line_address").type.width ~is 32
@@ -27,16 +20,6 @@ check:
   engine.find_output("requests_out").type.field("bits").type.field("opcode").type.width ~is 7
   engine.find_input("responses_in").type.field("bits").type.field("opcode").type.width ~is 5
   engine.find_input("response_data_in").type.field("bits").type.field("data").type.width ~is 128
-  register_names(engine) ~is [
-    "received_packets", "acknowledgement_sent", "line_address", "opcode",
-    "context", "line", "home_id", "dbid", "response_state", "pass_dirty"
-  ]
-  register_names(control) ~is [
-    "active_state", "attempt_sent", "received_state", "irreversible_progress",
-    "retry_received", "retry_credit_received", "retry_credit_type",
-    "granted_credit_type"
-  ]
-  verify_design(design) ~is #void
   embedded.run_elaboration(
     fun (): refill.RV5StageLineRefill(Bits(5), 2, config)
   ) ~throws "address width"

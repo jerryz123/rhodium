@@ -1,41 +1,15 @@
 #lang rhombus
-// Checks the serialized mixed-requester HN-F structure and validated parameters.
+// Checks mixed-requester HN-F host parameters and invalid configurations.
 
 import:
-  "../../rhodium/core/main.rhm" open
   "../main.rhdl" as chi
   "coherent-home-fixture.rhdl" as fixture
-
-def top = fixture.coherent_home_design.modules.find(
-  fun (module_def): module_def.name == "CHIHNF"
-)
-def assertion_labels = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "verif.assert"
-).map(fun (operation): operation.attribute("label"))
-def register_names = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-).map(fun (operation): operation.attribute("name"))
 
 check:
   fixture.coherent_home_params.home.kind ~is chi.CHINodeKind.HNF
   fixture.coherent_home_params.requester_endpoints.length() ~is 3
   fixture.coherent_home_params.snoop_endpoints.length() ~is 2
   fixture.coherent_home_params.subordinate_endpoint.kind ~is chi.CHINodeKind.SNF
-  top.inputs.map(fun (input): input.name) ~is ["clock", "reset", "identity", "port_in"]
-  top.outputs.map(fun (output): output.name) ~is ["port_out"]
-  register_names.contains("phase") ~is #true
-  register_names.contains("request") ~is #true
-  register_names.contains("pending_snoops") ~is #true
-  register_names.contains("received_data_ids") ~is #true
-  assertion_labels.contains("chi_hnf_request_source_known") ~is #true
-  assertion_labels.contains("chi_hnf_request_service_supported") ~is #true
-  assertion_labels.contains("chi_hnf_snoop_response_clean") ~is #true
-  assertion_labels.contains("chi_hnf_read_data_id_unique") ~is #true
-  top.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.instance"
-  ).length() ~is 0
-  verify_design(fixture.coherent_home_design) ~is #void
-
   chi.CHIHNFParams(
     chi.CHIHomeParams("bad-capacity", 5, chi.CHINodeKind.HNF,
                       ~max_outstanding: 2),

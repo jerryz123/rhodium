@@ -1,40 +1,36 @@
 #lang rhombus
-// Checks CHI flit ports, classifier hardware, and CIRCT emission.
+// Checks the public widths of default and fully populated CHI flits.
 
 import:
-  "../../rhodium/core/main.rhm" open
-  "../../rhodium/backend/circt.rhm" open
-  "foundation-fixture.rhdl" as fixture
+  "../main.rhdl" as chi
 
-def module_def = fixture.design.modules[0]
-def circt = emit_circt(fixture.design)
-def full_module = fixture.full_design.modules[0]
-def full_circt = emit_circt(fixture.full_design)
+def params = chi.CHIFlitParams()
+def full_params = chi.CHIFlitParams(
+  ~node_id_width: 16,
+  ~request_address_width: 52,
+  ~data_width: 512,
+  ~mpam_width: 15,
+  ~req_rsvdc_width: 32,
+  ~dat_rsvdc_width: 32,
+  ~data_check: #true,
+  ~poison: #true,
+  ~pbha_width: 4,
+  ~mecid_width: 16,
+  ~stream_id_width: 16,
+  ~sec_sid_width: 1
+)
 
 check:
-  module_def.find_input("req").type.packed_width() ~is 137
-  module_def.find_input("rsp").type.packed_width() ~is 71
-  module_def.find_input("snp").type.packed_width() ~is 94
-  module_def.find_input("dat").type.packed_width() ~is 240
-  module_def.find_output("req_out").type.packed_width() ~is 137
-  module_def.find_output("rsp_out").type.packed_width() ~is 71
-  module_def.find_output("snp_out").type.packed_width() ~is 94
-  module_def.find_output("dat_out").type.packed_width() ~is 240
-  module_def.find_input("req_opcode").type.width ~is 7
-  module_def.find_input("rsp_opcode").type.width ~is 5
-  module_def.find_input("snp_opcode").type.width ~is 5
-  module_def.find_input("dat_opcode").type.width ~is 4
-  module_def.find_input("size").type.type_equal(fixture.CHITransferSize) ~is #true
-  module_def.find_output("req_size").type.type_equal(fixture.CHITransferSize) ~is #true
-  module_def.find_output("req_num_req").type.width ~is 6
-  module_def.find_output("data_beats_minus_one").type.width ~is 2
-  full_module.find_input("req").type.packed_width() ~is 240
-  full_module.find_input("rsp").type.packed_width() ~is 89
-  full_module.find_input("snp").type.packed_width() ~is 151
-  full_module.find_input("dat").type.packed_width() ~is 818
-  circt.contains("hw.struct<") ~is #true
-  circt.contains("comb.icmp") ~is #true
-  circt.contains("comb.mux") ~is #true
-  full_circt.contains("data_check: i64") ~is #true
-  verify_design(fixture.design) ~is #void
-  verify_design(fixture.full_design) ~is #void
+  chi.CHIReqFlit(params).packed_width() ~is 137
+  chi.CHIRspFlit(params).packed_width() ~is 71
+  chi.CHISnpFlit(params).packed_width() ~is 94
+  chi.CHIDatFlit(params).packed_width() ~is 240
+  chi.CHIReqOpcode.packed_width() ~is 7
+  chi.CHIRspOpcode.packed_width() ~is 5
+  chi.CHISnpOpcode.packed_width() ~is 5
+  chi.CHIDatOpcode.packed_width() ~is 4
+  chi.CHITransferSize.packed_width() ~is 3
+  chi.CHIReqFlit(full_params).packed_width() ~is 240
+  chi.CHIRspFlit(full_params).packed_width() ~is 89
+  chi.CHISnpFlit(full_params).packed_width() ~is 151
+  chi.CHIDatFlit(full_params).packed_width() ~is 818

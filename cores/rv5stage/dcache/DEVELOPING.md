@@ -30,7 +30,7 @@ importing the instruction-cache package.
 | Dirty-victim drain | [`../writeback.rhdl`](../writeback.rhdl) |
 | Clean and dirty snoop transaction lifetime | [`../snoop.rhdl`](../snoop.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
-| Focused host coverage | [`../tests/dcache-test.rhm`](../tests/dcache-test.rhm), [`../tests/atomic-test.rhm`](../tests/atomic-test.rhm), [`../tests/transaction-engines-test.rhm`](../tests/transaction-engines-test.rhm) |
+| Host configuration and protocol metadata | [`../tests/dcache-test.rhm`](../tests/dcache-test.rhm), [`../tests/transaction-engines-test.rhm`](../tests/transaction-engines-test.rhm) |
 | CIRCT/Verilator fixtures | [`../../../tests/backend/`](../../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
 
 ## Change the cache
@@ -46,24 +46,23 @@ importing the instruction-cache package.
 5. Keep LR/SC reservation invalidation aligned with local mutation,
    replacement, and invalidating snoops. Do not move architectural alignment or
    PMA faults into the cache.
-6. Add host coverage for affected hit/miss/coherence paths and update
+6. Test hit, miss, refill, atomic, and coherence behavior in compiled fixtures;
+   keep host coverage to configuration and protocol metadata. Update
    [README.md](README.md) when public timing, state, traffic, or limits change.
 
 ## Focused validation
 
-Run the direct cache check from the repository root:
+Use the host check for geometry, public types, and protocol metadata:
 
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
 ```
 
-Include related shared-engine or atomic coverage when those paths change:
+Test cache, transaction, and atomic behavior through compiled fixtures:
 
 ```sh
-tools/run-racket-tests.sh \
-  cores/rv5stage/tests/refill-test.rhm \
-  cores/rv5stage/tests/transaction-engines-test.rhm \
-  cores/rv5stage/tests/atomic-test.rhm
+FIXTURES='rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32' \
+  bash tests/backend/run-circt.sh --simulate-only
 ```
 
 Use the parent [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) for

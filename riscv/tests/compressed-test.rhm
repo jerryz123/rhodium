@@ -1,41 +1,13 @@
 #lang rhombus
-// Checks compressed catalogs, XLEN distinctions, and expander elaboration.
+// Checks compressed-instruction catalogs, XLEN distinctions, and pure expansion semantics.
 
 import:
-  "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
   "../isa/c.rhm" open
-  "../isa/rv32i.rhm" as rv32i
-  "../isa/rv64i.rhm" as rv64i
-  "../isa/f.rhm" as riscv_f
-  "../isa/d.rhm" as riscv_d
   "../isa/zca.rhm" open
   "../isa/zcf.rhm" open
   "../isa/zcd.rhm" open
   "../isa/fp-profile.rhm" open
   "../isa/xlen.rhm" open
-  "../rtl/compressed.rhdl" open
-
-fun instruction_names(instructions):
-  instructions.map(fun (instruction): instruction.name)
-
-def rv32f_instruction_names = instruction_names(rv32i.RV32IInstructions ++ riscv_f.RV32FInstructions)
-def rv32d_instruction_names = instruction_names(rv32i.RV32IInstructions ++ riscv_f.RV32FInstructions ++ riscv_d.RV32DInstructions)
-def rv64d_instruction_names = instruction_names(rv64i.RV64IInstructions ++ riscv_f.RV64FInstructions ++ riscv_d.RV64DInstructions)
-def rv64i_instruction_names = instruction_names(rv64i.RV64IInstructions)
-
-def rv32_design = embedded.run_elaboration(
-  fun (): RiscvCompressedExpander(XLen.X32, FloatingPointProfile.F, ~supported_instructions: rv32f_instruction_names)
-)
-def rv64_design = embedded.run_elaboration(
-  fun (): RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D, ~supported_instructions: rv64d_instruction_names)
-)
-def rv32d_design = embedded.run_elaboration(
-  fun (): RiscvCompressedExpander(XLen.X32, FloatingPointProfile.D, ~supported_instructions: rv32d_instruction_names)
-)
-def rv64_zca_design = embedded.run_elaboration(
-  fun (): RiscvCompressedExpander(XLen.X64, FloatingPointProfile.D, ZcaCompressedExtensions, ~supported_instructions: rv64i_instruction_names)
-)
 def addi = RV32Zca.matching(0x0085)
 def lui_hint = RV64Zca.matching(0x6005)
 fun expansions_match_targets(catalog :: CompressedInstructionCatalog):
@@ -83,7 +55,3 @@ check:
   expansions_match_targets(RV32Zcf) ~is #true
   expansions_match_targets(RV32Zcd) ~is #true
   expansions_match_targets(RV64Zcd) ~is #true
-  verify_design(rv32_design) ~is #void
-  verify_design(rv64_design) ~is #void
-  verify_design(rv32d_design) ~is #void
-  verify_design(rv64_zca_design) ~is #void

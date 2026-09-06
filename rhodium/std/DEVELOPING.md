@@ -33,8 +33,8 @@ Use these placement rules when adding code:
   SoC libraries may consume `std`, but `std` must not depend on them.
 
 Tests and examples are outside the package. Put executable authoring examples
-under [`../../examples/std/`](../../examples/std/) and host/elaboration tests
-under [`../../tests/frontend/`](../../tests/frontend/). CIRCT emission fixtures
+under [`../../examples/std/`](../../examples/std/) and compiler-facing host
+tests under [`../../tests/frontend/`](../../tests/frontend/). CIRCT fixtures
 and Verilator benches belong under [`../../tests/backend/`](../../tests/backend/).
 
 ## Architecture and ownership
@@ -105,11 +105,11 @@ Do not copy those implementations into the library.
 4. Validate host parameters during elaboration. Use exact hardware types and
    nominal interface support rather than accepting coincidentally compatible
    widths or display names.
-5. Add a positive test for supported behavior and an invalid-use test when the
-   public facility introduces a new checked constraint. Do not add tests whose
-   purpose is merely to prove that an unimplemented feature is absent.
-6. If observable RTL behavior changes, add or update the focused backend
-   emitter and Verilator bench. Generated Verilog is test output, not
+5. Add a host test only for static information, types, pure host policy, or a
+   public elaboration-time rejection. Do not snapshot incidental operation or
+   instance structure for every new module.
+6. Test observable RTL behavior with the focused backend emitter and Verilator
+   bench. Generated Verilog is test output, not
    hand-maintained source.
 7. Update the standard-library dependency inventory in
    [`../DEVELOPING.md`](../DEVELOPING.md#standard-library-dependencies), this
@@ -183,7 +183,7 @@ The standard library is covered at three levels:
 
 | Coverage | Location | What it should prove |
 |---|---|---|
-| Host and elaboration | [`tests/frontend/std-*-test.rhm`](../../tests/frontend/) plus decode and pattern tests | Parameter checks, exact types, IR shape, protocol compatibility, static information, and invalid uses |
+| Compiler-facing host | [`tests/frontend/std-*-test.rhm`](../../tests/frontend/) plus decode and pattern tests | Static information, exact public types, pure host policy, protocol compatibility, and invalid uses |
 | Executable examples | [`examples/std/`](../../examples/std/) | Public import paths and realistic authoring composition |
 | CIRCT and Verilator | Emitters and benches under [`tests/backend/`](../../tests/backend/) | Lowering and cycle-visible behavior for stateful or backend-sensitive components |
 
@@ -201,9 +201,10 @@ Prefer a focused test and its fixture. Representative ownership is:
   `std-reduction`, `std-scoreboard`, `std-shift-register`, and `std-sync-ram`
   tests for their owning modules.
 
-Keep host checks distinct from backend evidence. An elaboration test can prove
-the public IR shape but not generated SystemVerilog or cycle behavior; use the
-corresponding emitter and Verilator bench when those properties can change.
+Keep host checks distinct from backend evidence. Exact IR is appropriate when
+the standard-library feature is compiler-facing; a reusable hardware module
+does not need its own elaboration snapshot. Use the corresponding emitter and
+Verilator bench for reset, latency, handshake, and other observable behavior.
 
 ## Focused validation
 

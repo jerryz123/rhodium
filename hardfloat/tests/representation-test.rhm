@@ -1,44 +1,14 @@
 #lang rhombus
-// Checks permanent HardFloat type, representation, conversion, rounding, and arithmetic structure.
+// Checks permanent HardFloat formats, public types, rounding modes, and validation.
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
 
 import:
   "../../rhodium/core/main.rhm" open
   "../main.rhdl" as hardfloat
-  "representation-fixture.rhdl" as fixture
-
-def design = fixture.design
-def top = design.modules.find(
-  fun (module_def): module_def.name.starts_with("HardFloatRepresentation")
-)
-def compare = design.modules.find(
-  fun (module_def): module_def.name.starts_with("CompareRecFN")
-)
-def round_any = design.modules.find(
-  fun (module_def): module_def.name.starts_with("RoundAnyRawFNToRecFN")
-)
-def integer_to_float = design.modules.find(
-  fun (module_def): module_def.name.starts_with("IntegerToRecFN")
-)
-def float_to_integer = design.modules.find(
-  fun (module_def): module_def.name.starts_with("RecFNToInteger")
-)
-def multiply = design.modules.find(
-  fun (module_def): module_def.name.starts_with("MulRecFN")
-)
-def add = design.modules.find(
-  fun (module_def): module_def.name.starts_with("AddRecFN")
-)
-def fused_multiply_add = design.modules.find(
-  fun (module_def): module_def.name.starts_with("MulAddRecFN")
-)
 def raw_type = hardfloat.RawFloat(5, 11)
 def flags_type = hardfloat.ExceptionFlags()
 def ieee_type = hardfloat.IEEEFloat(hardfloat.FloatFormat.F16)
 def recoded_type = hardfloat.RecFloat(hardfloat.FloatFormat.F16)
-def minimum_add_design = fixture.minimum_add_design
-def minimum_fma_design = fixture.minimum_fma_design
-def wide_integer_conversion_design = fixture.wide_integer_conversion_design
 
 check:
   hardfloat.FloatFormat.F16.exponent_width ~is 5
@@ -66,33 +36,3 @@ check:
   flags_type.packed_width() ~is 5
   hardfloat.IntegerExceptionFlags().packed_width() ~is 3
   hardfloat.FloatClass.packed_width() ~is 10
-  type_equal(top.find_input("a").type, ieee_type) ~is #true
-  type_equal(top.find_output("recoded_a").type, recoded_type) ~is #true
-  type_equal(top.find_output("classification").type, hardfloat.FloatClass) ~is #true
-  type_equal(top.find_output("exception_flags").type, flags_type) ~is #true
-  integer_to_float.find_input("value").type.bit_width() ~is 16
-  float_to_integer.find_output("out").type.bit_width() ~is 16
-  multiply.find_output("out").type.bit_width() ~is 17
-  add.find_output("out").type.bit_width() ~is 17
-  fused_multiply_add.find_output("out").type.bit_width() ~is 17
-  type_equal(
-    fused_multiply_add.find_input("operation").type,
-    hardfloat.MulAddOperation
-  ) ~is #true
-  verify_design(minimum_add_design) ~is #void
-  verify_design(minimum_fma_design) ~is #void
-  wide_integer_conversion_design.modules[0].find_output("out").type.bit_width() ~is 64
-  verify_design(wide_integer_conversion_design) ~is #void
-  compare.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.slt"
-  ).length() >= 1 ~is #true
-  compare.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.ult"
-  ).length() >= 1 ~is #true
-  top.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.cast"
-  ).length() >= 1 ~is #true
-  round_any.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
-  ).length() >= 1 ~is #true
-  verify_design(design) ~is #void

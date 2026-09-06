@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the PTY UART model structure, DPI ABI, and parameter bounds.
+// Checks the PTY UART model's externally consumed DPI ABI and parameter bounds.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -14,10 +14,6 @@ def uart_import = design.dpi_imports.find(
 def uart_register = top.operations.find(
   fun (operation): operation.opcode == "sim.dpi_register"
 )
-def module_names = design.modules.map(fun (module_def): module_def.name)
-def assertion_labels = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "verif.assert"
-).map(fun (operation): operation.attribute("label"))
 
 check:
   top.inputs.map(fun (port): port.name) ~is ["clock", "reset", "uart_tx"]
@@ -34,11 +30,6 @@ check:
     "pty_to_uart_valid", "pty_to_uart_byte", "status"
   ]
   uart_register.results.length() ~is 3
-  module_names.contains("Uart8N1Transmitter") ~is #true
-  module_names.contains("Uart8N1Receiver") ~is #true
-  module_names.contains("SyncLevel") ~is #true
-  assertion_labels.contains("uart_dpi_pty_tick_succeeded") ~is #true
-  verify_design(design) ~is #void
   uart_dpi.UartDPI(-1, 1) ~throws "Int.in"
   uart_dpi.UartDPI(0x100000000, 1) ~throws "Int.in"
   uart_dpi.UartDPI(0, 0) ~throws "Int.in"

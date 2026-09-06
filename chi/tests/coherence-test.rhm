@@ -1,21 +1,12 @@
 #lang rhombus
-// Checks CHI coherent cache-state and snoop-family classifier elaboration.
+// Checks CHI coherent-state widths and the public RN-F snoop family.
 
 import:
-  "../../rhodium/core/main.rhm" open
   "../main.rhdl" as chi
-  "coherence-fixture.rhdl" as fixture
-
-def top = fixture.design.modules.find(
-  fun (module_def): module_def.name == "CHICoherenceClassifiers"
-)
 
 check:
   chi.chi_rnf_snoop_opcodes.length() ~is 21
   chi.chi_rnf_snoop_opcodes.contains(chi.CHISnpOpcode.SnpShared) ~is #true
   chi.chi_rnf_snoop_opcodes.contains(chi.CHISnpOpcode.SnpUniqueFwd) ~is #true
-  top.find_input("cache_state").type.width ~is 3
+  chi.CHICacheState.packed_width() ~is 3
   chi.CHICoherentResponse().packed_width() ~is 3
-  top.find_output("response_state").type.width ~is 2
-  top.find_output("response_pass_dirty").type.bit_width() ~is 1
-  verify_design(fixture.design) ~is #void

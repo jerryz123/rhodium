@@ -43,8 +43,10 @@ direction.
    descriptor. Do not introduce a second opcode table or copied slice map.
 3. Preserve host specialization for architectural profiles and widths so
    unsupported hardware elaborates away rather than becoming runtime control.
-4. Add focused tests under [`../tests/`](../tests/) for the public value or
-   circuit, including invalid supported inputs and width/profile boundaries.
+4. Use host tests under [`../tests/`](../tests/) for pure architectural policy,
+   reference expansion, invalid inputs, and width/profile boundaries. Test
+   cycle-visible circuit behavior in the corresponding backend fixture rather
+   than inspecting internal elaborated shape.
 5. Update [README.md](README.md) if the observable adapter contract changes.
 
 Compressed-expansion changes must agree with pure host expansion for every

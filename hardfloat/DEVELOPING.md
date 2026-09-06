@@ -40,7 +40,7 @@ rounding-mode selection, CSR policy, register state, and retirement belong in
 | [`rtl/arithmetic/multiply-add.rhdl`](rtl/arithmetic/multiply-add.rhdl) | Fused pre-multiply, post-multiply, normalization, and final rounding |
 | [`rtl/arithmetic/divide-sqrt.rhdl`](rtl/arithmetic/divide-sqrt.rhdl) | Generic one- or two-bit iterative division/square root |
 | [`rtl/arithmetic/divide-sqrt-f64.rhdl`](rtl/arithmetic/divide-sqrt-f64.rhdl) | Pipelined multiply-assisted binary64 forms |
-| [`tests/`](tests/) | Elaboration, structural, CIRCT, and Verilator checks |
+| [`tests/`](tests/) | Host representations and CIRCT/Verilator behavior checks |
 
 ## Translation and provenance policy
 
@@ -62,15 +62,16 @@ When updating or adding a component:
    exception behavior, and handshake timing in the public contract.
 3. Reuse shared type, recoding, resizing, rounding, and primitive layers rather
    than copying algorithm fragments.
-4. Add host structural coverage and, for numeric or sequential behavior, a
-   permanent CIRCT/Verilator fixture.
+4. Keep host tests for representations and pure reference calculations. Test
+   numeric and sequential behavior in a permanent CIRCT/Verilator fixture;
+   avoid duplicating it with internal-operation snapshots.
 5. Update [README.md](README.md) when public formats, operations, protocols, or
    deliberate limits change.
 
 ## Focused validation
 
-From the repository root, run host elaboration, type, structure, and boundary
-checks with:
+From the repository root, run host representation, type, and boundary checks
+with:
 
 ```sh
 make hardfloat-host-test
@@ -93,9 +94,9 @@ Repository wrappers manage a fresh `PLTCOMPILEDROOTS` when invoked normally.
 Direct Racket or Rhombus commands must use a newly created compiled root and
 `racket -y` so stale bytecode cannot mask the current source.
 
-The host slice checks format constraints, nominal packed layouts, public
-specialization, raw operation structure, and design verification. The CIRCT
-and Verilator slice covers representative IEEE special values, exhaustive F16
+The host slice checks format constraints, nominal packed layouts, and public
+specialization. The CIRCT and Verilator slice covers representative IEEE
+special values, exhaustive F16
 representation round trips, rounding families, classification, comparison,
 raw resizing, integer and format conversion, add/subtract, multiply,
 single-rounding FMA, both iterative divide/square-root options, and specialized

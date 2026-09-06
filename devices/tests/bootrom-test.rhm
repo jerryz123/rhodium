@@ -1,9 +1,8 @@
 #lang rhombus
-// Checks BootROM image generation, CHI metadata, immutable storage, and validation.
+// Checks BootROM image generation, CHI service metadata, and parameter validation.
 
 import:
   rhombus.bits.(<<) as <<
-  "../../rhodium/core/main.rhm" open
   "../../chi/main.rhdl" as chi
   "../../riscv/model/main.rhm" open
   "../../riscv/isa/integer-common.rhm" open
@@ -11,7 +10,6 @@ import:
   "../../riscv/isa/zicsr.rhm" open
   "../bootrom-image.rhm" open
   "../bootrom.rhdl" as bootrom
-  "bootrom-fixture.rhdl" as fixture
 
 fun image_word(image :: BootROMImage, index :: Nat):
   def mutable word = 0
@@ -36,16 +34,9 @@ def default_image = DefaultRiscvBootROMImage
 def relocated_image = riscv_bootrom_image(0x20000, 0x7f000000)
 def default_words = for List (index in 0..(default_image.size_bytes / 4)):
   image_word(default_image, index)
-def top = fixture.design.modules.find(fun (module_def): module_def.name == "CHIBootROM")
-def register_names = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-).map(fun (operation): operation.attribute("name"))
-def assertion_labels = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "verif.assert"
-).map(fun (operation): operation.attribute("label"))
-def constant_widths = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.constant"
-).map(fun (operation): operation.results[0].type.width)
+def flit = chi.CHIFlitParams()
+def config = bootrom.CHIBootROMConfig(flit, ~window_bytes: 64)
+def params = bootrom.CHIBootROMParams("test-bootrom", 12, config)
 
 check:
   default_image.size_bytes ~is 28
@@ -72,31 +63,24 @@ check:
   trampoline_target(relocated_image, 0x20000, 3) ~is 0x7f000000
   BootROMImage([0xaa, 0x55]).padded_bytes(4) ~is [0xaa, 0x55, 0, 0]
 
-  fixture.config.image === DefaultRiscvBootROMImage ~is #true
-  fixture.params.node.kind ~is chi.CHINodeKind.SNI
-  fixture.params.node.max_outstanding ~is 1
-  fixture.params.node.supports.req ~is [chi.CHIReqOpcode.ReadNoSnp]
-  fixture.params.node.emits.dat ~is [chi.CHIDatOpcode.CompData]
-  fixture.params.service.address_sets ~is [chi.AddressSet(RiscvBootROMResetAddress, 63)]
-  fixture.params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 64) ~is #true
-  fixture.params.service.supports(chi.CHIReqOpcode.WriteNoSnpFull, 4) ~is #false
-  top.inputs.map(fun (port): port.name) ~is ["clock", "reset", "identity", "port_in"]
-  top.outputs.map(fun (port): port.name) ~is ["port_out"]
-  register_names ~is ["active", "request", "pending_data_ids"]
-  assertion_labels.contains("chi_bootrom_request_supported") ~is #true
-  assertion_labels.contains("chi_bootrom_write_data_unsupported") ~is #true
-  constant_widths.contains(512) ~is #true
-  verify_design(fixture.design) ~is #void
+  config.image === DefaultRiscvBootROMImage ~is #true
+  params.node.kind ~is chi.CHINodeKind.SNI
+  params.node.max_outstanding ~is 1
+  params.node.supports.req ~is [chi.CHIReqOpcode.ReadNoSnp]
+  params.node.emits.dat ~is [chi.CHIDatOpcode.CompData]
+  params.service.address_sets ~is [chi.AddressSet(RiscvBootROMResetAddress, 63)]
+  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 64) ~is #true
+  params.service.supports(chi.CHIReqOpcode.WriteNoSnpFull, 4) ~is #false
 
   BootROMImage([0x100]) ~throws "image elements must be bytes"
-  bootrom.CHIBootROMConfig(fixture.flit, ~window_bytes: 32) ~throws "maximum-size transfer"
+  bootrom.CHIBootROMConfig(flit, ~window_bytes: 32) ~throws "maximum-size transfer"
   bootrom.CHIBootROMConfig(
-    fixture.flit,
+    flit,
     ~window_bytes: 64,
     ~image: BootROMImage(for List (_index in 0..65): 0)
   ) ~throws "image must fit"
-  bootrom.CHIBootROMParams("misaligned", 12, fixture.config, ~base_address: 0x10020) ~throws "aligned"
-  bootrom.CHIBootROMParams("wide-node", 128, fixture.config) ~throws "NodeID"
+  bootrom.CHIBootROMParams("misaligned", 12, config, ~base_address: 0x10020) ~throws "aligned"
+  bootrom.CHIBootROMParams("wide-node", 128, config) ~throws "NodeID"
   riscv_bootrom_image(0x10002, 0x80000000) ~throws "reset address"
   riscv_bootrom_image(0x10000, 0x80000002) ~throws "payload address"
   riscv_bootrom_image(0, 0x80000000) ~throws "PC-relative range"

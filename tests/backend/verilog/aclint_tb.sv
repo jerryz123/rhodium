@@ -201,8 +201,13 @@ module aclint_tb;
     reset = 1'b0;
     assert (time_counter == 0 && machine_software == 0 && machine_timer == 0)
       else $fatal(1, "ACLINT reset state is incorrect");
+    assert (!time_update_out.valid)
+      else $fatal(1, "ACLINT emitted a time update without a timer event");
 
     tick = 1'b1;
+    #1;
+    assert (time_update_out.valid && time_update_out.bits == 1)
+      else $fatal(1, "ACLINT did not announce the next timer value");
     cycle();
     tick = 1'b0;
     assert (time_counter == 1 && time_update_count == 1 && last_time_update == 1)

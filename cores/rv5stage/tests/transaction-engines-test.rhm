@@ -1,23 +1,9 @@
 #lang rhombus
-// Checks RV5Stage's extracted write and clean-snoop transaction-engine contracts.
+// Checks RV5Stage's host-side CHI response profiles for transaction engines.
 
 import:
-  "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
   lib("chi/main.rhdl") open
-  "params.rhdl" as test_params
   "../chi.rhdl" as core_chi
-  "../snoop.rhdl" as snoop
-  "../write-unique.rhdl" as write
-
-def config = test_params.test_rv5stage_chi_config
-def write_design = embedded.run_elaboration(fun (): write.RV5StageWriteUnique(Bits(5), 32, config, 1))
-def write_engine = write_design.modules.find(fun (module_def): module_def.name == "RV5StageWriteUnique")
-def snoop_design = embedded.run_elaboration(fun (): snoop.RV5StageCleanSnoop(32, config))
-def snoop_engine = snoop_design.modules.find(fun (module_def): module_def.name == "RV5StageCleanSnoop")
-def write_control = write_design.modules.find(
-  fun (module_def): module_def.name == "CHIRetryableTransactionControl"
-)
 
 check:
   core_chi.RV5StageRefillResponses.milestones ~is []
@@ -36,19 +22,3 @@ check:
     CHIRspOpcode.Comp,
     CHIRspOpcode.CompDBIDResp
   ]
-  write_engine.find_input("command_in").type.field("bits").type.field("address").type.width ~is 32
-  write_engine.find_input("command_in").type.field("bits").type.field("context").type.width ~is 5
-  write_engine.find_input("command_in").type.field("bits").type.field("data").type.width ~is 64
-  write_engine.find_input("command_in").type.field("bits").type.field("mask").type.width ~is 8
-  write_engine.find_output("requests_out").type.field("bits").type.field("opcode").type.width ~is 7
-  write_engine.find_output("data_out").type.field("bits").type.field("data").type.width ~is 128
-  write_control.find_output("received").type.width ~is 2
-  snoop_engine.find_input("snoops_in").type.field("bits").type.field("opcode").type.width ~is 5
-  data_width(snoop_engine.find_output("address").type) ~is 32
-  snoop_engine.find_output("lookup_out").type.field("bits").type.width ~is 32
-  snoop_engine.find_output("update_out").type.field("bits").type.field("address").type.width ~is 32
-  verify_design(write_design) ~is #void
-  verify_design(snoop_design) ~is #void
-  embedded.run_elaboration(
-    fun (): write.RV5StageWriteUnique(Bits(5), 32, config, 4096)
-  ) ~throws "twelve bits"

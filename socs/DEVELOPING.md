@@ -56,29 +56,27 @@ configure and connect those public contracts, not fork their behavior.
 5. Keep routers owned by tiles or subsystems and physical-link connections
    owned by their parent. The generic NoC package does not instantiate a whole
    system wrapper.
-6. Add configuration, structure, and hierarchy tests, and update
-   [README.md](README.md) when observable ports, defaults, maps, topology, or
-   supported systems change.
+6. Test pure configuration and topology compilation at the host level. Test
+   connected hierarchy and device/core behavior through the executable
+   simulator; do not duplicate it with exact module-name or instance-count
+   assertions. Update [README.md](README.md) when observable ports, defaults,
+   maps, topology, or supported systems change.
 
 ## Focused validation
 
-Run every SoC configuration-compilation, tile, and hierarchy test from the
-repository root:
+Run SoC configuration and topology-compilation tests from the repository root:
 
 ```sh
 make soc-test
 ```
 
-Use package-local targets while iterating:
+Use the package-local target while iterating:
 
 ```sh
-make -C socs rtl-elaboration-test
-make -C socs tiled-compile-test
-make -C socs tiled-elaboration-test
+make -C socs config-test
 ```
 
-The first target covers the external-channel and internal-memory single-core
-systems. The tiled targets cover configuration compilation, tile structure,
-and complete hierarchy elaboration. Repository wrappers provide fresh
-compiled roots. Executable and CIRCT lowering checks belong to
+The host target covers address maps, node policy, layouts, and compiled routing
+plans. Connected hierarchy, time distribution, devices, and processor behavior
+belong to the executable smoke tests in
 [`../sims/DEVELOPING.md`](../sims/DEVELOPING.md).

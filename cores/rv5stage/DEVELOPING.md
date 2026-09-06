@@ -37,7 +37,7 @@ each other; share CHI transaction machinery in the parent directory.
 | [`cache.rhdl`](cache.rhdl), [`chi.rhdl`](chi.rhdl) | Shared cache geometry, physical-region/Home policy, and RN identity parameters |
 | [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`dcache/DEVELOPING.md`](dcache/DEVELOPING.md) | Private cache implementation and validation |
 | [`refill.rhdl`](refill.rhdl), [`write-unique.rhdl`](write-unique.rhdl), [`writeback.rhdl`](writeback.rhdl), [`snoop.rhdl`](snoop.rhdl) | Shared refill, ownership acquisition, retry, dirty drain, and snoop engines |
-| [`tests/`](tests/) | Core-owned host structure, specialization, and behavior checks |
+| [`tests/`](tests/) | Decode, configuration, public specialization, and invalid-use checks |
 
 ## Change the core
 
@@ -52,9 +52,10 @@ each other; share CHI transaction machinery in the parent directory.
 4. Preserve exact fault ownership and priority across Fetch, MMU, PMA routing,
    caches, Execute, Memory, and WB. Do not collapse speculative flush with
    architectural invalidation.
-5. Test the narrow subsystem first, then the composed core, and update
-   [README.md](README.md) when public profiles, ports, ordering, timing, or
-   deliberate limits change.
+5. Test cycle-visible behavior in the narrowest CIRCT/Verilator fixture, then
+   the composed core. Do not add an elaboration snapshot for every submodule.
+   Update [README.md](README.md) when public profiles, ports, ordering, timing,
+   or deliberate limits change.
 
 ## Generated detailed diagrams
 
@@ -76,26 +77,16 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
-Run all focused host checks from the repository root:
+Run host checks only when decode, configuration, specialization, or public
+elaboration-time validation changes:
 
 ```sh
 make rv5stage-host-test
 ```
 
-For the core/cache hierarchy only:
-
-```sh
-tools/run-racket-tests.sh \
-  cores/rv5stage/tests/refill-test.rhm \
-  cores/rv5stage/tests/icache-test.rhm \
-  cores/rv5stage/tests/dcache-test.rhm \
-  cores/rv5stage/tests/rv5stage-test.rhm
-```
-
-The wrapper creates a fresh compiled root when one is not supplied. Run
-`make rv5stage-test` when the change also needs the selected RV5Stage CIRCT and
-Verilator fixtures. Exercise MEM-stage fault classification or WFI control flow
-specifically with:
+For datapath, cache, pipeline, and state behavior, run `make rv5stage-test` or
+select the narrowest backend fixture. Exercise MEM-stage fault classification
+or WFI control flow specifically with:
 
 ```sh
 FIXTURE=rv5stage-data-fault bash tests/backend/run-circt.sh

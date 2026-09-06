@@ -29,7 +29,7 @@ separation.
 | Retry-aware complete-line refill | [`../refill.rhdl`](../refill.rhdl) |
 | Clean snoop transaction lifetime | [`../snoop.rhdl`](../snoop.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
-| Focused host coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
+| Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
 | CIRCT/Verilator fixture | [`../../../tests/backend/`](../../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
 
 ## Change the cache
@@ -49,14 +49,15 @@ separation.
 
 ## Focused validation
 
-Run the direct host check from the repository root:
+Use the host check for geometry and public protocol contracts:
 
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/icache-test.rhm
 ```
 
-Use the parent [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) when a
-change crosses refill, snoop, MMU, Fetch, or complete-core integration. The
-backend fixture name is `rv5stage-icache`; use the backend test
+Test cache state, refill, invalidation, and snoop behavior in the compiled
+`rv5stage-icache` fixture. Use the parent
+[`DEVELOPING.md`](../DEVELOPING.md#focused-validation) when a change crosses
+refill, snoop, MMU, Fetch, or complete-core integration, and use the backend test
 [`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) for CIRCT and Verilator
 modes. Repository wrappers provide a fresh compiled root.

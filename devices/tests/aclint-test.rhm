@@ -1,35 +1,19 @@
 #lang rhombus
-// Checks ACLINT host parameters, register state, ports, and elaborated validity.
+// Checks ACLINT host configuration, CHI service metadata, and parameter rejection.
 
 import:
-  "../../rhodium/core/main.rhm" open
   "../../chi/main.rhdl" as chi
   "../aclint.rhdl" as aclint
-  "aclint-fixture.rhdl" as fixture
 
-def top = fixture.design.modules.find(fun (module_def): module_def.name == "Aclint")
-def register_names = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-).map(fun (operation): operation.attribute("name"))
+def flit = chi.CHIFlitParams()
+def config = aclint.AclintConfig(flit, 2)
+def params = aclint.AclintParams("test-aclint", 9, config, 0x02000000)
 
 check:
-  fixture.config.hart_count ~is 2
-  fixture.config.data_bytes ~is 16
-  fixture.params.node.kind ~is chi.CHINodeKind.SNI
-  fixture.params.service.address_sets[0] ~is chi.AddressSet(0x02000000, 0xffff)
-  fixture.params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 8) ~is #true
-  fixture.params.service.supports(chi.CHIReqOpcode.WriteNoSnpPtl, 8) ~is #true
-  fixture.params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 16) ~is #false
-  top.inputs.map(fun (port): port.name) ~is ["clock", "reset", "identity", "tick", "port_in"]
-  top.outputs.map(fun (port): port.name) ~is [
-    "port_out", "time_update_out", "time_counter", "machine_software", "machine_timer"
-  ]
-  register_names ~is [
-    "state", "request", "read_response_data", "mtime", "mtimecmp", "msip"
-  ]
-  top.find_output("time_counter").type.width ~is 64
-  top.find_output("time_update_out").type.field("valid").type.bit_width() ~is 1
-  top.find_output("time_update_out").type.field("bits").type.width ~is 64
-  top.find_output("machine_software").type.length ~is 2
-  top.find_input("port_in").type.field("req").type.field("bits").type.field("address").type.width ~is 44
-  verify_design(fixture.design) ~is #void
+  config.hart_count ~is 2
+  config.data_bytes ~is 16
+  params.node.kind ~is chi.CHINodeKind.SNI
+  params.service.address_sets[0] ~is chi.AddressSet(0x02000000, 0xffff)
+  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 8) ~is #true
+  params.service.supports(chi.CHIReqOpcode.WriteNoSnpPtl, 8) ~is #true
+  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 16) ~is #false

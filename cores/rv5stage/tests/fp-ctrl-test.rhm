@@ -1,11 +1,9 @@
 #lang rhombus
-// Checks RV5Stage's F/D control domains, operand metadata, and single-table decode.
+// Checks RV5Stage's host-side F/D control domains and operand metadata.
 
 import:
   rhombus.bits.(<<) as <<
   rhombus.bits.(>>) as >>
-  "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
   "../../../riscv/isa/fp-profile.rhm" open
@@ -17,7 +15,6 @@ import:
   "../../../riscv/isa/zfa.rhm" as zfa
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../decode/fp-ctrl.rhdl" as controls
-  "../decode/core-ctrl.rhdl" as core_controls
   lib("rhodium/std/decode.rhdl") open
   lib("hardfloat/main.rhdl").MinMaxOperation
 
@@ -51,9 +48,6 @@ fun field_pattern(cube, name):
     ~care: PackedLiteral(field.type, (cube.care_bits >> lower_width) bits.and mask)
   )
 
-fun decode_count(design):
-  design.modules[0].operations.filter(~keep: fun (operation): operation.opcode == "rtl.decode").length()
-
 def fmadd = control_for(controls.RV64FDFloatingPointControlCases, f.FMADD_S)
 def fmadd_registers = field_pattern(fmadd, "registers")
 def fmadd_execution = field_pattern(fmadd, "execution")
@@ -63,21 +57,12 @@ def base_min_execution = field_pattern(control_for(controls.RV64FDFloatingPointC
 def base_equal_execution = field_pattern(control_for(controls.RV64FDFloatingPointControlCases, f.FEQ_S), "execution")
 def base_less_execution = field_pattern(control_for(controls.RV64FDFloatingPointControlCases, f.FLT_S), "execution")
 def convert_execution = field_pattern(control_for(controls.RV64FDFloatingPointControlCases, d.FCVT_S_D), "execution")
-def f_design = embedded.run_elaboration(fun (): controls.RV5StageFloatingPointInstructionDecoder(XLen.X32, FloatingPointProfile.F))
-def d_design = embedded.run_elaboration(fun (): controls.RV5StageFloatingPointInstructionDecoder(XLen.X64, FloatingPointProfile.D))
-def none_design = embedded.run_elaboration(fun (): controls.RV5StageFloatingPointInstructionDecoder(XLen.X64, FloatingPointProfile.None))
-def integrated_f_design = embedded.run_elaboration(fun (): core_controls.RV5StageInstructionDecoder(XLen.X32, FloatingPointProfile.F))
-def integrated_d_design = embedded.run_elaboration(fun (): core_controls.RV5StageInstructionDecoder(XLen.X64, FloatingPointProfile.D))
 def zfhmin_cases = controls.rv5stage_floating_point_control_cases(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.Zfhmin)
 def zfh_cases = controls.rv5stage_floating_point_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh)
-def zfhmin_design = embedded.run_elaboration(fun (): controls.RV5StageFloatingPointInstructionDecoder(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.Zfhmin))
-def zfh_design = embedded.run_elaboration(fun (): core_controls.RV5StageInstructionDecoder(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh))
 def half_add_execution = field_pattern(control_for(zfh_cases, zfh.FADD_H), "execution")
 def half_load_execution = field_pattern(control_for(zfhmin_cases, zfhmin.FLH), "execution")
 def zfa_f_cases = controls.rv5stage_floating_point_control_cases(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.None, ~zfa: #true)
 def zfa_d_half_cases = controls.rv5stage_floating_point_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true)
-def zfa_f_design = embedded.run_elaboration(fun (): controls.RV5StageFloatingPointInstructionDecoder(XLen.X32, FloatingPointProfile.F, ~zfa: #true))
-def zfa_integrated_design = embedded.run_elaboration(fun (): core_controls.RV5StageInstructionDecoder(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true))
 def fli_registers = field_pattern(control_for(zfa_f_cases, zfa.FLI_S), "registers")
 def fli_execution = field_pattern(control_for(zfa_f_cases, zfa.FLI_S), "execution")
 def minm_execution = field_pattern(control_for(zfa_f_cases, zfa.FMINM_S), "execution")
@@ -138,26 +123,8 @@ check:
   field_pattern(quiet_execution, "comparison_signaling").matches(bool.Bool(#false)) ~is #true
   field_pattern(modulo_registers, "destination").matches(controls.RV5StageFloatDestination.Integer) ~is #true
   field_pattern(modulo_execution, "unit").matches(controls.RV5StageFloatUnit.IntegerModulo) ~is #true
-  decode_count(f_design) ~is 1
-  decode_count(d_design) ~is 1
-  decode_count(none_design) ~is 0
-  decode_count(integrated_f_design) ~is 1
-  decode_count(integrated_d_design) ~is 1
-  decode_count(zfhmin_design) ~is 1
-  decode_count(zfh_design) ~is 1
-  decode_count(zfa_f_design) ~is 1
-  decode_count(zfa_integrated_design) ~is 1
   controls.rv5stage_floating_point_profile_supported(XLen.X32, FloatingPointProfile.F) ~is #true
   controls.rv5stage_floating_point_profile_supported(XLen.X64, FloatingPointProfile.D) ~is #true
   controls.rv5stage_floating_point_profile_supported(XLen.X32, FloatingPointProfile.D) ~is #false
   controls.rv5stage_floating_point_profile_supported(XLen.X64, FloatingPointProfile.F) ~is #false
   controls.rv5stage_floating_point_profile_supported(XLen.X64, FloatingPointProfile.None, ~zfa: #true) ~is #false
-  verify_design(f_design) ~is #void
-  verify_design(d_design) ~is #void
-  verify_design(none_design) ~is #void
-  verify_design(integrated_f_design) ~is #void
-  verify_design(integrated_d_design) ~is #void
-  verify_design(zfhmin_design) ~is #void
-  verify_design(zfh_design) ~is #void
-  verify_design(zfa_f_design) ~is #void
-  verify_design(zfa_integrated_design) ~is #void

@@ -91,9 +91,9 @@ moving a module or changing dependency direction.
 3. Change the narrowest layer that owns the behavior. Keep reusable processor
    components, domain models, SoC policy, simulation policy, and backend policy
    in their existing packages.
-4. Test supported behavior and invalid uses of supported features. Do not add
-   tests whose only purpose is to prove that a removed or deferred feature is
-   absent.
+4. Follow the test-quality policy in [`tests/DEVELOPING.md`](tests/DEVELOPING.md):
+   prefer observable end-to-end behavior, and do not add a module-local test
+   merely to prove that a circuit elaborates or passes `verify_design`.
 5. Update the owning public contract only when observable behavior changes;
    update DEVELOPING when architecture, source ownership, or maintenance
    procedure changes.

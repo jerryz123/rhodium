@@ -67,6 +67,8 @@ make examples
 coverage without invoking CIRCT. `make examples` runs every non-formal example;
 the Rosette-backed group remains separate as `make examples-formal`.
 
-When author-visible behavior or emitted hardware changed, also run the owning
-host test and the smallest applicable backend fixture. The
-[test guide](../tests/README.md) explains how to select that depth.
+When author-visible compiler behavior changes, run its owning frontend or core
+test. When emitted hardware behavior changes, run the smallest applicable
+backend simulation; an example does not need a separate host test merely to
+prove that it elaborates. The [test guide](../tests/README.md) explains how to
+select that depth.

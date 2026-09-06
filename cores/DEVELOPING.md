@@ -52,8 +52,10 @@ of `cores/`.
    with the caller.
 2. Specify combinational or ready-valid timing, backpressure stability, reset,
    and exceptional fixed-width behavior in [README.md](README.md).
-3. Put a direct host test in [`tests/`](tests/) covering supported widths,
-   normal behavior, backpressure where applicable, and invalid supported uses.
+3. Use a host test only for pure configuration or public elaboration-time
+   rejection. Test datapath results, state, backpressure, and timing through a
+   CIRCT/Verilator fixture; do not snapshot internal operations just because a
+   component is new.
 4. Integrate the component into a named core only after its standalone contract
    is stable.
 
@@ -63,14 +65,13 @@ public README and companion DEVELOPING guide before adding system integration.
 
 ## Focused validation
 
-Run only the direct reusable-component test first:
+Pure host contracts can use the package tests directly. Cycle-visible behavior
+is owned by the matching backend fixtures:
 
 ```sh
-tools/run-racket-tests.sh cores/tests/alu-test.rhm
 tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
-tools/run-racket-tests.sh cores/tests/load-store-test.rhm
-tools/run-racket-tests.sh cores/tests/multiplier-test.rhm
-tools/run-racket-tests.sh cores/tests/divider-test.rhm
+FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier iterative-divider' \
+  bash tests/backend/run-circt.sh --simulate-only
 ```
 
 Pass several paths to one invocation when a contract spans components. The
@@ -81,10 +82,11 @@ After changing imports or package layout, run:
 bash cores/check-boundaries.sh
 ```
 
-For changes crossing reusable components and RV5Stage integration, run:
+For changes crossing reusable components and RV5Stage integration, run the
+end-to-end core fixture set:
 
 ```sh
-make rv5stage-host-test
+make rv5stage-test
 ```
 
 Use [`rv5stage/DEVELOPING.md`](rv5stage/DEVELOPING.md) for narrower ownership

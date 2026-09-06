@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage instruction-cache protocol widths, geometry, and state shape.
+// Checks RV5Stage instruction-cache geometry, public protocol types, and invalid configuration.
 
 import:
   "../../../rhodium/core/main.rhm" open
@@ -17,12 +17,6 @@ def instruction_design = embedded.run_elaboration(fun (): l1i.RV5StageL1ICache(X
 def instruction_cache = instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageL1ICache")
 def rv32_instruction_design = embedded.run_elaboration(fun (): l1i.RV5StageL1ICache(XLen.X32, direct_cache, ~chi: config))
 def rv32_instruction_cache = rv32_instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageL1ICache")
-def associative_instruction_design = embedded.run_elaboration(
-  fun (): l1i.RV5StageL1ICache(XLen.X64, associative_cache, ~chi: config)
-)
-def associative_instruction_cache = associative_instruction_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageL1ICache"
-)
 def instruction_access_type = protocol.RV5StageInstructionAccess(XLen.X64)
 def instruction_request_member = instruction_access_type.members.find(
   fun (member): member.name == "request"
@@ -30,20 +24,6 @@ def instruction_request_member = instruction_access_type.members.find(
 def instruction_response_member = instruction_access_type.members.find(
   fun (member): member.name == "response"
 )
-def refill = instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageLineRefill")
-def refill_control = instruction_design.modules.find(
-  fun (module_def): module_def.name == "CHIRetryableTransactionControl"
-)
-def snoop = instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageCleanSnoop")
-fun register_names(module_def):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-  ).map(fun (operation): operation.attribute("name"))
-fun instance_names(module_def):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.instance"
-  ).map(fun (operation): operation.attribute("module").name)
-
 check:
   associative_cache.set_width ~is 3
   associative_cache.way_width ~is 1
@@ -58,50 +38,6 @@ check:
   instruction_cache.find_output("chi_out").type.field("requests").type.field("bits").type.field("address").type.width ~is 44
   rv32_instruction_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("word").type.width ~is 32
-  register_names(instruction_cache).contains("valid_lines") ~is #true
-  register_names(associative_instruction_cache).contains("replacement_ways") ~is #true
-  register_names(associative_instruction_cache).contains("snoop_way") ~is #true
-  register_names(instruction_cache).contains("lookup_valid") ~is #false
-  register_names(instruction_cache).contains("lookup_address") ~is #false
-  register_names(instruction_cache).contains("lookup_set") ~is #false
-  register_names(instruction_cache).contains("lookup_tag") ~is #false
-  register_names(instruction_cache).contains("lookup_beat") ~is #false
-  register_names(instruction_cache).contains("refilling") ~is #false
-  register_names(instruction_cache).contains("refill_requested") ~is #false
-  register_names(instruction_cache).contains("refill_received") ~is #false
-  register_names(instruction_cache).contains("refill_line") ~is #false
-  register_names(instruction_cache).contains("refill_live") ~is #true
-  register_names(instruction_cache).contains("refill_installable") ~is #true
-  register_names(instruction_cache).contains("refill_installing") ~is #true
-  register_names(instruction_cache).contains("refill_install_index") ~is #true
-  register_names(instruction_cache).contains("outstanding") ~is #true
-  register_names(instruction_cache).contains("snoop_active") ~is #false
-  register_names(instruction_cache).contains("dvm_first_pending") ~is #false
-  register_names(instruction_cache).contains("state") ~is #false
-  instance_names(instruction_cache).filter(
-    ~keep: fun (name): name.starts_with("Pipe")
-  ).length() ~is 1
-  instance_names(instruction_cache).filter(
-    ~keep: fun (name): name.starts_with("Arbiter")
-  ).length() ~is 2
-  instance_names(instruction_cache).contains("RV5StageLineRefill") ~is #true
-  instance_names(instruction_cache).contains("RV5StageCleanSnoop") ~is #true
-  register_names(refill) ~is [
-    "received_packets", "acknowledgement_sent", "line_address", "opcode",
-    "context", "line", "home_id", "dbid", "response_state", "pass_dirty"
-  ]
-  register_names(refill_control) ~is [
-    "active_state", "attempt_sent", "received_state", "irreversible_progress",
-    "retry_received", "retry_credit_received", "retry_credit_type",
-    "granted_credit_type"
-  ]
-  register_names(snoop) ~is [
-    "active_state", "uses_lookup", "request", "lookup_complete", "line_hit",
-    "line_state", "dvm_first_pending", "dvm_source_id", "dvm_txn_id"
-  ]
-  verify_design(instruction_design) ~is #void
-  verify_design(rv32_instruction_design) ~is #void
-  verify_design(associative_instruction_design) ~is #void
   embedded.run_elaboration(
     fun (): RV5StageCacheConfig(3, 1)
   ) ~throws "Pow2Int"

@@ -1,14 +1,21 @@
 #lang rhombus
-// Checks striped CHI service selection, dense address projection, and adapter elaboration.
+// Checks striped CHI service selection, dense address projection, and validation.
 
 import:
-  "../../rhodium/core/main.rhm" open
   "../main.rhdl" as chi
-  "address-projector-fixture.rhdl" as fixture
 
-def config = fixture.projector_config
-def params = fixture.projector_params
-def modules = fixture.projector_design.modules.map(fun (module): module.name)
+def flit = chi.CHIFlitParams()
+def ram_config = chi.CHIRamConfig(flit, 0x2000, ~max_outstanding: 2)
+def ram_params = chi.CHIRamParams("projector-ram", 9, ram_config)
+def fragmenter_config = chi.CHITransferFragmenterConfig(flit, ~max_transfer_bytes: 64)
+def fragmenter_params = chi.CHITransferFragmenterParams(fragmenter_config, ram_params.service)
+def config = chi.CHIAddressProjectorConfig(flit, 0x2000, 64, 4)
+def params = chi.CHIAddressProjectorParams(
+  config,
+  fragmenter_params.upstream_service,
+  0x80000000,
+  2
+)
 
 check:
   config.total_bytes ~is 0x8000
@@ -27,12 +34,9 @@ check:
   params.project(0x80007fbf) ~is 0x1fff
   params.project(0x80000040) ~throws "outside this bank's global stripe"
 
-  modules.contains("CHIAddressProjector") ~is #true
-  verify_design(fixture.projector_design) ~is #void
-
-  chi.CHIAddressProjectorConfig(fixture.projector_flit, 0x2000, 64, 1).address_set(0x80000000, 0) ~is (
+  chi.CHIAddressProjectorConfig(flit, 0x2000, 64, 1).address_set(0x80000000, 0) ~is (
     chi.AddressSet(0x80000000, 0x1fff)
   )
-  chi.CHIAddressProjectorConfig(fixture.projector_flit, 0x2000, 0x4000, 4) ~throws "must not exceed"
+  chi.CHIAddressProjectorConfig(flit, 0x2000, 0x4000, 4) ~throws "must not exceed"
   config.address_set(0x80000040, 0) ~throws "aligned to the total"
   config.address_set(0x80000000, 4) ~throws "less than the bank count"

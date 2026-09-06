@@ -1,22 +1,19 @@
 #lang rhombus
-// Checks CHI Home map host lookup and combinational hardware elaboration.
+// Checks CHI Home map host lookup and miss behavior.
 
 import:
-  "../../rhodium/core/main.rhm" open
-  "../../rhodium/backend/circt.rhm" open
-  "home-map-fixture.rhdl" as fixture
+  "../main.rhdl" as chi
 
-def module_def = fixture.design.modules[0]
-def circt = emit_circt(fixture.design)
+def flit = chi.CHIFlitParams()
+def home0 = chi.CHIHomeParams("home-0", 5, chi.CHINodeKind.HNF, ~max_outstanding: 2)
+def home1 = chi.CHIHomeParams("home-1", 6, chi.CHINodeKind.HNF, ~max_outstanding: 2)
+def home_map = chi.CHIHomeMap(
+  flit,
+  [chi.CHIHomeMapEntry(chi.AddressSet(0x0000, 0x0fff), home0),
+   chi.CHIHomeMapEntry(chi.AddressSet(0x1000, 0x0fff), home1)]
+)
 
 check:
-  fixture.home_map.entry(0x0004).home === fixture.home0 ~is #true
-  fixture.home_map.entry(0x1ffc).home === fixture.home1 ~is #true
-  fixture.home_map.entry(0x2000) ~is #false
-  module_def.find_input("address").type.width ~is 44
-  module_def.find_output("valid").type.packed_width() ~is 1
-  module_def.find_output("node_id").type.width ~is 7
-  circt.contains("comb.mux") ~is #true
-  circt.contains("hw.constant 5") ~is #true
-  circt.contains("hw.constant 6") ~is #true
-  verify_design(fixture.design) ~is #void
+  home_map.entry(0x0004).home === home0 ~is #true
+  home_map.entry(0x1ffc).home === home1 ~is #true
+  home_map.entry(0x2000) ~is #false

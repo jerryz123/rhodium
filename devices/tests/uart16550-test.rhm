@@ -1,46 +1,25 @@
 #lang rhombus
-// Checks UART host parameters, register state, serial subcircuits, and validity.
+// Checks UART host configuration, CHI service metadata, and parameter rejection.
 
 import:
-  "../../rhodium/core/main.rhm" open
   "../../chi/main.rhdl" as chi
   "../uart16550.rhdl" as uart
-  "uart16550-fixture.rhdl" as fixture
 
-def top = fixture.design.modules.find(fun (module_def): module_def.name == "Uart16550")
-def tx_fifo = top.find_instance("tx_fifo")
-def rx_fifo = top.find_instance("rx_fifo")
-def register_names = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-).map(fun (operation): operation.attribute("name"))
-def module_names = fixture.design.modules.map(fun (module_def): module_def.name)
-def assertion_labels = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "verif.assert"
-).map(fun (operation): operation.attribute("label"))
+def flit = chi.CHIFlitParams()
+def config = uart.Uart16550Config(flit, 16)
+def params = uart.Uart16550Params("test-uart", 11, config, 0x10000000)
 
 check:
-  fixture.config.fifo_depth ~is 16
-  fixture.config.data_bytes ~is 16
-  fixture.params.node.kind ~is chi.CHINodeKind.SNI
-  fixture.params.service.address_sets[0] ~is chi.AddressSet(0x10000000, 0x7)
-  fixture.params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 1) ~is #true
-  fixture.params.service.supports(chi.CHIReqOpcode.WriteNoSnpPtl, 1) ~is #true
-  fixture.params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 2) ~is #false
-  top.inputs.map(fun (port): port.name) ~is ["clock", "reset", "identity", "rx", "port_in"]
-  top.outputs.map(fun (port): port.name) ~is ["tx", "interrupt", "port_out"]
-  register_names.contains("divisor_latch_low") ~is #true
-  register_names.contains("line_control") ~is #true
-  tx_fifo.attribute("module").name.starts_with("Queue") ~is #true
-  rx_fifo.attribute("module") === tx_fifo.attribute("module") ~is #true
-  module_names.contains("Uart8N1Transmitter") ~is #true
-  module_names.contains("Uart8N1Receiver") ~is #true
-  module_names.contains("SyncLevel") ~is #true
-  assertion_labels.contains("uart16550_line_control_is_8n1") ~is #true
-  assertion_labels.contains("uart16550_write_mask_supported") ~is #true
-  verify_design(fixture.design) ~is #void
-  uart.Uart16550Config(fixture.flit, 0) ~throws "Uart16550MaximumFifoDepth"
-  uart.Uart16550Config(fixture.flit, 17) ~throws "Uart16550MaximumFifoDepth"
-  uart.Uart16550Params("", 11, fixture.config, 0x10000000) ~throws "NonemptyString"
-  uart.Uart16550Params("misaligned", 11, fixture.config, 0x10000004) ~throws "aligned"
-  uart.Uart16550Params("outside", 11, fixture.config, 0x100000000000) ~throws "must fit"
-  uart.Uart16550Params("wide-node", 128, fixture.config, 0x10000000) ~throws "NodeID"
+  config.fifo_depth ~is 16
+  config.data_bytes ~is 16
+  params.node.kind ~is chi.CHINodeKind.SNI
+  params.service.address_sets[0] ~is chi.AddressSet(0x10000000, 0x7)
+  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 1) ~is #true
+  params.service.supports(chi.CHIReqOpcode.WriteNoSnpPtl, 1) ~is #true
+  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 2) ~is #false
+  uart.Uart16550Config(flit, 0) ~throws "Uart16550MaximumFifoDepth"
+  uart.Uart16550Config(flit, 17) ~throws "Uart16550MaximumFifoDepth"
+  uart.Uart16550Params("", 11, config, 0x10000000) ~throws "NonemptyString"
+  uart.Uart16550Params("misaligned", 11, config, 0x10000004) ~throws "aligned"
+  uart.Uart16550Params("outside", 11, config, 0x100000000000) ~throws "must fit"
+  uart.Uart16550Params("wide-node", 128, config, 0x10000000) ~throws "NodeID"

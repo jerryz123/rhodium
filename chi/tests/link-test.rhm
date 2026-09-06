@@ -2,7 +2,6 @@
 // Checks CHI node capabilities, credited links, legal adapters, and monitors.
 
 import:
-  "../../rhodium/core/main.rhm" open
   "../main.rhdl" as chi
   "link-fixture.rhdl" as fixture
 
@@ -11,20 +10,6 @@ def rnf = chi.CHIRNLink(fixture.rnf_link, fixture.rnf_node)
 def sn = chi.CHISNLink(fixture.sn_link, fixture.sn_node)
 def tx_req = rni.members.find(fun (member): member.name == "tx_req")
 def rx_rsp = rni.members.find(fun (member): member.name == "rx_rsp")
-def monitored_rni = fixture.monitored_rni_design.modules[0]
-def monitored_rnf = fixture.monitored_rnf_design.modules[0]
-def monitored_sn = fixture.monitored_sn_design.modules[0]
-
-fun operations(module_def, opcode):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == opcode
-  )
-
-fun assertion_labels(module_def):
-  operations(module_def, "verif.assert").map(
-    fun (operation): operation.attribute("label")
-  )
-
 check:
   fixture.rni_node.kind ~is chi.CHINodeKind.RNI
   fixture.rni_node.node_id ~is 3
@@ -106,22 +91,3 @@ check:
     "rx_dat"
   ]
   sn.members.find(fun (member): member.name == "rx_req").from_role ~is "icn"
-  fixture.rni_design.modules[0].inputs.map(fun (port): port.name) ~is ["ingress_in", "egress_in"]
-  fixture.rni_design.modules[0].outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
-  verify_design(fixture.rni_design) ~is #void
-  verify_design(fixture.rnf_design) ~is #void
-  verify_design(fixture.sn_design) ~is #void
-  assertion_labels(monitored_rni).contains("chi_tx_link_ack_after_request") ~is #true
-  assertion_labels(monitored_rni).contains("chi_tx_req_flit_active") ~is #true
-  assertion_labels(monitored_rni).contains("chi_tx_req_opcode_supported") ~is #true
-  assertion_labels(monitored_rni).contains("chi_tx_req_source_id") ~is #true
-  assertion_labels(monitored_rni).contains("chi_rx_rsp_target_id") ~is #true
-  assertion_labels(monitored_rni).contains("chi_rx_dat_data_id_valid") ~is #true
-  operations(monitored_rni, "rtl.register_reset").length() ~is 9
-  assertion_labels(monitored_rnf).contains("chi_rx_snp_opcode_supported") ~is #true
-  operations(monitored_rnf, "rtl.register_reset").length() ~is 15
-  assertion_labels(monitored_sn).contains("chi_rx_req_target_id") ~is #true
-  operations(monitored_sn, "rtl.register_reset").length() ~is 9
-  verify_design(fixture.monitored_rni_design) ~is #void
-  verify_design(fixture.monitored_rnf_design) ~is #void
-  verify_design(fixture.monitored_sn_design) ~is #void

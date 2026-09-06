@@ -1,115 +1,49 @@
 #lang rhombus
-// Checks channel-based CHI RAM parameters, composition, and invalid regions.
+// Checks CHI RAM host parameters, service metadata, and invalid regions.
 
 import:
   rhombus.bits.(<<) as <<
-  "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
   "../main.rhdl" as chi
-  "../../examples/chi/ram.rhdl" as fixture
 
-def params = fixture.ram_params
-def sni_params = chi.CHIRamParams("test-chi-sni-ram",
-                                  10,
-                                  fixture.ram_config,
-                                  ~kind: chi.CHINodeKind.SNI)
-def non_power_of_two_design = embedded.run_elaboration(
-  fun ():
-    chi.CHIRam(chi.CHIRamConfig(fixture.ram_flit, 64, ~max_outstanding: 3))
-)
-def top = fixture.ram_design.modules.find(fun (module): module.name == "CHIRam")
-def transaction_slots = fixture.ram_design.modules.find(
-  fun (module): module.name == "CHISNTransactionSlots"
-)
-def storage = fixture.ram_design.modules.find(
-  fun (module): module.name == "SyncRam1RW"
-)
-def physical_memory = storage.operations.find(
-  fun (operation): operation.opcode == "rtl.sync_memory"
-)
-def assertion_labels = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "verif.assert"
-).map(fun (operation): operation.attribute("label"))
-def register_names = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-).map(fun (operation): operation.attribute("name"))
-def transaction_slot_register_names = transaction_slots.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-).map(fun (operation): operation.attribute("name"))
-def transaction_slot_memory_names = transaction_slots.memories.map(
-  fun (memory): memory.name
-)
-def transaction_slot_assertion_labels = transaction_slots.operations.filter(
-  ~keep: fun (operation): operation.opcode == "verif.assert"
-).map(fun (operation): operation.attribute("label"))
-def transaction_slot_dynamic_reads = transaction_slots.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.vector_index"
-)
-def transaction_slot_write_sets = transaction_slots.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.vector_write_set"
-)
-def transaction_slot_memory_reads = transaction_slots.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.memory_read_async"
-)
-def transaction_slot_memory_writes = transaction_slots.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.memory_write"
-)
-def transaction_slot_instances = transaction_slots.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.instance"
+def flit = chi.CHIFlitParams()
+def config = chi.CHIRamConfig(flit, 64, ~max_outstanding: 2, ~max_transfer_bytes: 64)
+def params = chi.CHIRamParams("test-chi-ram", 9, config, ~base_address: 0x80000000)
+def sni_params = chi.CHIRamParams(
+  "test-chi-sni-ram",
+  10,
+  config,
+  ~kind: chi.CHINodeKind.SNI
 )
 
 check:
   params.name ~is "test-chi-ram"
   params.node_id ~is 9
-  params.flit === fixture.ram_flit ~is #true
+  params.flit === flit ~is #true
   params.node.kind ~is chi.CHINodeKind.SNF
   sni_params.node.kind ~is chi.CHINodeKind.SNI
   sni_params.icn_port.kind ~is chi.CHINodeKind.SNI
   sni_params.service.endpoint ~is sni_params.icn_port
   params.node.max_outstanding ~is 2
   params.config.max_transfer_bytes ~is 64
-  params.node.supports.req ~is [chi.CHIReqOpcode.ReadNoSnp, chi.CHIReqOpcode.WriteNoSnpFull, chi.CHIReqOpcode.WriteNoSnpPtl]
+  params.node.supports.req ~is [
+    chi.CHIReqOpcode.ReadNoSnp,
+    chi.CHIReqOpcode.WriteNoSnpFull,
+    chi.CHIReqOpcode.WriteNoSnpPtl
+  ]
   params.icn_port.emits.req ~is params.node.supports.req
   params.service.address_sets ~is [chi.AddressSet(0x80000000, 63)]
   params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 16) ~is #true
   params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 64) ~is #true
   params.service.supports(chi.CHIReqOpcode.WriteNoSnpFull, 64) ~is #true
-  top.inputs.map(fun (input): input.name) ~is ["clock", "reset", "identity", "port_in"]
-  top.outputs.map(fun (output): output.name) ~is ["port_out"]
-  physical_memory.attribute("depth") ~is 4
-  physical_memory.attribute("mask_granularity") ~is 8
-  assertion_labels.contains("chi_ram_request_opcode_supported") ~is #true
-  assertion_labels.contains("chi_ram_request_size_supported") ~is #true
-  assertion_labels.contains("chi_ram_request_address_aligned") ~is #true
-  assertion_labels.contains("chi_ram_request_address_supported") ~is #true
-  assertion_labels.contains("chi_ram_write_data_has_transaction") ~is #false
-  assertion_labels.contains("chi_ram_write_data_mask_supported") ~is #true
-  register_names.contains("occupied") ~is #false
-  register_names.contains("awaiting_write_data") ~is #false
-  register_names.contains("write_requests") ~is #false
-  register_names.contains("transactions") ~is #false
-  transaction_slot_register_names.contains("occupied") ~is #false
-  transaction_slot_register_names.contains("awaiting_write_data") ~is #false
-  transaction_slot_register_names.contains("write_requests") ~is #false
-  transaction_slot_register_names.contains("transactions") ~is #false
-  transaction_slot_memory_names ~is ["write_requests"]
-  transaction_slot_instances.map(
-    fun (operation): operation.attribute("name")
-  ) ~is ["occupancy", "awaiting_write_data"]
-  transaction_slot_assertion_labels.contains("chi_sn_transaction_slot_write_is_occupied") ~is #true
-  transaction_slot_assertion_labels.contains("chi_sn_transaction_slot_write_data_has_transaction") ~is #true
-  transaction_slot_dynamic_reads.length() ~is 3
-  transaction_slot_write_sets.length() ~is 0
-  transaction_slot_memory_reads.length() ~is 1
-  transaction_slot_memory_writes.length() ~is 1
-  verify_design(fixture.ram_design) ~is #void
-  verify_design(non_power_of_two_design) ~is #void
 
-  chi.CHIRamParams("", 9, fixture.ram_config) ~throws "NonemptyString"
-  chi.CHIRamConfig(fixture.ram_flit, 16, ~max_outstanding: 2) ~throws "at least two physical data beats"
-  chi.CHIRamConfig(fixture.ram_flit, 32,
-                   ~max_outstanding: 2,
-                   ~max_transfer_bytes: 64) ~throws "fit in the RAM"
-  chi.CHIRamParams("misaligned", 9, fixture.ram_config, ~base_address: 32) ~throws "base address must be aligned"
-  chi.CHIRamParams("outside", 9, fixture.ram_config, ~base_address: (1 << 44)) ~throws "memory region must fit"
-  chi.CHIRamParams("wide-node", 128, fixture.ram_config) ~throws "NodeID must fit"
+  chi.CHIRamParams("", 9, config) ~throws "NonemptyString"
+  chi.CHIRamConfig(flit, 16, ~max_outstanding: 2) ~throws "at least two physical data beats"
+  chi.CHIRamConfig(
+    flit,
+    32,
+    ~max_outstanding: 2,
+    ~max_transfer_bytes: 64
+  ) ~throws "fit in the RAM"
+  chi.CHIRamParams("misaligned", 9, config, ~base_address: 32) ~throws "base address must be aligned"
+  chi.CHIRamParams("outside", 9, config, ~base_address: (1 << 44)) ~throws "memory region must fit"
+  chi.CHIRamParams("wide-node", 128, config) ~throws "NodeID must fit"

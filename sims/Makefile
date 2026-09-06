@@ -37,7 +37,7 @@ SIMULATOR_BINARY := $(SOC_OBJECT_DIR)/VTestDriver
 SMOKE_BINARY := $(SOC_BUILD_DIR)/rv5stage_smoke.elf
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
-.PHONY: all setup simulator run smoke dpi-compile-check chi-dpi-memory-test elaboration-test tiled-lowering-test
+.PHONY: all setup simulator run smoke dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
 
 all: simulator
 
@@ -74,12 +74,9 @@ chi-dpi-memory-test: | $(DPI_BUILD_DIR)
 	  -o $(DPI_BUILD_DIR)/chi_dpi_memory_dpi_test
 	$(DPI_BUILD_DIR)/chi_dpi_memory_dpi_test
 
-elaboration-test:
+transport-test:
 	cd $(REPO_DIR) && RACO="$(RACO)" tools/run-racket-tests.sh \
-	  sims/tests/direct-memory-htif-test.rhm \
-	  sims/tests/simple-soc-harness-test.rhm \
-	  sims/tests/mini-soc-harness-test.rhm \
-	  sims/tests/tiled-soc-harness-test.rhm
+	  sims/tests/direct-memory-htif-test.rhm
 
 tiled-lowering-test: | $(TILED_LOWERING_DIR)
 	@test -x "$(CIRCT_OPT)" || \

@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the structure and widths of RV5Stage's Sv39 TLB and page-table walker.
+// Checks public widths and types at RV5Stage's Sv39 translation boundaries.
 
 import:
   "../../../rhodium/core/main.rhm" open
@@ -49,6 +49,3 @@ check:
     mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("device").type,
     bool.Bool
   ) ~is #true
-  verify_design(tlb_design) ~is #void
-  verify_design(walker_design) ~is #void
-  verify_design(mmu_design) ~is #void

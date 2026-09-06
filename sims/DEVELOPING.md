@@ -44,20 +44,21 @@ systems cannot reuse another system's generated RTL.
 4. Keep FESVR's ELF loading and `tohost`/`fromhost` behavior in the host
    transport. The hardware side should expose only its narrow transaction and
    exit interfaces.
-5. Add an elaboration test, then exercise lowering and an executable smoke when
-   the toolchain is available. Update [README.md](README.md) when operators gain
-   a new `SOC`, command, argument, or artifact location.
+5. Add or extend the executable smoke for the new harness. A separate test that
+   only inspects the elaborated hierarchy is not required; the simulator build
+   already exercises elaboration and lowering. Update [README.md](README.md)
+   when operators gain a new `SOC`, command, argument, or artifact location.
 
 ## Focused validation
 
-Run host binding and harness elaboration checks with:
+Run host binding checks with:
 
 ```sh
 make -C sims dpi-compile-check \
   VERILATOR_ROOT="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
 make -C sims chi-dpi-memory-test \
   VERILATOR_ROOT="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-make -C sims elaboration-test
+make -C sims transport-test
 ```
 
 Check the tiled harness through CIRCT with:

@@ -1,12 +1,9 @@
 #lang rhombus
-// Checks standalone RV32 and RV64 M divide decoding into divider controls.
+// Checks the host-side RV32 and RV64 M divide decode relation.
 
 import:
-  "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/std/decode/pattern.rhdl" open
-  "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/m.rhm" open
   "../decode/divide-ctrl.rhdl" as controls
 
@@ -16,8 +13,6 @@ fun control_for(cases, instruction):
       candidate.input.value_bits == instruction.encoding.value && candidate.input.care_bits == instruction.encoding.care
   ).output
 
-def rv32_design = embedded.run_elaboration(fun (): controls.RV5StageDivideInstructionDecoder(XLen.X32))
-def rv64_design = embedded.run_elaboration(fun (): controls.RV5StageDivideInstructionDecoder(XLen.X64))
 def div = control_for(controls.RV64MDivideControlCases, DIV)
 def divu = control_for(controls.RV64MDivideControlCases, DIVU)
 def rem = control_for(controls.RV64MDivideControlCases, REM)
@@ -45,6 +40,3 @@ check:
   rem.value_bits != div.value_bits ~is #true
   divw.value_bits != div.value_bits ~is #true
   divuw.value_bits != divw.value_bits ~is #true
-  rv32_design.modules[0].find_output("control").type.field("word_result").type.bit_width() ~is 1
-  verify_design(rv32_design) ~is #void
-  verify_design(rv64_design) ~is #void

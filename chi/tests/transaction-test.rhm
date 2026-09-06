@@ -1,28 +1,10 @@
 #lang rhombus
-// Checks explicit initial non-coherent stateful transaction monitoring.
+// Checks host-side initial transaction capability classification and limits.
 
 import:
-  "../../rhodium/core/main.rhm" open
   "../main.rhdl" as chi
   "../transaction.rhdl" as transaction
   "transaction-fixture.rhdl" as fixture
-
-fun operations(module_def, opcode):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == opcode
-  )
-
-fun assertion_labels(module_def):
-  operations(module_def, "verif.assert").map(
-    fun (operation): operation.attribute("label")
-  )
-
-def rni = fixture.transaction_rni_design.modules[0]
-def sn = fixture.transaction_sn_design.modules[0]
-def rnf = fixture.transaction_rnf_design.modules[0]
-def rni_labels = assertion_labels(rni)
-def sn_labels = assertion_labels(sn)
-def rnf_labels = assertion_labels(rnf)
 
 check:
   fixture.transaction_rni_node.max_outstanding ~is 2
@@ -58,26 +40,3 @@ check:
     ~supports: chi.CHIChannelCapabilities(),
     ~max_outstanding: 0
   ) ~throws "Int.in(1 ..= 1024)"
-  rni_labels.contains("chi_transaction_txn_id_unique") ~is #true
-  rni_labels.contains("chi_transaction_dbid_response_has_write") ~is #true
-  rni_labels.contains("chi_transaction_write_data_has_dbid") ~is #true
-  rni_labels.contains("chi_transaction_completion_has_write_data") ~is #true
-  rni_labels.contains("chi_transaction_read_data_has_request") ~is #true
-  rni_labels.contains("chi_transaction_read_data_num_dat_zero") ~is #true
-  sn_labels.contains("chi_transaction_no_direct_write_transfer") ~is #true
-  sn_labels.contains("chi_transaction_dbid_unique") ~is #true
-  sn_labels.contains("chi_transaction_write_data_has_dbid") ~is #true
-  sn_labels.contains("chi_transaction_read_data_has_request") ~is #true
-  rnf_labels.contains("chi_coherent_read_txn_id_unique") ~is #true
-  rnf_labels.contains("chi_coherent_read_data_has_request") ~is #true
-  rnf_labels.contains("chi_coherent_read_data_id_expected") ~is #true
-  rnf_labels.contains("chi_coherent_read_data_id_unique") ~is #true
-  rnf_labels.contains("chi_coherent_comp_ack_has_read_data") ~is #true
-  rnf_labels.contains("chi_coherent_snoop_id_unique") ~is #true
-  rnf_labels.contains("chi_coherent_snoop_rsp_has_request") ~is #true
-  rnf_labels.contains("chi_coherent_forward_data_has_snoop") ~is #true
-  operations(rni, "rtl.register_reset").length() > 5 ~is #true
-  operations(sn, "rtl.register_reset").length() > 5 ~is #true
-  verify_design(fixture.transaction_rni_design) ~is #void
-  verify_design(fixture.transaction_sn_design) ~is #void
-  verify_design(fixture.transaction_rnf_design) ~is #void

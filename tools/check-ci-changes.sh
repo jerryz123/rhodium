@@ -149,9 +149,6 @@ check_field sims/mini-soc-harness.rhdl simulation true
 check_field sims/tiled-soc-harness.rhdl simulation true
 check_field sims/emit-soc-harness.rhm simulation true
 check_field sims/tests/direct-memory-htif-test.rhm simulation true
-check_field sims/tests/simple-soc-harness-test.rhm simulation true
-check_field sims/tests/mini-soc-harness-test.rhm simulation true
-check_field sims/tests/tiled-soc-harness-test.rhm simulation true
 check_field socs/tests/simple-soc-test.rhm simulation true
 check_matrix_entry socs/tests/simple-soc-test.rhm host_matrix ci-host-socs-test
 check_field socs/tests/mini-soc-test.rhm simulation true

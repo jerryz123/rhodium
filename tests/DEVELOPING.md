@@ -28,6 +28,19 @@ When moving or adding a Rhodium module, preserve the mirrored
 
 ## Authoring principles
 
+- A new hardware module does not require a dedicated test merely because it
+  elaborates or passes `verify_design`. Successful compilation and elaboration
+  are compiler responsibilities and should be covered once at representative
+  integration boundaries, not repeated for every library component.
+- For reusable hardware, prefer CIRCT/Verilator tests of cycle-visible behavior:
+  outputs, state transitions, reset, handshakes, backpressure, arbitration,
+  ordering, faults, and protocol interactions.
+- Keep host tests for pure host algorithms and configuration, public
+  elaboration-time rejection, specialization that removes or changes a public
+  interface, and structural metadata consumed by another tool.
+- Inspect exact operations, internal instance names, register names, or counts
+  only when that IR is the compiler feature under test or an explicitly stable
+  downstream contract. Incidental implementation shape is not behavior.
 - Test supported behavior and invalid uses of supported features.
 - Prefer semantic structure, opcodes, and types over generated temporary names.
 - Use language-layer equivalence tests when syntax should lower to existing
@@ -83,13 +96,16 @@ directly before relying on its downstream matrix selection.
 ## Change workflow
 
 1. Put the test beside the layer or package that owns the behavior.
-2. Add valid executable examples to the owning example group and invalid
+2. Before adding a host test, state what regression it catches beyond successful
+   elaboration. If the answer is only internal shape, add or extend an
+   end-to-end simulation instead.
+3. Add valid executable examples to the owning example group and invalid
    language uses to the frontend-invalid suite.
-3. Add external lowering or simulation coverage through the
+4. Add external lowering or simulation coverage through the
    [backend fixture workflow](backend/DEVELOPING.md) only when the change crosses
    that toolchain boundary.
-4. Confirm [`../tools/ci-changes.sh`](../tools/ci-changes.sh) selects every
+5. Confirm [`../tools/ci-changes.sh`](../tools/ci-changes.sh) selects every
    affected package, example, CIRCT, or simulation shard.
-5. Run the smallest owner target first, then the broader target required by the
+6. Run the smallest owner target first, then the broader target required by the
    changed dependency surface. The [test-running guide](README.md) lists those
    targets and their scope.

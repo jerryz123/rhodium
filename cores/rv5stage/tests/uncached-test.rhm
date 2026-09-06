@@ -1,27 +1,11 @@
 #lang rhombus
-// Checks RV5Stage's HN-I classification and uncached RN-I engine structure.
+// Checks RV5Stage's host-side HN-I classification and uncached RN-I metadata.
 
 import:
-  "../../../rhodium/core/main.rhm" open
   "../../../chi/main.rhdl" as chi
   "../../../riscv/rtl/pma.rhdl" as pma
   "../chi.rhdl" as rvchi
   "params.rhdl" as params
-  "uncached-fixture.rhdl" as fixture
-
-def uncached = fixture.uncached_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageUncached"
-)
-def router = fixture.router_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageMemoryRouter"
-)
-def instruction_router = fixture.instruction_router_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageInstructionMemoryRouter"
-)
-fun assertion_labels(module_def):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == "verif.assert"
-  ).map(fun (operation): operation.attribute("label"))
 
 check:
   params.test_rv5stage_uncached_config.has_uncached ~is #true
@@ -56,20 +40,3 @@ check:
   params.test_rv5stage_uncached_params.uncached_node.emits.req ~is [
     chi.CHIReqOpcode.ReadNoSnp, chi.CHIReqOpcode.WriteNoSnpPtl
   ]
-  uncached.inputs.map(fun (port): port.name) ~is [
-    "clock", "reset", "node_id", "instruction_in", "core_in", "chi_in"
-  ]
-  uncached.outputs.map(fun (port): port.name) ~is ["instruction_out", "core_out", "chi_out"]
-  uncached.find_output("core_out").type.field("request_access_fault").type.bit_width() ~is 1
-  assertion_labels(uncached).contains("rv5stage_uncached_address_has_home") ~is #true
-  assertion_labels(uncached).contains("rv5stage_uncached_instruction_not_cacheable") ~is #true
-  assertion_labels(router) ~is ["rv5stage_memory_response_paths_exclusive"]
-  instruction_router.inputs.map(fun (port): port.name) ~is [
-    "clock", "reset", "core_in", "cache_in", "uncached_in"
-  ]
-  instruction_router.outputs.map(fun (port): port.name) ~is [
-    "core_out", "cache_out", "uncached_out"
-  ]
-  verify_design(fixture.uncached_design) ~is #void
-  verify_design(fixture.router_design) ~is #void
-  verify_design(fixture.instruction_router_design) ~is #void

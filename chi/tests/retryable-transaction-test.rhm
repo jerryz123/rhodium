@@ -1,9 +1,7 @@
 #lang rhombus
-// Checks declarative CHI response profiles and retryable controller structure.
+// Checks declarative CHI response profiles and invalid rule sets.
 
 import:
-  "../../rhodium/core/main.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
   lib("chi/main.rhdl") open
 
 def write_profile = response_profile("test_write"):
@@ -16,15 +14,6 @@ def write_profile = response_profile("test_write"):
     completes [completion]
   response [CHIRspOpcode.CompDBIDResp]:
     completes [dbid, completion]
-
-def p = CHIFlitParams()
-def design = embedded.run_elaboration(
-  fun (): CHIRetryableTransactionControl(p, write_profile)
-)
-def controller = design.modules[0]
-def register_names = controller.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.register_reset"
-).map(fun (operation): operation.attribute("name"))
 
 check:
   write_profile.effect_width ~is 2
@@ -46,14 +35,6 @@ check:
     CHIRspOpcode.CompDBIDResp
   ]
   chi_response_profile_opcodes([write_profile, write_profile]) ~is write_profile.response_opcodes
-  controller.find_output("received").type.width ~is 2
-  controller.find_output("event_out").type.field("bits").type.field("effects").type.width ~is 2
-  register_names ~is [
-    "active_state", "attempt_sent", "received_state", "irreversible_progress",
-    "retry_received", "retry_credit_received", "retry_credit_type",
-    "granted_credit_type"
-  ]
-  verify_design(design) ~is #void
   CHIResponseProfile("empty", [], []) ~throws "at least one response"
   CHIResponseProfile(
     "duplicate_milestone",

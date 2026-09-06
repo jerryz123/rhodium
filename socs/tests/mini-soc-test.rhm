@@ -1,14 +1,9 @@
 #lang rhombus
-// Checks that MiniSoC combines on-chip RAM with a BootROM and routed platform devices.
+// Checks MiniSoC's on-chip memory, BootROM, and address-map policy.
 
 import:
-  "../../rhodium/core/main.rhm" open
   "../../socs/simple-soc.rhdl" as simple
   "../../socs/mini-soc.rhdl" as soc
-
-def design = soc.design
-def top = design.modules.find(fun (module_def): module_def.name == "MiniSoC")
-def module_names = design.modules.map(fun (module_def): module_def.name)
 
 check:
   soc.mini_soc_fabric_params === simple.simple_soc_params.fabric ~is #false
@@ -22,15 +17,3 @@ check:
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base).home === simple.simple_soc_home ~is #true
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base + soc.mini_soc_memory_bytes) ~is #false
   soc.mini_soc_home_map.entry(0x00010000).home === simple.simple_soc_device_home ~is #true
-  design.dpi_imports ~is []
-  top.inputs.map(fun (port): port.name) ~is ["clock", "reset", "host_in", "uart_in"]
-  top.outputs.map(fun (port): port.name) ~is ["host_out", "uart_out"]
-  module_names.contains("SimpleSoCFabric") ~is #true
-  module_names.contains("CHIHNF") ~is #true
-  module_names.contains("CHIInclusiveHNF") ~is #false
-  module_names.contains("CHITransferFragmenter") ~is #false
-  module_names.contains("CHIRam") ~is #true
-  module_names.contains("CHIBootROM") ~is #true
-  module_names.contains("SoCBootDistributor") ~is #true
-  module_names.contains("Uart16550") ~is #true
-  verify_design(design) ~is #void

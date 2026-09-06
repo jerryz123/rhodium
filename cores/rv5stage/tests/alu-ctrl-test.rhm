@@ -1,11 +1,8 @@
 #lang rhombus
-// Checks base, B, and Zicond instructions decode into one shared ALU relation.
+// Checks the host-side base, B, and Zicond ALU decode relation.
 
 import:
   rhombus.bits.(<<) as <<
-  "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
-  "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/std/decode/pattern.rhdl" as decode_pattern
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/zbb.rhm" as zbb
@@ -13,8 +10,6 @@ import:
   "../../alu.rhdl" as alu
   "../decode/alu-ctrl.rhdl" as controls
 
-def decode_design = embedded.run_elaboration(fun (): controls.RV64IAluInstructionDecoder())
-def decode_module = decode_design.modules[0]
 fun control_for(cases, instruction):
   cases.find(
     fun (candidate):
@@ -67,8 +62,4 @@ check:
   ]
   controls.RV64IAluDecode.table.default.value_bits ~is 0
   controls.RV64IAluDecode.table.default.care_bits ~is (1 << control_width)
-  type_equal(decode_module.find_input("instruction").type, Bits(32)) ~is #true
-  type_equal(decode_module.find_output("valid").type, bool.Bool) ~is #true
-  type_equal(decode_module.find_output("control").type, alu.AluControl()) ~is #true
-  type_equal(add_control.type, alu.AluControl()) ~is #true
-  verify_design(decode_design) ~is #void
+  add_control.type.type_equal(alu.AluControl()) ~is #true

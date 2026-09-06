@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage data-cache protocol widths, geometry, and state shape.
+// Checks RV5Stage data-cache geometry, public protocol types, and invalid configuration.
 
 import:
   "../../../rhodium/core/main.rhm" open
@@ -13,37 +13,22 @@ import:
 def config = test_params.test_rv5stage_chi_config
 def cache_config = RV5StageCacheConfig(8, 1)
 def associative_cache_config = RV5StageCacheConfig(8, 2)
-def design = embedded.run_elaboration(fun (): l1d.RV5StageL1DCache(XLen.X64, cache_config, ~chi: config))
+def design = embedded.run_elaboration(
+  fun (): l1d.RV5StageL1DCache(XLen.X64, cache_config, ~chi: config)
+)
 def cache = design.modules.find(fun (module_def): module_def.name == "RV5StageL1DCache")
-def associative_design = embedded.run_elaboration(
-  fun (): l1d.RV5StageL1DCache(XLen.X64, associative_cache_config, ~chi: config)
-)
-def associative_cache = associative_design.modules.find(
-  fun (module_def): module_def.name == "RV5StageL1DCache"
-)
 def data_access_type = protocol.RV5StageDataAccess(XLen.X64)
-def data_request_member = data_access_type.members.find(
-  fun (member): member.name == "request"
+def data_request_member = data_access_type.members.find(fun (member): member.name == "request")
+def rv32_design = embedded.run_elaboration(
+  fun (): l1d.RV5StageL1DCache(XLen.X32, cache_config, ~chi: config)
 )
-def refill = design.modules.find(fun (module_def): module_def.name == "RV5StageLineRefill")
-def snoop = design.modules.find(fun (module_def): module_def.name == "RV5StageDataSnoop")
-def write_unique = design.modules.find(fun (module_def): module_def.name == "RV5StageWriteUnique")
-def writeback = design.modules.find(fun (module_def): module_def.name == "RV5StageLineWriteback")
-def transaction_controls = design.modules.filter(
-  ~keep: fun (module_def): module_def.name.starts_with("CHIRetryableTransactionControl")
-)
-def rv32_design = embedded.run_elaboration(fun (): l1d.RV5StageL1DCache(XLen.X32, cache_config, ~chi: config))
 def rv32_cache = rv32_design.modules.find(fun (module_def): module_def.name == "RV5StageL1DCache")
-fun register_names(module_def):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset"
-  ).map(fun (operation): operation.attribute("name"))
-fun instance_names(module_def):
-  module_def.operations.filter(
-    ~keep: fun (operation): operation.opcode == "rtl.instance"
-  ).map(fun (operation): operation.attribute("module").name)
 
 check:
+  associative_cache_config.set_width ~is 3
+  associative_cache_config.way_width ~is 1
+  associative_cache_config.line_count ~is 16
+  associative_cache_config.capacity_bytes ~is 1024
   data_request_member.type.name ~is "Decoupled"
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("data").type.width ~is 64
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 64
@@ -61,78 +46,6 @@ check:
   rv32_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 32
   rv32_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 32
   rv32_cache.find_output("chi_out").type.field("requests").type.field("bits").type.field("address").type.width ~is 44
-  register_names(cache).contains("valid_lines") ~is #true
-  register_names(associative_cache).contains("replacement_ways") ~is #true
-  register_names(associative_cache).contains("snoop_way") ~is #true
-  register_names(associative_cache).contains("gather_way") ~is #true
-  register_names(cache).contains("reservation_valid") ~is #true
-  register_names(cache).contains("reservation_address") ~is #true
-  register_names(cache).contains("reservation_width") ~is #true
-  register_names(cache).contains("refill_installing") ~is #true
-  register_names(cache).contains("refill_install_index") ~is #true
-  register_names(cache).contains("gather_state") ~is #true
-  register_names(cache).contains("gather_issue_index") ~is #true
-  register_names(cache).contains("gather_response_pending") ~is #true
-  register_names(cache).contains("gather_response_index") ~is #true
-  register_names(cache).contains("gather_last_issued") ~is #true
-  register_names(cache).contains("gathered_line") ~is #true
-  register_names(cache).contains("gather_set") ~is #true
-  register_names(cache).contains("eviction_line_address") ~is #true
-  register_names(cache).contains("eviction_context") ~is #true
-  register_names(cache).contains("gathered_snoop_state") ~is #true
-  register_names(cache).contains("snoop_metadata_pending") ~is #true
-  register_names(cache).contains("lookup_valid") ~is #false
-  register_names(cache).contains("lookup_request") ~is #false
-  register_names(cache).contains("refill_requested") ~is #false
-  register_names(cache).contains("refill_received") ~is #false
-  register_names(cache).contains("refill_line") ~is #false
-  register_names(cache).contains("store_active") ~is #false
-  register_names(cache).contains("store_request_sent") ~is #false
-  register_names(cache).contains("store_dbid_received") ~is #false
-  register_names(cache).contains("store_data_sent") ~is #false
-  register_names(cache).contains("store_completion_received") ~is #false
-  register_names(cache).contains("store_retry_received") ~is #false
-  register_names(cache).contains("snoop_active") ~is #false
-  register_names(cache).contains("dvm_first_pending") ~is #false
-  register_names(cache).contains("outstanding") ~is #false
-  register_names(cache).contains("state") ~is #false
-  instance_names(cache).filter(
-    ~keep: fun (name): name.starts_with("Pipe")
-  ).length() ~is 1
-  instance_names(cache).filter(
-    ~keep: fun (name): name.starts_with("Queue")
-  ).length() ~is 1
-  instance_names(cache).contains("RV5StageLineRefill") ~is #true
-  instance_names(cache).contains("RV5StageDataSnoop") ~is #true
-  instance_names(cache).contains("RV5StageLineWriteback") ~is #true
-  instance_names(cache).contains("RV5StageAtomicALU") ~is #true
-  register_names(refill) ~is [
-    "received_packets", "acknowledgement_sent", "line_address", "opcode",
-    "context", "line", "home_id", "dbid", "response_state", "pass_dirty"
-  ]
-  register_names(write_unique) ~is [
-    "data_sent", "address", "width", "write_data", "write_mask", "context",
-    "home_id", "dbid"
-  ]
-  transaction_controls.map(register_names) ~is [
-    ["active_state", "attempt_sent", "received_state", "irreversible_progress",
-     "retry_received", "retry_credit_received", "retry_credit_type",
-     "granted_credit_type"],
-    ["active_state", "attempt_sent", "received_state", "irreversible_progress",
-     "retry_received", "retry_credit_received", "retry_credit_type",
-     "granted_credit_type"]
-  ]
-  register_names(writeback) ~is [
-    "active_state", "beat_started", "beat_index", "line_address", "line", "context"
-  ]
-  register_names(snoop) ~is [
-    "active_state", "uses_lookup", "request", "lookup_complete", "line_hit",
-    "line_state", "line", "packet_index", "dvm_first_pending", "dvm_source_id",
-    "dvm_txn_id"
-  ]
-  verify_design(design) ~is #void
-  verify_design(rv32_design) ~is #void
-  verify_design(associative_design) ~is #void
   embedded.run_elaboration(
     fun (): l1d.RV5StageL1DCache(64, cache_config, ~chi: config)
   ) ~throws "XLen"

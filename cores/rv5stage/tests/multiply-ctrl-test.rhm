@@ -1,12 +1,9 @@
 #lang rhombus
-// Checks standalone RV32 and RV64 Zmmul decoding into multiplier controls.
+// Checks the host-side RV32 and RV64 Zmmul decode relation.
 
 import:
-  "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/std/decode/pattern.rhdl" open
-  "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/zmmul.rhm" open
   "../../multiplier.rhdl" as multiplier
   "../decode/multiply-ctrl.rhdl" as controls
@@ -17,8 +14,6 @@ fun control_for(cases, instruction):
       candidate.input.value_bits == instruction.encoding.value && candidate.input.care_bits == instruction.encoding.care
   ).output
 
-def rv32_design = embedded.run_elaboration(fun (): controls.RV5StageMultiplyInstructionDecoder(XLen.X32))
-def rv64_design = embedded.run_elaboration(fun (): controls.RV5StageMultiplyInstructionDecoder(XLen.X64))
 def mul = control_for(controls.RV64ZmmulControlCases, MUL)
 def mulh = control_for(controls.RV64ZmmulControlCases, MULH)
 def mulhsu = control_for(controls.RV64ZmmulControlCases, MULHSU)
@@ -41,13 +36,10 @@ check:
   controls.RV5StageMultiplyControl().fields.map(fun (field): field.name) ~is [
     "mode", "high_result", "word_result"
   ]
-  type_equal(controls.RV5StageMultiplyControl().field("mode").type, multiplier.MultiplierMode()) ~is #true
+  controls.RV5StageMultiplyControl().field("mode").type.type_equal(multiplier.MultiplierMode()) ~is #true
   mul.care_bits ~is expected_mul.care_bits
   mulh.value_bits ~is expected_mulh.value_bits
   mulhsu.value_bits != mulh.value_bits ~is #true
   mulhu.value_bits != mulhsu.value_bits ~is #true
   mulw.care_bits ~is mul.care_bits
   mulw.value_bits != mul.value_bits ~is #true
-  rv32_design.modules[0].find_output("control").type.field("word_result").type.bit_width() ~is 1
-  verify_design(rv32_design) ~is #void
-  verify_design(rv64_design) ~is #void

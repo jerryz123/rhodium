@@ -28,7 +28,6 @@ wiring. NoC RTL owns only reusable realization of the supplied plan.
 | Fallback-aware allocation | [`allocator.rhdl`](allocator.rhdl) |
 | Single-beat and uniform-family routers | [`router.rhdl`](router.rhdl) |
 | Wormhole reservation and switching | [`wormhole-router.rhdl`](wormhole-router.rhdl) |
-| Host structural coverage | [`../tests/rtl/`](../tests/rtl/) |
 | Backend fixture designs | [`tests/`](tests/) |
 | CIRCT runner and Verilator benches | [`../../tests/backend/`](../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
 
@@ -43,8 +42,9 @@ wiring. NoC RTL owns only reusable realization of the supplied plan.
    immediately available.
 4. Keep protocol payloads behind the route-adapter boundary and reuse public
    ready-valid, VC, queue, matcher, and crossbar components.
-5. Add host structure checks plus a backend fixture when behavior depends on
-   generated combinational or sequential RTL.
+5. Test route, arbitration, reservation, backpressure, and packet behavior in a
+   compiled backend fixture. Do not add host snapshots of internal router
+   operations or instances.
 6. Update [README.md](README.md) when observable ports, timing, buffering,
    arbitration, packet retention, or hierarchy contracts change.
 
