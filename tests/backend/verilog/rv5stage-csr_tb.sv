@@ -77,7 +77,7 @@ module rv5stage_csr_tb;
   localparam logic [1:0] PRIVILEGE_M = 2'd3;
   localparam logic [63:0] RV64_MSTATUS_FIXED = 64'h0000000a_00000000;
   localparam logic [63:0] RV64_SSTATUS_FIXED = 64'h00000002_00000000;
-  localparam logic [63:0] RV64_MISA_DC = 64'h80000000_0014012f;
+  localparam logic [63:0] RV64_MISA_DC = 64'h80000000_0014112f;
   localparam logic [63:0] MSTATUS_FS_INITIAL = 64'h00000000_00002000;
   localparam logic [63:0] MSTATUS_FS_DIRTY = 64'h00000000_00006000;
   localparam logic [63:0] MSTATUS_SD = 64'h80000000_00000000;

@@ -21,8 +21,8 @@ module bootrom_tb;
   localparam logic [6:0] REQUESTER_ID = 7'h03;
   localparam logic [6:0] BOOTROM_ID = 7'h0c;
   localparam logic [43:0] BOOTROM_BASE = 44'h00010000;
-  localparam logic [127:0] BEAT_0 = 128'h7fff0297_00000593_00051863_f1402573;
-  localparam logic [127:0] BEAT_1 = 128'h00000000_ffdff06f_10500073_ff428067;
+  localparam logic [127:0] BEAT_0 = 128'hff858593_ffff0597_00051a63_f1402573;
+  localparam logic [127:0] BEAT_1 = 128'hffdff06f_10500073_ff028067_7fff0297;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
