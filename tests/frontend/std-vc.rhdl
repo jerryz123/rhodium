@@ -9,16 +9,34 @@ bundle VcPayload():
   data: Bits(8)
   marker: Bool
 
+sync_circuit VcLinkSource():
+  interface ingress[2](Decoupled(VcPayload()), ~role: consumer)
+  interface link(VcLink(VcPayload(), 2), ~role: source)
+
+  inst mux(VcMux(VcPayload(), 2))
+  ingress <=> mux.ingress
+  mux.egress <=> link.beat
+  mux.vc_ready <== link.vc_ready
+
+sync_circuit VcLinkDestination():
+  interface link(VcLink(VcPayload(), 2), ~role: destination)
+  interface egress[2](Decoupled(VcPayload()), ~role: producer)
+
+  inst demux(VcDemux(VcPayload(), 2))
+  link.beat <=> demux.ingress
+  link.vc_ready <== demux.vc_ready
+  demux.egress <=> egress
+
 sync_circuit VcRoundTrip():
   interface ingress[2](Decoupled(VcPayload()), ~role: consumer)
   interface egress[2](Decoupled(VcPayload()), ~role: producer)
 
-  inst mux(VcMux(VcPayload(), 2))
-  inst demux(VcDemux(VcPayload(), 2))
-  ingress <=> mux.ingress
-  mux.vc_ready <== demux.vc_ready
-  mux.egress |> demux.ingress
-  demux.egress <=> egress
+  inst source(VcLinkSource())
+  inst destination(VcLinkDestination())
+
+  ingress <=> source.ingress
+  source.link <=> destination.link
+  destination.egress <=> egress
 
 export:
   VcRoundTrip

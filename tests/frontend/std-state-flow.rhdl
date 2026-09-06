@@ -1,0 +1,11 @@
+#lang rhodium
+// Defines invalid state-flow constructions used to check the public initialization contract.
+
+import:
+  lib("rhodium/std/flow/state.rhdl") open
+
+sync_circuit WrongStateInitial():
+  inst source(StateChangeSource(Bits(4), 2, bits(0, 3)))
+
+export:
+  WrongStateInitial

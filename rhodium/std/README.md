@@ -578,6 +578,8 @@ under [`flow/`](flow/):
 | `PacketRRArbiter(T, n)` | -- | Round-robin arbitration that retains an input through its final transferred beat |
 | `VcMux(T, n)` | -- | Fairly tags and multiplexes `n` independently backpressured virtual channels |
 | `VcDemux(T, n)` | -- | Validates and distributes tagged traffic while exposing per-channel readiness |
+| `StateChangeSource(T, n, initial)` | -- | Fair irrevocable emission of indexed values that differ from their last transferred snapshots |
+| `StateReplica(T, initial)` | -- | Always-ready application and retention of transferred state updates |
 | `Demux(T, n)` | `CtrlDemux(n)` | Selected one-to-many routing with invalid-selector blocking |
 | `GrantDemux(T, outputs)` | -- | Optional-one-hot grant routing to ready-valid outputs |
 | `GrantMerge(T, inputs)` | -- | Optional-one-hot grant selection from ready-valid inputs |
@@ -670,9 +672,31 @@ flows share one physical ready-valid flow. The mux fairly selects only lanes
 whose corresponding `vc_ready` bit is asserted and emits `VcBeat(T, n)` with
 the selected lane index. The demux validates that index, delivers the payload
 to exactly one output, and exposes every output's readiness for the upstream
-mux. Neither component allocates per-VC buffering or gives the lanes routing,
-reservation, credit, or deadlock semantics; domain libraries and callers own
-those policies.
+mux. `VcLink(T, n)` groups that multiplexed beat flow with the reverse
+per-channel readiness vector at a typed physical boundary. Neither component
+allocates per-VC buffering or gives the lanes routing, reservation, credit, or
+deadlock semantics; domain libraries and callers own those policies.
+
+### Replicated state
+
+`StateChangeSource(T, n, initial)` converts a live `Vec(n, T)` into an
+`Irrevocable(IndexedState(T, n))` stream. It fairly selects vector elements
+whose current value differs from the last successfully transferred value for
+that index. A selected update remains unchanged while stalled. A newer value
+that arrives during that stall remains dirty after the held value transfers,
+and the source can capture the next update in the same cycle as a transfer.
+
+Changes that return to the published value before being selected are
+intentionally coalesced. This is latest-state convergence, not event delivery;
+use a queue when every occurrence must be retained. `T` may be any packable
+`DataType`, and `initial` must be an exact `HardwareLiteral` of `T`. Source and
+receiver must use the same initial value when they represent replicas of one
+state.
+
+`StateReplica(T, initial)` is the corresponding always-ready sink. It applies
+each transferred `Decoupled(T)` value to a local register and exposes the held
+value through `current`, independently of later flow activity. Neither
+component assigns a network destination or transport route.
 
 `atomic_fork` returns an indexable array of `Decoupled` endpoints and permits a
 transfer only when every output can accept it. This is useful when one logical

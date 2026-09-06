@@ -159,7 +159,8 @@ import one primitive without loading unrelated generators.
 | `std/flow/circular-priority.rhdl` | Combinational circular-priority optional-one-hot selection with a shared valid, grant, and index result | None |
 | `std/flow/rr-arbiter.rhdl` | Direct-state round-robin `RRArbiter`/`CtrlRRArbiter` plus configured Array-to-endpoint arbitration | `std/ready-valid.rhdl`, `std/flow/ready-valid-support.rhdl`, `std/flow/circular-priority.rhdl` |
 | `std/flow/packet-rr-arbiter.rhdl` | Packet-locked round-robin arbitration and inline final-flit predicate syntax | `std/ready-valid.rhdl`, `std/flow/ready-valid-support.rhdl`, `std/flow/circular-priority.rhdl` |
-| `std/flow/vc.rhdl` | Tagged multiplexing of independently backpressured virtual-channel flows | `std/ready-valid.rhdl`, `std/flow/demux.rhdl`, `std/flow/gate.rhdl`, `std/flow/map.rhdl`, `std/flow/rr-arbiter.rhdl` |
+| `std/flow/vc.rhdl` | Typed physical VC links plus tagged multiplexing of independently backpressured virtual-channel flows | `std/ready-valid.rhdl`, `std/flow/demux.rhdl`, `std/flow/gate.rhdl`, `std/flow/map.rhdl`, `std/flow/rr-arbiter.rhdl` |
+| `std/flow/state.rhdl` | Fair irrevocable changed-state emission and always-ready local state replication | `std/ready-valid.rhdl`, `std/flow/circular-priority.rhdl` |
 | `std/flow/demux.rhdl` | Selected one-to-many `Demux`/`CtrlDemux` plus configured payload-selected routing | `std/ready-valid.rhdl`, `std/flow/ready-valid-support.rhdl` |
 | `std/flow/matcher.rhdl` | Fixed-priority and explicitly output-greedy transfer-rotating one-to-one request-matrix matchers | `std/flow/circular-priority.rhdl` |
 | `std/flow/grant.rhdl` | Optional-one-hot ready-valid grant routing and merging primitives | `std/ready-valid.rhdl` |

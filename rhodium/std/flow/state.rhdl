@@ -1,0 +1,101 @@
+#lang rhodium
+// Converts indexed replicated state into reliable changes and applies received updates locally.
+
+import:
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/flow/circular-priority.rhdl") open
+
+// Identifies one member of a replicated state vector and carries its complete
+// replacement value.
+bundle IndexedState(T :: DataType, count :: PosInt):
+  index: Bits(index_width(count))
+  value: T
+
+fun require_state_initial(T :: DataType,
+                          initial :: HardwareLiteral,
+                          who :: Symbol) :: HardwareLiteral:
+  def initial_type = initial.literal_type()
+  unless T.packed_width() is_a PosInt
+  | error(~who: who, "state type must have a packed representation")
+  unless T.type_equal(initial_type) && initial_type.type_equal(T)
+  | error(~who: who, "initial literal must have the state DataType")
+  initial
+
+// Emits fair, irrevocable snapshots for vector elements that differ from the
+// last value successfully transferred for that index. Changes that return to
+// the published value before selection are intentionally coalesced.
+sync_circuit StateChangeSource(T :: DataType,
+                               count :: PosInt,
+                               initial :: HardwareLiteral):
+  def initial_value = require_state_initial(T, initial, #'StateChangeSource)
+  def state_index_width = index_width(count)
+  def initial_values = vec(for List (_ in 0..count): initial_value)
+
+  input current: Vec(count, T)
+  interface egress(Irrevocable(IndexedState(T, count)), ~role: producer)
+
+  reg published(Vec(count, T), ~init: initial_values)
+  reg held_valid(~init: Bool(#false))
+  reg held_index(~init: bits(0, state_index_width))
+  reg held_value(T, ~init: initial_value)
+  reg next_priority(~init: bits(0, state_index_width))
+
+  egress.valid <== held_valid
+  egress.bits <== IndexedState(T, count):
+    index: held_index
+    value: held_value
+
+  def transfer = egress.fire()
+  def effective_published = mux(
+    transfer,
+    published.updated(held_index, held_value),
+    published
+  )
+  def dirty = vec(
+    for List (index in 0..count):
+      !(current[index].as_bits() === effective_published[index].as_bits())
+  )
+  def choice :: CircularPriorityChoice(count, state_index_width) = circular_priority_onehot(dirty, next_priority)
+  def capture = choice.valid & (!held_valid ||| transfer)
+  def selected_value = current[choice.index]
+  def following_priority = mux(
+    choice.index === bits(count - 1, state_index_width),
+    bits(0, state_index_width),
+    choice.index + bits(1, state_index_width)
+  )
+
+  assert(next_priority <= bits(count - 1, state_index_width),
+         "state_change_priority_in_range")
+
+  when transfer:
+    published <== published.updated(held_index, held_value)
+
+  when capture:
+    held_valid <== Bool(#true)
+    held_index <== choice.index
+    held_value <== selected_value
+    next_priority <== following_priority
+  elsewhen transfer:
+    held_valid <== Bool(#false)
+
+// Applies every accepted update to a local register and exposes the retained
+// value independently of later flow activity.
+sync_circuit StateReplica(T :: DataType,
+                          initial :: HardwareLiteral):
+  def initial_value = require_state_initial(T, initial, #'StateReplica)
+
+  interface ingress(Decoupled(T), ~role: consumer)
+  output current: T
+
+  reg state(T, ~init: initial_value)
+
+  ingress.ready <== Bool(#true)
+  current <== state
+
+  when (ingress.fire()):
+    state <== ingress.bits
+
+export:
+  IndexedState
+  StateChangeSource
+  StateReplica

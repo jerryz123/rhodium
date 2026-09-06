@@ -222,6 +222,7 @@ and the authoritative source-module map.
 | [`std/completion-queue.rhdl`](std/completion-queue.rhdl) | Response-capacity reservation before nonstallable issue |
 | [`std/credited-transport.rhdl`](std/credited-transport.rhdl) | Monitored sender/buffer composition with explicit credit return |
 | [`std/flit-formats.rhdl`](std/flit-formats.rhdl) | Transfer-counted framing for fixed-length ready-valid packets |
+| [`std/state-flow.rhdl`](std/state-flow.rhdl) | Fair changed-state emission and always-ready local state replication over aggregate data |
 
 ### Clocking and CDC
 

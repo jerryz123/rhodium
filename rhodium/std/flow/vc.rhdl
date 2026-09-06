@@ -10,6 +10,7 @@ import:
 
 export:
   VcBeat
+  VcLink
   VcMux
   VcDemux
 
@@ -17,6 +18,19 @@ export:
 bundle VcBeat(T :: DataType, vc_count :: PosInt):
   vc: Bits(index_width(vc_count))
   payload: T
+
+// Couples one multiplexed physical flow with the per-VC downstream readiness
+// needed to avoid selecting a blocked logical channel.
+interface VcLink(T :: DataType, vc_count :: PosInt):
+  role source
+  role destination
+  provider source
+
+  source -> destination:
+    beat: Decoupled(VcBeat(T, vc_count))
+
+  destination -> source:
+    vc_ready: Vec(vc_count, Bool)
 
 // Fairly selects one ready virtual channel without letting a blocked channel
 // prevent another channel from using the shared physical flow.

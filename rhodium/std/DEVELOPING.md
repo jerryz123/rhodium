@@ -195,7 +195,8 @@ Prefer a focused test and its fixture. Representative ownership is:
   `std-flit-test.rhm` for transport contracts;
 - `std-flow-test.rhm`, `std-flow-chain-test.rhm`,
   `std-flow-static-test.rhm`, `std-flow-scaling-test.rhm`,
-  `std-valid-flow-test.rhm`, and `std-vc-test.rhm` for flow composition;
+  `std-valid-flow-test.rhm`, `std-vc-test.rhm`, and
+  `std-state-flow-test.rhm` for flow composition;
 - the focused `std-bits`, `std-cdc`, `std-counter`, `std-interconnect`,
   `std-reduction`, `std-scoreboard`, `std-shift-register`, and `std-sync-ram`
   tests for their owning modules.

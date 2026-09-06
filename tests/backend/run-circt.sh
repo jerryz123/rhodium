@@ -91,6 +91,7 @@ integration_fixtures=(
   async-read-memory sync-memory-masked sync-ram
   clocked-dpi assertions hierarchy bundle interface-array
   queue-options rr-arbiter packet-rr-arbiter round-robin-matcher ctrl-queue-options
+  state-flow
   dont-care decode noc-route-computer noc-router noc-network noc-wormhole noc-router-family noc-escape-router
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
@@ -576,6 +577,7 @@ fixture_specs=(
   'credited-flow-chained||examples/std/credited-transport.rhdl|chained_design|chained_verilog_reference'
   'credited-monitor||examples/std/credited-transport.rhdl|monitor_design|monitor_verilog_reference'
   'flit-formats|flit_formats_tb|examples/std/flit-formats.rhdl|design|verilog_reference'
+  'state-flow|state_flow_tb|examples/std/state-flow.rhdl|design|-'
   'scoreboard|scoreboard_tb|examples/std/scoreboard.rhdl|design|verilog_reference'
   'full-adder||examples/rtl/full-adder.rhdl|design|verilog_reference'
   'adder-core||examples/lop/adder-core.rhm|design|verilog_reference'

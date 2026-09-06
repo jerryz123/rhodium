@@ -1,0 +1,35 @@
+#lang rhodium
+// Demonstrates reliable changed-state emission and local state replication over ready-valid flow.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+bundle ReplicatedControl():
+  enabled: Bool
+  mode: Bits(3)
+
+def IdleControl = ReplicatedControl():
+  enabled: Bool(#false)
+  mode: bits(0, 3)
+
+sync_circuit StateFlowExample():
+  input desired: Vec(3, ReplicatedControl())
+  interface changes(Irrevocable(IndexedState(ReplicatedControl(), 3)), ~role: producer)
+  interface replica_update(Decoupled(ReplicatedControl()), ~role: consumer)
+  output replica: ReplicatedControl()
+
+  inst change_source(StateChangeSource(ReplicatedControl(), 3, IdleControl))
+  inst state_replica(StateReplica(ReplicatedControl(), IdleControl))
+
+  change_source.current <== desired
+  change_source.egress <=> changes
+  replica_update <=> state_replica.ingress
+  replica <== state_replica.current
+
+def design = elaborate(StateFlowExample())
+
+export:
+  ReplicatedControl
+  IdleControl
+  StateFlowExample
+  design

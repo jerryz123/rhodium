@@ -1,0 +1,37 @@
+#lang rhombus
+// Checks aggregate state-flow construction and rejection of mismatched initial literals.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../examples/std/state-flow.rhdl" as example
+  "std-state-flow.rhdl" as fixture
+
+def design = example.design
+def top = design.modules[0]
+def change_source = design.modules.find(
+  fun (module_def): module_def.name == "StateChangeSource"
+)
+def state_replica = design.modules.find(
+  fun (module_def): module_def.name == "StateReplica"
+)
+
+fun operations(module_def, opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+check:
+  top.name ~is "StateFlowExample"
+  change_source.find_input("current").type.packed_width() ~is 12
+  change_source.find_output("egress_out").type.field("bits").type.field("index").type.bit_width() ~is 2
+  change_source.find_output("egress_out").type.field("bits").type.field("value").type.packed_width() ~is 4
+  operations(change_source, "verif.assert").map(
+    fun (operation): operation.attribute("label")
+  ) ~is ["state_change_priority_in_range"]
+  state_replica.find_output("current").type.packed_width() ~is 4
+  verify_design(design) ~is #void
+
+  embedded.run_elaboration(
+    fun (): fixture.WrongStateInitial()
+  ) ~throws "initial literal must have the state DataType"

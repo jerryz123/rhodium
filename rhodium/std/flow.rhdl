@@ -16,6 +16,7 @@ import:
   lib("rhodium/std/flow/rr-arbiter.rhdl") open
   lib("rhodium/std/flow/packet-rr-arbiter.rhdl") open
   lib("rhodium/std/flow/vc.rhdl") open
+  lib("rhodium/std/flow/state.rhdl") open
   lib("rhodium/std/flow/demux.rhdl") open
   lib("rhodium/std/flow/matcher.rhdl") open
   lib("rhodium/std/flow/grant.rhdl") open
@@ -87,8 +88,12 @@ export:
   PacketRRArbiter
   packet_rr_arbiter
   VcBeat
+  VcLink
   VcMux
   VcDemux
+  IndexedState
+  StateChangeSource
+  StateReplica
   Demux
   demux_flow
   CtrlDemux

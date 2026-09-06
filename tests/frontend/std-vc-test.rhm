@@ -18,6 +18,8 @@ fun assertion_labels(module_def):
 
 check:
   module_named("VcRoundTrip") is_a Module ~is #true
+  module_named("VcLinkSource") is_a Module ~is #true
+  module_named("VcLinkDestination") is_a Module ~is #true
   module_named("VcMux") is_a Module ~is #true
   module_named("VcDemux") is_a Module ~is #true
   module_named("RRArbiter") is_a Module ~is #true
