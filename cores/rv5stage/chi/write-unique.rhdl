@@ -2,8 +2,8 @@
 // Implements RV5Stage's retry-aware RN-F WriteUniquePtl transaction engine.
 
 import:
-  "chi.rhdl" open
-  "../load-store.rhdl" open
+  "foundation.rhdl" open
+  "../../load-store.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/flow.rhdl") open
   lib("chi/main.rhdl") open

@@ -4,7 +4,7 @@
 import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../cores/rv5stage/uncached.rhdl".RV5StageUncached
+  "../../cores/rv5stage/chi/uncached.rhdl".RV5StageUncached
   "../../cores/rv5stage/tests/params.rhdl".test_rv5stage_uncached_config
   "../../riscv/isa/xlen.rhm".XLen
 

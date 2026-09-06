@@ -2,14 +2,14 @@
 // Implements RV5Stage's one-outstanding non-cacheable CHI RN-I transaction path.
 
 import:
-  "chi.rhdl" open
-  "fp/types.rhdl" open
-  "memory.rhdl" open
-  "dcache/protocol.rhdl" open
-  "icache/protocol.rhdl".RV5StageInstructionResp
-  "uncached-protocol.rhdl" open
-  "../load-store.rhdl" open
-  "../../riscv/isa/xlen.rhm" open
+  "foundation.rhdl" open
+  "../fp/types.rhdl" open
+  "../memory.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../icache/protocol.rhdl".RV5StageInstructionResp
+  "../uncached-protocol.rhdl" open
+  "../../load-store.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open

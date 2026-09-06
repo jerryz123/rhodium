@@ -14,8 +14,8 @@ invalidation behavior, and clean snoop response. The parent core owns virtual
 translation, Fetch correlation, `FENCE.I` serialization, physical-region
 checks, and the external CHI boundary.
 
-Keep L1I independent of L1D. Reuse the parent directory's cache parameters,
-refill engine, and clean snoop engine rather than importing the data-cache
+Keep L1I independent of L1D. Reuse the parent cache parameters and sibling CHI
+package's refill and clean-snoop engines rather than importing the data-cache
 package. [`../../check-boundaries.sh`](../../check-boundaries.sh) enforces that
 separation.
 
@@ -26,8 +26,8 @@ separation.
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
 | Lookup, arrays, buffering, refill installation, replacement, flush, invalidation, and snoop arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
-| Retry-aware complete-line refill | [`../refill.rhdl`](../refill.rhdl) |
-| Clean snoop transaction lifetime | [`../snoop.rhdl`](../snoop.rhdl) |
+| Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
+| Clean snoop transaction lifetime | [`../chi/snoop.rhdl`](../chi/snoop.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
 | Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
 | CIRCT/Verilator fixture | [`../../../tests/backend/`](../../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |

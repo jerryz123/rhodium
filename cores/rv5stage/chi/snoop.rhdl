@@ -2,8 +2,8 @@
 // Implements RV5Stage's clean-line RN-F snoop and paired-DVM transaction engine.
 
 import:
-  "cache.rhdl" open
-  "chi.rhdl" open
+  "../cache.rhdl" open
+  "foundation.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open

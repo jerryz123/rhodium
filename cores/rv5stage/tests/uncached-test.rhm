@@ -4,7 +4,7 @@
 import:
   "../../../chi/main.rhdl" as chi
   "../../../riscv/rtl/pma.rhdl" as pma
-  "../chi.rhdl" as rvchi
+  "../chi/foundation.rhdl" as rvchi
   "params.rhdl" as params
 
 check:

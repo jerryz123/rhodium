@@ -4,9 +4,9 @@
 import:
   "protocol.rhdl" open
   "../cache.rhdl" open
-  "../chi.rhdl" open
-  "../refill.rhdl" open
-  "../snoop.rhdl" open
+  "../chi/foundation.rhdl" open
+  "../chi/refill.rhdl" open
+  "../chi/snoop.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/read-write.rhdl") open

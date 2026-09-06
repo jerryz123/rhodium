@@ -87,6 +87,25 @@ if [[ -n "$cache_cross_imports" ]]; then
   exit 1
 fi
 
+chi_cache_implementation_imports="$(search_sources \
+  '^[[:space:]]+"\.\./(icache|dcache)/cache\.rhdl"' \
+  cores/rv5stage/chi || true)"
+if [[ -n "$chi_cache_implementation_imports" ]]; then
+  echo "RV5Stage CHI engines may import cache protocols but not cache implementations" >&2
+  echo "$chi_cache_implementation_imports" >&2
+  exit 1
+fi
+
+legacy_rv5stage_chi_sources="$(find cores/rv5stage -maxdepth 1 -type f \
+  \( -name 'chi.rhdl' -o -name 'refill.rhdl' -o -name 'write-unique.rhdl' \
+     -o -name 'writeback.rhdl' -o -name 'snoop.rhdl' -o -name 'uncached.rhdl' \) \
+  -print)"
+if [[ -n "$legacy_rv5stage_chi_sources" ]]; then
+  echo "RV5Stage CHI configuration and transaction engines must live under cores/rv5stage/chi" >&2
+  echo "$legacy_rv5stage_chi_sources" >&2
+  exit 1
+fi
+
 unexpected_root_sources="$(find cores -maxdepth 1 -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
   ! -name 'alu.rhdl' ! -name 'branch-resolver.rhdl' \
   ! -name 'load-store.rhdl' ! -name 'multiplier.rhdl' \

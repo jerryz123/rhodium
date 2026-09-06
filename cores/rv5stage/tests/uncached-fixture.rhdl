@@ -2,7 +2,7 @@
 // Elaborates RV5Stage's uncached engine and physical-memory router with an HN-I range.
 
 import:
-  "../uncached.rhdl" open
+  "../chi/uncached.rhdl" open
   "../memory-router.rhdl" open
   "../instruction-memory-router.rhdl" open
   "params.rhdl" as params

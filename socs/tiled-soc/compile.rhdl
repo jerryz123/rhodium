@@ -8,7 +8,7 @@ import:
   lib("noc/std/topology/main.rhm") open
   lib("noc/std/routing/main.rhm") open
   lib("noc/rtl/router.rhdl") open
-  lib("cores/rv5stage/chi.rhdl") open
+  lib("cores/rv5stage/chi/foundation.rhdl") open
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/bootrom.rhdl").CHIBootROMParams
   lib("devices/aclint.rhdl").AclintParams

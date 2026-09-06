@@ -13,7 +13,7 @@ import:
   lib("cores/rv5stage/cache.rhdl").RV5StageCacheConfig
   lib("cores/rv5stage/profile.rhm") open
   lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
-  lib("cores/rv5stage/chi.rhdl") open
+  lib("cores/rv5stage/chi/foundation.rhdl") open
   lib("riscv/isa/c.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/fp-profile.rhm") open

@@ -17,7 +17,7 @@ rules plus decode-column and cache-package separation.
 
 Keep the scalar pipeline dependent on the RV5Stage cache protocols rather than
 a generic memory transport. Keep I-cache and D-cache packages independent of
-each other; share CHI transaction machinery in the parent directory.
+each other; share external transaction machinery through the CHI package.
 
 ## Implementation map
 
@@ -33,10 +33,10 @@ each other; share CHI transaction machinery in the parent directory.
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
 | [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, translation, and page-table walking |
-| [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached.rhdl`](uncached.rhdl) | Physical-region routing and shared uncached transactions |
-| [`cache.rhdl`](cache.rhdl), [`chi.rhdl`](chi.rhdl) | Cache helpers, physical-region/Home policy, and RN identity parameters |
+| [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing and the shared uncached protocol |
+| [`cache.rhdl`](cache.rhdl) | Shared cache geometry and replacement helpers |
+| [`chi/DEVELOPING.md`](chi/DEVELOPING.md) | Physical-region/Home policy, RN identity, cache transaction engines, and the shared uncached RN-I implementation |
 | [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`dcache/DEVELOPING.md`](dcache/DEVELOPING.md) | Private cache implementation and validation |
-| [`refill.rhdl`](refill.rhdl), [`write-unique.rhdl`](write-unique.rhdl), [`writeback.rhdl`](writeback.rhdl), [`snoop.rhdl`](snoop.rhdl) | Shared refill, ownership acquisition, retry, dirty drain, and snoop engines |
 | [`tests/`](tests/) | Decode, configuration, public specialization, and invalid-use checks |
 
 ## Change the core

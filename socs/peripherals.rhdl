@@ -3,7 +3,7 @@
 
 import:
   lib("chi/main.rhdl") open
-  lib("cores/rv5stage/chi.rhdl").RV5StageCHIRegion
+  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/aclint.rhdl") open
   lib("devices/uart16550.rhdl") open

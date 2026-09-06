@@ -273,7 +273,8 @@ regions paired with CHI Homes. From that list it derives both the RISC-V
 physical-memory map and `CHIHomeMap`, preventing permissions, cacheability, and
 CHI routing from describing different address ranges. Cache transactions decode
 their address once and retain the selected HN-F NodeID through retry, data, and
-completion acknowledgement.
+completion acknowledgement. The [RV5Stage CHI contract](chi/README.md) owns
+endpoint configuration and shared transaction behavior.
 
 `RV5StageCHIParams` contains host-only placement metadata for instruction and
 data RN-F NodeIDs and the optional uncached RN-I NodeID. An occurrence receives
@@ -359,9 +360,8 @@ response stability are specified by the subsystem documents:
 - [`icache/README.md`](icache/README.md) — instruction protocol and clean L1I
 - [`dcache/README.md`](dcache/README.md) — data protocol and write-back L1D
 - [`mmu/README.md`](mmu/README.md) — Sv39 translation and L1D walker arbitration
-- [`refill.rhdl`](refill.rhdl), [`write-unique.rhdl`](write-unique.rhdl),
-  [`writeback.rhdl`](writeback.rhdl), and [`snoop.rhdl`](snoop.rhdl) — shared CHI
-  transaction engines
+- [`chi/README.md`](chi/README.md) — shared CHI configuration, cache transaction
+  engines, snoop handling, and uncached RN-I access
 
 ## Privileged and architectural state
 

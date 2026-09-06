@@ -5,10 +5,10 @@ import:
   "protocol.rhdl" open
   "../memory.rhdl" open
   "../cache.rhdl" open
-  "../chi.rhdl" open
-  "../refill.rhdl" open
-  "../snoop.rhdl" open
-  "../writeback.rhdl" open
+  "../chi/foundation.rhdl" open
+  "../chi/refill.rhdl" open
+  "../chi/snoop.rhdl" open
+  "../chi/writeback.rhdl" open
   "../../load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open

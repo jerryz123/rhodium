@@ -116,7 +116,7 @@ REQ or DAT traffic; an AMO returns the captured value from before that update.
 | Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
 | Dirty allocation victim | Gather the line, complete writeback, then issue the refill | Victim invalidated before replacement installation |
 
-The shared [`refill engine`](../refill.rhdl) retains the aligned line address
+The shared [refill engine](../chi/README.md#cache-line-refill) retains the aligned line address
 and complete request context across retry, accepts unique `CompData` packets,
 sends `CompAck`, and exposes the completed line only afterward. RV5Stage lines
 are fixed at 64 bytes, and L1D rejects a refill carrying `PassDirty`. With the
@@ -126,13 +126,13 @@ publishes the tag, coherence state, and valid bit only on the final word. A
 mutating refill merges its selected bytes before that word is written.
 
 For a dirty allocation victim, L1D first gathers all XLEN words into a line
-buffer. The shared [`writeback engine`](../writeback.rhdl) captures that buffer
+buffer. The shared [writeback engine](../chi/README.md#writes-and-dirty-writeback) captures that buffer
 and serializes eight retryable, 64-bit `WriteUniquePtl` transactions. The
 replacement refill cannot start until all eight complete.
 
 ## Snoop ordering and responses
 
-The shared [`data-snoop engine`](../snoop.rhdl) owns each request's lifetime,
+The shared [data-snoop engine](../chi/README.md#snoop-handling) owns each request's lifetime,
 DVM pairing, lookup-result capture, stable CHI response, and dirty-data packet
 sequence. A pending snoop prevents a new core lookup. It waits behind an active
 lookup, registered mutation, line gather, or refill installation, but it may run while a captured

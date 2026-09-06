@@ -5,7 +5,7 @@ import:
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../riscv/isa/xlen.rhm" open
   "../cache.rhdl" as cache
-  "../chi.rhdl" as chi
+  "../chi/foundation.rhdl" as chi
   "../profile.rhm" as core_profile
   "../rv5stage.rhdl" as rv5stage
   "params.rhdl" as test_params

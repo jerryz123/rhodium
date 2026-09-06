@@ -13,8 +13,8 @@ coherence state, mutation, blocking allocation/acquisition, replacement, and
 LR/SC reservation. The parent core owns virtual translation, alignment faults,
 PMA routing, architectural fence ordering, and the external CHI boundary.
 
-Keep L1D independent of L1I. Reuse parent-directory cache parameters and the
-shared refill, write-unique, writeback, and data-snoop engines rather than
+Keep L1D independent of L1I. Reuse parent cache parameters and the sibling CHI
+package's refill, write-unique, writeback, and data-snoop engines rather than
 importing the instruction-cache package.
 [`../../check-boundaries.sh`](../../check-boundaries.sh) enforces that split.
 
@@ -25,10 +25,10 @@ importing the instruction-cache package.
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
 | Lookup, arrays, hit mutation, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
-| Retry-aware complete-line refill | [`../refill.rhdl`](../refill.rhdl) |
-| Ownership acquisition and partial writes | [`../write-unique.rhdl`](../write-unique.rhdl) |
-| Dirty-victim drain | [`../writeback.rhdl`](../writeback.rhdl) |
-| Clean and dirty snoop transaction lifetime | [`../snoop.rhdl`](../snoop.rhdl) |
+| Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
+| Ownership acquisition and partial writes | [`../chi/write-unique.rhdl`](../chi/write-unique.rhdl) |
+| Dirty-victim drain | [`../chi/writeback.rhdl`](../chi/writeback.rhdl) |
+| Clean and dirty snoop transaction lifetime | [`../chi/snoop.rhdl`](../chi/snoop.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
 | Host configuration and protocol metadata | [`../tests/dcache-test.rhm`](../tests/dcache-test.rhm), [`../tests/transaction-engines-test.rhm`](../tests/transaction-engines-test.rhm) |
 | CIRCT/Verilator fixtures | [`../../../tests/backend/`](../../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |

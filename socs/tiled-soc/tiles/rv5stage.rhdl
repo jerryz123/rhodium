@@ -6,7 +6,7 @@ import:
   lib("rhodium/std/flow/state.rhdl").StateReplica
   lib("rhodium/std/flit.rhdl").FramedFixedFlit
   lib("chi/main.rhdl") open
-  lib("cores/rv5stage/chi.rhdl") open
+  lib("cores/rv5stage/chi/foundation.rhdl") open
   lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
   lib("cores/rv5stage/profile.rhm").RVCoreProfile
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage

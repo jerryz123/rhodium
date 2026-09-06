@@ -4,14 +4,14 @@
 import:
   "core.rhdl" open
   "interrupt.rhdl" open
-  "chi.rhdl" open
+  "chi/foundation.rhdl" open
   "profile.rhm" open
   "cache.rhdl" open
   "icache/cache.rhdl" open
   "dcache/cache.rhdl" open
   "memory-router.rhdl" open
   "instruction-memory-router.rhdl" open
-  "uncached.rhdl" open
+  "chi/uncached.rhdl" open
   "mmu/mmu.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open

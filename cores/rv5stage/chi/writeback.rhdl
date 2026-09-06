@@ -2,10 +2,10 @@
 // Drains one dirty RV5Stage cache line through serialized supported CHI writes.
 
 import:
-  "cache.rhdl" open
-  "chi.rhdl" open
+  "../cache.rhdl" open
+  "foundation.rhdl" open
   "write-unique.rhdl" open
-  "../load-store.rhdl" open
+  "../../load-store.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open

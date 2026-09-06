@@ -90,7 +90,7 @@ engine and blocks new requests until that transaction completes.
 ## Refill and replacement
 
 Every miss issues one 64-byte `ReadClean`. The shared
-[`refill engine`](../refill.rhdl) retains the aligned line address and selected
+[refill engine](../chi/README.md#cache-line-refill) retains the aligned line address and selected
 way across retry, accepts unique `CompData` packets, sends `CompAck`, and exposes
 the complete clean line only afterward. `PassDirty` is rejected. With the
 repository's default 128-bit DAT width, four packets form a line.
@@ -117,7 +117,7 @@ silently become architectural invalidation.
 
 ## Clean snoop behavior
 
-The shared [`clean-snoop engine`](../snoop.rhdl) owns each request's lifetime,
+The shared [clean-snoop engine](../chi/README.md#snoop-handling) owns each request's lifetime,
 DVM pairing, lookup-result capture, and stable response. A pending snoop blocks
 new core lookups and waits for an active lookup or refill installation to
 release the SRAM ports. It may inspect the resident cache while a captured

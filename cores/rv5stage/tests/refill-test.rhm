@@ -5,7 +5,7 @@ import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "params.rhdl" as test_params
-  "../refill.rhdl" as refill
+  "../chi/refill.rhdl" as refill
 
 def config = test_params.test_rv5stage_chi_config
 def design = embedded.run_elaboration(fun (): refill.RV5StageLineRefill(Bits(5), 32, config))

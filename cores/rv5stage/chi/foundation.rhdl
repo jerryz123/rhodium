@@ -2,10 +2,10 @@
 // Defines RV5Stage's RN-F/RN-I endpoint parameters and conservative CHI flit constructors.
 
 import:
-  "cache.rhdl".RV5StageCacheLineBytes
+  "../cache.rhdl".RV5StageCacheLineBytes
   lib("rhodium/std/bits.rhdl") open
   lib("chi/main.rhdl") open
-  "../../riscv/rtl/pma.rhdl" open
+  "../../../riscv/rtl/pma.rhdl" open
 
 def RV5StageRefillResponses = response_profile("rv5stage_refill"):
   retryable

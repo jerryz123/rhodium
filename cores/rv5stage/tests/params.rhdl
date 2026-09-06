@@ -2,7 +2,7 @@
 // Defines the standalone CHI environment shared by RV5Stage unit tests.
 
 import:
-  lib("cores/rv5stage/chi.rhdl") open
+  lib("cores/rv5stage/chi/foundation.rhdl") open
   lib("chi/main.rhdl") open
   lib("riscv/rtl/pma.rhdl") open
 

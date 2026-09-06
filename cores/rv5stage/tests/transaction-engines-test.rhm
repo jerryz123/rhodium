@@ -3,7 +3,7 @@
 
 import:
   lib("chi/main.rhdl") open
-  "../chi.rhdl" as core_chi
+  "../chi/foundation.rhdl" as core_chi
 
 check:
   core_chi.RV5StageRefillResponses.milestones ~is []

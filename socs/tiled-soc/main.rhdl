@@ -4,7 +4,7 @@
 import:
   lib("chi/main.rhdl") open
   lib("rhodium/std/counter.rhdl").Counter
-  lib("cores/rv5stage/chi.rhdl").RV5StageCHIIdentity
+  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity
   lib("cores/rv5stage/profile.rhm") open
   lib("devices/bootrom.rhdl") open
   lib("devices/aclint.rhdl").AclintIdentity
