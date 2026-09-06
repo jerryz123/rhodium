@@ -8,16 +8,15 @@ import:
   lib("chi/main.rhdl") open
   lib("cores/rv5stage/chi.rhdl") open
   lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
+  lib("cores/rv5stage/profile.rhm").RVCoreProfile
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
-  lib("riscv/isa/c.rhm") open
-  lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/isa/fp-profile.rhm") open
   "../time.rhdl" open
   "../distribution.rhdl" open
 
 class RV5StageTileParams(rv5stage :: RV5StageCHIConfig,
                          router :: CHIRouterParams,
-                         hart_count :: PosInt):
+                         hart_count :: PosInt,
+                         core_profile :: RVCoreProfile):
   implements StableCircuitParam
 
 bundle RV5StageTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
@@ -25,11 +24,7 @@ bundle RV5StageTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   hart_id: Bits(64)
   chi: RV5StageCHIIdentity(p)
 
-sync_circuit RV5StageTile(params :: RV5StageTileParams,
-                          ~floating_point: profile :: FloatingPointProfile = DefaultFloatingPointProfile,
-                          ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                          ~zfa: zfa_enabled :: Boolean = #false,
-                          ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions):
+sync_circuit RV5StageTile(params :: RV5StageTileParams):
   def router_params = params.router
   def p = params.rv5stage.flit
   def site_width = router_params.routers.req.route_decoder.site_width
@@ -43,7 +38,7 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams,
   interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
   interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
 
-  inst rv5stage(RV5Stage(XLen.X64, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_extensions, ~chi: params.rv5stage))
+  inst rv5stage(RV5Stage(params.core_profile, ~chi: params.rv5stage))
   inst time_receiver(TiledTimeReceiver())
   inst interrupt_replica(StateReplica(TiledHartInterrupts(), NoTiledHartInterrupts))
   inst router(CHIRouter(router_params))

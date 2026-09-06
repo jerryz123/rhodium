@@ -6,9 +6,12 @@ import:
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../riscv/isa/xlen.rhm".XLen
   "../../cores/rv5stage/mmu/mmu.rhdl".RV5StageMmu
+  "../../cores/rv5stage/profile.rhm".RV5StageMmuMode
   "../../cores/rv5stage/tests/params.rhdl" as test_params
 
 def design = embedded.run_elaboration(
-  fun (): RV5StageMmu(XLen.X64, test_params.test_rv5stage_chi_config.physical_map)
+  fun (): RV5StageMmu(XLen.X64,
+                      RV5StageMmuMode.Sv39,
+                      test_params.test_rv5stage_chi_config.physical_map)
 )
 print(emit_circt(design))

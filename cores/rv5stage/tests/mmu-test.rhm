@@ -8,6 +8,7 @@ import:
   "../mmu/tlb.rhdl" as tlb
   "../mmu/walker.rhdl" as walker
   "../mmu/mmu.rhdl" as mmu
+  "../profile.rhm".RV5StageMmuMode
   "params.rhdl" as test_params
   "../../../riscv/isa/xlen.rhm" open
 
@@ -16,7 +17,9 @@ def tlb_module = tlb_design.modules[0]
 def walker_design = embedded.run_elaboration(fun (): walker.RV5StagePageTableWalker())
 def walker_module = walker_design.modules[0]
 def mmu_design = embedded.run_elaboration(
-  fun (): mmu.RV5StageMmu(XLen.X64, test_params.test_rv5stage_chi_config.physical_map)
+  fun (): mmu.RV5StageMmu(XLen.X64,
+                          RV5StageMmuMode.Sv39,
+                          test_params.test_rv5stage_chi_config.physical_map)
 )
 def mmu_module = mmu_design.modules.find(fun (module_def): module_def.name == "RV5StageMmu")
 

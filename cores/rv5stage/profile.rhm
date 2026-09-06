@@ -1,0 +1,158 @@
+#lang rhombus
+// Defines RV5Stage's immutable architectural and cache specialization profile.
+
+import:
+  rhombus.bits.(<<) as <<
+  lib("rhodium/core/types.rhm").count_index_width
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("riscv/isa/c.rhm") open
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+
+def RV5StageCacheLineBytes :: Pow2Int = 64
+
+class RV5StageCacheConfig(sets :: Pow2Int, ways :: PosInt):
+  implements StableCircuitParam
+
+  constructor (sets :: Pow2Int, ways :: PosInt):
+    unless sets >= 2
+    | error(~who: #'RV5StageCacheConfig,
+            "set count must be a power of two of at least two")
+    super(sets, ways)
+
+  property set_width :: PosInt: count_index_width(sets)
+  property way_width :: PosInt: count_index_width(ways)
+  property line_count :: PosInt: sets * ways
+  property capacity_bytes :: PosInt: line_count * RV5StageCacheLineBytes
+
+enum RV5StageMmuMode
+| Bare
+| Sv39
+
+class RV5StageExtensions(floating_point :: FloatingPointProfile,
+                         half_precision :: HalfPrecisionProfile,
+                         zfa :: Boolean,
+                         compressed :: List.of(CompressedExtension)):
+  implements StableCircuitParam
+
+  constructor (~floating_point: floating_point :: FloatingPointProfile = DefaultFloatingPointProfile,
+               ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
+               ~zfa: zfa :: Boolean = #false,
+               ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
+    super(floating_point, half_precision, zfa, compressed)
+
+  method compressed_misa_c(xlen :: XLen) :: Boolean:
+    compressed_extensions_report_misa_c(xlen, floating_point, compressed)
+
+  method names(xlen :: XLen, mmu_mode :: RV5StageMmuMode) :: NonemptyList.of(String):
+    def mutable single_letter = ["i", "m", "a"]
+    when floating_point_supports_f(floating_point)
+    | single_letter := single_letter ++ ["f"]
+    when floating_point_supports_d(floating_point)
+    | single_letter := single_letter ++ ["d"]
+    when compressed.contains(CompressedExtension.C)
+    | single_letter := single_letter ++ ["c"]
+    single_letter := single_letter ++ ["b"]
+
+    def mutable multi_letter = if mmu_mode == RV5StageMmuMode.Sv39 | ["svade"] | []
+    multi_letter := multi_letter ++ ["zba", "zbb", "zbs"]
+    unless compressed.contains(CompressedExtension.C)
+    | block:
+        when compressed.contains(CompressedExtension.Zca)
+        | multi_letter := multi_letter ++ ["zca"]
+        when compressed.contains(CompressedExtension.Zcb)
+        | multi_letter := multi_letter ++ ["zcb"]
+        when compressed.contains(CompressedExtension.Zcd)
+        | multi_letter := multi_letter ++ ["zcd"]
+        when compressed.contains(CompressedExtension.Zcf)
+        | multi_letter := multi_letter ++ ["zcf"]
+    when zfa
+    | multi_letter := multi_letter ++ ["zfa"]
+    cond
+    | half_precision == HalfPrecisionProfile.Zfh:
+        multi_letter := multi_letter ++ ["zfh"]
+    | half_precision == HalfPrecisionProfile.Zfhmin:
+        multi_letter := multi_letter ++ ["zfhmin"]
+    | ~else: #void
+    single_letter ++ multi_letter ++ ["zicntr", "zicond", "zicsr", "zifencei"]
+
+class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
+                            data :: RV5StageCacheConfig):
+  implements StableCircuitParam
+
+  constructor (~instruction: instruction :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
+               ~data: data :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1)):
+    super(instruction, data)
+
+fun rv5stage_floating_point_profile_supported(xlen :: XLen,
+                                              profile :: FloatingPointProfile,
+                                              half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
+                                              ~zfa: zfa_enabled :: Boolean = #false):
+  ((profile == FloatingPointProfile.None) || (
+    (xlen == XLen.X32) && (profile == FloatingPointProfile.F)
+  ) || (
+    (xlen == XLen.X64) && (profile == FloatingPointProfile.D)
+  )) && !(profile == FloatingPointProfile.None && (
+    half_precision != HalfPrecisionProfile.None || zfa_enabled
+  ))
+
+fun check_rv5stage_floating_point_profile(xlen :: XLen,
+                                          profile :: FloatingPointProfile,
+                                          half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
+                                          ~zfa: zfa_enabled :: Boolean = #false):
+  unless rv5stage_floating_point_profile_supported(xlen,
+                                                   profile,
+                                                   half_precision,
+                                                   ~zfa: zfa_enabled)
+  | error(~who: #'check_rv5stage_floating_point_profile,
+          "RV5Stage supports only disabled FP, RV32F, or RV64D, with optional Zfhmin, Zfh, or Zfa")
+
+class RVCoreProfile(xlen :: XLen,
+                    extensions :: RV5StageExtensions,
+                    mmu_mode :: RV5StageMmuMode,
+                    cache_geometry :: RV5StageCacheGeometry):
+  implements StableCircuitParam
+
+  constructor (~xlen: xlen :: XLen,
+               ~extensions: extensions :: RV5StageExtensions = RV5StageExtensions(),
+               ~mmu_mode: mmu_mode :: RV5StageMmuMode = RV5StageMmuMode.Bare,
+               ~cache_geometry: cache_geometry :: RV5StageCacheGeometry = RV5StageCacheGeometry()):
+    check_rv5stage_floating_point_profile(
+      xlen,
+      extensions.floating_point,
+      extensions.half_precision,
+      ~zfa: extensions.zfa
+    )
+    extensions.compressed_misa_c(xlen)
+    when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
+    | error(~who: #'RVCoreProfile, "RV32 profiles support only Bare translation")
+    super(xlen, extensions, mmu_mode, cache_geometry)
+
+  property isa_base :: String:
+    if xlen == XLen.X32 | "rv32i" | "rv64i"
+
+  property isa_extensions :: NonemptyList.of(String):
+    extensions.names(xlen, mmu_mode)
+
+  property misa_extension_bits :: Nat:
+    def fixed = (1 << 0) + (1 << 1) + (1 << 8) + (1 << 12) + (1 << 18) + (1 << 20)
+    def fp = if floating_point_supports_f(extensions.floating_point) | 1 << 5 | 0
+    def double = if floating_point_supports_d(extensions.floating_point) | 1 << 3 | 0
+    def compressed = if extensions.compressed_misa_c(xlen) | 1 << 2 | 0
+    fixed + fp + double + compressed
+
+  property misa_value :: Nat:
+    if xlen == XLen.X32
+    | (1 << 30) + misa_extension_bits
+    | (2 << 62) + misa_extension_bits
+
+export:
+  RV5StageCacheLineBytes
+  RV5StageCacheConfig
+  RV5StageMmuMode
+  RV5StageExtensions
+  RV5StageCacheGeometry
+  RVCoreProfile
+  rv5stage_floating_point_profile_supported
+  check_rv5stage_floating_point_profile

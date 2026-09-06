@@ -15,6 +15,7 @@ import:
   "decode/writeback-ctrl.rhdl" open
   "bundles.rhdl" open
   "csr.rhdl" open
+  "profile.rhm".RVCoreProfile
   "interrupt.rhdl" open
   "multiply.rhdl" open
   "divide.rhdl" open
@@ -37,12 +38,13 @@ import:
   lib("rhodium/std/flow.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
-sync_circuit RV5StageCore(xlen :: XLen,
-                          profile :: FloatingPointProfile = DefaultFloatingPointProfile,
-                          ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                          ~zfa: zfa_enabled :: Boolean = #false,
-                          ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions):
-  check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
+sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
+  def xlen = core_profile.xlen
+  def extensions = core_profile.extensions
+  def profile = extensions.floating_point
+  def half_precision = extensions.half_precision
+  def zfa_enabled = extensions.zfa
+  def compressed_extensions = extensions.compressed
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
@@ -101,7 +103,7 @@ sync_circuit RV5StageCore(xlen :: XLen,
   inst fp_integer_scoreboard(Scoreboard(register_count))
   def FpModule = if floating_point_supports_f(profile) | RV5StageFpPipeline(xlen, effective_fp_profile, Bits(width), ~half_precision: half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst fp(FpModule)
-  inst csrs(RV5StageCsrFile(xlen, profile, ~compressed: compressed_extensions))
+  inst csrs(RV5StageCsrFile(core_profile))
   inst fetch(RV5StageInstructionFetch(xlen, profile, ~compressed: compressed_extensions, ~supported_instructions: supported_instruction_names))
   csrs.interrupts <== interrupts
   csrs.hart_id <== hart_id

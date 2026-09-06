@@ -8,8 +8,15 @@ import:
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../cores/rv5stage/csr.rhdl" as csr
+  "../../cores/rv5stage/profile.rhm" open
 
 def design = embedded.run_elaboration(
-  fun (): csr.RV5StageCsrFile(XLen.X64, FloatingPointProfile.D, ~compressed: CCompressedExtensions)
+  fun (): csr.RV5StageCsrFile(RVCoreProfile(
+    ~xlen: XLen.X64,
+    ~extensions: RV5StageExtensions(
+      ~floating_point: FloatingPointProfile.D,
+      ~compressed: CCompressedExtensions
+    )
+  ))
 )
 print(emit_circt(design))

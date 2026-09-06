@@ -4,12 +4,14 @@
 import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/counter.rhdl").Counter
   lib("chi/main.rhdl") open
   lib("noc/authoring/main.rhm") open
   lib("noc/language/main.rhm").topology
   lib("noc/rtl/router.rhdl") open
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   lib("cores/rv5stage/cache.rhdl").RV5StageCacheConfig
+  lib("cores/rv5stage/profile.rhm") open
   lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
   lib("cores/rv5stage/chi.rhdl") open
   lib("riscv/isa/c.rhm") open
@@ -21,6 +23,7 @@ import:
   lib("devices/uart16550.rhdl") open
   "host-interface.rhdl".SoCHostInterface
   "boot.rhdl" open
+  "description.rhm" open
   "peripherals.rhdl" open
 
 def simple_soc_flit = CHIFlitParams()
@@ -29,6 +32,18 @@ def simple_soc_device_home = CHIHomeParams("simple-device-home", 6, CHINodeKind.
 def simple_soc_memory_base = 0x80000000
 def simple_soc_memory_bytes = 0x40000000
 def simple_soc_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
+def simple_soc_core_profile = RVCoreProfile(
+  ~xlen: XLen.X64,
+  ~extensions: RV5StageExtensions(
+    ~floating_point: FloatingPointProfile.D,
+    ~compressed: CCompressedExtensions
+  ),
+  ~mmu_mode: RV5StageMmuMode.Sv39
+)
+def simple_soc_clocks = SoCClockConfig(
+  ~clock_frequency_hz: 100000000,
+  ~timebase_frequency_hz: 100000000
+)
 def simple_soc_host_node = CHINodeParams(
   "host",
   1,
@@ -125,6 +140,22 @@ class SimpleSoCFabricParams(memory_name :: NonemptyString,
   property device_home_params:
     platform.home_params([uncached_port])
 
+  method description(model :: NonemptyString,
+                     compatible :: NonemptyList.of(NonemptyString),
+                     core_profile :: RVCoreProfile,
+                     clocks :: SoCClockConfig):
+    RiscvSoCDescription(
+      ~model: model,
+      ~compatible: compatible,
+      ~harts: [0],
+      ~core_profile: core_profile,
+      ~clocks: clocks,
+      ~memory_regions: [SoCAddressRegion(memory_service.address_sets[0])],
+      ~boot: platform.boot_description,
+      ~aclint: platform.aclint_description,
+      ~uart: platform.uart_description
+    )
+
   constructor (memory_name :: NonemptyString,
                memory_base :: Nat,
                memory_bytes :: Pow2Int,
@@ -137,6 +168,8 @@ class SimpleSoCFabricParams(memory_name :: NonemptyString,
 // Couples the external-memory fabric contract with the inclusive LLC geometry
 // selected by the complete SimpleSoC composition.
 class SimpleSoCParams(fabric :: SimpleSoCFabricParams,
+                      core_profile :: RVCoreProfile,
+                      clocks :: SoCClockConfig,
                       llc_sets :: Pow2Int,
                       llc_ways :: PosInt):
   implements StableCircuitParam
@@ -149,11 +182,20 @@ class SimpleSoCParams(fabric :: SimpleSoCFabricParams,
                                                     1),
                           ~sets: llc_sets,
                           ~ways: llc_ways)
+  property description:
+    fabric.description("Rhodium SimpleSoC",
+                       ["rhodium,simple-soc"],
+                       core_profile,
+                       clocks)
 
   constructor (fabric :: SimpleSoCFabricParams,
+               ~core_profile: core_profile :: RVCoreProfile = simple_soc_core_profile,
+               ~clocks: clocks :: SoCClockConfig = simple_soc_clocks,
                ~llc_sets: llc_sets :: Pow2Int,
                ~llc_ways: llc_ways :: PosInt):
-    super(fabric, llc_sets, llc_ways)
+    unless core_profile.xlen == XLen.X64
+    | error(~who: #'SimpleSoCParams, "SimpleSoC requires an RV64 core profile")
+    super(fabric, core_profile, clocks, llc_sets, llc_ways)
 
 def simple_soc_params = SimpleSoCParams(
   SimpleSoCFabricParams("simple-memory",
@@ -263,32 +305,22 @@ def simple_soc_dat_router_config :: SimpleRouterConfig = compile_simple_router(
   simple_soc_compilations.dat.network.router_plan(simple_soc_router)
 )
 
-sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params.fabric,
-                             ~floating_point: profile :: FloatingPointProfile = DefaultFloatingPointProfile,
-                             ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                             ~zfa: zfa_enabled :: Boolean = #false,
-                             ~icache: instruction_cache :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
-                             ~dcache: data_cache :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
-                             ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions,
+sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams,
+                             core_profile :: RVCoreProfile,
+                             clocks :: SoCClockConfig,
                              ~home: home_module = CHIHNF(params.home_config)):
   interface host(SoCHostInterface(simple_soc_flit), ~role: soc)
   interface memory(CHISNChannels(simple_soc_flit), ~role: icn)
   interface uart(SoCUartInterface(), ~role: soc)
 
-  inst rv5stage(RV5Stage(XLen.X64,
-                         ~floating_point: profile,
-                         ~half_precision: half_precision,
-                         ~zfa: zfa_enabled,
-                         ~compressed: compressed_extensions,
-                         ~icache: instruction_cache,
-                         ~dcache: data_cache,
-                         ~chi: params.rv5stage_config))
+  inst rv5stage(RV5Stage(core_profile, ~chi: params.rv5stage_config))
   inst home(home_module)
   inst device_home(CHIHNI(params.device_home_params))
   inst bootrom(CHIBootROM(params.platform.bootrom.rom_config))
   inst aclint(Aclint(params.platform.aclint_config))
   inst uart_device(Uart16550(params.platform.uart_config))
   inst boot(SoCBootDistributor(64, 1, params.boot.reset_address))
+  inst timebase(Counter(clocks.timebase_period_cycles))
   inst req_router(SimpleRouter(CHIReqFlit(simple_soc_flit), simple_soc_req_router_config))
   inst rsp_router(SimpleRouter(CHIRspFlit(simple_soc_flit), simple_soc_rsp_router_config))
   inst snp_router(SimpleRouter(CHISnpFlit(simple_soc_flit), simple_soc_snp_router_config))
@@ -388,7 +420,8 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params
                       ~dat_ingress: dat_router.ingress,
                       ~adapters: simple_soc_adapter_plans)
   home.port.subordinate <=> memory
-  aclint.tick <== Bool(#true)
+  timebase.enable <== Bool(#true)
+  aclint.tick <== timebase.wrap
   uart_device.rx <== uart.rx
   uart.tx <== uart_device.tx
   uart.interrupt <== uart_device.interrupt
@@ -406,18 +439,17 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams = simple_soc_params
 
 // Exposes the fabric's line-capable subordinate channels while leaving storage
 // and response timing to the external SN-F implementation.
-sync_circuit SimpleSoC(params :: SimpleSoCParams = simple_soc_params,
-                       ~floating_point: profile :: FloatingPointProfile = FloatingPointProfile.D,
-                       ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                       ~zfa: zfa_enabled :: Boolean = #false,
-                       ~compressed: compressed_extensions :: List.of(CompressedExtension) = CCompressedExtensions):
+sync_circuit SimpleSoC(params :: SimpleSoCParams = simple_soc_params):
   def fabric_params = params.fabric
   interface host(SoCHostInterface(fabric_params.flit), ~role: soc)
   interface memory(CHISNChannels(fabric_params.flit), ~role: icn)
   interface uart(SoCUartInterface(), ~role: soc)
 
   def HomeModule = CHIInclusiveHNF(params.llc_config)
-  inst fabric(SimpleSoCFabric(fabric_params, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_extensions, ~home: HomeModule))
+  inst fabric(SimpleSoCFabric(fabric_params,
+                              params.core_profile,
+                              params.clocks,
+                              ~home: HomeModule))
 
   host <=> fabric.host
   fabric.memory <=> memory
@@ -431,6 +463,8 @@ export:
   simple_soc_device_home
   simple_soc_memory_base
   simple_soc_memory_bytes
+  simple_soc_core_profile
+  simple_soc_clocks
   simple_soc_home_map
   simple_soc_host_node
   SimpleSoCFabricParams

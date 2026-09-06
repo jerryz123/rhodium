@@ -1,0 +1,73 @@
+#lang rhombus
+// Checks RV5Stage architectural profiles, ISA reporting, and invalid combinations.
+
+import:
+  "../profile.rhm" open
+  "../../../riscv/isa/c.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm".XLen
+
+def rv64_integer = RVCoreProfile(
+  ~xlen: XLen.X64,
+  ~mmu_mode: RV5StageMmuMode.Sv39
+)
+def rv64_double = RVCoreProfile(
+  ~xlen: XLen.X64,
+  ~extensions: RV5StageExtensions(
+    ~floating_point: FloatingPointProfile.D,
+    ~compressed: CCompressedExtensions
+  ),
+  ~mmu_mode: RV5StageMmuMode.Sv39
+)
+def rv32_half = RVCoreProfile(
+  ~xlen: XLen.X32,
+  ~extensions: RV5StageExtensions(
+    ~floating_point: FloatingPointProfile.F,
+    ~half_precision: HalfPrecisionProfile.Zfhmin,
+    ~zfa: #true,
+    ~compressed: compressed_extensions(CompressedExtension.Zca,
+                                       CompressedExtension.Zcb,
+                                       CompressedExtension.Zcf)
+  )
+)
+
+check:
+  rv64_integer.isa_base ~is "rv64i"
+  rv64_integer.isa_extensions ~is [
+    "i", "m", "a", "b", "svade", "zba", "zbb", "zbs",
+    "zicntr", "zicond", "zicsr", "zifencei"
+  ]
+  rv64_integer.misa_extension_bits ~is 0x141103
+  rv64_integer.misa_value ~is 0x8000000000141103
+  rv64_double.isa_extensions ~is [
+    "i", "m", "a", "f", "d", "c", "b", "svade", "zba", "zbb", "zbs",
+    "zicntr", "zicond", "zicsr", "zifencei"
+  ]
+  rv64_double.misa_value ~is 0x800000000014112f
+  rv32_half.isa_base ~is "rv32i"
+  rv32_half.isa_extensions ~is [
+    "i", "m", "a", "f", "b", "zba", "zbb", "zbs", "zca", "zcb", "zcf",
+    "zfa", "zfhmin", "zicntr", "zicond", "zicsr", "zifencei"
+  ]
+  rv32_half.cache_geometry.instruction.capacity_bytes ~is 4096
+  rv32_half.cache_geometry.data.capacity_bytes ~is 4096
+
+check:
+  RVCoreProfile(
+    ~xlen: XLen.X32,
+    ~mmu_mode: RV5StageMmuMode.Sv39
+  ) ~throws "RV32"
+  RVCoreProfile(
+    ~xlen: XLen.X64,
+    ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F)
+  ) ~throws "supports only disabled FP"
+  RVCoreProfile(
+    ~xlen: XLen.X64,
+    ~extensions: RV5StageExtensions(~zfa: #true)
+  ) ~throws "supports only disabled FP"
+  RVCoreProfile(
+    ~xlen: XLen.X32,
+    ~extensions: RV5StageExtensions(
+      ~compressed: [CompressedExtension.Zcb]
+    )
+  ) ~throws "requires Zca or C"

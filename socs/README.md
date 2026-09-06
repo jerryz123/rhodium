@@ -26,20 +26,34 @@ Contributors changing a composition should read
 
 All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
 non-caching coherent RN-F memory port for loading and observation, plus a
-one-shot release channel. `SimpleSoC` and `TiledSoC` accept an explicit
-`~floating_point:` specialization and orthogonal `~half_precision:` and `~zfa:`
-specializations; the reusable `SimpleSoCFabric` also accepts all three. `MiniSoC`
-currently inherits that fabric's integer-only, non-compressed defaults.
-`TiledSoC` keeps the integer-only floating-point default while selecting
-`CCompressedExtensions`, which specializes to Zca. `SimpleSoC` defaults to
-`FloatingPointProfile.D` and `CCompressedExtensions`, composing Zca and Zcd.
-Callers may select `ZcaCompressedExtensions` independently of floating-point
-support or add Zcb with `compressed_extensions(CompressedExtension.C,
-CompressedExtension.Zcb)`. Half precision and Zfa default to disabled in both
-compositions.
+one-shot release channel. Each author-facing SoC parameter object owns one
+`RVCoreProfile`, and the same profile specializes the instantiated core and its
+architectural description. `SimpleSoC` defaults to RV64D and the full C
+composition, `MiniSoC` to integer-only RV64 with 2 KiB direct-mapped L1s, and
+`TiledSoC` to integer-only RV64 with the C composition. All three select Sv39;
+half precision and Zfa default to disabled.
 
 Every system also exposes the shared [`SoCUartInterface`](peripherals.rhdl)
 containing RX, TX, and interrupt signals.
+
+## Architectural host description
+
+[`description.rhm`](description.rhm) defines the immutable
+`RiscvSoCDescription` consumed by architecture-facing generators. It combines
+the model and compatible strings, hart IDs and `RVCoreProfile`, clock and
+timebase frequencies, architectural memory regions, BootROM layout, ACLINT,
+and an optional UART. Address regions retain their originating `AddressSet`,
+so later PMA, CHI, and device-tree projections can share exact address values;
+striped implementation banks can remain hidden behind one architectural memory
+region.
+
+Construction rejects inconsistent frequency ratios, non-contiguous or
+overlapping architectural regions, duplicate harts and compatible strings,
+reset vectors outside the BootROM, and payload addresses outside memory.
+`SimpleSoCParams`, `MiniSoCParams`, and `TiledSoCConfig` each expose a
+`.description` projection. The projection reuses the CHI subordinate service
+address sets; TiledSoC alone deliberately combines its striped banks into one
+contiguous architectural memory region.
 
 ## Common host and platform contract
 
@@ -64,10 +78,11 @@ counter drives RV5Stage's `time` CSR, while each hart's MTIP and MSIP levels
 drive the corresponding machine interrupt inputs. The UART occupies
 `0x10000000..0x10000007`. Its interrupt is exposed but intentionally not wired
 into RV5Stage until an external interrupt controller is present. The platform
-owns the explicit ACLINT tick policy: `SimpleSoC` and `MiniSoC` advance once
-per SoC clock, while `TiledSoCConfig.timebase_period_cycles` selects a divided
-synchronous timebase. Supervisor and external interrupt lines therefore
-remain low.
+owns the explicit ACLINT tick policy through `SoCClockConfig`; the same clock
+and timebase frequencies drive the hardware divider and appear in the
+architectural description. The default `SimpleSoC` and `MiniSoC` use a 1:1
+ratio, while default TiledSoC divides 100 MHz to 1 MHz. Supervisor and external
+interrupt lines therefore remain low.
 
 ## SimpleSoC
 
@@ -163,8 +178,8 @@ def layout = tile_grid:
 ```
 
 `TiledSoCConfig` combines that immutable `TileGrid` with `TiledNodeIds`,
-`StripedMemory`, `LLCGeometry`, an explicit number of SoC cycles per timebase
-tick, the boot configuration, and the CHI flit parameters. The public
+`StripedMemory`, `LLCGeometry`, an `RVCoreProfile`, `SoCClockConfig`, the boot
+configuration, and the CHI flit parameters. The public
 `TiledSoC(config)` circuit accepts this author value directly. Its private
 compiler derives mesh coordinates, occurrence ordering, endpoint IDs, CHI
 relationships, routes, the shared physical-link manifest, and all component

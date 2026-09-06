@@ -6,6 +6,7 @@ import:
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../riscv/isa/xlen.rhm".XLen
   "../../cores/rv5stage/core.rhdl".RV5StageCore
+  "../../cores/rv5stage/profile.rhm".RVCoreProfile
 
-def design = embedded.run_elaboration(fun (): RV5StageCore(XLen.X64))
+def design = embedded.run_elaboration(fun (): RV5StageCore(RVCoreProfile(~xlen: XLen.X64)))
 print(emit_circt(design))

@@ -5,11 +5,12 @@ import:
   lib("chi/main.rhdl") open
   lib("rhodium/std/counter.rhdl").Counter
   lib("cores/rv5stage/chi.rhdl").RV5StageCHIIdentity
+  lib("cores/rv5stage/profile.rhm") open
   lib("devices/bootrom.rhdl") open
   lib("devices/aclint.rhdl").AclintIdentity
   lib("devices/uart16550.rhdl").Uart16550Identity
   lib("riscv/isa/c.rhm") open
-  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
   "layout.rhm" open
   "compile.rhdl".compile_tiled_soc
   "distribution.rhdl" open
@@ -18,12 +19,23 @@ import:
   "../host-interface.rhdl".SoCHostInterface
   "../peripherals.rhdl".SoCUartInterface
   "../boot.rhdl".SoCBootDistributor
+  "../description.rhm".SoCClockConfig
 
 def default_tiled_soc_layout = tile_grid:
   row [llc(4)]
   row [host, device_home, aclint, uart]
   row [rv5stage(4)]
   row [rv5stage(4)]
+
+def tiled_soc_core_profile = RVCoreProfile(
+  ~xlen: XLen.X64,
+  ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions),
+  ~mmu_mode: RV5StageMmuMode.Sv39
+)
+def tiled_soc_clocks = SoCClockConfig(
+  ~clock_frequency_hz: 100000000,
+  ~timebase_frequency_hz: 1000000
+)
 
 def default_tiled_soc_config = TiledSoCConfig(
   ~layout: default_tiled_soc_layout,
@@ -47,14 +59,11 @@ def default_tiled_soc_config = TiledSoCConfig(
     ~sets: 16,
     ~ways: 4
   ),
-  ~timebase_period_cycles: 100
+  ~core_profile: tiled_soc_core_profile,
+  ~clocks: tiled_soc_clocks
 )
 
-sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
-                      ~floating_point: profile :: FloatingPointProfile = DefaultFloatingPointProfile,
-                      ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                      ~zfa: zfa_enabled :: Boolean = #false,
-                      ~compressed: compressed_extensions :: List.of(CompressedExtension) = CCompressedExtensions):
+sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
   def implementation = compile_tiled_soc(config)
   def p = implementation.flit
   def site_width = implementation.router_configs.req.route_decoder.site_width
@@ -63,7 +72,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
   output faults: Vec(implementation.rv5stages.length(), Bool)
 
   def rv5stages = for InstanceArray (entry in implementation.rv5stages):
-    inst rv5stage(RV5StageTile(entry.tile_params, ~floating_point: profile, ~half_precision: half_precision, ~zfa: zfa_enabled, ~compressed: compressed_extensions))
+    inst rv5stage(RV5StageTile(entry.tile_params))
   def llcs = for InstanceArray (entry in implementation.llcs):
     inst llc(LLCTile(entry.tile_params))
   def transits = for InstanceArray (entry in implementation.transits):
@@ -78,7 +87,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config,
   inst distribution(TiledDistributionNetwork(implementation.distribution))
   // Platform time advances at the configured architectural timebase; each
   // resulting snapshot and each interrupt change cross the narrow platform NoC.
-  inst timebase(Counter(config.timebase_period_cycles))
+  inst timebase(Counter(config.clocks.timebase_period_cycles))
 
   for (index in 0..implementation.rv5stages.length()):
     def entry = implementation.rv5stages[index]
@@ -192,5 +201,8 @@ export:
   transit_tile
   repeat_tiled_tile
   tile_grid
+  default_tiled_soc_layout
+  tiled_soc_core_profile
+  tiled_soc_clocks
   default_tiled_soc_config
   TiledSoC

@@ -5,6 +5,8 @@ import:
   "../../socs/simple-soc.rhdl" as simple
   "../../socs/mini-soc.rhdl" as soc
 
+def description = soc.mini_soc_params.description
+
 check:
   soc.mini_soc_fabric_params === simple.simple_soc_params.fabric ~is #false
   soc.mini_soc_fabric_params.memory_name ~is "mini-memory"
@@ -14,6 +16,15 @@ check:
   soc.mini_soc_l1_cache_config.sets ~is 32
   soc.mini_soc_l1_cache_config.ways ~is 1
   soc.mini_soc_l1_cache_config.capacity_bytes ~is 0x800
+  description.model ~is "Rhodium MiniSoC"
+  description.compatible ~is ["rhodium,mini-soc"]
+  description.harts ~is [0]
+  description.core_profile === soc.mini_soc_core_profile ~is #true
+  description.clocks === soc.mini_soc_clocks ~is #true
+  description.memory_regions[0].address_set ~is soc.mini_soc_ram_params.service.address_sets[0]
+  description.boot.rom.address_set ~is soc.mini_soc_fabric_params.platform.bootrom.rom_params.service.address_sets[0]
+  description.aclint.region.address_set ~is soc.mini_soc_fabric_params.platform.aclint.service.address_sets[0]
+  description.uart.region.address_set ~is soc.mini_soc_fabric_params.platform.uart.service.address_sets[0]
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base).home === simple.simple_soc_home ~is #true
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base + soc.mini_soc_memory_bytes) ~is #false
   soc.mini_soc_home_map.entry(0x00010000).home === simple.simple_soc_device_home ~is #true

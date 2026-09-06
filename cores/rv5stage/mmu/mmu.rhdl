@@ -3,6 +3,7 @@
 
 import:
   "../fp-types.rhdl" open
+  "../profile.rhm".RV5StageMmuMode
   "protocol.rhdl" open
   "tlb.rhdl" open
   "walker.rhdl" open
@@ -19,6 +20,7 @@ import:
   lib("rhodium/std/flow.rhdl") open
 
 sync_circuit RV5StageMmu(xlen :: XLen,
+                         mmu_mode :: RV5StageMmuMode,
                          physical_map :: RiscvPhysicalMemoryMap,
                          tlb_entries :: Pow2Int = 8):
   def width = xlen.width
@@ -36,7 +38,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst walker(RV5StagePageTableWalker())
   inst instruction_owners(Queue(RV5StageInstructionFault(), 2), ~reset_when: instruction.flush)
 
-  def satp_sv39 = if xlen == XLen.X32 | Bool(#false) | satp[60..64] === bits(8, 4)
+  def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | satp[60..64] === bits(8, 4)
   def root_ppn = if xlen == XLen.X32 | bits(0, 44) | satp[0..44]
   def supervisor_or_user = privilege =/= PrivilegeMode.Machine
   def instruction_translation_enabled = satp_sv39 & supervisor_or_user

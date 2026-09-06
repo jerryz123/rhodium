@@ -23,6 +23,7 @@ each other; share CHI transaction machinery in the parent directory.
 
 | Area | Ownership |
 |---|---|
+| [`profile.rhm`](profile.rhm) | Immutable ISA, MMU, and cache specialization description |
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
@@ -34,7 +35,7 @@ each other; share CHI transaction machinery in the parent directory.
 | [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, translation, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached.rhdl`](uncached.rhdl) | Physical-region routing and shared uncached transactions |
-| [`cache.rhdl`](cache.rhdl), [`chi.rhdl`](chi.rhdl) | Shared cache geometry, physical-region/Home policy, and RN identity parameters |
+| [`cache.rhdl`](cache.rhdl), [`chi.rhdl`](chi.rhdl) | Cache helpers, physical-region/Home policy, and RN identity parameters |
 | [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`dcache/DEVELOPING.md`](dcache/DEVELOPING.md) | Private cache implementation and validation |
 | [`refill.rhdl`](refill.rhdl), [`write-unique.rhdl`](write-unique.rhdl), [`writeback.rhdl`](writeback.rhdl), [`snoop.rhdl`](snoop.rhdl) | Shared refill, ownership acquisition, retry, dirty drain, and snoop engines |
 | [`tests/`](tests/) | Decode, configuration, public specialization, and invalid-use checks |

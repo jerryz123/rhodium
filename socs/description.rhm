@@ -1,0 +1,129 @@
+#lang rhombus
+// Defines the immutable RISC-V architectural description shared by SoC consumers.
+
+import:
+  rhombus.bits.(<<) as <<
+  lib("support/annotations.rhm").NonemptyString
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("cores/rv5stage/profile.rhm").RVCoreProfile
+
+class SoCClockConfig(clock_frequency_hz :: PosInt,
+                     timebase_frequency_hz :: PosInt):
+  implements StableCircuitParam
+
+  constructor (~clock_frequency_hz: clock_frequency_hz :: PosInt,
+               ~timebase_frequency_hz: timebase_frequency_hz :: PosInt):
+    unless timebase_frequency_hz <= clock_frequency_hz
+    | error(~who: #'SoCClockConfig,
+            "timebase frequency must not exceed the SoC clock frequency")
+    unless clock_frequency_hz mod timebase_frequency_hz == 0
+    | error(~who: #'SoCClockConfig,
+            "SoC clock frequency must be an integer multiple of the timebase frequency")
+    super(clock_frequency_hz, timebase_frequency_hz)
+
+  property timebase_period_cycles :: PosInt:
+    clock_frequency_hz / timebase_frequency_hz
+
+class SoCAddressRegion(address_set :: AddressSet):
+  implements StableCircuitParam
+
+  constructor (address_set :: AddressSet):
+    unless (address_set.mask bits.and (address_set.mask + 1)) == 0
+    | error(~who: #'SoCAddressRegion,
+            "architectural address regions must be contiguous")
+    super(address_set)
+
+  property base :: Nat: address_set.base
+  property size_bytes :: PosInt: address_set.mask + 1
+
+  method contains(address :: Nat) :: Boolean:
+    address_set.contains(address)
+
+  method overlaps(other :: SoCAddressRegion) :: Boolean:
+    address_set.overlaps(other.address_set)
+
+class RiscvBootLayout(rom :: SoCAddressRegion,
+                      reset_address :: Nat,
+                      payload_address :: Nat):
+  implements StableCircuitParam
+
+  constructor (~rom: rom :: SoCAddressRegion,
+               ~reset_address: reset_address :: Nat,
+               ~payload_address: payload_address :: Nat):
+    unless rom.contains(reset_address)
+    | error(~who: #'RiscvBootLayout,
+            "reset address must lie in the BootROM region")
+    super(rom, reset_address, payload_address)
+
+class RiscvAclintDescription(region :: SoCAddressRegion):
+  implements StableCircuitParam
+
+class RiscvUartDescription(region :: SoCAddressRegion):
+  implements StableCircuitParam
+
+fun require_unique_strings(strings :: NonemptyList.of(NonemptyString), who :: Symbol):
+  for (value in strings):
+    unless strings.filter(~keep: fun (candidate): candidate == value).length() == 1
+    | error(~who: who, "compatible strings must be unique")
+
+fun require_unique_harts(harts :: NonemptyList.of(Nat), profile :: RVCoreProfile):
+  for (hart in harts):
+    unless hart < (1 << profile.xlen.width)
+    | error(~who: #'RiscvSoCDescription, "hart ID must fit XLEN")
+    unless harts.filter(~keep: fun (candidate): candidate == hart).length() == 1
+    | error(~who: #'RiscvSoCDescription, "hart IDs must be unique")
+
+fun require_disjoint_regions(regions :: NonemptyList.of(SoCAddressRegion)):
+  for (left_index in 0..regions.length()):
+    for (right_index in (left_index + 1)..regions.length()):
+      when regions[left_index].overlaps(regions[right_index])
+      | error(~who: #'RiscvSoCDescription,
+              "architectural address regions must not overlap")
+
+class RiscvSoCDescription(model :: NonemptyString,
+                          compatible :: NonemptyList.of(NonemptyString),
+                          harts :: NonemptyList.of(Nat),
+                          core_profile :: RVCoreProfile,
+                          clocks :: SoCClockConfig,
+                          memory_regions :: NonemptyList.of(SoCAddressRegion),
+                          boot :: RiscvBootLayout,
+                          aclint :: RiscvAclintDescription,
+                          uart :: False || RiscvUartDescription):
+  implements StableCircuitParam
+
+  constructor (~model: model :: NonemptyString,
+               ~compatible: compatible :: NonemptyList.of(NonemptyString),
+               ~harts: harts :: NonemptyList.of(Nat),
+               ~core_profile: core_profile :: RVCoreProfile,
+               ~clocks: clocks :: SoCClockConfig,
+               ~memory_regions: memory_regions :: NonemptyList.of(SoCAddressRegion),
+               ~boot: boot :: RiscvBootLayout,
+               ~aclint: aclint :: RiscvAclintDescription,
+               ~uart: uart :: False || RiscvUartDescription = #false):
+    require_unique_strings(compatible, #'RiscvSoCDescription)
+    require_unique_harts(harts, core_profile)
+    unless for any (region in memory_regions): region.contains(boot.payload_address)
+    | error(~who: #'RiscvSoCDescription,
+            "boot payload address must lie in architectural memory")
+    def mutable regions = memory_regions ++ [boot.rom, aclint.region]
+    when uart is_a RiscvUartDescription
+    | regions := regions ++ [uart.region]
+    require_disjoint_regions(regions)
+    super(model,
+          compatible,
+          harts,
+          core_profile,
+          clocks,
+          memory_regions,
+          boot,
+          aclint,
+          uart)
+
+export:
+  SoCClockConfig
+  SoCAddressRegion
+  RiscvBootLayout
+  RiscvAclintDescription
+  RiscvUartDescription
+  RiscvSoCDescription

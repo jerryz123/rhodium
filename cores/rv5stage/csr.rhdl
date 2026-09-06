@@ -2,6 +2,7 @@
 // Implements RV5Stage's commit-owned CSR, privilege, trap, and interrupt state.
 
 import:
+  "profile.rhm".RVCoreProfile
   "decode/fence-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "interrupt.rhdl" open
@@ -264,9 +265,10 @@ sync_circuit RV5StageFpCsrs():
   frm <== frm_state
   status <== status_state
 
-sync_circuit RV5StageCsrFile(xlen :: XLen,
-                             profile :: FloatingPointProfile = DefaultFloatingPointProfile,
-                             ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions):
+sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
+  def xlen = core_profile.xlen
+  def profile = core_profile.extensions.floating_point
+  def compressed_extensions = core_profile.extensions.compressed
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def zero = bits(0, width)
@@ -282,11 +284,7 @@ sync_circuit RV5StageCsrFile(xlen :: XLen,
   def tvec_mask = !bits(0x3, width)
   def epc_mask = if compressed_enabled | !bits(0x1, width) | !bits(0x3, width)
   def mpp_mask = bits(0x1800, width)
-  def misa_base = if xlen == XLen.X32 | bits(0x40140103, width) | bits(0x8000000000140103, width)
-  def misa_f = if floating_point_supports_f(profile) | bits(1 << 5, width) | zero
-  def misa_d = if floating_point_supports_d(profile) | bits(1 << 3, width) | zero
-  def misa_c = if compressed_extensions_report_misa_c(xlen, profile, compressed_extensions) | bits(1 << 2, width) | zero
-  def misa_value = misa_base ||| misa_f ||| misa_d ||| misa_c
+  def misa_value = bits(core_profile.misa_value, width)
 
   input interrupts: RV5StageInterrupts()
   input hart_id: Bits(width)

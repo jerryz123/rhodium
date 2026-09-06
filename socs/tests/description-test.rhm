@@ -1,0 +1,104 @@
+#lang rhombus
+// Checks generic RISC-V SoC descriptions and their architectural invariants.
+
+import:
+  "../description.rhm" open
+  "../../cores/rv5stage/profile.rhm" open
+  "../../rhodium/std/interconnect.rhdl".AddressSet
+  "../../riscv/isa/xlen.rhm".XLen
+
+def profile = RVCoreProfile(
+  ~xlen: XLen.X64,
+  ~mmu_mode: RV5StageMmuMode.Sv39
+)
+def clocks = SoCClockConfig(
+  ~clock_frequency_hz: 100000000,
+  ~timebase_frequency_hz: 1000000
+)
+def memory = SoCAddressRegion(AddressSet(0x80000000, 0x3fffffff))
+def rom = SoCAddressRegion(AddressSet(0x00010000, 0xfff))
+def aclint = RiscvAclintDescription(
+  SoCAddressRegion(AddressSet(0x02000000, 0xffff))
+)
+def uart = RiscvUartDescription(
+  SoCAddressRegion(AddressSet(0x10000000, 0x7))
+)
+def boot = RiscvBootLayout(
+  ~rom: rom,
+  ~reset_address: 0x00010000,
+  ~payload_address: 0x80000000
+)
+def description = RiscvSoCDescription(
+  ~model: "Rhodium test SoC",
+  ~compatible: ["rhodium,test-soc", "riscv"],
+  ~harts: [0, 1],
+  ~core_profile: profile,
+  ~clocks: clocks,
+  ~memory_regions: [memory],
+  ~boot: boot,
+  ~aclint: aclint,
+  ~uart: uart
+)
+
+check:
+  clocks.timebase_period_cycles ~is 100
+  memory.base ~is 0x80000000
+  memory.size_bytes ~is 0x40000000
+  description.harts ~is [0, 1]
+  description.uart === uart ~is #true
+
+check:
+  SoCClockConfig(
+    ~clock_frequency_hz: 100000000,
+    ~timebase_frequency_hz: 3000000
+  ) ~throws "integer multiple"
+  SoCAddressRegion(AddressSet(0x80000000, 0x2fff)) ~throws "contiguous"
+  RiscvBootLayout(
+    ~rom: rom,
+    ~reset_address: 0x20000,
+    ~payload_address: 0x80000000
+  ) ~throws "reset address"
+  RiscvSoCDescription(
+    ~model: "duplicate harts",
+    ~compatible: ["rhodium,test-soc"],
+    ~harts: [0, 0],
+    ~core_profile: profile,
+    ~clocks: clocks,
+    ~memory_regions: [memory],
+    ~boot: boot,
+    ~aclint: aclint
+  ) ~throws "hart IDs"
+  RiscvSoCDescription(
+    ~model: "missing payload",
+    ~compatible: ["rhodium,test-soc"],
+    ~harts: [0],
+    ~core_profile: profile,
+    ~clocks: clocks,
+    ~memory_regions: [SoCAddressRegion(AddressSet(0x90000000, 0xffff))],
+    ~boot: boot,
+    ~aclint: aclint
+  ) ~throws "boot payload"
+  RiscvSoCDescription(
+    ~model: "overlap",
+    ~compatible: ["rhodium,test-soc"],
+    ~harts: [0],
+    ~core_profile: profile,
+    ~clocks: clocks,
+    ~memory_regions: [SoCAddressRegion(AddressSet(0x02000000, 0xffff))],
+    ~boot: RiscvBootLayout(
+      ~rom: rom,
+      ~reset_address: 0x00010000,
+      ~payload_address: 0x02000000
+    ),
+    ~aclint: aclint
+  ) ~throws "must not overlap"
+  RiscvSoCDescription(
+    ~model: "no UART",
+    ~compatible: ["rhodium,test-soc"],
+    ~harts: [0],
+    ~core_profile: profile,
+    ~clocks: clocks,
+    ~memory_regions: [memory],
+    ~boot: boot,
+    ~aclint: aclint
+  ).uart ~is #false

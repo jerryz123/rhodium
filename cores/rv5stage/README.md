@@ -281,15 +281,18 @@ specialized core definition to be stamped at multiple placements.
 
 ### Generator parameters
 
+[`profile.rhm`](profile.rhm) defines the immutable `RVCoreProfile` host
+model: XLEN, effective ISA extensions, MMU mode, and independent instruction
+and data cache geometry. It validates supported combinations, derives the
+canonical ISA extension list and `misa` value, and is the sole architectural
+specialization input to `RV5Stage` and `RV5StageCore`.
+
 | Parameter | Meaning |
 |---|---|
-| `xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
-| `~floating_point` | `None`, RV32F, or RV64D-compatible FP profile |
-| `~half_precision` | `None`, `Zfhmin`, or `Zfh`; requires an enabled F/D profile |
-| `~zfa` | Enables Zfa for the selected F/D formats and full-Zfh half precision; defaults to false |
-| `~compressed` | A validated list of `CompressedExtension` values; defaults to none, with `ZcaCompressedExtensions` and `CCompressedExtensions` as presets and Zcb or Zcmop independently composable over Zca/C |
-| `~icache` | L1I set and way geometry; defaults to `RV5StageCacheConfig(64, 1)` |
-| `~dcache` | L1D set and way geometry; defaults independently to `RV5StageCacheConfig(64, 1)` |
+| `profile.xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
+| `profile.extensions` | Floating-point, half-precision, Zfa, and compressed-extension selection |
+| `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
+| `profile.cache_geometry` | Independent L1I and L1D set and way geometry |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |
 
 All supported compressed-extension selections include Zca and permit two-byte

@@ -6,16 +6,23 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../cache.rhdl" as cache
   "../chi.rhdl" as chi
+  "../profile.rhm" as core_profile
   "../rv5stage.rhdl" as rv5stage
   "params.rhdl" as test_params
 
 def config = test_params.test_rv5stage_chi_config
 def params = test_params.test_rv5stage_chi_params
 def rv64_design = embedded.run_elaboration(
-  fun (): rv5stage.RV5Stage(XLen.X64, ~chi: config)
+  fun (): rv5stage.RV5Stage(
+    core_profile.RVCoreProfile(
+      ~xlen: XLen.X64,
+      ~mmu_mode: core_profile.RV5StageMmuMode.Sv39
+    ),
+    ~chi: config
+  )
 )
 def rv32_design = embedded.run_elaboration(
-  fun (): rv5stage.RV5Stage(XLen.X32, ~chi: config)
+  fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X32), ~chi: config)
 )
 def rv64 = rv64_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def rv32 = rv32_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
@@ -36,11 +43,17 @@ check:
   rv32.find_output("dmem_out").type.field("request_data").type.field("bits").type.field("data").type.width ~is 128
   embedded.run_elaboration(
     fun (): rv5stage.RV5Stage(
-      XLen.X32,
-      ~icache: cache.RV5StageCacheConfig(268435456, 1),
+      core_profile.RVCoreProfile(
+        ~xlen: XLen.X32,
+        ~cache_geometry: core_profile.RV5StageCacheGeometry(
+          ~instruction: cache.RV5StageCacheConfig(268435456, 1)
+        )
+      ),
       ~chi: config
     )
   ) ~throws "address width"
-  embedded.run_elaboration(fun (): rv5stage.RV5Stage(64, ~chi: config)) ~throws "XLen"
+  embedded.run_elaboration(
+    fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: 64), ~chi: config)
+  ) ~throws "XLen"
   chi.RV5StageCHIParams(config, 1, 3) ~throws "distinct"
   chi.RV5StageCHIParams(config, 128, 3) ~throws "fit"

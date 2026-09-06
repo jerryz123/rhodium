@@ -5,10 +5,14 @@ import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../cores/rv5stage/core.rhdl" open
+  "../../cores/rv5stage/profile.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
 
 def design = embedded.run_elaboration(
-  fun (): RV5StageCore(XLen.X32, FloatingPointProfile.F)
+  fun (): RV5StageCore(RVCoreProfile(
+    ~xlen: XLen.X32,
+    ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F)
+  ))
 )
 print(emit_circt(design))

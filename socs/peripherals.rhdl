@@ -8,6 +8,7 @@ import:
   lib("devices/aclint.rhdl") open
   lib("devices/uart16550.rhdl") open
   "boot.rhdl" open
+  "description.rhm" open
 
 def SoCAclintBase = 0x02000000
 def SoCUartBase = 0x10000000
@@ -62,6 +63,16 @@ class SoCPlatformParams(flit :: CHIFlitParams,
   property uart_config: Uart16550Config(flit, uart_fifo_depth)
   property uart:
     Uart16550Params("soc-uart", uart_node_id, uart_config, SoCUartBase)
+  property boot_description:
+    RiscvBootLayout(
+      ~rom: SoCAddressRegion(bootrom.rom_params.service.address_sets[0]),
+      ~reset_address: boot.reset_address,
+      ~payload_address: boot.payload_address
+    )
+  property aclint_description:
+    RiscvAclintDescription(SoCAddressRegion(aclint.service.address_sets[0]))
+  property uart_description:
+    RiscvUartDescription(SoCAddressRegion(uart.service.address_sets[0]))
   property subordinate_map:
     CHISubordinateMap(flit, [bootrom.rom_params.service, aclint.service, uart.service])
   property regions: [bootrom.region] ++ soc_peripheral_regions(home)

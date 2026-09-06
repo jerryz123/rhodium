@@ -360,19 +360,8 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                     placement.home_node_id,
                     CHINodeKind.HNF,
                     ~max_outstanding: 1)
-  def device_home = CHIHomeParams("tiled-device-home",
-                                  device_home_placement.node_id,
-                                  CHINodeKind.HNI,
-                                  ~max_outstanding: 1)
-  def platform = SoCPlatformParams(
-    flit,
-    rv5stage_placements.length(),
-    device_home,
-    config.boot,
-    bootrom_placement.node_id,
-    aclint_placement.node_id,
-    uart_placement.node_id
-  )
+  def device_home = config.device_home
+  def platform = config.platform_for(device_home)
 
   def memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
   def rv5stage_config = RV5StageCHIConfig(
@@ -549,7 +538,8 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
 
   def rv5stage_tile_params = RV5StageTileParams(rv5stage_config,
                                                 rv5stage_router_params,
-                                                rv5stage_placements.length())
+                                                rv5stage_placements.length(),
+                                                config.core_profile)
   def llc_tile_params = LLCTileParams(llc_config,
                                       projector_config,
                                       fragmenter_config,

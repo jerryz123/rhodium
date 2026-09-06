@@ -31,6 +31,7 @@ configure and connect those public contracts, not fork their behavior.
 
 | Concern | Owner |
 |---|---|
+| Architectural host description | [`description.rhm`](description.rhm) |
 | Common coherent host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
 | Shared device windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
 | Primary external-memory composition | [`simple-soc.rhdl`](simple-soc.rhdl) |

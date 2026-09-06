@@ -5,8 +5,15 @@ import:
   rhombus/meta open
   "../../noc/std/topology/rectangular-mesh.rhm".MeshCoordinate
   "../../chi/params.rhdl".CHIFlitParams
+  "../../chi/fabric.rhdl".CHIHomeParams
+  "../../chi/link.rhdl".CHINodeKind
+  "../../rhodium/std/bits.rhdl".Pow2Int
+  "../../rhodium/std/interconnect.rhdl".AddressSet
   "../../rhodium/frontend/foundation.rhm".StableCircuitParam
+  "../../cores/rv5stage/profile.rhm".RVCoreProfile
   "../boot.rhdl" open
+  "../description.rhm" open
+  "../peripherals.rhdl".SoCPlatformParams
 
 export:
   RV5StageTileSpec
@@ -152,11 +159,11 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
           uart_subordinate)
 
 class StripedMemory(base :: Nat,
-                    bank_bytes :: PosInt,
-                    stripe_bytes :: PosInt):
+                    bank_bytes :: Pow2Int,
+                    stripe_bytes :: Pow2Int):
   constructor (~base: base :: Nat,
-               ~bank_bytes: bank_bytes :: PosInt,
-               ~stripe_bytes: stripe_bytes :: PosInt):
+               ~bank_bytes: bank_bytes :: Pow2Int,
+               ~stripe_bytes: stripe_bytes :: Pow2Int):
     super(base, bank_bytes, stripe_bytes)
 
 fun tiled_power_of_two(value :: PosInt) :: Boolean:
@@ -177,16 +184,47 @@ class TiledSoCConfig(layout :: TileGrid,
                      node_ids :: TiledNodeIds,
                      memory :: StripedMemory,
                      llc :: LLCGeometry,
-                     timebase_period_cycles :: PosInt,
+                     core_profile :: RVCoreProfile,
+                     clocks :: SoCClockConfig,
                      flit :: CHIFlitParams,
                      boot :: SoCBootConfig):
   implements StableCircuitParam
+
+  property hart_count: layout.rv5stages.length()
+  property memory_bytes: memory.bank_bytes * layout.llcs.length()
+  property device_home:
+    CHIHomeParams("tiled-device-home",
+                  node_ids.device_home,
+                  CHINodeKind.HNI,
+                  ~max_outstanding: 1)
+  method platform_for(home :: CHIHomeParams):
+    SoCPlatformParams(flit,
+                      hart_count,
+                      home,
+                      boot,
+                      node_ids.bootrom_subordinate,
+                      node_ids.aclint_subordinate,
+                      node_ids.uart_subordinate)
+  property platform: platform_for(device_home)
+  property description:
+    RiscvSoCDescription(
+      ~model: "Rhodium TiledSoC",
+      ~compatible: ["rhodium,tiled-soc"],
+      ~harts: for List (index in 0..hart_count): index,
+      ~core_profile: core_profile,
+      ~clocks: clocks,
+      ~memory_regions: [SoCAddressRegion(AddressSet(memory.base, memory_bytes - 1))],
+      ~boot: platform.boot_description,
+      ~aclint: platform.aclint_description,
+      ~uart: platform.uart_description
+    )
 
   constructor (~layout: layout :: TileGrid,
                ~node_ids: node_ids :: TiledNodeIds,
                ~memory: memory :: StripedMemory,
                ~llc: llc :: LLCGeometry,
-               ~timebase_period_cycles: timebase_period_cycles :: PosInt,
+               ~core_profile: core_profile :: RVCoreProfile,
+               ~clocks: clocks :: SoCClockConfig,
                ~flit: flit :: CHIFlitParams = CHIFlitParams(),
                ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory.base)):
     unless memory.stripe_bytes >= 64
@@ -195,7 +233,13 @@ class TiledSoCConfig(layout :: TileGrid,
     unless llc.capacity_bytes <= memory.bank_bytes
     | error(~who: #'TiledSoCConfig,
             "each LLC must fit within its backing-memory bank")
-    super(layout, node_ids, memory, llc, timebase_period_cycles, flit, boot)
+    unless tiled_power_of_two(layout.llcs.length())
+    | error(~who: #'TiledSoCConfig,
+            "LLC count must be a power of two for striped memory")
+    unless core_profile.xlen.width == 64
+    | error(~who: #'TiledSoCConfig, "TiledSoC requires an RV64 core profile")
+    AddressSet(memory.base, (memory.bank_bytes * layout.llcs.length()) - 1)
+    super(layout, node_ids, memory, llc, core_profile, clocks, flit, boot)
 
 meta:
   fun tile_run(entry :: Syntax):

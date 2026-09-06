@@ -11,6 +11,7 @@ def compact_soc_params = soc.SimpleSoCParams(
   ~llc_sets: 16,
   ~llc_ways: 2
 )
+def description = soc.simple_soc_params.description
 
 check:
   soc.simple_soc_topology.injections ~is []
@@ -37,6 +38,15 @@ check:
   soc.simple_soc_params.llc_config.sets ~is 64
   soc.simple_soc_params.llc_config.ways ~is 4
   soc.simple_soc_params.llc_config.capacity_bytes ~is 16384
+  description.model ~is "Rhodium SimpleSoC"
+  description.compatible ~is ["rhodium,simple-soc"]
+  description.harts ~is [0]
+  description.core_profile === soc.simple_soc_params.core_profile ~is #true
+  description.clocks === soc.simple_soc_params.clocks ~is #true
+  description.memory_regions[0].address_set ~is soc.simple_soc_memory_service.address_sets[0]
+  description.boot.rom.address_set ~is soc.simple_soc_platform.bootrom.rom_params.service.address_sets[0]
+  description.aclint.region.address_set ~is soc.simple_soc_aclint_params.service.address_sets[0]
+  description.uart.region.address_set ~is soc.simple_soc_uart_params.service.address_sets[0]
   compact_soc_params.llc_config.sets ~is 16
   compact_soc_params.llc_config.ways ~is 2
   compact_soc_params.llc_config.capacity_bytes ~is 2048

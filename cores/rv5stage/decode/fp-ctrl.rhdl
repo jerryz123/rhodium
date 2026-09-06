@@ -2,6 +2,7 @@
 // Defines RV5Stage's profile-selected F and D register and execution controls.
 
 import:
+  "../profile.rhm" open
   "decode-support.rhdl" open
   "../fp-types.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
@@ -54,26 +55,6 @@ hardware_enum RV5StageFloatComparison:
 hardware_enum RV5StageFloatIntegerWidth:
   Word
   Long
-
-fun rv5stage_floating_point_profile_supported(xlen :: XLen,
-                                              profile :: FloatingPointProfile,
-                                              half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                                              ~zfa: zfa_enabled :: Boolean = #false):
-  ((profile == FloatingPointProfile.None) || (
-    (xlen == XLen.X32) && (profile == FloatingPointProfile.F)
-  ) || (
-    (xlen == XLen.X64) && (profile == FloatingPointProfile.D)
-  )) && !(profile == FloatingPointProfile.None && (
-    half_precision != HalfPrecisionProfile.None || zfa_enabled
-  ))
-
-fun check_rv5stage_floating_point_profile(xlen :: XLen,
-                                          profile :: FloatingPointProfile,
-                                          half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-                                          ~zfa: zfa_enabled :: Boolean = #false):
-  unless rv5stage_floating_point_profile_supported(xlen, profile, half_precision, ~zfa: zfa_enabled)
-  | error(~who: #'check_rv5stage_floating_point_profile,
-          "RV5Stage supports only disabled FP, RV32F, or RV64D, with optional Zfhmin, Zfh, or Zfa")
 
 bundle RV5StageFloatRegisterControl():
   uses_integer_rs1: Bool

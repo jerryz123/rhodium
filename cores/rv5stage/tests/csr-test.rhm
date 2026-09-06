@@ -6,10 +6,11 @@ import:
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../riscv/isa/xlen.rhm" open
   "../csr.rhdl" as csr
+  "../profile.rhm".RVCoreProfile
 
-def rv64_design = embedded.run_elaboration(fun (): csr.RV5StageCsrFile(XLen.X64))
+def rv64_design = embedded.run_elaboration(fun (): csr.RV5StageCsrFile(RVCoreProfile(~xlen: XLen.X64)))
 def rv64 = rv64_design.modules[0]
-def rv32_design = embedded.run_elaboration(fun (): csr.RV5StageCsrFile(XLen.X32))
+def rv32_design = embedded.run_elaboration(fun (): csr.RV5StageCsrFile(RVCoreProfile(~xlen: XLen.X32)))
 def rv32 = rv32_design.modules[0]
 check:
   rv64.inputs.map(fun (port): port.name) ~is [

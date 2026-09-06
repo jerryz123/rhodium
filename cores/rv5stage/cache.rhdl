@@ -3,22 +3,7 @@
 
 import:
   lib("rhodium/std/bits.rhdl") open
-
-def RV5StageCacheLineBytes :: Pow2Int = 64
-
-class RV5StageCacheConfig(sets :: Pow2Int, ways :: PosInt):
-  implements StableCircuitParam
-
-  constructor (sets :: Pow2Int, ways :: PosInt):
-    unless sets >= 2
-    | error(~who: #'RV5StageCacheConfig,
-            "set count must be a power of two of at least two")
-    super(sets, ways)
-
-  property set_width :: PosInt: alignment_bits(sets)
-  property way_width :: PosInt: index_width(ways)
-  property line_count :: PosInt: sets * ways
-  property capacity_bytes :: PosInt: line_count * RV5StageCacheLineBytes
+  "profile.rhm" open
 
 fun rv5stage_cache_way_mask(config :: RV5StageCacheConfig,
                             way :: Bits(config.way_width)) :: Mask(config.ways):

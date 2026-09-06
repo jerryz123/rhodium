@@ -3,7 +3,10 @@
 
 import:
   lib("chi/main.rhdl") open
-  lib("cores/rv5stage/cache.rhdl").RV5StageCacheConfig
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("cores/rv5stage/profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("socs/description.rhm").SoCClockConfig
   lib("socs/simple-soc.rhdl") as simple
   lib("socs/host-interface.rhdl").SoCHostInterface
   lib("socs/peripherals.rhdl").SoCUartInterface
@@ -20,24 +23,52 @@ def mini_soc_host_node = simple.simple_soc_host_node
 def mini_soc_ram_config = mini_soc_fabric_params.ram_config
 def mini_soc_ram_params = mini_soc_fabric_params.ram_params
 def mini_soc_l1_cache_config = RV5StageCacheConfig(32, 1)
+def mini_soc_core_profile = RVCoreProfile(
+  ~xlen: XLen.X64,
+  ~mmu_mode: RV5StageMmuMode.Sv39,
+  ~cache_geometry: RV5StageCacheGeometry(
+    ~instruction: mini_soc_l1_cache_config,
+    ~data: mini_soc_l1_cache_config
+  )
+)
+def mini_soc_clocks = simple.simple_soc_clocks
 
-sync_circuit MiniSoC(params :: simple.SimpleSoCFabricParams = mini_soc_fabric_params,
-                     ~icache: instruction_cache :: RV5StageCacheConfig = mini_soc_l1_cache_config,
-                     ~dcache: data_cache :: RV5StageCacheConfig = mini_soc_l1_cache_config):
-  interface host(SoCHostInterface(params.flit), ~role: soc)
+class MiniSoCParams(fabric :: simple.SimpleSoCFabricParams,
+                    core_profile :: RVCoreProfile,
+                    clocks :: SoCClockConfig):
+  implements StableCircuitParam
+
+  property description:
+    fabric.description("Rhodium MiniSoC",
+                       ["rhodium,mini-soc"],
+                       core_profile,
+                       clocks)
+
+  constructor (fabric :: simple.SimpleSoCFabricParams,
+               ~core_profile: core_profile :: RVCoreProfile = mini_soc_core_profile,
+               ~clocks: clocks :: SoCClockConfig = mini_soc_clocks):
+    unless core_profile.xlen == XLen.X64
+    | error(~who: #'MiniSoCParams, "MiniSoC requires an RV64 core profile")
+    super(fabric, core_profile, clocks)
+
+def mini_soc_params = MiniSoCParams(mini_soc_fabric_params)
+
+sync_circuit MiniSoC(params :: MiniSoCParams = mini_soc_params):
+  def fabric_params = params.fabric
+  interface host(SoCHostInterface(fabric_params.flit), ~role: soc)
   interface uart(SoCUartInterface(), ~role: soc)
 
-  inst fabric(simple.SimpleSoCFabric(params,
-                                     ~icache: instruction_cache,
-                                     ~dcache: data_cache))
-  inst ram(CHIRam(params.ram_config))
+  inst fabric(simple.SimpleSoCFabric(fabric_params,
+                                     params.core_profile,
+                                     params.clocks))
+  inst ram(CHIRam(fabric_params.ram_config))
 
   host <=> fabric.host
   uart <=> fabric.uart
   fabric.memory <=> ram.port
-  ram.identity <== CHIRamIdentity(params.flit):
-    node_id: bits(params.memory_node.node_id, params.flit.node_id_width)
-    base_address: bits(params.memory_base, params.flit.request_address_width)
+  ram.identity <== CHIRamIdentity(fabric_params.flit):
+    node_id: bits(fabric_params.memory_node.node_id, fabric_params.flit.node_id_width)
+    base_address: bits(fabric_params.memory_base, fabric_params.flit.request_address_width)
 
 def design = elaborate(MiniSoC())
 
@@ -51,5 +82,9 @@ export:
   mini_soc_ram_config
   mini_soc_ram_params
   mini_soc_l1_cache_config
+  mini_soc_core_profile
+  mini_soc_clocks
+  MiniSoCParams
+  mini_soc_params
   MiniSoC
   design
