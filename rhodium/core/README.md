@@ -232,6 +232,14 @@ nested vectors and record elements.
 - Expanding arithmetic is frontend composition over explicit extensions and
   modular core operations.
 
+These width rules are deliberate, not placeholders for a separate unsigned
+integer hierarchy or an inference pass. Rhodium uses `Bits(width)` for raw
+packed data and unsigned modular arithmetic, keeps every width explicit during
+elaboration, and requires named operations for width changes. A distinct
+`UInt`, implicit widths, and general width inference are intentionally outside
+the language model. Consequently, operation types and result widths do not
+depend on surrounding expressions or a later backend inference phase.
+
 ## Operation reference
 
 Operations use namespaced `rtl.*`, `cdc.*`, `verif.*`, and `sim.*` opcodes plus
@@ -321,9 +329,13 @@ is a caller precondition; zero-hot and multi-hot selectors have an unspecified
 result. This permits direct selector-bit gating and reduction without validity
 logic or a default value.
 
-There is no conditional-connect operation or general control-flow region.
-Frontend hardware conditionals canonicalize to mux lookups and one final
-drive.
+The absence of conditional-connect operations, general IR regions, and
+control-flow blocks is also deliberate rather than deferred. Host control flow
+runs during elaboration; frontend hardware conditionals canonicalize to mux
+lookups, guarded effects, and one final drive. Every core consumer therefore
+receives one explicit dataflow graph instead of having to interpret region or
+control-flow semantics before dependency analysis, verification, formal
+translation, or backend lowering.
 
 `rtl.dont_care` is deliberately narrower than an unknown-value model. It is a
 zero-operand `Bits` source whose bits may be chosen independently by synthesis.

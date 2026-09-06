@@ -250,13 +250,10 @@ The current vertical slice includes:
 
 ## Deferred work
 
-- A dedicated `UInt` distinct from raw `Bits`, implicit widths, and general
-  width inference
 - Memory initialization, masks on asynchronous-read memories, general
   multi-port synchronous memories, and defined inter-port collisions
 - Asynchronous reset, reset-polarity metadata, and policy/approval semantics
   for crossings identified by multi-domain temporal analysis
-- General IR regions and control-flow blocks
 - Runtime-loaded operation dialects
 - Multi-role protocols, optional interface fields, and generated protocol
   assertions
