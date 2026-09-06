@@ -32,6 +32,7 @@ check:
   data_request_member.type.name ~is "Decoupled"
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("data").type.width ~is 64
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 64
+  cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("access").type.width ~is 3
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("atomic").type.width ~is 4
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("destination").type.width ~is 2
@@ -44,6 +45,7 @@ check:
   cache.find_output("chi_out").type.field("request_data").type.field("bits").type.field("byte_enable").type.width ~is 16
   rv32_cache.find_input("core_in").type.field("request").type.field("bits").type.field("data").type.width ~is 32
   rv32_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 32
+  rv32_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 32
   rv32_cache.find_output("core_out").type.field("response").type.field("bits").type.field("data").type.width ~is 32
   rv32_cache.find_output("chi_out").type.field("requests").type.field("bits").type.field("address").type.width ~is 44
   embedded.run_elaboration(

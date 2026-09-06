@@ -2,6 +2,7 @@
 // Implements RV5Stage's pipelined-hit set-associative instruction cache.
 
 import:
+  "../../cache-prefetch.rhdl" open
   "protocol.rhdl" open
   "../cache.rhdl" open
   "../chi/foundation.rhdl" open
@@ -23,6 +24,11 @@ bundle RV5StageL1IRefillContext(address_width :: PosInt,
                                 way_width :: PosInt):
   address: Bits(address_width)
   way: Bits(way_width)
+  prefetch: Bool
+
+bundle RV5StageL1ILookup(address_width :: PosInt):
+  address: Bits(address_width)
+  prefetch: Bool
 
 sync_circuit RV5StageL1ICache(xlen :: XLen,
                               cache :: RV5StageCacheConfig,
@@ -47,6 +53,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
 
   input node_id: Bits(p.node_id_width)
   interface core(RV5StageInstructionAccess(xlen), ~role: responder)
+  interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface chi(CHIRNChannels(p), ~role: node)
 
   inst tags(SyncRam1RW(sets, Bits(tag_width), ways))
@@ -56,7 +63,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   inst snoop(RV5StageCleanSnoop(width, config))
   refill.node_id <== node_id
   snoop.node_id <== node_id
-  inst lookup(Pipe(Bits(width), 1))
+  inst lookup(Pipe(RV5StageL1ILookup(width), 1))
   inst response_arbiter(Arbiter(RV5StageInstructionResp(), 2))
   def cache_flush = core.flush ||| core.invalidate_all
   inst responses(Queue(RV5StageInstructionResp(), 2, ~flow: #true), ~reset_when: cache_flush)
@@ -123,9 +130,14 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
                "l1i_snoop_hit_unique")
   def snoop_pending = snoop.pending
   def response_fire = core.response.fire()
-  def request_set_value = core.request.bits.address[offset_width..(offset_width + set_width)]
-  def request_data_address = core.request.bits.address[word_offset_width..(offset_width + set_width)]
-  def lookup_address = lookup.egress.bits
+  def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
+  def prefetch_valid = prefetch.valid & (prefetch_request.operation === CachePrefetchOperation.Instruction)
+  def lookup_input_prefetch = !core.request.valid & prefetch_valid
+  def lookup_input_address = mux(lookup_input_prefetch, prefetch_request.address, core.request.bits.address)
+  def request_set_value = lookup_input_address[offset_width..(offset_width + set_width)]
+  def request_data_address = lookup_input_address[word_offset_width..(offset_width + set_width)]
+  def lookup_context = lookup.egress.bits.into(RV5StageL1ILookup(width))
+  def lookup_address = lookup_context.address
   def lookup_set = lookup_address[offset_width..(offset_width + set_width)]
   def lookup_tag = lookup_address[(offset_width + set_width)..width]
   def lookup_valids = valid_lines[lookup_set]
@@ -176,31 +188,34 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   // combinational request-admission path. A miss transfers its address into
   // the refill engine and blocks new requests until that transaction completes.
   def lookup_accepts_input = !cache_flush & !snoop_pending & refill.command.ready & !lookup_miss & response_capacity
-  (
-    core.request
-      |> gate_flow(lookup_accepts_input)
-      |> map_flow(request => request.address)
-  ) |> lookup.ingress
+  core.request.ready <== lookup_accepts_input & lookup.ingress.ready
+  lookup.ingress.valid <== lookup_accepts_input & (core.request.valid ||| lookup_input_prefetch)
+  lookup.ingress.bits <== RV5StageL1ILookup(width):
+    address: lookup_input_address
+    prefetch: lookup_input_prefetch
   def request_fire = core.request.fire()
+  def lookup_issue = lookup.ingress.fire()
 
   def Array(miss_path, hit_path) = (
     lookup.egress
-      |> filter_flow(address => tags.port.response.valid & !cache_flush)
-      |> demux_flow(2, address => line_hit.as_bits())
+      |> filter_flow(_context => tags.port.response.valid & !cache_flush)
+      |> demux_flow(2, _context => line_hit.as_bits())
   )
-  fun refill_context(address :: Bits(width)) :~ RV5StageL1IRefillContext(width, way_width):
+  fun refill_context(context :: RV5StageL1ILookup(width)) :~ RV5StageL1IRefillContext(width, way_width):
+    def address = context.address
     def set = address[offset_width..(offset_width + set_width)]
     def valid = valid_lines[set]
     def replacement = replacement_ways[set]
     RV5StageL1IRefillContext(width, way_width):
       address: address
       way: rv5stage_cache_replacement_way(cache, valid, replacement)
+      prefetch: context.prefetch
   def refill_commands = (
     miss_path
-      |> map_flow(address => RV5StageLineRefillCommand(RV5StageL1IRefillContext(width, way_width), width)):
-        line_address: align_down(address, RV5StageCacheLineBytes)
+      |> map_flow(context => RV5StageLineRefillCommand(RV5StageL1IRefillContext(width, way_width), width)):
+        line_address: align_down(context.address, RV5StageCacheLineBytes)
         opcode: CHIReqOpcode.ReadClean
-        context: refill_context(address)
+        context: refill_context(context)
   )
   refill_commands |> refill.command
   assert(!lookup_miss ||| cache_flush ||| refill.command.ready,
@@ -208,7 +223,8 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
 
   def hit_responses = (
     hit_path
-      |> map_flow(address => RV5StageInstructionResp()):
+      |> filter_flow(context => !context.prefetch)
+      |> map_flow(_context => RV5StageInstructionResp()):
         word: cached_fetch_word
         page_fault: Bool(#false)
         access_fault: Bool(#false)
@@ -219,7 +235,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def refill_responses = (
     refill.completion
       |> gate_flow(refill_completion_may_finish & (refill_installing ||| !snoop_pending))
-      |> filter_flow(result => refill_live & !cache_flush)
+      |> filter_flow(result => refill_live & !result.context.prefetch & !cache_flush)
       |> map_flow(result => RV5StageInstructionResp()):
         word: completion_fetch_word
         page_fault: Bool(#false)
@@ -258,7 +274,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     for (byte in 0..word_bytes):
       line_write_bytes := line_write_bytes ++ [refill_word_bytes[byte]]
 
-  tags.port.request.valid <== request_fire ||| install ||| snoop_lookup_start
+  tags.port.request.valid <== lookup_issue ||| install ||| snoop_lookup_start
   tags.port.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
     address: mux(install,
                  completion_set,
@@ -276,7 +292,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     write: install ||| update_snoop_state
     data: vec(for List (_way in 0..ways): state_write_data)
     mask: mux(update_snoop_state, snoop_update_way_mask, install_way_mask)
-  lines.port.request.valid <== request_fire ||| refill_install_word
+  lines.port.request.valid <== lookup_issue ||| refill_install_word
   lines.port.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: mux(refill_install_word,
                  (completion_set ++ refill_install_index),
@@ -333,7 +349,11 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def refill_state_event = refill_start ||| refill_complete
   def accounting_event = request_fire ^ response_fire
   def cache_state_event = refill_state_event ||| accounting_event
-  def next_refill_live = mux(refill_start, Bool(#true), mux(refill_complete, Bool(#false), refill_live))
+  def next_refill_live = mux(
+    refill_start,
+    !refill.command.bits.context.prefetch,
+    mux(refill_complete, Bool(#false), refill_live)
+  )
   when cache_flush:
     refill_live <== Bool(#false)
     outstanding <== bits(0, outstanding_width)

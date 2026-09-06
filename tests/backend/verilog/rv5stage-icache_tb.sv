@@ -1,7 +1,9 @@
-// Verifies RV5Stage L1I refills, hits, selective snoops, and paired DVM over ready-valid RN-F.
+// Verifies RV5Stage L1I prefetches, refills, hits, selective snoops, and paired DVM.
 module rv5stage_icache_tb;
   typedef struct packed { logic [63:0] address; } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
+  typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_bits_t;
+  typedef struct packed { logic valid; prefetch_bits_t bits; } prefetch_t;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [31:0] word; logic page_fault; logic access_fault; } instruction_bits_t;
   typedef struct packed { logic valid; instruction_bits_t bits; } instruction_resp_t;
@@ -45,16 +47,31 @@ module rv5stage_icache_tb;
   logic [6:0] node_id = CACHE_ID;
   core_in_t core_in;
   core_out_t core_out;
+  prefetch_t prefetch_in;
   chi_in_t chi_in;
   chi_out_t chi_out;
+  logic forbid_core_response = 1'b0;
 
   RV5StageL1ICache dut (.*);
   always #5 clock = ~clock;
 
   task automatic tick;
     begin
+      if (forbid_core_response)
+        assert (!core_out.response.valid)
+          else $fatal(1, "L1I produced a response for a prefetch");
       @(posedge clock);
       #1;
+    end
+  endtask
+
+  task automatic send_prefetch(input logic [63:0] address);
+    begin
+      prefetch_in.bits.address = address;
+      prefetch_in.bits.operation = 2'd1;
+      prefetch_in.valid = 1'b1;
+      tick();
+      prefetch_in = '0;
     end
   endtask
 
@@ -257,6 +274,7 @@ module rv5stage_icache_tb;
   localparam logic [63:0] ADDRESS = 64'h00000001_00000000;
   localparam logic [63:0] SECOND_ADDRESS = 64'h00000001_00000040;
   localparam logic [63:0] THIRD_ADDRESS = 64'h00000001_00000080;
+  localparam logic [63:0] PREFETCH_ADDRESS = 64'h00000001_000000c0;
   localparam logic [511:0] LINE = {
     64'hffffffff_eeeeeeee,
     64'hdddddddd_cccccccc,
@@ -275,12 +293,23 @@ module rv5stage_icache_tb;
 
   initial begin
     core_in = '0;
+    prefetch_in = '0;
     chi_in = '0;
     core_in.response.ready = 1'b1;
     repeat (2) tick();
     reset = 1'b0;
     grant_req_credit();
     grant_rsp_credit();
+
+    forbid_core_response = 1'b1;
+    send_prefetch(PREFETCH_ADDRESS);
+    accept_read_request(PREFETCH_ADDRESS);
+    return_line(PREFETCH_ADDRESS, LINE);
+    accept_comp_ack();
+    repeat (12) tick();
+    forbid_core_response = 1'b0;
+    send_core_request(PREFETCH_ADDRESS);
+    expect_instruction(32'h11111111);
 
     send_core_request(ADDRESS);
     accept_read_request(ADDRESS);

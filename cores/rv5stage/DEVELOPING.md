@@ -24,15 +24,16 @@ each other; share external transaction machinery through the CHI package.
 | Area | Ownership |
 |---|---|
 | [`profile.rhm`](profile.rhm) | Immutable ISA, MMU, and cache specialization description |
-| [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, cache, uncached, and CHI composition |
+| [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
+| [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`fetch.rhdl`](fetch.rhdl) | Aligned-word window, configured compressed-profile expansion, instruction queue, and redirect flushing |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
 | [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |
-| [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, translation, and page-table walking |
+| [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing and the shared uncached protocol |
 | [`cache.rhdl`](cache.rhdl) | Shared cache geometry and replacement helpers |
 | [`chi/DEVELOPING.md`](chi/DEVELOPING.md) | Physical-region/Home policy, RN identity, cache transaction engines, and the shared uncached RN-I implementation |

@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the example that grows a decode relation across rows, outputs, and inputs.
+// Checks generic decode composition and the example that grows a control relation.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -9,6 +9,15 @@ import:
 
 def module_def = fixture.design.modules[0]
 def control_width = fixture.Control().packed_width()
+def fallback = DecodeCase(
+  Pattern(~value: bits(0, 4), ~care: bits(0, 4)),
+  as_pattern(bits(0, 2))
+)
+def override = DecodeCase(
+  Pattern(~value: bits(2, 4), ~care: bits(3, 4)),
+  as_pattern(bits(1, 2))
+)
+def overlaid = overlay_decode_cases([fallback], [override])
 
 fun named_group_cases(inputs):
   decode_groups(fixture.SideEffectControl()):
@@ -49,6 +58,12 @@ check:
   type_equal(module_def.find_output("control").type,
              fixture.Control()) ~is #true
   verify_design(fixture.design) ~is #void
+  overlaid.length() ~is 3
+  DecodeTable(overlaid, ~default: as_pattern(bits(0, 2))).packed_cases.length() ~is 3
+  overlaid.find(fun (case): case.input.matches(bits(2, 4))).output.value_bits ~is 1
+  overlaid.find(fun (case): case.input.matches(bits(6, 4))).output.value_bits ~is 1
+  overlaid.find(fun (case): case.input.matches(bits(1, 4))).output.value_bits ~is 0
+  overlay_decode_cases([fallback], []) ~is [fallback]
 
 def unknown_opcode = pattern(fixture.Opcode()):
   major: bits(7, 3)

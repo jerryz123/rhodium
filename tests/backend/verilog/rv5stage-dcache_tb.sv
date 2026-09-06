@@ -1,4 +1,4 @@
-// Verifies RV5Stage L1D coherence, registered hit mutations, AMOs, and LR/SC reservations.
+// Verifies RV5Stage L1D prefetch, coherence, hit mutation, AMO, and LR/SC behavior.
 module rv5stage_dcache_tb;
   typedef struct packed {
     logic [63:0] address;
@@ -12,6 +12,8 @@ module rv5stage_dcache_tb;
     logic [1:0] floating_point_precision;
   } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
+  typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_bits_t;
+  typedef struct packed { logic valid; prefetch_bits_t bits; } prefetch_t;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed {
     logic [63:0] data;
@@ -74,11 +76,13 @@ module rv5stage_dcache_tb;
   logic [6:0] node_id = CACHE_ID;
   core_in_t core_in;
   core_out_t core_out;
+  prefetch_t prefetch_in;
   chi_in_t chi_in;
   chi_out_t chi_out;
   logic tx_req_pending = 1'b0;
   logic tx_rsp_pending = 1'b0;
   logic tx_dat_pending = 1'b0;
+  logic forbid_core_response = 1'b0;
   CHIReqFlit captured_req;
   CHIRspFlit captured_rsp;
   CHIDatFlit captured_dat;
@@ -88,6 +92,9 @@ module rv5stage_dcache_tb;
 
   task automatic tick;
     begin
+      if (forbid_core_response)
+        assert (!core_out.response.valid)
+          else $fatal(1, "L1D produced a response for a prefetch");
       if (!reset && chi_out.requests.valid) begin
         tx_req_pending = 1'b1;
         captured_req = chi_out.requests.bits;
@@ -102,6 +109,17 @@ module rv5stage_dcache_tb;
       end
       @(posedge clock);
       #1;
+    end
+  endtask
+
+  task automatic send_prefetch(input logic [63:0] address,
+                               input logic [1:0] operation);
+    begin
+      prefetch_in.bits.address = address;
+      prefetch_in.bits.operation = operation;
+      prefetch_in.valid = 1'b1;
+      tick();
+      prefetch_in = '0;
     end
   endtask
 
@@ -412,6 +430,8 @@ module rv5stage_dcache_tb;
   localparam logic [63:0] STORE_DATA_2 = 64'h01234567_89abcdef;
   localparam logic [63:0] EVICT_ADDRESS = ADDRESS + 64'h200;
   localparam logic [63:0] THIRD_ADDRESS = ADDRESS + 64'h400;
+  localparam logic [63:0] PREFETCH_READ_ADDRESS = ADDRESS + 64'h40;
+  localparam logic [63:0] PREFETCH_WRITE_ADDRESS = ADDRESS + 64'h80;
   localparam logic [511:0] EVICT_LINE = {
     64'h17161514_13121110,
     64'h0f0e0d0c_0b0a0908,
@@ -429,6 +449,7 @@ module rv5stage_dcache_tb;
 
   initial begin
     core_in = '0;
+    prefetch_in = '0;
     chi_in = '0;
     repeat (2) tick();
     reset = 1'b0;
@@ -436,6 +457,31 @@ module rv5stage_dcache_tb;
     grant_rsp_credit();
     assert (core_out.drained)
       else $fatal(1, "data cache was not drained after reset");
+
+    forbid_core_response = 1'b1;
+    send_prefetch(PREFETCH_READ_ADDRESS, 2'd2);
+    accept_request(READ_CLEAN, PREFETCH_READ_ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
+    return_line(PREFETCH_READ_ADDRESS, LINE, 3'b001);
+    accept_comp_ack();
+    wait (core_out.drained);
+    tick();
+    forbid_core_response = 1'b0;
+    send_core_request(PREFETCH_READ_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd1);
+    expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd1);
+
+    forbid_core_response = 1'b1;
+    send_prefetch(PREFETCH_WRITE_ADDRESS, 2'd3);
+    accept_request(READ_UNIQUE, PREFETCH_WRITE_ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
+    return_line(PREFETCH_WRITE_ADDRESS, LINE, 3'b010);
+    accept_comp_ack();
+    wait (core_out.drained);
+    tick();
+    forbid_core_response = 1'b0;
+    send_core_request(PREFETCH_WRITE_ADDRESS, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA, 5'd0);
+    expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
+    tick();
+    assert (!tx_req_pending && !tx_dat_pending)
+      else $fatal(1, "store after PREFETCH.W did not hit with Unique ownership");
 
     send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd3);
     assert (!core_out.drained)

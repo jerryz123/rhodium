@@ -1,4 +1,4 @@
-// Verifies DTLB replay and preserves walker faults across unrelated permission faults.
+// Verifies DTLB replay, fault preservation, and non-faulting TLB-hit-only prefetch translation.
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -40,6 +40,8 @@ module rv5stage_mmu_replay_tb;
     logic [1:0] floating_point_precision;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
+  typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_bits_t;
+  typedef struct packed { logic valid; prefetch_bits_t bits; } prefetch_t;
   typedef struct packed { data_req_t request; } data_in_t;
   typedef struct packed {
     ready_t request;
@@ -86,6 +88,7 @@ module rv5stage_mmu_replay_tb;
   data_in_t data_in;
   instruction_memory_in_t instruction_memory_in;
   data_memory_in_t data_memory_in;
+  prefetch_t prefetch_in;
   logic [1:0] privilege;
   logic [63:0] mstatus;
   logic [63:0] satp;
@@ -94,6 +97,7 @@ module rv5stage_mmu_replay_tb;
   data_out_t data_out;
   instruction_memory_out_t instruction_memory_out;
   data_memory_out_t data_memory_out;
+  prefetch_t physical_prefetch_out;
   logic data_request_valid;
   logic pte_response_valid;
   logic [63:0] pte_response_data;
@@ -187,6 +191,7 @@ module rv5stage_mmu_replay_tb;
   initial begin
     data_request_valid = 1'b0;
     page_fault_phase = 1'b0;
+    prefetch_in = '0;
     privilege = PRIVILEGE_S;
     mstatus = '0;
     satp = SATP_SV39_ROOT_1;
@@ -214,6 +219,38 @@ module rv5stage_mmu_replay_tb;
     #1 data_request_valid = 1'b0;
     assert (translated_request_seen)
       else $fatal(1, "translated replay was not accepted downstream");
+
+    // The leaf is readable and accessed but not dirty. PREFETCH.W is still
+    // permitted because prefetch translation accepts any R/W/X permission and
+    // ignores A/D state.
+    @(negedge clock);
+    prefetch_in.valid = 1'b1;
+    prefetch_in.bits.address = VIRTUAL_ADDRESS;
+    prefetch_in.bits.operation = 2'd3;
+    #1;
+    assert (physical_prefetch_out.valid &&
+            physical_prefetch_out.bits.address == PHYSICAL_ADDRESS &&
+            physical_prefetch_out.bits.operation == 2'd3)
+      else $fatal(1, "DTLB-hit prefetch was not translated");
+    @(posedge clock);
+    #1 prefetch_in = '0;
+
+    // A prefetch miss is dropped and must not claim the page-table walker.
+    @(negedge clock);
+    prefetch_in.valid = 1'b1;
+    prefetch_in.bits.address = VIRTUAL_ADDRESS + 64'h1000;
+    prefetch_in.bits.operation = 2'd2;
+    #1;
+    assert (!physical_prefetch_out.valid && !data_memory_out.request.valid)
+      else $fatal(1, "DTLB-miss prefetch initiated memory traffic");
+    @(posedge clock);
+    #1 prefetch_in = '0;
+    repeat (4) begin
+      @(posedge clock);
+      #1;
+      assert (!data_memory_out.request.valid)
+        else $fatal(1, "dropped prefetch later initiated a page-table walk");
+    end
 
     @(negedge clock);
     page_fault_phase = 1'b1;
@@ -256,7 +293,7 @@ module rv5stage_mmu_replay_tb;
     #1 data_request_valid = 1'b0;
     assert (data_out.drained)
       else $fatal(1, "consumed page fault remained latched");
-    $display("RV5Stage DTLB successful and faulting pulse-and-replay translation passed");
+    $display("RV5Stage DTLB demand, fault, and prefetch translation passed");
     $finish;
   end
 endmodule

@@ -5,6 +5,7 @@ import:
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../load-store.rhdl" open
+  "../cache-prefetch.rhdl" open
   "memory.rhdl" open
   "decode/core-ctrl.rhdl" open
   "decode/operand-ctrl.rhdl" open
@@ -44,12 +45,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def profile = extensions.floating_point
   def half_precision = extensions.half_precision
   def zfa_enabled = extensions.zfa
+  def zicbop_enabled = extensions.zicbop
   def compressed_extensions = extensions.compressed
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
-  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled).map(fun (instruction): instruction.name)
+  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled).map(fun (instruction): instruction.name)
 
   interface start(Irrevocable(Bits(width)), ~role: consumer)
   input interrupts: RV5StageInterrupts()
@@ -57,6 +59,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   input time_counter: Bits(64)
   interface instruction_access(RV5StageInstructionAccess(xlen), ~role: requester)
   interface data_access(RV5StageDataAccess(xlen), ~role: requester)
+  interface prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
   output fault: Bool
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
@@ -92,7 +95,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   inst ex_mem_pipe(ValidPipe(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipe(MemoryWriteback(xlen), 1))
 
-  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled))
+  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled))
   inst registers(RV5StageRegisterFile(xlen))
   inst alu(ALU(xlen))
   inst branch_resolver(BranchResolver(width))
@@ -368,6 +371,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
           branch_control: control.branch.resolver
           target_from_rs1: control.branch.target_from_rs1
           memory_operation: control.memory.access
+          prefetch_operation: control.prefetch
           memory_atomic: control.memory.atomic
           memory_width: control.memory.width
           memory_unsigned: control.memory.unsigned
@@ -432,6 +436,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def redirect_aligned = is_aligned(computed_redirect_target, instruction_alignment)
   def memory_aligned = id_ex.bits.memory_width.is_aligned(alu.result)
   def execute_memory_operation :: MemoryOperation = id_ex.bits.memory_operation
+  def execute_prefetch_operation :: CachePrefetchOperation = id_ex.bits.prefetch_operation
   def execute_is_memory = execute_memory_operation.is_memory()
   def fp_execution_control :: RV5StageFloatExecutionControl() = id_ex.bits.floating_point_control.execution
   def execute_is_fp = id_ex.bits.floating_point_valid
@@ -504,6 +509,14 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   // EX is feed-forward. FP structural rejection and a missing or mismatched
   // prefetched store operand become ordered replay tokens in MEM.
   def execute_transfer = id_ex.valid & !older_pipeline_squash
+  def execute_prefetch_request = CachePrefetchReq(width):
+    address: alu.result
+    operation: execute_prefetch_operation
+  inject_flow(
+    Valid(CachePrefetchReq(width)),
+    ~valid: execute_transfer & execute_prefetch_operation.is_prefetch() & !execute_exception.valid,
+    ~bits: execute_prefetch_request
+  ) |> prefetch
   fp.issue.valid <== execute_transfer & execute_fp_compute & !execute_exception.valid
   def fp_store_response_match = fp.store_response.valid & (
     fp.store_response.bits.context === id_ex.bits.pc

@@ -2,6 +2,7 @@
 // Composes RV5Stage's core and L1 caches behind ready-valid CHI channel bundles.
 
 import:
+  "../cache-prefetch.rhdl" open
   "core.rhdl" open
   "interrupt.rhdl" open
   "chi/foundation.rhdl" open
@@ -13,6 +14,7 @@ import:
   "instruction-memory-router.rhdl" open
   "chi/uncached.rhdl" open
   "mmu/mmu.rhdl" open
+  lib("rhodium/std/flow.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open
 
@@ -49,6 +51,13 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   core.time_counter <== time_counter
   core.instruction_access |> mmu.instruction
   core.data_access |> mmu.data
+  core.prefetch |> mmu.prefetch
+  def physical_prefetch_request = mmu.physical_prefetch.bits.into(CachePrefetchReq(width))
+  def instruction_prefetch_selected = physical_prefetch_request.operation === CachePrefetchOperation.Instruction
+  def data_prefetch_selected = physical_prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
+  def Array(instruction_prefetch, data_prefetch) = mmu.physical_prefetch |> fork_valid(2)
+  instruction_prefetch |> filter_valid(_request => instruction_prefetch_selected) |> l1i.prefetch
+  data_prefetch |> filter_valid(_request => data_prefetch_selected) |> l1d.prefetch
   mmu.instruction_memory |> instruction_memory_router.core
   instruction_memory_router.cache |> l1i.core
   instruction_memory_router.uncached |> uncached.instruction

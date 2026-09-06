@@ -8,6 +8,7 @@ import:
 def description = soc.mini_soc_params.description
 
 check:
+  soc.mini_soc_core_profile.extensions.zicbop ~is #true
   soc.mini_soc_fabric_params === simple.simple_soc_params.fabric ~is #false
   soc.mini_soc_fabric_params.memory_name ~is "mini-memory"
   soc.mini_soc_memory_bytes ~is 0x10000

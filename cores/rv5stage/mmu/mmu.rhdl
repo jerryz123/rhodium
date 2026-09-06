@@ -2,6 +2,7 @@
 // Composes RV5Stage's Sv39 TLBs and shared walker ahead of its physical-memory ports.
 
 import:
+  "../../cache-prefetch.rhdl" open
   "../fp/types.rhdl" open
   "../profile.rhm".RV5StageMmuMode
   "protocol.rhdl" open
@@ -28,6 +29,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface data(RV5StageDataAccess(xlen), ~role: responder)
   interface instruction_memory(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
   interface data_memory(RV5StageDataAccess(xlen), ~role: requester)
+  interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
+  interface physical_prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
   input privilege: PrivilegeMode
   input mstatus: Bits(width)
   input satp: Bits(width)
@@ -73,6 +76,43 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   dtlb.mxr <== mxr
   dtlb.enabled <== data_translation_enabled
   dtlb.invalidate_all <== invalidate_all
+
+  def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
+  def prefetch_virtual_address = if xlen == XLen.X32 | prefetch_request.address.zext(64) | prefetch_request.address
+  itlb.probe_virtual_address <== prefetch_virtual_address
+  itlb.probe_privilege <== data_privilege
+  itlb.probe_sum <== sum
+  itlb.probe_mxr <== mxr
+  itlb.probe_enabled <== data_translation_enabled
+  dtlb.probe_virtual_address <== prefetch_virtual_address
+  dtlb.probe_privilege <== data_privilege
+  dtlb.probe_sum <== sum
+  dtlb.probe_mxr <== mxr
+  dtlb.probe_enabled <== data_translation_enabled
+
+  def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
+  def prefetch_translation_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
+  def prefetch_translation_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
+  def prefetch_translated_address = if xlen == XLen.X32 | prefetch_request.address | mux(
+    data_translation_enabled,
+    mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64),
+    prefetch_request.address
+  )
+  def prefetch_line_address = align_down(prefetch_translated_address, 64)
+  def prefetch_physical = physical_map.lookup(prefetch_line_address, prefetch_line_address +& bits(63, width))
+  def prefetch_access_permitted = mux_lookup(
+    prefetch_request.operation,
+    ~default: Bool(#false),
+    [
+      [CachePrefetchOperation.Instruction, prefetch_physical.executable],
+      [CachePrefetchOperation.Read, prefetch_physical.readable],
+      [CachePrefetchOperation.Write, prefetch_physical.writable]
+    ]
+  )
+  physical_prefetch.valid <== prefetch.valid & prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_access_permitted
+  physical_prefetch.bits <== CachePrefetchReq(width):
+    address: prefetch_line_address
+    operation: prefetch_request.operation
 
   reg walk_active(~init: Bool(#false))
   reg walk_is_data(~init: Bool(#false))

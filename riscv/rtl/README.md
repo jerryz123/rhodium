@@ -46,13 +46,13 @@ Dependency enforcement and extension workflow are documented in
 | [`instruction-pattern.rhdl`](instruction-pattern.rhdl) | `encoding_pattern`, `instruction_pattern` | Convert pure value/care images to typed Rhodium `Pattern`s |
 | [`instruction-fields.rhdl`](instruction-fields.rhdl) | `instruction_field`, `immediate_bits`, `instruction_immediate` | Materialize descriptor-owned slices and extended immediates |
 | [`compressed.rhdl`](compressed.rhdl) | `RiscvCompressedExpansion`, `RiscvCompressedExpander`, `compressed_selector_cases` | Recognize legal C encodings and emit canonical 32-bit instructions |
-| [`mop.rhdl`](mop.rhdl) | `resolve_mop_decode_cases` | Overlay extension meanings on fallback MOP decode space by explicit pattern subtraction |
+| [`mop.rhdl`](mop.rhdl) | `resolve_mop_decode_cases` | Compatibility name for the standard decode-overlay operation |
 | [`csr.rhdl`](csr.rhdl) | `CsrBank`, `csr_bits`, `csr_bank` | Convert `CsrId` and define exact-key CSR recognition, reads, and writes |
 | [`counters.rhdl`](counters.rhdl) | `RiscvCounterWrite`, `RiscvBaseCounters` | Reusable 64-bit `mcycle` and `minstret` state for RV32/RV64 |
 | [`trap.rhdl`](trap.rhdl) | `exception_cause_bits` | Convert architectural synchronous causes to width-specialized hardware |
 | [`interrupt.rhdl`](interrupt.rhdl) | `interrupt_cause_bits` | Convert architectural interrupt causes to `xcause` values |
 | [`pma.rhdl`](pma.rhdl) | `RiscvPhysicalMemoryAttributes`, `RiscvPhysicalMemoryRegion`, `RiscvPhysicalMemoryMap`, `RiscvPhysicalMemoryLookup` | Validate host-authored regions and perform hardware access lookup |
-| [`sv39.rhdl`](sv39.rhdl) | `Sv39Access`, `Sv39Pte`, `Sv39Translation`, and `sv39_*` helpers | Materialize the pure Sv39 geometry as typed hardware |
+| [`sv39.rhdl`](sv39.rhdl) | `Sv39Access`, `Sv39Pte`, `Sv39Translation`, and `sv39_*` helpers | Materialize Sv39 geometry, demand permission, and A/D-independent prefetch permission as typed hardware |
 | [`floating-point.rhdl`](floating-point.rhdl) | `FloatSignOperation`, `RiscvRoundingMode`, Zfa immediate constants, and `riscv_*` helpers | Apply RISC-V policy around HardFloat values |
 
 ## Decode descriptors
@@ -117,11 +117,13 @@ reserved, or unsupported encoding deasserts `valid`; consumers must use
 catalog accepts remain valid and expand to their canonical no-effect base
 instruction. There is no parallel operation enum or handwritten opcode table.
 
-[`mop.rhdl`](mop.rhdl) supports later extensions that redefine only part of a
-MOP encoding. `resolve_mop_decode_cases` puts explicit override rows first and
-subtracts their input sets from the fallback rows, returning one disjoint
-relation. Core decode therefore need not depend on row priority when a future
-extension assigns architectural behavior to selected MOP operands.
+The standard decode library's `overlay_decode_cases` helper supports extensions
+that redefine only part of a broader fallback encoding. It subtracts explicit
+override input sets from fallback rows, returning one disjoint relation. Core
+decode therefore need not depend on row priority when an extension assigns
+architectural behavior to an existing hint or fallback region. `mop.rhdl`
+retains `resolve_mop_decode_cases` as a compatibility name for existing MOP
+consumers; new generic composition should use the standard helper directly.
 
 The [pure-model guide](../README.md#compressed-instruction-expansion) explains
 the shared host and hardware expansion path.
@@ -165,7 +167,10 @@ Interconnect routing and Home ownership remain outside this adapter.
 
 [`sv39.rhdl`](sv39.rhdl) materializes the pure Sv39 constants as typed PTE,
 access, translation, canonical-address, VPN, leaf, structural-validity,
-superpage-alignment, permission, and physical-address helpers. Page-table walk
+superpage-alignment, permission, prefetch-permission, and physical-address
+helpers. `sv39_prefetch_permission_valid` accepts the union of fetch, load, and
+store permission under current privilege, `SUM`, and `MXR` while deliberately
+ignoring `A` and `D`. Page-table walk
 state, TLB organization, replacement, faults, and processor integration are
 not part of this reusable combinational layer.
 

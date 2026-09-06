@@ -1,0 +1,97 @@
+#lang rhodium
+// Checks RV5Stage's feature-selected Zicbop decode and prefetch event boundary.
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/std/decode.rhdl" open
+  "../../../riscv/isa/rv64i.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/zicbop.rhm" open
+  "../../../riscv/model/formats.rhm" open
+  "../../cache-prefetch.rhdl" open
+  "../core.rhdl" as core
+  "../profile.rhm" open
+  "../decode/core-ctrl.rhdl" as controls
+  "../decode/operand-ctrl.rhdl" as operands
+  "../decode/mem-ctrl.rhdl" as memory
+  "../decode/writeback-ctrl.rhdl" as writeback
+  "../../alu.rhdl" as alu
+
+fun control_for_word(cases, word :: Nat):
+  cases.find(fun (candidate): candidate.input.matches(bits(word, 32))).output
+
+fun record_field(record, name :: String):
+  record.fields.find(fun (field): field[0] == name)[1]
+
+fun control_field(control, name :: String):
+  record_field(control.value, name)
+
+def prefetch_r_word = PREFETCH_R.encode([rs1.constrain(5)], ~immediate: 96)
+def ordinary_ori_word = ORI.encode([rd.constrain(1), rs1.constrain(2)], ~immediate: 5)
+def disabled_prefetch_r = control_for_word(controls.RV64RV5StageControlCases, prefetch_r_word)
+def enabled_prefetch_r = control_for_word(controls.RV64RV5StageZicbopControlCases, prefetch_r_word)
+def enabled_ordinary_ori = control_for_word(controls.RV64RV5StageZicbopControlCases, ordinary_ori_word)
+def expected_prefetch_r = partial_pattern(controls.RV5StageControl()):
+  alu:
+    partial_pattern(alu.AluControl()):
+      result_select: alu.AluResultSelect.Adder
+  operand:
+    pattern(operands.OperandControl()):
+      uses_rs1: Bool(#true)
+      uses_rs2: Bool(#false)
+      left: operands.OperandASelect.Register
+      right: operands.OperandBSelect.Immediate
+      immediate: operands.ImmediateSelect.Prefetch
+  memory:
+    partial_pattern(memory.MemoryControl()):
+      access: memory.MemoryOperation.None
+  prefetch: CachePrefetchOperation.Read
+  writeback:
+    partial_pattern(writeback.WritebackControl()):
+      enable: Bool(#false)
+def expected_disabled_prefetch = partial_pattern(controls.RV5StageControl()):
+  prefetch: CachePrefetchOperation.None
+  writeback:
+    partial_pattern(writeback.WritebackControl()):
+      enable: Bool(#true)
+def decoder64_design = embedded.run_elaboration(
+  fun (): controls.RV5StageInstructionDecoder(XLen.X64, ~zicbop: #true)
+)
+def decoder32_design = embedded.run_elaboration(
+  fun (): controls.RV5StageInstructionDecoder(XLen.X32, ~zicbop: #true)
+)
+def core_profile = RVCoreProfile(
+  ~xlen: XLen.X64,
+  ~extensions: RV5StageExtensions(~zicbop: #true)
+)
+def core_design = embedded.run_elaboration(fun (): core.RV5StageCore(core_profile))
+def core_module = core_design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
+
+check:
+  core_profile.isa_extensions.contains("zicbop") ~is #true
+  controls.rv5stage_instructions(
+    XLen.X64,
+    FloatingPointProfile.None,
+    HalfPrecisionProfile.None
+  ).map(fun (instruction): instruction.name).contains("PREFETCH.R") ~is #false
+  controls.rv5stage_instructions(
+    XLen.X64,
+    FloatingPointProfile.None,
+    HalfPrecisionProfile.None,
+    ~zicbop: #true
+  ).map(fun (instruction): instruction.name).contains("PREFETCH.R") ~is #true
+
+  control_field(disabled_prefetch_r, "prefetch").packed_value() ~is CachePrefetchOperation.None.packed_value()
+  expected_disabled_prefetch.subsumes(disabled_prefetch_r) ~is #true
+  control_field(enabled_prefetch_r, "prefetch").packed_value() ~is CachePrefetchOperation.Read.packed_value()
+  expected_prefetch_r.subsumes(enabled_prefetch_r) ~is #true
+  control_field(enabled_ordinary_ori, "prefetch").packed_value() ~is CachePrefetchOperation.None.packed_value()
+  expected_disabled_prefetch.subsumes(enabled_ordinary_ori) ~is #true
+
+  type_equal(decoder64_design.modules[0].find_output("control").type.field("prefetch").type, CachePrefetchOperation) ~is #true
+  type_equal(decoder32_design.modules[0].find_output("control").type.field("prefetch").type, CachePrefetchOperation) ~is #true
+  core_module.find_output("prefetch_out").type.field("bits").type.field("address").type.width ~is 64
+  type_equal(core_module.find_output("prefetch_out").type.field("bits").type.field("operation").type, CachePrefetchOperation) ~is #true
+  verify_design(core_design) ~is #void

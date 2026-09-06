@@ -35,6 +35,7 @@ hardware_enum ImmediateSelect:
   B
   U
   J
+  Prefetch
   method decode(select, instruction :: Bits(32), width :: PosInt) :: Bits(width):
     mux_lookup(select, ~default: bits(0, width)):
       ImmediateSelect.I: instruction_immediate(riscv_fields.IImmediate, instruction, width)
@@ -42,6 +43,7 @@ hardware_enum ImmediateSelect:
       ImmediateSelect.B: instruction_immediate(riscv_fields.BImmediate, instruction, width)
       ImmediateSelect.U: instruction_immediate(riscv_fields.UImmediate, instruction, width)
       ImmediateSelect.J: instruction_immediate(riscv_fields.JImmediate, instruction, width)
+      ImmediateSelect.Prefetch: instruction_immediate(riscv_fields.PrefetchImmediate, instruction, width)
 
 bundle OperandControl():
   uses_rs1: Bool

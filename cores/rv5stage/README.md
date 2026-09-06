@@ -27,11 +27,13 @@ Contributors changing the core should read
 | Integer widths | RV32 and RV64 selected by `XLen.X32` or `XLen.X64` |
 | Floating point | Disabled by default; RV32F or RV64D, with optional Zfhmin, Zfh, or Zfa |
 | Address translation | Bare for RV32; Bare or Sv39 for RV64 |
-| Private caches | Separate configurable L1I and blocking write-back L1D; fixed 64-byte lines |
+| Private caches | Separate configurable L1I and blocking write-back L1D; fixed 64-byte lines; demand-priority Zicbop admission |
 | External memory | Separate instruction and data CHI RN-F channels plus a shared uncached RN-I channel |
 
 The integer decode includes RV32I/RV64I, A, B, M, Zicond, Zimop, Zicsr, Zifencei, and
-the supported privileged instructions. Optional C expansion follows the
+the supported privileged instructions. Optional Zicbop decode turns its
+otherwise legal `ORI x0` hints into best-effort Execute-side prefetch events.
+Optional C expansion follows the
 selected XLEN and FP profile; RV32F or RV64F and RV64D rows, plus optional
 Zfhmin, Zfh, and Zfa rows, are added only by their matching FP specialization. Zicntr
 views come from the CSR block rather than instruction rows. The
@@ -74,6 +76,7 @@ flowchart LR
     DIV --> COMPLETE
 
     EX -->|"FP compute issue"| FP["FP side pipeline<br/>scoreboard and execution"]
+    EX -->|"best-effort prefetch"| PREFETCH["TLB probe + PMA<br/>L1I or L1D admission"]
     LSU -->|"FP load completion"| FP
     FP -->|"integer result"| COMPLETE
     FP --> FPR["FP register file"]
@@ -292,7 +295,7 @@ specialization input to `RV5Stage` and `RV5StageCore`.
 | Parameter | Meaning |
 |---|---|
 | `profile.xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
-| `profile.extensions` | Floating-point, half-precision, Zfa, and compressed-extension selection |
+| `profile.extensions` | Floating-point, half-precision, Zfa, Zicbop, and compressed-extension selection; Zicbop defaults to disabled |
 | `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
 | `profile.cache_geometry` | Independent L1I and L1D set and way geometry |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |
@@ -353,6 +356,21 @@ one-outstanding RN-I engine, with a presented data request taking priority.
 Unmapped, denied, or non-cacheable atomic requests fault locally
 instead of entering CHI.
 
+With Zicbop enabled, `RV5StageCore` computes the virtual prefetch address in
+Execute and emits `Valid(CachePrefetchReq(xlen.width))`. This event has no
+backpressure, response, or architectural-fault path. `RV5StageMmu` translates
+Bare addresses or probes the operation-selected existing TLB entry; a miss,
+permission denial, non-cacheable PMA, or intended-operation PMA denial drops
+the event without walking or faulting. The accepted physical event is aligned
+to its 64-byte line and routed to L1I for `PREFETCH.I` or L1D for
+`PREFETCH.R/W`.
+
+Demand requests always win each cache lookup port. An admitted L1I hint may
+launch `ReadClean`; an admitted L1D read hint may launch `ReadClean`, while a
+write hint may launch `ReadUnique` and retain the result as UniqueClean. Hits
+produce no response, refills allocate without an architectural completion, and
+L1D drops a hint that would require writing back a dirty victim.
+
 The parent core owns only integration-level ordering. Array organization,
 replacement, refill, dirty writeback, snoop behavior, DVM handling, and CHI
 response stability are specified by the subsystem documents:
@@ -411,5 +429,8 @@ and FESVR simulation belongs to the [simulation guide](../../sims/README.md).
 - Sv48/Sv57, nonzero ASIDs, hardware A/D updates, PBMT, NAPOT, multi-hart
   shootdown, and speculative page-table walks are not implemented.
 - `SFENCE.VMA` and `satp` writes conservatively flush both TLBs completely.
-- The private caches do not implement hit-under-miss or prefetching; detailed
-  cache-specific limits are maintained in their owning READMEs.
+- Zicbop translation is TLB-hit-only and never launches a page-table walk;
+  hints may be dropped under translation, PMA, lookup, refill, snoop, response
+  capacity, or dirty-victim pressure.
+- The private caches do not implement hit-under-miss or autonomous prefetching;
+  detailed cache-specific limits are maintained in their owning READMEs.

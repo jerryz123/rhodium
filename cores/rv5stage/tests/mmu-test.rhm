@@ -44,6 +44,8 @@ check:
     bool.Bool
   ) ~is #true
   mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is 64
+  mmu_module.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64
+  mmu_module.find_output("physical_prefetch_out").type.field("bits").type.field("address").type.width ~is 64
   type_equal(
     mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("cacheable").type,
     bool.Bool

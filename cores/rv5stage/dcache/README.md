@@ -22,6 +22,7 @@ Contributors changing the L1D implementation should read
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
 | CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteUniquePtl`, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
+| Prefetch | Demand-priority Valid event; read intent uses `ReadClean`, write intent uses `ReadUnique`, and neither responds or mutates data |
 
 `RV5StageL1DCache(xlen, cache, ~chi: config)` accepts `XLen.X32` or
 `XLen.X64`. The cache configuration supplies set/way geometry; the required
@@ -38,6 +39,7 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 | Direction | Member | Meaning |
 |---|---|---|
 | Requester → cache | `request: Decoupled(RV5StageDataReq)` | Original XLEN byte address; load/store/LR/SC/AMO kind; atomic function; scalar width; load signedness; XLEN source data; destination bank; five-bit `rd`; and FP precision metadata |
+| MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical read/write hint; no acceptance or completion |
 | Cache → requester | `response: Valid(RV5StageDataResp)` | Ordered XLEN load/atomic/SC result plus destination, `rd`, and FP precision metadata |
 | Cache → requester | `request_fault`, `request_access_fault` | Always false in this physical cache; translation and PMA routing own architectural faults |
 | Cache → requester | `drained` | Combinational quiescence observation used by architectural serialization |
@@ -104,6 +106,13 @@ store, SC, or AMO that already has Unique ownership first captures its request,
 selected way, and old value in a one-entry mutation register. On the following
 edge it updates the selected byte lanes and sets UniqueDirty without emitting
 REQ or DAT traffic; an AMO returns the captured value from before that update.
+
+The Valid prefetch path joins only at the lookup input and cannot backpressure
+the MMU. A queued or same-cycle demand request wins. A read hint that misses
+launches the ordinary clean refill; a write hint that misses or finds a shared
+line launches `ReadUnique`, but installs UniqueClean and performs no data
+mutation. A hit is consumed silently. A hint is discarded if the selected miss
+victim is dirty, avoiding nonbinding writeback traffic.
 
 ## Miss, acquisition, and replacement flow
 
@@ -174,7 +183,9 @@ pointer. Installing a newly allocated line advances that pointer. Ownership
 acquisition for an existing SharedClean line retains its way and does not
 advance replacement state.
 
-- The cache has no hit-under-miss, prefetching, or background writeback.
+- Prefetches are not buffered, cannot run under a miss, and may delay a later
+  demand once an admitted miss or ownership acquisition has launched.
+- The cache has no hit-under-miss, autonomous prefetcher, or background writeback.
 - L1D and L1I have no direct coherence connection; instruction coherence uses
   the parent core's fence/invalidation sequence and independent CHI snoops.
 - Dirty replacement uses eight supported `WriteUniquePtl` transactions rather

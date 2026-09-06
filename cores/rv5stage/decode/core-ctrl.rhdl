@@ -1,10 +1,11 @@
 #lang rhodium
-// Composes RV5Stage's integer, A, B, M, Zicond, CSR, and privileged controls.
+// Composes RV5Stage's scalar, Zicbop, floating-point, and privileged controls.
 
 import:
   "../../alu.rhdl" open
   "../../branch-resolver.rhdl" open
   "../../load-store.rhdl" open
+  "../../cache-prefetch.rhdl" open
   "decode-support.rhdl" open
   "alu-ctrl.rhdl" open
   "operand-ctrl.rhdl" open
@@ -29,6 +30,7 @@ import:
   "../../../riscv/isa/zicond.rhm" open
   "../../../riscv/isa/zicsr.rhm" open
   "../../../riscv/isa/zifencei.rhm" open
+  "../../../riscv/isa/zicbop.rhm" as zicbop
   "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
   "../../../riscv/model/instruction.rhm".InstructionSpec
@@ -41,6 +43,7 @@ bundle RV5StageControl():
   operand: OperandControl()
   branch: BranchControl()
   memory: MemoryControl()
+  prefetch: CachePrefetchOperation
   multiply: RV5StageMultiplyControl()
   divide: RV5StageDivideControl()
   writeback: WritebackControl()
@@ -71,6 +74,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec),
           operand: component_output(operand_cases, input)
           branch: component_output(branch_cases, input)
           memory: component_output(memory_cases, input)
+          prefetch: CachePrefetchOperation.None
           multiply: component_output(multiply_cases, input)
           divide: component_output(divide_cases, input)
           writeback: component_output(writeback_cases, input)
@@ -139,6 +143,7 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
           operand: operand_control
           branch: branch_control
           memory: memory_control
+          prefetch: CachePrefetchOperation.None
           multiply: pattern(RV5StageMultiplyControl(), _)
           divide: pattern(RV5StageDivideControl(), _)
           writeback: writeback_control
@@ -147,6 +152,58 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
           floating_point_valid: Bool(#true)
           floating_point: component_output(floating_point_cases, input)
       )
+
+// Zicbop refines three ORI-to-x0 regions. Complete override rows are formed
+// after the ordinary scalar control columns have been composed.
+def zicbop_alu_control = partial_pattern(AluControl()):
+  result_select: AluResultSelect.Adder
+  subtract: Bool(#false)
+  unsigned_word: Bool(#false)
+  shift_add_amount: bits(0, 2)
+  word: Bool(#false)
+def zicbop_operand_control = pattern(OperandControl()):
+  uses_rs1: Bool(#true)
+  uses_rs2: Bool(#false)
+  left: OperandASelect.Register
+  right: OperandBSelect.Immediate
+  immediate: ImmediateSelect.Prefetch
+def zicbop_branch_control = partial_pattern(BranchControl()):
+  resolver:
+    partial_pattern(BranchResolverControl()):
+      enable: Bool(#false)
+def zicbop_memory_control = partial_pattern(MemoryControl()):
+  access: MemoryOperation.None
+def zicbop_writeback_control = partial_pattern(WritebackControl()):
+  enable: Bool(#false)
+def zicbop_system_control = partial_pattern(SystemControl()):
+  csr: CsrOperation.None
+  action: SystemOperation.None
+def zicbop_fence_control = pattern(FenceControl()):
+  action: FenceOperation.None
+
+fun zicbop_operation(instruction :: InstructionSpec):
+  cond
+  | instruction.name == zicbop.PREFETCH_I.name: CachePrefetchOperation.Instruction
+  | instruction.name == zicbop.PREFETCH_R.name: CachePrefetchOperation.Read
+  | ~else: CachePrefetchOperation.Write
+
+def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions):
+  DecodeCase(
+    instruction_pattern(instruction),
+    pattern(RV5StageControl()):
+      alu: zicbop_alu_control
+      operand: zicbop_operand_control
+      branch: zicbop_branch_control
+      memory: zicbop_memory_control
+      prefetch: zicbop_operation(instruction)
+      multiply: pattern(RV5StageMultiplyControl(), _)
+      divide: pattern(RV5StageDivideControl(), _)
+      writeback: zicbop_writeback_control
+      system: zicbop_system_control
+      fence: zicbop_fence_control
+      floating_point_valid: Bool(#false)
+      floating_point: pattern(RV5StageFloatingPointControl(), _)
+  )
 
 def RV32IControlCases = compose_control_cases(
   rv32.RV32IInstructions,
@@ -181,9 +238,11 @@ def RV64RV5StageInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64AIn
 fun rv5stage_instructions(xlen :: XLen,
                           profile :: FloatingPointProfile,
                           half_precision :: HalfPrecisionProfile,
-                          ~zfa: zfa_enabled :: Boolean = #false) :: List.of(InstructionSpec):
+                          ~zfa: zfa_enabled :: Boolean = #false,
+                          ~zicbop: zicbop_enabled :: Boolean = #false) :: List.of(InstructionSpec):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
-  def integer_instructions = if xlen == XLen.X32 | RV32RV5StageInstructions | RV64RV5StageInstructions
+  def base_integer_instructions = if xlen == XLen.X32 | RV32RV5StageInstructions | RV64RV5StageInstructions
+  def integer_instructions = base_integer_instructions ++ if zicbop_enabled | zicbop.ZicbopInstructions | []
   if profile == FloatingPointProfile.None
   | integer_instructions
   | integer_instructions ++ rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled)
@@ -211,6 +270,8 @@ def RV64RV5StageControlCases = compose_control_cases(
   RV64RV5StageSystemCases,
   RV64RV5StageFenceCases
 )
+def RV32RV5StageZicbopControlCases = overlay_decode_cases(RV32RV5StageControlCases, ZicbopCoreControlCases)
+def RV64RV5StageZicbopControlCases = overlay_decode_cases(RV64RV5StageControlCases, ZicbopCoreControlCases)
 def RV32FCoreControlCases = RV32RV5StageControlCases ++ floating_point_core_control_cases(
   RV32FFloatingPointInstructions,
   RV32FFloatingPointControlCases
@@ -230,24 +291,24 @@ circuit RV5StageInstructionDecoder(
   xlen :: XLen,
   profile :: FloatingPointProfile = DefaultFloatingPointProfile,
   half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-  ~zfa: zfa_enabled :: Boolean = #false
+  ~zfa: zfa_enabled :: Boolean = #false,
+  ~zicbop: zicbop_enabled :: Boolean = #false
 ):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   input instruction: Bits(32)
   output valid: Bool
   output control: RV5StageControl()
 
-  def decoded :: DecodeResult(RV5StageControl()):
-    cond
-    | profile == FloatingPointProfile.None:
-        if xlen == XLen.X32 | RV32RV5StageControlDecode(instruction) | RV64RV5StageControlDecode(instruction)
-    | ~else:
-        ValidDecodeGen(
-          (if xlen == XLen.X32 | RV32RV5StageControlCases | RV64RV5StageControlCases) ++ floating_point_core_control_cases(
-            rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled),
-            rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled)
-          )
-        )(instruction)
+  def base_integer_cases = if xlen == XLen.X32 | RV32RV5StageControlCases | RV64RV5StageControlCases
+  def integer_cases = if zicbop_enabled | overlay_decode_cases(base_integer_cases, ZicbopCoreControlCases) | base_integer_cases
+  def selected_cases:
+    if profile == FloatingPointProfile.None
+    | integer_cases
+    | integer_cases ++ floating_point_core_control_cases(
+        rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled),
+        rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled)
+      )
+  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases)(instruction)
   valid <== decoded.valid
   control <== decoded.value
 
@@ -263,6 +324,9 @@ export:
   rv5stage_instructions
   RV32RV5StageControlCases
   RV64RV5StageControlCases
+  ZicbopCoreControlCases
+  RV32RV5StageZicbopControlCases
+  RV64RV5StageZicbopControlCases
   RV32RV5StageControlDecode
   RV64RV5StageControlDecode
   RV32FCoreControlCases

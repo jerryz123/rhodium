@@ -238,10 +238,14 @@ freedom.
 
 Decode relations compose as ordinary case lists before constructing a
 `DecodeGen`. Row extension is list concatenation; the final `DecodeTable`
-rejects overlaps and inconsistent types. `lift_decode_inputs(cases, lift)`
-explicitly embeds every input cube into a wider type while retaining its output
-cube. The lift function returns the replacement input `Pattern`, so added input
-fields can be cared or unconstrained without an inferred packing policy.
+rejects overlaps and inconsistent types. `overlay_decode_cases(fallbacks,
+overrides)` assigns an input subregion to explicit extension rows by subtracting
+their union from every fallback row. It returns a disjoint unordered relation,
+so an extension can refine a broad fallback encoding without introducing row
+priority. `lift_decode_inputs(cases, lift)` explicitly embeds every input cube
+into a wider type while retaining its output cube. The lift function returns
+the replacement input `Pattern`, so added input fields can be cared or
+unconstrained without an inferred packing policy.
 
 `zip_decode_cases(left, right, combine)` forms an output product. Both inputs
 must contain exactly the same input cubes, although their row order may differ.

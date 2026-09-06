@@ -23,6 +23,7 @@ Contributors changing the L1I implementation should read
 | Miss policy | One blocking, retry-aware `ReadClean` line acquisition |
 | Response capacity | At most two accepted requests, backed by a two-entry queue |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
+| Prefetch | Demand-priority Valid event; a miss launches ordinary `ReadClean` refill without a response |
 
 `RV5StageL1ICache(xlen, cache, ~chi: config)` receives only fetches whose PMA is
 cacheable; the parent hierarchy routes executable non-cacheable fetches through
@@ -41,6 +42,7 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 | Direction | Member | Meaning |
 |---|---|---|
 | Fetch → cache | `request: Decoupled(RV5StageInstructionReq)` | XLEN-wide physical byte address |
+| MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical `PREFETCH.I`; no acceptance or response |
 | Fetch → cache | `flush` | Discard speculative lookup and buffered-response state |
 | Fetch → cache | `invalidate_all` | Perform the flush behavior and invalidate every resident line |
 | Cache → Fetch | `response: Decoupled(RV5StageInstructionResp)` | Ordered 32-bit instruction plus page- and access-fault flags; a flush may withdraw a stalled response |
@@ -78,14 +80,19 @@ XLEN word per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. RV32 returns the selected SRAM word directly. RV64 uses
 address bit 2 to select its low or high 32-bit instruction.
 
-A one-stage `Pipe` carries the address alongside the synchronous lookup. A hit
-can admit the next request immediately. Hit and live-refill results merge before
+A one-stage `Pipe` carries the address and demand/prefetch tag alongside the
+synchronous lookup. A hit can admit the next request immediately. Hit and live-refill results merge before
 a two-entry flow-through queue, which preserves ordered `Irrevocable` responses
 under Fetch backpressure. Outstanding-request accounting reserves response
 capacity and never exceeds two. A released slot becomes available to request
 admission on the following cycle, keeping downstream response readiness out of
 the request-ready timing path. A miss transfers its address into the refill
 engine and blocks new requests until that transaction completes.
+
+A prefetch lookup or refill never reserves response capacity and never reaches
+the response queue. Demand wins a simultaneous lookup opportunity. Once an
+admitted miss launches, it uses the same blocking refill and installation path
+as a demand miss.
 
 ## Refill and replacement
 
@@ -139,7 +146,9 @@ it independently of the core's local invalidate-all operation.
 
 ## Deliberate limits
 
-- The cache has no hit-under-miss or prefetching.
+- Prefetches are not buffered, cannot run under a miss, and may delay a later
+  demand once an admitted miss has launched its blocking refill.
+- The cache has no hit-under-miss or autonomous prefetcher.
 - Core-initiated invalidation is whole-cache only; there is no selective form.
 - L1I never stores dirty state and cannot return clean data to a snoop source;
   forwarding and `RetToSrc` requests therefore evict a matching line.

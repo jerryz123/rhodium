@@ -23,7 +23,7 @@ importing the instruction-cache package.
 | Concern | Owner |
 |---|---|
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
-| Lookup, arrays, hit mutation, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
+| Demand-priority lookup, best-effort prefetch admission, arrays, hit mutation, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
 | Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
 | Ownership acquisition and partial writes | [`../chi/write-unique.rhdl`](../chi/write-unique.rhdl) |
@@ -46,7 +46,9 @@ importing the instruction-cache package.
 5. Keep LR/SC reservation invalidation aligned with local mutation,
    replacement, and invalidating snoops. Do not move architectural alignment or
    PMA faults into the cache.
-6. Test hit, miss, refill, atomic, and coherence behavior in compiled fixtures;
+6. Keep prefetch response-free and demand-priority; write intent may acquire
+   UniqueClean ownership but must not mutate data or make a line dirty.
+7. Test hit, miss, refill, atomic, and coherence behavior in compiled fixtures;
    keep host coverage to configuration and protocol metadata. Update
    [README.md](README.md) when public timing, state, traffic, or limits change.
 

@@ -29,7 +29,7 @@ def default_tiled_soc_layout = tile_grid:
 
 def tiled_soc_core_profile = RVCoreProfile(
   ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions),
+  ~extensions: RV5StageExtensions(~zicbop: #true, ~compressed: CCompressedExtensions),
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
 def tiled_soc_clocks = SoCClockConfig(

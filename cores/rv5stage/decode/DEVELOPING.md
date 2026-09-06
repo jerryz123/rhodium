@@ -67,6 +67,7 @@ rebinding by name. Memory width is the shared
 | ISA catalogs and profile enums | [`../../../riscv/isa/`](../../../riscv/isa/) |
 | Pipeline use of decoded controls | [`../core.rhdl`](../core.rhdl) |
 | Integer domain, columns, masks, and bundle shape | [`../tests/core-ctrl-test.rhm`](../tests/core-ctrl-test.rhm) |
+| Zicbop override, controls, and core event boundary | [`../tests/zicbop-test.rhm`](../tests/zicbop-test.rhm) |
 | FP domains, metadata, profiles, and single-decode structure | [`../tests/fp-ctrl-test.rhm`](../tests/fp-ctrl-test.rhm) |
 
 ## Focused validation

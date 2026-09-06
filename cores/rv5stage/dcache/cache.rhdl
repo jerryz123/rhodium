@@ -2,7 +2,9 @@
 // Implements RV5Stage's blocking write-back, write-allocate set-associative data cache.
 
 import:
+  "../../cache-prefetch.rhdl" open
   "protocol.rhdl" open
+  "../fp/types.rhdl" open
   "../memory.rhdl" open
   "../cache.rhdl" open
   "../chi/foundation.rhdl" open
@@ -29,6 +31,13 @@ bundle RV5StageL1DTransactionContext(xlen :: XLen,
   request: RV5StageDataReq(xlen)
   way: Bits(way_width)
   allocation: Bool
+  prefetch: Bool
+  prefetch_write: Bool
+
+bundle RV5StageL1DLookup(xlen :: XLen):
+  request: RV5StageDataReq(xlen)
+  prefetch: Bool
+  prefetch_write: Bool
 
 fun check_l1d_geometry(width :: PosInt, cache :: RV5StageCacheConfig):
   unless width > (alignment_bits(RV5StageCacheLineBytes) + cache.set_width)
@@ -57,6 +66,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   input node_id: Bits(p.node_id_width)
   interface core(RV5StageDataAccess(xlen), ~role: responder)
+  interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface chi(CHIRNChannels(p), ~role: node)
 
   inst tags(SyncRam1RW(sets, Bits(tag_width), ways))
@@ -81,7 +91,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // Hits leave the lookup stage directly. Ownership acquisitions and misses
   // transfer their complete request context into the refill engine, after a
   // dirty victim has drained when replacement is necessary.
-  inst lookup(Pipe(RV5StageDataReq(xlen), 1))
+  inst lookup(Pipe(RV5StageL1DLookup(xlen), 1))
   // This mandatory register isolates the SRAM result path. Responses cannot
   // be backpressured.
   inst responses(ValidPipe(RV5StageDataResp(xlen), 1))
@@ -149,10 +159,29 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   )
   refill_response |> refill.responses
   writeback_response |> writeback.responses
-  def issue_request :: RV5StageDataReq(xlen) = core_requests.egress.bits
+  def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
+  def prefetch_valid = prefetch.valid & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
+  def issue_prefetch = prefetch_valid & !core.request.valid & !core_requests.egress.valid
+  def issue_request :: RV5StageDataReq(xlen) = mux(
+    issue_prefetch,
+    RV5StageDataReq(xlen):
+      address: prefetch_request.address
+      access: MemoryOperation.Load
+      atomic: RV5StageAtomicOperation.Swap
+      width: MemoryWidth.Byte
+      unsigned: Bool(#true)
+      data: bits(0, width)
+      destination: RV5StageDataDestination.None
+      rd: bits(0, 5)
+      floating_point_precision: RV5StageFloatPrecision.Single,
+    core_requests.egress.bits
+  )
   def issue_set = issue_request.address[offset_width..(offset_width + set_width)]
   def issue_data_address = issue_request.address[word_offset_width..(offset_width + set_width)]
-  def lookup_request :: RV5StageDataReq(xlen) = lookup.egress.bits
+  def lookup_context = lookup.egress.bits.into(RV5StageL1DLookup(xlen))
+  def lookup_request :: RV5StageDataReq(xlen) = lookup_context.request
+  def lookup_prefetch = lookup_context.prefetch
+  def lookup_prefetch_write = lookup_context.prefetch_write
   def lookup_set = lookup_request.address[offset_width..(offset_width + set_width)]
   def lookup_tag = lookup_request.address[(offset_width + set_width)..width]
   def lookup_valids = valid_lines[lookup_set]
@@ -172,15 +201,17 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def victim_state = states.port.response.bits[transaction_way].into(CHICacheState)
   def lookup_access :: MemoryOperation = lookup_request.access
   def lookup_ready = lookup.egress.valid & tags.port.response.valid & states.port.response.valid
-  def lookup_load = lookup_ready & lookup_access.is_load()
-  def lookup_store = lookup_ready & lookup_access.is_store()
-  def lookup_atomic = lookup_ready & lookup_access.is_atomic()
-  def lookup_sc = lookup_ready & lookup_access.is_store_conditional()
+  def lookup_load = lookup_ready & !lookup_prefetch & lookup_access.is_load()
+  def lookup_store = lookup_ready & !lookup_prefetch & lookup_access.is_store()
+  def lookup_atomic = lookup_ready & !lookup_prefetch & lookup_access.is_atomic()
+  def lookup_sc = lookup_ready & !lookup_prefetch & lookup_access.is_store_conditional()
   def reservation_matches = reservation_valid & (reservation_address === lookup_request.address) & (reservation_width === lookup_request.width)
   def lookup_mutation = lookup_store ||| lookup_atomic ||| (lookup_sc & reservation_matches)
   def mutation_has_ownership = lookup_mutation & line_hit & lookup_state.is_unique()
-  def lookup_needs_refill = lookup_load & !line_hit ||| lookup_mutation & !mutation_has_ownership
-  def dirty_victim = lookup_needs_refill & !line_hit & victim_valid & victim_state.is_dirty()
+  def prefetch_needs_refill = lookup_ready & lookup_prefetch & (!line_hit ||| (lookup_prefetch_write & !lookup_state.is_unique()))
+  def prefetch_dirty_victim = prefetch_needs_refill & !line_hit & victim_valid & victim_state.is_dirty()
+  def lookup_needs_refill = lookup_load & !line_hit ||| lookup_mutation & !mutation_has_ownership ||| (prefetch_needs_refill & !prefetch_dirty_victim)
+  def dirty_victim = lookup_needs_refill & !lookup_prefetch & !line_hit & victim_valid & victim_state.is_dirty()
   def cached_words = lines.port.response.bits.as_bits().as_vec(Bits(width))
   def cached_word = lookup_selection.mux(
     for List (way in 0..ways): cached_words[way],
@@ -205,23 +236,27 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     transaction_path |> demux_flow(2, _request => dirty_victim.as_bits())
   )
   hit_path.ready <== Bool(#true)
-  fun transaction_context(request :: RV5StageDataReq(xlen),
+  fun transaction_context(lookup_request :: RV5StageL1DLookup(xlen),
                           way :: Bits(way_width),
                           allocation :: Bool) :~ RV5StageL1DTransactionContext(xlen, way_width):
     RV5StageL1DTransactionContext(xlen, way_width):
-      request: request
+      request: lookup_request.request
       way: way
       allocation: allocation
+      prefetch: lookup_request.prefetch
+      prefetch_write: lookup_request.prefetch_write
   def direct_refill_commands = (
     direct_refill_path
       |> map_flow(request => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width)):
-      line_address: align_down(request.address.as_bits(), RV5StageCacheLineBytes)
-      opcode: mux(request.access.into(MemoryOperation).needs_unique(), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
-      context: transaction_context(request, transaction_way, !line_hit)
+        line_address: align_down(request.request.address.as_bits(), RV5StageCacheLineBytes)
+        opcode: mux(request.prefetch_write ||| request.request.access.into(MemoryOperation).needs_unique(),
+                    CHIReqOpcode.ReadUnique,
+                    CHIReqOpcode.ReadClean)
+        context: transaction_context(request, transaction_way, !line_hit)
   )
   direct_refill_commands |> refill_commands.ingress[0]
   def victim_address = concat(tags.port.response.bits[transaction_way], lookup_set, bits(0, offset_width))
-  def victim_context = transaction_context(eviction_path.bits, transaction_way, Bool(#true))
+  def victim_context = transaction_context(eviction_path.bits.into(RV5StageL1DLookup(xlen)), transaction_way, Bool(#true))
   eviction_path.ready <== gather_idle & !refill_installing
   def eviction_gather_start = eviction_path.fire()
   writeback.command.valid <== gather_state === RV5StageDataGatherState.EvictionReady
@@ -234,7 +269,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     writeback.completion
       |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width)):
         line_address: align_down(result.context.request.address.as_bits(), RV5StageCacheLineBytes)
-        opcode: mux(result.context.request.access.into(MemoryOperation).needs_unique(),
+        opcode: mux(result.context.prefetch_write ||| result.context.request.access.into(MemoryOperation).needs_unique(),
                     CHIReqOpcode.ReadUnique,
                     CHIReqOpcode.ReadClean)
         context: result.context
@@ -253,6 +288,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     assert(!refill.completion.bits.pass_dirty, "l1d_refill_not_dirty")
   def completion_context = refill.completion.bits.context
   def completion_request = completion_context.request
+  def completion_prefetch = completion_context.prefetch
   def completion_way = completion_context.way
   def completion_access :: MemoryOperation = completion_request.access
   def completion_set = completion_request.address[offset_width..(offset_width + set_width)]
@@ -269,7 +305,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   load_gen.data <== mux(refill.completion.valid, refilled_word, cached_word)
   load_gen.width <== load_request.width
   load_gen.unsigned_load <== load_unsigned
-  def refill_mutation = refill.completion.valid & completion_access.needs_unique()
+  def refill_mutation = refill.completion.valid & !completion_prefetch & completion_access.needs_unique()
   def local_mutation = lookup_mutation & mutation_has_ownership
   def local_mutation_capture = local_mutation & lookup.egress.fire()
   def local_mutation_commit = pending_mutation_valid
@@ -353,7 +389,12 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   core.request |> core_requests.ingress
   def lookup_accepts_input = refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !lookup_needs_refill & !local_mutation
-  core_requests.egress |> gate_flow(lookup_accepts_input) |> lookup.ingress
+  core_requests.egress.ready <== lookup_accepts_input & lookup.ingress.ready
+  lookup.ingress.valid <== lookup_accepts_input & (core_requests.egress.valid ||| issue_prefetch)
+  lookup.ingress.bits <== RV5StageL1DLookup(xlen):
+    request: issue_request
+    prefetch: issue_prefetch
+    prefetch_write: issue_prefetch & (prefetch_request.operation === CachePrefetchOperation.Write)
   def request_accept = core.request.fire()
   def lookup_issue = lookup.ingress.fire()
   // A fence observes accepted or queued requests, lookup work, active refills,
@@ -362,7 +403,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !pending_mutation_valid & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
   def produces_load_hit = lookup_load & line_hit
   def produces_failed_sc = lookup_sc & !reservation_matches
-  def produces_response = produces_load_hit ||| local_mutation_commit ||| produces_failed_sc ||| install_refill
+  def produces_response = produces_load_hit ||| local_mutation_commit ||| produces_failed_sc ||| (install_refill & !completion_prefetch)
   def response_request :: RV5StageDataReq(xlen) = mux(
     install_refill,
     completion_request,

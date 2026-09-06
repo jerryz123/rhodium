@@ -11,6 +11,7 @@ export:
   decode_cases
   decode_groups
   lift_decode_inputs
+  overlay_decode_cases
   zip_decode_cases
 
 fun exact_type_equal(left :: DataType, right :: DataType):
@@ -40,6 +41,25 @@ fun lift_decode_inputs(cases :: NonemptyList.of(DecodeCase),
   )
   for List (case in checked_cases):
     DecodeCase(as_pattern(lift(case.input)), case.output)
+
+// Gives explicit extension rows ownership of their input region by subtracting
+// their union from every fallback row. The result remains an unordered,
+// pairwise-disjoint relation once passed to DecodeTable.
+fun overlay_decode_cases(fallbacks :: List.of(DecodeCase),
+                         overrides :: List.of(DecodeCase)):
+  if overrides.length() == 0
+  | fallbacks
+  | block:
+      def override_inputs = PatternSet(
+        overrides[0].input.type,
+        overrides.map(fun (case :: DecodeCase): case.input)
+      )
+      def mutable resolved = overrides
+      for (fallback in fallbacks):
+        def residual = fallback.input.subtract(override_inputs)
+        for (term in residual.terms):
+          resolved := resolved ++ [DecodeCase(term, fallback.output)]
+      resolved
 
 // Forms an output product from two relations with exactly the same input
 // cubes. Row order is irrelevant; missing or duplicate counterparts are errors.

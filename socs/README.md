@@ -20,9 +20,9 @@ Contributors changing a composition should read
 
 | System | Default processors | Normal-memory termination | Coherence structure | Default core specialization | Best fit |
 | --- | ---: | --- | --- | --- | --- |
-| `SimpleSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, and UART on one physical router | RV64IMAFDC plus B and Zicond; full C composition | Primary single-core coherent system and external-memory integration |
-| `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only, compressed instructions disabled | Compact RTL and physical-design experiments |
-| `TiledSoC` | 8 in the default 4x4 layout | Four internal 8 KiB `CHIRam` banks | Four inclusive LLC slices plus BootROM and routed device-home, ACLINT, and UART tiles | Integer-only with the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
+| `SimpleSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, and UART on one physical router | RV64IMAFDC plus B, Zicond, and Zicbop; full C composition | Primary single-core coherent system and external-memory integration |
+| `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only with Zicbop; compressed instructions disabled | Compact RTL and physical-design experiments |
+| `TiledSoC` | 8 in the default 4x4 layout | Four internal 8 KiB `CHIRam` banks | Four inclusive LLC slices plus BootROM and routed device-home, ACLINT, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
 
 All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
 non-caching coherent RN-F memory port for loading and observation, plus a
@@ -31,7 +31,9 @@ one-shot release channel. Each author-facing SoC parameter object owns one
 architectural description. `SimpleSoC` defaults to RV64D and the full C
 composition, `MiniSoC` to integer-only RV64 with 2 KiB direct-mapped L1s, and
 `TiledSoC` to integer-only RV64 with the C composition. All three select Sv39;
-half precision and Zfa default to disabled.
+Zicbop is enabled in each default profile, while half precision and Zfa remain
+disabled. Supply an alternate `RVCoreProfile` through the owning SoC parameter
+object to change those selections.
 
 Every system also exposes the shared [`SoCUartInterface`](peripherals.rhdl)
 containing RX, TX, and interrupt signals.

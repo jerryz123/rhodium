@@ -24,7 +24,7 @@ separation.
 | Concern | Owner |
 |---|---|
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
-| Lookup, arrays, buffering, refill installation, replacement, flush, invalidation, and snoop arbitration | [`cache.rhdl`](cache.rhdl) |
+| Demand-priority lookup, best-effort prefetch admission, arrays, buffering, refill installation, replacement, flush, invalidation, and snoop arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
 | Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
 | Clean snoop transaction lifetime | [`../chi/snoop.rhdl`](../chi/snoop.rhdl) |
@@ -44,7 +44,9 @@ separation.
    including their different treatment of resident and in-flight refill state.
 5. Preserve SRAM ownership priority among lookup, snoop, and refill
    installation, and keep every CHI response stable until accepted.
-6. Update [README.md](README.md) when ports, timing, geometry, coherence,
+6. Keep a prefetch response-free and lower priority than a simultaneous demand;
+   once admitted, reuse the ordinary coherent refill and installation path.
+7. Update [README.md](README.md) when ports, timing, geometry, coherence,
    replacement, or deliberate limits change.
 
 ## Focused validation

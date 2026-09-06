@@ -12,6 +12,7 @@ def compiled = compiler.compile_tiled_soc(tiled.default_tiled_soc_config)
 def description = tiled.default_tiled_soc_config.description
 
 check:
+  tiled.tiled_soc_core_profile.extensions.zicbop ~is #true
   tiled.default_tiled_soc_config.clocks.timebase_period_cycles ~is 100
   compiled.llcs.map(fun (llc): llc.home_params.home.node_id) ~is [32, 33, 34, 35]
   compiled.rv5stages.length() ~is 8

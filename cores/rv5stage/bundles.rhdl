@@ -5,6 +5,7 @@ import:
   "../../riscv/isa/xlen.rhm" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
+  "../cache-prefetch.rhdl" open
   "../load-store.rhdl" open
   "memory.rhdl" open
   "decode/operand-ctrl.rhdl" open
@@ -41,6 +42,7 @@ bundle DecodeExecute(xlen :: XLen):
   branch_control: BranchResolverControl()
   target_from_rs1: Bool
   memory_operation: MemoryOperation
+  prefetch_operation: CachePrefetchOperation
   memory_atomic: RV5StageAtomicOperation
   memory_width: MemoryWidth
   memory_unsigned: Bool

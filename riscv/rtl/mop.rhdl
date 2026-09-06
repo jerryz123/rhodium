@@ -1,21 +1,12 @@
 #lang rhodium
-// Resolves extension overrides over fallback MOP decode relations by set subtraction.
+// Preserves the MOP-specific decode-overlay name over the generic std helper.
 
 import:
   lib("rhodium/std/decode.rhdl") open
 
 fun resolve_mop_decode_cases(fallbacks :: List.of(DecodeCase),
                              overrides :: List.of(DecodeCase)):
-  def override_inputs:
-    if overrides.length() == 0
-    | #false
-    | PatternSet(overrides[0].input.type, overrides.map(fun (case :: DecodeCase): case.input))
-  def mutable resolved = overrides
-  for (fallback in fallbacks):
-    def residual = if override_inputs | fallback.input.subtract(override_inputs) | as_pattern_set(fallback.input)
-    for (term in residual.terms):
-      resolved := resolved ++ [DecodeCase(term, fallback.output)]
-  resolved
+  overlay_decode_cases(fallbacks, overrides)
 
 export:
   resolve_mop_decode_cases

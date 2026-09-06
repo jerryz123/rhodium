@@ -21,6 +21,32 @@ bundle RV5StageTlbEntry():
   accessed: Bool
   dirty: Bool
 
+fun rv5stage_tlb_entry_matches(entry :: RV5StageTlbEntry(), virtual_address :: Bits(64)) :~ Bool:
+  def vpn = virtual_address[12..39]
+  def level_matches = mux_lookup(
+    entry.level,
+    ~default: entry.vpn === vpn,
+    [
+      [1, entry.vpn[9..27] === vpn[9..27]],
+      [2, entry.vpn[18..27] === vpn[18..27]]
+    ]
+  )
+  entry.valid & level_matches
+
+fun rv5stage_tlb_entry_pte(entry :: RV5StageTlbEntry()) :~ Sv39Pte():
+  Sv39Pte():
+    ppn: entry.ppn
+    reserved: bits(0, 10)
+    rsw: bits(0, 2)
+    dirty: entry.dirty
+    accessed: entry.accessed
+    global_mapping: entry.global_mapping
+    user: entry.user
+    execute: entry.execute
+    write: entry.write
+    read: entry.read
+    valid: Bool(#true)
+
 sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   input virtual_address: Bits(64)
   input access: Sv39Access
@@ -29,10 +55,18 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   input mxr: Bool
   input enabled: Bool
   input invalidate_all: Bool
+  input probe_virtual_address: Bits(64)
+  input probe_privilege: PrivilegeMode
+  input probe_sum: Bool
+  input probe_mxr: Bool
+  input probe_enabled: Bool
   interface fill(Valid(RV5StageTranslationResult()), ~role: consumer)
   output hit: Bool
   output fault: Bool
   output physical_address: Bits(56)
+  output probe_hit: Bool
+  output probe_fault: Bool
+  output probe_physical_address: Bits(56)
 
   def index_bits = index_width(entry_count)
   reg entries(Vec(entry_count, RV5StageTlbEntry()), ~init: vec(
@@ -40,34 +74,13 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   ))
   reg replacement(~init: bits(0, index_bits))
 
-  def vpn = virtual_address[12..39]
   def matches = vec(
     for List (index in 0..entry_count):
-      def entry = entries[index]
-      def level_matches = mux_lookup(
-        entry.level,
-        ~default: entry.vpn === vpn,
-        [
-          [1, entry.vpn[9..27] === vpn[9..27]],
-          [2, entry.vpn[18..27] === vpn[18..27]]
-        ]
-      )
-      entry.valid & level_matches
+      rv5stage_tlb_entry_matches(entries[index], virtual_address)
   )
   def selected_index = priority_encoder(matches)
   def selected = entries[selected_index]
-  def selected_pte = Sv39Pte():
-    ppn: selected.ppn
-    reserved: bits(0, 10)
-    rsw: bits(0, 2)
-    dirty: selected.dirty
-    accessed: selected.accessed
-    global_mapping: selected.global_mapping
-    user: selected.user
-    execute: selected.execute
-    write: selected.write
-    read: selected.read
-    valid: Bool(#true)
+  def selected_pte = rv5stage_tlb_entry_pte(selected)
   def selected_hit = enabled & sv39_canonical(virtual_address) & or_reduce(matches)
   hit <== !enabled ||| selected_hit
   fault <== enabled & selected_hit & !sv39_permission_valid(
@@ -79,6 +92,27 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
     mxr
   )
   physical_address <== mux(enabled, sv39_physical_address(virtual_address, selected_pte, selected.level), virtual_address[0..56])
+
+  def probe_matches = vec(
+    for List (index in 0..entry_count):
+      rv5stage_tlb_entry_matches(entries[index], probe_virtual_address)
+  )
+  def probe_selected = entries[priority_encoder(probe_matches)]
+  def probe_pte = rv5stage_tlb_entry_pte(probe_selected)
+  def selected_probe_hit = probe_enabled & sv39_canonical(probe_virtual_address) & or_reduce(probe_matches)
+  probe_hit <== !probe_enabled ||| selected_probe_hit
+  probe_fault <== probe_enabled & selected_probe_hit & !sv39_prefetch_permission_valid(
+    probe_pte,
+    probe_privilege === PrivilegeMode.User,
+    probe_privilege === PrivilegeMode.Supervisor,
+    probe_sum,
+    probe_mxr
+  )
+  probe_physical_address <== mux(
+    probe_enabled,
+    sv39_physical_address(probe_virtual_address, probe_pte, probe_selected.level),
+    probe_virtual_address[0..56]
+  )
 
   when invalidate_all:
     entries <== vec(for List (_index in 0..entry_count): literal(RV5StageTlbEntry(), 0))

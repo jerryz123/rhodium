@@ -33,14 +33,16 @@ enum RV5StageMmuMode
 class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          half_precision :: HalfPrecisionProfile,
                          zfa :: Boolean,
+                         zicbop :: Boolean,
                          compressed :: List.of(CompressedExtension)):
   implements StableCircuitParam
 
   constructor (~floating_point: floating_point :: FloatingPointProfile = DefaultFloatingPointProfile,
                ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
                ~zfa: zfa :: Boolean = #false,
+               ~zicbop: zicbop :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
-    super(floating_point, half_precision, zfa, compressed)
+    super(floating_point, half_precision, zfa, zicbop, compressed)
 
   method compressed_misa_c(xlen :: XLen) :: Boolean:
     compressed_extensions_report_misa_c(xlen, floating_point, compressed)
@@ -75,7 +77,8 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
     | half_precision == HalfPrecisionProfile.Zfhmin:
         multi_letter := multi_letter ++ ["zfhmin"]
     | ~else: #void
-    single_letter ++ multi_letter ++ ["zicntr", "zicond", "zicsr", "zifencei"]
+    def cache_block = if zicbop | ["zicbop"] | []
+    single_letter ++ multi_letter ++ cache_block ++ ["zicntr", "zicond", "zicsr", "zifencei"]
 
 class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
                             data :: RV5StageCacheConfig):

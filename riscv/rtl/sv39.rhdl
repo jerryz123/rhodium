@@ -82,6 +82,19 @@ fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
     Sv39Access.Load: pte.read ||| (mxr & pte.execute)
   privilege_valid & access_valid & pte.accessed
 
+// Prefetch permission is the union of fetch, load, and store permission, but
+// the architectural hint neither checks nor updates the PTE A/D bits.
+fun sv39_prefetch_permission_valid(pte :: Sv39Pte(),
+                                   user_mode :: Bool, supervisor_mode :: Bool,
+                                   sum :: Bool, mxr :: Bool) :~ Bool:
+  def user_page = pte.user
+  def fetch_privilege_valid = mux(user_mode, user_page, !user_page)
+  def data_privilege_valid = mux(user_mode, user_page, !user_page ||| (supervisor_mode & sum))
+  def fetch_valid = fetch_privilege_valid & pte.execute
+  def load_valid = data_privilege_valid & (pte.read ||| (mxr & pte.execute))
+  def store_valid = data_privilege_valid & pte.write
+  fetch_valid ||| load_valid ||| store_valid
+
 export:
   Sv39Access
   Sv39Pte
@@ -94,3 +107,4 @@ export:
   sv39_superpage_aligned
   sv39_physical_address
   sv39_permission_valid
+  sv39_prefetch_permission_valid

@@ -37,7 +37,8 @@ fi
 
 component_domain_imports="$(
   search_sources '^[[:space:]]+"[^"]*(riscv/|rv5stage/)' \
-    cores/alu.rhdl cores/branch-resolver.rhdl cores/load-store.rhdl \
+    cores/alu.rhdl cores/branch-resolver.rhdl cores/cache-prefetch.rhdl \
+    cores/load-store.rhdl \
     cores/multiplier.rhdl cores/divider.rhdl \
     | grep -Ev 'riscv/isa/xlen\.rhm' \
     || true
@@ -108,6 +109,7 @@ fi
 
 unexpected_root_sources="$(find cores -maxdepth 1 -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
   ! -name 'alu.rhdl' ! -name 'branch-resolver.rhdl' \
+  ! -name 'cache-prefetch.rhdl' \
   ! -name 'load-store.rhdl' ! -name 'multiplier.rhdl' \
   ! -name 'divider.rhdl' -print)"
 if [[ -n "$unexpected_root_sources" ]]; then

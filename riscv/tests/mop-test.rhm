@@ -1,21 +1,10 @@
 #lang rhodium
-// Checks Zimop and Zcmop encodings, semantics, and explicit fallback overrides.
+// Checks Zimop and Zcmop encodings and architectural no-effect semantics.
 
 import:
   "../isa/zimop.rhm" open
   "../isa/zcmop.rhm" open
   "../model/formats.rhm" open
-  "../rtl/instruction-pattern.rhdl" open
-  "../rtl/mop.rhdl" open
-  lib("rhodium/std/decode.rhdl") open
-
-fun selected_output(cases :: List.of(DecodeCase), input):
-  def selected = cases.find(fun (case :: DecodeCase): case.input.matches(input))
-  if selected | selected.output.value_bits | #false
-
-def fallback = DecodeCase(Pattern(~value: bits(0, 4), ~care: bits(0, 4)), as_pattern(bits(0, 2)))
-def override = DecodeCase(Pattern(~value: bits(2, 4), ~care: bits(3, 4)), as_pattern(bits(1, 2)))
-def resolved = resolve_mop_decode_cases([fallback], [override])
 
 check:
   Zimop.instructions.length() ~is 40
@@ -40,7 +29,3 @@ check:
   ]
   (for all (instruction in Zcmop.instructions):
      instruction.expand(instruction.encodings[0].value) == 0x00000013) ~is #true
-  resolved.length() ~is 3
-  selected_output(resolved, bits(2, 4)) ~is 1
-  selected_output(resolved, bits(6, 4)) ~is 1
-  selected_output(resolved, bits(1, 4)) ~is 0

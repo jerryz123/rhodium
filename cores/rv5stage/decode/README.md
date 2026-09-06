@@ -16,8 +16,8 @@ Contributors changing decode ownership or instruction coverage should read
 ## Select a decode specialization
 
 `RV5StageInstructionDecoder` accepts `xlen`, `profile`, `half_precision`, and
-the default-disabled `zfa` switch as host parameters. They select the
-instruction catalogs before hardware is generated:
+the default-disabled `zfa` and `zicbop` switches as host parameters. They
+select the instruction catalogs before hardware is generated:
 
 | Specialization | Selected rows |
 |---|---|
@@ -25,6 +25,11 @@ instruction catalogs before hardware is generated:
 | RV64, FP disabled | RV64I plus the RV64 forms of M, A, and B, followed by Zicond, Zimop, Zicsr, Zifencei, and the supported privileged instructions |
 | RV32F | The RV32 core rows plus the RV32F catalog |
 | RV64D | The RV64 core rows plus the RV64F and RV64D catalogs |
+
+Enabling Zicbop overlays its three prefetch rows on any of these selections.
+The standard decode library subtracts those exact regions from the broad
+`ORI` row, preserving one unordered decode relation. When disabled, the same
+encodings retain their ordinary legal `ORI x0` hint meaning.
 
 RV5Stage deliberately accepts only disabled FP, RV32F, or RV64D. A half-precision
 profile requires FP to be enabled. `Zfhmin` adds its load, store, move, and
@@ -45,7 +50,7 @@ With FP disabled, the prebuilt RV32 or RV64 core relation is selected instead.
 
 ```mermaid
 flowchart LR
-    PARAMS["xlen + FP profile + half profile + Zfa"]
+    PARAMS["xlen + FP profile + half profile + Zfa + Zicbop"]
     CORECAT["Selected core catalog<br/>I + M + A + B + Zicond + Zimop + system"]
     FPCAT["Selected FP catalog<br/>F / F+D / optional Zfhmin, Zfh, or Zfa"]
     COLUMNS["Component relations<br/>ALU, operands, branch, memory,<br/>multiply, divide, writeback, system, fence"]
@@ -53,6 +58,7 @@ flowchart LR
     FPEXEC["FP execution relations"]
     FPROWS["compose_floating_point_control_cases<br/>register + execution controls"]
     FPINTEGRATE["floating_point_core_control_cases<br/>scalar controls + FP column"]
+    OVERLAY["optional Zicbop overlay<br/>subtract from ORI fallback"]
     TABLE["one ValidDecodeGen"]
     INPUT["instruction Bits(32)"]
     OUTPUT["valid + RV5StageControl"]
@@ -65,7 +71,8 @@ flowchart LR
     FPEXEC --> FPROWS
     FPCAT --> FPINTEGRATE
     FPROWS --> FPINTEGRATE
-    COREROWS --> TABLE
+    COREROWS --> OVERLAY --> TABLE
+    PARAMS --> OVERLAY
     FPINTEGRATE --> TABLE
     INPUT --> TABLE --> OUTPUT
 ```
@@ -118,6 +125,12 @@ software defaults:
 hardware relation. Its separate `valid` output distinguishes selected rows from
 unmatched encodings; consumers must not interpret an unmatched control value as
 a default instruction.
+
+Zicbop is the deliberate exception to exact catalog concatenation because its
+instructions occupy subregions of `ORI`. Its override rows select the shared
+adder, `rs1`, the descriptor-owned prefetch immediate, no scalar writeback or
+ordinary memory operation, and a `CachePrefetchOperation`. No instruction-kind
+decoder or row-priority mux is introduced.
 
 ## Find implementation and tests
 

@@ -24,9 +24,9 @@ the caches.
 | File | Ownership |
 |---|---|
 | [`protocol.rhdl`](protocol.rhdl) | Translation request/result bundles, fetch-fault metadata, and walker memory interface |
-| [`tlb.rhdl`](tlb.rhdl) | Fully associative matching, permission recheck, physical-address construction, refill, and invalidation |
+| [`tlb.rhdl`](tlb.rhdl) | Fully associative demand/probe matching, permission recheck, physical-address construction, refill, and invalidation |
 | [`walker.rhdl`](walker.rhdl) | Serialized three-level PTE fetch, structural and permission checks, cancellation, and completion |
-| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, fetch ordering, physical fetch checks, and shared data-port ownership |
+| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, fetch ordering, physical demand/prefetch checks, and shared data-port ownership |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |
 | [`../tests/mmu-test.rhm`](../tests/mmu-test.rhm) | Public translation types, widths, and composition boundary |
@@ -45,7 +45,9 @@ the caches.
    bit.
 5. Recheck current privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit; do
    not cache a prior permission decision.
-6. Keep host checks to public translation contracts. Test walk, cancellation,
+6. Keep prefetch probes non-faulting and independent of walker ownership; they
+   may use Bare translation or an existing TLB entry but must not check A/D.
+7. Keep host checks to public translation contracts. Test walk, cancellation,
    fault, and invalidation behavior in compiled simulations, then update
    [README.md](README.md) for observable changes.
 

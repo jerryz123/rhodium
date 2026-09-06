@@ -28,6 +28,7 @@ Contributors changing translation or page-walk integration should read
 | Page-table traffic | One 64-bit physical load at a time through the ordinary data-memory path |
 | Data-miss recovery | A miss starts the walker and leaves the MEM request unaccepted; the core refetches it through ordered replay |
 | Permission policy | Recheck access kind, current effective privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit |
+| Prefetch policy | Bare or existing ITLB/DTLB hit only; any fetch/load/store PTE permission; ignore A/D; silently drop every rejection |
 | Invalidation | Whole-ITLB and whole-DTLB invalidation; any active walk and correlated fault are canceled |
 | Address-space identity | ASID zero only; no ASID-tagged lookup or selective invalidation |
 | A/D policy | Svade: missing `A`, or missing `D` for a write-like access, causes a page fault |
@@ -138,6 +139,24 @@ The data side has no response-owner queue because its physical responses are
 ordered and non-backpressurable. While any walk is active, normal data-request
 forwarding is disabled, so a page-table response cannot be confused with a
 core data response.
+
+## Best-effort prefetch probes
+
+The MMU accepts the core's nonbackpressured
+`Valid(CachePrefetchReq(xlen.width))` event independently of demand instruction
+and data requests. `PREFETCH.I` probes the ITLB; `PREFETCH.R` and `PREFETCH.W`
+probe the DTLB. All three use the data-access effective privilege, including
+`MPRV`/`MPP`, plus current `SUM` and `MXR` state.
+
+Bare translation succeeds combinationally. Under Sv39, only an existing TLB
+entry can produce a physical prefetch; a miss never starts or waits for the
+page-table walker. The probe accepts the union of legal fetch, load, and store
+PTE permissions without checking `A` or `D`. Noncanonical addresses,
+translation misses, permission failures, non-cacheable physical regions, and
+PMA denial for the hint's intended instruction/read/write use all drop the
+event without a cache or memory access and without an architectural fault.
+Forwarded addresses are aligned to the fixed 64-byte cache line, and the PMA
+lookup covers that complete line.
 
 ## Shared walker and L1D-side arbitration
 
@@ -254,7 +273,8 @@ Deliberate limits are:
   this MMU;
 - walks are neither speculative nor concurrent, and there is no independent
   page-table-memory port or page-walk cache; and
-- a walk serializes ordinary data traffic for its full lifetime.
+- a walk serializes ordinary data traffic for its full lifetime; and
+- best-effort prefetch probes do not fill a TLB or initiate a background walk.
 
 ## Implementation map
 

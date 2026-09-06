@@ -1,0 +1,19 @@
+#lang rhodium
+// Defines the reusable best-effort cache-prefetch request carried by cores.
+
+hardware_enum CachePrefetchOperation:
+  None
+  Instruction
+  Read
+  Write
+
+  method is_prefetch(operation) :: Bool:
+    operation =/= CachePrefetchOperation.None
+
+bundle CachePrefetchReq(address_width :: PosInt):
+  address: Bits(address_width)
+  operation: CachePrefetchOperation
+
+export:
+  CachePrefetchOperation
+  CachePrefetchReq
