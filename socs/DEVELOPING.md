@@ -31,7 +31,7 @@ configure and connect those public contracts, not fork their behavior.
 
 | Concern | Owner |
 |---|---|
-| Architectural host description | [`description.rhm`](description.rhm) |
+| Architectural host description and device-tree projection | [`description.rhm`](description.rhm) |
 | Common coherent host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
 | Shared device windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
 | Primary external-memory composition | [`simple-soc.rhdl`](simple-soc.rhdl) |
@@ -71,6 +71,10 @@ Run SoC configuration and topology-compilation tests from the repository root:
 ```sh
 make soc-test
 ```
+
+This target also generates native DTBs for SimpleSoC, MiniSoC, and TiledSoC,
+round-trips their inspection DTS through `dtc`, and checks architectural
+properties with `fdtdump` and `fdtget`. Generated artifacts remain temporary.
 
 Use the package-local target while iterating:
 

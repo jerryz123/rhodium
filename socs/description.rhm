@@ -1,12 +1,13 @@
 #lang rhombus
-// Defines the immutable RISC-V architectural description shared by SoC consumers.
+// Defines immutable RISC-V SoC descriptions and their native device-tree projection.
 
 import:
   rhombus.bits.(<<) as <<
   lib("support/annotations.rhm").NonemptyString
+  lib("devicetree/main.rhm") open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("rhodium/std/interconnect.rhdl").AddressSet
-  lib("cores/rv5stage/profile.rhm").RVCoreProfile
+  lib("cores/rv5stage/profile.rhm") open
 
 class SoCClockConfig(clock_frequency_hz :: PosInt,
                      timebase_frequency_hz :: PosInt):
@@ -43,6 +44,12 @@ class SoCAddressRegion(address_set :: AddressSet):
   method overlaps(other :: SoCAddressRegion) :: Boolean:
     address_set.overlaps(other.address_set)
 
+  method to_device_tree_cells():
+    DeviceTreeCells([
+      DeviceTreeU64(base),
+      DeviceTreeU64(size_bytes)
+    ])
+
 class RiscvBootLayout(rom :: SoCAddressRegion,
                       reset_address :: Nat,
                       payload_address :: Nat):
@@ -61,6 +68,117 @@ class RiscvAclintDescription(region :: SoCAddressRegion):
 
 class RiscvUartDescription(region :: SoCAddressRegion):
   implements StableCircuitParam
+
+def RiscvMachineSoftwareInterrupt = 3
+def RiscvMachineTimerInterrupt = 7
+
+fun unit_address(address :: Nat) :: String:
+  String.from_int(address, ~radix: 16)
+
+fun cpu_interrupt_label(hart :: Nat):
+  DeviceTreeLabel("cpu_intc_" ++ String.from_int(hart))
+
+fun mmu_type(mode :: RV5StageMmuMode):
+  match mode
+  | RV5StageMmuMode.Bare: "riscv,none"
+  | RV5StageMmuMode.Sv39: "riscv,sv39"
+
+fun cpu_node(hart :: Nat,
+             profile :: RVCoreProfile,
+             clocks :: SoCClockConfig):
+  def instruction_cache = profile.cache_geometry.instruction
+  def data_cache = profile.cache_geometry.data
+  DeviceTreeNode(
+    "cpu@" ++ unit_address(hart),
+    [DeviceTreeProperty("device_type", DeviceTreeString("cpu")),
+     DeviceTreeProperty("reg", DeviceTreeU32(hart)),
+     DeviceTreeProperty("status", DeviceTreeString("okay")),
+     DeviceTreeProperty("compatible", DeviceTreeString("riscv")),
+     DeviceTreeProperty("clock-frequency", DeviceTreeU32(clocks.clock_frequency_hz)),
+     DeviceTreeProperty("riscv,isa-base", DeviceTreeString(profile.isa_base)),
+     DeviceTreeProperty("riscv,isa-extensions", DeviceTreeStringList(profile.isa_extensions)),
+     DeviceTreeProperty("mmu-type", DeviceTreeString(mmu_type(profile.mmu_mode))),
+     DeviceTreeProperty("i-cache-block-size", DeviceTreeU32(RV5StageCacheLineBytes)),
+     DeviceTreeProperty("i-cache-sets", DeviceTreeU32(instruction_cache.sets)),
+     DeviceTreeProperty("i-cache-size", DeviceTreeU32(instruction_cache.capacity_bytes)),
+     DeviceTreeProperty("d-cache-block-size", DeviceTreeU32(RV5StageCacheLineBytes)),
+     DeviceTreeProperty("d-cache-sets", DeviceTreeU32(data_cache.sets)),
+     DeviceTreeProperty("d-cache-size", DeviceTreeU32(data_cache.capacity_bytes))],
+    [DeviceTreeNode(
+       "interrupt-controller",
+       [DeviceTreeProperty("#interrupt-cells", DeviceTreeU32(1)),
+        DeviceTreeProperty("interrupt-controller", DeviceTreeEmpty()),
+        DeviceTreeProperty("compatible", DeviceTreeString("riscv,cpu-intc"))],
+       [],
+       ~label: cpu_interrupt_label(hart))]
+  )
+
+fun cpus_node(harts :: NonemptyList.of(Nat),
+              profile :: RVCoreProfile,
+              clocks :: SoCClockConfig):
+  DeviceTreeNode(
+    "cpus",
+    [DeviceTreeProperty("#address-cells", DeviceTreeU32(1)),
+     DeviceTreeProperty("#size-cells", DeviceTreeU32(0)),
+     DeviceTreeProperty("timebase-frequency", DeviceTreeU32(clocks.timebase_frequency_hz))],
+    for List (hart in harts): cpu_node(hart, profile, clocks)
+  )
+
+fun memory_node(region :: SoCAddressRegion):
+  DeviceTreeNode(
+    "memory@" ++ unit_address(region.base),
+    [DeviceTreeProperty("device_type", DeviceTreeString("memory")),
+     DeviceTreeProperty("reg", region.to_device_tree_cells())]
+  )
+
+fun aclint_node(aclint :: RiscvAclintDescription,
+                harts :: NonemptyList.of(Nat)):
+  def mutable interrupts = []
+  for (hart in harts):
+    def interrupt_controller = cpu_interrupt_label(hart)
+    interrupts := interrupts ++ [
+      DeviceTreePhandle(interrupt_controller),
+      DeviceTreeU32(RiscvMachineSoftwareInterrupt),
+      DeviceTreePhandle(interrupt_controller),
+      DeviceTreeU32(RiscvMachineTimerInterrupt)
+    ]
+  DeviceTreeNode(
+    "clint@" ++ unit_address(aclint.region.base),
+    [DeviceTreeProperty("compatible", DeviceTreeString("riscv,clint0")),
+     DeviceTreeProperty("reg", aclint.region.to_device_tree_cells()),
+     DeviceTreeProperty("interrupts-extended", DeviceTreeCells(interrupts))]
+  )
+
+fun uart_node(uart :: RiscvUartDescription,
+              clocks :: SoCClockConfig):
+  // The current SoCs expose the UART interrupt at their pin boundary but do
+  // not contain an external interrupt controller, so firmware must not bind
+  // an interrupt-driven 16550 driver yet.
+  DeviceTreeNode(
+    "serial@" ++ unit_address(uart.region.base),
+    [DeviceTreeProperty("compatible", DeviceTreeString("ns16550a")),
+     DeviceTreeProperty("reg", uart.region.to_device_tree_cells()),
+     DeviceTreeProperty("clock-frequency", DeviceTreeU32(clocks.clock_frequency_hz)),
+     DeviceTreeProperty("reg-shift", DeviceTreeU32(0)),
+     DeviceTreeProperty("reg-io-width", DeviceTreeU32(1)),
+     DeviceTreeProperty("status", DeviceTreeString("disabled"))]
+  )
+
+fun soc_node(harts :: NonemptyList.of(Nat),
+             clocks :: SoCClockConfig,
+             aclint :: RiscvAclintDescription,
+             uart :: False || RiscvUartDescription):
+  def mutable children = [aclint_node(aclint, harts)]
+  when uart is_a RiscvUartDescription
+  | children := children ++ [uart_node(uart, clocks)]
+  DeviceTreeNode(
+    "soc",
+    [DeviceTreeProperty("#address-cells", DeviceTreeU32(2)),
+     DeviceTreeProperty("#size-cells", DeviceTreeU32(2)),
+     DeviceTreeProperty("compatible", DeviceTreeString("simple-bus")),
+     DeviceTreeProperty("ranges", DeviceTreeEmpty())],
+    children
+  )
 
 fun require_unique_strings(strings :: NonemptyList.of(NonemptyString), who :: Symbol):
   for (value in strings):
@@ -119,6 +237,21 @@ class RiscvSoCDescription(model :: NonemptyString,
           boot,
           aclint,
           uart)
+
+  method to_device_tree():
+    DeviceTree(
+      DeviceTreeNode(
+        "",
+        [DeviceTreeProperty("model", DeviceTreeString(model)),
+         DeviceTreeProperty("compatible", DeviceTreeStringList(compatible)),
+         DeviceTreeProperty("#address-cells", DeviceTreeU32(2)),
+         DeviceTreeProperty("#size-cells", DeviceTreeU32(2))],
+        [cpus_node(harts, core_profile, clocks)] ++ (
+          for List (region in memory_regions): memory_node(region)
+        ) ++ [soc_node(harts, clocks, aclint, uart)]
+      ),
+      ~boot_cpuid: harts[0]
+    )
 
 export:
   SoCClockConfig

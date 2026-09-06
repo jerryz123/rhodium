@@ -55,6 +55,19 @@ reset vectors outside the BootROM, and payload addresses outside memory.
 address sets; TiledSoC alone deliberately combines its striped banks into one
 contiguous architectural memory region.
 
+Calling `.description.to_device_tree()` produces a deterministic generic
+`DeviceTree`. It describes the root identity, architectural memory, clock and
+timebase frequencies, every hart's ISA, MMU, L1 caches, and local interrupt
+controller, plus the shared CLINT-compatible ACLINT. The resulting DTS and DTB
+remain host artifacts; they are not yet included in the BootROM or passed to a
+payload.
+
+The generated tree includes the present 16550-compatible UART as disabled.
+Its register window and input clock are accurate, but the current SoCs expose
+its interrupt at the pin boundary instead of connecting it to a platform
+interrupt controller. Enabling the node before that connection exists would
+misrepresent usable hardware to firmware.
+
 ## Common host and platform contract
 
 The external host loads and observes memory with coherent `ReadClean` and

@@ -1,0 +1,25 @@
+#lang rhombus
+// Writes native DTB and inspection DTS artifacts for every concrete SoC description.
+
+import:
+  rhombus/cmdline open
+  "../simple-soc.rhdl" as simple
+  "../mini-soc.rhdl" as mini
+  "../tiled-soc/main.rhdl" as tiled
+
+def arguments = current_command_line()
+unless arguments.length() == 1
+| error(~who: #'write_device_trees, "expected one output-directory argument")
+
+def output_directory = arguments[0]
+def trees = [
+  ["simple", simple.simple_soc_params.description.to_device_tree()],
+  ["mini", mini.mini_soc_params.description.to_device_tree()],
+  ["tiled", tiled.default_tiled_soc_config.description.to_device_tree()]
+]
+
+for (entry in trees):
+  def name = entry[0]
+  def tree = entry[1]
+  filesystem.write_bytes(Path.add(output_directory, name ++ ".dtb"), tree.to_dtb(), ~exists: #'truncate)
+  filesystem.write_string(Path.add(output_directory, name ++ ".dts"), tree.to_dts(), ~exists: #'truncate)

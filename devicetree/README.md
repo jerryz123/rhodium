@@ -22,6 +22,10 @@ a phandle in deterministic preorder, beginning at one. Both `to_dts()` and
 `to_dtb()` use that assignment. The encoder owns synthesized `phandle` properties;
 callers cannot provide `phandle` or `linux,phandle` manually.
 
+Concrete RISC-V SoC projection belongs to the
+[`socs/` architectural description](../socs/README.md#architectural-host-description),
+keeping this package independent of RISC-V cores and platform policy.
+
 ```rhombus
 #lang rhombus
 

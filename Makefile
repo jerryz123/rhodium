@@ -38,6 +38,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
   $(BACKEND_TESTS) $(RFPL_TESTS) $(DEVICETREE_TESTS) devicetree/tests/write-fixture.rhm $(NOC_TESTS) $(RISCV_TESTS) \
   $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(HARDFLOAT_TESTS) $(RV5STAGE_TESTS) $(EXAMPLES) \
+  socs/tests/write-device-trees.rhm \
   $(wildcard tests/backend/emit-*.rhm) \
   $(wildcard sims/tests/*.rhm) \
   $(wildcard sims/emit-*.rhm) \
@@ -139,7 +140,16 @@ chi-test: check-boundaries
 	bash chi/tests/run-negative.sh
 
 soc-test: check-boundaries
-	tools/run-racket-tests.sh $(SOC_TESTS)
+	@set -e; \
+	soc_compiled_root="$${PLTCOMPILEDROOTS:-}"; \
+	owns_compiled_root=false; \
+	if [ -z "$$soc_compiled_root" ]; then \
+	  soc_compiled_root="$$(mktemp -d /tmp/rhodium-soc-compiled.XXXXXX)"; \
+	  owns_compiled_root=true; \
+	fi; \
+	trap 'if [ "$$owns_compiled_root" = true ]; then rm -rf "$$soc_compiled_root"; fi' EXIT; \
+	env PLTCOMPILEDROOTS="$$soc_compiled_root" tools/run-racket-tests.sh $(SOC_TESTS); \
+	env PLTCOMPILEDROOTS="$$soc_compiled_root" bash socs/tests/run-device-tree.sh
 
 hardfloat-host-test: check-boundaries
 	tools/run-racket-tests.sh $(HARDFLOAT_TESTS)

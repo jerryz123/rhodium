@@ -4,6 +4,7 @@
 import:
   "../description.rhm" open
   "../../cores/rv5stage/profile.rhm" open
+  "../../devicetree/main.rhm".DeviceTreeLabel
   "../../rhodium/std/interconnect.rhdl".AddressSet
   "../../riscv/isa/xlen.rhm".XLen
 
@@ -39,6 +40,22 @@ def description = RiscvSoCDescription(
   ~aclint: aclint,
   ~uart: uart
 )
+def no_uart_description = RiscvSoCDescription(
+  ~model: "Rhodium UART-free SoC",
+  ~compatible: ["rhodium,uart-free-soc"],
+  ~harts: [0],
+  ~core_profile: profile,
+  ~clocks: clocks,
+  ~memory_regions: [memory],
+  ~boot: boot,
+  ~aclint: aclint
+)
+def tree = description.to_device_tree()
+def dts = tree.to_dts()
+def dtb = tree.to_dtb()
+
+fun be32(bytes, offset):
+  (bytes[offset] * 0x1000000) + (bytes[offset + 1] * 0x10000) + (bytes[offset + 2] * 0x100) + bytes[offset + 3]
 
 check:
   clocks.timebase_period_cycles ~is 100
@@ -46,6 +63,19 @@ check:
   memory.size_bytes ~is 0x40000000
   description.harts ~is [0, 1]
   description.uart === uart ~is #true
+  tree.boot_cpuid ~is 0
+  tree.phandle_for(DeviceTreeLabel("cpu_intc_0")) ~is 1
+  tree.phandle_for(DeviceTreeLabel("cpu_intc_1")) ~is 2
+  dtb is_a ImmutableBytes ~is #true
+  be32(dtb, 0) ~is 0xd00dfeed
+  dts.contains("model = \"Rhodium test SoC\";") ~is #true
+  dts.contains("riscv,isa-base = \"rv64i\";") ~is #true
+  dts.contains("riscv,isa-extensions = \"i\", \"m\", \"a\"") ~is #true
+  dts.contains("mmu-type = \"riscv,sv39\";") ~is #true
+  dts.contains("reg = <0x0 0x80000000 0x0 0x40000000>;") ~is #true
+  dts.contains("interrupts-extended = <&cpu_intc_0 0x3 &cpu_intc_0 0x7 &cpu_intc_1 0x3 &cpu_intc_1 0x7>;") ~is #true
+  dts.contains("serial@10000000 {") ~is #true
+  dts.contains("status = \"disabled\";") ~is #true
 
 check:
   SoCClockConfig(
@@ -92,13 +122,15 @@ check:
     ),
     ~aclint: aclint
   ) ~throws "must not overlap"
+  no_uart_description.uart ~is #false
+  no_uart_description.to_device_tree().to_dts().contains("serial@") ~is #false
   RiscvSoCDescription(
-    ~model: "no UART",
+    ~model: "out-of-range DT hart",
     ~compatible: ["rhodium,test-soc"],
-    ~harts: [0],
+    ~harts: [0x100000000],
     ~core_profile: profile,
     ~clocks: clocks,
     ~memory_regions: [memory],
     ~boot: boot,
     ~aclint: aclint
-  ).uart ~is #false
+  ).to_device_tree() ~throws "32-bit"
