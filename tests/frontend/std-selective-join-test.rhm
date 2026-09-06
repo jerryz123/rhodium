@@ -1,0 +1,55 @@
+#lang rhombus
+// Checks selection-controlled joining, public exports, result shape, and diagnostics.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../rhodium/std/flow.rhdl" as flow
+  "../../rhodium/std/flow/join.rhdl" as join
+  "../../examples/std/selective-join.rhdl" as example
+  "std-selective-join-invalid.rhdl" as invalid
+
+def direct_design = embedded.run_elaboration(
+  fun (): join.SelectiveJoin(Bits(8), 3)
+)
+def facade_design = embedded.run_elaboration(
+  fun (): flow.SelectiveJoin(Bits(8), 3)
+)
+def example_design = example.design
+def direct_module = direct_design.modules[0]
+def result_type = direct_module.find_output("egress_out").type.field("bits").type
+
+fun operations(module_def, opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+check:
+  verify_design(direct_design) ~is #void
+  verify_design(facade_design) ~is #void
+  verify_design(example_design) ~is #void
+
+  direct_module.inputs.map(fun (port): port.name) ~is [
+    "selection_in", "ingress_0_in", "ingress_1_in", "ingress_2_in", "egress_in"
+  ]
+  direct_module.outputs.map(fun (port): port.name) ~is [
+    "selection_out", "ingress_0_out", "ingress_1_out", "ingress_2_out", "egress_out"
+  ]
+  result_type.field("selection").type.bit_width() ~is 3
+  result_type.field("values").type.length ~is 3
+  result_type.field("values").type.element_type.width ~is 8
+  operations(direct_module, "rtl.register").length() ~is 0
+  operations(direct_module, "rtl.register_reset").length() ~is 0
+  example_design.modules.map(fun (module_def): module_def.name) ~is [
+    "SelectiveRendezvous", "SelectiveJoin"
+  ]
+
+  embedded.run_elaboration(
+    fun (): invalid.MissingSelectiveJoinData()
+  ) ~throws "one selection flow and at least one data flow"
+  embedded.run_elaboration(
+    fun (): invalid.WrongSelectiveJoinSelection()
+  ) ~throws "first source must carry a Mask"
+  embedded.run_elaboration(
+    fun (): invalid.MismatchedSelectiveJoinData()
+  ) ~throws "data flows must carry the same payload type"

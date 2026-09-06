@@ -1,0 +1,82 @@
+#lang rhodium
+// Demonstrates payload-selected atomic multicast from a Decoupled source.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+bundle MulticastWord():
+  destinations: Mask(3)
+  data: Bits(8)
+
+circuit SelectiveFanout():
+  interface ingress(Decoupled(MulticastWord()), ~role: consumer)
+  interface egress[3](Decoupled(MulticastWord()), ~role: producer)
+
+  (
+    ingress
+      |> selective_atomic_fork(3, word => word.destinations)
+  ) <=> egress
+
+def design = elaborate(SelectiveFanout())
+
+def verilog_reference = @str|<<{
+`ifndef _TYPESCOPE_rhodium_types
+`define _TYPESCOPE_rhodium_types
+  typedef struct packed {logic [2:0] destinations; logic [7:0] data; } MulticastWord;
+  typedef struct packed {logic all; logic [2:0] except; } AndExclusionReduction;
+`endif // _TYPESCOPE_rhodium_types
+module SelectiveFanout(
+  input  struct packed {logic valid; MulticastWord bits; } ingress_in,
+  input  struct packed {logic ready; }                     egress_0_in,
+                                                           egress_1_in,
+                                                           egress_2_in,
+  output struct packed {logic ready; }                     ingress_out,
+  output struct packed {logic valid; MulticastWord bits; } egress_0_out,
+                                                           egress_1_out,
+                                                           egress_2_out
+);
+
+  SelectiveAtomicFork selective_fork_stage (
+    .ingress_in   (ingress_in),
+    .selection    (ingress_in.bits.destinations),
+    .egress_0_in  (egress_0_in),
+    .egress_1_in  (egress_1_in),
+    .egress_2_in  (egress_2_in),
+    .ingress_out  (ingress_out),
+    .egress_0_out (egress_0_out),
+    .egress_1_out (egress_1_out),
+    .egress_2_out (egress_2_out)
+  );
+endmodule
+
+module SelectiveAtomicFork(
+  input  struct packed {logic valid; MulticastWord bits; } ingress_in,
+  input  [2:0]                                             selection,
+  input  struct packed {logic ready; }                     egress_0_in,
+                                                           egress_1_in,
+                                                           egress_2_in,
+  output struct packed {logic ready; }                     ingress_out,
+  output struct packed {logic valid; MulticastWord bits; } egress_0_out,
+                                                           egress_1_out,
+                                                           egress_2_out
+);
+
+  wire _GEN = ~(selection[0]) | egress_0_in.ready;
+  wire _GEN_0 = ~(selection[1]) | egress_1_in.ready;
+  wire _GEN_1 = ~(selection[2]) | egress_2_in.ready;
+  wire _GEN_2 = _GEN & _GEN_0;
+  assign ingress_out = '{ready: (_GEN_2 & _GEN_1)};
+  assign egress_0_out =
+    '{valid: (ingress_in.valid & selection[0] & _GEN_1 & _GEN_0), bits: ingress_in.bits};
+  assign egress_1_out =
+    '{valid: (ingress_in.valid & selection[1] & _GEN_1 & _GEN), bits: ingress_in.bits};
+  assign egress_2_out =
+    '{valid: (ingress_in.valid & selection[2] & _GEN_2), bits: ingress_in.bits};
+endmodule
+}>>|
+
+export:
+  MulticastWord
+  SelectiveFanout
+  design
+  verilog_reference

@@ -2,6 +2,7 @@
 // Defines atomic one-to-many forks for payload-bearing and control-only flows.
 
 import:
+  rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/flow/ready-valid-support.rhdl") open
   lib("rhodium/std/flow/reduction.rhdl").and_exclusion_reduce
@@ -20,6 +21,26 @@ circuit AtomicFork(T :: DataType, n :: PosInt):
   ingress.ready <== ready_reduction.all
   for (index in 0..n):
     egress[index].valid <== ingress.valid & ready_reduction.except[index]
+    egress[index].bits <== ingress.bits
+
+// Only selected outputs participate in the atomic transfer. An empty mask
+// consumes the input without producing an output, which makes the selection
+// predicate a total payload-to-recipient-set operation.
+circuit SelectiveAtomicFork(T :: DataType, n :: PosInt):
+
+  interface ingress(Decoupled(T), ~role: consumer)
+  input selection: Mask(n)
+  interface egress[n](Decoupled(T), ~role: producer)
+
+  def selected = vec(
+    for List (index in 0..n): selection.as_bits()[index].into(Bool)
+  )
+  def ready_reduction = and_exclusion_reduce(vec(
+    for List (index in 0..n): !selected[index] ||| egress[index].ready
+  ))
+  ingress.ready <== ready_reduction.all
+  for (index in 0..n):
+    egress[index].valid <== ingress.valid & selected[index] & ready_reduction.except[index]
     egress[index].bits <== ingress.bits
 
 // The control-only specialization atomically duplicates indistinguishable
@@ -52,6 +73,47 @@ fun atomic_fork(n :: PosInt)
       )
     )
 
+// Configures an atomic fork whose participating outputs are selected from the
+// current payload. Decoupled payload and selection changes remain legal while
+// stalled because no selected branch can transfer independently.
+expr.macro
+| 'selective_atomic_fork($count,
+                         $(payload :: Identifier) => $selection ...)':
+    'selective_atomic_fork($count, $payload): $selection ...'
+| 'selective_atomic_fork($count,
+                         $(payload :: Identifier)): $selection':
+    'fun (selective_fork_source :: FlowSource)
+       :~ InterfaceTransformResult(selective_fork_source, InterfaceArrayFields):
+       def selective_fork_count = $count
+       unless selective_fork_count is_a PosInt
+       | error(~who: #'selective_atomic_fork,
+               "output count must be PosInt")
+       def selective_fork_type = flow_payload_type(selective_fork_source)
+       def selective_fork_input_link = interface_link(
+         flow_protocol_type(selective_fork_source),
+         "selective_fork_input"
+       )
+       def selective_fork_input :: Endpoint = selective_fork_input_link.right
+       def selective_fork_output_links = for Array (index in 0..selective_fork_count):
+         interface_link(Decoupled(selective_fork_type), "selective_fork_output")
+       inst selective_fork_stage(SelectiveAtomicFork(selective_fork_type, selective_fork_count))
+       def $payload = selective_fork_input.bits
+       fun compute_selective_fork_selection(): $selection
+       def selective_fork_selection :: Mask(selective_fork_count) = compute_selective_fork_selection()
+       selective_fork_stage.selection <== selective_fork_selection
+       selective_fork_input |> selective_fork_stage.ingress
+       for (index in 0..selective_fork_count):
+         selective_fork_stage.egress[index] |> selective_fork_output_links[index].left
+       finish_interface_transform(
+         selective_fork_source,
+         describe_interface_transform(
+           interface_transform(selective_fork_input_link, selective_fork_output_links),
+           "selective-atomic-fork",
+           {"outputs": selective_fork_count},
+           selective_fork_stage
+         )
+       )'
+
 // Configures the payloadless atomic fork for control-only token flows.
 fun ctrl_atomic_fork(n :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, InterfaceArrayFields)):
@@ -71,5 +133,7 @@ fun ctrl_atomic_fork(n :: PosInt)
 export:
   AtomicFork
   atomic_fork
+  SelectiveAtomicFork
+  selective_atomic_fork
   CtrlAtomicFork
   ctrl_atomic_fork

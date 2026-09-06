@@ -1,0 +1,17 @@
+#lang rhodium
+// Defines invalid selective atomic-fork uses for focused frontend diagnostics.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+circuit NonpositiveSelectiveAtomicFork():
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  ingress |> selective_atomic_fork(0, payload => Mask(1)(1))
+
+circuit WrongSelectiveAtomicForkMask():
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  ingress |> selective_atomic_fork(2, payload => payload)
+
+export:
+  NonpositiveSelectiveAtomicFork
+  WrongSelectiveAtomicForkMask

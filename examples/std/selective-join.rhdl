@@ -1,0 +1,88 @@
+#lang rhodium
+// Demonstrates a selection flow atomically joining a chosen subset of data flows.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+circuit SelectiveRendezvous():
+  interface selection(Decoupled(Mask(3)), ~role: consumer)
+  interface ingress[3](Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(SelectedValues(Bits(8), 3)), ~role: producer)
+
+  Array(selection, ingress[0], ingress[1], ingress[2])
+    |> selective_join()
+    |> egress
+
+def design = elaborate(SelectiveRendezvous())
+
+def verilog_reference = @str|<<{
+`ifndef _TYPESCOPE_rhodium_types
+`define _TYPESCOPE_rhodium_types
+  typedef struct packed {logic [2:0] selection; logic [2:0][7:0] values; } SelectedValues;
+  typedef struct packed {logic all; logic [2:0] except; } AndExclusionReduction;
+`endif // _TYPESCOPE_rhodium_types
+module SelectiveRendezvous(
+  input  struct packed {logic valid; logic [2:0] bits; }    selection_in,
+  input  struct packed {logic valid; logic [7:0] bits; }    ingress_0_in,
+                                                            ingress_1_in,
+                                                            ingress_2_in,
+  input  struct packed {logic ready; }                      egress_in,
+  output struct packed {logic ready; }                      selection_out,
+                                                            ingress_0_out,
+                                                            ingress_1_out,
+                                                            ingress_2_out,
+  output struct packed {logic valid; SelectedValues bits; } egress_out
+);
+
+  SelectiveJoin selective_join_stage (
+    .selection_in  (selection_in),
+    .ingress_0_in  (ingress_0_in),
+    .ingress_1_in  (ingress_1_in),
+    .ingress_2_in  (ingress_2_in),
+    .egress_in     (egress_in),
+    .selection_out (selection_out),
+    .ingress_0_out (ingress_0_out),
+    .ingress_1_out (ingress_1_out),
+    .ingress_2_out (ingress_2_out),
+    .egress_out    (egress_out)
+  );
+endmodule
+
+module SelectiveJoin(
+  input  struct packed {logic valid; logic [2:0] bits; }    selection_in,
+  input  struct packed {logic valid; logic [7:0] bits; }    ingress_0_in,
+                                                            ingress_1_in,
+                                                            ingress_2_in,
+  input  struct packed {logic ready; }                      egress_in,
+  output struct packed {logic ready; }                      selection_out,
+                                                            ingress_0_out,
+                                                            ingress_1_out,
+                                                            ingress_2_out,
+  output struct packed {logic valid; SelectedValues bits; } egress_out
+);
+
+  wire                _GEN = ~(selection_in.bits[0]) | ingress_0_in.valid;
+  wire                _GEN_0 = ~(selection_in.bits[1]) | ingress_1_in.valid;
+  wire                _GEN_1 = ~(selection_in.bits[2]) | ingress_2_in.valid;
+  wire                _GEN_2 = _GEN & _GEN_0;
+  wire                _GEN_3 = _GEN_2 & _GEN_1;
+  wire SelectedValues _GEN_4 =
+    '{selection: selection_in.bits,
+      values: ({{ingress_2_in.bits}, {ingress_1_in.bits}, {ingress_0_in.bits}})};
+  assign selection_out = '{ready: (egress_in.ready & _GEN_3)};
+  assign ingress_0_out =
+    '{ready:
+        (selection_in.valid & selection_in.bits[0] & egress_in.ready & _GEN_1 & _GEN_0)};
+  assign ingress_1_out =
+    '{ready:
+        (selection_in.valid & selection_in.bits[1] & egress_in.ready & _GEN_1 & _GEN)};
+  assign ingress_2_out =
+    '{ready: (selection_in.valid & selection_in.bits[2] & egress_in.ready & _GEN_2)};
+  assign egress_out = '{valid: (selection_in.valid & _GEN_3), bits: _GEN_4};
+endmodule
+}>>|
+
+export:
+  SelectiveRendezvous
+  design
+  verilog_reference

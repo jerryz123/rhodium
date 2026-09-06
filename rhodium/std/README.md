@@ -585,8 +585,10 @@ under [`flow/`](flow/):
 | `GrantMerge(T, inputs)` | -- | Optional-one-hot grant selection from ready-valid inputs |
 | `GrantCrossbar(T, inputs, outputs)` | -- | Grant-controlled one-to-one ready-valid payload traversal; configured `grant_crossbar(outputs, ~grants)` stage |
 | `Join(T, n)` | `CtrlJoin(n)` | Atomic join that never partially consumes inputs |
+| `SelectiveJoin(T, n)` | -- | Selection-token rendezvous that consumes exactly the chosen data flows and reports meaningful lanes |
 | `Broadcast(T, n)` | `CtrlBroadcast(n)` | Buffered exactly-once delivery tracked independently per recipient |
 | `AtomicFork(T, n)` | `CtrlAtomicFork(n)` | Combinational fanout where every recipient transfers together or none do |
+| `SelectiveAtomicFork(T, n)` | -- | Payload-selected combinational fanout where every selected recipient transfers together or none do |
 
 Import the aggregate when several components are needed:
 
@@ -612,6 +614,14 @@ beat transfers, and priority advances once per complete packet:
 
 ```rhombus
 inputs |> packet_rr_arbiter(flit => flit.tail) |> pipe(1) |> egress
+```
+
+Selective atomic fanout similarly derives a nominal `Mask(n)` from the current
+payload. Only selected outputs participate in readiness, and all selected
+outputs transfer together:
+
+```rhombus
+requests |> selective_atomic_fork(4, request => request.destinations)
 ```
 
 With a concrete endpoint source, each operation connects immediately and
@@ -703,6 +713,13 @@ transfer only when every output can accept it. This is useful when one logical
 transaction must atomically update multiple downstream flows. In contrast,
 `Broadcast` stores per-recipient delivery state so recipients may accept the
 same item in different cycles.
+
+`selective_atomic_fork(n, payload => mask)` applies the same all-or-none rule
+only to the outputs selected by the payload-derived `Mask(n)`. Its input may be
+`Decoupled`: the payload and selection may change together while stalled because
+no selected output has transferred. Its outputs are always `Decoupled` because
+each output's `valid` depends on the readiness of its selected peers. An empty
+mask consumes the input without producing any output transfer.
 
 ### Mapping and protocol conversion
 
@@ -835,8 +852,9 @@ priority registers directly and advance them only after successful transfers.
 
 `and_exclusion_reduce(values)` uses a shared balanced reduction tree to return
 the full conjunction plus each conjunction with one corresponding input
-omitted. `Join`, `CtrlJoin`, `AtomicFork`, and `CtrlAtomicFork` use it instead of
-independently rebuilding full and peer reductions for every lane.
+omitted. `Join`, `SelectiveJoin`, `CtrlJoin`, `AtomicFork`,
+`SelectiveAtomicFork`, and `CtrlAtomicFork` use it instead of independently
+rebuilding full and peer reductions for every lane.
 
 `GrantDemux(T, outputs)` routes one input according to an optional-one-hot grant
 row, while `GrantMerge(T, inputs)` selects one input according to an
@@ -861,6 +879,22 @@ count from its input array and returns an output endpoint array:
 ```
 
 ### Joining and branching topologies
+
+`selective_join()` consumes a flat source array containing one selection flow
+followed by homogeneous data flows. The selection token carries `Mask(n)`,
+where `n` is the number of data flows. The selection token and every selected
+data token transfer atomically; unselected data inputs remain untouched. The
+result is `SelectedValues(T, n)`, which carries the selection alongside the
+fixed `Vec(n, T)` so downstream logic knows which lanes are meaningful:
+
+```rhombus
+def selected = Array(selection, first, second, third)
+  |> selective_join()
+```
+
+All participating inputs and the output are ordinary `Decoupled` flows, so a
+stalled selection may change before any transfer commits. An empty selection
+consumes only its selection token and produces an explicitly empty result.
 
 `zip_flow(left_payload, right_payload => expression)` atomically consumes a
 two-element source array and maps the pair to one inferred result type. Neither

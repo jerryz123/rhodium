@@ -1,0 +1,48 @@
+#lang rhombus
+// Checks payload-selected atomic-fork composition, structure, and diagnostics.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../rhodium/std/flow.rhdl" as flow
+  "../../rhodium/std/flow/atomic-fork.rhdl" as atomic_fork
+  "../../examples/std/selective-atomic-fork.rhdl" as example
+  "std-selective-atomic-fork-invalid.rhdl" as invalid
+
+def direct_design = embedded.run_elaboration(
+  fun (): atomic_fork.SelectiveAtomicFork(Bits(8), 3)
+)
+def facade_design = embedded.run_elaboration(
+  fun (): flow.SelectiveAtomicFork(Bits(8), 3)
+)
+def example_design = example.design
+def direct_module = direct_design.modules[0]
+
+fun operations(module_def, opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+check:
+  verify_design(direct_design) ~is #void
+  verify_design(facade_design) ~is #void
+  verify_design(example_design) ~is #void
+
+  direct_module.inputs.map(fun (port): port.name) ~is [
+    "ingress_in", "selection", "egress_0_in", "egress_1_in", "egress_2_in"
+  ]
+  direct_module.outputs.map(fun (port): port.name) ~is [
+    "ingress_out", "egress_0_out", "egress_1_out", "egress_2_out"
+  ]
+  operations(direct_module, "rtl.register").length() ~is 0
+  operations(direct_module, "rtl.register_reset").length() ~is 0
+  example_design.modules.map(fun (module_def): module_def.name) ~is [
+    "SelectiveFanout", "SelectiveAtomicFork"
+  ]
+
+  embedded.run_elaboration(
+    fun (): invalid.NonpositiveSelectiveAtomicFork()
+  ) ~throws "output count must be PosInt"
+  embedded.run_elaboration(
+    fun (): invalid.WrongSelectiveAtomicForkMask()
+  ) ~throws "annotation"

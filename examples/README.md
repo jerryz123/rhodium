@@ -215,6 +215,8 @@ and the authoritative source-module map.
 | [`std/ready-valid-compatibility.rhdl`](std/ready-valid-compatibility.rhdl) | Safe protocol weakening and refinement merge/split |
 | [`std/flow-control.rhdl`](std/flow-control.rhdl) | Pipe, queue, fixed-priority arbiter, and typed endpoint chaining |
 | [`std/packet-arbitration.rhdl`](std/packet-arbitration.rhdl) | Round-robin arbitration that retains ownership through each packet's final flit |
+| [`std/selective-atomic-fork.rhdl`](std/selective-atomic-fork.rhdl) | Payload-selected multicast whose participating recipients transfer atomically |
+| [`std/selective-join.rhdl`](std/selective-join.rhdl) | Selection-token rendezvous with explicit meaningful-lane results |
 | [`std/valid-pipe.rhdl`](std/valid-pipe.rhdl) | Fixed-latency Valid-only pipelining without a readiness channel |
 | [`std/flow-topology.rhdl`](std/flow-topology.rhdl) | Endpoint-first and precomposed map, filter, zip, arbitration, buffering, fork, and routing topologies |
 | [`std/ctrl-flow.rhdl`](std/ctrl-flow.rhdl) | Payloadless token-flow versions of pipe, queue, arbitration, routing, join, and broadcast |

@@ -1,0 +1,25 @@
+#lang rhodium
+// Defines invalid selective-join source shapes and payload combinations.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+circuit MissingSelectiveJoinData():
+  interface selection(Decoupled(Mask(1)), ~role: consumer)
+  Array(selection) |> selective_join()
+
+circuit WrongSelectiveJoinSelection():
+  interface selection(Decoupled(Bits(2)), ~role: consumer)
+  interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
+  Array(selection, ingress[0], ingress[1]) |> selective_join()
+
+circuit MismatchedSelectiveJoinData():
+  interface selection(Decoupled(Mask(2)), ~role: consumer)
+  interface narrow(Decoupled(Bits(8)), ~role: consumer)
+  interface wide(Decoupled(Bits(16)), ~role: consumer)
+  Array(selection, narrow, wide) |> selective_join()
+
+export:
+  MissingSelectiveJoinData
+  WrongSelectiveJoinSelection
+  MismatchedSelectiveJoinData

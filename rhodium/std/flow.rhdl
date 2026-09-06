@@ -103,13 +103,18 @@ export:
   GrantMerge
   GrantCrossbar
   grant_crossbar
+  SelectedValues
   Join
+  SelectiveJoin
+  selective_join
   CtrlJoin
   zip_flow
   Broadcast
   CtrlBroadcast
   AtomicFork
   atomic_fork
+  SelectiveAtomicFork
+  selective_atomic_fork
   CtrlAtomicFork
   ctrl_atomic_fork
   AndExclusionReduction

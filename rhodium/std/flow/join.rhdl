@@ -2,8 +2,16 @@
 // Defines payload-bearing and control-only atomic ready-valid joins.
 
 import:
+  rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/flow/ready-valid-support.rhdl") open
   lib("rhodium/std/flow/reduction.rhdl").and_exclusion_reduce
+
+// Carries the selection that defines which lanes in a joined value are
+// meaningful alongside the complete fixed-shape payload vector.
+bundle SelectedValues(T :: DataType, n :: PosInt):
+  selection: Mask(n)
+  values: Vec(n, T)
 
 // The output becomes valid only when every input is valid. Readiness is gated
 // so no input can transfer unless all peers transfer in the same cycle.
@@ -23,6 +31,77 @@ circuit Join(T :: DataType, n :: PosInt):
   for (index in 0..n):
     ingress[index].ready <== egress.ready & valid_reduction.except[index]
 
+// Atomically consumes one selection token and exactly the selected data
+// inputs. Unselected inputs do not participate and remain unconsumed. An empty
+// selection produces one explicitly empty result without consuming data.
+circuit SelectiveJoin(T :: DataType, n :: PosInt):
+
+  interface selection(Decoupled(Mask(n)), ~role: consumer)
+  interface ingress[n](Decoupled(T), ~role: consumer)
+  interface egress(Decoupled(SelectedValues(T, n)), ~role: producer)
+
+  def selected = vec(
+    for List (index in 0..n): selection.bits.as_bits()[index].into(Bool)
+  )
+  def valid_reduction = and_exclusion_reduce(vec(
+    for List (index in 0..n): !selected[index] ||| ingress[index].valid
+  ))
+
+  egress.valid <== selection.valid & valid_reduction.all
+  egress.bits <== SelectedValues(T, n):
+    selection: selection.bits
+    values: vec(for List (index in 0..n): ingress[index].bits)
+  selection.ready <== egress.ready & valid_reduction.all
+
+  for (index in 0..n):
+    ingress[index].ready <== selection.valid & selected[index] & egress.ready & valid_reduction.except[index]
+
+// The source array contains the selection flow first, followed by one or more
+// homogeneous data flows. All sources participate through ordinary `|>`
+// composition, and the result records which data lanes were selected.
+fun selective_join():
+  fun (selective_join_source :: FlowSource || Array)
+    :~ InterfaceTransformResult(selective_join_source, Endpoint):
+    def selective_join_inputs:
+      if selective_join_source is_a Handle
+      | selective_join_source.right
+      | selective_join_source
+    unless selective_join_inputs is_a Array && selective_join_inputs.length() >= 2
+    | error(~who: #'selective_join,
+            "source must contain one selection flow and at least one data flow")
+    def selective_join_count = selective_join_inputs.length() - 1
+    def selective_join_type = flow_payload_type(selective_join_inputs[1])
+    def expected_selection_type = Mask(selective_join_count)
+    def selection_type = flow_payload_type(selective_join_inputs[0])
+    unless expected_selection_type.type_equal(selection_type) && selection_type.type_equal(expected_selection_type)
+    | error(~who: #'selective_join,
+            "first source must carry a Mask matching the number of data flows")
+    for (index in 1..selective_join_inputs.length()):
+      def input_type = flow_payload_type(selective_join_inputs[index])
+      unless selective_join_type.type_equal(input_type) && input_type.type_equal(selective_join_type)
+      | error(~who: #'selective_join,
+              "data flows must carry the same payload type")
+    def selective_join_input_links = for Array (index in 0..selective_join_inputs.length()):
+      interface_link(flow_protocol_type(selective_join_inputs[index]), "selective_join_input")
+    inst selective_join_stage(SelectiveJoin(selective_join_type, selective_join_count))
+    selective_join_input_links[0].right |> selective_join_stage.selection
+    for (index in 0..selective_join_count):
+      selective_join_input_links[index + 1].right |> selective_join_stage.ingress[index]
+    def selective_join_output_link = interface_link(
+      Decoupled(SelectedValues(selective_join_type, selective_join_count)),
+      "selective_join_output"
+    )
+    selective_join_stage.egress |> selective_join_output_link.left
+    finish_interface_transform(
+      selective_join_source,
+      describe_interface_transform(
+        interface_transform(selective_join_input_links, selective_join_output_link),
+        "selective-join",
+        {"inputs": selective_join_count},
+        selective_join_stage
+      )
+    )
+
 // Rendezvous payloadless tokens without allowing any valid input to transfer
 // unless every peer participates in the same cycle.
 circuit CtrlJoin(n :: PosInt):
@@ -39,5 +118,8 @@ circuit CtrlJoin(n :: PosInt):
     ingress[index].ready <== egress.ready & valid_reduction.except[index]
 
 export:
+  SelectedValues
   Join
+  SelectiveJoin
+  selective_join
   CtrlJoin
