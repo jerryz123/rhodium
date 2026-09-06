@@ -104,6 +104,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   walker.completion.ready <== !fault_valid
   def walker_completion_fire = walker.completion.fire()
+  def walker_fault_completion = walker_completion_fire & (
+    walker.completion.bits.fault ||| walker.completion.bits.access_fault
+  )
   itlb.fill.valid <== walker_completion_fire & !walk_is_data & !walker.completion.bits.access_fault
   itlb.fill.bits <== walker.completion.bits
   dtlb.fill.valid <== walker_completion_fire & walk_is_data & !walker.completion.bits.access_fault
@@ -228,9 +231,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   data.response.bits <== data_memory.response.bits
   data.drained <== !walk_active & !fault_valid & data_memory.drained
 
-  def instruction_fault_accepted = instruction.request.fire() & instruction_local_fault
-  def data_fault_accepted = data.request.fire() & (data_page_fault ||| data_walk_access_fault)
-  when (invalidate_all ||| cancel_instruction_walk):
+  def fault_latch_reset = invalidate_all ||| cancel_instruction_walk
+  def latched_instruction_fault_accepted = instruction.request.valid & instruction_translation_enabled & (
+    latched_instruction_fault & instruction_owners.ingress.ready
+  )
+  def latched_data_fault_accepted = data.request.valid & data_translation_enabled & latched_data_fault
+  def latched_fault_accepted = latched_instruction_fault_accepted ||| latched_data_fault_accepted
+  def capture_walker_fault = walker_fault_completion & !fault_latch_reset
+  when fault_latch_reset:
     walk_active <== Bool(#false)
   elsewhen walker_request_fire:
     walk_active <== Bool(#true)
@@ -238,14 +246,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   elsewhen walker_completion_fire:
     walk_active <== Bool(#false)
 
-  when (invalidate_all ||| cancel_instruction_walk):
+  when fault_latch_reset:
     fault_valid <== Bool(#false)
-  elsewhen (instruction_fault_accepted ||| data_fault_accepted):
-    fault_valid <== Bool(#false)
-  elsewhen (walker_completion_fire & (
-    walker.completion.bits.fault ||| walker.completion.bits.access_fault
-  )):
+  elsewhen capture_walker_fault:
     fault_valid <== Bool(#true)
+  elsewhen latched_fault_accepted:
+    fault_valid <== Bool(#false)
+
+  when capture_walker_fault:
     fault_is_data <== walk_is_data
     fault_is_access <== walker.completion.bits.access_fault
     fault_address <== walker.completion.bits.virtual_address
@@ -256,7 +264,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   elsewhen walk_active:
     walker_data_quiet_previous <== data_quiet
     walker_data_quiet_twice <== data_quiet & walker_data_quiet_previous
-  when (invalidate_all ||| cancel_instruction_walk):
+  when fault_latch_reset:
     walker_memory_outstanding <== Bool(#false)
   elsewhen (walker_memory_request_fire & !walker.memory.request_access_fault):
     walker_memory_outstanding <== Bool(#true)

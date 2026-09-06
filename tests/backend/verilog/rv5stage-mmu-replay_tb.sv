@@ -1,4 +1,4 @@
-// Verifies that a pulsed DTLB miss starts a walk and a later replay translates successfully.
+// Verifies DTLB replay and preserves walker faults across unrelated permission faults.
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -67,11 +67,13 @@ module rv5stage_mmu_replay_tb;
   } data_memory_in_t;
   typedef struct packed { data_req_t request; } data_memory_out_t;
 
+  localparam logic [1:0] PRIVILEGE_U = 2'd0;
   localparam logic [1:0] PRIVILEGE_S = 2'd1;
   localparam logic [2:0] MEMORY_LOAD = 3'd1;
   localparam logic [1:0] MEMORY_DOUBLE = 2'd3;
   localparam logic [1:0] DATA_DESTINATION_INTEGER = 2'd1;
   localparam logic [63:0] VIRTUAL_ADDRESS = 64'h4000;
+  localparam logic [63:0] FAULT_VIRTUAL_ADDRESS = 64'h8000;
   localparam logic [63:0] PHYSICAL_ADDRESS = 64'h8000;
   localparam logic [63:0] SATP_SV39_ROOT_1 = 64'h80000000_00000001;
   localparam logic [63:0] LEVEL_2_POINTER = 64'h801;
@@ -97,6 +99,8 @@ module rv5stage_mmu_replay_tb;
   logic [63:0] pte_response_data;
   logic [1:0] pte_requests;
   logic translated_request_seen;
+  logic page_fault_phase;
+  logic page_fault_pte_seen;
 
   RV5StageMmu dut (.*);
   always #5 clock = ~clock;
@@ -105,7 +109,7 @@ module rv5stage_mmu_replay_tb;
     instruction_in = '0;
     instruction_in.response.ready = 1'b1;
     data_in.request.valid = data_request_valid;
-    data_in.request.bits.address = VIRTUAL_ADDRESS;
+    data_in.request.bits.address = page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS;
     data_in.request.bits.access = MEMORY_LOAD;
     data_in.request.bits.atomic = '0;
     data_in.request.bits.width = MEMORY_DOUBLE;
@@ -133,12 +137,19 @@ module rv5stage_mmu_replay_tb;
       pte_response_data <= '0;
       pte_requests <= '0;
       translated_request_seen <= 1'b0;
+      page_fault_pte_seen <= 1'b0;
     end else begin
       pte_response_valid <= 1'b0;
       assert (!instruction_memory_out.request.valid)
         else $fatal(1, "data miss unexpectedly issued an instruction-memory request");
       if (data_memory_out.request.valid && data_memory_in.request.ready) begin
-        if (pte_requests == 0) begin
+        if (page_fault_phase) begin
+          assert (!page_fault_pte_seen && data_memory_out.request.bits.address == 64'h1000)
+            else $fatal(1, "faulting walk issued an unexpected PTE request");
+          pte_response_valid <= 1'b1;
+          pte_response_data <= 64'h0;
+          page_fault_pte_seen <= 1'b1;
+        end else if (pte_requests == 0) begin
           assert (data_memory_out.request.bits.address == 64'h1000)
             else $fatal(1, "level-2 PTE address was incorrect");
           pte_response_valid <= 1'b1;
@@ -175,6 +186,7 @@ module rv5stage_mmu_replay_tb;
 
   initial begin
     data_request_valid = 1'b0;
+    page_fault_phase = 1'b0;
     privilege = PRIVILEGE_S;
     mstatus = '0;
     satp = SATP_SV39_ROOT_1;
@@ -202,7 +214,49 @@ module rv5stage_mmu_replay_tb;
     #1 data_request_valid = 1'b0;
     assert (translated_request_seen)
       else $fatal(1, "translated replay was not accepted downstream");
-    $display("RV5Stage DTLB pulse-and-replay translation passed");
+
+    @(negedge clock);
+    page_fault_phase = 1'b1;
+    data_request_valid = 1'b1;
+    #1;
+    assert (!data_out.request.ready && !data_out.request_fault &&
+            !data_out.request_access_fault && !data_memory_out.request.valid)
+      else $fatal(1, "faulting DTLB miss was not rejected cleanly");
+    @(posedge clock);
+    #1 data_request_valid = 1'b0;
+
+    wait (page_fault_pte_seen);
+    repeat (2) @(posedge clock);
+
+    // The translated entry is supervisor-only. A user-mode lookup therefore
+    // faults directly in the DTLB, but must not consume the pending walker
+    // fault for FAULT_VIRTUAL_ADDRESS.
+    @(negedge clock);
+    page_fault_phase = 1'b0;
+    privilege = PRIVILEGE_U;
+    data_request_valid = 1'b1;
+    #1;
+    assert (data_out.request.ready && data_out.request_fault &&
+            !data_out.request_access_fault && !data_memory_out.request.valid)
+      else $fatal(1, "cached permission fault was not accepted locally");
+    @(posedge clock);
+    #1 data_request_valid = 1'b0;
+    assert (!data_out.drained)
+      else $fatal(1, "unrelated permission fault consumed the pending walker fault");
+
+    @(negedge clock);
+    page_fault_phase = 1'b1;
+    privilege = PRIVILEGE_S;
+    data_request_valid = 1'b1;
+    #1;
+    assert (data_out.request.ready && data_out.request_fault &&
+            !data_out.request_access_fault && !data_memory_out.request.valid)
+      else $fatal(1, "faulting replay did not consume the correlated page fault");
+    @(posedge clock);
+    #1 data_request_valid = 1'b0;
+    assert (data_out.drained)
+      else $fatal(1, "consumed page fault remained latched");
+    $display("RV5Stage DTLB successful and faulting pulse-and-replay translation passed");
     $finish;
   end
 endmodule
