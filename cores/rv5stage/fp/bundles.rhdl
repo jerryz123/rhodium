@@ -2,9 +2,9 @@
 // Defines RV5Stage's standalone floating-point pipeline and LSU bridge payloads.
 
 import:
-  "decode/fp-ctrl.rhdl" open
-  "../../riscv/isa/fp-profile.rhm" open
-  "../../riscv/isa/xlen.rhm" open
+  "../decode/fp-ctrl.rhdl" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
   lib("hardfloat/main.rhdl").RoundingMode
 
 bundle RV5StageFpIssue(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):

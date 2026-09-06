@@ -5,7 +5,7 @@ import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../riscv/isa/fp-profile.rhm" open
-  "../../cores/rv5stage/fp-register-file.rhdl" as register_file
+  "../../cores/rv5stage/fp/register-file.rhdl" as register_file
 
 def design = embedded.run_elaboration(fun (): register_file.RV5StageFloatingPointRegisterFile(FloatingPointProfile.D))
 print(emit_circt(design))

@@ -2,11 +2,11 @@
 // Implements RV5Stage's combinational fixed-latency floating-point execution datapaths.
 
 import:
-  "fp-bundles.rhdl" open
-  "decode/fp-ctrl.rhdl" open
-  "../../riscv/isa/fp-profile.rhm" open
-  "../../riscv/isa/xlen.rhm" open
-  "../../riscv/rtl/floating-point.rhdl" open
+  "bundles.rhdl" open
+  "../decode/fp-ctrl.rhdl" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/floating-point.rhdl" open
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 

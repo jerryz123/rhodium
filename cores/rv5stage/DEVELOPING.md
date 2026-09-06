@@ -30,8 +30,7 @@ each other; share CHI transaction machinery in the parent directory.
 | [`fetch.rhdl`](fetch.rhdl) | Aligned-word window, configured compressed-profile expansion, instruction queue, and redirect flushing |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
-| [`fp-pipeline.rhdl`](fp-pipeline.rhdl) | FP register state, execution lanes, and completion |
-| [`fp-register-file.rhdl`](fp-register-file.rhdl), [`fp-datapath.rhdl`](fp-datapath.rhdl), [`fp-div-sqrt.rhdl`](fp-div-sqrt.rhdl) | FP storage, combinational execution, and deferred division/square root |
+| [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
 | [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, translation, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached.rhdl`](uncached.rhdl) | Physical-region routing and shared uncached transactions |

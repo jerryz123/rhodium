@@ -174,12 +174,11 @@ instructions before the ordinary decoder. It retains the original 16-bit word
 for illegal-instruction trap values, reports second-word faults precisely, and
 flushes retained, queued, or outstanding wrong-path data on redirects.
 
-The optional [`fp-pipeline.rhdl`](fp-pipeline.rhdl) engine owns the FP register
-file, FPR RAW/WAW scoreboard, operand reads, a two-cycle fixed-latency path,
-buffered divide/square-root paths, and completion arbitration. FP compute
-requests dispatch irrevocably from EX while their scalar tokens continue to WB.
-Accepted requests are non-speculative and must eventually complete. FP state
-updates accrue exception flags and mark `mstatus.FS` dirty.
+The optional [FP subsystem](fp/README.md) owns the FP register file, FPR
+scoreboard, execution lanes, LSU bridges, and completion arbitration. FP
+compute requests dispatch irrevocably from EX while their scalar tokens
+continue to WB. Accepted requests are non-speculative and must eventually
+complete. FP state updates accrue exception flags and mark `mstatus.FS` dirty.
 
 FP loads and stores share the scalar address generator, MMU, PMA checks, ordered
 L1D, and uncached path. An FP load reserves its destination only when its MEM

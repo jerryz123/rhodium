@@ -52,6 +52,7 @@ Choose the lowest package that owns the behavior before editing:
 | Reusable processor component or named core | [`cores/DEVELOPING.md`](cores/DEVELOPING.md) |
 | RV5Stage pipeline or integration | [`cores/rv5stage/DEVELOPING.md`](cores/rv5stage/DEVELOPING.md) |
 | RV5Stage decode | [`cores/rv5stage/decode/DEVELOPING.md`](cores/rv5stage/decode/DEVELOPING.md) |
+| RV5Stage floating-point execution | [`cores/rv5stage/fp/DEVELOPING.md`](cores/rv5stage/fp/DEVELOPING.md) |
 | RV5Stage translation | [`cores/rv5stage/mmu/DEVELOPING.md`](cores/rv5stage/mmu/DEVELOPING.md) |
 | RV5Stage private caches | [`cores/rv5stage/icache/DEVELOPING.md`](cores/rv5stage/icache/DEVELOPING.md), [`cores/rv5stage/dcache/DEVELOPING.md`](cores/rv5stage/dcache/DEVELOPING.md) |
 | SRAM occurrence mapping or schemas | [`sram/DEVELOPING.md`](sram/DEVELOPING.md) |

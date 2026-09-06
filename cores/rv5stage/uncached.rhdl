@@ -3,7 +3,7 @@
 
 import:
   "chi.rhdl" open
-  "fp-types.rhdl" open
+  "fp/types.rhdl" open
   "memory.rhdl" open
   "dcache/protocol.rhdl" open
   "icache/protocol.rhdl".RV5StageInstructionResp

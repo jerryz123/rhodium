@@ -19,8 +19,8 @@ import:
   "interrupt.rhdl" open
   "multiply.rhdl" open
   "divide.rhdl" open
-  "fp-pipeline.rhdl" open
-  "fp-bundles.rhdl" open
+  "fp/pipeline.rhdl" open
+  "fp/bundles.rhdl" open
   "fetch.rhdl" open
   "decode/fp-ctrl.rhdl" open
   "register-file.rhdl" open

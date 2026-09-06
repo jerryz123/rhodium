@@ -5,7 +5,7 @@ import:
   "../../../rhodium/core/main.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
-  "../fp-bundles.rhdl" as bundles
+  "../fp/bundles.rhdl" as bundles
 
 check:
   bundles.RV5StageFpIssue(

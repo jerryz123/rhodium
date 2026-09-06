@@ -3,7 +3,7 @@
 
 import:
   "../memory.rhdl" open
-  "../fp-types.rhdl" open
+  "../fp/types.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../load-store.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open

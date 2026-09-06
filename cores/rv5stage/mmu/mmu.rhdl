@@ -2,7 +2,7 @@
 // Composes RV5Stage's Sv39 TLBs and shared walker ahead of its physical-memory ports.
 
 import:
-  "../fp-types.rhdl" open
+  "../fp/types.rhdl" open
   "../profile.rhm".RV5StageMmuMode
   "protocol.rhdl" open
   "tlb.rhdl" open

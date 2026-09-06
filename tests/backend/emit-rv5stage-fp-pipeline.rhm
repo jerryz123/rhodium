@@ -7,7 +7,7 @@ import:
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
-  "../../cores/rv5stage/fp-pipeline.rhdl" as pipeline
+  "../../cores/rv5stage/fp/pipeline.rhdl" as pipeline
 
 def design = embedded.run_elaboration(
   fun (): pipeline.RV5StageFpPipeline(

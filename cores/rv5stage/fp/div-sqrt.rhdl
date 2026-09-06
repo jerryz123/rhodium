@@ -2,11 +2,11 @@
 // Wraps HardFloat division and square root as buffered RV5Stage FP pipeline lanes.
 
 import:
-  "fp-bundles.rhdl" open
-  "decode/fp-ctrl.rhdl" open
-  "../../riscv/isa/fp-profile.rhm" open
-  "../../riscv/isa/xlen.rhm" open
-  "../../riscv/rtl/floating-point.rhdl" open
+  "bundles.rhdl" open
+  "../decode/fp-ctrl.rhdl" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/floating-point.rhdl" open
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/flow/arbiter.rhdl").Arbiter
