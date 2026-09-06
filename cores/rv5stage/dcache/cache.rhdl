@@ -63,8 +63,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   inst states(SyncRam1RW(sets, CHICacheState, ways))
   inst lines(SyncRam1RW(data_depth, Bits(8), data_lanes))
   inst load_gen(LoadGen(xlen, word_bytes))
-  inst store_gen(StoreGen(xlen, word_bytes))
-  inst atomic_alu(RV5StageAtomicALU(xlen))
+  inst local_store_gen(StoreGen(xlen, word_bytes))
+  inst local_atomic_alu(RV5StageAtomicALU(xlen))
+  inst refill_load_gen(LoadGen(xlen, word_bytes))
+  inst refill_store_gen(StoreGen(xlen, word_bytes))
+  inst refill_atomic_alu(RV5StageAtomicALU(xlen))
   inst refill(RV5StageLineRefill(RV5StageL1DTransactionContext(xlen, way_width), width, config))
   inst snoop(RV5StageDataSnoop(width, config))
   inst writeback(RV5StageLineWriteback(RV5StageL1DTransactionContext(xlen, way_width), width, config, 1))
@@ -97,6 +100,12 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   reg reservation_valid(~init: Bool(#false))
   reg reservation_address(~init: bits(0, width))
   reg reservation_width(~init: MemoryWidth.Word)
+  // A resolved local store, AMO, or successful SC commits from this register
+  // on the cycle after tag and data lookup.
+  reg pending_mutation_valid(~init: Bool(#false))
+  reg pending_mutation_request(RV5StageDataReq(xlen))
+  reg pending_mutation_way(Bits(way_width))
+  reg pending_mutation_old_value(Bits(width))
   reg refill_installing(~init: Bool(#false))
   reg refill_install_index(~init: bits(0, word_index_width))
   reg gather_state(~init: RV5StageDataGatherState.Idle)
@@ -235,7 +244,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   // A snoop waiting before installation wins the SRAM. Once installation
   // starts, the refill owns the port until every XLEN word has been written.
-  def refill_install_start = refill.completion.valid & !snoop_pending & gather_idle & !refill_installing
+  def refill_install_start = refill.completion.valid & !snoop_pending & gather_idle & !refill_installing & !pending_mutation_valid
   def refill_install_final = refill_install_index === bits(words_per_line - 1, word_index_width)
   def refill_install_word = refill_installing
   refill.completion.ready <== refill_installing & refill_install_final
@@ -250,45 +259,53 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def completion_tag = completion_request.address[(offset_width + set_width)..width]
   def completion_word_index = completion_request.address[word_offset_width..offset_width]
   def refill_words = refill.completion.bits.line.as_bits().as_vec(Bits(width))
-  def load_address = mux(refill.completion.valid, completion_request.address, lookup_request.address)
-  def load_width = mux(refill.completion.valid, completion_request.width, lookup_request.width)
-  def response_access :: MemoryOperation = mux(install_refill, completion_access, lookup_access)
-  def response_address = mux(install_refill, completion_request.address, lookup_request.address)
-  def response_width = mux(install_refill, completion_request.width, lookup_request.width)
-  def load_unsigned = mux(response_access === MemoryOperation.Load,
-                          mux(install_refill, completion_request.unsigned, lookup_request.unsigned),
+  def load_request :: RV5StageDataReq(xlen) = mux(refill.completion.valid, completion_request, lookup_request)
+  def load_access :: MemoryOperation = load_request.access
+  def load_unsigned = mux(load_access === MemoryOperation.Load,
+                          load_request.unsigned,
                           Bool(#false))
   def refilled_word = refill_words[completion_word_index]
-  load_gen.address <== load_address
+  load_gen.address <== load_request.address
   load_gen.data <== mux(refill.completion.valid, refilled_word, cached_word)
-  load_gen.width <== load_width
+  load_gen.width <== load_request.width
   load_gen.unsigned_load <== load_unsigned
   def refill_mutation = refill.completion.valid & completion_access.needs_unique()
   def local_mutation = lookup_mutation & mutation_has_ownership
-  def mutation_address = mux(refill_mutation, completion_request.address, lookup_request.address)
-  def mutation_data = mux(refill_mutation, completion_request.data, lookup_request.data)
-  def mutation_width = mux(refill_mutation, completion_request.width, lookup_request.width)
-  def mutation_atomic = mux(refill_mutation, completion_request.atomic, lookup_request.atomic)
-  def mutation_access :: MemoryOperation = mux(refill_mutation, completion_access, lookup_access)
-  atomic_alu.old_value <== load_gen.value
-  atomic_alu.operand <== mutation_data
-  atomic_alu.memory_width <== mutation_width
-  atomic_alu.operation <== mutation_atomic
-  store_gen.address <== mutation_address
-  store_gen.value <== mux(mutation_access.is_atomic(), atomic_alu.value, mutation_data)
-  store_gen.width <== mutation_width
-  def store_word_data = store_gen.data.as_vec(Bits(8))
-  def store_byte_mask = store_gen.mask.into(Bits(word_bytes)).as_vec(Bool)
+  def local_mutation_capture = local_mutation & lookup.egress.fire()
+  def local_mutation_commit = pending_mutation_valid
+  def pending_mutation_access :: MemoryOperation = pending_mutation_request.access
+  local_atomic_alu.old_value <== pending_mutation_old_value
+  local_atomic_alu.operand <== pending_mutation_request.data
+  local_atomic_alu.memory_width <== pending_mutation_request.width
+  local_atomic_alu.operation <== pending_mutation_request.atomic
+  local_store_gen.address <== pending_mutation_request.address
+  local_store_gen.value <== mux(pending_mutation_access.is_atomic(), local_atomic_alu.value, pending_mutation_request.data)
+  local_store_gen.width <== pending_mutation_request.width
+  def local_store_word_data = local_store_gen.data.as_vec(Bits(8))
+
+  refill_load_gen.address <== completion_request.address
+  refill_load_gen.data <== refilled_word
+  refill_load_gen.width <== completion_request.width
+  refill_load_gen.unsigned_load <== Bool(#false)
+  refill_atomic_alu.old_value <== refill_load_gen.value
+  refill_atomic_alu.operand <== completion_request.data
+  refill_atomic_alu.memory_width <== completion_request.width
+  refill_atomic_alu.operation <== completion_request.atomic
+  refill_store_gen.address <== completion_request.address
+  refill_store_gen.value <== mux(completion_access.is_atomic(), refill_atomic_alu.value, completion_request.data)
+  refill_store_gen.width <== completion_request.width
+  def refill_store_word_data = refill_store_gen.data.as_vec(Bits(8))
+  def refill_store_byte_mask = refill_store_gen.mask.into(Bits(word_bytes)).as_vec(Bool)
   def refill_install_bytes = refill_words[refill_install_index].as_vec(Bits(8))
   def mutate_refill_word = refill_mutation & (refill_install_index === completion_word_index)
   def merged_refill_word = vec(
     for List (byte_index in 0..word_bytes):
-      mux(store_byte_mask[byte_index],
-          store_word_data[byte_index],
+      mux(refill_store_byte_mask[byte_index],
+          refill_store_word_data[byte_index],
           refill_install_bytes[byte_index])
   )
   def refill_install_data = mux(mutate_refill_word, merged_refill_word, refill_install_bytes)
-  def cache_write = refill_install_word ||| local_mutation
+  def cache_write = refill_install_word ||| local_mutation_commit
   assert(refill.command.ready ||| writeback.command.ready,
          "l1d_backing_owner_exclusive")
 
@@ -298,7 +315,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // Active backing transactions have already captured their cache context and
   // do not occupy the SRAM ports. Serving snoops here prevents a Home waiting
   // on this RN-F from deadlocking behind this RN-F's queued request.
-  snoop.cache_ready <== !lookup.egress.valid & gather_idle & !refill_installing
+  snoop.cache_ready <== !lookup.egress.valid & !pending_mutation_valid & gather_idle & !refill_installing
   def snoop_lookup_start = snoop.lookup.valid
   def snoop_address = snoop.address
   def snoop_set = snoop_address[offset_width..(offset_width + set_width)]
@@ -335,39 +352,44 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
               bits(0, RV5StageCacheLineBytes * 8)).as_vec(Bits(64))
 
   core.request |> core_requests.ingress
-  def lookup_accepts_input = refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !snoop_pending & !lookup_needs_refill & !local_mutation
+  def lookup_accepts_input = refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !lookup_needs_refill & !local_mutation
   core_requests.egress |> gate_flow(lookup_accepts_input) |> lookup.ingress
   def request_accept = core.request.fire()
   def lookup_issue = lookup.ingress.fire()
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
-  core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
+  core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !pending_mutation_valid & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
   def produces_load_hit = lookup_load & line_hit
   def produces_failed_sc = lookup_sc & !reservation_matches
-  def produces_response = produces_load_hit ||| local_mutation ||| produces_failed_sc ||| install_refill
+  def produces_response = produces_load_hit ||| local_mutation_commit ||| produces_failed_sc ||| install_refill
+  def response_request :: RV5StageDataReq(xlen) = mux(
+    install_refill,
+    completion_request,
+    mux(local_mutation_commit, pending_mutation_request, lookup_request)
+  )
+  def response_access :: MemoryOperation = response_request.access
+  def response_address = response_request.address
+  def response_width = response_request.width
+  def response_old_value = mux(local_mutation_commit, pending_mutation_old_value, load_gen.value)
   responses.ingress.valid <== produces_response
   responses.ingress.bits <== RV5StageDataResp(xlen):
     data: mux(response_access.returns_old_value(),
-              load_gen.value,
+              response_old_value,
               mux(response_access.is_store_conditional() & produces_failed_sc,
                   bits(1, width),
                   bits(0, width)))
-    destination: mux(install_refill,
-                     completion_request.destination,
-                     lookup_request.destination)
-    rd: mux(install_refill, completion_request.rd, lookup_request.rd)
-    floating_point_precision: mux(install_refill,
-                                  completion_request.floating_point_precision,
-                                  lookup_request.floating_point_precision)
+    destination: response_request.destination
+    rd: response_request.rd
+    floating_point_precision: response_request.floating_point_precision
 
   def install_way_mask = rv5stage_cache_way_mask(cache, completion_way)
-  def local_mutation_way_mask = rv5stage_cache_way_mask(cache, lookup_selection.index)
+  def local_mutation_way_mask = rv5stage_cache_way_mask(cache, pending_mutation_way)
   def snoop_update_way_mask = rv5stage_cache_way_mask(cache, snoop_way)
   def full_byte_mask = (!bits(0, word_bytes)).into(Mask(word_bytes))
   def refill_lane_mask = rv5stage_cache_lane_mask(cache, completion_way, word_bytes, full_byte_mask)
-  def local_mutation_lane_mask = rv5stage_cache_lane_mask(cache, lookup_selection.index, word_bytes, store_gen.mask)
-  def line_write_bytes = mux(local_mutation, store_word_data, refill_install_data)
+  def local_mutation_lane_mask = rv5stage_cache_lane_mask(cache, pending_mutation_way, word_bytes, local_store_gen.mask)
+  def line_write_bytes = mux(local_mutation_commit, local_store_word_data, refill_install_data)
   def mutable repeated_line_write_bytes = []
   for (_way in 0..ways):
     for (byte in 0..word_bytes):
@@ -384,41 +406,52 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     data: vec(for List (_way in 0..ways): completion_tag)
     mask: install_way_mask
   def update_snoop_state = snoop.update.valid & !snoop.update.bits.invalidate
-  states.port.request.valid <== lookup_issue ||| install_refill ||| local_mutation ||| snoop_lookup_start ||| update_snoop_state
+  states.port.request.valid <== lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state
   def refill_cache_state = mux(refill.completion.bits.state === CHIResponseState.Unique,
                                CHICacheState.UniqueClean,
                                CHICacheState.SharedClean)
   def snoop_or_refill_state = mux(update_snoop_state, snoop.update.bits.state, refill_cache_state)
-  def mutation_or_refill_state = mux(local_mutation, CHICacheState.UniqueDirty, snoop_or_refill_state)
+  def mutation_or_refill_state = mux(local_mutation_commit, CHICacheState.UniqueDirty, snoop_or_refill_state)
   def state_write_data = mux(install_refill & completion_access.needs_unique(), CHICacheState.UniqueDirty, mutation_or_refill_state)
-  def mutation_or_snoop_mask = mux(local_mutation, local_mutation_way_mask, snoop_update_way_mask)
+  def mutation_or_snoop_mask = mux(local_mutation_commit, local_mutation_way_mask, snoop_update_way_mask)
   def state_write_mask = mux(install_refill, install_way_mask, mutation_or_snoop_mask)
   states.port.request.bits <== ReadWriteRequest(set_width, CHICacheState, ways):
     address: mux(install_refill,
                  completion_set,
-                 mux(local_mutation,
-                     lookup_set,
+                 mux(local_mutation_commit,
+                     pending_mutation_request.address[offset_width..(offset_width + set_width)],
                      mux(snoop_lookup_start,
                          snoop_set,
                          mux(update_snoop_state,
                              snoop.update.bits.address[offset_width..(offset_width + set_width)],
                              issue_set))))
-    write: install_refill ||| local_mutation ||| update_snoop_state
+    write: install_refill ||| local_mutation_commit ||| update_snoop_state
     data: vec(for List (_way in 0..ways): state_write_data)
     mask: state_write_mask
-  def local_mutation_address = lookup_request.address[word_offset_width..(offset_width + set_width)]
+  def local_mutation_address = pending_mutation_request.address[word_offset_width..(offset_width + set_width)]
   def refill_install_address = (completion_set ++ refill_install_index)
   def gather_address = (gather_set ++ gather_issue_index)
   lines.port.request.valid <== lookup_issue ||| cache_write ||| gather_issue
   lines.port.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: mux(cache_write,
-                 mux(local_mutation, local_mutation_address, refill_install_address),
+                 mux(local_mutation_commit, local_mutation_address, refill_install_address),
                  mux(gather_issue, gather_address, issue_data_address))
     write: cache_write
     data: vec(repeated_line_write_bytes)
-    mask: mux(local_mutation, local_mutation_lane_mask, refill_lane_mask)
+    mask: mux(local_mutation_commit, local_mutation_lane_mask, refill_lane_mask)
+
+  assert(!(local_mutation_commit & (lookup_issue ||| install_refill ||| snoop_lookup_start ||| update_snoop_state ||| gather_issue)),
+         "l1d_local_mutation_port_exclusive")
 
   snoop_metadata_pending <== snoop_lookup_start
+
+  when local_mutation_capture:
+    pending_mutation_valid <== Bool(#true)
+    pending_mutation_request <== lookup_request
+    pending_mutation_way <== lookup_selection.index
+    pending_mutation_old_value <== load_gen.value
+  elsewhen local_mutation_commit:
+    pending_mutation_valid <== Bool(#false)
 
   when refill_install_start:
     refill_installing <== Bool(#true)
@@ -473,11 +506,17 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   def reservation_line_address = align_down(reservation_address, RV5StageCacheLineBytes)
   def lookup_line_address = align_down(lookup_request.address, RV5StageCacheLineBytes)
+  def pending_mutation_line_address = align_down(pending_mutation_request.address, RV5StageCacheLineBytes)
   def completing_lr = produces_load_hit & (lookup_access === MemoryOperation.LoadReserved) ||| (
     install_refill & (completion_access === MemoryOperation.LoadReserved)
   )
-  def local_reservation_clear = lookup.egress.fire() & (
+  def lookup_reservation_clear = lookup.egress.fire() & !local_mutation_capture & (
     lookup_sc ||| ((lookup_store ||| lookup_atomic) & (lookup_line_address === reservation_line_address))
+  )
+  def mutation_reservation_clear = local_mutation_commit & (
+    pending_mutation_access.is_store_conditional() ||| (
+      (pending_mutation_access.is_store() ||| pending_mutation_access.is_atomic()) & (pending_mutation_line_address === reservation_line_address)
+    )
   )
   def snoop_reservation_clear = snoop.update.valid & snoop.update.bits.invalidate & (
     align_down(snoop.update.bits.address, RV5StageCacheLineBytes) === reservation_line_address
@@ -489,7 +528,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     reservation_valid <== Bool(#true)
     reservation_address <== response_address
     reservation_width <== response_width
-  elsewhen (reservation_valid & (local_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear)):
+  elsewhen (reservation_valid & (lookup_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear)):
     reservation_valid <== Bool(#false)
 
   when (snoop.update.valid & snoop.update.bits.invalidate):

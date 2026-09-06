@@ -1,4 +1,4 @@
-// Verifies RV5Stage L1D coherence, dirty replacement, AMOs, and LR/SC reservations.
+// Verifies RV5Stage L1D coherence, registered hit mutations, AMOs, and LR/SC reservations.
 module rv5stage_dcache_tb;
   typedef struct packed {
     logic [63:0] address;
@@ -476,6 +476,12 @@ module rv5stage_dcache_tb;
 
     // A second store hits UniqueDirty and remains entirely local.
     send_core_request(ADDRESS + 64'h28, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA_2, 5'd0);
+    tick();
+    assert (!core_out.response.valid)
+      else $fatal(1, "local store responded in its SRAM lookup cycle");
+    tick();
+    assert (!core_out.response.valid)
+      else $fatal(1, "local store bypassed the registered mutation stage");
     expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
     tick();
     assert (!tx_req_pending && !tx_dat_pending)

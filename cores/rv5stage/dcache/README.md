@@ -17,7 +17,7 @@ Contributors changing the L1D implementation should read
 |---|---|
 | Organization | Physically indexed, physically tagged, set-associative, blocking, write-back, write-allocate |
 | Geometry | Power-of-two set count of at least two, positive way count, fixed 64-byte lines |
-| Core throughput | A two-entry structural request queue sustains one load hit per cycle after initial buffering; a miss or ownership acquisition blocks queue drain |
+| Core throughput | A two-entry structural request queue sustains one load hit per cycle after initial buffering; a mutation commit, miss, or ownership acquisition blocks queue drain |
 | Core protocol | Ordered `Decoupled` requests and non-backpressurable `Valid` responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
@@ -52,8 +52,8 @@ are not architectural results.
 The pipeline checks architectural alignment. The cache owns XLEN-word
 alignment within the line, byte masks, and load/store lane generation.
 `drained` is true only when no request is accepted that cycle and no queued
-request, core lookup, acquisition/refill, dirty-line drain, gather, or refill
-installation remains active. It does not include the response pipe or an
+request, core lookup, registered mutation, acquisition/refill, dirty-line drain,
+gather, or refill installation remains active. It does not include the response pipe or an
 independently serviced snoop; the parent serialization logic separately waits
 for older deferred completions. It is an observation, not a separate fence
 transaction.
@@ -68,7 +68,8 @@ flowchart LR
   Core["Core request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
   Queue --> Lookup["One-stage lookup Pipe<br/>tag + state + XLEN word SRAMs"]
   Lookup -->|load hit| Load["LoadGen"]
-  Lookup -->|owned store / SC / AMO| Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
+  Lookup -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
+  Pending --> Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
   Load --> Response["One-stage ValidPipe<br/>ordered response"]
   Mutate --> Arrays["Tag, state, and data arrays"]
   Mutate --> Response
@@ -99,9 +100,10 @@ whether its egress drains, but cannot feed back combinationally into acceptance.
 A one-stage `Pipe` carries issued request context alongside the synchronous SRAM
 lookup. Once the queue is primed, consecutive load hits advance every cycle. A
 mandatory one-stage `ValidPipe` registers the non-backpressurable response. A
-store, SC, or AMO that already has Unique ownership updates the selected byte
-lanes and sets UniqueDirty without emitting REQ or DAT traffic; an AMO returns
-the value from before that update.
+store, SC, or AMO that already has Unique ownership first captures its request,
+selected way, and old value in a one-entry mutation register. On the following
+edge it updates the selected byte lanes and sets UniqueDirty without emitting
+REQ or DAT traffic; an AMO returns the captured value from before that update.
 
 ## Miss, acquisition, and replacement flow
 
@@ -133,7 +135,7 @@ replacement refill cannot start until all eight complete.
 The shared [`data-snoop engine`](../snoop.rhdl) owns each request's lifetime,
 DVM pairing, lookup-result capture, stable CHI response, and dirty-data packet
 sequence. A pending snoop prevents a new core lookup. It waits behind an active
-lookup, line gather, or refill installation, but it may run while a captured
+lookup, registered mutation, line gather, or refill installation, but it may run while a captured
 refill or writeback transaction is otherwise waiting on CHI. A snoop already
 waiting when a refill completes wins the SRAM; once installation begins, the
 refill keeps the ports through the final word.
@@ -148,16 +150,18 @@ refill keeps the ports through the final word.
 
 A dirty response first gathers every XLEN word from the selected way. Home then
 receives the authoritative reconstructed line; L1D does not retain a dirty copy.
-Reset clears lookup, refill installation, line gather, reservation, valid-line,
-replacement, and child transaction-engine state.
+Reset clears lookup, pending mutation, refill installation, line gather,
+reservation, valid-line, replacement, and child transaction-engine state.
 
 ## LR/SC reservation
 
 LR records one exact byte address and scalar width in a cache-local reservation.
 SC succeeds only while both still match. It obtains Unique ownership when
 necessary, updates the cached word, returns zero, and leaves the line
-UniqueDirty. A failed SC returns one without issuing CHI traffic or writing the
-array. Every SC attempt clears the reservation.
+UniqueDirty. A locally successful SC clears the reservation when its registered
+mutation commits. A failed SC returns one without issuing CHI traffic or writing
+the array and clears the reservation with its lookup; every SC attempt therefore
+clears the reservation.
 
 The reservation is also cleared by a same-line local store or AMO, an
 invalidating snoop for that line, or replacement of the reserved line. A
