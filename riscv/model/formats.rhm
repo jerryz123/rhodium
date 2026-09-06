@@ -38,6 +38,7 @@ export:
   JFormat
   Shift64Format
   Shift32Format
+  PrefetchFormat
   FenceFormat
   SystemFormat
   AtomicFormat
@@ -64,6 +65,7 @@ export:
   JImmediate
   Shift64Immediate
   Shift32Immediate
+  PrefetchImmediate
 
 enum RegisterBank
 | Integer
@@ -284,6 +286,13 @@ def Shift32Immediate = ImmediateLayout(
   #false,
   [ImmediatePiece(shift32, 4, 0)]
 )
+def PrefetchImmediate = ImmediateLayout(
+  "prefetch offset",
+  12,
+  #true,
+  [ImmediatePiece(s_immediate_high, 11, 5)],
+  for List (bit in 0..5): bit
+)
 
 def RFormat = InstructionFormat(
   "R",
@@ -339,6 +348,11 @@ def Shift32Format = InstructionFormat(
   "I-shamt5",
   [rd_operand, rs1_operand],
   Shift32Immediate
+)
+def PrefetchFormat = InstructionFormat(
+  "prefetch",
+  [rs1_operand],
+  PrefetchImmediate
 )
 def FenceFormat = InstructionFormat(
   "FENCE",

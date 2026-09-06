@@ -1,0 +1,34 @@
+#lang rhombus
+// Defines the ratified Zicbop cache-block prefetch instruction catalog.
+
+import:
+  "../../support/annotations.rhm" open
+  "../model/main.rhm" open
+  "integer-common.rhm" open
+
+def prefetch_operation = BitField("prefetch operation", 24, 20)
+
+fun prefetch_instruction(name :: NonemptyString, operation :: Nat):
+  instruction(
+    name,
+    PrefetchFormat,
+    [opcode.constrain(OP_IMM), funct3.constrain(6), rd.constrain(0),
+     prefetch_operation.constrain(operation)]
+  )
+
+def PREFETCH_I = prefetch_instruction("PREFETCH.I", 0)
+def PREFETCH_R = prefetch_instruction("PREFETCH.R", 1)
+def PREFETCH_W = prefetch_instruction("PREFETCH.W", 3)
+
+def ZicbopInstructions = [PREFETCH_I, PREFETCH_R, PREFETCH_W]
+def ZicbopRevision = "Zicbop 1.0.0"
+def Zicbop = InstructionCatalog("Zicbop", ZicbopRevision, ZicbopInstructions)
+
+export:
+  prefetch_operation
+  PREFETCH_I
+  PREFETCH_R
+  PREFETCH_W
+  ZicbopInstructions
+  ZicbopRevision
+  Zicbop
