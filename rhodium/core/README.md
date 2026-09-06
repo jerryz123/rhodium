@@ -100,6 +100,14 @@ vector elements while a module is under construction. Whole-value and
 element-wise drive modes are mutually exclusive; a complete set of leaf drives
 canonicalizes to nested aggregate construction and one whole-value drive.
 
+Rejecting general last-connect and unordered multiple-driver resolution is a
+deliberate semantic choice, not deferred work. Conditional authoring constructs
+must lower their alternatives to one selected value before driving the place.
+This keeps binding independent of construction order, makes priority explicit,
+reports competing drivers at their source, and gives verification and
+dependency analysis one unambiguous driver edge. See the frontend
+[`when` and `switch` contract](../frontend/layers/README.md#conditional-assignment-and-effects).
+
 Most places must be driven before they can be read. A core `rtl.wire` is the
 deliberate exception: it exposes a paired value immediately so construction is
 independent of declaration order. The wire still requires a final driver, and

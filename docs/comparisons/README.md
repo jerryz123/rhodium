@@ -94,6 +94,16 @@ and reconstructable. The cost is additional adaptation and selection syntax
 relative to inferred widths, procedural update blocks, and
 default-then-override assignment.
 
+The single-driver rule is a deliberate language boundary, not deferred support
+for general last-connect or unordered multiple-driver resolution. Rejecting
+those models prevents elaboration order, helper composition, or code movement
+from silently replacing a connection; competing drivers fail at their source,
+priority remains explicit in control structure, and every downstream analysis
+sees one unambiguous driver edge. The tradeoff is that defaults, overrides, and
+arbitration must be composed into an explicit selected value before the final
+drive. The owning contract is in the
+[`Value`, `Place`, and binding model](../../rhodium/core/README.md#values-places-and-binding).
+
 The core `Value`/`Place` split represents this discipline but is not itself an
 expressivity advantage. A unified, capability-aware signal surface can enforce
 the same reading, binding, ownership, typing, and driver rules; Rhodium's
