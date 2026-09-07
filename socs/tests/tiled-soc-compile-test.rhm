@@ -31,6 +31,8 @@ check:
     description.to_device_tree().to_dtb().to_list()
   )
   description.aclint.region.address_set ~is compiled.platform.aclint.service.address_sets[0]
+  description.plic.region.address_set ~is compiled.platform.plic.service.address_sets[0]
+  description.plic.contexts.length() ~is 16
   description.uart.region.address_set ~is compiled.platform.uart.service.address_sets[0]
   compiled.host.node.node_id ~is 24
   compiled.host.node.kind ~is chi.CHINodeKind.RNF
@@ -46,10 +48,12 @@ check:
   compiled.device_home.home.node_id ~is 36
   compiled.bootrom.device.node.node_id ~is 54
   compiled.aclint.device.node.node_id ~is 52
+  compiled.plic.device.node.node_id ~is 55
   compiled.uart.device.node.node_id ~is 53
   compiled.device_home.home_params.requester_endpoints.length() ~is 8
   compiled.device_home.home_params.subordinate_map.entry(0x00010000).target_node_id ~is 54
   compiled.device_home.home_params.subordinate_map.entry(0x02000000).target_node_id ~is 52
+  compiled.device_home.home_params.subordinate_map.entry(0x0c000000).target_node_id ~is 55
   compiled.device_home.home_params.subordinate_map.entry(0x10000000).target_node_id ~is 53
   compiled.llcs.map(fun (llc): llc.ram_params.node_id) ~is [48, 49, 50, 51]
   compiled.llcs.length() ~is 4
@@ -76,11 +80,13 @@ check:
   compiled.home_map.entry(0x00012000) ~is #false
   compiled.home_map.entry(0x02000000).target_node_id ~is 36
   compiled.home_map.entry(0x0200ffff).target_node_id ~is 36
+  compiled.home_map.entry(0x0c000000).target_node_id ~is 36
+  compiled.home_map.entry(0x0fffffff).target_node_id ~is 36
   compiled.home_map.entry(0x10000000).target_node_id ~is 36
   compiled.home_map.entry(0x10000007).target_node_id ~is 36
   compiled.home_map.entry(0x10000008) ~is #false
   compiled.home_map.entries.map(fun (entry): entry.address_set.mask) ~is (
-    [0x7f3f, 0x7f3f, 0x7f3f, 0x7f3f, 0x1fff, 0xffff, 0x7]
+    [0x7f3f, 0x7f3f, 0x7f3f, 0x7f3f, 0x1fff, 0xffff, 0x3ffffff, 0x7]
   )
   compiled.llcs.map(fun (llc): llc.ram_params.base_address) ~is [0, 0, 0, 0]
   compiled.llcs.map(fun (llc): llc.projector_params.project(0x80000100 + (llc.projector_params.bank_index * 64))) ~is (
@@ -96,20 +102,20 @@ check:
   ) ~throws "RV64"
 
 check:
-  compiled.distribution.family.members.length() ~is 16
-  compiled.distribution.family.link_connections.length() ~is 48
+  compiled.distribution.family.members.length() ~is 20
+  compiled.distribution.family.link_connections.length() ~is 62
   compiled.distribution.family.injection_count ~is 2
-  compiled.distribution.family.ejection_count ~is 2
+  compiled.distribution.family.ejection_count ~is 3
   compiled.distribution.harts.length() ~is 8
-  (compiled.distribution.time_route_keys ++ compiled.distribution.interrupt_route_keys).sort(
+  (compiled.distribution.time_route_keys ++ compiled.distribution.interrupt_route_keys ++ compiled.distribution.external_interrupt_route_keys).sort(
     fun (left, right): left < right
-  ) ~is (0..16).to_list()
+  ) ~is (0..24).to_list()
 
 check:
-  compiled.router_configs.req.router_family_plan.members.length() ~is 16
-  compiled.router_configs.rsp.router_family_plan.members.length() ~is 16
-  compiled.router_configs.snp.router_family_plan.members.length() ~is 16
-  compiled.router_configs.dat.router_family_plan.members.length() ~is 16
+  compiled.router_configs.req.router_family_plan.members.length() ~is 20
+  compiled.router_configs.rsp.router_family_plan.members.length() ~is 20
+  compiled.router_configs.snp.router_family_plan.members.length() ~is 20
+  compiled.router_configs.dat.router_family_plan.members.length() ~is 20
   compiled.router_configs.physical === compiled.physical_plan ~is #true
   compiled.router_configs.physical.matches(
     compiled.router_configs.req.router_family_plan
@@ -147,27 +153,29 @@ check:
   compiled.device_home.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [6]
   compiled.aclint.tile_params.router.attachment.sn_locals.length() ~is 1
   compiled.aclint.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [10]
+  compiled.plic.tile_params.router.attachment.sn_locals.length() ~is 1
+  compiled.plic.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [14]
   compiled.uart.tile_params.router.attachment.sn_locals.length() ~is 1
-  compiled.uart.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [14]
+  compiled.uart.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [18]
   compiled.host.tile_params.router.attachment.rnf_locals.length() ~is 1
   compiled.host.tile_params.router.attachment.rnf_locals[0].req.site_keys ~is [2]
 
 check:
-  compiled.mesh.node_bindings.length() ~is 16
-  compiled.mesh.link_bindings.length() ~is 48
+  compiled.mesh.node_bindings.length() ~is 20
+  compiled.mesh.link_bindings.length() ~is 62
   compiled.rv5stages.length() ~is 8
-  compiled.transits.length() ~is 0
+  compiled.transits.length() ~is 3
   compiled.llcs.length() ~is 4
-  compiled.connections.length() ~is 79
+  compiled.connections.length() ~is 80
   compiled.connections.filter(
     ~keep: fun (connection): connection is_a chi.CHISNConnection
-  ).length() ~is 3
-  compiled.node_ids.length() ~is 37
+  ).length() ~is 4
+  compiled.node_ids.length() ~is 38
   compiled.node_ids.sort(fun (left, right): left < right) ~is (
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
      16, 17, 18, 19, 20, 21, 22, 23,
      24,
-     32, 33, 34, 35, 36, 48, 49, 50, 51, 52, 53, 54]
+     32, 33, 34, 35, 36, 48, 49, 50, 51, 52, 53, 54, 55]
   )
 
 check:
@@ -197,32 +205,36 @@ check:
    compiled.bootrom.placement.coordinate.y] ~is [1, 2]
   [compiled.aclint.placement.coordinate.x,
    compiled.aclint.placement.coordinate.y] ~is [2, 2]
+  [compiled.plic.placement.coordinate.x,
+   compiled.plic.placement.coordinate.y] ~is [3, 2]
   [compiled.uart.placement.coordinate.x,
-   compiled.uart.placement.coordinate.y] ~is [3, 2]
+   compiled.uart.placement.coordinate.y] ~is [4, 2]
   compiled.device_home.placement.requester_site.node_id ~is 36
   compiled.device_home.placement.subordinate_site.node_id ~is 36
   compiled.bootrom.placement.site.node_id ~is 54
   compiled.aclint.placement.site.node_id ~is 52
+  compiled.plic.placement.site.node_id ~is 55
   compiled.uart.placement.site.node_id ~is 53
   compiled.device_home.placement.requester_site.router === compiled.device_home.placement.router ~is #true
   compiled.device_home.placement.subordinate_site.router === compiled.device_home.placement.router ~is #true
   compiled.bootrom.placement.site.router === compiled.device_home.placement.router ~is #true
   compiled.aclint.placement.site.router === compiled.aclint.placement.router ~is #true
+  compiled.plic.placement.site.router === compiled.plic.placement.router ~is #true
   compiled.uart.placement.site.router === compiled.uart.placement.router ~is #true
 
 check:
-  compiled.compilations.req.routes.length() ~is 79
-  compiled.compilations.rsp.routes.length() ~is 155
+  compiled.compilations.req.routes.length() ~is 80
+  compiled.compilations.rsp.routes.length() ~is 156
   compiled.snp_compilation.routes.length() ~is 68
-  compiled.compilations.dat.routes.length() ~is 158
-  compiled.families.req.members.length() ~is 16
-  compiled.families.rsp.members.length() ~is 16
-  compiled.families.snp.members.length() ~is 16
-  compiled.families.dat.members.length() ~is 16
-  compiled.families.req.link_connections.length() ~is 48
-  compiled.families.rsp.link_connections.length() ~is 48
-  compiled.families.snp.link_connections.length() ~is 48
-  compiled.families.dat.link_connections.length() ~is 48
+  compiled.compilations.dat.routes.length() ~is 160
+  compiled.families.req.members.length() ~is 20
+  compiled.families.rsp.members.length() ~is 20
+  compiled.families.snp.members.length() ~is 20
+  compiled.families.dat.members.length() ~is 20
+  compiled.families.req.link_connections.length() ~is 62
+  compiled.families.rsp.link_connections.length() ~is 62
+  compiled.families.snp.link_connections.length() ~is 62
+  compiled.families.dat.link_connections.length() ~is 62
   compiled.physical_plan.matches(compiled.families.req) ~is #true
   compiled.physical_plan.matches(compiled.families.rsp) ~is #true
   compiled.physical_plan.matches(compiled.families.snp) ~is #true

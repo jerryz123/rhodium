@@ -6,6 +6,7 @@ import:
   "../../cores/rv5stage/profile.rhm" open
   "../../devicetree/main.rhm".DeviceTreeLabel
   "../../rhodium/std/interconnect.rhdl".AddressSet
+  "../../riscv/isa/interrupt.rhm".InterruptCause
   "../../riscv/isa/xlen.rhm".XLen
 
 def profile = RVCoreProfile(
@@ -20,6 +21,15 @@ def memory = SoCAddressRegion(AddressSet(0x80000000, 0x3fffffff))
 def rom = SoCAddressRegion(AddressSet(0x00010000, 0xfff))
 def aclint = RiscvAclintDescription(
   SoCAddressRegion(AddressSet(0x02000000, 0xffff))
+)
+def plic = RiscvPlicDescription(
+  SoCAddressRegion(AddressSet(0x0c000000, 0x03ffffff)),
+  3,
+  [RiscvPlicSource(1, "uart")],
+  [RiscvPlicContext(0, InterruptCause.MachineExternal),
+   RiscvPlicContext(0, InterruptCause.SupervisorExternal),
+   RiscvPlicContext(1, InterruptCause.MachineExternal),
+   RiscvPlicContext(1, InterruptCause.SupervisorExternal)]
 )
 def uart = RiscvUartDescription(
   SoCAddressRegion(AddressSet(0x10000000, 0x7))
@@ -38,6 +48,7 @@ def description = RiscvSoCDescription(
   ~memory_regions: [memory],
   ~boot: boot,
   ~aclint: aclint,
+  ~plic: plic,
   ~uart: uart
 )
 def no_uart_description = RiscvSoCDescription(
@@ -62,6 +73,13 @@ check:
   memory.base ~is 0x80000000
   memory.size_bytes ~is 0x40000000
   description.harts ~is [0, 1]
+  description.plic === plic ~is #true
+  description.plic.sources[0].source_id ~is 1
+  description.plic.contexts.map(fun (context): context.hart) ~is [0, 0, 1, 1]
+  description.plic.contexts.map(fun (context): context.interrupt) ~is (
+    [InterruptCause.MachineExternal, InterruptCause.SupervisorExternal,
+     InterruptCause.MachineExternal, InterruptCause.SupervisorExternal]
+  )
   description.uart === uart ~is #true
   tree.boot_cpuid ~is 0
   tree.phandle_for(DeviceTreeLabel("cpu_intc_0")) ~is 1
@@ -122,6 +140,36 @@ check:
     ),
     ~aclint: aclint
   ) ~throws "must not overlap"
+  RiscvPlicDescription(
+    SoCAddressRegion(AddressSet(0x0c000000, 0x03ffffff)),
+    3,
+    [RiscvPlicSource(1, "uart"), RiscvPlicSource(1, "duplicate")],
+    [RiscvPlicContext(0, InterruptCause.MachineExternal)]
+  ) ~throws "source IDs"
+  RiscvPlicDescription(
+    SoCAddressRegion(AddressSet(0x0c000000, 0x03ffffff)),
+    3,
+    [RiscvPlicSource(1, "uart")],
+    [RiscvPlicContext(0, InterruptCause.MachineExternal),
+     RiscvPlicContext(0, InterruptCause.MachineExternal)]
+  ) ~throws "context pairs"
+  RiscvPlicContext(0, InterruptCause.MachineTimer) ~throws "external interrupts"
+  RiscvSoCDescription(
+    ~model: "unknown PLIC hart",
+    ~compatible: ["rhodium,test-soc"],
+    ~harts: [0],
+    ~core_profile: profile,
+    ~clocks: clocks,
+    ~memory_regions: [memory],
+    ~boot: boot,
+    ~aclint: aclint,
+    ~plic: RiscvPlicDescription(
+      SoCAddressRegion(AddressSet(0x0c000000, 0x03ffffff)),
+      3,
+      [RiscvPlicSource(1, "uart")],
+      [RiscvPlicContext(1, InterruptCause.MachineExternal)]
+    )
+  ) ~throws "described harts"
   no_uart_description.uart ~is #false
   no_uart_description.to_device_tree().to_dts().contains("serial@") ~is #false
   RiscvSoCDescription(

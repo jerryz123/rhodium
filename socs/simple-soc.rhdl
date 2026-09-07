@@ -17,6 +17,7 @@ import:
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/bootrom.rhdl") open
   lib("devices/aclint.rhdl") open
+  lib("devices/plic.rhdl") open
   lib("devices/uart16550.rhdl") open
   "host-interface.rhdl".SoCHostInterface
   "boot.rhdl" open
@@ -78,6 +79,7 @@ class SimpleSoCFabricParams(memory_name :: NonemptyString,
                       boot,
                       12,
                       10,
+                      13,
                       11)
   property rv5stage_config:
     RV5StageCHIConfig(
@@ -143,6 +145,7 @@ class SimpleSoCFabricParams(memory_name :: NonemptyString,
       ~memory_regions: [SoCAddressRegion(memory_service.address_sets[0])],
       ~boot: platform.boot_description,
       ~aclint: platform.aclint_description,
+      ~plic: platform.plic_description,
       ~uart: platform.uart_description
     )
 
@@ -219,6 +222,8 @@ def simple_soc_bootrom_config = simple_soc_platform.bootrom.rom_config(simple_so
 def simple_soc_bootrom_params = simple_soc_platform.bootrom.rom_params
 def simple_soc_aclint_config = simple_soc_platform.aclint_config
 def simple_soc_aclint_params = simple_soc_platform.aclint
+def simple_soc_plic_config = simple_soc_platform.plic_config
+def simple_soc_plic_params = simple_soc_platform.plic
 def simple_soc_uart_config = simple_soc_platform.uart_config
 def simple_soc_uart_params = simple_soc_platform.uart
 
@@ -258,6 +263,9 @@ def simple_soc_bootrom_site = CHISNSite(NamePath(["devices", "bootrom"]),
 def simple_soc_aclint_site = CHISNSite(NamePath(["devices", "aclint"]),
                                        simple_soc_aclint_params.node.node_id,
                                        simple_soc_router)
+def simple_soc_plic_site = CHISNSite(NamePath(["devices", "plic"]),
+                                     simple_soc_plic_params.node.node_id,
+                                     simple_soc_router)
 def simple_soc_uart_site = CHISNSite(NamePath(["devices", "uart"]),
                                      simple_soc_uart_params.node.node_id,
                                      simple_soc_router)
@@ -271,6 +279,8 @@ def simple_soc_connections = [
                   simple_soc_bootrom_site),
   CHISNConnection(simple_soc_device_home_subordinate_site,
                   simple_soc_aclint_site),
+  CHISNConnection(simple_soc_device_home_subordinate_site,
+                  simple_soc_plic_site),
   CHISNConnection(simple_soc_device_home_subordinate_site,
                   simple_soc_uart_site)
 ]
@@ -307,6 +317,7 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams,
   inst device_home(CHIHNI(params.device_home_params))
   inst bootrom(CHIBootROM(params.platform.bootrom.rom_config(description)))
   inst aclint(Aclint(params.platform.aclint_config))
+  inst plic(Plic(params.platform.plic_config))
   inst uart_device(Uart16550(params.platform.uart_config))
   inst boot(SoCBootDistributor(64, 1, params.boot.reset_address))
   inst timebase(Counter(description.clocks.timebase_period_cycles))
@@ -329,6 +340,9 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams,
   aclint.identity <== AclintIdentity(simple_soc_flit):
     node_id: bits(params.platform.aclint.node.node_id, simple_soc_flit.node_id_width)
     base_address: bits(params.platform.aclint.base_address, simple_soc_flit.request_address_width)
+  plic.identity <== PlicIdentity(simple_soc_flit):
+    node_id: bits(params.platform.plic.node.node_id, simple_soc_flit.node_id_width)
+    base_address: bits(params.platform.plic.base_address, simple_soc_flit.request_address_width)
   uart_device.identity <== Uart16550Identity(simple_soc_flit):
     node_id: bits(params.platform.uart.node.node_id, simple_soc_flit.node_id_width)
     base_address: bits(params.platform.uart.base_address, simple_soc_flit.request_address_width)
@@ -401,6 +415,13 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams,
                       ~dat_targets: dat_router.target,
                       ~dat_ingress: dat_router.ingress,
                       ~adapters: simple_soc_adapter_plans)
+  connect_chi_sn_node(plic.port,
+                      ~node: simple_soc_plic_site,
+                      ~req_targets: req_router.target,
+                      ~rsp_ingress: rsp_router.ingress,
+                      ~dat_targets: dat_router.target,
+                      ~dat_ingress: dat_router.ingress,
+                      ~adapters: simple_soc_adapter_plans)
   connect_chi_sn_node(uart_device.port,
                       ~node: simple_soc_uart_site,
                       ~req_targets: req_router.target,
@@ -414,6 +435,7 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams,
   uart_device.rx <== uart.rx
   uart.tx <== uart_device.tx
   uart.interrupt <== uart_device.interrupt
+  plic.sources <== vec([uart_device.interrupt])
   host.release |> boot.release
   boot.start[0] |> rv5stage.start
   rv5stage.interrupts <== RV5StageInterrupts():
@@ -421,8 +443,8 @@ sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams,
     machine_software: aclint.machine_software[0]
     supervisor_timer: Bool(#false)
     machine_timer: aclint.machine_timer[0]
-    supervisor_external: Bool(#false)
-    machine_external: Bool(#false)
+    supervisor_external: plic.context_interrupts[1]
+    machine_external: plic.context_interrupts[0]
   rv5stage.hart_id <== bits(0, 64)
   rv5stage.time_counter <== aclint.time_counter
 
@@ -479,6 +501,8 @@ export:
   simple_soc_bootrom_params
   simple_soc_aclint_config
   simple_soc_aclint_params
+  simple_soc_plic_config
+  simple_soc_plic_params
   simple_soc_uart_config
   simple_soc_uart_params
   simple_soc_device_home_params
@@ -493,6 +517,7 @@ export:
   simple_soc_device_home_subordinate_site
   simple_soc_bootrom_site
   simple_soc_aclint_site
+  simple_soc_plic_site
   simple_soc_uart_site
   simple_soc_connections
   simple_soc_compilations

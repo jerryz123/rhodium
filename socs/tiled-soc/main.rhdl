@@ -7,6 +7,7 @@ import:
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity
   lib("devices/bootrom.rhdl") open
   lib("devices/aclint.rhdl").AclintIdentity
+  lib("devices/plic.rhdl").PlicIdentity
   lib("devices/uart16550.rhdl").Uart16550Identity
   "layout.rhm" open
   "compile.rhdl".compile_tiled_soc
@@ -20,10 +21,10 @@ import:
   "../core-profiles.rhm" open
 
 def default_tiled_soc_layout = tile_grid:
-  row [llc(4)]
-  row [host, device_home, aclint, uart]
-  row [rv5stage(4)]
-  row [rv5stage(4)]
+  row [llc(4), transit]
+  row [host, device_home, aclint, plic, uart]
+  row [rv5stage(4), transit]
+  row [rv5stage(4), transit]
 
 def tiled_soc_clocks = SoCClockConfig(
   ~clock_frequency_hz: 100000000,
@@ -41,6 +42,7 @@ def default_tiled_soc_config = TiledSoCConfig(
     ~backing_memory_base: 48,
     ~bootrom_subordinate: 54,
     ~aclint_subordinate: 52,
+    ~plic_subordinate: 55,
     ~uart_subordinate: 53
   ),
   ~memory: StripedMemory(
@@ -76,6 +78,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
   inst bootrom(CHIBootROM(implementation.platform.bootrom.rom_config(config.description)))
   inst boot(SoCBootDistributor(64, implementation.rv5stages.length(), config.boot.reset_address))
   inst aclint(AclintTile(implementation.aclint.tile_params))
+  inst plic(PlicTile(implementation.plic.tile_params))
   inst uart_device(UartTile(implementation.uart.tile_params))
   def hart_count = implementation.rv5stages.length()
   inst distribution(TiledDistributionNetwork(implementation.distribution))
@@ -93,6 +96,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
               data_node_id: bits(entry.chi.data_node_id, p.node_id_width)
               uncached_node_id: bits(entry.chi.uncached_node_id, p.node_id_width))
     distribution.interrupt_egress[index] <=> rv5stages[index].interrupt_update
+    distribution.external_interrupt_egress[index] <=> rv5stages[index].external_interrupt_update
     distribution.time_egress[index] <=> rv5stages[index].time_beat
   host.release |> boot.release
   for (index in 0..implementation.rv5stages.length()):
@@ -132,6 +136,13 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
   aclint.tick <== timebase.wrap
   aclint.time_beat <=> distribution.time_ingress
   aclint.interrupt_update <=> distribution.interrupt_ingress
+  plic.identity <== PlicTileIdentity(p, site_width):
+    site_key: bits(implementation.site_key(implementation.plic.placement.router), site_width)
+    plic: (PlicIdentity(p):
+             node_id: bits(implementation.plic.device.node.node_id, p.node_id_width)
+             base_address: bits(implementation.plic.device.base_address, p.request_address_width))
+  plic.sources <== vec([uart_device.uart.interrupt])
+  plic.external_interrupt_update <=> distribution.external_interrupt_ingress
   uart_device.identity <== UartTileIdentity(p, site_width):
     site_key: bits(implementation.site_key(implementation.uart.placement.router), site_width)
     uart: (Uart16550Identity(p):
@@ -160,6 +171,9 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
     CHIRouterEndpoints(implementation.site_key(implementation.aclint.placement.router),
                        aclint.incoming_links,
                        aclint.outgoing_links),
+    CHIRouterEndpoints(implementation.site_key(implementation.plic.placement.router),
+                       plic.incoming_links,
+                       plic.outgoing_links),
     CHIRouterEndpoints(implementation.site_key(implementation.uart.placement.router),
                        uart_device.incoming_links,
                        uart_device.outgoing_links)
@@ -177,6 +191,7 @@ export:
   HostTileSpec
   DeviceHomeTileSpec
   AclintTileSpec
+  PlicTileSpec
   UartTileSpec
   TransitTileSpec
   TiledTileSpec
@@ -191,6 +206,7 @@ export:
   host_tile
   device_home_tile
   aclint_tile
+  plic_tile
   uart_tile
   transit_tile
   repeat_tiled_tile

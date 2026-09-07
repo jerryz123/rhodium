@@ -33,6 +33,7 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams):
   input identity: RV5StageTileIdentity(p, site_width)
   interface start(Irrevocable(Bits(64)), ~role: consumer)
   interface interrupt_update(Decoupled(TiledHartInterrupts()), ~role: consumer)
+  interface external_interrupt_update(Decoupled(TiledExternalInterrupts()), ~role: consumer)
   interface time_beat(Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: consumer)
   output fault: Bool
   interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
@@ -41,6 +42,7 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams):
   inst rv5stage(RV5Stage(params.core_profile, ~chi: params.rv5stage))
   inst time_receiver(TiledTimeReceiver())
   inst interrupt_replica(StateReplica(TiledHartInterrupts(), NoTiledHartInterrupts))
+  inst external_interrupt_replica(StateReplica(TiledExternalInterrupts(), NoTiledExternalInterrupts))
   inst router(CHIRouter(router_params))
 
   rv5stage.chi_identity <== identity.chi
@@ -49,12 +51,13 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams):
     machine_software: interrupt_replica.current.machine_software
     supervisor_timer: Bool(#false)
     machine_timer: interrupt_replica.current.machine_timer
-    supervisor_external: Bool(#false)
-    machine_external: Bool(#false)
+    supervisor_external: external_interrupt_replica.current.supervisor_external
+    machine_external: external_interrupt_replica.current.machine_external
   rv5stage.hart_id <== identity.hart_id
   rv5stage.time_counter <== time_receiver.value
   time_beat <=> time_receiver.ingress
   interrupt_update <=> interrupt_replica.ingress
+  external_interrupt_update <=> external_interrupt_replica.ingress
   router.site_key <== identity.site_key
   start |> rv5stage.start
   fault <== rv5stage.fault

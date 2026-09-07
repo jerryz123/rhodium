@@ -1,0 +1,63 @@
+#lang rhodium
+// Attaches the SoC PLIC SN-I and external-interrupt update source to a dedicated CHI router tile.
+
+import:
+  lib("chi/main.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/flow/state.rhdl") open
+  lib("devices/plic.rhdl") open
+  "../distribution.rhdl" open
+
+class PlicTileParams(plic :: PlicConfig,
+                     router :: CHIRouterParams,
+                     hart_count :: PosInt):
+  implements StableCircuitParam
+
+  constructor (plic :: PlicConfig,
+               router :: CHIRouterParams,
+               hart_count :: PosInt):
+    unless plic.context_count == hart_count * 2
+    | error(~who: #'PlicTileParams,
+            "PLIC tile requires machine and supervisor contexts for every hart")
+    super(plic, router, hart_count)
+
+bundle PlicTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
+  site_key: Bits(site_width)
+  plic: PlicIdentity(p)
+
+sync_circuit PlicTile(params :: PlicTileParams):
+  def router_params = params.router
+  def p = params.plic.flit
+  def site_width = router_params.routers.req.route_decoder.site_width
+  def Link = chi_noc_link_type(router_params)
+
+  input identity: PlicTileIdentity(p, site_width)
+  input sources: Vec(params.plic.source_count, Bool)
+  interface external_interrupt_update(Irrevocable(IndexedState(TiledExternalInterrupts(), params.hart_count)), ~role: producer)
+  interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
+  interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
+
+  inst device(Plic(params.plic))
+  inst interrupt_source(StateChangeSource(TiledExternalInterrupts(),
+                                          params.hart_count,
+                                          NoTiledExternalInterrupts))
+  inst router(CHIRouter(router_params))
+
+  device.identity <== identity.plic
+  device.sources <== sources
+  interrupt_source.current <== vec(
+    for List (hart in 0..params.hart_count):
+      TiledExternalInterrupts():
+        machine_external: device.context_interrupts[hart * 2]
+        supervisor_external: device.context_interrupts[(hart * 2) + 1]
+  )
+  interrupt_source.egress <=> external_interrupt_update
+  router.site_key <== identity.site_key
+  device.port <=> router.sn_local[0]
+  router.incoming_links <=> incoming_links
+  router.outgoing_links <=> outgoing_links
+
+export:
+  PlicTileParams
+  PlicTileIdentity
+  PlicTile

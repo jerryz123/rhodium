@@ -21,6 +21,7 @@ export:
   HostTileSpec
   DeviceHomeTileSpec
   AclintTileSpec
+  PlicTileSpec
   UartTileSpec
   TransitTileSpec
   TiledTileSpec
@@ -35,6 +36,7 @@ export:
   host_tile
   device_home_tile
   aclint_tile
+  plic_tile
   uart_tile
   transit_tile
   repeat_tiled_tile
@@ -45,17 +47,19 @@ class LLCTileSpec()
 class HostTileSpec()
 class DeviceHomeTileSpec()
 class AclintTileSpec()
+class PlicTileSpec()
 class UartTileSpec()
 class TransitTileSpec()
 
 annot.macro 'TiledTileSpec':
-  'RV5StageTileSpec || LLCTileSpec || HostTileSpec || DeviceHomeTileSpec || AclintTileSpec || UartTileSpec || TransitTileSpec'
+  'RV5StageTileSpec || LLCTileSpec || HostTileSpec || DeviceHomeTileSpec || AclintTileSpec || PlicTileSpec || UartTileSpec || TransitTileSpec'
 
 def rv5stage_tile = RV5StageTileSpec()
 def llc_tile = LLCTileSpec()
 def host_tile = HostTileSpec()
 def device_home_tile = DeviceHomeTileSpec()
 def aclint_tile = AclintTileSpec()
+def plic_tile = PlicTileSpec()
 def uart_tile = UartTileSpec()
 def transit_tile = TransitTileSpec()
 
@@ -91,6 +95,8 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     cells.filter(~keep: fun (cell): cell.tile is_a DeviceHomeTileSpec)
   property aclints:
     cells.filter(~keep: fun (cell): cell.tile is_a AclintTileSpec)
+  property plics:
+    cells.filter(~keep: fun (cell): cell.tile is_a PlicTileSpec)
   property uarts:
     cells.filter(~keep: fun (cell): cell.tile is_a UartTileSpec)
   property transits:
@@ -110,6 +116,7 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     def host_count = cells.filter(~keep: fun (cell): cell.tile is_a HostTileSpec).length()
     def device_home_count = cells.filter(~keep: fun (cell): cell.tile is_a DeviceHomeTileSpec).length()
     def aclint_count = cells.filter(~keep: fun (cell): cell.tile is_a AclintTileSpec).length()
+    def plic_count = cells.filter(~keep: fun (cell): cell.tile is_a PlicTileSpec).length()
     def uart_count = cells.filter(~keep: fun (cell): cell.tile is_a UartTileSpec).length()
     unless rv5stage_count > 0
     | error(~who: #'TileGrid, "tile grid requires at least one RV5Stage tile")
@@ -121,6 +128,8 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     | error(~who: #'TileGrid, "tile grid requires exactly one device Home tile")
     unless aclint_count == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one ACLINT tile")
+    unless plic_count == 1
+    | error(~who: #'TileGrid, "tile grid requires exactly one PLIC tile")
     unless uart_count == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one UART tile")
     super(rows)
@@ -138,6 +147,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                    backing_memory_base :: Nat,
                    bootrom_subordinate :: Nat,
                    aclint_subordinate :: Nat,
+                   plic_subordinate :: Nat,
                    uart_subordinate :: Nat):
   constructor (~rv5stage_coherent_base: rv5stage_coherent_base :: Nat,
                ~rv5stage_uncached_base: rv5stage_uncached_base :: Nat,
@@ -147,6 +157,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                ~backing_memory_base: backing_memory_base :: Nat,
                ~bootrom_subordinate: bootrom_subordinate :: Nat,
                ~aclint_subordinate: aclint_subordinate :: Nat,
+               ~plic_subordinate: plic_subordinate :: Nat,
                ~uart_subordinate: uart_subordinate :: Nat):
     super(rv5stage_coherent_base,
           rv5stage_uncached_base,
@@ -156,6 +167,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
           backing_memory_base,
           bootrom_subordinate,
           aclint_subordinate,
+          plic_subordinate,
           uart_subordinate)
 
 class StripedMemory(base :: Nat,
@@ -204,6 +216,7 @@ class TiledSoCConfig(layout :: TileGrid,
                       boot,
                       node_ids.bootrom_subordinate,
                       node_ids.aclint_subordinate,
+                      node_ids.plic_subordinate,
                       node_ids.uart_subordinate)
   property platform: platform_for(device_home)
   property description:
@@ -216,6 +229,7 @@ class TiledSoCConfig(layout :: TileGrid,
       ~memory_regions: [SoCAddressRegion(AddressSet(memory.base, memory_bytes - 1))],
       ~boot: platform.boot_description,
       ~aclint: platform.aclint_description,
+      ~plic: platform.plic_description,
       ~uart: platform.uart_description
     )
 
@@ -254,13 +268,15 @@ meta:
     | 'device_home($count)': 'repeat_tiled_tile(device_home_tile, $count)'
     | 'aclint': '[aclint_tile]'
     | 'aclint($count)': 'repeat_tiled_tile(aclint_tile, $count)'
+    | 'plic': '[plic_tile]'
+    | 'plic($count)': 'repeat_tiled_tile(plic_tile, $count)'
     | 'uart': '[uart_tile]'
     | 'uart($count)': 'repeat_tiled_tile(uart_tile, $count)'
     | 'transit': '[transit_tile]'
     | 'transit($count)': 'repeat_tiled_tile(transit_tile, $count)'
     | ~else:
         syntax_meta.error(
-          "expected rv5stage, llc, host, device_home, aclint, uart, or transit tile",
+          "expected rv5stage, llc, host, device_home, aclint, plic, uart, or transit tile",
           entry
         )
 

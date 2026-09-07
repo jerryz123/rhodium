@@ -1,24 +1,45 @@
 #lang rhodium
-// Defines shared BootROM, ACLINT, UART, PMA, and HN-I platform contracts for SoCs.
+// Defines shared BootROM, ACLINT, PLIC, UART, PMA, and HN-I platform contracts for SoCs.
 
 import:
   lib("chi/main.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/aclint.rhdl") open
+  lib("devices/plic.rhdl") open
   lib("devices/uart16550.rhdl") open
+  lib("riscv/isa/interrupt.rhm").InterruptCause
   "boot.rhdl" open
   "description.rhm" open
 
 def SoCAclintBase = 0x02000000
+def SoCPlicBase = 0x0c000000
+def SoCPlicPriorityWidth = 3
+def SoCPlicUartSource = 1
 def SoCUartBase = 0x10000000
 def SoCUartFifoDepth = 16
 def soc_device_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)
+
+fun soc_plic_contexts(hart_count :: PosInt):
+  def mutable contexts = []
+  for (hart in 0..hart_count):
+    contexts := contexts ++ [
+      RiscvPlicContext(hart, InterruptCause.MachineExternal),
+      RiscvPlicContext(hart, InterruptCause.SupervisorExternal)
+    ]
+  contexts
 
 fun soc_peripheral_regions(home :: CHIHomeParams):
   [RV5StageCHIRegion(
      RiscvPhysicalMemoryRegion(
        AddressSet(SoCAclintBase, AclintWindowBytes - 1),
+       soc_device_attributes
+     ),
+     home
+   ),
+   RV5StageCHIRegion(
+     RiscvPhysicalMemoryRegion(
+       AddressSet(SoCPlicBase, PlicWindowBytes - 1),
        soc_device_attributes
      ),
      home
@@ -44,13 +65,14 @@ interface SoCUartInterface():
     interrupt: Bool
 
 // Keeps every SoC's uncached PMA entries and HN-I subordinate map derived from
-// the same BootROM, ACLINT, and UART descriptions.
+// the same BootROM, ACLINT, PLIC, and UART descriptions.
 class SoCPlatformParams(flit :: CHIFlitParams,
                         hart_count :: PosInt,
                         home :: CHIHomeParams,
                         boot :: SoCBootConfig,
                         bootrom_node_id :: Nat,
                         aclint_node_id :: Nat,
+                        plic_node_id :: Nat,
                         uart_node_id :: Nat,
                         uart_fifo_depth :: Int.in(1 ..= Uart16550MaximumFifoDepth) = SoCUartFifoDepth):
   implements StableCircuitParam
@@ -60,6 +82,9 @@ class SoCPlatformParams(flit :: CHIFlitParams,
   property aclint_config: AclintConfig(flit, hart_count)
   property aclint:
     AclintParams("soc-aclint", aclint_node_id, aclint_config, SoCAclintBase)
+  property plic_config: PlicConfig(flit, SoCPlicUartSource, hart_count * 2, SoCPlicPriorityWidth)
+  property plic:
+    PlicParams("soc-plic", plic_node_id, plic_config, SoCPlicBase)
   property uart_config: Uart16550Config(flit, uart_fifo_depth)
   property uart:
     Uart16550Params("soc-uart", uart_node_id, uart_config, SoCUartBase)
@@ -71,10 +96,17 @@ class SoCPlatformParams(flit :: CHIFlitParams,
     )
   property aclint_description:
     RiscvAclintDescription(SoCAddressRegion(aclint.service.address_sets[0]))
+  property plic_description:
+    RiscvPlicDescription(
+      SoCAddressRegion(plic.service.address_sets[0]),
+      SoCPlicPriorityWidth,
+      [RiscvPlicSource(SoCPlicUartSource, "uart")],
+      soc_plic_contexts(hart_count)
+    )
   property uart_description:
     RiscvUartDescription(SoCAddressRegion(uart.service.address_sets[0]))
   property subordinate_map:
-    CHISubordinateMap(flit, [bootrom.rom_params.service, aclint.service, uart.service])
+    CHISubordinateMap(flit, [bootrom.rom_params.service, aclint.service, plic.service, uart.service])
   property regions: [bootrom.region] ++ soc_peripheral_regions(home)
 
   method home_params(requester_endpoints :: NonemptyList.of(CHIICNPortParams)):
@@ -82,9 +114,13 @@ class SoCPlatformParams(flit :: CHIFlitParams,
 
 export:
   SoCAclintBase
+  SoCPlicBase
+  SoCPlicPriorityWidth
+  SoCPlicUartSource
   SoCUartBase
   SoCUartFifoDepth
   soc_device_attributes
   soc_peripheral_regions
+  soc_plic_contexts
   SoCUartInterface
   SoCPlatformParams

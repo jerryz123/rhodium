@@ -8,6 +8,7 @@ import:
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("cores/rv5stage/profile.rhm") open
+  lib("riscv/isa/interrupt.rhm") open
 
 class SoCClockConfig(clock_frequency_hz :: PosInt,
                      timebase_frequency_hz :: PosInt):
@@ -68,6 +69,45 @@ class RiscvAclintDescription(region :: SoCAddressRegion):
 
 class RiscvUartDescription(region :: SoCAddressRegion):
   implements StableCircuitParam
+
+class RiscvPlicSource(source_id :: PosInt,
+                      name :: NonemptyString):
+  implements StableCircuitParam
+
+class RiscvPlicContext(hart :: Nat,
+                       interrupt :: InterruptCause):
+  implements StableCircuitParam
+
+  constructor (hart :: Nat,
+               interrupt :: InterruptCause):
+    unless interrupt == InterruptCause.MachineExternal || interrupt == InterruptCause.SupervisorExternal
+    | error(~who: #'RiscvPlicContext,
+            "PLIC contexts must target machine or supervisor external interrupts")
+    super(hart, interrupt)
+
+class RiscvPlicDescription(region :: SoCAddressRegion,
+                           priority_width :: PosInt,
+                           sources :: NonemptyList.of(RiscvPlicSource),
+                           contexts :: NonemptyList.of(RiscvPlicContext)):
+  implements StableCircuitParam
+
+  constructor (region :: SoCAddressRegion,
+               priority_width :: PosInt,
+               sources :: NonemptyList.of(RiscvPlicSource),
+               contexts :: NonemptyList.of(RiscvPlicContext)):
+    for (source in sources):
+      unless sources.filter(
+        ~keep: fun (candidate): candidate.source_id == source.source_id
+      ).length() == 1
+      | error(~who: #'RiscvPlicDescription,
+              "PLIC source IDs must be unique")
+    for (context in contexts):
+      unless contexts.filter(
+        ~keep: fun (candidate): candidate.hart == context.hart && candidate.interrupt == context.interrupt
+      ).length() == 1
+      | error(~who: #'RiscvPlicDescription,
+              "PLIC hart and interrupt context pairs must be unique")
+    super(region, priority_width, sources, contexts)
 
 def RiscvMachineSoftwareInterrupt = 3
 def RiscvMachineTimerInterrupt = 7
@@ -151,9 +191,8 @@ fun aclint_node(aclint :: RiscvAclintDescription,
 
 fun uart_node(uart :: RiscvUartDescription,
               clocks :: SoCClockConfig):
-  // The current SoCs expose the UART interrupt at their pin boundary but do
-  // not contain an external interrupt controller, so firmware must not bind
-  // an interrupt-driven 16550 driver yet.
+  // Hardware routes the UART through the PLIC, but device-tree PLIC and
+  // interrupt bindings are intentionally deferred to the next DT milestone.
   DeviceTreeNode(
     "serial@" ++ unit_address(uart.region.base),
     [DeviceTreeProperty("compatible", DeviceTreeString("ns16550a")),
@@ -207,6 +246,7 @@ class RiscvSoCDescription(model :: NonemptyString,
                           memory_regions :: NonemptyList.of(SoCAddressRegion),
                           boot :: RiscvBootLayout,
                           aclint :: RiscvAclintDescription,
+                          plic :: False || RiscvPlicDescription,
                           uart :: False || RiscvUartDescription):
   implements StableCircuitParam
 
@@ -218,6 +258,7 @@ class RiscvSoCDescription(model :: NonemptyString,
                ~memory_regions: memory_regions :: NonemptyList.of(SoCAddressRegion),
                ~boot: boot :: RiscvBootLayout,
                ~aclint: aclint :: RiscvAclintDescription,
+               ~plic: plic :: False || RiscvPlicDescription = #false,
                ~uart: uart :: False || RiscvUartDescription = #false):
     require_unique_strings(compatible, #'RiscvSoCDescription)
     require_unique_harts(harts, core_profile)
@@ -225,6 +266,12 @@ class RiscvSoCDescription(model :: NonemptyString,
     | error(~who: #'RiscvSoCDescription,
             "boot payload address must lie in architectural memory")
     def mutable regions = memory_regions ++ [boot.rom, aclint.region]
+    when plic is_a RiscvPlicDescription
+    | for (context in plic.contexts):
+        unless for any (hart in harts): hart == context.hart
+        | error(~who: #'RiscvSoCDescription,
+                "PLIC contexts must reference described harts")
+      regions := regions ++ [plic.region]
     when uart is_a RiscvUartDescription
     | regions := regions ++ [uart.region]
     require_disjoint_regions(regions)
@@ -236,6 +283,7 @@ class RiscvSoCDescription(model :: NonemptyString,
           memory_regions,
           boot,
           aclint,
+          plic,
           uart)
 
   method to_device_tree():
@@ -258,5 +306,8 @@ export:
   SoCAddressRegion
   RiscvBootLayout
   RiscvAclintDescription
+  RiscvPlicSource
+  RiscvPlicContext
+  RiscvPlicDescription
   RiscvUartDescription
   RiscvSoCDescription

@@ -13,20 +13,25 @@ def distribution_mesh = rectangular_mesh(2, 2, [VCGroup("transport", 1)])
 def distribution_plan = compile_tiled_distribution(
   distribution_mesh,
   distribution_mesh.node_at(0, 1),
+  distribution_mesh.node_at(1, 1),
   [distribution_mesh.node_at(0, 0), distribution_mesh.node_at(1, 0)]
 )
 
 sync_circuit TiledDistributionFixture():
   interface time_ingress(Irrevocable(TiledTimeBeat(DistributionHartCount)), ~role: consumer)
   interface interrupt_ingress(Irrevocable(IndexedState(TiledHartInterrupts(), DistributionHartCount)), ~role: consumer)
+  interface external_interrupt_ingress(Irrevocable(IndexedState(TiledExternalInterrupts(), DistributionHartCount)), ~role: consumer)
   interface time_egress[DistributionHartCount](Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: producer)
   interface interrupt_egress[DistributionHartCount](Decoupled(TiledHartInterrupts()), ~role: producer)
+  interface external_interrupt_egress[DistributionHartCount](Decoupled(TiledExternalInterrupts()), ~role: producer)
 
   inst network(TiledDistributionNetwork(distribution_plan))
   time_ingress <=> network.time_ingress
   interrupt_ingress <=> network.interrupt_ingress
+  external_interrupt_ingress <=> network.external_interrupt_ingress
   network.time_egress <=> time_egress
   network.interrupt_egress <=> interrupt_egress
+  network.external_interrupt_egress <=> external_interrupt_egress
 
 def distribution_design = elaborate(TiledDistributionFixture())
 

@@ -25,10 +25,13 @@ check:
   soc.simple_soc_home_map.entry(0x00012000) ~is #false
   soc.simple_soc_home_map.entry(0x02000000).home === soc.simple_soc_device_home ~is #true
   soc.simple_soc_home_map.entry(0x02010000) ~is #false
+  soc.simple_soc_home_map.entry(0x0c000000).home === soc.simple_soc_device_home ~is #true
+  soc.simple_soc_home_map.entry(0x10000000 - 1).home === soc.simple_soc_device_home ~is #true
   soc.simple_soc_home_map.entry(0x10000000).home === soc.simple_soc_device_home ~is #true
   soc.simple_soc_home_map.entry(0x10000008) ~is #false
   soc.simple_soc_device_home_params.subordinate_map.entry(0x00010000).target_node_id ~is 12
   soc.simple_soc_device_home_params.subordinate_map.entry(0x02000000).target_node_id ~is 10
+  soc.simple_soc_device_home_params.subordinate_map.entry(0x0c000000).target_node_id ~is 13
   soc.simple_soc_device_home_params.subordinate_map.entry(0x10000000).target_node_id ~is 11
   soc.simple_soc_host_node.kind ~is chi.CHINodeKind.RNF
   soc.simple_soc_host_node.emits.req ~is (
@@ -52,6 +55,10 @@ check:
     description.to_device_tree().to_dtb().to_list()
   )
   description.aclint.region.address_set ~is soc.simple_soc_aclint_params.service.address_sets[0]
+  description.plic.region.address_set ~is soc.simple_soc_plic_params.service.address_sets[0]
+  description.plic.priority_width ~is 3
+  description.plic.sources[0].source_id ~is 1
+  description.plic.contexts.length() ~is 2
   description.uart.region.address_set ~is soc.simple_soc_uart_params.service.address_sets[0]
   compact_soc_params.llc_config.sets ~is 16
   compact_soc_params.llc_config.ways ~is 2
@@ -69,20 +76,20 @@ check:
       [route.source.node_id,
        route.destination.node_id,
        route.route_key]
-  ) ~is [[6, 10, 0], [6, 12, 1], [6, 11, 2], [1, 5, 3], [3, 5, 4], [2, 5, 5], [4, 6, 6]]
+  ) ~is [[6, 10, 0], [6, 12, 1], [6, 13, 2], [6, 11, 3], [1, 5, 4], [3, 5, 5], [2, 5, 6], [4, 6, 7]]
   soc.simple_soc_req_router_config.input_count ~is 5
-  soc.simple_soc_req_router_config.target_count ~is 5
-  soc.simple_soc_rsp_router_config.input_count ~is 9
+  soc.simple_soc_req_router_config.target_count ~is 6
+  soc.simple_soc_rsp_router_config.input_count ~is 10
   soc.simple_soc_rsp_router_config.target_count ~is 7
   soc.simple_soc_snp_router_config.input_count ~is 1
   soc.simple_soc_snp_router_config.target_count ~is 3
-  soc.simple_soc_dat_router_config.input_count ~is 10
-  soc.simple_soc_dat_router_config.target_count ~is 10
+  soc.simple_soc_dat_router_config.input_count ~is 11
+  soc.simple_soc_dat_router_config.target_count ~is 11
   soc.simple_soc_adapter_plans.req.injections.length() ~is 5
-  soc.simple_soc_adapter_plans.rsp.injections.length() ~is 9
+  soc.simple_soc_adapter_plans.rsp.injections.length() ~is 10
   snp_adapters.injections.length() ~is 1
   snp_adapters.ejections.length() ~is 3
-  soc.simple_soc_adapter_plans.dat.injections.length() ~is 10
+  soc.simple_soc_adapter_plans.dat.injections.length() ~is 11
   soc.simple_soc_host_site.req.terminal.describe() ~is "requesters/host/req"
   soc.simple_soc_host_site.snp.terminal.describe() ~is "requesters/host/snp"
   soc.simple_soc_instruction_site.snp.terminal.describe() ~is "requesters/rv5stage-l1i/snp"
@@ -92,6 +99,7 @@ check:
   soc.simple_soc_device_home_requester_site.req.terminal.describe() ~is "device-home/requesters/req"
   soc.simple_soc_device_home_subordinate_site.req.terminal.describe() ~is "device-home/subordinate/req"
   soc.simple_soc_bootrom_site.req.terminal.describe() ~is "devices/bootrom/req"
+  soc.simple_soc_plic_site.req.terminal.describe() ~is "devices/plic/req"
   soc.simple_soc_uart_site.req.terminal.describe() ~is "devices/uart/req"
   soc.SimpleSoCFabricParams(
     "invalid-boot-payload",

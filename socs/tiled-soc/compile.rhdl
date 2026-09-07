@@ -12,6 +12,7 @@ import:
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/bootrom.rhdl").CHIBootROMParams
   lib("devices/aclint.rhdl").AclintParams
+  lib("devices/plic.rhdl").PlicParams
   lib("devices/uart16550.rhdl").Uart16550Params
   "../boot.rhdl" open
   "../peripherals.rhdl" open
@@ -59,6 +60,11 @@ class TiledAclintPlacement(coordinate :: MeshCoordinate,
                            node_id :: Nat,
                            site :: CHISNSite)
 
+class TiledPlicPlacement(coordinate :: MeshCoordinate,
+                         router :: NodeRef,
+                         node_id :: Nat,
+                         site :: CHISNSite)
+
 class TiledUartPlacement(coordinate :: MeshCoordinate,
                          router :: NodeRef,
                          node_id :: Nat,
@@ -102,6 +108,10 @@ class AclintTileInstance(placement :: TiledAclintPlacement,
                          device :: AclintParams,
                          tile_params :: AclintTileParams)
 
+class PlicTileInstance(placement :: TiledPlicPlacement,
+                       device :: PlicParams,
+                       tile_params :: PlicTileParams)
+
 class UartTileInstance(placement :: TiledUartPlacement,
                        device :: Uart16550Params,
                        tile_params :: UartTileParams)
@@ -133,6 +143,7 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
                              device_home :: DeviceHomeTileInstance,
                              bootrom :: BootROMInstance,
                              aclint :: AclintTileInstance,
+                             plic :: PlicTileInstance,
                              uart :: UartTileInstance,
                              transits :: List.of(TransitTileInstance)):
   implements StableCircuitParam
@@ -256,6 +267,15 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     CHISNSite(NamePath(["devices", "aclint"]), ids.aclint_subordinate, aclint_router)
   )
 
+  def plic_cell = layout.plics[0]
+  def plic_router = mesh.node_at(plic_cell.coordinate.x, plic_cell.coordinate.y)
+  def plic_placement = TiledPlicPlacement(
+    plic_cell.coordinate,
+    plic_router,
+    ids.plic_subordinate,
+    CHISNSite(NamePath(["devices", "plic"]), ids.plic_subordinate, plic_router)
+  )
+
   def uart_cell = layout.uarts[0]
   def uart_router = mesh.node_at(uart_cell.coordinate.x, uart_cell.coordinate.y)
   def uart_placement = TiledUartPlacement(
@@ -288,6 +308,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   connections := connections ++ [
     CHISNConnection(device_home_placement.subordinate_site, bootrom_placement.site),
     CHISNConnection(device_home_placement.subordinate_site, aclint_placement.site),
+    CHISNConnection(device_home_placement.subordinate_site, plic_placement.site),
     CHISNConnection(device_home_placement.subordinate_site, uart_placement.site)
   ]
 
@@ -308,6 +329,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def distribution = compile_tiled_distribution(
     mesh,
     aclint_placement.router,
+    plic_placement.router,
     rv5stage_placements.map(fun (placement): placement.router)
   )
 
@@ -325,6 +347,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
         device_home_placement.node_id,
         bootrom_placement.node_id,
         aclint_placement.node_id,
+        plic_placement.node_id,
         uart_placement.node_id]
   require_unique_tiled_node_ids(node_ids)
   require_tiled_node_id_width(node_ids, flit)
@@ -508,6 +531,15 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       CHIRouterAttachments(~sn_sites: [[aclint_placement.site]])
     )
   )
+  def plic_router_params = CHIRouterParams(
+    flit,
+    router_configs,
+    compile_chi_router_attachment_plan(
+      router_configs,
+      adapter_plans,
+      CHIRouterAttachments(~sn_sites: [[plic_placement.site]])
+    )
+  )
   def uart_router_params = CHIRouterParams(
     flit,
     router_configs,
@@ -547,6 +579,9 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                                       llc_router_params)
   def device_home_tile_params = DeviceHomeTileParams(device_home_params, device_home_router_params)
   def aclint_tile_params = AclintTileParams(platform.aclint_config, aclint_router_params)
+  def plic_tile_params = PlicTileParams(platform.plic_config,
+                                        plic_router_params,
+                                        rv5stage_placements.length())
   def uart_tile_params = UartTileParams(platform.uart_config, uart_router_params)
   def host_tile_params = HostTileParams(host_router_params)
   def transit_tile_params = TransitTileParams(transit_router_params)
@@ -572,6 +607,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def device_home_instance = DeviceHomeTileInstance(device_home_placement, device_home, device_home_params, device_home_tile_params)
   def bootrom = BootROMInstance(bootrom_placement, platform.bootrom.rom_params)
   def aclint = AclintTileInstance(aclint_placement, platform.aclint, aclint_tile_params)
+  def plic = PlicTileInstance(plic_placement, platform.plic, plic_tile_params)
   def uart = UartTileInstance(uart_placement, platform.uart, uart_tile_params)
   def transits:
     for List (placement in transit_placements):
@@ -602,6 +638,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     device_home_instance,
     bootrom,
     aclint,
+    plic,
     uart,
     transits
   )
@@ -613,6 +650,7 @@ export:
   TiledDeviceHomePlacement
   TiledBootROMPlacement
   TiledAclintPlacement
+  TiledPlicPlacement
   TiledUartPlacement
   TiledTransitPlacement
   TiledChannelFamilyPlans
@@ -622,6 +660,7 @@ export:
   DeviceHomeTileInstance
   BootROMInstance
   AclintTileInstance
+  PlicTileInstance
   UartTileInstance
   TransitTileInstance
   TiledSoCImplementation

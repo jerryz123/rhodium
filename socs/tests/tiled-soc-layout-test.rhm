@@ -5,27 +5,29 @@ import:
   "../tiled-soc/layout.rhm" open
 
 def layout = tile_grid:
-  row [llc(4)]
-  row [host, device_home, aclint, uart]
-  row [rv5stage(4)]
-  row [rv5stage(4)]
+  row [llc(4), transit]
+  row [host, device_home, aclint, plic, uart]
+  row [rv5stage(4), transit]
+  row [rv5stage(4), transit]
 
 check:
-  layout.width ~is 4
+  layout.width ~is 5
   layout.height ~is 4
   layout.rv5stages.length() ~is 8
   layout.llcs.length() ~is 4
   layout.hosts.length() ~is 1
   layout.device_homes.length() ~is 1
   layout.aclints.length() ~is 1
+  layout.plics.length() ~is 1
   layout.uarts.length() ~is 1
-  layout.transits.length() ~is 0
+  layout.transits.length() ~is 3
   layout.tile_at(0, 0) is_a RV5StageTileSpec ~is #true
   layout.tile_at(3, 1) is_a RV5StageTileSpec ~is #true
   layout.tile_at(0, 2) is_a HostTileSpec ~is #true
   layout.tile_at(1, 2) is_a DeviceHomeTileSpec ~is #true
   layout.tile_at(2, 2) is_a AclintTileSpec ~is #true
-  layout.tile_at(3, 2) is_a UartTileSpec ~is #true
+  layout.tile_at(3, 2) is_a PlicTileSpec ~is #true
+  layout.tile_at(4, 2) is_a UartTileSpec ~is #true
   layout.tile_at(0, 3) is_a LLCTileSpec ~is #true
   layout.rv5stages.map(
     fun (cell): [cell.coordinate.x, cell.coordinate.y]
@@ -42,17 +44,22 @@ check:
     [rv5stage_tile]
   ]) ~throws "equal width"
   TileGrid([
-    [llc_tile, llc_tile, llc_tile],
-    [host_tile, host_tile, device_home_tile],
-    [aclint_tile, uart_tile, rv5stage_tile]
+    [llc_tile, llc_tile, llc_tile, transit_tile],
+    [host_tile, host_tile, device_home_tile, plic_tile],
+    [aclint_tile, uart_tile, rv5stage_tile, transit_tile]
   ]) ~throws "exactly one host"
   TileGrid([
-    [llc_tile, llc_tile],
-    [host_tile, uart_tile],
-    [aclint_tile, rv5stage_tile]
+    [llc_tile, llc_tile, transit_tile],
+    [host_tile, uart_tile, plic_tile],
+    [aclint_tile, rv5stage_tile, transit_tile]
   ]) ~throws "exactly one device Home"
   TileGrid([
-    [llc_tile, llc_tile],
-    [host_tile, device_home_tile],
-    [aclint_tile, rv5stage_tile]
+    [llc_tile, llc_tile, transit_tile],
+    [host_tile, device_home_tile, plic_tile],
+    [aclint_tile, rv5stage_tile, transit_tile]
   ]) ~throws "exactly one UART"
+  TileGrid([
+    [llc_tile, llc_tile, transit_tile],
+    [host_tile, device_home_tile, uart_tile],
+    [aclint_tile, rv5stage_tile, transit_tile]
+  ]) ~throws "exactly one PLIC"

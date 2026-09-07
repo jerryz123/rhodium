@@ -20,9 +20,9 @@ Contributors changing a composition should read
 
 | System | Default processors | Normal-memory termination | Coherence structure | Default core specialization | Best fit |
 | --- | ---: | --- | --- | --- | --- |
-| `SimpleSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, and UART on one physical router | RV64IMAFDC plus B, Zicond, and Zicbop; full C composition | Primary single-core coherent system and external-memory integration |
-| `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only with Zicbop; compressed instructions disabled | Compact RTL and physical-design experiments |
-| `TiledSoC` | 8 in the default 4x4 layout | Four internal 8 KiB `CHIRam` banks | Four inclusive LLC slices plus BootROM and routed device-home, ACLINT, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
+| `SimpleSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router | RV64IMAFDC plus B, Zicond, and Zicbop; full C composition | Primary single-core coherent system and external-memory integration |
+| `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only with Zicbop; compressed instructions disabled | Compact RTL and physical-design experiments |
+| `TiledSoC` | 8 in the default 5x4 layout | Four internal 8 KiB `CHIRam` banks | Four inclusive LLC slices plus BootROM and routed device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
 
 All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
 non-caching coherent RN-F memory port for loading and observation, plus a
@@ -44,7 +44,8 @@ containing RX, TX, and interrupt signals.
 `RiscvSoCDescription` consumed by architecture-facing generators. It combines
 the model and compatible strings, hart IDs and `RVCoreProfile`, clock and
 timebase frequencies, architectural memory regions, BootROM layout, ACLINT,
-and an optional UART. Address regions retain their originating `AddressSet`,
+an optional PLIC, and an optional UART. The PLIC description identifies every
+source and orders machine and supervisor contexts for each hart. Address regions retain their originating `AddressSet`,
 so later PMA, CHI, and device-tree projections can share exact address values;
 striped implementation banks can remain hidden behind one architectural memory
 region.
@@ -64,11 +65,10 @@ controller, plus the shared CLINT-compatible ACLINT. Each SoC serializes this
 same description directly into its BootROM at offset `0x100`; the reset program
 passes the resulting eight-byte-aligned address to hart zero in `a1`.
 
-The generated tree includes the present 16550-compatible UART as disabled.
-Its register window and input clock are accurate, but the current SoCs expose
-its interrupt at the pin boundary instead of connecting it to a platform
-interrupt controller. Enabling the node before that connection exists would
-misrepresent usable hardware to firmware.
+The current device-tree projection does not yet emit the described PLIC, so it
+continues to include the 16550-compatible UART as disabled. Its register window
+and input clock are accurate; PLIC and UART interrupt bindings are the next
+device-tree integration milestone.
 
 ## RISC-V UDB configuration catalog
 
@@ -106,18 +106,21 @@ and jumps to the configured normal-memory payload; every secondary hart parks
 in the ROM's `WFI` loop. Instruction fetches reach the ROM as uncached
 four-byte `ReadNoSnp` requests and do not fill L1I.
 
-[`peripherals.rhdl`](peripherals.rhdl) aggregates the BootROM, ACLINT, and UART
+[`peripherals.rhdl`](peripherals.rhdl) aggregates the BootROM, ACLINT, PLIC, and UART
 service occurrences into one platform HN-I map and owns the UART pin interface.
 The ACLINT occupies `0x02000000..0x0200ffff`. Its `mtime`
 counter drives RV5Stage's `time` CSR, while each hart's MTIP and MSIP levels
-drive the corresponding machine interrupt inputs. The UART occupies
-`0x10000000..0x10000007`. Its interrupt is exposed but intentionally not wired
-into RV5Stage until an external interrupt controller is present. The platform
+drive the corresponding machine interrupt inputs. The PLIC occupies
+`0x0c000000..0x0fffffff`; UART is source 1, and every hart has a machine-external
+context followed by a supervisor-external context. The UART occupies
+`0x10000000..0x10000007`. Its interrupt remains visible at the pin boundary and
+also drives the PLIC source. The platform
 owns the explicit ACLINT tick policy through `SoCClockConfig`; the same clock
 and timebase frequencies drive the hardware divider and appear in the
 architectural description. The default `SimpleSoC` and `MiniSoC` use a 1:1
-ratio, while default TiledSoC divides 100 MHz to 1 MHz. Supervisor and external
-interrupt lines therefore remain low.
+ratio, while default TiledSoC divides 100 MHz to 1 MHz. Supervisor software and
+timer interrupt lines remain low; PLIC context outputs drive both external
+interrupt lines.
 
 ## SimpleSoC
 
@@ -134,6 +137,7 @@ flowchart LR
   DeviceHome["HN-I<br/>NodeID 6"]
   BootROM["BootROM SN-I<br/>NodeID 12<br/>0x00010000..0x00011fff"]
   ACLINT["ACLINT SN-I<br/>NodeID 10<br/>0x02000000..0x0200ffff"]
+  PLIC["PLIC SN-I<br/>NodeID 13<br/>0x0c000000..0x0fffffff"]
   UART["UART SN-I<br/>NodeID 11<br/>0x10000000..0x10000007"]
 
   Host <--> Fabric
@@ -143,14 +147,17 @@ flowchart LR
   Fabric <--> DeviceHome
   Fabric <--> BootROM
   Fabric <--> ACLINT
+  Fabric <--> PLIC
   Fabric <--> UART
+  UART -. source 1 .-> PLIC
+  PLIC -. MEIP / SEIP .-> Core
   Host -. release .-> Core
 ```
 
-The RN-I, three RN-F, and three subordinate relationships reuse one physical
+The RN-I, three RN-F, and four subordinate relationships reuse one physical
 single-router topology but independently compile validation, route keys,
-buffering, and allocation for the four CHI channel planes. REQ is 5-to-5, RSP
-is 9-to-7, DAT is 10-to-10, and SNP is 1-to-3 because all three RN-Fs receive
+buffering, and allocation for the four CHI channel planes. REQ is 5-to-6, RSP
+is 10-to-7, DAT is 11-to-11, and SNP is 1-to-3 because all three RN-Fs receive
 snoops. Router arity therefore follows the permitted protocol paths instead of
 an all-node cross product.
 
@@ -163,13 +170,13 @@ this direct path needs no fragmenter.
 
 Device addresses instead leave RV5Stage through its uncached RN-I, cross the
 HN-I, re-enter the same physical fabric through the Home's subordinate-side
-attachment, and terminate at the CHI-native BootROM, ACLINT, or UART SN-I
+attachment, and terminate at the CHI-native BootROM, ACLINT, PLIC, or UART SN-I
 attachment. Both paths are derived from one physical-region table. Each region pairs
 RISC-V read, write, execute, cacheability, and atomic attributes with its CHI
 Home; the SoC derives the `CHIHomeMap` from those entries. Requests outside the
 table therefore trap in RV5Stage instead of entering CHI without a Home.
 
-`SimpleSoCFabric` factors the processor, Home module, NoC, BootROM, ACLINT, and UART
+`SimpleSoCFabric` factors the processor, Home module, NoC, BootROM, ACLINT, PLIC, and UART
 from the final memory termination, and accepts that Home as an ordinary host
 circuit parameter. `SimpleSoCParams` couples that fabric contract to the inclusive LLC
 geometry. The default selects a 64-set, four-way blocking LLC and exports
@@ -206,10 +213,10 @@ compact runs of like tiles:
 
 ```rhm
 def layout = tile_grid:
-  row [llc(4)]
-  row [host, device_home, aclint, uart]
-  row [rv5stage(4)]
-  row [rv5stage(4)]
+  row [llc(4), transit]
+  row [host, device_home, aclint, plic, uart]
+  row [rv5stage(4), transit]
+  row [rv5stage(4), transit]
 ```
 
 `TiledSoCConfig` combines that immutable `TileGrid` with `TiledNodeIds`,
@@ -220,8 +227,9 @@ compiler derives mesh coordinates, occurrence ordering, endpoint IDs, CHI
 relationships, routes, the shared physical-link manifest, and all component
 parameters in one pass. There is no public intermediate TiledSoC plan or
 second compiled configuration for authors to manage. The default
-`default_tiled_soc_config` preserves the repository's 4x4 system, while the
-focused hierarchy test also elaborates a 2x4 system through the same entrypoint.
+`default_tiled_soc_config` defines the repository's 5x4 system; other
+rectangular layouts use the same entrypoint when they satisfy the tile-count
+invariants.
 
 The package lives under [`tiled-soc/`](tiled-soc/): `main.rhdl` is the public
 entrypoint, `layout.rhm` owns the immutable configuration and macro-phase
@@ -229,15 +237,16 @@ tile-grid language, `compile.rhdl` owns private derivation, `time.rhdl` owns
 the rotating platform-time stream, and `tiles/` owns the concrete tile
 implementations.
 
-The default layout places eight `RV5StageTile`s in the lower two rows, four
-service routers in the middle row, and four `LLCTile`s in the upper row.
+The default layout places eight `RV5StageTile`s in the lower two rows, five
+service routers in the middle row, and four `LLCTile`s in the upper row, with
+three transit tiles completing the rectangular mesh.
 The middle row contains the external host RN-F, a `DeviceHomeTile` with both
-sides of the shared HN-I, an `AclintTile`, and a `UartTile`. The HN subordinate
-side reaches all three device SN-Is through the same CHI mesh rather than direct
+sides of the shared HN-I, an `AclintTile`, a `PlicTile`, and a `UartTile`. The HN subordinate
+side reaches all four device SN-Is through the same CHI mesh rather than direct
 wires. The system allocates 16 RN-F NodeIDs for the eight L1I/L1D pairs, eight
 RN-I NodeIDs for
 uncached device traffic, one host RN-F, four HN-Fs, one HN-I, four SN-Fs, one
-BootROM SN-I, one ACLINT SN-I, and one UART SN-I. The BootROM is colocated with
+BootROM SN-I, one ACLINT SN-I, one PLIC SN-I, and one UART SN-I. The BootROM is colocated with
 the device Home and uses that router's composable local SN attachment.
 
 Four 8 KiB banks cover `0x80000000` through `0x80007fff` with 64-byte
@@ -250,13 +259,13 @@ subordinate projector then maps sparse global bank addresses into the dense
 local backing RAM before fragmentation. The 16 coherent requester endpoints
 plus the host RN-F connect to all four HN-Fs, while the eight uncached
 requester endpoints connect to the device HN-I and its subordinate side
-connects to all three SN-Is. Together they compile 79 REQ, 155 RSP, 68 SNP, and 158
+connects to all four SN-Is. Together they compile 80 REQ, 156 RSP, 68 SNP, and 160
 DAT routes before any hardware elaborates.
 
 Each tile owns one `CHIRouter`, containing independent REQ/RSP/SNP/DAT
 `SimpleRouterFamily` instances and site-keyed CHI adapters. Every RV5Stage tile
 uses one shared RTL specialization, every LLC tile uses another, and the
-service row adds one `DeviceHomeTile`, one `AclintTile`, one `UartTile`, and
+service row adds one `DeviceHomeTile`, one `AclintTile`, one `PlicTile`, one `UartTile`, and
 one `HostTile` specialization. Their implementations and parameter contracts
 live under [`tiled-soc/tiles/`](tiled-soc/tiles/). The parent drives one constant
 identity bundle per occurrence containing its router site, hart ID, endpoint
@@ -275,14 +284,17 @@ snapshot, uses the standard `Packetizer` to send its four 16-bit framed flits
 to each hart in index order, and retains only the newest snapshot that arrives
 while a sweep is active.
 
-Both streams enter a tiled-platform distribution overlay compiled from the
+The PLIC tile similarly converts its per-context levels into changed
+`(hart, external-interrupt-state)` entries, preserving machine-before-supervisor
+context ordering for every hart. All three streams enter a tiled-platform distribution overlay compiled from the
 same mesh placement as CHI. Typed tagged-union messages share one routed beat
-format, while time and interrupt traffic retain distinct injection and
+format, while time, ACLINT interrupt, and PLIC external-interrupt traffic retain distinct injection and
 ejection terminals. Each directed mesh edge carries one narrow one-VC
 `VcLink`; ordinary ready-valid backpressure is preserved across every hop.
 At each hart, a standard `Reassembler` publishes `mtime` only after its final
 flit transfers, and a standard `StateReplica` retains the latest delivered
-MSIP and MTIP state. Harts therefore converge on the latest interrupt state
+MSIP and MTIP state; a second `StateReplica` retains MEIP and SEIP independently.
+Harts therefore converge on the latest interrupt state
 and receive each time snapshot with bounded index-ordered skew without global
 interrupt vectors or a 64-bit time bus. This overlay is structurally
 independent of CHI routing. The UART tile passes its serial boundary to the

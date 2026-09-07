@@ -35,13 +35,13 @@ configure and connect those public contracts, not fork their behavior.
 | Concrete processor profiles and physical-address inputs shared with host generators | [`core-profiles.rhm`](core-profiles.rhm) |
 | Core-neutral catalog of concrete RISC-V UDB configurations | [`udb.rhm`](udb.rhm) |
 | Common coherent host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
-| Shared device windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
+| Shared BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
 | Primary external-memory composition | [`simple-soc.rhdl`](simple-soc.rhdl) |
 | Compact internal-memory composition | [`mini-soc.rhdl`](mini-soc.rhdl) |
 | Tiled public entrypoint | [`tiled-soc/main.rhdl`](tiled-soc/main.rhdl) |
 | Tiled layout and authoring form | [`tiled-soc/layout.rhm`](tiled-soc/layout.rhm) |
 | Private tiled configuration compiler | [`tiled-soc/compile.rhdl`](tiled-soc/compile.rhdl) |
-| Tiled time and interrupt distribution overlay | [`tiled-soc/distribution.rhdl`](tiled-soc/distribution.rhdl) |
+| Tiled time, ACLINT, and PLIC interrupt distribution overlay | [`tiled-soc/distribution.rhdl`](tiled-soc/distribution.rhdl) |
 | Concrete tile implementations | [`tiled-soc/tiles/`](tiled-soc/tiles/) |
 | Focused tests | [`tests/`](tests/) and [`Makefile`](Makefile) |
 
