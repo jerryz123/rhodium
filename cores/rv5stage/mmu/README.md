@@ -42,10 +42,21 @@ memory or the uncached engine for a non-cacheable region. Consequently, the walk
 arbitration point is the shared physical data port immediately before that
 router; a cacheable PTE read follows the ordinary L1D path.
 
+Separate `instruction_lookup` and `data_lookup` Valid outputs carry the early
+virtual byte address directly to each cache, bypassing physical routers. Their
+validity and index do not depend on a TLB hit, permission, or PMA classification.
+The permitted physical request remains the resolution/acceptance path and is
+paired with that virtual read at the same edge. On the data side, walker
+ownership selects a physical PTE address on both paths. A rejected or unresolved
+read cannot create a cache result or side effect; architectural fault and replay
+timing is unchanged. See the cache guides for structural admission and buffering.
+
 ```mermaid
 flowchart LR
   FETCH["Core Fetch<br/>virtual request"] --> ILOOKUP["ITLB lookup"]
   LSU["Core MEM<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
+  FETCH -->|"early virtual SRAM index"| L1I
+  LSU -->|"early virtual SRAM index"| L1D
 
   ILOOKUP -->|"hit / Bare"| ICHECK["Physical fetch-region check"]
   ICHECK -->|"executable + cacheable"| L1I["L1I"]

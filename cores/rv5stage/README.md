@@ -256,6 +256,8 @@ flowchart LR
     CORE -->|"virtual instruction access"| MMU["MMU<br/>ITLB, DTLB, Sv39 walker"]
     CORE -->|"virtual data access"| MMU
     CORE -->|"privilege, mstatus, satp,<br/>translation flush"| MMU
+    MMU -->|"early virtual index"| L1I
+    MMU -->|"early virtual index"| L1D
 
     MMU -->|"physical instruction"| IROUTER["Instruction router<br/>PMA cacheability split"]
     IROUTER -->|"cacheable"| L1I["Private L1I"]
@@ -367,8 +369,18 @@ and SoC policy remain outside RV5Stage.
 
 ## Memory hierarchy
 
-RV64 supports Bare and Sv39 translation ahead of physically indexed,
-physically tagged L1 caches; RV32 remains Bare. Separate eight-entry fully
+Both L1 caches are non-aliasing virtually indexed, physically tagged (VIPT).
+`RV5StageCacheConfig` rejects `sets * 64 > 4096`: the line offset and set index
+must fit within a 4 KiB page, even for Bare profiles. Thus 64 sets is the maximum;
+more ways increase total capacity without adding virtual index bits. Physical
+tags retain every address bit above the set index, including page-offset bits
+not consumed by smaller geometries. MiniSoC's 32-set, one-way caches remain 2 KiB.
+
+RV64 supports Bare and Sv39 translation; RV32 remains Bare. Early virtual
+lookups reach the SRAMs independently of translation and physical-region checks.
+A permitted physical request is paired with the read at the clock edge; only
+that resolved token can subsequently match physical tags or initiate a refill.
+Unresolved or rejected reads have no completion or cache-state effect. Separate eight-entry fully
 associative ITLB and DTLB instances retain PTE permissions and recheck current
 privilege, `SUM`, and `MXR`. A single non-speculative walker services one miss at
 a time through the shared physical data path after older cache or uncached work

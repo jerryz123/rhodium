@@ -37,6 +37,10 @@ importing the instruction-cache package.
 
 1. Preserve ordered Decoupled requests and non-backpressurable Valid responses,
    including completion metadata for stores, atomics, and deferred writeback.
+   Keep readiness structural even when an empty request buffer is bypassed by
+   a paired virtual read and physical resolution. Queued physical requests win
+   the lookup port; unresolved virtual reads cannot produce a lookup token.
+   Geometry rejection belongs to `../profile.rhm`.
 2. Keep the one-request-per-cycle load-hit path separate from blocking miss,
    acquisition, gather, writeback, and installation state.
 3. Publish refill metadata only after the last word, and invalidate a dirty

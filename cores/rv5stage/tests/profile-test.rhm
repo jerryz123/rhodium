@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage architectural profiles, ISA reporting, and invalid combinations.
+// Checks RV5Stage architectural profiles, non-aliasing VIPT geometry, and invalid combinations.
 
 import:
   "../profile.rhm" open
@@ -53,6 +53,12 @@ check:
   rv32_half.cache_geometry.data.capacity_bytes ~is 4096
 
 check:
+  RV5StageCacheConfig(32, 1).capacity_bytes ~is 2048
+  RV5StageCacheConfig(64, 1).capacity_bytes ~is 4096
+  RV5StageCacheConfig(64, 4).capacity_bytes ~is 16384
+  RV5StageCacheConfig(64, 3).capacity_bytes ~is 12288
+  RV5StageCacheConfig(128, 1) ~throws "VIPT"
+  RV5StageCacheConfig(128, 4) ~throws "VIPT"
   RVCoreProfile(
     ~xlen: XLen.X32,
     ~mmu_mode: RV5StageMmuMode.Sv39

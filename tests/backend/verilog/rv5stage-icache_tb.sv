@@ -1,4 +1,4 @@
-// Verifies RV5Stage L1I prefetches, refills, hits, selective snoops, and paired DVM.
+// Verifies RV5Stage VIPT L1I aliases, canceled reads, refills, hits, snoops, and paired DVM.
 module rv5stage_icache_tb;
   typedef struct packed { logic [63:0] address; } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
@@ -48,6 +48,12 @@ module rv5stage_icache_tb;
   core_in_t core_in;
   core_out_t core_out;
   prefetch_t prefetch_in;
+  typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;
+  lookup_t virtual_lookup_in;
+  logic probe_only = 1'b0;
+  logic [63:0] virtual_page_xor = 64'h4000_0000;
+  assign virtual_lookup_in = {core_in.request.valid | probe_only,
+                              core_in.request.bits.address ^ virtual_page_xor};
   chi_in_t chi_in;
   chi_out_t chi_out;
   logic forbid_core_response = 1'b0;
@@ -301,6 +307,16 @@ module rv5stage_icache_tb;
     grant_req_credit();
     grant_rsp_credit();
 
+    // A translation miss/fault supplies an index but no physical resolution.
+    probe_only = 1'b1;
+    core_in.request.bits.address = ADDRESS;
+    repeat (4) begin
+      tick();
+      assert (!core_out.response.valid && !chi_out.requests.valid)
+        else $fatal(1, "unresolved virtual lookup caused a response or refill");
+    end
+    probe_only = 1'b0;
+
     forbid_core_response = 1'b1;
     send_prefetch(PREFETCH_ADDRESS);
     accept_read_request(PREFETCH_ADDRESS);
@@ -308,6 +324,10 @@ module rv5stage_icache_tb;
     accept_comp_ack();
     repeat (12) tick();
     forbid_core_response = 1'b0;
+    send_core_request(PREFETCH_ADDRESS);
+    expect_instruction(32'h11111111);
+
+    virtual_page_xor = 64'h8000_0000;
     send_core_request(PREFETCH_ADDRESS);
     expect_instruction(32'h11111111);
 
@@ -504,7 +524,25 @@ module rv5stage_icache_tb;
     accept_comp_ack();
     expect_instruction(32'h11111111);
 
-    $display("RV5Stage instruction-cache ready-valid RN-F simulation passed");
+    // One virtual address can resolve to different physical pages. Both tags
+    // must coexist without a false hit, and switching back must recover A.
+    virtual_page_xor = 64'h4000_1000;
+    send_core_request(ADDRESS + 64'h10c0);
+    accept_read_request(ADDRESS + 64'h10c0);
+    return_line(ADDRESS + 64'h10c0, LINE_B);
+    accept_comp_ack();
+    expect_instruction(32'hb1b1b1b1);
+    virtual_page_xor = 64'h4000_2000;
+    send_core_request(ADDRESS + 64'h20c0);
+    accept_read_request(ADDRESS + 64'h20c0);
+    return_line(ADDRESS + 64'h20c0, LINE_C);
+    accept_comp_ack();
+    expect_instruction(32'hc1c1c1c1);
+    virtual_page_xor = 64'h4000_1000;
+    send_core_request(ADDRESS + 64'h10c0);
+    expect_instruction(32'hb1b1b1b1);
+
+    $display("RV5Stage VIPT instruction-cache simulation passed");
     $finish;
   end
 endmodule

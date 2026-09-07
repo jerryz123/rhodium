@@ -15,9 +15,9 @@ Contributors changing the L1D implementation should read
 
 | Property | Current contract |
 |---|---|
-| Organization | Physically indexed, physically tagged, set-associative, blocking, write-back, write-allocate |
-| Geometry | Power-of-two set count of at least two, positive way count, fixed 64-byte lines |
-| Core throughput | A two-entry structural request queue sustains one load hit per cycle after initial buffering; a mutation commit, miss, or ownership acquisition blocks queue drain |
+| Organization | Non-aliasing VIPT, set-associative, blocking, write-back, write-allocate |
+| Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
+| Core throughput | One load hit per cycle; two-entry structural fallback buffer when the lookup port is busy |
 | Core protocol | Ordered `Decoupled` requests and non-backpressurable `Valid` responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
@@ -38,7 +38,8 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 
 | Direction | Member | Meaning |
 |---|---|---|
-| Requester → cache | `request: Decoupled(RV5StageDataReq)` | Original XLEN byte address; load/store/LR/SC/AMO kind; atomic function; scalar width; load signedness; XLEN source data; destination bank; five-bit `rd`; and FP precision metadata |
+| Requester → cache | `request: Decoupled(RV5StageDataReq)` | Permitted physical XLEN byte address; load/store/LR/SC/AMO kind; atomic function; scalar width; load signedness; XLEN source data; destination bank; five-bit `rd`; and FP precision metadata |
+| MMU → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
 | MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical read/write hint; no acceptance or completion |
 | Cache → requester | `response: Valid(RV5StageDataResp)` | Ordered XLEN load/atomic/SC result plus destination, `rd`, and FP precision metadata |
 | Cache → requester | `request_fault`, `request_access_fault` | Always false in this physical cache; translation and PMA routing own architectural faults |
@@ -53,6 +54,14 @@ are not architectural results.
 
 The pipeline checks architectural alignment. The cache owns XLEN-word
 alignment within the line, byte masks, and load/store lane generation.
+`virtual_lookup` is a separate cache port, not part of the core data-access
+interface. Accepted physical requests require a live matching virtual lookup;
+assertions check its validity and equality of VA/PA bits `[11:0]`. An early read
+without physical acceptance creates no completion, refill, mutation, or LR/SC
+reservation change. The parent resolves TLB misses, faults, and uncached routing
+without waiting for that speculative read. PTW requests are already physical
+and supply their physical address on both paths.
+
 `drained` is true only when no request is accepted that cycle and no queued
 request, core lookup, registered mutation, acquisition/refill, dirty-line drain,
 gather, or refill installation remains active. It does not include the response pipe or an
@@ -68,6 +77,8 @@ into shared engines:
 ```mermaid
 flowchart LR
   Core["Core request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
+  Core -->|"empty buffer + available SRAM"| Lookup
+  Virtual["Early virtual index"] --> Lookup
   Queue --> Lookup["One-stage lookup Pipe<br/>tag + state + XLEN word SRAMs"]
   Lookup -->|load hit| Load["LoadGen"]
   Lookup -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
@@ -96,11 +107,16 @@ XLEN word per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. An aligned scalar load, store, LR/SC, or AMO therefore
 touches one data row even though coherent transfers operate on a whole line.
 
-A two-entry, non-flow-through `Queue` makes core request readiness solely a
+A two-entry `Queue` with `flow=true, pipe=false` makes core request readiness solely a
 function of registered queue occupancy. Tag, state, and data results may decide
 whether its egress drains, but cannot feed back combinationally into acceptance.
+When the queue is empty and the SRAM port is available, an early virtual lookup
+reads the arrays in parallel with translation and PMA checks. Its permitted
+physical request bypasses the queue into the lookup pipeline at the read edge.
+Otherwise, accepted physical requests enter the queue and later index using
+their unchanged page-offset bits. Queued requests always precede fresh demands.
 A one-stage `Pipe` carries issued request context alongside the synchronous SRAM
-lookup. Once the queue is primed, consecutive load hits advance every cycle. A
+lookup. Consecutive load hits advance every cycle. A
 mandatory one-stage `ValidPipe` registers the non-backpressurable response. A
 store, SC, or AMO that already has Unique ownership first captures its request,
 selected way, and old value in a one-entry mutation register. On the following

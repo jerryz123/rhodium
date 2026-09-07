@@ -1,4 +1,4 @@
-// Verifies RV5Stage L1D prefetch, coherence, hit mutation, AMO, and LR/SC behavior.
+// Verifies RV5Stage VIPT L1D aliases, canceled reads, structural buffering, mutations, and coherence.
 module rv5stage_dcache_tb;
   typedef struct packed {
     logic [63:0] address;
@@ -78,6 +78,12 @@ module rv5stage_dcache_tb;
   core_in_t core_in;
   core_out_t core_out;
   prefetch_t prefetch_in;
+  typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;
+  lookup_t virtual_lookup_in;
+  logic probe_only = 1'b0;
+  logic [63:0] virtual_page_xor = 64'h4000_0000;
+  assign virtual_lookup_in = {core_in.request.valid | probe_only,
+                              core_in.request.bits.address ^ virtual_page_xor};
   chi_in_t chi_in;
   chi_out_t chi_out;
   logic tx_req_pending = 1'b0;
@@ -459,6 +465,15 @@ module rv5stage_dcache_tb;
     assert (core_out.drained)
       else $fatal(1, "data cache was not drained after reset");
 
+    probe_only = 1'b1;
+    core_in.request.bits.address = ADDRESS;
+    repeat (4) begin
+      tick();
+      assert (!core_out.response.valid && !tx_req_pending && core_out.drained)
+        else $fatal(1, "unresolved virtual lookup caused a response or refill");
+    end
+    probe_only = 1'b0;
+
     forbid_core_response = 1'b1;
     send_prefetch(PREFETCH_READ_ADDRESS, 2'd2);
     accept_request(READ_CLEAN, PREFETCH_READ_ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
@@ -469,6 +484,18 @@ module rv5stage_dcache_tb;
     forbid_core_response = 1'b0;
     send_core_request(PREFETCH_READ_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd1);
     expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd1);
+
+    virtual_page_xor = 64'h8000_0000;
+    send_core_request(PREFETCH_READ_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd1);
+    expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd1);
+    send_core_request(PREFETCH_READ_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd2);
+    send_core_request(PREFETCH_READ_ADDRESS + 64'd8, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd3);
+    assert (core_out.response.valid)
+      else $fatal(1, "VIPT load hit did not bypass the empty structural buffer");
+    expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd2);
+    assert (core_out.response.valid)
+      else $fatal(1, "consecutive VIPT load hits inserted a response bubble");
+    expect_core_response(64'h01234567_89abcdef, DATA_DESTINATION_INTEGER, 5'd3);
 
     forbid_core_response = 1'b1;
     send_prefetch(PREFETCH_WRITE_ADDRESS, 2'd3);
@@ -523,7 +550,6 @@ module rv5stage_dcache_tb;
 
     // A second store hits UniqueDirty and remains entirely local.
     send_core_request(ADDRESS + 64'h28, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA_2, 5'd0);
-    tick();
     assert (!core_out.response.valid)
       else $fatal(1, "local store responded in its SRAM lookup cycle");
     tick();
@@ -540,6 +566,18 @@ module rv5stage_dcache_tb;
     // and a second SC fails without issuing any coherence traffic.
     send_core_request(ADDRESS + 64'h28, MEMORY_LR, ATOMIC_SWAP, 64'd0, 5'd8);
     expect_core_response(STORE_DATA_2, DATA_DESTINATION_INTEGER, 5'd8);
+    // A rejected SC may read the SRAM but cannot consume the LR reservation
+    // or write data. The next permitted SC through another alias must succeed.
+    core_in.request.bits.access = MEMORY_SC;
+    core_in.request.bits.data = 64'hbad;
+    probe_only = 1'b1;
+    repeat (4) begin
+      tick();
+      assert (!core_out.response.valid && !tx_req_pending && !tx_dat_pending)
+        else $fatal(1, "rejected SC produced a completion or coherence traffic");
+    end
+    probe_only = 1'b0;
+    virtual_page_xor = 64'hc000_0000;
     send_core_request(ADDRESS + 64'h28, MEMORY_SC, ATOMIC_SWAP, STORE_DATA, 5'd9);
     expect_core_response(64'd0, DATA_DESTINATION_INTEGER, 5'd9);
     send_core_request(ADDRESS + 64'h28, MEMORY_SC, ATOMIC_SWAP, STORE_DATA_2, 5'd10);
@@ -688,7 +726,26 @@ module rv5stage_dcache_tb;
     for (beat = 0; beat < 4; beat++)
       accept_snoop_data(beat, 512'd0, 12'h07a);
     tick();
-    $display("RV5Stage write-back data-cache simulation passed");
+
+    // Identical virtual addresses resolving to two different physical pages
+    // must match different tags, even though they select the same set.
+    virtual_page_xor = 64'h4000_1000;
+    send_core_request(ADDRESS + 64'h10c0, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd20);
+    accept_request(READ_CLEAN, ADDRESS + 64'h10c0, 12'd0, 6'd6, 1'b1, 4'd0);
+    return_line(ADDRESS + 64'h10c0, LINE, 3'b001);
+    accept_comp_ack();
+    expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd20);
+    virtual_page_xor = 64'h4000_2000;
+    send_core_request(ADDRESS + 64'h20c0, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd21);
+    accept_request(READ_CLEAN, ADDRESS + 64'h20c0, 12'd0, 6'd6, 1'b1, 4'd0);
+    return_line(ADDRESS + 64'h20c0, THIRD_LINE, 3'b001);
+    accept_comp_ack();
+    expect_core_response(64'habcdef01_23456789, DATA_DESTINATION_INTEGER, 5'd21);
+    virtual_page_xor = 64'h4000_1000;
+    send_core_request(ADDRESS + 64'h10c0, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd22);
+    expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd22);
+
+    $display("RV5Stage VIPT write-back data-cache simulation passed");
     $finish;
   end
 endmodule

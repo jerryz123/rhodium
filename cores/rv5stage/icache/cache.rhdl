@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's pipelined-hit set-associative instruction cache.
+// Implements RV5Stage's VIPT instruction cache with paired virtual reads and physical resolution.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -53,6 +53,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
 
   input node_id: Bits(p.node_id_width)
   interface core(RV5StageInstructionAccess(xlen), ~role: responder)
+  interface virtual_lookup(Valid(Bits(width)), ~role: consumer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface chi(CHIRNChannels(p), ~role: node)
 
@@ -132,10 +133,11 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def response_fire = core.response.fire()
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & (prefetch_request.operation === CachePrefetchOperation.Instruction)
-  def lookup_input_prefetch = !core.request.valid & prefetch_valid
+  def lookup_input_prefetch = !virtual_lookup.valid & prefetch_valid
   def lookup_input_address = mux(lookup_input_prefetch, prefetch_request.address, core.request.bits.address)
-  def request_set_value = lookup_input_address[offset_width..(offset_width + set_width)]
-  def request_data_address = lookup_input_address[word_offset_width..(offset_width + set_width)]
+  def lookup_index_address = mux(lookup_input_prefetch, prefetch_request.address, virtual_lookup.bits)
+  def request_set_value = lookup_index_address[offset_width..(offset_width + set_width)]
+  def request_data_address = lookup_index_address[word_offset_width..(offset_width + set_width)]
   def lookup_context = lookup.egress.bits.into(RV5StageL1ILookup(width))
   def lookup_address = lookup_context.address
   def lookup_set = lookup_address[offset_width..(offset_width + set_width)]
@@ -195,6 +197,14 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     prefetch: lookup_input_prefetch
   def request_fire = core.request.fire()
   def lookup_issue = lookup.ingress.fire()
+  // A read may be discarded when translation misses, faults, or selects MMIO.
+  // Only the paired permitted physical request creates a lookup-result token.
+  def array_lookup_issue = lookup_accepts_input & lookup.ingress.ready & (virtual_lookup.valid ||| lookup_input_prefetch)
+  when request_fire:
+    assert(virtual_lookup.valid, "l1i_physical_request_has_virtual_lookup")
+    assert(virtual_lookup.bits[0..12] === core.request.bits.address[0..12], "l1i_vipt_page_offset_matches")
+  when lookup_issue:
+    assert(array_lookup_issue, "l1i_resolution_has_array_read")
 
   def Array(miss_path, hit_path) = (
     lookup.egress
@@ -274,7 +284,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     for (byte in 0..word_bytes):
       line_write_bytes := line_write_bytes ++ [refill_word_bytes[byte]]
 
-  tags.port.request.valid <== lookup_issue ||| install ||| snoop_lookup_start
+  tags.port.request.valid <== array_lookup_issue ||| install ||| snoop_lookup_start
   tags.port.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
     address: mux(install,
                  completion_set,
@@ -292,7 +302,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     write: install ||| update_snoop_state
     data: vec(for List (_way in 0..ways): state_write_data)
     mask: mux(update_snoop_state, snoop_update_way_mask, install_way_mask)
-  lines.port.request.valid <== lookup_issue ||| refill_install_word
+  lines.port.request.valid <== array_lookup_issue ||| refill_install_word
   lines.port.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: mux(refill_install_word,
                  (completion_set ++ refill_install_index),

@@ -1,4 +1,4 @@
-// Checks RV32 block-zero installation and all sixteen SRAM words on misses and owned hits.
+// Checks RV32 VIPT block-zero installation and all sixteen SRAM words on misses and owned hits.
 module rv5stage_dcache_rv32_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
@@ -19,6 +19,9 @@ module rv5stage_dcache_rv32_tb;
   core_in_t core_in;
   core_out_t core_out;
   prefetch_t prefetch_in;
+  typedef struct packed { logic valid; logic [31:0] bits; } lookup_t;
+  lookup_t virtual_lookup_in;
+  assign virtual_lookup_in = {core_in.request.valid, core_in.request.bits.address ^ 32'h4000_0000};
   chi_in_t chi_in;
   chi_out_t chi_out;
   integer requests = 0;

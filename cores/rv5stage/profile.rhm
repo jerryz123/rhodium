@@ -19,6 +19,9 @@ class RV5StageCacheConfig(sets :: Pow2Int, ways :: PosInt):
     unless sets >= 2
     | error(~who: #'RV5StageCacheConfig,
             "set count must be a power of two of at least two")
+    unless sets * RV5StageCacheLineBytes <= 4096
+    | error(~who: #'RV5StageCacheConfig,
+            "VIPT requires sets * line bytes <= 4096 (at most 4 KiB per way)")
     super(sets, ways)
 
   property set_width :: PosInt: count_index_width(sets)

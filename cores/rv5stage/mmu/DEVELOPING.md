@@ -39,7 +39,10 @@ the caches.
 2. Preserve address correlation for walk completions and faults while the
    original Decoupled request is held.
 3. Keep page faults distinct from physical PTE access faults and suppress every
-   rejected request before it reaches a cache or device.
+   rejected physical resolution before it reaches a cache or device. Early
+   virtual SRAM reads are permitted, but cannot create a successful cache token
+   without the paired physical request. Wire lookup paths directly in the parent
+   composition so translation/PMA cannot feed their indices or validity.
 4. Preserve exclusive walker ownership from miss acceptance through completion,
    including the two-observation data-path drain and the single response-owner
    bit.

@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes RV5Stage's Sv39 TLBs and shared walker ahead of its physical-memory ports.
+// Pairs RV5Stage's early virtual cache lookups with permitted physical requests and shared walking.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -29,6 +29,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface data(RV5StageDataAccess(xlen), ~role: responder)
   interface instruction_memory(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
   interface data_memory(RV5StageDataAccess(xlen), ~role: requester)
+  interface instruction_lookup(Valid(Bits(width)), ~role: producer)
+  interface data_lookup(Valid(Bits(width)), ~role: producer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
   input privilege: PrivilegeMode
@@ -57,6 +59,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def sum = if xlen == XLen.X32 | Bool(#false) | mstatus[18].into(Bool)
   def mxr = if xlen == XLen.X32 | Bool(#false) | mstatus[19].into(Bool)
   def instruction_virtual_address = if xlen == XLen.X32 | instruction.request.bits.address.zext(64) | instruction.request.bits.address
+  // Array indexing must not wait for a TLB hit, permission, or PMA decision.
+  instruction_lookup.valid <== instruction.request.valid & !instruction.flush
+  instruction_lookup.bits <== instruction.request.bits.address
   def data_request :: RV5StageDataReq(xlen) = data.request.bits
   def data_memory_operation :: MemoryOperation = data_request.access
   def data_virtual_address = if xlen == XLen.X32 | data_request.address.zext(64) | data_request.address
@@ -236,6 +241,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def walker_memory_request = walker.memory.request
   def walk_uses_data_memory = walk_active & walker_data_quiet_twice & walker_memory_request.valid
   def data_forwarding_enabled = !walk_active
+  data_lookup.valid <== walk_uses_data_memory ||| (data.request.valid & data_forwarding_enabled)
+  data_lookup.bits <== mux(walk_uses_data_memory,
+                           if xlen == XLen.X32 | walker_memory_request.bits[0..32] | walker_memory_request.bits,
+                           data_request.address)
   data.request.ready <== mux(
     data_page_fault ||| data_walk_access_fault,
     Bool(#true),

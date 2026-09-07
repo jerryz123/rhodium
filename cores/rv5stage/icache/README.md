@@ -16,8 +16,8 @@ Contributors changing the L1I implementation should read
 
 | Property | Current contract |
 |---|---|
-| Organization | Physically indexed, physically tagged, set-associative, read-only and clean-only |
-| Geometry | Power-of-two set count of at least two, positive way count, fixed 64-byte lines |
+| Organization | Non-aliasing VIPT, set-associative, read-only and clean-only |
+| Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
 | Core throughput | Consecutive hits can enter and return one 32-bit instruction per cycle |
 | Core protocol | Ordered `Decoupled` requests and backpressurable `Irrevocable` responses |
 | Miss policy | One blocking, retry-aware `ReadClean` line acquisition |
@@ -25,8 +25,9 @@ Contributors changing the L1I implementation should read
 | Allocation | Lowest invalid way, otherwise per-set round robin |
 | Prefetch | Demand-priority Valid event; a miss launches ordinary `ReadClean` refill without a response |
 
-`RV5StageL1ICache(xlen, cache, ~chi: config)` receives only fetches whose PMA is
-cacheable; the parent hierarchy routes executable non-cacheable fetches through
+`RV5StageL1ICache(xlen, cache, ~chi: config)` accepts physical resolutions only
+for fetches whose PMA is cacheable; early virtual reads may precede that decision.
+The parent hierarchy routes executable non-cacheable fetches through
 its non-allocating RN-I path. The cache accepts `XLen.X32` or
 `XLen.X64`. The cache configuration supplies set/way geometry; the required
 CHI configuration supplies flit geometry and the Home map. A separate
@@ -42,6 +43,7 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 | Direction | Member | Meaning |
 |---|---|---|
 | Fetch → cache | `request: Decoupled(RV5StageInstructionReq)` | XLEN-wide physical byte address |
+| MMU → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
 | MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical `PREFETCH.I`; no acceptance or response |
 | Fetch → cache | `flush` | Discard speculative lookup and buffered-response state |
 | Fetch → cache | `invalidate_all` | Perform the flush behavior and invalidate every resident line |
@@ -52,6 +54,15 @@ own translation and access faults. Fetch supplies aligned word addresses. The
 cache selects the addressed 32-bit instruction from its XLEN-wide SRAM word.
 The line size is a fixed RV5Stage constant rather than a cache parameter.
 
+`virtual_lookup` is a separate cache port, not a member of the core/Fetch
+instruction-access interface. It supplies the SRAM index without waiting for
+ITLB/PMA resolution. A physical request accepted at that edge must have a live
+virtual lookup with identical bits `[11:0]`; assertions enforce both conditions.
+Only its physical address and demand token enter the lookup pipeline. A virtual
+read without an accepted physical request is discarded, including on a TLB
+miss, fault, uncached selection, or flush. Such reads cannot respond or allocate.
+Physical prefetches use the same SRAM port and lose to a live virtual demand.
+
 ## Data path and arrays
 
 [`cache.rhdl`](cache.rhdl) pipelines SRAM hits while keeping refill and snoop
@@ -59,7 +70,8 @@ transactions outside the core response path:
 
 ```mermaid
 flowchart LR
-  Fetch["Fetch request<br/>Decoupled"] --> Lookup["One-stage lookup Pipe<br/>tag + state + XLEN word SRAMs"]
+  Virtual["Early virtual index"] --> Lookup["One-stage lookup Pipe<br/>tag + XLEN word SRAMs"]
+  Fetch["Permitted physical request<br/>paired at read edge"] --> Lookup
   Lookup -->|hit| Select["RV32 word or<br/>RV64 half-word select"]
   Select --> Merge["Hit / refill response arbiter"]
   Lookup -->|miss| Refill["64-byte ReadClean<br/>retry-aware refill"]

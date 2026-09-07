@@ -36,6 +36,9 @@ separation.
 
 1. Preserve the ordered Decoupled-to-Irrevocable protocol and reserve response
    capacity before accepting a request.
+   Keep the early virtual SRAM index independent of physical resolution. Pair
+   only an accepted physical request with the read; unresolved reads create no
+   lookup-result token. Geometry rejection belongs to `../profile.rhm`.
 2. Keep a hit's one-stage lookup and response-queue timing distinct from the
    blocking refill path.
 3. Publish tag, state, and validity only after the final installation word so a

@@ -51,6 +51,8 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   core.time_counter <== time_counter
   core.instruction_access |> mmu.instruction
   core.data_access |> mmu.data
+  mmu.instruction_lookup |> l1i.virtual_lookup
+  mmu.data_lookup |> l1d.virtual_lookup
   core.prefetch |> mmu.prefetch
   def physical_prefetch_request = mmu.physical_prefetch.bits.into(CachePrefetchReq(width))
   def instruction_prefetch_selected = physical_prefetch_request.operation === CachePrefetchOperation.Instruction

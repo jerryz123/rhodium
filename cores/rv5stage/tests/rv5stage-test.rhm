@@ -51,7 +51,7 @@ check:
       ),
       ~chi: config
     )
-  ) ~throws "address width"
+  ) ~throws "VIPT"
   embedded.run_elaboration(
     fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: 64), ~chi: config)
   ) ~throws "XLen"

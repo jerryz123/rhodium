@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's blocking write-back, write-allocate set-associative data cache.
+// Implements RV5Stage's VIPT write-back cache with structural admission and delayed mutation.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -66,6 +66,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   input node_id: Bits(p.node_id_width)
   interface core(RV5StageDataAccess(xlen), ~role: responder)
+  interface virtual_lookup(Valid(Bits(width)), ~role: consumer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface chi(CHIRNChannels(p), ~role: node)
 
@@ -84,10 +85,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   refill.node_id <== node_id
   snoop.node_id <== node_id
   writeback.node_id <== node_id
-  // This non-flow-through queue makes core acceptance depend only on its
-  // registered capacity. Lookup results control internal drain but cannot
-  // propagate combinationally to core request readiness.
-  inst core_requests(Queue(RV5StageDataReq(xlen), 2))
+  // Registered capacity owns acceptance even when a paired virtual lookup can
+  // bypass this buffer. Busy arrays retain permitted physical requests here.
+  inst core_requests(Queue(RV5StageDataReq(xlen), 2, ~flow: #true))
   // Hits leave the lookup stage directly. Ownership acquisitions and misses
   // transfer their complete request context into the refill engine, after a
   // dirty victim has drained when replacement is necessary.
@@ -162,7 +162,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   writeback_response |> writeback.responses
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
-  def issue_prefetch = prefetch_valid & !core.request.valid & !core_requests.egress.valid
+  def queued_request = or_reduce(core_requests.count)
+  def issue_prefetch = prefetch_valid & !virtual_lookup.valid & !queued_request
   def issue_request :: RV5StageDataReq(xlen) = mux(
     issue_prefetch,
     RV5StageDataReq(xlen):
@@ -177,8 +178,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
       floating_point_precision: RV5StageFloatPrecision.Single,
     core_requests.egress.bits
   )
-  def issue_set = issue_request.address[offset_width..(offset_width + set_width)]
-  def issue_data_address = issue_request.address[word_offset_width..(offset_width + set_width)]
+  // Buffered requests and hints are already physical; their page offsets are
+  // the same index as the original VA. A fresh demand indexes directly by VA.
+  def issue_index_address = mux(queued_request,
+                                core_requests.egress.bits.address,
+                                mux(issue_prefetch, prefetch_request.address, virtual_lookup.bits))
+  def issue_set = issue_index_address[offset_width..(offset_width + set_width)]
+  def issue_data_address = issue_index_address[word_offset_width..(offset_width + set_width)]
   def lookup_context = lookup.egress.bits.into(RV5StageL1DLookup(xlen))
   def lookup_request :: RV5StageDataReq(xlen) = lookup_context.request
   def lookup_prefetch = lookup_context.prefetch
@@ -393,8 +399,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
               gathered_line,
               bits(0, RV5StageCacheLineBytes * 8)).as_vec(Bits(64))
 
-  core.request |> core_requests.ingress
   def lookup_accepts_input = refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !lookup_needs_refill & !local_mutation
+  core.request |> core_requests.ingress
   core_requests.egress.ready <== lookup_accepts_input & lookup.ingress.ready
   lookup.ingress.valid <== lookup_accepts_input & (core_requests.egress.valid ||| issue_prefetch)
   lookup.ingress.bits <== RV5StageL1DLookup(xlen):
@@ -403,6 +409,12 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     prefetch_write: issue_prefetch & (prefetch_request.operation === CachePrefetchOperation.Write)
   def request_accept = core.request.fire()
   def lookup_issue = lookup.ingress.fire()
+  def array_lookup_issue = lookup_accepts_input & lookup.ingress.ready & (queued_request ||| virtual_lookup.valid ||| issue_prefetch)
+  when request_accept:
+    assert(virtual_lookup.valid, "l1d_physical_request_has_virtual_lookup")
+    assert(virtual_lookup.bits[0..12] === core.request.bits.address[0..12], "l1d_vipt_page_offset_matches")
+  when lookup_issue:
+    assert(array_lookup_issue, "l1d_resolution_has_array_read")
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
@@ -442,7 +454,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     for (byte in 0..word_bytes):
       repeated_line_write_bytes := repeated_line_write_bytes ++ [line_write_bytes[byte]]
 
-  tags.port.request.valid <== lookup_issue ||| install_refill ||| snoop_lookup_start
+  tags.port.request.valid <== array_lookup_issue ||| install_refill ||| snoop_lookup_start
   tags.port.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
     address: mux(install_refill,
                  completion_set,
@@ -453,7 +465,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     data: vec(for List (_way in 0..ways): completion_tag)
     mask: install_way_mask
   def update_snoop_state = snoop.update.valid & !snoop.update.bits.invalidate
-  states.port.request.valid <== lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state
+  states.port.request.valid <== array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state
   def refill_cache_state = mux(refill.completion.bits.state === CHIResponseState.Unique,
                                CHICacheState.UniqueClean,
                                CHICacheState.SharedClean)
@@ -478,7 +490,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def local_mutation_address = mux(pending_zero, pending_mutation_request.address[offset_width..(offset_width + set_width)] ++ pending_zero_index, pending_mutation_request.address[word_offset_width..(offset_width + set_width)])
   def refill_install_address = (completion_set ++ refill_install_index)
   def gather_address = (gather_set ++ gather_issue_index)
-  lines.port.request.valid <== lookup_issue ||| cache_write ||| gather_issue
+  lines.port.request.valid <== array_lookup_issue ||| cache_write ||| gather_issue
   lines.port.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: mux(cache_write,
                  mux(local_mutation_commit, local_mutation_address, refill_install_address),
@@ -487,7 +499,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     data: vec(repeated_line_write_bytes)
     mask: mux(local_mutation_commit, local_mutation_lane_mask, refill_lane_mask)
 
-  assert(!(local_mutation_commit & (lookup_issue ||| install_refill ||| snoop_lookup_start ||| update_snoop_state ||| gather_issue)),
+  assert(!(local_mutation_commit & (array_lookup_issue ||| install_refill ||| snoop_lookup_start ||| update_snoop_state ||| gather_issue)),
          "l1d_local_mutation_port_exclusive")
 
   snoop_metadata_pending <== snoop_lookup_start

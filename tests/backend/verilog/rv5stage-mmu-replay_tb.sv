@@ -1,4 +1,4 @@
-// Verifies DTLB replay, fault preservation, and pipelined non-faulting prefetch translation and cancellation.
+// Verifies early VIPT lookup, DTLB replay, faults, and pipelined prefetch translation and cancellation.
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -86,6 +86,9 @@ module rv5stage_mmu_replay_tb;
   logic reset = 1'b1;
   instruction_in_t instruction_in;
   data_in_t data_in;
+  typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;
+  lookup_t instruction_lookup_out;
+  lookup_t data_lookup_out;
   instruction_memory_in_t instruction_memory_in;
   data_memory_in_t data_memory_in;
   prefetch_t prefetch_in;
@@ -100,6 +103,8 @@ module rv5stage_mmu_replay_tb;
   data_memory_out_t data_memory_out;
   prefetch_t physical_prefetch_out;
   logic data_request_valid;
+  logic instruction_request_valid = 1'b0;
+  logic [63:0] instruction_address = 64'h5000;
   logic pte_response_valid;
   logic [63:0] pte_response_data;
   logic [1:0] pte_requests;
@@ -114,6 +119,8 @@ module rv5stage_mmu_replay_tb;
   always_comb begin
     instruction_in = '0;
     instruction_in.flush = instruction_flush;
+    instruction_in.request.valid = instruction_request_valid;
+    instruction_in.request.bits.address = instruction_address;
     instruction_in.response.ready = 1'b1;
     data_in.request.valid = data_request_valid;
     data_in.request.bits.address = (page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS) + (zero_request ? 64'd63 : 64'd0);
@@ -150,6 +157,12 @@ module rv5stage_mmu_replay_tb;
       assert (!instruction_memory_out.request.valid)
         else $fatal(1, "data miss unexpectedly issued an instruction-memory request");
       if (data_memory_out.request.valid && data_memory_in.request.ready) begin
+        assert (data_lookup_out.valid &&
+                data_lookup_out.bits[11:0] == data_memory_out.request.bits.address[11:0])
+          else $fatal(1, "physical data acceptance lost its paired VIPT lookup");
+        if (!data_request_valid)
+          assert (data_lookup_out.bits == data_memory_out.request.bits.address)
+            else $fatal(1, "PTW read did not supply a physical lookup index");
         if (page_fault_phase) begin
           assert (!page_fault_pte_seen && data_memory_out.request.bits.address == 64'h1000)
             else $fatal(1, "faulting walk issued an unexpected PTE request");
@@ -245,6 +258,8 @@ module rv5stage_mmu_replay_tb;
     assert (!data_out.request.ready && !data_out.request_fault &&
             !data_out.request_access_fault && !data_memory_out.request.valid)
       else $fatal(1, "initial DTLB miss was not rejected cleanly");
+    assert (data_lookup_out.valid && data_lookup_out.bits == VIRTUAL_ADDRESS)
+      else $fatal(1, "DTLB miss suppressed the early virtual SRAM lookup");
     @(posedge clock);
     #1 data_request_valid = 1'b0;
 
@@ -255,6 +270,8 @@ module rv5stage_mmu_replay_tb;
     assert (data_out.request.ready && data_memory_out.request.valid &&
             data_memory_out.request.bits.address == PHYSICAL_ADDRESS)
       else $fatal(1, "replayed request did not hit the filled DTLB");
+    assert (data_lookup_out.valid && data_lookup_out.bits == VIRTUAL_ADDRESS)
+      else $fatal(1, "DTLB hit replaced the early virtual index with a physical address");
     @(posedge clock);
     #1 data_request_valid = 1'b0;
     assert (translated_request_seen)
@@ -417,6 +434,34 @@ module rv5stage_mmu_replay_tb;
       end
     end
     check_isolated_hint(PHYSICAL_ADDRESS, 2'd3, 1, PHYSICAL_ADDRESS);
+    // ITLB miss and physical execute denial must not suppress the early read.
+    @(negedge clock);
+    satp = SATP_SV39_ROOT_1;
+    privilege = PRIVILEGE_S;
+    instruction_request_valid = 1;
+    #1;
+    assert (instruction_lookup_out.valid && instruction_lookup_out.bits == instruction_address &&
+            !instruction_out.request.ready && !instruction_memory_out.request.valid)
+      else $fatal(1, "ITLB miss waited for translation before presenting its index");
+    instruction_flush = 1;
+    #1;
+    assert (!instruction_lookup_out.valid)
+      else $fatal(1, "flushed fetch still presented a live virtual lookup");
+    instruction_request_valid = 0;
+    tick();
+    @(negedge clock);
+    instruction_flush = 0;
+    satp = 0;
+    instruction_address = 64'h80000000_00000000;
+    instruction_request_valid = 1;
+    #1;
+    assert (instruction_lookup_out.valid && instruction_out.request.ready &&
+            !instruction_memory_out.request.valid)
+      else $fatal(1, "PMA-denied fetch did not separate early read from physical resolution");
+    tick();
+    instruction_request_valid = 0;
+    assert (instruction_out.response.valid && instruction_out.response.bits.access_fault)
+      else $fatal(1, "PMA-denied early fetch lost its architectural fault");
     $display("RV5Stage DTLB demand, fault, and pipelined prefetch translation passed");
     $finish;
   end
