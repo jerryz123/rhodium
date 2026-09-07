@@ -178,6 +178,19 @@ To rerun just the post-synthesis step against an existing completed synthesis:
 make -C vlsi mini-soc-post-synth
 ```
 
+An experimental multiplier operand-capture repair uses the same local balancing
+and equivalence proof. It is disabled by default: nominal pre-layout testing
+improved the multiplier path but regressed overall worst setup slack through
+shared side outputs. Keep its handoff separate when comparing timing:
+
+```sh
+make -C vlsi mini-soc-post-synth MINI_SOC_REPAIR_MULTIPLIER=1 \
+  MINI_SOC_POST_SYNTH_DIR="$PWD/vlsi/build/mini-soc/synthesis-multiplier"
+```
+
+This does not change RTL or add pipeline stages. Compare full-design STA, not
+only ABC's local delay estimate, before enabling it for a physical handoff.
+
 The recipe reuses the synthesis netlist, filtered Liberty libraries, clock
 target, and output load; `jq` reads LibreLane's JSON metadata. `YOSYS` overrides
 the executable (ABC is its companion binary). Native tools or the harness's
