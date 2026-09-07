@@ -1121,6 +1121,14 @@ and handle-side access until elaboration chooses the concrete shape. This is
 frontend information only; it creates no protocol-specific runtime graph or
 core IR type.
 
+Inspection consumers can require explicit transaction-flow semantics through
+`InterfaceTraceModel`. Its routes map top-level transform input indices to
+possible output indices independently of the transform's display `kind`.
+`describe_interface_event` additionally records a labeled one-to-one event
+checkpoint. These records are nonsemantic module metadata: they do not modify
+hardware, verification, or backend lowering. A compiler analysis must reject an
+unmodeled transform instead of inferring routes from its label.
+
 ### Injection and ejection boundaries
 
 `inject_interface(protocol, ...)` creates an endpoint from ordinary hardware,

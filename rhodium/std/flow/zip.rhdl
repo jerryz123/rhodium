@@ -23,7 +23,8 @@ fun finish_zip_flow_handle(left_link :: Handle,
   describe_interface_transform(
     interface_transform(Array(left_link, right_link), output_link),
     "zip",
-    {"inputs": 2}
+    {"inputs": 2},
+    ~trace_model: interface_trace_merge(2)
   )
 
 // The source is a two-element Array of payload/protocol types or endpoints.

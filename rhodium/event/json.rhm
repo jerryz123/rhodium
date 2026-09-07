@@ -1,0 +1,60 @@
+#lang rhombus
+// Serializes inferred static event manifests to deterministic JSON.
+
+import:
+  "model.rhm" open
+
+export:
+  event_manifest_to_json
+
+fun json_string(value :: String):
+  to_string(value, ~mode: #'expr)
+
+fun json_value(value :: String || Boolean || Number || Array || List || Map):
+  cond
+  | value is_a String: json_string(value)
+  | value is_a Boolean:
+      if value | "true" | "false"
+  | value is_a Number: to_string(value)
+  | value is_a Array:
+      "[" ++ String.join(value.map(json_value), ",") ++ "]"
+  | value is_a List:
+      "[" ++ String.join(value.map(json_value), ",") ++ "]"
+  | value is_a Map:
+      def entries = value.keys(#true).map(
+        fun (key): json_string(key) ++ ":" ++ json_value(value[key])
+      )
+      "{" ++ String.join(entries, ",") ++ "}"
+  | ~else:
+      error(~who: #'event_manifest_to_json,
+            "event manifest value is not JSON-serializable: " ++ to_string(value))
+
+fun json_site(site :: EventSite):
+  {
+    "id": site.id,
+    "label": site.label,
+    "module": site.module_name,
+    "instance_path": site.instance_path,
+    "local_site": site.local_site,
+    "protocol": site.protocol,
+    "payload_type": site.payload_type || #false,
+    "payload_width": site.payload_width || #false,
+    "terminal": site.terminal,
+    "source_location": site.source_location
+  }
+
+fun json_dependency(dependency :: EventDependency):
+  {
+    "parent": dependency.parent,
+    "child": dependency.child,
+    "transform_path": dependency.transform_path
+  }
+
+fun event_manifest_to_json(manifest :: EventManifest):
+  json_value({
+    "format": "rhodium-event-graph",
+    "version": 1,
+    "top": manifest.logical.top.name,
+    "sites": manifest.sites.map(json_site),
+    "dependencies": manifest.dependencies.map(json_dependency)
+  }) ++ "\n"

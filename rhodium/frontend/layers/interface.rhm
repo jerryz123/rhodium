@@ -26,16 +26,25 @@ export:
   InterfaceSink
   InterfaceGroup
   InterfaceArrayGroup
+  InterfaceTraceRoute
+  InterfaceTraceModel
   InterfaceTransformGroup
+  InterfaceEventGroup
   InterfaceConnectionGroup
   InterfaceLinkGroup
   module_interface_groups
   module_interface_array_groups
   module_interface_transforms
+  module_interface_events
   module_interface_connections
   module_interface_links
   interface_boundary_endpoint
+  interface_trace_passthrough
+  interface_trace_broadcast
+  interface_trace_merge
+  interface_trace_crossbar
   describe_interface_transform
+  describe_interface_event
   interface_type_supports
   interface_link
   interface_transform
@@ -379,12 +388,32 @@ class InterfaceArrayGroup(module_def :: Module,
                           name :: String,
                           groups :: NonemptyList.of(InterfaceGroup)):
   implements ModuleMetadataPayload
+
+// Describes one possible transaction route through an N-to-M interface
+// transform. Indices refer to the flattened top-level endpoint arrays.
+class InterfaceTraceRoute(input_index :: Nat, output_index :: Nat)
+
+// Supplies compiler-consumable transaction topology independently of a
+// transform's display label. Later instrumentation can refine this model with
+// state and transfer behavior without changing static route inference.
+class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute))
+
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
                               input :: InterfaceEndpoint || Array,
                               output :: InterfaceEndpoint || Array,
                               properties :: Map,
-                              implementation :: False || Instance):
+                              implementation :: False || Instance,
+                              trace_model :: False || InterfaceTraceModel = #false):
+  implements ModuleMetadataPayload
+class InterfaceEventGroup(module_def :: Module,
+                          site_index :: Nat,
+                          label :: String,
+                          input :: InterfaceEndpoint,
+                          output :: InterfaceEndpoint,
+                          payload :: False || Value,
+                          terminal :: Boolean,
+                          location :: Location):
   implements ModuleMetadataPayload
 class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
@@ -399,6 +428,7 @@ class InterfaceLinkGroup(module_def :: Module,
 def interface_group_namespace = "rhodium.interface.group"
 def interface_array_group_namespace = "rhodium.interface.array-group"
 def interface_transform_group_namespace = "rhodium.interface.transform"
+def interface_event_group_namespace = "rhodium.interface.event"
 def interface_connection_group_namespace = "rhodium.interface.connection"
 def interface_link_group_namespace = "rhodium.interface.link"
 
@@ -410,6 +440,9 @@ fun module_interface_array_groups(module_def :: Module):
 
 fun module_interface_transforms(module_def :: Module):
   module_def.metadata_for(interface_transform_group_namespace)
+
+fun module_interface_events(module_def :: Module):
+  module_def.metadata_for(interface_event_group_namespace)
 
 fun module_interface_connections(module_def :: Module):
   module_def.metadata_for(interface_connection_group_namespace)
@@ -1491,16 +1524,58 @@ fun interface_transform(input_links :: InterfaceHandle || Array,
   def right = interface_transform_end(output_links, #false)
   InterfaceHandle(left, right)
 
+fun interface_endpoint_shape_count(shape :: InterfaceEndpoint || Array):
+  if shape is_a InterfaceEndpoint | 1 | shape.length()
+
+fun interface_trace_passthrough():
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)])
+
+fun interface_trace_broadcast(output_count :: PosInt):
+  InterfaceTraceModel(
+    for List (output_index in 0..output_count):
+      InterfaceTraceRoute(0, output_index)
+  )
+
+fun interface_trace_merge(input_count :: PosInt):
+  InterfaceTraceModel(
+    for List (input_index in 0..input_count):
+      InterfaceTraceRoute(input_index, 0)
+  )
+
+fun interface_trace_crossbar(input_count :: PosInt, output_count :: PosInt):
+  InterfaceTraceModel(
+    for List (input_index in 0..input_count,
+              output_index in 0..output_count):
+      InterfaceTraceRoute(input_index, output_index)
+  )
+
+fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
+                                   input_shape :: InterfaceEndpoint || Array,
+                                   output_shape :: InterfaceEndpoint || Array):
+  def input_count = interface_endpoint_shape_count(input_shape)
+  def output_count = interface_endpoint_shape_count(output_shape)
+  for (route in trace_model.routes):
+    unless route.input_index < input_count
+    | error(~who: #'describe_interface_transform,
+            "interface trace route input index is outside the transform input shape")
+    unless route.output_index < output_count
+    | error(~who: #'describe_interface_transform,
+            "interface trace route output index is outside the transform output shape")
+  #void
+
 // Gives an interface transform a persistent authoring-level identity for
 // inspection tools while leaving its ordinary flattened hardware unchanged.
 fun describe_interface_transform(handle :: Handle,
                                  kind :: String,
                                  properties :: Map = {},
-                                 implementation :: False || Instance = #false) :: Handle:
+                                 implementation :: False || Instance = #false,
+                                 ~trace_model: trace_model :: False || InterfaceTraceModel = #false) :: Handle:
   def module_def = kernel.active_module()
   when implementation && !(implementation.operation.module_def === module_def)
   | error(~who: #'describe_interface_transform,
           "interface transform implementation must be a local instance")
+  when trace_model
+  | validate_interface_trace_model(trace_model, handle.left, handle.right)
   module_def.add_metadata(
     interface_transform_group_namespace,
     InterfaceTransformGroup(module_def,
@@ -1508,9 +1583,56 @@ fun describe_interface_transform(handle :: Handle,
                             handle.left,
                             handle.right,
                             properties,
-                            implementation)
+                            implementation,
+                            trace_model)
   )
   handle
+
+// Marks a transparent one-to-one transform as a user-visible event site while
+// retaining a dedicated metadata record for compiler consumers.
+fun describe_interface_event(handle :: Handle,
+                             label :: String,
+                             ~payload: payload :: False || HardwareEntity = #false,
+                             ~terminal: terminal :: Boolean = #false,
+                             ~location: location :: Location = Location()) :: Handle:
+  unless label != ""
+  | error(~who: #'describe_interface_event, "event label must not be empty")
+  unless handle.left is_a InterfaceEndpoint && handle.right is_a InterfaceEndpoint
+  | error(~who: #'describe_interface_event,
+          "an event annotation requires one input and one output endpoint")
+  def module_def = kernel.active_module()
+  def existing = module_interface_events(module_def)
+  when existing.find(fun (event): event.label == label)
+  | error(~who: #'describe_interface_event,
+          "event label must be unique within a module: " ++ label)
+  def payload_value:
+    if payload
+    | block:
+        def value = kernel.read(payload, location)
+        unless value.module_def === module_def
+        | error(~who: #'describe_interface_event,
+                "event payload must belong to the annotated module")
+        unless data_type(value.type)
+        | error(~who: #'describe_interface_event,
+                "event payload must have a packed DataType")
+        value
+    | #false
+  def site_index = existing.length()
+  def event = InterfaceEventGroup(module_def,
+                                  site_index,
+                                  label,
+                                  handle.left,
+                                  handle.right,
+                                  payload_value,
+                                  terminal,
+                                  location)
+  module_def.add_metadata(interface_event_group_namespace, event)
+  describe_interface_transform(
+    handle,
+    "event",
+    {"label": label, "site": site_index, "terminal": terminal},
+    ~trace_model: interface_trace_passthrough()
+  )
 
 // Records one flattened interface leaf and whether the protocol provider owns
 // its direction. Nested interfaces retain structural declaration order.

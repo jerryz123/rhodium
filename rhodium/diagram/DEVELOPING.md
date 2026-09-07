@@ -27,8 +27,9 @@ flowchart LR
 
 - Core owns namespace-keyed `ModuleMetadata` storage without assigning diagram
   semantics to a namespace.
-- The interface layer owns groups, arrays, connections, links, and transform
-  descriptions; standard flow modules attach transform kind and properties.
+- The interface layer owns groups, arrays, connections, links, event sites, and
+  transform descriptions; standard flow modules attach transform kind,
+  properties, and optional typed trace routes.
 - Frontend clocking support identifies implicit synchronous ports.
 - Diagram extraction alone interprets those facts as a view and follows
   verified IR drivers for ordinary connectivity.
@@ -38,7 +39,7 @@ flowchart LR
 
 | File | Responsibility |
 |---|---|
-| [`model.rhm`](model.rhm) | Tool-neutral model and module lookup |
+| [`model.rhm`](model.rhm) | Tool-neutral model, module lookup, and retained typed event/trace metadata for compiler consumers |
 | [`extract.rhm`](extract.rhm) | Verification, hierarchy traversal, block extraction, channel tracing, and behavior classification |
 | [`json.rhm`](json.rhm) | Deterministic stable JSON serialization |
 | [`dot.rhm`](dot.rhm) | Port-anchored diagnostic DOT rendering |

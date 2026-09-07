@@ -109,7 +109,8 @@ fun pipe(stages :: PosInt)
         InterfaceHandle(pipe_stage.ingress, pipe_stage.egress),
         "pipe",
         {"stages": stages},
-        pipe_stage
+        pipe_stage,
+        ~trace_model: interface_trace_passthrough()
       )
     )
 
@@ -125,7 +126,8 @@ fun valid_pipe(stages :: PosInt)
         InterfaceHandle(valid_pipe_stage.ingress, valid_pipe_stage.egress),
         "valid-pipe",
         {"stages": stages},
-        valid_pipe_stage
+        valid_pipe_stage,
+        ~trace_model: interface_trace_passthrough()
       )
     )
 
@@ -142,7 +144,8 @@ fun ctrl_pipe(stages :: PosInt)
         InterfaceHandle(ctrl_pipe_stage.ingress, ctrl_pipe_stage.egress),
         "ctrl-pipe",
         {"stages": stages},
-        ctrl_pipe_stage
+        ctrl_pipe_stage,
+        ~trace_model: interface_trace_passthrough()
       )
     )
 

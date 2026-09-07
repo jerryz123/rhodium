@@ -36,6 +36,7 @@ flowchart LR
   Core --> Backend["CIRCT backend"]
   Core --> Formal["Formal checks"]
   Core --> Views["Analysis and diagrams"]
+  Views --> Events["Static event graphs"]
   Libraries["std and domain libraries"] --> Profiles
 ```
 
@@ -49,6 +50,7 @@ flowchart LR
 | [`backend/`](backend/README.md) | CIRCT lowering and emitted hardware |
 | [`formal/`](formal/README.md) | Rosette-backed equivalence, reachability, and combinational properties |
 | [`diagram/`](diagram/README.md) | Logical hierarchy, interface, and flow views |
+| [`event/`](event/README.md) | Compiler-inferred static dependencies between annotated flow events |
 
 Domain libraries such as [CHI](../chi/README.md), [RISC-V RTL](../riscv/rtl/README.md),
 and [HardFloat](../hardfloat/README.md) use the same public language surface.

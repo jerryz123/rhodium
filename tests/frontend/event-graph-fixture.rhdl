@@ -1,0 +1,126 @@
+#lang rhodium
+// Defines annotated ready-valid flow topologies for static event-graph tests.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+  lib("rhodium/std/flow/ready-valid-support.rhdl").flow_protocol_type
+
+sync_circuit EventLinear():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+
+  source
+    |> trace_event("accepted")
+    |> map_flow(payload => payload + bits(1, 8))
+    |> pipe(1)
+    |> trace_event("issued")
+    |> queue(2, ~flow: #true)
+    |> trace_event("completed", ~terminal: #true)
+    |> sink
+
+sync_circuit EventFork():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Decoupled(Bits(8)), ~role: producer)
+
+  def Array(left, right) = source
+    |> trace_event("fork-root")
+    |> atomic_fork(2)
+  left |> trace_event("left") |> sinks[0]
+  right |> trace_event("right") |> sinks[1]
+
+sync_circuit EventMerge():
+  interface left_source(Decoupled(Bits(8)), ~role: consumer)
+  interface right_source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+
+  def left = left_source |> trace_event("left")
+  def right = right_source |> trace_event("right")
+  Array(left, right)
+    |> zip_flow(left_bits, right_bits => left_bits ^ right_bits)
+    |> trace_event("joined")
+    |> sink
+
+circuit EventValid():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+
+  source |> trace_valid_event("observed") |> sink
+
+sync_circuit EventChild():
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+
+  ingress |> trace_event("inside") |> egress
+
+sync_circuit EventHierarchy():
+  interface sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Decoupled(Bits(8)), ~role: producer)
+
+  inst left_child(EventChild())
+  inst right_child(EventChild())
+  sources[0] |> trace_event("before-left") |> left_child.ingress
+  left_child.egress |> trace_event("after-left") |> sinks[0]
+  sources[1] |> trace_event("before-right") |> right_child.ingress
+  right_child.egress |> trace_event("after-right") |> sinks[1]
+
+fun opaque_flow()
+  :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
+  fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
+    def protocol = flow_protocol_type(source)
+    def input_link = interface_link(protocol, "opaque_input")
+    def output_link = interface_link(protocol, "opaque_output")
+    def input_endpoint = input_link.right
+    def output_endpoint = output_link.left
+    output_endpoint.field("valid") <== input_endpoint.field("valid")
+    output_endpoint.field("bits") <== input_endpoint.field("bits")
+    input_endpoint.field("ready") <== output_endpoint.field("ready")
+    finish_interface_transform(
+      source,
+      describe_interface_transform(
+        interface_transform(input_link, output_link),
+        "opaque"
+      )
+    )
+
+sync_circuit EventOpaque():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+
+  source
+    |> trace_event("before")
+    |> opaque_flow()
+    |> trace_event("after")
+    |> sink
+
+circuit EmptyEventLabel():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+
+  source |> trace_event("") |> sink
+
+circuit DuplicateEventLabel():
+  interface sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Decoupled(Bits(8)), ~role: producer)
+
+  sources[0] |> trace_event("duplicate") |> sinks[0]
+  sources[1] |> trace_event("duplicate") |> sinks[1]
+
+def linear = elaborate_with_top(EventLinear())
+def forked = elaborate_with_top(EventFork())
+def merged = elaborate_with_top(EventMerge())
+def valid = elaborate_with_top(EventValid())
+def hierarchical = elaborate_with_top(EventHierarchy())
+def opaque = elaborate_with_top(EventOpaque())
+
+fun elaborate_empty_event(): elaborate_with_top(EmptyEventLabel())
+fun elaborate_duplicate_event(): elaborate_with_top(DuplicateEventLabel())
+
+export:
+  linear
+  forked
+  merged
+  valid
+  hierarchical
+  opaque
+  elaborate_empty_event
+  elaborate_duplicate_event

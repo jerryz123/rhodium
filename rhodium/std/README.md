@@ -612,6 +612,23 @@ through Rhombus `|>`. This makes every stage an ordinary unary host function:
 ingress |> queue(4, ~pipe: #true) |> pipe(2) |> egress
 ```
 
+`trace_event(label)` inserts a transparent compiler-visible checkpoint on a
+`Decoupled` or `Irrevocable` payload flow. `trace_valid_event(label)` provides
+the same annotation for `Valid`. These helpers do not add state or runtime
+effects; `rhodium/event` consumes their metadata to infer possible nearest
+dependencies. Labels are nonempty and unique within a module definition.
+
+```rhombus
+ingress
+  |> trace_event("accepted")
+  |> queue(4)
+  |> trace_event("issued", ~terminal: #true)
+  |> egress
+```
+
+The current event package emits a static manifest only. Synthesizable lineage
+and DPI emission remain future instrumentation work.
+
 Packet arbitration takes an inline predicate that identifies the final beat.
 The selected input remains the sole owner across stalls and bubbles until that
 beat transfers, and priority advances once per complete packet:

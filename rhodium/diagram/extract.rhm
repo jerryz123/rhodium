@@ -401,6 +401,7 @@ fun diagram_module(module_def :: Module):
   def groups = module_interface_groups(module_def)
   def array_groups = module_interface_array_groups(module_def)
   def transforms = module_interface_transforms(module_def)
+  def events = module_interface_events(module_def)
   def connections = module_interface_connections(module_def)
   def links = module_interface_links(module_def)
   def grouped_names = grouped_port_names(groups)
@@ -514,6 +515,9 @@ fun diagram_module(module_def :: Module):
       if transform.implementation
       | module_behavior(transform.implementation.module_def)
       | "combinational"
+    def event_annotation = events.find(
+      fun (event): event.input === transform.input && event.output === transform.output
+    )
     blocks := blocks ++ [
       DiagramBlock(block_id,
                    transform.kind,
@@ -521,7 +525,9 @@ fun diagram_module(module_def :: Module):
                    input_built[0] ++ output_built[0] ++ combo_ports,
                    transform.properties,
                    child_module,
-                   behavior)
+                   behavior,
+                   transform.trace_model,
+                   event_annotation)
     ]
     terminals := terminals ++ input_built[1] ++ output_built[1]
 

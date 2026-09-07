@@ -1,0 +1,64 @@
+#lang rhombus
+// Checks annotated-flow dependency inference, hierarchy expansion, and manifest JSON.
+
+import:
+  lib("json/main.rkt").#{string->jsexpr} as parse_json
+  "../../rhodium/event/main.rhm" open
+  "event-graph-fixture.rhdl" as fixture
+
+fun dependency_labels(manifest :: EventManifest):
+  manifest.dependencies.map(
+    fun (dependency):
+      manifest.site(dependency.parent).label ++ "->" ++ manifest.site(dependency.child).label
+  )
+
+def linear = infer_event_manifest(fixture.linear)
+def linear_labels = dependency_labels(linear)
+def forked = infer_event_manifest(fixture.forked)
+def merged = infer_event_manifest(fixture.merged)
+def valid = infer_event_manifest(fixture.valid)
+def hierarchical = infer_event_manifest(fixture.hierarchical)
+def hierarchy_inside = hierarchical.sites.filter(
+  ~keep: fun (site): site.label == "inside"
+)
+def json = event_manifest_to_json(linear)
+
+check:
+  linear.sites.map(fun (site): site.label) ~is ["accepted", "issued", "completed"]
+  linear.sites.map(fun (site): site.local_site) ~is [0, 1, 2]
+  linear.sites.map(fun (site): site.payload_type) ~is ["bits<8>", "bits<8>", "bits<8>"]
+  linear.sites.map(fun (site): site.payload_width) ~is [8, 8, 8]
+  linear.sites.map(fun (site): site.terminal) ~is [#false, #false, #true]
+  linear_labels ~is ["accepted->issued", "issued->completed"]
+  linear.dependencies[0].transform_path.length() ~is 2
+  linear.dependencies[0].transform_path[0].contains(":map") ~is #true
+  linear.dependencies[0].transform_path[1].contains(":pipe") ~is #true
+  linear.dependencies[1].transform_path.length() ~is 1
+  linear.dependencies[1].transform_path[0].contains(":queue") ~is #true
+  dependency_labels(forked) ~is ["fork-root->left", "fork-root->right"]
+  dependency_labels(merged) ~is ["left->joined", "right->joined"]
+  merged.dependencies.map(
+    fun (dependency): dependency.transform_path[0].contains(":zip")
+  ) ~is [#true, #true]
+  valid.sites.length() ~is 1
+  valid.sites[0].label ~is "observed"
+  valid.sites[0].protocol ~is "Valid<bits<8>>"
+  valid.dependencies.length() ~is 0
+  hierarchical.sites.length() ~is 6
+  hierarchy_inside.length() ~is 2
+  hierarchy_inside.map(fun (site): site.instance_path) ~is [
+    ["EventHierarchy", "left_child"],
+    ["EventHierarchy", "right_child"]
+  ]
+  dependency_labels(hierarchical).length() ~is 4
+  "before-left->inside" in dependency_labels(hierarchical) ~is #true
+  "inside->after-left" in dependency_labels(hierarchical) ~is #true
+  "before-right->inside" in dependency_labels(hierarchical) ~is #true
+  "inside->after-right" in dependency_labels(hierarchical) ~is #true
+  json.contains("\"format\":\"rhodium-event-graph\"") ~is #true
+  json.contains("\"top\":\"EventLinear\"") ~is #true
+  json.contains("\"parent\":\"EventLinear/event:0\"") ~is #true
+  parse_json(json) != #false ~is #true
+  infer_event_manifest(fixture.opaque) ~throws "transform without a trace model"
+  fixture.elaborate_empty_event() ~throws "event label must not be empty"
+  fixture.elaborate_duplicate_event() ~throws "event label must be unique"

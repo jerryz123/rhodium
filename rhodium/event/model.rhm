@@ -1,0 +1,31 @@
+#lang rhombus
+// Defines the backend-independent static event-site and dependency manifest model.
+
+import:
+  "../core/ir.rhm".DesignElaboration
+
+export:
+  EventSite
+  EventDependency
+  EventManifest
+
+class EventSite(id :: String,
+                label :: String,
+                module_name :: String,
+                instance_path :: List.of(String),
+                local_site :: Nat,
+                protocol :: String,
+                payload_type :: False || String,
+                payload_width :: False || PosInt,
+                terminal :: Boolean,
+                source_location :: String)
+
+class EventDependency(parent :: String,
+                      child :: String,
+                      transform_path :: List.of(String))
+
+class EventManifest(logical :: DesignElaboration,
+                    sites :: List.of(EventSite),
+                    dependencies :: List.of(EventDependency)):
+  method site(id :: String):
+    sites.find(fun (candidate): candidate.id == id)

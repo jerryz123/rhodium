@@ -69,7 +69,8 @@ fun atomic_fork(n :: PosInt)
         InterfaceHandle(fork_stage.ingress, fork_stage.egress),
         "atomic-fork",
         {"outputs": n},
-        fork_stage
+        fork_stage,
+        ~trace_model: interface_trace_broadcast(n)
       )
     )
 
@@ -110,7 +111,8 @@ expr.macro
            interface_transform(selective_fork_input_link, selective_fork_output_links),
            "selective-atomic-fork",
            {"outputs": selective_fork_count},
-           selective_fork_stage
+           selective_fork_stage,
+           ~trace_model: interface_trace_broadcast(selective_fork_count)
          )
        )'
 
@@ -126,7 +128,8 @@ fun ctrl_atomic_fork(n :: PosInt)
         InterfaceHandle(ctrl_fork_stage.ingress, ctrl_fork_stage.egress),
         "ctrl-atomic-fork",
         {"outputs": n},
-        ctrl_fork_stage
+        ctrl_fork_stage,
+        ~trace_model: interface_trace_broadcast(n)
       )
     )
 

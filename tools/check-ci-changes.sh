@@ -79,6 +79,10 @@ check_matrix_entry rhodium/core/ir.rhm circt_matrix ci-circt-language-test
 check_field rhodium/core/ir.rhm simulation true
 check_matrix_entry rhodium/analysis/clocking.rhm host_matrix ci-host-foundation-test
 check_matrix_entry rhodium/analysis/clocking.rhm host_matrix ci-host-hygiene-test
+check_matrix_entry rhodium/event/analyze.rhm host_matrix ci-host-foundation-test
+check_matrix_entry rhodium/event/analyze.rhm host_matrix ci-host-hygiene-test
+check_field rhodium/event/analyze.rhm circt false
+check_field rhodium/event/analyze.rhm simulation false
 check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-foundation-test
 check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-hygiene-test
 check_matrix_entry rhodium/std/flow.rhdl host_matrix ci-host-cores-test

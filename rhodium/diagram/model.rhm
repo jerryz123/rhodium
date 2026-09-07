@@ -3,6 +3,8 @@
 
 import:
   "../core/ir.rhm".DesignElaboration
+  "../frontend/layers/interface.rhm".InterfaceEventGroup
+  "../frontend/layers/interface.rhm".InterfaceTraceModel
 
 export:
   DiagramPort
@@ -24,7 +26,9 @@ class DiagramBlock(id :: String,
                    ports :: List.of(DiagramPort),
                    properties :: Map = {},
                    child_module :: False || String = #false,
-                   behavior :: String = "combinational")
+                   behavior :: String = "combinational",
+                   trace_model :: False || InterfaceTraceModel = #false,
+                   event_annotation :: False || InterfaceEventGroup = #false)
 
 class DiagramChannel(id :: String,
                      source_block :: String,

@@ -171,7 +171,8 @@ fun queue(depth :: PosInt,
         InterfaceHandle(queue_stage.ingress, queue_stage.egress),
         "queue",
         {"depth": depth, "pipe": pipe_enabled, "flow": flow_enabled},
-        queue_stage
+        queue_stage,
+        ~trace_model: interface_trace_passthrough()
       )
     )
 
@@ -192,7 +193,8 @@ fun ctrl_queue(depth :: PosInt,
         InterfaceHandle(ctrl_queue_stage.ingress, ctrl_queue_stage.egress),
         "ctrl-queue",
         {"depth": depth, "pipe": pipe_enabled, "flow": flow_enabled},
-        ctrl_queue_stage
+        ctrl_queue_stage,
+        ~trace_model: interface_trace_passthrough()
       )
     )
 

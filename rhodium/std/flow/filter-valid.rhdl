@@ -15,7 +15,8 @@ fun finish_filter_valid_handle(input_link :: Handle,
   output_endpoint.field("bits") <== input_endpoint.field("bits")
   describe_interface_transform(
     interface_transform(input_link, output_link),
-    "filter-valid"
+    "filter-valid",
+    ~trace_model: interface_trace_passthrough()
   )
 
 // A rejected Valid event is dropped because the source cannot be

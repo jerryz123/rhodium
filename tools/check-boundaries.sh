@@ -47,12 +47,22 @@ fail_matches "diagram tooling must not import backend, formal, or standard-libra
   '(backend/|formal/|std/)' rhodium/diagram
 fail_matches "core must not import optional diagram tooling" \
   '^[[:space:]]+"[^"]*diagram/' rhodium/core
+fail_matches "core must not import optional event tooling" \
+  '^[[:space:]]+"[^"]*event/' rhodium/core
 fail_matches "frontend must not import optional diagram tooling" \
   '^[[:space:]]+"[^"]*diagram/' rhodium/frontend
+fail_matches "frontend must not import optional event tooling" \
+  '^[[:space:]]+"[^"]*event/' rhodium/frontend
 fail_matches "backends must not import optional diagram tooling" \
   '^[[:space:]]+"[^"]*diagram/' rhodium/backend
+fail_matches "backends must not import optional event tooling" \
+  '^[[:space:]]+"[^"]*event/' rhodium/backend
+fail_matches "diagram tooling must not import optional event tooling" \
+  '^[[:space:]]+"[^"]*event/' rhodium/diagram
+fail_matches "event tooling must not import backend, formal, or standard-library modules" \
+  '(backend/|formal/|std/)' rhodium/event
 fail_matches "standard library must not import Rhodium implementation packages" \
-  '^[[:space:]]+.*(core/|analysis/|backend/|frontend/|formal/)' rhodium/std
+  '^[[:space:]]+.*(core/|analysis/|backend/|event/|frontend/|formal/)' rhodium/std
 fail_matches "Rhodium packages must not import the external CHI domain library" \
   '^[[:space:]]+.*chi/' rhodium
 fail_matches "Rhodium packages must not import the external HardFloat domain library" \

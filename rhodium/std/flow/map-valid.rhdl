@@ -13,7 +13,8 @@ fun finish_map_valid_handle(input_link :: Handle,
   output_link.left.field("bits") <== mapped_bits
   describe_interface_transform(
     interface_transform(input_link, output_link),
-    "map-valid"
+    "map-valid",
+    ~trace_model: interface_trace_passthrough()
   )
 
 // Mapping is purely combinational because Valid has no readiness path or

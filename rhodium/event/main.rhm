@@ -1,0 +1,12 @@
+#lang rhombus
+// Exposes static event dependency inference and manifest serialization.
+
+import:
+  "model.rhm" open
+  "analyze.rhm" open
+  "json.rhm" open
+
+export:
+  all_from("model.rhm")
+  all_from("analyze.rhm")
+  all_from("json.rhm")

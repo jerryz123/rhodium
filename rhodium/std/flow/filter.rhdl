@@ -19,7 +19,8 @@ fun finish_filter_flow_handle(input_link :: Handle,
   input_endpoint.field("ready") <== !keep ||| output_endpoint.field("ready")
   describe_interface_transform(
     interface_transform(input_link, output_link),
-    "filter"
+    "filter",
+    ~trace_model: interface_trace_passthrough()
   )
 
 expr.macro

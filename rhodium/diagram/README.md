@@ -117,6 +117,11 @@ terminals.
 - `diagram_to_json`, `diagram_module_to_json`, `diagram_to_dot`, and
   `diagram_module_to_dot`.
 
+`event_annotation` and `trace_model` on a `DiagramBlock` retain optional typed
+interface metadata for downstream compiler analyses. They are intentionally
+omitted from diagram JSON; that schema remains a logical visualization view
+rather than an executable tracing contract.
+
 JSON is the stable machine-readable interchange. `diagram_to_json` emits one
 object with `top` and `modules`; `diagram_module_to_json` emits one module
 object. Each string ends with a newline. The serialized schema is:

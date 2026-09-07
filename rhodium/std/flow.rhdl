@@ -37,6 +37,7 @@ import:
   lib("rhodium/std/flow/filter.rhdl") open
   lib("rhodium/std/flow/gate.rhdl") open
   lib("rhodium/std/flow/parallel.rhdl") open
+  lib("rhodium/std/flow/event.rhdl") open
 
 export:
   Valid
@@ -137,3 +138,5 @@ export:
   filter_flow
   gate_flow
   parallel
+  trace_event
+  trace_valid_event

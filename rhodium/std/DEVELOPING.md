@@ -82,6 +82,7 @@ flowchart TD
 | Decode emission | [`decode/generator.rhdl`](decode/generator.rhdl), [`decode/pattern-value.rhdl`](decode/pattern-value.rhdl) | `rtl.decode` construction and the explicit materialization of output don't-cares |
 | Flow type resolution | [`flow/ready-valid-support.rhdl`](flow/ready-valid-support.rhdl) | Normalizing payload, ready-valid, valid-only, and control-only sources |
 | Flow components | Focused modules under [`flow/`](flow/) | Circuit state, handshakes, arbitration, routing, conversion, and assertions |
+| Flow event annotations | [`flow/event.rhdl`](flow/event.rhdl) | Transparent ready-valid checkpoints consumed by optional event analysis |
 | Flow aggregation | [`flow.rhdl`](flow.rhdl) | Imports and exports only; no component semantics |
 | Generic utilities and storage | Top-level focused modules and [`cdc/`](cdc/) | Host utilities or reusable circuits that do not require the flow facade |
 

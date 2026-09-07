@@ -1,0 +1,213 @@
+#lang rhombus
+// Infers nearest annotated event dependencies from hierarchical logical flow structure.
+
+import:
+  "../core/ir.rhm".DesignElaboration
+  "../diagram/main.rhm" open
+  "model.rhm" open
+
+export:
+  infer_event_manifest
+
+class FlowArc(source :: String,
+              destination :: String,
+              transform :: False || String = #false)
+
+class EventCandidate(site :: EventSite,
+                     transform_path :: List.of(String))
+
+fun occurrence_prefix(instance_path :: List.of(String)):
+  String.join(instance_path, "/")
+
+fun terminal_id(instance_path :: List.of(String),
+                block_id :: String,
+                port_id :: String):
+  occurrence_prefix(instance_path) ++ "::" ++ block_id ++ "::" ++ port_id
+
+fun transform_port(block :: DiagramBlock,
+                   side :: String,
+                   index :: Nat,
+                   count :: Nat):
+  def port_id:
+    if count == 1
+    | side
+    | side ++ "[" ++ to_string(index) ++ "]"
+  block.ports.find(
+    fun (port): port.compound && port.id == port_id
+  )
+
+fun boundary_external_name(block :: DiagramBlock, port :: DiagramPort):
+  cond
+  | block.kind == "boundary" || block.kind == "boundary-array":
+      def suffix = port.name.replace("interface.", "").replace("interface", "")
+      if block.ports.length() == 1
+      | block.label
+      | if suffix.starts_with("[")
+        | block.label ++ suffix
+        | block.label ++ "." ++ suffix
+  | block.kind == "input" || block.kind == "output": block.label
+  | ~else: #false
+
+fun same_dependency(left :: EventDependency,
+                    right :: EventDependency):
+  left.parent == right.parent && left.child == right.child && left.transform_path == right.transform_path
+
+fun infer_event_manifest(logical :: DesignElaboration):
+  def view = diagram(logical)
+  def incoming = MutableMap{}
+  def event_by_output = MutableMap{}
+  def site_inputs = MutableMap{}
+  def unsupported_by_output = MutableMap{}
+  def mutable sites = []
+
+  fun add_arc(source :: String,
+              destination :: String,
+              transform :: False || String = #false):
+    incoming[destination] := incoming.get(destination, []) ++ [
+      FlowArc(source, destination, transform)
+    ]
+
+  fun expand(module_diagram :: DiagramModule,
+             instance_path :: List.of(String)):
+    for (channel in module_diagram.channels):
+      when channel.kind == "interface"
+      | add_arc(
+          terminal_id(instance_path, channel.source_block, channel.source_port),
+          terminal_id(instance_path,
+                      channel.destination_block,
+                      channel.destination_port)
+        )
+
+    for (flow_block in module_diagram.blocks):
+      when flow_block.kind == "flow"
+      | def trace_model = flow_block.trace_model
+        def input_count = flow_block.ports.filter(
+          ~keep: fun (port): port.compound && (
+            port.id == "in" || port.id.starts_with("in[")
+          )
+        ).length()
+        def output_count = flow_block.ports.filter(
+          ~keep: fun (port): port.compound && (
+            port.id == "out" || port.id.starts_with("out[")
+          )
+        ).length()
+        when input_count == 0 || output_count == 0
+        | error(~who: #'infer_event_manifest,
+                "flow transform " ++ flow_block.label ++ " has no flat interface route")
+        def input_ports:
+          for List (input_index in 0..input_count):
+            transform_port(flow_block, "in", input_index, input_count)
+        def output_ports:
+          for List (output_index in 0..output_count):
+            transform_port(flow_block, "out", output_index, output_count)
+        when input_ports.find(fun (port): !port) || output_ports.find(fun (port): !port)
+        | error(~who: #'infer_event_manifest,
+                "flow transform " ++ flow_block.label ++ " uses a nested or incomplete endpoint shape")
+
+        if flow_block.event_annotation
+        | block:
+            def annotation = flow_block.event_annotation
+            def site_id = occurrence_prefix(instance_path) ++ "/event:" ++ to_string(annotation.site_index)
+            def site = EventSite(site_id,
+                                 annotation.label,
+                                 module_diagram.name,
+                                 instance_path,
+                                 annotation.site_index,
+                                 input_ports[0].protocol,
+                                 if annotation.payload | annotation.payload.type.describe() | #false,
+                                 if annotation.payload | annotation.payload.type.packed_width() | #false,
+                                 annotation.terminal,
+                                 annotation.location.describe())
+            sites := sites ++ [site]
+            site_inputs[site.id] := input_ports.map(
+              fun (port): terminal_id(instance_path, flow_block.id, port.id)
+            )
+            for (port in output_ports):
+              event_by_output[terminal_id(instance_path, flow_block.id, port.id)] := site
+        | if trace_model
+          | for (route in trace_model.routes):
+              def input_port = input_ports[route.input_index]
+              def output_port = output_ports[route.output_index]
+              add_arc(
+                terminal_id(instance_path, flow_block.id, input_port.id),
+                terminal_id(instance_path, flow_block.id, output_port.id),
+                occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label
+              )
+          | for (port in output_ports):
+              unsupported_by_output[
+                terminal_id(instance_path, flow_block.id, port.id)
+              ] := occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label
+
+    for (instance_block in module_diagram.blocks):
+      when instance_block.kind == "instance" && instance_block.child_module
+      | def child = view.module(instance_block.child_module)
+        unless child
+        | error(~who: #'infer_event_manifest,
+                "event analysis cannot find child module " ++ instance_block.child_module)
+        def child_path = instance_path ++ [instance_block.label]
+        expand(child, child_path)
+        def mutable child_boundary_ports = []
+        for (child_block in child.blocks):
+          for (child_port in child_block.ports):
+            def external_name = boundary_external_name(child_block, child_port)
+            when external_name
+            | child_boundary_ports := child_boundary_ports ++ [
+                [external_name, child_block, child_port]
+              ]
+        for (parent_port in instance_block.ports):
+          def matched = child_boundary_ports.find(
+            fun (entry): entry[0] == parent_port.name
+          )
+          when matched
+          | def parent_terminal = terminal_id(instance_path, instance_block.id, parent_port.id)
+            def child_terminal = terminal_id(child_path, matched[1].id, matched[2].id)
+            if parent_port.direction == "input"
+            | add_arc(parent_terminal, child_terminal)
+            | add_arc(child_terminal, parent_terminal)
+
+  def top = view.module(logical.top.name)
+  unless top
+  | error(~who: #'infer_event_manifest,
+          "event analysis cannot find top module " ++ logical.top.name)
+  expand(top, [logical.top.name])
+
+  fun nearest_events(vertex :: String,
+                     visiting :: List.of(String) = [],
+                     reverse_transform_path :: List.of(String) = []):
+    def event = event_by_output.get(vertex, #false)
+    if event
+    | [EventCandidate(event, reverse_transform_path.reverse())]
+    | block:
+        def unsupported = unsupported_by_output.get(vertex, #false)
+        when unsupported
+        | error(~who: #'infer_event_manifest,
+                "event dependency crosses transform without a trace model: " ++ unsupported)
+        if vertex in visiting
+        | []
+        | block:
+            def mutable candidates = []
+            for (arc in incoming.get(vertex, [])):
+              def next_path:
+                if arc.transform
+                | reverse_transform_path ++ [arc.transform]
+                | reverse_transform_path
+              candidates := candidates ++ nearest_events(
+                arc.source,
+                visiting ++ [vertex],
+                next_path
+              )
+            candidates
+
+  def mutable dependencies = []
+  for (site in sites):
+    for (input in site_inputs.get(site.id, [])):
+      for (candidate in nearest_events(input)):
+        def dependency = EventDependency(candidate.site.id,
+                                         site.id,
+                                         candidate.transform_path)
+        unless dependencies.find(
+          fun (existing): same_dependency(existing, dependency)
+        )
+        | dependencies := dependencies ++ [dependency]
+
+  EventManifest(logical, sites, dependencies)

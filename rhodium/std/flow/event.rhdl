@@ -1,0 +1,57 @@
+#lang rhodium
+// Defines transparent user-annotated event checkpoints for static flow analysis.
+
+import:
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+
+// Preserves a ready-valid transaction while attaching a compiler-visible event
+// site to the identity transform.
+fun trace_event(label :: String,
+                ~terminal: terminal :: Boolean = #false)
+  :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
+  fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
+    def protocol = flow_protocol_type(source)
+    def input_link = interface_link(protocol, "event_input")
+    def output_link = interface_link(protocol, "event_output")
+    def input_endpoint = input_link.right
+    def output_endpoint = output_link.left
+    output_endpoint.field("valid") <== input_endpoint.field("valid")
+    output_endpoint.field("bits") <== input_endpoint.field("bits")
+    input_endpoint.field("ready") <== output_endpoint.field("ready")
+    finish_interface_transform(
+      source,
+      describe_interface_event(
+        interface_transform(input_link, output_link),
+        label,
+        ~payload: input_endpoint.field("bits"),
+        ~terminal
+      )
+    )
+
+// Valid has no reverse readiness member, so its transparent event checkpoint
+// forwards only the offer and payload.
+fun trace_valid_event(label :: String,
+                      ~terminal: terminal :: Boolean = #false)
+  :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
+  fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
+    def protocol = valid_flow_protocol_type(source)
+    def input_link = interface_link(protocol, "valid_event_input")
+    def output_link = interface_link(protocol, "valid_event_output")
+    def input_endpoint = input_link.right
+    def output_endpoint = output_link.left
+    output_endpoint.field("valid") <== input_endpoint.field("valid")
+    output_endpoint.field("bits") <== input_endpoint.field("bits")
+    finish_interface_transform(
+      source,
+      describe_interface_event(
+        interface_transform(input_link, output_link),
+        label,
+        ~payload: input_endpoint.field("bits"),
+        ~terminal
+      )
+    )
+
+export:
+  trace_event
+  trace_valid_event
