@@ -26,7 +26,7 @@ cleanup() {
 trap cleanup EXIT
 
 env PLTCOMPILEDROOTS="$compiled_root" PLTCOLLECTS="$repo_dir": \
-  racket -y "$repo_dir/socs/tests/write-device-trees.rhm" "$fixture_dir"
+  "$repo_dir/tools/run-racket.sh" "$repo_dir/socs/tests/write-device-trees.rhm" "$fixture_dir"
 
 for name in simple mini tiled; do
   dtc -I dtb -O dts -o "$fixture_dir/$name-roundtrip.dts" "$fixture_dir/$name.dtb"

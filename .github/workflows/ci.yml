@@ -177,9 +177,7 @@ jobs:
           rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
           artifact-name: rhodium-bytecode-${{ github.sha }}
       - name: Install Verilator
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes verilator
+        uses: ./.github/actions/setup-verilator
       - name: Cache CIRCT
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -220,8 +218,9 @@ jobs:
             cmake \
             device-tree-compiler \
             gcc-riscv64-unknown-elf \
-            verilator \
             zlib1g-dev
+      - name: Install Verilator
+        uses: ./.github/actions/setup-verilator
       - name: Cache FESVR
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

@@ -2,9 +2,15 @@
 #include "../../../rhodium/event/runtime/rhodium_event.h"
 #include <array>
 #include <deque>
-#include <stdexcept>
+#include <cstdio>
+#include <cstdlib>
 
 namespace {
+[[noreturn]] void fail(const std::string& message) {
+  std::fprintf(stderr, "%s\n", message.c_str());
+  std::abort();
+}
+
 struct Pending {
   std::uint64_t cycle, parent;
   std::uint32_t payload;
@@ -40,11 +46,11 @@ extern "C" void event_pipeline_sample(std::uint32_t reset, std::uint32_t valid,
   }
   const bool output = !completed.empty() && completed.front().cycle == cycle;
   if (output != static_cast<bool>(out_valid))
-    throw std::runtime_error("fixed pipeline valid mismatch at cycle " + std::to_string(cycle));
+    fail("fixed pipeline valid mismatch at cycle " + std::to_string(cycle));
   if (output) {
     const auto item = completed.front();
     completed.pop_front();
-    if (out_payload != item.payload) throw std::runtime_error("fixed pipeline payload mismatch");
+    if (out_payload != item.payload) fail("fixed pipeline payload mismatch");
     node(1, item.payload, 2, item.parent);
   }
   if (!middle.empty() && middle.front().cycle == cycle) {
@@ -63,6 +69,6 @@ extern "C" void event_pipeline_sample(std::uint32_t reset, std::uint32_t valid,
 
 extern "C" void event_pipeline_check() {
   if (rhodium_event::graph().json() != expected.json())
-    throw std::runtime_error("fixed pipeline event graph mismatch\nactual: "
-                             + rhodium_event::graph().json() + "expected: " + expected.json());
+    fail("fixed pipeline event graph mismatch\nactual: "
+         + rhodium_event::graph().json() + "expected: " + expected.json());
 }

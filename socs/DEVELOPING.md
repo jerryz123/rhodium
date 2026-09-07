@@ -96,6 +96,12 @@ properties with `fdtdump` and `fdtget`. It also checks that the same native DTB
 bytes are finalized into each SoC's BootROM image. Generated artifacts remain
 temporary.
 
+The DTB subprocess uses `tools/run-racket.sh`: local runs rebuild changed
+dependencies, while CI reuses its verified exact-commit bytecode artifact.
+Keep this entrypoint in the root Makefile's compilation manifest.
+`bash socs/tests/check-boundaries.sh` exercises import rejection and ensures
+enumeration/search errors cannot silently pass the boundary audit.
+
 Use the package-local target while iterating:
 
 ```sh

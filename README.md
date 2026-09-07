@@ -44,6 +44,17 @@ the ignored `.tools` directory:
 make setup-circt
 ```
 
+For simulation, build the pinned Verilator 5.038 (requires a C++ toolchain,
+Autoconf, Bison, Flex, Make, Perl, and Python 3):
+
+```sh
+make setup-verilator
+export PATH="$PWD/.tools/verilator/bin:$PATH"
+```
+
+Root Make targets also prefer this installation automatically. CI uses the
+same installer and verifies the version on cache hits as well as fresh builds.
+
 On other platforms, install CIRCT separately and set `CIRCT_OPT` to the path of
 `circt-opt` when running backend integration tests.
 

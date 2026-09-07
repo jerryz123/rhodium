@@ -91,6 +91,12 @@ bash tests/backend/run-circt.sh --group protocols --simulate-only
 
 ## Toolchain and exact-reference behavior
 
+Use the repository's [pinned Verilator setup](../../README.md#requirements)
+for simulations. Verilator 5.020 miscompiles stimulus propagation in several
+event fixtures; CI and the local installer use 5.038. The installer verifies
+the source checksum and installed version, and CI caches the installation by
+OS, architecture, and installer contents.
+
 Install the repository's pinned CIRCT release with:
 
 ```sh

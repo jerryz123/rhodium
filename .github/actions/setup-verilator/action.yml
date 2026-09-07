@@ -1,0 +1,23 @@
+# Installs and caches the repository-pinned simulator for every native CI lane.
+name: Set up Verilator
+description: Build or restore the pinned Verilator and verify it before simulation.
+runs:
+  using: composite
+  steps:
+    - name: Cache Verilator
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .tools/verilator
+        key: "${{ runner.os }}-${{ runner.arch }}-verilator-${{ hashFiles('tools/install-verilator.sh') }}"
+    - name: Install build dependencies
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes autoconf bison flex build-essential python3
+    - name: Install and verify Verilator
+      shell: bash
+      run: |
+        make setup-verilator
+        echo "$GITHUB_WORKSPACE/.tools/verilator/bin" >> "$GITHUB_PATH"
