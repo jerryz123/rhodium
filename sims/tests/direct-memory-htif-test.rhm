@@ -12,7 +12,7 @@ def fesvr_module = fesvr.design.modules.find(
   fun (module_def): module_def.name == "DirectMemoryHTIF"
 )
 def fesvr_rv32_design = embedded.run_elaboration(
-  fun (): fesvr.DirectMemoryHTIF(XLen.X32)
+  fun (): fesvr.DirectMemoryHTIF(XLen.X32, 0x4000)
 )
 def fesvr_register = fesvr_module.operations.find(
   fun (operation): operation.opcode == "sim.dpi_register"
@@ -23,21 +23,21 @@ def result_names = ["request_valid",
                     "request_data",
                     "request_length",
                     "response_ready",
-                    "start_valid",
-                    "start_entry",
                     "exit"]
 
 check:
   fesvr_import.name ~is "rhodium_htif_tick"
   fesvr_import.input_names ~is [
-    "reset", "target_xlen", "request_ready", "response_valid",
-    "response_data", "response_status", "start_ready"
+    "reset", "target_xlen", "boot_address_register", "request_ready", "response_valid",
+    "response_data", "response_status"
   ]
   fesvr_import.results.map(fun (result): result.name) ~is result_names
   type_equal(fesvr_import.results[2].type, Bits(64)) ~is #true
   type_equal(fesvr_import.results[3].type, Bits(64)) ~is #true
   type_equal(fesvr_import.results[4].type, Bits(8)) ~is #true
-  type_equal(fesvr_import.results[7].type, Bits(64)) ~is #true
-  fesvr_register.results.length() ~is 9
+  type_equal(fesvr_import.results[6].type, Bits(32)) ~is #true
+  fesvr_register.results.length() ~is 7
+  embedded.run_elaboration(fun (): fesvr.DirectMemoryHTIF(XLen.X64, 3)) ~throws "aligned 64-bit address"
+  embedded.run_elaboration(fun (): fesvr.DirectMemoryHTIF(XLen.X64, 0x10000000000000000)) ~throws "aligned 64-bit address"
   verify_design(fesvr.design) ~is #void
   verify_design(fesvr_rv32_design) ~is #void

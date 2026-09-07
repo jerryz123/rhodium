@@ -1,4 +1,4 @@
-// Declares exact-width, one-outstanding FESVR transactions and target error reporting.
+// Declares exact-width FESVR transactions and software-owned boot entry publication.
 #pragma once
 
 #include <cstddef>
@@ -18,21 +18,17 @@ struct DirectMemoryRequest {
 
 class DirectMemoryHtif : public htif_t {
  public:
-  DirectMemoryHtif(int argc, char** argv, int expected_xlen);
+  DirectMemoryHtif(int argc, char** argv, int expected_xlen, std::uint64_t boot_address_register);
   ~DirectMemoryHtif() override = default;
 
   void tick(bool request_ready,
             bool response_valid,
             std::uint64_t response_data,
-            std::uint8_t response_status,
-            bool start_ready);
+            std::uint8_t response_status);
 
   bool request_valid() const;
   const DirectMemoryRequest& request() const;
   bool response_ready() const;
-
-  bool start_valid() const;
-  std::uint64_t start_entry() const;
 
   std::uint32_t exit_word();
 
@@ -62,9 +58,9 @@ class DirectMemoryHtif : public htif_t {
   std::uint8_t response_status_ = 0;
   bool failed_ = false;
 
-  bool start_pending_ = false;
-  bool start_exposed_ = false;
-  std::uint64_t start_entry_ = 0;
+  const int target_xlen_;
+  const std::uint64_t boot_address_register_;
+  bool loading_ = true;
 };
 
 }  // namespace rhodium::fesvr

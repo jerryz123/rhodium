@@ -107,9 +107,11 @@ argument vector through VPI to `DirectMemoryHtif`. FESVR owns ELF parsing,
 segment loading, entry-point discovery, `tohost`/`fromhost` polling, and exit
 status; the Makefile and RTL do not implement a separate binary loader.
 
-After ELF loading completes, each harness writes the reported entry point to
-the SoC's configured 64-bit boot-address register through its CHI host port.
-Only successful final write completion acknowledges the HTIF entry notification.
+After ELF loading completes, the C++ transport writes the reported entry point
+to the SoC's configured 64-bit boot-address register through the ordinary memory
+request path. The harness supplies that address through DPI from its SoC
+configuration. Normal HTIF polling starts only after successful final write
+completion; hardware contains no boot-specific sequencer or entry handshake.
 Every hart starts at the ROM reset address as reset deasserts; hart zero polls
 the initially zero register while loading proceeds, then loads the entry from the
 register and jumps to it with `a0 = mhartid` and `a1 = embedded DTB address`.

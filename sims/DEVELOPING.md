@@ -142,17 +142,21 @@ exact MMIO, response validation, and backpressure. `host-mmio-test` loads ELF
 data into the UART scratch register, verifies the published ELF entry and
 preserved UART value, and reads a device signature back through FESVR.
 
-`FesvrBootAccess` owns startup arbitration around the existing `FesvrCHIAccess`
-engine. It drains loading requests and responses, writes eight bytes to the
-configured register, and consumes the successful completion. Only then is the native HTIF entry notification
-acknowledged and ordinary host polling resumed. A startup failure latches a
-failure exit in `FesvrRequester`; the generic C++ transport has no SoC address.
-The `fesvr-boot` backend fixture tests this same DPI-independent composition
-with a relocated register, CHI request/DBID/data/completion stalls, host-response
-backpressure, target/protocol failures, RV32 entry overflow, zero entries,
-loading writes overlapping the reserved boot register, and
-reset. `boot-test` exercises actual FESVR and the indirect ROM at two different
-ELF entry points on every SoC. Both tests are included in their owning CI jobs.
+`DirectMemoryHtif::reset()` is FESVR's post-loading startup callback, not the
+hardware reset signal. It validates the entry and publishes it with one blocking
+eight-byte transaction before ordinary HTIF polling resumes. Every loading
+transaction is also blocking, so no separate drain or boot arbitration state
+machine is needed. Loading writes and clears overlapping the configured register
+are rejected in C++; ordinary post-publication accesses remain allowed.
+The register address and XLEN come from the harness through DPI, not native
+constants or independent command-line settings. `FesvrRequester` connects the
+transport directly to the generic `FesvrCHIAccess`; target/protocol failures
+return through its normal response and become transport failure exits.
+
+The native `transport-test` covers relocated registers, request/response stalls,
+loading and publication failures, RV32/RV64 entries, zero entries, and overlapping
+writes and clears. `boot-test` exercises actual FESVR and the indirect ROM at two
+different ELF entry points on every SoC. These tests run in simulation CI.
 
 The Zicboz payload checks all 64 offsets and neighboring blocks through the
 normal FESVR flow. Its final signature also lets FESVR read the dirty cache

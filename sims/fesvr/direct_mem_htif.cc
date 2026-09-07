@@ -1,4 +1,4 @@
-// Preserves exact FESVR byte ranges and reports target access failures without extra MMIO reads.
+// Loads exact FESVR byte ranges and publishes the entry through the ordinary memory transport.
 #include "direct_mem_htif.h"
 
 #include <stdexcept>
@@ -34,10 +34,15 @@ void require_transfer(addr_t address, std::size_t length) {
 
 }  // namespace
 
-DirectMemoryHtif::DirectMemoryHtif(int argc, char** argv, int expected_xlen)
-    : htif_t(argc, argv) {
+DirectMemoryHtif::DirectMemoryHtif(int argc, char** argv, int expected_xlen,
+                                 std::uint64_t boot_address_register)
+    : htif_t(argc, argv), target_xlen_(expected_xlen),
+      boot_address_register_(boot_address_register) {
   if (expected_xlen != 32 && expected_xlen != 64) {
     throw std::invalid_argument("direct-memory HTIF target XLEN must be 32 or 64");
+  }
+  if (boot_address_register % kMaxBytes != 0) {
+    throw std::invalid_argument("boot-address register must be eight-byte aligned");
   }
   set_expected_xlen(expected_xlen);
   target_context_ = context_t::current();
@@ -60,8 +65,7 @@ void DirectMemoryHtif::host_thread_main(void* argument) {
 void DirectMemoryHtif::tick(bool request_ready,
                             bool response_valid,
                             std::uint64_t response_data,
-                            std::uint8_t response_status,
-                            bool start_ready) {
+                            std::uint8_t response_status) {
   if (request_pending_) {
     if (!request_exposed_) {
       request_exposed_ = true;
@@ -75,15 +79,6 @@ void DirectMemoryHtif::tick(bool request_ready,
       request_pending_ = false;
       request_exposed_ = false;
       request_accepted_ = false;
-    }
-  }
-
-  if (start_pending_) {
-    if (!start_exposed_) {
-      start_exposed_ = true;
-    } else if (start_ready) {
-      start_pending_ = false;
-      start_exposed_ = false;
     }
   }
 
@@ -102,26 +97,19 @@ bool DirectMemoryHtif::response_ready() const {
   return request_pending_ && request_accepted_;
 }
 
-bool DirectMemoryHtif::start_valid() const {
-  return start_pending_ && start_exposed_;
-}
-
-std::uint64_t DirectMemoryHtif::start_entry() const {
-  return start_entry_;
-}
-
 std::uint32_t DirectMemoryHtif::exit_word() {
   if (failed_) return 3;
   return done() ? (static_cast<std::uint32_t>(exit_code()) << 1) | 1 : 0;
 }
 
 void DirectMemoryHtif::reset() {
-  start_entry_ = get_entry_point();
-  start_pending_ = true;
-  start_exposed_ = false;
-  while (start_pending_) {
-    switch_to_target();
-  }
+  // FESVR invokes this startup callback after all blocking image writes finish.
+  const auto entry = get_entry_point();
+  if (entry == 0 || (target_xlen_ == 32 && entry > UINT32_MAX))
+    throw std::runtime_error("boot entry must be nonzero and fit target XLEN");
+  loading_ = false;
+  // The register is always 64 bits, including on RV32. Wait for final completion.
+  transact(true, boot_address_register_, entry, kMaxBytes);
 }
 
 void DirectMemoryHtif::read_chunk(addr_t address,
@@ -167,6 +155,11 @@ std::uint64_t DirectMemoryHtif::transact(bool write,
                                          std::uint64_t data,
                                          std::size_t length) {
   require_transfer(address, length);
+  // Compare inclusive ends after require_transfer checks wrapping; the aligned
+  // eight-byte register also fits at the very top of the address space.
+  if (loading_ && write && address <= boot_address_register_ + kMaxBytes - 1 &&
+      address + length - 1 >= boot_address_register_)
+    throw std::runtime_error("loading write overlaps the reserved boot-address register");
   if (request_pending_) {
     throw std::logic_error("direct-memory HTIF permits only one outstanding request");
   }
