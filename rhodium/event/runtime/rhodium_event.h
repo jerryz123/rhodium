@@ -1,10 +1,11 @@
-// Defines manifest-bound event snapshots, graph storage, and the fixed-width DPI ABI.
+// Defines manifest-bound snapshots with optional epoch timing and the fixed DPI ABI.
 #ifndef RHODIUM_EVENT_H
 #define RHODIUM_EVENT_H
 
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <tuple>
@@ -32,6 +33,11 @@ struct Manifest {
   std::set<std::pair<std::uint32_t, std::uint32_t>> dependencies; // parent, child
 };
 class Snapshot;
+// Run metadata, independent of circuit topology. Cycle zero means timestamp zero.
+struct TraceTiming {
+  std::uint64_t clock_frequency_hz = 0;
+  std::uint64_t epoch_id = 0;
+};
 struct Graph {
   std::map<Ref, Node> nodes;
   std::set<std::pair<Ref, Ref>> edges; // parent, child
@@ -39,6 +45,7 @@ struct Graph {
   void validate() const;
   std::string json() const;
   void bind_manifest(const Manifest& manifest);
+  void bind_timing(const TraceTiming& timing);
   Snapshot snapshot() const;
   void record_node(Ref ref, std::uint64_t cycle, std::uint32_t width);
   void record_payload(Ref ref, std::uint32_t index, std::uint32_t word);
@@ -47,7 +54,9 @@ struct Graph {
 private:
   friend class Snapshot;
   std::shared_ptr<const Manifest> manifest_;
+  std::optional<TraceTiming> timing_;
   bool started_ = false;
+  bool epoch_active_ = false;
 };
 // Owns a validated copy: later callbacks and reset cannot change this view.
 class Snapshot {
@@ -55,6 +64,7 @@ public:
   const std::map<Ref, Node>& nodes() const { return graph_.nodes; }
   const std::set<std::pair<Ref, Ref>>& edges() const { return graph_.edges; }
   const Manifest& manifest() const { return *graph_.manifest_; }
+  const std::optional<TraceTiming>& timing() const { return graph_.timing_; }
   std::string json() const;
 private:
   friend struct Graph;

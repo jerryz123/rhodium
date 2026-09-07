@@ -1,4 +1,4 @@
-<!-- Explains event inference, instrumentation, manifest-bound snapshots, and validation. -->
+<!-- Explains event inference, instrumentation, timing-aware snapshots, and validation. -->
 
 # Developing event graphs
 
@@ -245,6 +245,13 @@ widths and allowed static edges. Cycle order allows equality. Do not require
 all possible static parents: arbitration selects a subset dynamically.
 `Snapshot` owns a validated graph copy, exposes only const views, and embeds
 the bound manifest in its JSON export. It has no visualization dependencies.
+Run timing belongs to the collector/snapshot envelope, not `EventManifest` or
+instrumentation configuration. Store an owned optional timing value; copying a
+graph into a snapshot also freezes its epoch. Track whether an epoch has run
+since the last asserted reset so reset held over several cycles advances only
+once. Check epoch exhaustion before clearing data. The standalone collector
+test owns binding-order, missing/invalid timing, exact JSON integers, initial
+and repeated reset, empty epochs, overflow, and saved-timing coverage.
 
 `bash tests/backend/run-event-collector.sh` exercises the collector without
 CIRCT/Verilator, including all 120 permutations of a small callback set,

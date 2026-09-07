@@ -1,4 +1,4 @@
-// Collects order-independent DPI callbacks and exports manifest-validated snapshots.
+// Collects DPI callbacks and exports validated snapshots with optional epoch timing.
 #include "rhodium_event.h"
 
 #include <sstream>
@@ -8,6 +8,13 @@
 namespace rhodium_event {
 Graph& graph() { static Graph value; return value; }
 void Graph::clear() { nodes.clear(); edges.clear(); }
+void Graph::bind_timing(const TraceTiming& timing) {
+  if (timing_ || started_ || !nodes.empty() || !edges.empty())
+    throw std::runtime_error("event timing must be bound once before callbacks");
+  if (!timing.clock_frequency_hz)
+    throw std::runtime_error("event clock frequency must be positive");
+  timing_ = timing;
+}
 void Graph::bind_manifest(const Manifest& manifest) {
   if (manifest_ || started_ || !nodes.empty() || !edges.empty())
     throw std::runtime_error("event manifest must be bound once before callbacks");
@@ -51,8 +58,15 @@ Snapshot Graph::snapshot() const {
   return Snapshot(*this);
 }
 std::string Snapshot::json() const {
+  std::string metadata;
+  if (timing()) {
+    metadata = ",\"timing\":{\"clock_frequency_hz\":\"" +
+               std::to_string(timing()->clock_frequency_hz) + "\",\"epoch_id\":\"" +
+               std::to_string(timing()->epoch_id) +
+               "\",\"origin\":\"cycle-zero\"}";
+  }
   return "{\"format\":\"rhodium-event-trace\",\"version\":1,\"manifest\":" +
-         manifest().json + ",\"occurrences\":" + graph_.json() + "}\n";
+         manifest().json + metadata + ",\"occurrences\":" + graph_.json() + "}\n";
 }
 std::string Graph::json() const {
   validate();
@@ -87,6 +101,7 @@ std::string Graph::json() const {
 }
 void Graph::record_node(Ref ref, std::uint64_t cycle, std::uint32_t width) {
   started_ = true;
+  epoch_active_ = true;
   auto& node = nodes[ref];
   if (node.present) throw std::runtime_error("duplicate event identity");
   node.present = true;
@@ -95,16 +110,28 @@ void Graph::record_node(Ref ref, std::uint64_t cycle, std::uint32_t width) {
 }
 void Graph::record_payload(Ref ref, std::uint32_t index, std::uint32_t word) {
   started_ = true;
+  epoch_active_ = true;
   auto& words = nodes[ref].words;
   if (!words.emplace(index, word).second) throw std::runtime_error("duplicate event payload word");
 }
 void Graph::record_edge(Ref parent, Ref child) {
   started_ = true;
+  epoch_active_ = true;
   edges.insert({parent, child});
 }
 void Graph::reset(bool active) {
   started_ = true;
-  if (active) clear();
+  if (active) {
+    if (epoch_active_ && timing_) {
+      if (timing_->epoch_id == std::numeric_limits<std::uint64_t>::max())
+        throw std::runtime_error("event epoch identity exhausted");
+      ++timing_->epoch_id;
+    }
+    clear();
+    epoch_active_ = false;
+  } else {
+    epoch_active_ = true;
+  }
 }
 }
 

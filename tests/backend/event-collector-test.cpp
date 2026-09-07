@@ -1,9 +1,10 @@
-// Tests manifest validation, callback ordering, stable snapshots, and reset epochs.
+// Tests manifest validation, callback ordering, snapshot timing, and reset epochs.
 #include "../../rhodium/event/runtime/rhodium_event.h"
 #include <algorithm>
 #include <array>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <type_traits>
 
@@ -38,6 +39,8 @@ int main() {
   static_assert(std::is_const_v<std::remove_reference_t<decltype(std::declval<Snapshot>().nodes())>>);
   static_assert(std::is_const_v<std::remove_reference_t<decltype(std::declval<Snapshot>().edges())>>);
   static_assert(std::is_const_v<std::remove_reference_t<decltype(std::declval<Snapshot>().manifest())>>);
+  static_assert(std::is_const_v<std::remove_reference_t<decltype(std::declval<Snapshot>().timing())>>);
+  require(!populated().snapshot().timing());
   const auto expected = populated().snapshot().json();
   // All callback permutations, including duplicate edges before either node.
   std::array<unsigned, 5> order{0, 1, 2, 3, 4};
@@ -100,10 +103,59 @@ int main() {
   auto owned = descriptor(); empty.bind_manifest(owned); owned.payload_widths.clear();
   require(empty.snapshot().manifest().payload_widths.size() == 2);
 
+  Graph timed;
+  rejects([&] { timed.bind_timing(TraceTiming{}); }, "frequency must be positive");
+  rejects([&] { timed.bind_timing({0}); }, "frequency must be positive");
+  TraceTiming timing{100000000, 17};
+  timed.bind_timing(timing);
+  timing.clock_frequency_hz = 1;
+  timed.bind_manifest(descriptor());
+  rejects([&] { timed.bind_timing({1}); }, "once before callbacks");
+  timed.reset(true);
+  timed.reset(true);
+  require(timed.snapshot().timing()->epoch_id == 17);
+  timed.reset(false);
+  timed.record_node({0, 0}, 0, 0);
+  const auto timed_saved = timed.snapshot();
+  require(timed_saved.timing()->clock_frequency_hz == 100000000);
+  require(timed_saved.json().find("\"timing\":{\"clock_frequency_hz\":\"100000000\",\"epoch_id\":\"17\",\"origin\":\"cycle-zero\"}") != std::string::npos);
+  timed.reset(true);
+  timed.reset(true);
+  require(timed.snapshot().timing()->epoch_id == 18);
+  require(timed.snapshot().nodes().empty());
+  timed.reset(false);
+  timed.reset(true); // Even an empty running epoch gets its own identity.
+  require(timed.snapshot().timing()->epoch_id == 19);
+  require(timed_saved.timing()->epoch_id == 17);
+  require(timed_saved.nodes().size() == 1);
+  timed.record_node({0, 0}, 0, 0); // Asserted-only RTL ABI, no reset(false).
+  timed.reset(true);
+  require(timed.snapshot().timing()->epoch_id == 20);
+  timed.clear();
+  require(timed.snapshot().timing()->epoch_id == 20);
+  rejects([&] { unbound.bind_timing({1}); }, "before callbacks");
+  rejects([&] { graph.bind_timing({1}); }, "before callbacks");
+  for (unsigned op = 0; op < 3; ++op) {
+    Graph late;
+    if (op == 0) late.record_node({0, 0}, 0, 0);
+    if (op == 1) late.record_payload({0, 0}, 0, 0);
+    if (op == 2) late.record_edge({0, 0}, {1, 0});
+    late.clear();
+    rejects([&] { late.bind_timing({1}); }, "before callbacks");
+  }
+  Graph exhausted;
+  exhausted.bind_manifest(descriptor());
+  exhausted.bind_timing({1, std::numeric_limits<std::uint64_t>::max()});
+  exhausted.reset(true); // Initial reset does not consume an epoch ID.
+  exhausted.record_node({0, 0}, 0, 0);
+  rejects([&] { exhausted.reset(true); }, "epoch identity exhausted");
+  require(exhausted.snapshot().nodes().size() == 1); // No destructive wraparound.
+
   // Real ABI: same-site distinct occurrences survive deduplication; large
   // sequence/cycle identities remain decimal strings in the bundled export.
   rhodium_event::graph().bind_manifest(descriptor());
   constexpr std::uint64_t large = 9007199254740993ULL;
+  rhodium_event::graph().bind_timing({large, large});
   rhodium_event_edge(1, large, 0, large);
   rhodium_event_edge(1, large, 0, large);
   rhodium_event_edge(1, large, 0, large + 1);
@@ -115,10 +167,12 @@ int main() {
   require(snapshot.edges().size() == 2);
   require(snapshot.json().find("\"9007199254740993\"") != std::string::npos);
   require(snapshot.json() == "{\"format\":\"rhodium-event-trace\",\"version\":1,\"manifest\":" +
-          descriptor().json + ",\"occurrences\":" + rhodium_event::graph().json() + "}\n");
+          descriptor().json + ",\"timing\":{\"clock_frequency_hz\":\"9007199254740993\",\"epoch_id\":\"9007199254740993\",\"origin\":\"cycle-zero\"},\"occurrences\":" + rhodium_event::graph().json() + "}\n");
   rhodium_event_reset(1);
   require(rhodium_event::graph().snapshot().nodes().empty());
   require(snapshot.nodes().size() == 3);
+  require(snapshot.timing()->epoch_id == large);
+  require(rhodium_event::graph().snapshot().timing()->epoch_id == large + 1);
   std::cout << snapshot.json();
   std::cerr << "event collector tests passed (120 callback permutations)\n";
 }

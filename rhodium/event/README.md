@@ -1,4 +1,4 @@
-<!-- Describes inferred event lineage, DPI emission, and manifest-bound trace snapshots. -->
+<!-- Describes inferred event lineage, DPI emission, and timing-aware trace snapshots. -->
 
 # Event graphs
 
@@ -306,6 +306,50 @@ not saved snapshots; never merge reset epochs by site/sequence alone.
 The existing occurrence-only `graph().json()` and fixed DPI entry points remain
 available. Snapshots copy the current epoch and therefore require additional
 memory proportional to the retained graph.
+
+### Optional trace timing
+
+Before any simulator evaluation or callback, bind run timing separately from
+the compiler manifest (the two bindings may occur in either order):
+
+```cpp
+rhodium_event::graph().bind_timing(rhodium_event::TraceTiming{100000000, 0});
+```
+
+`TraceTiming` holds a positive 64-bit `clock_frequency_hz` and a 64-bit starting
+`epoch_id` (default zero). Binding copies the values and is allowed only once,
+before any callback including reset. There is no assumed frequency default.
+SoC integration should supply `SoCClockConfig.clock_frequency_hz`, not
+`timebase_frequency_hz`; standalone integrations supply their own frequency.
+Automatic SoC harness plumbing and Perfetto conversion are not yet provided.
+
+`Snapshot::timing()` returns a const optional timing value. Untimed snapshots
+remain supported and retain their existing JSON shape. Timed snapshots add an
+optional `timing` object to the version-1 trace envelope, outside `manifest`:
+
+```text
+"timing": {"clock_frequency_hz": "100000000", "epoch_id": "0", "origin": "cycle-zero"}
+```
+
+Both integers use decimal strings to preserve all 64 bits. The fixed origin
+means cycle zero maps to timestamp zero in each epoch; no wall-clock alignment
+is implied. At 100 MHz, each cycle represents 10 ns. The collector keeps exact
+cycles and does not perform timestamp conversion.
+
+The runtime requires C++17. An initial asserted reset preserves the supplied
+epoch ID. After a deasserted reset callback or any occurrence callback, the next asserted reset increments
+the epoch once and clears live occurrences. Holding reset asserted does not
+increment it repeatedly. Frequency survives reset, and old snapshots retain
+their original epoch and data. Epoch exhaustion is an error before clearing
+data, never wraparound. `clear()` only discards occurrences, not timing or epoch
+state; it is not a substitute for the reset callback. Capture at a settled
+boundary before asserting reset if the previous epoch must be retained. Epoch
+IDs distinguish epochs within a run, not independently started simulations.
+The existing RTL emits reset callbacks only while reset is asserted. Occurrence
+callbacks distinguish nonempty epochs without harness changes. To count empty
+epochs too, the harness must call `graph().reset(false)` after reset deassertion;
+without that notification, empty intervals between asserted resets are
+indistinguishable from continuously held reset and share an epoch ID.
 
 The current collector supports one instrumented top per process on the
 simulator thread. It retains the whole current epoch in memory. Instrumented
