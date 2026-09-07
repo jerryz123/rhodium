@@ -82,8 +82,9 @@ tools/run-racket-tests.sh riscv/tests/zihintntl-test.rhm cores/rv5stage/tests/zi
 These cover exact base/compressed words, canonical C/Zca expansion, inactive
 control care masks, neighboring ADD/SUB preservation, PAUSE coexistence, and
 single-decoder RV32/RV64 integer/FP specializations. Hint rows share the
-side-effect-free constructor in `core-ctrl.rhdl`; locality policy remains a
-future WB/cache consumer, not a decoder responsibility.
+side-effect-free constructor in `core-ctrl.rhdl`; WB association and request
+transport belong to the [core owner](../DEVELOPING.md#focused-validation),
+not the decoder. Cache policy remains independent of this selector.
 
 For decode-only Zawrs changes:
 

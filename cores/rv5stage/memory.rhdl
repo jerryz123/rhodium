@@ -6,6 +6,14 @@ import:
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
 
+// Architectural intent, independent of a cache's allocation/replacement policy.
+hardware_enum RV5StageMemoryLocality:
+  Default
+  P1
+  Pall
+  S1
+  All
+
 hardware_enum MemoryOperation:
   None
   Load
@@ -107,6 +115,7 @@ circuit RV5StageAtomicALU(xlen :: XLen):
   value <== if xlen == XLen.X64 | mux(word_operation, selected_value[0..32].zext(64), selected_value) | selected_value
 
 export:
+  RV5StageMemoryLocality
   MemoryOperation
   RV5StageAtomicOperation
   RV5StageAtomicALU

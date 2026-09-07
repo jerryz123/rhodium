@@ -214,7 +214,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
       data: bits(0, width)
       destination: RV5StageDataDestination.None
       rd: bits(0, 5)
-      floating_point_precision: RV5StageFloatPrecision.Single,
+      floating_point_precision: RV5StageFloatPrecision.Single
+      locality: RV5StageMemoryLocality.Default,
     core_requests.egress.bits
   )
   // Buffered requests and hints are already physical; their page offsets are

@@ -34,6 +34,12 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 
 ## Core-facing protocol
 
+Requests carry `locality: RV5StageMemoryLocality` (`Default`, `P1`, `Pall`,
+`S1`, `All`). Lookup, retained mutation, dirty-victim eviction, and refill
+context retain the complete request. This is architectural intent, independent
+of cache policy; all selectors currently use the existing allocation and
+replacement rules. Prefetch requests use `Default`.
+
 [`protocol.rhdl`](protocol.rhdl) defines `RV5StageDataAccess(xlen)`:
 
 | Direction | Member | Meaning |

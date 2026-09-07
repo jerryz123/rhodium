@@ -39,6 +39,7 @@ check:
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("destination").type.width ~is 2
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("rd").type.width ~is 5
   data_width(cache.find_input("core_in").type.field("request").type.field("bits").type.field("floating_point_precision").type) ~is 2
+  data_width(cache.find_input("core_in").type.field("request").type.field("bits").type.field("locality").type) ~is 3
   cache.find_output("core_out").type.field("response").type.field("bits").type.field("destination").type.width ~is 2
   cache.find_output("core_out").type.field("response").type.field("bits").type.field("rd").type.width ~is 5
   data_width(cache.find_output("core_out").type.field("response").type.field("bits").type.field("floating_point_precision").type) ~is 2

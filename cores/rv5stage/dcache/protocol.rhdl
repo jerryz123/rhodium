@@ -23,6 +23,7 @@ bundle RV5StageDataReq(xlen :: XLen):
   destination: RV5StageDataDestination
   rd: Bits(5)
   floating_point_precision: RV5StageFloatPrecision
+  locality: RV5StageMemoryLocality
 
 bundle RV5StageDataResp(xlen :: XLen):
   // Management retains retirement context for delayed faults. Other current

@@ -122,6 +122,17 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For NTL WB association and request propagation, select `rv5stage-ntl`,
+`rv5stage-mmu-replay`, `rv5stage-memory-router`, and `rv5stage-dcache`.
+The core bench checks all four selectors, non-memory consumption, replacement,
+integer/FP memory, rejected request replay, branch squash, synchronous traps,
+interrupt entry, and absence of an older-load drain. Adapter benches check
+locality preservation and walker isolation; cache scenarios retain their
+existing data/coherence expectations with non-default hints.
+`memory.rhdl` owns the locality vocabulary, independently of decode selectors
+and cache policy. Keep the entire request in lookup/transaction context rather
+than reconstructing metadata at refill completion.
+
 For PAUSE, run the catalog/overlay/profile tests and `rv5stage-pause`, plus
 `rv5stage-wfi` and `rv5stage-zawrs` when changing issue/interrupt gating.
 `decode/hint-ctrl.rhdl` owns the nonarchitectural hint selector. Pipeline

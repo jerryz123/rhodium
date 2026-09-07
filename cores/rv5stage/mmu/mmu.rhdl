@@ -272,6 +272,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     destination: RV5StageDataDestination.None
     rd: bits(0, 5)
     floating_point_precision: RV5StageFloatPrecision.Single
+    locality: RV5StageMemoryLocality.Default
   // Local faults consume the core attempt; unresolved translations and walker
   // ownership block it. Neither case may issue a physical request.
   def core_data_request = (

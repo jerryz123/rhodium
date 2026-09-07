@@ -32,6 +32,10 @@ def rv32_half = RVCoreProfile(
 )
 
 check:
+  RV5StageExtensions().zihintntl ~is #false
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_extensions.contains("zihintntl") ~is #true
+  RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_extensions.contains("zihintntl") ~is #true
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintntl: #true)).misa_value ~is rv64_integer.misa_value
   RV5StageExtensions().zihintpause ~is #false
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintpause: #true)).isa_extensions.contains("zihintpause") ~is #true
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintpause: #true)).misa_value ~is rv64_integer.misa_value

@@ -52,12 +52,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def zicbom_enabled = extensions.zicbom
   def zawrs_enabled = extensions.zawrs
   def zihintpause_enabled = extensions.zihintpause
+  def zihintntl_enabled = extensions.zihintntl
   def compressed_extensions = extensions.compressed
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
-  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled).map(fun (instruction): instruction.name)
+  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled).map(fun (instruction): instruction.name)
 
   def instruction_alignment = if compressed_enabled | 2 | 4
   unless reset_address < (1 << width)
@@ -105,7 +106,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen), 1))
 
-  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled))
+  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled))
   inst registers(RV5StageRegisterFile(xlen))
   inst alu(ALU(xlen))
   inst branch_resolver(BranchResolver(width))
@@ -612,6 +613,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     )
     rd: id_ex.bits.rd
     floating_point_precision: fp_execution_control.destination_precision
+    locality: RV5StageMemoryLocality.Default
 
   ex_mem_pipe.ingress.valid <== execute_transfer
   ex_mem_pipe.ingress.bits <== ExecuteMemory(xlen):
@@ -677,6 +679,21 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // WB is the sole instruction-side dispatch boundary. An attempted request
   // either faults, transfers irrevocably, or replays without any side effect.
   // Loads also issue here: their address may select a side-effecting device.
+  // In-order WB associates NTL with exactly one successor, not one memory
+  // access. Rejected dispatch and pipeline replay leave this state untouched.
+  reg pending_locality(~init: RV5StageMemoryLocality.Default)
+  def retiring_locality = mux_lookup(
+    commit_bits.hint,
+    ~default: RV5StageMemoryLocality.Default,
+    [[HintOperation.NtlP1, RV5StageMemoryLocality.P1],
+     [HintOperation.NtlPall, RV5StageMemoryLocality.Pall],
+     [HintOperation.NtlS1, RV5StageMemoryLocality.S1],
+     [HintOperation.NtlAll, RV5StageMemoryLocality.All]]
+  )
+  when (csrs.redirect.valid):
+    pending_locality <== RV5StageMemoryLocality.Default
+  elsewhen (commit_valid & !commit_bits.exception_valid):
+    pending_locality <== retiring_locality
   def wb_attempt = pipeline_wb.valid & !maintenance_pending & !reservation_wait_pending & !reservation_wait_accept & !pending_exception_valid & !wb_bits.replay & !wb_bits.exception_valid
   def wb_memory_attempt = wb_attempt & wb_bits.data_request_valid
   def wb_fp_load = wb_bits.data_request.destination === RV5StageDataDestination.FloatingPoint
@@ -684,7 +701,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // reservation's same-cycle completion bypass must not feed LSU request valid.
   def wb_fp_load_ready = !wb_fp_load ||| !scoreboard_busy(register_count, fp.busy, wb_bits.data_request.rd)
   pipeline_wb |> filter_valid(_operation => wb_memory_attempt & wb_fp_load_ready)
-    |> map_valid(operation => operation.data_request)
+    |> map_valid(operation => operation.data_request.updated(
+         ~locality: mux(operation.data_request.access.into(MemoryOperation).is_one_of(MemoryOperation.Load, MemoryOperation.Store), pending_locality, RV5StageMemoryLocality.Default)
+       ))
     |> eject_flow(~valid: data_access.request.valid, ~bits: data_access.request.bits)
   pipeline_wb |> filter_valid(_operation => wb_attempt & wb_bits.fp_compute)
     |> map_valid(operation => operation.fp_issue)

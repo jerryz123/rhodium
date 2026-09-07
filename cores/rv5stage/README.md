@@ -43,6 +43,22 @@ views come from the CSR block rather than instruction rows. The
 specialization matrix and catalog composition. RV32D and an RV64F-only core are
 deliberately rejected.
 
+## Non-temporal locality hints
+
+`RV5StageExtensions(~zihintntl: #true)` enables the four NTL hints and their
+aliases when compressed instructions are selected. It is disabled by default;
+SoC profiles are unchanged. NTL retires without draining or serializing the
+pipeline. Ordered WB retains its locality selector for exactly the next
+instruction: retirement consumes it even for a non-memory instruction, and
+another retiring NTL replaces it. Rejected dispatch/replay preserves the hint
+for the same target. Trap/interrupt entry clears it; speculative flushes do not.
+
+Ordinary integer and FP loads/stores carry the selector in their accepted data
+request. Other operations currently ignore it. MMU/PMA routing, lookup, and
+retained L1D miss/refill context preserve the selector without changing
+translation, permissions, ordering, or coherence. It expresses architectural
+intent, not a cache policy: allocation and replacement remain unchanged.
+
 ## Cache-block management
 
 Zicbom operates on fixed 64-byte blocks. Decode checks current-privilege

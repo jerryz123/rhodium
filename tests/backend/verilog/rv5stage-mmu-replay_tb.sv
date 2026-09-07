@@ -31,6 +31,7 @@ module rv5stage_mmu_replay_tb;
     logic [1:0] destination;
     logic [4:0] rd;
     logic [1:0] floating_point_precision;
+    logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
@@ -147,6 +148,7 @@ module rv5stage_mmu_replay_tb;
     data_in.request.bits.destination = DATA_DESTINATION_INTEGER;
     data_in.request.bits.rd = 5'd7;
     data_in.request.bits.floating_point_precision = '0;
+    data_in.request.bits.locality = 3'd3;
     instruction_memory_in = '0;
     instruction_memory_in.request.ready = !instruction_blocked;
     instruction_memory_in.response.valid = instruction_return_valid;
@@ -181,6 +183,9 @@ module rv5stage_mmu_replay_tb;
       assert (instruction_phase || !instruction_memory_out.request.valid)
         else $fatal(1, "data miss unexpectedly issued an instruction-memory request");
       if (data_memory_out.request.valid && data_memory_in.request.ready) begin
+        assert (data_memory_out.request.bits.locality ==
+                (data_memory_out.request.bits.destination == DATA_DESTINATION_INTEGER ? 3'd3 : 3'd0))
+          else $fatal(1, "translation lost locality or leaked it to the walker");
         assert (data_lookup_out.valid &&
                 data_lookup_out.bits[11:0] == data_memory_out.request.bits.address[11:0])
           else $fatal(1, "physical data acceptance lost its paired VIPT lookup");

@@ -17,6 +17,7 @@ def rv64_double = RVCoreProfile(
     ~zicbom: #true,
     ~zawrs: #true,
     ~zihintpause: #true,
+    ~zihintntl: #true,
     ~compressed: CCompressedExtensions
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
@@ -31,6 +32,7 @@ def rv64_yaml = rv5stage_udb_configuration(
 def no_hpm_values = for List (_index in 0..32): "false"
 
 check:
+  rv64_yaml.contains("{ name: \"Zihintntl\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zihintpause\", version: \"= 2.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zawrs\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("  ZAWRS_NTO_IS_NOP: false") ~is #true

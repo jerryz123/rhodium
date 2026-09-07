@@ -19,6 +19,11 @@ Contributors changing translation or page-walk integration should read
 
 ## At a glance
 
+Data translation preserves request locality independently of address and
+permission resolution. Page-table walker reads use `Default` locality and
+never inherit the target instruction's hint. A translation miss leaves the
+request unaccepted; the core retains its hint across replay.
+
 | Property | Current contract |
 |---|---|
 | Translation modes | RV64 Bare or Sv39; RV32 always Bare |

@@ -30,6 +30,7 @@ module rv5stage_mop_tb;
     logic [1:0] destination;
     logic [4:0] rd;
     logic [1:0] floating_point_precision;
+    logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {

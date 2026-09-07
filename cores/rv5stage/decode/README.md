@@ -15,9 +15,9 @@ system, or fence effects. Neighboring ADD/SUB words and disabled-decoder
 specializations retain the base controls. C/Zca already expands the compressed
 aliases to these same words. PAUSE and NTL overlays share one combined decoder.
 
-This is ISA/decode support only: RVCoreProfile and the SoCs do not select or
-advertise Zihintntl yet. WB target association, request metadata, and cache
-policy are deliberately not implemented by this decoder option.
+The [core's opt-in NTL support](../README.md#non-temporal-locality-hints)
+associates the decoded selector with its target at WB. Decoder selection does
+not choose cache allocation or replacement policy; SoCs remain unchanged.
 
 RV5Stage maps each selected instruction encoding directly to the structured
 `RV5StageControl` consumed by the core. There is no intermediate

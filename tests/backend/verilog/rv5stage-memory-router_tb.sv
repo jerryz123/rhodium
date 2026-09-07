@@ -10,6 +10,7 @@ module rv5stage_memory_router_tb;
     logic [1:0] destination;
     logic [4:0] rd;
     logic [1:0] floating_point_precision;
+    logic [2:0] locality;
   } request_bits_t;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;
   typedef struct packed { logic ready; } ready_t;
@@ -66,9 +67,11 @@ module rv5stage_memory_router_tb;
     core_in.request.valid = 1'b1;
     core_in.request.bits.address = address;
     core_in.request.bits.access = access;
+    core_in.request.bits.locality = 3'd4;
     #1;
     assert (core_out.request.ready &&
             cache_out.request.valid == expected_cache &&
+            (!expected_cache || cache_out.request.bits.locality == 3'd4) &&
             !uncached_out.request.valid &&
             core_out.request_access_fault == expected_access_fault)
       else $fatal(1, "incorrect physical routing for address %h and access %0d", address, access);
@@ -78,7 +81,8 @@ module rv5stage_memory_router_tb;
       #1;
       assert (uncached_out.request.valid && !core_out.drained &&
               uncached_out.request.bits.request.address == address &&
-              uncached_out.request.bits.request.access == access)
+              uncached_out.request.bits.request.access == access &&
+              uncached_out.request.bits.request.locality == 3'd4)
         else $fatal(1, "uncached request was not retained by the IO-MSHR");
       tick();
       uncached_in.response.valid = 1'b1;

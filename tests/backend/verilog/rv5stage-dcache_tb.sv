@@ -10,6 +10,7 @@ module rv5stage_dcache_tb;
     logic [1:0] destination;
     logic [4:0] rd;
     logic [1:0] floating_point_precision;
+    logic [2:0] locality;
   } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
   typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_bits_t;
@@ -203,7 +204,7 @@ module rv5stage_dcache_tb;
                                data: data,
                                destination: (access == MEMORY_STORE || access == MEMORY_ZERO || access >= 7) ? DATA_DESTINATION_NONE : DATA_DESTINATION_INTEGER,
                                rd: rd,
-                               floating_point_precision: 2'b01};
+                               floating_point_precision: 2'b01, locality: 3'(1 + int'(rd) % 4)};
       core_in.request.valid = 1'b1;
       tick();
       core_in.request.valid = 1'b0;
