@@ -95,6 +95,7 @@ integration_fixtures=(
   tiled-time tiled-distribution
   dont-care decode noc-route-computer noc-router noc-network noc-wormhole noc-router-family noc-escape-router
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
+  chi-noc-adapter
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
   credited-flow credited-monitor credited-monitor-overgrant flit-formats
   fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
@@ -695,6 +696,7 @@ direct_fixture_specs=(
   'chi-snp-noc|chi_snp_noc_tb'
   'chi-sn-noc|chi_sn_noc_tb'
   'chi-family-noc|chi_family_noc_tb'
+  'chi-noc-adapter|chi_noc_adapter_tb'
   'chi-router-composition|'
   'chi-transfer-fragmenter|chi_transfer_fragmenter_tb'
   'load-store|load_store_tb'
@@ -854,6 +856,16 @@ done
 
 run_expected_assertion_failure assertions assertions_fail_tb \
   tests/backend/verilog/assertions_fail_tb.sv request_holds
+run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_route_tb \
+  tests/backend/verilog/chi-noc-adapter_tb.sv chi_req_noc_target_has_route
+run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_target_tb \
+  tests/backend/verilog/chi-noc-adapter_tb.sv chi_rsp_noc_ejection_target
+run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_family_route_tb \
+  tests/backend/verilog/chi-noc-adapter_tb.sv chi_dat_noc_family_target_has_route
+run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_family_target_tb \
+  tests/backend/verilog/chi-noc-adapter_tb.sv chi_req_noc_family_ejection_target
+run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_family_snp_site_tb \
+  tests/backend/verilog/chi-noc-adapter_tb.sv chi_snp_noc_family_ejection_site
 run_expected_assertion_failure credited-monitor \
   credited_monitor_underflow_tb \
   tests/backend/verilog/credited-monitor-underflow_tb.sv \

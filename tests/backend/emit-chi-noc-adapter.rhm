@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the all-channel CHI adapter contract fixture for CIRCT and Verilator.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../chi/tests/noc-adapter-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

@@ -1,0 +1,69 @@
+#lang rhodium
+// Exposes fixed and family CHI adapters independently for payload, routing, and rejection tests.
+
+import:
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl") open
+  lib("chi/channels.rhdl").CHISnoopDispatch
+  lib("chi/noc-adapter.rhdl") open
+  lib("chi/noc-authoring.rhm") as authoring
+  lib("noc/authoring/main.rhm") open
+  lib("noc/language/main.rhm").topology
+  lib("noc/rtl/router.rhdl").RoutedBeat
+  lib("rhodium/std/ready-valid.rhdl").Decoupled
+
+def p = CHIFlitParams()
+def topology_plan = topology:
+  node router
+def router = topology_plan.node("router")
+def source = authoring.CHIInjectionSite(3, InjectionRef("source"), router)
+def target = authoring.CHIEjectionSite(5, EjectionRef("target"), router)
+def alternate = authoring.CHIEjectionSite(6, EjectionRef("alternate"), router)
+def compilation = authoring.compile_chi_channel(topology_plan, [authoring.CHIChannelRouteSpec(source, target), authoring.CHIChannelRouteSpec(source, alternate)], deny_all)
+def adapters = compile_chi_channel_adapter_plan(compilation, p)
+def injection = adapters.injection(source.terminal)
+def ejection = adapters.ejection(target.terminal)
+def family_injection = compile_chi_noc_family_injection_config(adapters, 2, [CHINoCFamilyInjectionRow(2, injection)])
+def family_ejection = compile_chi_noc_family_ejection_config(2, [CHINoCFamilyEjectionRow(2, ejection)])
+
+sync_circuit CHINoCAdapterFixture():
+  input injection_site: Bits(2)
+  input ejection_site: Bits(2)
+  interface req_in[2](Decoupled(CHIReqFlit(p)), ~role: consumer)
+  interface req_routed[2](Decoupled(RoutedBeat(CHIReqFlit(p), injection.route_width)), ~role: producer)
+  interface req_eject[2](Decoupled(RoutedBeat(CHIReqFlit(p), injection.route_width)), ~role: consumer)
+  interface req_out[2](Decoupled(CHIReqFlit(p)), ~role: producer)
+  interface rsp_in[2](Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface rsp_routed[2](Decoupled(RoutedBeat(CHIRspFlit(p), injection.route_width)), ~role: producer)
+  interface rsp_eject[2](Decoupled(RoutedBeat(CHIRspFlit(p), injection.route_width)), ~role: consumer)
+  interface rsp_out[2](Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface snp_in[2](Decoupled(CHISnoopDispatch(p)), ~role: consumer)
+  interface snp_routed[2](Decoupled(RoutedBeat(CHISnpFlit(p), injection.route_width)), ~role: producer)
+  interface snp_eject[2](Decoupled(RoutedBeat(CHISnpFlit(p), injection.route_width)), ~role: consumer)
+  interface snp_out[2](Decoupled(CHISnpFlit(p)), ~role: producer)
+  interface dat_in[2](Decoupled(CHIDatFlit(p)), ~role: consumer)
+  interface dat_routed[2](Decoupled(RoutedBeat(CHIDatFlit(p), injection.route_width)), ~role: producer)
+  interface dat_eject[2](Decoupled(RoutedBeat(CHIDatFlit(p), injection.route_width)), ~role: consumer)
+  interface dat_out[2](Decoupled(CHIDatFlit(p)), ~role: producer)
+
+  (req_in[0] |> chi_req_noc_inject(injection)) <=> req_routed[0]
+  (req_eject[0] |> chi_req_noc_eject(ejection)) <=> req_out[0]
+  (req_in[1] |> chi_req_noc_family_inject(family_injection, injection_site)) <=> req_routed[1]
+  (req_eject[1] |> chi_req_noc_family_eject(family_ejection, ejection_site)) <=> req_out[1]
+  (rsp_in[0] |> chi_rsp_noc_inject(injection)) <=> rsp_routed[0]
+  (rsp_eject[0] |> chi_rsp_noc_eject(ejection)) <=> rsp_out[0]
+  (rsp_in[1] |> chi_rsp_noc_family_inject(family_injection, injection_site)) <=> rsp_routed[1]
+  (rsp_eject[1] |> chi_rsp_noc_family_eject(family_ejection, ejection_site)) <=> rsp_out[1]
+  (snp_in[0] |> chi_snp_noc_inject(injection)) <=> snp_routed[0]
+  (snp_eject[0] |> chi_snp_noc_eject(ejection)) <=> snp_out[0]
+  (snp_in[1] |> chi_snp_noc_family_inject(family_injection, injection_site)) <=> snp_routed[1]
+  (snp_eject[1] |> chi_snp_noc_family_eject(family_ejection, ejection_site)) <=> snp_out[1]
+  (dat_in[0] |> chi_dat_noc_inject(injection)) <=> dat_routed[0]
+  (dat_eject[0] |> chi_dat_noc_eject(ejection)) <=> dat_out[0]
+  (dat_in[1] |> chi_dat_noc_family_inject(family_injection, injection_site)) <=> dat_routed[1]
+  (dat_eject[1] |> chi_dat_noc_family_eject(family_ejection, ejection_site)) <=> dat_out[1]
+
+def design = elaborate(CHINoCAdapterFixture())
+
+export:
+  design

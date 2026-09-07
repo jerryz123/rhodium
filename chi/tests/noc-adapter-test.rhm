@@ -1,0 +1,22 @@
+#lang rhombus
+// Checks downstream flow metadata survives shared CHI adapter construction.
+
+import:
+  "noc-adapter-fixture.rhdl" as fixture
+  lib("rhodium/frontend/layers/interface.rhm").module_interface_transforms
+
+def top = fixture.design.modules.find(fun (module_def): module_def.name == "CHINoCAdapterFixture")
+def transforms = module_interface_transforms(top)
+
+check:
+  transforms.length() ~is 16
+
+for (channel in ["req", "rsp", "snp", "dat"]):
+  for (direction in ["inject", "eject"]):
+    def fixed = transforms.find(fun (entry): entry.kind == ("chi-" ++ channel ++ "-noc-" ++ direction))
+    def family = transforms.find(fun (entry): entry.kind == ("chi-" ++ channel ++ "-noc-family-" ++ direction))
+    check:
+      fixed.properties ~is {"node-id": if direction == "inject" | 3 | 5}
+      family.properties ~is {}
+      (fixed.implementation != #false) ~is #true
+      (family.implementation != #false) ~is #true

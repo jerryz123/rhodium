@@ -8,6 +8,7 @@ import:
 export:
   RoutedFlowInjector
   RoutedFlowEjector
+  bind_routed_flow_ejector
 
 circuit RoutedFlowInjector(Input :: DataType,
                            Payload :: DataType,
@@ -30,3 +31,12 @@ circuit RoutedFlowEjector(Payload :: DataType, route_width :: PosInt):
   interface egress(Decoupled(Payload), ~role: producer)
 
   ingress |> map_flow(routed => routed.payload) |> egress
+
+// Binds existing endpoints through one envelope-removal stage; identity checks stay protocol-owned.
+fun bind_routed_flow_ejector(Payload :: DataType,
+                             route_width :: PosInt,
+                             ingress :: Endpoint,
+                             egress :: Endpoint):
+  inst routed(RoutedFlowEjector(Payload, route_width))
+  ingress <=> routed.ingress
+  routed.egress <=> egress

@@ -53,6 +53,9 @@ that metadata. `RoutedFlowInjector` adds a compiled route key and permits a
 transfer only for a valid route decision; `RoutedFlowEjector` removes the
 `RoutedBeat` envelope. Protocol packages remain responsible only for selecting
 their destination field and checking endpoint identity.
+`bind_routed_flow_ejector` instantiates one `RoutedFlowEjector` between supplied
+ready-valid endpoints, preserving combinational payload and backpressure
+behavior without adding buffering or protocol identity checks.
 
 ### Shared family decoding
 

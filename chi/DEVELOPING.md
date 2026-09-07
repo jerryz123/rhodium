@@ -46,6 +46,19 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 
 ## Extend a protocol layer
 
+NoC adapters share injection wiring and flow-stage bookkeeping in
+`noc-adapter.rhdl`, and reuse generic envelope-removal binding from
+`noc/rtl/route-adapter.rhdl`. Keep the typed channel circuits and fixed
+versus family-site factories explicit. REQ/RSP/DAT select `tgt_id`; SNP selects
+`CHISnoopDispatch.target_id` and transports only its flit. Ejection checks remain
+channel-owned because SNP has no target field. These helpers add no hierarchy,
+buffering, or route policy beyond the existing `noc/rtl` injector/ejector.
+The `chi-noc-adapter` backend fixture covers all sixteen variants, complete
+payloads, stalls, and invalid routes, targets, and family sites. Its host test
+checks the transform kinds, fixed NodeID properties, and implementation
+associations consumed by diagram/event tooling. Run the SNP, subordinate,
+family NoC, and router-composition integration fixtures alongside it.
+
 Monitoring attachments in `monitor.rhdl` separate credited transport checks,
 shared packet checks, and accepted-event transaction attachment. Both credited
 and ready-valid wrappers call the same coverage validation and transaction
