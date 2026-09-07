@@ -92,7 +92,7 @@ internal module implementing its shared frontend forms is called the
 | [`std/`](std/README.md) | Optional host utilities, protocols, and circuit generators written in ordinary Rhodium | Public `#lang rhodium` authoring surface only |
 | [`backend/`](backend/README.md) | Consume verified public IR; currently lower it through CIRCT | Core only |
 | [`formal/`](formal/README.md) | Optional Rosette-backed behavioral equivalence, output reachability, and combinational output properties over verified public IR | Core only; Rosette through one Racket interoperability module |
-| [`../chi/`](../chi/README.md) | AMBA CHI parameters, exact flits, credited node-role links, monitors, fabric metadata, and initial non-coherent endpoints | Public `#lang rhodium`; protocol-neutral `std/` libraries |
+| [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries, including `std/bits.rhdl` and `std/flow.rhdl` for the maintenance requester |
 | [`../socs/`](../socs/README.md) | Concrete system composition and end-to-end integration | Public domain-library and core surfaces only |
 | [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC and Rhodium surfaces; backend emission; external C++ libraries |
 | [`../sram/`](../sram/README.md) | Technology-independent post-CIRCT memory-site selection, macro-interface adaptation, tiling, and manifests | CIRCT/MLIR libraries; technology catalogs beneath `sram/` |

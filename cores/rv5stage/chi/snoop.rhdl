@@ -184,7 +184,7 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
   lookup.bits <== address
   def lookup_result_fire = active_state & uses_lookup & !lookup_complete & lookup_result.valid
 
-  def dirty_hit = uses_lookup & line_hit & line_state.is_dirty()
+  def dirty_hit = uses_lookup & line_hit & line_state.is_dirty() & !chi_snoop_discards_dirty(request.opcode)
   def shares_state = rv5stage_snoop_shares_cache_state(request.opcode)
   def invalidates_state = rv5stage_snoop_invalidates_cache_state(request.opcode)
   def discards_clean_line = invalidates_state ||| request.ret_to_src

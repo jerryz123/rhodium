@@ -55,7 +55,7 @@ module rv5stage_dcache_tb;
   localparam logic [4:0] DBID_RESP_ORD = 5'h0e;
   localparam logic [4:0] RETRY_ACK = 5'h03;
   localparam logic [4:0] PCRD_GRANT = 5'h07;
-  localparam logic [4:0] SNP_MAKE_INVALID = 5'h0a;
+  localparam logic [4:0] SNP_CLEAN_INVALID = 5'h09;
   localparam logic [3:0] SNP_RESP_DATA = 4'h1;
   localparam logic [3:0] NON_COPY_BACK_WRITE_DATA = 4'h3;
   localparam logic [3:0] COMP_DATA = 4'h4;
@@ -364,7 +364,8 @@ module rv5stage_dcache_tb;
   endtask
 
   task automatic send_snoop(input logic [63:0] address,
-                            input logic [11:0] txn_id);
+                            input logic [11:0] txn_id,
+                            input logic [4:0] opcode = SNP_CLEAN_INVALID);
     integer cycles;
     begin
       cycles = 0;
@@ -376,7 +377,7 @@ module rv5stage_dcache_tb;
         else $fatal(1, "L1D did not accept a snoop");
       chi_in.snoops.bits = '0;
       chi_in.snoops.bits.address = address[43:3];
-      chi_in.snoops.bits.opcode = SNP_MAKE_INVALID;
+      chi_in.snoops.bits.opcode = opcode;
       chi_in.snoops.bits.txn_id = txn_id;
       chi_in.snoops.bits.src_id = HOME_ID;
       chi_in.snoops.valid = 1'b1;
@@ -722,9 +723,17 @@ module rv5stage_dcache_tb;
     return_line(PREFETCH_WRITE_ADDRESS + 64'h200, LINE, 3'b010);
     accept_comp_ack();
     expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
-    send_snoop(PREFETCH_WRITE_ADDRESS + 64'h200, 12'h07a);
-    for (beat = 0; beat < 4; beat++)
-      accept_snoop_data(beat, 512'd0, 12'h07a);
+    // MakeInvalid discards even a dirty line and must return only SnpResp_I.
+    send_snoop(PREFETCH_WRITE_ADDRESS + 64'h200, 12'h07a, 5'h0a);
+    for (integer wait_cycles = 0; !chi_out.requester_responses.valid && wait_cycles < 100; wait_cycles++) begin
+      assert(!chi_out.request_data.valid) else $fatal(1, "discard returned dirty data");
+      tick();
+    end
+    assert(chi_out.requester_responses.valid && chi_out.requester_responses.bits.opcode == 1 && chi_out.requester_responses.bits.resp == 0 && chi_out.requester_responses.bits.txn_id == 12'h07a)
+      else $fatal(1, "discard response mismatch");
+    chi_in.requester_responses.ready = 1;
+    tick();
+    tx_rsp_pending = 1'b0;
     tick();
 
     // Identical virtual addresses resolving to two different physical pages

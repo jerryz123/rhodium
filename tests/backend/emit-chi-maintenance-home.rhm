@@ -1,0 +1,6 @@
+#lang rhombus
+// Emits the uncached Home for the common cache-maintenance behavior suite.
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../chi/tests/coherent-home-fixture.rhdl" as fixture
+print(emit_circt(fixture.coherent_home_design))

@@ -251,6 +251,7 @@ fun monitor_chi_rn(link :: CHIRNLinkParams,
   reg rn_rx_rsp_credit_balance(~init: bits(0, index_width(link.rx_rsp_credits + 1)))
   reg rn_rx_dat_credit_balance(~init: bits(0, index_width(link.rx_dat_credits + 1)))
   reg rn_rx_snp_credit_balance(~init: bits(0, index_width(link.rx_snp_credits + 1)))
+  monitor_chi_cache_maintenance(link.flit, observed.tx_req.valid, observed.tx_req.bits, label_prefix)
   monitor_chi_activation(observed.tx_link_active_request,
                          observed.tx_link_active_ack,
                          rn_tx_previous_request,
@@ -350,6 +351,7 @@ fun monitor_chi_rni(link :: CHIRNILinkParams,
   reg rni_tx_dat_credit_balance(~init: bits(0, index_width(link.tx_dat_credits + 1)))
   reg rni_rx_rsp_credit_balance(~init: bits(0, index_width(link.rx_rsp_credits + 1)))
   reg rni_rx_dat_credit_balance(~init: bits(0, index_width(link.rx_dat_credits + 1)))
+  monitor_chi_cache_maintenance(link.flit, observed.tx_req.valid, observed.tx_req.bits, label_prefix)
   monitor_chi_activation(observed.tx_link_active_request,
                          observed.tx_link_active_ack,
                          rni_tx_previous_request,

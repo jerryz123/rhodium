@@ -37,6 +37,7 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 | Homes and storage | [`subordinate-slots.rhdl`](subordinate-slots.rhdl), [`home.rhdl`](home.rhdl), [`coherent-home.rhdl`](coherent-home.rhdl), [`inclusive-home.rhdl`](inclusive-home.rhdl), [`ram.rhdl`](ram.rhdl), [`dpi-memory.rhdl`](dpi-memory.rhdl), [`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl), [`address-projector.rhdl`](address-projector.rhdl) | Transaction allocation, Home engines, backing memory, fragmentation, and address projection |
 | NoC | [`noc-authoring.rhm`](noc-authoring.rhm), [`noc-adapter.rhdl`](noc-adapter.rhdl), [`noc-router.rhdl`](noc-router.rhdl) | Logical connections, validated channel plans, adapters, and router-family composition |
 | Facade | [`main.rhdl`](main.rhdl) | Public exports for the supported package surface |
+| Cache maintenance | [`cache-maintenance.rhdl`](cache-maintenance.rhdl) | One dataless requester composed with retry control; cache arrays and downstream completion remain Home-owned |
 | Host coverage | [`tests/`](tests/) | Protocol models, parameters, routing plans, and invalid connections |
 | Backend coverage | [`../tests/backend/`](../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) | CIRCT fixtures and Verilator benches |
 
@@ -86,3 +87,12 @@ bash tests/backend/run-circt.sh --group protocols
 That group also includes nearby NoC and device fixtures. Use the backend test
 [`DEVELOPING.md`](../tests/backend/DEVELOPING.md) to select narrower modes and
 maintain checked-in artifacts.
+
+For maintenance changes, run the `chi-cache-maintenance`,
+`chi-maintenance-home`, and `chi-maintenance-inclusive` backend fixtures. The
+last two share a behavioral bench with independent RN-F caches and backing
+RAM, rather than using coherent reads as evidence of memory visibility.
+Include `chi-coherent-home`, `chi-inclusive-home`, and `rv5stage-dcache` when
+changing the data-preserving versus discard snoop policy. Shared opcode
+classification stays in `coherence.rhdl`; each Home retains its own SRAM,
+transaction, and dirty-data lifetime. Maintain error state until completion.

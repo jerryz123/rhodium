@@ -1,0 +1,6 @@
+#lang rhombus
+// Emits the inclusive Home for the common cache-maintenance behavior suite.
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../chi/tests/inclusive-home-fixture.rhdl" as fixture
+print(emit_circt(fixture.inclusive_home_design))

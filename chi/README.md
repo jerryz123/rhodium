@@ -429,10 +429,11 @@ Both Home implementations require at least one RN-F and accept one transaction
 at a time; `CHIHNFParams` correspondingly requires a Home capacity of exactly
 one. RN-I requesters may use `ReadNoSnp`, `WriteNoSnpFull`, and
 `WriteNoSnpPtl`; RN-F requesters may use `ReadClean`, `ReadUnique`, and
-`WriteUniquePtl`.
+`WriteUniquePtl`. Both requester kinds may additionally advertise
+`CleanShared`, `CleanInvalid`, and `MakeInvalid` for aligned 64-byte blocks.
 
 `CHIHNF` broadcasts `SnpCleanShared` before `ReadClean` and
-`SnpMakeInvalid` before `ReadUnique` or `WriteUniquePtl`, excluding the
+`SnpUnique` before `ReadUnique` and `SnpCleanInvalid` before `WriteUniquePtl`, excluding the
 requesting RN-F. It accepts clean `SnpResp` or a complete dirty
 `SnpRespData` intervention with `PassDirty`. Dirty packets are committed to the
 subordinate as serialized one-packet writes before the original transaction
@@ -450,6 +451,42 @@ Neither coherent Home has a sharer directory or concurrent transaction
 pipeline. Broadcast invalidation is conservative. General ordering, broader
 retry use, parallel Home operation, a precise directory, and broader coherent
 request families remain outside the contract.
+
+### Cache maintenance
+
+`CHICacheMaintenance(p, Context)` issues one dataless maintenance transaction.
+Its command supplies a physical aligned line address, one of `CleanShared`,
+`CleanInvalid`, or `MakeInvalid`, the selected Home ID, PAS, `snoop_me`, and
+opaque context. Node and transaction IDs are captured at command acceptance.
+The requester retains the command through `RetryAck`/`PCrdGrant` association
+and returns one backpressured completion containing context and `CHIRespErr`.
+It sends no requester data or CompAck. Snoop handling is an independent path:
+the caller must keep it live while maintenance is outstanding, order older
+same-line transactions before issuing the command, and prevent conflicting
+local accesses until completion. An RN-F may use `snoop_me` to include its own
+cache; otherwise it must satisfy the local-cache maintenance preconditions.
+
+Both Homes broadcast maintenance to RN-Fs, including the originating RN-F
+when SnpMe is set. `CleanShared` removes dirty responsibility;
+`CleanInvalid` preserves dirty data and invalidates; `MakeInvalid` invalidates
+without writing discarded data. Dirty interventions for clean/flush reach the
+uncached backing subordinate before `Comp`. Maintenance writes disable early
+write acknowledgement. Snoop and backing-write errors propagate in `Comp`;
+an error completion does not promise that maintenance succeeded or was rolled
+back. The inclusive Home retains dirty resident state on a failed clean.
+
+The inclusive Home does not allocate, refill, or replace unrelated lines on
+maintenance misses. A clean resident line may remain cached after cleaning;
+flush/discard invalidate the matching entry. The backing subordinate is the
+maintenance visibility boundary: this profile does not forward CMOs through
+additional downstream caches and does not implement persistence or broadcast
+control pins. Address selection and access permission checking belong to the
+caller. The supported intervention profile transfers complete dirty lines.
+
+Endpoint monitors check maintenance request framing. The requester engine
+checks response lifetime, retry association, identity, and completion; Homes
+check snoop identities, states, and packet accounting. Merely adding an opcode
+to a capability list does not instantiate an execution engine.
 
 ## Source map
 

@@ -43,7 +43,8 @@ fun chi_initial_coherent_requester_capabilities(
     ~req: [CHIReqOpcode.ReadShared,
            CHIReqOpcode.ReadClean,
            CHIReqOpcode.ReadUnique,
-           CHIReqOpcode.WriteUniquePtl],
+           CHIReqOpcode.WriteUniquePtl,
+           CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid],
     ~rsp: [CHIRspOpcode.CompAck,
            CHIRspOpcode.SnpResp,
            CHIRspOpcode.SnpRespFwded],
@@ -79,6 +80,12 @@ fun coherent_single_data_fields(data_id :: Bits(2),
   assert(data_id === bits(0, 2), label_prefix ++ "_data_id_zero")
   assert(num_dat === bits(0, 2), label_prefix ++ "_num_dat_zero")
   assert(!replicate, label_prefix ++ "_not_replicated")
+
+fun monitor_chi_cache_maintenance(p :: CHIFlitParams, valid :: Bool, request :: CHIReqFlit(p), label_prefix :: String):
+  when (valid & chi_cache_maintenance(request.opcode)):
+    assert(!request.multi_req & (request.size_or_num_req === bits(6, 6)), label_prefix ++ "_maintenance_line_size")
+    assert(request.address[0..6] === bits(0, 6), label_prefix ++ "_maintenance_aligned")
+    assert(!request.exp_comp_ack, label_prefix ++ "_maintenance_no_comp_ack")
 
 fun coherent_unelided_data_fields(num_dat :: Bits(2),
                                   replicate :: Bool,
@@ -409,3 +416,4 @@ export:
   chi_initial_coherent_requester_capabilities
   coherent_read_data_ids
   coherent_requester_transaction_monitor
+  monitor_chi_cache_maintenance

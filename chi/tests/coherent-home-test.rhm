@@ -22,3 +22,14 @@ check:
                    [fixture.htif_endpoint],
                    fixture.memory_service.address_sets[0].mask,
                    fixture.memory_service.requests) ~throws "at least one RN-F requester"
+
+  // A supported maintenance endpoint requires complete line coverage and a
+  // backing service capable of accepting complete dirty snoop packets.
+  chi.CHIHNFConfig(fixture.coherent_home_flit,
+                   fixture.coherent_home_config.requester_endpoints,
+                   31,
+                   fixture.memory_service.requests) ~throws "complete cache-line"
+  chi.CHIHNFConfig(fixture.coherent_home_flit,
+                   fixture.coherent_home_config.requester_endpoints,
+                   fixture.coherent_home_config.service_mask,
+                   [chi.CHIRequestSupport(chi.CHIReqOpcode.ReadNoSnp, chi.TransferSizes(1, 64))]) ~throws "backing writes"

@@ -55,7 +55,7 @@ module chi_coherent_home_tb;
   localparam logic [4:0] COMP_ACK = 5'h02;
   localparam logic [4:0] COMP = 5'h04;
   localparam logic [4:0] DBID_RESP = 5'h06;
-  localparam logic [4:0] SNP_MAKE_INVALID = 5'h0a;
+  localparam logic [4:0] SNP_CLEAN_INVALID = 5'h09;
   localparam logic [4:0] SNP_CLEAN_SHARED = 5'h08;
   localparam logic [3:0] SNP_RESP_DATA = 4'h1;
   localparam logic [3:0] NON_COPY_BACK_WRITE_DATA = 4'h3;
@@ -359,7 +359,7 @@ module chi_coherent_home_tb;
     tick();
     request_data_in = '0;
 
-    accept_snoop(INSTRUCTION_ID, SNP_MAKE_INVALID);
+    accept_snoop(INSTRUCTION_ID, SNP_CLEAN_INVALID);
 
     requester_responses_in.bits = '0;
     requester_responses_in.bits.opcode = SNP_RESP;

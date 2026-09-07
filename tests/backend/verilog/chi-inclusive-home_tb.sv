@@ -40,7 +40,7 @@ module chi_inclusive_home_tb;
   localparam logic [4:0] SNP_RESP = 5'h01;
   localparam logic [4:0] COMP = 5'h04;
   localparam logic [4:0] DBID_RESP = 5'h06;
-  localparam logic [4:0] SNP_MAKE_INVALID = 5'h0a;
+  localparam logic [4:0] SNP_CLEAN_INVALID = 5'h09;
   localparam logic [3:0] SNP_RESP_DATA = 4'h1;
   localparam logic [3:0] NON_COPY_BACK_WRITE_DATA = 4'h3;
   localparam logic [3:0] COMP_DATA = 4'h4;
@@ -199,7 +199,7 @@ module chi_inclusive_home_tb;
       #1;
       assert (port_out.requester.snoops.valid &&
               port_out.requester.snoops.bits.target_id == target &&
-              port_out.requester.snoops.bits.flit.opcode == SNP_MAKE_INVALID)
+              port_out.requester.snoops.bits.flit.opcode == SNP_CLEAN_INVALID)
         else $fatal(1, "inclusive Home did not invalidate the victim sharer");
       tick();
       snoops_ready_in = '0;
@@ -223,7 +223,7 @@ module chi_inclusive_home_tb;
       #1;
       assert (port_out.requester.snoops.valid &&
               port_out.requester.snoops.bits.target_id == target &&
-              port_out.requester.snoops.bits.flit.opcode == SNP_MAKE_INVALID)
+              port_out.requester.snoops.bits.flit.opcode == SNP_CLEAN_INVALID)
         else $fatal(1, "inclusive Home did not invalidate the dirty victim sharer");
       tick();
       snoops_ready_in = '0;

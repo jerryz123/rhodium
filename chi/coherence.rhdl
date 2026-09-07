@@ -75,3 +75,26 @@ export:
   CHIResponseState
   CHICoherentResponse
   chi_rnf_snoop_opcodes
+  chi_cache_maintenance
+  chi_home_snoop_opcode
+  chi_snoop_discards_dirty
+  chi_snoop_response_state_valid
+
+// Maintenance is independent of requester kind and never implies a read fill.
+fun chi_cache_maintenance(opcode :: CHIReqOpcode) :~ Bool:
+  opcode.is_one_of(CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid)
+
+fun chi_home_snoop_opcode(opcode :: CHIReqOpcode) :~ CHISnpOpcode:
+  mux_lookup(opcode, ~default: CHISnpOpcode.SnpCleanInvalid):
+    CHIReqOpcode.ReadClean: CHISnpOpcode.SnpCleanShared
+    CHIReqOpcode.CleanShared: CHISnpOpcode.SnpCleanShared
+    CHIReqOpcode.ReadUnique: CHISnpOpcode.SnpUnique
+    CHIReqOpcode.MakeInvalid: CHISnpOpcode.SnpMakeInvalid
+
+fun chi_snoop_discards_dirty(opcode :: CHISnpOpcode) :~ Bool:
+  opcode.is_one_of(CHISnpOpcode.SnpMakeInvalid, CHISnpOpcode.SnpMakeInvalidStash)
+
+fun chi_snoop_response_state_valid(opcode :: CHISnpOpcode, response :: CHICoherentResponse()) :~ Bool:
+  mux(opcode === CHISnpOpcode.SnpCleanShared,
+      response.state =/= CHIResponseState.SharedDirty,
+      response.state === CHIResponseState.Invalid)

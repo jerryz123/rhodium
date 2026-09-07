@@ -14,7 +14,8 @@ def htif_endpoint = CHIICNPortParams(
     ~dat: [CHIDatOpcode.CompData]
   ),
   ~supports: CHIChannelCapabilities(
-    ~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull],
+    ~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull,
+           CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid],
     ~dat: [CHIDatOpcode.NonCopyBackWriteData]
   ),
   ~max_outstanding: 1
@@ -45,7 +46,8 @@ def data_endpoint = CHIICNPortParams(
   ~supports: CHIChannelCapabilities(
     ~req: [CHIReqOpcode.ReadClean,
            CHIReqOpcode.ReadUnique,
-           CHIReqOpcode.WriteUniquePtl],
+           CHIReqOpcode.WriteUniquePtl,
+           CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid],
     ~rsp: [CHIRspOpcode.CompAck, CHIRspOpcode.SnpResp],
     ~dat: [CHIDatOpcode.SnpRespData,
            CHIDatOpcode.NonCopyBackWriteData]

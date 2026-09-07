@@ -43,7 +43,10 @@ lookup and CHI response finish. They pair two-part DVM operations, hold response
 traffic stable under backpressure, and return explicit cache updates. Clean
 forwarding or `RetToSrc` requests invalidate the local line and report Invalid
 so Home can source data elsewhere. A dirty data-cache hit returns the complete
-line through `SnpRespData` before invalidating it.
+line through `SnpRespData` before invalidating it, except for discard snoops:
+`SnpMakeInvalid` and `SnpMakeInvalidStash` discard dirty data and return
+`SnpResp_I` without a data transfer. Data-preserving ownership transfers must
+use an appropriate snoop such as `SnpUnique` or `SnpCleanInvalid`.
 
 ## Uncached access
 

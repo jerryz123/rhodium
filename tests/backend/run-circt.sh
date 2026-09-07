@@ -659,6 +659,9 @@ direct_fixture_specs=(
   'chi-retryable-transaction|chi_retryable_transaction_tb'
   'chi-transaction-sn|chi_transaction_sn_tb'
   'chi-coherent|chi_coherent_tb'
+  'chi-cache-maintenance|chi_cache_maintenance_tb'
+  'chi-maintenance-home|chi_maintenance_home_tb'
+  'chi-maintenance-inclusive|chi_maintenance_inclusive_tb'
   'chi-coherent-home|chi_coherent_home_tb'
   'chi-inclusive-home|chi_inclusive_home_tb'
   'chi-snp-noc|chi_snp_noc_tb'
@@ -838,6 +841,14 @@ run_expected_assertion_failure chi-coherent \
   chi_coherent_early_comp_ack_tb \
   tests/backend/verilog/chi-coherent-early-comp-ack_tb.sv \
   chi_coherent_comp_ack_has_read_data
+run_expected_assertion_failure chi-cache-maintenance \
+  chi_cache_maintenance_wrong_source_tb \
+  tests/backend/verilog/chi-cache-maintenance_tb.sv \
+  chi_maintenance_response_source
+run_expected_assertion_failure chi-cache-maintenance \
+  chi_cache_maintenance_bad_address_tb \
+  tests/backend/verilog/chi-cache-maintenance_tb.sv \
+  chi_maintenance_aligned
 run_expected_assertion_failure chi-ram chi_ram_invalid_tb \
   tests/backend/verilog/chi-ram-invalid_tb.sv \
   chi_ram_request_address_supported

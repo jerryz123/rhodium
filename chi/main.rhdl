@@ -9,6 +9,7 @@ import:
   lib("chi/transaction.rhdl") open
   lib("chi/coherent-transaction.rhdl") open
   lib("chi/retryable-transaction.rhdl") open
+  lib("chi/cache-maintenance.rhdl") open
   lib("chi/link.rhdl") open
   lib("chi/channels.rhdl") open
   lib("chi/noc-authoring.rhm") open
@@ -54,6 +55,9 @@ export:
   CHIResponseState
   CHICoherentResponse
   chi_rnf_snoop_opcodes
+  chi_cache_maintenance
+  chi_home_snoop_opcode
+  chi_snoop_discards_dirty
   chi_initial_single_flit_size
   CHICoherentReadPhase
   CHICoherentReadTransaction
@@ -69,6 +73,10 @@ export:
   CHIRequestAttempt
   CHIResponseEvent
   CHIRetryableTransactionControl
+  CHICacheMaintenanceResponses
+  CHICacheMaintenanceCommand
+  CHICacheMaintenanceResult
+  CHICacheMaintenance
   CHINodeKind
   CHIEndpointParams
   CHIChannelCapabilities

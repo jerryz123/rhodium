@@ -43,14 +43,23 @@ class CHIHNFConfig(flit :: CHIFlitParams,
         if endpoint.kind == CHINodeKind.RNI
         | [CHIReqOpcode.ReadNoSnp,
            CHIReqOpcode.WriteNoSnpFull,
-           CHIReqOpcode.WriteNoSnpPtl]
+           CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
         | [CHIReqOpcode.ReadClean,
            CHIReqOpcode.ReadUnique,
-           CHIReqOpcode.WriteUniquePtl]
+           CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
       unless endpoint.supports.req.length() > 0 && for all (opcode in endpoint.supports.req):
                allowed_requests.contains(opcode)
       | error(~who: #'CHIHNFConfig,
               "requester endpoint advertises an unsupported request opcode")
+      def maintenance_opcodes = [CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
+      def maintenance_requests = endpoint.supports.req.filter(~keep: fun (opcode): maintenance_opcodes.contains(opcode))
+      unless maintenance_requests.length() == 0 || (service_mask bits.and 63) == 63
+      | error(~who: #'CHIHNFConfig, "maintenance requires complete cache-line service regions")
+      def packet_writes = service_requests.filter(
+        ~keep: fun (support): support.opcode == CHIReqOpcode.WriteNoSnpFull && support.sizes.min_bytes <= flit.data_bytes && support.sizes.max_bytes >= flit.data_bytes
+      )
+      unless maintenance_requests.length() == 0 || packet_writes.length() > 0
+      | error(~who: #'CHIHNFConfig, "maintenance requires full snoop-packet backing writes")
     for (left_index in 0..requester_endpoints.length()):
       for (right_index in (left_index + 1)..requester_endpoints.length()):
         if requester_endpoints[left_index].node_id == requester_endpoints[right_index].node_id
@@ -136,6 +145,9 @@ hardware_enum CHIHNFPhase(~width: 4):
 
 fun chi_hnf_subordinate_opcode(opcode :: CHIReqOpcode) :~ CHIReqOpcode:
   mux_lookup(opcode, ~default: CHIReqOpcode.ReadNoSnp):
+    CHIReqOpcode.CleanShared: CHIReqOpcode.CleanShared
+    CHIReqOpcode.CleanInvalid: CHIReqOpcode.CleanInvalid
+    CHIReqOpcode.MakeInvalid: CHIReqOpcode.MakeInvalid
     CHIReqOpcode.ReadClean: CHIReqOpcode.ReadNoSnp
     CHIReqOpcode.ReadUnique: CHIReqOpcode.ReadNoSnp
     CHIReqOpcode.ReadNoSnp: CHIReqOpcode.ReadNoSnp
@@ -177,17 +189,22 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
   def opcode = chi_hnf_subordinate_opcode(request.opcode)
   def size = request.size_or_num_req[0..3]
   def address_supported = (request.address & !bits(config.service_mask, p.request_address_width)) === service_base
-  or_reduce(vec(
+  def ordinary_supported = or_reduce(vec(
     for List (support in config.service_requests):
       (opcode === support.opcode) & (
         size >= bits(alignment_bits(support.sizes.min_bytes), 3)
       ) & (size <= bits(alignment_bits(support.sizes.max_bytes), 3))
-  )) & address_supported
+  ))
+  def maintenance_supported = chi_cache_maintenance(request.opcode) & is_aligned(request.address, 64) & (
+    chi_req_size(p, request) === CHITransferSize.Bytes64
+  ) & !request.exp_comp_ack & !request.multi_req
+  mux(chi_cache_maintenance(request.opcode), maintenance_supported, ordinary_supported) & address_supported
 
 fun chi_hnf_response(p :: CHIFlitParams,
                      home_node_id :: Bits(p.node_id_width),
                      request :: CHIReqFlit(p),
-                     opcode :: CHIRspOpcode) :~ CHIRspFlit(p):
+                     opcode :: CHIRspOpcode,
+                     ~error: error :: CHIRespErr = CHIRespErr.OK) :~ CHIRspFlit(p):
   CHIRspFlit(p):
     cache_line_id: bits(0, 6)
     trace_tag: Bool(#false)
@@ -197,7 +214,7 @@ fun chi_hnf_response(p :: CHIFlitParams,
     c_busy: bits(0, 3)
     fwd_state_or_data_pull: bits(0, 3)
     resp: bits(0, 3)
-    resp_err: CHIRespErr.OK
+    resp_err: error
     opcode: opcode
     txn_id: request.txn_id
     src_id: home_node_id
@@ -208,11 +225,7 @@ fun chi_hnf_snoop(p :: CHIFlitParams,
                   home_node_id :: Bits(p.node_id_width),
                   request :: CHIReqFlit(p),
                   ~address: address :: Bits(p.request_address_width) = request.address,
-                  ~opcode: opcode :: CHISnpOpcode = mux(
-                    request.opcode === CHIReqOpcode.ReadClean,
-                    CHISnpOpcode.SnpCleanShared,
-                    CHISnpOpcode.SnpMakeInvalid
-                  )) :~ CHISnpFlit(p):
+                  ~opcode: opcode :: CHISnpOpcode = chi_home_snoop_opcode(request.opcode)) :~ CHISnpFlit(p):
   wire snoop: CHISnpFlit(p)
   if p.mecid_width > 0
   | snoop.mecid <== bits(0, p.mecid_width)
@@ -262,7 +275,11 @@ fun chi_hnf_downstream_request(p :: CHIFlitParams,
   downstream.excl_snoop_me_cah <== Bool(#false)
   downstream.group_id_or_lpid <== request.group_id_or_lpid
   downstream.snp_attr_or_do_dwt <== Bool(#false)
-  downstream.mem_attr <== request.mem_attr
+  downstream.mem_attr <== CHIMemAttr():
+    allocate: request.mem_attr.allocate
+    cacheable: request.mem_attr.cacheable
+    device: request.mem_attr.device
+    early_write_acknowledge: request.mem_attr.early_write_acknowledge & !chi_cache_maintenance(request.opcode)
   downstream.pcrd_type <== bits(0, 4)
   downstream.order <== CHIOrder.NoOrder
   downstream.allow_retry <== Bool(#false)
@@ -308,7 +325,11 @@ fun chi_hnf_snoop_write_request(p :: CHIFlitParams,
   snoop_write_request.excl_snoop_me_cah <== Bool(#false)
   snoop_write_request.group_id_or_lpid <== bits(0, 8)
   snoop_write_request.snp_attr_or_do_dwt <== Bool(#false)
-  snoop_write_request.mem_attr <== request.mem_attr
+  snoop_write_request.mem_attr <== CHIMemAttr():
+    allocate: request.mem_attr.allocate
+    cacheable: request.mem_attr.cacheable
+    device: request.mem_attr.device
+    early_write_acknowledge: request.mem_attr.early_write_acknowledge & !chi_cache_maintenance(request.opcode)
   snoop_write_request.pcrd_type <== bits(0, 4)
   snoop_write_request.order <== CHIOrder.NoOrder
   snoop_write_request.allow_retry <== Bool(#false)
@@ -445,6 +466,8 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   reg expected_snoop_node(~init: bits(0, p.node_id_width))
   reg received_data_ids(~init: bits(0, 4))
   reg received_snoop_data_ids(~init: bits(0, 4))
+  reg completion_error(~init: CHIRespErr.OK)
+  def maintenance = chi_cache_maintenance(request.opcode)
 
   def idle = phase === CHIHNFPhase.Idle
   def incoming_request = requester.requests.bits
@@ -473,7 +496,8 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
     p,
     home_id,
     request,
-    mux(send_requester_dbid, CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp)
+    mux(send_requester_dbid, CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp),
+    ~error: completion_error
   )
   def requester_response_fire = requester.responses.fire()
 
@@ -526,6 +550,11 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
     p
   )
   when snoop_data_fire:
+    when maintenance:
+      assert(requester.request_data.bits.byte_enable === !bits(0, p.data_bytes), "chi_hnf_maintenance_full_dirty_packet")
+    assert(request.opcode =/= CHIReqOpcode.MakeInvalid, "chi_hnf_discard_has_no_data")
+    assert(or_reduce(expected_snoop_data_ids & snoop_data_id), "chi_hnf_snoop_data_id_expected")
+    assert(chi_snoop_response_state_valid(chi_home_snoop_opcode(request.opcode), requester.request_data.bits.resp.into(CHICoherentResponse())), "chi_hnf_snoop_data_state")
     assert(!or_reduce(received_snoop_data_ids & snoop_data_id),
            "chi_hnf_snoop_data_id_unique")
     assert(requester.request_data.bits.resp.into(CHICoherentResponse()).pass_dirty,
@@ -558,6 +587,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
       assert(incoming_requester_response.txn_id === bits(0, 12),
              "chi_hnf_snoop_response_txn")
       def snoop_response = incoming_requester_response.resp.into(CHICoherentResponse())
+      assert(chi_snoop_response_state_valid(chi_home_snoop_opcode(request.opcode), snoop_response), "chi_hnf_snoop_response_state")
       assert(!snoop_response.pass_dirty,
              "chi_hnf_snoop_response_clean")
     when awaiting_comp_ack:
@@ -673,15 +703,17 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
     requester_is_rnf <== chi_hnf_source_is_rnf(p, checked, incoming_request)
     pending_snoops <== vec(
       for List (endpoint in checked.snoop_endpoints):
-        incoming_coherent & (
-          incoming_request.src_id =/= bits(endpoint.node_id, p.node_id_width)
+        (incoming_coherent ||| chi_cache_maintenance(incoming_request.opcode)) & (
+          (incoming_request.src_id =/= bits(endpoint.node_id, p.node_id_width)) ||| (
+            chi_cache_maintenance(incoming_request.opcode) & incoming_request.excl_snoop_me_cah
+          )
         )
     )
     received_data_ids <== bits(0, 4)
     received_snoop_data_ids <== bits(0, 4)
     phase <== mux(incoming_write,
                   CHIHNFPhase.SendRequesterDBID,
-                  mux(incoming_coherent,
+                  mux(incoming_coherent ||| chi_cache_maintenance(incoming_request.opcode),
                       CHIHNFPhase.SendSnoop,
                       CHIHNFPhase.SendSubordinateRequest))
   elsewhen (requester_response_fire & send_requester_dbid):
@@ -693,7 +725,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
     when final_write_data:
       phase <== CHIHNFPhase.SendSnoop
   elsewhen ((phase === CHIHNFPhase.SendSnoop) & !snoops_remaining):
-    phase <== CHIHNFPhase.SendSubordinateRequest
+    phase <== mux(maintenance, CHIHNFPhase.SendRequesterCompletion, CHIHNFPhase.SendSubordinateRequest)
   elsewhen snoop_fire:
     pending_snoops <== pending_snoops.updated(next_snoop_index, Bool(#false))
     expected_snoop_node <== next_snoop_node
@@ -739,6 +771,16 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
                     CHIHNFPhase.Idle)
   elsewhen (requester_control_fire & awaiting_comp_ack):
     phase <== CHIHNFPhase.Idle
+
+  when request_fire:
+    completion_error <== CHIRespErr.OK
+  elsewhen maintenance:
+    when (subordinate_response_fire & (incoming_subordinate_response.resp_err =/= CHIRespErr.OK)):
+      completion_error <== incoming_subordinate_response.resp_err
+    elsewhen (snoop_data_fire & (requester.request_data.bits.resp_err =/= CHIRespErr.OK)):
+      completion_error <== requester.request_data.bits.resp_err
+    elsewhen (requester_control_fire & awaiting_snoop & (incoming_requester_response.resp_err =/= CHIRespErr.OK)):
+      completion_error <== incoming_requester_response.resp_err
 
 export:
   CHIHNFConfig
