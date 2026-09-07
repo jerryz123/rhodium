@@ -44,6 +44,13 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 
 ## Extend a protocol layer
 
+Exact node-to-ICN peer metadata belongs to `CHINodeParams.icn_peer()` in
+`link.rhdl`. RAM, devices, and SoC compositions derive it there rather than
+repeating capability reversal. Home placement parameters derive their
+subordinate endpoint from the service; retain separate structural configuration
+and runtime identity. Host link and Home tests cover derivation and service
+compatibility, while RAM/device/Home simulations cover connected consumers.
+
 Semantic packet construction belongs in `messages.rhdl`, below transaction
 engines. The subordinate allocator owns occupancy, DBID association, and packet
 receipt state, not response construction. Devices can consume the builders

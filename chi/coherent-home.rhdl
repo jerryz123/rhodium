@@ -79,17 +79,17 @@ class CHIHNFConfig(flit :: CHIFlitParams,
 
 class CHIHNFParams(home :: CHIHomeParams,
                    config :: CHIHNFConfig,
-                   subordinate_endpoint :: CHIICNPortParams,
                    subordinate_service :: CHISubordinateServiceParams):
 
+  property subordinate_endpoint: subordinate_service.endpoint
   property flit: config.flit
   property requester_endpoints: config.requester_endpoints
   property snoop_endpoints: config.snoop_endpoints
 
   constructor (home :: CHIHomeParams,
                config :: CHIHNFConfig,
-               subordinate_endpoint :: CHIICNPortParams,
                subordinate_service :: CHISubordinateServiceParams):
+    def subordinate_endpoint = subordinate_service.endpoint
     unless home.kind == CHINodeKind.HNF
     | error(~who: #'CHIHNFParams, "home kind must be HN-F")
     unless home.max_outstanding == 1
@@ -98,9 +98,6 @@ class CHIHNFParams(home :: CHIHomeParams,
     unless [CHINodeKind.SNF, CHINodeKind.SNI].contains(subordinate_endpoint.kind)
     | error(~who: #'CHIHNFParams,
             "subordinate endpoint must describe an SN-F or SN-I")
-    unless subordinate_service.endpoint == subordinate_endpoint
-    | error(~who: #'CHIHNFParams,
-            "subordinate service must describe the subordinate endpoint")
     unless subordinate_service.address_sets.length() == 1 && (
       subordinate_service.address_sets[0].mask == config.service_mask
     ) && subordinate_service.requests == config.service_requests
@@ -121,7 +118,7 @@ class CHIHNFParams(home :: CHIHomeParams,
       )
       | error(~who: #'CHIHNFParams,
               "requester, Home, and subordinate NodeIDs must be distinct")
-    super(home, config, subordinate_endpoint, subordinate_service)
+    super(home, config, subordinate_service)
 
 bundle CHIHNFIdentity(p :: CHIFlitParams):
   home_node_id: Bits(p.node_id_width)

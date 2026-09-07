@@ -86,7 +86,6 @@ def coherent_home_config = CHIHNFConfig(
 def coherent_home_params = CHIHNFParams(
   CHIHomeParams("coherent-home", 5, CHINodeKind.HNF, ~max_outstanding: 1),
   coherent_home_config,
-  memory_endpoint,
   memory_service
 )
 def coherent_home_design = elaborate(CHIHNF(coherent_home_config))

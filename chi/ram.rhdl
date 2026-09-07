@@ -88,15 +88,7 @@ class CHIRamParams(name :: NonemptyString,
       ),
       ~max_outstanding: max_outstanding
     )
-  property icn_port:
-    CHIICNPortParams(
-      name ++ "-icn",
-      node_id,
-      kind,
-      ~emits: node.supports,
-      ~supports: node.emits,
-      ~max_outstanding: max_outstanding
-    )
+  property icn_port: node.icn_peer()
   property service:
     CHISubordinateServiceParams(
       icn_port,

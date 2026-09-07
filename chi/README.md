@@ -99,6 +99,14 @@ These preserve untouched packet metadata, including optional fields. Callers
 supply routing identities and policy decisions; the helpers neither allocate
 transactions nor choose a coherence policy.
 
+`CHINodeParams.icn_peer()` derives the matching ICN endpoint: it appends
+`-icn` to the name, retains NodeID, node kind, and outstanding limit, and swaps
+emitted and supported capabilities. Use explicit `CHIICNPortParams` when the
+ICN contract is intentionally different from the node's exact peer.
+`CHIHNFParams(home, config, subordinate_service)` derives its
+`subordinate_endpoint` from that service and validates it against the Home
+configuration.
+
 The package boundary follows the protocol layering:
 
 - `chi/` owns CHI node roles, flits, opcodes, transactions, Protocol Credits,

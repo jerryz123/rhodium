@@ -25,7 +25,7 @@ def simple_soc_clocks = SoCClockConfig(
   ~timebase_frequency_hz: 100000000
 )
 def simple_soc_host_node = soc_host_node(1)
-def simple_soc_host_port = requester_icn_endpoint(simple_soc_host_node)
+def simple_soc_host_port = simple_soc_host_node.icn_peer()
 def simple_soc_memory_transfers = TransferSizes(1, 64)
 def simple_soc_memory_node = CHINodeParams(
   "simple-memory", 9, CHINodeKind.SNF,
@@ -40,7 +40,7 @@ def simple_soc_memory_node = CHINodeParams(
   ~max_outstanding: 2
 )
 def simple_soc_memory_service = CHISubordinateServiceParams(
-  requester_icn_endpoint(simple_soc_memory_node),
+  simple_soc_memory_node.icn_peer(),
   [AddressSet(simple_soc_memory_base, simple_soc_memory_bytes - 1)],
   [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, simple_soc_memory_transfers),
    CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, simple_soc_memory_transfers),

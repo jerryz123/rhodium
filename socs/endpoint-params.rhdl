@@ -1,18 +1,8 @@
 #lang rhodium
-// Defines shared CHI endpoint descriptions for SoC hosts and their ICN peers.
+// Defines SoC host capabilities and Home-specific service projections.
 
 import:
   lib("chi/main.rhdl") open
-
-fun requester_icn_endpoint(node :: CHINodeParams) :: CHIICNPortParams:
-  CHIICNPortParams(
-    node.name ++ "-icn",
-    node.node_id,
-    node.kind,
-    ~emits: node.supports,
-    ~supports: node.emits,
-    ~max_outstanding: node.max_outstanding
-  )
 
 fun soc_host_node(node_id :: Nat) :: CHINodeParams:
   CHINodeParams(
@@ -35,7 +25,7 @@ fun soc_host_node(node_id :: Nat) :: CHINodeParams:
 // Project complete host identity into the traffic accepted by each Home.
 fun soc_host_home_port(node :: CHINodeParams, ~coherent: coherent :: Boolean):
   CHIRequesterHomeParams(
-    requester_icn_endpoint(node),
+    node.icn_peer(),
     ~emits: CHIChannelCapabilities(
       ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
       ~snp: (if coherent | chi_rnf_snoop_opcodes | []),
@@ -56,5 +46,4 @@ fun soc_host_memory_service(home :: CHIHomeParams,
 export:
   soc_host_home_port
   soc_host_memory_service
-  requester_icn_endpoint
   soc_host_node

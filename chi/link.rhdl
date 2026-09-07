@@ -110,6 +110,20 @@ fun validate_endpoint_capabilities(kind :: CHINodeKind,
   | error(~who: who,
           "channel capabilities are not valid for the " ++ to_string(kind) ++ " " ++ side ++ " role")
 
+class CHIICNPortParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKind,
+                       emits :: CHIChannelCapabilities, supports :: CHIChannelCapabilities,
+                       max_outstanding :: Int.in(1 ..= 1024)):
+  implements StableCircuitParam
+
+  constructor (name :: NonemptyString,
+               node_id :: Nat,
+               kind :: CHINodeKind,
+               ~emits: emits :: CHIChannelCapabilities,
+               ~supports: supports :: CHIChannelCapabilities,
+               ~max_outstanding: max_outstanding :: Int.in(1 ..= 1024)):
+    validate_endpoint_capabilities(kind, emits, supports, "icn", #'CHIICNPortParams)
+    super(name, node_id, kind, emits, supports, max_outstanding)
+
 class CHINodeParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKind,
                     emits :: CHIChannelCapabilities, supports :: CHIChannelCapabilities,
                     max_outstanding :: Int.in(1 ..= 1024)):
@@ -124,19 +138,10 @@ class CHINodeParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKind,
     validate_endpoint_capabilities(kind, emits, supports, "node", #'CHINodeParams)
     super(name, node_id, kind, emits, supports, max_outstanding)
 
-class CHIICNPortParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKind,
-                       emits :: CHIChannelCapabilities, supports :: CHIChannelCapabilities,
-                       max_outstanding :: Int.in(1 ..= 1024)):
-  implements StableCircuitParam
-
-  constructor (name :: NonemptyString,
-               node_id :: Nat,
-               kind :: CHINodeKind,
-               ~emits: emits :: CHIChannelCapabilities,
-               ~supports: supports :: CHIChannelCapabilities,
-               ~max_outstanding: max_outstanding :: Int.in(1 ..= 1024)):
-    validate_endpoint_capabilities(kind, emits, supports, "icn", #'CHIICNPortParams)
-    super(name, node_id, kind, emits, supports, max_outstanding)
+  method icn_peer() :: CHIICNPortParams:
+    CHIICNPortParams(name ++ "-icn", node_id, kind,
+                     ~emits: supports, ~supports: emits,
+                     ~max_outstanding: max_outstanding)
 
 // A Home sees only the traffic negotiated for its address space. The parent
 // remains the complete ICN endpoint, including an RN-F's mandatory snoop plane.

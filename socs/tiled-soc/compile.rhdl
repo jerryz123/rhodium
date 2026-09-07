@@ -351,7 +351,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   require_tiled_node_id_width(node_ids, flit)
 
   def host_node = soc_host_node(host_placement.node_id)
-  def host_port = requester_icn_endpoint(host_node)
+  def host_port = host_node.icn_peer()
 
   def projector_config = CHIAddressProjectorConfig(
     flit,
@@ -395,11 +395,11 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def mutable requester_ports = [soc_host_home_port(host_node, ~coherent: #true)]
   for (params in rv5stage_chi_params):
     requester_ports := requester_ports ++ [
-      requester_icn_endpoint(params.instruction_node),
-      requester_icn_endpoint(params.data_node)
+      params.instruction_node.icn_peer(),
+      params.data_node.icn_peer()
     ]
   def uncached_ports = rv5stage_chi_params.map(
-    fun (params): requester_icn_endpoint(params.uncached_node)
+    fun (params): params.uncached_node.icn_peer()
   )
 
   def device_home_params = platform.home_params(uncached_ports ++ [soc_host_home_port(host_node, ~coherent: #false)])
@@ -436,7 +436,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     for List (home in homes,
               ram in ram_params,
               projector in projector_params):
-      CHIHNFParams(home, hnf_config, ram.icn_port, projector.upstream_service)
+      CHIHNFParams(home, hnf_config, projector.upstream_service)
   def llc_config = CHIInclusiveHNFConfig(
     hnf_config,
     projector_config,

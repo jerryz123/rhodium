@@ -10,11 +10,20 @@ check:
   fixture.coherent_home_params.requester_endpoints.length() ~is 3
   fixture.coherent_home_params.snoop_endpoints.length() ~is 2
   fixture.coherent_home_params.subordinate_endpoint.kind ~is chi.CHINodeKind.SNF
+  fixture.coherent_home_params.subordinate_endpoint ~is fixture.memory_service.endpoint
+  chi.CHIHNFParams(
+    fixture.coherent_home_params.home,
+    fixture.coherent_home_config,
+    chi.CHISubordinateServiceParams(
+      fixture.memory_service.endpoint,
+      [chi.AddressSet(0x80000000, 63)],
+      fixture.memory_service.requests
+    )
+  ) ~throws "match the HN-F structural configuration"
   chi.CHIHNFParams(
     chi.CHIHomeParams("bad-capacity", 5, chi.CHINodeKind.HNF,
                       ~max_outstanding: 2),
     fixture.coherent_home_config,
-    fixture.memory_endpoint,
     fixture.memory_service
   ) ~throws "exactly one outstanding transaction"
 

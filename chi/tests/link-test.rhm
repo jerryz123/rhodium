@@ -10,6 +10,28 @@ def rnf = chi.CHIRNLink(fixture.rnf_link, fixture.rnf_node)
 def sn = chi.CHISNLink(fixture.sn_link, fixture.sn_node)
 def tx_req = rni.members.find(fun (member): member.name == "tx_req")
 def rx_rsp = rni.members.find(fun (member): member.name == "rx_rsp")
+for (node in [fixture.rni_node, fixture.rnf_node, fixture.sn_node]):
+  def peer = node.icn_peer()
+  check:
+    peer.name ~is node.name ++ "-icn"
+    peer.node_id ~is node.node_id
+    peer.kind ~is node.kind
+    peer.emits ~is node.supports
+    peer.supports ~is node.emits
+    peer.max_outstanding ~is node.max_outstanding
+    peer ~is node.icn_peer()
+for (entry in [[rni, fixture.rni_link, fixture.rni_node],
+               [rnf, fixture.rnf_link, fixture.rnf_node],
+               [sn, fixture.sn_link, fixture.sn_node]]):
+  def interface = entry[0]
+  def link = entry[1]
+  def node = entry[2]
+  def wrong_node = chi.CHINodeParams(node.name, node.node_id + 1, node.kind,
+                                     ~emits: node.emits, ~supports: node.supports,
+                                     ~max_outstanding: node.max_outstanding)
+  check:
+    interface.connection_compatibility.predicate([link, node], [link, node.icn_peer()]) ~is #true
+    interface.connection_compatibility.predicate([link, node], [link, wrong_node.icn_peer()]) ~is #false
 check:
   fixture.rni_node.kind ~is chi.CHINodeKind.RNI
   fixture.rni_node.node_id ~is 3

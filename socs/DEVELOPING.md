@@ -34,8 +34,9 @@ identities, PMA, and descriptions from each caller's memory service and platform
 parameters. The helper emits the processor, chosen Home, routers, and platform
 devices directly into the caller; it adds no hardware wrapper. MiniSoC owns its
 RAM configuration, while SimpleSoC owns an external service and LLC geometry.
-`endpoint-params.rhdl` supplies host and ICN-peer descriptions shared with the
-tiled compiler. `make check-boundaries` rejects imports between peer SoCs and
+`endpoint-params.rhdl` supplies host descriptions shared with the tiled compiler;
+exact ICN peers are derived through CHI's `node.icn_peer()` method. Home
+parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects imports between peer SoCs and
 imports of named SoCs from shared components.
 
 ## Implementation map
@@ -47,7 +48,7 @@ imports of named SoCs from shared components.
 | Core-neutral catalog of concrete RISC-V UDB configurations | [`udb.rhm`](udb.rhm) |
 | Common RAM/MMIO host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
 | Shared single-core parameter derivation and direct composition | [`single-core-system.rhdl`](single-core-system.rhdl) |
-| Shared host and ICN endpoint descriptions | [`endpoint-params.rhdl`](endpoint-params.rhdl) |
+| Shared host endpoint descriptions | [`endpoint-params.rhdl`](endpoint-params.rhdl) |
 | Shared boot-address register, BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
 | Primary external-memory composition | [`simple-soc.rhdl`](simple-soc.rhdl) |
 | Compact internal-memory composition | [`mini-soc.rhdl`](mini-soc.rhdl) |

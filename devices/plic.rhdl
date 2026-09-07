@@ -55,15 +55,7 @@ class PlicParams(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
-  property icn_port:
-    CHIICNPortParams(
-      name ++ "-icn",
-      node_id,
-      CHINodeKind.SNI,
-      ~emits: node.supports,
-      ~supports: node.emits,
-      ~max_outstanding: 1
-    )
+  property icn_port: node.icn_peer()
   property service:
     CHISubordinateServiceParams(
       icn_port,
