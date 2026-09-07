@@ -29,7 +29,8 @@ fun gate_flow(enabled :: Bool)
       source,
       describe_interface_transform(
         interface_transform(gate_flow_input_link, gate_flow_output_link),
-        "gate"
+        "gate",
+        ~trace_model: interface_trace_combinational(~guard: enabled)
       )
     )
 

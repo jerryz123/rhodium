@@ -1129,6 +1129,15 @@ checkpoint. These records are nonsemantic module metadata: they do not modify
 hardware, verification, or backend lowering. A compiler analysis must reject an
 unmodeled transform instead of inferring routes from its label.
 
+Static routes alone do not authorize runtime instrumentation. The optional
+`InterfaceTraceCombinational` contract certifies zero-storage, non-inventing,
+one-to-one transfer; `interface_trace_combinational(~guard: predicate)` retains
+the original local one-bit filter or gate predicate. Stateful transforms keep
+route-only models. `describe_interface_event` accepts explicit local one-bit
+`~valid` and optional `~ready` values for the event transfer predicate; `~ready`
+requires `~valid`. Clock/reset selection belongs to the instrumenter, not to
+interface metadata.
+
 ### Injection and ejection boundaries
 
 `inject_interface(protocol, ...)` creates an endpoint from ordinary hardware,

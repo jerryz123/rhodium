@@ -1,0 +1,80 @@
+#lang rhombus
+// Copies one verified module into a new design, remapping owned IR references.
+
+import:
+  "../core/ir.rhm" open
+  "../core/builder.rhm".Builder
+
+export:
+  ModuleCopy
+  copy_module
+
+class ModuleCopy(module_def :: Module, values :: MutableMap, instances :: MutableMap)
+
+// Child targets are supplied per instance occurrence. Metadata deliberately
+// stays on the original elaboration: its extension-owned payloads refer to
+// original objects and cannot be shallow-copied into a different design.
+fun copy_module(builder :: Builder,
+                original :: Module,
+                name :: String,
+                children :: MutableMap,
+                imports :: MutableMap):
+  def target = builder.module(name)
+  def ids = MutableMap{}
+  def value_map = MutableMap{}
+  def places = MutableMap{}
+  def memories = MutableMap{}
+  def instances = MutableMap{}
+  for (op in original.operations):
+    if op.opcode == "rtl.instance"
+    | block:
+        def instance = builder.instance(target, children[op.id], op.attribute("name"), op.location, op.origin)
+        instances[op.id] := instance
+        ids[op.id] := instance.operation.id
+        for (value in op.results, replacement in instance.operation.results.take(op.results.length())):
+          value_map[value.id] := replacement
+        for (place in op.places, replacement in instance.operation.places.take(op.places.length())):
+          places[place.id] := replacement
+    | ids[op.id] := builder.design.fresh_id()
+  for (value in original.values):
+    unless value_map.has_key(value.id)
+    | def replacement = Value(builder.design.fresh_id(), value.name, value.type, target, ids[value.defining_op_id])
+      value_map[value.id] := replacement
+      target.add_value(replacement)
+  for (place in original.places):
+    unless places.has_key(place.id)
+    | def replacement = Place(builder.design.fresh_id(), place.name, place.type, target, ids[place.owner_op_id])
+      places[place.id] := replacement
+      target.add_place(replacement)
+  for (memory in original.memories):
+    def replacement = Memory(builder.design.fresh_id(), memory.name, memory.depth, memory.element_type, target, ids[memory.defining_op_id])
+    memories[memory.id] := replacement
+    target.add_memory(replacement)
+  fun attribute(value :: Boolean || String || Number || List || Map || HardwareType || Value || Place || Memory || DpiImport || Module):
+    cond
+    | value is_a Value: value_map[value.id]
+    | value is_a Place: places[value.id]
+    | value is_a Memory: memories[value.id]
+    | value is_a DpiImport: imports[value.id]
+    | value is_a Module: error(~who: #'copy_module, "unexpected module-valued attribute")
+    | value is_a List: value.map(attribute)
+    | value is_a Map:
+        for Map (key in value.keys()): values(key, attribute(value[key]))
+    | ~else: value
+  for (op in original.operations):
+    unless op.opcode == "rtl.instance"
+    | def operands = op.operands.map(fun (value): value_map[value.id])
+      def replacement = Operation(ids[op.id], op.opcode, target, operands,
+                                  op.results.map(fun (value): value_map[value.id]),
+                                  op.places.map(fun (place): places[place.id]),
+                                  attribute(op.attributes), op.location, op.origin)
+      for (operand in operands): operand.add_user(replacement.id)
+      target.add_operation(replacement)
+  for (place in original.places):
+    when place.driver
+    | places[place.id].driver := value_map[place.driver.id]
+  for (port in original.inputs):
+    target.add_input(Port(port.name, port.direction, port.type, value_map[port.value.id]))
+  for (port in original.outputs):
+    target.add_output(Port(port.name, port.direction, port.type, #false, places[port.place.id]))
+  ModuleCopy(target, value_map, instances)

@@ -37,7 +37,8 @@ this mirrored tree:
 |---|---|---|
 | Language-layer equivalence | `make lop-test` | [Frontend](../rhodium/frontend/README.md) |
 | Logical diagrams | `make diagram-test` | [Diagrams](../rhodium/diagram/README.md) |
-| Static event graphs | `make event-test` | [Event graphs](../rhodium/event/README.md) |
+| Event inference and instrumentation | `make event-test` | [Event graphs](../rhodium/event/README.md) |
+| Runtime event lineage (CIRCT/Verilator) | `make event-runtime-test` | [Event graphs](../rhodium/event/README.md) |
 | Device-tree model and encoders | `make devicetree-test` | [Device trees](../devicetree/README.md) |
 | RFPL views and constraints | `make rfpl-test` | [RFPL](../rfpl/README.md) |
 | Pure NoC model and hardware planning | `make noc-test` | [NoC](../noc/README.md) |

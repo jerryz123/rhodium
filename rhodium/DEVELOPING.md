@@ -88,7 +88,7 @@ internal module implementing its shared frontend forms is called the
 | [`language.rhm`](language.rhm), [`base/language.rhm`](base/language.rhm) | Compose ordinary Rhombus host control with one public Rhodium profile | Standard or foundation |
 | [`../rfpl/`](../rfpl/README.md) | Physical views over existing modules: opaque hard macros and wiring-only composite floorplans with contained child coordinates | Public core IR only |
 | [`diagram/`](diagram/README.md) | Read-only logical block, hierarchy, compound-interface, and flow visualization with JSON and DOT output | Core IR and interface-owned nonsemantic metadata |
-| [`event/`](event/README.md) | Occurrence-aware static dependency inference and manifests for annotated flow events | Core IR and logical diagrams |
+| [`event/`](event/README.md) | Static dependency inference, immutable linear metadata/DPI instrumentation, and an in-memory runtime | Core IR, Builder, verifier, logical diagrams, and other event modules; the C++ runtime uses the standard library only |
 | [`std/`](std/README.md) | Optional host utilities, protocols, and circuit generators written in ordinary Rhodium | Public `#lang rhodium` authoring surface only |
 | [`backend/`](backend/README.md) | Consume verified public IR; currently lower it through CIRCT | Core only |
 | [`formal/`](formal/README.md) | Optional Rosette-backed behavioral equivalence, output reachability, and combinational output properties over verified public IR | Core only; Rosette through one Racket interoperability module |

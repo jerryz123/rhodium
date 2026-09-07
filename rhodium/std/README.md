@@ -626,8 +626,9 @@ ingress
   |> egress
 ```
 
-The current event package emits a static manifest only. Synthesizable lineage
-and DPI emission remain future instrumentation work.
+The [event package](../event/README.md) can also rebuild a separate design with
+synthesizable lineage and DPI emission for linear combinational paths. Queues,
+pipes, and branching transforms remain static-analysis-only boundaries.
 
 Packet arbitration takes an inline predicate that identifies the final beat.
 The selected input remains the sole owner across stalls and bubbles until that

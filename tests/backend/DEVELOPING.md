@@ -58,6 +58,10 @@ also have dedicated negative benches. Those checks pass only when simulation
 fails and reports the expected assertion label, so an expected failure is not
 treated as an unchecked crash.
 
+The `event-runtime` direct fixture additionally links the event package's
+collector implementation. Its local DPI companion is a transfer scoreboard,
+not a second implementation of the collector or ABI.
+
 MLIR, generated SystemVerilog, Verilator object directories, and logs are
 created in a temporary `/tmp/rhodium-circt.*` directory and removed when the
 runner exits. They are diagnostic artifacts, not checked-in outputs. The only

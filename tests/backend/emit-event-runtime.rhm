@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits the instrumented event fixture through the unchanged CIRCT backend.
+
+import:
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/event/main.rhm".instrument_events
+  "../frontend/event-instrument-fixture.rhdl" as fixture
+
+print(emit_circt(instrument_events(fixture.runtime).instrumented.design))

@@ -1,0 +1,244 @@
+#lang rhombus
+// Selectively specializes traced hierarchies while sharing unchanged module imports.
+
+import:
+  "../core/ir.rhm" open
+  "../core/builder.rhm".Builder
+  "../core/verify.rhm".verify_design
+  "../diagram/main.rhm" open
+  "model.rhm" open
+  "analyze.rhm".infer_event_manifest
+  "copy.rhm" open
+
+export:
+  EventInstrumentationConfig
+  EventInstrumentedElaboration
+  instrument_events
+
+class EventInstrumentationConfig(clock_port :: String = "clock",
+                                 reset_port :: String = "reset")
+class EventInstrumentedElaboration(original :: DesignElaboration,
+                                   instrumented :: DesignElaboration,
+                                   manifest :: EventManifest)
+class Occurrence(original :: Module, path :: List.of(String), ordinal :: Nat,
+                 parent :: False || Nat, instance :: False || Operation,
+                 mutable children :: List = [])
+
+def reference_type = RecordType([RecordField("valid", Bits(1)),
+                                 RecordField("site", Bits(32)),
+                                 RecordField("sequence", Bits(64))])
+
+fun within(site :: EventSite, path :: List.of(String)):
+  site.instance_path.length() >= path.length() && site.instance_path.take(path.length()) == path
+
+fun instrument_events(logical :: DesignElaboration,
+                      config :: EventInstrumentationConfig = EventInstrumentationConfig()):
+  def manifest = infer_event_manifest(logical, ~dynamic: #true)
+  unless manifest.sites.length() > 0 && manifest.sites.length() < 2 ** 32
+  | error(~who: #'instrument_events, "instrumentation requires 1..2^32-1 event occurrences")
+  def top_clock = logical.top.inputs.find(fun (port): port.name == config.clock_port)
+  def top_reset = logical.top.inputs.find(fun (port): port.name == config.reset_port)
+  unless top_clock && clock_type(top_clock.type) && top_reset && reset_type(top_reset.type)
+  | error(~who: #'instrument_events, "select a top-level Clock input and synchronous Reset input")
+  def site_ids = MutableMap{}
+  for (site in manifest.sites, index in 0..manifest.sites.length()): site_ids[site.id] := index
+  def parents = MutableMap{}
+  for (site in manifest.sites):
+    def edges = manifest.dependencies.filter(~keep: fun (edge): edge.child == site.id)
+    when edges.length() > 1
+    | error(~who: #'instrument_events, "linear tracing requires one parent path at " ++ site.id)
+    when edges.length() == 1
+    | def parent = manifest.site(edges[0].parent)
+      when parent.terminal
+      | error(~who: #'instrument_events, "terminal event has a downstream annotation: " ++ parent.id)
+      parents[site.id] := parent
+    when manifest.dependencies.filter(~keep: fun (edge): edge.parent == site.id).length() > 1
+    | error(~who: #'instrument_events, "linear tracing does not support branching at " ++ site.id)
+
+  def mutable occurrences = []
+  fun expand(original :: Module, path :: List.of(String), parent :: False || Occurrence, instance :: False || Operation):
+    def occurrence = Occurrence(original, path, occurrences.length(), if parent | parent.ordinal | #false, instance)
+    occurrences := occurrences ++ [occurrence]
+    for (op in original.operations):
+      when op.opcode == "rtl.instance"
+      | occurrence.children := occurrence.children ++ [expand(op.attribute("module"), path ++ [op.attribute("name")], occurrence, op)]
+    occurrence
+  def root = expand(logical.top, [logical.top.name], #false, #false)
+
+  // Trace clocks are supplied from the selected root, never guessed from a
+  // port name in a descendant. Check functional domains before introducing them.
+  fun control_root(value :: Value, occurrence :: Occurrence):
+    def op = occurrence.original.find_operation(value.defining_op_id)
+    cond
+    | op.opcode == "rtl.input_port":
+        if !occurrence.parent
+        | value
+        | block:
+            def mutable binding = #false
+            for (port in occurrence.original.inputs, place in occurrence.instance.places):
+              when port.value === value | binding := place.driver
+            unless binding | error(~who: #'instrument_events, "unbound clock/reset in traced hierarchy")
+            control_root(binding, occurrences[occurrence.parent])
+    | op.opcode == "rtl.wire": control_root(op.places[0].driver, occurrence)
+    | op.opcode == "rtl.cast": control_root(op.operands[0], occurrence)
+    | ~else: error(~who: #'instrument_events, "generated or opaque clock/reset in " ++ String.join(occurrence.path, "/"))
+  for (occurrence in occurrences):
+    for (value in occurrence.original.values):
+      when value.name.starts_with("__event_")
+      | error(~who: #'instrument_events, "reserved instrumentation name: " ++ value.name)
+      when clock_type(value.type) || reset_type(value.type)
+      | def expected = (if clock_type(value.type) | top_clock.value | top_reset.value)
+        unless control_root(value, occurrence) === expected
+        | error(~who: #'instrument_events, "tracing requires one clock and reset epoch: " ++ String.join(occurrence.path, "/"))
+    for (place in occurrence.original.places):
+      when place.name.starts_with("__event_")
+      | error(~who: #'instrument_events, "reserved instrumentation name: " ++ place.name)
+    for (op in occurrence.original.operations):
+      for (operand in op.operands):
+        when clock_type(operand.type) || reset_type(operand.type)
+        | def expected = (if clock_type(operand.type) | top_clock.value | top_reset.value)
+          unless control_root(operand, occurrence) === expected
+          | error(~who: #'instrument_events, "tracing requires one clock and reset epoch: " ++ String.join(occurrence.path, "/"))
+
+  def view = diagram(logical)
+  for (occurrence in occurrences):
+    def local_view = view.module(occurrence.original.name)
+    def annotations = local_view.blocks.filter(~keep: fun (candidate): candidate.event_annotation != #false)
+    def visible = manifest.sites.filter(~keep: fun (site): site.instance_path == occurrence.path)
+    unless annotations.length() == visible.length()
+    | error(~who: #'instrument_events, "event annotations are hidden behind a transform implementation: " ++ String.join(occurrence.path, "/"))
+  def design = Design([], logical.design.next_id)
+  def builder = Builder(design)
+  def imports = MutableMap{}
+  for (original in logical.design.dpi_imports):
+    when original.name.starts_with("rhodium_event_")
+    | error(~who: #'instrument_events, "reserved event DPI import: " ++ original.name)
+    imports[original.id] := builder.dpi_import_results(original.name, original.input_names, original.input_types, original.results, original.location)
+  def node_dpi = builder.dpi_import("rhodium_event_node", ["site", "sequence", "cycle", "width"], [Bits(32), Bits(64), Bits(64), Bits(32)])
+  def word_dpi = builder.dpi_import("rhodium_event_payload", ["site", "sequence", "index", "word"], [Bits(32), Bits(64), Bits(32), Bits(32)])
+  def edge_dpi = builder.dpi_import("rhodium_event_edge", ["child", "child_sequence", "parent", "parent_sequence"], [Bits(32), Bits(64), Bits(32), Bits(64)])
+  def reset_dpi = builder.dpi_import("rhodium_event_reset", ["active"], [Bits(1)])
+
+  fun subtree_sites(occurrence :: Occurrence):
+    manifest.sites.filter(~keep: fun (site): within(site, occurrence.path))
+  fun imported_sites(occurrence :: Occurrence):
+    manifest.sites.filter(
+      ~keep: fun (site): !within(site, occurrence.path) && manifest.dependencies.find(fun (edge): edge.parent == site.id && within(manifest.site(edge.child), occurrence.path)) != #false
+    )
+  fun ref_name(prefix :: String, site :: EventSite): prefix ++ to_string(site_ids[site.id])
+
+  // In this combinational subset, the footprint is event-bearing occurrences
+  // plus their ancestors: ancestors carry references and retarget children.
+  def modified = MutableSet{}
+  for (occurrence in occurrences):
+    when subtree_sites(occurrence).length() > 0 | modified.add(occurrence.ordinal)
+  // Ownership forbids cross-design module references. Import each untouched
+  // definition once, recursively preserving its original sharing instead.
+  def unchanged = MutableMap.by(===){}
+  fun import_unchanged(original :: Module):
+    unless unchanged.has_key(original)
+    | def children = MutableMap{}
+      for (op in original.operations):
+        when op.opcode == "rtl.instance"
+        | children[op.id] := import_unchanged(op.attribute("module"))
+      def copied = copy_module(builder, original, original.name, children, imports)
+      unchanged[original] := builder.finish(copied.module_def)
+    unchanged[original]
+  fun specialization_name(base :: String, suffix :: Nat = 0):
+    def candidate = if suffix == 0 | base | base ++ "_" ++ to_string(suffix)
+    if logical.design.find_module_named(candidate) || design.find_module_named(candidate)
+    | specialization_name(base, suffix + 1)
+    | candidate
+  fun rebuild(occurrence :: Occurrence):
+    if occurrence.ordinal in modified
+    | specialize(occurrence)
+    | import_unchanged(occurrence.original)
+  fun specialize(occurrence :: Occurrence):
+    def children = MutableMap{}
+    for (child in occurrence.children): children[child.instance.id] := rebuild(child)
+    def module_name = if occurrence === root | logical.top.name | specialization_name(logical.top.name ++ "__event_occ_" ++ to_string(occurrence.ordinal))
+    def copied = copy_module(builder, occurrence.original, module_name, children, imports)
+    def module_def = copied.module_def
+    def clock = if occurrence === root | copied.values[top_clock.value.id] | builder.input(module_def, "__event_clock", Clock)
+    def reset = if occurrence === root | copied.values[top_reset.value.id] | builder.input(module_def, "__event_reset", Reset)
+    def zero = builder.constant(module_def, Bits(64), 0)
+    def one = builder.constant(module_def, Bits(64), 1)
+    def yes = builder.constant(module_def, Bits(1), 1)
+    def active = builder.bit_not(module_def, builder.cast(module_def, reset, Bits(1)))
+    def local_sites = manifest.sites.filter(~keep: fun (site): site.instance_path == occurrence.path)
+    fun cycle_counter():
+      def cycle = builder.register(module_def, "__event_cycle", Bits(64), clock, reset, zero)
+      builder.drive(cycle.next, builder.add(module_def, cycle.current, one))
+      def cycle_available = builder.bit_not(module_def, builder.eq(module_def, cycle.current, builder.constant(module_def, Bits(64), 2 ** 64 - 1)))
+      builder.assert(module_def, cycle_available, clock, reset, yes, "__event_cycle_no_wrap")
+      cycle.current
+    def cycle = if local_sites.length() > 0 | cycle_counter() | #false
+    when occurrence === root
+    | builder.dpi_call(module_def, reset_dpi, [builder.cast(module_def, reset, Bits(1))], clock, builder.cast(module_def, reset, Bits(1)))
+    def references = MutableMap{}
+    for (site in imported_sites(occurrence)):
+      references[site.id] := builder.input(module_def, ref_name("__event_in_", site), reference_type)
+    for (child in occurrence.children):
+      when child.ordinal in modified
+      | def instance = copied.instances[child.instance.id]
+        builder.drive(instance.input("__event_clock"), clock)
+        builder.drive(instance.input("__event_reset"), reset)
+        for (site in subtree_sites(child)):
+          references[site.id] := instance.output(ref_name("__event_out_", site))
+    def sequences = MutableMap{}
+    def fires = MutableMap{}
+    def annotations = MutableMap{}
+    for (site in local_sites):
+      def flow_block = view.module(occurrence.original.name).blocks.find(
+        fun (candidate): candidate.event_annotation && candidate.event_annotation.site_index == site.local_site
+      )
+      def annotation = flow_block.event_annotation
+      unless annotation.valid
+      | error(~who: #'instrument_events, "event requires explicit transfer controls: " ++ site.id)
+      annotations[site.id] := annotation
+      def valid = builder.cast(module_def, copied.values[annotation.valid.id], Bits(1))
+      def transfer = if annotation.ready | builder.bit_and(module_def, valid, builder.cast(module_def, copied.values[annotation.ready.id], Bits(1))) | valid
+      def fire = builder.bit_and(module_def, active, transfer)
+      fires[site.id] := fire
+      def sequence = builder.register(module_def, ref_name("__event_sequence_", site), Bits(64), clock, reset, zero)
+      sequences[site.id] := sequence.current
+      builder.drive(sequence.next, builder.mux_lookup(module_def, fire, sequence.current, [[1, builder.add(module_def, sequence.current, one)]]))
+      def available = builder.bit_not(module_def, builder.eq(module_def, sequence.current, builder.constant(module_def, Bits(64), 2 ** 64 - 1)))
+      builder.assert(module_def, available, clock, reset, fire, ref_name("__event_no_wrap_", site))
+      references[site.id] := builder.record_create(module_def, reference_type, [
+        ["valid", fire], ["site", builder.constant(module_def, Bits(32), site_ids[site.id])], ["sequence", sequence.current]
+      ])
+    // Every reference exists before any consumer is wired. This supports
+    // same-cycle parent/child events across siblings and hierarchy boundaries.
+    for (child in occurrence.children):
+      for (site in imported_sites(child)):
+        builder.drive(copied.instances[child.instance.id].input(ref_name("__event_in_", site)), references[site.id])
+    for (site in local_sites):
+      def annotation = annotations[site.id]
+      def id = builder.constant(module_def, Bits(32), site_ids[site.id])
+      def sequence = sequences[site.id]
+      def fire = fires[site.id]
+      def width = if annotation.payload | data_width(annotation.payload.type) | 0
+      builder.dpi_call(module_def, node_dpi, [id, sequence, cycle, builder.constant(module_def, Bits(32), width)], clock, fire)
+      when annotation.payload
+      | def packed = builder.cast(module_def, copied.values[annotation.payload.id], Bits(width))
+        for (index in 0..((width + 31) div 32)):
+          def low = index * 32
+          def high = if width - 1 < low + 31 | width - 1 | low + 31
+          def word = builder.extract(module_def, packed, high, low)
+          def padded = if high - low + 1 == 32 | word | builder.zext(module_def, word, 32)
+          builder.dpi_call(module_def, word_dpi, [id, sequence, builder.constant(module_def, Bits(32), index), padded], clock, fire)
+      def parent = parents.get(site.id, #false)
+      when parent
+      | def reference = references[parent.id]
+        def parent_valid = builder.record_get(module_def, reference, "valid")
+        builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
+        builder.dpi_call(module_def, edge_dpi, [id, sequence, builder.record_get(module_def, reference, "site"), builder.record_get(module_def, reference, "sequence")], clock, builder.bit_and(module_def, fire, parent_valid))
+    unless occurrence === root
+    | for (site in subtree_sites(occurrence)):
+        builder.drive(builder.output(module_def, ref_name("__event_out_", site), reference_type), references[site.id])
+    builder.finish(module_def)
+  def top = rebuild(root)
+  def instrumented = DesignElaboration(design, top)
+  verify_design(design)
+  EventInstrumentedElaboration(logical, instrumented, manifest)

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines transparent user-annotated event checkpoints for static flow analysis.
+// Defines transparent event checkpoints with explicit transfer controls for tracing.
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
@@ -25,6 +25,8 @@ fun trace_event(label :: String,
         interface_transform(input_link, output_link),
         label,
         ~payload: input_endpoint.field("bits"),
+        ~valid: input_endpoint.field("valid"),
+        ~ready: output_endpoint.field("ready"),
         ~terminal
       )
     )
@@ -48,6 +50,7 @@ fun trace_valid_event(label :: String,
         interface_transform(input_link, output_link),
         label,
         ~payload: input_endpoint.field("bits"),
+        ~valid: input_endpoint.field("valid"),
         ~terminal
       )
     )

@@ -1,0 +1,68 @@
+#lang rhombus
+// Checks selective specialization, shared imports, immutable IR, and trace diagnostics.
+
+import:
+  lib("json/main.rkt").#{string->jsexpr} as parse_json
+  "../../rhodium/event/main.rhm" open
+  "../../rhodium/core/ir.rhm".Module
+  "../../rhodium/core/verify.rhm".verify_design
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../frontend/event-instrument-fixture.rhdl" as fixture
+  "../frontend/event-graph-fixture.rhdl" as static_fixture
+
+def before = emit_circt(fixture.runtime.design)
+def result = instrument_events(fixture.runtime)
+def after = emit_circt(fixture.runtime.design)
+def emitted = emit_circt(result.instrumented.design)
+
+fun child(module_def :: Module, name :: String):
+  module_def.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")
+fun has_trace_ports(module_def :: Module):
+  (module_def.inputs ++ module_def.outputs).find(fun (port): port.name.starts_with("__event_")) != #false
+def left_wrapper = child(result.instrumented.top, "left")
+def right_wrapper = child(result.instrumented.top, "right")
+def left_child = child(left_wrapper, "child")
+def right_child = child(right_wrapper, "child")
+def shared_mapper = child(left_child, "mapper")
+def shared_identity = child(shared_mapper, "identity")
+def original_mapper = child(child(child(fixture.runtime.top, "left"), "child"), "mapper")
+check:
+  before ~is after
+  result.original === fixture.runtime ~is #true
+  result.instrumented.design === fixture.runtime.design ~is #false
+  result.instrumented.top.inputs.map(fun (port): port.name) ~is fixture.runtime.top.inputs.map(fun (port): port.name)
+  result.instrumented.top.outputs.map(fun (port): port.name) ~is fixture.runtime.top.outputs.map(fun (port): port.name)
+  result.manifest.sites.length() ~is 8
+  result.manifest.sites.map(fun (site): site.label) ~is ["left-input", "left-output", "right-input", "right-output", "wide-input", "wide-output", "mapped", "mapped"]
+  result.manifest.dependencies.length() ~is 5
+  emitted.contains("sim.func.dpi.call @rhodium_event_node") ~is #true
+  emitted.contains("sim.func.dpi.call @rhodium_event_edge") ~is #true
+  emitted.contains("__event_in_") ~is #true
+  emitted.contains("__event_out_") ~is #true
+  instrument_events(static_fixture.linear) ~throws "dynamic trace semantics"
+  instrument_events(static_fixture.forked) ~throws "dynamic trace semantics"
+  instrument_events(static_fixture.merged) ~throws "dynamic trace semantics"
+  instrument_events(fixture.wrong_domain()) ~throws "one clock and reset epoch"
+  instrument_events(fixture.terminal_chain) ~throws "terminal event has a downstream annotation"
+  fixture.bad_guard() ~throws "trace guard must be local one-bit data"
+  instrument_events(fixture.runtime, EventInstrumentationConfig("missing", "reset")) ~throws "top-level Clock"
+  parse_json(event_manifest_to_json(result.manifest)) != #false ~is #true
+  // Occurrence-specific IDs require distinct traced children and ancestor targets.
+  left_wrapper === right_wrapper ~is #false
+  left_child === right_child ~is #false
+  has_trace_ports(left_wrapper) ~is #true
+  has_trace_ports(right_wrapper) ~is #true
+  left_wrapper.values.find(fun (value): value.name.starts_with("__event_cycle") || value.name.starts_with("__event_sequence")) ~is #false
+  left_wrapper.operations.find(fun (op): op.opcode == "sim.dpi_call") ~is #false
+  // Repeated unchanged definitions, including nested/direct diamond sharing,
+  // are imported only once and acquire neither trace ports nor trace state.
+  child(right_child, "mapper") === shared_mapper ~is #true
+  child(result.instrumented.top, "identity") === shared_identity ~is #true
+  has_trace_ports(shared_mapper) ~is #false
+  has_trace_ports(shared_identity) ~is #false
+  shared_mapper.values.find(fun (value): value.name.starts_with("__event_")) ~is #false
+  shared_mapper.operations.length() ~is original_mapper.operations.length()
+  shared_mapper === original_mapper ~is #false
+  shared_mapper.design === result.instrumented.design ~is #true
+  shared_identity.design === result.instrumented.design ~is #true
+  shared_mapper.name ~is original_mapper.name

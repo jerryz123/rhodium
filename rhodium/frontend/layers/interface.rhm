@@ -28,6 +28,7 @@ export:
   InterfaceArrayGroup
   InterfaceTraceRoute
   InterfaceTraceModel
+  InterfaceTraceCombinational
   InterfaceTransformGroup
   InterfaceEventGroup
   InterfaceConnectionGroup
@@ -40,6 +41,7 @@ export:
   module_interface_links
   interface_boundary_endpoint
   interface_trace_passthrough
+  interface_trace_combinational
   interface_trace_broadcast
   interface_trace_merge
   interface_trace_crossbar
@@ -393,10 +395,12 @@ class InterfaceArrayGroup(module_def :: Module,
 // transform. Indices refer to the flattened top-level endpoint arrays.
 class InterfaceTraceRoute(input_index :: Nat, output_index :: Nat)
 
-// Supplies compiler-consumable transaction topology independently of a
-// transform's display label. Later instrumentation can refine this model with
-// state and transfer behavior without changing static route inference.
-class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute))
+// Certifies combinational transfer separately from possible static routes.
+// Absence of this contract never implies zero-latency runtime propagation.
+class InterfaceTraceCombinational(guard :: False || Value = #false)
+
+class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
+                          dynamic :: False || InterfaceTraceCombinational = #false)
 
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
@@ -413,7 +417,9 @@ class InterfaceEventGroup(module_def :: Module,
                           output :: InterfaceEndpoint,
                           payload :: False || Value,
                           terminal :: Boolean,
-                          location :: Location):
+                          location :: Location,
+                          valid :: False || Value = #false,
+                          ready :: False || Value = #false):
   implements ModuleMetadataPayload
 class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
@@ -1530,6 +1536,14 @@ fun interface_endpoint_shape_count(shape :: InterfaceEndpoint || Array):
 fun interface_trace_passthrough():
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)])
 
+// Certifies zero-storage, non-inventing, one-to-one transfer. An optional
+// guard is the original filter predicate, not a reconstructed selection policy.
+fun interface_trace_combinational(~guard: guard :: False || HardwareEntity = #false):
+  def value = if guard | kernel.read(guard) | #false
+  when value && (!(value.module_def === kernel.active_module()) || !flat_data_type(value.type) || data_width(value.type) != 1)
+  | error(~who: #'interface_trace_combinational, "trace guard must be local one-bit data")
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceCombinational(value))
+
 fun interface_trace_broadcast(output_count :: PosInt):
   InterfaceTraceModel(
     for List (output_index in 0..output_count):
@@ -1554,6 +1568,12 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
                                    output_shape :: InterfaceEndpoint || Array):
   def input_count = interface_endpoint_shape_count(input_shape)
   def output_count = interface_endpoint_shape_count(output_shape)
+  when trace_model.dynamic
+  | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
+    | error(~who: #'describe_interface_transform, "combinational trace semantics require exactly one input and output")
+    def guard = trace_model.dynamic.guard
+    when guard && (!(guard.module_def === kernel.active_module()) || !flat_data_type(guard.type) || data_width(guard.type) != 1)
+    | error(~who: #'describe_interface_transform, "trace guard must be local one-bit data")
   for (route in trace_model.routes):
     unless route.input_index < input_count
     | error(~who: #'describe_interface_transform,
@@ -1594,6 +1614,8 @@ fun describe_interface_event(handle :: Handle,
                              label :: String,
                              ~payload: payload :: False || HardwareEntity = #false,
                              ~terminal: terminal :: Boolean = #false,
+                             ~valid: valid :: False || HardwareEntity = #false,
+                             ~ready: ready :: False || HardwareEntity = #false,
                              ~location: location :: Location = Location()) :: Handle:
   unless label != ""
   | error(~who: #'describe_interface_event, "event label must not be empty")
@@ -1618,6 +1640,13 @@ fun describe_interface_event(handle :: Handle,
         value
     | #false
   def site_index = existing.length()
+  fun transfer_value(signal :: False || HardwareEntity):
+    def value = if signal | kernel.read(signal, location) | #false
+    when value && (!(value.module_def === module_def) || !flat_data_type(value.type) || data_width(value.type) != 1)
+    | error(~who: #'describe_interface_event, "event transfer controls must be local one-bit data")
+    value
+  when ready && !valid
+  | error(~who: #'describe_interface_event, "event ready requires valid")
   def event = InterfaceEventGroup(module_def,
                                   site_index,
                                   label,
@@ -1625,7 +1654,9 @@ fun describe_interface_event(handle :: Handle,
                                   handle.right,
                                   payload_value,
                                   terminal,
-                                  location)
+                                  location,
+                                  transfer_value(valid),
+                                  transfer_value(ready))
   module_def.add_metadata(interface_event_group_namespace, event)
   describe_interface_transform(
     handle,

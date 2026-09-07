@@ -214,6 +214,8 @@ classify_path() {
       ;;
     rhodium/event/*)
       host_foundation=true
+      host_backend=true
+      circt_language=true
       ;;
     rhodium/core/*|rhodium/analysis/*|rhodium/frontend/*|rhodium/base/*|rhodium/language.rhm|rhodium/main.rkt)
       mark_all

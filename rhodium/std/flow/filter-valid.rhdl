@@ -16,7 +16,7 @@ fun finish_filter_valid_handle(input_link :: Handle,
   describe_interface_transform(
     interface_transform(input_link, output_link),
     "filter-valid",
-    ~trace_model: interface_trace_passthrough()
+    ~trace_model: interface_trace_combinational(~guard: keep)
   )
 
 // A rejected Valid event is dropped because the source cannot be

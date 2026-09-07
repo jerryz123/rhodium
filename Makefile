@@ -2,6 +2,7 @@
 
 .PHONY: sram-test
 .PHONY: event-test
+.PHONY: event-runtime-test
 .PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-cores-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
 
 RISCV_UDB_CONFIGURATION ?= simple-soc
@@ -99,7 +100,10 @@ diagram-test: check-boundaries
 	tools/run-racket-tests.sh tests/frontend/diagram-test.rhm
 
 event-test: check-boundaries
-	tools/run-racket-tests.sh tests/frontend/event-graph-test.rhm
+	tools/run-racket-tests.sh tests/frontend/event-graph-test.rhm tests/backend/event-instrument-test.rhm
+
+event-runtime-test: check-boundaries
+	FIXTURE=event-runtime bash tests/backend/run-circt.sh
 
 backend-test: check-boundaries
 	tools/run-racket-tests.sh $(BACKEND_TESTS)

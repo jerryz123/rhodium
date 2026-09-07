@@ -18,7 +18,7 @@ fun finish_map_flow_handle(input_link :: Handle,
   describe_interface_transform(
     interface_transform(input_link, output_link),
     "map",
-    ~trace_model: interface_trace_passthrough()
+    ~trace_model: interface_trace_combinational()
   )
 
 // Mapping configuration produces a unary flow operation. A colon block

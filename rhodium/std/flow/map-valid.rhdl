@@ -14,7 +14,7 @@ fun finish_map_valid_handle(input_link :: Handle,
   describe_interface_transform(
     interface_transform(input_link, output_link),
     "map-valid",
-    ~trace_model: interface_trace_passthrough()
+    ~trace_model: interface_trace_combinational()
   )
 
 // Mapping is purely combinational because Valid has no readiness path or
