@@ -1,0 +1,64 @@
+#lang rhombus
+// Checks explicit coverage failures, monitor opt-out, and ready-valid endpoint contract rejection.
+
+import:
+  "../main.rhdl" as chi
+  "transaction-fixture.rhdl" as transactions
+  "link-fixture.rhdl" as links
+  "channel-monitor-fixture.rhdl" as fixture
+
+def p = transactions.transaction_flit
+def node = transactions.transaction_rni_node
+def peer = node.icn_peer()
+def wrong_id = chi.CHIICNPortParams(
+  "wrong-id", 4, peer.kind,
+  ~emits: peer.emits, ~supports: peer.supports,
+  ~max_outstanding: peer.max_outstanding
+)
+def missing_capability = chi.CHIICNPortParams(
+  "missing-capability", peer.node_id, peer.kind,
+  ~emits: peer.emits, ~supports: chi.CHIChannelCapabilities(),
+  ~max_outstanding: peer.max_outstanding
+)
+def broad_rnf = chi.CHINodeParams(
+  "broad-rnf", 5, chi.CHINodeKind.RNF,
+  ~emits: chi.CHIChannelCapabilities(
+    ~req: [chi.CHIReqOpcode.ReadShared, chi.CHIReqOpcode.WriteUniquePtl],
+    ~rsp: transactions.transaction_rnf_node.emits.rsp,
+    ~dat: transactions.transaction_rnf_node.emits.dat
+  ),
+  ~supports: transactions.transaction_rnf_node.supports,
+  ~max_outstanding: 2
+)
+def retry_rnf = chi.CHINodeParams(
+  "retry-rnf", 5, chi.CHINodeKind.RNF,
+  ~emits: transactions.transaction_rnf_node.emits,
+  ~supports: chi.CHIChannelCapabilities(
+    ~rsp: [chi.CHIRspOpcode.RetryAck, chi.CHIRspOpcode.PCrdGrant],
+    ~dat: transactions.transaction_rnf_node.supports.dat,
+    ~snp: transactions.transaction_rnf_node.supports.snp
+  ),
+  ~max_outstanding: 2
+)
+def wrong_capacity = chi.CHIICNPortParams(
+  "wrong-capacity", peer.node_id, peer.kind,
+  ~emits: peer.emits, ~supports: peer.supports,
+  ~max_outstanding: peer.max_outstanding + 1
+)
+
+for (endpoint in [node, node.icn_peer(), transactions.transaction_sn_node, transactions.transaction_rnf_node]):
+  check:
+    chi.check_chi_transaction_coverage(endpoint) ~is #void
+check:
+  chi.check_chi_transaction_coverage(links.rni_node) ~throws "requested transaction coverage is unsupported"
+  chi.check_chi_transaction_coverage(broad_rnf) ~throws "requested transaction coverage is unsupported"
+  chi.check_chi_transaction_coverage(retry_rnf) ~throws "requested transaction coverage is unsupported"
+  links.link_monitor_design(#true) ~throws "requested transaction coverage is unsupported"
+  fixture.channel_monitor_design(links.rni_node, links.rni_node.icn_peer(), #true) ~throws "requested transaction coverage is unsupported"
+  fixture.channel_monitor_design(node, wrong_id, #true) ~throws "incompatible CHI monitor endpoint contracts"
+  fixture.channel_monitor_design(node, wrong_capacity, #true) ~throws "incompatible CHI monitor endpoint contracts"
+  fixture.channel_monitor_design(node, missing_capability, #false) ~throws "incompatible CHI monitor endpoint contracts"
+  fixture.channel_monitor_design(transactions.transaction_sn_node, transactions.transaction_sn_node.icn_peer(), #false) ~throws "incompatible CHI monitor endpoint contracts"
+
+// An explicit opt-out permits unsupported transaction capabilities, not an invalid contract.
+def opted_out = fixture.channel_monitor_design(links.rni_node, links.rni_node.icn_peer(), #false)

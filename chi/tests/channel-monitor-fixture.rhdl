@@ -1,0 +1,63 @@
+#lang rhodium
+// Exercises requester and subordinate monitor attachments on the same accepted ready-valid transfers.
+
+import:
+  lib("chi/main.rhdl") open
+  "transaction-fixture.rhdl" open
+
+sync_circuit MonitoredCHIChannels(~node: node :: CHINodeParams = transaction_rni_node,
+                                  ~peer: peer :: CHIICNPortParams = node.icn_peer(),
+                                  ~transaction_checks: transaction_checks :: Boolean = #true):
+  input req_valid: Bool
+  input req_ready: Bool
+  input req_bits: CHIReqFlit(transaction_flit)
+  input rsp_valid: Bool
+  input rsp_ready: Bool
+  input rsp_bits: CHIRspFlit(transaction_flit)
+  input wdat_valid: Bool
+  input wdat_ready: Bool
+  input wdat_bits: CHIDatFlit(transaction_flit)
+  input rdat_valid: Bool
+  input rdat_ready: Bool
+  input rdat_bits: CHIDatFlit(transaction_flit)
+  def rni :: Handle = interface_link(CHIRNIChannels(transaction_flit), "rni")
+  rni.right.req.valid <== req_valid
+  rni.right.req.bits <== req_bits
+  rni.left.req.ready <== req_ready
+  rni.left.rsp.response.valid <== rsp_valid
+  rni.left.rsp.response.bits <== rsp_bits
+  rni.right.rsp.response.ready <== rsp_ready
+  rni.right.dat.request.valid <== wdat_valid
+  rni.right.dat.request.bits <== wdat_bits
+  rni.left.dat.request.ready <== wdat_ready
+  rni.left.dat.response.valid <== rdat_valid
+  rni.left.dat.response.bits <== rdat_bits
+  rni.right.dat.response.ready <== rdat_ready
+  rni.right.rsp.requester.valid <== Bool(#false)
+  rni.right.rsp.requester.bits <== literal(CHIRspFlit(transaction_flit), 0)
+  rni.left.rsp.requester.ready <== Bool(#true)
+  monitor_chi_rni_channels(transaction_flit, node, rni.left, ~peer: peer, ~label_prefix: "rni", ~transaction_checks: transaction_checks)
+  def sn :: Handle = interface_link(CHISNChannels(transaction_flit), "sn")
+  sn.left.req.valid <== req_valid
+  sn.left.req.bits <== req_bits
+  sn.right.req.ready <== req_ready
+  sn.right.rsp.valid <== rsp_valid
+  sn.right.rsp.bits <== rsp_bits
+  sn.left.rsp.ready <== rsp_ready
+  sn.left.dat.request.valid <== wdat_valid
+  sn.left.dat.request.bits <== wdat_bits
+  sn.right.dat.request.ready <== wdat_ready
+  sn.right.dat.response.valid <== rdat_valid
+  sn.right.dat.response.bits <== rdat_bits
+  sn.left.dat.response.ready <== rdat_ready
+  monitor_chi_sn_channels(transaction_flit, transaction_sn_node, sn.left, ~label_prefix: "sn")
+
+def design = elaborate(MonitoredCHIChannels())
+
+fun channel_monitor_design(node :: CHINodeParams, peer :: CHIICNPortParams, transaction_checks :: Boolean):
+  elaborate(MonitoredCHIChannels(~node: node, ~peer: peer, ~transaction_checks: transaction_checks))
+
+export:
+  channel_monitor_design
+  design
+  MonitoredCHIChannels

@@ -45,6 +45,27 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 
 ## Extend a protocol layer
 
+Monitoring attachments in `monitor.rhdl` separate credited transport checks,
+shared packet checks, and accepted-event transaction attachment. Both credited
+and ready-valid wrappers call the same coverage validation and transaction
+entry points. Keep coverage derived from the actual capabilities and delivered
+checker behavior, not a separate profile field. Reject requested coverage
+that would otherwise leave an advertised transaction class unchecked.
+Private transaction-checker circuits isolate state and register names when
+multiple attachments observe independent endpoints or the same event stream.
+Ready-valid attachment checks explicit endpoint metadata using the same
+`endpoint_pair_legal` predicate as link compatibility. It does not change
+the channel's wire schema or infer peer metadata from arbitrary wiring.
+
+The `chi-transaction`, `chi-transaction-sn`, and `chi-coherent` fixtures
+mirror credited events through ready-valid attachments. The
+`chi-channel-monitor` fixture checks stalls, reset, and retirement from both
+requester and subordinate viewpoints; its negative cases check accepted
+duplicate TxnIDs, wrong identity, and early DAT. Host
+`tests/channel-monitor-test.rhm` checks incompatible contracts, unsupported
+requested coverage, and explicit opt-out. Keep transport activation tests
+in `chi-monitor`.
+
 `CHISingleBeatSubordinate` owns the shared five-phase MMIO transaction lifetime.
 Its port remains `CHISNChannels`; devices forward their native port directly.
 Device policy supplies request acceptance, the combinational read snapshot,

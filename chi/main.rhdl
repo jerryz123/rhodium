@@ -196,6 +196,11 @@ export:
   CHIRNILink
   CHISNLink
   monitor_chi_rn
+  check_chi_transaction_coverage
+  check_chi_channel_contract
+  monitor_chi_rn_channels
+  monitor_chi_rni_channels
+  monitor_chi_sn_channels
   monitor_chi_rni
   monitor_chi_sn
   monitor_chi_hni

@@ -682,6 +682,7 @@ direct_fixture_specs=(
   'chi-full-flits|'
   'chi-link|chi_link_tb'
   'chi-monitor|chi_monitor_tb'
+  'chi-channel-monitor|chi_channel_monitor_tb'
   'chi-transaction|chi_transaction_tb'
   'chi-retryable-transaction|chi_retryable_transaction_tb'
   'chi-transaction-sn|chi_transaction_sn_tb'
@@ -864,6 +865,18 @@ run_expected_assertion_failure chi-monitor \
   chi_monitor_unsupported_opcode_tb \
   tests/backend/verilog/chi-monitor-unsupported-opcode_tb.sv \
   chi_tx_req_opcode_supported
+run_expected_assertion_failure chi-channel-monitor \
+  chi_channel_monitor_duplicate_tb \
+  tests/backend/verilog/chi-channel-monitor_tb.sv \
+  rni_transaction_txn_id_unique
+run_expected_assertion_failure chi-channel-monitor \
+  chi_channel_monitor_identity_tb \
+  tests/backend/verilog/chi-channel-monitor_tb.sv \
+  rni_rx_dat_tgt_id
+run_expected_assertion_failure chi-channel-monitor \
+  chi_channel_monitor_early_data_tb \
+  tests/backend/verilog/chi-channel-monitor_tb.sv \
+  rni_transaction_write_data_has_dbid
 run_expected_assertion_failure chi-transaction \
   chi_transaction_duplicate_txn_tb \
   tests/backend/verilog/chi-transaction-duplicate-txn_tb.sv \

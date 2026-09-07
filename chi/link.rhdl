@@ -346,6 +346,7 @@ interface CHISNLink(link :: CHISNLinkParams,
 
 
 export:
+  endpoint_pair_legal
   CHINodeKind
   CHIEndpointParams
   CHIChannelCapabilities

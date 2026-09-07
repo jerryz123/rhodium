@@ -100,6 +100,25 @@ sync_circuit MonitoredInitialCHIRNI():
   port.rx_dat.credit <== rx_dat_credit
   monitor_chi_rni(transaction_rni_link, transaction_rni_node, port)
 
+  // The same transfers exercise the transport-independent attachment.
+  def mirror :: Handle = interface_link(CHIRNIChannels(transaction_flit), "mirror")
+  mirror.right.req.valid <== port.tx_req.valid
+  mirror.right.req.bits <== port.tx_req.bits
+  mirror.left.req.ready <== Bool(#true)
+  mirror.right.rsp.requester.valid <== port.tx_rsp.valid
+  mirror.right.rsp.requester.bits <== port.tx_rsp.bits
+  mirror.left.rsp.requester.ready <== Bool(#true)
+  mirror.right.dat.request.valid <== port.tx_dat.valid
+  mirror.right.dat.request.bits <== port.tx_dat.bits
+  mirror.left.dat.request.ready <== Bool(#true)
+  mirror.left.rsp.response.valid <== port.rx_rsp.valid
+  mirror.left.rsp.response.bits <== port.rx_rsp.bits
+  mirror.right.rsp.response.ready <== Bool(#true)
+  mirror.left.dat.response.valid <== port.rx_dat.valid
+  mirror.left.dat.response.bits <== port.rx_dat.bits
+  mirror.right.dat.response.ready <== Bool(#true)
+  monitor_chi_rni_channels(transaction_flit, transaction_rni_node, mirror.left, ~label_prefix: "ready")
+
 sync_circuit MonitoredInitialCHISN():
   input tx_link_active_request: Bool
   input rx_link_active_ack: Bool
@@ -120,6 +139,22 @@ sync_circuit MonitoredInitialCHISN():
   port.rx_req.credit <== rx_req_credit
   port.rx_dat.credit <== rx_dat_credit
   monitor_chi_sn(transaction_sn_link, transaction_sn_node, port)
+
+  // The same transfers exercise the transport-independent attachment.
+  def mirror :: Handle = interface_link(CHISNChannels(transaction_flit), "mirror")
+  mirror.left.req.valid <== port.rx_req.valid
+  mirror.left.req.bits <== port.rx_req.bits
+  mirror.right.req.ready <== Bool(#true)
+  mirror.left.dat.request.valid <== port.rx_dat.valid
+  mirror.left.dat.request.bits <== port.rx_dat.bits
+  mirror.right.dat.request.ready <== Bool(#true)
+  mirror.right.rsp.valid <== port.tx_rsp.valid
+  mirror.right.rsp.bits <== port.tx_rsp.bits
+  mirror.left.rsp.ready <== Bool(#true)
+  mirror.right.dat.response.valid <== port.tx_dat.valid
+  mirror.right.dat.response.bits <== port.tx_dat.bits
+  mirror.left.dat.response.ready <== Bool(#true)
+  monitor_chi_sn_channels(transaction_flit, transaction_sn_node, mirror.left, ~label_prefix: "ready")
 
 sync_circuit MonitoredInitialCHIRNF():
   input tx_link_active_request: Bool
@@ -147,6 +182,28 @@ sync_circuit MonitoredInitialCHIRNF():
   port.rx_dat.credit <== rx_dat_credit
   port.rx_snp.credit <== rx_snp_credit
   monitor_chi_rn(transaction_rnf_link, transaction_rnf_node, port)
+
+  // The same transfers exercise the transport-independent attachment.
+  def mirror :: Handle = interface_link(CHIRNChannels(transaction_flit), "mirror")
+  mirror.right.requests.valid <== port.tx_req.valid
+  mirror.right.requests.bits <== port.tx_req.bits
+  mirror.left.requests.ready <== Bool(#true)
+  mirror.right.requester_responses.valid <== port.tx_rsp.valid
+  mirror.right.requester_responses.bits <== port.tx_rsp.bits
+  mirror.left.requester_responses.ready <== Bool(#true)
+  mirror.right.request_data.valid <== port.tx_dat.valid
+  mirror.right.request_data.bits <== port.tx_dat.bits
+  mirror.left.request_data.ready <== Bool(#true)
+  mirror.left.responses.valid <== port.rx_rsp.valid
+  mirror.left.responses.bits <== port.rx_rsp.bits
+  mirror.right.responses.ready <== Bool(#true)
+  mirror.left.response_data.valid <== port.rx_dat.valid
+  mirror.left.response_data.bits <== port.rx_dat.bits
+  mirror.right.response_data.ready <== Bool(#true)
+  mirror.left.snoops.valid <== port.rx_snp.valid
+  mirror.left.snoops.bits <== port.rx_snp.bits
+  mirror.right.snoops.ready <== Bool(#true)
+  monitor_chi_rn_channels(transaction_flit, transaction_rnf_node, mirror.left, ~label_prefix: "ready")
 
 def transaction_rni_design = elaborate(MonitoredInitialCHIRNI())
 def transaction_sn_design = elaborate(MonitoredInitialCHISN())

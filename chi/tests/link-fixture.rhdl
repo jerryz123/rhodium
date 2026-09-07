@@ -122,7 +122,7 @@ circuit CHISNLinkAdapter(node_link :: CHISNLinkParams,
   interface egress(CHISNLink(icn_link, icn), ~role: node)
   egress <=> ingress
 
-sync_circuit MonitoredCHIRNI():
+sync_circuit MonitoredCHIRNI(~transaction_checks: transaction_checks :: Boolean = #false):
   input tx_link_active_request: Bool
   input rx_link_active_ack: Bool
   input tx_req_valid: Bool
@@ -145,7 +145,7 @@ sync_circuit MonitoredCHIRNI():
   port.tx_dat.bits <== tx_dat_bits
   port.rx_rsp.credit <== rx_rsp_credit
   port.rx_dat.credit <== rx_dat_credit
-  monitor_chi_rni(rni_link, rni_node, port)
+  monitor_chi_rni(rni_link, rni_node, port, ~transaction_checks: transaction_checks)
 
 sync_circuit MonitoredCHIRN():
   input tx_link_active_request: Bool
@@ -202,7 +202,11 @@ def monitored_rni_design = elaborate(MonitoredCHIRNI())
 def monitored_rnf_design = elaborate(MonitoredCHIRN())
 def monitored_sn_design = elaborate(MonitoredCHISN())
 
+fun link_monitor_design(transaction_checks :: Boolean):
+  elaborate(MonitoredCHIRNI(~transaction_checks: transaction_checks))
+
 export:
+  link_monitor_design
   flit
   rni_node
   rni_icn

@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the two-ended ready-valid CHI monitor behavior fixture.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../chi/tests/channel-monitor-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

@@ -303,9 +303,11 @@ Link-local checks cover:
 - legal REQ Size encodings and reserved Size bits; and
 - DAT DataIDs legal for the selected data width.
 
-When an endpoint's advertised capabilities select a delivered transaction
-profile, the monitor also instantiates the corresponding bounded stateful
-checker. [`transaction.rhdl`](transaction.rhdl) tracks the non-coherent TxnID,
+Transaction checking defaults to enabled. An attachment whose advertised
+capabilities exceed the delivered checker coverage fails at elaboration;
+it never silently omits the transaction checker. Explicitly pass
+`~transaction_checks: #false` for field/link checks only.
+[`transaction.rhdl`](transaction.rhdl) tracks the non-coherent TxnID,
 DBID, phase, and complete expected DataID set from both requester and
 subordinate viewpoints. [`coherent-transaction.rhdl`](coherent-transaction.rhdl)
 separately tracks coherent read lifetimes, CompAck, ordinary and paired-DVM
@@ -313,6 +315,24 @@ snoops, and forward-snoop completion. The profile-specific guarantees and
 limits are listed once under [Delivered profile and limits](#delivered-profile-and-limits).
 `monitor_chi_hni` instead observes the ready-valid transfers on both sides of
 an HN-I and checks the Home's transaction translation.
+
+`monitor_chi_rn_channels(p, node, port)`,
+`monitor_chi_rni_channels(p, node, port)`, and
+`monitor_chi_sn_channels(p, node, port)` attach the same packet and transaction
+checks to `CHIRNChannels`, `CHIRNIChannels`, and `CHISNChannels`.
+They observe both directions, regardless of which endpoint view is supplied.
+Only accepted transfers (`valid & ready`) advance checks; an unaccepted
+Decoupled offer may be withdrawn. Credited attachments instead consume
+`valid`. Credit balances and activation checks remain physical-link-only.
+
+The channel attachment takes an explicit `CHINodeParams` contract and verifies
+the channel type, node kind, and NodeID width. Supply `~peer: icn_endpoint`
+to also check the actual peer's identity, capacity, and capability compatibility.
+Without it, the peer defaults to `node.icn_peer()`: this checks the supplied
+node contract but does not infer or validate a remote endpoint from wiring.
+No metadata wires are added, and unmonitored channel wiring remains a flit-shape
+contract only. The same `~transaction_checks` and `~label_prefix` options apply.
+Checker state remains independent of endpoint implementation state.
 
 [`retryable-transaction.rhdl`](retryable-transaction.rhdl) is a reusable
 requester-side mechanism rather than a complete transaction datapath. A
@@ -481,9 +501,12 @@ expected packet have arrived.
 The first read attempt must set `AllowRetry`; a repeat uses the same live TxnID
 with `AllowRetry` clear. The checker recognizes that shape but leaves
 `RetryAck`/`PCrdGrant` association to endpoint logic or
-`CHIRetryableTransactionControl`. The selected capability envelope also permits
-`WriteUniquePtl`, but this bounded checker does not implement a complete
-stateful coherent-write model.
+`CHIRetryableTransactionControl`. The capability predicate and whole-endpoint
+attachment reject writes, retry responses, and maintenance when transaction
+checking is requested:
+this bounded checker does not cover those complete transaction lifetimes.
+Such endpoints can explicitly select field/link-only checking and attach
+their separately owned specialized transaction checks.
 
 Every ordinary incoming SNP is tracked by Home Node and TxnID. Non-forward
 snoops finish with a matching snoop RSP or DAT response; forward snoops remain

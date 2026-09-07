@@ -35,34 +35,25 @@ bundle CHISnoopTransaction(p :: CHIFlitParams):
 
 // Selects the deliberately bounded coherent requester profile. It monitors
 // complete ReadShared/ReadClean packet sets and every snoop opcode while
-// tolerating independently checked immediate writes and retry responses.
+// rejecting transaction classes whose lifetimes this checker does not track.
 fun chi_initial_coherent_requester_capabilities(
     emitted :: CHIChannelCapabilities,
     received :: CHIChannelCapabilities):
   def allowed_emitted = CHIChannelCapabilities(
     ~req: [CHIReqOpcode.ReadShared,
            CHIReqOpcode.ReadClean,
-           CHIReqOpcode.ReadUnique,
-           CHIReqOpcode.WriteUniquePtl,
-           CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid],
+           CHIReqOpcode.ReadUnique],
     ~rsp: [CHIRspOpcode.CompAck,
            CHIRspOpcode.SnpResp,
            CHIRspOpcode.SnpRespFwded],
     ~dat: [CHIDatOpcode.SnpRespData,
            CHIDatOpcode.SnpRespDataPtl,
            CHIDatOpcode.SnpRespDataFwded,
-           CHIDatOpcode.CompData,
-           CHIDatOpcode.NonCopyBackWriteData]
+           CHIDatOpcode.CompData]
   )
   // CompData is optional, while every ordinary RN-F snoop operation is
   // required below.
   def allowed_received = CHIChannelCapabilities(
-    ~rsp: [CHIRspOpcode.RetryAck,
-           CHIRspOpcode.PCrdGrant,
-           CHIRspOpcode.DBIDResp,
-           CHIRspOpcode.DBIDRespOrd,
-           CHIRspOpcode.Comp,
-           CHIRspOpcode.CompDBIDResp],
     ~snp: chi_rnf_snoop_opcodes,
     ~dat: [CHIDatOpcode.CompData]
   )
