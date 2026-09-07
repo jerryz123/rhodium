@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits instrumented queue configurations with unannotated differential references.
+
+import:
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/event/main.rhm".instrument_events
+  "../frontend/event-queue-fixture.rhdl" as fixture
+
+print(emit_circt(instrument_events(fixture.queued).instrumented.design))

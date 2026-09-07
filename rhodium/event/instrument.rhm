@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds exact lineage using ordered metadata stages and observed elastic controls.
+// Builds exact lineage using ordered shadow pipelines and observed queue storage.
 
 import:
   "../core/ir.rhm" open
@@ -79,11 +79,11 @@ fun instrument_events(logical :: DesignElaboration,
   def control_ids = MutableMap{}
   for (site in manifest.sites):
     for (stage in parent_stages.get(site.id, [])):
-      when stage.advance
+      when stage.controls().length() > 0
       | def owner = occurrences.find(fun (occurrence): occurrence.path == stage.instance_path)
-        unless owner && stage.advance.module_def === owner.original && stage.valid && stage.valid.module_def === owner.original
-        | error(~who: #'instrument_events, "elastic controls do not belong to their occurrence")
-        for (value in [stage.advance, stage.valid]):
+        for (value in stage.controls()):
+          unless owner && value.module_def === owner.original
+          | error(~who: #'instrument_events, "trace controls do not belong to their occurrence")
           def key = [stage.instance_path, value.id]
           unless control_ids.has_key(key)
           | control_ids[key] := controls.length()
@@ -95,6 +95,7 @@ fun instrument_events(logical :: DesignElaboration,
   fun imported_controls(occurrence :: Occurrence):
     controls.filter(~keep: fun (control): !path_within(control.path, occurrence.path) && control.consumers.find(fun (path): path_within(path, occurrence.path)) != #false)
   fun control_name(control :: TraceControl): "__event_control_" ++ to_string(control.index)
+  fun control_type(control :: TraceControl): Bits(data_width(control.value.type))
 
   // Trace clocks are supplied from the selected root, never guessed from a
   // port name in a descendant. Check functional domains before introducing them.
@@ -158,7 +159,7 @@ fun instrument_events(logical :: DesignElaboration,
     )
   fun ref_name(prefix :: String, site :: EventSite): prefix ++ to_string(site_ids[site.id])
 
-  // Shadow state lives at consumers. Elastic control owners and their ancestors
+  // Shadow state lives at consumers. Storage control owners and their ancestors
   // also need passive observation ports; unrelated definitions remain shared.
   def modified = MutableSet{}
   for (occurrence in occurrences):
@@ -209,9 +210,9 @@ fun instrument_events(logical :: DesignElaboration,
     def references = MutableMap{}
     def observed = MutableMap{}
     for (control in controls.filter(~keep: fun (control): control.path == occurrence.path)):
-      observed[control.index] := builder.cast(module_def, copied.values[control.value.id], Bits(1))
+      observed[control.index] := builder.cast(module_def, copied.values[control.value.id], control_type(control))
     for (control in imported_controls(occurrence)):
-      observed[control.index] := builder.input(module_def, control_name(control), Bits(1))
+      observed[control.index] := builder.input(module_def, control_name(control), control_type(control))
     for (site in imported_sites(occurrence)):
       references[site.id] := builder.input(module_def, ref_name("__event_in_", site), reference_type)
     for (child in occurrence.children):
@@ -271,7 +272,7 @@ fun instrument_events(logical :: DesignElaboration,
       def parent = parents.get(site.id, #false)
       when parent
       | def mutable reference = references[parent.id]
-        // Keep stage order: fixed delays cannot move across elastic stages.
+        // Keep stage order: fixed delays cannot move across elastic or queue stages.
         // An elastic stage loads only on its actual advance condition, inserts
         // an invalid reference for a bubble, and otherwise holds its identity.
         when parent_stages[site.id].length() > 0
@@ -280,14 +281,25 @@ fun instrument_events(logical :: DesignElaboration,
             ["site", builder.constant(module_def, Bits(32), 0)], ["sequence", zero]
           ])
           for (stage in parent_stages[site.id], index in 0..parent_stages[site.id].length()):
-            def delayed = builder.register(module_def, ref_name("__event_parent_", site) ++ "_" ++ to_string(index), reference_type, clock, reset, empty_reference)
-            if stage.advance
-            | def advance = observed[control_ids[[stage.instance_path, stage.advance.id]]]
-              def valid = observed[control_ids[[stage.instance_path, stage.valid.id]]]
-              def incoming = builder.mux_lookup(module_def, valid, empty_reference, [[1, reference]])
-              builder.drive(delayed.next, builder.mux_lookup(module_def, advance, delayed.current, [[1, incoming]]))
-            | builder.drive(delayed.next, reference)
-            reference := delayed.current
+            def name = ref_name("__event_parent_", site) ++ "_" ++ to_string(index)
+            fun observe(value :: Value): observed[control_ids[[stage.instance_path, value.id]]]
+            if stage is_a EventTraceQueue
+            | def storage = builder.memory(module_def, name, stage.depth, reference_type)
+              def stored = builder.memory_read_async(module_def, storage, observe(stage.read_address))
+              def enqueue = builder.bit_and(module_def, active, observe(stage.enqueue))
+              builder.memory_write(module_def, storage, observe(stage.write_address), reference, clock, enqueue)
+              // Functional occupancy hides stale memory after reset or dequeue;
+              // no shadow pointers, occupancy counter, or payload are needed.
+              def resident = builder.mux_lookup(module_def, observe(stage.stored_valid), empty_reference, [[1, stored]])
+              builder.assert(module_def, builder.record_get(module_def, resident, "valid"), clock, reset, observe(stage.dequeue), name ++ "_dequeue_present")
+              reference := builder.mux_lookup(module_def, observe(stage.bypass), resident, [[1, reference]])
+            | block:
+                def delayed = builder.register(module_def, name, reference_type, clock, reset, empty_reference)
+                if stage.advance
+                | def incoming = builder.mux_lookup(module_def, observe(stage.valid), empty_reference, [[1, reference]])
+                  builder.drive(delayed.next, builder.mux_lookup(module_def, observe(stage.advance), delayed.current, [[1, incoming]]))
+                | builder.drive(delayed.next, reference)
+                reference := delayed.current
         def parent_valid = builder.record_get(module_def, reference, "valid")
         builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
         builder.dpi_call(module_def, edge_dpi, [id, sequence, builder.record_get(module_def, reference, "site"), builder.record_get(module_def, reference, "sequence")], clock, builder.bit_and(module_def, fire, parent_valid))
@@ -295,7 +307,7 @@ fun instrument_events(logical :: DesignElaboration,
     | for (site in subtree_sites(occurrence)):
         builder.drive(builder.output(module_def, ref_name("__event_out_", site), reference_type), references[site.id])
       for (control in subtree_controls(occurrence)):
-        builder.drive(builder.output(module_def, control_name(control), Bits(1)), observed[control.index])
+        builder.drive(builder.output(module_def, control_name(control), control_type(control)), observed[control.index])
     builder.finish(module_def)
   def top = rebuild(root)
   def instrumented = DesignElaboration(design, top)

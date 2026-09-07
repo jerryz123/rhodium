@@ -628,11 +628,15 @@ ingress
 
 The [event package](../event/README.md) can also rebuild a separate design with
 synthesizable lineage and DPI emission for linear combinational paths and
-fixed-latency `valid_pipe` and elastic `pipe` paths. Queues and branching transforms
-remain static-analysis-only boundaries.
+fixed-latency `valid_pipe`, elastic `pipe`, and in-order `queue` paths.
+Branching transforms remain static-analysis-only boundaries.
 `pipe` publishes its actual per-stage load and input-valid controls as typed
 metadata; the instrumenter observes them to keep shadow references aligned
 under stalls without changing functional ready/valid/payload behavior.
+`queue` publishes actual storage operations, addresses, occupancy validity, and
+bypass selection. Shadow metadata supports all `~pipe`/`~flow` combinations,
+including depth one and non-power-of-two depths, without adding payload storage
+or duplicating functional pointers. Control-only queues remain route-only.
 
 Packet arbitration takes an inline predicate that identifies the final beat.
 The selected input remains the sole owner across stalls and bubbles until that

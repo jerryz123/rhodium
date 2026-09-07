@@ -76,7 +76,7 @@ unmodeled transform is rejected rather than assigned an approximate parent.
 - The manifest describes possible static dependencies, not runtime event
   occurrences.
 - Static inference never inserts hardware. Dynamic instrumentation supports
-  only the linear subset described below; queues and branching paths still
+  only the linear subset described below; branching paths still
   require future dynamic adapters.
 - Only flat top-level flow endpoints are traceable; nested interface members
   are rejected.
@@ -84,7 +84,7 @@ unmodeled transform is rejected rather than assigned an approximate parent.
   low-level interface API. The standard flow helpers currently report
   `<unknown>` pending call-site location capture.
 - Terminal metadata is recorded but does not yet prune downstream analysis.
-- Queues require a future storage-aware trace adapter.
+- Control-only queues and opaque storage require dedicated trace adapters.
 
 ## Instrument a linear path
 
@@ -109,8 +109,9 @@ and manifest, not with the rebuilt modules.
 The supported dynamic path consists of annotations, interface connections,
 hierarchy boundaries, `map_flow`, `map_valid`, `filter_flow`, `filter_valid`,
 `gate_flow`, fixed-latency `valid_pipe(stages)`, and elastic ready-valid
-`pipe(stages)`. Every intervening transform needs a typed dynamic trace
-contract. Route-only models (including queues, forks and joins), disconnected or opaque
+`pipe(stages)`, and in-order `queue(depth, ~pipe: ..., ~flow: ...)`.
+Every intervening transform needs a typed dynamic trace
+contract. Route-only models (including control-only queues, forks and joins), disconnected or opaque
 upstream boundaries, multiple parent paths,
 branching dependencies, and descendants of terminal events are rejected.
 
@@ -137,6 +138,17 @@ reference for a bubble, and holds while stalled. Hidden observation ports carry
 the pipe's actual advance and input-valid signals to the shadow registers;
 they never drive functional ready, valid, or payload signals. Ordered stage
 plans preserve composition across multiple pipes and hierarchy boundaries.
+
+For queues, the compiler adds a same-capacity shadow reference memory, driven
+by the functional queue's storage-write enable and read/write addresses.
+It uses the actual resident-head validity and bypass selector: an empty
+flow-through transfer uses the live upstream reference without a storage write,
+while full simultaneous dequeue/enqueue consumes the old reference and stores
+the replacement. Reset suppresses shadow writes and functional occupancy hides
+stale entries until overwritten; the shadow memory needs no reset sweep.
+No payload, pointer, or occupancy policy is duplicated. Queue stages compose
+in order with pipes, maps, and filters, including across hierarchy. Only user
+annotations emit nodes; queue operations add no extra DPI callbacks.
 
 A site increments its own 64-bit sequence counter and emits its
 current reference on that same edge. Combinational consumers therefore see

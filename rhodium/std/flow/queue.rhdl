@@ -57,6 +57,7 @@ sync_circuit Queue(T :: DataType,
         occupied <== enqueue
       when (enqueue):
         payload <== ingress.bits
+      describe_interface_queue_storage(depth, enqueue, dequeue, bits(0, 1), bits(0, 1), !empty, if flow | empty | Bool(#false))
       #void
   | block:
       def count_width = index_width(depth + 1)
@@ -91,6 +92,7 @@ sync_circuit Queue(T :: DataType,
           occupancy + bits(1, count_width),
           occupancy - bits(1, count_width)
         )
+      describe_interface_queue_storage(depth, enqueue, dequeue, read_pointer.value, write_pointer.value, !empty, if flow | empty | Bool(#false))
       #void
 
 // Tokens are indistinguishable, so the control-only queue needs occupancy
@@ -172,7 +174,7 @@ fun queue(depth :: PosInt,
         "queue",
         {"depth": depth, "pipe": pipe_enabled, "flow": flow_enabled},
         queue_stage,
-        ~trace_model: interface_trace_passthrough()
+        ~trace_model: interface_trace_queue(queue_stage)
       )
     )
 

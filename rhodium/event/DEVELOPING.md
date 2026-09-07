@@ -48,7 +48,7 @@ existing backend rather than introducing event cases into CIRCT lowering.
 
 ### Selective hierarchy rebuilding
 
-Mark event-bearing occurrences, elastic control-source occurrences, and their
+Mark event-bearing occurrences, storage control-source occurrences, and their
 ancestors before rebuilding. Ancestors must retarget changed children
 and forward hidden metadata even when they contain no local annotation.
 Only occurrences with local sites get event counters and node/edge emission;
@@ -81,6 +81,19 @@ occurrences of the same pipeline definition remain shared imports. This first
 implementation may forward unused observation outputs to higher ancestors;
 pruning these ports is an independent optimization.
 
+`EventTraceQueue` is an ordered stage alongside `EventTraceStage`. Its original
+IR values identify actual writes, removals, read/write addresses, resident-head
+validity, and bypass selection. Observation routing preserves packed widths,
+including multi-bit addresses. At the consumer, allocate ordinary async-read
+reference memory at the declared depth; reuse functional pointers instead of
+building a shadow queue controller. Writes are reset-suppressed. Gate the
+resident reference with functional occupancy, then select the live incoming
+reference on bypass. Nonblocking memory writes preserve old-head identity on
+simultaneous full replacement. Assert parent presence on storage removal as
+well as at annotated consumers. Reset invalidates occupancy, so stale memory
+cannot become a parent in a new epoch without a new write. This contract does
+not describe synchronous-read memories, reordering, or control-only queues.
+
 ## Extend trace coverage
 
 Attach an `InterfaceTraceModel` only when a transform can state its possible
@@ -97,13 +110,19 @@ model with the transfer, ordering, and storage semantics needed for exact
 lineage. `InterfaceTraceFixedLatency` additionally certifies unconditional,
 one-to-one cycle delay with synchronous reset flushing. `valid_pipe` supplies
 this contract; `InterfaceTraceModel.latency_cycles()` returns its positive
-delay, zero for combinational contracts, and false for elastic/route-only models.
+delay, zero for combinational contracts, and false for elastic, queue, or route-only models.
 `InterfaceTraceElastic` binds an instance to an ordered list of actual
 stage-advance and input-valid values declared by that pipeline implementation.
 The frontend validates local one-bit controls, matching nonempty lists, and
 that the contract's instance matches the transform implementation. The event
 model keeps an IR-backed stage plan in addition to the JSON latency summary;
 false latency alone does not authorize runtime traversal.
+`InterfaceTraceQueue` similarly binds a declared storage contract to its exact
+implementation instance. Validate signal ownership, depth-dependent address
+widths, one-bit controls, and the single-input/single-output route. Its latency
+is variable; inference retains one queue stage rather than converting capacity
+into delay. The standard payload-bearing queue supplies the contract for every
+flow/pipe configuration, including the single-entry register implementation.
 Inference adds these typed delays across flow arcs; it never parses display
 labels or transform properties for timing. The manifest retains unknown latency
 as false rather than interpreting it as zero. Never upgrade route-only metadata
@@ -143,6 +162,13 @@ filters on both sides of storage, an in-order transaction scoreboard, and
 unannotated reference lanes. It checks functional ready/valid/payload agreement,
 exact occurrence edges, bubbles, simultaneous transfers, draining, and reset
 while full. Coverage assertions ensure these scenarios actually occur.
+The `event-queue` fixture covers all four flow/pipe combinations at depths one
+and three, repeated occurrences of one definition, and a depth-five queue
+composed with elastic pipes, filters, and another queue across hierarchy.
+Public-transfer scoreboards check exact graph contents independently of storage
+controls, and unannotated lanes check functional equivalence. Coverage requires
+empty bypass, full replacement, enough storage writes for pointer wraparound,
+bubbles, stalls, draining, and reset with pending transactions.
 
 Every direct Racket or Rhombus command must use a fresh `PLTCOMPILEDROOTS` as
 required by the repository `AGENTS.md`.

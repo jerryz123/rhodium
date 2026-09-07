@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines event sites, dependencies, and ordered fixed or elastic metadata stages.
+// Defines event sites, dependencies, and ordered pipeline or queue metadata stages.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -9,6 +9,7 @@ export:
   EventSite
   EventDependency
   EventTraceStage
+  EventTraceQueue
   EventManifest
 
 class EventSite(id :: String,
@@ -26,13 +27,20 @@ class EventSite(id :: String,
 // original IR identity plus the concrete occurrence that owns those signals.
 class EventTraceStage(instance_path :: List.of(String) = [],
                       advance :: False || Value = #false,
-                      valid :: False || Value = #false)
+                      valid :: False || Value = #false):
+  method controls(): if advance | [advance, valid] | []
+
+class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
+                      enqueue :: Value, dequeue :: Value,
+                      read_address :: Value, write_address :: Value,
+                      stored_valid :: Value, bypass :: Value):
+  method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
 
 class EventDependency(parent :: String,
                       child :: String,
                       transform_path :: List.of(String),
                       latency_cycles :: False || Nat = #false,
-                      trace_stages :: False || List.of(EventTraceStage) = #false)
+                      trace_stages :: False || List.of(EventTraceStage || EventTraceQueue) = #false)
 
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),

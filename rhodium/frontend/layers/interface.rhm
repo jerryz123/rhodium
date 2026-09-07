@@ -31,6 +31,7 @@ export:
   InterfaceTraceCombinational
   InterfaceTraceFixedLatency
   InterfaceTraceElastic
+  InterfaceTraceQueue
   InterfaceTransformGroup
   InterfaceEventGroup
   InterfaceConnectionGroup
@@ -47,6 +48,8 @@ export:
   interface_trace_fixed_latency
   describe_interface_elastic_stages
   interface_trace_elastic
+  describe_interface_queue_storage
+  interface_trace_queue
   interface_trace_broadcast
   interface_trace_merge
   interface_trace_crossbar
@@ -412,8 +415,17 @@ class InterfaceElasticStages(module_def :: Module, stages :: NonemptyList.of(Int
   implements ModuleMetadataPayload
 class InterfaceTraceElastic(instance :: Instance, stages :: NonemptyList.of(InterfaceElasticStage))
 
+// Certifies an in-order, async-read queue using its functional storage controls.
+class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
+                            enqueue :: Value, dequeue :: Value,
+                            read_address :: Value, write_address :: Value,
+                            stored_valid :: Value, bypass :: Value):
+  implements ModuleMetadataPayload
+  method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
+class InterfaceTraceQueue(instance :: Instance, storage :: InterfaceQueueStorage)
+
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
@@ -423,6 +435,10 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceElastic | dynamic.stages | #false
   method elastic_instance():
     if dynamic is_a InterfaceTraceElastic | dynamic.instance | #false
+  method queue_storage():
+    if dynamic is_a InterfaceTraceQueue | dynamic.storage | #false
+  method queue_instance():
+    if dynamic is_a InterfaceTraceQueue | dynamic.instance | #false
 
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
@@ -460,6 +476,7 @@ def interface_event_group_namespace = "rhodium.interface.event"
 def interface_connection_group_namespace = "rhodium.interface.connection"
 def interface_link_group_namespace = "rhodium.interface.link"
 def interface_elastic_stages_namespace = "rhodium.interface.elastic-stages"
+def interface_queue_storage_namespace = "rhodium.interface.queue-storage"
 
 fun module_interface_groups(module_def :: Module):
   module_def.metadata_for(interface_group_namespace)
@@ -1598,6 +1615,35 @@ fun interface_trace_elastic(instance :: Instance):
   | error(~who: #'interface_trace_elastic, "elastic trace implementation requires declared stage controls")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceElastic(instance, declarations[0].stages))
 
+// Storage writes and removals exclude empty bypass transfers. Addresses are
+// pre-edge functional pointers; stored_valid excludes bypass. Reset flushes
+// occupancy, and simultaneous read/write observes the old stored item.
+fun describe_interface_queue_storage(depth :: PosInt,
+                                     enqueue :: HardwareEntity, dequeue :: HardwareEntity,
+                                     read_address :: HardwareEntity, write_address :: HardwareEntity,
+                                     stored_valid :: HardwareEntity, bypass :: HardwareEntity):
+  def module_def = kernel.active_module()
+  unless module_def.metadata_for(interface_queue_storage_namespace).length() == 0
+  | error(~who: #'describe_interface_queue_storage, "queue storage controls already declared")
+  fun signal(entity :: HardwareEntity, width :: PosInt):
+    def value = kernel.read(entity)
+    unless value.module_def === module_def && flat_data_type(value.type) && data_width(value.type) == width
+    | error(~who: #'describe_interface_queue_storage, "queue controls must be local flat data with the required width")
+    value
+  def address_width = memory_address_width(depth)
+  module_def.add_metadata(interface_queue_storage_namespace,
+                          InterfaceQueueStorage(module_def, depth, signal(enqueue, 1), signal(dequeue, 1),
+                                                signal(read_address, address_width), signal(write_address, address_width),
+                                                signal(stored_valid, 1), signal(bypass, 1)))
+
+fun interface_trace_queue(instance :: Instance):
+  unless instance.operation.module_def === kernel.active_module()
+  | error(~who: #'interface_trace_queue, "queue trace implementation must be a local instance")
+  def declarations = instance.module_def.metadata_for(interface_queue_storage_namespace)
+  unless declarations.length() == 1
+  | error(~who: #'interface_trace_queue, "queue trace implementation requires declared storage controls")
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceQueue(instance, declarations[0]))
+
 fun interface_trace_broadcast(output_count :: PosInt):
   InterfaceTraceModel(
     for List (output_index in 0..output_count):
@@ -1657,6 +1703,13 @@ fun describe_interface_transform(handle :: Handle,
         for (value in [stage.advance, stage.valid]):
           unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == 1
           | error(~who: #'describe_interface_transform, "elastic trace controls must belong to the implementation and be one-bit data")
+    when trace_model.queue_instance()
+    | unless implementation && trace_model.queue_instance() === implementation
+      | error(~who: #'describe_interface_transform, "queue trace model must match the transform implementation")
+      def storage = trace_model.queue_storage()
+      for (value in storage.controls(), width in [1, 1, memory_address_width(storage.depth), memory_address_width(storage.depth), 1, 1]):
+        unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == width
+        | error(~who: #'describe_interface_transform, "queue trace controls must belong to the implementation with the required width")
   module_def.add_metadata(
     interface_transform_group_namespace,
     InterfaceTransformGroup(module_def,

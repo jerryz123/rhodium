@@ -1139,7 +1139,7 @@ delay, one-to-one non-inventing transfers, and synchronous reset flushing.
 It must not describe stalls, clock enables, or variable latency. All dynamic
 contracts require exactly one input and output route. The trace model's
 `latency_cycles()` returns zero for combinational transfer, the declared delay
-for fixed latency, or false for elastic or uncertified route-only models.
+for fixed latency, or false for elastic, queue, or uncertified route-only models.
 
 An elastic implementation calls
 `describe_interface_elastic_stages(advances, valids)` once in its module, with
@@ -1151,6 +1151,23 @@ instance as its transform implementation. `InterfaceTraceElastic` never
 infers enables from a stage count or signal name. Its `elastic_stages()` and
 `elastic_instance()` model accessors let compiler consumers recover the typed
 controls and their owner without treating variable latency as fixed latency.
+
+An in-order asynchronous-read queue calls
+`describe_interface_queue_storage(depth, enqueue, dequeue, read_address, write_address, stored_valid, bypass)`
+once inside its implementation. The positive depth fixes metadata capacity;
+addresses are local flat data of width `index_width(depth)`, and the remaining
+controls are local one-bit data. `enqueue` and `dequeue` describe actual storage
+operations, excluding empty flow-through transfers. Addresses identify the
+pre-edge storage slots; a simultaneous read and write observes the old item.
+`stored_valid` means a resident head exists, while `bypass` selects the live
+input instead. The contract promises in-order, non-inventing transfers and
+synchronous reset flushing of occupancy. A wrapper uses
+`interface_trace_queue(instance)` and supplies that same instance as its
+transform implementation. The `InterfaceTraceQueue` model exposes
+`queue_storage()` and `queue_instance()` accessors. Duplicate declarations,
+wrong control widths/ownership, missing declarations, and mismatched instances
+are rejected. Consumers observe existing pointers and policy rather than
+reconstructing them from names or configuration properties.
 Other stateful transforms keep route-only models.
 
 `describe_interface_event` accepts explicit local one-bit

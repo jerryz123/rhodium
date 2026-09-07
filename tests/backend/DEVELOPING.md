@@ -58,7 +58,7 @@ also have dedicated negative benches. Those checks pass only when simulation
 fails and reports the expected assertion label, so an expected failure is not
 treated as an unchecked crash.
 
-The `event-runtime`, `event-pipeline`, and `event-elastic` direct fixtures
+The `event-runtime`, `event-pipeline`, `event-elastic`, and `event-queue` direct fixtures
 additionally link the event package's collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
 

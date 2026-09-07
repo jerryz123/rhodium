@@ -1,0 +1,122 @@
+#lang rhodium
+// Exercises queue configurations, repeated hierarchy, and mixed pipeline/filter paths.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+sync_circuit EventQueueStorage(depth :: PosInt, piped :: Boolean, flowed :: Boolean, composed :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  def buffered = ingress |> queue(depth, ~pipe: piped, ~flow: flowed)
+  if composed
+  | buffered |> pipe(1) |> queue(1, ~pipe: #true, ~flow: #true) |> egress
+  | buffered |> egress
+
+sync_circuit EventQueueLane(depth :: PosInt, piped :: Boolean, flowed :: Boolean, composed :: Boolean, traced :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  inst storage(EventQueueStorage(depth, piped, flowed, composed))
+  def accepted = if traced | ingress |> trace_event("accepted") | ingress
+  if composed
+  | accepted |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> storage.ingress
+  | accepted |> storage.ingress
+  def arrived = if composed | storage.egress |> map_flow(payload => payload + bits(1, 8)) |> filter_flow(payload => !(payload === bits(4, 8))) | storage.egress
+  if traced
+  | arrived |> trace_event("completed", ~terminal: #true) |> egress
+  | arrived |> egress
+
+sync_circuit EventQueue():
+  interface sources[10](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[10](Decoupled(Bits(8)), ~role: producer)
+  interface gold_sources[10](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sinks[10](Decoupled(Bits(8)), ~role: producer)
+  inst lane0(EventQueueLane(1, #false, #false, #false, #true))
+  inst gold0(EventQueueLane(1, #false, #false, #false, #false))
+  sources[0] |> lane0.ingress
+  lane0.egress |> sinks[0]
+  gold_sources[0] |> gold0.ingress
+  gold0.egress |> gold_sinks[0]
+  inst lane1(EventQueueLane(1, #false, #true, #false, #true))
+  inst gold1(EventQueueLane(1, #false, #true, #false, #false))
+  sources[1] |> lane1.ingress
+  lane1.egress |> sinks[1]
+  gold_sources[1] |> gold1.ingress
+  gold1.egress |> gold_sinks[1]
+  inst lane2(EventQueueLane(1, #true, #false, #false, #true))
+  inst gold2(EventQueueLane(1, #true, #false, #false, #false))
+  sources[2] |> lane2.ingress
+  lane2.egress |> sinks[2]
+  gold_sources[2] |> gold2.ingress
+  gold2.egress |> gold_sinks[2]
+  inst lane3(EventQueueLane(1, #true, #true, #false, #true))
+  inst gold3(EventQueueLane(1, #true, #true, #false, #false))
+  sources[3] |> lane3.ingress
+  lane3.egress |> sinks[3]
+  gold_sources[3] |> gold3.ingress
+  gold3.egress |> gold_sinks[3]
+  inst lane4(EventQueueLane(3, #false, #false, #false, #true))
+  inst gold4(EventQueueLane(3, #false, #false, #false, #false))
+  sources[4] |> lane4.ingress
+  lane4.egress |> sinks[4]
+  gold_sources[4] |> gold4.ingress
+  gold4.egress |> gold_sinks[4]
+  inst lane5(EventQueueLane(3, #false, #true, #false, #true))
+  inst gold5(EventQueueLane(3, #false, #true, #false, #false))
+  sources[5] |> lane5.ingress
+  lane5.egress |> sinks[5]
+  gold_sources[5] |> gold5.ingress
+  gold5.egress |> gold_sinks[5]
+  inst lane6(EventQueueLane(3, #true, #false, #false, #true))
+  inst gold6(EventQueueLane(3, #true, #false, #false, #false))
+  sources[6] |> lane6.ingress
+  lane6.egress |> sinks[6]
+  gold_sources[6] |> gold6.ingress
+  gold6.egress |> gold_sinks[6]
+  inst lane7(EventQueueLane(3, #true, #true, #false, #true))
+  inst gold7(EventQueueLane(3, #true, #true, #false, #false))
+  sources[7] |> lane7.ingress
+  lane7.egress |> sinks[7]
+  gold_sources[7] |> gold7.ingress
+  gold7.egress |> gold_sinks[7]
+  inst lane8(EventQueueLane(3, #true, #true, #false, #true))
+  inst gold8(EventQueueLane(3, #true, #true, #false, #false))
+  sources[8] |> lane8.ingress
+  lane8.egress |> sinks[8]
+  gold_sources[8] |> gold8.ingress
+  gold8.egress |> gold_sinks[8]
+  inst lane9(EventQueueLane(5, #true, #true, #true, #true))
+  inst gold9(EventQueueLane(5, #true, #true, #true, #false))
+  sources[9] |> lane9.ingress
+  lane9.egress |> sinks[9]
+  gold_sources[9] |> gold9.ingress
+  gold9.egress |> gold_sinks[9]
+
+sync_circuit EventBadQueueWidth():
+  describe_interface_queue_storage(3, Bool(#true), Bool(#false), bits(0, 1), bits(0, 2), Bool(#false), Bool(#false))
+sync_circuit EventBadQueueEnable():
+  describe_interface_queue_storage(1, bits(0, 2), Bool(#false), bits(0, 1), bits(0, 1), Bool(#false), Bool(#false))
+sync_circuit EventMissingQueue():
+  inst missing(Pipe(Bits(8), 1))
+  interface_trace_queue(missing)
+sync_circuit EventMismatchedQueue():
+  inst first(Queue(Bits(8), 3))
+  inst second(Queue(Bits(8), 3))
+  describe_interface_transform(InterfaceHandle(second.ingress, second.egress), "queue", {}, second, ~trace_model: interface_trace_queue(first))
+sync_circuit EventDuplicateQueue():
+  describe_interface_queue_storage(1, Bool(#false), Bool(#false), bits(0, 1), bits(0, 1), Bool(#false), Bool(#false))
+  describe_interface_queue_storage(1, Bool(#false), Bool(#false), bits(0, 1), bits(0, 1), Bool(#false), Bool(#false))
+
+def queued = elaborate_with_top(EventQueue())
+fun bad_width(): elaborate_with_top(EventBadQueueWidth())
+fun bad_enable(): elaborate_with_top(EventBadQueueEnable())
+fun missing_controls(): elaborate_with_top(EventMissingQueue())
+fun mismatched_instance(): elaborate_with_top(EventMismatchedQueue())
+fun duplicate_controls(): elaborate_with_top(EventDuplicateQueue())
+
+export:
+  queued
+  bad_width
+  bad_enable
+  missing_controls
+  mismatched_instance
+  duplicate_controls

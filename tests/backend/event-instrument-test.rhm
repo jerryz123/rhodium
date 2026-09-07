@@ -11,6 +11,7 @@ import:
   "../frontend/event-graph-fixture.rhdl" as static_fixture
   "../frontend/event-pipeline-fixture.rhdl" as pipeline_fixture
   "../frontend/event-elastic-fixture.rhdl" as elastic_fixture
+  "../frontend/event-queue-fixture.rhdl" as queue_fixture
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
@@ -41,7 +42,7 @@ check:
   emitted.contains("sim.func.dpi.call @rhodium_event_edge") ~is #true
   emitted.contains("__event_in_") ~is #true
   emitted.contains("__event_out_") ~is #true
-  instrument_events(static_fixture.linear) ~throws "dynamic trace semantics"
+  instrument_events(static_fixture.linear).manifest.sites.length() ~is 3
   instrument_events(static_fixture.forked) ~throws "dynamic trace semantics"
   instrument_events(static_fixture.merged) ~throws "dynamic trace semantics"
   instrument_events(fixture.wrong_domain()) ~throws "one clock and reset epoch"
@@ -99,3 +100,22 @@ check:
   elastic_fixture.bad_width() ~throws "local one-bit data"
   elastic_fixture.bad_count() ~throws "matching lengths"
   elastic_fixture.missing_controls() ~throws "requires declared stage controls"
+
+def queue_before = emit_circt(queue_fixture.queued.design)
+def queued = instrument_events(queue_fixture.queued)
+def queue_stages = queued.manifest.dependencies.map(fun (edge): edge.trace_stages)
+check:
+  queued.manifest.sites.length() ~is 20
+  queued.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [#false, #false, #false, #false, #false, #false, #false, #false, #false, #false]
+  queue_stages.take(9).map(fun (stages): stages[0].depth) ~is [1, 1, 1, 1, 3, 3, 3, 3, 3]
+  queue_stages[9].map(fun (stage): stage is_a EventTraceQueue) ~is [#false, #true, #false, #true]
+  queue_stages[8][0].instance_path.take(3) ~is ["EventQueue", "lane8", "storage"]
+  emit_circt(queue_fixture.queued.design) ~is queue_before
+  child(queued.instrumented.top, "lane7") === child(queued.instrumented.top, "lane8") ~is #false
+  child(queued.instrumented.top, "gold7") === child(queued.instrumented.top, "gold8") ~is #true
+  has_trace_ports(child(child(queued.instrumented.top, "gold8"), "storage")) ~is #false
+  queue_fixture.bad_width() ~throws "required width"
+  queue_fixture.bad_enable() ~throws "required width"
+  queue_fixture.missing_controls() ~throws "requires declared storage controls"
+  queue_fixture.mismatched_instance() ~throws "must match the transform implementation"
+  queue_fixture.duplicate_controls() ~throws "already declared"
