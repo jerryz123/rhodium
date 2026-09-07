@@ -1,0 +1,30 @@
+#lang rhodium
+// Composes the physical data router and shared RN-I engine for IO-MSHR contention tests.
+
+import:
+  "../memory-router.rhdl".RV5StageMemoryRouter
+  "../chi/uncached.rhdl".RV5StageUncached
+  "../dcache/protocol.rhdl".RV5StageDataAccess
+  "../uncached-protocol.rhdl".RV5StagePhysicalInstructionAccess
+  "params.rhdl".test_rv5stage_uncached_config
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("chi/main.rhdl") open
+
+sync_circuit RV5StageIOMSHRFixture():
+  def config = test_rv5stage_uncached_config
+  input node_id: Bits(config.flit.node_id_width)
+  interface core(RV5StageDataAccess(XLen.X64), ~role: responder)
+  interface cache(RV5StageDataAccess(XLen.X64), ~role: requester)
+  interface instruction(RV5StagePhysicalInstructionAccess(XLen.X64), ~role: responder)
+  interface chi(CHIRNIChannels(config.flit), ~role: node)
+  inst router(RV5StageMemoryRouter(XLen.X64, config.physical_map))
+  inst uncached(RV5StageUncached(XLen.X64, config))
+  core |> router.core
+  router.cache |> cache
+  router.uncached |> uncached.core
+  instruction |> uncached.instruction
+  uncached.node_id <== node_id
+  uncached.chi <=> chi
+
+export:
+  RV5StageIOMSHRFixture

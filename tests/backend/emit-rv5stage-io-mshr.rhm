@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits the composed data IO-MSHR and instruction/data RN-I contention fixture.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../cores/rv5stage/tests/io-mshr-fixture.rhdl".RV5StageIOMSHRFixture
+
+def design = embedded.run_elaboration(fun (): RV5StageIOMSHRFixture())
+print(emit_circt(design))

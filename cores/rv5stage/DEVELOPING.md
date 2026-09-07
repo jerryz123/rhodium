@@ -35,7 +35,7 @@ each other; share external transaction machinery through the CHI package.
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
 | [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
-| [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing and the shared uncached protocol |
+| [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
 | [`cache.rhdl`](cache.rhdl) | Shared cache geometry and replacement helpers |
 | [`chi/DEVELOPING.md`](chi/DEVELOPING.md) | Physical-region/Home policy, RN identity, cache transaction engines, and the shared uncached RN-I implementation |
 | [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`dcache/DEVELOPING.md`](dcache/DEVELOPING.md) | Private cache implementation and validation |
@@ -108,6 +108,23 @@ The JSON targets interactive renderers; the compact DOT view links child
 modules by name instead of flattening them.
 
 ## Focused validation
+
+For data IO-MSHR admission, ordering, and shared RN-I contention, run:
+
+```sh
+FIXTURES='rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot' \
+  bash tests/backend/run-circt.sh --simulate-only
+```
+
+The router fixture covers RV32 permission rejection and cached/uncached
+exclusion. The composed IO-MSHR fixture covers RV64 retained payloads, fetch
+arbitration and cancellation, backpressure, exactly-once completion, and reset.
+The complete-core boot fixture executes an uncached register load followed by
+`jalr`, then fence-ordered signature stores at three CHI response latencies;
+neither L1 cache may issue a request. This full-core fixture uses the SoC harness's
+Verilator `UNOPTFLAT` warning setting for packed interfaces; assertions and
+runtime convergence checks remain enabled. Keep simulator entry programming and SoC
+BootROM policy separate from this core-level regression.
 
 For WB authorization and scalar/FP integration, run:
 

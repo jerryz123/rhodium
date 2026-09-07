@@ -1,0 +1,54 @@
+#lang rhodium
+// Retains one non-cacheable data operation from admission through RN-I completion.
+
+import:
+  "../memory.rhdl".MemoryOperation
+  "../uncached-protocol.rhdl" open
+  "../../../riscv/isa/xlen.rhm".XLen
+  lib("rhodium/std/ready-valid.rhdl") open
+
+hardware_enum RV5StageIOMSHRState:
+  Idle
+  Queued
+  Active
+
+sync_circuit RV5StageIOMSHR(xlen :: XLen):
+  interface core(RV5StageUncachedDataAccess(xlen), ~role: responder)
+  interface memory(RV5StageUncachedDataAccess(xlen), ~role: requester)
+
+  reg state(~init: RV5StageIOMSHRState.Idle)
+  reg request(RV5StageUncachedDataReq(xlen))
+  def idle = state === RV5StageIOMSHRState.Idle
+  def queued = state === RV5StageIOMSHRState.Queued
+  def active = state === RV5StageIOMSHRState.Active
+  def operation :: MemoryOperation = core.request.bits.request.access
+  def supported = operation.is_one_of(MemoryOperation.Load, MemoryOperation.Store, MemoryOperation.CacheBlockZero)
+
+  // Admission depends on this data slot, not the shared engine's fetch owner.
+  // Unsupported requests fault before admission and cannot acquire the slot.
+  core.request.ready <== idle
+  core.request_fault <== Bool(#false)
+  core.request_access_fault <== core.request.valid & !supported
+  def accept = core.request.fire() & supported
+  memory.request.valid <== queued
+  memory.request.bits <== request
+  memory.response |> core.response
+  core.drained <== idle & !accept
+
+  when accept:
+    request <== core.request.bits
+    state <== RV5StageIOMSHRState.Queued
+  elsewhen (memory.request.fire()):
+    state <== RV5StageIOMSHRState.Active
+  elsewhen (memory.response.valid):
+    state <== RV5StageIOMSHRState.Idle
+
+  // An accepted operation is irrevocable. The engine cannot report a late
+  // admission fault, and only its final data completion releases the slot.
+  when queued:
+    assert(!memory.request_fault & !memory.request_access_fault, "rv5stage_io_mshr_no_late_fault")
+  when (memory.response.valid):
+    assert(active, "rv5stage_io_mshr_completion_expected")
+
+export:
+  RV5StageIOMSHR

@@ -280,7 +280,8 @@ flowchart LR
     IROUTER -->|"non-cacheable"| UNCACHED["One-outstanding<br/>shared uncached engine"]
     MMU -->|"physical data"| ROUTER["Memory router<br/>PMA and device split"]
     ROUTER -->|"cacheable"| L1D["Private L1D"]
-    ROUTER -->|"non-cacheable"| UNCACHED
+    ROUTER -->|"non-cacheable"| IOMSHR["Data IO-MSHR<br/>retain through completion"]
+    IOMSHR --> UNCACHED
 
     L1I <--> IMEM["imem<br/>CHI RN-F"]
     L1D <--> DMEM["dmem<br/>CHI RN-F"]
@@ -413,7 +414,13 @@ read-idempotent; a typical BootROM PMA is readable, executable, non-cacheable,
 non-atomic, non-device, and read-idempotent. L1D is a blocking write-back/
 write-allocate cache supporting loads, stores, LR/SC, and AMOs. All
 non-cacheable instruction and data requests arbitrate onto the same
-one-outstanding RN-I engine, with a presented data request taking priority.
+one-outstanding RN-I engine. Non-cacheable data operations first enter a
+single-entry [IO-MSHR](dcache/README.md#non-cacheable-data-io-mshr), independently
+of an active instruction fetch. Its retained request takes priority at the
+next engine arbitration and survives instruction flushes. The slot remains
+occupied until completion; cached and uncached data demands cannot pass each
+other, and fences include both queued and issued data operations. Instruction
+traffic alone does not make the data path undrained.
 Unmapped, denied, or non-cacheable atomic requests fault locally
 instead of entering CHI.
 

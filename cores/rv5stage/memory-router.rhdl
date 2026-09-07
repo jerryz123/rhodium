@@ -1,11 +1,12 @@
 #lang rhodium
-// Routes translated RV5Stage data accesses between L1D and the shared uncached path.
+// Routes permitted data accesses between L1D and a completion-owned IO-MSHR.
 
 import:
   "../load-store.rhdl".MemoryWidth
   "memory.rhdl" open
   "profile.rhm".RV5StageCacheLineBytes
   "dcache/protocol.rhdl" open
+  "dcache/io-mshr.rhdl".RV5StageIOMSHR
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/rtl/pma.rhdl" open
@@ -17,6 +18,9 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   interface core(RV5StageDataAccess(xlen), ~role: responder)
   interface cache(RV5StageDataAccess(xlen), ~role: requester)
   interface uncached(RV5StageUncachedDataAccess(xlen), ~role: requester)
+
+  inst io_mshr(RV5StageIOMSHR(xlen))
+  io_mshr.memory |> uncached
 
   def request :: RV5StageDataReq(xlen) = core.request.bits
   def operation :: MemoryOperation = request.access
@@ -40,7 +44,9 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
     !request_writes ||| physical.writable
   ) & (!request_is_atomic ||| physical.atomic) & (!zero_block ||| physical.cache_block_zero)
   def request_is_uncached = !physical.cacheable
-  def cache_available = uncached.drained
+  // Readiness reports registered slot availability. Unlike drained it does
+  // not include a same-cycle acceptance, avoiding a cross-path ready loop.
+  def cache_available = io_mshr.core.request.ready
   def uncached_available = cache.drained
   def Array(cache_requests, uncached_requests) = (
     core.request
@@ -54,23 +60,23 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
       |> map_flow(request => RV5StageUncachedDataReq(xlen)):
           request: request
           device: physical.device
-  ) |> uncached.request
+  ) |> io_mshr.core.request
   core.request_fault <== core.request.valid & request_permitted & mux(
     request_is_uncached,
-    uncached.request_fault,
+    io_mshr.core.request_fault,
     cache.request_fault
   )
   core.request_access_fault <== core.request.valid & (!request_permitted ||| mux(
     request_is_uncached,
-    uncached.request_access_fault,
+    io_mshr.core.request_access_fault,
     cache.request_access_fault
   ))
-  core.response.valid <== cache.response.valid ||| uncached.response.valid
-  core.response.bits <== mux(uncached.response.valid,
-                             uncached.response.bits,
+  core.response.valid <== cache.response.valid ||| io_mshr.core.response.valid
+  core.response.bits <== mux(io_mshr.core.response.valid,
+                             io_mshr.core.response.bits,
                              cache.response.bits)
-  core.drained <== cache.drained & uncached.drained
-  assert(!(cache.response.valid & uncached.response.valid),
+  core.drained <== cache.drained & io_mshr.core.drained
+  assert(!(cache.response.valid & io_mshr.core.response.valid),
          "rv5stage_memory_response_paths_exclusive")
 
 export:

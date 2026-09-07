@@ -69,6 +69,29 @@ independently serviced snoop; the parent serialization logic separately waits
 for older deferred completions. It is an observation, not a separate fence
 transaction.
 
+## Non-cacheable data IO-MSHR
+
+`RV5StageIOMSHR(xlen)` in [`io-mshr.rhdl`](io-mshr.rhdl) retains one
+PMA-permitted non-cacheable load, store, or block-zero operation. The physical
+memory router composes it alongside L1D; it does not access or allocate cache
+arrays. An empty slot accepts independently of shared RN-I availability, then
+presents the captured request on the following cycle and holds it stable until
+issue. The slot remains occupied until the final data completion, not merely
+until the engine accepts the request. There is no same-cycle slot refill.
+
+The retained request includes physical address, operation, width, signedness,
+source data, device attribute, and destination metadata. Unsupported operations
+fault before allocation. Accepted work is irrevocable: instruction redirects
+and fetch flushes cannot discard it. Synchronous reset clears the slot together
+with the shared engine. The engine owns CHI encoding, byte masks, transaction
+state, and load normalization; its response is forwarded without buffering.
+
+The router waits for older cached work before IO admission and blocks younger
+cached demands until the IO-MSHR completes. Data-path `drained` includes same-cycle
+admission and both queued and issued IO operations, but not instruction-only
+activity in the shared RN-I engine. Instruction/data arbitration and the
+one-outstanding CHI limit remain in the [shared engine](../chi/README.md#uncached-access).
+
 ## Data path and arrays
 
 [`cache.rhdl`](cache.rhdl) keeps the hit path short and moves line transactions

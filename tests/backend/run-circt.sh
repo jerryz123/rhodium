@@ -397,6 +397,7 @@ verify_fixture() {
   local object_dir="$test_tmp_dir/${fixture}_obj"
   local build_log="$test_tmp_dir/$fixture.verilator.log"
   local -a run_args=()
+  local -a verilator_args=()
   local device_dpi_source="$repo_dir/devices/dpi/${fixture//-/_}.cc"
   local test_dpi_source="$repo_dir/tests/backend/verilog/${fixture}_dpi.cpp"
   local -a dpi_sources=()
@@ -433,6 +434,11 @@ verify_fixture() {
   fi
 
   if [[ "$simulate_fixtures" == true && -n "$top" ]]; then
+    # Match the SoC harness setting for the complete core's packed-interface
+    # scheduling loops. Keep assertions and runtime convergence checks enabled.
+    if [[ "$fixture" == rv5stage-io-boot ]]; then
+      verilator_args+=(--Wno-UNOPTFLAT)
+    fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
       if [[ ! -f "$FORMAL_REPLAY_FILE" ]]; then
         echo "formal replay model file does not exist: $FORMAL_REPLAY_FILE" >&2
@@ -447,6 +453,7 @@ verify_fixture() {
       done < "$FORMAL_REPLAY_FILE"
     fi
     if ! verilator --binary --timing --assert --build-jobs 0 --top-module "$top" \
+        "${verilator_args[@]+"${verilator_args[@]}"}" \
         --Mdir "$object_dir" \
         "$verilog" "tests/backend/verilog/${fixture}_tb.sv" \
         "${dpi_sources[@]+"${dpi_sources[@]}"}" \
@@ -707,6 +714,8 @@ direct_fixture_specs=(
   'rv5stage-instruction-memory-router|rv5stage_instruction_memory_router_tb'
   'rv5stage-memory-router|rv5stage_memory_router_tb'
   'rv5stage-uncached|rv5stage_uncached_tb'
+  'rv5stage-io-mshr|rv5stage_io_mshr_tb'
+  'rv5stage-io-boot|rv5stage_io_boot_tb'
   'rv5stage-multiply|rv5stage_multiply_tb'
   'rv5stage-divide|rv5stage_divide_tb'
   'rv5stage-core-rv32|'

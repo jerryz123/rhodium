@@ -58,6 +58,13 @@ access faults, and asserts address, Home, response, and packet invariants.
 Device writes use the Home's DBID and return write data to that Home; they do
 not request direct write transfer.
 
+In the composed core, data requests come from the
+[data IO-MSHR](../dcache/README.md#non-cacheable-data-io-mshr), which accepts
+independently while the engine serves an instruction. The engine still accepts
+only when idle and prioritizes a presented data request over a new fetch. Its
+`drained` describes the shared engine, not data-side quiescence; the IO-MSHR
+owns the latter from data admission through completion.
+
 For a PMA-authorized `CacheBlockZero`, the engine aligns the address to 64
 bytes and serializes eight zero-valued, full-mask 64-bit writes. Only the
 last acknowledged write produces a core response. No other request can

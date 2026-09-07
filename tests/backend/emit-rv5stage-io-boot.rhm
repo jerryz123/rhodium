@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits a complete RV64 core for non-cacheable load-and-indirect-jump boot testing.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm".XLen
+  "../../cores/rv5stage/rv5stage.rhdl".RV5Stage
+  "../../cores/rv5stage/profile.rhm" open
+  "../../cores/rv5stage/tests/params.rhdl".test_rv5stage_uncached_config
+
+def design = embedded.run_elaboration(
+  fun (): RV5Stage(RVCoreProfile(~xlen: XLen.X64), ~chi: test_rv5stage_uncached_config)
+)
+print(emit_circt(design))

@@ -1,4 +1,4 @@
-// Verifies that RV5Stage rejects inaccessible physical requests before either memory path.
+// Verifies PMA rejection, IO-MSHR admission, and cached/uncached data ordering.
 module rv5stage_memory_router_tb;
   typedef struct packed {
     logic [31:0] address;
@@ -38,7 +38,7 @@ module rv5stage_memory_router_tb;
   localparam logic [2:0] ATOMIC = 3'd5;
 
   logic clock = 1'b0;
-  logic reset = 1'b0;
+  logic reset = 1'b1;
   requester_t core_in;
   responder_t cache_in;
   responder_t uncached_in;
@@ -48,6 +48,12 @@ module rv5stage_memory_router_tb;
 
   RV5StageMemoryRouter dut (.*);
 
+  task automatic tick;
+    #5 clock = 1'b1;
+    #1 clock = 1'b0;
+    #4;
+  endtask
+
   task automatic check_request(
       input logic [31:0] address,
       input logic [2:0] access,
@@ -55,20 +61,36 @@ module rv5stage_memory_router_tb;
       input logic expected_device,
       input logic expected_access_fault
   );
+    core_in.request.valid = 1'b1;
     core_in.request.bits.address = address;
     core_in.request.bits.access = access;
     #1;
     assert (core_out.request.ready &&
             cache_out.request.valid == expected_cache &&
-            uncached_out.request.valid == expected_device &&
+            !uncached_out.request.valid &&
             core_out.request_access_fault == expected_access_fault)
       else $fatal(1, "incorrect physical routing for address %h and access %0d", address, access);
+    if (expected_device) begin
+      tick();
+      core_in.request.valid = 1'b0;
+      #1;
+      assert (uncached_out.request.valid && !core_out.drained &&
+              uncached_out.request.bits.request.address == address &&
+              uncached_out.request.bits.request.access == access)
+        else $fatal(1, "uncached request was not retained by the IO-MSHR");
+      tick();
+      uncached_in.response.valid = 1'b1;
+      tick();
+      uncached_in.response.valid = 1'b0;
+    end
   endtask
 
   initial begin
     core_in = '0;
     cache_in = '0;
     uncached_in = '0;
+    tick();
+    reset = 1'b0;
     core_in.request.valid = 1'b1;
     cache_in.request.ready = 1'b1;
     cache_in.drained = 1'b1;
@@ -81,6 +103,7 @@ module rv5stage_memory_router_tb;
     assert (uncached_out.request.bits.device)
       else $fatal(1, "device PMA was not forwarded to the uncached path");
     check_request(32'h00002000, ATOMIC, 1'b0, 1'b0, 1'b1);
+    check_request(32'h00002000, 3'd0, 1'b0, 1'b0, 1'b1);
     check_request(32'h00003000, LOAD_RESERVED, 1'b0, 1'b0, 1'b1);
     check_request(32'h00003000, STORE, 1'b0, 1'b0, 1'b1);
     check_request(32'h00005000, LOAD, 1'b0, 1'b1, 1'b0);
@@ -103,6 +126,41 @@ module rv5stage_memory_router_tb;
     check_request(32'h5001, 3'd6, 1'b0, 1'b0, 1'b1);
     check_request(32'h8001, 3'd6, 1'b0, 1'b0, 1'b1);
     check_request(32'hffff, 3'd6, 1'b0, 1'b0, 1'b1);
+
+    // Older cached work prevents IO admission, but instruction-owned RN-I
+    // activity alone does not prevent a cached access or occupy the IO-MSHR.
+    uncached_in.drained = 1'b0;
+    uncached_in.request.ready = 1'b0;
+    check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b0);
+    cache_in.drained = 1'b0;
+    core_in.request.bits.address = 32'h2000;
+    #1;
+    assert (!core_out.request.ready && !uncached_out.request.valid)
+      else $fatal(1, "IO admission passed older cached work");
+    cache_in.drained = 1'b1;
+    #1;
+    assert (core_out.request.ready) else $fatal(1, "busy RN-I prevented IO admission");
+    tick();
+    core_in.request.bits.address = 32'h1000;
+    repeat (4) begin
+      #1;
+      assert (!core_out.request.ready && !cache_out.request.valid &&
+              !core_out.drained && uncached_out.request.valid &&
+              uncached_out.request.bits.request.address == 32'h2000)
+        else $fatal(1, "queued IO did not retain payload or block younger cached work");
+      tick();
+    end
+    uncached_in.request.ready = 1'b1;
+    tick();
+    repeat (4) begin
+      assert (!uncached_out.request.valid && !core_out.request.ready && !core_out.drained)
+        else $fatal(1, "IO slot released at issue rather than completion");
+      tick();
+    end
+    uncached_in.response.valid = 1'b1;
+    tick();
+    uncached_in.response.valid = 1'b0;
+    check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b0);
 
     cache_in.request_access_fault = 1'b1;
     check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b1);

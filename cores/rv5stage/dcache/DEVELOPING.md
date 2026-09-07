@@ -10,8 +10,9 @@ This guide owns implementation placement and contributor validation.
 
 The L1D package owns the data-access protocol, synchronous arrays, hit path,
 coherence state, mutation, blocking allocation/acquisition, replacement, and
-LR/SC reservation. The parent core owns virtual translation, alignment faults,
-PMA routing, architectural fence ordering, and the external CHI boundary.
+LR/SC reservation, and the non-allocating data IO-MSHR. The parent core owns
+virtual translation, alignment faults, PMA routing, architectural fence ordering,
+and the external CHI boundary.
 
 Keep L1D independent of L1I. Reuse parent cache parameters and the sibling CHI
 package's refill, write-unique, writeback, and data-snoop engines rather than
@@ -23,6 +24,7 @@ importing the instruction-cache package.
 | Concern | Owner |
 |---|---|
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
+| One-entry uncached data admission, retained request, and completion lifetime | [`io-mshr.rhdl`](io-mshr.rhdl) |
 | Demand-priority lookup, best-effort prefetch admission, arrays, hit mutation, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
 | Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
@@ -52,7 +54,11 @@ importing the instruction-cache package.
    PMA faults into the cache.
 6. Keep prefetch response-free and demand-priority; write intent may acquire
    UniqueClean ownership but must not mutate data or make a line dirty.
-7. Test hit, miss, refill, atomic, and coherence behavior in compiled fixtures;
+7. Keep IO-MSHR admission independent of RN-I instruction ownership. Reject
+   unsupported operations before allocation, retain the request until issue,
+   and release the slot only on final completion. Do not connect fetch flush
+   to committed data state or use engine-wide `drained` for data-slot occupancy.
+8. Test hit, miss, refill, atomic, and coherence behavior in compiled fixtures;
    keep host coverage to configuration and protocol metadata. Update
    [README.md](README.md) when public timing, state, traffic, or limits change.
 
@@ -67,7 +73,7 @@ tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
 Test cache, transaction, and atomic behavior through compiled fixtures:
 
 ```sh
-FIXTURES='rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32' \
+FIXTURES='rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-memory-router rv5stage-io-mshr' \
   bash tests/backend/run-circt.sh --simulate-only
 ```
 
