@@ -35,7 +35,7 @@ sync_circuit RV5StagePageTableWalker():
   def memory_request_fire = memory.request.fire()
   memory.response.ready <== state === RV5StagePageWalkState.Response
   def memory_response_fire = memory.response.fire()
-  def pte = sv39_pte(memory.response.bits)
+  def pte = memory.response.bits.into(Sv39Pte())
   def leaf = sv39_leaf(pte)
   def structural_fault = !sv39_pte_structurally_valid(pte) ||| (
     leaf & !sv39_superpage_aligned(pte, level)

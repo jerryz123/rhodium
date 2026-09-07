@@ -41,7 +41,7 @@ circuit RiscvCmoFixture():
   fields_disabled <== cmo_envcfg_fields(XLen.X64, menvcfg, ~zicbom: #false, ~zicboz: #false)
   zero_permitted <== cbo_zero_permitted(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #true)
   zero_disabled <== cbo_zero_permitted(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #false)
-  translation_permitted <== sv39_permission_valid(sv39_pte(raw_pte), access, user_mode, supervisor_mode, sum, mxr)
+  translation_permitted <== sv39_permission_valid(raw_pte.into(Sv39Pte()), access, user_mode, supervisor_mode, sum, mxr)
   physical_permitted <== cbo_management_physical_permission(physical)
 
 def design = elaborate(RiscvCmoFixture())

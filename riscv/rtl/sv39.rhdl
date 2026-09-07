@@ -12,8 +12,8 @@ hardware_enum Sv39Access:
   CacheManagement
 
 bundle Sv39Pte():
-  ppn: Bits(44)
   reserved: Bits(10)
+  ppn: Bits(44)
   rsw: Bits(2)
   dirty: Bool
   accessed: Bool
@@ -31,20 +31,6 @@ bundle Sv39Translation():
   execute: Bool
   user: Bool
   global_mapping: Bool
-
-fun sv39_pte(raw :: Bits(64)) :~ Sv39Pte():
-  Sv39Pte():
-    ppn: raw[10..54]
-    reserved: raw[54..64]
-    rsw: raw[8..10]
-    dirty: raw[7].into(Bool)
-    accessed: raw[6].into(Bool)
-    global_mapping: raw[5].into(Bool)
-    user: raw[4].into(Bool)
-    execute: raw[3].into(Bool)
-    write: raw[2].into(Bool)
-    read: raw[1].into(Bool)
-    valid: raw[0].into(Bool)
 
 fun sv39_canonical(address :: Bits(64)) :~ Bool:
   address[39..64] === mux(address[38].into(Bool), !bits(0, 25), bits(0, 25))
@@ -103,7 +89,6 @@ export:
   Sv39Access
   Sv39Pte
   Sv39Translation
-  sv39_pte
   sv39_canonical
   sv39_vpn
   sv39_leaf

@@ -178,6 +178,11 @@ ignoring `A` and `D`. Page-table walk
 state, TLB organization, replacement, faults, and processor integration are
 not part of this reusable combinational layer.
 
+`Sv39Pte()` uses the 64-bit PTE encoding as its packed representation. Convert
+raw `Bits(64)` with `raw.into(Sv39Pte())`; use `pte.as_bits()` to recover the
+encoded bits. These conversions preserve the bit pattern and do not validate
+the PTE; structural and permission checks remain separate.
+
 ### Cache-block permissions
 
 [`cmo.rhdl`](cmo.rhdl) separates CSR permission from translation and physical
