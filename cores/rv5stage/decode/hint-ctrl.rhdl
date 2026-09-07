@@ -1,0 +1,9 @@
+#lang rhodium
+// Defines nonarchitectural execution hints separately from fences and system operations.
+
+hardware_enum HintOperation:
+  None
+  Pause
+
+export:
+  HintOperation

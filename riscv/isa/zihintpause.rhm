@@ -1,0 +1,17 @@
+#lang rhombus
+// Defines the operand-free PAUSE encoding from ratified Zihintpause 2.0.
+
+import:
+  "../model/main.rhm" open
+  "integer-common.rhm".MISC_MEM
+
+def PAUSE = instruction("PAUSE", SystemFormat, [opcode.constrain(MISC_MEM), rd.constrain(0), funct3.constrain(0), rs1.constrain(0), immediate12.constrain(0x010)])
+def ZihintpauseInstructions = [PAUSE]
+def ZihintpauseRevision = "Zihintpause 2.0"
+def Zihintpause = InstructionCatalog("Zihintpause", ZihintpauseRevision, ZihintpauseInstructions)
+
+export:
+  PAUSE
+  ZihintpauseInstructions
+  ZihintpauseRevision
+  Zihintpause

@@ -16,6 +16,7 @@ import:
   "decode/writeback-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
+  "decode/hint-ctrl.rhdl" open
   "decode/fp-ctrl.rhdl" open
   "dcache/protocol.rhdl" open
   "multiply.rhdl" open
@@ -63,6 +64,7 @@ bundle DecodeExecute(xlen :: XLen):
   writeback_source: WritebackSelect
   system: SystemControl()
   fence: FenceControl()
+  hint: HintOperation
   illegal: Bool
   instruction_page_fault: Bool
   instruction_access_fault: Bool
@@ -99,6 +101,7 @@ bundle ExecuteMemory(xlen :: XLen):
   divide_issue: RV5StageDivideIssue(xlen)
   system: SystemControl()
   fence: FenceControl()
+  hint: HintOperation
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
   exception_valid: Bool
@@ -123,6 +126,7 @@ bundle MemoryWriteback(xlen :: XLen):
   divide_issue: RV5StageDivideIssue(xlen)
   system: SystemControl()
   fence: FenceControl()
+  hint: HintOperation
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
   exception_valid: Bool

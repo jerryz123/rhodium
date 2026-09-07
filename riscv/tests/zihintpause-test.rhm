@@ -1,0 +1,22 @@
+#lang rhombus
+// Checks PAUSE's exact operand-free encoding and its intentional FENCE overlap.
+
+import:
+  "../isa/zihintpause.rhm" open
+  "../isa/integer-common.rhm" open
+  "../model/main.rhm" open
+
+check:
+  Zihintpause.revision ~is "Zihintpause 2.0"
+  Zihintpause.instructions ~is [PAUSE]
+  PAUSE.encode([]) ~is 0x0100000f
+  PAUSE.encoding.care ~is 0xffffffff
+  PAUSE.operands ~is []
+  PAUSE.immediate ~is #false
+  FENCE.matches(PAUSE.encode([])) ~is #true
+  PAUSE.encode([rd.constrain(0)]) ~throws "not an explicit field"
+
+for (word in [0x0000000f, 0x0110000f, 0x0100008f, 0x0100800f, 0x1100000f, 0x0200000f]):
+  check:
+    PAUSE.matches(word) ~is #false
+    FENCE.matches(word) ~is #true

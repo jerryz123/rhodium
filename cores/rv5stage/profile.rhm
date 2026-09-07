@@ -40,6 +40,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          zicboz :: Boolean,
                          zicbom :: Boolean,
                          zawrs :: Boolean,
+                         zihintpause :: Boolean,
                          compressed :: List.of(CompressedExtension)):
   implements StableCircuitParam
 
@@ -50,8 +51,9 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~zicboz: zicboz :: Boolean = #false,
                ~zicbom: zicbom :: Boolean = #false,
                ~zawrs: zawrs :: Boolean = #false,
+               ~zihintpause: zihintpause :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
-    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, zawrs, compressed)
+    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, zawrs, zihintpause, compressed)
 
   method compressed_misa_c(xlen :: XLen) :: Boolean:
     compressed_extensions_report_misa_c(xlen, floating_point, compressed)
@@ -89,7 +91,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
         multi_letter := multi_letter ++ ["zfhmin"]
     | ~else: #void
     def cache_block = (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | [])
-    single_letter ++ multi_letter ++ cache_block ++ (if zawrs | ["zawrs"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop"]
+    single_letter ++ multi_letter ++ cache_block ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop"]
 
 class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
                             data :: RV5StageCacheConfig):

@@ -2,6 +2,12 @@
 
 # RV5Stage decode
 
+`~zihintpause: #true` overlays the exact PAUSE word on the existing FENCE row
+in the same combined decoder. Its hint selector enables bounded throttling at
+WB; register use, writeback, memory, and ordinary fence actions are disabled.
+Neighboring FENCE encodings retain their original controls. Disabled profiles
+continue to decode the word as FENCE.
+
 RV5Stage maps each selected instruction encoding directly to the structured
 `RV5StageControl` consumed by the core. There is no intermediate
 instruction-kind enum. Integer and floating-point rows are composed at host

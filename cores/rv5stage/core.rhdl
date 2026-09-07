@@ -12,6 +12,7 @@ import:
   "decode/branch-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
+  "decode/hint-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "decode/writeback-ctrl.rhdl" open
   "bundles.rhdl" open
@@ -50,12 +51,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def zicboz_enabled = extensions.zicboz
   def zicbom_enabled = extensions.zicbom
   def zawrs_enabled = extensions.zawrs
+  def zihintpause_enabled = extensions.zihintpause
   def compressed_extensions = extensions.compressed
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
-  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled).map(fun (instruction): instruction.name)
+  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled).map(fun (instruction): instruction.name)
 
   def instruction_alignment = if compressed_enabled | 2 | 4
   unless reset_address < (1 << width)
@@ -103,7 +105,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen), 1))
 
-  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled))
+  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled))
   inst registers(RV5StageRegisterFile(xlen))
   inst alu(ALU(xlen))
   inst branch_resolver(BranchResolver(width))
@@ -217,10 +219,22 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def squash = exception_in_flight ||| memory_replay_event ||| redirect_link.right.valid
   reg started(~init: Bool(#false))
   reg waiting_for_interrupt(~init: Bool(#false))
+  // PAUSE retires before its bounded cooldown. Unlike WFI/WRS, no instruction
+  // context or older-memory drain is required, and interrupts remain live.
+  def PauseCycles = 16
+  reg pause_cycles(~init: bits(0, index_width(PauseCycles + 1)))
+  def pause_active = or_reduce(pause_cycles)
+  def pause_commit = commit_valid & !commit_bits.exception_valid & (commit_bits.hint === HintOperation.Pause)
+  when (csrs.redirect.valid ||| csrs.interrupt_request):
+    pause_cycles <== bits(0, index_width(PauseCycles + 1))
+  elsewhen pause_commit:
+    pause_cycles <== bits(PauseCycles, index_width(PauseCycles + 1))
+  elsewhen pause_active:
+    pause_cycles <== pause_cycles - bits(1, index_width(PauseCycles + 1))
   reg architectural_pc(~init: reset_pc)
   // Seed fetch once after reset; software in the reset image owns boot waiting.
   def reset_start = !started
-  def fetch_valid = started & !squash & !csrs.interrupt_request & !waiting_for_interrupt & !reservation_wait_pending & !reservation_wait_accept
+  def fetch_valid = started & !pause_active & !pause_commit & !squash & !csrs.interrupt_request & !waiting_for_interrupt & !reservation_wait_pending & !reservation_wait_accept
   fetch.active <== fetch_valid
   fetch.flush <== memory_exception_event ||| memory_replay_event
   fetch.restart_valid <== redirect_link.right.valid ||| reset_start
@@ -365,6 +379,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def serializing_in_id_ex = id_ex.valid & (serializing_operation(id_ex.bits.system, id_ex.bits.fence) ||| id_ex.bits.memory_operation.into(MemoryOperation).is_cache_management())
   def serializing_in_memory = memory.valid & (serializing_operation(memory.bits.system, memory.bits.fence) ||| memory.bits.data_request.access.into(MemoryOperation).is_cache_management())
   def serializing_in_commit = commit_valid & serializing_operation(wb_bits.system, wb_bits.fence)
+  def pause_in_flight = (id_ex.valid & (id_ex.bits.hint === HintOperation.Pause)) ||| (memory.valid & (memory.bits.hint === HintOperation.Pause)) ||| (wb.valid & (wb_bits.hint === HintOperation.Pause))
   def serializing_in_flight = serializing_in_id_ex ||| serializing_in_memory ||| serializing_in_commit ||| maintenance_pending ||| reservation_wait_pending ||| reservation_wait_accept ||| (pipeline_wb.valid & pipeline_wb.bits.data_request.access.into(MemoryOperation).is_cache_management())
   def commit_is_deferred = commit_valid & deferred_writeback(
     commit_bits.writeback_source
@@ -400,7 +415,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def local_resource_hazard = multiply_resource_hazard ||| divide_resource_hazard ||| fp_store_resource_hazard
   def pipeline_hazard = deferred_dependency_hazard ||| scoreboard_raw_hazard ||| (
     scoreboard_waw_hazard ||| fp_source_hazard ||| fp_destination_hazard
-  ) ||| local_resource_hazard ||| serializing_in_flight ||| serializing_waits_for_older ||| waiting_for_interrupt ||| csrs.interrupt_request ||| exception_in_flight
+  ) ||| local_resource_hazard ||| pause_in_flight ||| pause_active ||| serializing_in_flight ||| serializing_waits_for_older ||| waiting_for_interrupt ||| csrs.interrupt_request ||| exception_in_flight
   // Operand probes are read-only and may repeat while ID waits. Keeping them
   // independent of transfer/replay avoids feeding WB readiness into FP reads.
   fp.store_request.valid <== if_id_pipe.egress.valid & decoded_fp_store
@@ -437,6 +452,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           writeback_source: control.writeback.source
           system: control.system
           fence: control.fence
+          hint: control.hint
           illegal: decoded_illegal
           instruction_page_fault: fetched.instruction_page_fault
           instruction_access_fault: fetched.instruction_access_fault
@@ -617,6 +633,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     divide_issue: execute_divide_issue
     system: id_ex.bits.system
     fence: id_ex.bits.fence
+    hint: id_ex.bits.hint
     csr_address: id_ex.bits.instruction[20..32]
     csr_source: csr_source
     exception_valid: execute_exception.valid
@@ -649,6 +666,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     divide_issue: operation.divide_issue
     system: operation.system
     fence: operation.fence
+    hint: operation.hint
     csr_address: operation.csr_address
     csr_source: operation.csr_source
     exception_valid: operation.exception_valid

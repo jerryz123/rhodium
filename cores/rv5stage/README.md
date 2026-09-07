@@ -557,6 +557,19 @@ Contributor host, CIRCT, and Verilator workflows are documented in
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation). SoC-level architectural
 and FESVR simulation belongs to the [simulation guide](../../sims/README.md).
 
+## Pause hint
+
+`RV5StageExtensions(~zihintpause: #true)` selects Zihintpause 2.0. The generic
+default is disabled; SimpleSoC, MiniSoC, and TiledSoC enable it in their profiles.
+ISA descriptions and UDB claims follow that selection; `misa` is unchanged.
+
+PAUSE retires once at WB and starts a 16-cycle issue/fetch cooldown. It does not
+drain older memory work, impose fence ordering, or wait for a reservation.
+Deferred completions and coherence remain live. An enabled interrupt request
+or CSR trap redirect cancels the cooldown. A squashed or faulting PAUSE cannot
+start it. No clock gating, CSR state, or privilege restriction is added.
+When disabled, its encoding retains the existing ordinary FENCE behavior.
+
 ## Reservation waiting
 
 `RV5StageExtensions(~zawrs: #true)` enables Zawrs through the core profile,

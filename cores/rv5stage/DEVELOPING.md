@@ -116,6 +116,14 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For PAUSE, run the catalog/overlay/profile tests and `rv5stage-pause`, plus
+`rv5stage-wfi` and `rv5stage-zawrs` when changing issue/interrupt gating.
+`decode/hint-ctrl.rhdl` owns the nonarchitectural hint selector. Pipeline
+payloads carry it to WB, where PAUSE retires before starting a bounded counter.
+The hint's younger-issue barrier is distinct from system/fence serialization:
+PAUSE must not inherit an older-work drain. Keep interrupt and completion
+service outside the cooldown gate.
+
 For WB-owned Zawrs waiting and the cache-owned reservation observation path:
 
 ```sh

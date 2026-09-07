@@ -17,6 +17,7 @@ import:
   "../decode/writeback-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open
   "../decode/fence-ctrl.rhdl" open
+  "../decode/hint-ctrl.rhdl" open
 
 check:
   ZawrsCoreControlCases.length() ~is 2
@@ -48,6 +49,7 @@ for (instruction in ZawrsInstructions, action in [SystemOperation.WrsNto, System
     fence:
       pattern(FenceControl()):
         action: FenceOperation.None
+    hint: HintOperation.None
     floating_point_valid: Bool(#false)
   check:
     row.input.care_bits ~is 0xffffffff

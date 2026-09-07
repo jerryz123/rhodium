@@ -1,0 +1,59 @@
+#lang rhodium
+// Checks exact PAUSE overlays, inactive effects, neighboring fences, and profile-selected decoding.
+
+import:
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/std/decode.rhdl") open
+  "../../../riscv/isa/zihintpause.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../decode/core-ctrl.rhdl" open
+  "../decode/hint-ctrl.rhdl" open
+  "../decode/fence-ctrl.rhdl" open
+  "../decode/operand-ctrl.rhdl" open
+  "../decode/writeback-ctrl.rhdl" open
+  "../decode/mem-ctrl.rhdl" open
+  "../decode/system-ctrl.rhdl" open
+
+def pause_control = partial_pattern(RV5StageControl()):
+  hint: HintOperation.Pause
+  memory:
+    partial_pattern(MemoryControl()):
+      access: MemoryOperation.None
+  floating_point_valid: Bool(#false)
+  fence:
+    pattern(FenceControl()):
+      action: FenceOperation.None
+  operand:
+    partial_pattern(OperandControl()):
+      uses_rs1: Bool(#false)
+      uses_rs2: Bool(#false)
+  writeback:
+    partial_pattern(WritebackControl()):
+      enable: Bool(#false)
+  system:
+    partial_pattern(SystemControl()):
+      csr: CsrOperation.None
+      action: SystemOperation.None
+def fence_control = partial_pattern(RV5StageControl()):
+  hint: HintOperation.None
+  fence:
+    pattern(FenceControl()):
+      action: FenceOperation.Memory
+
+for (base in [RV32RV5StageControlCases, RV64RV5StageControlCases]):
+  def cases = overlay_decode_cases(base, ZihintpauseCoreControlCases)
+  check:
+    pause_control.subsumes(cases.find(fun (row): row.input.matches(bits(PAUSE.encode([]), 32))).output) ~is #true
+    fence_control.subsumes(base.find(fun (row): row.input.matches(bits(PAUSE.encode([]), 32))).output) ~is #true
+  for (word in [0x0000000f, 0x0110000f, 0x0100008f, 0x0100800f, 0x1100000f, 0x0200000f]):
+    check:
+      fence_control.subsumes(cases.find(fun (row): row.input.matches(bits(word, 32))).output) ~is #true
+
+for (config in [[XLen.X32, FloatingPointProfile.None], [XLen.X64, FloatingPointProfile.None], [XLen.X32, FloatingPointProfile.F], [XLen.X64, FloatingPointProfile.D]]):
+  for (enabled in [#false, #true]):
+    def design = embedded.run_elaboration(fun (): RV5StageInstructionDecoder(config[0], config[1], ~zihintpause: enabled, ~zawrs: #true, ~zicbop: #true))
+    def decoders = design.modules[0].operations.filter(~keep: fun (operation): operation.opcode == "rtl.decode")
+    check:
+      decoders.length() ~is 1
+      rv5stage_instructions(config[0], config[1], HalfPrecisionProfile.None, ~zihintpause: enabled).contains(PAUSE) ~is enabled

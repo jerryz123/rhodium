@@ -351,7 +351,7 @@ check:
              controls.RV5StageControl()) ~is #true
   module_def.find_output("control").type.fields.map(
     fun (field): field.name
-  ) ~is ["alu", "operand", "branch", "memory", "prefetch", "multiply", "divide", "writeback", "system", "fence",
+  ) ~is ["alu", "operand", "branch", "memory", "prefetch", "multiply", "divide", "writeback", "system", "fence", "hint",
          "floating_point_valid", "floating_point"]
   type_equal(rv32_module.find_output("control").type,
              controls.RV5StageControl()) ~is #true
