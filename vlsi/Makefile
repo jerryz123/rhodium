@@ -35,7 +35,10 @@ MINI_SOC_SYNTH_CONFIG := $(VLSI_ROOT)/openlane/mini_soc/config.yaml
 MINI_SOC_SLANG_RUN_DIR := $(VLSI_ROOT)/openlane/mini_soc/runs/RHODIUM_SLANG_CHECK
 MINI_SOC_SLANG_NETLIST := $(MINI_SOC_SLANG_RUN_DIR)/final/nl/MiniSoC.nl.v
 MINI_SOC_SYNTH_RUN_DIR := $(VLSI_ROOT)/openlane/mini_soc/runs/RHODIUM_SLANG_SYNTH
-MINI_SOC_SYNTH_NETLIST := $(MINI_SOC_SYNTH_RUN_DIR)/final/nl/MiniSoC.nl.v
+MINI_SOC_RAW_SYNTH_NETLIST := $(MINI_SOC_SYNTH_RUN_DIR)/final/nl/MiniSoC.nl.v
+MINI_SOC_SYNTH_STEP_DIR ?= $(MINI_SOC_SYNTH_RUN_DIR)/01-yosys-synthesis
+MINI_SOC_POST_SYNTH_DIR ?= $(MINI_SOC_BUILD_DIR)/synthesis
+MINI_SOC_SYNTH_NETLIST := $(MINI_SOC_POST_SYNTH_DIR)/MiniSoC.nl.v
 SKY130_SRAM_MODEL = $(PDK_ROOT)/$(PDK)/libs.ref/sky130_sram_macros/verilog/sky130_sram_2kbyte_1rw1r_32x512_8.v
 
 RACKET ?= racket
@@ -43,6 +46,7 @@ CIRCT_OPT ?= $(RHODIUM_ROOT)/.tools/firtool-1.155.0/bin/circt-opt
 CIRCT_ROOT ?= $(abspath $(dir $(CIRCT_OPT))/..)
 VERILATOR ?= verilator
 PYTHON ?= python3
+YOSYS ?= yosys
 NIX_SYSTEM := /nix/var/nix/profiles/default/bin/nix
 NIX ?= $(if $(wildcard $(NIX_SYSTEM)),$(NIX_SYSTEM),nix)
 NIX_FLAGS ?= --extra-experimental-features 'nix-command flakes' --accept-flake-config
@@ -55,7 +59,7 @@ export PDK_ROOT PDK
 .PHONY: all setup-circt rtl contract-check rtl-check lvs-smoke-rtl-check memory-site-plugin memory-map-test \
 	mini-soc-memory-map mini-soc-macro-rtl mini-soc-macro-rtl-check \
 	mini-soc-slang-check mini-soc-slang-check-native \
-	mini-soc-synth mini-soc-synth-native enable-pdk \
+	mini-soc-synth mini-soc-synth-native mini-soc-post-synth mini-soc-post-synth-native enable-pdk \
 	harden harden-native lvs-smoke lvs-smoke-native integrate integrate-native gds clean
 
 all: rtl-check
@@ -207,8 +211,23 @@ mini-soc-synth-native: mini-soc-macro-rtl
 	command -v librelane >/dev/null
 	$(LIBRELANE) $(MINI_SOC_SYNTH_CONFIG) --run-tag RHODIUM_SLANG_SYNTH --overwrite \
 		--only Yosys.Synthesis --condensed --hide-progress-bar
-	test -s $(MINI_SOC_SYNTH_NETLIST)
+	test -s $(MINI_SOC_RAW_SYNTH_NETLIST)
 	grep -q "use_slang" $(MINI_SOC_SYNTH_RUN_DIR)/*-yosys-synthesis/yosys-synthesis.log
+	$(MAKE) mini-soc-post-synth-native
+
+mini-soc-post-synth:
+	test -s $(MINI_SOC_SYNTH_STEP_DIR)/MiniSoC.nl.v.json
+	@if command -v $(YOSYS) >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then \
+		$(MAKE) mini-soc-post-synth-native; \
+	else \
+		$(NIX) $(NIX_FLAGS) develop $(HARNESS_DIR) --command $(MAKE) mini-soc-post-synth-native; \
+	fi
+
+mini-soc-post-synth-native:
+	mkdir -p $(MINI_SOC_POST_SYNTH_DIR)
+	env MINI_SOC_SYNTH_STEP_DIR="$(MINI_SOC_SYNTH_STEP_DIR)" MINI_SOC_POST_SYNTH_DIR="$(MINI_SOC_POST_SYNTH_DIR)" \
+		$(YOSYS) -Q -T -l $(MINI_SOC_POST_SYNTH_DIR)/yosys.log -c $(VLSI_ROOT)/openlane/mini_soc/post-synth.tcl
+	test -s $(MINI_SOC_SYNTH_NETLIST)
 	test "$$(grep -c 'sky130_sram_2kbyte_1rw1r_32x512_8 ' $(MINI_SOC_SYNTH_NETLIST))" -eq 36
 
 enable-pdk:

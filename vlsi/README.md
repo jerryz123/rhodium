@@ -162,9 +162,36 @@ LibreLane's `Yosys.Synthesis` step in elaborate-only mode; it verifies that
 Slang accepts CIRCT's packed SystemVerilog, that its netlist contains all 36
 macro instances, and that no packed structs remain. Its netlist is
 `openlane/mini_soc/runs/RHODIUM_SLANG_CHECK/final/nl/MiniSoC.nl.v`.
-`mini-soc-synth` runs the same synthesis step without elaborate-only mode and
-checks the resulting technology-mapped netlist at
-`openlane/mini_soc/runs/RHODIUM_SLANG_SYNTH/final/nl/MiniSoC.nl.v`.
+`mini-soc-synth` runs the same synthesis step without elaborate-only mode,
+then runs the native Yosys [post-synthesis recipe](openlane/mini_soc/post-synth.tcl).
+This locally balances and remaps the RV64 divider's 64-bit remainder-capture
+cone without changing RTL or the rest of the mapped design. The final,
+verified synthesis handoff is `build/mini-soc/synthesis/MiniSoC.nl.v` (with a
+companion JSON netlist). LibreLane's raw netlist and metrics remain unchanged
+under `openlane/mini_soc/runs/RHODIUM_SLANG_SYNTH/`; those metrics describe the
+pre-repair design, not the final handoff. Direct LibreLane invocations bypass
+this Make-owned post-synthesis step.
+
+To rerun just the post-synthesis step against an existing completed synthesis:
+
+```sh
+make -C vlsi mini-soc-post-synth
+```
+
+The recipe reuses the synthesis netlist, filtered Liberty libraries, clock
+target, and output load; `jq` reads LibreLane's JSON metadata. `YOSYS` overrides
+the executable (ABC is its companion binary). Native tools or the harness's
+Nix environment are supported. `MINI_SOC_SYNTH_STEP_DIR` and
+`MINI_SOC_POST_SYNTH_DIR` override the input and output directories.
+
+Before writing the handoff, a native `miter`/`sat -verify` check proves every
+extracted boundary output equivalent, including shared side outputs. Outside
+RTLIL must match except for the global auto-name counter, and the reassembled
+design must pass `check -assert`. The proof and local mapping report are in
+`build/mini-soc/synthesis/yosys.log`. Selection is specific to the current RV64
+register layout and Sky130 `dfxtp_2` registers; mismatched endpoints fail the
+build. This is a design-specific synthesis workaround, not a general timing
+optimizer or physical timing signoff.
 
 These targets prove a consistent mapping and synthesis handoff. They do not
 place the macros, define blockages, connect the macro power grid, route the

@@ -33,6 +33,7 @@ Neither path may imply physical signoff beyond the exact stage that ran.
 | Smoke-leaf and MiniSoC emitters | [`tools/emit-top.rhm`](tools/emit-top.rhm), [`tools/emit-mini-soc.rhm`](tools/emit-mini-soc.rhm) |
 | OpenFrame boundary checker | [`tools/check-openframe-contract.py`](tools/check-openframe-contract.py) |
 | MiniSoC mapping assertions | [`tools/check-mini-soc-memory-map.py`](tools/check-mini-soc-memory-map.py) |
+| Native Yosys divider remapping and SAT proof after MiniSoC synthesis | [`openlane/mini_soc/post-synth.tcl`](openlane/mini_soc/post-synth.tcl) |
 | MiniSoC/Sky130 site policy | [`designs/mini-soc/sky130/sram-map.yaml`](designs/mini-soc/sky130/sram-map.yaml) |
 | OpenFrame wrapper and compact LVS RTL | [`verilog/rtl/`](verilog/rtl/) |
 | LibreLane profiles | [`openlane/`](openlane/) |
@@ -84,6 +85,7 @@ change:
 | Macro wrapper and installed Verilog handoff | `make -C vlsi mini-soc-macro-rtl-check` |
 | Slang compatibility | `make -C vlsi mini-soc-slang-check` |
 | Synthesis configuration | `make -C vlsi mini-soc-synth` |
+| Targeted divider post-mapping repair | `make -C vlsi mini-soc-post-synth` against a completed MiniSoC synthesis; check SAT proof, unchanged outside RTLIL, structural checks, and 36-macro handoff |
 | Compact physical/LVS fixture | `make -C vlsi lvs-smoke` |
 | Sparse wrapper hardening | `make -C vlsi harden` |
 | Padframe integration | `make -C vlsi integrate` |
