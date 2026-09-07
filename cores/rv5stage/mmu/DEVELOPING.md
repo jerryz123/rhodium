@@ -26,11 +26,11 @@ the caches.
 | [`protocol.rhdl`](protocol.rhdl) | Translation request/result bundles, fetch-fault metadata, and walker memory interface |
 | [`tlb.rhdl`](tlb.rhdl) | Fully associative demand/probe matching, permission recheck, physical-address construction, refill, and invalidation |
 | [`walker.rhdl`](walker.rhdl) | Serialized three-level PTE fetch, structural and permission checks, cancellation, and completion |
-| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, fetch ordering, physical demand/prefetch checks, and shared data-port ownership |
+| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, fetch ordering, registered virtual/physical prefetch stages and cancellation, physical checks, and shared data-port ownership |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |
 | [`../tests/mmu-test.rhm`](../tests/mmu-test.rhm) | Public translation types, widths, and composition boundary |
-| [`../../../tests/backend/verilog/rv5stage-mmu-replay_tb.sv`](../../../tests/backend/verilog/rv5stage-mmu-replay_tb.sv) | Cycle-level pulsed DTLB miss, three-level walk, and translated replay check |
+| [`../../../tests/backend/verilog/rv5stage-mmu-replay_tb.sv`](../../../tests/backend/verilog/rv5stage-mmu-replay_tb.sv) | Cycle-level pulsed DTLB miss, three-level walk, translated replay, and prefetch latency, throughput, rejection, and cancellation |
 
 ## Change translation behavior
 
@@ -47,6 +47,9 @@ the caches.
    not cache a prior permission decision.
 6. Keep prefetch probes non-faulting and independent of walker ownership; they
    may use Bare translation or an existing TLB entry but must not check A/D.
+   Keep address, operation, and validity registered on both sides of the probe;
+   cancellation is synchronous so demand squash cannot reach cache admission
+   through a combinational prefetch-valid gate.
 7. Keep host checks to public translation contracts. Test walk, cancellation,
    fault, and invalidation behavior in compiled simulations, then update
    [README.md](README.md) for observable changes.
@@ -64,6 +67,9 @@ The wrapper creates a fresh compiled root when one is not supplied. Keep this
 test limited to public translation contracts; do not add internal operation or
 state snapshots. The Verilator fixture pulses one data request, checks the three
 expected PTE addresses, and requires a later retry to use the filled DTLB while
-preserving request metadata. Use the parent
+preserving request metadata. It also checks prefetch latency and back-to-back
+throughput, TLB selection and rejection, Bare/PMA behavior, and synchronous
+cancellation at either stage on flush, invalidation, context change, and reset.
+Use the parent
 [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) when changes span CSR
 sequencing, the pipeline, physical routing, or caches.

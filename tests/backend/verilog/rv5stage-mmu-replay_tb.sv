@@ -1,4 +1,4 @@
-// Verifies DTLB replay, fault preservation, and non-faulting TLB-hit-only prefetch translation.
+// Verifies DTLB replay, fault preservation, and pipelined non-faulting prefetch translation and cancellation.
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -93,6 +93,7 @@ module rv5stage_mmu_replay_tb;
   logic [63:0] mstatus;
   logic [63:0] satp;
   logic invalidate_all;
+  logic instruction_flush;
   instruction_out_t instruction_out;
   data_out_t data_out;
   instruction_memory_out_t instruction_memory_out;
@@ -111,6 +112,7 @@ module rv5stage_mmu_replay_tb;
 
   always_comb begin
     instruction_in = '0;
+    instruction_in.flush = instruction_flush;
     instruction_in.response.ready = 1'b1;
     data_in.request.valid = data_request_valid;
     data_in.request.bits.address = page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS;
@@ -184,9 +186,45 @@ module rv5stage_mmu_replay_tb;
 
   initial begin
     wait (!reset);
-    repeat (120) @(posedge clock);
+    repeat (240) @(posedge clock);
     $fatal(1, "DTLB walk or replay did not complete");
   end
+
+  task automatic tick;
+    @(posedge clock);
+    #1;
+  endtask
+
+  task automatic check_prefetch(input logic valid, input logic [63:0] address = 0,
+                                input logic [1:0] operation = 0);
+    assert (physical_prefetch_out.valid == valid)
+      else $fatal(1, "prefetch valid mismatch: expected %b, got %b", valid, physical_prefetch_out.valid);
+    if (valid) begin
+      assert (physical_prefetch_out.bits.address == address &&
+              physical_prefetch_out.bits.operation == operation)
+        else $fatal(1, "prefetch address or operation was not preserved");
+    end
+  endtask
+
+  task automatic check_isolated_hint(input logic [63:0] address,
+                                     input logic [1:0] operation,
+                                     input logic survives,
+                                     input logic [63:0] physical_address = 0);
+    @(negedge clock);
+    prefetch_in = '{valid: 1'b1, bits: '{address: address, operation: operation}};
+    #1;
+    check_prefetch(0);
+    tick();
+    check_prefetch(0);
+    @(negedge clock);
+    prefetch_in = '0;
+    tick();
+    check_prefetch(survives, physical_address, operation);
+    tick();
+    check_prefetch(0);
+    assert (!data_memory_out.request.valid)
+      else $fatal(1, "prefetch claimed the page-table walker");
+  endtask
 
   initial begin
     data_request_valid = 1'b0;
@@ -196,6 +234,7 @@ module rv5stage_mmu_replay_tb;
     mstatus = '0;
     satp = SATP_SV39_ROOT_1;
     invalidate_all = 1'b0;
+    instruction_flush = 1'b0;
     repeat (2) @(posedge clock);
     #1 reset = 1'b0;
 
@@ -228,12 +267,17 @@ module rv5stage_mmu_replay_tb;
     prefetch_in.bits.address = VIRTUAL_ADDRESS;
     prefetch_in.bits.operation = 2'd3;
     #1;
-    assert (physical_prefetch_out.valid &&
-            physical_prefetch_out.bits.address == PHYSICAL_ADDRESS &&
-            physical_prefetch_out.bits.operation == 2'd3)
-      else $fatal(1, "DTLB-hit prefetch was not translated");
-    @(posedge clock);
-    #1 prefetch_in = '0;
+    check_prefetch(0);
+    tick();
+    check_prefetch(0);
+
+    // Adjacent hints retain their own address/operation and emerge one per
+    // cycle, but neither can bypass either register boundary.
+    @(negedge clock);
+    prefetch_in.bits.address = VIRTUAL_ADDRESS + 64'h7f;
+    prefetch_in.bits.operation = 2'd2;
+    tick();
+    check_prefetch(1, PHYSICAL_ADDRESS, 2'd3);
 
     // A prefetch miss is dropped and must not claim the page-table walker.
     @(negedge clock);
@@ -241,16 +285,28 @@ module rv5stage_mmu_replay_tb;
     prefetch_in.bits.address = VIRTUAL_ADDRESS + 64'h1000;
     prefetch_in.bits.operation = 2'd2;
     #1;
-    assert (!physical_prefetch_out.valid && !data_memory_out.request.valid)
-      else $fatal(1, "DTLB-miss prefetch initiated memory traffic");
-    @(posedge clock);
-    #1 prefetch_in = '0;
+    check_prefetch(1, PHYSICAL_ADDRESS, 2'd3);
+    tick();
+    check_prefetch(1, PHYSICAL_ADDRESS + 64'h40, 2'd2);
+    @(negedge clock);
+    prefetch_in = '0;
     repeat (4) begin
-      @(posedge clock);
-      #1;
+      tick();
+      check_prefetch(0);
       assert (!data_memory_out.request.valid)
         else $fatal(1, "dropped prefetch later initiated a page-table walk");
     end
+
+    // This address hits only DTLB: an instruction hint must not borrow it.
+    check_isolated_hint(VIRTUAL_ADDRESS, 2'd1, 0);
+    check_isolated_hint(VIRTUAL_ADDRESS, 2'd0, 0);
+    @(negedge clock);
+    privilege = PRIVILEGE_U;
+    tick();
+    check_isolated_hint(VIRTUAL_ADDRESS, 2'd2, 0);
+    @(negedge clock);
+    privilege = PRIVILEGE_S;
+    tick();
 
     @(negedge clock);
     page_fault_phase = 1'b1;
@@ -293,7 +349,61 @@ module rv5stage_mmu_replay_tb;
     #1 data_request_valid = 1'b0;
     assert (data_out.drained)
       else $fatal(1, "consumed page fault remained latched");
-    $display("RV5Stage DTLB demand, fault, and prefetch translation passed");
+
+    // Bare hints keep the same latency and line alignment, including I hints.
+    @(negedge clock);
+    satp = '0;
+    tick();
+    check_isolated_hint(PHYSICAL_ADDRESS + 64'h7f, 2'd1, 1, PHYSICAL_ADDRESS + 64'h40);
+    // The test physical map covers only the CHI physical-address width.
+    check_isolated_hint(64'h80000000_00000000, 2'd2, 0);
+
+    // Flush/reset and each relevant translation-context change cancel either
+    // occupied stage at the edge. Already presented physical hints are not
+    // withdrawn combinationally, so cancellation cannot reopen a demand path.
+    for (int cancellation = 0; cancellation < 7; cancellation++) begin
+      for (int stage = 1; stage <= 2; stage++) begin
+        @(negedge clock);
+        prefetch_in = '{valid: 1'b1, bits: '{address: PHYSICAL_ADDRESS, operation: 2'd2}};
+        tick();
+        check_prefetch(0);
+        if (stage == 2) begin
+          @(negedge clock);
+          prefetch_in = '0;
+          tick();
+          check_prefetch(1, PHYSICAL_ADDRESS, 2'd2);
+        end
+        @(negedge clock);
+        // Leave ingress valid while canceling the first stage: new hints on
+        // the cancellation edge must also be discarded.
+        case (cancellation)
+          0: instruction_flush = 1;
+          1: invalidate_all = 1;
+          2: satp = satp ^ 64'd1;
+          3: privilege = privilege == PRIVILEGE_S ? PRIVILEGE_U : PRIVILEGE_S;
+          4: mstatus = mstatus ^ (64'd1 << 18);
+          5: mstatus = mstatus ^ (64'd1 << 19);
+          6: reset = 1;
+        endcase
+        #1;
+        check_prefetch(stage == 2, PHYSICAL_ADDRESS, 2'd2);
+        tick();
+        check_prefetch(0);
+        @(negedge clock);
+        prefetch_in = '0;
+        instruction_flush = 0;
+        invalidate_all = 0;
+        reset = 0;
+        repeat (3) begin
+          tick();
+          check_prefetch(0);
+          assert (!data_memory_out.request.valid && !instruction_memory_out.request.valid)
+            else $fatal(1, "canceled hint produced demand or page-table traffic");
+        end
+      end
+    end
+    check_isolated_hint(PHYSICAL_ADDRESS, 2'd3, 1, PHYSICAL_ADDRESS);
+    $display("RV5Stage DTLB demand, fault, and pipelined prefetch translation passed");
     $finish;
   end
 endmodule

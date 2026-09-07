@@ -76,7 +76,7 @@ flowchart LR
     DIV --> COMPLETE
 
     EX -->|"FP compute issue"| FP["FP side pipeline<br/>scoreboard and execution"]
-    EX -->|"best-effort prefetch"| PREFETCH["TLB probe + PMA<br/>L1I or L1D admission"]
+    EX -->|"best-effort prefetch"| PREFETCH["Registered VA → TLB probe + PMA<br/>Registered PA → L1I or L1D admission"]
     LSU -->|"FP load completion"| FP
     FP -->|"integer result"| COMPLETE
     FP --> FPR["FP register file"]
@@ -396,7 +396,9 @@ Bare addresses or probes the operation-selected existing TLB entry; a miss,
 permission denial, non-cacheable PMA, or intended-operation PMA denial drops
 the event without walking or faulting. The accepted physical event is aligned
 to its 64-byte line and routed to L1I for `PREFETCH.I` or L1D for
-`PREFETCH.R/W`.
+`PREFETCH.R/W`. The MMU registers hints both before translation and before cache
+delivery; its [prefetch contract](mmu/README.md#best-effort-prefetch-probes)
+defines the two-cycle latency and cancellation rules.
 
 Demand requests always win each cache lookup port. An admitted L1I hint may
 launch `ReadClean`; an admitted L1D read hint may launch `ReadClean`, while a

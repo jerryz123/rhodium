@@ -77,7 +77,21 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   dtlb.enabled <== data_translation_enabled
   dtlb.invalidate_all <== invalidate_all
 
-  def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
+  reg prefetch_previous_privilege(PrivilegeMode, ~init: PrivilegeMode.Machine)
+  reg prefetch_previous_satp(~init: bits(0, width))
+  reg prefetch_previous_sum(~init: Bool(#false))
+  reg prefetch_previous_mxr(~init: Bool(#false))
+  prefetch_previous_privilege <== data_privilege
+  prefetch_previous_satp <== satp
+  prefetch_previous_sum <== sum
+  prefetch_previous_mxr <== mxr
+  def prefetch_context_changed = (prefetch_previous_privilege =/= data_privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= sum) ||| (prefetch_previous_mxr =/= mxr)
+  def prefetch_flush = instruction.flush ||| invalidate_all ||| prefetch_context_changed
+  inst virtual_prefetch_pipe(ValidPipe(CachePrefetchReq(width), 1), ~reset_when: prefetch_flush)
+  inst physical_prefetch_pipe(ValidPipe(CachePrefetchReq(width), 1), ~reset_when: prefetch_flush)
+  prefetch |> virtual_prefetch_pipe.ingress
+
+  def prefetch_request = virtual_prefetch_pipe.egress.bits.into(CachePrefetchReq(width))
   def prefetch_virtual_address = if xlen == XLen.X32 | prefetch_request.address.zext(64) | prefetch_request.address
   itlb.probe_virtual_address <== prefetch_virtual_address
   itlb.probe_privilege <== data_privilege
@@ -109,10 +123,13 @@ sync_circuit RV5StageMmu(xlen :: XLen,
       [CachePrefetchOperation.Write, prefetch_physical.writable]
     ]
   )
-  physical_prefetch.valid <== prefetch.valid & prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_access_permitted
-  physical_prefetch.bits <== CachePrefetchReq(width):
+  def translated_prefetch_valid = virtual_prefetch_pipe.egress.valid & prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_access_permitted
+  def translated_prefetch = CachePrefetchReq(width):
     address: prefetch_line_address
     operation: prefetch_request.operation
+  inject_flow(Valid(CachePrefetchReq(width)), ~valid: translated_prefetch_valid, ~bits: translated_prefetch) |> physical_prefetch_pipe.ingress
+  // Cancel at the clock edge without reconnecting demand squash to cache admission.
+  physical_prefetch_pipe.egress |> physical_prefetch
 
   reg walk_active(~init: Bool(#false))
   reg walk_is_data(~init: Bool(#false))

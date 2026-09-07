@@ -148,8 +148,20 @@ and data requests. `PREFETCH.I` probes the ITLB; `PREFETCH.R` and `PREFETCH.W`
 probe the DTLB. All three use the data-access effective privilege, including
 `MPRV`/`MPP`, plus current `SUM` and `MXR` state.
 
-Bare translation succeeds combinationally. Under Sv39, only an existing TLB
-entry can produce a physical prefetch; a miss never starts or waits for the
+The event passes through two nonbackpressured register stages: a virtual-address
+stage before the TLB probe and a physical-address stage after translation and
+PMA checks. A surviving hint appears at the physical output after two clock
+edges, with one hint per cycle throughput. Address, operation, and validity all
+cross both boundaries; cache readiness never propagates back into the core.
+
+Instruction-path flush, whole-MMU invalidation, or a change to effective data
+privilege, `satp`, `SUM`, or `MXR` clears both stages at the next clock edge.
+Cancellation does not combinationally gate the physical output: a hint already
+presented to a cache can still be accepted on that edge. Such hints remain
+non-faulting and best-effort, and busy caches may drop them.
+
+Bare translation bypasses the TLB but retains both stages. Under Sv39, only an
+existing TLB entry can produce a physical prefetch; a miss never starts or waits for the
 page-table walker. The probe accepts the union of legal fetch, load, and store
 PTE permissions without checking `A` or `D`. Noncanonical addresses,
 translation misses, permission failures, non-cacheable physical regions, and
