@@ -1,0 +1,159 @@
+#lang rhodium
+// Exercises exclusive routing, branch-local storage, repeated hierarchy, and invalid contracts.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+sync_circuit EventDemuxNetwork(buffered :: Boolean):
+  input selector: Bits(2)
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress[3](Decoupled(Bits(8)), ~role: producer)
+  output route_valid: Bool
+  output route_ready: Bool
+  def incoming = if buffered | ingress |> queue(2, ~pipe: #true) | ingress
+  def branches = incoming |> demux_flow(3, payload => selector)
+  if buffered
+  | branches[0] |> pipe(1) |> egress[0]
+    branches[1] |> queue(3, ~flow: #true, ~pipe: #true) |> egress[1]
+    branches[2] |> queue(2) |> pipe(2) |> egress[2]
+  | for (index in 0..3): branches[index] |> egress[index]
+  route_valid <== incoming.valid
+  route_ready <== incoming.ready
+
+sync_circuit EventDemuxLane(buffered :: Boolean, traced :: Boolean):
+  input selector: Bits(2)
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress[3](Decoupled(Bits(8)), ~role: producer)
+  output route_valid: Bool
+  output route_ready: Bool
+  inst network(EventDemuxNetwork(buffered))
+  network.selector <== selector
+  if traced
+  | ingress |> trace_event("accepted") |> network.ingress
+  | ingress |> network.ingress
+  for (index in 0..3):
+    if traced
+    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~terminal: #true) |> egress[index]
+    | network.egress[index] |> egress[index]
+  route_valid <== network.route_valid
+  route_ready <== network.route_ready
+
+sync_circuit EventDemux():
+  input selector0: Bits(2)
+  input selector1: Bits(2)
+  input selector2: Bits(2)
+  interface sources[3](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[9](Decoupled(Bits(8)), ~role: producer)
+  interface gold_sources[3](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sinks[9](Decoupled(Bits(8)), ~role: producer)
+  output route_valid0: Bool
+  output route_ready0: Bool
+  output route_valid1: Bool
+  output route_ready1: Bool
+  output route_valid2: Bool
+  output route_ready2: Bool
+  inst lane0(EventDemuxLane(#false, #true))
+  inst gold0(EventDemuxLane(#false, #false))
+  inst lane1(EventDemuxLane(#true, #true))
+  inst gold1(EventDemuxLane(#true, #false))
+  inst lane2(EventDemuxLane(#true, #true))
+  inst gold2(EventDemuxLane(#true, #false))
+  lane0.selector <== selector0
+  gold0.selector <== selector0
+  lane1.selector <== selector1
+  gold1.selector <== selector1
+  lane2.selector <== selector2
+  gold2.selector <== selector2
+  sources[0] |> lane0.ingress
+  gold_sources[0] |> gold0.ingress
+  sources[1] |> lane1.ingress
+  gold_sources[1] |> gold1.ingress
+  sources[2] |> lane2.ingress
+  gold_sources[2] |> gold2.ingress
+  for (index in 0..3):
+    lane0.egress[index] |> sinks[index]
+    gold0.egress[index] |> gold_sinks[index]
+    lane1.egress[index] |> sinks[3 + index]
+    gold1.egress[index] |> gold_sinks[3 + index]
+    lane2.egress[index] |> sinks[6 + index]
+    gold2.egress[index] |> gold_sinks[6 + index]
+  route_valid0 <== lane0.route_valid
+  route_ready0 <== lane0.route_ready
+  route_valid1 <== lane1.route_valid
+  route_ready1 <== lane1.route_ready
+  route_valid2 <== lane2.route_valid
+  route_ready2 <== lane2.route_ready
+
+sync_circuit EventNestedDemux():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[3](Decoupled(Bits(8)), ~role: producer)
+  def outer = source |> trace_event("root") |> demux_flow(2, payload => payload[0])
+  def inner = outer[0] |> queue(2) |> demux_flow(2, payload => payload[1])
+  inner[0] |> trace_event("a") |> sinks[0]
+  inner[1] |> trace_event("b") |> sinks[1]
+  outer[1] |> trace_event("c") |> sinks[2]
+
+sync_circuit EventRoutingRejoin():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def branches = source |> trace_event("root") |> demux_flow(2, payload => payload[0])
+  def left = branches[0] |> pipe(1)
+  def right = branches[1] |> queue(2)
+  Array(left, right) |> rr_arbiter() |> pipe(1) |> trace_event("completed") |> sink
+
+sync_circuit EventBadRoutingWidth():
+  interface_trace_routing([bits(0, 2)])
+
+sync_circuit EventSingletonDemux():
+  input selector: Bits(1)
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def branches = source |> trace_event("root") |> demux_flow(1, payload => selector)
+  branches[0] |> trace_event("completed") |> sink
+sync_circuit EventBadRoutingShape():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Decoupled(Bits(8)), ~role: producer)
+  describe_interface_transform(InterfaceHandle(source, sinks), "routing", ~trace_model: interface_trace_routing([Bool(#true)]))
+sync_circuit EventBadRoutingRoutes():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Decoupled(Bits(8)), ~role: producer)
+  def model = interface_trace_routing([Bool(#true), Bool(#false)])
+  describe_interface_transform(InterfaceHandle(source, sinks), "routing", ~trace_model: InterfaceTraceModel([InterfaceTraceRoute(0, 0), InterfaceTraceRoute(0, 0)], model.dynamic))
+
+// Inspect the host instance object, outside its author-level port dot surface.
+fun foreign_routing_model(instance):
+  module_interface_transforms(instance.module_def).find(fun (transform): transform.trace_model && transform.trace_model.routing_predicates()).trace_model
+
+sync_circuit EventForeignRouting():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[3](Decoupled(Bits(8)), ~role: producer)
+  inst network(EventDemuxNetwork(#false))
+  describe_interface_transform(InterfaceHandle(source, sinks), "routing", ~trace_model: foreign_routing_model(network))
+
+sync_circuit EventUncertifiedFanout():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sinks[2](Valid(Bits(8)), ~role: producer)
+  def root = source |> trace_valid_event("root")
+  root |> trace_valid_event("left") |> sinks[0]
+  root |> trace_valid_event("right") |> sinks[1]
+
+def routed = elaborate_with_top(EventDemux())
+fun nested(): elaborate_with_top(EventNestedDemux())
+fun rejoined(): elaborate_with_top(EventRoutingRejoin())
+fun bad_width(): elaborate_with_top(EventBadRoutingWidth())
+fun bad_shape(): elaborate_with_top(EventBadRoutingShape())
+fun bad_routes(): elaborate_with_top(EventBadRoutingRoutes())
+fun foreign_controls(): elaborate_with_top(EventForeignRouting())
+fun uncertified_fanout(): elaborate_with_top(EventUncertifiedFanout())
+fun singleton(): elaborate_with_top(EventSingletonDemux())
+
+export:
+  routed
+  nested
+  rejoined
+  bad_width
+  bad_shape
+  bad_routes
+  foreign_controls
+  uncertified_fanout
+  singleton

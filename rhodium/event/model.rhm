@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines static dependencies and structured source, storage, and selection lineage plans.
+// Defines static dependencies and structured source, storage, selection, and routing lineage plans.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -14,6 +14,7 @@ export:
   EventTraceSource
   EventTracePipeline
   EventTraceSelection
+  EventTraceRouting
   EventManifest
 
 class EventSite(id :: String,
@@ -48,6 +49,10 @@ class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(Even
 class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan)):
   implements EventTracePlan
   method controls(): grants
+class EventTraceRouting(input :: EventTracePlan, instance_path :: List.of(String),
+                        routing_id :: String, predicates :: NonemptyList.of(Value), output_index :: Nat):
+  implements EventTracePlan
+  method controls(): predicates
 
 class EventDependency(parent :: String,
                       child :: String,

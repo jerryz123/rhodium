@@ -1,5 +1,5 @@
 #lang rhombus
-// Infers static parents and nested storage/selection plans from concrete flow routes.
+// Infers static parents and nested storage, selection, and exclusive routing plans.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -20,6 +20,8 @@ class EventCandidate(site :: EventSite,
                      latency_cycles :: False || Nat,
                      trace_stages :: False || List.of(EventTraceStage || EventTraceQueue))
 class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String))
+class FlowRouting(instance_path :: List.of(String), routing_id :: String, predicates :: List,
+                  input :: String, output_index :: Nat)
 
 fun occurrence_prefix(instance_path :: List.of(String)):
   String.join(instance_path, "/")
@@ -65,6 +67,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def site_inputs = MutableMap{}
   def unsupported_by_output = MutableMap{}
   def selections = MutableMap{}
+  def routings = MutableMap{}
   def roots = MutableSet{}
   def mutable sites = []
 
@@ -143,6 +146,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
           | def stages:
               cond
               | trace_model.selection_grants(): #false
+              | trace_model.routing_predicates(): #false
               | trace_model.queue_storage():
                   def storage = trace_model.queue_storage()
                   def owner_path = instance_path ++ [trace_model.queue_instance().operation.attribute("name")]
@@ -158,6 +162,12 @@ fun infer_event_manifest(logical :: DesignElaboration,
             | def owner_path = instance_path ++ [trace_model.selection_instance().operation.attribute("name")]
               def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
               selections[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := FlowSelection(owner_path, trace_model.selection_grants(), inputs)
+            when trace_model.routing_predicates()
+            | def routing_id = occurrence_prefix(instance_path) ++ "/" ++ flow_block.id
+              def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
+              for (port in output_ports, index in 0..output_count):
+                def routing = FlowRouting(instance_path, routing_id, trace_model.routing_predicates(), input, index)
+                routings[terminal_id(instance_path, flow_block.id, port.id)] := routing
             for (route in trace_model.routes):
               def input_port = input_ports[route.input_index]
               def output_port = output_ports[route.output_index]
@@ -266,9 +276,13 @@ fun infer_event_manifest(logical :: DesignElaboration,
     | def event = event_by_output.get(vertex, #false)
       def arcs = incoming.get(vertex, [])
       def selection = selections.get(vertex, #false)
+      def routing = routings.get(vertex, #false)
       def plan:
         cond
         | event: EventTraceSource(event.id)
+        | routing:
+            EventTraceRouting(trace_plan(routing.input, visiting ++ [vertex]), routing.instance_path,
+                              routing.routing_id, routing.predicates, routing.output_index)
         | selection:
             EventTraceSelection(selection.instance_path, selection.grants,
                                 selection.inputs.map(fun (input): trace_plan(input, visiting ++ [vertex])))

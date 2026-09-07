@@ -1,5 +1,5 @@
 #lang rhombus
-// Lowers nested lineage plans to shadow storage, grant selection, and unchanged DPI emission.
+// Lowers lineage plans to shadow storage and exclusive selection/routing with DPI emission.
 
 import:
   "../core/ir.rhm" open
@@ -51,6 +51,7 @@ fun instrument_events(logical :: DesignElaboration,
     cond
     | plan is_a EventTraceSource: [plan.site]
     | plan is_a EventTracePipeline: sources(plan.input)
+    | plan is_a EventTraceRouting: sources(plan.input)
     | ~else:
         def mutable found = []
         for (input in plan.inputs): found := found ++ sources(input)
@@ -59,9 +60,22 @@ fun instrument_events(logical :: DesignElaboration,
     cond
     | plan is_a EventTraceSource: []
     | plan is_a EventTracePipeline: plan_controls(plan.input) ++ plan.stages
+    | plan is_a EventTraceRouting: plan_controls(plan.input) ++ [plan]
     | ~else:
         def mutable found = [plan]
         for (input in plan.inputs): found := found ++ plan_controls(input)
+        found
+  // Alternatives record certified branch choices for one source occurrence.
+  // Different child sites must disagree at a shared routing decision; an
+  // arbitrary fork or two distinct demuxes do not establish exclusion.
+  fun alternatives(plan :: EventTracePlan, source :: String, choices :: List = []):
+    cond
+    | plan is_a EventTraceSource: (if plan.site == source | [choices] | [])
+    | plan is_a EventTracePipeline: alternatives(plan.input, source, choices)
+    | plan is_a EventTraceRouting: alternatives(plan.input, source, choices ++ [[plan.routing_id, plan.output_index]])
+    | ~else:
+        def mutable found = []
+        for (input in plan.inputs): found := found ++ alternatives(input, source, choices)
         found
   for (site in manifest.sites):
     def edges = manifest.dependencies.filter(~keep: fun (edge): edge.child == site.id)
@@ -78,7 +92,13 @@ fun instrument_events(logical :: DesignElaboration,
     for (edge in manifest.dependencies):
       when edge.parent == site.id | children.add(edge.child)
     when children.length() > 1
-    | error(~who: #'instrument_events, "tracing does not support fanout at " ++ site.id)
+    | for (left in children):
+        for (right in children):
+          when left != right
+          | for (left_path in alternatives(manifest.trace_plans[left], site.id)):
+              for (right_path in alternatives(manifest.trace_plans[right], site.id)):
+                unless left_path.find(fun (choice): right_path.find(fun (other): choice[0] == other[0] && choice[1] != other[1]))
+                | error(~who: #'instrument_events, "tracing does not support uncertified fanout at " ++ site.id)
 
   def mutable occurrences = []
   fun expand(original :: Module, path :: List.of(String), parent :: False || Occurrence, instance :: False || Operation):
@@ -326,6 +346,16 @@ fun instrument_events(logical :: DesignElaboration,
                   def mutable reference = emit_plan(plan.input)
                   for (stage in plan.stages): reference := emit_stage(stage, reference)
                   reference
+              | plan is_a EventTraceRouting:
+                  def name = stage_name()
+                  def mutable seen = builder.constant(module_def, Bits(1), 0)
+                  for (predicate in plan.predicates, index in 0..plan.predicates.length()):
+                    def selected = observed[control_ids[[plan.instance_path, predicate.id]]]
+                    def overlap = builder.bit_and(module_def, seen, selected)
+                    builder.assert(module_def, builder.bit_not(module_def, overlap), clock, reset, yes, name ++ "_onehot_" ++ to_string(index))
+                    seen := builder.bit_or(module_def, seen, selected)
+                  def selected = observed[control_ids[[plan.instance_path, plan.predicates[plan.output_index].id]]]
+                  builder.mux_lookup(module_def, selected, empty_reference, [[1, emit_plan(plan.input)]])
               | ~else:
                   def name = stage_name()
                   def mutable reference = empty_reference

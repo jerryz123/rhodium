@@ -52,10 +52,11 @@ fun finish_demux_flow_handle(input_link :: Handle,
   def select_width = index_width(count)
   def selector_bits = selector.as_bits()
   def input_endpoint = input_link.right
+  def selected_outputs = for List (index in 0..count): selector_bits === bits(index, select_width)
   def selected_ready = or_reduce(vec(
     for List (index in 0..count):
       def output_endpoint = output_links[index].left
-      def selected = selector_bits === bits(index, select_width)
+      def selected = selected_outputs[index]
       output_endpoint.field("valid") <== input_endpoint.field("valid") & selected
       output_endpoint.field("bits") <== input_endpoint.field("bits")
       selected & output_endpoint.field("ready")
@@ -64,7 +65,8 @@ fun finish_demux_flow_handle(input_link :: Handle,
   describe_interface_transform(
     interface_transform(input_link, output_links),
     "demux",
-    {"outputs": count}
+    {"outputs": count},
+    ~trace_model: interface_trace_routing(selected_outputs)
   )
 
 // A payload type defaults to Decoupled, while an explicit ready-valid

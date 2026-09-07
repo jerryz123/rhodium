@@ -1139,7 +1139,7 @@ delay, one-to-one non-inventing transfers, and synchronous reset flushing.
 It must not describe stalls, clock enables, or variable latency. Storage and
 combinational passthrough contracts require exactly one input and output route.
 The trace model's
-`latency_cycles()` returns zero for combinational transfer or selection, the declared delay
+`latency_cycles()` returns zero for combinational transfer, selection, or routing, the declared delay
 for fixed latency, or false for elastic, queue, or uncertified route-only models.
 
 An elastic implementation calls
@@ -1184,6 +1184,17 @@ Missing or duplicate declarations, incorrect widths, mismatched implementations,
 and incomplete route sets are rejected. Instrumentation checks that observed
 grants are mutually exclusive rather than treating an overlapping mask as
 priority-ordered selection.
+
+An inline zero-storage router uses `interface_trace_routing(predicates)` with
+the actual local one-bit output-selection predicates in output order. The
+`InterfaceTraceRouting` contract promises at most one selected output, input
+consumption only when that output transfers, and blocking (not discarding) when
+none is selected. It does not promise stable selection while stalled. The
+model requires exactly one input and one ordered route and predicate per
+output; `routing_predicates()` exposes the original controls. Instrumentation
+checks mutual exclusion and masks lineage before downstream storage. This
+contract is distinct from broadcast: separate child sites are legal only when
+their routes prove mutually exclusive choices of a shared routing occurrence.
 
 `describe_interface_event` accepts explicit local one-bit
 `~valid` and optional `~ready` values for the event transfer predicate; `~ready`

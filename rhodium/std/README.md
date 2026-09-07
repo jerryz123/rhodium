@@ -630,7 +630,7 @@ ingress
 The [event package](../event/README.md) can also rebuild a separate design with
 synthesizable lineage and DPI emission for linear combinational paths and
 fixed-latency `valid_pipe`, elastic `pipe`, in-order `queue`, and ready-valid
-`arbiter`/`rr_arbiter` paths. Forks and joins remain static-analysis-only boundaries.
+`arbiter`/`rr_arbiter` and `demux_flow` paths. Forks and joins remain static-analysis-only boundaries.
 `pipe` publishes its actual per-stage load and input-valid controls as typed
 metadata; the instrumenter observes them to keep shadow references aligned
 under stalls without changing functional ready/valid/payload behavior.
@@ -854,6 +854,12 @@ def stable = buffered
              |> gate_flow(!hazard)
              |> pipe(1)
 ```
+
+`demux_flow` publishes its actual output-selection predicates for event tracing.
+Only the selected branch inherits a transferred parent reference; branch-local
+pipes and queues retain that identity even when the selector changes. Invalid
+selectors block ingress and create no new descendants (older buffered work may
+still complete). Direct `Demux` and control-only routing need separate adapters.
 
 `demux_flow(n, payload => selector)` is a one-to-many routing stage whose
 selector may observe the offered payload and ambient hardware. The ordinary

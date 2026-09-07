@@ -13,6 +13,7 @@ import:
   "../frontend/event-elastic-fixture.rhdl" as elastic_fixture
   "../frontend/event-queue-fixture.rhdl" as queue_fixture
   "../frontend/event-arbiter-fixture.rhdl" as arbiter_fixture
+  "../frontend/event-demux-fixture.rhdl" as demux_fixture
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
@@ -143,3 +144,31 @@ check:
   arbiter_fixture.mismatched_instance() ~throws "must match the transform implementation"
   arbiter_fixture.bad_shape() ~throws "one grant and route per input"
   instrument_events(arbiter_fixture.partial()) ~throws "annotated ancestor on every input path"
+
+def demux_before = emit_circt(demux_fixture.routed.design)
+def routed = instrument_events(demux_fixture.routed)
+def branch_sites = routed.manifest.sites.filter(~keep: fun (site): site.label.starts_with("branch"))
+def routing_plans = branch_sites.map(fun (site): routed.manifest.trace_plans[site.id])
+check:
+  routed.manifest.sites.length() ~is 12
+  routed.manifest.dependencies.length() ~is 9
+  routed.manifest.dependencies.take(3).map(fun (edge): edge.latency_cycles) ~is [0, 0, 0]
+  routed.manifest.dependencies.map(fun (edge): edge.trace_stages) ~is [#false, #false, #false, #false, #false, #false, #false, #false, #false]
+  routing_plans.take(3).map(fun (plan): plan is_a EventTraceRouting) ~is [#true, #true, #true]
+  routing_plans.take(3).map(fun (plan): plan.output_index) ~is [0, 1, 2]
+  routing_plans[0].routing_id ~is routing_plans[2].routing_id
+  routing_plans[3].input is_a EventTraceRouting ~is #true
+  routing_plans[3].input.input is_a EventTracePipeline ~is #true
+  routing_plans[3].input.routing_id != routing_plans[6].input.routing_id ~is #true
+  emit_circt(demux_fixture.routed.design) ~is demux_before
+  child(routed.instrumented.top, "lane1") === child(routed.instrumented.top, "lane2") ~is #false
+  child(routed.instrumented.top, "gold1") === child(routed.instrumented.top, "gold2") ~is #true
+  has_trace_ports(child(child(routed.instrumented.top, "gold2"), "network")) ~is #false
+  instrument_events(demux_fixture.nested()).manifest.dependencies.length() ~is 3
+  instrument_events(demux_fixture.rejoined()).manifest.dependencies.length() ~is 2
+  demux_fixture.bad_width() ~throws "local one-bit data"
+  demux_fixture.bad_shape() ~throws "one predicate and route per output"
+  demux_fixture.bad_routes() ~throws "one predicate and route per output"
+  demux_fixture.foreign_controls() ~throws "local one-bit data"
+  instrument_events(demux_fixture.uncertified_fanout()) ~throws "uncertified fanout"
+  instrument_events(demux_fixture.singleton()).manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0]

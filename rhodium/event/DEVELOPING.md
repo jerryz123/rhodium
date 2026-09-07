@@ -111,9 +111,21 @@ annotation, memoizing constructed plan values to share common storage. Grant
 muxes default to invalid and assert pairwise exclusion using an accumulated
 seen-grant bit. Downstream storage wraps the mux result exactly once. Each
 occurrence still emits one edge, with the dynamically selected parent site and
-sequence. Reject partial annotated ancestry across selectable inputs, fanout,
+sequence. Reject partial annotated ancestry across selectable inputs, uncertified fanout,
 uncertified merges, and terminal ancestors. An all-unannotated path establishes
 a root checkpoint instead of requiring fabricated parent identities.
+
+`EventTraceRouting` wraps its input before branch-local storage and carries the
+concrete flow occurrence ID, ordered predicates, and selected output index.
+Observe the original inline predicate values in their owning module; never
+rebuild the selector decoder. Default the reference to invalid and assert
+mutual exclusion, just as for grants. For each parent with multiple children,
+enumerate source-to-child alternatives through the plan. Every pair targeting
+different child sites must disagree at some shared routing occurrence. Distinct
+routers or a common branch do not prove exclusion. The proof concerns each
+transaction's routing decision, not simultaneous completion cycles: buffered
+branches may emit descendants of different parents concurrently. Static latency
+is zero at routing, while linear `trace_stages` are false across it.
 
 ## Extend trace coverage
 
@@ -149,6 +161,10 @@ declared by the implementation, including its actual arbitration policy.
 The contract validates complete ordered input routes, one output, local one-bit
 grants, and exact implementation binding. Ready-valid fixed-priority and
 round-robin wrappers supply it; the compiler never recreates priority rotation.
+`InterfaceTraceRouting` certifies inline one-to-N exclusive routing with actual
+output predicates, complete ordered routes, local one-bit controls, and blocking
+when no predicate is true. `demux_flow` reuses those same predicates in functional
+valid/ready wiring; the compiler does not infer this contract for direct instances.
 Inference adds these typed delays across flow arcs; it never parses display
 labels or transform properties for timing. The manifest retains unknown latency
 as false rather than interpreting it as zero. Never upgrade route-only metadata
@@ -202,6 +218,13 @@ scoreboard derives parent ordering from public transfers at buffer boundaries,
 not the grants observed by the compiler, and compares complete node/edge JSON.
 Repeated payload values prevent payload matching from substituting for exact
 identity. Unannotated networks verify that functional behavior is unchanged.
+The `event-demux` fixture adds three-way routing with invalid selector encodings,
+changing selections while stalled, pre-routing storage, different branch-local
+pipes and queues, independent backpressure, simultaneous completions, and reset
+with pending work. Its scoreboard assigns parents using public routing-boundary
+transfers, then compares exact graph JSON, including repeated payloads. Host
+checks cover nested routing, arbiter reconvergence, malformed contracts, immutable
+original emission, and shared unannotated definitions.
 
 Every direct Racket or Rhombus command must use a fresh `PLTCOMPILEDROOTS` as
 required by the repository `AGENTS.md`.

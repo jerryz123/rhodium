@@ -57,6 +57,12 @@ sync_circuit FlowStaticInformation():
   inst captured_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1))
   def captured_nibble = captured_payload.egress.bits.low_nibble()
 
+  interface demux_input(Decoupled(Bits(8)), ~role: consumer)
+  def routed = demux_input |> demux_flow(3, payload => payload[0..2])
+  def routed_bits = routed[0].bits
+  def disconnected_demux = Bits(8) |> demux_flow(2, payload => payload[0])
+  def disconnected_demux_bits = disconnected_demux.right[1].bits
+
   interface control(DecoupledCtrl(), ~role: consumer)
   def control_fork = control |> ctrl_pipe(1) |> ctrl_atomic_fork(2)
   def control_valid = control_fork[0].valid

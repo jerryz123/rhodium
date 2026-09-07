@@ -1,4 +1,4 @@
-<!-- Describes static event manifests and opt-in storage/selection lineage with DPI emission. -->
+<!-- Describes static event manifests and opt-in storage, selection, and routing lineage with DPI emission. -->
 
 # Event graphs
 
@@ -56,7 +56,7 @@ The structured result contains:
 - `EventDependency`: parent ID, child ID, ordered intervening transform path,
   `latency_cycles` (a nonnegative fixed delay, or `false` for variable/unknown
   latency), and ordered `trace_stages` for a linear path (`false` when the path
-  includes selection or is uncertified);
+  includes selection, routing, or is uncertified);
 - `EventManifest`: original elaboration, sites, dependencies, and `trace_plans`
   keyed by child site ID when inferred with `~dynamic: #true`.
 
@@ -65,7 +65,10 @@ annotation (or an unannotated root), `EventTracePipeline` wraps an input plan
 with storage stages, and `EventTraceSelection` selects among input plans using
 occurrence-qualified grant values. Storage before selection belongs to its
 input branch; storage afterward wraps the selected reference. Static manifests
-leave `trace_plans` empty.
+leave `trace_plans` empty. `EventTraceRouting` wraps one input plan with an
+occurrence-qualified routing ID, original predicates, and output index. Its
+reference is invalid on every unselected branch; storage after routing retains
+the selected identity independently of subsequent selector changes.
 
 `event_manifest_to_json` emits a deterministic version-1 object with format
 name `rhodium-event-graph`, the selected top, sites, and dependencies.
@@ -76,7 +79,7 @@ The IR-backed stage plan stays in the structured manifest, not in JSON.
 An interface transform is traversable only when it carries an
 `InterfaceTraceModel`. That model supplies explicit possible input-to-output
 routes independently of its display label. The current standard flow metadata
-covers event checkpoints, map, filter, fixed and elastic pipe, in-order queue, ready-valid arbiters,
+covers event checkpoints, map, filter, fixed and elastic pipe, in-order queue, ready-valid arbiters, `demux_flow`,
 atomic fork, and zip. A downstream annotation whose upstream walk reaches an
 unmodeled transform is rejected rather than assigned an approximate parent.
 
@@ -119,11 +122,16 @@ The supported dynamic path consists of annotations, interface connections,
 hierarchy boundaries, `map_flow`, `map_valid`, `filter_flow`, `filter_valid`,
 `gate_flow`, fixed-latency `valid_pipe(stages)`, and elastic ready-valid
 `pipe(stages)`, in-order `queue(depth, ~pipe: ..., ~flow: ...)`,
-and ready-valid `arbiter(...)` and `rr_arbiter(...)`.
+ready-valid `arbiter(...)` and `rr_arbiter(...)`, and `demux_flow(...)`.
 Every intervening transform needs a typed dynamic trace
 contract. Route-only models (including control-only queues, forks and joins), disconnected or opaque
 upstream boundaries, uncertified multiple-parent paths,
-fanout dependencies, and descendants of terminal events are rejected.
+uncertified fanout dependencies, and descendants of terminal events are rejected.
+Multiple child sites are supported only when every pair of possible paths from
+their shared parent chooses different outputs of a common certified routing
+occurrence. This supports nested demuxes and branch-local storage, not replication.
+Routing checks predicate mutual exclusion at runtime. No selected output means
+no input transfer, while older buffered branches can still complete together.
 If a selection path has any annotated ancestor, every selectable input path
 must have one; partially annotated ancestry is rejected with a diagnostic.
 An annotation with no annotated ancestor on any path remains a root event.
