@@ -1,0 +1,23 @@
+#lang rhombus
+// Defines the XLEN-independent Zicboz 1.0.0 cache-block zero instruction catalog.
+
+import:
+  "../model/main.rhm" open
+  "integer-common.rhm".MISC_MEM
+
+def CBO_ZERO = instruction(
+  "CBO.ZERO",
+  CacheBlockFormat,
+  [opcode.constrain(MISC_MEM), funct3.constrain(2), rd.constrain(0),
+   immediate12.constrain(4)]
+)
+
+def ZicbozInstructions = [CBO_ZERO]
+def ZicbozRevision = "Zicboz 1.0.0"
+def Zicboz = InstructionCatalog("Zicboz", ZicbozRevision, ZicbozInstructions)
+
+export:
+  CBO_ZERO
+  ZicbozInstructions
+  ZicbozRevision
+  Zicboz

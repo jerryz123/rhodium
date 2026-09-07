@@ -39,6 +39,7 @@ export:
   Shift64Format
   Shift32Format
   PrefetchFormat
+  CacheBlockFormat
   FenceFormat
   SystemFormat
   AtomicFormat
@@ -354,6 +355,7 @@ def PrefetchFormat = InstructionFormat(
   [rs1_operand],
   PrefetchImmediate
 )
+def CacheBlockFormat = InstructionFormat("cache-block", [rs1_operand])
 def FenceFormat = InstructionFormat(
   "FENCE",
   [],

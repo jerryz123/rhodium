@@ -1,0 +1,41 @@
+#lang rhombus
+// Checks Zicboz encoding, rs1-only assembly, and fixed-field discrimination.
+
+import:
+  rhombus.bits.(<<) as <<
+  "../isa/zicboz.rhm" open
+  "../isa/integer-common.rhm".FENCE
+  "../isa/zifencei.rhm".FENCE_I
+  "../model/formats.rhm" open
+
+check:
+  Zicboz.revision ~is "Zicboz 1.0.0"
+  Zicboz.instructions.map(fun (instruction): instruction.name) ~is ["CBO.ZERO"]
+  Zicboz.find("CBO.ZERO") === CBO_ZERO ~is #true
+  CBO_ZERO.encoding.value ~is 0x0040200f
+  CBO_ZERO.encoding.care ~is 0xfff07fff
+  CacheBlockFormat.variable_mask ~is 0x000f8000
+  CBO_ZERO.operands.map(fun (operand): operand.name) ~is ["rs1"]
+  CBO_ZERO.operands[0].role ~is "source"
+  CBO_ZERO.operands[0].bank ~is RegisterBank.Integer
+  CBO_ZERO.immediate ~is #false
+  CBO_ZERO.encode([rs1.constrain(1)]) ~is 0x0040a00f
+  CBO_ZERO.encoding.overlaps(FENCE.encoding) ~is #false
+  CBO_ZERO.encoding.overlaps(FENCE_I.encoding) ~is #false
+
+// Every register is legal, while changing any fixed bit selects another encoding.
+for (register in 0..32):
+  def word = CBO_ZERO.encode([rs1.constrain(register)])
+  check:
+    word ~is (0x0040200f bits.or (register << 15))
+    rs1.extract(word) ~is register
+    Zicboz.matching(word) === CBO_ZERO ~is #true
+  for (bit in 0..32):
+    unless bit >= 15 && bit < 20
+    | check:
+        Zicboz.matching(word bits.xor (1 << bit)) ~is #false
+
+check:
+  CBO_ZERO.encode([]) ~throws "rs1"
+  CBO_ZERO.encode([rs1.constrain(1), rs1.constrain(2)]) ~throws "exactly once"
+  CBO_ZERO.encode([rs1.constrain(1), rd.constrain(0)]) ~throws "not an explicit field"
