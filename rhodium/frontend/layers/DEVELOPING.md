@@ -116,6 +116,13 @@ and method access survives expansion. Test dispatch precedence, invalid
 receivers, method/field collisions, and propagation through all producers that
 claim to preserve the nominal surface.
 
+Immutable `.updated` dispatch lives in `support/fields.rhm`: vectors retain
+selected-element replacement, while records take named replacements and reuse
+the receiver's concrete descriptor with kernel record creation/projection.
+Preserve the receiver's result static information so nested fields and owned
+methods remain available. Do not implement replacement with overlapping drives
+or introduce a separate record-update IR operation.
+
 ### Adding a clocked or conditional effect
 
 Use [`../support/clocking.rhm`](../support/clocking.rhm) for ambient clock/reset

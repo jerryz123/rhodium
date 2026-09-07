@@ -873,6 +873,24 @@ otherwise it creates runtime `rtl.record_create` hardware. The lower-level
 `record(type_value): fields` form remains available when the `RecordType` is a
 dynamically computed host value instead of a directly named bundle family.
 
+Use named `.updated` arguments for immutable field replacement:
+
+```rhombus
+def relocated = request.updated(~address: new_address)
+def resized = request.updated(~address: new_address, ~size: new_size)
+def nested = envelope.updated(~payload: envelope.payload.updated(~data: new_data))
+```
+
+An update constructs a new hardware value during elaboration; it neither drives
+nor mutates the receiver. It preserves the concrete record/bundle descriptor,
+specialization arguments, and field and method surface. Omitted fields retain
+their values, including any conditional fields present in that specialization.
+Names must identify present fields, each name may appear only once, and values
+must match the declared hardware types without implicit casts. An empty
+`.updated()` copies the value. Nested replacement is explicit, as above.
+Record updates take only named arguments; vector updates retain the positional
+`.updated(selector, replacement)` form below.
+
 ### Fixed-length vectors
 
 `Vec(n, T)` constructs the public structural `VectorType` descriptor, while

@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits optional-field CHI request rewrite and projector handshake coverage.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../chi/tests/request-update-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

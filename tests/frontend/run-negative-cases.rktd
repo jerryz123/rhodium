@@ -1,6 +1,8 @@
 ;; Lists invalid frontend fixtures and the diagnostics each must produce.
 
 (("bad-input-drive.rhdl" "connection target must be a driveable hardware place")
+ ("bad-bundle-update-duplicate.rhdl" "duplicate keyword")
+ ("bad-bundle-update-drive.rhdl" "connection target must be a driveable hardware place")
  ("bad-instance-combinational-cycle.rhdl" "combinational cycle reaches value u.y")
  ("bad-instance-port.rhdl" "instance u has no port or interface named missing")
  ("bad-interface-directions.rhdl" "incompatible roles and boundary directions")

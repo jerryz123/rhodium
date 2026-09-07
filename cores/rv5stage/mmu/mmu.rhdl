@@ -129,9 +129,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     ]
   )
   def translated_prefetch_valid = virtual_prefetch_pipe.egress.valid & prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_access_permitted
-  def translated_prefetch = CachePrefetchReq(width):
-    address: prefetch_line_address
-    operation: prefetch_request.operation
+  def translated_prefetch = prefetch_request.updated(~address: prefetch_line_address)
   inject_flow(Valid(CachePrefetchReq(width)), ~valid: translated_prefetch_valid, ~bits: translated_prefetch) |> physical_prefetch_pipe.ingress
   // Cancel at the clock edge without reconnecting demand squash to cache admission.
   physical_prefetch_pipe.egress |> physical_prefetch
@@ -273,20 +271,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
       destination: RV5StageDataDestination.None
       rd: bits(0, 5)
       floating_point_precision: RV5StageFloatPrecision.Single,
-    RV5StageDataReq(xlen):
-      address: if xlen == XLen.X32 | data_request.address | mux(
+    data_request.updated(
+      ~address: if xlen == XLen.X32 | data_request.address | mux(
         data_translation_enabled,
         dtlb.physical_address.zext(64),
         data_request.address
-      )
-      access: data_memory_operation
-      atomic: data_request.atomic
-      width: data_request.width
-      unsigned: data_request.unsigned
-      data: data_request.data
-      destination: data_request.destination
-      rd: data_request.rd
-      floating_point_precision: data_request.floating_point_precision
+      ),
+      ~access: data_memory_operation
+    )
   )
   walker_memory_request.ready <== walk_active & walker_data_quiet_twice & data_memory.request.ready
   walker.memory.request_access_fault <== data_memory.request_access_fault

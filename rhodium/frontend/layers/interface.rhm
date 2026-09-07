@@ -1218,7 +1218,7 @@ dot.macro 'interface_observation_dot $left $dot $right':
   match '$right $tail ...'
   | 'lookup($(selector :: expr_meta.Parsed),
             ~default: $(default_value :: expr_meta.Parsed)) $rest ...': #false
-  | '$(method :: Identifier)($(argument :: expr_meta.Parsed), ...) $rest ...': #false
+  | '$(method :: Identifier)($argument, ...) $rest ...': #false
   | ~else:
       match right
       | 'field': #false
@@ -1288,7 +1288,7 @@ dot.macro 'interface_field_dot $left $dot $right':
         values('observe($left) :: Observation', '$rest ...')
     | 'lookup($(selector :: expr_meta.Parsed),
               ~default: $(default_value :: expr_meta.Parsed)) $rest ...': #false
-    | '$(method :: Identifier)($(argument :: expr_meta.Parsed), ...) $rest ...': #false
+    | '$(method :: Identifier)($argument, ...) $rest ...': #false
     | ~else:
         match right
         | 'field': #false

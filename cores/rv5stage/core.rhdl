@@ -686,29 +686,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
       valid: Bool(#false)
       cause: dont_care(Bits(width))
       value: dont_care(Bits(width))
-  commit_result <== MemoryWriteback(xlen):
-    pc: wb_bits.pc
-    resume_pc: wb_bits.resume_pc
-    instruction: wb_bits.instruction
-    replay: wb_replay
-    data_request_valid: wb_bits.data_request_valid
-    data_request: wb_bits.data_request
-    fp_compute: wb_bits.fp_compute
-    fp_issue: wb_bits.fp_issue
-    prefetch: wb_bits.prefetch
-    writeback_source: wb_bits.writeback_source
-    write_enable: wb_bits.write_enable & !wb_exception.valid & !wb_replay
-    rd: wb_bits.rd
-    value: wb_bits.value
-    multiply_issue: wb_bits.multiply_issue
-    divide_issue: wb_bits.divide_issue
-    system: wb_bits.system
-    fence: wb_bits.fence
-    csr_address: wb_bits.csr_address
-    csr_source: wb_bits.csr_source
-    exception_valid: wb_exception.valid
-    exception_cause: wb_exception.cause
-    exception_value: wb_exception.value
+  commit_result <== wb_bits.updated(
+    ~replay: wb_replay,
+    ~write_enable: wb_bits.write_enable & !wb_exception.valid & !wb_replay,
+    ~exception_valid: wb_exception.valid,
+    ~exception_cause: wb_exception.cause,
+    ~exception_value: wb_exception.value
+  )
   def fp_load_reservation:
     wb |> filter_valid(_operation => wb_memory_accepted & wb_fp_load)
       |> map_valid(operation => RV5StageFpLoadReservation(Bits(width))):

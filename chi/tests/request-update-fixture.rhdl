@@ -1,0 +1,44 @@
+#lang rhodium
+// Exercises CHI address projection with every optional REQ field present.
+
+import:
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl") open
+  lib("chi/address-projector.rhdl") open
+
+def p = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52,
+                      ~mpam_width: 15, ~req_rsvdc_width: 32, ~pbha_width: 4,
+                      ~stream_id_width: 16, ~sec_sid_width: 1)
+
+circuit CHIRequestUpdateFixture():
+  input source: CHIReqFlit(p)
+  input valid: Bool
+  input ready: Bool
+  output projected: CHIReqFlit(p)
+  output result_valid: Bool
+  output source_ready: Bool
+
+  inst projector(CHIAddressProjector(CHIAddressProjectorConfig(p, 4096, 64, 4)))
+  projector.identity <== CHIAddressProjectorIdentity(p):
+    global_service_base: bits(0x80000080, 52)
+    local_base: bits(0x1000, 52)
+  projector.upstream.req.bits <== source
+  projector.upstream.req.valid <== valid
+  projector.downstream.req.ready <== ready
+  projected <== projector.downstream.req.bits
+  result_valid <== projector.downstream.req.valid
+  source_ready <== projector.upstream.req.ready
+  projector.upstream.rsp.ready <== Bool(#true)
+  projector.downstream.rsp.valid <== Bool(#false)
+  projector.downstream.rsp.bits <== dont_care(CHIRspFlit(p))
+  projector.upstream.dat.request.valid <== Bool(#false)
+  projector.upstream.dat.request.bits <== dont_care(CHIDatFlit(p))
+  projector.downstream.dat.request.ready <== Bool(#true)
+  projector.upstream.dat.response.ready <== Bool(#true)
+  projector.downstream.dat.response.valid <== Bool(#false)
+  projector.downstream.dat.response.bits <== dont_care(CHIDatFlit(p))
+
+def design = elaborate(CHIRequestUpdateFixture())
+
+export:
+  design

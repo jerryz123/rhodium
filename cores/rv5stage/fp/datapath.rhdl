@@ -387,16 +387,10 @@ circuit RV5StageFpFixedD(xlen :: XLen,
     riscv_exception_flags(single_to_double.exception_flags),
     riscv_exception_flags(double_to_single.exception_flags)
   )
-  completion <== RV5StageFpCompletion(xlen, FloatingPointProfile.D, Context):
-    context: ordinary.context
-    destination: ordinary.destination
-    rd: ordinary.rd
-    integer_value: ordinary.integer_value
-    fp_value: mux(cross_precision, converted_value, ordinary.fp_value)
-    exception_flags: mux(cross_precision,
-                         converted_flags,
-                         ordinary.exception_flags)
-    exception_flags_valid: ordinary.exception_flags_valid
+  completion <== ordinary.updated(
+    ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
+    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags)
+  )
 
 circuit RV5StageFpFixedFHalf(xlen :: XLen,
                              Context :: DataType,
@@ -441,14 +435,10 @@ circuit RV5StageFpFixedFHalf(xlen :: XLen,
   def converted_flags = mux(source_half,
                             riscv_exception_flags(half_to_single.exception_flags),
                             riscv_exception_flags(single_to_half.exception_flags))
-  completion <== RV5StageFpCompletion(xlen, profile, Context):
-    context: ordinary.context
-    destination: ordinary.destination
-    rd: ordinary.rd
-    integer_value: ordinary.integer_value
-    fp_value: mux(cross_precision, converted_value, ordinary.fp_value)
-    exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags)
-    exception_flags_valid: ordinary.exception_flags_valid
+  completion <== ordinary.updated(
+    ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
+    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags)
+  )
 
 circuit RV5StageFpFixedDHalf(xlen :: XLen,
                              Context :: DataType,
@@ -517,14 +507,10 @@ circuit RV5StageFpFixedDHalf(xlen :: XLen,
         riscv_exception_flags(single_to_half.exception_flags),
         riscv_exception_flags(double_to_half.exception_flags))
   )
-  completion <== RV5StageFpCompletion(xlen, profile, Context):
-    context: ordinary.context
-    destination: ordinary.destination
-    rd: ordinary.rd
-    integer_value: ordinary.integer_value
-    fp_value: mux(half_cross, converted_value, ordinary.fp_value)
-    exception_flags: mux(half_cross, converted_flags, ordinary.exception_flags)
-    exception_flags_valid: ordinary.exception_flags_valid
+  completion <== ordinary.updated(
+    ~fp_value: mux(half_cross, converted_value, ordinary.fp_value),
+    ~exception_flags: mux(half_cross, converted_flags, ordinary.exception_flags)
+  )
 
 export:
   RV5StageDisabledZfaFormatDatapath

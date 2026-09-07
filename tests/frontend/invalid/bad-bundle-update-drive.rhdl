@@ -1,0 +1,14 @@
+#lang rhodium
+// Rejects driving a field of the fresh immutable value returned by a bundle update.
+
+bundle Payload():
+  data: Bits(8)
+
+circuit DriveUpdate():
+  input source: Payload()
+  output result: Payload()
+  def changed = source.updated(~data: bits(0, 8))
+  changed.data <== source.data
+  result <== changed
+
+elaborate(DriveUpdate())

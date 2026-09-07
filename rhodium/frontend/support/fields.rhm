@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Provides shared field, cast, lookup, indexing, membership, and width syntax for hardware entities.
+// Provides shared field, immutable update, cast, lookup, indexing, membership, and width syntax for hardware entities.
 
 import:
   rhombus/meta open
@@ -436,12 +436,33 @@ fun hardware_lookup(value :: HardwareEntity,
                     ~default: default_value :: HardwareEntity) :~ HardwareFields:
   kernel.vector_lookup(value, selector, default_value)
 
-// Returns a vector value with one hardware-selected element replaced and all
-// other elements, including every out-of-range case, preserved.
+// Reconstructs a record with named replacements, or a vector with one selected
+// replacement. Preserve the concrete descriptor rather than rebuilding its type.
 fun hardware_updated(value :: HardwareEntity,
-                     selector :: HardwareEntity,
-                     replacement :: HardwareEntity) :~ HardwareFields:
-  kernel.vector_updated(value, selector, replacement)
+                     & arguments :: List.of(HardwareEntity),
+                     ~& replacements :: Map) :~ HardwareFields:
+  def source = kernel.read(value)
+  cond
+  | source.type is_a RecordType:
+      unless arguments.length() == 0
+      | error(~who: #'updated, "record updates require named field replacements")
+      def names = source.type.fields.map(fun (field): Keyword.from_string(field.name))
+      for (key in replacements.keys()):
+        unless names.contains(key)
+        | error(~who: #'updated, "record has no field for " ++ to_string(key))
+      def fields = for List (field in source.type.fields):
+        def key = Keyword.from_string(field.name)
+        [field.name,
+         if replacements.has_key(key)
+         | replacements[key]
+         | kernel.project(source, field.name)]
+      kernel.record_create(source.type, fields)
+  | source.type is_a VectorType:
+      unless arguments.length() == 2 && replacements.length() == 0
+      | error(~who: #'updated, "vector updates require a selector and replacement")
+      kernel.vector_updated(source, arguments[0], arguments[1])
+  | ~else:
+      error(~who: #'updated, "updated receiver must have a RecordType or VectorType")
 
 // Statically unrolls a host transformation over every element of a hardware
 // vector and reconstructs one homogeneous hardware vector from the results.
@@ -535,7 +556,7 @@ fun build_membership_predicate(value :: HardwareEntity,
           kernel.bit_not(equal_zero, #false, location)
 
 meta:
-  fun preserve_width_receiver_surface(function :: Syntax, receiver :: Syntax):
+  fun preserve_receiver_surface(function :: Syntax, receiver :: Syntax):
     def call_result = statinfo_meta.pack_call_result(
       [[-1, statinfo_meta.gather(receiver)]]
     )
@@ -547,14 +568,14 @@ meta:
   fun hardware_width_method(left :: Syntax, right :: Syntax):
     match right
     | 'zext':
-        preserve_width_receiver_surface(
+        preserve_receiver_surface(
           'fun (target_width :: PosInt,
                 name :: False || AsciiIdentifier = #false) :~ HardwareFields:
              hardware_zero_extend($left, target_width, name)',
           left
         )
     | 'sext':
-        preserve_width_receiver_surface(
+        preserve_receiver_surface(
           'fun (target_width :: PosInt,
                 name :: False || AsciiIdentifier = #false) :~ HardwareFields:
              hardware_sign_extend($left, target_width, name)',
@@ -571,7 +592,12 @@ meta:
     | 'into': '(fun (target_type): hardware_into($left, target_type)) :: HardwareIntoFunction'
     | 'lookup': 'fun (selector, ~default: default_value) :~ HardwareFields: hardware_lookup($left, selector, ~default: default_value)'
     | 'map': 'fun (transform :: Function.of_arity(1)) :~ HardwareFields: hardware_vector_map($left, transform)'
-    | 'updated': 'fun (selector, replacement) :~ HardwareFields: hardware_updated($left, selector, replacement)'
+    | 'updated':
+        preserve_receiver_surface(
+          'fun (& arguments, ~& replacements) :~ HardwareFields:
+             hardware_updated($left, & arguments, ~& replacements)',
+          left
+        )
     | ~else: #false
 
   fun common_hardware_method(left :: Syntax,
@@ -579,6 +605,8 @@ meta:
                              form :: Syntax,
                              remainder :: Syntax):
     match form
+    | 'updated($argument, ...) $rest ...':
+        values(universal_hardware_method(left, right), '($argument, ...) $rest ...')
     | 'is_one_of() $rest ...':
         syntax_meta.error(".is_one_of expects alternatives or one host list", right)
     | 'is_one_of($(candidate :: expr_meta.Parsed), ...) $rest ...':
@@ -675,7 +703,7 @@ dot.macro 'hardware_field_dot $left $dot $right':
   match '$right $tail ...'
   | 'lookup($(selector :: expr_meta.Parsed),
             ~default: $(default_value :: expr_meta.Parsed)) $rest ...': #false
-  | '$(method :: Identifier)($(argument :: expr_meta.Parsed), ...) $rest ...': #false
+  | '$(method :: Identifier)($argument, ...) $rest ...': #false
   | ~else:
       def reserved = [
         "id", "name", "module_def", "module_id", "design",

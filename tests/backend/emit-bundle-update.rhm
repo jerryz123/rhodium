@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits immutable bundle replacement across optional fields and hardware producers.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../frontend/bundle-update-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

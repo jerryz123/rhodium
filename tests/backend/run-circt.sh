@@ -188,7 +188,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast)
+    language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast)
       return 0
       ;;
     std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant)
@@ -656,6 +656,7 @@ direct_fixture_specs=(
   'uart16550|uart16550_tb'
   'uart-dpi|uart_dpi_tb'
   'nested-bundle|'
+  'bundle-update|bundle_update_tb'
   'aggregate-memory|'
   'one-hot-aggregate|'
   'round-robin-matcher|round_robin_matcher_tb'
@@ -669,6 +670,7 @@ direct_fixture_specs=(
   'credited-monitor-overgrant|'
   'chi-foundation|chi_foundation_tb'
   'chi-packets|chi_packets_tb'
+  'chi-request-update|chi_request_update_tb'
   'chi-full-flits|'
   'chi-link|chi_link_tb'
   'chi-monitor|chi_monitor_tb'

@@ -1,0 +1,12 @@
+#lang rhodium
+// Rejects duplicate named replacements in one immutable bundle update.
+
+bundle Payload():
+  data: Bits(8)
+
+circuit DuplicateUpdate():
+  input source: Payload()
+  output result: Payload()
+  result <== source.updated(~data: bits(0, 8), ~data: bits(1, 8))
+
+elaborate(DuplicateUpdate())

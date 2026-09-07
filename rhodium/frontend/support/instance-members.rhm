@@ -86,7 +86,7 @@ dot.macro 'instance_member_dot $left $dot $right':
   match '$right $tail ...'
   | 'lookup($(selector :: expr_meta.Parsed),
             ~default: $(default_value :: expr_meta.Parsed)) $rest ...': #false
-  | '$(method :: Identifier)($(argument :: expr_meta.Parsed), ...) $rest ...': #false
+  | '$(method :: Identifier)($argument, ...) $rest ...': #false
   | ~else:
       def expansion:
         match right

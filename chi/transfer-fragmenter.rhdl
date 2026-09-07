@@ -75,47 +75,11 @@ fun chi_fragmented_request(p :: CHIFlitParams,
                            request :: CHIReqFlit(p),
                            child_index :: Bits(2),
                            last_child :: Bits(2)) :~ CHIReqFlit(p):
-  wire child: CHIReqFlit(p)
-  if p.req_rsvdc_width > 0
-  | child.rsvdc <== request.rsvdc
-  | #void
-  if p.sec_sid_width > 0
-  | child.sec_sid1 <== request.sec_sid1
-  | #void
-  if p.request_security_width > 0
-  | child.mecid_or_stream_id <== request.mecid_or_stream_id
-  | #void
-  if p.pbha_width > 0
-  | child.pbha <== request.pbha
-  | #void
-  if p.mpam_width > 0
-  | child.mpam <== request.mpam
-  | #void
-  child.trace_tag <== request.trace_tag
-  child.tag_op <== request.tag_op
-  child.exp_comp_ack <== request.exp_comp_ack
-  child.excl_snoop_me_cah <== request.excl_snoop_me_cah
-  child.group_id_or_lpid <== request.group_id_or_lpid
-  child.snp_attr_or_do_dwt <== request.snp_attr_or_do_dwt
-  child.mem_attr <== request.mem_attr
-  child.pcrd_type <== request.pcrd_type
-  child.order <== request.order
-  child.allow_retry <== request.allow_retry
-  child.likely_shared <== request.likely_shared
-  child.pas <== request.pas
   def child_offset = (child_index ++ bits(0, alignment_bits(p.data_bytes))).zext(p.request_address_width)
-  child.address <== request.address + child_offset
-  child.size_or_num_req <== mux(last_child =/= bits(0, 2), bits(alignment_bits(p.data_bytes), 6), request.size_or_num_req)
-  child.multi_req <== request.multi_req
-  child.opcode <== request.opcode
-  child.return_txn_id_or_stash_lpid <== request.return_txn_id_or_stash_lpid
-  child.stash_nid_valid_endian_deep_prefetch_tgt_hint <== request.stash_nid_valid_endian_deep_prefetch_tgt_hint
-  child.return_nid_or_stash_nid_or_data_target <== request.return_nid_or_stash_nid_or_data_target
-  child.txn_id <== request.txn_id
-  child.src_id <== request.src_id
-  child.tgt_id <== request.tgt_id
-  child.qos <== request.qos
-  child
+  request.updated(
+    ~address: request.address + child_offset,
+    ~size_or_num_req: mux(last_child =/= bits(0, 2), bits(alignment_bits(p.data_bytes), 6), request.size_or_num_req)
+  )
 
 fun chi_fragmented_write_data(p :: CHIFlitParams,
                               data :: CHIDatFlit(p),

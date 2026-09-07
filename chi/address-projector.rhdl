@@ -7,7 +7,6 @@ import:
   lib("flow/main.rhdl").map_flow
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl") open
   lib("chi/channels.rhdl").CHISNChannels
   lib("chi/fabric.rhdl") open
 
@@ -108,50 +107,6 @@ fun chi_projected_address(config :: CHIAddressProjectorConfig,
       )
       identity.local_base + local_offset.zext(p.request_address_width)
 
-fun chi_req_with_address(p :: CHIFlitParams,
-                         request :: CHIReqFlit(p),
-                         address :: Bits(p.request_address_width)) :~ CHIReqFlit(p):
-  wire projected: CHIReqFlit(p)
-  if p.req_rsvdc_width > 0
-  | projected.rsvdc <== request.rsvdc
-  | #void
-  if p.sec_sid_width > 0
-  | projected.sec_sid1 <== request.sec_sid1
-  | #void
-  if p.request_security_width > 0
-  | projected.mecid_or_stream_id <== request.mecid_or_stream_id
-  | #void
-  if p.pbha_width > 0
-  | projected.pbha <== request.pbha
-  | #void
-  if p.mpam_width > 0
-  | projected.mpam <== request.mpam
-  | #void
-  projected.trace_tag <== request.trace_tag
-  projected.tag_op <== request.tag_op
-  projected.exp_comp_ack <== request.exp_comp_ack
-  projected.excl_snoop_me_cah <== request.excl_snoop_me_cah
-  projected.group_id_or_lpid <== request.group_id_or_lpid
-  projected.snp_attr_or_do_dwt <== request.snp_attr_or_do_dwt
-  projected.mem_attr <== request.mem_attr
-  projected.pcrd_type <== request.pcrd_type
-  projected.order <== request.order
-  projected.allow_retry <== request.allow_retry
-  projected.likely_shared <== request.likely_shared
-  projected.pas <== request.pas
-  projected.address <== address
-  projected.size_or_num_req <== request.size_or_num_req
-  projected.multi_req <== request.multi_req
-  projected.opcode <== request.opcode
-  projected.return_txn_id_or_stash_lpid <== request.return_txn_id_or_stash_lpid
-  projected.stash_nid_valid_endian_deep_prefetch_tgt_hint <== request.stash_nid_valid_endian_deep_prefetch_tgt_hint
-  projected.return_nid_or_stash_nid_or_data_target <== request.return_nid_or_stash_nid_or_data_target
-  projected.txn_id <== request.txn_id
-  projected.src_id <== request.src_id
-  projected.tgt_id <== request.tgt_id
-  projected.qos <== request.qos
-  projected
-
 circuit CHIAddressProjector(config :: CHIAddressProjectorConfig):
   def p = config.flit
   input identity: CHIAddressProjectorIdentity(p)
@@ -160,11 +115,7 @@ circuit CHIAddressProjector(config :: CHIAddressProjectorConfig):
 
   (
     upstream.req |> map_flow(request):
-      chi_req_with_address(
-        p,
-        request,
-        chi_projected_address(config, identity, request.address)
-      )
+      request.updated(~address: chi_projected_address(config, identity, request.address))
   ) <=> downstream.req
   upstream.rsp <=> downstream.rsp
   upstream.dat <=> downstream.dat

@@ -1,0 +1,36 @@
+#lang rhombus
+// Checks record-update lowering, descriptor preservation, and invalid field replacements.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "bundle-update-fixture.rhdl" as fixture
+
+def module_def = fixture.design.modules.find(fun (module_def): module_def.name.starts_with("BundleUpdateFixture"))
+def envelope = module_def.find_input("source").type
+def result = module_def.find_output("changed").place.driver
+def construction = module_def.find_operation(result.defining_op_id)
+def payload = module_def.find_operation(construction.operands[0].defining_op_id)
+
+check:
+  result.type === envelope ~is #true
+  fixture.UpdateEnvelope.specialization_arguments(result.type) ~is []
+  construction.opcode ~is "rtl.record_create"
+  construction.attribute("fields") ~is ["payload", "valid"]
+  payload.opcode ~is "rtl.record_create"
+  payload.results[0].type === envelope.field("payload").type ~is #true
+  fixture.UpdatePayload.specialization_arguments(payload.results[0].type)[1] ~is #true
+  payload.attribute("fields") ~is ["data", "tag", "state"]
+  payload.operands[0] === module_def.find_input("data").value ~is #true
+  payload.operands[1] === module_def.find_input("tag").value ~is #true
+  module_def.find_output("plain").type.fields.map(fun (field): field.name) ~is ["data", "state"]
+  verify_design(fixture.design) ~is #void
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("unknown")) ~throws "record has no field"
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("absent")) ~throws "record has no field"
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("width")) ~throws "wrong hardware type"
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("nominal")) ~throws "wrong hardware type"
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("host")) ~throws "expected readable hardware data"
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("positional")) ~throws "named field replacements"
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("mixed")) ~throws "named field replacements"
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("vector")) ~throws "selector and replacement"
+  embedded.run_elaboration(fun (): fixture.InvalidRecordUpdate("scalar")) ~throws "RecordType or VectorType"

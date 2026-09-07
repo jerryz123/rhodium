@@ -1,0 +1,132 @@
+#lang rhodium
+// Exercises immutable record replacement, exact result surfaces, and invalid updates.
+
+hardware_enum UpdateState(~width: 1):
+  Idle = 0
+  Active = 1
+  method active(state) :: Bool:
+    state === UpdateState.Active
+
+hardware_enum OtherState(~width: 1):
+  Idle = 0
+  Active = 1
+
+bundle UpdatePayload(width :: PosInt, tagged :: Boolean):
+  data: Bits(width)
+  if tagged:
+    tag: Bits(4)
+  state: UpdateState
+
+bundle UpdateEnvelope():
+  payload: UpdatePayload(8, #true)
+  valid: Bool
+  method active(envelope) :: Bool:
+    envelope.valid & envelope.payload.state.active()
+
+def Structural = RecordType([RecordField("data", Bits(8)), RecordField("tag", Bits(4))])
+def initial = UpdateEnvelope():
+  payload:
+    UpdatePayload(8, #true):
+      data: bits(0x35, 8)
+      tag: bits(6, 4)
+      state: UpdateState.Idle
+  valid: Bool(#true)
+
+circuit UpdateEcho():
+  input source: UpdateEnvelope()
+  output result: UpdateEnvelope()
+  result <== source
+
+interface UpdateStream():
+  role producer
+  role consumer
+  provider producer
+  producer -> consumer:
+    bits: UpdateEnvelope()
+
+circuit ObservedUpdate():
+  interface ingress(UpdateStream(), ~role: consumer)
+  output result: UpdateEnvelope()
+  result <== ingress.observe().bits.updated(~valid: Bool(#true))
+
+sync_circuit BundleUpdateFixture():
+  input source: UpdateEnvelope()
+  input data: Bits(8)
+  input tag: Bits(4)
+  input choose: Bool
+  output original: UpdateEnvelope()
+  output changed: UpdateEnvelope()
+  output swapped: Structural
+  output plain: UpdatePayload(8, #false)
+  output tagged_payload: UpdatePayload(8, #true)
+  output methods: Vec(9, Bool)
+  output registered: UpdateEnvelope()
+  output inferred: UpdateEnvelope()
+  output remembered: UpdateEnvelope()
+  output observed: UpdateEnvelope()
+
+  wire connected: UpdateEnvelope()
+  connected <== source
+  reg saved(UpdateEnvelope(), ~init: initial)
+  saved <== source.updated(~valid: Bool(#true))
+  reg inferred_saved(~init: initial)
+  inferred_saved <== source
+  mem storage(2, UpdateEnvelope())
+  storage.write(bits(0, 1), source, ~enable: Bool(#true))
+  inst echo(UpdateEcho())
+  echo.source <== source
+  inst observer(ObservedUpdate())
+  observer.ingress.bits <== source
+  observed <== observer.result
+  def choices = vec(source, initial)
+  def selected = mux(choose, source, initial)
+  def replace = source.updated
+  def update = replace(~payload: source.payload.updated(~data: data, ~tag: tag))
+  original <== source.updated()
+  changed <== update
+  registered <== saved.updated(~valid: source.valid)
+  inferred <== inferred_saved.updated(~valid: source.valid)
+  remembered <== storage[bits(0, 1)].updated(~valid: source.valid)
+  tagged_payload <== source.payload.updated(~data: data).updated(~tag: tag)
+  def untagged = UpdatePayload(8, #false):
+    data: source.payload.data
+    state: source.payload.state
+  plain <== untagged.updated(~data: data)
+  def pair = record(Structural):
+    data: data
+    tag: tag
+  swapped <== pair.updated(~tag: source.payload.tag, ~data: source.payload.data)
+  methods <== vec(
+    update.updated(~valid: Bool(#true)).active(),
+    connected.updated(~valid: Bool(#true)).active(),
+    saved.updated(~valid: Bool(#true)).active(),
+    selected.updated(~valid: Bool(#true)).active(),
+    initial.updated(~payload: source.payload).active(),
+    choices[0].updated(~valid: Bool(#true)).active(),
+    storage[bits(0, 1)].updated(~valid: Bool(#true)).active(),
+    echo.result.updated(~valid: Bool(#true)).payload.state.active(),
+    source.as_bits().into(UpdateEnvelope()).updated(~valid: Bool(#true)).active()
+  )
+
+circuit InvalidRecordUpdate(kind :: String):
+  input source: UpdatePayload(8, #false)
+  input entries: Vec(2, Bits(8))
+  output result: Bits(8)
+  cond
+  | kind == "unknown": result <== source.updated(~missing: bits(0, 8)).data
+  | kind == "absent": result <== source.updated(~tag: bits(0, 4)).data
+  | kind == "width": result <== source.updated(~data: bits(0, 4)).data
+  | kind == "nominal": result <== source.updated(~state: OtherState.Active).data
+  | kind == "host": result <== source.updated(~data: 3).data
+  | kind == "positional": result <== source.updated(bits(0, 1), bits(0, 8)).data
+  | kind == "mixed": result <== source.updated(bits(0, 1), ~data: bits(0, 8)).data
+  | kind == "vector": result <== entries.updated(~data: bits(0, 8))[0]
+  | ~else: result <== source.data.updated(~data: bits(0, 8))
+
+def design = elaborate(BundleUpdateFixture())
+
+export:
+  design
+  UpdatePayload
+  UpdateEnvelope
+  InvalidRecordUpdate
