@@ -1,5 +1,5 @@
 #lang rhombus
-// Infers nearest annotated dependencies and certified latency through hierarchical flow.
+// Infers annotated dependencies with ordered fixed-delay and elastic-control stages.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -12,11 +12,13 @@ export:
 class FlowArc(source :: String,
               destination :: String,
               transform :: False || String = #false,
-              latency_cycles :: False || Nat = 0)
+              latency_cycles :: False || Nat = 0,
+              trace_stages :: False || List.of(EventTraceStage) = [])
 
 class EventCandidate(site :: EventSite,
                      transform_path :: List.of(String),
-                     latency_cycles :: False || Nat)
+                     latency_cycles :: False || Nat,
+                     trace_stages :: False || List.of(EventTraceStage))
 
 fun occurrence_prefix(instance_path :: List.of(String)):
   String.join(instance_path, "/")
@@ -67,9 +69,10 @@ fun infer_event_manifest(logical :: DesignElaboration,
   fun add_arc(source :: String,
               destination :: String,
               transform :: False || String = #false,
-              latency_cycles :: False || Nat = 0):
+              latency_cycles :: False || Nat = 0,
+              trace_stages :: False || List.of(EventTraceStage) = []):
     incoming[destination] := incoming.get(destination, []) ++ [
-      FlowArc(source, destination, transform, latency_cycles)
+      FlowArc(source, destination, transform, latency_cycles, trace_stages)
     ]
 
   fun expand(module_diagram :: DiagramModule,
@@ -135,14 +138,23 @@ fun infer_event_manifest(logical :: DesignElaboration,
             for (port in output_ports):
               event_by_output[terminal_id(instance_path, flow_block.id, port.id)] := site
         | if trace_model && (!dynamic || trace_model.dynamic)
-          | for (route in trace_model.routes):
+          | def stages:
+              cond
+              | trace_model.elastic_stages():
+                  def owner_path = instance_path ++ [trace_model.elastic_instance().operation.attribute("name")]
+                  trace_model.elastic_stages().map(fun (stage): EventTraceStage(owner_path, stage.advance, stage.valid))
+              | trace_model.latency_cycles() != #false:
+                  for List (_ in 0..trace_model.latency_cycles()): EventTraceStage()
+              | ~else: #false
+            for (route in trace_model.routes):
               def input_port = input_ports[route.input_index]
               def output_port = output_ports[route.output_index]
               add_arc(
                 terminal_id(instance_path, flow_block.id, input_port.id),
                 terminal_id(instance_path, flow_block.id, output_port.id),
                 occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label,
-                trace_model.latency_cycles()
+                trace_model.latency_cycles(),
+                stages
               )
           | for (port in output_ports):
               unsupported_by_output[
@@ -185,10 +197,11 @@ fun infer_event_manifest(logical :: DesignElaboration,
   fun nearest_events(vertex :: String,
                      visiting :: List.of(String) = [],
                      reverse_transform_path :: List.of(String) = [],
-                     latency_cycles :: False || Nat = 0):
+                     latency_cycles :: False || Nat = 0,
+                     trace_stages :: False || List.of(EventTraceStage) = []):
     def event = event_by_output.get(vertex, #false)
     if event
-    | [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles)]
+    | [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
     | block:
         def unsupported = unsupported_by_output.get(vertex, #false)
         when unsupported
@@ -211,7 +224,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
                 arc.source,
                 visiting ++ [vertex],
                 next_path,
-                if latency_cycles != #false && arc.latency_cycles != #false | latency_cycles + arc.latency_cycles | #false
+                if latency_cycles != #false && arc.latency_cycles != #false | latency_cycles + arc.latency_cycles | #false,
+                if trace_stages != #false && arc.trace_stages != #false | arc.trace_stages ++ trace_stages | #false
               )
             candidates
 
@@ -222,7 +236,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
         def dependency = EventDependency(candidate.site.id,
                                          site.id,
                                          candidate.transform_path,
-                                         candidate.latency_cycles)
+                                         candidate.latency_cycles,
+                                         candidate.trace_stages)
         unless dependencies.find(
           fun (existing): same_dependency(existing, dependency)
         )

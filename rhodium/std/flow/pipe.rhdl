@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines registered pipelines and the Valid pipeline's fixed-latency trace contract.
+// Defines pipelines with fixed-latency or actual elastic stage-control trace contracts.
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
@@ -41,6 +41,8 @@ sync_circuit Pipe(T :: DataType, stages :: PosInt):
       stage_valid[index] <== valid_sources[index]
       when (valid_sources[index]):
         stage_bits[index] <== bits_sources[index]
+
+  describe_interface_elastic_stages(ready.take(stages), valid_sources)
 
 // Valid has no backpressure: every stage advances on every clock, and each
 // asserted input cycle emerges after exactly `stages` cycles.
@@ -110,7 +112,7 @@ fun pipe(stages :: PosInt)
         "pipe",
         {"stages": stages},
         pipe_stage,
-        ~trace_model: interface_trace_passthrough()
+        ~trace_model: interface_trace_elastic(pipe_stage)
       )
     )
 

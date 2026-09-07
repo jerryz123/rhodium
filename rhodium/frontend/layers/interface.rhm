@@ -30,6 +30,7 @@ export:
   InterfaceTraceModel
   InterfaceTraceCombinational
   InterfaceTraceFixedLatency
+  InterfaceTraceElastic
   InterfaceTransformGroup
   InterfaceEventGroup
   InterfaceConnectionGroup
@@ -44,6 +45,8 @@ export:
   interface_trace_passthrough
   interface_trace_combinational
   interface_trace_fixed_latency
+  describe_interface_elastic_stages
+  interface_trace_elastic
   interface_trace_broadcast
   interface_trace_merge
   interface_trace_crossbar
@@ -404,13 +407,22 @@ class InterfaceTraceCombinational(guard :: False || Value = #false)
 // Certifies unconditional cycle latency and synchronous reset flushing.
 class InterfaceTraceFixedLatency(cycles :: PosInt)
 
+class InterfaceElasticStage(advance :: Value, valid :: Value)
+class InterfaceElasticStages(module_def :: Module, stages :: NonemptyList.of(InterfaceElasticStage)):
+  implements ModuleMetadataPayload
+class InterfaceTraceElastic(instance :: Instance, stages :: NonemptyList.of(InterfaceElasticStage))
+
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
     | dynamic is_a InterfaceTraceCombinational: 0
     | ~else: #false
+  method elastic_stages():
+    if dynamic is_a InterfaceTraceElastic | dynamic.stages | #false
+  method elastic_instance():
+    if dynamic is_a InterfaceTraceElastic | dynamic.instance | #false
 
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
@@ -447,6 +459,7 @@ def interface_transform_group_namespace = "rhodium.interface.transform"
 def interface_event_group_namespace = "rhodium.interface.event"
 def interface_connection_group_namespace = "rhodium.interface.connection"
 def interface_link_group_namespace = "rhodium.interface.link"
+def interface_elastic_stages_namespace = "rhodium.interface.elastic-stages"
 
 fun module_interface_groups(module_def :: Module):
   module_def.metadata_for(interface_group_namespace)
@@ -1559,6 +1572,32 @@ fun interface_trace_combinational(~guard: guard :: False || HardwareEntity = #fa
 fun interface_trace_fixed_latency(cycles :: PosInt):
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceFixedLatency(cycles))
 
+// A pipeline publishes its actual stage load and input-valid signals. This
+// contract describes one ordered pipeline, with synchronous reset flushing.
+fun describe_interface_elastic_stages(advances :: NonemptyList.of(HardwareEntity),
+                                      valids :: NonemptyList.of(HardwareEntity)):
+  def module_def = kernel.active_module()
+  unless advances.length() == valids.length()
+  | error(~who: #'describe_interface_elastic_stages, "elastic stage controls must have matching lengths")
+  unless module_def.metadata_for(interface_elastic_stages_namespace).length() == 0
+  | error(~who: #'describe_interface_elastic_stages, "elastic stage controls already declared")
+  fun signal(entity :: HardwareEntity):
+    def value = kernel.read(entity)
+    unless value.module_def === module_def && flat_data_type(value.type) && data_width(value.type) == 1
+    | error(~who: #'describe_interface_elastic_stages, "elastic stage controls must be local one-bit data")
+    value
+  def stages = for List (advance in advances, valid in valids):
+    InterfaceElasticStage(signal(advance), signal(valid))
+  module_def.add_metadata(interface_elastic_stages_namespace, InterfaceElasticStages(module_def, stages))
+
+fun interface_trace_elastic(instance :: Instance):
+  unless instance.operation.module_def === kernel.active_module()
+  | error(~who: #'interface_trace_elastic, "elastic trace implementation must be a local instance")
+  def declarations = instance.module_def.metadata_for(interface_elastic_stages_namespace)
+  unless declarations.length() == 1
+  | error(~who: #'interface_trace_elastic, "elastic trace implementation requires declared stage controls")
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceElastic(instance, declarations[0].stages))
+
 fun interface_trace_broadcast(output_count :: PosInt):
   InterfaceTraceModel(
     for List (output_index in 0..output_count):
@@ -1611,6 +1650,13 @@ fun describe_interface_transform(handle :: Handle,
           "interface transform implementation must be a local instance")
   when trace_model
   | validate_interface_trace_model(trace_model, handle.left, handle.right)
+    when trace_model.elastic_instance()
+    | unless implementation && trace_model.elastic_instance() === implementation
+      | error(~who: #'describe_interface_transform, "elastic trace model must match the transform implementation")
+      for (stage in trace_model.elastic_stages()):
+        for (value in [stage.advance, stage.valid]):
+          unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == 1
+          | error(~who: #'describe_interface_transform, "elastic trace controls must belong to the implementation and be one-bit data")
   module_def.add_metadata(
     interface_transform_group_namespace,
     InterfaceTransformGroup(module_def,

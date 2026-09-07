@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks immutable instrumentation, shared definitions, fixed latency, and diagnostics.
+// Checks immutable instrumentation, exact stage plans, observed controls, and diagnostics.
 
 import:
   lib("json/main.rkt").#{string->jsexpr} as parse_json
@@ -10,6 +10,7 @@ import:
   "../frontend/event-instrument-fixture.rhdl" as fixture
   "../frontend/event-graph-fixture.rhdl" as static_fixture
   "../frontend/event-pipeline-fixture.rhdl" as pipeline_fixture
+  "../frontend/event-elastic-fixture.rhdl" as elastic_fixture
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
@@ -79,3 +80,22 @@ check:
   emit_circt(pipeline_fixture.pipeline.design) ~is pipeline_before
   pipeline_fixture.bad_latency_count() ~throws "PosInt"
   pipeline_fixture.bad_latency_shape() ~throws "exactly one input and output"
+
+def elastic_before = emit_circt(elastic_fixture.elastic.design)
+def elastic = instrument_events(elastic_fixture.elastic)
+def elastic_left = child(elastic.instrumented.top, "left")
+def elastic_right = child(elastic.instrumented.top, "right")
+check:
+  elastic.manifest.sites.map(fun (site): site.label) ~is ["accepted", "completed", "middle", "accepted", "completed", "middle"]
+  elastic.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [#false, #false, #false, #false]
+  elastic.manifest.dependencies.map(fun (edge): edge.trace_stages.length()) ~is [1, 3, 1, 3]
+  elastic.manifest.dependencies[1].trace_stages.map(fun (stage): stage.instance_path.take(2)) ~is [["EventElastic", "left"], ["EventElastic", "left"], ["EventElastic", "left"]]
+  elastic.manifest.dependencies[3].trace_stages.map(fun (stage): stage.instance_path.take(2)) ~is [["EventElastic", "right"], ["EventElastic", "right"], ["EventElastic", "right"]]
+  emit_circt(elastic_fixture.elastic.design) ~is elastic_before
+  emit_circt(elastic.instrumented.design).contains("__event_control_") ~is #true
+  elastic_left === elastic_right ~is #false
+  child(elastic.instrumented.top, "gold_left") === child(elastic.instrumented.top, "gold_right") ~is #true
+  has_trace_ports(child(elastic.instrumented.top, "gold_left")) ~is #false
+  elastic_fixture.bad_width() ~throws "local one-bit data"
+  elastic_fixture.bad_count() ~throws "matching lengths"
+  elastic_fixture.missing_controls() ~throws "requires declared stage controls"

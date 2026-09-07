@@ -1,12 +1,14 @@
 #lang rhombus
-// Defines event sites, possible dependencies, and certified fixed path latency.
+// Defines event sites, dependencies, and ordered fixed or elastic metadata stages.
 
 import:
   "../core/ir.rhm".DesignElaboration
+  "../core/ir.rhm".Value
 
 export:
   EventSite
   EventDependency
+  EventTraceStage
   EventManifest
 
 class EventSite(id :: String,
@@ -20,10 +22,17 @@ class EventSite(id :: String,
                 terminal :: Boolean,
                 source_location :: String)
 
+// Empty controls mean an unconditional one-cycle delay. Elastic controls retain
+// original IR identity plus the concrete occurrence that owns those signals.
+class EventTraceStage(instance_path :: List.of(String) = [],
+                      advance :: False || Value = #false,
+                      valid :: False || Value = #false)
+
 class EventDependency(parent :: String,
                       child :: String,
                       transform_path :: List.of(String),
-                      latency_cycles :: False || Nat = #false)
+                      latency_cycles :: False || Nat = #false,
+                      trace_stages :: False || List.of(EventTraceStage) = #false)
 
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),

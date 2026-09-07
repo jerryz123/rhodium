@@ -1136,11 +1136,24 @@ the original local one-bit filter or gate predicate.
 `interface_trace_fixed_latency(cycles)` constructs an
 `InterfaceTraceFixedLatency` contract with a positive, unconditional cycle
 delay, one-to-one non-inventing transfers, and synchronous reset flushing.
-It must not describe stalls, clock enables, or variable latency. Both dynamic
+It must not describe stalls, clock enables, or variable latency. All dynamic
 contracts require exactly one input and output route. The trace model's
 `latency_cycles()` returns zero for combinational transfer, the declared delay
-for fixed latency, or false for an uncertified route-only model. Other stateful
-transforms keep route-only models. `describe_interface_event` accepts explicit local one-bit
+for fixed latency, or false for elastic or uncertified route-only models.
+
+An elastic implementation calls
+`describe_interface_elastic_stages(advances, valids)` once in its module, with
+equally sized nonempty lists of its actual local one-bit stage-load and
+input-valid signals in input-to-output order. The contract promises stage
+holding when disabled and synchronous reset flushing. A flow wrapper binds
+these controls with `interface_trace_elastic(instance)` and supplies that same
+instance as its transform implementation. `InterfaceTraceElastic` never
+infers enables from a stage count or signal name. Its `elastic_stages()` and
+`elastic_instance()` model accessors let compiler consumers recover the typed
+controls and their owner without treating variable latency as fixed latency.
+Other stateful transforms keep route-only models.
+
+`describe_interface_event` accepts explicit local one-bit
 `~valid` and optional `~ready` values for the event transfer predicate; `~ready`
 requires `~valid`. Clock/reset selection belongs to the instrumenter, not to
 interface metadata.

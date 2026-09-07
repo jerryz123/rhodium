@@ -26,7 +26,8 @@ flowchart LR
   trace-route metadata because it owns interface topology.
 - `rhodium/diagram/` resolves metadata against verified IR connectivity and
   exposes the logical blocks and channels reused here.
-- `model.rhm` owns tool-neutral event sites, dependencies, and manifests.
+- `model.rhm` owns event sites, dependencies, manifests, and IR-backed metadata
+  stage plans.
 - `analyze.rhm` expands module definitions per concrete instance occurrence and
   infers nearest annotated predecessors.
 - `json.rhm` is a projection of the structured manifest, not a second analysis.
@@ -47,8 +48,8 @@ existing backend rather than introducing event cases into CIRCT lowering.
 
 ### Selective hierarchy rebuilding
 
-For the supported combinational and fixed-latency subset, mark event-bearing
-occurrences and their ancestors before rebuilding. Ancestors must retarget changed children
+Mark event-bearing occurrences, elastic control-source occurrences, and their
+ancestors before rebuilding. Ancestors must retarget changed children
 and forward hidden metadata even when they contain no local annotation.
 Only occurrences with local sites get event counters and node/edge emission;
 the root also owns the reset callback.
@@ -69,8 +70,16 @@ entire upstream reference unconditionally and resets to invalid. This placement
 is exact for unconditional delay even across hierarchy, maps, and dropping
 filters, because the consuming annotation's transfer predicate controls emission.
 It does not require specializing the functional pipeline implementation.
-Future elastic adapters must instead match actual enables/storage behavior and
-extend the modification footprint wherever they introduce metadata state.
+For elastic pipes, preserve the exact ordered `EventTraceStage` plan rather than
+summing delays. Export the declared advance and input-valid signals from each
+concrete pipe occurrence through hidden observation ports. Route these signals
+to the consuming annotation and use them to load, clear, or hold the matching
+shadow reference register. Reset takes priority over holding. No observed
+signal is reconstructed by name, and no metadata signal drives functional RTL.
+Controls are deduplicated by occurrence path and original value ID; unchanged
+occurrences of the same pipeline definition remain shared imports. This first
+implementation may forward unused observation outputs to higher ancestors;
+pruning these ports is an independent optimization.
 
 ## Extend trace coverage
 
@@ -88,7 +97,13 @@ model with the transfer, ordering, and storage semantics needed for exact
 lineage. `InterfaceTraceFixedLatency` additionally certifies unconditional,
 one-to-one cycle delay with synchronous reset flushing. `valid_pipe` supplies
 this contract; `InterfaceTraceModel.latency_cycles()` returns its positive
-delay, zero for combinational contracts, and false for route-only models.
+delay, zero for combinational contracts, and false for elastic/route-only models.
+`InterfaceTraceElastic` binds an instance to an ordered list of actual
+stage-advance and input-valid values declared by that pipeline implementation.
+The frontend validates local one-bit controls, matching nonempty lists, and
+that the contract's instance matches the transform implementation. The event
+model keeps an IR-backed stage plan in addition to the JSON latency summary;
+false latency alone does not authorize runtime traversal.
 Inference adds these typed delays across flow arcs; it never parses display
 labels or transform properties for timing. The manifest retains unknown latency
 as false rather than interpreting it as zero. Never upgrade route-only metadata
@@ -123,6 +138,11 @@ The `event-pipeline` fixture adds one- and two-stage Valid pipes composed across
 hierarchy, filters before and after storage, bursts, bubbles, drain, and reset
 with transactions in flight. Its independent C++ transfer scoreboard checks
 both functional outputs and exact node payloads, timestamps, and parent edges.
+The `event-elastic` fixture uses independently stalled repeated instances,
+filters on both sides of storage, an in-order transaction scoreboard, and
+unannotated reference lanes. It checks functional ready/valid/payload agreement,
+exact occurrence edges, bubbles, simultaneous transfers, draining, and reset
+while full. Coverage assertions ensure these scenarios actually occur.
 
 Every direct Racket or Rhombus command must use a fresh `PLTCOMPILEDROOTS` as
 required by the repository `AGENTS.md`.

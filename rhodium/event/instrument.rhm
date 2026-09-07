@@ -1,5 +1,5 @@
 #lang rhombus
-// Specializes traced sites with exact combinational or fixed-latency parent references.
+// Builds exact lineage using ordered metadata stages and observed elastic controls.
 
 import:
   "../core/ir.rhm" open
@@ -23,13 +23,17 @@ class EventInstrumentedElaboration(original :: DesignElaboration,
 class Occurrence(original :: Module, path :: List.of(String), ordinal :: Nat,
                  parent :: False || Nat, instance :: False || Operation,
                  mutable children :: List = [])
+class TraceControl(path :: List.of(String), value :: Value, index :: Nat,
+                   mutable consumers :: List = [])
 
 def reference_type = RecordType([RecordField("valid", Bits(1)),
                                  RecordField("site", Bits(32)),
                                  RecordField("sequence", Bits(64))])
 
+fun path_within(descendant :: List.of(String), ancestor :: List.of(String)):
+  descendant.length() >= ancestor.length() && descendant.take(ancestor.length()) == ancestor
 fun within(site :: EventSite, path :: List.of(String)):
-  site.instance_path.length() >= path.length() && site.instance_path.take(path.length()) == path
+  path_within(site.instance_path, path)
 
 fun instrument_events(logical :: DesignElaboration,
                       config :: EventInstrumentationConfig = EventInstrumentationConfig()):
@@ -43,7 +47,7 @@ fun instrument_events(logical :: DesignElaboration,
   def site_ids = MutableMap{}
   for (site in manifest.sites, index in 0..manifest.sites.length()): site_ids[site.id] := index
   def parents = MutableMap{}
-  def parent_latencies = MutableMap{}
+  def parent_stages = MutableMap{}
   for (site in manifest.sites):
     def edges = manifest.dependencies.filter(~keep: fun (edge): edge.child == site.id)
     when edges.length() > 1
@@ -53,9 +57,9 @@ fun instrument_events(logical :: DesignElaboration,
       when parent.terminal
       | error(~who: #'instrument_events, "terminal event has a downstream annotation: " ++ parent.id)
       parents[site.id] := parent
-      unless edges[0].latency_cycles != #false
-      | error(~who: #'instrument_events, "event path has no certified fixed latency: " ++ site.id)
-      parent_latencies[site.id] := edges[0].latency_cycles
+      unless edges[0].trace_stages != #false
+      | error(~who: #'instrument_events, "event path has no certified metadata stages: " ++ site.id)
+      parent_stages[site.id] := edges[0].trace_stages
     when manifest.dependencies.filter(~keep: fun (edge): edge.parent == site.id).length() > 1
     | error(~who: #'instrument_events, "linear tracing does not support branching at " ++ site.id)
 
@@ -68,6 +72,29 @@ fun instrument_events(logical :: DesignElaboration,
       | occurrence.children := occurrence.children ++ [expand(op.attribute("module"), path ++ [op.attribute("name")], occurrence, op)]
     occurrence
   def root = expand(logical.top, [logical.top.name], #false, #false)
+
+  // Deduplicate observed controls by original signal and concrete occurrence.
+  // These ports only observe functional state; no trace value drives it.
+  def mutable controls = []
+  def control_ids = MutableMap{}
+  for (site in manifest.sites):
+    for (stage in parent_stages.get(site.id, [])):
+      when stage.advance
+      | def owner = occurrences.find(fun (occurrence): occurrence.path == stage.instance_path)
+        unless owner && stage.advance.module_def === owner.original && stage.valid && stage.valid.module_def === owner.original
+        | error(~who: #'instrument_events, "elastic controls do not belong to their occurrence")
+        for (value in [stage.advance, stage.valid]):
+          def key = [stage.instance_path, value.id]
+          unless control_ids.has_key(key)
+          | control_ids[key] := controls.length()
+            controls := controls ++ [TraceControl(stage.instance_path, value, controls.length())]
+          def control = controls[control_ids[key]]
+          control.consumers := control.consumers ++ [site.instance_path]
+  fun subtree_controls(occurrence :: Occurrence):
+    controls.filter(~keep: fun (control): path_within(control.path, occurrence.path))
+  fun imported_controls(occurrence :: Occurrence):
+    controls.filter(~keep: fun (control): !path_within(control.path, occurrence.path) && control.consumers.find(fun (path): path_within(path, occurrence.path)) != #false)
+  fun control_name(control :: TraceControl): "__event_control_" ++ to_string(control.index)
 
   // Trace clocks are supplied from the selected root, never guessed from a
   // port name in a descendant. Check functional domains before introducing them.
@@ -131,11 +158,11 @@ fun instrument_events(logical :: DesignElaboration,
     )
   fun ref_name(prefix :: String, site :: EventSite): prefix ++ to_string(site_ids[site.id])
 
-  // Fixed delays are placed at consumers, so the footprint remains event-bearing
-  // occurrences and ancestors. Functional pipeline definitions stay shareable.
+  // Shadow state lives at consumers. Elastic control owners and their ancestors
+  // also need passive observation ports; unrelated definitions remain shared.
   def modified = MutableSet{}
   for (occurrence in occurrences):
-    when subtree_sites(occurrence).length() > 0 | modified.add(occurrence.ordinal)
+    when subtree_sites(occurrence).length() > 0 || subtree_controls(occurrence).length() > 0 | modified.add(occurrence.ordinal)
   // Ownership forbids cross-design module references. Import each untouched
   // definition once, recursively preserving its original sharing instead.
   def unchanged = MutableMap.by(===){}
@@ -180,6 +207,11 @@ fun instrument_events(logical :: DesignElaboration,
     when occurrence === root
     | builder.dpi_call(module_def, reset_dpi, [builder.cast(module_def, reset, Bits(1))], clock, builder.cast(module_def, reset, Bits(1)))
     def references = MutableMap{}
+    def observed = MutableMap{}
+    for (control in controls.filter(~keep: fun (control): control.path == occurrence.path)):
+      observed[control.index] := builder.cast(module_def, copied.values[control.value.id], Bits(1))
+    for (control in imported_controls(occurrence)):
+      observed[control.index] := builder.input(module_def, control_name(control), Bits(1))
     for (site in imported_sites(occurrence)):
       references[site.id] := builder.input(module_def, ref_name("__event_in_", site), reference_type)
     for (child in occurrence.children):
@@ -189,6 +221,8 @@ fun instrument_events(logical :: DesignElaboration,
         builder.drive(instance.input("__event_reset"), reset)
         for (site in subtree_sites(child)):
           references[site.id] := instance.output(ref_name("__event_out_", site))
+        for (control in subtree_controls(child)):
+          observed[control.index] := instance.output(control_name(control))
     def sequences = MutableMap{}
     def fires = MutableMap{}
     def annotations = MutableMap{}
@@ -217,6 +251,8 @@ fun instrument_events(logical :: DesignElaboration,
     for (child in occurrence.children):
       for (site in imported_sites(child)):
         builder.drive(copied.instances[child.instance.id].input(ref_name("__event_in_", site)), references[site.id])
+      for (control in imported_controls(child)):
+        builder.drive(copied.instances[child.instance.id].input(control_name(control)), observed[control.index])
     for (site in local_sites):
       def annotation = annotations[site.id]
       def id = builder.constant(module_def, Bits(32), site_ids[site.id])
@@ -235,17 +271,22 @@ fun instrument_events(logical :: DesignElaboration,
       def parent = parents.get(site.id, #false)
       when parent
       | def mutable reference = references[parent.id]
-        // Unconditional fixed delays compose across hierarchy and intervening
-        // maps/filters. Sampling the whole reference preserves input bubbles;
-        // downstream fire determines whether that transaction survived.
-        when parent_latencies[site.id] > 0
+        // Keep stage order: fixed delays cannot move across elastic stages.
+        // An elastic stage loads only on its actual advance condition, inserts
+        // an invalid reference for a bubble, and otherwise holds its identity.
+        when parent_stages[site.id].length() > 0
         | def empty_reference = builder.record_create(module_def, reference_type, [
             ["valid", builder.constant(module_def, Bits(1), 0)],
             ["site", builder.constant(module_def, Bits(32), 0)], ["sequence", zero]
           ])
-          for (stage in 0..parent_latencies[site.id]):
-            def delayed = builder.register(module_def, ref_name("__event_parent_", site) ++ "_" ++ to_string(stage), reference_type, clock, reset, empty_reference)
-            builder.drive(delayed.next, reference)
+          for (stage in parent_stages[site.id], index in 0..parent_stages[site.id].length()):
+            def delayed = builder.register(module_def, ref_name("__event_parent_", site) ++ "_" ++ to_string(index), reference_type, clock, reset, empty_reference)
+            if stage.advance
+            | def advance = observed[control_ids[[stage.instance_path, stage.advance.id]]]
+              def valid = observed[control_ids[[stage.instance_path, stage.valid.id]]]
+              def incoming = builder.mux_lookup(module_def, valid, empty_reference, [[1, reference]])
+              builder.drive(delayed.next, builder.mux_lookup(module_def, advance, delayed.current, [[1, incoming]]))
+            | builder.drive(delayed.next, reference)
             reference := delayed.current
         def parent_valid = builder.record_get(module_def, reference, "valid")
         builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
@@ -253,6 +294,8 @@ fun instrument_events(logical :: DesignElaboration,
     unless occurrence === root
     | for (site in subtree_sites(occurrence)):
         builder.drive(builder.output(module_def, ref_name("__event_out_", site), reference_type), references[site.id])
+      for (control in subtree_controls(occurrence)):
+        builder.drive(builder.output(module_def, control_name(control), Bits(1)), observed[control.index])
     builder.finish(module_def)
   def top = rebuild(root)
   def instrumented = DesignElaboration(design, top)

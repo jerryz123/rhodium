@@ -1,0 +1,77 @@
+#lang rhodium
+// Provides repeated traced elastic lanes and identical unannotated reference lanes.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+sync_circuit EventElasticChild(traced :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  output middle_fire: Bool
+  output middle_payload: Bits(8)
+  def arrived = ingress |> pipe(2)
+  if traced
+  | arrived |> trace_event("middle") |> map_flow(payload => payload + bits(1, 8)) |> pipe(1) |> egress
+  | arrived |> map_flow(payload => payload + bits(1, 8)) |> pipe(1) |> egress
+  middle_fire <== arrived.valid & arrived.ready
+  middle_payload <== arrived.bits
+
+sync_circuit EventElasticLane(traced :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  output middle_fire: Bool
+  output middle_payload: Bits(8)
+  inst child(EventElasticChild(traced))
+  middle_fire <== child.middle_fire
+  middle_payload <== child.middle_payload
+  if traced
+  | ingress |> trace_event("accepted") |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> child.ingress
+  | ingress |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> child.ingress
+  if traced
+  | child.egress |> filter_flow(payload => !(payload === bits(4, 8))) |> trace_event("completed", ~terminal: #true) |> egress
+  | child.egress |> filter_flow(payload => !(payload === bits(4, 8))) |> egress
+
+sync_circuit EventElastic():
+  interface sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Decoupled(Bits(8)), ~role: producer)
+  interface gold_sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sinks[2](Decoupled(Bits(8)), ~role: producer)
+  output left_middle_fire: Bool
+  output left_middle_payload: Bits(8)
+  output right_middle_fire: Bool
+  output right_middle_payload: Bits(8)
+  inst left(EventElasticLane(#true))
+  inst right(EventElasticLane(#true))
+  inst gold_left(EventElasticLane(#false))
+  inst gold_right(EventElasticLane(#false))
+  sources[0] |> left.ingress
+  left.egress |> sinks[0]
+  sources[1] |> right.ingress
+  right.egress |> sinks[1]
+  gold_sources[0] |> gold_left.ingress
+  gold_left.egress |> gold_sinks[0]
+  gold_sources[1] |> gold_right.ingress
+  gold_right.egress |> gold_sinks[1]
+  left_middle_fire <== left.middle_fire
+  left_middle_payload <== left.middle_payload
+  right_middle_fire <== right.middle_fire
+  right_middle_payload <== right.middle_payload
+
+sync_circuit EventBadElasticWidth():
+  describe_interface_elastic_stages([bits(0, 2)], [Bool(#true)])
+sync_circuit EventBadElasticCount():
+  describe_interface_elastic_stages([Bool(#true)], [Bool(#true), Bool(#false)])
+sync_circuit EventMissingElastic():
+  inst missing(ValidPipe(Bits(8), 1))
+  interface_trace_elastic(missing)
+
+def elastic = elaborate_with_top(EventElastic())
+fun bad_width(): elaborate_with_top(EventBadElasticWidth())
+fun bad_count(): elaborate_with_top(EventBadElasticCount())
+fun missing_controls(): elaborate_with_top(EventMissingElastic())
+
+export:
+  elastic
+  bad_width
+  bad_count
+  missing_controls
