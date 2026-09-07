@@ -72,6 +72,9 @@ the selected identity independently of subsequent selector changes.
 `EventTraceReplication` wraps one input plan with a concrete atomic-fork ID and
 output index. All outputs inherit the same reference; downstream storage wraps
 each branch's copy. It creates no additional visible event sites.
+`EventTraceBroadcast` additionally retains the concrete buffered-broadcast ID,
+input-acceptance control, and selected recipient's pending bit. Its latency is
+variable and its outputs use a stored parent, not the live input reference.
 
 `event_manifest_to_json` emits a deterministic version-1 object with format
 name `rhodium-event-graph`, the selected top, sites, and dependencies.
@@ -83,7 +86,7 @@ An interface transform is traversable only when it carries an
 `InterfaceTraceModel`. That model supplies explicit possible input-to-output
 routes independently of its display label. The current flow library metadata
 covers event checkpoints, map, filter, fixed and elastic pipe, in-order queue, ready-valid arbiters, `demux_flow`,
-atomic fork, and zip. A downstream annotation whose upstream walk reaches an
+atomic fork, buffered broadcast, and zip. A downstream annotation whose upstream walk reaches an
 unmodeled transform is rejected rather than assigned an approximate parent.
 
 ## Deliberate limits
@@ -91,8 +94,8 @@ unmodeled transform is rejected rather than assigned an approximate parent.
 - The manifest describes possible static dependencies, not runtime event
   occurrences.
 - Static inference never inserts hardware. Dynamic instrumentation supports
-  the storage, selection, and atomic replication subset described below;
-  selective/control-only forks, independent broadcasts, and joins still require
+  the storage, selection, and replication subset described below;
+  selective/control-only forks, control-only broadcasts, and joins still require
   future dynamic adapters.
 - Only flat top-level flow endpoints are traceable; nested interface members
   are rejected.
@@ -126,14 +129,14 @@ The supported dynamic path consists of annotations, interface connections,
 hierarchy boundaries, `map_flow`, `map_valid`, `filter_flow`, `filter_valid`,
 `gate_flow`, fixed-latency `valid_pipe(stages)`, and elastic ready-valid
 `pipe(stages)`, in-order `queue(depth, ~pipe: ..., ~flow: ...)`,
-ready-valid `arbiter(...)` and `rr_arbiter(...)`, `demux_flow(...)`, and `atomic_fork(...)`.
+ready-valid `arbiter(...)` and `rr_arbiter(...)`, `demux_flow(...)`, `atomic_fork(...)`, and `broadcast(...)`.
 Every intervening transform needs a typed dynamic trace
 contract. Route-only models (including control-only queues, selective/control-only forks and joins), disconnected or opaque
 upstream boundaries, uncertified multiple-parent paths,
 uncertified fanout dependencies, and descendants of terminal events are rejected.
 Multiple child sites are supported only when every pair of possible paths from
 their shared parent uses different outputs of a common certified routing or
-atomic-replication occurrence. This supports nested demuxes, atomic forks, and
+replication occurrence. This supports nested demuxes, atomic forks, broadcasts, and
 branch-local storage; an unexplained split remains an error.
 Routing checks predicate mutual exclusion at runtime. No selected output means
 no input transfer, while older buffered branches can still complete together.
@@ -150,6 +153,14 @@ there is no synthetic fork node and no change to the collector ABI. An arbiter
 may later select individual replicas, producing separate occurrences with the
 same ancestor. Combining several inputs into one joined event remains a
 separate multi-parent feature.
+
+At a buffered broadcast, input acceptance captures the parent reference in a
+shadow register. Each recipient's actual pending bit gates its copy; recipients
+can consume independently over many cycles without losing their common parent.
+On simultaneous last-recipient completion and replacement acceptance, outputs
+use the old stored reference and only the register's next value changes. Reset
+invalidates the stored reference. No shadow pending controller or synthetic
+event is created. The original payload and handshake hardware is unchanged.
 
 `EventInstrumentationConfig(clock_port, reset_port)` selects the top-level
 `Clock` and synchronous `Reset` inputs (defaults: `"clock"`, `"reset"`). All

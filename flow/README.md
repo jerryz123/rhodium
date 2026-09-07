@@ -113,7 +113,7 @@ ingress
 The [event package](../rhodium/event/README.md) can also rebuild a separate design with
 synthesizable lineage and DPI emission for linear combinational paths and
 fixed-latency `valid_pipe`, elastic `pipe`, in-order `queue`, and ready-valid
-`arbiter`/`rr_arbiter`, `demux_flow`, and `atomic_fork` paths. Selective/control-only
+`arbiter`/`rr_arbiter`, `demux_flow`, `atomic_fork`, and `broadcast` paths. Selective/control-only
 forks and joins still require dynamic trace adapters.
 `pipe` publishes its actual per-stage load and input-valid controls as typed
 metadata; the instrumenter observes them to keep shadow references aligned
@@ -400,6 +400,16 @@ retain it even when their downstream annotations fire on different cycles.
 The compiler adds no fork event or fork-local metadata storage and leaves the
 functional fork unchanged. This contract does not cover selective atomic forks,
 control-only forks, or independently accepted broadcasts.
+
+`broadcast(n)` configures `Broadcast(T, n)` as an indexable array of
+`Irrevocable` endpoints, or a disconnected handle when given a payload/type
+seed. Unlike `atomic_fork`, it stores one payload and lets recipients accept
+independently, exactly once each. It publishes the actual acceptance and
+pending-recipient signals for tracing. The compiler stores a parent reference
+on input acceptance and retains it for each pending recipient, including across
+stalls. If the last recipient completes while a replacement input is accepted,
+that completion still names the old parent. Reset flushes outstanding delivery
+and lineage. No synthetic event is added and the DPI ABI is unchanged.
 
 `demux_flow` publishes its actual output-selection predicates for event tracing.
 Only the selected branch inherits a transferred parent reference; branch-local

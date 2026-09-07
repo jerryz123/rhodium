@@ -1,8 +1,9 @@
 #lang rhombus
-// Infers static parents and nested storage, selection, routing, and atomic replication plans.
+// Infers static parents and nested storage, selection, routing, and replication plans.
 
 import:
   "../core/ir.rhm".DesignElaboration
+  "../core/ir.rhm".Value
   "../diagram/main.rhm" open
   "model.rhm" open
 
@@ -23,6 +24,8 @@ class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: 
 class FlowRouting(instance_path :: List.of(String), routing_id :: String, predicates :: List,
                   input :: String, output_index :: Nat)
 class FlowReplication(replication_id :: String, input :: String, output_index :: Nat)
+class FlowBroadcast(instance_path :: List.of(String), broadcast_id :: String, accept :: Value, pending :: Value,
+                    input :: String, output_index :: Nat)
 
 fun occurrence_prefix(instance_path :: List.of(String)):
   String.join(instance_path, "/")
@@ -70,6 +73,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def selections = MutableMap{}
   def routings = MutableMap{}
   def replications = MutableMap{}
+  def broadcasts = MutableMap{}
   def roots = MutableSet{}
   def mutable sites = []
 
@@ -150,6 +154,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               | trace_model.selection_grants(): #false
               | trace_model.routing_predicates(): #false
               | trace_model.atomic_fork_outputs(): #false
+              | trace_model.broadcast_storage(): #false
               | trace_model.queue_storage():
                   def storage = trace_model.queue_storage()
                   def owner_path = instance_path ++ [trace_model.queue_instance().operation.attribute("name")]
@@ -177,6 +182,14 @@ fun infer_event_manifest(logical :: DesignElaboration,
               for (port in output_ports, index in 0..output_count):
                 def replication = FlowReplication(replication_id, input, index)
                 replications[terminal_id(instance_path, flow_block.id, port.id)] := replication
+            when trace_model.broadcast_storage()
+            | def storage = trace_model.broadcast_storage()
+              def owner_path = instance_path ++ [trace_model.broadcast_instance().operation.attribute("name")]
+              def broadcast_id = occurrence_prefix(instance_path) ++ "/" ++ flow_block.id
+              def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
+              for (port in output_ports, index in 0..output_count):
+                def broadcast = FlowBroadcast(owner_path, broadcast_id, storage.accept, storage.pending[index], input, index)
+                broadcasts[terminal_id(instance_path, flow_block.id, port.id)] := broadcast
             for (route in trace_model.routes):
               def input_port = input_ports[route.input_index]
               def output_port = output_ports[route.output_index]
@@ -287,9 +300,13 @@ fun infer_event_manifest(logical :: DesignElaboration,
       def selection = selections.get(vertex, #false)
       def routing = routings.get(vertex, #false)
       def replication = replications.get(vertex, #false)
+      def broadcast = broadcasts.get(vertex, #false)
       def plan:
         cond
         | event: EventTraceSource(event.id)
+        | broadcast:
+            EventTraceBroadcast(trace_plan(broadcast.input, visiting ++ [vertex]), broadcast.instance_path,
+                                broadcast.broadcast_id, broadcast.accept, broadcast.pending, broadcast.output_index)
         | replication:
             EventTraceReplication(trace_plan(replication.input, visiting ++ [vertex]),
                                   replication.replication_id, replication.output_index)

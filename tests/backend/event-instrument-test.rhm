@@ -15,6 +15,7 @@ import:
   "../frontend/event-arbiter-fixture.rhdl" as arbiter_fixture
   "../frontend/event-demux-fixture.rhdl" as demux_fixture
   "../frontend/event-atomic-fork-fixture.rhdl" as fork_fixture
+  "../frontend/event-broadcast-fixture.rhdl" as broadcast_fixture
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
@@ -202,3 +203,40 @@ check:
   fork_fixture.bad_count() ~throws "PosInt"
   fork_fixture.bad_shape() ~throws "one ordered route per output"
   fork_fixture.bad_routes() ~throws "one ordered route per output"
+
+def broadcast_before = emit_circt(broadcast_fixture.replicated.design)
+def broadcasted = instrument_events(broadcast_fixture.replicated)
+def broadcast_sites = broadcasted.manifest.sites.filter(~keep: fun (site): site.label.starts_with("branch"))
+def broadcast_plans = broadcast_sites.map(fun (site): broadcasted.manifest.trace_plans[site.id])
+def broadcast_rejoined = instrument_events(broadcast_fixture.rejoined())
+def broadcast_registers = broadcast_rejoined.instrumented.top.operations.filter(
+  ~keep: fun (op): op.opcode == "rtl.register_reset" && op.attribute("name").starts_with("__event_parent_")
+)
+check:
+  broadcasted.manifest.sites.length() ~is 12
+  broadcasted.manifest.dependencies.length() ~is 9
+  broadcasted.manifest.dependencies.take(3).map(fun (edge): edge.latency_cycles) ~is [#false, #false, #false]
+  broadcasted.manifest.dependencies.map(fun (edge): edge.trace_stages) ~is [#false, #false, #false, #false, #false, #false, #false, #false, #false]
+  broadcast_plans.take(3).map(fun (plan): plan is_a EventTraceBroadcast) ~is [#true, #true, #true]
+  broadcast_plans.take(3).map(fun (plan): plan.output_index) ~is [0, 1, 2]
+  broadcast_plans[0].broadcast_id ~is broadcast_plans[2].broadcast_id
+  broadcast_plans[0].input === broadcast_plans[2].input ~is #true
+  broadcast_plans[3].input is_a EventTraceBroadcast ~is #true
+  broadcast_plans[3].input.input is_a EventTracePipeline ~is #true
+  broadcast_plans[3].input.broadcast_id != broadcast_plans[6].input.broadcast_id ~is #true
+  emit_circt(broadcast_fixture.replicated.design) ~is broadcast_before
+  child(broadcasted.instrumented.top, "lane1") === child(broadcasted.instrumented.top, "lane2") ~is #false
+  child(broadcasted.instrumented.top, "gold1") === child(broadcasted.instrumented.top, "gold2") ~is #true
+  has_trace_ports(child(child(broadcasted.instrumented.top, "gold2"), "network")) ~is #false
+  instrument_events(broadcast_fixture.nested()).manifest.dependencies.length() ~is 3
+  // Both routes have the same static transform path, so the manifest deduplicates them.
+  broadcast_rejoined.manifest.dependencies.length() ~is 1
+  broadcast_registers.length() ~is 1
+  instrument_events(broadcast_fixture.singleton()).manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [#false]
+  broadcast_fixture.bad_width() ~throws "local one-bit data"
+  broadcast_fixture.bad_accept() ~throws "local one-bit data"
+  broadcast_fixture.missing_controls() ~throws "requires declared storage controls"
+  broadcast_fixture.mismatched_instance() ~throws "must match the transform implementation"
+  broadcast_fixture.duplicate_controls() ~throws "already declared"
+  broadcast_fixture.bad_shape() ~throws "one ordered route and pending bit per output"
+  broadcast_fixture.bad_routes() ~throws "one ordered route and pending bit per output"

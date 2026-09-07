@@ -1209,6 +1209,19 @@ broadcasts. Compiler consumers may replicate the live parent reference without
 new state or reconstructed handshake logic; branch storage uses its own
 functional transfer controls.
 
+`describe_interface_broadcast_storage(accept, pending)` declares a one-slot
+buffer's actual input-acceptance signal and ordered per-recipient pending bits.
+`interface_trace_buffered_broadcast(instance)` binds that declaration to a local
+implementation as `InterfaceTraceBufferedBroadcast`. The model validates one
+input, one ordered route and pending bit per output, local one-bit controls,
+and exact implementation binding. `broadcast_storage()` and
+`broadcast_instance()` expose the declaration and owner; latency is unknown.
+Each accepted item is delivered exactly once to every recipient, independently.
+Outputs observe the old resident item when the last recipients complete on the
+same edge that accepts a replacement. There is no empty bypass; synchronous
+reset flushes pending delivery. This is a trusted adapter contract, not a proof
+of arbitrary RTL. The older `interface_trace_broadcast(count)` remains route-only.
+
 `describe_interface_event` accepts explicit local one-bit
 `~valid` and optional `~ready` values for the event transfer predicate; `~ready`
 requires `~valid`. Clock/reset selection belongs to the instrumenter, not to

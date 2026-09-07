@@ -3,6 +3,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 // One payload is held while a pending mask records which consumers still need
 // it. Each output can accept independently without receiving duplicates, and
@@ -31,6 +32,7 @@ sync_circuit Broadcast(T :: DataType, n :: PosInt):
   def input_ready = !any_pending ||| all_pending_ready
   def accept_input = ingress.valid & input_ready
   ingress.ready <== input_ready
+  describe_interface_broadcast_storage(accept_input, for List (index in 0..n): pending[index])
 
   when (accept_input):
     payload <== ingress.bits
@@ -70,6 +72,22 @@ sync_circuit CtrlBroadcast(n :: PosInt):
     elsewhen (pending[index] & egress[index].ready):
       pending[index] <== Bool(#false)
 
+// Configures a one-slot broadcast with independently accepted irrevocable outputs.
+fun broadcast(n :: PosInt)
+  :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, InterfaceArrayFields)):
+  fun (source :~ FlowSource) :~ InterfaceTransformResult(source, InterfaceArrayFields):
+    def T = flow_payload_type(source)
+    inst broadcast_stage(Broadcast(T, n))
+    finish_interface_transform(
+      source,
+      describe_interface_transform(
+        InterfaceHandle(broadcast_stage.ingress, broadcast_stage.egress),
+        "broadcast", {"outputs": n}, broadcast_stage,
+        ~trace_model: interface_trace_buffered_broadcast(broadcast_stage)
+      )
+    )
+
 export:
   Broadcast
+  broadcast
   CtrlBroadcast

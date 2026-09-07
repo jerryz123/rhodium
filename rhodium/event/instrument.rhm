@@ -1,5 +1,5 @@
 #lang rhombus
-// Lowers lineage plans to shadow storage, selected routes, and atomic replication with DPI emission.
+// Lowers lineage plans to shadow storage, selected routes, and replication with DPI emission.
 
 import:
   "../core/ir.rhm" open
@@ -53,6 +53,7 @@ fun instrument_events(logical :: DesignElaboration,
     | plan is_a EventTracePipeline: sources(plan.input)
     | plan is_a EventTraceRouting: sources(plan.input)
     | plan is_a EventTraceReplication: sources(plan.input)
+    | plan is_a EventTraceBroadcast: sources(plan.input)
     | ~else:
         def mutable found = []
         for (input in plan.inputs): found := found ++ sources(input)
@@ -63,19 +64,21 @@ fun instrument_events(logical :: DesignElaboration,
     | plan is_a EventTracePipeline: plan_controls(plan.input) ++ plan.stages
     | plan is_a EventTraceRouting: plan_controls(plan.input) ++ [plan]
     | plan is_a EventTraceReplication: plan_controls(plan.input)
+    | plan is_a EventTraceBroadcast: plan_controls(plan.input) ++ [plan]
     | ~else:
         def mutable found = [plan]
         for (input in plan.inputs): found := found ++ plan_controls(input)
         found
   // Alternatives record certified divergence from one source occurrence.
   // Different children must use distinct outputs of a shared exclusive router
-  // or atomic replicator. A common output or unrelated transforms do not suffice.
+  // or certified replicator. A common output or unrelated transforms do not suffice.
   fun alternatives(plan :: EventTracePlan, source :: String, choices :: List = []):
     cond
     | plan is_a EventTraceSource: (if plan.site == source | [choices] | [])
     | plan is_a EventTracePipeline: alternatives(plan.input, source, choices)
     | plan is_a EventTraceRouting: alternatives(plan.input, source, choices ++ [[plan.routing_id, plan.output_index]])
     | plan is_a EventTraceReplication: alternatives(plan.input, source, choices ++ [[plan.replication_id, plan.output_index]])
+    | plan is_a EventTraceBroadcast: alternatives(plan.input, source, choices ++ [[plan.broadcast_id, plan.output_index]])
     | ~else:
         def mutable found = []
         for (input in plan.inputs): found := found ++ alternatives(input, source, choices)
@@ -315,6 +318,7 @@ fun instrument_events(logical :: DesignElaboration,
             ["site", builder.constant(module_def, Bits(32), 0)], ["sequence", zero]
           ])
         def built_plans = MutableMap.by(===){}
+        def built_broadcasts = MutableMap{}
         def mutable next_stage = 0
         fun stage_name():
           def name = ref_name("__event_parent_", site) ++ "_" ++ to_string(next_stage)
@@ -346,6 +350,18 @@ fun instrument_events(logical :: DesignElaboration,
               cond
               | plan is_a EventTraceSource: references[plan.site]
               | plan is_a EventTraceReplication: emit_plan(plan.input)
+              | plan is_a EventTraceBroadcast:
+                  fun observe(value :: Value): observed[control_ids[[plan.instance_path, value.id]]]
+                  unless built_broadcasts.has_key(plan.broadcast_id)
+                  | def name = stage_name()
+                    def incoming = emit_plan(plan.input)
+                    def resident = builder.register(module_def, name, reference_type, clock, reset, empty_reference)
+                    builder.drive(resident.next, builder.mux_lookup(module_def, observe(plan.accept), resident.current, [[1, incoming]]))
+                    builder.assert(module_def, builder.record_get(module_def, incoming, "valid"), clock, reset, observe(plan.accept), name ++ "_accept_present")
+                    built_broadcasts[plan.broadcast_id] := resident.current
+                  // No bypass: last-recipient delivery uses the old reference
+                  // even when this same edge captures the replacement input.
+                  builder.mux_lookup(module_def, observe(plan.pending), empty_reference, [[1, built_broadcasts[plan.broadcast_id]]])
               | plan is_a EventTracePipeline:
                   def mutable reference = emit_plan(plan.input)
                   for (stage in plan.stages): reference := emit_stage(stage, reference)

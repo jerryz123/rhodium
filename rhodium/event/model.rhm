@@ -16,6 +16,7 @@ export:
   EventTraceSelection
   EventTraceRouting
   EventTraceReplication
+  EventTraceBroadcast
   EventManifest
 
 class EventSite(id :: String,
@@ -56,6 +57,10 @@ class EventTraceRouting(input :: EventTracePlan, instance_path :: List.of(String
   method controls(): predicates
 class EventTraceReplication(input :: EventTracePlan, replication_id :: String, output_index :: Nat):
   implements EventTracePlan
+class EventTraceBroadcast(input :: EventTracePlan, instance_path :: List.of(String),
+                          broadcast_id :: String, accept :: Value, pending :: Value, output_index :: Nat):
+  implements EventTracePlan
+  method controls(): [accept, pending]
 
 class EventDependency(parent :: String,
                       child :: String,

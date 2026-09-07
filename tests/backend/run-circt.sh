@@ -188,7 +188,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork)
+    language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast)
       return 0
       ;;
     std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant)
@@ -429,7 +429,7 @@ verify_fixture() {
   if [[ -f "$test_dpi_source" ]]; then
     dpi_sources+=("$test_dpi_source")
   fi
-  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork ]]; then
+  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast ]]; then
     dpi_sources+=("$repo_dir/rhodium/event/runtime/rhodium_event.cc")
   fi
 
@@ -646,6 +646,7 @@ direct_fixture_specs=(
   'event-arbiter|event_arbiter_tb'
   'event-demux|event_demux_tb'
   'event-atomic-fork|event_atomic_fork_tb'
+  'event-broadcast|event_broadcast_tb'
   'aclint|aclint_tb'
   'bootrom|bootrom_tb'
   'fesvr-mmio|fesvr_mmio_tb'

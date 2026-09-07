@@ -25,6 +25,12 @@ sync_circuit FlowStaticInformation():
   def second_bits = second_path.bits
   def detached_fork = Bits(8) |> atomic_fork(2)
   def detached_fork_bits = detached_fork.right[1].bits
+  def broadcasted = first_path |> broadcast(2)
+  def broadcast_bits = broadcasted[0].bits
+  def Array(first_recipient, second_recipient) = broadcasted
+  def recipient_bits = second_recipient.bits
+  def detached_broadcast = Bits(8) |> broadcast(2)
+  def detached_broadcast_bits = detached_broadcast.right[1].bits
 
   def disconnected = Bits(8) |> trace_event("detached") |> pipe(1) |> queue(2)
   def disconnected_bits = disconnected.right.bits

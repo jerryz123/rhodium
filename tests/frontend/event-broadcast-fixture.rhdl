@@ -1,0 +1,150 @@
+#lang rhodium
+// Exercises independent broadcast delivery, branch-local storage, and repeated hierarchy.
+
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit EventBroadcastNetwork(buffered :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress[3](Decoupled(Bits(8)), ~role: producer)
+  output broadcast_valid: Bool
+  output broadcast_ready: Bool
+  output transfers: Bits(3)
+  def incoming = if buffered | ingress |> queue(2, ~pipe: #true) | ingress
+  def branches = incoming |> broadcast(3)
+  if buffered
+  | branches[0] |> pipe(1) |> egress[0]
+    branches[1] |> queue(3, ~flow: #true, ~pipe: #true) |> egress[1]
+    branches[2] |> queue(2) |> pipe(2) |> egress[2]
+  | for (index in 0..3): branches[index] |> egress[index]
+  broadcast_valid <== incoming.valid
+  broadcast_ready <== incoming.ready
+  transfers <== vec(for List (index in 0..3): branches[index].valid & branches[index].ready).as_bits()
+
+sync_circuit EventBroadcastLane(buffered :: Boolean, traced :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress[3](Decoupled(Bits(8)), ~role: producer)
+  output broadcast_valid: Bool
+  output broadcast_ready: Bool
+  output transfers: Bits(3)
+  inst network(EventBroadcastNetwork(buffered))
+  if traced
+  | ingress |> trace_event("accepted") |> network.ingress
+  | ingress |> network.ingress
+  for (index in 0..3):
+    if traced
+    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~terminal: #true) |> egress[index]
+    | network.egress[index] |> egress[index]
+  broadcast_valid <== network.broadcast_valid
+  broadcast_ready <== network.broadcast_ready
+  transfers <== network.transfers
+
+sync_circuit EventBroadcast():
+  interface sources[3](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[9](Decoupled(Bits(8)), ~role: producer)
+  interface gold_sources[3](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sinks[9](Decoupled(Bits(8)), ~role: producer)
+  output broadcast_valid0: Bool
+  output broadcast_ready0: Bool
+  output transfers0: Bits(3)
+  inst lane0(EventBroadcastLane(#false, #true))
+  inst gold0(EventBroadcastLane(#false, #false))
+  sources[0] |> lane0.ingress
+  gold_sources[0] |> gold0.ingress
+  for (index in 0..3):
+    lane0.egress[index] |> sinks[0 + index]
+    gold0.egress[index] |> gold_sinks[0 + index]
+  broadcast_valid0 <== lane0.broadcast_valid
+  broadcast_ready0 <== lane0.broadcast_ready
+  transfers0 <== lane0.transfers
+  output broadcast_valid1: Bool
+  output broadcast_ready1: Bool
+  output transfers1: Bits(3)
+  inst lane1(EventBroadcastLane(#true, #true))
+  inst gold1(EventBroadcastLane(#true, #false))
+  sources[1] |> lane1.ingress
+  gold_sources[1] |> gold1.ingress
+  for (index in 0..3):
+    lane1.egress[index] |> sinks[3 + index]
+    gold1.egress[index] |> gold_sinks[3 + index]
+  broadcast_valid1 <== lane1.broadcast_valid
+  broadcast_ready1 <== lane1.broadcast_ready
+  transfers1 <== lane1.transfers
+  output broadcast_valid2: Bool
+  output broadcast_ready2: Bool
+  output transfers2: Bits(3)
+  inst lane2(EventBroadcastLane(#true, #true))
+  inst gold2(EventBroadcastLane(#true, #false))
+  sources[2] |> lane2.ingress
+  gold_sources[2] |> gold2.ingress
+  for (index in 0..3):
+    lane2.egress[index] |> sinks[6 + index]
+    gold2.egress[index] |> gold_sinks[6 + index]
+  broadcast_valid2 <== lane2.broadcast_valid
+  broadcast_ready2 <== lane2.broadcast_ready
+  transfers2 <== lane2.transfers
+
+sync_circuit EventSingletonBroadcast():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def branches = source |> trace_event("root") |> broadcast(1)
+  branches[0] |> trace_event("completed") |> sink
+
+sync_circuit EventBroadcastArbiter():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def branches = source |> trace_event("root") |> broadcast(2)
+  branches |> rr_arbiter() |> trace_event("completed") |> sink
+
+sync_circuit EventNestedBroadcast():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[3](Decoupled(Bits(8)), ~role: producer)
+  def outer = source |> trace_event("root") |> broadcast(2)
+  def inner = outer[0] |> queue(2) |> broadcast(2)
+  inner[0] |> trace_event("a") |> sinks[0]
+  inner[1] |> trace_event("b") |> sinks[1]
+  outer[1] |> trace_event("c") |> sinks[2]
+
+sync_circuit EventBadBroadcastWidth():
+  describe_interface_broadcast_storage(Bool(#true), [bits(0, 2)])
+sync_circuit EventBadBroadcastAccept():
+  describe_interface_broadcast_storage(bits(0, 2), [Bool(#true)])
+sync_circuit EventMissingBroadcast():
+  inst missing(Pipe(Bits(8), 1))
+  interface_trace_buffered_broadcast(missing)
+sync_circuit EventMismatchedBroadcast():
+  inst first(Broadcast(Bits(8), 2))
+  inst second(Broadcast(Bits(8), 2))
+  describe_interface_transform(InterfaceHandle(second.ingress, second.egress), "broadcast", {}, second, ~trace_model: interface_trace_buffered_broadcast(first))
+sync_circuit EventDuplicateBroadcast():
+  describe_interface_broadcast_storage(Bool(#false), [Bool(#false)])
+  describe_interface_broadcast_storage(Bool(#false), [Bool(#false)])
+sync_circuit EventBadBroadcastShape(duplicate :: Boolean):
+  inst storage(Broadcast(Bits(8), 2))
+  def declared = interface_trace_buffered_broadcast(storage)
+  def routes = if duplicate | [InterfaceTraceRoute(0, 0), InterfaceTraceRoute(0, 0)] | [InterfaceTraceRoute(0, 0)]
+  describe_interface_transform(InterfaceHandle(storage.ingress, storage.egress), "broadcast", {}, storage, ~trace_model: InterfaceTraceModel(routes, declared.dynamic))
+
+def replicated = elaborate_with_top(EventBroadcast())
+fun singleton(): elaborate_with_top(EventSingletonBroadcast())
+fun rejoined(): elaborate_with_top(EventBroadcastArbiter())
+fun nested(): elaborate_with_top(EventNestedBroadcast())
+fun bad_width(): elaborate_with_top(EventBadBroadcastWidth())
+fun bad_accept(): elaborate_with_top(EventBadBroadcastAccept())
+fun missing_controls(): elaborate_with_top(EventMissingBroadcast())
+fun mismatched_instance(): elaborate_with_top(EventMismatchedBroadcast())
+fun duplicate_controls(): elaborate_with_top(EventDuplicateBroadcast())
+fun bad_shape(): elaborate_with_top(EventBadBroadcastShape(#false))
+fun bad_routes(): elaborate_with_top(EventBadBroadcastShape(#true))
+export:
+  replicated
+  singleton
+  rejoined
+  nested
+  bad_width
+  bad_accept
+  missing_controls
+  mismatched_instance
+  duplicate_controls
+  bad_shape
+  bad_routes

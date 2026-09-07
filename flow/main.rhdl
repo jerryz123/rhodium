@@ -113,6 +113,7 @@ export:
   CtrlJoin
   zip_flow
   Broadcast
+  broadcast
   CtrlBroadcast
   AtomicFork
   atomic_fork

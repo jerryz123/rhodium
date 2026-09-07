@@ -35,6 +35,7 @@ export:
   InterfaceTraceSelection
   InterfaceTraceRouting
   InterfaceTraceAtomicFork
+  InterfaceTraceBufferedBroadcast
   InterfaceTransformGroup
   InterfaceEventGroup
   InterfaceConnectionGroup
@@ -58,6 +59,8 @@ export:
   interface_trace_routing
   interface_trace_atomic_fork
   interface_trace_broadcast
+  describe_interface_broadcast_storage
+  interface_trace_buffered_broadcast
   interface_trace_merge
   interface_trace_crossbar
   describe_interface_transform
@@ -436,9 +439,14 @@ class InterfaceTraceSelection(instance :: Instance, grants :: NonemptyList.of(Va
 class InterfaceTraceRouting(predicates :: NonemptyList.of(Value))
 // Zero-storage replication: every output transfers exactly when the input does.
 class InterfaceTraceAtomicFork(output_count :: PosInt)
+// One resident item, captured on acceptance, retained for independent recipients.
+class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :: NonemptyList.of(Value)):
+  implements ModuleMetadataPayload
+  method controls(): [accept] ++ pending
+class InterfaceTraceBufferedBroadcast(instance :: Instance, storage :: InterfaceBroadcastStorage)
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
@@ -463,6 +471,10 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceRouting | dynamic.predicates | #false
   method atomic_fork_outputs():
     if dynamic is_a InterfaceTraceAtomicFork | dynamic.output_count | #false
+  method broadcast_storage():
+    if dynamic is_a InterfaceTraceBufferedBroadcast | dynamic.storage | #false
+  method broadcast_instance():
+    if dynamic is_a InterfaceTraceBufferedBroadcast | dynamic.instance | #false
 
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
@@ -501,6 +513,7 @@ def interface_connection_group_namespace = "rhodium.interface.connection"
 def interface_link_group_namespace = "rhodium.interface.link"
 def interface_elastic_stages_namespace = "rhodium.interface.elastic-stages"
 def interface_queue_storage_namespace = "rhodium.interface.queue-storage"
+def interface_broadcast_storage_namespace = "rhodium.interface.broadcast-storage"
 def interface_selection_namespace = "rhodium.interface.selection"
 
 fun module_interface_groups(module_def :: Module):
@@ -1707,6 +1720,29 @@ fun interface_trace_atomic_fork(output_count :: PosInt):
   InterfaceTraceModel(for List (index in 0..output_count): InterfaceTraceRoute(0, index),
                       InterfaceTraceAtomicFork(output_count))
 
+// Outputs observe the old resident item on an edge that accepts a replacement.
+// Pending bits are the functional per-recipient ownership state; reset flushes it.
+fun describe_interface_broadcast_storage(accept :: HardwareEntity, pending :: NonemptyList.of(HardwareEntity)):
+  def module_def = kernel.active_module()
+  unless module_def.metadata_for(interface_broadcast_storage_namespace).length() == 0
+  | error(~who: #'describe_interface_broadcast_storage, "broadcast storage controls already declared")
+  fun signal(entity :: HardwareEntity):
+    def value = kernel.read(entity)
+    unless value.module_def === module_def && flat_data_type(value.type) && data_width(value.type) == 1
+    | error(~who: #'describe_interface_broadcast_storage, "broadcast controls must be local one-bit data")
+    value
+  module_def.add_metadata(interface_broadcast_storage_namespace, InterfaceBroadcastStorage(module_def, signal(accept), pending.map(signal)))
+
+fun interface_trace_buffered_broadcast(instance :: Instance):
+  unless instance.operation.module_def === kernel.active_module()
+  | error(~who: #'interface_trace_buffered_broadcast, "broadcast trace implementation must be a local instance")
+  def declarations = instance.module_def.metadata_for(interface_broadcast_storage_namespace)
+  unless declarations.length() == 1
+  | error(~who: #'interface_trace_buffered_broadcast, "broadcast trace implementation requires declared storage controls")
+  def storage = declarations[0]
+  InterfaceTraceModel(for List (index in 0..storage.pending.length()): InterfaceTraceRoute(0, index),
+                      InterfaceTraceBufferedBroadcast(instance, storage))
+
 fun interface_trace_broadcast(output_count :: PosInt):
   InterfaceTraceModel(
     for List (output_index in 0..output_count):
@@ -1744,8 +1780,11 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
       | if trace_model.atomic_fork_outputs()
         | unless input_count == 1 && output_count == trace_model.atomic_fork_outputs() && trace_model.routes.length() == output_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..output_count): [0, index])
           | error(~who: #'describe_interface_transform, "atomic fork trace requires exactly one input and one ordered route per output")
-        | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
-          | error(~who: #'describe_interface_transform, "dynamic trace semantics require exactly one input and output")
+        | if trace_model.broadcast_storage()
+          | unless input_count == 1 && output_count == trace_model.broadcast_storage().pending.length() && trace_model.routes.length() == output_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..output_count): [0, index])
+            | error(~who: #'describe_interface_transform, "broadcast trace requires exactly one input and one ordered route and pending bit per output")
+          | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
+            | error(~who: #'describe_interface_transform, "dynamic trace semantics require exactly one input and output")
     def guard = if trace_model.dynamic is_a InterfaceTraceCombinational | trace_model.dynamic.guard | #false
     when guard && (!(guard.module_def === kernel.active_module()) || !flat_data_type(guard.type) || data_width(guard.type) != 1)
     | error(~who: #'describe_interface_transform, "trace guard must be local one-bit data")
@@ -1791,6 +1830,12 @@ fun describe_interface_transform(handle :: Handle,
       for (value in storage.controls(), width in [1, 1, memory_address_width(storage.depth), memory_address_width(storage.depth), 1, 1]):
         unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == width
         | error(~who: #'describe_interface_transform, "queue trace controls must belong to the implementation with the required width")
+    when trace_model.broadcast_instance()
+    | unless implementation && trace_model.broadcast_instance() === implementation
+      | error(~who: #'describe_interface_transform, "broadcast trace model must match the transform implementation")
+      for (value in trace_model.broadcast_storage().controls()):
+        unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == 1
+        | error(~who: #'describe_interface_transform, "broadcast trace controls must belong to the implementation and be one-bit data")
   module_def.add_metadata(
     interface_transform_group_namespace,
     InterfaceTransformGroup(module_def,

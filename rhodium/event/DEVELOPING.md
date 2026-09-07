@@ -139,6 +139,16 @@ and its actual controls determine capture. Replication itself adds no observed
 controls or state, so functional fork definitions remain shareable imports.
 Static latency is zero; linear `trace_stages` remain false across replication.
 
+`EventTraceBroadcast` preserves an independently accepted replication point.
+Observe its original input-acceptance and selected recipient's pending signals
+in their concrete owning occurrence. Lower one reference register per broadcast
+within each consuming site's plan, shared when branches reconverge into that
+plan. Capture on acceptance, otherwise hold; synchronous reset invalidates it.
+Gate each branch with its functional pending bit. Never bypass with the incoming
+reference: old deliveries and replacement capture may occur on the same edge.
+The same certified-divergence check accepts distinct recipients. Both latency
+and linear `trace_stages` are false; branch-local storage wraps this plan node.
+
 ## Extend trace coverage
 
 Attach an `InterfaceTraceModel` only when a transform can state its possible
@@ -183,6 +193,13 @@ ordered output routes. `atomic_fork` supplies this contract without changing
 functional wiring. Like combinational passthrough, this is a trusted adapter
 contract, not a proof of arbitrary RTL. Selective and control-only forks keep
 their route-only models until their specific semantics are supported.
+`InterfaceTraceBufferedBroadcast` binds one-slot storage to the exact instance,
+with actual acceptance and ordered pending controls. Validate one input, complete
+ordered output routes, one-bit ownership, and one declaration. `broadcast(n)`
+supplies the adapter; `CtrlBroadcast` does not. The contract promises no bypass,
+exactly-once independent delivery, reset flushing, and old-item observation on
+simultaneous completion/replacement. Do not reconstruct pending logic or infer
+these guarantees from the transform's name or one-to-many route list.
 Inference adds these typed delays across flow arcs; it never parses display
 labels or transform properties for timing. The manifest retains unknown latency
 as false rather than interpreting it as zero. Never upgrade route-only metadata
@@ -252,6 +269,14 @@ from substituting for occurrence identity. Unannotated lanes check functional
 equivalence. Host checks cover nested replication, composition with demuxes and
 arbiters, singleton forks, malformed contracts, and rejection of uncertified
 fanout.
+
+The `event-broadcast` fixture checks independently accepted recipients, shared
+parents across differently buffered branches, repeated hierarchy, and simultaneous
+last-recipient completion/replacement. Its public-transfer oracle processes old
+deliveries before installing a new resident parent and rejects duplicate delivery.
+Coverage requires independent stalls, simultaneous completions, partial-delivery
+reset, buffered reset, replacement, and draining. Complete DPI graphs and
+unannotated functional lanes are compared every cycle.
 
 Every direct Racket or Rhombus command must use a fresh `PLTCOMPILEDROOTS` as
 required by the repository `AGENTS.md`.
