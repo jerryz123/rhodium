@@ -19,6 +19,7 @@ config-test:
 	env PLTCOMPILEDROOTS="$$soc_compiled_root" RACO="$(RACO)" tools/run-racket-tests.sh \
 	  socs/tests/boot-test.rhm \
 	  socs/tests/description-test.rhm \
+	  socs/tests/single-core-system-params-test.rhm \
 	  socs/tests/simple-soc-test.rhm \
 	  socs/tests/mini-soc-test.rhm \
 	  socs/tests/tiled-soc-layout-test.rhm \

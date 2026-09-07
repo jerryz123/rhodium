@@ -1,0 +1,301 @@
+#lang rhodium
+// Derives a caller-configured single-core system and populates it without a wrapper module.
+
+import:
+  lib("support/annotations.rhm") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/counter.rhdl").Counter
+  lib("rhodium/frontend/kernel.rhm").CircuitDefinition
+  lib("chi/main.rhdl") open
+  lib("noc/authoring/main.rhm") open
+  lib("noc/language/main.rhm").topology
+  lib("noc/rtl/router.rhdl") open
+  lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
+  lib("cores/rv5stage/profile.rhm") open
+  lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
+  lib("cores/rv5stage/chi/foundation.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pma.rhdl") open
+  lib("devices/bootrom.rhdl") open
+  lib("devices/aclint.rhdl") open
+  lib("devices/plic.rhdl") open
+  lib("devices/uart16550.rhdl") open
+  "host-interface.rhdl".SoCHostInterface
+  "boot.rhdl" open
+  "description.rhm" open
+  "peripherals.rhdl" open
+  "endpoint-params.rhdl" open
+
+def single_core_topology = topology:
+  node xbar
+
+class SingleCoreSystemParams(flit :: CHIFlitParams,
+                             memory_base :: Nat,
+                             memory_bytes :: Pow2Int,
+                             memory_service :: CHISubordinateServiceParams,
+                             home :: CHIHomeParams,
+                             host_node :: CHINodeParams,
+                             platform :: SoCPlatformParams,
+                             ~instruction_node_id: instruction_node_id :: Nat = 2,
+                             ~data_node_id: data_node_id :: Nat = 3,
+                             ~uncached_node_id: uncached_node_id :: Nat = 4):
+  implements StableCircuitParam
+
+  property boot: platform.boot
+  property device_home: platform.home
+  property host_port: requester_icn_endpoint(host_node)
+  property memory_attributes: RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
+  property memory_region:
+    def region = AddressSet(memory_base, memory_bytes - 1)
+    unless memory_service.address_sets == [region]
+    | error(~who: #'SingleCoreSystemParams, "memory service must cover the configured memory region")
+    unless region.contains(boot.payload_address)
+    | error(~who: #'SingleCoreSystemParams, "BootROM payload address must lie in normal memory")
+    region
+  property rv5stage_config:
+    RV5StageCHIConfig(
+      flit,
+      [RV5StageCHIRegion(
+         RiscvPhysicalMemoryRegion(
+           memory_region,
+           memory_attributes
+         ),
+         home
+       )] ++ platform.regions
+    )
+  property home_map: rv5stage_config.home_map
+  property rv5stage_params:
+    RV5StageCHIParams(rv5stage_config, instruction_node_id, data_node_id, ~uncached_node_id: uncached_node_id)
+  property instruction_port:
+    requester_icn_endpoint(rv5stage_params.instruction_node)
+  property data_port:
+    requester_icn_endpoint(rv5stage_params.data_node)
+  property uncached_port:
+    requester_icn_endpoint(rv5stage_params.uncached_node)
+  property memory_requests: memory_service.requests
+  property memory_port: memory_service.endpoint
+  property home_config:
+    CHIHNFConfig(
+      flit,
+      [host_port, instruction_port, data_port],
+      memory_bytes - 1,
+      memory_requests
+    )
+  property home_params:
+    CHIHNFParams(home,
+                 home_config,
+                 memory_port,
+                 memory_service)
+  property device_home_params:
+    platform.home_params([uncached_port])
+
+  method description(model :: NonemptyString,
+                     compatible :: NonemptyList.of(NonemptyString),
+                     core_profile :: RVCoreProfile,
+                     clocks :: SoCClockConfig):
+    RiscvSoCDescription(
+      ~model: model,
+      ~compatible: compatible,
+      ~harts: [0],
+      ~core_profile: core_profile,
+      ~clocks: clocks,
+      ~memory_regions: [SoCAddressRegion(memory_service.address_sets[0])],
+      ~boot: platform.boot_description,
+      ~aclint: platform.aclint_description,
+      ~plic: platform.plic_description,
+      ~uart: platform.uart_description
+    )
+
+  property topology: single_core_topology
+  property router: topology.node("xbar")
+  property host_site: CHIRNSite(NamePath(["requesters", "host"]), host_node.node_id, router)
+  property instruction_site: CHIRNSite(NamePath(["requesters", "rv5stage-l1i"]), rv5stage_params.instruction_node_id, router)
+  property data_site: CHIRNSite(NamePath(["requesters", "rv5stage-l1d"]), rv5stage_params.data_node_id, router)
+  property uncached_site: CHIRNSite(NamePath(["requesters", "rv5stage-uncached"]), rv5stage_params.uncached_node_id, router)
+  property home_requester_site: CHIRNICNSite(NamePath(["home", "requesters"]), home.node_id, router)
+  property device_home_requester_site: CHIRNICNSite(NamePath(["device-home", "requesters"]), device_home.node_id, router)
+  property device_home_subordinate_site: CHISNICNSite(NamePath(["device-home", "subordinate"]), device_home.node_id, router)
+  property bootrom_site: CHISNSite(NamePath(["devices", "bootrom"]), platform.bootrom.rom_params.node.node_id, router)
+  property aclint_site: CHISNSite(NamePath(["devices", "aclint"]), platform.aclint.node.node_id, router)
+  property plic_site: CHISNSite(NamePath(["devices", "plic"]), platform.plic.node.node_id, router)
+  property uart_site: CHISNSite(NamePath(["devices", "uart"]), platform.uart.node.node_id, router)
+  property connections: [
+    CHIRNFConnection(host_site, home_requester_site),
+    CHIRNFConnection(instruction_site, home_requester_site),
+    CHIRNFConnection(data_site, home_requester_site),
+    CHIRNIConnection(uncached_site,
+                     device_home_requester_site),
+    CHISNConnection(device_home_subordinate_site,
+                    bootrom_site),
+    CHISNConnection(device_home_subordinate_site,
+                    aclint_site),
+    CHISNConnection(device_home_subordinate_site,
+                    plic_site),
+    CHISNConnection(device_home_subordinate_site,
+                    uart_site)
+  ]
+  property compilations: compile_chi_connections(
+    topology,
+    connections,
+    uniform_chi_routing(deny_all)
+  )
+  property adapter_plans: compile_chi_channel_adapter_plans(compilations, flit)
+  property snp_compilation: compilations.snp
+  property req_router_config: compile_simple_router(
+    compilations.req.network.router_plan(router)
+  )
+  property rsp_router_config: compile_simple_router(
+    compilations.rsp.network.router_plan(router)
+  )
+  property snp_router_config: compile_simple_router(
+    snp_compilation.network.router_plan(router)
+  )
+  property dat_router_config: compile_simple_router(
+    compilations.dat.network.router_plan(router)
+  )
+
+fun populate_single_core(params :: SingleCoreSystemParams,
+                         description :: RiscvSoCDescription,
+                         host :: Endpoint.of(SoCHostInterface(params.flit)),
+                         memory :: Endpoint.of(CHISNChannels(params.flit)),
+                         uart :: Endpoint.of(SoCUartInterface()),
+                         ~home: home_module :: CircuitDefinition = CHIHNF(params.home_config)):
+  inst rv5stage(RV5Stage(description.core_profile, ~chi: params.rv5stage_config))
+  inst home(home_module)
+  inst device_home(CHIHNI(params.device_home_params))
+  inst bootrom(CHIBootROM(params.platform.bootrom.rom_config(description)))
+  inst aclint(Aclint(params.platform.aclint_config))
+  inst plic(Plic(params.platform.plic_config))
+  inst uart_device(Uart16550(params.platform.uart_config))
+  inst boot(SoCBootDistributor(64, 1, params.boot.reset_address))
+  inst timebase(Counter(description.clocks.timebase_period_cycles))
+  inst req_router(SimpleRouter(CHIReqFlit(params.flit), params.req_router_config))
+  inst rsp_router(SimpleRouter(CHIRspFlit(params.flit), params.rsp_router_config))
+  inst snp_router(SimpleRouter(CHISnpFlit(params.flit), params.snp_router_config))
+  inst dat_router(SimpleRouter(CHIDatFlit(params.flit), params.dat_router_config))
+
+  rv5stage.chi_identity <== RV5StageCHIIdentity(params.flit):
+    instruction_node_id: bits(params.rv5stage_params.instruction_node_id, params.flit.node_id_width)
+    data_node_id: bits(params.rv5stage_params.data_node_id, params.flit.node_id_width)
+    uncached_node_id: bits(params.rv5stage_params.uncached_node_id, params.flit.node_id_width)
+  home.identity <== CHIHNFIdentity(params.flit):
+    home_node_id: bits(params.home_params.home.node_id, params.flit.node_id_width)
+    subordinate_node_id: bits(params.home_params.subordinate_endpoint.node_id, params.flit.node_id_width)
+    service_base: bits(params.memory_base, params.flit.request_address_width)
+  bootrom.identity <== CHIBootROMIdentity(params.flit):
+    node_id: bits(params.platform.bootrom.rom_params.node.node_id, params.flit.node_id_width)
+    base_address: bits(params.boot.reset_address, params.flit.request_address_width)
+  aclint.identity <== AclintIdentity(params.flit):
+    node_id: bits(params.platform.aclint.node.node_id, params.flit.node_id_width)
+    base_address: bits(params.platform.aclint.base_address, params.flit.request_address_width)
+  plic.identity <== PlicIdentity(params.flit):
+    node_id: bits(params.platform.plic.node.node_id, params.flit.node_id_width)
+    base_address: bits(params.platform.plic.base_address, params.flit.request_address_width)
+  uart_device.identity <== Uart16550Identity(params.flit):
+    node_id: bits(params.platform.uart.node.node_id, params.flit.node_id_width)
+    base_address: bits(params.platform.uart.base_address, params.flit.request_address_width)
+
+  connect_chi_rnf_node(host.memory,
+                       ~node: params.host_site,
+                       ~req_ingress: req_router.ingress,
+                       ~rsp_ingress: rsp_router.ingress,
+                       ~rsp_targets: rsp_router.target,
+                       ~snp_targets: snp_router.target,
+                       ~dat_ingress: dat_router.ingress,
+                       ~dat_targets: dat_router.target,
+                       ~adapters: params.adapter_plans)
+  connect_chi_rnf_node(rv5stage.imem,
+                       ~node: params.instruction_site,
+                       ~req_ingress: req_router.ingress,
+                       ~rsp_ingress: rsp_router.ingress,
+                       ~rsp_targets: rsp_router.target,
+                       ~snp_targets: snp_router.target,
+                       ~dat_ingress: dat_router.ingress,
+                       ~dat_targets: dat_router.target,
+                       ~adapters: params.adapter_plans)
+  connect_chi_rnf_node(rv5stage.dmem,
+                       ~node: params.data_site,
+                       ~req_ingress: req_router.ingress,
+                       ~rsp_ingress: rsp_router.ingress,
+                       ~rsp_targets: rsp_router.target,
+                       ~snp_targets: snp_router.target,
+                       ~dat_ingress: dat_router.ingress,
+                       ~dat_targets: dat_router.target,
+                       ~adapters: params.adapter_plans)
+  connect_chi_rni(rv5stage.umem,
+                  device_home.port.requester,
+                  ~node: params.uncached_site,
+                  ~icn: params.device_home_requester_site,
+                  ~req_ingress: req_router.ingress,
+                  ~req_targets: req_router.target,
+                  ~rsp_ingress: rsp_router.ingress,
+                  ~rsp_targets: rsp_router.target,
+                  ~dat_ingress: dat_router.ingress,
+                  ~dat_targets: dat_router.target,
+                  ~adapters: params.adapter_plans)
+  connect_chi_hn_requesters(home.port.requester,
+                            ~home: params.home_requester_site,
+                            ~req_targets: req_router.target,
+                            ~rsp_ingress: rsp_router.ingress,
+                            ~rsp_targets: rsp_router.target,
+                            ~snp_ingress: snp_router.ingress,
+                            ~dat_ingress: dat_router.ingress,
+                            ~dat_targets: dat_router.target,
+                            ~adapters: params.adapter_plans)
+  connect_chi_hn_subordinate(device_home.port.subordinate,
+                             ~home: params.device_home_subordinate_site,
+                             ~req_ingress: req_router.ingress,
+                             ~rsp_targets: rsp_router.target,
+                             ~dat_ingress: dat_router.ingress,
+                             ~dat_targets: dat_router.target,
+                             ~adapters: params.adapter_plans)
+  connect_chi_sn_node(bootrom.port,
+                      ~node: params.bootrom_site,
+                      ~req_targets: req_router.target,
+                      ~rsp_ingress: rsp_router.ingress,
+                      ~dat_targets: dat_router.target,
+                      ~dat_ingress: dat_router.ingress,
+                      ~adapters: params.adapter_plans)
+  connect_chi_sn_node(aclint.port,
+                      ~node: params.aclint_site,
+                      ~req_targets: req_router.target,
+                      ~rsp_ingress: rsp_router.ingress,
+                      ~dat_targets: dat_router.target,
+                      ~dat_ingress: dat_router.ingress,
+                      ~adapters: params.adapter_plans)
+  connect_chi_sn_node(plic.port,
+                      ~node: params.plic_site,
+                      ~req_targets: req_router.target,
+                      ~rsp_ingress: rsp_router.ingress,
+                      ~dat_targets: dat_router.target,
+                      ~dat_ingress: dat_router.ingress,
+                      ~adapters: params.adapter_plans)
+  connect_chi_sn_node(uart_device.port,
+                      ~node: params.uart_site,
+                      ~req_targets: req_router.target,
+                      ~rsp_ingress: rsp_router.ingress,
+                      ~dat_targets: dat_router.target,
+                      ~dat_ingress: dat_router.ingress,
+                      ~adapters: params.adapter_plans)
+  home.port.subordinate <=> memory
+  timebase.enable <== Bool(#true)
+  aclint.tick <== timebase.wrap
+  uart_device.rx <== uart.rx
+  uart.tx <== uart_device.tx
+  uart.interrupt <== uart_device.interrupt
+  plic.sources <== vec([uart_device.interrupt])
+  host.release |> boot.release
+  boot.start[0] |> rv5stage.start
+  rv5stage.interrupts <== RV5StageInterrupts():
+    supervisor_software: Bool(#false)
+    machine_software: aclint.machine_software[0]
+    supervisor_timer: Bool(#false)
+    machine_timer: aclint.machine_timer[0]
+    supervisor_external: plic.context_interrupts[1]
+    machine_external: plic.context_interrupts[0]
+  rv5stage.hart_id <== bits(0, 64)
+  rv5stage.time_counter <== aclint.time_counter
+
+export:
+  SingleCoreSystemParams
+  populate_single_core

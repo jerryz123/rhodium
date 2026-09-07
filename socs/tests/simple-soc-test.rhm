@@ -101,9 +101,3 @@ check:
   soc.simple_soc_bootrom_site.req.terminal.describe() ~is "devices/bootrom/req"
   soc.simple_soc_plic_site.req.terminal.describe() ~is "devices/plic/req"
   soc.simple_soc_uart_site.req.terminal.describe() ~is "devices/uart/req"
-  soc.SimpleSoCFabricParams(
-    "invalid-boot-payload",
-    0x90000000,
-    0x1000,
-    ~boot: soc.simple_soc_params.fabric.boot
-  ) ~throws "payload address"

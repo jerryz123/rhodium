@@ -60,6 +60,7 @@ check-boundaries:
 	bash chi/check-boundaries.sh
 	bash hardfloat/check-boundaries.sh
 	bash cores/check-boundaries.sh
+	bash socs/check-boundaries.sh
 
 check-example-verilog:
 	bash tools/check-example-verilog.sh

@@ -27,6 +27,17 @@ flowchart LR
 Keep reusable component internals in their owning packages. A SoC should
 configure and connect those public contracts, not fork their behavior.
 
+MiniSoC, SimpleSoC, and TiledSoC are independent top-level compositions.
+`single-core-system.rhdl` owns `SingleCoreSystemParams` and the
+`populate_single_core` elaboration helper. Parameters derive routing, endpoint
+identities, PMA, and descriptions from each caller's memory service and platform
+parameters. The helper emits the processor, chosen Home, routers, and platform
+devices directly into the caller; it adds no hardware wrapper. MiniSoC owns its
+RAM configuration, while SimpleSoC owns an external service and LLC geometry.
+`endpoint-params.rhdl` supplies host and ICN-peer descriptions shared with the
+tiled compiler. `make check-boundaries` rejects imports between peer SoCs and
+imports of named SoCs from shared components.
+
 ## Implementation map
 
 | Concern | Owner |
@@ -35,6 +46,8 @@ configure and connect those public contracts, not fork their behavior.
 | Concrete processor profiles and physical-address inputs shared with host generators | [`core-profiles.rhm`](core-profiles.rhm) |
 | Core-neutral catalog of concrete RISC-V UDB configurations | [`udb.rhm`](udb.rhm) |
 | Common coherent host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
+| Shared single-core parameter derivation and direct composition | [`single-core-system.rhdl`](single-core-system.rhdl) |
+| Shared host and ICN endpoint descriptions | [`endpoint-params.rhdl`](endpoint-params.rhdl) |
 | Shared BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
 | Primary external-memory composition | [`simple-soc.rhdl`](simple-soc.rhdl) |
 | Compact internal-memory composition | [`mini-soc.rhdl`](mini-soc.rhdl) |

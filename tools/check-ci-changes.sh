@@ -144,6 +144,7 @@ check_field tools/run-racket-tests.sh simulation true
 check_matrix_entry tools/check-parameter-annotations.rkt host_matrix ci-host-hygiene-test
 check_matrix_entry tools/parameter-annotation-scope.txt host_matrix ci-host-hygiene-test
 check_matrix_entry .githooks/pre-commit host_matrix ci-host-hygiene-test
+check_matrix_entry socs/check-boundaries.sh host_matrix ci-host-hygiene-test
 check_field tests/backend/verilog/adder_tb.sv circt true
 check_field sims/fesvr/direct_mem_htif.cc simulation true
 check_field sims/TestDriver.v simulation true

@@ -1,0 +1,37 @@
+#lang rhodium
+// Defines shared CHI endpoint descriptions for SoC hosts and their ICN peers.
+
+import:
+  lib("chi/main.rhdl") open
+
+fun requester_icn_endpoint(node :: CHINodeParams) :: CHIICNPortParams:
+  CHIICNPortParams(
+    node.name ++ "-icn",
+    node.node_id,
+    node.kind,
+    ~emits: node.supports,
+    ~supports: node.emits,
+    ~max_outstanding: node.max_outstanding
+  )
+
+fun soc_host_node(node_id :: Nat) :: CHINodeParams:
+  CHINodeParams(
+    "host",
+    node_id,
+    CHINodeKind.RNF,
+    ~emits: CHIChannelCapabilities(
+      ~req: [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl],
+      ~rsp: [CHIRspOpcode.SnpResp],
+      ~dat: [CHIDatOpcode.NonCopyBackWriteData]
+    ),
+    ~supports: CHIChannelCapabilities(
+      ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+      ~snp: chi_rnf_snoop_opcodes,
+      ~dat: [CHIDatOpcode.CompData]
+    ),
+    ~max_outstanding: 1
+  )
+
+export:
+  requester_icn_endpoint
+  soc_host_node

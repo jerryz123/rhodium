@@ -1,0 +1,63 @@
+#lang rhombus
+// Checks shared system parameter derivation with independent addresses, widths, and NodeIDs.
+
+import:
+  "../single-core-system.rhdl" open
+  "../endpoint-params.rhdl" open
+  "../../chi/main.rhdl" open
+  "../peripherals.rhdl" open
+  "../boot.rhdl" open
+
+def p = CHIFlitParams(~data_width: 256)
+def transfers = TransferSizes(1, 64)
+def memory = CHIICNPortParams(
+  "external-memory", 19, CHINodeKind.SNF,
+  ~emits: CHIChannelCapabilities(
+    ~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl],
+    ~dat: [CHIDatOpcode.NonCopyBackWriteData]
+  ),
+  ~supports: CHIChannelCapabilities(
+    ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+    ~dat: [CHIDatOpcode.CompData]
+  ),
+  ~max_outstanding: 2
+)
+def service = CHISubordinateServiceParams(
+  memory, [AddressSet(0x40000000, 0x1ffff)],
+  [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
+   CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
+   CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
+)
+
+fun system_params(base :: Nat = 0x40000000, instruction_id :: Nat = 12, payload :: Nat = 0x40000000) :: SingleCoreSystemParams:
+  SingleCoreSystemParams(
+    p, base, 0x20000, service,
+    CHIHomeParams("memory-home", 15, CHINodeKind.HNF, ~max_outstanding: 1),
+    soc_host_node(11),
+    SoCPlatformParams(p, 1,
+                      CHIHomeParams("device-home", 16, CHINodeKind.HNI, ~max_outstanding: 1),
+                      riscv_soc_boot_config(~payload_address: payload), 21, 20, 23, 22),
+    ~instruction_node_id: instruction_id, ~data_node_id: 13, ~uncached_node_id: 14
+  )
+
+def params = system_params()
+check:
+  params.flit.data_width ~is 256
+  params.memory_port.node_id ~is 19
+  params.home_map.entry(0x40000000).home.node_id ~is 15
+  params.home_map.entry(0x4001ffff).home.node_id ~is 15
+  params.home_map.entry(0x40020000) ~is #false
+  params.home_map.entry(SoCAclintBase).home.node_id ~is 16
+  params.rv5stage_config.flit.data_width ~is 256
+  params.home_params.subordinate_endpoint.node_id ~is 19
+  params.device_home_params.home.node_id ~is 16
+  params.instruction_site.node_id ~is 12
+  params.data_site.node_id ~is 13
+  params.uncached_site.node_id ~is 14
+  params.device_home_params.subordinate_map.entry(SoCAclintBase).target_node_id ~is 20
+  params.compilations.req.routes.map(fun (route): [route.source.node_id, route.destination.node_id]) ~is (
+    [[16, 20], [16, 21], [16, 23], [16, 22], [11, 15], [13, 15], [12, 15], [14, 16]]
+  )
+  system_params(0x50000000).memory_region ~throws "memory service must cover"
+  system_params(0x40000000, 12, 0x50000000).memory_region ~throws "payload address"
+  system_params(0x40000000, 11).home_config ~throws "requester NodeIDs must be unique"

@@ -209,7 +209,7 @@ classify_path() {
     tools/write-noc-router-diagram.rhm)
       mark_example_noc
       ;;
-    .githooks/pre-commit|tools/check-parameter-annotations.rkt|tools/parameter-annotation-scope.txt|tools/check-boundaries.sh|rfpl/check-boundaries.sh|noc/check-boundaries.sh|riscv/check-boundaries.sh|chi/check-boundaries.sh|cores/check-boundaries.sh)
+    .githooks/pre-commit|tools/check-parameter-annotations.rkt|tools/parameter-annotation-scope.txt|tools/check-boundaries.sh|rfpl/check-boundaries.sh|noc/check-boundaries.sh|riscv/check-boundaries.sh|chi/check-boundaries.sh|cores/check-boundaries.sh|socs/check-boundaries.sh)
       host_hygiene=true
       ;;
     rhodium/event/*)

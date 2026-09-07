@@ -178,9 +178,7 @@ RISC-V read, write, execute, cacheability, and atomic attributes with its CHI
 Home; the SoC derives the `CHIHomeMap` from those entries. Requests outside the
 table therefore trap in RV5Stage instead of entering CHI without a Home.
 
-`SimpleSoCFabric` factors the processor, Home module, NoC, BootROM, ACLINT, PLIC, and UART
-from the final memory termination, and accepts that Home as an ordinary host
-circuit parameter. `SimpleSoCParams` couples that fabric contract to the inclusive LLC
+`SimpleSoCParams` couples the shared `SingleCoreSystemParams` contract to the inclusive LLC
 geometry. The default selects a 64-set, four-way blocking LLC and exports
 line-capable `CHISNChannels` for SN-F NodeID 9 over the 1 GiB range
 `0x80000000..0xbfffffff`. The SoC contains no RAM, fragmenter, or simulator
@@ -188,13 +186,22 @@ binding; an external subordinate owns memory contents and response timing.
 
 ## MiniSoC
 
-[`mini-soc.rhdl`](mini-soc.rhdl) specializes `SimpleSoCFabric` as the small,
+[`mini-soc.rhdl`](mini-soc.rhdl) independently composes the small,
 self-contained system used for compact RTL and physical-design experiments. It
 uses a 64 KiB range, replaces the inclusive LLC with the forwarding `CHIHNF`,
 and terminates the native memory boundary directly in an on-chip, line-capable
 `CHIRam`. Its RV64 instruction and data caches are each explicitly 32-set,
 one-way direct-mapped caches with 2 KiB of line storage; `SimpleSoC` retains
 RV5Stage's default 64-set cache geometry.
+
+`MiniSoCParams` owns its `CHIRamParams`; `SimpleSoCParams` instead consumes an
+external `CHISubordinateServiceParams` through its shared system parameters.
+The SimpleSoC simulation harness selects the DPI memory implementation.
+Neither top level imports or instantiates another SoC. They share
+[`populate_single_core`](single-core-system.rhdl), which instantiates components
+directly in its caller without an intermediate `fabric/` or `system/` module.
+TiledSoC keeps its independent tile and mesh composition. See the
+[development guide](DEVELOPING.md#architecture-and-ownership) for shared source ownership.
 
 ## TiledSoC
 

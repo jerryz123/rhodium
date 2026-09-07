@@ -1,24 +1,14 @@
 #lang rhodium
-// Composes a host-facing RV5Stage, BootROM, routed platform devices, and external CHI memory.
+// Composes an independent single-core SoC with an inclusive LLC and external CHI memory.
 
 import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/counter.rhdl").Counter
   lib("chi/main.rhdl") open
-  lib("noc/authoring/main.rhm") open
-  lib("noc/language/main.rhm").topology
-  lib("noc/rtl/router.rhdl") open
-  lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   lib("cores/rv5stage/profile.rhm") open
-  lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
-  lib("cores/rv5stage/chi/foundation.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
-  lib("riscv/rtl/pma.rhdl") open
-  lib("devices/bootrom.rhdl") open
-  lib("devices/aclint.rhdl") open
-  lib("devices/plic.rhdl") open
-  lib("devices/uart16550.rhdl") open
+  "single-core-system.rhdl" open
+  "endpoint-params.rhdl" open
   "host-interface.rhdl".SoCHostInterface
   "boot.rhdl" open
   "description.rhm" open
@@ -30,137 +20,36 @@ def simple_soc_home = CHIHomeParams("simple-home", 5, CHINodeKind.HNF, ~max_outs
 def simple_soc_device_home = CHIHomeParams("simple-device-home", 6, CHINodeKind.HNI, ~max_outstanding: 1)
 def simple_soc_memory_base = 0x80000000
 def simple_soc_memory_bytes = 0x40000000
-def simple_soc_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
 def simple_soc_clocks = SoCClockConfig(
   ~clock_frequency_hz: 100000000,
   ~timebase_frequency_hz: 100000000
 )
-def simple_soc_host_node = CHINodeParams(
-  "host",
-  1,
-  CHINodeKind.RNF,
+def simple_soc_host_node = soc_host_node(1)
+def simple_soc_host_port = requester_icn_endpoint(simple_soc_host_node)
+def simple_soc_memory_transfers = TransferSizes(1, 64)
+def simple_soc_memory_node = CHINodeParams(
+  "simple-memory", 9, CHINodeKind.SNF,
   ~emits: CHIChannelCapabilities(
-    ~req: [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl],
-    ~rsp: [CHIRspOpcode.SnpResp],
-    ~dat: [CHIDatOpcode.NonCopyBackWriteData]
-  ),
-  ~supports: CHIChannelCapabilities(
     ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
-    ~snp: chi_rnf_snoop_opcodes,
     ~dat: [CHIDatOpcode.CompData]
   ),
-  ~max_outstanding: 1
+  ~supports: CHIChannelCapabilities(
+    ~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl],
+    ~dat: [CHIDatOpcode.NonCopyBackWriteData]
+  ),
+  ~max_outstanding: 2
 )
-
-fun requester_icn_endpoint(node :: CHINodeParams) :: CHIICNPortParams:
-  CHIICNPortParams(
-    node.name ++ "-icn",
-    node.node_id,
-    node.kind,
-    ~emits: node.supports,
-    ~supports: node.emits,
-    ~max_outstanding: node.max_outstanding
-  )
-
-def simple_soc_host_port = requester_icn_endpoint(simple_soc_host_node)
-// Collects every fabric parameter that changes with the normal-memory range
-// so on-chip and external-memory SoCs can configure that range independently.
-class SimpleSoCFabricParams(memory_name :: NonemptyString,
-                            memory_base :: Nat,
-                            memory_bytes :: Pow2Int,
-                            boot :: SoCBootConfig):
-  implements StableCircuitParam
-
-  property flit: simple_soc_flit
-  property platform:
-    SoCPlatformParams(flit,
-                      1,
-                      simple_soc_device_home,
-                      boot,
-                      12,
-                      10,
-                      13,
-                      11)
-  property rv5stage_config:
-    RV5StageCHIConfig(
-      flit,
-      [RV5StageCHIRegion(
-         RiscvPhysicalMemoryRegion(
-           AddressSet(memory_base, memory_bytes - 1),
-           simple_soc_memory_attributes
-         ),
-         simple_soc_home
-       )] ++ platform.regions
-    )
-  property home_map: rv5stage_config.home_map
-  property rv5stage_params:
-    RV5StageCHIParams(rv5stage_config, 2, 3, ~uncached_node_id: 4)
-  property instruction_port:
-    requester_icn_endpoint(rv5stage_params.instruction_node)
-  property data_port:
-    requester_icn_endpoint(rv5stage_params.data_node)
-  property uncached_port:
-    requester_icn_endpoint(rv5stage_params.uncached_node)
-  property ram_config:
-    CHIRamConfig(flit,
-                 memory_bytes,
-                 ~max_outstanding: 2,
-                 ~max_transfer_bytes: 64)
-  property ram_params:
-    CHIRamParams(memory_name,
-                 9,
-                 ram_config,
-                 ~base_address: memory_base,
-                 ~kind: CHINodeKind.SNF)
-  property memory_transfers: ram_config.transfers
-  property memory_requests: ram_config.requests
-  property memory_node: ram_params.node
-  property memory_port: ram_params.icn_port
-  property memory_service: ram_params.service
-  property home_config:
-    CHIHNFConfig(
-      flit,
-      [simple_soc_host_port, instruction_port, data_port],
-      memory_bytes - 1,
-      memory_requests
-    )
-  property home_params:
-    CHIHNFParams(simple_soc_home,
-                 home_config,
-                 memory_port,
-                 memory_service)
-  property device_home_params:
-    platform.home_params([uncached_port])
-
-  method description(model :: NonemptyString,
-                     compatible :: NonemptyList.of(NonemptyString),
-                     core_profile :: RVCoreProfile,
-                     clocks :: SoCClockConfig):
-    RiscvSoCDescription(
-      ~model: model,
-      ~compatible: compatible,
-      ~harts: [0],
-      ~core_profile: core_profile,
-      ~clocks: clocks,
-      ~memory_regions: [SoCAddressRegion(memory_service.address_sets[0])],
-      ~boot: platform.boot_description,
-      ~aclint: platform.aclint_description,
-      ~plic: platform.plic_description,
-      ~uart: platform.uart_description
-    )
-
-  constructor (memory_name :: NonemptyString,
-               memory_base :: Nat,
-               memory_bytes :: Pow2Int,
-               ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory_base)):
-    unless AddressSet(memory_base, memory_bytes - 1).contains(boot.payload_address)
-    | error(~who: #'SimpleSoCFabricParams,
-            "BootROM payload address must lie in normal memory")
-    super(memory_name, memory_base, memory_bytes, boot)
+def simple_soc_memory_service = CHISubordinateServiceParams(
+  requester_icn_endpoint(simple_soc_memory_node),
+  [AddressSet(simple_soc_memory_base, simple_soc_memory_bytes - 1)],
+  [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, simple_soc_memory_transfers),
+   CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, simple_soc_memory_transfers),
+   CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, simple_soc_memory_transfers)]
+)
 
 // Couples the external-memory fabric contract with the inclusive LLC geometry
 // selected by the complete SimpleSoC composition.
-class SimpleSoCParams(fabric :: SimpleSoCFabricParams,
+class SimpleSoCParams(fabric :: SingleCoreSystemParams,
                       core_profile :: RVCoreProfile,
                       clocks :: SoCClockConfig,
                       llc_sets :: Pow2Int,
@@ -181,7 +70,7 @@ class SimpleSoCParams(fabric :: SimpleSoCFabricParams,
                        core_profile,
                        clocks)
 
-  constructor (fabric :: SimpleSoCFabricParams,
+  constructor (fabric :: SingleCoreSystemParams,
                ~core_profile: core_profile :: RVCoreProfile = simple_soc_core_profile,
                ~clocks: clocks :: SoCClockConfig = simple_soc_clocks,
                ~llc_sets: llc_sets :: Pow2Int,
@@ -191,9 +80,13 @@ class SimpleSoCParams(fabric :: SimpleSoCFabricParams,
     super(fabric, core_profile, clocks, llc_sets, llc_ways)
 
 def simple_soc_params = SimpleSoCParams(
-  SimpleSoCFabricParams("simple-memory",
-                        simple_soc_memory_base,
-                        simple_soc_memory_bytes),
+  SingleCoreSystemParams(
+    simple_soc_flit, simple_soc_memory_base, simple_soc_memory_bytes,
+    simple_soc_memory_service, simple_soc_home, simple_soc_host_node,
+    SoCPlatformParams(simple_soc_flit, 1, simple_soc_device_home,
+                      riscv_soc_boot_config(~payload_address: simple_soc_memory_base),
+                      12, 10, 13, 11)
+  ),
   ~llc_sets: 64,
   ~llc_ways: 4
 )
@@ -203,17 +96,8 @@ def simple_soc_rv5stage_params = simple_soc_params.fabric.rv5stage_params
 def simple_soc_instruction_port = simple_soc_params.fabric.instruction_port
 def simple_soc_data_port = simple_soc_params.fabric.data_port
 def simple_soc_uncached_port = simple_soc_params.fabric.uncached_port
-def simple_soc_ram_config = simple_soc_params.fabric.ram_config
-def simple_soc_ram_params = simple_soc_params.fabric.ram_params
-def simple_soc_memory_transfers = simple_soc_params.fabric.memory_transfers
 def simple_soc_memory_requests = simple_soc_params.fabric.memory_requests
-def simple_soc_memory_node = simple_soc_params.fabric.memory_node
 def simple_soc_memory_port = simple_soc_params.fabric.memory_port
-def simple_soc_memory_service = CHISubordinateServiceParams(
-  simple_soc_memory_port,
-  [AddressSet(simple_soc_memory_base, simple_soc_memory_bytes - 1)],
-  simple_soc_memory_requests
-)
 def simple_soc_home_config = simple_soc_params.fabric.home_config
 def simple_soc_home_params = simple_soc_params.fabric.home_params
 def simple_soc_device_home_params = simple_soc_params.fabric.device_home_params
@@ -227,226 +111,27 @@ def simple_soc_plic_params = simple_soc_platform.plic
 def simple_soc_uart_config = simple_soc_platform.uart_config
 def simple_soc_uart_params = simple_soc_platform.uart
 
-// The logical RN-I/RN-F relationships compile independently onto the four
-// transport planes while sharing one physical single-router topology.
-def simple_soc_topology = topology:
-  node xbar
-def simple_soc_router = simple_soc_topology.node("xbar")
-def simple_soc_host_site = CHIRNSite(NamePath(["requesters", "host"]),
-                                     simple_soc_host_node.node_id,
-                                     simple_soc_router)
-def simple_soc_instruction_site = CHIRNSite(NamePath(["requesters", "rv5stage-l1i"]),
-                                            simple_soc_rv5stage_params.instruction_node_id,
-                                            simple_soc_router)
-def simple_soc_data_site = CHIRNSite(NamePath(["requesters", "rv5stage-l1d"]),
-                                     simple_soc_rv5stage_params.data_node_id,
-                                     simple_soc_router)
-def simple_soc_uncached_site = CHIRNSite(NamePath(["requesters", "rv5stage-uncached"]),
-                                         simple_soc_rv5stage_params.uncached_node_id,
-                                         simple_soc_router)
-def simple_soc_home_requester_site = CHIRNICNSite(NamePath(["home", "requesters"]),
-                                                  simple_soc_home.node_id,
-                                                  simple_soc_router)
-def simple_soc_device_home_requester_site = CHIRNICNSite(
-  NamePath(["device-home", "requesters"]),
-  simple_soc_device_home.node_id,
-  simple_soc_router
-)
-def simple_soc_device_home_subordinate_site = CHISNICNSite(
-  NamePath(["device-home", "subordinate"]),
-  simple_soc_device_home.node_id,
-  simple_soc_router
-)
-def simple_soc_bootrom_site = CHISNSite(NamePath(["devices", "bootrom"]),
-                                        simple_soc_bootrom_params.node.node_id,
-                                        simple_soc_router)
-def simple_soc_aclint_site = CHISNSite(NamePath(["devices", "aclint"]),
-                                       simple_soc_aclint_params.node.node_id,
-                                       simple_soc_router)
-def simple_soc_plic_site = CHISNSite(NamePath(["devices", "plic"]),
-                                     simple_soc_plic_params.node.node_id,
-                                     simple_soc_router)
-def simple_soc_uart_site = CHISNSite(NamePath(["devices", "uart"]),
-                                     simple_soc_uart_params.node.node_id,
-                                     simple_soc_router)
-def simple_soc_connections = [
-  CHIRNFConnection(simple_soc_host_site, simple_soc_home_requester_site),
-  CHIRNFConnection(simple_soc_instruction_site, simple_soc_home_requester_site),
-  CHIRNFConnection(simple_soc_data_site, simple_soc_home_requester_site),
-  CHIRNIConnection(simple_soc_uncached_site,
-                   simple_soc_device_home_requester_site),
-  CHISNConnection(simple_soc_device_home_subordinate_site,
-                  simple_soc_bootrom_site),
-  CHISNConnection(simple_soc_device_home_subordinate_site,
-                  simple_soc_aclint_site),
-  CHISNConnection(simple_soc_device_home_subordinate_site,
-                  simple_soc_plic_site),
-  CHISNConnection(simple_soc_device_home_subordinate_site,
-                  simple_soc_uart_site)
-]
-def simple_soc_compilations = compile_chi_connections(
-  simple_soc_topology,
-  simple_soc_connections,
-  uniform_chi_routing(deny_all)
-)
-def simple_soc_adapter_plans = compile_chi_channel_adapter_plans(simple_soc_compilations,
-                                                                 simple_soc_flit)
-def simple_soc_snp_compilation :: CHIChannelCompilation = simple_soc_compilations.snp
-def simple_soc_req_router_config :: SimpleRouterConfig = compile_simple_router(
-  simple_soc_compilations.req.network.router_plan(simple_soc_router)
-)
-def simple_soc_rsp_router_config :: SimpleRouterConfig = compile_simple_router(
-  simple_soc_compilations.rsp.network.router_plan(simple_soc_router)
-)
-def simple_soc_snp_router_config :: SimpleRouterConfig = compile_simple_router(
-  simple_soc_snp_compilation.network.router_plan(simple_soc_router)
-)
-def simple_soc_dat_router_config :: SimpleRouterConfig = compile_simple_router(
-  simple_soc_compilations.dat.network.router_plan(simple_soc_router)
-)
-
-sync_circuit SimpleSoCFabric(params :: SimpleSoCFabricParams,
-                             description :: RiscvSoCDescription,
-                             ~home: home_module = CHIHNF(params.home_config)):
-  interface host(SoCHostInterface(simple_soc_flit), ~role: soc)
-  interface memory(CHISNChannels(simple_soc_flit), ~role: icn)
-  interface uart(SoCUartInterface(), ~role: soc)
-
-  inst rv5stage(RV5Stage(description.core_profile, ~chi: params.rv5stage_config))
-  inst home(home_module)
-  inst device_home(CHIHNI(params.device_home_params))
-  inst bootrom(CHIBootROM(params.platform.bootrom.rom_config(description)))
-  inst aclint(Aclint(params.platform.aclint_config))
-  inst plic(Plic(params.platform.plic_config))
-  inst uart_device(Uart16550(params.platform.uart_config))
-  inst boot(SoCBootDistributor(64, 1, params.boot.reset_address))
-  inst timebase(Counter(description.clocks.timebase_period_cycles))
-  inst req_router(SimpleRouter(CHIReqFlit(simple_soc_flit), simple_soc_req_router_config))
-  inst rsp_router(SimpleRouter(CHIRspFlit(simple_soc_flit), simple_soc_rsp_router_config))
-  inst snp_router(SimpleRouter(CHISnpFlit(simple_soc_flit), simple_soc_snp_router_config))
-  inst dat_router(SimpleRouter(CHIDatFlit(simple_soc_flit), simple_soc_dat_router_config))
-
-  rv5stage.chi_identity <== RV5StageCHIIdentity(simple_soc_flit):
-    instruction_node_id: bits(params.rv5stage_params.instruction_node_id, simple_soc_flit.node_id_width)
-    data_node_id: bits(params.rv5stage_params.data_node_id, simple_soc_flit.node_id_width)
-    uncached_node_id: bits(params.rv5stage_params.uncached_node_id, simple_soc_flit.node_id_width)
-  home.identity <== CHIHNFIdentity(simple_soc_flit):
-    home_node_id: bits(params.home_params.home.node_id, simple_soc_flit.node_id_width)
-    subordinate_node_id: bits(params.home_params.subordinate_endpoint.node_id, simple_soc_flit.node_id_width)
-    service_base: bits(params.memory_base, simple_soc_flit.request_address_width)
-  bootrom.identity <== CHIBootROMIdentity(simple_soc_flit):
-    node_id: bits(params.platform.bootrom.rom_params.node.node_id, simple_soc_flit.node_id_width)
-    base_address: bits(params.boot.reset_address, simple_soc_flit.request_address_width)
-  aclint.identity <== AclintIdentity(simple_soc_flit):
-    node_id: bits(params.platform.aclint.node.node_id, simple_soc_flit.node_id_width)
-    base_address: bits(params.platform.aclint.base_address, simple_soc_flit.request_address_width)
-  plic.identity <== PlicIdentity(simple_soc_flit):
-    node_id: bits(params.platform.plic.node.node_id, simple_soc_flit.node_id_width)
-    base_address: bits(params.platform.plic.base_address, simple_soc_flit.request_address_width)
-  uart_device.identity <== Uart16550Identity(simple_soc_flit):
-    node_id: bits(params.platform.uart.node.node_id, simple_soc_flit.node_id_width)
-    base_address: bits(params.platform.uart.base_address, simple_soc_flit.request_address_width)
-
-  connect_chi_rnf_node(host.memory,
-                       ~node: simple_soc_host_site,
-                       ~req_ingress: req_router.ingress,
-                       ~rsp_ingress: rsp_router.ingress,
-                       ~rsp_targets: rsp_router.target,
-                       ~snp_targets: snp_router.target,
-                       ~dat_ingress: dat_router.ingress,
-                       ~dat_targets: dat_router.target,
-                       ~adapters: simple_soc_adapter_plans)
-  connect_chi_rnf_node(rv5stage.imem,
-                       ~node: simple_soc_instruction_site,
-                       ~req_ingress: req_router.ingress,
-                       ~rsp_ingress: rsp_router.ingress,
-                       ~rsp_targets: rsp_router.target,
-                       ~snp_targets: snp_router.target,
-                       ~dat_ingress: dat_router.ingress,
-                       ~dat_targets: dat_router.target,
-                       ~adapters: simple_soc_adapter_plans)
-  connect_chi_rnf_node(rv5stage.dmem,
-                       ~node: simple_soc_data_site,
-                       ~req_ingress: req_router.ingress,
-                       ~rsp_ingress: rsp_router.ingress,
-                       ~rsp_targets: rsp_router.target,
-                       ~snp_targets: snp_router.target,
-                       ~dat_ingress: dat_router.ingress,
-                       ~dat_targets: dat_router.target,
-                       ~adapters: simple_soc_adapter_plans)
-  connect_chi_rni(rv5stage.umem,
-                  device_home.port.requester,
-                  ~node: simple_soc_uncached_site,
-                  ~icn: simple_soc_device_home_requester_site,
-                  ~req_ingress: req_router.ingress,
-                  ~req_targets: req_router.target,
-                  ~rsp_ingress: rsp_router.ingress,
-                  ~rsp_targets: rsp_router.target,
-                  ~dat_ingress: dat_router.ingress,
-                  ~dat_targets: dat_router.target,
-                  ~adapters: simple_soc_adapter_plans)
-  connect_chi_hn_requesters(home.port.requester,
-                            ~home: simple_soc_home_requester_site,
-                            ~req_targets: req_router.target,
-                            ~rsp_ingress: rsp_router.ingress,
-                            ~rsp_targets: rsp_router.target,
-                            ~snp_ingress: snp_router.ingress,
-                            ~dat_ingress: dat_router.ingress,
-                            ~dat_targets: dat_router.target,
-                            ~adapters: simple_soc_adapter_plans)
-  connect_chi_hn_subordinate(device_home.port.subordinate,
-                             ~home: simple_soc_device_home_subordinate_site,
-                             ~req_ingress: req_router.ingress,
-                             ~rsp_targets: rsp_router.target,
-                             ~dat_ingress: dat_router.ingress,
-                             ~dat_targets: dat_router.target,
-                             ~adapters: simple_soc_adapter_plans)
-  connect_chi_sn_node(bootrom.port,
-                      ~node: simple_soc_bootrom_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: simple_soc_adapter_plans)
-  connect_chi_sn_node(aclint.port,
-                      ~node: simple_soc_aclint_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: simple_soc_adapter_plans)
-  connect_chi_sn_node(plic.port,
-                      ~node: simple_soc_plic_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: simple_soc_adapter_plans)
-  connect_chi_sn_node(uart_device.port,
-                      ~node: simple_soc_uart_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: simple_soc_adapter_plans)
-  home.port.subordinate <=> memory
-  timebase.enable <== Bool(#true)
-  aclint.tick <== timebase.wrap
-  uart_device.rx <== uart.rx
-  uart.tx <== uart_device.tx
-  uart.interrupt <== uart_device.interrupt
-  plic.sources <== vec([uart_device.interrupt])
-  host.release |> boot.release
-  boot.start[0] |> rv5stage.start
-  rv5stage.interrupts <== RV5StageInterrupts():
-    supervisor_software: Bool(#false)
-    machine_software: aclint.machine_software[0]
-    supervisor_timer: Bool(#false)
-    machine_timer: aclint.machine_timer[0]
-    supervisor_external: plic.context_interrupts[1]
-    machine_external: plic.context_interrupts[0]
-  rv5stage.hart_id <== bits(0, 64)
-  rv5stage.time_counter <== aclint.time_counter
+def simple_soc_topology = simple_soc_params.fabric.topology
+def simple_soc_router = simple_soc_params.fabric.router
+def simple_soc_host_site = simple_soc_params.fabric.host_site
+def simple_soc_instruction_site = simple_soc_params.fabric.instruction_site
+def simple_soc_data_site = simple_soc_params.fabric.data_site
+def simple_soc_uncached_site = simple_soc_params.fabric.uncached_site
+def simple_soc_home_requester_site = simple_soc_params.fabric.home_requester_site
+def simple_soc_device_home_requester_site = simple_soc_params.fabric.device_home_requester_site
+def simple_soc_device_home_subordinate_site = simple_soc_params.fabric.device_home_subordinate_site
+def simple_soc_bootrom_site = simple_soc_params.fabric.bootrom_site
+def simple_soc_aclint_site = simple_soc_params.fabric.aclint_site
+def simple_soc_plic_site = simple_soc_params.fabric.plic_site
+def simple_soc_uart_site = simple_soc_params.fabric.uart_site
+def simple_soc_connections = simple_soc_params.fabric.connections
+def simple_soc_compilations = simple_soc_params.fabric.compilations
+def simple_soc_adapter_plans = simple_soc_params.fabric.adapter_plans
+def simple_soc_snp_compilation = simple_soc_params.fabric.snp_compilation
+def simple_soc_req_router_config = simple_soc_params.fabric.req_router_config
+def simple_soc_rsp_router_config = simple_soc_params.fabric.rsp_router_config
+def simple_soc_snp_router_config = simple_soc_params.fabric.snp_router_config
+def simple_soc_dat_router_config = simple_soc_params.fabric.dat_router_config
 
 // Exposes the fabric's line-capable subordinate channels while leaving storage
 // and response timing to the external SN-F implementation.
@@ -457,13 +142,7 @@ sync_circuit SimpleSoC(params :: SimpleSoCParams = simple_soc_params):
   interface uart(SoCUartInterface(), ~role: soc)
 
   def HomeModule = CHIInclusiveHNF(params.llc_config)
-  inst fabric(SimpleSoCFabric(fabric_params,
-                              params.description,
-                              ~home: HomeModule))
-
-  host <=> fabric.host
-  fabric.memory <=> memory
-  uart <=> fabric.uart
+  populate_single_core(fabric_params, params.description, host, memory, uart, ~home: HomeModule)
 
 def design = elaborate(SimpleSoC())
 
@@ -477,18 +156,14 @@ export:
   simple_soc_clocks
   simple_soc_home_map
   simple_soc_host_node
-  SimpleSoCFabricParams
   SimpleSoCParams
   simple_soc_params
   simple_soc_rv5stage_config
   simple_soc_rv5stage_params
-  requester_icn_endpoint
   simple_soc_host_port
   simple_soc_instruction_port
   simple_soc_data_port
   simple_soc_uncached_port
-  simple_soc_ram_config
-  simple_soc_ram_params
   simple_soc_memory_transfers
   simple_soc_memory_requests
   simple_soc_memory_node
@@ -527,6 +202,5 @@ export:
   simple_soc_rsp_router_config
   simple_soc_snp_router_config
   simple_soc_dat_router_config
-  SimpleSoCFabric
   SimpleSoC
   design
