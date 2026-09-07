@@ -32,7 +32,7 @@ Contributors changing the core should read
 
 The integer decode includes RV32I/RV64I, A, B, M, Zicond, Zimop, Zicsr, Zifencei, and
 the supported privileged instructions. Optional Zicbop decode turns its
-otherwise legal `ORI x0` hints into best-effort Execute-side prefetch events.
+otherwise legal `ORI x0` hints into best-effort WB-authorized prefetch events.
 Optional C expansion follows the
 selected XLEN and FP profile; RV32F or RV64F and RV64D rows, plus optional
 Zfhmin, Zfh, and Zfa rows, are added only by their matching FP specialization. Zicntr
@@ -60,14 +60,14 @@ flowchart LR
         IDEX["ID/EX<br/>feed-forward ValidPipe"]
         EX["Execute (EX)<br/>forwarding, branch, AGU"]
         EXMEM["EX/MEM<br/>feed-forward ValidPipe"]
-        MEM["Memory (MEM)<br/>DTLB, request, redirect, replay"]
+        MEM["Memory (MEM)<br/>prepared request, redirect, bypass"]
         MEMWB["MEM/WB<br/>feed-forward ValidPipe"]
         WB["Writeback (WB)<br/>ordered commit"]
 
         IF --> FQ --> IFID --> ID --> IDEX --> EX --> EXMEM --> MEM --> MEMWB --> WB
     end
 
-    MEM -->|"load / store / AMO"| LSU["DTLB + PMA<br/>L1D or uncached path"]
+    WB -->|"load / store / AMO"| LSU["DTLB + PMA<br/>L1D or uncached path"]
     LSU -->|"integer load / AMO result"| COMPLETE["Deferred GPR<br/>completion arbiter"]
 
     WB -->|"issue at WB"| MUL["Multiplier"]
@@ -75,8 +75,8 @@ flowchart LR
     MUL --> COMPLETE
     DIV --> COMPLETE
 
-    EX -->|"FP compute issue"| FP["FP side pipeline<br/>scoreboard and execution"]
-    EX -->|"best-effort prefetch"| PREFETCH["Registered VA → TLB probe + PMA<br/>Registered PA → L1I or L1D admission"]
+    WB -->|"FP compute issue"| FP["FP side pipeline<br/>scoreboard and execution"]
+    WB -->|"best-effort prefetch"| PREFETCH["Registered VA → TLB probe + PMA<br/>Registered PA → L1I or L1D admission"]
     LSU -->|"FP load completion"| FP
     FP -->|"integer result"| COMPLETE
     FP --> FPR["FP register file"]
@@ -88,8 +88,8 @@ flowchart LR
     WB -. "bypass" .-> EX
 
     SCORE["Integer and FP scoreboards"] -. "RAW / WAW stalls" .-> ID
-    EX -->|"reserve FP compute destination"| SCORE
-    MEM -->|"reserve FP load destination"| SCORE
+    WB -->|"reserve FP compute destination"| SCORE
+    WB -->|"reserve FP load destination"| SCORE
     WB -->|"reserve scalar deferred destination"| SCORE
     COMPLETE -->|"release GPR destination"| SCORE
     FP -->|"release FPR destination"| SCORE
@@ -106,11 +106,11 @@ flowchart LR
 |---|---|---:|---|
 | Fetch | Five-entry `Queue`, then IF/ID `Pipe` | Yes | Producer-owned PC generation, L1I request correlation, and redirect flushing |
 | Decode | ID/EX `ValidPipe` | No | Structured decode, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
-| Execute | EX/MEM `ValidPipe` | No | Live operand reads, forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP compute dispatch, and structural replay |
-| Memory | MEM/WB `ValidPipe` | No | DTLB lookup, PMA/cache request, data-fault classification, branch recovery, replay generation, and bypass |
-| Writeback | Ordered commit | At defined architectural waits | Scalar register and CSR effects, traps, fences, and scalar deferred-destination reservation |
+| Execute | EX/MEM `ValidPipe` | No | Live operand reads, forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP operand preparation, and structural replay |
+| Memory | MEM/WB `ValidPipe` | No | Prepared-request staging, branch recovery, early fault/replay squash, and bypass |
+| Writeback | Ordered commit | At defined architectural waits | Memory/FP dispatch, translation and access faults, replay, register/CSR effects, traps, fences, and deferred reservations |
 
-Within MEM, the nonbackpressured pipeline token uses `Valid` flow transforms
+Within the pipeline, the nonbackpressured pipeline token uses `Valid` flow transforms
 for fanout, filtering, and payload mapping. Ready-sensitive architectural
 decisions remain explicit: in particular, an L1D request that is not ready
 becomes a replay, so its request boundary must not turn readiness into EX/MEM
@@ -130,34 +130,38 @@ the next edge. ID/EX stores register indices rather than captured values;
 Execute reads the integer register file live and applies MEM and WB forwarding.
 
 Once Execute transfers an instruction into EX/MEM, no later scalar stage can
-backpressure it. Execute registers branch decisions, effective virtual
-addresses, request metadata, and locally classified faults. Memory then performs
-the DTLB lookup and physical-memory request. An accepted request continues as a
-deferred operation, a page or access fault becomes the token's precise
-exception, and any other unaccepted attempt becomes a side-effect-free replay
-token. Memory immediately squashes younger work; replay reaches WB in order and
-redirects Fetch to the original PC. Branch recovery also occurs from the
-registered EX/MEM result.
+backpressure it. Execute prepares branch decisions, effective virtual addresses,
+integer and FP operands, and locally classified faults. Memory stages those
+values and performs branch recovery and integer bypass; it does not authorize
+memory requests or FP execution.
 
-WB is the ordered scalar commit point. Scalar loads, atomics, multiply, and
-divide reserve a GPR destination there. FP compute destinations are reserved
-when their non-speculative EX-side request is accepted; FP-load destinations
-are reserved when their data request is accepted in MEM. A deferred instruction
-can release the scalar pipeline before its value returns. Younger independent
-instructions may then complete first, but they still issue through the ordered
-scalar pipeline. This is in-order issue and scalar commit with out-of-order
-register completion, not out-of-order instruction issue.
+WB is the boundary where an instruction becomes nonspeculative. Loads, stores,
+LR/SC, AMOs, block zero, FP execution, and prefetch hints issue only from WB.
+This includes loads because a translated address may select a side-effecting
+device. CSR changes, fences, integer writes, and deferred destination reservations
+also occur at WB or later. Early operand reads, instruction fetching, translation
+bookkeeping, and autonomous cache/coherence activity are not architectural
+instruction effects and remain independent.
+
+A WB memory attempt performs translation and permission checks. A page/access
+fault traps without authorizing a physical request; an unavailable resource
+replays from the original PC without retirement or destination reservation.
+Accepted requests execute exactly once and are never replayed. FP computation
+uses the same accepted-or-replay rule. Deferred results can finish after younger
+independent instructions, but all dispatch and scalar retirement remain ordered.
+Late CHI bus-error handling remains the separate existing transport contract;
+this boundary does not introduce a reorder buffer or precise late bus faults.
 
 ## Execution and completion
 
 | Result class | Dispatch point | Completion path |
 |---|---|---|
 | Integer ALU, branch link, immediate, and ordinary CSR result | Scalar pipeline | Ordinary WB register-file port |
-| Load or atomic result | Memory request accepted in MEM; GPR reserved at WB | L1D or uncached response to the deferred completion arbiter |
+| Load or atomic result | Memory request and GPR reservation accepted at WB | L1D or uncached response to the deferred completion arbiter |
 | Multiply or divide | Execution resource reserved in Decode; GPR reserved and request issued at WB | Deferred completion arbiter |
-| FP result targeting an integer register | FP request and GPR reservation accepted from EX | FP completion to deferred completion arbiter |
-| FP result targeting an FP register | FP request and FPR reservation accepted from EX | FP pipeline's internal FP register-file port |
-| FP load | Memory request and FPR reservation accepted in MEM | Memory response to FP pipeline's load port |
+| FP result targeting an integer register | FP request and GPR reservation accepted at WB | FP completion to deferred completion arbiter |
+| FP result targeting an FP register | FP request and FPR reservation accepted at WB | FP pipeline's internal FP register-file port |
+| FP load | Memory request and FPR reservation accepted at WB | Memory response to FP pipeline's load port |
 
 The fixed-priority deferred arbiter gives integer memory responses priority
 because they cannot be backpressured. Multiplier, divider, and FP integer
@@ -179,15 +183,15 @@ flushes retained, queued, or outstanding wrong-path data on redirects.
 
 The optional [FP subsystem](fp/README.md) owns the FP register file, FPR
 scoreboard, execution lanes, LSU bridges, and completion arbitration. FP
-requests attempt dispatch from EX while their scalar tokens continue to WB. A
-structurally rejected request becomes an ordered replay; an accepted request is
-non-speculative and must eventually complete. FP state updates accrue exception
+requests attempt dispatch at WB. A structurally rejected request replays without
+retirement or reservation; an accepted request is nonspeculative and must
+eventually complete. FP state updates accrue exception
 flags and mark `mstatus.FS` dirty.
 
 FP loads and stores share the scalar address generator, MMU, PMA checks, ordered
-L1D, and uncached path. An FP load reserves its destination only when its MEM
-request is accepted. Decode launches an FP store's one-cycle register-file read
-as the instruction enters ID/EX, aligning its data with the instruction in EX;
+L1D, and uncached path. An FP load reserves its destination only when its WB
+request is accepted. Decode probes an FP store's one-cycle register-file read
+while the instruction is present, aligning its data with the instruction in EX;
 a missing or stale response replays instead of holding EX. The cache data path
 remains XLEN-wide: half and single stores occupy its low 16 or 32 bits, and half
 and single loads are NaN-boxed into
@@ -202,9 +206,10 @@ instructions may proceed while a load, multiply, divide, or FP result remains
 outstanding. D-cache responses are ordered, and a blocking miss prevents younger
 memory requests from entering the cache even when non-memory work can pass it.
 
-A data request never carries downstream readiness back through EX/MEM. If MEM
-cannot accept it because of a DTLB miss, walker ownership, cache pressure, or an
-unavailable FP-load reservation, the scalar token advances to WB as a replay.
+A data request never carries downstream readiness back through EX/MEM. If WB
+cannot dispatch it because of a DTLB miss, walker ownership, cache pressure, or
+an unavailable FP-load reservation, WB squashes younger work and refetches the
+instruction without retiring it.
 The initial DTLB-miss attempt is still sufficient to start the page-table walk;
 subsequent refetches replay until the translation or other resource is ready.
 
@@ -224,10 +229,11 @@ CSR instructions return the old value and update state atomically at WB. System
 instructions serialize in Decode and wait for older deferred work before
 entering the pipeline. Execute-detected exceptions cross EX/MEM before Memory
 squashes younger work. Data page and access faults are instead classified from
-the registered virtual request in MEM. Both paths carry the faulting instruction
-to WB, where CSR state records EPC, cause, and trap value. Eligible interrupts
-stop Fetch and Decode, drain accepted scalar and register-producing deferred
-work, and enter the trap after the last retired instruction. A legal `WFI`
+the registered virtual request at WB. CSR state records EPC, cause, and trap
+value after older authorized memory and register-producing work has drained.
+Eligible interrupts stop Fetch and Decode, drain the scalar pipeline and all
+authorized memory/compute work, and enter the trap after the last retired
+instruction. A legal `WFI`
 retires at that same serialization boundary and then holds Fetch and Decode
 until an individually enabled interrupt becomes pending. WFI wakeup ignores
 global interrupt-enable and delegation state; an eligible interrupt enters its
@@ -419,7 +425,7 @@ in-pipeline memory instructions and accepted memory work. Block zero does not
 provide instruction-cache synchronization; modified code still needs FENCE.I.
 
 With Zicbop enabled, `RV5StageCore` computes the virtual prefetch address in
-Execute and emits `Valid(CachePrefetchReq(xlen.width))`. This event has no
+Execute and, at WB, emits `Valid(CachePrefetchReq(xlen.width))`. This event has no
 backpressure, response, or architectural-fault path. `RV5StageMmu` translates
 Bare addresses or probes the operation-selected existing TLB entry; a miss,
 permission denial, non-cacheable PMA, or intended-operation PMA denial drops

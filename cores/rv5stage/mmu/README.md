@@ -26,7 +26,7 @@ Contributors changing translation or page-walk integration should read
 | Page sizes | 4 KiB, 2 MiB, and 1 GiB Sv39 leaves |
 | Miss service | One shared, serialized, non-speculative walk; instruction misses have priority |
 | Page-table traffic | One 64-bit physical load at a time through the ordinary data-memory path |
-| Data-miss recovery | A miss starts the walker and leaves the MEM request unaccepted; the core refetches it through ordered replay |
+| Data-miss recovery | A miss starts the walker and leaves the WB request unaccepted; the core refetches it through ordered replay |
 | Permission policy | Recheck access kind, current effective privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit |
 | Prefetch policy | Bare or existing ITLB/DTLB hit only; any fetch/load/store PTE permission; ignore A/D; silently drop every rejection |
 | Invalidation | Whole-ITLB and whole-DTLB invalidation; any active walk and correlated fault are canceled |
@@ -54,7 +54,7 @@ timing is unchanged. See the cache guides for structural admission and buffering
 ```mermaid
 flowchart LR
   FETCH["Core Fetch<br/>virtual request"] --> ILOOKUP["ITLB lookup"]
-  LSU["Core MEM<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
+  LSU["Core WB<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
   FETCH -->|"early virtual SRAM index"| L1I
   LSU -->|"early virtual SRAM index"| L1D
 
@@ -133,7 +133,7 @@ cancels either kind of walk and clears both TLBs and any correlated fault.
    and RV64 `satp.MODE` selects Sv39.
 2. Ordinary loads and LR use an Sv39 load permission check. Stores, SC, and AMOs
    use a store check because their `MemoryOperation` requires unique ownership.
-3. A DTLB miss keeps `request.ready` low. The core's feed-forward MEM stage does
+3. A DTLB miss keeps `request.ready` low. The core's feed-forward WB stage does
    not hold the request: the attempt starts the walker, becomes an ordered replay
    token, squashes younger work, and is refetched from its original PC. A Fetch
    flush does not cancel the active data walk. If an instruction miss is also
@@ -200,7 +200,10 @@ data port exclusively:
   walker-response ownership bit;
 - the next physical data response is routed to the walker while that bit is
   set, and otherwise to the core; and
-- `data.drained` remains false while a walk or correlated fault is active.
+- `data.drained` remains false while a walk or physical data operation is
+  active. A saved fault awaiting replay does not prevent draining; it remains
+  correlated with its address until consumed or invalidated. This lets WB
+  take an interrupt or trap without waiting for a speculative retry.
 
 This is serialization at the MMU data-port boundary, not a second cache
 protocol. L1D's own blocking-miss and response rules remain in the
@@ -269,7 +272,7 @@ returns the walker to Idle without publishing a completion.
 | Misaligned instruction target or scalar data address | Address-misaligned fault | Parent [`core.rhdl`](../core.rhdl), outside the MMU |
 | L1 cache hit, miss, refill, coherence, or replacement behavior | Not a translation fault source | The cache subsystem; both cache protocols leave translation and PMA faults to their callers |
 
-The parent core converts the MMU's page/access signals in MEM into the exact
+The parent core converts the MMU's page/access signals at WB into the exact
 exception cause. `MemoryOperation.needs_unique()` selects store-class causes for
 Store, SC, and AMO; Load and LR use load-class causes. Trap priority and
 `stval`/`mtval` updates belong to the

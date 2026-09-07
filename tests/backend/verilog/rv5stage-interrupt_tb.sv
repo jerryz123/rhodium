@@ -1,4 +1,4 @@
-// Verifies RV5Stage drains older work and takes a machine interrupt precisely.
+// Verifies WB-authorized stores drain before precise machine interrupt entry.
 module rv5stage_interrupt_tb;
   typedef struct packed {
     logic supervisor_software;
@@ -68,6 +68,7 @@ module rv5stage_interrupt_tb;
   logic timer_asserted;
   logic handler_mepc_seen;
   logic [8:0] cycles;
+  integer store_completion_delay;
 
   RV5StageCore dut (.prefetch_out(), .*);
   always #5 clock = ~clock;
@@ -104,7 +105,7 @@ module rv5stage_interrupt_tb;
     data_access_in.request_fault = 1'b0;
     data_access_in.request_access_fault = 1'b0;
     data_access_in.response = '0;
-    data_access_in.drained = 1'b1;
+    data_access_in.drained = store_completion_delay == 0;
   end
 
   always_ff @(posedge clock) begin
@@ -116,8 +117,13 @@ module rv5stage_interrupt_tb;
       timer_asserted <= 1'b0;
       handler_mepc_seen <= 1'b0;
       cycles <= '0;
+      store_completion_delay <= 0;
     end else begin
       cycles <= cycles + 1'b1;
+      if (store_completion_delay != 0) begin
+        store_completion_delay <= store_completion_delay - 1;
+        assert (mstatus[3]) else $fatal(1, "interrupt entered before an authorized store drained");
+      end
       if (instruction_access_out.flush)
         instruction_response_valid <= 1'b0;
       else begin
@@ -141,6 +147,7 @@ module rv5stage_interrupt_tb;
               else $fatal(1, "timer was asserted before interrupt enables committed");
             interrupts.machine_timer <= 1'b1;
             timer_asserted <= 1'b1;
+            store_completion_delay <= 20;
           end
           64'd8: begin
             assert (data_access_out.request.bits.data == 64'd2)

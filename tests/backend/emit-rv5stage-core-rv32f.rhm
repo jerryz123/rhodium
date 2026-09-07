@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits the integrated RV32F core for focused CIRCT lowering checks.
+// Emits the RV32F core with prefetch hints for WB authorization checks.
 
 import:
   "../../rhodium/backend/circt.rhm" open
@@ -12,7 +12,7 @@ import:
 def design = embedded.run_elaboration(
   fun (): RV5StageCore(RVCoreProfile(
     ~xlen: XLen.X32,
-    ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F)
+    ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F, ~zicbop: #true)
   ))
 )
 print(emit_circt(design))

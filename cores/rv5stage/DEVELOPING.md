@@ -48,6 +48,11 @@ each other; share external transaction machinery through the CHI package.
    or top-level composition.
 2. Preserve single-issue ordered scalar commit while tracking every deferred
    register-producing operation through its scoreboard and completion path.
+   WB is the authorization boundary for all instruction side effects: memory
+   requests (including potentially side-effecting reads), FP compute, prefetch
+   hints, and destination reservations must not issue from EX or MEM. Rejection
+   replays before acceptance; accepted operations must never be replayed. Keep
+   operand reads and autonomous coherence service independent of authorization.
 3. Add architectural state and serialization rules before integrating an
    execution unit that depends on them. Keep F/D/Zfh specialization host-side
    so disabled hardware elaborates away.
@@ -100,6 +105,18 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For WB authorization and scalar/FP integration, run:
+
+```sh
+FIXTURES='rv5stage-core rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-zicboz rv5stage-interrupt rv5stage-wfi' \
+  bash tests/backend/run-circt.sh --simulate-only
+```
+
+The RV32F/RV64D benches exercise rejected memory dispatch, committed prefetches,
+deferred FP and atomic completion, FP stores/loads, CSR flags, and suppression of younger
+FP/register/memory effects behind a data fault. Keep these behavioral checks
+at the core boundary rather than depending on generated internal signal names.
+
 For Zicboz, keep permission/fault ownership above the cache, and exercise
 both XLEN SRAM sequences as well as the one-completion uncached sequence:
 
@@ -123,7 +140,7 @@ make rv5stage-host-test
 ```
 
 For datapath, cache, pipeline, and state behavior, run `make rv5stage-test` or
-select the narrowest backend fixture. Exercise MEM-stage fault classification
+select the narrowest backend fixture. Exercise WB-stage fault classification
 or WFI control flow specifically with:
 
 ```sh

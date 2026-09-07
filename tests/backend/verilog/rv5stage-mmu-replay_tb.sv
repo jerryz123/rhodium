@@ -365,8 +365,8 @@ module rv5stage_mmu_replay_tb;
       else $fatal(1, "cached permission fault was not accepted locally");
     @(posedge clock);
     #1 data_request_valid = 1'b0;
-    assert (!data_out.drained)
-      else $fatal(1, "unrelated permission fault consumed the pending walker fault");
+    assert (data_out.drained)
+      else $fatal(1, "saved replay fault prevented architectural drain");
 
     @(negedge clock);
     page_fault_phase = 1'b1;

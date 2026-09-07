@@ -206,7 +206,8 @@ sync_circuit RV5StageFpPipeline(
   def issue_fire = issue.fire()
 
   // The third read port is shared by accepted execution and store-read events.
-  // Store data advances as a one-cycle pulse aligned with the scalar ID/EX.
+  // Store reads are speculative operand preparation; execution issue and load
+  // reservations are authorized by scalar WB before they can modify FP state.
   def store_source_free = !register_busy(store_request.bits.rs)
   def store_request_safe = !issue.valid & store_source_free
   inst stores(ValidPipe(RV5StageFpStoreResponse(Context), 1))
@@ -220,9 +221,9 @@ sync_circuit RV5StageFpPipeline(
   registers.read_address_1 <== issue.bits.frs1
   registers.read_address_2 <== issue.bits.frs2
   registers.read_address_3 <== mux(
-    store_request.valid & !issue.valid,
-    store_request.bits.rs,
-    issue.bits.frs3
+    issue.valid,
+    issue.bits.frs3,
+    store_request.bits.rs
   )
   when (store_request.valid & store_request_safe):
     assert((store_request.bits.precision =/= RV5StageFloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_store_precision_supported")
@@ -288,7 +289,9 @@ sync_circuit RV5StageFpPipeline(
     assert(or_reduce(outstanding) ||| issue_fire,
            "rv5stage_fp_completion_has_issue")
   assert(outstanding <= bits(8, 4), "rv5stage_fp_outstanding_in_range")
-  drained <== !or_reduce(outstanding) & !or_reduce(busy_state) & !store_response.valid
+  // Speculative store-operand probes are not authorized work and must not
+  // prevent a trap or interrupt from draining accepted FP operations.
+  drained <== !or_reduce(outstanding) & !or_reduce(busy_state)
 
 export:
   RV5StageDisabledFpPipeline

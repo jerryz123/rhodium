@@ -15,10 +15,15 @@ completion, one-cycle `Valid` store request/response pulses, a `Valid`
 architectural-state update, the FPR busy mask, and a drained indicator. The
 disabled implementation rejects FP work and reports itself drained.
 
-Accepted compute requests must eventually complete even though their scalar
-tokens can continue to WB. The subsystem retains ownership of an FP destination
+Drained describes accepted execution and load reservations, not speculative
+store-operand probes. Those read-only probes may repeat while Decode waits;
+they do not delay an architectural trap or interrupt.
+
+Compute requests are authorized at scalar WB; rejected attempts replay without
+retirement or reservation. Accepted requests must eventually complete after
+their scalar tokens retire. The subsystem retains ownership of an FP destination
 until its fixed-latency, division/square-root, or load result completes. FP
-loads reserve their destination when the memory request is accepted. FP stores
+loads reserve their destination when the memory request is accepted at WB. FP stores
 launch a register-file read from Decode and return a one-cycle response aligned
 with the store in EX. If that response is absent or belongs to another token,
 the scalar pipeline replays the store instead of holding EX.

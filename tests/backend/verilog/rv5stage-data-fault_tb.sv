@@ -1,4 +1,4 @@
-// Verifies a MEM-stage data access fault traps without replaying or reserving its destination.
+// Verifies a WB-stage data access fault traps without replaying or reserving its destination.
 module rv5stage_data_fault_tb;
   typedef struct packed {
     logic supervisor_software;
@@ -133,7 +133,7 @@ module rv5stage_data_fault_tb;
         end else begin
           assert (data_access_out.request.bits.access == MEMORY_STORE &&
                   data_access_out.request.bits.address != 64'd32)
-            else $fatal(1, "younger work escaped the MEM-stage data fault");
+            else $fatal(1, "younger work escaped the WB-stage data fault");
           if (stores_seen == 0) begin
             assert (faulting_load_seen && data_access_out.request.bits.address == 64'd24 &&
                     data_access_out.request.bits.data == 64'd9)
@@ -148,7 +148,7 @@ module rv5stage_data_fault_tb;
             assert (stores_seen == 2 && data_access_out.request.bits.address == 64'd16 &&
                     data_access_out.request.bits.data == 64'd0)
               else $fatal(1, "data access fault mtval was not the virtual address");
-            $display("RV5Stage precise MEM-stage data access fault passed");
+            $display("RV5Stage precise WB-stage data access fault passed");
             $finish;
           end
         end

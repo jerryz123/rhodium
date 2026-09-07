@@ -194,6 +194,7 @@ module rv5stage_fp_pipeline_tb;
     assert (store_response_out.valid);
     assert (store_response_out.bits.context_0 == 8'h3c);
     assert (store_response_out.bits.data == 64'h3ff0000000000000);
+    assert (drained) else $fatal(1, "read-only operand probe blocked architectural drain");
     @(posedge clock);
     @(negedge clock);
     #1;

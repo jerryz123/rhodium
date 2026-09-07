@@ -3,6 +3,7 @@
 
 import:
   "../../riscv/isa/xlen.rhm" open
+  "../../riscv/isa/fp-profile.rhm" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../cache-prefetch.rhdl" open
@@ -19,6 +20,7 @@ import:
   "dcache/protocol.rhdl" open
   "multiply.rhdl" open
   "divide.rhdl" open
+  "fp/bundles.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
 
 bundle FetchDecode(xlen :: XLen):
@@ -79,6 +81,9 @@ bundle ExecuteMemory(xlen :: XLen):
   replay: Bool
   data_request_valid: Bool
   data_request: RV5StageDataReq(xlen)
+  fp_compute: Bool
+  fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
+  prefetch: CachePrefetchReq(xlen.width)
   writeback_source: WritebackSelect
   writeback_enable: Bool
   rd: Bits(5)
@@ -98,6 +103,11 @@ bundle MemoryWriteback(xlen :: XLen):
   resume_pc: Bits(xlen.width)
   instruction: Bits(32)
   replay: Bool
+  data_request_valid: Bool
+  data_request: RV5StageDataReq(xlen)
+  fp_compute: Bool
+  fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
+  prefetch: CachePrefetchReq(xlen.width)
   writeback_source: WritebackSelect
   write_enable: Bool
   rd: Bits(5)
