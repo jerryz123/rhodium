@@ -30,6 +30,7 @@ systems cannot reuse another system's generated RTL.
 | Verilator VPI/DPI binding | [`verilator/`](verilator/) |
 | Clock, reset, UART pins, and exit | [`TestDriver.v`](TestDriver.v) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
+| ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
 | CHI simulation memory | [`../chi/dpi-memory.rhdl`](../chi/dpi-memory.rhdl) and [`../chi/dpi/`](../chi/dpi/) |
 
 ## Add or change a harness
@@ -50,6 +51,31 @@ systems cannot reuse another system's generated RTL.
    when operators gain a new `SOC`, command, argument, or artifact location.
 
 ## Focused validation
+
+The ACT flow is included from `arch-test/Makefile.inc`. Each
+`arch-test/configs/<name>.mk` selects a UDB catalog entry, a simulator, and the
+platform RAM window. Add future platforms through these entries; processor
+extension policy stays in the owning core's UDB projection. The common
+`configure.py` writes generated UDB consumer files, using the pinned Sail
+default schema and explicit UDB mappings. Reject unsupported architecture
+shapes before producing reference results. Extend the projection and its
+validation before enabling other suites or privileged tests.
+
+Generated YAML, Sail JSON, linker scripts, headers, ELFs, and logs stay in the
+ACT build root. Keep the upstream submodule unmodified. When updating its
+revision, check the required Sail version, bundled UDB gems, and header/runner
+contracts together. The shared linker layout keeps test data addresses equal
+between Sail signature payloads and self-checking DUT payloads; model-specific
+text and HTIF mailboxes follow test data and stack.
+
+Run `make -C sims arch-test-adapter-test` for completion-protocol regression
+checks using system Python and no ACT dependencies; the simulation CI job runs
+this target. Run `make -C sims arch-test` for real I-suite execution. The latter is
+an explicit optional toolchain workflow; it is not added to routine CI in this
+initial integration. When changing the driver, also run the existing smoke
+and exercise a small `+max-cycles` timeout. See the
+[operator guide](README.md#architectural-certification-tests) for setup and
+current coverage limits.
 
 Run host binding checks with:
 

@@ -245,6 +245,8 @@ jobs:
           make -C sims dpi-compile-check VERILATOR_ROOT="$verilator_root"
       - name: Test FESVR transport
         run: make -C sims transport-test
+      - name: Test ACT completion adapter
+        run: make -C sims arch-test-adapter-test
       - name: Build reusable SoC simulators
         run: |
           make -C sims simulator SOC=simple

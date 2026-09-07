@@ -1,6 +1,7 @@
 # Ignore generated compiler, simulator, and platform files.
 
 compiled/
+__pycache__/
 obj_dir/
 .tools/
 .DS_Store

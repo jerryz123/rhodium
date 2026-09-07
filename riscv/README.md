@@ -249,6 +249,11 @@ Initialize it and its test-environment submodule after cloning Rhodium:
 git submodule update --init --recursive riscv/riscv-isa-tests
 ```
 
+[`riscv-arch-test/`](riscv-arch-test/) separately pins the UDB-driven ACT4
+framework. The [simulation ACT workflow](../sims/README.md#architectural-certification-tests)
+owns its setup, generated configuration, reference-model execution, and DUT
+runner. Both upstream test repositories are retained.
+
 The submodule supplies architectural sources and standard target environments.
 Simulator-specific selection, building, and execution belong under
 [`../sims/`](../sims/README.md); neither the pure model nor the adapter imports

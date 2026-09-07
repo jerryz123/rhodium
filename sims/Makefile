@@ -41,6 +41,8 @@ SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -
 
 all: simulator
 
+include arch-test/Makefile.inc
+
 setup:
 	$(FESVR_DIR)/install.sh
 

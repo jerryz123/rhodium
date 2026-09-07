@@ -71,8 +71,8 @@ omissions such as assembler-only aliases as explicit public limits. When an
 upstream specification changes, compare encodings and legality conditions
 before updating the stated version; do not infer conformance from names alone.
 
-The `riscv-isa-tests` submodule is an architectural-test source, not a package
-dependency. Simulator-specific selection and execution remain owned by
+The `riscv-isa-tests` and `riscv-arch-test` submodules supply upstream test
+sources, not package dependencies. Simulator-specific selection and execution remain owned by
 [`../sims/`](../sims/README.md).
 
 ## Focused validation

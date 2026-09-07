@@ -120,6 +120,57 @@ those private ready-valid DPI signals into coherent CHI `ReadClean` and
 and `tohost`/`fromhost` polling therefore observe dirty RV5Stage cache lines
 without reserving a special mailbox address range.
 
+## Architectural certification tests
+
+The initial ACT4 integration runs the unprivileged RV64I suite on `simple-soc`.
+It uses the [generated UDB catalog](../socs/README.md#risc-v-udb-configuration-catalog)
+to select the DUT architecture and Sail to compute expected results. Install
+Python 3.10+, Ruby 3.2+ with Bundler, and GCC 15+ with Binutils 2.44+ first:
+
+```sh
+make -C sims arch-test-setup
+make -C sims arch-test ACT_CONFIGURATION=simple-soc
+```
+
+Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
+initializes the pinned `riscv/riscv-arch-test` submodule, installs Python and
+Ruby dependencies under `.tools/`, and downloads checksum-verified Sail 0.13.1
+for Apple Silicon macOS or x86-64/AArch64 Linux. Normal simulator dependencies
+are still required; see [Build a simulator](#build-a-simulator).
+On Apple Silicon it also installs native Z3 5.0.0 in the local UDB cache,
+working around the pinned UDB installer's Linux-only library download.
+
+`arch-test-config` only prepares and validates the Sail/platform files;
+`arch-test-elfs` also validates UDB through ACT and generates self-checking
+ELFs. `arch-test` builds the selected simulator and executes those ELFs through
+ACT's upstream runner; `arch-test-run` reruns existing ELFs without regenerating
+the bundle. An empty ELF directory is an error. Outputs and per-test logs live under
+`/tmp/rhodium-arch-test`; set `ACT_BUILD_ROOT` to change that location.
+`ACT_SAIL`, `ACT_VENV`, and `ACT_BUNDLE_PATH` select installed tool locations.
+`RISCV_CC` and `ACT_OBJDUMP` select compiler tools.
+
+The initial adapter fixes selection to `I` and disables privileged tests.
+It projects extension support and the parameters needed by integer tests and
+M-mode startup into Sail; it is not yet a complete UDB-to-Sail projection.
+The full DUT device and PMA map is not modeled for this stage. Sail retains
+the reference-only interrupt devices required by ACT; DUT interrupt hooks
+fail if invoked. Expanding the suite requires extending and validating that
+projection.
+
+The runner translates confirmed HTIF completion into ACT's `RVCP-SUMMARY`
+protocol. Console printing macros are empty, so failures currently report
+completion status and simulator logs without ACT's detailed mismatch console.
+`ACT_MAX_CYCLES` defaults to ten million cycles; `ACT_TIMEOUT` defaults to 300
+seconds per ELF. `ACT_JOBS` defaults to one simulator at a time. The shared
+driver also accepts `HTIF_ARGS='+permissive +max-cycles=N +permissive-off'`
+for ordinary `run`; the permissive brackets keep FESVR from treating a
+simulator option as the ELF name.
+
+These tests complement the separate `riscv/riscv-isa-tests` (`riscv-tests`)
+source dependency. A passing integer run does not establish full architectural
+certification. Upstream documents the framework in the
+[ACT4 guide](https://github.com/riscv/riscv-arch-test/blob/act4/README.md).
+
 ## Focused validation
 
 Run the genuine execution smoke for any system:
