@@ -1,4 +1,4 @@
-// Exercises invalid boot-address requests and write-data identity/mask checks.
+// Exercises request legality and shared subordinate early-data, identity, and mask rejection.
 module boot_address_invalid_case #(parameter int MODE = 0);
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
@@ -52,14 +52,17 @@ module boot_address_invalid_case #(parameter int MODE = 0);
       do @(posedge clock); while (!port_out.req.ready);
       @(negedge clock);
       port_in.req.valid = 0;
-      port_in.rsp.response.ready = 1;
-      do @(posedge clock); while (!port_out.rsp.response.valid);
-      @(negedge clock);
+      if (MODE != 7) begin
+        port_in.rsp.response.ready = 1;
+        do @(posedge clock); while (!port_out.rsp.response.valid);
+        @(negedge clock);
+      end
       port_in.rsp.response.ready = 0;
       port_in.dat.request.valid = 1;
       port_in.dat.request.bits.opcode = NON_COPY_BACK_WRITE_DATA;
       port_in.dat.request.bits.src_id = MODE == 3 ? REQUESTER_ID + 1 : REQUESTER_ID;
-      port_in.dat.request.bits.tgt_id = BOOT_ID;
+      port_in.dat.request.bits.tgt_id = MODE == 6 ? BOOT_ID + 1 : BOOT_ID;
+      port_in.dat.request.bits.txn_id = MODE == 5 ? 12'h1 : 12'h0;
       port_in.dat.request.bits.byte_enable = MODE == 4 ? 16'h001f : 16'h000f;
     end
     @(posedge clock);
@@ -86,4 +89,13 @@ module boot_address_source_tb;
 endmodule
 module boot_address_mask_tb;
   boot_address_invalid_case #(.MODE(4)) test_case();
+endmodule
+module boot_address_dbid_tb;
+  boot_address_invalid_case #(.MODE(5)) test_case();
+endmodule
+module boot_address_target_tb;
+  boot_address_invalid_case #(.MODE(6)) test_case();
+endmodule
+module boot_address_early_data_tb;
+  boot_address_invalid_case #(.MODE(7)) test_case();
 endmodule

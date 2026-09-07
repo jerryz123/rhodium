@@ -14,6 +14,15 @@ address placement, PMA and Home routing, clock/tick policy, and interrupt
 wiring. Simulators own terminal processes, executable harnesses, and other
 host policy.
 
+Boot-address, ACLINT, PLIC, and UART16550 delegate their single-beat CHI
+transaction lifetime to [`CHISingleBeatSubordinate`](../chi/single-beat-subordinate.rhdl).
+Devices retain decode, read snapshots, request-acceptance side effects, and
+DAT-acceptance writes. PLIC claims and UART FIFO/read-to-clear effects must not
+move to response acceptance. UART TX space drives the engine's write readiness;
+mask policies retain their original gating versus assertion-only behavior.
+BootROM remains a separate read-only multibeat endpoint. See the
+[CHI developer guide](../chi/DEVELOPING.md) for the engine boundary and tests.
+
 Keep synthesizable devices independent of a particular core or SoC. Keep a
 host model behind a narrow DPI boundary and pair it with synthesizable-facing
 Rhodium logic; do not put DPI calls in a SoC.

@@ -75,13 +75,6 @@ bundle AclintIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
   base_address: Bits(p.request_address_width)
 
-hardware_enum AclintState:
-  Idle
-  ReadResponse
-  WriteDBID
-  WriteData
-  WriteResponse
-
 fun aclint_byte_mask(mask :: Bits(8)) :~ Bits(64):
   def enables = mask.as_vec(Bool)
   vec(
@@ -107,19 +100,18 @@ sync_circuit Aclint(config :: AclintConfig):
   output machine_software: Vec(hart_count, Bool)
   output machine_timer: Vec(hart_count, Bool)
 
-  reg state(~init: AclintState.Idle)
-  reg request(CHIReqFlit(p))
-  reg read_response_data(Bits(p.data_width))
+  inst transaction(CHISingleBeatSubordinate(p, "aclint"))
+  port <=> transaction.port
+  transaction.node_id <== identity.node_id
+  def request = transaction.request
   reg mtime(~init: bits(0, 64))
   reg mtimecmp(Vec(hart_count, Bits(64)), ~init: initial_mtimecmp)
   reg msip(Vec(hart_count, Bool), ~init: vec(
     for List (_index in 0..hart_count): Bool(#false)
   ))
 
-  def idle = state === AclintState.Idle
   def incoming = port.req.bits
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
-  def ordinary_request = incoming_opcode =/= CHIReqOpcode.ReqLCrdReturn
   def incoming_write = incoming_opcode.is_initial_write()
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
   def incoming_in_window = (incoming.address >= identity.base_address) & !or_reduce(
@@ -130,8 +122,8 @@ sync_circuit Aclint(config :: AclintConfig):
   ) & (
     incoming.tgt_id === identity.node_id
   )
-  port.req.ready <== !ordinary_request ||| (idle & incoming_supported)
-  def request_fire = port.req.fire() & ordinary_request
+  transaction.request_supported <== incoming_supported
+  def request_fire = transaction.request_fire
   def incoming_relative :: Bits(AclintAddressWidth) = incoming_relative_full[0..AclintAddressWidth]
   def request_relative_full :: Bits(p.request_address_width) = request.address - identity.base_address
   def request_relative :: Bits(AclintAddressWidth) = request_relative_full[0..AclintAddressWidth]
@@ -173,47 +165,16 @@ sync_circuit Aclint(config :: AclintConfig):
     if data_bytes == 8 | selected_value | selected_value.zext(p.data_width)
   def register_read_data = widened_selected_value << register_shift
 
-  def incoming_data = port.dat.request.bits
-  def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
-  def write_data_expected = state === AclintState.WriteData
-  def write_data_supported = (incoming_data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (
-    incoming_data.txn_id === bits(0, 12)
-  ) & (incoming_data.src_id === request.src_id) & (incoming_data.tgt_id === identity.node_id)
-  port.dat.request.ready <== !ordinary_data ||| (write_data_expected & write_data_supported)
-  def write_data_fire = port.dat.request.fire() & ordinary_data
+  transaction.write_supported <== Bool(#true)
+  transaction.write_ready <== Bool(#true)
+  def write_data_fire = transaction.write_data_fire
   // The update stream carries the state that becomes visible after this edge,
   // allowing sparse consumers to capture the new timer value without polling.
   def mtime_write = write_data_fire & mtime_access
   def written_mtime = masked_merge(mtime, write_value, write_mask)
   def incremented_mtime = mtime + bits(1, 64)
 
-  def dbid_response = chi_sn_dbid_response(p, identity.node_id, request, bits(0, 1))
-  def write_completion = chi_sn_write_completion(p, identity.node_id, request, bits(0, 1))
-  port.rsp.valid <== (state === AclintState.WriteDBID) ||| (state === AclintState.WriteResponse)
-  port.rsp.bits <== mux(state === AclintState.WriteDBID, dbid_response, write_completion)
-  def response_fire = port.rsp.fire()
-  def dbid_fire = response_fire & (state === AclintState.WriteDBID)
-  def write_response_fire = response_fire & (state === AclintState.WriteResponse)
-
-  port.dat.response.valid <== state === AclintState.ReadResponse
-  port.dat.response.bits <== chi_sn_read_completion(p,
-                                                    identity.node_id,
-                                                    request,
-                                                    chi_line_data_id(request.address, p),
-                                                    read_response_data)
-  def read_response_fire = port.dat.response.fire()
-
-  when request_fire:
-    request <== incoming
-    state <== mux(incoming_write, AclintState.WriteDBID, AclintState.ReadResponse)
-    when (!incoming_write):
-      read_response_data <== register_read_data
-  elsewhen dbid_fire:
-    state <== AclintState.WriteData
-  elsewhen write_data_fire:
-    state <== AclintState.WriteResponse
-  elsewhen (read_response_fire ||| write_response_fire):
-    state <== AclintState.Idle
+  transaction.read_data <== register_read_data
 
   when mtime_write:
     mtime <== written_mtime
@@ -232,11 +193,6 @@ sync_circuit Aclint(config :: AclintConfig):
     for List (index in 0..hart_count): mtime >= mtimecmp[index]
   )
 
-  when (port.req.valid & ordinary_request):
-    assert(incoming_supported, "aclint_request_supported")
-  when (port.dat.request.valid & ordinary_data):
-    assert(write_data_expected, "aclint_write_data_expected")
-    assert(write_data_supported, "aclint_write_data_supported")
 
 export:
   AclintAddressWidth
@@ -248,5 +204,4 @@ export:
   AclintConfig
   AclintParams
   AclintIdentity
-  AclintState
   Aclint

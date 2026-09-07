@@ -1,0 +1,76 @@
+#lang rhodium
+// Owns one-at-a-time CHI MMIO transaction sequencing while devices supply decode, snapshots, and write policy.
+
+import:
+  lib("support/annotations.rhm").NonemptyString
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl") open
+  lib("chi/protocol.rhdl") open
+  lib("chi/channels.rhdl").CHISNChannels
+  lib("chi/messages.rhdl") open
+
+hardware_enum CHISingleBeatPhase:
+  Idle
+  ReadResponse
+  WriteDBID
+  WriteData
+  WriteResponse
+
+sync_circuit CHISingleBeatSubordinate(p :: CHIFlitParams, label :: NonemptyString):
+  interface port(CHISNChannels(p), ~role: node)
+  input node_id: Bits(p.node_id_width)
+  input request_supported: Bool
+  input read_data: Bits(p.data_width)
+  input write_supported: Bool
+  input write_ready: Bool
+  output request: CHIReqFlit(p)
+  output request_fire: Bool
+  output write_data_expected: Bool
+  output write_data_fire: Bool
+
+  reg phase(~init: CHISingleBeatPhase.Idle)
+  reg saved_request(CHIReqFlit(p))
+  reg saved_read_data(Bits(p.data_width))
+  request <== saved_request
+
+  def incoming = port.req.bits
+  def incoming_opcode :: CHIReqOpcode = incoming.opcode
+  def ordinary_request = incoming_opcode =/= CHIReqOpcode.ReqLCrdReturn
+  port.req.ready <== !ordinary_request ||| ((phase === CHISingleBeatPhase.Idle) & request_supported)
+  request_fire <== port.req.fire() & ordinary_request
+  def incoming_write = incoming_opcode.is_initial_write()
+
+  def data = port.dat.request.bits
+  def ordinary_data = data.opcode =/= CHIDatOpcode.DataLCrdReturn
+  write_data_expected <== phase === CHISingleBeatPhase.WriteData
+  def supported = (data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (data.txn_id === bits(0, 12)) & (data.src_id === saved_request.src_id) & (data.tgt_id === node_id) & write_supported
+  port.dat.request.ready <== !ordinary_data ||| (write_data_expected & supported & write_ready)
+  write_data_fire <== port.dat.request.fire() & ordinary_data
+
+  def dbid = phase === CHISingleBeatPhase.WriteDBID
+  port.rsp.valid <== dbid ||| (phase === CHISingleBeatPhase.WriteResponse)
+  port.rsp.bits <== mux(dbid, chi_sn_dbid_response(p, node_id, saved_request, bits(0, 1)), chi_sn_write_completion(p, node_id, saved_request, bits(0, 1)))
+  port.dat.response.valid <== phase === CHISingleBeatPhase.ReadResponse
+  port.dat.response.bits <== chi_sn_read_completion(p, node_id, saved_request, chi_line_data_id(saved_request.address, p), saved_read_data)
+
+  when request_fire:
+    saved_request <== incoming
+    phase <== mux(incoming_write, CHISingleBeatPhase.WriteDBID, CHISingleBeatPhase.ReadResponse)
+    when (!incoming_write):
+      saved_read_data <== read_data
+  elsewhen (port.rsp.fire() & dbid):
+    phase <== CHISingleBeatPhase.WriteData
+  elsewhen write_data_fire:
+    phase <== CHISingleBeatPhase.WriteResponse
+  elsewhen (port.rsp.fire() ||| port.dat.response.fire()):
+    phase <== CHISingleBeatPhase.Idle
+
+  when (port.req.valid & ordinary_request):
+    assert(request_supported, label ++ "_request_supported")
+  when (port.dat.request.valid & ordinary_data):
+    assert(write_data_expected, label ++ "_write_data_expected")
+    assert(supported, label ++ "_write_data_supported")
+
+export:
+  CHISingleBeatSubordinate

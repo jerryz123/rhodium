@@ -6,6 +6,7 @@ import:
   lib("chi/flits.rhdl") open
   lib("chi/protocol.rhdl") open
   lib("chi/messages.rhdl") open
+  lib("chi/single-beat-subordinate.rhdl") open
   lib("chi/coherence.rhdl") open
   lib("chi/transaction.rhdl") open
   lib("chi/coherent-transaction.rhdl") open
@@ -165,6 +166,7 @@ export:
   chi_sn_dbid_response
   chi_sn_write_completion
   chi_sn_read_completion
+  CHISingleBeatSubordinate
   chi_rn_write_data
   chi_home_downstream_request
   chi_hnf_snoop_write_data

@@ -887,10 +887,12 @@ run_expected_assertion_failure chi-cache-maintenance \
 run_expected_assertion_failure chi-ram chi_ram_invalid_tb \
   tests/backend/verilog/chi-ram-invalid_tb.sv \
   chi_ram_request_address_supported
-for boot_address_case in hole alignment size source mask; do
+for boot_address_case in hole alignment size source mask dbid target early_data; do
   boot_address_assertion=boot_address_request_supported
-  if [[ "$boot_address_case" == source || "$boot_address_case" == mask ]]; then
+  if [[ "$boot_address_case" == source || "$boot_address_case" == mask || "$boot_address_case" == dbid || "$boot_address_case" == target ]]; then
     boot_address_assertion=boot_address_write_data_supported
+  elif [[ "$boot_address_case" == early_data ]]; then
+    boot_address_assertion=boot_address_write_data_expected
   fi
   run_expected_assertion_failure boot-address "boot_address_${boot_address_case}_tb" \
     tests/backend/verilog/boot-address-invalid-tb.sv "$boot_address_assertion"

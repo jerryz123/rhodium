@@ -33,6 +33,7 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 |---|---|---|
 | Wire | [`params.rhdl`](params.rhdl), [`flits.rhdl`](flits.rhdl), [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) | Physical configuration, packed payloads, packet helpers, and coherent state vocabulary |
 | Messages | [`messages.rhdl`](messages.rhdl) | Stateless requester write data, subordinate/Home responses, and metadata-preserving REQ/DAT transforms; no allocator or endpoint state |
+| Single-beat devices | [`single-beat-subordinate.rhdl`](single-beat-subordinate.rhdl) | One-outstanding MMIO sequencing, saved request/read snapshot, common write association, and response backpressure |
 | Endpoint and service | [`link.rhdl`](link.rhdl), [`channels.rhdl`](channels.rhdl), [`fabric.rhdl`](fabric.rhdl) | Credited links, ready-valid engine boundaries, capabilities, services, and address maps |
 | Checking and control | [`monitor.rhdl`](monitor.rhdl), [`transaction.rhdl`](transaction.rhdl), [`coherent-transaction.rhdl`](coherent-transaction.rhdl), [`retryable-transaction.rhdl`](retryable-transaction.rhdl) | Link assertions, bounded transaction checks, and reusable retry association |
 | Homes and storage | [`subordinate-slots.rhdl`](subordinate-slots.rhdl), [`home.rhdl`](home.rhdl), [`coherent-home.rhdl`](coherent-home.rhdl), [`inclusive-home.rhdl`](inclusive-home.rhdl), [`ram.rhdl`](ram.rhdl), [`dpi-memory.rhdl`](dpi-memory.rhdl), [`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl), [`address-projector.rhdl`](address-projector.rhdl) | Transaction allocation, Home engines, backing memory, fragmentation, and address projection |
@@ -43,6 +44,23 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 | Backend coverage | [`../tests/backend/`](../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) | CIRCT fixtures and Verilator benches |
 
 ## Extend a protocol layer
+
+`CHISingleBeatSubordinate` owns the shared five-phase MMIO transaction lifetime.
+Its port remains `CHISNChannels`; devices forward their native port directly.
+Device policy supplies request acceptance, the combinational read snapshot,
+extra write legality, and write readiness. The engine's acceptance pulses are
+edge events, not a second memory protocol. Do not feed acceptance back into its
+own readiness predicate. Devices decode the incoming request for reads and the
+retained request for writes. Read side effects occur on request acceptance;
+write side effects occur on DAT acceptance, never on completion acceptance.
+Snapshot storage and all responses are engine-owned. Keep register masks,
+read-to-clear effects, interrupt state, and FIFO backpressure device-owned.
+
+Boot-address, ACLINT, PLIC, and UART16550 all use this engine. Preserve their
+existing gating versus assertion-only mask policies; sharing sequencing is
+not permission to strengthen protocol checks. BootROM's multibeat read engine
+and RAM's queued transactions are separate. Run all four device simulations;
+boot-address negatives also exercise the shared association/early-DAT checks.
 
 Exact node-to-ICN peer metadata belongs to `CHINodeParams.icn_peer()` in
 `link.rhdl`. RAM, devices, and SoC compositions derive it there rather than

@@ -93,7 +93,17 @@ module boot_address_tb;
       while (!port_out.rsp.response.valid)
         cycle();
       held_txn_id = port_out.rsp.response.bits.txn_id;
+      // Credit returns must bypass a busy transaction without retiring it.
+      port_in.req = '0;
+      port_in.req.valid = 1;
+      port_in.dat.request = '0;
+      port_in.dat.request.valid = 1;
+      #1;
+      assert (port_out.req.ready && port_out.dat.request.ready)
+        else $fatal(1, "credit returns blocked behind DBID response");
       cycle();
+      port_in.req = '0;
+      port_in.dat.request = '0;
       assert (port_out.rsp.response.valid && port_out.rsp.response.bits.txn_id == held_txn_id)
         else $fatal(1, "BOOT DBID response did not survive backpressure");
       assert (port_out.rsp.response.bits.opcode == DBID_RESP &&
@@ -206,6 +216,15 @@ module boot_address_tb;
     cycle();
     reset = 0;
     cycle();
+    read_address(BOOT_BASE, 3, 16'h00ff, 128'h1234567880000000);
+    // Reset aborts a retained request even when its DBID is backpressured.
+    issue_request(WRITE_NO_SNP_FULL, 12'hdef, BOOT_BASE, 0, 3);
+    reset = 1;
+    cycle();
+    reset = 0;
+    cycle();
+    assert (!port_out.rsp.response.valid && !port_out.dat.response.valid)
+      else $fatal(1, "reset retained an unfinished subordinate transaction");
     read_address(BOOT_BASE, 3, 16'h00ff, 128'h1234567880000000);
     $display("boot-address passed");
     $finish;
