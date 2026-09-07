@@ -1,0 +1,59 @@
+#lang rhombus
+// Checks Zicbom encodings, rs1-only assembly, and separation from other memory operations.
+
+import:
+  rhombus.bits.(<<) as <<
+  "../isa/zicbom.rhm" open
+  "../isa/zicboz.rhm".CBO_ZERO
+  "../isa/integer-common.rhm".FENCE
+  "../isa/zifencei.rhm".FENCE_I
+  "../model/main.rhm" open
+
+// Literal opcode references are independent of the catalog's field composition.
+def expected_encodings = [0x0000200f, 0x0010200f, 0x0020200f]
+def memory_catalog = InstructionCatalog(
+  "cache management and fences",
+  "test",
+  ZicbomInstructions ++ [CBO_ZERO, FENCE, FENCE_I]
+)
+
+check:
+  Zicbom.revision ~is "Zicbom 1.0.0"
+  Zicbom.instructions ~is ZicbomInstructions
+  Zicbom.instructions.map(fun (instruction): instruction.name) ~is [
+    "CBO.INVAL", "CBO.CLEAN", "CBO.FLUSH"
+  ]
+  ZicbomInstructions.map(fun (instruction): instruction.encoding.value) ~is expected_encodings
+  CBO_INVAL.encode([rs1.constrain(1)]) ~is 0x0000a00f
+  CBO_CLEAN.encode([rs1.constrain(2)]) ~is 0x0011200f
+  CBO_FLUSH.encode([rs1.constrain(31)]) ~is 0x002fa00f
+  Zicbom.matching(0x0030200f) ~is #false
+  Zicbom.matching(CBO_ZERO.encoding.value) ~is #false
+
+for (index in 0..ZicbomInstructions.length()):
+  def instruction = ZicbomInstructions[index]
+  check:
+    Zicbom.find(instruction.name) === instruction ~is #true
+    instruction.format === CacheBlockFormat ~is #true
+    instruction.encoding.care ~is 0xfff07fff
+    instruction.operands.map(fun (operand): operand.name) ~is ["rs1"]
+    instruction.operands[0].role ~is "source"
+    instruction.operands[0].bank ~is RegisterBank.Integer
+    instruction.immediate ~is #false
+    instruction.encode([]) ~throws "rs1"
+    instruction.encode([rs1.constrain(1), rs1.constrain(2)]) ~throws "exactly once"
+    instruction.encode([rs1.constrain(1), rd.constrain(0)]) ~throws "not an explicit field"
+    instruction.encode([rs1.constrain(1)], ~immediate: 0) ~throws "does not have an immediate"
+
+  // All rs1 values, including x0, are legal on either XLEN. No other bit varies.
+  for (register in 0..32):
+    def word = instruction.encode([rs1.constrain(register)])
+    check:
+      word ~is (expected_encodings[index] bits.or (register << 15))
+      rs1.extract(word) ~is register
+      Zicbom.matching(word) === instruction ~is #true
+      memory_catalog.matching(word) === instruction ~is #true
+    for (bit in 0..32):
+      unless bit >= 15 && bit < 20
+      | check:
+          instruction.matches(word bits.xor (1 << bit)) ~is #false

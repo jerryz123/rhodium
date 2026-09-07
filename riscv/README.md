@@ -146,13 +146,14 @@ downstream decode composition must resolve their overlap with the base encoding.
 | [`isa/zimop.rhm`](isa/zimop.rhm) | `Zimop` | Zimop 1.0's 32 `MOP.R.n` and eight `MOP.RR.n` encodings |
 | [`isa/zicsr.rhm`](isa/zicsr.rhm) | `Zicsr` | Six XLEN-independent Zicsr 2.0 encodings |
 | [`isa/zifencei.rhm`](isa/zifencei.rhm) | `Zifencei` | XLEN-independent Zifencei 2.0 `FENCE.I` encoding |
+| [`isa/zicbom.rhm`](isa/zicbom.rhm) | `Zicbom` | XLEN-independent Zicbom 1.0.0 `CBO.INVAL`, `CBO.CLEAN`, and `CBO.FLUSH` encodings with one rs1 source and no immediate |
 | [`isa/zicbop.rhm`](isa/zicbop.rhm) | `Zicbop` | Zicbop 1.0.0 instruction, data-read, and data-write cache-block prefetch hints |
 | [`isa/zicboz.rhm`](isa/zicboz.rhm) | `Zicboz` | XLEN-independent Zicboz 1.0.0 `CBO.ZERO` encoding with one rs1 source and no immediate |
 
 These catalogs describe architectural dependencies and encodings only. Atomic
 reservation and coherence policy, multiply/divide execution, conditional-mask
-datapaths, CSR behavior, and instruction-cache serialization remain processor
-responsibilities.
+datapaths, CSR behavior, cache-management execution, and instruction-cache
+serialization remain processor responsibilities.
 
 ### Compressed instructions
 
@@ -289,8 +290,9 @@ B follows the ratified
 [bit-manipulation extension](https://docs.riscv.org/reference/isa/unpriv/b-st-ext.html),
 Zicond follows the ratified
 [integer conditional-operations extension](https://docs.riscv.org/reference/isa/unpriv/zicond.html),
-Zicbop and Zicboz follow the ratified
-[cache-block prefetch and zero extensions](https://docs.riscv.org/reference/isa/unpriv/cmo.html),
+Zicbom, Zicbop, and Zicboz follow the ratified
+[cache-block management, prefetch, and zero extensions](https://docs.riscv.org/reference/isa/unpriv/cmo.html)
+and canonical [`rv_zicbo`](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_zicbo) opcode listing,
 and C follows the ratified
 [compressed-instruction extension](https://docs.riscv.org/reference/isa/unpriv/c-st-ext.html).
 Zcb follows the ratified

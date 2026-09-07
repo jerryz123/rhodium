@@ -1,0 +1,37 @@
+#lang rhombus
+// Defines the XLEN-independent Zicbom 1.0.0 cache-block management instruction catalog.
+
+import:
+  "../model/main.rhm" open
+  "integer-common.rhm".MISC_MEM
+
+def CBO_INVAL = instruction(
+  "CBO.INVAL",
+  CacheBlockFormat,
+  [opcode.constrain(MISC_MEM), funct3.constrain(2), rd.constrain(0),
+   immediate12.constrain(0)]
+)
+def CBO_CLEAN = instruction(
+  "CBO.CLEAN",
+  CacheBlockFormat,
+  [opcode.constrain(MISC_MEM), funct3.constrain(2), rd.constrain(0),
+   immediate12.constrain(1)]
+)
+def CBO_FLUSH = instruction(
+  "CBO.FLUSH",
+  CacheBlockFormat,
+  [opcode.constrain(MISC_MEM), funct3.constrain(2), rd.constrain(0),
+   immediate12.constrain(2)]
+)
+
+def ZicbomInstructions = [CBO_INVAL, CBO_CLEAN, CBO_FLUSH]
+def ZicbomRevision = "Zicbom 1.0.0"
+def Zicbom = InstructionCatalog("Zicbom", ZicbomRevision, ZicbomInstructions)
+
+export:
+  CBO_INVAL
+  CBO_CLEAN
+  CBO_FLUSH
+  ZicbomInstructions
+  ZicbomRevision
+  Zicbom
