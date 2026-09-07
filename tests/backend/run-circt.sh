@@ -703,6 +703,8 @@ direct_fixture_specs=(
   'rv5stage-fp-pipeline|rv5stage_fp_pipeline_tb'
   'rv5stage-register-file|rv5stage_register_file_tb'
   'rv5stage-csr|rv5stage_csr_tb'
+  'rv5stage-zihpm-rv32|rv5stage_zihpm_rv32_tb'
+  'rv5stage-zihpm-rv64|rv5stage_zihpm_rv64_tb'
   'rv5stage-atomic|rv5stage_atomic_tb'
   'rv5stage-access-fault|rv5stage_access_fault_tb'
   'rv5stage-fetch|rv5stage_fetch_tb'

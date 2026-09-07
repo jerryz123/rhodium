@@ -44,6 +44,207 @@ enum CsrId
 | Mimpid
 | Mhartid
 
+| Hpmcounter3
+| Hpmcounter4
+| Hpmcounter5
+| Hpmcounter6
+| Hpmcounter7
+| Hpmcounter8
+| Hpmcounter9
+| Hpmcounter10
+| Hpmcounter11
+| Hpmcounter12
+| Hpmcounter13
+| Hpmcounter14
+| Hpmcounter15
+| Hpmcounter16
+| Hpmcounter17
+| Hpmcounter18
+| Hpmcounter19
+| Hpmcounter20
+| Hpmcounter21
+| Hpmcounter22
+| Hpmcounter23
+| Hpmcounter24
+| Hpmcounter25
+| Hpmcounter26
+| Hpmcounter27
+| Hpmcounter28
+| Hpmcounter29
+| Hpmcounter30
+| Hpmcounter31
+| Hpmcounter3h
+| Hpmcounter4h
+| Hpmcounter5h
+| Hpmcounter6h
+| Hpmcounter7h
+| Hpmcounter8h
+| Hpmcounter9h
+| Hpmcounter10h
+| Hpmcounter11h
+| Hpmcounter12h
+| Hpmcounter13h
+| Hpmcounter14h
+| Hpmcounter15h
+| Hpmcounter16h
+| Hpmcounter17h
+| Hpmcounter18h
+| Hpmcounter19h
+| Hpmcounter20h
+| Hpmcounter21h
+| Hpmcounter22h
+| Hpmcounter23h
+| Hpmcounter24h
+| Hpmcounter25h
+| Hpmcounter26h
+| Hpmcounter27h
+| Hpmcounter28h
+| Hpmcounter29h
+| Hpmcounter30h
+| Hpmcounter31h
+| Mhpmcounter3
+| Mhpmcounter4
+| Mhpmcounter5
+| Mhpmcounter6
+| Mhpmcounter7
+| Mhpmcounter8
+| Mhpmcounter9
+| Mhpmcounter10
+| Mhpmcounter11
+| Mhpmcounter12
+| Mhpmcounter13
+| Mhpmcounter14
+| Mhpmcounter15
+| Mhpmcounter16
+| Mhpmcounter17
+| Mhpmcounter18
+| Mhpmcounter19
+| Mhpmcounter20
+| Mhpmcounter21
+| Mhpmcounter22
+| Mhpmcounter23
+| Mhpmcounter24
+| Mhpmcounter25
+| Mhpmcounter26
+| Mhpmcounter27
+| Mhpmcounter28
+| Mhpmcounter29
+| Mhpmcounter30
+| Mhpmcounter31
+| Mhpmcounter3h
+| Mhpmcounter4h
+| Mhpmcounter5h
+| Mhpmcounter6h
+| Mhpmcounter7h
+| Mhpmcounter8h
+| Mhpmcounter9h
+| Mhpmcounter10h
+| Mhpmcounter11h
+| Mhpmcounter12h
+| Mhpmcounter13h
+| Mhpmcounter14h
+| Mhpmcounter15h
+| Mhpmcounter16h
+| Mhpmcounter17h
+| Mhpmcounter18h
+| Mhpmcounter19h
+| Mhpmcounter20h
+| Mhpmcounter21h
+| Mhpmcounter22h
+| Mhpmcounter23h
+| Mhpmcounter24h
+| Mhpmcounter25h
+| Mhpmcounter26h
+| Mhpmcounter27h
+| Mhpmcounter28h
+| Mhpmcounter29h
+| Mhpmcounter30h
+| Mhpmcounter31h
+| Mhpmevent3
+| Mhpmevent4
+| Mhpmevent5
+| Mhpmevent6
+| Mhpmevent7
+| Mhpmevent8
+| Mhpmevent9
+| Mhpmevent10
+| Mhpmevent11
+| Mhpmevent12
+| Mhpmevent13
+| Mhpmevent14
+| Mhpmevent15
+| Mhpmevent16
+| Mhpmevent17
+| Mhpmevent18
+| Mhpmevent19
+| Mhpmevent20
+| Mhpmevent21
+| Mhpmevent22
+| Mhpmevent23
+| Mhpmevent24
+| Mhpmevent25
+| Mhpmevent26
+| Mhpmevent27
+| Mhpmevent28
+| Mhpmevent29
+| Mhpmevent30
+| Mhpmevent31
+
+def HpmCounterIds = [
+  CsrId.Hpmcounter3, CsrId.Hpmcounter4, CsrId.Hpmcounter5, CsrId.Hpmcounter6,
+  CsrId.Hpmcounter7, CsrId.Hpmcounter8, CsrId.Hpmcounter9, CsrId.Hpmcounter10,
+  CsrId.Hpmcounter11, CsrId.Hpmcounter12, CsrId.Hpmcounter13, CsrId.Hpmcounter14,
+  CsrId.Hpmcounter15, CsrId.Hpmcounter16, CsrId.Hpmcounter17, CsrId.Hpmcounter18,
+  CsrId.Hpmcounter19, CsrId.Hpmcounter20, CsrId.Hpmcounter21, CsrId.Hpmcounter22,
+  CsrId.Hpmcounter23, CsrId.Hpmcounter24, CsrId.Hpmcounter25, CsrId.Hpmcounter26,
+  CsrId.Hpmcounter27, CsrId.Hpmcounter28, CsrId.Hpmcounter29, CsrId.Hpmcounter30,
+  CsrId.Hpmcounter31
+]
+
+def HpmCounterHighIds = [
+  CsrId.Hpmcounter3h, CsrId.Hpmcounter4h, CsrId.Hpmcounter5h, CsrId.Hpmcounter6h,
+  CsrId.Hpmcounter7h, CsrId.Hpmcounter8h, CsrId.Hpmcounter9h, CsrId.Hpmcounter10h,
+  CsrId.Hpmcounter11h, CsrId.Hpmcounter12h, CsrId.Hpmcounter13h, CsrId.Hpmcounter14h,
+  CsrId.Hpmcounter15h, CsrId.Hpmcounter16h, CsrId.Hpmcounter17h, CsrId.Hpmcounter18h,
+  CsrId.Hpmcounter19h, CsrId.Hpmcounter20h, CsrId.Hpmcounter21h, CsrId.Hpmcounter22h,
+  CsrId.Hpmcounter23h, CsrId.Hpmcounter24h, CsrId.Hpmcounter25h, CsrId.Hpmcounter26h,
+  CsrId.Hpmcounter27h, CsrId.Hpmcounter28h, CsrId.Hpmcounter29h, CsrId.Hpmcounter30h,
+  CsrId.Hpmcounter31h
+]
+
+def MachineHpmCounterIds = [
+  CsrId.Mhpmcounter3, CsrId.Mhpmcounter4, CsrId.Mhpmcounter5, CsrId.Mhpmcounter6,
+  CsrId.Mhpmcounter7, CsrId.Mhpmcounter8, CsrId.Mhpmcounter9, CsrId.Mhpmcounter10,
+  CsrId.Mhpmcounter11, CsrId.Mhpmcounter12, CsrId.Mhpmcounter13, CsrId.Mhpmcounter14,
+  CsrId.Mhpmcounter15, CsrId.Mhpmcounter16, CsrId.Mhpmcounter17, CsrId.Mhpmcounter18,
+  CsrId.Mhpmcounter19, CsrId.Mhpmcounter20, CsrId.Mhpmcounter21, CsrId.Mhpmcounter22,
+  CsrId.Mhpmcounter23, CsrId.Mhpmcounter24, CsrId.Mhpmcounter25, CsrId.Mhpmcounter26,
+  CsrId.Mhpmcounter27, CsrId.Mhpmcounter28, CsrId.Mhpmcounter29, CsrId.Mhpmcounter30,
+  CsrId.Mhpmcounter31
+]
+
+def MachineHpmCounterHighIds = [
+  CsrId.Mhpmcounter3h, CsrId.Mhpmcounter4h, CsrId.Mhpmcounter5h, CsrId.Mhpmcounter6h,
+  CsrId.Mhpmcounter7h, CsrId.Mhpmcounter8h, CsrId.Mhpmcounter9h, CsrId.Mhpmcounter10h,
+  CsrId.Mhpmcounter11h, CsrId.Mhpmcounter12h, CsrId.Mhpmcounter13h, CsrId.Mhpmcounter14h,
+  CsrId.Mhpmcounter15h, CsrId.Mhpmcounter16h, CsrId.Mhpmcounter17h, CsrId.Mhpmcounter18h,
+  CsrId.Mhpmcounter19h, CsrId.Mhpmcounter20h, CsrId.Mhpmcounter21h, CsrId.Mhpmcounter22h,
+  CsrId.Mhpmcounter23h, CsrId.Mhpmcounter24h, CsrId.Mhpmcounter25h, CsrId.Mhpmcounter26h,
+  CsrId.Mhpmcounter27h, CsrId.Mhpmcounter28h, CsrId.Mhpmcounter29h, CsrId.Mhpmcounter30h,
+  CsrId.Mhpmcounter31h
+]
+
+def MachineHpmEventIds = [
+  CsrId.Mhpmevent3, CsrId.Mhpmevent4, CsrId.Mhpmevent5, CsrId.Mhpmevent6,
+  CsrId.Mhpmevent7, CsrId.Mhpmevent8, CsrId.Mhpmevent9, CsrId.Mhpmevent10,
+  CsrId.Mhpmevent11, CsrId.Mhpmevent12, CsrId.Mhpmevent13, CsrId.Mhpmevent14,
+  CsrId.Mhpmevent15, CsrId.Mhpmevent16, CsrId.Mhpmevent17, CsrId.Mhpmevent18,
+  CsrId.Mhpmevent19, CsrId.Mhpmevent20, CsrId.Mhpmevent21, CsrId.Mhpmevent22,
+  CsrId.Mhpmevent23, CsrId.Mhpmevent24, CsrId.Mhpmevent25, CsrId.Mhpmevent26,
+  CsrId.Mhpmevent27, CsrId.Mhpmevent28, CsrId.Mhpmevent29, CsrId.Mhpmevent30,
+  CsrId.Mhpmevent31
+]
+
 def CsrIds = [
   CsrId.Fflags, CsrId.Frm, CsrId.Fcsr,
   CsrId.Sstatus, CsrId.Sie, CsrId.Stvec, CsrId.Scounteren,
@@ -56,7 +257,7 @@ def CsrIds = [
   CsrId.Mscratch, CsrId.Mepc, CsrId.Mcause, CsrId.Mtval, CsrId.Mip,
   CsrId.Mcycle, CsrId.Minstret, CsrId.Mcycleh, CsrId.Minstreth,
   CsrId.Mvendorid, CsrId.Marchid, CsrId.Mimpid, CsrId.Mhartid
-]
+] ++ HpmCounterIds ++ HpmCounterHighIds ++ MachineHpmCounterIds ++ MachineHpmCounterHighIds ++ MachineHpmEventIds
 
 fun csr_address(id :: CsrId) :: Nat:
   match id
@@ -102,7 +303,158 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Mimpid: 0xf13
   | CsrId.Mhartid: 0xf14
 
+  | CsrId.Hpmcounter3: 0xc03
+  | CsrId.Hpmcounter4: 0xc04
+  | CsrId.Hpmcounter5: 0xc05
+  | CsrId.Hpmcounter6: 0xc06
+  | CsrId.Hpmcounter7: 0xc07
+  | CsrId.Hpmcounter8: 0xc08
+  | CsrId.Hpmcounter9: 0xc09
+  | CsrId.Hpmcounter10: 0xc0a
+  | CsrId.Hpmcounter11: 0xc0b
+  | CsrId.Hpmcounter12: 0xc0c
+  | CsrId.Hpmcounter13: 0xc0d
+  | CsrId.Hpmcounter14: 0xc0e
+  | CsrId.Hpmcounter15: 0xc0f
+  | CsrId.Hpmcounter16: 0xc10
+  | CsrId.Hpmcounter17: 0xc11
+  | CsrId.Hpmcounter18: 0xc12
+  | CsrId.Hpmcounter19: 0xc13
+  | CsrId.Hpmcounter20: 0xc14
+  | CsrId.Hpmcounter21: 0xc15
+  | CsrId.Hpmcounter22: 0xc16
+  | CsrId.Hpmcounter23: 0xc17
+  | CsrId.Hpmcounter24: 0xc18
+  | CsrId.Hpmcounter25: 0xc19
+  | CsrId.Hpmcounter26: 0xc1a
+  | CsrId.Hpmcounter27: 0xc1b
+  | CsrId.Hpmcounter28: 0xc1c
+  | CsrId.Hpmcounter29: 0xc1d
+  | CsrId.Hpmcounter30: 0xc1e
+  | CsrId.Hpmcounter31: 0xc1f
+  | CsrId.Hpmcounter3h: 0xc83
+  | CsrId.Hpmcounter4h: 0xc84
+  | CsrId.Hpmcounter5h: 0xc85
+  | CsrId.Hpmcounter6h: 0xc86
+  | CsrId.Hpmcounter7h: 0xc87
+  | CsrId.Hpmcounter8h: 0xc88
+  | CsrId.Hpmcounter9h: 0xc89
+  | CsrId.Hpmcounter10h: 0xc8a
+  | CsrId.Hpmcounter11h: 0xc8b
+  | CsrId.Hpmcounter12h: 0xc8c
+  | CsrId.Hpmcounter13h: 0xc8d
+  | CsrId.Hpmcounter14h: 0xc8e
+  | CsrId.Hpmcounter15h: 0xc8f
+  | CsrId.Hpmcounter16h: 0xc90
+  | CsrId.Hpmcounter17h: 0xc91
+  | CsrId.Hpmcounter18h: 0xc92
+  | CsrId.Hpmcounter19h: 0xc93
+  | CsrId.Hpmcounter20h: 0xc94
+  | CsrId.Hpmcounter21h: 0xc95
+  | CsrId.Hpmcounter22h: 0xc96
+  | CsrId.Hpmcounter23h: 0xc97
+  | CsrId.Hpmcounter24h: 0xc98
+  | CsrId.Hpmcounter25h: 0xc99
+  | CsrId.Hpmcounter26h: 0xc9a
+  | CsrId.Hpmcounter27h: 0xc9b
+  | CsrId.Hpmcounter28h: 0xc9c
+  | CsrId.Hpmcounter29h: 0xc9d
+  | CsrId.Hpmcounter30h: 0xc9e
+  | CsrId.Hpmcounter31h: 0xc9f
+  | CsrId.Mhpmcounter3: 0xb03
+  | CsrId.Mhpmcounter4: 0xb04
+  | CsrId.Mhpmcounter5: 0xb05
+  | CsrId.Mhpmcounter6: 0xb06
+  | CsrId.Mhpmcounter7: 0xb07
+  | CsrId.Mhpmcounter8: 0xb08
+  | CsrId.Mhpmcounter9: 0xb09
+  | CsrId.Mhpmcounter10: 0xb0a
+  | CsrId.Mhpmcounter11: 0xb0b
+  | CsrId.Mhpmcounter12: 0xb0c
+  | CsrId.Mhpmcounter13: 0xb0d
+  | CsrId.Mhpmcounter14: 0xb0e
+  | CsrId.Mhpmcounter15: 0xb0f
+  | CsrId.Mhpmcounter16: 0xb10
+  | CsrId.Mhpmcounter17: 0xb11
+  | CsrId.Mhpmcounter18: 0xb12
+  | CsrId.Mhpmcounter19: 0xb13
+  | CsrId.Mhpmcounter20: 0xb14
+  | CsrId.Mhpmcounter21: 0xb15
+  | CsrId.Mhpmcounter22: 0xb16
+  | CsrId.Mhpmcounter23: 0xb17
+  | CsrId.Mhpmcounter24: 0xb18
+  | CsrId.Mhpmcounter25: 0xb19
+  | CsrId.Mhpmcounter26: 0xb1a
+  | CsrId.Mhpmcounter27: 0xb1b
+  | CsrId.Mhpmcounter28: 0xb1c
+  | CsrId.Mhpmcounter29: 0xb1d
+  | CsrId.Mhpmcounter30: 0xb1e
+  | CsrId.Mhpmcounter31: 0xb1f
+  | CsrId.Mhpmcounter3h: 0xb83
+  | CsrId.Mhpmcounter4h: 0xb84
+  | CsrId.Mhpmcounter5h: 0xb85
+  | CsrId.Mhpmcounter6h: 0xb86
+  | CsrId.Mhpmcounter7h: 0xb87
+  | CsrId.Mhpmcounter8h: 0xb88
+  | CsrId.Mhpmcounter9h: 0xb89
+  | CsrId.Mhpmcounter10h: 0xb8a
+  | CsrId.Mhpmcounter11h: 0xb8b
+  | CsrId.Mhpmcounter12h: 0xb8c
+  | CsrId.Mhpmcounter13h: 0xb8d
+  | CsrId.Mhpmcounter14h: 0xb8e
+  | CsrId.Mhpmcounter15h: 0xb8f
+  | CsrId.Mhpmcounter16h: 0xb90
+  | CsrId.Mhpmcounter17h: 0xb91
+  | CsrId.Mhpmcounter18h: 0xb92
+  | CsrId.Mhpmcounter19h: 0xb93
+  | CsrId.Mhpmcounter20h: 0xb94
+  | CsrId.Mhpmcounter21h: 0xb95
+  | CsrId.Mhpmcounter22h: 0xb96
+  | CsrId.Mhpmcounter23h: 0xb97
+  | CsrId.Mhpmcounter24h: 0xb98
+  | CsrId.Mhpmcounter25h: 0xb99
+  | CsrId.Mhpmcounter26h: 0xb9a
+  | CsrId.Mhpmcounter27h: 0xb9b
+  | CsrId.Mhpmcounter28h: 0xb9c
+  | CsrId.Mhpmcounter29h: 0xb9d
+  | CsrId.Mhpmcounter30h: 0xb9e
+  | CsrId.Mhpmcounter31h: 0xb9f
+  | CsrId.Mhpmevent3: 0x323
+  | CsrId.Mhpmevent4: 0x324
+  | CsrId.Mhpmevent5: 0x325
+  | CsrId.Mhpmevent6: 0x326
+  | CsrId.Mhpmevent7: 0x327
+  | CsrId.Mhpmevent8: 0x328
+  | CsrId.Mhpmevent9: 0x329
+  | CsrId.Mhpmevent10: 0x32a
+  | CsrId.Mhpmevent11: 0x32b
+  | CsrId.Mhpmevent12: 0x32c
+  | CsrId.Mhpmevent13: 0x32d
+  | CsrId.Mhpmevent14: 0x32e
+  | CsrId.Mhpmevent15: 0x32f
+  | CsrId.Mhpmevent16: 0x330
+  | CsrId.Mhpmevent17: 0x331
+  | CsrId.Mhpmevent18: 0x332
+  | CsrId.Mhpmevent19: 0x333
+  | CsrId.Mhpmevent20: 0x334
+  | CsrId.Mhpmevent21: 0x335
+  | CsrId.Mhpmevent22: 0x336
+  | CsrId.Mhpmevent23: 0x337
+  | CsrId.Mhpmevent24: 0x338
+  | CsrId.Mhpmevent25: 0x339
+  | CsrId.Mhpmevent26: 0x33a
+  | CsrId.Mhpmevent27: 0x33b
+  | CsrId.Mhpmevent28: 0x33c
+  | CsrId.Mhpmevent29: 0x33d
+  | CsrId.Mhpmevent30: 0x33e
+  | CsrId.Mhpmevent31: 0x33f
+
 export:
   CsrId
   CsrIds
+  HpmCounterIds
+  HpmCounterHighIds
+  MachineHpmCounterIds
+  MachineHpmCounterHighIds
+  MachineHpmEventIds
   csr_address

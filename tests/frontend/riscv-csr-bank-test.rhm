@@ -18,5 +18,8 @@ check:
     fun (): fixture.DuplicateCsrBankFixture()
   ) ~throws "unique"
   embedded.run_elaboration(
+    fun (): fixture.DuplicateCsrGroupFixture()
+  ) ~throws "unique"
+  embedded.run_elaboration(
     fun (): fixture.NarrowCsrBankFixture()
   ) ~throws "Bits(12)"

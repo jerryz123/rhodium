@@ -6,7 +6,7 @@ import:
 
 check:
   CsrId.Mstatus is_a CsrId ~is #true
-  CsrIds.length() ~is 41
+  CsrIds.length() ~is 186
   CsrIds.map(csr_address) ~is [
     0x001, 0x002, 0x003,
     0x100, 0x104, 0x105, 0x106, 0x10a, 0x140, 0x141,
@@ -16,7 +16,11 @@ check:
     0x303, 0x304, 0x305, 0x306, 0x30a, 0x340, 0x341,
     0x342, 0x343, 0x344, 0xb00, 0xb02, 0xb80, 0xb82,
     0xf11, 0xf12, 0xf13, 0xf14
-  ]
+  ] ++ (for List (index in 3..32): 0xc00 + index) ++ (
+    for List (index in 3..32): 0xc80 + index
+  ) ++ (for List (index in 3..32): 0xb00 + index) ++ (
+    for List (index in 3..32): 0xb80 + index
+  ) ++ (for List (index in 3..32): 0x320 + index)
   csr_address(CsrId.Fflags) ~is 0x001
   csr_address(CsrId.Frm) ~is 0x002
   csr_address(CsrId.Fcsr) ~is 0x003
@@ -29,3 +33,11 @@ check:
   csr_address(CsrId.Mstatus) ~is 0x300
   csr_address(CsrId.Mepc) ~is 0x341
   csr_address(CsrId.Mhartid) ~is 0xf14
+
+for (family in [HpmCounterIds, HpmCounterHighIds, MachineHpmCounterIds, MachineHpmCounterHighIds, MachineHpmEventIds]):
+  check:
+    family.length() ~is 29
+  for (id in family):
+    check:
+      id is_a CsrId ~is #true
+      CsrIds.filter(~keep: fun (candidate): csr_address(candidate) == csr_address(id)).length() ~is 1

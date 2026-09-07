@@ -29,6 +29,14 @@ circuit DuplicateCsrBankFixture():
     read CsrId.Misa: bits(2, 8)
   read_value <== bank.read_value
 
+circuit DuplicateCsrGroupFixture():
+  input address: Bits(12)
+  output read_value: Bits(8)
+  def bank = csr_bank(address, ~default: bits(0, 8)):
+    read CsrId.Mhpmcounter3: bits(1, 8)
+    read_all MachineHpmCounterIds: bits(0, 8)
+  read_value <== bank.read_value
+
 circuit NarrowCsrBankFixture():
   input address: Bits(8)
   output read_value: Bits(8)
@@ -39,4 +47,5 @@ circuit NarrowCsrBankFixture():
 export:
   CsrBankFixture
   DuplicateCsrBankFixture
+  DuplicateCsrGroupFixture
   NarrowCsrBankFixture

@@ -37,7 +37,7 @@ Optional Zicbom adds `CBO.CLEAN`, `CBO.INVAL`, and `CBO.FLUSH`; enable it with
 `RV5StageExtensions(~zicbom: #true)`. It remains disabled by default.
 Optional C expansion follows the
 selected XLEN and FP profile; RV32F or RV64F and RV64D rows, plus optional
-Zfhmin, Zfh, and Zfa rows, are added only by their matching FP specialization. Zicntr
+Zfhmin, Zfh, and Zfa rows, are added only by their matching FP specialization. Zicntr and Zihpm
 views come from the CSR block rather than instruction rows. The
 [`decode guide`](decode/README.md#select-a-decode-specialization) owns the exact
 specialization matrix and catalog composition. RV32D and an RV64F-only core are
@@ -516,6 +516,17 @@ priority. Reusable 64-bit `mcycle` and `minstret` state supplies Zicntr views;
 `minstret` advances only when an instruction reaches WB without a synchronous
 exception.
 
+Both XLEN profiles implement the minimum Zihpm 2.0 contract: all 29
+`mhpmcounter3`–`mhpmcounter31` and `mhpmevent3`–`mhpmevent31` slots
+read zero and ignore machine-mode writes. Their read-only `hpmcounterN`
+aliases also read zero in M mode; attempted writes trap. RV32 exposes the
+corresponding machine/user counter high halves, while RV64 accesses to those
+high-half addresses trap. HPM bits in `mcounteren` and `scounteren` are
+hardwired zero, so S/U HPM reads trap even after software attempts to enable
+them. There is no HPM storage, event selection, or counting datapath. The
+[privileged architecture source](https://github.com/riscv/riscv-isa-manual/blob/main/src/priv/machine.adoc#hardware-performance-monitor)
+permits these zero-valued counter/selector pairs.
+
 ## Implementation map
 
 Source ownership and dependency enforcement moved to
@@ -536,7 +547,7 @@ and FESVR simulation belongs to the [simulation guide](../../sims/README.md).
 ## Deliberate limits
 
 - RV32D and RV64F-only core specializations are rejected.
-- PMP, Zihpm performance counters, vectored trap mode, and platform interrupt
+- PMP, programmable HPM counters, vectored trap mode, and platform interrupt
   controllers remain outside this slice.
 - `WFI` quiesces instruction issue but does not gate the core clock; physical
   clock gating and always-on wake distribution remain platform policy.

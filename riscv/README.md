@@ -190,7 +190,7 @@ F/D profile, and its `None` default adds no half-precision operations.
 
 | Module | Owns |
 |---|---|
-| [`isa/csr.rhm`](isa/csr.rhm) | Closed `CsrId` namespace and canonical 12-bit addresses, including `fflags`/`frm`/`fcsr` aliases |
+| [`isa/csr.rhm`](isa/csr.rhm) | Closed `CsrId` namespace and canonical 12-bit addresses, including FP aliases and all 29 HPM counter, RV32 high-half, and event-selector identifiers; typed family lists support grouped CSR declarations |
 | [`isa/trap.rhm`](isa/trap.rhm) | Synchronous `ExceptionCause` members, architectural codes, and cause-set masks |
 | [`isa/interrupt.rhm`](isa/interrupt.rhm) | Standard supervisor and machine interrupt causes and codes |
 | [`isa/privileged.rhm`](isa/privileged.rhm) | Exact `MRET`, `SRET`, `WFI`, and `SFENCE.VMA` encodings |

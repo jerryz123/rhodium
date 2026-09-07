@@ -109,6 +109,20 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For Zihpm CSR catalogs, profile claims, and access semantics, run:
+
+```sh
+export PLTCOMPILEDROOTS="$(mktemp -d)"
+tools/run-racket-tests.sh riscv/tests/csr-test.rhm tests/frontend/riscv-csr-bank-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm
+FIXTURES='rv5stage-zihpm-rv32 rv5stage-zihpm-rv64 rv5stage-csr' \
+  bash tests/backend/run-circt.sh --simulate-only
+```
+
+The two Zihpm benches share an XLEN-parameterized sweep of every HPM slot,
+write-ignore behavior, read-only write intent, RV32 high halves, and S/U
+access denial. Keep the CSR-bank grouping in the RISC-V adapter and profile
+permission policy in this core; do not add counter state for zero-valued slots.
+
 For data IO-MSHR admission, ordering, and shared RN-I contention, run:
 
 ```sh

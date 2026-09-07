@@ -26,7 +26,12 @@ def rv64_yaml = rv5stage_udb_configuration(
   44
 ).to_yaml()
 
+def no_hpm_values = for List (_index in 0..32): "false"
+
 check:
+  rv64_yaml.contains("{ name: \"Zihpm\", version: \"= 2.0\" }") ~is #true
+  rv64_yaml.contains("  HPM_COUNTER_EN: [" ++ String.join(no_hpm_values, ", ") ++ "]") ~is #true
+  rv64_yaml.contains("  MCOUNTINHIBIT_IMPLEMENTED: false") ~is #true
   rv64_yaml.contains("{ name: \"Zicbom\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zicboz\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("name: \"rhodium-rv5stage-rv64dc\"") ~is #true
@@ -58,11 +63,13 @@ def rv32_yaml = rv5stage_udb_configuration(
 ).to_yaml()
 
 check:
+  rv32_yaml.contains("{ name: \"Zihpm\", version: \"= 2.0\" }") ~is #true
   rv32_yaml.contains("{ name: \"F\",") ~is #false
   rv32_yaml.contains("{ name: \"C\",") ~is #false
   rv32_yaml.contains("{ name: \"Sv39\",") ~is #false
   rv32_yaml.contains("{ name: \"Svbare\", version: \"= 1.0.0\" }") ~is #true
   rv32_yaml.contains("  MSTATUS_FS_LEGAL_VALUES: [0]") ~is #true
+  rv32_yaml.contains("  TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY: false") ~is #true
   rv5stage_udb_configuration(
     rv32_integer,
     "invalid-rv32-address-width",

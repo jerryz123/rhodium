@@ -44,17 +44,19 @@ expr.macro 'csr_bank($selector, ~default: $default_value): $clause; ...':
   for (item in [clause, ...]):
     match item
     | 'storage $(id :: expr_meta.Parsed): $(place :: expr_meta.Parsed)':
-        read_entries := read_entries ++ ['[$id, $place]']
+        read_entries := read_entries ++ ['[[$id, $place]]']
         write_clauses := write_clauses ++ [
           'case csr_address($id):
              $place <== csr_bank_replacement'
         ]
     | 'read $(id :: expr_meta.Parsed): $(read_value :: expr_meta.Parsed)':
-        read_entries := read_entries ++ ['[$id, $read_value]']
+        read_entries := read_entries ++ ['[[$id, $read_value]]']
+    | 'read_all $(ids :: expr_meta.Parsed): $(read_value :: expr_meta.Parsed)':
+        read_entries := read_entries ++ ['($ids).map(fun (id :: CsrId): [id, $read_value])']
     | 'csr $(id :: expr_meta.Parsed):
          read: $(read_value :: expr_meta.Parsed)
          write $(replacement :: Identifier): $body; ...':
-        read_entries := read_entries ++ ['[$id, $read_value]']
+        read_entries := read_entries ++ ['[[$id, $read_value]]']
         write_clauses := write_clauses ++ [
           'case csr_address($id):
              def $replacement :: Hardware.packable = csr_bank_replacement
@@ -63,13 +65,15 @@ expr.macro 'csr_bank($selector, ~default: $default_value): $clause; ...':
         ]
     | ~else:
         syntax_meta.error(
-          "expected storage, read, or read/write CSR entry",
+          "expected storage, read, read_all, or read/write CSR entry",
           item
         )
   if read_entries.length() == 0
   | syntax_meta.error("csr_bank requires at least one CSR entry", '$selector')
   | #void
-  let [read_entry, ...] = read_entries
+  def mutable combined_entries = '[]'
+  for (entries in read_entries):
+    combined_entries := '$combined_entries ++ $entries'
   def mutable writer_body = '#void'
   if write_clauses.length() > 0
   | block:
@@ -81,7 +85,7 @@ expr.macro 'csr_bank($selector, ~default: $default_value): $clause; ...':
   'build_csr_bank(
      $selector,
      $default_value,
-     [$read_entry, ...],
+     $combined_entries,
      fun (csr_bank_replacement :: Hardware.packable): $writer_body
    )'
 

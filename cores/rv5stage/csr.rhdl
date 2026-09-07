@@ -390,6 +390,12 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     read CsrId.Cycleh: cycleh_value
     read CsrId.Timeh: timeh_value
     read CsrId.Instreth: instreth_value
+    // Zihpm permits zero-valued counter/selector pairs without event storage.
+    read_all HpmCounterIds: zero
+    read_all HpmCounterHighIds: zero
+    read_all MachineHpmCounterIds: zero
+    read_all MachineHpmCounterHighIds: zero
+    read_all MachineHpmEventIds: zero
     csr CsrId.Mstatus:
       read: mstatus_value
       write value:
@@ -439,10 +445,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     read CsrId.Mimpid: zero
     read CsrId.Mhartid: hart_id
   def rv32_counter_halves = if xlen == XLen.X32 | Bool(#true) | Bool(#false)
-  def high_counter_unavailable = !rv32_counter_halves & csr.is_one_of(
-    csr_bits(CsrId.Cycleh), csr_bits(CsrId.Timeh), csr_bits(CsrId.Instreth),
-    csr_bits(CsrId.Mcycleh), csr_bits(CsrId.Minstreth)
-  )
+  def high_counter_ids = [CsrId.Cycleh, CsrId.Timeh, CsrId.Instreth, CsrId.Mcycleh, CsrId.Minstreth] ++ HpmCounterHighIds ++ MachineHpmCounterHighIds
+  def high_counter_unavailable = !rv32_counter_halves & csr.is_one_of(high_counter_ids.map(csr_bits))
   def fp_csr = csr.is_one_of(csr_bits(CsrId.Fflags), csr_bits(CsrId.Frm), csr_bits(CsrId.Fcsr))
   def fp_access_enabled = Bool(floating_point_supports_f(profile)) & or_reduce(fp_csrs.status)
   assert(!fp_update.valid ||| fp_access_enabled, "rv5stage_fp_update_enabled")
@@ -455,20 +459,14 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def cycle_csr = csr.is_one_of(csr_bits(CsrId.Cycle), csr_bits(CsrId.Cycleh))
   def time_csr = csr.is_one_of(csr_bits(CsrId.Time), csr_bits(CsrId.Timeh))
   def instret_csr = csr.is_one_of(csr_bits(CsrId.Instret), csr_bits(CsrId.Instreth))
-  def counter_csr = cycle_csr ||| time_csr ||| instret_csr
+  def hpm_csr = csr.is_one_of((HpmCounterIds ++ HpmCounterHighIds).map(csr_bits))
+  def counter_csr = cycle_csr ||| time_csr ||| instret_csr ||| hpm_csr
   def satp_restricted = (csr === csr_bits(CsrId.Satp)) & (
     privilege_state === PrivilegeMode.Supervisor
   ) & state.mstatus[20].into(Bool)
-  def machine_counter_enabled = mux(cycle_csr,
-                                    state.mcounteren[0].into(Bool),
-                                    mux(time_csr,
-                                        state.mcounteren[1].into(Bool),
-                                        state.mcounteren[2].into(Bool)))
-  def supervisor_counter_enabled = mux(cycle_csr,
-                                       state.scounteren[0].into(Bool),
-                                       mux(time_csr,
-                                           state.scounteren[1].into(Bool),
-                                           state.scounteren[2].into(Bool)))
+  // HPM counteren bits are hardwired zero; only the three base counters delegate.
+  def machine_counter_enabled = !hpm_csr & mux(cycle_csr, state.mcounteren[0].into(Bool), mux(time_csr, state.mcounteren[1].into(Bool), state.mcounteren[2].into(Bool)))
+  def supervisor_counter_enabled = !hpm_csr & mux(cycle_csr, state.scounteren[0].into(Bool), mux(time_csr, state.scounteren[1].into(Bool), state.scounteren[2].into(Bool)))
   def counter_access_enabled = mux_lookup(
     privilege_state,
     ~default: machine_counter_enabled & supervisor_counter_enabled,

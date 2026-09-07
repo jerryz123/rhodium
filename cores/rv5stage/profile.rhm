@@ -87,7 +87,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
         multi_letter := multi_letter ++ ["zfhmin"]
     | ~else: #void
     def cache_block = (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | [])
-    single_letter ++ multi_letter ++ cache_block ++ ["zicntr", "zicond", "zicsr", "zifencei", "zimop"]
+    single_letter ++ multi_letter ++ cache_block ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop"]
 
 class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
                             data :: RV5StageCacheConfig):

@@ -78,6 +78,7 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
     extension("Zicond", "1.0.0"),
     extension("Zicsr", "2.0"),
     extension("Zifencei", "2.0.0"),
+    extension("Zihpm", "2.0"),
     extension("Zimop", "1.0.0"),
     extension("U", "1.0.0"),
     extension("S", "1.11.0"),
@@ -174,6 +175,8 @@ fun rv5stage_udb_parameters(profile :: RVCoreProfile,
     natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", [0]),
     natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", if floating_point_supports_f(selected.floating_point) | [0, 1, 2, 3] | [0])
   ]
+  when profile.mmu_mode == RV5StageMmuMode.Bare
+  | result := result ++ [boolean_parameter("TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY", #false)]
   when selected.zicbop || selected.zicboz || selected.zicbom
   | result := result ++ [natural_parameter("CACHE_BLOCK_SIZE", RV5StageCacheLineBytes)]
   when selected.zicbom

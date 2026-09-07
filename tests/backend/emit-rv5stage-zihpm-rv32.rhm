@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits the RV32 CSR file for zero-valued Zihpm access and privilege tests.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm" open
+  "../../cores/rv5stage/csr.rhdl" as csr
+  "../../cores/rv5stage/profile.rhm" open
+
+def design = embedded.run_elaboration(fun (): csr.RV5StageCsrFile(RVCoreProfile(~xlen: XLen.X32)))
+print(emit_circt(design))
