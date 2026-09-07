@@ -1,14 +1,16 @@
 #lang rhombus
-// Serializes inferred event manifests, including known fixed latency, to JSON.
+// Serializes event manifests as JSON and matching compiler-owned C++ descriptors.
 
 import:
+  lib("json/main.rkt").#{jsexpr->string} as encode_json_string
   "model.rhm" open
 
 export:
   event_manifest_to_json
+  event_manifest_to_cpp
 
 fun json_string(value :: String):
-  to_string(value, ~mode: #'expr)
+  encode_json_string(value)
 
 fun json_value(value :: String || Boolean || Number || Array || List || Map):
   cond
@@ -59,3 +61,37 @@ fun event_manifest_to_json(manifest :: EventManifest):
     "sites": manifest.sites.map(json_site),
     "dependencies": manifest.dependencies.map(json_dependency)
   }) ++ "\n"
+
+// Raw literals preserve JSON escaping and UTF-8 labels without interpreting
+// JSON escapes as C++ escapes. Pick a delimiter absent from the actual JSON.
+fun event_manifest_to_cpp(manifest :: EventManifest):
+  unless manifest.sites.length() > 0 && manifest.sites.length() < 2 ** 32
+  | error(~who: #'event_manifest_to_cpp, "runtime manifest requires a nonempty 32-bit site table")
+  def json = event_manifest_to_json(manifest)
+  fun delimiter(index :: Nat):
+    def candidate = "rhdl" ++ to_string(index)
+    if json.contains(")" ++ candidate ++ "\"")
+    | delimiter(index + 1)
+    | candidate
+  def tag = delimiter(0)
+  def ids = MutableMap{}
+  for (site in manifest.sites, index in 0..manifest.sites.length()):
+    if ids.has_key(site.id)
+    | error(~who: #'event_manifest_to_cpp, "duplicate event site identity")
+    | ids[site.id] := index
+    unless (site.payload_width || 0) < 2 ** 32
+    | error(~who: #'event_manifest_to_cpp, "runtime payload width must fit 32 bits")
+  def widths = manifest.sites.map(fun (site): to_string(site.payload_width || 0))
+  def edges = manifest.dependencies.map(
+    fun (edge):
+      unless ids.has_key(edge.parent) && ids.has_key(edge.child)
+      | error(~who: #'event_manifest_to_cpp, "event dependency has unknown site")
+      "{" ++ to_string(ids[edge.parent]) ++ "," ++ to_string(ids[edge.child]) ++ "}"
+  )
+  String.join([
+    "// Binds this compiler manifest to its runtime site and dependency tables.\n",
+    "#pragma once\n#include \"rhodium_event.h\"\n",
+    "namespace rhodium_event_generated {\ninline rhodium_event::Manifest manifest() {\n  return {R\"",
+    tag ++ "(" ++ json ++ ")" ++ tag ++ "\", {" ++ String.join(widths, ","),
+    "}, {" ++ String.join(edges, ",") ++ "}};\n}\n}\n"
+  ], "")

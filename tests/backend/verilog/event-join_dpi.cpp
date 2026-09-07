@@ -1,5 +1,6 @@
-// Reconstructs contributing parent sets from public transfers and checks the complete DPI graph.
+// Checks manifest-bound join snapshots against parent sets reconstructed from public transfers.
 #include "../../../rhodium/event/runtime/rhodium_event.h"
+#include "event-join_manifest.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -152,7 +153,14 @@ extern "C" void event_join_occurrences(unsigned reset, unsigned input_fire, unsi
     ++distinct_occurrence_pairs;
   }
 }
+extern "C" void event_join_bind() {
+  rhodium_event::graph().bind_manifest(rhodium_event_generated::manifest());
+}
 extern "C" void event_join_finish() {
+  const auto snapshot = rhodium_event::graph().snapshot();
+  if (snapshot.nodes().size() != expected.nodes.size() || snapshot.edges().size() != expected.edges.size() ||
+      snapshot.json().find("\"format\":\"rhodium-event-trace\"") == std::string::npos)
+    fail("manifest-bound join snapshot differs from transfer scoreboard");
   if (!occurrences[0].empty() || !occurrences[1].empty() || occurrence_sequences[0] != 60 ||
       occurrence_sequences[1] != 30 || distinct_occurrence_pairs < 30)
     fail("distinct occurrence join did not drain or reach coverage");

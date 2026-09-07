@@ -1,4 +1,4 @@
-<!-- Explains event inference, immutable instrumentation, DPI ownership, and validation. -->
+<!-- Explains event inference, instrumentation, manifest-bound snapshots, and validation. -->
 
 # Developing event graphs
 
@@ -30,7 +30,10 @@ flowchart LR
   stage plans.
 - `analyze.rhm` expands module definitions per concrete instance occurrence and
   infers nearest annotated predecessors.
-- `json.rhm` is a projection of the structured manifest, not a second analysis.
+- `json.rhm` projects the structured manifest into JSON and a matching C++
+  descriptor, not a second analysis. Use the standard JSON string encoder so
+  arbitrary labels and source locations remain valid JSON. Raw C++ literals
+  preserve that JSON verbatim with a content-checked delimiter.
 - `main.rhm` is the public re-export surface.
 - `copy.rhm` remaps values, places, memories, DPI declarations, and instance
   bindings into another design; it leaves extension metadata on the original.
@@ -234,6 +237,23 @@ controls for the join itself. Static latency is zero and linear `trace_stages`
 are false across it; inference constructs `EventTraceJoin` instead.
 
 ## Focused validation
+
+The runtime binds trusted compiler descriptors before the first callback and
+retains that binding across reset. Keep the DPI ABI independent of manifest
+loading. `Graph::validate` checks settled completeness and, when bound, site
+widths and allowed static edges. Cycle order allows equality. Do not require
+all possible static parents: arbitration selects a subset dynamically.
+`Snapshot` owns a validated graph copy, exposes only const views, and embeds
+the bound manifest in its JSON export. It has no visualization dependencies.
+
+`bash tests/backend/run-event-collector.sh` exercises the collector without
+CIRCT/Verilator, including all 120 permutations of a small callback set,
+incomplete data, binding misuse, payload errors, cycle order, duplicate edges,
+same-site distinct parents, large identities, and snapshot lifetime across reset.
+The `event-runtime` simulation runner includes this contract test. The
+`event-join` emitter exports its descriptor from the same instrumented result
+as RTL, and its simulator binds that generated header before reset. Every cycle
+then receives manifest validation as well as independent transfer checks.
 
 Run:
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs curated or comprehensive CIRCT lowering, Verilog golden, and simulation checks.
+# Checks CIRCT lowering, Verilog goldens, simulations, and event snapshot handoff.
 set -euo pipefail
 
 mode=run
@@ -434,6 +434,12 @@ verify_fixture() {
   fi
 
   if [[ "$simulate_fixtures" == true && -n "$top" ]]; then
+    if [[ -f "$test_tmp_dir/${fixture}_manifest.h" ]]; then
+      verilator_args+=(-CFLAGS "-I$test_tmp_dir -I$repo_dir/rhodium/event/runtime")
+    fi
+    if [[ "$fixture" == event-runtime ]]; then
+      bash "$repo_dir/tests/backend/run-event-collector.sh"
+    fi
     # Match the SoC harness setting for the complete core's packed-interface
     # scheduling loops. Keep assertions and runtime convergence checks enabled.
     if [[ "$fixture" == rv5stage-io-boot ]]; then

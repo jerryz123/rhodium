@@ -1,4 +1,4 @@
-<!-- Explains how to maintain Rhodium's CIRCT fixtures, simulations, and exact Verilog references. -->
+<!-- Explains CIRCT fixtures, event snapshot tests, simulations, and exact Verilog references. -->
 
 # Developing backend tests
 
@@ -61,6 +61,15 @@ treated as an unchecked crash.
 The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, and `event-join` direct fixtures
 additionally link the event package's collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
+
+An emitter may additionally export `event_manifest_cpp`, generated from the
+same instrumented elaboration it prints. `load-example.rkt` writes this string
+to `<fixture>_manifest.h` beside temporary MLIR. The runner supplies that directory
+and the event runtime include directory to the C++ compiler. The join fixture
+uses this path to bind its manifest before callbacks and export a validated
+snapshot. These headers are generated artifacts, never checked-in references.
+`run-event-collector.sh` owns standalone C++ contract tests and is also invoked
+by the `event-runtime` simulation fixture.
 
 MLIR, generated SystemVerilog, Verilator object directories, and logs are
 created in a temporary `/tmp/rhodium-circt.*` directory and removed when the

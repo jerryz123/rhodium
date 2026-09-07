@@ -1,4 +1,4 @@
-// Checks joined lineage, selection padding, reconvergence, stalls, reset, and functional equivalence.
+// Checks joined lineage and manifest-bound snapshots under stalls, reset, and reconvergence.
 module event_join_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;
@@ -120,11 +120,13 @@ module event_join_tb;
       input int unsigned input_fire, input int unsigned payload,
       input int unsigned output_fire, input int unsigned result);
   import "DPI-C" function void event_join_finish();
+  import "DPI-C" function void event_join_bind();
   function automatic int unsigned random_word();
     random_state = random_state * 32'd1664525 + 32'd1013904223;
     return random_state ^ (random_state >> 16);
   endfunction
   initial begin
+    event_join_bind();
     foreach (source[i]) begin source[i] = '0; accepted[i] = 1; taken[i] = 0; end
     for (int step = 0; step < 900; step++) begin
       reset = step == 0 || step == 100 || step == 301 || step == 302;

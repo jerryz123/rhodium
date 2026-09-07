@@ -1,4 +1,4 @@
-<!-- Describes static event manifests and opt-in storage, routing, and replication lineage with DPI emission. -->
+<!-- Describes inferred event lineage, DPI emission, and manifest-bound trace snapshots. -->
 
 # Event graphs
 
@@ -255,9 +255,57 @@ deduplicates edges. After the simulator has settled the sampled edge, call
 `rhodium_event::graph().json()` for deterministic output; incomplete callbacks
 and duplicate identities are errors. The export uses decimal strings for
 64-bit sequence/cycle values to avoid rounding in JavaScript. Join numeric
-sites with the separately emitted manifest to recover labels, hierarchy,
-source locations, and payload schemas. No visualizer or manifest parser is
-bundled yet.
+sites with the compiler manifest to recover labels, hierarchy,
+source locations, and payload schemas. No visualizer or runtime manifest parser
+is bundled.
+
+### Validated trace snapshots
+
+Generate a companion C++ header with
+`event_manifest_to_cpp(traced.manifest)` from the **same** `instrument_events`
+result used to emit RTL. Put `runtime/` on the C++ include path, include the
+generated header, and bind its descriptor before evaluating the simulator:
+
+```cpp
+#include "my_trace_manifest.h"
+
+rhodium_event::graph().bind_manifest(rhodium_event_generated::manifest());
+// Evaluate the simulator, including its initial sampled reset.
+// After all callbacks for an edge have settled:
+const auto snapshot = rhodium_event::graph().snapshot();
+const auto trace_json = snapshot.json();
+```
+
+The generated header contains both the complete version-1 manifest JSON and
+matching numeric site-width/dependency tables. It defines one
+`rhodium_event_generated::manifest()` function per instrumented top; do not
+combine headers for different tops in one translation unit. The descriptor is
+trusted compiler output, not an API for parsing arbitrary JSON. Binding copies
+it, is permitted only once before any callback (including reset), and survives
+reset. A consumer cannot attach or swap manifests after collecting a run.
+Build systems must keep the generated header and RTL together: the unchanged
+DPI ABI does not authenticate a wrong but structurally compatible descriptor.
+
+With a bound manifest, validation also rejects unknown sites, mismatched payload
+widths, edges outside the possible static dependency set, and parents whose
+cycle is later than their child. Same-cycle edges and distinct occurrences of
+one parent site are valid. Missing nodes and incomplete payload callbacks remain
+permitted during collection, but must resolve before validation or snapshot.
+These checks validate observed edges, not whether every required join input
+emitted an edge; completeness remains enforced by the instrumented logic.
+
+`snapshot()` requires a bound manifest and returns an owning, read-only copy
+with `nodes()`, `edges()`, and `manifest()` accessors. Later callbacks and resets
+do not change an existing snapshot. The call must run on the simulator thread
+at a settled boundary; it is not a concurrent snapshot API. Its JSON is a
+version-1 `rhodium-event-trace` object containing `manifest` and `occurrences`,
+each retaining its own existing format and version. It preserves decimal-string
+64-bit identities and deterministic ordering. Reset clears live occurrences,
+not saved snapshots; never merge reset epochs by site/sequence alone.
+
+The existing occurrence-only `graph().json()` and fixed DPI entry points remain
+available. Snapshots copy the current epoch and therefore require additional
+memory proportional to the retained graph.
 
 The current collector supports one instrumented top per process on the
 simulator thread. It retains the whole current epoch in memory. Instrumented

@@ -1,9 +1,12 @@
 #lang rhombus
-// Emits multi-parent join instrumentation beside unannotated functional reference lanes.
+// Emits join instrumentation and its matching runtime manifest descriptor.
 
 import:
   "../../rhodium/backend/circt.rhm".emit_circt
-  "../../rhodium/event/main.rhm".instrument_events
+  "../../rhodium/event/main.rhm" open
   "../frontend/event-join-fixture.rhdl" as fixture
 
-print(emit_circt(instrument_events(fixture.joined).instrumented.design))
+export event_manifest_cpp
+def traced = instrument_events(fixture.joined)
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
+print(emit_circt(traced.instrumented.design))

@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks annotated-flow dependency inference, hierarchy expansion, and manifest JSON.
+// Checks dependency inference and safe JSON/C++ runtime manifest serialization.
 
 import:
   lib("json/main.rkt").#{string->jsexpr} as parse_json
@@ -22,6 +22,11 @@ def hierarchy_inside = hierarchical.sites.filter(
   ~keep: fun (site): site.label == "inside"
 )
 def json = event_manifest_to_json(linear)
+def cpp = event_manifest_to_cpp(linear)
+def unusual_label = "quote\" slash\\ newline\n tab\t null\u0000 bell\u0007 λ )rhdl0"
+def unusual = EventManifest(linear.logical, [
+  EventSite("odd", unusual_label, "mod", ["top"], 0, "Valid", #false, #false, #false, "<unknown>")
+], [])
 
 check:
   linear.sites.map(fun (site): site.label) ~is ["accepted", "issued", "completed"]
@@ -59,6 +64,15 @@ check:
   json.contains("\"top\":\"EventLinear\"") ~is #true
   json.contains("\"parent\":\"EventLinear/event:0\"") ~is #true
   parse_json(json) != #false ~is #true
+  parse_json(event_manifest_to_json(unusual)) != #false ~is #true
+  cpp ~is event_manifest_to_cpp(linear)
+  cpp.contains(json) ~is #true
+  cpp.contains("{8,8,8}, {{0,1},{1,2}}") ~is #true
+  event_manifest_to_cpp(unusual).contains(event_manifest_to_json(unusual)) ~is #true
+  event_manifest_to_cpp(unusual).contains("R\"rhdl1(") ~is #true
+  event_manifest_to_cpp(EventManifest(linear.logical, [], [])) ~throws "nonempty"
+  event_manifest_to_cpp(EventManifest(linear.logical, [linear.sites[0], linear.sites[0]], [])) ~throws "duplicate"
+  event_manifest_to_cpp(EventManifest(linear.logical, linear.sites, [EventDependency("missing", linear.sites[0].id, [])])) ~throws "unknown site"
   infer_event_manifest(fixture.opaque) ~throws "transform without a trace model"
   fixture.elaborate_empty_event() ~throws "event label must not be empty"
   fixture.elaborate_duplicate_event() ~throws "event label must be unique"

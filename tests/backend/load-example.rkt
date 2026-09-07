@@ -1,5 +1,5 @@
 #lang racket/base
-;; Materializes example designs, optional goldens, and direct-emitter MLIR for external tests.
+;; Materializes designs, goldens, and optional compiler manifest headers for external tests.
 
 (require racket/file
          racket/match)
@@ -41,6 +41,12 @@
          (lambda (out)
            (parameterize ([current-output-port out])
              (dynamic-require emitter-path #f))))
+        (define event-manifest
+          (dynamic-require emitter-path 'event_manifest_cpp (lambda () #f)))
+        (when event-manifest
+          (display-to-file event-manifest
+                           (build-path output-directory (string-append fixture "_manifest.h"))
+                           #:exists 'truncate/replace))
         (loop rest)]
        [_
         (raise-user-error
