@@ -1,4 +1,4 @@
-// Proves that one shared router module selects distinct prevalidated site tables.
+// Checks family-site routing, generic physical-link binding, and downstream backpressure.
 module noc_router_family_tb;
     logic clock;
     logic reset;
@@ -112,6 +112,22 @@ module noc_router_family_tb;
         wait (hub_egress_0_out.valid);
         assert (hub_egress_0_out.bits.payload == 8'hC0 && !hub_egress_1_out.valid)
             else $fatal(1, "hub site did not select its physical-link target");
+        tick();
+
+        @(negedge clock);
+        source_egress_0_in.ready = 0;
+        send_source(2'd0, 8'hD0);
+        repeat (4) begin
+            tick();
+            assert (!source_egress_1_out.valid)
+                else $fatal(1, "closed local target emitted traffic");
+        end
+        @(negedge clock);
+        source_egress_0_in.ready = 1;
+        #1;
+        wait (source_egress_0_out.valid);
+        assert (source_egress_0_out.bits.payload == 8'hD0)
+            else $fatal(1, "physical-link binding lost a backpressured packet");
         tick();
 
         $display("NoC router-family simulation passed");

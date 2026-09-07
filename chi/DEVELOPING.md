@@ -150,7 +150,9 @@ monitoring; RAM and fragmenter fixtures cover storage and multibeat retirement.
    DataID, DBID, CompAck, snoop, and dirty-data obligations in their owning
    transaction state machine.
 5. Compile CHI relationships through the pure NoC bridge, then consume only
-   validated route and family plans in RTL.
+   validated route and family plans in RTL. Generic physical-slot binding and
+   unused-local closure belong in `noc/rtl/router.rhdl`; CHI owns channel-plane
+   attachment policy, not another copy of those router mechanics.
 6. Add host coverage for pure protocol/configuration behavior and intentional
    invalid connections. Test observable hardware behavior in a backend fixture;
    do not duplicate it with internal-shape assertions. Update

@@ -19,6 +19,8 @@ export:
   compile_simple_router
   compile_simple_router_family
   bind_simple_router_family_site
+  bind_router_plane
+  close_router_local_ports
   SimpleRouter
   SimpleRouterFamily
 
@@ -113,6 +115,48 @@ fun bind_simple_router_family_site(T :: DataType,
     def target :: Endpoint = targets[target_index]
     target.available <== Bool(#false)
     target.egress.ready <== Bool(#false)
+
+// Binds one family's physical-link slots without owning router hierarchy.
+fun bind_router_plane(config :: SimpleRouterFamilyConfig,
+                      ~router_site_key: router_site_key :: Bits(config.route_decoder.site_width),
+                      ~site_key: site_key :: Bits(config.route_decoder.site_width),
+                      ~ingress: ingress :: Array,
+                      ~targets: targets :: Array,
+                      ~incoming: incoming :: Array,
+                      ~outgoing: outgoing :: Array):
+  def family = config.router_family_plan
+  router_site_key <== site_key
+  for (index in 0..family.ingress_count):
+    def incoming_link :: Endpoint = incoming[index]
+    incoming_link <=> ingress[family.injection_count + index]
+  for (index in 0..family.egress_count):
+    def outgoing_link :: Endpoint = outgoing[index]
+    def target :: Endpoint = targets[index]
+    target.egress <=> outgoing_link
+    target.available <== target.egress.ready
+
+// Closes unconnected local slots; connected target indices are absolute array indices.
+fun close_router_local_ports(T :: DataType,
+                             config :: SimpleRouterFamilyConfig,
+                             ingress :: Array,
+                             targets :: Array,
+                             connected_inputs :: List.of(Nat),
+                             connected_targets :: List.of(Nat)):
+  def family = config.router_family_plan
+  def Beat = RoutedBeat(T, config.route_decoder.route_width)
+  for (index in 0..family.injection_count):
+    unless connected_inputs.contains(index)
+    | block:
+        def input :: Endpoint = ingress[index]
+        input.valid <== Bool(#false)
+        input.bits <== dont_care(Beat)
+  for (offset in 0..family.ejection_count):
+    def index = family.egress_count + offset
+    unless connected_targets.contains(index)
+    | block:
+        def target :: Endpoint = targets[index]
+        target.available <== Bool(#false)
+        target.egress.ready <== Bool(#false)
 
 // Checks the route metadata contract on each external ingress offer. The
 // physical ingress index supplies the origin key that is intentionally absent

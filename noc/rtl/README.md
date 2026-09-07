@@ -113,6 +113,16 @@ instantiate the network or assume that its routers share a parent module.
 `bind_simple_router_family_site` drives one occurrence's constant site key and
 closes only its family-padding inputs and targets. Local endpoint attachment and
 physical-link wiring remain explicit responsibilities of the owning subsystem.
+`bind_router_plane` wires supplied direct ready-valid physical-link arrays into
+the family's physical slots and drives the supplied static site key. It ties
+each physical target's availability to its egress readiness; VC links with
+independent availability need their own wiring. `close_router_local_ports`
+disables unattached local injection and ejection slots, separately from family
+padding. Its connected-input indices refer to the local injection prefix;
+connected-target indices are absolute target-array indices, with local
+ejections starting at `family.egress_count`. Neither helper instantiates
+routers or chooses topology or hierarchy.
+
 `RouterFamilyPhysicalPlan`, in the pure planning package, projects the one
 canonical ordered physical-link shape shared by several independently compiled
 route families. It rejects a channel family whose per-site physical ingress,

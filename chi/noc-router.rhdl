@@ -470,46 +470,6 @@ fun compile_chi_router_attachment_plan(
                           dat_inputs,
                           dat_targets)
 
-fun bind_chi_router_plane(config :: SimpleRouterFamilyConfig,
-                          ~router_site_key: router_site_key :: Bits(config.route_decoder.site_width),
-                          ~site_key: site_key :: Bits(config.route_decoder.site_width),
-                          ~ingress: ingress :: Array,
-                          ~targets: targets :: Array,
-                          ~incoming: incoming :: Array,
-                          ~outgoing: outgoing :: Array):
-  def family = config.router_family_plan
-  router_site_key <== site_key
-  for (index in 0..family.ingress_count):
-    def incoming_link :: Endpoint = incoming[index]
-    incoming_link <=> ingress[family.injection_count + index]
-  for (index in 0..family.egress_count):
-    def outgoing_link :: Endpoint = outgoing[index]
-    def target :: Endpoint = targets[index]
-    target.egress <=> outgoing_link
-    target.available <== target.egress.ready
-
-fun close_chi_router_local_ports(T :: DataType,
-                                 config :: SimpleRouterFamilyConfig,
-                                 ingress :: Array,
-                                 targets :: Array,
-                                 connected_inputs :: List.of(Nat),
-                                 connected_targets :: List.of(Nat)):
-  def family = config.router_family_plan
-  def Beat = RoutedBeat(T, config.route_decoder.route_width)
-  for (index in 0..family.injection_count):
-    unless connected_inputs.contains(index)
-    | block:
-        def input :: Endpoint = ingress[index]
-        input.valid <== Bool(#false)
-        input.bits <== dont_care(Beat)
-  for (offset in 0..family.ejection_count):
-    def index = family.egress_count + offset
-    unless connected_targets.contains(index)
-    | block:
-        def target :: Endpoint = targets[index]
-        target.available <== Bool(#false)
-        target.egress.ready <== Bool(#false)
-
 sync_circuit CHIRouter(params :: CHIRouterParams):
   def p = params.flit
   def req_config = params.routers.req
@@ -647,21 +607,21 @@ sync_circuit CHIRouter(params :: CHIRouterParams):
             dat_router.target[dat_request.target_index].available <== dat_router.target[dat_request.target_index].egress.ready
             (hnf_requester_local[index].response_data |> chi_dat_noc_family_inject(dat_response, site_key)) <=> dat_router.ingress[dat_response.input_index]
       | ~else: #void
-      close_chi_router_local_ports(CHISnpFlit(p), snp_config, snp_router.ingress, snp_router.target,
-                                   params.attachment.snp_inputs, params.attachment.snp_targets)
+      close_router_local_ports(CHISnpFlit(p), snp_config, snp_router.ingress, snp_router.target,
+                               params.attachment.snp_inputs, params.attachment.snp_targets)
       def snp_incoming = for Array (index in 0..incoming_links.length()): incoming_links[index].snp
       def snp_outgoing = for Array (index in 0..outgoing_links.length()): outgoing_links[index].snp
-      bind_chi_router_plane(snp_config, ~router_site_key: snp_router.site_key, ~site_key: site_key,
-                            ~ingress: snp_router.ingress, ~targets: snp_router.target,
-                            ~incoming: snp_incoming, ~outgoing: snp_outgoing)
+      bind_router_plane(snp_config, ~router_site_key: snp_router.site_key, ~site_key: site_key,
+                        ~ingress: snp_router.ingress, ~targets: snp_router.target,
+                        ~incoming: snp_incoming, ~outgoing: snp_outgoing)
   | ~else: #void
 
-  close_chi_router_local_ports(CHIReqFlit(p), req_config, req_router.ingress, req_router.target,
-                               params.attachment.req_inputs, params.attachment.req_targets)
-  close_chi_router_local_ports(CHIRspFlit(p), rsp_config, rsp_router.ingress, rsp_router.target,
-                               params.attachment.rsp_inputs, params.attachment.rsp_targets)
-  close_chi_router_local_ports(CHIDatFlit(p), dat_config, dat_router.ingress, dat_router.target,
-                               params.attachment.dat_inputs, params.attachment.dat_targets)
+  close_router_local_ports(CHIReqFlit(p), req_config, req_router.ingress, req_router.target,
+                           params.attachment.req_inputs, params.attachment.req_targets)
+  close_router_local_ports(CHIRspFlit(p), rsp_config, rsp_router.ingress, rsp_router.target,
+                           params.attachment.rsp_inputs, params.attachment.rsp_targets)
+  close_router_local_ports(CHIDatFlit(p), dat_config, dat_router.ingress, dat_router.target,
+                           params.attachment.dat_inputs, params.attachment.dat_targets)
 
   def req_incoming = for Array (index in 0..incoming_links.length()): incoming_links[index].req
   def req_outgoing = for Array (index in 0..outgoing_links.length()): outgoing_links[index].req
@@ -669,15 +629,15 @@ sync_circuit CHIRouter(params :: CHIRouterParams):
   def rsp_outgoing = for Array (index in 0..outgoing_links.length()): outgoing_links[index].rsp
   def dat_incoming = for Array (index in 0..incoming_links.length()): incoming_links[index].dat
   def dat_outgoing = for Array (index in 0..outgoing_links.length()): outgoing_links[index].dat
-  bind_chi_router_plane(req_config, ~router_site_key: req_router.site_key, ~site_key: site_key,
-                        ~ingress: req_router.ingress, ~targets: req_router.target,
-                        ~incoming: req_incoming, ~outgoing: req_outgoing)
-  bind_chi_router_plane(rsp_config, ~router_site_key: rsp_router.site_key, ~site_key: site_key,
-                        ~ingress: rsp_router.ingress, ~targets: rsp_router.target,
-                        ~incoming: rsp_incoming, ~outgoing: rsp_outgoing)
-  bind_chi_router_plane(dat_config, ~router_site_key: dat_router.site_key, ~site_key: site_key,
-                        ~ingress: dat_router.ingress, ~targets: dat_router.target,
-                        ~incoming: dat_incoming, ~outgoing: dat_outgoing)
+  bind_router_plane(req_config, ~router_site_key: req_router.site_key, ~site_key: site_key,
+                    ~ingress: req_router.ingress, ~targets: req_router.target,
+                    ~incoming: req_incoming, ~outgoing: req_outgoing)
+  bind_router_plane(rsp_config, ~router_site_key: rsp_router.site_key, ~site_key: site_key,
+                    ~ingress: rsp_router.ingress, ~targets: rsp_router.target,
+                    ~incoming: rsp_incoming, ~outgoing: rsp_outgoing)
+  bind_router_plane(dat_config, ~router_site_key: dat_router.site_key, ~site_key: site_key,
+                    ~ingress: dat_router.ingress, ~targets: dat_router.target,
+                    ~incoming: dat_incoming, ~outgoing: dat_outgoing)
 
 export:
   CHIRouterFamilyConfigs

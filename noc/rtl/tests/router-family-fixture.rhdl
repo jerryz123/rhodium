@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates two asymmetric sites by stamping one shared router-family module.
+// Exercises generic physical-link binding and unused-local closure on two asymmetric router sites.
 
 import:
   "../../examples/router-family.rhm" as fixture
@@ -19,15 +19,26 @@ sync_circuit RouterFamilyFixture():
   def SharedRouterModule = SimpleRouterFamily(Bits(8), config)
   inst source(SharedRouterModule)
   inst hub(SharedRouterModule)
-  source.site_key <== bits(family_plan.site_key(fixture.source_a), config.route_decoder.site_width)
-  hub.site_key <== bits(family_plan.site_key(fixture.hub), config.route_decoder.site_width)
-  source.ingress <=> source_ingress
-  hub.ingress <=> hub_ingress
-  for (index in 0..config.target_count):
-    source_egress[index] <=> source.target[index].egress
-    source.target[index].available <== source.target[index].egress.ready
-    hub_egress[index] <=> hub.target[index].egress
-    hub.target[index].available <== hub.target[index].egress.ready
+  def source_incoming = for Array (index in 0..family_plan.ingress_count): source_ingress[family_plan.injection_count + index]
+  def source_outgoing = for Array (index in 0..family_plan.egress_count): source_egress[index]
+  def hub_incoming = for Array (index in 0..family_plan.ingress_count): hub_ingress[family_plan.injection_count + index]
+  def hub_outgoing = for Array (index in 0..family_plan.egress_count): hub_egress[index]
+  bind_router_plane(config, ~router_site_key: source.site_key,
+                    ~site_key: bits(family_plan.site_key(fixture.source_a), config.route_decoder.site_width),
+                    ~ingress: source.ingress, ~targets: source.target,
+                    ~incoming: source_incoming, ~outgoing: source_outgoing)
+  bind_router_plane(config, ~router_site_key: hub.site_key,
+                    ~site_key: bits(family_plan.site_key(fixture.hub), config.route_decoder.site_width),
+                    ~ingress: hub.ingress, ~targets: hub.target,
+                    ~incoming: hub_incoming, ~outgoing: hub_outgoing)
+  source.ingress[0] <=> source_ingress[0]
+  hub.ingress[0] <=> hub_ingress[0]
+  close_router_local_ports(Bits(8), config, source.ingress, source.target, [0], [])
+  close_router_local_ports(Bits(8), config, hub.ingress, hub.target, [0], [family_plan.egress_count])
+  source_egress[family_plan.egress_count].valid <== Bool(#false)
+  source_egress[family_plan.egress_count].bits <== dont_care(Beat)
+  hub_egress[family_plan.egress_count] <=> hub.target[family_plan.egress_count].egress
+  hub.target[family_plan.egress_count].available <== hub.target[family_plan.egress_count].egress.ready
 
 def design = elaborate(RouterFamilyFixture())
 

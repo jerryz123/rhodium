@@ -26,7 +26,7 @@ wiring. NoC RTL owns only reusable realization of the supplied plan.
 | Validated route decoding | [`route-computer.rhdl`](route-computer.rhdl) |
 | Protocol-neutral metadata boundaries | [`route-adapter.rhdl`](route-adapter.rhdl) |
 | Fallback-aware allocation | [`allocator.rhdl`](allocator.rhdl) |
-| Single-beat and uniform-family routers | [`router.rhdl`](router.rhdl) |
+| Single-beat and uniform-family routers, physical-slot binding, and unused-local closure | [`router.rhdl`](router.rhdl) |
 | Wormhole reservation and switching | [`wormhole-router.rhdl`](wormhole-router.rhdl) |
 | Backend fixture designs | [`tests/`](tests/) |
 | CIRCT runner and Verilator benches | [`../../tests/backend/`](../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
@@ -68,3 +68,8 @@ directory. Use the backend test
 [`DEVELOPING.md`](../../tests/backend/DEVELOPING.md) to select verification,
 simulation, or golden-reference modes. Repository test wrappers provide a
 fresh `PLTCOMPILEDROOTS`; direct Racket or Rhombus runs must do the same.
+
+For family-slot binding changes, select `noc-router-family` for generic routing
+and backpressure behavior, plus `chi-family-noc` and `chi-router-composition`
+for protocol integration. The composition fixture is emission/verification-only;
+the other two have behavioral benches.
