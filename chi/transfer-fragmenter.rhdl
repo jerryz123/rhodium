@@ -5,6 +5,7 @@ import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/gate.rhdl").gate_flow
   lib("chi/params.rhdl").CHIFlitParams
   lib("chi/flits.rhdl") open
   lib("chi/protocol.rhdl") open
@@ -227,9 +228,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
   def child_write_data_fire = downstream.dat.request.fire()
 
   def await_read_data = phase === CHITransferFragmenterPhase.AwaitReadData
-  upstream.dat.response.valid <== await_read_data & downstream.dat.response.valid
-  upstream.dat.response.bits <== downstream.dat.response.bits
-  downstream.dat.response.ready <== await_read_data & upstream.dat.response.ready
+  downstream.dat.response |> gate_flow(await_read_data) |> upstream.dat.response
   def read_data_fire = downstream.dat.response.fire()
 
   when upstream_request_fire:

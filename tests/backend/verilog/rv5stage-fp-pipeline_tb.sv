@@ -178,6 +178,13 @@ module rv5stage_fp_pipeline_tb;
     assert (completion_out.bits.fp_value == 64'h4000000000000000);
     assert (completion_out.bits.exception_flags == 5'b0);
     assert (busy[6]);
+    repeat (4) begin
+      @(negedge clock);
+      assert (completion_out.valid && completion_out.bits.context_0 == 8'hd1 &&
+              completion_out.bits.fp_value == 64'h4000000000000000 &&
+              completion_out.bits.exception_flags == 5'b0 && busy[6])
+        else $fatal(1, "divide completion changed while stalled");
+    end
     consume_completion();
     #1;
     assert (!busy[6]);

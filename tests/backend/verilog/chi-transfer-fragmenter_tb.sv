@@ -1,4 +1,4 @@
-// Simulates fragmented 64-byte CHI RAM writes and reads.
+// Simulates fragmented CHI RAM writes and reads with stalled read responses.
 module chi_transfer_fragmenter_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
@@ -178,12 +178,19 @@ module chi_transfer_fragmenter_tb;
     input logic [127:0] data
   );
     integer cycles;
+    dat_t held;
     begin
-      response_data_in.ready = 1'b1;
+      response_data_in.ready = 1'b0;
       for (cycles = 0; cycles < 100 && !port_out.dat.response.valid; cycles = cycles + 1)
         tick();
       assert (port_out.dat.response.valid)
         else $fatal(1, "timed out waiting for fragmented read data");
+      held = port_out.dat.response;
+      repeat (3) begin
+        tick();
+        assert (port_out.dat.response == held)
+          else $fatal(1, "fragmented read response changed under backpressure");
+      end
       assert (port_out.dat.response.bits.opcode == COMP_DATA &&
               port_out.dat.response.bits.src_id == RAM_ID &&
               port_out.dat.response.bits.tgt_id == HOME_ID &&
@@ -193,6 +200,7 @@ module chi_transfer_fragmenter_tb;
               port_out.dat.response.bits.byte_enable == 16'hffff &&
               port_out.dat.response.bits.data == data)
         else $fatal(1, "fragmented read beat %0d was incorrect", data_id);
+      response_data_in.ready = 1'b1;
       tick();
       response_data_in.ready = 1'b0;
     end

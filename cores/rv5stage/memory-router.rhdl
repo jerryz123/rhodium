@@ -86,8 +86,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
     io_mshr.core.request_access_fault,
     cache.request_access_fault
   )))
-  core.response.valid <== cache.response.valid ||| io_mshr.core.response.valid ||| uncached_management.egress.valid
-  core.response.bits <== mux(uncached_management.egress.valid, uncached_management.egress.bits, mux(io_mshr.core.response.valid, io_mshr.core.response.bits, cache.response.bits))
+  Array(uncached_management.egress, io_mshr.core.response, cache.response) |> valid_arbiter() |> core.response
   core.drained <== cache.drained & io_mshr.core.drained & !uncached_management.egress.valid & !management_requests.fire()
   core.reservation_valid <== cache.reservation_valid
   assert(!(cache.response.valid & io_mshr.core.response.valid),

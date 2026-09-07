@@ -235,6 +235,21 @@ module uart16550_tb;
     join
     read_register(12'h10d, 3'd5, 8'h60);
 
+    // Clearing queued TX data must not abort the active byte or start a stale byte.
+    fork
+      expect_tx_byte(8'h96, 32);
+      begin
+        write_register(12'h120, 3'd0, 8'h96);
+        write_register(12'h121, 3'd0, 8'h69);
+        write_register(12'h122, 3'd2, 8'h05);
+      end
+    join
+    repeat (352) begin
+      cycle();
+      assert (tx) else $fatal(1, "cleared TX FIFO transmitted a stale byte");
+    end
+    read_register(12'h123, 3'd5, 8'h60);
+
     write_register(12'h10e, 3'd1, 8'h01);
     send_rx_byte(8'h3c, 32, 1'b1);
     assert (interrupt)

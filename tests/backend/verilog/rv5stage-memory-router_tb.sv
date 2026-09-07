@@ -82,6 +82,10 @@ module rv5stage_memory_router_tb;
         else $fatal(1, "uncached request was not retained by the IO-MSHR");
       tick();
       uncached_in.response.valid = 1'b1;
+      uncached_in.response.bits.data = 32'h12345678;
+      #1;
+      assert (core_out.response.valid && core_out.response.bits.data == 32'h12345678)
+        else $fatal(1, "uncached completion payload was not forwarded");
       tick();
       uncached_in.response.valid = 1'b0;
     end
@@ -204,6 +208,13 @@ module rv5stage_memory_router_tb;
     check_request(32'h00006000, LOAD, 1'b0, 1'b0, 1'b1);
 
     core_in.request.valid = 1'b0;
+    cache_in.response.valid = 1'b1;
+    cache_in.response.bits = '{access_fault: 1'b0, data: 32'habcdef01,
+                               destination: 2'd1, rd: 5'd7, floating_point_precision: 2'd2};
+    #1;
+    assert (core_out.response == cache_in.response)
+      else $fatal(1, "cached completion payload was not forwarded");
+    cache_in.response.valid = 1'b0;
     #1;
     assert (!core_out.request_access_fault)
       else $fatal(1, "idle physical router reported an access fault");

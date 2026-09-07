@@ -5,6 +5,7 @@ import:
   lib("support/annotations.rhm").NonemptyString
   lib("rhodium/std/bits.rhdl") open
   lib("flow/queue.rhdl").Queue
+  lib("flow/gate.rhdl").gate_flow
   lib("rhodium/std/interconnect.rhdl") open
   lib("rhodium/std/ready-valid.rhdl").fire
   lib("chi/main.rhdl") open
@@ -290,9 +291,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   // asserted to prevent a stale TX byte from entering the serial shifter.
   tx_fifo.ingress.valid <== write_thr & !clear_tx_fifo
   tx_fifo.ingress.bits <== write_byte
-  transmitter.bytes.valid <== tx_fifo.egress.valid & !clear_tx_fifo
-  transmitter.bytes.bits <== tx_fifo.egress.bits
-  tx_fifo.egress.ready <== transmitter.bytes.ready & !clear_tx_fifo
+  tx_fifo.egress |> gate_flow(!clear_tx_fifo) |> transmitter.bytes
 
   def expected_write_mask = transfer_byte_mask(
     request.address,
