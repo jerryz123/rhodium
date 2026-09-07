@@ -1,5 +1,5 @@
 #lang rhodium
-// Demonstrates fixed-latency pipelining for a Valid payload with no backpressure.
+// Demonstrates fixed-latency Valid pipelines with qualified or unconditional payload capture.
 
 import:
   lib("rhodium/std/flow.rhdl") open
@@ -11,6 +11,7 @@ sync_circuit ValidDelay(T :: DataType, stages :: PosInt):
   ingress |> valid_pipe(stages) |> egress
 
 def design = elaborate(ValidDelay(Bits(8), 2))
+def capture_always_design = elaborate(ValidPipeAlwaysCapture(Bits(8), 2))
 
 def verilog_reference = @str|<<{
 module ValidDelay(
@@ -58,4 +59,5 @@ endmodule
 export:
   ValidDelay
   design
+  capture_always_design
   verilog_reference

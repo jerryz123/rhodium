@@ -1,4 +1,4 @@
-// Exercises fixed latency and uninterrupted advancement in a Valid-only pipe.
+// Exercises default Valid pipe latency, bubble advancement, and invalid-cycle payload retention.
 module valid_pipe_tb;
   typedef struct packed {
     logic       valid;
@@ -50,6 +50,8 @@ module valid_pipe_tb;
     tick();
     assert (!egress_out.valid)
       else $fatal(1, "ValidPipe did not advance an invalid cycle");
+    assert (egress_out.bits == 8'hb2)
+      else $fatal(1, "default ValidPipe did not retain its payload on an invalid cycle");
 
     ingress_in.valid = 1'b0;
     tick();

@@ -33,6 +33,11 @@ bundle FetchDecode(xlen :: XLen):
   instruction_access_fault: Bool
   instruction_fault_address: Bits(xlen.width)
 
+bundle RV5StageOperand(xlen :: XLen):
+  from_memory: Bool
+  from_writeback: Bool
+  value: Bits(xlen.width)
+
 bundle DecodeExecute(xlen :: XLen):
   pc: Bits(xlen.width)
   instruction: Bits(32)
@@ -65,6 +70,8 @@ bundle DecodeExecute(xlen :: XLen):
   immediate: Bits(xlen.width)
   rs1: Bits(5)
   rs2: Bits(5)
+  operand_rs1: RV5StageOperand(xlen)
+  operand_rs2: RV5StageOperand(xlen)
   rd: Bits(5)
   frs3: Bits(5)
 
@@ -122,15 +129,10 @@ bundle MemoryWriteback(xlen :: XLen):
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
 
-// Sideband observations do not transfer ownership of the pipeline token.
-bundle RV5StageBypass(xlen :: XLen):
-  rd: Bits(5)
-  value: Bits(xlen.width)
-
 export:
   FetchDecode
+  RV5StageOperand
   DecodeExecute
   RV5StageException
   ExecuteMemory
   MemoryWriteback
-  RV5StageBypass

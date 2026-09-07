@@ -63,6 +63,8 @@ export:
   pipe
   ValidPipe
   valid_pipe
+  ValidPipeAlwaysCapture
+  valid_pipe_always_capture
   OfferRegister
   ValidArbiter
   valid_arbiter

@@ -92,9 +92,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   // advances feed-forward; rejected WB dispatch refetches the instruction
   // without authorizing effects or introducing downstream backpressure.
   inst if_id_pipe(Pipe(FetchDecode(xlen), 1))
-  inst id_ex_pipe(ValidPipe(DecodeExecute(xlen), 1))
-  inst ex_mem_pipe(ValidPipe(ExecuteMemory(xlen), 1))
-  inst mem_wb_pipe(ValidPipe(MemoryWriteback(xlen), 1))
+  inst id_ex_pipe(ValidPipeAlwaysCapture(DecodeExecute(xlen), 1))
+  inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen), 1))
+  inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen), 1))
 
   inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled))
   inst registers(RV5StageRegisterFile(xlen))
@@ -136,8 +136,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def redirect_link :: Handle = interface_link(Valid(Bits(width)))
   def memory_exception_link :: Handle = interface_link(Valid(Bits(width)))
   def memory_replay_link :: Handle = interface_link(Valid(Bits(width)))
-  def memory_bypass_link :: Handle = interface_link(Valid(RV5StageBypass(xlen)))
-  def writeback_bypass_link :: Handle = interface_link(Valid(RV5StageBypass(xlen)))
   def scoreboard_set_link :: Handle = interface_link(Valid(Bits(5)))
   def scoreboard_clear_link :: Handle = interface_link(Valid(Bits(5)))
   scoreboard_set_link.right |> scoreboard.set
@@ -243,8 +241,18 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   )
   def decoded_fault = decode_bits.instruction_page_fault ||| decode_bits.instruction_access_fault ||| decoded_illegal
 
-  registers.read_address_1 <== id_ex.bits.rs1
-  registers.read_address_2 <== id_ex.bits.rs2
+  registers.read_address_1 <== rs1
+  registers.read_address_2 <== rs2
+  // Decode selects the registered data source that will be present in EX's
+  // next cycle. Live MEM faults, replay, and redirects never select operands.
+  def execute_bypass_available = id_ex.valid & id_ex.bits.writeback_enable & !deferred_writeback(id_ex.bits.writeback_source) & (id_ex.bits.writeback_source =/= WritebackSelect.Csr)
+  def memory_bypass_available = memory.valid & memory.bits.writeback_enable & !deferred_writeback(memory.bits.writeback_source) & (memory.bits.writeback_source =/= WritebackSelect.Csr)
+  fun decoded_operand(index :: Bits(5), register_value :: Bits(width)):
+    def from_memory = or_reduce(index) & execute_bypass_available & (id_ex.bits.rd === index)
+    RV5StageOperand(xlen):
+      from_memory: from_memory
+      from_writeback: !from_memory & or_reduce(index) & memory_bypass_available & (memory.bits.rd === index)
+      value: register_value
   fun rv5stage_register_busy(index :: Bits(5)):
     (
       scoreboard_busy(register_count, scoreboard.busy, index) ||| scoreboard_busy(
@@ -403,25 +411,26 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
           immediate: decoded_immediate
           rs1: rs1
           rs2: rs2
+          operand_rs1: decoded_operand(rs1, registers.read_data_1)
+          operand_rs2: decoded_operand(rs2, registers.read_data_2)
           rd: rd
           frs3: frs3
   decoded_operation |> to_valid() |> id_ex_pipe.ingress
 
-  // Execute (EX) consumes exactly one registered ID/EX cycle. Forwarding is
-  // live and sampled together with the other effects when the token advances.
-  fun forwarded_register_value(index :: Bits(5),
-                               register_value :: Bits(width)):
+  // EX uses only registered selectors and data. A killed producer's younger
+  // consumer is canceled independently; it does not select an older operand.
+  fun forwarded_register_value(operand :: RV5StageOperand(xlen)):
     mux(
-      memory_bypass_link.right.valid & (memory_bypass_link.right.bits.rd === index),
-      memory_bypass_link.right.bits.value,
+      operand.from_memory,
+      memory.bits.result,
       mux(
-        writeback_bypass_link.right.valid & (writeback_bypass_link.right.bits.rd === index),
-        writeback_bypass_link.right.bits.value,
-        register_value
+        operand.from_writeback,
+        wb.bits.value,
+        operand.value
       )
     )
-  def forwarded_rs1 = forwarded_register_value(id_ex.bits.rs1, registers.read_data_1)
-  def forwarded_rs2 = forwarded_register_value(id_ex.bits.rs2, registers.read_data_2)
+  def forwarded_rs1 = forwarded_register_value(id_ex.bits.operand_rs1)
+  def forwarded_rs2 = forwarded_register_value(id_ex.bits.operand_rs2)
 
   alu.left <== mux_lookup(
     id_ex.bits.operand_left,
@@ -584,7 +593,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   // MEM remains speculative: forward prepared operands without dispatch,
   // recover branches, and bypass pure integer results.
   def live_memory = memory |> filter_valid(_operation => memory_stage_valid)
-  def Array(memory_writeback_path, memory_bypass_path, memory_exception_path, memory_replay_path) = live_memory |> fork_valid(4)
+  def Array(memory_writeback_path, memory_exception_path, memory_replay_path) = live_memory |> fork_valid(3)
   memory_exception_path |> filter_valid(operation => operation.exception_valid)
     |> map_valid(operation => operation.pc) |> memory_exception_link.left
   memory_replay_path |> filter_valid(operation => operation.replay)
@@ -613,16 +622,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
     exception_cause: operation.exception_cause
     exception_value: operation.exception_value
   memory_writeback |> mem_wb_pipe.ingress
-
-  def memory_bypass:
-    memory_bypass_path
-      |> filter_valid(operation => !operation.exception_valid & !operation.replay & operation.writeback_enable & !deferred_writeback(
-        operation.writeback_source
-      ) & (operation.writeback_source =/= WritebackSelect.Csr) & or_reduce(operation.rd))
-      |> map_valid(operation => RV5StageBypass(xlen)):
-          rd: operation.rd
-          value: operation.result
-  memory_bypass |> memory_bypass_link.left
 
   // WB is the sole instruction-side dispatch boundary. An attempted request
   // either faults, transfers irrevocably, or replays without any side effect.
@@ -732,16 +731,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
         ) & or_reduce(committed.rd))
       |> map_valid(committed => committed.rd)
   ) |> scoreboard_set_link.left
-
-  (
-    commit
-      |> filter_valid(committed => !committed.replay & !deferred_writeback(committed.writeback_source) & (
-          committed.writeback_source =/= WritebackSelect.Csr
-        ) & committed.write_enable & or_reduce(committed.rd))
-      |> map_valid(committed => RV5StageBypass(xlen)):
-          rd: committed.rd
-          value: committed.value
-  ) |> writeback_bypass_link.left
 
   (
     commit

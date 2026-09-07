@@ -1,5 +1,5 @@
 #lang rhombus
-// Loads the use_static flow fixture so topology propagation is compile-tested.
+// Loads the use_static flow fixture, including reusable always-capture Valid pipe stages.
 
 import:
   "std-flow-static.rhdl" as fixture

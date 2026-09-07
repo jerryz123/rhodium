@@ -622,6 +622,7 @@ fixture_specs=(
   'sync-ram|sync_ram_tb|examples/std/sync-ram.rhdl|design|verilog_reference'
   'table|table_tb|examples/rtl/table.rhdl|design|verilog_reference'
   'valid-pipe|valid_pipe_tb|examples/std/valid-pipe.rhdl|design|verilog_reference'
+  'valid-pipe-capture-always|valid_pipe_capture_always_tb|examples/std/valid-pipe.rhdl|capture_always_design|-'
   'vec-search|vec_search_tb|examples/rtl/vec-search.rhdl|design|verilog_reference'
   'riscv-instruction-fields||examples/riscv/instruction-fields.rhdl|design|verilog_reference'
   'rv64i-alu-integrated|rv64i_alu_integrated_tb|examples/cores/decoded-alu.rhdl|design|-'

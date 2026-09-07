@@ -538,6 +538,8 @@ check:
   embedded.run_elaboration(fun (): flow.Pipe(Bits(8), 0)) ~throws "PosInt"
   embedded.run_elaboration(fun (): flow.Pipe(Bits(8), -1)) ~throws "PosInt"
   embedded.run_elaboration(fun (): flow.ValidPipe(Bits(8), 0)) ~throws "PosInt"
+  embedded.run_elaboration(fun (): flow.ValidPipeAlwaysCapture(Bits(8), 0)) ~throws "PosInt"
+  flow.valid_pipe_always_capture(0) ~throws "PosInt"
   embedded.run_elaboration(fun (): flow.ValidPipe(Bits(8), -1)) ~throws "PosInt"
   embedded.run_elaboration(fun (): flow.Queue(Bits(8), 0)) ~throws "PosInt"
   embedded.run_elaboration(fun (): flow.Queue(Bits(8), -1)) ~throws "PosInt"

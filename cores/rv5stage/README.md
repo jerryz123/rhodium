@@ -57,11 +57,11 @@ flowchart LR
         FQ["Fetch queue<br/>5 entries, non-pipe"]
         IFID["IF/ID<br/>elastic Pipe"]
         ID["Decode (ID)<br/>decode and hazards"]
-        IDEX["ID/EX<br/>feed-forward ValidPipe"]
+        IDEX["ID/EX<br/>ValidPipeAlwaysCapture"]
         EX["Execute (EX)<br/>forwarding, branch, AGU"]
-        EXMEM["EX/MEM<br/>feed-forward ValidPipe"]
+        EXMEM["EX/MEM<br/>ValidPipeAlwaysCapture"]
         MEM["Memory (MEM)<br/>prepared request, redirect, bypass"]
-        MEMWB["MEM/WB<br/>feed-forward ValidPipe"]
+        MEMWB["MEM/WB<br/>ValidPipeAlwaysCapture"]
         WB["Writeback (WB)<br/>ordered commit"]
 
         IF --> FQ --> IFID --> ID --> IDEX --> EX --> EXMEM --> MEM --> MEMWB --> WB
@@ -83,7 +83,7 @@ flowchart LR
 
     WB -->|"ordinary result"| GPR["Integer register file"]
     COMPLETE --> GPR
-    GPR -. "live reads" .-> EX
+    GPR -. "captured reads" .-> ID
     MEM -. "bypass" .-> EX
     WB -. "bypass" .-> EX
 
@@ -105,9 +105,9 @@ flowchart LR
 | Region | Output boundary | May hold? | Primary responsibility |
 |---|---|---:|---|
 | Fetch | Five-entry `Queue`, then IF/ID `Pipe` | Yes | Producer-owned PC generation, L1I request correlation, and redirect flushing |
-| Decode | ID/EX `ValidPipe` | No | Structured decode, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
-| Execute | EX/MEM `ValidPipe` | No | Live operand reads, forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP operand preparation, and structural replay |
-| Memory | MEM/WB `ValidPipe` | No | Prepared-request staging, branch recovery, early fault/replay squash, and bypass |
+| Decode | ID/EX `ValidPipeAlwaysCapture` | No | Structured decode, operand capture and bypass selection, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
+| Execute | EX/MEM `ValidPipeAlwaysCapture` | No | Registered-source forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP operand preparation, and structural replay |
+| Memory | MEM/WB `ValidPipeAlwaysCapture` | No | Prepared-request staging, branch recovery, early fault/replay squash, and bypass |
 | Writeback | Ordered commit | At defined architectural waits | Memory/FP dispatch, translation and access faults, replay, register/CSR effects, traps, fences, and deferred reservations |
 
 Within the pipeline, the nonbackpressured pipeline token uses `Valid` flow transforms
@@ -126,8 +126,18 @@ its response.
 
 Decode holds an instruction in IF/ID until its operands and locally reserved
 execution resources are available. Once admitted, its ID/EX token advances on
-the next edge. ID/EX stores register indices rather than captured values;
-Execute reads the integer register file live and applies MEM and WB forwarding.
+the next edge. Decode captures register-file operands (including same-cycle
+architectural writes) and chooses the MEM/WB sources that will be present in
+Execute's next cycle. The youngest eligible writer wins; x0 never bypasses.
+Loads, multiply/divide, and CSR results do not use the immediate-result bypass.
+Execute selects only registered operands and registered producer data, never
+live MEM/WB fault, replay, readiness, or redirect outcomes.
+
+The RV5Stage pipeline and both prefetch boundaries use
+`ValidPipeAlwaysCapture` to capture payload every cycle,
+independently of token validity. Late faults, replay, and redirects cancel the
+younger token and its side effects without changing its operands or enabling a
+wide payload-register mux. Invalid payloads are unspecified and must be ignored.
 
 Once Execute transfers an instruction into EX/MEM, no later scalar stage can
 backpressure it. Execute prepares branch decisions, effective virtual addresses,

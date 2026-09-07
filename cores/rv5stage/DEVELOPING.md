@@ -59,6 +59,10 @@ each other; share external transaction machinery through the CHI package.
 4. Preserve exact fault ownership and priority across Fetch, MMU, PMA routing,
    caches, Execute, Memory, and WB. Do not collapse speculative flush with
    architectural invalidation.
+   Keep integer bypass selection in Decode and register it with the captured
+   operands. Do not qualify forwarding with live MEM fault/replay/kill results;
+   those cancel younger token validity, independently of payload capture.
+   Use `ValidPipeAlwaysCapture` for these stage boundaries.
 5. Test cycle-visible behavior in the narrowest CIRCT/Verilator fixture, then
    the composed core. Do not add an elaboration snapshot for every submodule.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,

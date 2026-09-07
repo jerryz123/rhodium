@@ -555,6 +555,7 @@ under [`flow/`](flow/):
 | Valid-only generator | Behavior |
 |---|---|
 | `ValidPipe(T, stages)` | Fixed-latency registered valid/payload pipeline with no backpressure |
+| `ValidPipeAlwaysCapture(T, stages)` | Fixed-latency Valid pipeline that captures payload on invalid cycles too |
 | `ValidArbiter(T, n)` | Fixed-priority selection that drops simultaneous lower-priority events |
 | `OfferRegister(T)` | Rewritable one-slot state whose accepted Decoupled offer clears when no replacement arrives |
 
@@ -1000,6 +1001,18 @@ ambient `sync_circuit` domain, and delays every asserted cycle by exactly the
 configured number of stages. There is no readiness or pending-offer state.
 Its typed fixed-latency trace metadata lets the optional event compiler delay
 parent references by the same number of cycles without changing the pipe RTL.
+
+`ValidPipeAlwaysCapture(T, stages)` and `valid_pipe_always_capture(stages)`
+register payload every cycle, independently of validity. Ordinary `ValidPipe`
+retains each stage's payload when its incoming validity is false.
+Always-capture preserves valid-token latency, throughput, and reset
+behavior, while removing validity-dependent payload enables. Payload registers
+are not reset; after the configured latency they also reflect invalid input
+samples in always-capture mode. Such samples are not valid transactions.
+Always-capture can increase payload switching during bubbles in exchange for
+removing validity from the payload write-enable path.
+Its configured helper carries the same fixed-latency trace metadata.
+
 `valid_arbiter(n)` similarly infers its payload and, for a connected endpoint
 array, its input count. Because `Valid` has no backpressure, callers must accept
 that simultaneous unselected events are dropped.

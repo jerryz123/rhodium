@@ -1,4 +1,4 @@
-// Verifies RV5StageCore memory replay, redirects, ordered commit, scoreboard hazards, and FENCE.I control.
+// Verifies RV5StageCore forwarding priority, captured operands, replay, redirects, and ordered commit.
 module rv5stage_core_tb;
   typedef struct packed {
     logic supervisor_software;
@@ -69,7 +69,7 @@ module rv5stage_core_tb;
   logic [1:0] first_response_delay;
   logic second_response_sent;
   logic [2:0] second_response_delay;
-  logic [1:0] stores_seen;
+  logic [3:0] stores_seen;
   logic rejected_first_load;
   logic saw_replay_refetch;
   logic saw_fetch_flush;
@@ -101,6 +101,23 @@ module rv5stage_core_tb;
       64'h00000001_00000054: instruction_at = 32'h00703423; // sd x7, 8(x0)
       64'h00000001_00000058: instruction_at = 32'h00803823; // sd x8, 16(x0)
       64'h00000001_0000005c: instruction_at = 32'h00903c23; // sd x9, 24(x0)
+      64'h00000001_00000060: instruction_at = 32'h00100593; // addi x11, x0, 1
+      64'h00000001_00000064: instruction_at = 32'h00258593; // addi x11, x11, 2
+      64'h00000001_00000068: instruction_at = 32'h00b58633; // add x12, x11, x11; newest writer wins
+      64'h00000001_0000006c: instruction_at = 32'h00400693; // addi x13, x0, 4
+      64'h00000001_00000070: instruction_at = 32'h00d60733; // add x14, x12, x13; two forwarding sources
+      64'h00000001_00000074: instruction_at = 32'h00970013; // addi x0, x14, 9; must not forward to x0
+      64'h00000001_00000078: instruction_at = 32'h00e007b3; // add x15, x0, x14
+      64'h00000001_0000007c: instruction_at = 32'h02c03423; // sd x12, 40(x0)
+      64'h00000001_00000080: instruction_at = 32'h02e03823; // sd x14, 48(x0)
+      64'h00000001_00000084: instruction_at = 32'h02f03c23; // sd x15, 56(x0)
+      64'h00000001_00000088: instruction_at = 32'h01400813; // addi x16, x0, 20
+      64'h00000001_0000008c: instruction_at = 32'h00100893; // addi x17, x0, 1
+      64'h00000001_00000090: instruction_at = 32'h00200913; // addi x18, x0, 2
+      64'h00000001_00000094: instruction_at = 32'h011809b3; // add x19, x16, x17; WB-to-ID capture
+      64'h00000001_00000098: instruction_at = 32'h05303023; // sd x19, 64(x0)
+      64'h00000001_0000009c: instruction_at = 32'h04003423; // sd x0, 72(x0)
+      64'h00000001_000000a0: instruction_at = 32'h04b03823; // sd x11, 80(x0)
       default: instruction_at = 32'h00000013;
     endcase
   endfunction
@@ -261,8 +278,8 @@ module rv5stage_core_tb;
                     data_access_out.request.bits.destination == DATA_DESTINATION_NONE)
               else $fatal(1, "WAW ordering was not preserved");
             stores_seen <= 2;
-          end else begin
-            assert (stores_seen == 2 &&
+          end else if (stores_seen == 2) begin
+            assert (
                     data_access_out.request.bits.address == 64'd24 &&
                     data_access_out.request.bits.data == 64'h00000001_00000050 &&
                     data_access_out.request.bits.destination == DATA_DESTINATION_NONE)
@@ -273,8 +290,30 @@ module rv5stage_core_tb;
               else $fatal(1, "JAL did not redirect from MEM");
             assert (rejected_first_load && saw_replay_refetch)
               else $fatal(1, "memory replay was not observed before completion");
-            $display("RV5Stage memory replay, redirect, and out-of-order load completion passed");
-            $finish;
+            stores_seen <= 3;
+          end else begin
+            assert (data_access_out.request.bits.destination == DATA_DESTINATION_NONE)
+              else $fatal(1, "forwarding test store acquired a destination");
+            case (stores_seen)
+              3: assert (data_access_out.request.bits.address == 40 && data_access_out.request.bits.data == 6)
+                else $fatal(1, "newest-writer forwarding priority failed");
+              4: assert (data_access_out.request.bits.address == 48 && data_access_out.request.bits.data == 10)
+                else $fatal(1, "dual-source forwarding failed");
+              5: assert (data_access_out.request.bits.address == 56 && data_access_out.request.bits.data == 10)
+                else $fatal(1, "x0 incorrectly selected a forwarding source");
+              6: assert (data_access_out.request.bits.address == 64 && data_access_out.request.bits.data == 21)
+                else $fatal(1, "WB-to-ID operand capture failed");
+              7: assert (data_access_out.request.bits.address == 72 && data_access_out.request.bits.data == 0)
+                else $fatal(1, "x0 store operand was not zero");
+              8: begin
+                assert (data_access_out.request.bits.address == 80 && data_access_out.request.bits.data == 3)
+                  else $fatal(1, "captured register-file operand was stale");
+                $display("RV5Stage forwarding, operand capture, replay, redirect, and deferred completion passed");
+                $finish;
+              end
+              default: $fatal(1, "unexpected forwarding test store");
+            endcase
+            stores_seen <= stores_seen + 1'b1;
           end
         end
       end

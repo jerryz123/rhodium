@@ -68,6 +68,18 @@ sync_circuit ValidPipe(T :: DataType, stages :: PosInt):
     when (valid_sources[index]):
       stage_bits[index] <== bits_sources[index]
 
+// Payload advances even through invalid cycles, keeping late validity and
+// cancellation logic off every payload register's write-enable path.
+sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt):
+  interface ingress(Valid(T), ~role: consumer)
+  interface egress(Valid(T), ~role: producer)
+
+  shift_register stage_valid(ingress.valid, stages, ~init: Bool(#false))
+  shift_register stage_bits(ingress.bits, stages)
+
+  egress.valid <== stage_valid[stages - 1]
+  egress.bits <== stage_bits[stages - 1]
+
 // The control-only specialization stores just the validity of each token.
 // Its output is irrevocable because an occupied stage cannot withdraw while
 // its downstream endpoint is stalled.
@@ -133,6 +145,22 @@ fun valid_pipe(stages :: PosInt)
       )
     )
 
+fun valid_pipe_always_capture(stages :: PosInt)
+  :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
+  fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
+    def T = valid_flow_payload_type(source)
+    inst valid_pipe_always_capture_stage(ValidPipeAlwaysCapture(T, stages))
+    finish_interface_transform(
+      source,
+      describe_interface_transform(
+        InterfaceHandle(valid_pipe_always_capture_stage.ingress, valid_pipe_always_capture_stage.egress),
+        "valid-pipe-always-capture",
+        {"stages": stages},
+        valid_pipe_always_capture_stage,
+        ~trace_model: interface_trace_fixed_latency(stages)
+      )
+    )
+
 // Control-only chaining uses the same configured unary topology rule without
 // introducing a dummy payload field.
 fun ctrl_pipe(stages :: PosInt)
@@ -156,5 +184,7 @@ export:
   pipe
   ValidPipe
   valid_pipe
+  ValidPipeAlwaysCapture
+  valid_pipe_always_capture
   CtrlPipe
   ctrl_pipe
