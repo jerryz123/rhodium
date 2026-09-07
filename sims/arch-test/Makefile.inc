@@ -4,7 +4,7 @@ PYTHON ?= python3
 ACT_DIR ?= $(REPO_DIR)/riscv/riscv-arch-test
 ACT_VENV ?= $(REPO_DIR)/.tools/act-venv
 ACT_PYTHON := $(ACT_VENV)/bin/python
-ACT_SAIL ?= $(REPO_DIR)/.tools/sail-0.13.1/bin/sail_riscv_sim
+ACT_SAIL ?= $(REPO_DIR)/.tools/sail-0.14/bin/sail_riscv_sim
 ACT_OBJDUMP ?= riscv64-unknown-elf-objdump
 ACT_BUILD_ROOT ?= /tmp/rhodium-arch-test
 ACT_CONFIG_DIR := $(ACT_BUILD_ROOT)/configs/$(ACT_CONFIGURATION)
@@ -32,7 +32,7 @@ arch-test-elfs: arch-test-config
 	  find "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" -type f -name '*.elf' -delete; \
 	fi
 	cd "$(ACT_DIR)" && XDG_CACHE_HOME="$(REPO_DIR)/.tools/act-cache" XDG_DATA_HOME="$(REPO_DIR)/.tools/act-data" \
-	  BUNDLE_PATH="$(ACT_BUNDLE_PATH)" "$(ACT_VENV)/bin/act" \
+	  BUNDLE_PATH="$(ACT_BUNDLE_PATH)" "$(ACT_PYTHON)" "$(CURDIR)/arch-test/build.py" \
 	  "$(ACT_CONFIG_DIR)/test_config.yaml" --workdir "$(ACT_WORKDIR)" --test-dir tests --extensions all
 
 arch-test: arch-test-elfs

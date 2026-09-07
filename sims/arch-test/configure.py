@@ -7,9 +7,6 @@ from pathlib import Path
 import shutil
 import subprocess
 
-import pyjson5
-from ruamel.yaml import YAML
-
 
 def bits(value, width=64):
     return {"len": width, "value": hex(value)}
@@ -46,6 +43,10 @@ def sail_config(default, udb, origin, size):
     base["E"] = False
     base["writable_misa"] = any(value for key, value in params.items() if key.startswith("MUTABLE_MISA_"))
     base["privileged_isa_version"] = "Privileged_ISA_" + "_".join(str(extensions["Sm"]).split(".")[:2])
+    # Sail 0.14 defaults include H; its exception codes are reserved without H.
+    if "H" not in extensions:
+        delegatable = base["medeleg"]["delegatable_bits"]
+        delegatable["value"] = hex(int(delegatable["value"], 0) & ~((1 << 10) | (0xF << 20)))
     for prefix, field in (("HPM_COUNTER_EN", "writable_hpm_counters"),
                           ("MCOUNTENABLE_EN", "mcounteren_writable_bits"),
                           ("SCOUNTENABLE_EN", "scounteren_writable_bits")):
@@ -72,10 +73,11 @@ def sail_config(default, udb, origin, size):
         base["xtval_nonzero"][field] = params[parameter]
     memory = default["memory"]
     memory["physaddr_bits"] = params["PHYS_ADDR_WIDTH"]
+    memory["asidlen"] = params["ASID_WIDTH"]
     memory["pmp"]["count"] = memory["pmp"]["usable_count"] = 0
     memory["misaligned"]["exceptions"]["load_store"] = {"Some": "AlignmentException"}
     memory["misaligned"]["exceptions"]["amo"] = {"Some": "AlignmentException"}
-    memory["misaligned"]["exceptions"]["lrsc"] = "AlignmentException"
+    memory["misaligned"]["exceptions"]["lrsc"] = {"Some": "AlignmentException"}
     ram = next(region for region in memory["regions"] if region["attributes"]["mem_type"] == "MainMemory")
     ram["base"], ram["size"] = bits(origin), bits(size)
     attrs = ram["attributes"]
@@ -92,6 +94,9 @@ def sail_config(default, udb, origin, size):
 
 
 def main():
+    import pyjson5
+    from ruamel.yaml import YAML
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--udb", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -110,8 +115,8 @@ def main():
     if not sail:
         parser.error(f"Sail executable not found: {args.sail}; run arch-test-setup")
     version = subprocess.check_output([sail, "--version"], text=True).strip()
-    if version != "0.13.1":
-        parser.error(f"expected Sail 0.13.1, got {version}")
+    if version != "0.14":
+        parser.error(f"expected Sail 0.14, got {version}")
     default = pyjson5.decode(subprocess.check_output([sail, "--print-default-config"], text=True))
     udb = YAML(typ="safe").load(args.udb)
     config = sail_config(default, udb, args.ram_origin, args.ram_bytes)

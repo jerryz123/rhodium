@@ -67,6 +67,13 @@ Reference/harness limitations remain distinct from core extension support;
 extend and validate the projection as newly selected suites expose gaps.
 Privileged-test enablement remains a separate integration step.
 
+`arch-test/build.py` invokes the upstream CLI with its required Sail version
+set to 0.14; the pinned ACT still requires 0.13.1. This keeps the upstream
+version check active without modifying the submodule. Remove this compatibility
+entry point when ACT adopts our Sail pin. The 0.14 projection also uses the
+optional LR/SC exception encoding and clears H-only delegation bits when H is
+disabled in UDB.
+
 Generated YAML, Sail JSON, linker scripts, headers, ELFs, and logs stay in the
 ACT build root. Keep the upstream submodule unmodified. When updating its
 revision, check the required Sail version, bundled UDB gems, and header/runner

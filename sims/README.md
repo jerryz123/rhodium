@@ -142,7 +142,7 @@ make -C sims arch-test ACT_CONFIGURATION=simple-soc
 
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
 initializes the pinned `riscv/riscv-arch-test` submodule, installs Python and
-Ruby dependencies under `.tools/`, and downloads checksum-verified Sail 0.13.1
+Ruby dependencies under `.tools/`, and downloads checksum-verified Sail 0.14
 for Apple Silicon macOS or x86-64/AArch64 Linux. Normal simulator dependencies
 are still required; see [Build a simulator](#build-a-simulator).
 On Apple Silicon it also installs native Z3 5.0.0 in the local UDB cache,
@@ -164,6 +164,8 @@ Outputs and per-test logs live under
 Generation always considers all extensions. ACT selects applicable tests using
 UDB's implemented (including implied) extensions and each test's parameter
 constraints; there is no separate extension list or selection wrapper in Make.
+The reference configuration maps UDB's `ASID_WIDTH` to Sail's `memory.asidlen`,
+so `satp.ASID` expectations match the configured core's implemented width.
 
 Selection is not a claim that every candidate has passed. The initial reference
 adapter was validated with RV64I and M-mode startup; it is not yet a complete

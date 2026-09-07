@@ -4,7 +4,7 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 act_dir="$repo_dir/riscv/riscv-arch-test"
 venv_dir="${ACT_VENV:-$repo_dir/.tools/act-venv}"
-sail_dir="$repo_dir/.tools/sail-0.13.1"
+sail_dir="$repo_dir/.tools/sail-0.14"
 export BUNDLE_PATH="${ACT_BUNDLE_PATH:-$repo_dir/.tools/act-bundle}"
 export BUNDLE_GEMFILE="$act_dir/framework/src/act/data/Gemfile"
 export XDG_CACHE_HOME="$repo_dir/.tools/act-cache"
@@ -33,16 +33,16 @@ fi
 "$venv_dir/bin/python" -m pip install -e "$act_dir/framework" -e "$act_dir/generators/testgen" -e "$act_dir/generators/coverage"
 bundle check || bundle install
 
-if [[ -x "$sail_dir/bin/sail_riscv_sim" ]] && [[ "$("$sail_dir/bin/sail_riscv_sim" --version)" == 0.13.1 ]]; then
+if [[ -x "$sail_dir/bin/sail_riscv_sim" ]] && [[ "$("$sail_dir/bin/sail_riscv_sim" --version)" == 0.14 ]]; then
   exit 0
 fi
 case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64) asset=Mac-arm64; digest=53d0c6fd84edd898728e7ba01c1575e66e5f17efd098847c5273690abbbd0737 ;;
-  Linux-x86_64) asset=Linux-x86_64; digest=ee052f64494a2f5f071afd9c2cb4aa5eaae4ba84753e4f77e442b4f83f2e9469 ;;
-  Linux-aarch64) asset=Linux-aarch64; digest=3cd33a323d6749aec4667e54f71d2bf8e8e6e220a4e4bafd9083440f9a7e55f0 ;;
-  *) echo 'Install Sail 0.13.1 for this platform and set ACT_SAIL' >&2; exit 1 ;;
+  Darwin-arm64) asset=Mac-arm64; digest=340ab7080871b191b0e719b5ed5be34f4725704dfe52a5aeb50ea36be277464e ;;
+  Linux-x86_64) asset=Linux-x86_64; digest=363f851ba91c674cd818040e232c4baf0ec382406a0a9696b1dde687ea160b2a ;;
+  Linux-aarch64) asset=Linux-aarch64; digest=6c7334e67b2a37e97f10442b4852ac137d1c6993fdbc43c5deea159dfd5a0e83 ;;
+  *) echo 'Install Sail 0.14 for this platform and set ACT_SAIL' >&2; exit 1 ;;
 esac
-curl --fail --location "https://github.com/riscv/sail-riscv/releases/download/0.13.1/sail-riscv-$asset.tar.gz" -o "$temp_dir/sail.tar.gz"
+curl --fail --location "https://github.com/riscv/sail-riscv/releases/download/0.14/sail-riscv-$asset.tar.gz" -o "$temp_dir/sail.tar.gz"
 actual="$(shasum -a 256 "$temp_dir/sail.tar.gz" | cut -d ' ' -f 1)"
 [[ "$actual" == "$digest" ]] || { echo 'Sail archive checksum mismatch' >&2; exit 1; }
 mkdir -p "$sail_dir"
