@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the backend-independent static event-site and dependency manifest model.
+// Defines event sites, possible dependencies, and certified fixed path latency.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -22,7 +22,8 @@ class EventSite(id :: String,
 
 class EventDependency(parent :: String,
                       child :: String,
-                      transform_path :: List.of(String))
+                      transform_path :: List.of(String),
+                      latency_cycles :: False || Nat = #false)
 
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),

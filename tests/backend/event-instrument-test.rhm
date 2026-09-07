@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks selective specialization, shared imports, immutable IR, and trace diagnostics.
+// Checks immutable instrumentation, shared definitions, fixed latency, and diagnostics.
 
 import:
   lib("json/main.rkt").#{string->jsexpr} as parse_json
@@ -9,6 +9,7 @@ import:
   "../../rhodium/backend/circt.rhm".emit_circt
   "../frontend/event-instrument-fixture.rhdl" as fixture
   "../frontend/event-graph-fixture.rhdl" as static_fixture
+  "../frontend/event-pipeline-fixture.rhdl" as pipeline_fixture
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
@@ -66,3 +67,15 @@ check:
   shared_mapper.design === result.instrumented.design ~is #true
   shared_identity.design === result.instrumented.design ~is #true
   shared_mapper.name ~is original_mapper.name
+
+def pipeline_before = emit_circt(pipeline_fixture.pipeline.design)
+def pipeline = instrument_events(pipeline_fixture.pipeline)
+check:
+  pipeline.manifest.sites.map(fun (site): site.label) ~is ["accepted", "completed", "middle"]
+  pipeline.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [1, 3]
+  result.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0, 0, 0, 0, 0]
+  infer_event_manifest(static_fixture.linear).dependencies.map(fun (edge): edge.latency_cycles) ~is [#false, #false]
+  event_manifest_to_json(pipeline.manifest).contains("\"latency_cycles\":3") ~is #true
+  emit_circt(pipeline_fixture.pipeline.design) ~is pipeline_before
+  pipeline_fixture.bad_latency_count() ~throws "PosInt"
+  pipeline_fixture.bad_latency_shape() ~throws "exactly one input and output"

@@ -53,8 +53,8 @@ The structured result contains:
 - `EventSite`: stable occurrence ID, label, defining module, instance path,
   module-local site ordinal, protocol, packed payload type and width, terminal
   flag, and source location;
-- `EventDependency`: parent ID, child ID, and ordered intervening transform
-  path;
+- `EventDependency`: parent ID, child ID, ordered intervening transform path,
+  and `latency_cycles` (a nonnegative fixed delay, or `false` if not certified);
 - `EventManifest`: original elaboration, sites, and dependencies.
 
 `event_manifest_to_json` emits a deterministic version-1 object with format
@@ -74,7 +74,7 @@ unmodeled transform is rejected rather than assigned an approximate parent.
 - The manifest describes possible static dependencies, not runtime event
   occurrences.
 - Static inference never inserts hardware. Dynamic instrumentation supports
-  only the linear subset described below; buffered and branching paths still
+  only the linear subset described below; elastic and branching paths still
   require future dynamic adapters.
 - Only flat top-level flow endpoints are traceable; nested interface members
   are rejected.
@@ -82,7 +82,7 @@ unmodeled transform is rejected rather than assigned an approximate parent.
   low-level interface API. The standard flow helpers currently report
   `<unknown>` pending call-site location capture.
 - Terminal metadata is recorded but does not yet prune downstream analysis.
-- Buffered dynamic lineage requires future stateful trace adapters.
+- Elastic pipelines and queues require future stateful trace adapters.
 
 ## Instrument a linear path
 
@@ -105,9 +105,10 @@ and manifest, not with the rebuilt modules.
 
 The supported dynamic path consists of annotations, interface connections,
 hierarchy boundaries, `map_flow`, `map_valid`, `filter_flow`, `filter_valid`,
-and `gate_flow`. A typed combinational trace contract is mandatory for every
-intervening transform. Route-only models (including pipes, queues, forks and
-joins), disconnected or opaque upstream boundaries, multiple parent paths,
+`gate_flow`, and fixed-latency `valid_pipe(stages)`. Every intervening transform
+needs a typed combinational or fixed-latency trace contract. Route-only models
+(including elastic pipes, queues, forks and joins), disconnected or opaque
+upstream boundaries, multiple parent paths,
 branching dependencies, and descendants of terminal events are rejected.
 
 `EventInstrumentationConfig(clock_port, reset_port)` selects the top-level
@@ -118,10 +119,19 @@ reset domains are rejected. Assert reset for at least one sampled rising edge
 before tracing. Reset clears all trace counters and the runtime graph;
 identities are unique within that reset epoch, not across retained epochs.
 
+For `valid_pipe`, the compiler sums certified delays along each dependency and
+inserts an unconditional reference shift register at its downstream annotation.
+The functional pipeline modules remain unchanged and shareable. This also
+supports composed delays across hierarchy and intervening maps or filters;
+filtered transactions do not produce downstream nodes. Reset flushes pending
+references as well as the functional pipeline validity. No queue, elastic
+pipeline, or variable-latency behavior is inferred from a stage count or name.
+
 Ready-valid checkpoints fire only on `valid & ready`; Valid checkpoints fire
 on `valid`. A site increments its own 64-bit sequence counter and emits its
 current reference on that same edge. Combinational consumers therefore see
-the intended same-cycle parent, including across hierarchy. Parent-presence
+the intended same-cycle parent, including across hierarchy; fixed-latency paths
+consume the corresponding delayed reference instead. Parent-presence
 and sequence-exhaustion assertions fail instead of silently inventing lineage
 or allowing identity wraparound. Cycle counts start at zero after reset.
 

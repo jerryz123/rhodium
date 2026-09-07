@@ -1132,8 +1132,15 @@ unmodeled transform instead of inferring routes from its label.
 Static routes alone do not authorize runtime instrumentation. The optional
 `InterfaceTraceCombinational` contract certifies zero-storage, non-inventing,
 one-to-one transfer; `interface_trace_combinational(~guard: predicate)` retains
-the original local one-bit filter or gate predicate. Stateful transforms keep
-route-only models. `describe_interface_event` accepts explicit local one-bit
+the original local one-bit filter or gate predicate.
+`interface_trace_fixed_latency(cycles)` constructs an
+`InterfaceTraceFixedLatency` contract with a positive, unconditional cycle
+delay, one-to-one non-inventing transfers, and synchronous reset flushing.
+It must not describe stalls, clock enables, or variable latency. Both dynamic
+contracts require exactly one input and output route. The trace model's
+`latency_cycles()` returns zero for combinational transfer, the declared delay
+for fixed latency, or false for an uncertified route-only model. Other stateful
+transforms keep route-only models. `describe_interface_event` accepts explicit local one-bit
 `~valid` and optional `~ready` values for the event transfer predicate; `~ready`
 requires `~valid`. Clock/reset selection belongs to the instrumenter, not to
 interface metadata.

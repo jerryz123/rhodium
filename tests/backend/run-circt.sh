@@ -188,7 +188,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime)
+    language:nested-bundle|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline)
       return 0
       ;;
     std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant)
@@ -428,7 +428,7 @@ verify_fixture() {
   if [[ -f "$test_dpi_source" ]]; then
     dpi_sources+=("$test_dpi_source")
   fi
-  if [[ "$fixture" == event-runtime ]]; then
+  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline ]]; then
     dpi_sources+=("$repo_dir/rhodium/event/runtime/rhodium_event.cc")
   fi
 
@@ -632,6 +632,7 @@ fixture_specs=(
 
 direct_fixture_specs=(
   'event-runtime|event_runtime_tb'
+  'event-pipeline|event_pipeline_tb'
   'aclint|aclint_tb'
   'bootrom|bootrom_tb'
   'boot-address|boot_address_tb'

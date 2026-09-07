@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines registered pipelines for Valid and ready-valid protocol families.
+// Defines registered pipelines and the Valid pipeline's fixed-latency trace contract.
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
@@ -127,7 +127,7 @@ fun valid_pipe(stages :: PosInt)
         "valid-pipe",
         {"stages": stages},
         valid_pipe_stage,
-        ~trace_model: interface_trace_passthrough()
+        ~trace_model: interface_trace_fixed_latency(stages)
       )
     )
 

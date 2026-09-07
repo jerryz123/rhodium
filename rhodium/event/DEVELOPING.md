@@ -47,8 +47,8 @@ existing backend rather than introducing event cases into CIRCT lowering.
 
 ### Selective hierarchy rebuilding
 
-For the supported combinational subset, mark event-bearing occurrences and
-their ancestors before rebuilding. Ancestors must retarget changed children
+For the supported combinational and fixed-latency subset, mark event-bearing
+occurrences and their ancestors before rebuilding. Ancestors must retarget changed children
 and forward hidden metadata even when they contain no local annotation.
 Only occurrences with local sites get event counters and node/edge emission;
 the root also owns the reset callback.
@@ -63,8 +63,14 @@ unchanged imported definitions.
 
 Copying therefore scales with distinct unchanged definitions plus modified
 occurrences; analysis and clock/reset validation remain occurrence-aware.
-Future stateful adapters must extend the modification footprint to include
-any additional metadata storage or transport they introduce.
+Fixed-latency paths compose their certified cycle counts during inference and
+place a reference delay line in the consumer's module. Each stage samples the
+entire upstream reference unconditionally and resets to invalid. This placement
+is exact for unconditional delay even across hierarchy, maps, and dropping
+filters, because the consuming annotation's transfer predicate controls emission.
+It does not require specializing the functional pipeline implementation.
+Future elastic adapters must instead match actual enables/storage behavior and
+extend the modification footprint wherever they introduce metadata state.
 
 ## Extend trace coverage
 
@@ -79,8 +85,14 @@ certifies one-to-one, zero-storage, non-inventing transfers. Its optional guard
 retains the functional predicate, while event handshakes determine actual
 transfer and parent-reference validity. Before traversing state, extend the
 model with the transfer, ordering, and storage semantics needed for exact
-lineage. Never upgrade route-only passthrough metadata to dynamic passthrough
-merely because its endpoint cardinality is one-to-one.
+lineage. `InterfaceTraceFixedLatency` additionally certifies unconditional,
+one-to-one cycle delay with synchronous reset flushing. `valid_pipe` supplies
+this contract; `InterfaceTraceModel.latency_cycles()` returns its positive
+delay, zero for combinational contracts, and false for route-only models.
+Inference adds these typed delays across flow arcs; it never parses display
+labels or transform properties for timing. The manifest retains unknown latency
+as false rather than interpreting it as zero. Never upgrade route-only metadata
+to dynamic passthrough merely because its endpoint cardinality is one-to-one.
 
 An unmodeled transform is a supported boundary: inference reports the concrete
 transform occurrence and stops with an error when a downstream annotation
@@ -107,6 +119,10 @@ also compare original CIRCT emission before and after instrumentation, check
 unchanged nested/diamond definition sharing, and distinguish metadata-only
 wrappers from event-bearing specializations. The runtime scoreboard exercises
 functional logic in shared imported children as well as traced descendants.
+The `event-pipeline` fixture adds one- and two-stage Valid pipes composed across
+hierarchy, filters before and after storage, bursts, bubbles, drain, and reset
+with transactions in flight. Its independent C++ transfer scoreboard checks
+both functional outputs and exact node payloads, timestamps, and parent edges.
 
 Every direct Racket or Rhombus command must use a fresh `PLTCOMPILEDROOTS` as
 required by the repository `AGENTS.md`.

@@ -1,0 +1,68 @@
+// Predicts payload transfers and exact event edges independently of inserted RTL.
+#include "../../../rhodium/event/runtime/rhodium_event.h"
+#include <array>
+#include <deque>
+#include <stdexcept>
+
+namespace {
+struct Pending {
+  std::uint64_t cycle, parent;
+  std::uint32_t payload;
+};
+rhodium_event::Graph expected;
+std::array<std::uint64_t, 3> sequences{};
+std::uint64_t cycle = 0;
+std::deque<Pending> middle, completed;
+
+std::uint64_t node(std::uint32_t site, std::uint32_t payload,
+                   int parent = -1, std::uint64_t parent_sequence = 0) {
+  const auto sequence = sequences[site]++;
+  auto& value = expected.nodes[{site, sequence}];
+  value.present = true;
+  value.cycle = cycle;
+  value.width = 8;
+  value.words[0] = payload;
+  if (parent >= 0)
+    expected.edges.insert({{static_cast<std::uint32_t>(parent), parent_sequence}, {site, sequence}});
+  return sequence;
+}
+}
+
+extern "C" void event_pipeline_sample(std::uint32_t reset, std::uint32_t valid,
+    std::uint32_t payload, std::uint32_t out_valid, std::uint32_t out_payload) {
+  if (reset) {
+    expected.clear();
+    sequences.fill(0);
+    middle.clear();
+    completed.clear();
+    cycle = 0;
+    return;
+  }
+  const bool output = !completed.empty() && completed.front().cycle == cycle;
+  if (output != static_cast<bool>(out_valid))
+    throw std::runtime_error("fixed pipeline valid mismatch at cycle " + std::to_string(cycle));
+  if (output) {
+    const auto item = completed.front();
+    completed.pop_front();
+    if (out_payload != item.payload) throw std::runtime_error("fixed pipeline payload mismatch");
+    node(1, item.payload, 2, item.parent);
+  }
+  if (!middle.empty() && middle.front().cycle == cycle) {
+    const auto item = middle.front();
+    middle.pop_front();
+    const auto sequence = node(2, item.payload, 0, item.parent);
+    const auto mapped = (item.payload + 1) & 255;
+    if (mapped != 4) completed.push_back({cycle + 1, sequence, mapped});
+  }
+  if (valid) {
+    const auto sequence = node(0, payload);
+    if (payload != 0) middle.push_back({cycle + 3, sequence, payload});
+  }
+  ++cycle;
+}
+
+extern "C" void event_pipeline_check() {
+  if (rhodium_event::graph().json() != expected.json())
+    throw std::runtime_error("fixed pipeline event graph mismatch\nactual: "
+                             + rhodium_event::graph().json() + "expected: " + expected.json());
+}

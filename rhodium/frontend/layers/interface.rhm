@@ -29,6 +29,7 @@ export:
   InterfaceTraceRoute
   InterfaceTraceModel
   InterfaceTraceCombinational
+  InterfaceTraceFixedLatency
   InterfaceTransformGroup
   InterfaceEventGroup
   InterfaceConnectionGroup
@@ -42,6 +43,7 @@ export:
   interface_boundary_endpoint
   interface_trace_passthrough
   interface_trace_combinational
+  interface_trace_fixed_latency
   interface_trace_broadcast
   interface_trace_merge
   interface_trace_crossbar
@@ -399,8 +401,16 @@ class InterfaceTraceRoute(input_index :: Nat, output_index :: Nat)
 // Absence of this contract never implies zero-latency runtime propagation.
 class InterfaceTraceCombinational(guard :: False || Value = #false)
 
+// Certifies unconditional cycle latency and synchronous reset flushing.
+class InterfaceTraceFixedLatency(cycles :: PosInt)
+
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational = #false)
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency = #false):
+  method latency_cycles():
+    cond
+    | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
+    | dynamic is_a InterfaceTraceCombinational: 0
+    | ~else: #false
 
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
@@ -1544,6 +1554,11 @@ fun interface_trace_combinational(~guard: guard :: False || HardwareEntity = #fa
   | error(~who: #'interface_trace_combinational, "trace guard must be local one-bit data")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceCombinational(value))
 
+// Every surviving output transfer corresponds to the input exactly this many
+// cycles earlier. No backpressure, clock enable, or variable latency is allowed.
+fun interface_trace_fixed_latency(cycles :: PosInt):
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceFixedLatency(cycles))
+
 fun interface_trace_broadcast(output_count :: PosInt):
   InterfaceTraceModel(
     for List (output_index in 0..output_count):
@@ -1570,8 +1585,8 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
   def output_count = interface_endpoint_shape_count(output_shape)
   when trace_model.dynamic
   | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
-    | error(~who: #'describe_interface_transform, "combinational trace semantics require exactly one input and output")
-    def guard = trace_model.dynamic.guard
+    | error(~who: #'describe_interface_transform, "dynamic trace semantics require exactly one input and output")
+    def guard = if trace_model.dynamic is_a InterfaceTraceCombinational | trace_model.dynamic.guard | #false
     when guard && (!(guard.module_def === kernel.active_module()) || !flat_data_type(guard.type) || data_width(guard.type) != 1)
     | error(~who: #'describe_interface_transform, "trace guard must be local one-bit data")
   for (route in trace_model.routes):

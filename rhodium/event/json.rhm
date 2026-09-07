@@ -1,5 +1,5 @@
 #lang rhombus
-// Serializes inferred static event manifests to deterministic JSON.
+// Serializes inferred event manifests, including known fixed latency, to JSON.
 
 import:
   "model.rhm" open
@@ -47,7 +47,8 @@ fun json_dependency(dependency :: EventDependency):
   {
     "parent": dependency.parent,
     "child": dependency.child,
-    "transform_path": dependency.transform_path
+    "transform_path": dependency.transform_path,
+    "latency_cycles": dependency.latency_cycles
   }
 
 fun event_manifest_to_json(manifest :: EventManifest):

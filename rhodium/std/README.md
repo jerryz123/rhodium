@@ -627,8 +627,9 @@ ingress
 ```
 
 The [event package](../event/README.md) can also rebuild a separate design with
-synthesizable lineage and DPI emission for linear combinational paths. Queues,
-pipes, and branching transforms remain static-analysis-only boundaries.
+synthesizable lineage and DPI emission for linear combinational paths and
+fixed-latency `valid_pipe` paths. Queues, elastic pipes, and branching transforms
+remain static-analysis-only boundaries.
 
 Packet arbitration takes an inline predicate that identifies the final beat.
 The selected input remains the sole owner across stalls and bubbles until that
@@ -984,6 +985,8 @@ deliberately binary; homogeneous multi-input rendezvous remains the role of
 `valid_pipe(stages)` infers its eventual input payload, instantiates in the
 ambient `sync_circuit` domain, and delays every asserted cycle by exactly the
 configured number of stages. There is no readiness or pending-offer state.
+Its typed fixed-latency trace metadata lets the optional event compiler delay
+parent references by the same number of cycles without changing the pipe RTL.
 `valid_arbiter(n)` similarly infers its payload and, for a connected endpoint
 array, its input count. Because `Valid` has no backpressure, callers must accept
 that simultaneous unselected events are dropped.

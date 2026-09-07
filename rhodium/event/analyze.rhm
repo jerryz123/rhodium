@@ -1,5 +1,5 @@
 #lang rhombus
-// Infers nearest annotated event dependencies from hierarchical logical flow structure.
+// Infers nearest annotated dependencies and certified latency through hierarchical flow.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -11,10 +11,12 @@ export:
 
 class FlowArc(source :: String,
               destination :: String,
-              transform :: False || String = #false)
+              transform :: False || String = #false,
+              latency_cycles :: False || Nat = 0)
 
 class EventCandidate(site :: EventSite,
-                     transform_path :: List.of(String))
+                     transform_path :: List.of(String),
+                     latency_cycles :: False || Nat)
 
 fun occurrence_prefix(instance_path :: List.of(String)):
   String.join(instance_path, "/")
@@ -50,7 +52,7 @@ fun boundary_external_name(block :: DiagramBlock, port :: DiagramPort):
 
 fun same_dependency(left :: EventDependency,
                     right :: EventDependency):
-  left.parent == right.parent && left.child == right.child && left.transform_path == right.transform_path
+  left.parent == right.parent && left.child == right.child && left.transform_path == right.transform_path && left.latency_cycles == right.latency_cycles
 
 fun infer_event_manifest(logical :: DesignElaboration,
                          ~dynamic: dynamic :: Boolean = #false):
@@ -64,9 +66,10 @@ fun infer_event_manifest(logical :: DesignElaboration,
 
   fun add_arc(source :: String,
               destination :: String,
-              transform :: False || String = #false):
+              transform :: False || String = #false,
+              latency_cycles :: False || Nat = 0):
     incoming[destination] := incoming.get(destination, []) ++ [
-      FlowArc(source, destination, transform)
+      FlowArc(source, destination, transform, latency_cycles)
     ]
 
   fun expand(module_diagram :: DiagramModule,
@@ -138,7 +141,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
               add_arc(
                 terminal_id(instance_path, flow_block.id, input_port.id),
                 terminal_id(instance_path, flow_block.id, output_port.id),
-                occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label
+                occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label,
+                trace_model.latency_cycles()
               )
           | for (port in output_ports):
               unsupported_by_output[
@@ -180,10 +184,11 @@ fun infer_event_manifest(logical :: DesignElaboration,
 
   fun nearest_events(vertex :: String,
                      visiting :: List.of(String) = [],
-                     reverse_transform_path :: List.of(String) = []):
+                     reverse_transform_path :: List.of(String) = [],
+                     latency_cycles :: False || Nat = 0):
     def event = event_by_output.get(vertex, #false)
     if event
-    | [EventCandidate(event, reverse_transform_path.reverse())]
+    | [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles)]
     | block:
         def unsupported = unsupported_by_output.get(vertex, #false)
         when unsupported
@@ -205,7 +210,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
               candidates := candidates ++ nearest_events(
                 arc.source,
                 visiting ++ [vertex],
-                next_path
+                next_path,
+                if latency_cycles != #false && arc.latency_cycles != #false | latency_cycles + arc.latency_cycles | #false
               )
             candidates
 
@@ -215,7 +221,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
       for (candidate in nearest_events(input)):
         def dependency = EventDependency(candidate.site.id,
                                          site.id,
-                                         candidate.transform_path)
+                                         candidate.transform_path,
+                                         candidate.latency_cycles)
         unless dependencies.find(
           fun (existing): same_dependency(existing, dependency)
         )

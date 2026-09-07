@@ -1,5 +1,5 @@
 #lang rhombus
-// Selectively specializes traced hierarchies while sharing unchanged module imports.
+// Specializes traced sites with exact combinational or fixed-latency parent references.
 
 import:
   "../core/ir.rhm" open
@@ -43,6 +43,7 @@ fun instrument_events(logical :: DesignElaboration,
   def site_ids = MutableMap{}
   for (site in manifest.sites, index in 0..manifest.sites.length()): site_ids[site.id] := index
   def parents = MutableMap{}
+  def parent_latencies = MutableMap{}
   for (site in manifest.sites):
     def edges = manifest.dependencies.filter(~keep: fun (edge): edge.child == site.id)
     when edges.length() > 1
@@ -52,6 +53,9 @@ fun instrument_events(logical :: DesignElaboration,
       when parent.terminal
       | error(~who: #'instrument_events, "terminal event has a downstream annotation: " ++ parent.id)
       parents[site.id] := parent
+      unless edges[0].latency_cycles != #false
+      | error(~who: #'instrument_events, "event path has no certified fixed latency: " ++ site.id)
+      parent_latencies[site.id] := edges[0].latency_cycles
     when manifest.dependencies.filter(~keep: fun (edge): edge.parent == site.id).length() > 1
     | error(~who: #'instrument_events, "linear tracing does not support branching at " ++ site.id)
 
@@ -127,8 +131,8 @@ fun instrument_events(logical :: DesignElaboration,
     )
   fun ref_name(prefix :: String, site :: EventSite): prefix ++ to_string(site_ids[site.id])
 
-  // In this combinational subset, the footprint is event-bearing occurrences
-  // plus their ancestors: ancestors carry references and retarget children.
+  // Fixed delays are placed at consumers, so the footprint remains event-bearing
+  // occurrences and ancestors. Functional pipeline definitions stay shareable.
   def modified = MutableSet{}
   for (occurrence in occurrences):
     when subtree_sites(occurrence).length() > 0 | modified.add(occurrence.ordinal)
@@ -230,7 +234,19 @@ fun instrument_events(logical :: DesignElaboration,
           builder.dpi_call(module_def, word_dpi, [id, sequence, builder.constant(module_def, Bits(32), index), padded], clock, fire)
       def parent = parents.get(site.id, #false)
       when parent
-      | def reference = references[parent.id]
+      | def mutable reference = references[parent.id]
+        // Unconditional fixed delays compose across hierarchy and intervening
+        // maps/filters. Sampling the whole reference preserves input bubbles;
+        // downstream fire determines whether that transaction survived.
+        when parent_latencies[site.id] > 0
+        | def empty_reference = builder.record_create(module_def, reference_type, [
+            ["valid", builder.constant(module_def, Bits(1), 0)],
+            ["site", builder.constant(module_def, Bits(32), 0)], ["sequence", zero]
+          ])
+          for (stage in 0..parent_latencies[site.id]):
+            def delayed = builder.register(module_def, ref_name("__event_parent_", site) ++ "_" ++ to_string(stage), reference_type, clock, reset, empty_reference)
+            builder.drive(delayed.next, reference)
+            reference := delayed.current
         def parent_valid = builder.record_get(module_def, reference, "valid")
         builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
         builder.dpi_call(module_def, edge_dpi, [id, sequence, builder.record_get(module_def, reference, "site"), builder.record_get(module_def, reference, "sequence")], clock, builder.bit_and(module_def, fire, parent_valid))
