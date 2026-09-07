@@ -1,5 +1,5 @@
 #lang rhombus
-// Infers annotated dependencies with ordered fixed, elastic, and queue stages.
+// Infers static parents and nested storage/selection plans from concrete flow routes.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -19,6 +19,7 @@ class EventCandidate(site :: EventSite,
                      transform_path :: List.of(String),
                      latency_cycles :: False || Nat,
                      trace_stages :: False || List.of(EventTraceStage || EventTraceQueue))
+class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String))
 
 fun occurrence_prefix(instance_path :: List.of(String)):
   String.join(instance_path, "/")
@@ -63,6 +64,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def event_by_output = MutableMap{}
   def site_inputs = MutableMap{}
   def unsupported_by_output = MutableMap{}
+  def selections = MutableMap{}
   def roots = MutableSet{}
   def mutable sites = []
 
@@ -140,6 +142,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
         | if trace_model && (!dynamic || trace_model.dynamic)
           | def stages:
               cond
+              | trace_model.selection_grants(): #false
               | trace_model.queue_storage():
                   def storage = trace_model.queue_storage()
                   def owner_path = instance_path ++ [trace_model.queue_instance().operation.attribute("name")]
@@ -151,6 +154,10 @@ fun infer_event_manifest(logical :: DesignElaboration,
               | trace_model.latency_cycles() != #false:
                   for List (_ in 0..trace_model.latency_cycles()): EventTraceStage()
               | ~else: #false
+            when trace_model.selection_grants()
+            | def owner_path = instance_path ++ [trace_model.selection_instance().operation.attribute("name")]
+              def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
+              selections[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := FlowSelection(owner_path, trace_model.selection_grants(), inputs)
             for (route in trace_model.routes):
               def input_port = input_ports[route.input_index]
               def output_port = output_ports[route.output_index]
@@ -248,4 +255,33 @@ fun infer_event_manifest(logical :: DesignElaboration,
         )
         | dependencies := dependencies ++ [dependency]
 
-  EventManifest(logical, sites, dependencies)
+  // Construct expressions at flow vertices so storage downstream of selection
+  // wraps the selected reference once, rather than duplicating it per parent.
+  def plans = MutableMap{}
+  def cached_plans = MutableMap{}
+  fun trace_plan(vertex :: String, visiting :: List.of(String) = []):
+    when vertex in visiting
+    | error(~who: #'infer_event_manifest, "dynamic event lineage requires an acyclic path: " ++ vertex)
+    unless cached_plans.has_key(vertex)
+    | def event = event_by_output.get(vertex, #false)
+      def arcs = incoming.get(vertex, [])
+      def selection = selections.get(vertex, #false)
+      def plan:
+        cond
+        | event: EventTraceSource(event.id)
+        | selection:
+            EventTraceSelection(selection.instance_path, selection.grants,
+                                selection.inputs.map(fun (input): trace_plan(input, visiting ++ [vertex])))
+        | arcs.length() == 0 && vertex in roots: EventTraceSource(#false)
+        | arcs.length() == 1 && arcs[0].trace_stages != #false:
+            def upstream = trace_plan(arcs[0].source, visiting ++ [vertex])
+            if arcs[0].trace_stages.length() == 0
+            | upstream
+            | EventTracePipeline(upstream, arcs[0].trace_stages)
+        | ~else: error(~who: #'infer_event_manifest, "event path requires certified selection or storage semantics: " ++ vertex)
+      cached_plans[vertex] := plan
+    cached_plans[vertex]
+  when dynamic
+  | for (site in sites):
+      plans[site.id] := trace_plan(site_inputs[site.id][0])
+  EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]))

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines event sites, dependencies, and ordered pipeline or queue metadata stages.
+// Defines static dependencies and structured source, storage, and selection lineage plans.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -10,6 +10,10 @@ export:
   EventDependency
   EventTraceStage
   EventTraceQueue
+  EventTracePlan
+  EventTraceSource
+  EventTracePipeline
+  EventTraceSelection
   EventManifest
 
 class EventSite(id :: String,
@@ -36,6 +40,15 @@ class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
                       stored_valid :: Value, bypass :: Value):
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
 
+interface EventTracePlan
+class EventTraceSource(site :: False || String):
+  implements EventTracePlan
+class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue)):
+  implements EventTracePlan
+class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan)):
+  implements EventTracePlan
+  method controls(): grants
+
 class EventDependency(parent :: String,
                       child :: String,
                       transform_path :: List.of(String),
@@ -44,6 +57,7 @@ class EventDependency(parent :: String,
 
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),
-                    dependencies :: List.of(EventDependency)):
+                    dependencies :: List.of(EventDependency),
+                    trace_plans :: Map = {}):
   method site(id :: String):
     sites.find(fun (candidate): candidate.id == id)

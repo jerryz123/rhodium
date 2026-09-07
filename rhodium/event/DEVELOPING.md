@@ -94,6 +94,27 @@ well as at annotated consumers. Reset invalidates occupancy, so stale memory
 cannot become a parent in a new epoch without a new write. This contract does
 not describe synchronous-read memories, reordering, or control-only queues.
 
+### Selection expressions
+
+Keep static `EventDependency` paths for possible-parent reporting, and construct
+the dynamic `EventTracePlan` at flow vertices with memoized identity. A source
+leaf stops at the nearest annotation; a pipeline node wraps its upstream plan;
+a selection node holds the ordered input plans and original instance-qualified
+grants. Never lower arbitration as independently delayed parent paths: that
+would duplicate shared output storage or apply the current grant to an older
+transaction. Linear `trace_stages` remain available for compatibility, but are
+false across selection; instrumentation consumes `trace_plans` instead.
+
+Collect controls recursively and route grants through the same passive ports
+as queue and pipeline controls. Lower plans recursively at each consuming
+annotation, memoizing constructed plan values to share common storage. Grant
+muxes default to invalid and assert pairwise exclusion using an accumulated
+seen-grant bit. Downstream storage wraps the mux result exactly once. Each
+occurrence still emits one edge, with the dynamically selected parent site and
+sequence. Reject partial annotated ancestry across selectable inputs, fanout,
+uncertified merges, and terminal ancestors. An all-unannotated path establishes
+a root checkpoint instead of requiring fabricated parent identities.
+
 ## Extend trace coverage
 
 Attach an `InterfaceTraceModel` only when a transform can state its possible
@@ -123,6 +144,11 @@ widths, one-bit controls, and the single-input/single-output route. Its latency
 is variable; inference retains one queue stage rather than converting capacity
 into delay. The standard payload-bearing queue supplies the contract for every
 flow/pipe configuration, including the single-entry register implementation.
+`InterfaceTraceSelection` certifies N-to-one combinational routing using grants
+declared by the implementation, including its actual arbitration policy.
+The contract validates complete ordered input routes, one output, local one-bit
+grants, and exact implementation binding. Ready-valid fixed-priority and
+round-robin wrappers supply it; the compiler never recreates priority rotation.
 Inference adds these typed delays across flow arcs; it never parses display
 labels or transform properties for timing. The manifest retains unknown latency
 as false rather than interpreting it as zero. Never upgrade route-only metadata
@@ -169,6 +195,13 @@ Public-transfer scoreboards check exact graph contents independently of storage
 controls, and unannotated lanes check functional equivalence. Coverage requires
 empty bypass, full replacement, enough storage writes for pointer wraparound,
 bubbles, stalls, draining, and reset with pending transactions.
+The `event-arbiter` fixture adds fixed-priority and round-robin selection,
+different input buffers, post-selection storage, nested arbiters, repeated
+definitions, changing offers while stalled, and reset with pending work. Its
+scoreboard derives parent ordering from public transfers at buffer boundaries,
+not the grants observed by the compiler, and compares complete node/edge JSON.
+Repeated payload values prevent payload matching from substituting for exact
+identity. Unannotated networks verify that functional behavior is unchanged.
 
 Every direct Racket or Rhombus command must use a fresh `PLTCOMPILEDROOTS` as
 required by the repository `AGENTS.md`.

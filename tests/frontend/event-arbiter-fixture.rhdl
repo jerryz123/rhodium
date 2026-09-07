@@ -1,0 +1,186 @@
+#lang rhodium
+// Exercises grant-selected ancestry, mixed buffering, nested arbiters, and shared references.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+sync_circuit EventArbiterNetwork(mode :: Nat):
+  interface ingress[3](Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  output take0: Bool
+  output take1: Bool
+  output take2: Bool
+  output join_fire: Bool
+  def a = if mode >= 2 | ingress[0] |> pipe(1) | ingress[0]
+  def b = if mode >= 2 | ingress[1] |> queue(2) | ingress[1]
+  def c = if mode >= 2 | ingress[2] |> queue(3, ~flow: #true, ~pipe: #true) | ingress[2]
+  def selected:
+    if mode == 3
+    | block:
+        def first = Array(a, b) |> arbiter() |> queue(2, ~pipe: #true)
+        def result = Array(first, c) |> rr_arbiter()
+        join_fire <== first.valid & first.ready
+        result
+    | block:
+        join_fire <== Bool(#false)
+        if mode == 0 | Array(a, b, c) |> arbiter() | Array(a, b, c) |> rr_arbiter()
+  if mode >= 2
+  | selected |> queue(3, ~pipe: #true, ~flow: #true) |> pipe(1) |> egress
+  | selected |> egress
+  take0 <== a.valid & a.ready
+  take1 <== b.valid & b.ready
+  take2 <== c.valid & c.ready
+
+sync_circuit EventArbiterLane(mode :: Nat, traced :: Boolean):
+  interface ingress[3](Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  output take0: Bool
+  output take1: Bool
+  output take2: Bool
+  output join_fire: Bool
+  inst network(EventArbiterNetwork(mode))
+  for (index in 0..3):
+    if traced
+    | ingress[index] |> trace_event("input" ++ to_string(index)) |> network.ingress[index]
+    | ingress[index] |> network.ingress[index]
+  if traced
+  | network.egress |> trace_event("completed", ~terminal: #true) |> egress
+  | network.egress |> egress
+  take0 <== network.take0
+  take1 <== network.take1
+  take2 <== network.take2
+  join_fire <== network.join_fire
+
+sync_circuit EventArbiter():
+  interface sources[15](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[5](Decoupled(Bits(8)), ~role: producer)
+  interface gold_sources[15](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sinks[5](Decoupled(Bits(8)), ~role: producer)
+  output take0_0: Bool
+  output take0_1: Bool
+  output take0_2: Bool
+  output join0: Bool
+  inst lane0(EventArbiterLane(0, #true))
+  inst gold0(EventArbiterLane(0, #false))
+  sources[0] |> lane0.ingress[0]
+  gold_sources[0] |> gold0.ingress[0]
+  take0_0 <== lane0.take0
+  sources[1] |> lane0.ingress[1]
+  gold_sources[1] |> gold0.ingress[1]
+  take0_1 <== lane0.take1
+  sources[2] |> lane0.ingress[2]
+  gold_sources[2] |> gold0.ingress[2]
+  take0_2 <== lane0.take2
+  lane0.egress |> sinks[0]
+  gold0.egress |> gold_sinks[0]
+  join0 <== lane0.join_fire
+  output take1_0: Bool
+  output take1_1: Bool
+  output take1_2: Bool
+  output join1: Bool
+  inst lane1(EventArbiterLane(1, #true))
+  inst gold1(EventArbiterLane(1, #false))
+  sources[3] |> lane1.ingress[0]
+  gold_sources[3] |> gold1.ingress[0]
+  take1_0 <== lane1.take0
+  sources[4] |> lane1.ingress[1]
+  gold_sources[4] |> gold1.ingress[1]
+  take1_1 <== lane1.take1
+  sources[5] |> lane1.ingress[2]
+  gold_sources[5] |> gold1.ingress[2]
+  take1_2 <== lane1.take2
+  lane1.egress |> sinks[1]
+  gold1.egress |> gold_sinks[1]
+  join1 <== lane1.join_fire
+  output take2_0: Bool
+  output take2_1: Bool
+  output take2_2: Bool
+  output join2: Bool
+  inst lane2(EventArbiterLane(2, #true))
+  inst gold2(EventArbiterLane(2, #false))
+  sources[6] |> lane2.ingress[0]
+  gold_sources[6] |> gold2.ingress[0]
+  take2_0 <== lane2.take0
+  sources[7] |> lane2.ingress[1]
+  gold_sources[7] |> gold2.ingress[1]
+  take2_1 <== lane2.take1
+  sources[8] |> lane2.ingress[2]
+  gold_sources[8] |> gold2.ingress[2]
+  take2_2 <== lane2.take2
+  lane2.egress |> sinks[2]
+  gold2.egress |> gold_sinks[2]
+  join2 <== lane2.join_fire
+  output take3_0: Bool
+  output take3_1: Bool
+  output take3_2: Bool
+  output join3: Bool
+  inst lane3(EventArbiterLane(2, #true))
+  inst gold3(EventArbiterLane(2, #false))
+  sources[9] |> lane3.ingress[0]
+  gold_sources[9] |> gold3.ingress[0]
+  take3_0 <== lane3.take0
+  sources[10] |> lane3.ingress[1]
+  gold_sources[10] |> gold3.ingress[1]
+  take3_1 <== lane3.take1
+  sources[11] |> lane3.ingress[2]
+  gold_sources[11] |> gold3.ingress[2]
+  take3_2 <== lane3.take2
+  lane3.egress |> sinks[3]
+  gold3.egress |> gold_sinks[3]
+  join3 <== lane3.join_fire
+  output take4_0: Bool
+  output take4_1: Bool
+  output take4_2: Bool
+  output join4: Bool
+  inst lane4(EventArbiterLane(3, #true))
+  inst gold4(EventArbiterLane(3, #false))
+  sources[12] |> lane4.ingress[0]
+  gold_sources[12] |> gold4.ingress[0]
+  take4_0 <== lane4.take0
+  sources[13] |> lane4.ingress[1]
+  gold_sources[13] |> gold4.ingress[1]
+  take4_1 <== lane4.take1
+  sources[14] |> lane4.ingress[2]
+  gold_sources[14] |> gold4.ingress[2]
+  take4_2 <== lane4.take2
+  lane4.egress |> sinks[4]
+  gold4.egress |> gold_sinks[4]
+  join4 <== lane4.join_fire
+
+sync_circuit EventBadSelectionWidth():
+  describe_interface_selection([bits(0, 2)])
+sync_circuit EventDuplicateSelection():
+  describe_interface_selection([Bool(#false)])
+  describe_interface_selection([Bool(#false)])
+sync_circuit EventMissingSelection():
+  inst missing(Pipe(Bits(8), 1))
+  interface_trace_selection(missing)
+sync_circuit EventMismatchedSelection():
+  inst first(Arbiter(Bits(8), 2))
+  inst second(Arbiter(Bits(8), 2))
+  describe_interface_transform(InterfaceHandle(second.ingress, second.egress), "arbiter", {}, second, ~trace_model: interface_trace_selection(first))
+sync_circuit EventSelectionShape():
+  inst selection(Arbiter(Bits(8), 2))
+  describe_interface_transform(InterfaceHandle(selection.ingress[0], selection.egress), "arbiter", {}, selection, ~trace_model: interface_trace_selection(selection))
+sync_circuit EventPartialSelection():
+  interface sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def annotated = sources[0] |> trace_event("input")
+  Array(annotated, sources[1]) |> arbiter() |> trace_event("output") |> sink
+
+def arbitrated = elaborate_with_top(EventArbiter())
+fun bad_width(): elaborate_with_top(EventBadSelectionWidth())
+fun duplicate_controls(): elaborate_with_top(EventDuplicateSelection())
+fun missing_controls(): elaborate_with_top(EventMissingSelection())
+fun mismatched_instance(): elaborate_with_top(EventMismatchedSelection())
+fun bad_shape(): elaborate_with_top(EventSelectionShape())
+fun partial(): elaborate_with_top(EventPartialSelection())
+
+export:
+  arbitrated
+  bad_width
+  duplicate_controls
+  missing_controls
+  mismatched_instance
+  bad_shape
+  partial

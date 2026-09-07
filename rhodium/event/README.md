@@ -1,4 +1,4 @@
-<!-- Describes static event manifests and opt-in linear hardware/DPI instrumentation. -->
+<!-- Describes static event manifests and opt-in storage/selection lineage with DPI emission. -->
 
 # Event graphs
 
@@ -55,8 +55,17 @@ The structured result contains:
   flag, and source location;
 - `EventDependency`: parent ID, child ID, ordered intervening transform path,
   `latency_cycles` (a nonnegative fixed delay, or `false` for variable/unknown
-  latency), and an ordered `trace_stages` plan (`false` when uncertified);
-- `EventManifest`: original elaboration, sites, and dependencies.
+  latency), and ordered `trace_stages` for a linear path (`false` when the path
+  includes selection or is uncertified);
+- `EventManifest`: original elaboration, sites, dependencies, and `trace_plans`
+  keyed by child site ID when inferred with `~dynamic: #true`.
+
+Dynamic plans are typed expressions: `EventTraceSource` names the nearest
+annotation (or an unannotated root), `EventTracePipeline` wraps an input plan
+with storage stages, and `EventTraceSelection` selects among input plans using
+occurrence-qualified grant values. Storage before selection belongs to its
+input branch; storage afterward wraps the selected reference. Static manifests
+leave `trace_plans` empty.
 
 `event_manifest_to_json` emits a deterministic version-1 object with format
 name `rhodium-event-graph`, the selected top, sites, and dependencies.
@@ -67,7 +76,7 @@ The IR-backed stage plan stays in the structured manifest, not in JSON.
 An interface transform is traversable only when it carries an
 `InterfaceTraceModel`. That model supplies explicit possible input-to-output
 routes independently of its display label. The current standard flow metadata
-covers event checkpoints, map, filter, fixed and elastic pipe, in-order queue,
+covers event checkpoints, map, filter, fixed and elastic pipe, in-order queue, ready-valid arbiters,
 atomic fork, and zip. A downstream annotation whose upstream walk reaches an
 unmodeled transform is rejected rather than assigned an approximate parent.
 
@@ -76,7 +85,7 @@ unmodeled transform is rejected rather than assigned an approximate parent.
 - The manifest describes possible static dependencies, not runtime event
   occurrences.
 - Static inference never inserts hardware. Dynamic instrumentation supports
-  only the linear subset described below; branching paths still
+  the storage and selection subset described below; forks and joins still
   require future dynamic adapters.
 - Only flat top-level flow endpoints are traceable; nested interface members
   are rejected.
@@ -86,7 +95,7 @@ unmodeled transform is rejected rather than assigned an approximate parent.
 - Terminal metadata is recorded but does not yet prune downstream analysis.
 - Control-only queues and opaque storage require dedicated trace adapters.
 
-## Instrument a linear path
+## Instrument storage and selection paths
 
 ```rhombus
 def traced = instrument_events(logical_design)
@@ -109,11 +118,15 @@ and manifest, not with the rebuilt modules.
 The supported dynamic path consists of annotations, interface connections,
 hierarchy boundaries, `map_flow`, `map_valid`, `filter_flow`, `filter_valid`,
 `gate_flow`, fixed-latency `valid_pipe(stages)`, and elastic ready-valid
-`pipe(stages)`, and in-order `queue(depth, ~pipe: ..., ~flow: ...)`.
+`pipe(stages)`, in-order `queue(depth, ~pipe: ..., ~flow: ...)`,
+and ready-valid `arbiter(...)` and `rr_arbiter(...)`.
 Every intervening transform needs a typed dynamic trace
 contract. Route-only models (including control-only queues, forks and joins), disconnected or opaque
-upstream boundaries, multiple parent paths,
-branching dependencies, and descendants of terminal events are rejected.
+upstream boundaries, uncertified multiple-parent paths,
+fanout dependencies, and descendants of terminal events are rejected.
+If a selection path has any annotated ancestor, every selectable input path
+must have one; partially annotated ancestry is rejected with a diagnostic.
+An annotation with no annotated ancestor on any path remains a root event.
 
 `EventInstrumentationConfig(clock_port, reset_port)` selects the top-level
 `Clock` and synchronous `Reset` inputs (defaults: `"clock"`, `"reset"`). All
@@ -149,6 +162,16 @@ stale entries until overwritten; the shadow memory needs no reset sweep.
 No payload, pointer, or occupancy policy is duplicated. Queue stages compose
 in order with pipes, maps, and filters, including across hierarchy. Only user
 annotations emit nodes; queue operations add no extra DPI callbacks.
+
+For arbitration, static dependencies list every possible nearest parent, but
+each runtime occurrence has only the parent selected by the actual grant on
+that transfer. Grants are observed, not reconstructed from arbitration policy.
+Unselected input storage continues to track its own transactions. Output
+storage carries the selected reference, so later grant changes cannot change
+an already-buffered transaction's parent. Nested arbiters use the same rule.
+One-hot assertions reject overlapping grants; the DPI ABI and collector remain
+unchanged. Valid-only, control-only, and packet arbitration remain outside this
+dynamic subset.
 
 A site increments its own 64-bit sequence counter and emits its
 current reference on that same edge. Combinational consumers therefore see

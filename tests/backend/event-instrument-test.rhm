@@ -12,6 +12,7 @@ import:
   "../frontend/event-pipeline-fixture.rhdl" as pipeline_fixture
   "../frontend/event-elastic-fixture.rhdl" as elastic_fixture
   "../frontend/event-queue-fixture.rhdl" as queue_fixture
+  "../frontend/event-arbiter-fixture.rhdl" as arbiter_fixture
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
@@ -119,3 +120,26 @@ check:
   queue_fixture.missing_controls() ~throws "requires declared storage controls"
   queue_fixture.mismatched_instance() ~throws "must match the transform implementation"
   queue_fixture.duplicate_controls() ~throws "already declared"
+
+def arbiter_before = emit_circt(arbiter_fixture.arbitrated.design)
+def arbitrated = instrument_events(arbiter_fixture.arbitrated)
+def completions = arbitrated.manifest.sites.filter(~keep: fun (site): site.label == "completed")
+def selection_plans = completions.map(fun (site): arbitrated.manifest.trace_plans[site.id])
+check:
+  arbitrated.manifest.sites.length() ~is 20
+  arbitrated.manifest.dependencies.length() ~is 15
+  arbitrated.manifest.dependencies.take(6).map(fun (edge): edge.latency_cycles) ~is [0, 0, 0, 0, 0, 0]
+  selection_plans[0] is_a EventTraceSelection ~is #true
+  selection_plans[1] is_a EventTraceSelection ~is #true
+  selection_plans[2].input.input is_a EventTraceSelection ~is #true
+  selection_plans[4].input.input.inputs[0].input is_a EventTraceSelection ~is #true
+  emit_circt(arbiter_fixture.arbitrated.design) ~is arbiter_before
+  child(arbitrated.instrumented.top, "lane2") === child(arbitrated.instrumented.top, "lane3") ~is #false
+  child(arbitrated.instrumented.top, "gold2") === child(arbitrated.instrumented.top, "gold3") ~is #true
+  has_trace_ports(child(child(arbitrated.instrumented.top, "gold3"), "network")) ~is #false
+  arbiter_fixture.bad_width() ~throws "local one-bit data"
+  arbiter_fixture.duplicate_controls() ~throws "already declared"
+  arbiter_fixture.missing_controls() ~throws "requires declared grants"
+  arbiter_fixture.mismatched_instance() ~throws "must match the transform implementation"
+  arbiter_fixture.bad_shape() ~throws "one grant and route per input"
+  instrument_events(arbiter_fixture.partial()) ~throws "annotated ancestor on every input path"

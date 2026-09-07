@@ -1136,9 +1136,10 @@ the original local one-bit filter or gate predicate.
 `interface_trace_fixed_latency(cycles)` constructs an
 `InterfaceTraceFixedLatency` contract with a positive, unconditional cycle
 delay, one-to-one non-inventing transfers, and synchronous reset flushing.
-It must not describe stalls, clock enables, or variable latency. All dynamic
-contracts require exactly one input and output route. The trace model's
-`latency_cycles()` returns zero for combinational transfer, the declared delay
+It must not describe stalls, clock enables, or variable latency. Storage and
+combinational passthrough contracts require exactly one input and output route.
+The trace model's
+`latency_cycles()` returns zero for combinational transfer or selection, the declared delay
 for fixed latency, or false for elastic, queue, or uncertified route-only models.
 
 An elastic implementation calls
@@ -1169,6 +1170,20 @@ wrong control widths/ownership, missing declarations, and mismatched instances
 are rejected. Consumers observe existing pointers and policy rather than
 reconstructing them from names or configuration properties.
 Other stateful transforms keep route-only models.
+
+A zero-storage selector calls `describe_interface_selection(grants)` once with
+a nonempty ordered list of actual local one-bit input grants. The contract
+promises at most one grant, no output offer when no grant is asserted, and
+that the output transfer consumes only the selected input. It does not promise
+stable selection while stalled. The wrapper binds the same implementation via
+`interface_trace_selection(instance)`, producing `InterfaceTraceSelection`
+with one input-to-output route per grant. Grant count must match the flattened
+input count, with exactly one output. Its `selection_grants()` and
+`selection_instance()` accessors expose controls and ownership to consumers.
+Missing or duplicate declarations, incorrect widths, mismatched implementations,
+and incomplete route sets are rejected. Instrumentation checks that observed
+grants are mutually exclusive rather than treating an overlapping mask as
+priority-ordered selection.
 
 `describe_interface_event` accepts explicit local one-bit
 `~valid` and optional `~ready` values for the event transfer predicate; `~ready`

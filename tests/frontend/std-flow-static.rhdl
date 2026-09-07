@@ -37,6 +37,12 @@ sync_circuit FlowStaticInformation():
   def selected_valid = valid_inputs |> valid_arbiter()
   def selected_valid_bits = selected_valid.bits
 
+  interface arbiter_inputs[3](Decoupled(Bits(8)), ~role: consumer)
+  def selected = arbiter_inputs |> arbiter()
+  def selected_bits = selected.bits
+  def disconnected_rr = Bits(8) |> rr_arbiter(3)
+  def disconnected_rr_bits = disconnected_rr.right.bits
+
   interface control(DecoupledCtrl(), ~role: consumer)
   def control_fork = control |> ctrl_pipe(1) |> ctrl_atomic_fork(2)
   def control_valid = control_fork[0].valid

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines payload-bearing and control-only round-robin arbiters.
+// Defines round-robin arbiters and grant-certified ready-valid trace selection.
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
@@ -31,6 +31,7 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
     ~default: ingress[0].bits
   )
   chosen <== choice.index
+  describe_interface_selection(for List (index in 0..n): grant[index])
 
   when (choice.valid & egress.ready):
     next_priority <== mux(
@@ -100,7 +101,8 @@ fun rr_arbiter(n :: False || PosInt = #false)
         InterfaceHandle(arbiter_stage.ingress, arbiter_stage.egress),
         "rr-arbiter",
         {"inputs": input_count},
-        arbiter_stage
+        arbiter_stage,
+        ~trace_model: interface_trace_selection(arbiter_stage)
       )
     )
 

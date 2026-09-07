@@ -32,6 +32,7 @@ export:
   InterfaceTraceFixedLatency
   InterfaceTraceElastic
   InterfaceTraceQueue
+  InterfaceTraceSelection
   InterfaceTransformGroup
   InterfaceEventGroup
   InterfaceConnectionGroup
@@ -50,6 +51,8 @@ export:
   interface_trace_elastic
   describe_interface_queue_storage
   interface_trace_queue
+  describe_interface_selection
+  interface_trace_selection
   interface_trace_broadcast
   interface_trace_merge
   interface_trace_crossbar
@@ -423,13 +426,17 @@ class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
   implements ModuleMetadataPayload
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
 class InterfaceTraceQueue(instance :: Instance, storage :: InterfaceQueueStorage)
+class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value)):
+  implements ModuleMetadataPayload
+class InterfaceTraceSelection(instance :: Instance, grants :: NonemptyList.of(Value))
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue || InterfaceTraceSelection = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
     | dynamic is_a InterfaceTraceCombinational: 0
+    | dynamic is_a InterfaceTraceSelection: 0
     | ~else: #false
   method elastic_stages():
     if dynamic is_a InterfaceTraceElastic | dynamic.stages | #false
@@ -439,6 +446,10 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceQueue | dynamic.storage | #false
   method queue_instance():
     if dynamic is_a InterfaceTraceQueue | dynamic.instance | #false
+  method selection_grants():
+    if dynamic is_a InterfaceTraceSelection | dynamic.grants | #false
+  method selection_instance():
+    if dynamic is_a InterfaceTraceSelection | dynamic.instance | #false
 
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
@@ -477,6 +488,7 @@ def interface_connection_group_namespace = "rhodium.interface.connection"
 def interface_link_group_namespace = "rhodium.interface.link"
 def interface_elastic_stages_namespace = "rhodium.interface.elastic-stages"
 def interface_queue_storage_namespace = "rhodium.interface.queue-storage"
+def interface_selection_namespace = "rhodium.interface.selection"
 
 fun module_interface_groups(module_def :: Module):
   module_def.metadata_for(interface_group_namespace)
@@ -1644,6 +1656,29 @@ fun interface_trace_queue(instance :: Instance):
   | error(~who: #'interface_trace_queue, "queue trace implementation requires declared storage controls")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceQueue(instance, declarations[0]))
 
+// Grants select the live output offer, not a remembered winner or inferred
+// priority. At most one grant is asserted, and no grant means no output offer.
+fun describe_interface_selection(grants :: NonemptyList.of(HardwareEntity)):
+  def module_def = kernel.active_module()
+  unless module_def.metadata_for(interface_selection_namespace).length() == 0
+  | error(~who: #'describe_interface_selection, "selection controls already declared")
+  def grant_values = for List (grant in grants):
+    def value = kernel.read(grant)
+    unless value.module_def === module_def && flat_data_type(value.type) && data_width(value.type) == 1
+    | error(~who: #'describe_interface_selection, "selection grants must be local one-bit data")
+    value
+  module_def.add_metadata(interface_selection_namespace, InterfaceSelection(module_def, grant_values))
+
+fun interface_trace_selection(instance :: Instance):
+  unless instance.operation.module_def === kernel.active_module()
+  | error(~who: #'interface_trace_selection, "selection trace implementation must be a local instance")
+  def declarations = instance.module_def.metadata_for(interface_selection_namespace)
+  unless declarations.length() == 1
+  | error(~who: #'interface_trace_selection, "selection trace implementation requires declared grants")
+  def grants = declarations[0].grants
+  InterfaceTraceModel(for List (index in 0..grants.length()): InterfaceTraceRoute(index, 0),
+                      InterfaceTraceSelection(instance, grants))
+
 fun interface_trace_broadcast(output_count :: PosInt):
   InterfaceTraceModel(
     for List (output_index in 0..output_count):
@@ -1669,8 +1704,11 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
   def input_count = interface_endpoint_shape_count(input_shape)
   def output_count = interface_endpoint_shape_count(output_shape)
   when trace_model.dynamic
-  | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
-    | error(~who: #'describe_interface_transform, "dynamic trace semantics require exactly one input and output")
+  | if trace_model.selection_grants()
+    | unless output_count == 1 && input_count == trace_model.selection_grants().length() && trace_model.routes.length() == input_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..input_count): [index, 0])
+      | error(~who: #'describe_interface_transform, "selection trace requires one grant and route per input and exactly one output")
+    | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
+      | error(~who: #'describe_interface_transform, "dynamic trace semantics require exactly one input and output")
     def guard = if trace_model.dynamic is_a InterfaceTraceCombinational | trace_model.dynamic.guard | #false
     when guard && (!(guard.module_def === kernel.active_module()) || !flat_data_type(guard.type) || data_width(guard.type) != 1)
     | error(~who: #'describe_interface_transform, "trace guard must be local one-bit data")
@@ -1696,6 +1734,12 @@ fun describe_interface_transform(handle :: Handle,
           "interface transform implementation must be a local instance")
   when trace_model
   | validate_interface_trace_model(trace_model, handle.left, handle.right)
+    when trace_model.selection_instance()
+    | unless implementation && trace_model.selection_instance() === implementation
+      | error(~who: #'describe_interface_transform, "selection trace model must match the transform implementation")
+      for (value in trace_model.selection_grants()):
+        unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == 1
+        | error(~who: #'describe_interface_transform, "selection grants must belong to the implementation and be one-bit data")
     when trace_model.elastic_instance()
     | unless implementation && trace_model.elastic_instance() === implementation
       | error(~who: #'describe_interface_transform, "elastic trace model must match the transform implementation")

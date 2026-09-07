@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines payload-bearing and control-only fixed-priority arbiters.
+// Defines fixed-priority arbiters and grant-certified ready-valid trace selection.
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
@@ -42,6 +42,7 @@ circuit Arbiter(T :: DataType, n :: PosInt):
     ~default: ingress[0].bits
   )
   chosen <== grant.index
+  describe_interface_selection(for List (index in 0..n): grant[index])
 
 // Lower indices have higher priority among payloadless token offers.
 circuit CtrlArbiter(n :: PosInt):
@@ -88,7 +89,11 @@ fun arbiter(n :: False || PosInt = #false)
     inst arbiter_stage(Arbiter(T, input_count))
     finish_interface_transform(
       source,
-      InterfaceHandle(arbiter_stage.ingress, arbiter_stage.egress)
+      describe_interface_transform(
+        InterfaceHandle(arbiter_stage.ingress, arbiter_stage.egress),
+        "arbiter", {"inputs": input_count}, arbiter_stage,
+        ~trace_model: interface_trace_selection(arbiter_stage)
+      )
     )
 
 // A connected Valid endpoint array supplies its own input count. A

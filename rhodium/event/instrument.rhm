@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds exact lineage using ordered shadow pipelines and observed queue storage.
+// Lowers nested lineage plans to shadow storage, grant selection, and unchanged DPI emission.
 
 import:
   "../core/ir.rhm" open
@@ -46,22 +46,39 @@ fun instrument_events(logical :: DesignElaboration,
   | error(~who: #'instrument_events, "select a top-level Clock input and synchronous Reset input")
   def site_ids = MutableMap{}
   for (site in manifest.sites, index in 0..manifest.sites.length()): site_ids[site.id] := index
-  def parents = MutableMap{}
-  def parent_stages = MutableMap{}
+  def parent_plans = MutableMap{}
+  fun sources(plan :: EventTracePlan):
+    cond
+    | plan is_a EventTraceSource: [plan.site]
+    | plan is_a EventTracePipeline: sources(plan.input)
+    | ~else:
+        def mutable found = []
+        for (input in plan.inputs): found := found ++ sources(input)
+        found
+  fun plan_controls(plan :: EventTracePlan):
+    cond
+    | plan is_a EventTraceSource: []
+    | plan is_a EventTracePipeline: plan_controls(plan.input) ++ plan.stages
+    | ~else:
+        def mutable found = [plan]
+        for (input in plan.inputs): found := found ++ plan_controls(input)
+        found
   for (site in manifest.sites):
     def edges = manifest.dependencies.filter(~keep: fun (edge): edge.child == site.id)
-    when edges.length() > 1
-    | error(~who: #'instrument_events, "linear tracing requires one parent path at " ++ site.id)
-    when edges.length() == 1
-    | def parent = manifest.site(edges[0].parent)
+    for (edge in edges):
+      def parent = manifest.site(edge.parent)
       when parent.terminal
       | error(~who: #'instrument_events, "terminal event has a downstream annotation: " ++ parent.id)
-      parents[site.id] := parent
-      unless edges[0].trace_stages != #false
-      | error(~who: #'instrument_events, "event path has no certified metadata stages: " ++ site.id)
-      parent_stages[site.id] := edges[0].trace_stages
-    when manifest.dependencies.filter(~keep: fun (edge): edge.parent == site.id).length() > 1
-    | error(~who: #'instrument_events, "linear tracing does not support branching at " ++ site.id)
+    when edges.length() > 0
+    | def plan = manifest.trace_plans[site.id]
+      when #false in sources(plan)
+      | error(~who: #'instrument_events, "selection requires an annotated ancestor on every input path: " ++ site.id)
+      parent_plans[site.id] := plan
+    def children = MutableSet{}
+    for (edge in manifest.dependencies):
+      when edge.parent == site.id | children.add(edge.child)
+    when children.length() > 1
+    | error(~who: #'instrument_events, "tracing does not support fanout at " ++ site.id)
 
   def mutable occurrences = []
   fun expand(original :: Module, path :: List.of(String), parent :: False || Occurrence, instance :: False || Operation):
@@ -78,7 +95,7 @@ fun instrument_events(logical :: DesignElaboration,
   def mutable controls = []
   def control_ids = MutableMap{}
   for (site in manifest.sites):
-    for (stage in parent_stages.get(site.id, [])):
+    for (stage in (if parent_plans.has_key(site.id) | plan_controls(parent_plans[site.id]) | [])):
       when stage.controls().length() > 0
       | def owner = occurrences.find(fun (occurrence): occurrence.path == stage.instance_path)
         for (value in stage.controls()):
@@ -269,19 +286,19 @@ fun instrument_events(logical :: DesignElaboration,
           def word = builder.extract(module_def, packed, high, low)
           def padded = if high - low + 1 == 32 | word | builder.zext(module_def, word, 32)
           builder.dpi_call(module_def, word_dpi, [id, sequence, builder.constant(module_def, Bits(32), index), padded], clock, fire)
-      def parent = parents.get(site.id, #false)
-      when parent
-      | def mutable reference = references[parent.id]
-        // Keep stage order: fixed delays cannot move across elastic or queue stages.
-        // An elastic stage loads only on its actual advance condition, inserts
-        // an invalid reference for a bubble, and otherwise holds its identity.
-        when parent_stages[site.id].length() > 0
-        | def empty_reference = builder.record_create(module_def, reference_type, [
+      when parent_plans.has_key(site.id)
+      | def empty_reference = builder.record_create(module_def, reference_type, [
             ["valid", builder.constant(module_def, Bits(1), 0)],
             ["site", builder.constant(module_def, Bits(32), 0)], ["sequence", zero]
           ])
-          for (stage in parent_stages[site.id], index in 0..parent_stages[site.id].length()):
-            def name = ref_name("__event_parent_", site) ++ "_" ++ to_string(index)
+        def built_plans = MutableMap.by(===){}
+        def mutable next_stage = 0
+        fun stage_name():
+          def name = ref_name("__event_parent_", site) ++ "_" ++ to_string(next_stage)
+          next_stage := next_stage + 1
+          name
+        fun emit_stage(stage :: EventTraceStage || EventTraceQueue, reference :: Value):
+            def name = stage_name()
             fun observe(value :: Value): observed[control_ids[[stage.instance_path, value.id]]]
             if stage is_a EventTraceQueue
             | def storage = builder.memory(module_def, name, stage.depth, reference_type)
@@ -292,14 +309,37 @@ fun instrument_events(logical :: DesignElaboration,
               // no shadow pointers, occupancy counter, or payload are needed.
               def resident = builder.mux_lookup(module_def, observe(stage.stored_valid), empty_reference, [[1, stored]])
               builder.assert(module_def, builder.record_get(module_def, resident, "valid"), clock, reset, observe(stage.dequeue), name ++ "_dequeue_present")
-              reference := builder.mux_lookup(module_def, observe(stage.bypass), resident, [[1, reference]])
+              builder.mux_lookup(module_def, observe(stage.bypass), resident, [[1, reference]])
             | block:
                 def delayed = builder.register(module_def, name, reference_type, clock, reset, empty_reference)
                 if stage.advance
                 | def incoming = builder.mux_lookup(module_def, observe(stage.valid), empty_reference, [[1, reference]])
                   builder.drive(delayed.next, builder.mux_lookup(module_def, observe(stage.advance), delayed.current, [[1, incoming]]))
                 | builder.drive(delayed.next, reference)
-                reference := delayed.current
+                delayed.current
+        fun emit_plan(plan :: EventTracePlan):
+          unless built_plans.has_key(plan)
+          | def result:
+              cond
+              | plan is_a EventTraceSource: references[plan.site]
+              | plan is_a EventTracePipeline:
+                  def mutable reference = emit_plan(plan.input)
+                  for (stage in plan.stages): reference := emit_stage(stage, reference)
+                  reference
+              | ~else:
+                  def name = stage_name()
+                  def mutable reference = empty_reference
+                  def mutable seen = builder.constant(module_def, Bits(1), 0)
+                  for (input in plan.inputs, grant in plan.grants, index in 0..plan.grants.length()):
+                    def selected = observed[control_ids[[plan.instance_path, grant.id]]]
+                    def overlap = builder.bit_and(module_def, seen, selected)
+                    builder.assert(module_def, builder.bit_not(module_def, overlap), clock, reset, yes, name ++ "_onehot_" ++ to_string(index))
+                    seen := builder.bit_or(module_def, seen, selected)
+                    reference := builder.mux_lookup(module_def, selected, reference, [[1, emit_plan(input)]])
+                  reference
+            built_plans[plan] := result
+          built_plans[plan]
+        def reference = emit_plan(parent_plans[site.id])
         def parent_valid = builder.record_get(module_def, reference, "valid")
         builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
         builder.dpi_call(module_def, edge_dpi, [id, sequence, builder.record_get(module_def, reference, "site"), builder.record_get(module_def, reference, "sequence")], clock, builder.bit_and(module_def, fire, parent_valid))
