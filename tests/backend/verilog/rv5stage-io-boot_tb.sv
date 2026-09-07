@@ -22,9 +22,9 @@ module rv5stage_io_boot_tb;
       struct packed { logic ready; } response;
     } dat;
   } chi_out_t;
-  logic clock = 0, reset = 1, fault;
-  struct packed { logic valid; logic [63:0] bits; } start_in;
-  struct packed { logic ready; } start_out;
+  logic clock = 0, reset = 1;
+  struct packed { logic valid; } release_in;
+  struct packed { logic ready; } release_out;
   chi_in_t umem_in;
   chi_out_t umem_out;
   localparam int IDLE = 0, READ = 1, DBID = 2, DATA = 3, COMP = 4;
@@ -34,7 +34,7 @@ module rv5stage_io_boot_tb;
   logic [127:0] read_value;
 
   RV5Stage dut (
-    .clock, .reset, .start_in, .start_out, .fault,
+    .clock, .reset, .release_in, .release_out,
     .chi_identity({7'd2, 7'd3, 7'd5}),
     .interrupts('0), .hart_id(64'd0), .time_counter(64'd0),
     .imem_in('0), .dmem_in('0), .imem_out(), .dmem_out(),
@@ -84,7 +84,7 @@ module rv5stage_io_boot_tb;
     end else begin
       cycle <= cycle + 1;
       if (delay_left != 0) delay_left <= delay_left - 1;
-      assert (!fault) else $fatal(1, "uncached boot faulted");
+
       assert (!dut.imem_out.requests.valid && !dut.dmem_out.requests.valid)
         else $fatal(1, "non-cacheable boot allocated or accessed an L1 cache");
       if (umem_out.req.valid && umem_in.req.ready) begin
@@ -146,18 +146,27 @@ module rv5stage_io_boot_tb;
   endtask
 
   initial begin
-    start_in = '0;
+    release_in = '0;
     for (int run = 0; run < 3; run++) begin
       latency = run == 0 ? 0 : run == 1 ? 3 : 17;
       reset = 1;
       tick();
       reset = 0;
-      start_in.valid = 1;
-      start_in.bits = 64'hc000;
+      repeat (5) begin
+        tick();
+        assert (!dut.imem_out.requests.valid && !dut.dmem_out.requests.valid && !umem_out.req.valid)
+          else $fatal(1, "core fetched before release");
+      end
+      release_in.valid = 1;
+
       #1;
-      assert (start_out.ready) else $fatal(1, "boot start not accepted");
+      assert (release_out.ready) else $fatal(1, "boot release not accepted");
       tick();
-      start_in.valid = 0;
+      repeat (3) begin
+        assert (!release_out.ready) else $fatal(1, "core accepted a second release");
+        tick();
+      end
+      release_in.valid = 0;
       for (int wait_cycle = 0; wait_cycle < 3000 && completions != 2; wait_cycle++) tick();
       assert (completions == 2 && boot_reads == 1 && payload_fetches > 0)
         else $fatal(1, "indirect boot made no progress at latency %0d", latency);

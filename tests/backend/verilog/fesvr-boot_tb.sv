@@ -21,10 +21,10 @@ module fesvr_boot_tb;
   typedef struct packed { logic valid; FesvrMemoryResponse bits; } completion_t;
   logic clock = 0, reset = 1, failed;
   command_t requests_in;
-  ready_t requests_out, responses_in, entry_out, start_in;
+  ready_t requests_out, responses_in, entry_out, release_in;
   completion_t responses_out;
   struct packed { logic valid; logic [63:0] bits; } entry_in;
-  struct packed { logic valid; logic [31:0] bits; } start_out;
+  struct packed { logic valid; } release_out;
   rn_in_t port_in;
   rn_out_t port_out;
   FesvrBootAccess dut(.*);
@@ -36,14 +36,14 @@ module fesvr_boot_tb;
   task automatic restart;
     reset = 1;
     requests_in = '0; responses_in = '0; entry_in = '0;
-    start_in = '0; port_in = '0;
+    release_in = '0; port_in = '0;
     repeat (3) tick();
     reset = 0; tick();
-    assert(!failed && !start_out.valid && !entry_out.ready);
+    assert(!failed && !release_out.valid && !entry_out.ready);
   endtask
   task automatic stalled(int cycles = 4);
     repeat (cycles) begin
-      assert(!start_out.valid && !entry_out.ready && !failed)
+      assert(!release_out.valid && !entry_out.ready && !failed)
         else $fatal(1, "released before successful final Comp");
       tick();
     end
@@ -80,18 +80,18 @@ module fesvr_boot_tb;
     if (error_kind == 2) port_in.responses.bits.txn_id = 1;
     tick(); port_in.responses.valid = 0;
   endtask
-  task automatic release_entry(logic [31:0] value);
-    wait (start_out.valid); #1;
+  task automatic release_entry;
+    wait (release_out.valid); #1;
     repeat (4) begin
-      assert(start_out.bits == value && !entry_out.ready && !responses_out.valid);
+      assert(release_out.valid && !entry_out.ready && !responses_out.valid);
       assert(!port_out.requests.valid && !requests_out.ready && !failed);
       tick();
     end
-    start_in.ready = 1; #1;
+    release_in.ready = 1; #1;
     assert(entry_out.ready);
     tick(); entry_in.valid = 0;
     repeat (4) begin
-      assert(!start_out.valid && !entry_out.ready && !port_out.requests.valid);
+      assert(!release_out.valid && !entry_out.ready && !port_out.requests.valid);
       tick();
     end
   endtask
@@ -110,7 +110,7 @@ module fesvr_boot_tb;
     end
     responses_in.ready = 1; tick(); responses_in.ready = 0;
     write_transaction(64'h80002000);
-    release_entry(32'h80002000);
+    release_entry();
     // Ordinary polling resumes after release and is not mistaken for startup.
     requests_in = '{valid: 1, bits: '{write: 0, address: 64'h3000, data: 64'd0, length: 8'd8}};
     tick(); requests_in.valid = 0;
@@ -134,7 +134,7 @@ module fesvr_boot_tb;
       write_transaction(64'h80003000, error_kind);
       repeat (3) tick();
       repeat (4) begin
-        assert(failed && !start_out.valid && !entry_out.ready && !responses_out.valid);
+        assert(failed && !release_out.valid && !entry_out.ready && !responses_out.valid);
         assert(!port_out.requests.valid && !requests_out.ready);
         tick();
       end
@@ -142,11 +142,11 @@ module fesvr_boot_tb;
     restart();
     entry_in = '{valid: 1, bits: 64'h180002000};
     tick();
-    assert(failed && !port_out.requests.valid && !start_out.valid); // RV32 overflow
+    assert(failed && !port_out.requests.valid && !release_out.valid); // RV32 overflow
     restart();
     entry_in = '{valid: 1, bits: 64'h80003000};
     write_transaction(64'h80003000);
-    release_entry(32'h80003000);
+    release_entry();
     $display("FESVR boot ordering, stalls, errors, RV32 entry, and reset passed");
     $finish;
   end

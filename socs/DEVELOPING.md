@@ -112,3 +112,14 @@ The host target covers address maps, node policy, layouts, and compiled routing
 plans. Connected hierarchy, time distribution, devices, and processor behavior
 belong to the executable smoke tests in
 [`../sims/DEVELOPING.md`](../sims/DEVELOPING.md).
+
+For one-shot boot distribution, run:
+
+```sh
+FIXTURE=soc-boot-release bash tests/backend/run-circt.sh --simulate-only
+```
+
+This cores-group CI fixture checks
+control-only release retention with independently stalled harts, exactly-once
+delivery, and reset while some releases remain pending. The configured reset
+address specializes each core and is not carried by this distributor.

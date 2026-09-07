@@ -109,7 +109,8 @@ status; the Makefile and RTL do not implement a separate binary loader.
 
 After ELF loading completes, each harness writes the reported entry point to
 the SoC's configured 64-bit boot-address register through its CHI host port.
-Only successful final write completion permits the one-shot release. Every
+Only successful final write completion permits the one-shot, control-only
+release. The ELF entry is carried by the register write, not the release channel. Every
 hart starts at the ROM reset address; hart zero loads the entry from the
 register and jumps to it with `a0 = mhartid` and `a1 = embedded DTB address`.
 Secondary harts park in the ROM. The ELF entry need not match the register's

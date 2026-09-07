@@ -8,5 +8,5 @@ import:
   "../../cores/rv5stage/core.rhdl" as core
   "../../cores/rv5stage/profile.rhm".RVCoreProfile
 
-def design = embedded.run_elaboration(fun (): core.RV5StageCore(RVCoreProfile(~xlen: XLen.X64)))
+def design = embedded.run_elaboration(fun (): core.RV5StageCore(RVCoreProfile(~xlen: XLen.X64), ~reset_address: 0))
 print(emit_circt(design))

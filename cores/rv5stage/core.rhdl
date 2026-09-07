@@ -40,7 +40,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
-sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
+sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_address :: Nat):
   def xlen = core_profile.xlen
   def extensions = core_profile.extensions
   def profile = extensions.floating_point
@@ -56,14 +56,20 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled).map(fun (instruction): instruction.name)
 
-  interface start(Irrevocable(Bits(width)), ~role: consumer)
+  def instruction_alignment = if compressed_enabled | 2 | 4
+  unless reset_address < (1 << width)
+  | error(~who: #'RV5StageCore, "reset address must fit XLEN")
+  unless reset_address mod instruction_alignment == 0
+  | error(~who: #'RV5StageCore, "reset address must be instruction aligned")
+  def reset_pc = bits(reset_address, width)
+
+  interface release(IrrevocableCtrl(), ~role: consumer)
   input interrupts: RV5StageInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
   interface instruction_access(RV5StageInstructionAccess(xlen), ~role: requester)
   interface data_access(RV5StageDataAccess(xlen), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
-  output fault: Bool
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
   output satp: Bits(width)
@@ -86,7 +92,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
                  exception_cause_bits(store_cause, width),
                  exception_cause_bits(load_cause, width))
       value: address
-  reg faulted(~init: Bool(#false))
   reg pending_exception_valid(~init: Bool(#false))
   reg pending_exception(MemoryWriteback(xlen))
 
@@ -131,13 +136,12 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def wb = inject_flow(Valid(MemoryWriteback(xlen)), ~valid: mux(maintenance_pending, maintenance_done, pipeline_wb.valid), ~bits: mux(maintenance_pending, maintenance_instruction, pipeline_wb.bits))
   def wb_bits :: MemoryWriteback(xlen) = wb.bits
   wire commit_result: MemoryWriteback(xlen)
-  def commit = inject_flow(Valid(MemoryWriteback(xlen)), ~valid: wb.valid & !maintenance_accepted & !pending_exception_valid & !faulted, ~bits: commit_result)
+  def commit = inject_flow(Valid(MemoryWriteback(xlen)), ~valid: wb.valid & !maintenance_accepted & !pending_exception_valid, ~bits: commit_result)
   def commit_bits :: MemoryWriteback(xlen) = commit.bits
   def commit_replay = commit.valid & commit_bits.replay
   def commit_valid = commit.valid & !commit_bits.replay
   def Array(commit_write :: Endpoint, deferred_completion_write :: Endpoint) = registers.writes
 
-  fault <== faulted
   privilege <== csrs.privilege
   mstatus <== csrs.mstatus
   satp <== csrs.satp
@@ -157,7 +161,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def fence_resume_pc = commit_bits.resume_pc
   def fence_commit = fence_i_commit ||| csrs.translation_flush
   def commit_redirect = csrs.redirect.valid ||| fence_commit ||| commit_replay
-  def memory_stage_valid = memory.valid & !commit_redirect & !pending_exception_valid & !faulted & !(commit_valid & commit_bits.exception_valid)
+  def memory_stage_valid = memory.valid & !commit_redirect & !pending_exception_valid & !(commit_valid & commit_bits.exception_valid)
   def memory_exception_event = memory_exception_link.right.valid
   def memory_replay_event = memory_replay_link.right.valid
   def memory_redirect = memory_stage_valid & memory.bits.redirect_valid & !memory_exception_event & !memory_replay_event
@@ -189,32 +193,26 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def exception_in_flight = pending_exception_valid ||| memory_exception_event ||| (
     commit_valid & commit_bits.exception_valid
   )
-  def squash = faulted ||| exception_in_flight ||| memory_replay_event ||| redirect_link.right.valid
+  def squash = exception_in_flight ||| memory_replay_event ||| redirect_link.right.valid
   reg started(~init: Bool(#false))
   reg waiting_for_interrupt(~init: Bool(#false))
   reg architectural_pc(~init: zero)
-  def accepted_start = (
-    start
-      |> gate_flow(!started & !(faulted ||| memory_exception_event))
-      |> to_valid()
-  )
-  def start_fire = accepted_start.valid
-  def instruction_alignment = if compressed_enabled | 2 | 4
-  def start_fault = start_fire & !is_aligned(accepted_start.bits, instruction_alignment)
+  release.ready <== !started & !memory_exception_event
+  def release_fire = release.fire()
   def fetch_valid = started & !squash & !csrs.interrupt_request & !waiting_for_interrupt
   fetch.active <== fetch_valid
-  fetch.flush <== start_fault ||| memory_exception_event ||| memory_replay_event
-  fetch.restart_valid <== redirect_link.right.valid ||| (start_fire & !start_fault)
-  fetch.restart_pc <== mux(redirect_link.right.valid, redirect_link.right.bits, accepted_start.bits)
+  fetch.flush <== memory_exception_event ||| memory_replay_event
+  fetch.restart_valid <== redirect_link.right.valid ||| release_fire
+  fetch.restart_pc <== mux(redirect_link.right.valid, redirect_link.right.bits, reset_pc)
   fetch.invalidate_all <== fence_i_commit
   fetch.memory <=> instruction_access
   fetch.fetched |> if_id_pipe.ingress
-  when start_fire:
+  when release_fire:
     started <== Bool(#true)
   when (csrs.redirect.valid):
     architectural_pc <== csrs.redirect.bits
-  elsewhen start_fire:
-    architectural_pc <== accepted_start.bits
+  elsewhen release_fire:
+    architectural_pc <== reset_pc
   elsewhen (commit_valid & !commit_bits.exception_valid):
     architectural_pc <== commit_bits.resume_pc
 
@@ -225,9 +223,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
 
   def decode_valid = if_id_pipe.egress.valid & !squash
   def decode_bits = if_id_pipe.egress.bits
-
-  when start_fault:
-    faulted <== Bool(#true)
 
   // Decode (ID) is ordinary combinational logic between IF/ID and ID/EX.
   // Filtering consumes squashed tokens; gating holds a token that depends on
@@ -535,7 +530,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
     divisor: forwarded_rs2
     control: id_ex.bits.divide_control
     rd: id_ex.bits.rd
-  def older_pipeline_squash = faulted ||| memory_exception_event ||| memory_replay_event ||| memory_redirect ||| commit_redirect
+  def older_pipeline_squash = memory_exception_event ||| memory_replay_event ||| memory_redirect ||| commit_redirect
 
   def execute_fp_issue = RV5StageFpIssue(xlen, effective_fp_profile, Bits(width)):
     context: id_ex.bits.pc
@@ -646,7 +641,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   // WB is the sole instruction-side dispatch boundary. An attempted request
   // either faults, transfers irrevocably, or replays without any side effect.
   // Loads also issue here: their address may select a side-effecting device.
-  def wb_attempt = pipeline_wb.valid & !maintenance_pending & !pending_exception_valid & !faulted & !wb_bits.replay & !wb_bits.exception_valid
+  def wb_attempt = pipeline_wb.valid & !maintenance_pending & !pending_exception_valid & !wb_bits.replay & !wb_bits.exception_valid
   def wb_memory_attempt = wb_attempt & wb_bits.data_request_valid
   def wb_fp_load = wb_bits.data_request.destination === RV5StageDataDestination.FloatingPoint
   // Use registered destination availability for request admission. The FP

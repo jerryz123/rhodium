@@ -1,7 +1,7 @@
 // Exercises WB replay and fault isolation across memory, FP registers, flags, prefetches, and atomics.
 typedef struct packed { logic ss, ms, st, mt, se, me; } interrupts_t;
 typedef struct packed { logic ready; } ready_t;
-typedef struct packed { logic valid; logic [XLEN-1:0] bits; } start_t;
+typedef struct packed { logic valid; } release_t;
 typedef struct packed { logic valid; logic [XLEN-1:0] address; } ireq_t;
 typedef struct packed { logic valid; logic [31:0] word; logic page_fault, access_fault; } iresp_t;
 typedef struct packed { ready_t request; iresp_t response; } iin_t;
@@ -32,10 +32,10 @@ logic clock = 0, reset = 1;
 logic [63:0] time_counter = 0;
 logic [XLEN-1:0] hart_id = 0, mstatus, satp;
 logic [1:0] privilege;
-logic fault, translation_flush;
+logic translation_flush;
 interrupts_t interrupts = '0;
-start_t start_in = '0;
-ready_t start_out;
+release_t release_in = '0;
+ready_t release_out;
 iin_t instruction_access_in;
 iout_t instruction_access_out;
 din_t data_access_in;
@@ -178,7 +178,7 @@ always_ff @(posedge clock) begin
         pending_response.precision <= data_access_out.request.bits.precision;
       end
     end
-    assert (!fault) else $fatal(1, "nonarchitectural core fault");
+
   end
 end
 
@@ -187,9 +187,9 @@ initial begin
     reset = 1;
     repeat (3) @(negedge clock);
     reset = 0;
-    start_in = {1'b1, XLEN'('h100)};
+    release_in.valid = 1'b1;
     @(negedge clock);
-    start_in.valid = 0;
+    release_in.valid = 0;
     for (int cycles = 0; cycles < 2500 && !done; cycles++) @(negedge clock);
     assert(done) else $fatal(1, "WB scenario %0d timed out", scenario);
     assert(prefetches == (scenario == 0 ? 1 : 0)) else $fatal(1, "WB prefetch count mismatch");

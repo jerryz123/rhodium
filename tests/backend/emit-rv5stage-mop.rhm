@@ -14,6 +14,6 @@ def design = embedded.run_elaboration(
   fun (): core.RV5StageCore(RVCoreProfile(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~compressed: extensions)
-  ))
+  ), ~reset_address: 0x100000000)
 )
 print(emit_circt(design))

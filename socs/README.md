@@ -97,7 +97,9 @@ The external host loads and observes memory with coherent `ReadClean` and
 `WriteUniquePtl` transactions, so its requests snoop private caches and
 simulator mailboxes may live in ordinary coherent memory. After loading a
 payload, it releases the SoC; the SoC starts every hart at its configured reset
-address. No SoC contains FESVR behavior, DPI calls, or a simulator-specific
+address. The reset address specializes each core; the multihart distributor
+carries only a control-only release, retaining it independently for each hart
+until accepted. No SoC contains FESVR behavior, DPI calls, or a simulator-specific
 loader.
 
 The same host RN-F reaches the device HNI with `ReadNoSnp` and

@@ -33,7 +33,7 @@ def description = RiscvSoCDescription(
   )
 )
 def image = boot.image_for(description)
-def design = elaborate(SoCBootDistributor(64, 4, boot.reset_address))
+def design = elaborate(SoCBootDistributor(4))
 
 export:
   boot

@@ -15,8 +15,7 @@ sync_circuit SoCHarness():
   inst soc(mini.MiniSoC())
 
   requester.port <=> soc.host.memory
-  soc.host.release.valid <== requester.start.valid
-  requester.start.ready <== soc.host.release.ready
+  requester.release <=> soc.host.release
   uart <=> soc.uart
   exit <== requester.exit
 

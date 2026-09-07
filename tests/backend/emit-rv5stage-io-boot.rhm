@@ -10,6 +10,6 @@ import:
   "../../cores/rv5stage/tests/params.rhdl".test_rv5stage_uncached_config
 
 def design = embedded.run_elaboration(
-  fun (): RV5Stage(RVCoreProfile(~xlen: XLen.X64), ~chi: test_rv5stage_uncached_config)
+  fun (): RV5Stage(RVCoreProfile(~xlen: XLen.X64), ~chi: test_rv5stage_uncached_config, ~reset_address: 0xc000)
 )
 print(emit_circt(design))

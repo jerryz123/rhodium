@@ -13,6 +13,6 @@ def design = embedded.run_elaboration(
   fun (): RV5StageCore(RVCoreProfile(
     ~xlen: XLen.X32,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F, ~zicbop: #true)
-  ))
+  ), ~reset_address: 0x100)
 )
 print(emit_circt(design))

@@ -66,7 +66,7 @@ def core_profile = RVCoreProfile(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~zicbop: #true)
 )
-def core_design = embedded.run_elaboration(fun (): core.RV5StageCore(core_profile))
+def core_design = embedded.run_elaboration(fun (): core.RV5StageCore(core_profile, ~reset_address: 0))
 def core_module = core_design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
 
 check:

@@ -8,7 +8,7 @@ module rv5stage_core_tb;
     logic supervisor_external;
     logic machine_external;
   } interrupts_t;
-  typedef struct packed { logic valid; logic [63:0] bits; } start_in_t;
+  typedef struct packed { logic valid; } release_in_t;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
   typedef struct packed { logic valid; instruction_req_bits_t bits; } instruction_req_t;
@@ -49,13 +49,13 @@ module rv5stage_core_tb;
   logic [63:0] time_counter = '0;
   logic [63:0] hart_id = '0;
   interrupts_t interrupts;
-  start_in_t start_in;
+  release_in_t release_in;
   instruction_in_t instruction_access_in;
   data_in_t data_access_in;
-  ready_t start_out;
+  ready_t release_out;
   instruction_out_t instruction_access_out;
   data_out_t data_access_out;
-  logic fault;
+
   logic [1:0] privilege;
   logic [63:0] mstatus;
   logic [63:0] satp;
@@ -318,23 +318,23 @@ module rv5stage_core_tb;
           end
         end
       end
-      assert (!fault) else $fatal(1, "pipeline raised an unexpected fault");
+
     end
   end
 
   initial begin
     interrupts = '0;
-    start_in.valid = 1'b0;
-    start_in.bits = 64'h00000001_00000000;
+    release_in.valid = 1'b0;
+
     repeat (2) @(posedge clock);
     #1;
     reset = 1'b0;
-    start_in.valid = 1'b1;
-    do begin
-      @(posedge clock);
-      #1;
-    end while (!start_out.ready);
-    start_in.valid = 1'b0;
+    release_in.valid = 1'b1;
+    wait (release_out.ready);
+    @(posedge clock);
+    #1;
+    assert (!release_out.ready) else $fatal(1, "core accepted a second release");
+    release_in.valid = 1'b0;
     repeat (200) @(posedge clock);
     $fatal(1, "core did not complete the scoreboard scenario");
   end

@@ -67,10 +67,9 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
   def site_width = implementation.router_configs.req.route_decoder.site_width
   interface host(SoCHostInterface(p), ~role: soc)
   interface uart(SoCUartInterface(), ~role: soc)
-  output faults: Vec(implementation.rv5stages.length(), Bool)
 
   def rv5stages = for InstanceArray (entry in implementation.rv5stages):
-    inst rv5stage(RV5StageTile(entry.tile_params))
+    inst rv5stage(RV5StageTile(entry.tile_params, ~reset_address: config.boot.reset_address))
   def llcs = for InstanceArray (entry in implementation.llcs):
     inst llc(LLCTile(entry.tile_params))
   def transits = for InstanceArray (entry in implementation.transits):
@@ -79,7 +78,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
   inst device_home(DeviceHomeTile(implementation.device_home.tile_params))
   inst bootrom(CHIBootROM(implementation.platform.bootrom.rom_config(config.description)))
   inst boot_address(CHIBootAddressRegister(implementation.platform.boot_address_config))
-  inst boot(SoCBootDistributor(64, implementation.rv5stages.length(), config.boot.reset_address))
+  inst boot(SoCBootDistributor(implementation.rv5stages.length()))
   inst aclint(AclintTile(implementation.aclint.tile_params))
   inst plic(PlicTile(implementation.plic.tile_params))
   inst uart_device(UartTile(implementation.uart.tile_params))
@@ -103,7 +102,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
     distribution.time_egress[index] <=> rv5stages[index].time_beat
   host.release |> boot.release
   for (index in 0..implementation.rv5stages.length()):
-    boot.start[index] |> rv5stages[index].start
+    boot.hart_release[index] |> rv5stages[index].release
 
   for (index in 0..implementation.llcs.length()):
     def entry = implementation.llcs[index]
@@ -156,7 +155,6 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
              node_id: bits(implementation.uart.device.node.node_id, p.node_id_width)
              base_address: bits(implementation.uart.device.base_address, p.request_address_width))
   uart <=> uart_device.uart
-  faults <== vec(for List (index in 0..implementation.rv5stages.length()): rv5stages[index].fault)
 
   def tiles = (
     for List (index in 0..implementation.rv5stages.length()):

@@ -298,7 +298,7 @@ physical-region routing, private caches, and CHI transaction boundaries:
 
 ```mermaid
 flowchart LR
-    START["start, interrupts,<br/>hart_id, time_counter"] --> CORE["RV5StageCore"]
+    RELEASE["release, interrupts,<br/>hart_id, time_counter"] --> CORE["RV5StageCore"]
     IDENTITY["chi_identity<br/>RN NodeIDs"] --> L1I
     IDENTITY --> L1D
     IDENTITY --> UNCACHED
@@ -321,7 +321,6 @@ flowchart LR
     L1D <--> DMEM["dmem<br/>CHI RN-F"]
     UNCACHED <--> UMEM["umem<br/>CHI RN-I"]
 
-    CORE --> FAULT["sticky start fault"]
 ```
 
 `RV5StageCHIConfig` supplies the flit shape and a single list of physical
@@ -406,14 +405,22 @@ and Sail configuration, and the execution command remain simulation-owned.
 | Port | Contract |
 |---|---|
 | `chi_identity` | Placement-specific instruction RN-F, data RN-F, and uncached RN-I NodeIDs |
-| `start` | One-shot `Irrevocable(Bits(xlen.width))` initial-PC consumer; four-byte aligned, or two-byte aligned with C |
+| `release` | One-shot `IrrevocableCtrl()` consumer; begins execution at the configured reset address |
 | `interrupts` | Controller-independent supervisor and machine software, timer, and external interrupt levels |
 | `hart_id` | Platform hart identity exposed through `mhartid` |
 | `time_counter` | Platform 64-bit time source exposed through `time` and RV32 `timeh` |
 | `imem` | Instruction-cache CHI RN-F channels |
 | `dmem` | Data-cache CHI RN-F channels |
 | `umem` | Shared instruction/data uncached CHI RN-I channels |
-| `fault` | Sticky rejection of a misaligned external start address |
+
+`RV5Stage` and `RV5StageCore` require the host parameter `~reset_address`.
+It must fit XLEN and be four-byte aligned, or two-byte aligned with compressed
+instructions enabled; invalid addresses are rejected during elaboration.
+After reset, instruction fetching waits for one release handshake. Further
+release offers are not accepted until reset rearms the core. Release is
+independent of reset so the surrounding fabric can run while a host prepares
+memory. The reset PC is a hardware specialization parameter, not the loaded
+program's entry address; a BootROM can obtain that entry from a platform register.
 
 Home Nodes, physical credited links, fabric topology, interrupt controllers,
 and SoC policy remain outside RV5Stage.

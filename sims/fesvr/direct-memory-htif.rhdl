@@ -445,7 +445,7 @@ sync_circuit FesvrBootAccess(xlen :: XLen,
   interface requests(Decoupled(FesvrMemoryRequest()), ~role: consumer)
   interface responses(Decoupled(FesvrMemoryResponse()), ~role: producer)
   interface entry(Irrevocable(Bits(64)), ~role: consumer)
-  interface start(Irrevocable(Bits(xlen.width)), ~role: producer)
+  interface release(IrrevocableCtrl(), ~role: producer)
   output failed: Bool
 
   inst access(FesvrCHIAccess(flit, node, home_map, physical_map, services))
@@ -469,9 +469,8 @@ sync_circuit FesvrBootAccess(xlen :: XLen,
   responses.valid <== host_pending & access.responses.valid
   responses.bits <== access.responses.bits
   access.responses.ready <== waiting ||| (host_pending & responses.ready)
-  start.valid <== state === FesvrBootState.Release
-  start.bits <== if xlen == XLen.X32 | saved_entry[0..32] | saved_entry
-  entry.ready <== start.fire()
+  release.valid <== state === FesvrBootState.Release
+  entry.ready <== release.fire()
   failed <== state === FesvrBootState.Failed
 
   when (requests.fire()):
@@ -486,7 +485,7 @@ sync_circuit FesvrBootAccess(xlen :: XLen,
     state <== FesvrBootState.AwaitCompletion
   elsewhen (waiting & access.responses.fire()):
     state <== mux(access.responses.bits.status === FesvrMemoryStatus.Success, FesvrBootState.Release, FesvrBootState.Failed)
-  elsewhen (start.fire()):
+  elsewhen (release.fire()):
     state <== FesvrBootState.Running
 
 sync_circuit FesvrRequester(xlen :: XLen,
@@ -497,7 +496,7 @@ sync_circuit FesvrRequester(xlen :: XLen,
                             services :: NonemptyList.of(CHIHomeServiceParams),
                             boot_address_register :: Nat):
   interface port(CHIRNChannels(flit), ~role: node)
-  interface start(Irrevocable(Bits(xlen.width)), ~role: producer)
+  interface release(IrrevocableCtrl(), ~role: producer)
   output exit: Bits(32)
   inst raw(DirectMemoryHTIF(xlen))
   inst access(FesvrBootAccess(xlen, flit, node, home_map, physical_map, services, boot_address_register))
@@ -516,7 +515,7 @@ sync_circuit FesvrRequester(xlen :: XLen,
   access.entry.valid <== raw.start_valid
   access.entry.bits <== raw.start_entry
   raw.start_ready <== access.entry.ready
-  start <=> access.start
+  release <=> access.release
   // Use the same nonzero failure encoding as the native transport. Never
   // acknowledge startup after a target/protocol error or an oversized entry.
   exit <== mux(access.failed, bits(3, 32), raw.exit)

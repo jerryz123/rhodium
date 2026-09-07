@@ -4,7 +4,7 @@
 import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
-  lib("flow/broadcast.rhdl").Broadcast
+  lib("flow/broadcast.rhdl").CtrlBroadcast
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
@@ -121,23 +121,16 @@ class SoCBootROMParams(flit :: CHIFlitParams,
       home
     )
 
-sync_circuit SoCBootDistributor(width :: PosInt,
-                                hart_count :: PosInt,
-                                reset_address :: Nat):
-  unless bits.length(reset_address) <= width
-  | error(~who: #'SoCBootDistributor,
-          "reset address must fit the processor start width")
-
+sync_circuit SoCBootDistributor(hart_count :: PosInt):
   interface release(IrrevocableCtrl(), ~role: consumer)
-  interface start[hart_count](Irrevocable(Bits(width)), ~role: producer)
+  interface hart_release[hart_count](IrrevocableCtrl(), ~role: producer)
 
-  inst broadcast(Broadcast(Bits(width), hart_count))
+  inst broadcast(CtrlBroadcast(hart_count))
   reg released(~init: Bool(#false))
 
   broadcast.ingress.valid <== release.valid & !released
-  broadcast.ingress.bits <== bits(reset_address, width)
   release.ready <== broadcast.ingress.ready & !released
-  start <=> broadcast.egress
+  hart_release <=> broadcast.egress
 
   when (release.fire()):
     released <== Bool(#true)

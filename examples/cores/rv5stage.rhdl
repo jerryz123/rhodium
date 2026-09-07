@@ -30,7 +30,7 @@ def example_profile = RVCoreProfile(
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
-def design = elaborate(RV5Stage(example_profile, ~chi: example_chi_config))
+def design = elaborate(RV5Stage(example_profile, ~chi: example_chi_config, ~reset_address: 0))
 
 export:
   design

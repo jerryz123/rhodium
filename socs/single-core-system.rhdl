@@ -167,7 +167,7 @@ fun populate_single_core(params :: SingleCoreSystemParams,
                          memory :: Endpoint.of(CHISNChannels(params.flit)),
                          uart :: Endpoint.of(SoCUartInterface()),
                          ~home: home_module :: CircuitDefinition = CHIHNF(params.home_config)):
-  inst rv5stage(RV5Stage(description.core_profile, ~chi: params.rv5stage_config))
+  inst rv5stage(RV5Stage(description.core_profile, ~reset_address: params.boot.reset_address, ~chi: params.rv5stage_config))
   inst home(home_module)
   inst device_home(CHIHNI(params.device_home_params))
   inst bootrom(CHIBootROM(params.platform.bootrom.rom_config(description)))
@@ -175,7 +175,7 @@ fun populate_single_core(params :: SingleCoreSystemParams,
   inst aclint(Aclint(params.platform.aclint_config))
   inst plic(Plic(params.platform.plic_config))
   inst uart_device(Uart16550(params.platform.uart_config))
-  inst boot(SoCBootDistributor(64, 1, params.boot.reset_address))
+  inst boot(SoCBootDistributor(1))
   inst timebase(Counter(description.clocks.timebase_period_cycles))
   inst req_router(SimpleRouter(CHIReqFlit(params.flit), params.req_router_config))
   inst rsp_router(SimpleRouter(CHIRspFlit(params.flit), params.rsp_router_config))
@@ -303,7 +303,7 @@ fun populate_single_core(params :: SingleCoreSystemParams,
   uart.interrupt <== uart_device.interrupt
   plic.sources <== vec([uart_device.interrupt])
   host.release |> boot.release
-  boot.start[0] |> rv5stage.start
+  boot.hart_release[0] |> rv5stage.release
   rv5stage.interrupts <== RV5StageInterrupts():
     supervisor_software: Bool(#false)
     machine_software: aclint.machine_software[0]

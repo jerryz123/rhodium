@@ -24,22 +24,21 @@ bundle RV5StageTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   hart_id: Bits(64)
   chi: RV5StageCHIIdentity(p)
 
-sync_circuit RV5StageTile(params :: RV5StageTileParams):
+sync_circuit RV5StageTile(params :: RV5StageTileParams, ~reset_address: reset_address :: Nat):
   def router_params = params.router
   def p = params.rv5stage.flit
   def site_width = router_params.routers.req.route_decoder.site_width
   def Link = chi_noc_link_type(router_params)
 
   input identity: RV5StageTileIdentity(p, site_width)
-  interface start(Irrevocable(Bits(64)), ~role: consumer)
+  interface release(IrrevocableCtrl(), ~role: consumer)
   interface interrupt_update(Decoupled(TiledHartInterrupts()), ~role: consumer)
   interface external_interrupt_update(Decoupled(TiledExternalInterrupts()), ~role: consumer)
   interface time_beat(Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: consumer)
-  output fault: Bool
   interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
   interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
 
-  inst rv5stage(RV5Stage(params.core_profile, ~chi: params.rv5stage))
+  inst rv5stage(RV5Stage(params.core_profile, ~reset_address: reset_address, ~chi: params.rv5stage))
   inst time_receiver(TiledTimeReceiver())
   inst interrupt_replica(StateReplica(TiledHartInterrupts(), NoTiledHartInterrupts))
   inst external_interrupt_replica(StateReplica(TiledExternalInterrupts(), NoTiledExternalInterrupts))
@@ -59,8 +58,7 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams):
   interrupt_update <=> interrupt_replica.ingress
   external_interrupt_update <=> external_interrupt_replica.ingress
   router.site_key <== identity.site_key
-  start |> rv5stage.start
-  fault <== rv5stage.fault
+  release |> rv5stage.release
   def instruction_channels :: Endpoint = router.rnf_local[0]
   def data_channels :: Endpoint = router.rnf_local[1]
   def device_channels :: Endpoint = router.rni_local[0]

@@ -92,7 +92,7 @@ integration_fixtures=(
   clocked-dpi assertions hierarchy bundle interface-array
   queue-options rr-arbiter packet-rr-arbiter round-robin-matcher ctrl-queue-options
   state-flow
-  tiled-distribution
+  tiled-distribution soc-boot-release
   dont-care decode noc-route-computer noc-router noc-network noc-wormhole noc-router-family noc-escape-router
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
@@ -197,7 +197,7 @@ fixture_in_group() {
     protocols:fesvr-mmio|protocols:fesvr-boot|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
-    cores:rv32i-*|cores:rv64i-*|cores:load-store|cores:load-store-rv32-word|cores:bit-manip*|cores:iterative-multiplier|cores:iterative-divider|cores:riscv-counters-*|cores:riscv-cmo|cores:riscv-floating-point|cores:riscv-compressed|cores:scoreboard|cores:rv5stage-*)
+    cores:soc-boot-release|cores:rv32i-*|cores:rv64i-*|cores:load-store|cores:load-store-rv32-word|cores:bit-manip*|cores:iterative-multiplier|cores:iterative-divider|cores:riscv-counters-*|cores:riscv-cmo|cores:riscv-floating-point|cores:riscv-compressed|cores:scoreboard|cores:rv5stage-*)
       return 0
       ;;
     *)
@@ -658,6 +658,7 @@ direct_fixture_specs=(
   'bootrom|bootrom_tb'
   'fesvr-mmio|fesvr_mmio_tb'
   'fesvr-boot|fesvr_boot_tb'
+  'soc-boot-release|soc_boot_release_tb'
   'boot-address|boot_address_tb'
   'plic|plic_tb'
   'uart16550|uart16550_tb'

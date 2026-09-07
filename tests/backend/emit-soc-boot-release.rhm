@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits a four-hart control-only boot distributor for exactly-once release checks.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../socs/boot.rhdl".SoCBootDistributor
+
+def design = embedded.run_elaboration(fun (): SoCBootDistributor(4))
+print(emit_circt(design))

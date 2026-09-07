@@ -7,7 +7,7 @@ import:
   "../../rhodium/diagram/main.rhm" open
   "../../riscv/isa/xlen.rhm" open
 
-def logical = elaborate_with_top(RV5StageCore(RVCoreProfile(~xlen: XLen.X64)))
+def logical = elaborate_with_top(RV5StageCore(RVCoreProfile(~xlen: XLen.X64), ~reset_address: 0))
 def view = diagram(logical)
 def core_diagram = view.module("RV5StageCore")
 def json = diagram_module_to_json(core_diagram)
