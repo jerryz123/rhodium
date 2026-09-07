@@ -58,8 +58,14 @@ platform RAM window. Add future platforms through these entries; processor
 extension policy stays in the owning core's UDB projection. The common
 `configure.py` writes generated UDB consumer files, using the pinned Sail
 default schema and explicit UDB mappings. Reject unsupported architecture
-shapes before producing reference results. Extend the projection and its
-validation before enabling other suites or privileged tests.
+shapes before producing reference results. Always give ACT the full test
+inventory and delegate extension closure and test constraints to it. Do not
+maintain a separate suite selector. Replace only the configuration's generated
+ELF outputs before each build so changes to core support cannot leave stale
+tests for the upstream runner; preserve cached reference intermediates.
+Reference/harness limitations remain distinct from core extension support;
+extend and validate the projection as newly selected suites expose gaps.
+Privileged-test enablement remains a separate integration step.
 
 Generated YAML, Sail JSON, linker scripts, headers, ELFs, and logs stay in the
 ACT build root. Keep the upstream submodule unmodified. When updating its
@@ -68,9 +74,10 @@ contracts together. The shared linker layout keeps test data addresses equal
 between Sail signature payloads and self-checking DUT payloads; model-specific
 text and HTIF mailboxes follow test data and stack.
 
-Run `make -C sims arch-test-adapter-test` for completion-protocol regression
+Run `make -C sims arch-test-adapter-test` for generation and completion-protocol
 checks using system Python and no ACT dependencies; the simulation CI job runs
-this target. Run `make -C sims arch-test` for real I-suite execution. The latter is
+this target. With ACT installed, run `make -C sims arch-test` to generate and
+execute all applicable tests. This is
 an explicit optional toolchain workflow; it is not added to routine CI in this
 initial integration. When changing the driver, also run the existing smoke
 and exercise a small `+max-cycles` timeout. See the

@@ -122,7 +122,7 @@ without reserving a special mailbox address range.
 
 ## Architectural certification tests
 
-The initial ACT4 integration runs the unprivileged RV64I suite on `simple-soc`.
+The ACT4 integration selects suites from the configured core's UDB description.
 It uses the [generated UDB catalog](../socs/README.md#risc-v-udb-configuration-catalog)
 to select the DUT architecture and Sail to compute expected results. Install
 Python 3.10+, Ruby 3.2+ with Bundler, and GCC 15+ with Binutils 2.44+ first:
@@ -142,20 +142,31 @@ working around the pinned UDB installer's Linux-only library download.
 
 `arch-test-config` only prepares and validates the Sail/platform files;
 `arch-test-elfs` also validates UDB through ACT and generates self-checking
-ELFs. `arch-test` builds the selected simulator and executes those ELFs through
-ACT's upstream runner; `arch-test-run` reruns existing ELFs without regenerating
-the bundle. An empty ELF directory is an error. Outputs and per-test logs live under
+ELFs for every test matching the generated UDB configuration. It replaces the
+configuration's generated ELF files before building, so an older core profile
+cannot leave stale tests in the suite; reference intermediates remain cached.
+`arch-test` builds the selected simulator and executes those ELFs through ACT's
+upstream runner. After a successful build, `arch-test-run` reruns the existing
+ELFs without regenerating the bundle. An empty ELF directory is an error.
+Outputs and per-test logs live under
 `/tmp/rhodium-arch-test`; set `ACT_BUILD_ROOT` to change that location.
 `ACT_SAIL`, `ACT_VENV`, and `ACT_BUNDLE_PATH` select installed tool locations.
 `RISCV_CC` and `ACT_OBJDUMP` select compiler tools.
 
-The initial adapter fixes selection to `I` and disables privileged tests.
-It projects extension support and the parameters needed by integer tests and
-M-mode startup into Sail; it is not yet a complete UDB-to-Sail projection.
+Generation always considers all extensions. ACT selects applicable tests using
+UDB's implemented (including implied) extensions and each test's parameter
+constraints; there is no separate extension list or selection wrapper in Make.
+
+Selection is not a claim that every candidate has passed. The initial reference
+adapter was validated with RV64I and M-mode startup; it is not yet a complete
+UDB-to-Sail projection. ACT's `include_priv_tests` remains false as a separate
+harness limitation. The pinned ACT filter can still select virtual-memory
+suites whose metadata does not directly require its privilege extensions.
 The full DUT device and PMA map is not modeled for this stage. Sail retains
 the reference-only interrupt devices required by ACT; DUT interrupt hooks
-fail if invoked. Expanding the suite requires extending and validating that
-projection.
+fail if invoked. Build, reference-model, and DUT failures in newly selected suites
+are surfaced normally, not silently excluded; they need diagnosis before claiming
+coverage.
 
 The runner translates confirmed HTIF completion into ACT's `RVCP-SUMMARY`
 protocol. Console printing macros are empty, so failures currently report

@@ -1,4 +1,4 @@
-# Builds and runs ACT4 integer certification payloads for a selected platform configuration.
+# Builds and runs UDB-selected ACT4 payloads for a selected platform configuration.
 ACT_CONFIGURATION ?= simple-soc
 PYTHON ?= python3
 ACT_DIR ?= $(REPO_DIR)/riscv/riscv-arch-test
@@ -28,9 +28,12 @@ arch-test-config:
 	  --ram-origin $(ACT_RAM_ORIGIN) --ram-bytes $(ACT_RAM_BYTES) --test-base $(ACT_TEST_BASE)
 
 arch-test-elfs: arch-test-config
+	@if test -d "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs"; then \
+	  find "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" -type f -name '*.elf' -delete; \
+	fi
 	cd "$(ACT_DIR)" && XDG_CACHE_HOME="$(REPO_DIR)/.tools/act-cache" XDG_DATA_HOME="$(REPO_DIR)/.tools/act-data" \
 	  BUNDLE_PATH="$(ACT_BUNDLE_PATH)" "$(ACT_VENV)/bin/act" \
-	  "$(ACT_CONFIG_DIR)/test_config.yaml" --workdir "$(ACT_WORKDIR)" --test-dir tests --extensions I
+	  "$(ACT_CONFIG_DIR)/test_config.yaml" --workdir "$(ACT_WORKDIR)" --test-dir tests --extensions all
 
 arch-test: arch-test-elfs
 	$(MAKE) arch-test-run

@@ -1,4 +1,4 @@
-# Checks that ACT completion cannot pass on an empty, crashing, or contradictory simulator result.
+# Checks ACT completion and full-suite generation without stale generated ELFs.
 from pathlib import Path
 import subprocess
 import sys
@@ -6,6 +6,40 @@ import tempfile
 import unittest
 
 RUNNER = Path(__file__).resolve().parents[1] / "arch-test" / "run.py"
+
+
+class ArchTestGenerationTest(unittest.TestCase):
+    def test_generates_all_supported_tests_and_replaces_only_elf_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            elf_dir = root / "work/simple-soc/simple-soc/elfs"
+            elf_dir.mkdir(parents=True)
+            (elf_dir / "old.elf").touch()
+            (elf_dir / "old.elf.objdump").touch()
+            other_elf = root / "work/other/keep.elf"
+            other_elf.parent.mkdir(parents=True)
+            other_elf.touch()
+            act = root / "venv/bin/act"
+            act.parent.mkdir(parents=True)
+            act.write_text(
+                f"#!{sys.executable}\n"
+                "# Emulates ACT generation to check the Make-to-ACT contract.\n"
+                "import sys\nfrom pathlib import Path\n"
+                "assert sys.argv[sys.argv.index('--extensions') + 1] == 'all'\n"
+                f"elf_dir = Path({str(elf_dir)!r})\n"
+                "assert not list(elf_dir.rglob('*.elf'))\n"
+                "(elf_dir / 'selected.elf').touch()\n"
+            )
+            act.chmod(0o755)
+            result = subprocess.run(
+                ["make", "-o", "arch-test-config", "arch-test-elfs",
+                 f"ACT_DIR={root}", f"ACT_VENV={root / 'venv'}", f"ACT_BUILD_ROOT={root}"],
+                cwd=RUNNER.parents[1], capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual([p.name for p in elf_dir.glob('*.elf')], ["selected.elf"])
+            self.assertTrue((elf_dir / "old.elf.objdump").exists())
+            self.assertTrue(other_elf.exists())
 
 
 class ArchTestRunnerTest(unittest.TestCase):
