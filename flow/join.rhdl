@@ -4,8 +4,8 @@
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
-  lib("rhodium/std/flow/reduction.rhdl").and_exclusion_reduce
+  lib("flow/ready-valid-support.rhdl") open
+  lib("flow/reduction.rhdl").and_exclusion_reduce
 
 // Carries the selection that defines which lanes in a joined value are
 // meaningful alongside the complete fixed-shape payload vector.

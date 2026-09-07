@@ -5,39 +5,39 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/credited.rhdl") open
   lib("rhodium/std/flit.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl").FlowSource
-  lib("rhodium/std/flow/pipe.rhdl") open
-  lib("rhodium/std/flow/offer-register.rhdl") open
-  lib("rhodium/std/flow/queue.rhdl") open
-  lib("rhodium/std/flow/completion-queue.rhdl") open
-  lib("rhodium/std/flow/credit.rhdl") open
-  lib("rhodium/std/flow/arbiter.rhdl") open
-  lib("rhodium/std/flow/circular-priority.rhdl") open
-  lib("rhodium/std/flow/rr-arbiter.rhdl") open
-  lib("rhodium/std/flow/packet-rr-arbiter.rhdl") open
-  lib("rhodium/std/flow/vc.rhdl") open
-  lib("rhodium/std/flow/state.rhdl") open
-  lib("rhodium/std/flow/demux.rhdl") open
-  lib("rhodium/std/flow/matcher.rhdl") open
-  lib("rhodium/std/flow/grant.rhdl") open
-  lib("rhodium/std/flow/crossbar.rhdl") open
-  lib("rhodium/std/flow/join.rhdl") open
-  lib("rhodium/std/flow/zip.rhdl") open
-  lib("rhodium/std/flow/broadcast.rhdl") open
-  lib("rhodium/std/flow/atomic-fork.rhdl") open
-  lib("rhodium/std/flow/reduction.rhdl") open
-  lib("rhodium/std/flow/map.rhdl") open
-  lib("rhodium/std/flow/map-valid.rhdl") open
-  lib("rhodium/std/flow/flit.rhdl") open
-  lib("rhodium/std/flow/fork-valid.rhdl") open
-  lib("rhodium/std/flow/filter-valid.rhdl") open
-  lib("rhodium/std/flow/to-valid.rhdl") open
-  lib("rhodium/std/flow/to-decoupled.rhdl") open
-  lib("rhodium/std/flow/boundary.rhdl") open
-  lib("rhodium/std/flow/filter.rhdl") open
-  lib("rhodium/std/flow/gate.rhdl") open
-  lib("rhodium/std/flow/parallel.rhdl") open
-  lib("rhodium/std/flow/event.rhdl") open
+  lib("flow/ready-valid-support.rhdl").FlowSource
+  lib("flow/pipe.rhdl") open
+  lib("flow/offer-register.rhdl") open
+  lib("flow/queue.rhdl") open
+  lib("flow/completion-queue.rhdl") open
+  lib("flow/credit.rhdl") open
+  lib("flow/arbiter.rhdl") open
+  lib("flow/circular-priority.rhdl") open
+  lib("flow/rr-arbiter.rhdl") open
+  lib("flow/packet-rr-arbiter.rhdl") open
+  lib("flow/vc.rhdl") open
+  lib("flow/state.rhdl") open
+  lib("flow/demux.rhdl") open
+  lib("flow/matcher.rhdl") open
+  lib("flow/grant.rhdl") open
+  lib("flow/crossbar.rhdl") open
+  lib("flow/join.rhdl") open
+  lib("flow/zip.rhdl") open
+  lib("flow/broadcast.rhdl") open
+  lib("flow/atomic-fork.rhdl") open
+  lib("flow/reduction.rhdl") open
+  lib("flow/map.rhdl") open
+  lib("flow/map-valid.rhdl") open
+  lib("flow/flit.rhdl") open
+  lib("flow/fork-valid.rhdl") open
+  lib("flow/filter-valid.rhdl") open
+  lib("flow/to-valid.rhdl") open
+  lib("flow/to-decoupled.rhdl") open
+  lib("flow/boundary.rhdl") open
+  lib("flow/filter.rhdl") open
+  lib("flow/gate.rhdl") open
+  lib("flow/parallel.rhdl") open
+  lib("flow/event.rhdl") open
 
 export:
   Valid

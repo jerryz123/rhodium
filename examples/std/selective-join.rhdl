@@ -2,7 +2,7 @@
 // Demonstrates a selection flow atomically joining a chosen subset of data flows.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 circuit SelectiveRendezvous():
   interface selection(Decoupled(Mask(3)), ~role: consumer)

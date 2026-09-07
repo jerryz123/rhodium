@@ -4,7 +4,7 @@
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/queue.rhdl").queue
+  lib("flow/queue.rhdl").queue
   lib("chi/params.rhdl").CHIFlitParams
   lib("chi/flits.rhdl") open
   lib("chi/channels.rhdl") open

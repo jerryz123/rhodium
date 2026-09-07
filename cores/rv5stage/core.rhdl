@@ -36,7 +36,7 @@ import:
   "../../riscv/rtl/instruction-fields.rhdl" open
   "../../riscv/rtl/floating-point.rhdl" open
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
 sync_circuit RV5StageCore(core_profile :: RVCoreProfile):

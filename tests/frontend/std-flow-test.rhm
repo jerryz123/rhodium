@@ -5,19 +5,19 @@ import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../rhodium/frontend/layers/bool.rhm" as bool
-  "../../rhodium/std/flow.rhdl" as flow
-  "../../rhodium/std/flow/pipe.rhdl" as pipe
-  "../../rhodium/std/flow/offer-register.rhdl" as offer_register
-  "../../rhodium/std/flow/queue.rhdl" as queue
-  "../../rhodium/std/flow/arbiter.rhdl" as arbiter
-  "../../rhodium/std/flow/rr-arbiter.rhdl" as rr_arbiter
-  "../../rhodium/std/flow/demux.rhdl" as demux
-  "../../rhodium/std/flow/matcher.rhdl" as matcher
-  "../../rhodium/std/flow/grant.rhdl" as grant
-  "../../rhodium/std/flow/crossbar.rhdl" as crossbar
-  "../../rhodium/std/flow/join.rhdl" as join
-  "../../rhodium/std/flow/broadcast.rhdl" as broadcast
-  "../../rhodium/std/flow/atomic-fork.rhdl" as atomic_fork
+  "../../flow/main.rhdl" as flow
+  "../../flow/pipe.rhdl" as pipe
+  "../../flow/offer-register.rhdl" as offer_register
+  "../../flow/queue.rhdl" as queue
+  "../../flow/arbiter.rhdl" as arbiter
+  "../../flow/rr-arbiter.rhdl" as rr_arbiter
+  "../../flow/demux.rhdl" as demux
+  "../../flow/matcher.rhdl" as matcher
+  "../../flow/grant.rhdl" as grant
+  "../../flow/crossbar.rhdl" as crossbar
+  "../../flow/join.rhdl" as join
+  "../../flow/broadcast.rhdl" as broadcast
+  "../../flow/atomic-fork.rhdl" as atomic_fork
 
 // The aggregate and focused modules are both supported public import paths.
 def direct_pipe_design = embedded.run_elaboration(

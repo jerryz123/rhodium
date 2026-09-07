@@ -21,7 +21,7 @@ flowchart LR
 ```
 
 The pure `model`, `authoring`, `analysis`, `language`, `plan`, and `std`
-directories use ordinary Rhombus and must not import Rhodium or CIRCT. Core
+directories use ordinary Rhombus and must not import Rhodium, `flow/`, or CIRCT. Core
 layers must not import `noc/std`; reusable definitions depend on abstractions,
 never the reverse. Only `noc/rtl` may import public Rhodium libraries, and it
 must consume opaque validated plans rather than unchecked routing relations.

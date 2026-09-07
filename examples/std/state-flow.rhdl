@@ -2,7 +2,7 @@
 // Demonstrates reliable changed-state emission and local state replication over ready-valid flow.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 bundle ReplicatedControl():
   enabled: Bool

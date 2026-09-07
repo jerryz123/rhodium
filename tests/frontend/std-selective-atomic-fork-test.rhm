@@ -4,8 +4,8 @@
 import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../rhodium/std/flow.rhdl" as flow
-  "../../rhodium/std/flow/atomic-fork.rhdl" as atomic_fork
+  "../../flow/main.rhdl" as flow
+  "../../flow/atomic-fork.rhdl" as atomic_fork
   "../../examples/std/selective-atomic-fork.rhdl" as example
   "std-selective-atomic-fork-invalid.rhdl" as invalid
 

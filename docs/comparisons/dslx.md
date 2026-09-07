@@ -253,4 +253,4 @@ from retaining the higher function or proc denotation.
 - Rhodium [architecture](../../rhodium/README.md), [core semantics](../../rhodium/core/README.md),
   [frontend staging](../../rhodium/frontend/README.md), and
   [typed decode relations](../../rhodium/std/README.md#typed-decode-patterns), plus the
-  [ready-valid composition](../../rhodium/std/README.md#flow-control-circuits)
+  [ready-valid composition](../../flow/README.md#component-catalog)

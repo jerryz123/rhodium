@@ -10,7 +10,7 @@ import:
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/rtl/pma.rhdl" open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
 sync_circuit RV5StageMemoryRouter(xlen :: XLen,

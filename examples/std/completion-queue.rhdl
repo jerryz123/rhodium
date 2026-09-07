@@ -2,7 +2,7 @@
 // Demonstrates a completion queue that reserves response capacity before issue.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit CompletionQueueWrapper():
   interface request(Decoupled(Bits(8)), ~role: consumer)

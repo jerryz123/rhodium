@@ -3,7 +3,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 // Lower indices have priority. Since Valid has no backpressure, simultaneous
 // lower-priority events are intentionally dropped instead of held for retry.

@@ -2,7 +2,7 @@
 // Demonstrates composable Valid mapping, fanout, filtering, and Decoupled conversion.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 circuit ValidMapForkChain():
   interface ingress(Valid(Bits(8)), ~role: consumer)

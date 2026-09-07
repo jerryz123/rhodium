@@ -4,7 +4,7 @@
 import:
   lib("noc/authoring/main.rhm").VCGroup
   lib("noc/std/topology/main.rhm").rectangular_mesh
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   "../tiled-soc/distribution.rhdl" open
   "../tiled-soc/time.rhdl" open
 

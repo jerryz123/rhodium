@@ -12,7 +12,7 @@ import:
   "../../../riscv/rtl/floating-point.rhdl" open
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
 fun fp_load_value(profile :: FloatingPointProfile,

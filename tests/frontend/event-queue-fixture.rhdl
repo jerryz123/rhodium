@@ -2,7 +2,7 @@
 // Exercises queue configurations, repeated hierarchy, and mixed pipeline/filter paths.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit EventQueueStorage(depth :: PosInt, piped :: Boolean, flowed :: Boolean, composed :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

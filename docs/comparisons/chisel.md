@@ -295,7 +295,7 @@ and connection order.
 - [Chisel `Connectable`](https://www.chisel-lang.org/docs/explanations/connectable)
 - [Chisel decoders](https://www.chisel-lang.org/docs/explanations/decoder)
 - [Chisel experimental decode API](https://www.chisel-lang.org/api/latest/chisel3/util/experimental/decode/index.html)
-- [Rhodium standard flow composition](../../rhodium/std/README.md#flow-control-circuits)
+- [Rhodium flow composition](../../flow/README.md#component-catalog)
 - [Rhodium typed decode patterns](../../rhodium/std/README.md#typed-decode-patterns)
 - [Rhodium core semantics](../../rhodium/core/README.md)
 - [Rhodium frontend semantics](../../rhodium/frontend/README.md)

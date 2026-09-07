@@ -2,7 +2,7 @@
 // Defines explicitly ordered one-to-one matching over a hardware request matrix.
 
 import:
-  lib("rhodium/std/flow/circular-priority.rhdl") open
+  lib("flow/circular-priority.rhdl") open
 
 export:
   GreedyMatcher

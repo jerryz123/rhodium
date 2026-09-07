@@ -2,7 +2,7 @@
 // Exercises atomic replication, branch-local storage, hierarchy, and malformed trace contracts.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit EventAtomicForkNetwork(buffered :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

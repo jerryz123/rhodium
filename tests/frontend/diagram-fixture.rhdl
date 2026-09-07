@@ -2,7 +2,7 @@
 // Defines a representative mapped, filtered, pipelined, and forked flow diagram fixture.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit DiagramFlow():
   interface source(Decoupled(Bits(8)), ~role: consumer)

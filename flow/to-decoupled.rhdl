@@ -3,7 +3,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 // Valid cannot retain an event under backpressure. The assertion makes that
 // limitation explicit while permitting composition with ready-valid stages.

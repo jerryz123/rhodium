@@ -265,7 +265,7 @@ language-level contract gaps, not missing components or Boolean expressivity.
 
 - Rhodium [core semantics](../../rhodium/core/README.md),
   [frontend model](../../rhodium/frontend/README.md), and
-  [standard interfaces and flow composition](../../rhodium/std/README.md)
+  [flow protocols and composition](../../flow/README.md)
 - Rhodium [typed decode patterns](../../rhodium/std/README.md#typed-decode-patterns)
   and [decode generation](../../rhodium/std/README.md#typed-decode-generation)
 - [HazardFlow project](https://github.com/kaist-cp/hazardflow)

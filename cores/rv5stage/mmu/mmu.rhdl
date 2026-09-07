@@ -18,7 +18,7 @@ import:
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit RV5StageMmu(xlen :: XLen,
                          mmu_mode :: RV5StageMmuMode,

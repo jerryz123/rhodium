@@ -3,7 +3,7 @@
 
 import:
   rhombus/meta open
-  lib("rhodium/std/flow/ready-valid-support.rhdl").FlowSource
+  lib("flow/ready-valid-support.rhdl").FlowSource
 
 // Endpoint, handle, and sink topology objects are callable for ordinary `|>`
 // composition, but they are not configured stage functions.

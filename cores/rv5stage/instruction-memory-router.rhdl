@@ -5,7 +5,7 @@ import:
   "icache/protocol.rhdl" open
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   interface core(RV5StagePhysicalInstructionAccess(xlen), ~role: responder)

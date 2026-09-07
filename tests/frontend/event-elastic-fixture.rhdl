@@ -2,7 +2,7 @@
 // Provides repeated traced elastic lanes and identical unannotated reference lanes.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit EventElasticChild(traced :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

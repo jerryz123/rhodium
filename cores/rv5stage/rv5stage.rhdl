@@ -14,7 +14,7 @@ import:
   "instruction-memory-router.rhdl" open
   "chi/uncached.rhdl" open
   "mmu/mmu.rhdl" open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open
 

@@ -2,7 +2,7 @@
 // Demonstrates primitive generators and composable ready-valid handle/sink topologies.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 bundle MappedByte():
   data: Bits(8)

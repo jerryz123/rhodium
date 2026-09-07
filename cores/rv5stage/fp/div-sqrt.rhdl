@@ -9,10 +9,10 @@ import:
   "../../../riscv/rtl/floating-point.rhdl" open
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/arbiter.rhdl").Arbiter
-  lib("rhodium/std/flow/completion-queue.rhdl").CompletionQueue
-  lib("rhodium/std/flow/demux.rhdl").demux_flow
-  lib("rhodium/std/flow/queue.rhdl").Queue
+  lib("flow/arbiter.rhdl").Arbiter
+  lib("flow/completion-queue.rhdl").CompletionQueue
+  lib("flow/demux.rhdl").demux_flow
+  lib("flow/queue.rhdl").Queue
 
 sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format :: FloatFormat, Context :: DataType):
   def flen = floating_point_register_width(profile)

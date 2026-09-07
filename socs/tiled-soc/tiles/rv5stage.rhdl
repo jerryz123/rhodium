@@ -3,7 +3,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/state.rhdl").StateReplica
+  lib("flow/state.rhdl").StateReplica
   lib("rhodium/std/flit.rhdl").FramedFixedFlit
   lib("chi/main.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl") open

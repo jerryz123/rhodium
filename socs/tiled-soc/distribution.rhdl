@@ -8,7 +8,7 @@ import:
   lib("noc/rtl/main.rhdl") open
   lib("noc/std/routing/main.rhm") open
   lib("noc/std/topology/main.rhm") open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   "time.rhdl" open
 
 bundle TiledHartInterrupts():

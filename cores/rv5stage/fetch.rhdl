@@ -9,7 +9,7 @@ import:
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/compressed.rhdl" open
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 hardware_enum RV5StageFetchWordState:
   Empty

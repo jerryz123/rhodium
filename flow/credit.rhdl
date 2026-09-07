@@ -4,8 +4,8 @@
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/credited.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
-  lib("rhodium/std/flow/queue.rhdl").Queue
+  lib("flow/ready-valid-support.rhdl") open
+  lib("flow/queue.rhdl").Queue
 
 // Tracks an owned resource balance. A decrement requires a resource present
 // before the edge; simultaneous increment and decrement therefore cannot

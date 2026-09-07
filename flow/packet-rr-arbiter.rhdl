@@ -4,8 +4,8 @@
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
-  lib("rhodium/std/flow/circular-priority.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
+  lib("flow/circular-priority.rhdl") open
 
 // The primitive receives packet boundaries as an explicit sideband so packet
 // representation remains a frontend-layer choice. An unlocked arbiter selects

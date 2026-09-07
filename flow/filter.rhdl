@@ -4,7 +4,7 @@
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 // Filtering may depend on live sideband state, so its output is conservatively
 // Decoupled even when its input is Irrevocable. A rejected token is consumed

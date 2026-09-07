@@ -59,6 +59,7 @@ print-racket-compile-sources:
 check-boundaries:
 	bash tools/check-boundaries.sh
 	bash rfpl/check-boundaries.sh
+	bash noc/check-boundaries.sh
 	bash riscv/check-boundaries.sh
 	bash chi/check-boundaries.sh
 	bash hardfloat/check-boundaries.sh

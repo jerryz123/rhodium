@@ -5,7 +5,7 @@ import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../rhodium/frontend/layers/bool.rhm" as bool
-  "../../rhodium/std/flow.rhdl" as std
+  "../../flow/main.rhdl" as std
   "../../examples/std/credited-transport.rhdl" as example
   "std-credited.rhdl" as fixture
 

@@ -206,6 +206,8 @@ SystemVerilog.
 
 ### Explore hardware libraries and systems
 
+- [`flow/README.md`](flow/README.md) — streaming buffers, arbitration, routing,
+  packet adapters, and typed pipeline composition
 - [`devicetree/README.md`](devicetree/README.md) — validated host-side device
   trees with native DTS and DTB encoding
 - [`noc/README.md`](noc/README.md) — graph-validated NoC authoring and hardware

@@ -271,4 +271,4 @@ is compelling only if extensions preserve its local rules.
   [frontend staging](../../rhodium/frontend/README.md), and
   [interface layer](../../rhodium/frontend/layers/README.md#interfaces-and-topology),
   [typed decode relations](../../rhodium/std/README.md#typed-decode-patterns), plus the
-  [standard flow composition model](../../rhodium/std/README.md#flow-control-circuits)
+  [standard flow composition model](../../flow/README.md#component-catalog)

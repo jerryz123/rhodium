@@ -16,9 +16,9 @@ search_sources() {
   fi
 }
 
-forbidden_imports="$(search_sources '^[[:space:]]+\"[^\"]*(rhodium/|circt)' noc/model noc/authoring noc/analysis noc/language noc/plan noc/std || true)"
+forbidden_imports="$(search_sources '^[[:space:]]*(import[[:space:]]+)?(lib\()?"[^"]*(rhodium/|flow/|circt)' noc/model noc/authoring noc/analysis noc/language noc/plan noc/std || true)"
 if [[ -n "$forbidden_imports" ]]; then
-  echo "pure NoC model, authoring, language, standard definitions, analysis, and plan must not import Rhodium or CIRCT modules" >&2
+  echo "pure NoC model, authoring, language, standard definitions, analysis, and plan must not import Rhodium, flow, or CIRCT modules" >&2
   echo "$forbidden_imports" >&2
   exit 1
 fi

@@ -2,7 +2,7 @@
 // Exercises traced wrappers, shared untouched subtrees, and wide Valid payloads.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 circuit EventRuntimeIdentity():
   input data: Bits(8)

@@ -3,7 +3,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl").Decoupled
-  lib("rhodium/std/flow/vc.rhdl") open
+  lib("flow/vc.rhdl") open
 
 bundle VcPayload():
   data: Bits(8)

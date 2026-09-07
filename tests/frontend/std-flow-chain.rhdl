@@ -2,7 +2,7 @@
 // Defines valid and invalid flow handle and sink chains for frontend tests.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 fun require_byte_irrevocable(
   endpoint :: Endpoint.of(Irrevocable(Bits(8)))

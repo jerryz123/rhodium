@@ -2,7 +2,7 @@
 // Exercises exclusive routing, branch-local storage, repeated hierarchy, and invalid contracts.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit EventDemuxNetwork(buffered :: Boolean):
   input selector: Bits(2)

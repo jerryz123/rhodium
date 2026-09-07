@@ -34,7 +34,7 @@ fail_matches "core must not import analysis, frontend, backend, or formal module
 fail_matches "analysis must depend only on core and other analysis modules" \
   '^[[:space:]]+"[^"]*(frontend|backend|formal|std)/' rhodium/analysis
 fail_matches "support annotations must remain dependency-neutral" \
-  '^[[:space:]]+.*(rhodium/|noc/|riscv/|chi/|rfpl/|cores/)' support/annotations.rhm
+  '^[[:space:]]*(import[[:space:]]+)?(lib\()?"[^"]*(rhodium/|flow/|noc/|riscv/|chi/|rfpl/|cores/)' support/annotations.rhm
 fail_matches "frontend must not import backend or formal modules" \
   '^[[:space:]]+"[^"]*(backend|formal)/' rhodium/frontend
 fail_matches "frontend must not import the optional standard library" \
@@ -63,6 +63,25 @@ fail_matches "event tooling must not import backend, formal, or standard-library
   '(backend/|formal/|std/)' rhodium/event
 fail_matches "standard library must not import Rhodium implementation packages" \
   '^[[:space:]]+.*(core/|analysis/|backend/|event/|frontend/|formal/)' rhodium/std
+fail_matches "Rhodium packages, including std, must not import the flow library" \
+  '^[[:space:]]*(import[[:space:]]+)?(lib\()?"([^"]*/)?flow/' rhodium
+fail_matches "flow must use collection imports for its public library dependencies" \
+  '^[[:space:]]*(import[[:space:]]+)?"[^"]*\.(rhm|rhdl|rkt)"' flow
+while IFS= read -r flow_file; do
+  while IFS= read -r dependency; do
+    case "$dependency" in
+      flow/*.rhdl|rhodium/std/*.rhdl)
+        if [[ "$dependency" != *'..'* && -f "$dependency" ]]; then
+          continue
+        fi
+        ;;
+    esac
+    echo "flow may import only existing flow and std modules through the public language: $flow_file imports $dependency" >&2
+    exit 1
+  done < <(sed -n 's/.*lib("\([^\"]*\)").*/\1/p' "$flow_file")
+done < <(find flow -type f \( -name '*.rhdl' -o -name '*.rhm' \) | sort)
+fail_matches "the flow facade must aggregate existing bindings without defining behavior" \
+  '^[[:space:]]*(def|fun|class|interface|operator|expr\.|defn\.|annot\.|dot\.|reducer\.|circuit|sync_circuit|bundle)' flow/main.rhdl
 fail_matches "Rhodium packages must not import the external CHI domain library" \
   '^[[:space:]]+.*chi/' rhodium
 fail_matches "Rhodium packages must not import the external HardFloat domain library" \
@@ -106,25 +125,22 @@ while IFS= read -r layer_file; do
   fi
 done < <(find rhodium/frontend/layers -maxdepth 1 -type f -name '*.rhm' | sort)
 
-while IFS= read -r std_file; do
-  documented_path="${std_file#rhodium/}"
+while IFS= read -r library_file; do
+  documented_path="${library_file#rhodium/}"
   dependency_row="$(grep -F "| \`$documented_path\` |" rhodium/DEVELOPING.md || true)"
   if [[ -z "$dependency_row" ]]; then
-    echo "standard-library module is missing from the rhodium/DEVELOPING.md dependency table: $std_file" >&2
+    echo "library module is missing from the rhodium/DEVELOPING.md dependency table: $library_file" >&2
     exit 1
-  fi
-  if [[ "$documented_path" == "std/flow.rhdl" ]]; then
-    continue
   fi
   while IFS= read -r dependency; do
     [[ -z "$dependency" ]] && continue
     documented_dependency="${dependency#rhodium/}"
     if [[ "$dependency_row" != *"\`$documented_dependency\`"* ]]; then
-      echo "standard-library dependency is missing from the rhodium/DEVELOPING.md table: $documented_path imports $documented_dependency" >&2
+      echo "library dependency is missing from the rhodium/DEVELOPING.md table: $documented_path imports $documented_dependency" >&2
       exit 1
     fi
-  done < <(sed -n 's/.*lib("\(rhodium\/std\/[^\"]*\.rhdl\)").*/\1/p' "$std_file")
-done < <(find rhodium/std -type f -name '*.rhdl' | sort)
+  done < <(sed -n 's/.*lib("\([^\"]*\.rhdl\)").*/\1/p' "$library_file")
+done < <(find rhodium/std flow -type f -name '*.rhdl' | sort)
 
 fail_matches "core tests must not import analysis or backend modules" \
   '^[[:space:]]+"[^"]*(analysis|backend)/' tests/core
@@ -155,14 +171,14 @@ fi
 
 unexpected_rtl_sources="$(find . -path './.git' -prune -o -type f -name '*.rhdl' \
   ! -path './examples/*' ! -path './tests/frontend/*' ! -path './tests/formal/*' \
-  ! -path './rhodium/std/*' ! -path './riscv/rtl/*' \
+  ! -path './rhodium/std/*' ! -path './flow/*' ! -path './riscv/rtl/*' \
   ! -path './noc/rtl/*' \
   ! -path './devices/*' \
   ! -path './hardfloat/*' \
   ! -path './chi/*' \
   ! -path './sims/*' ! -path './socs/*' ! -path './cores/*' ! -path './vlsi/src/*' -print)"
 if [[ -n "$unexpected_rtl_sources" ]]; then
-  echo ".rhdl files may appear only in std, domain libraries, public adapters, examples, concrete cores and systems, simulation harnesses, physical-design fixtures, and frontend fixtures" >&2
+  echo ".rhdl files may appear only in std, flow, domain libraries, public adapters, examples, concrete cores and systems, simulation harnesses, physical-design fixtures, and frontend fixtures" >&2
   echo "$unexpected_rtl_sources" >&2
   exit 1
 fi

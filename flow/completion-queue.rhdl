@@ -3,7 +3,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/queue.rhdl").Queue
+  lib("flow/queue.rhdl").Queue
 
 // Each accepted request reserves one response slot and emits one immediate
 // Valid issue. The producer must later present exactly one Valid completion;

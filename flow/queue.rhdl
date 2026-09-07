@@ -4,7 +4,7 @@
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/counter.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 // Queue uses asynchronous-read storage. A synchronous-read option belongs here
 // once Rhodium has a corresponding memory primitive. Stored payloads remain stable

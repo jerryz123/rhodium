@@ -4,7 +4,7 @@
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 fun finish_zip_flow_handle(left_link :: Handle,
                            right_link :: Handle,

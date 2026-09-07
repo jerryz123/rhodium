@@ -63,7 +63,7 @@ All essays compare against the same model:
 - Frontend layers add authoring notation and policy without introducing a
   second hardware IR; the optional CIRCT backend consumes verified core IR.
 - Nominal interfaces carry complementary roles, refinement, structural member
-  checks, and linear topology handles. Standard flow and decode facilities
+  checks, and linear topology handles. Flow and standard decode facilities
   elaborate through those generic frontend and core mechanisms.
 - Current sequential policy is deliberately narrow: rising-edge clocks and,
   when present, active-high synchronous reset. Clock-domain identity is not a
@@ -72,8 +72,9 @@ All essays compare against the same model:
 The owning references are the
 [`rhodium` architecture](../../rhodium/README.md),
 [`core` semantics](../../rhodium/core/README.md),
-[`frontend` model](../../rhodium/frontend/README.md), and
-[`standard-library` contracts](../../rhodium/std/README.md). The essays refer
+[`frontend` model](../../rhodium/frontend/README.md),
+[`standard-library` contracts](../../rhodium/std/README.md), and
+[`flow` contracts](../../flow/README.md). The essays refer
 to those documents instead of redefining the architecture independently.
 
 ## Common evaluation rubric
@@ -127,7 +128,7 @@ Rhodium hardware; none is just syntactic sugar.
 
 ### Flow composition
 
-Rhodium's [`std/flow`](../../rhodium/std/README.md)
+Rhodium's [`flow/` library](../../flow/README.md)
 surface is a compact topology language. Configured stages are ordinary unary
 host functions, so `|>` composes both concrete endpoints and detached paths.
 The result can change cardinality, branch, terminate, route, or buffer selected
@@ -146,8 +147,8 @@ This uses the generic frontend `InterfaceHandle`, not a second flow IR.
 
 The claim is structural, not a claim of complete protocol verification.
 `Irrevocable` stability is documented rather than assertion-backed, and
-[`map_flow`](../../rhodium/std/flow/map.rhdl) plus
-[`demux_flow`](../../rhodium/std/flow/demux.rhdl) conservatively weaken to
+[`map_flow`](../../flow/map.rhdl) plus
+[`demux_flow`](../../flow/demux.rhdl) conservatively weaken to
 `Decoupled` unless the author asserts stability. The layer has no general
 forward/backward protocol algebra or compositional latency,
 initiation-interval, deadlock, fairness, or liveness contracts.

@@ -85,6 +85,7 @@ unqualified claims about rapidly changing ecosystems.
 | [`../../rhodium/core/README.md`](../../rhodium/core/README.md) | Public core semantics |
 | [`../../rhodium/frontend/README.md`](../../rhodium/frontend/README.md) | Public elaboration and profile behavior |
 | [`../../rhodium/std/README.md`](../../rhodium/std/README.md) | Public reusable-library contracts |
+| [`../../flow/README.md`](../../flow/README.md) | Streaming components and typed topology composition |
 
 For a documentation change, validate purpose comments, Markdown links and
 anchors, balanced fences, table structure, and `git diff --check`. Network-check

@@ -4,8 +4,8 @@
 import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../rhodium/std/flow.rhdl" as flow
-  "../../rhodium/std/flow/join.rhdl" as join
+  "../../flow/main.rhdl" as flow
+  "../../flow/join.rhdl" as join
   "../../examples/std/selective-join.rhdl" as example
   "std-selective-join-invalid.rhdl" as invalid
 

@@ -3,8 +3,8 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
-  lib("rhodium/std/flow/grant.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
+  lib("flow/grant.rhdl") open
 
 export:
   GrantCrossbar

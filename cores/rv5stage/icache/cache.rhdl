@@ -12,7 +12,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/read-write.rhdl") open
   lib("rhodium/std/sync-ram.rhdl") open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   lib("chi/main.rhdl") open
 
 fun check_l1i_geometry(width :: PosInt, cache :: RV5StageCacheConfig):

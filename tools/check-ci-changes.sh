@@ -68,6 +68,8 @@ check_no_jobs() {
 }
 
 check_no_jobs README.md
+check_no_jobs flow/README.md
+check_no_jobs flow/DEVELOPING.md
 check_no_jobs tests/backend/README.md
 check_no_jobs sram/README.md
 check_no_jobs vlsi/sim/README.md
@@ -87,10 +89,28 @@ check_matrix_entry rhodium/event/runtime/rhodium_event.cc circt_matrix ci-circt-
 check_field rhodium/event/analyze.rhm simulation false
 check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-foundation-test
 check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-hygiene-test
-check_matrix_entry rhodium/std/flow.rhdl host_matrix ci-host-cores-test
-check_matrix_entry rhodium/std/flow.rhdl host_matrix ci-host-socs-test
-check_matrix_entry rhodium/std/flow.rhdl host_matrix ci-host-hygiene-test
-check_matrix_entry rhodium/std/flow.rhdl circt_matrix ci-circt-std-test
+check_matrix_entry flow/main.rhdl host_matrix ci-host-cores-test
+check_matrix_entry flow/main.rhdl host_matrix ci-host-socs-test
+check_matrix_entry flow/main.rhdl host_matrix ci-host-hygiene-test
+check_matrix_entry flow/main.rhdl circt_matrix ci-circt-std-test
+check_matrix_entry flow/queue.rhdl host_matrix ci-host-foundation-test
+check_matrix_entry flow/queue.rhdl host_matrix ci-host-backend-test
+check_matrix_entry flow/queue.rhdl host_matrix ci-host-protocols-test
+check_matrix_entry flow/queue.rhdl host_matrix ci-host-cores-test
+check_matrix_entry flow/queue.rhdl host_matrix ci-host-socs-test
+check_matrix_entry flow/queue.rhdl host_matrix ci-host-hygiene-test
+check_matrix_entry flow/queue.rhdl circt_matrix ci-circt-std-test
+check_matrix_entry flow/queue.rhdl circt_matrix ci-circt-protocols-test
+check_matrix_entry flow/queue.rhdl circt_matrix ci-circt-cores-test
+check_matrix_entry flow/queue.rhdl example_matrix examples-std
+check_field flow/queue.rhdl simulation true
+check_matrix_entry rhodium/std/ready-valid.rhdl circt_matrix ci-circt-std-test
+check_matrix_entry rhodium/std/ready-valid.rhdl host_matrix ci-host-cores-test
+# Flow must have an explicit dependency rule, not the unknown-path all-jobs fallback.
+if [[ "$(classification_for flow/queue.rhdl)" != "$(classification_for rhodium/std/ready-valid.rhdl)" ]]; then
+  echo "flow changes must retain the shared standard-library dependency matrix" >&2
+  exit 1
+fi
 check_matrix_entry support/annotations.rhm host_matrix ci-host-foundation-test
 check_matrix_entry tests/frontend/conditional-fixture.rhdl host_matrix ci-host-foundation-test
 check_matrix_entry tests/frontend/invalid/bad-width.rhdl host_matrix ci-host-foundation-test

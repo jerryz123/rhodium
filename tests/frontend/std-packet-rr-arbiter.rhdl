@@ -2,7 +2,7 @@
 // Defines representative packet-arbitration chains and invalid frontend uses.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 use_static
 

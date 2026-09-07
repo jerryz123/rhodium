@@ -2,7 +2,7 @@
 // Demonstrates transfer-counted framing for fixed-length ready-valid flits.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit FixedFlitFramer():
   interface ingress(Decoupled(FixedFlit(Bits(8))), ~role: consumer)

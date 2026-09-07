@@ -9,11 +9,11 @@ synthesizable event references and result-less DPI calls.
 
 ## Annotate events
 
-The standard flow facade exports transparent event checkpoints:
+The [flow library facade](../../flow/README.md) exports transparent event checkpoints:
 
 ```rhombus
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 source
   |> trace_event("accepted")
@@ -81,7 +81,7 @@ The IR-backed stage plan stays in the structured manifest, not in JSON.
 
 An interface transform is traversable only when it carries an
 `InterfaceTraceModel`. That model supplies explicit possible input-to-output
-routes independently of its display label. The current standard flow metadata
+routes independently of its display label. The current flow library metadata
 covers event checkpoints, map, filter, fixed and elastic pipe, in-order queue, ready-valid arbiters, `demux_flow`,
 atomic fork, and zip. A downstream annotation whose upstream walk reaches an
 unmodeled transform is rejected rather than assigned an approximate parent.
@@ -97,7 +97,7 @@ unmodeled transform is rejected rather than assigned an approximate parent.
 - Only flat top-level flow endpoints are traceable; nested interface members
   are rejected.
 - Source locations are retained when an annotation supplies one through the
-  low-level interface API. The standard flow helpers currently report
+  low-level interface API. The flow helpers currently report
   `<unknown>` pending call-site location capture.
 - Terminal metadata is recorded but does not yet prune downstream analysis.
 - Control-only queues and opaque storage require dedicated trace adapters.

@@ -4,8 +4,8 @@
 import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../rhodium/std/flow.rhdl" as flow
-  "../../rhodium/std/flow/packet-rr-arbiter.rhdl" as packet_arbiter
+  "../../flow/main.rhdl" as flow
+  "../../flow/packet-rr-arbiter.rhdl" as packet_arbiter
   "std-packet-rr-arbiter.rhdl" as fixture
 
 def direct_design = embedded.run_elaboration(

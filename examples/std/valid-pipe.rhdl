@@ -2,7 +2,7 @@
 // Demonstrates fixed-latency Valid pipelines with qualified or unconditional payload capture.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit ValidDelay(T :: DataType, stages :: PosInt):
   interface ingress(Valid(T), ~role: consumer)

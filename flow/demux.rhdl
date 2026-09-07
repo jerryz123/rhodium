@@ -4,7 +4,7 @@
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 // Select is interpreted as part of the current Decoupled offer and may change
 // while stalled. Encodings outside 0 through n - 1 select no output and block

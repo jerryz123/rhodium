@@ -5,8 +5,8 @@ import:
   lib("rhodium/std/flit.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/counter.rhdl") open
-  lib("rhodium/std/flow/queue.rhdl").Queue
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/queue.rhdl").Queue
+  lib("flow/ready-valid-support.rhdl") open
 
 fun flit_phase_state(flits_per_packet :: PosInt, transfer :: Bool):
   inst phase_counter(Counter(flits_per_packet))

@@ -4,7 +4,7 @@
 import:
   lib("support/annotations.rhm").NonemptyString
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/flow/queue.rhdl").Queue
+  lib("flow/queue.rhdl").Queue
   lib("rhodium/std/interconnect.rhdl") open
   lib("rhodium/std/ready-valid.rhdl").fire
   lib("chi/main.rhdl") open

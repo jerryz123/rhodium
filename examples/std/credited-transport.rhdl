@@ -2,7 +2,7 @@
 // Demonstrates monitored and composed credited transport with sender and buffer adapters.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 interface RefinedCredited8() refines Credited(Bits(8), 2)
 

@@ -23,7 +23,7 @@ Contributors adding examples or maintaining generated references should read
 | Add state and memory | [`rtl/sync-counter.rhdl`](rtl/sync-counter.rhdl) → [`rtl/register-forms.rhdl`](rtl/register-forms.rhdl) → [`rtl/sync-memory.rhdl`](rtl/sync-memory.rhdl) | [Frontend layers](../rhodium/frontend/layers/README.md) |
 | Generate and reuse hierarchy | [`rtl/generated-adder.rhdl`](rtl/generated-adder.rhdl) → [`rtl/hierarchy.rhdl`](rtl/hierarchy.rhdl) → [`rtl/host-parameters.rhdl`](rtl/host-parameters.rhdl) | [Frontend](../rhodium/frontend/README.md) |
 | Work with aggregate types | [`rtl/bundle.rhdl`](rtl/bundle.rhdl) → [`rtl/vector.rhdl`](rtl/vector.rhdl) → [`rtl/tagged-union.rhdl`](rtl/tagged-union.rhdl) | [Frontend layers](../rhodium/frontend/layers/README.md) |
-| Connect typed interfaces | [`rtl/interface.rhdl`](rtl/interface.rhdl) → [`rtl/interface-array.rhdl`](rtl/interface-array.rhdl) → [`std/flow-topology.rhdl`](std/flow-topology.rhdl) | [Standard library](../rhodium/std/README.md) |
+| Connect typed interfaces | [`rtl/interface.rhdl`](rtl/interface.rhdl) → [`rtl/interface-array.rhdl`](rtl/interface-array.rhdl) → [`std/flow-topology.rhdl`](std/flow-topology.rhdl) | [Flow library](../flow/README.md) |
 | Understand the language stack | [`lop/adder-core.rhm`](lop/adder-core.rhm) → [`lop/adder-kernel.rhm`](lop/adder-kernel.rhm) → [`lop/adder-composed.rhdl`](lop/adder-composed.rhdl) → [`lop/adder-standard.rhdl`](lop/adder-standard.rhdl) | [Frontend profiles](../rhodium/frontend/README.md#choose-a-language-profile) |
 | Declare and verify clock crossings | [`clocking/frontend-environment.rhdl`](clocking/frontend-environment.rhdl) → [`clocking/sync-level.rhdl`](clocking/sync-level.rhdl) → [`clocking/missing-crossings.rhdl`](clocking/missing-crossings.rhdl) | [Clocking analysis](../rhodium/analysis/README.md#clocking-analysis) |
 | Explore a domain library | [NoC](#noc), [RISC-V](#risc-v), [CHI](#chi), or [processor cores](#processor-cores) | [NoC](../noc/README.md), [RISC-V](../riscv/README.md), [CHI](../chi/README.md), [cores](../cores/README.md) |
@@ -193,9 +193,10 @@ syntax and semantic contracts demonstrated here.
 
 ### Standard library
 
-These examples exercise reusable components imported from `rhodium/std`. See
-the [standard-library guide](../rhodium/std/README.md) for component contracts
-and the authoritative source-module map.
+This example group covers both `rhodium/std` and the root-level `flow/` library.
+See the [standard-library guide](../rhodium/std/README.md) for foundations,
+decode, and storage, and the [flow guide](../flow/README.md) for streaming
+component contracts. Both remain under `examples/std` and `make examples-std`.
 
 #### Utilities, decode, and storage
 

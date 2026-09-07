@@ -4,7 +4,7 @@
 import:
   lib("chi/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/state.rhdl") open
+  lib("flow/state.rhdl") open
   lib("devices/plic.rhdl") open
   "../distribution.rhdl" open
 

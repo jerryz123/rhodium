@@ -2,7 +2,7 @@
 // Defines valid and invalid standard flit-conversion fixtures for frontend tests.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 bundle FixedFlitImpostor(T :: DataType):
   payload: T

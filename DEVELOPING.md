@@ -34,6 +34,7 @@ Choose the lowest package that owns the behavior before editing:
 | Elaboration, profiles, or frontend extension machinery | [`rhodium/frontend/DEVELOPING.md`](rhodium/frontend/DEVELOPING.md) |
 | One independently selectable authoring layer | [`rhodium/frontend/layers/DEVELOPING.md`](rhodium/frontend/layers/DEVELOPING.md) |
 | Reusable public hardware library | [`rhodium/std/DEVELOPING.md`](rhodium/std/DEVELOPING.md) |
+| Streaming components and configured topology stages | [`flow/DEVELOPING.md`](flow/DEVELOPING.md) |
 | Backend-independent analysis | [`rhodium/analysis/DEVELOPING.md`](rhodium/analysis/DEVELOPING.md) |
 | CIRCT lowering | [`rhodium/backend/DEVELOPING.md`](rhodium/backend/DEVELOPING.md) |
 | Logical diagram extraction or rendering | [`rhodium/diagram/DEVELOPING.md`](rhodium/diagram/DEVELOPING.md) |

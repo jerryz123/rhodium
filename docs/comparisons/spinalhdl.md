@@ -280,7 +280,7 @@ of denotation and explicit protocol-strength tracking.
 - [SpinalHDL clock domains](https://spinalhdl.github.io/SpinalDoc-RTD/master/SpinalHDL/Structuring/clock_domain.html)
 - [SpinalHDL design checks](https://spinalhdl.github.io/SpinalDoc-RTD/master/SpinalHDL/Design%20errors/index.html)
 - [SpinalHDL streams](https://spinalhdl.github.io/SpinalDoc-RTD/master/SpinalHDL/Libraries/stream.html)
-- [Rhodium standard flow composition](../../rhodium/std/README.md#flow-control-circuits)
+- [Rhodium flow composition](../../flow/README.md#component-catalog)
 - [Rhodium typed decode patterns](../../rhodium/std/README.md#typed-decode-patterns)
 - [Rhodium core semantics](../../rhodium/core/README.md)
 - [Rhodium frontend semantics](../../rhodium/frontend/README.md)

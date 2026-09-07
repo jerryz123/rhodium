@@ -289,7 +289,7 @@ preservation of hardware intent through interpretation.
 - [Hardcaml module hierarchy](https://docs.hardcaml.org/hardcaml-docs/using-interfaces/module_hierarchies/)
 - [Hardcaml Handshake interface](https://github.com/janestreet/hardcaml_handshake/blob/master/src/handshake.mli)
 - [Hardcaml API](https://ocaml.org/p/hardcaml/latest/hardcaml/Hardcaml/index.html)
-- [Rhodium standard flow composition](../../rhodium/std/README.md#flow-control-circuits)
+- [Rhodium flow composition](../../flow/README.md#component-catalog)
 - [Rhodium typed decode patterns](../../rhodium/std/README.md#typed-decode-patterns)
 - [Rhodium core semantics](../../rhodium/core/README.md)
 - [Rhodium frontend semantics](../../rhodium/frontend/README.md)

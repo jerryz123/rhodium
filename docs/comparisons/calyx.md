@@ -256,6 +256,6 @@ Neither model subsumes the other without adding a semantic level.
 - Calyx [primary repository](https://github.com/calyxir/calyx)
 - Rhodium [architecture](../../rhodium/README.md), [core semantics](../../rhodium/core/README.md),
   [frontend interfaces](../../rhodium/frontend/layers/README.md#interfaces-and-topology), and
-  [standard flow composition](../../rhodium/std/README.md#flow-control-circuits)
+  [standard flow composition](../../flow/README.md#component-catalog)
 - Rhodium [typed decode patterns](../../rhodium/std/README.md#typed-decode-patterns)
   and [decode generation](../../rhodium/std/README.md#typed-decode-generation)

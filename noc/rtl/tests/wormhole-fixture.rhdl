@@ -7,7 +7,7 @@ import:
   "../main.rhdl" open
   lib("rhodium/std/flit.rhdl").VariableFlit
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/vc.rhdl") open
+  lib("flow/vc.rhdl") open
 
 def n0 = NodeId(0)
 def n1 = NodeId(1)

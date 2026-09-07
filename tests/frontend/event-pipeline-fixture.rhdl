@@ -2,7 +2,7 @@
 // Exercises composed fixed delays and filters across an annotated child boundary.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit EventPipelineChild():
   interface ingress(Valid(Bits(8)), ~role: consumer)

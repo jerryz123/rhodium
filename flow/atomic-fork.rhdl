@@ -4,8 +4,8 @@
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
-  lib("rhodium/std/flow/reduction.rhdl").and_exclusion_reduce
+  lib("flow/ready-valid-support.rhdl") open
+  lib("flow/reduction.rhdl").and_exclusion_reduce
 
 // Every output transfers in the same cycle or none do. Unlike Broadcast, the
 // fork has no storage and does not retain independently pending recipients.

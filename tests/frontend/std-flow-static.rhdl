@@ -2,7 +2,7 @@
 // Proves configured flow stages preserve exact topology under static checking.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 use_static
 

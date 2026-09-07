@@ -25,12 +25,12 @@ Use these placement rules when adding code:
 - Put a reusable circuit with no natural family in a focused top-level module,
   as with `counter.rhdl`, `scoreboard.rhdl`, and `sync-ram.rhdl`.
 - Put a ready-valid transformation, buffer, allocator, or routing primitive in
-  `flow/`. Keep its focused module independently importable.
+  root-level [`flow/`](../../flow/DEVELOPING.md), not this package.
 - Re-export a family through a facade only when callers commonly compose
-  several of its members. `flow.rhdl`, `decode.rhdl`, and `cdc.rhdl` are
+  several of its members. `decode.rhdl` and `cdc.rhdl` are
   aggregation boundaries; they should not acquire distinct behavior.
 - Keep domain policy out of this package. CHI, NoC, RISC-V, device, core, and
-  SoC libraries may consume `std`, but `std` must not depend on them.
+  SoC libraries and `flow/` may consume `std`, but `std` must not depend on them.
 
 Tests and examples are outside the package. Put executable authoring examples
 under [`../../examples/std/`](../../examples/std/) and compiler-facing host
@@ -57,20 +57,12 @@ flowchart TD
 
   subgraph Families["Reusable families"]
     Decode["decode/*"]
-    FlowSupport["flow/ready-valid-support.rhdl"]
-    Flow["flow/* components and transforms"]
     Utilities["bits, counter, reduction, storage, CDC"]
   end
 
   Focused --> Foundations
   Focused --> Families
-  Flow --> FlowSupport
-  FlowSupport --> RV
-  Flow --> RV
-  Flow --> Credited
-  Flow --> Flit
   Decode --> IR["Public Rhodium operations"]
-  Flow --> IR
   Utilities --> IR
 ```
 
@@ -80,10 +72,6 @@ flowchart TD
 | Credited and flit contracts | [`credited.rhdl`](credited.rhdl), [`flit.rhdl`](flit.rhdl) | Transport accounting and packet representations, independent of buffering policy |
 | Decode descriptions | [`decode/pattern.rhdl`](decode/pattern.rhdl), [`decode/table.rhdl`](decode/table.rhdl) | Immutable typed patterns, set algebra, cases, and table validation |
 | Decode emission | [`decode/generator.rhdl`](decode/generator.rhdl), [`decode/pattern-value.rhdl`](decode/pattern-value.rhdl) | `rtl.decode` construction and the explicit materialization of output don't-cares |
-| Flow type resolution | [`flow/ready-valid-support.rhdl`](flow/ready-valid-support.rhdl) | Normalizing payload, ready-valid, valid-only, and control-only sources |
-| Flow components | Focused modules under [`flow/`](flow/) | Circuit state, handshakes, arbitration, routing, conversion, and assertions |
-| Flow event annotations | [`flow/event.rhdl`](flow/event.rhdl) | Transparent ready-valid checkpoints consumed by optional event analysis |
-| Flow aggregation | [`flow.rhdl`](flow.rhdl) | Imports and exports only; no component semantics |
 | Generic utilities and storage | Top-level focused modules and [`cdc/`](cdc/) | Host utilities or reusable circuits that do not require the flow facade |
 
 The core IR and backend own primitive meaning and lowering. For example,
@@ -117,25 +105,8 @@ Do not copy those implementations into the library.
    source map when ownership changes, and the public README when the
    caller-visible contract changes.
 
-### Protocol and flow changes
-
-Keep protocol declarations separate from components that implement them.
-Ready-valid transforms must preserve or deliberately weaken the nominal
-contract documented in the README. A transform that observes live ambient
-hardware cannot claim `Irrevocable` stability unless the caller makes the
-explicit stable-function promise already used by `map_flow` and
-`demux_flow`.
-
-Treat control-only interfaces as their own member shape. Do not manufacture a
-dummy payload or infer that any interface with `valid` and `ready` is a
-`DecoupledCtrl`. Keep credited transport's accounting at explicit adapter
-boundaries; ready-valid components between those boundaries should not grow
-credited variants.
-
-For configured pipeline stages, preserve linear handle and sink behavior. Each
-application of a reusable configured function must elaborate fresh wiring and
-state. Cardinality-changing stages must describe their exact endpoint-array
-result rather than falling back to an untyped host array.
+Protocol declaration changes must preserve the public nominal contracts.
+Streaming component changes belong to the [flow guide](../../flow/DEVELOPING.md).
 
 ### Decode changes
 
@@ -149,34 +120,6 @@ disjoint set covers, and rejection of overlapping decode inputs. Do not add
 implicit row priority, Boolean minimization, or a runtime-X interpretation of
 pattern don't-cares. A new output materialization policy belongs beside
 `pattern-value.rhdl`, not in the neutral pattern representation.
-
-## Static information and topology results
-
-The public flow syntax relies on the frontend interface layer's
-`InterfaceTransformResult(source, connected)` dependent result annotation.
-Configured stage functions use it to preserve the result shape selected by the
-source:
-
-| Source known at expansion time | Result information |
-|---|---|
-| Concrete endpoint | The connected far-end endpoint surface |
-| Concrete endpoint array | The transform's endpoint or endpoint-array surface |
-| Payload or interface type seed | A complete disconnected handle |
-| Existing handle | A handle extended by the new stage |
-| Generic topology expression | A conservative endpoint, array, or handle surface |
-
-Keep shared ready-valid classification in
-[`flow/ready-valid-support.rhdl`](flow/ready-valid-support.rhdl). Its
-`FlowSource` annotations and protocol-normalization helpers are the common
-entry point for configured stages. Individual stage modules should specify
-only their connected result shape with `InterfaceTransformResult`.
-
-When adding or changing a configured stage, extend
-[`std-flow-static.rhdl`](../../tests/frontend/std-flow-static.rhdl) and its
-loader test so `use_static` covers direct endpoint fields, endpoint-array
-indexing or destructuring, disconnected handle sides, and reuse where
-applicable. A runtime elaboration test alone cannot catch lost expansion-time
-field information.
 
 ## Test organization
 
@@ -194,10 +137,6 @@ Prefer a focused test and its fixture. Representative ownership is:
   typed decode;
 - `std-ready-valid-test.rhm`, `std-credited-test.rhm`, and
   `std-flit-test.rhm` for transport contracts;
-- `std-flow-test.rhm`, `std-flow-chain-test.rhm`,
-  `std-flow-static-test.rhm`, `std-flow-scaling-test.rhm`,
-  `std-valid-flow-test.rhm`, `std-vc-test.rhm`, and
-  `std-state-flow-test.rhm` for flow composition;
 - the focused `std-bits`, `std-cdc`, `std-counter`, `std-interconnect`,
   `std-reduction`, `std-scoreboard`, `std-shift-register`, and `std-sync-ram`
   tests for their owning modules.
@@ -213,8 +152,7 @@ Run Racket and Rhombus through the repository wrapper, which creates the
 required isolated compiled root. For example:
 
 ```sh
-tools/run-racket-tests.sh tests/frontend/std-flow-test.rhm
-tools/run-racket-tests.sh tests/frontend/std-flow-static-test.rhm
+tools/run-racket-tests.sh tests/frontend/std-ready-valid-test.rhm
 tools/run-racket-tests.sh tests/frontend/decode-test.rhm
 ```
 

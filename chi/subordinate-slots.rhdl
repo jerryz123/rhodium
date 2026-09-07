@@ -3,7 +3,7 @@
 
 import:
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl").Scoreboard
   lib("chi/params.rhdl").CHIFlitParams
   lib("chi/flits.rhdl") open

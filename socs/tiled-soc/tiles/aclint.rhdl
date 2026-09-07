@@ -4,7 +4,7 @@
 import:
   lib("chi/main.rhdl") open
   lib("devices/aclint.rhdl") open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   "../distribution.rhdl" open
   "../time.rhdl" open
 

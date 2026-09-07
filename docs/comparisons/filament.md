@@ -258,7 +258,7 @@ the natural specification.
 - Rhodium [core semantics](../../rhodium/core/README.md),
   [frontend model](../../rhodium/frontend/README.md), and
   [frontend layers](../../rhodium/frontend/layers/README.md), plus the
-  [standard flow composition model](../../rhodium/std/README.md#flow-control-circuits)
+  [standard flow composition model](../../flow/README.md#component-catalog)
 - Rhodium [typed decode patterns](../../rhodium/std/README.md#typed-decode-patterns)
   and [decode generation](../../rhodium/std/README.md#typed-decode-generation)
 - [Filament language overview](https://filamenthdl.com/)

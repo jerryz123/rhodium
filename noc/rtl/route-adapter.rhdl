@@ -2,7 +2,7 @@
 // Implements protocol-neutral ready-valid attachment and removal of NoC route metadata.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
   "router.rhdl".RoutedBeat
 
 export:

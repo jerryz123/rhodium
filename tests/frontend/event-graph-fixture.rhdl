@@ -2,8 +2,8 @@
 // Defines annotated ready-valid flow topologies for static event-graph tests.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl").flow_protocol_type
+  lib("flow/main.rhdl") open
+  lib("flow/ready-valid-support.rhdl").flow_protocol_type
 
 sync_circuit EventLinear():
   interface source(Decoupled(Bits(8)), ~role: consumer)

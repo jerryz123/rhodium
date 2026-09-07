@@ -3,9 +3,9 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/offer-register.rhdl").OfferRegister
-  lib("rhodium/std/flow/flit.rhdl").Packetizer
-  lib("rhodium/std/flow/flit.rhdl").Reassembler
+  lib("flow/offer-register.rhdl").OfferRegister
+  lib("flow/flit.rhdl").Packetizer
+  lib("flow/flit.rhdl").Reassembler
   lib("rhodium/std/flit.rhdl").FramedFixedFlit
 
 def TiledTimeChunkWidth = 16

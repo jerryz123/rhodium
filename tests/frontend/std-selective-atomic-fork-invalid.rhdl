@@ -2,7 +2,7 @@
 // Defines invalid selective atomic-fork uses for focused frontend diagnostics.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 circuit NonpositiveSelectiveAtomicFork():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

@@ -64,6 +64,8 @@ bash tests/backend/run-circt.sh --group std
 ```
 
 The accepted groups are `language`, `std`, `protocols`, `cores`, and `rfpl`.
+A `std` selection includes both `rhodium/std` foundations and the root-level
+[`flow/` library](../../flow/README.md).
 A group selects every declared fixture in that group, not just the curated
 spine. `FIXTURE`, `FIXTURES`, and `--group` are mutually exclusive selectors;
 an unknown name fails before materialization.

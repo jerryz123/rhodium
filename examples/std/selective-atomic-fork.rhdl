@@ -2,7 +2,7 @@
 // Demonstrates payload-selected atomic multicast from a Decoupled source.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 bundle MulticastWord():
   destinations: Mask(3)

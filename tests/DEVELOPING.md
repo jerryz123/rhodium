@@ -76,7 +76,7 @@ flowchart TD
 ```
 
 Known dependency paths can select several branches. For example, NoC, RISC-V,
-CHI, core, and shared-standard-library changes also select the SoC host shard
+CHI, core, and shared standard/flow library changes also select the SoC host shard
 when their behavior feeds system composition. Backend implementation or fixture
 changes select the backend host shard and every external CIRCT group. The
 simulation job remains independent from backend fixtures and owns the

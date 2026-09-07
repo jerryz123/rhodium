@@ -4,8 +4,8 @@
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/decode.rhdl") open
-  lib("rhodium/std/flow/queue.rhdl").queue
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/queue.rhdl").queue
+  lib("flow/ready-valid-support.rhdl") open
   lib("chi/params.rhdl").CHIFlitParams
   lib("chi/flits.rhdl") open
   lib("chi/channels.rhdl").CHISnoopDispatch

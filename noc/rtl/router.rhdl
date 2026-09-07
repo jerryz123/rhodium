@@ -3,8 +3,8 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/queue.rhdl") open
-  lib("rhodium/std/flow/crossbar.rhdl") open
+  lib("flow/queue.rhdl") open
+  lib("flow/crossbar.rhdl") open
   "allocator.rhdl" open
   "route-computer.rhdl" open
   "../model/identities.rhm".NodeId

@@ -4,7 +4,7 @@
 import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/flow/broadcast.rhdl").Broadcast
+  lib("flow/broadcast.rhdl").Broadcast
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion

@@ -12,7 +12,7 @@ does not own ready-valid hardware behavior, core IR semantics, or CIRCT lowering
 ```mermaid
 flowchart LR
   Author["trace_event flow checkpoint"] --> Interface["interface metadata"]
-  Flow["standard flow transforms"] --> Trace["typed trace routes"]
+  Flow["flow library transforms"] --> Trace["typed trace routes"]
   Interface --> Diagram["logical flow extraction"]
   Trace --> Diagram
   Diagram --> Analyze["event/analyze.rhm"]
@@ -20,7 +20,7 @@ flowchart LR
   Model --> JSON["deterministic JSON"]
 ```
 
-- `rhodium/std/flow/event.rhdl` owns the ready-valid convenience annotation and
+- `flow/event.rhdl` owns the ready-valid convenience annotation and
   transparent wiring.
 - `rhodium/frontend/layers/interface.rhm` owns the generic event and typed
   trace-route metadata because it owns interface topology.
@@ -41,7 +41,7 @@ flowchart LR
   validation, and deterministic occurrence JSON.
 
 The event package may consume core elaborations, logical diagrams, and
-interface-owned metadata. Core, frontend, standard libraries, diagrams, and
+interface-owned metadata. Core, frontend, standard and flow libraries, diagrams, and
 backends must not depend on this optional compiler consumer. Hardware
 instrumentation constructs ordinary verified IR and continues to use the
 existing backend rather than introducing event cases into CIRCT lowering.

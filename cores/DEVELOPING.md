@@ -33,7 +33,7 @@ flowchart LR
   Named --> Reusable
   Named --> Riscv["RISC-V ISA and RTL"]
   Named --> Protocols["shared protocol libraries"]
-  Named --> Rhodium["Rhodium language and std"]
+  Named --> Rhodium["Rhodium language, std, and flow"]
   Reusable --> Rhodium
   Reusable -->|"ALU and load/store only"| Xlen["RISC-V XLen"]
 ```

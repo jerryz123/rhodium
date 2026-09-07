@@ -3,8 +3,8 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
-  lib("rhodium/std/flow/circular-priority.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
+  lib("flow/circular-priority.rhdl") open
 
 // The arbiter owns transfer-based rotation around one combinational circular
 // selector. Selection may change while stalled, so the output deliberately

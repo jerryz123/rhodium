@@ -264,7 +264,7 @@ That is a missing semantic layer, not a missing mux primitive.
 - Rhodium [core semantics](../../rhodium/core/README.md),
   [frontend model](../../rhodium/frontend/README.md), and
   [typed decode relations](../../rhodium/std/README.md#typed-decode-patterns), plus
-  [standard interfaces and flow composition](../../rhodium/std/README.md)
+  [flow protocols and composition](../../flow/README.md)
 - [Bluespec Compiler project](https://github.com/B-Lang-org/bsc)
 - [BSV Language Reference Guide](https://github.com/B-Lang-org/bsc/releases/latest/download/BSV_lang_ref_guide.pdf)
 - [Official Bluespec language materials](https://github.com/BSVLang/Main)

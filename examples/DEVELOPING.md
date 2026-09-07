@@ -12,7 +12,7 @@ An example should demonstrate one public contract through the narrowest
 realistic program:
 
 - Put language and RTL examples in `rtl/`, clock-analysis examples in
-  `clocking/`, and standard-library examples in `std/`.
+  `clocking/`, and standard-library and flow examples in `std/`.
 - Keep pure-model and domain-library examples in their existing `noc/`,
   `riscv/`, `chi/`, `cores/`, and `rv5stage/` groups.
 - Use `lop/` only when comparing authoring surfaces that construct equivalent

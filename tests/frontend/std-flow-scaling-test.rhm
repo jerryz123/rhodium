@@ -4,7 +4,7 @@
 import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../rhodium/std/flow.rhdl" as flow
+  "../../flow/main.rhdl" as flow
 
 def sizes = [2, 4, 8, 16]
 

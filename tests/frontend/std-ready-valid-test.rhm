@@ -7,7 +7,7 @@ import:
   "../../rhodium/frontend/layers/bool.rhm" as bool
   "../../rhodium/frontend/layers/interface.rhm" open
   "../../rhodium/std/ready-valid.rhdl" as std
-  "../../rhodium/std/flow/ready-valid-support.rhdl" as ready_valid_support
+  "../../flow/ready-valid-support.rhdl" as ready_valid_support
   "../../examples/std/ready-valid-compatibility.rhdl" as example
   "std-ready-valid.rhdl" as fixture
 

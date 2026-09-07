@@ -2,7 +2,7 @@
 // Exercises grant-selected ancestry, mixed buffering, nested arbiters, and shared references.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit EventArbiterNetwork(mode :: Nat):
   interface ingress[3](Decoupled(Bits(8)), ~role: consumer)

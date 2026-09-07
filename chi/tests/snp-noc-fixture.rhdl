@@ -3,7 +3,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl").Decoupled
-  lib("rhodium/std/flow/queue.rhdl").queue
+  lib("flow/queue.rhdl").queue
   lib("chi/main.rhdl") open
   lib("noc/authoring/main.rhm") open
   lib("noc/language/main.rhm").topology

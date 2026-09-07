@@ -3,10 +3,10 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/demux.rhdl") open
-  lib("rhodium/std/flow/gate.rhdl") open
-  lib("rhodium/std/flow/map.rhdl") open
-  lib("rhodium/std/flow/rr-arbiter.rhdl") open
+  lib("flow/demux.rhdl") open
+  lib("flow/gate.rhdl") open
+  lib("flow/map.rhdl") open
+  lib("flow/rr-arbiter.rhdl") open
 
 export:
   VcBeat

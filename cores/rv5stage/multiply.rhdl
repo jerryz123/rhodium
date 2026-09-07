@@ -5,7 +5,7 @@ import:
   "../multiplier.rhdl" open
   "decode/multiply-ctrl.rhdl" open
   "../../riscv/isa/xlen.rhm" open
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 bundle RV5StageMultiplyIssue(xlen :: XLen):
   left: Bits(xlen.width)

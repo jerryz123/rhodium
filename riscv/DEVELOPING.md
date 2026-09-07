@@ -21,7 +21,7 @@ flowchart LR
 ```
 
 Keep `model/` and `isa/` usable as ordinary host data without importing
-Rhodium, HardFloat, processor implementations, or backend tooling. Keep
+Rhodium, `flow/`, HardFloat, processor implementations, or backend tooling. Keep
 hardware materialization in `rtl/`; keep decode policy, pipeline controls,
 architectural state, and retirement in concrete cores. The package-local
 [`check-boundaries.sh`](check-boundaries.sh) enforces these directions.

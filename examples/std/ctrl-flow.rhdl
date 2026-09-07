@@ -2,7 +2,7 @@
 // Materializes the standard payloadless token-flow generators and chaining helpers.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit CtrlBufferedLink():
   interface ingress(DecoupledCtrl(), ~role: consumer)

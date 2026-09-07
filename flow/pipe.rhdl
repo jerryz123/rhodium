@@ -4,7 +4,7 @@
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/shift-register.rhdl").shift_register
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 // Each stage stores one item, contributes one cycle of unloaded latency, and
 // propagates readiness combinationally backward. Stored payloads remain stable

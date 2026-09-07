@@ -3,7 +3,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("rhodium/std/flow/ready-valid-support.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
 
 // Preserves a ready-valid transaction while attaching a compiler-visible event
 // site to the identity transform.

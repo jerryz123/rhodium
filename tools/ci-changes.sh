@@ -220,7 +220,8 @@ classify_path() {
     rhodium/core/*|rhodium/analysis/*|rhodium/frontend/*|rhodium/base/*|rhodium/language.rhm|rhodium/main.rkt)
       mark_all
       ;;
-    rhodium/std/*)
+    rhodium/std/*|flow/*)
+      # Shared flow components retain std's downstream integration coverage.
       host_hygiene=true
       host_foundation=true
       host_backend=true

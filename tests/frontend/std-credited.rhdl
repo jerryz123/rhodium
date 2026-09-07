@@ -2,7 +2,7 @@
 // Provides focused adapter wrappers and invalid credited-transport test cases.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 sync_circuit CreditSenderWrapper():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)

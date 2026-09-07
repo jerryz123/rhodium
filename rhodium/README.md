@@ -37,7 +37,7 @@ flowchart LR
   Core --> Formal["Formal checks"]
   Core --> Views["Analysis and diagrams"]
   Views --> Events["Event graphs and tracing"]
-  Libraries["std and domain libraries"] --> Profiles
+  Libraries["std, flow, and domain libraries"] --> Profiles
 ```
 
 | Package | Use it for |
@@ -45,7 +45,8 @@ flowchart LR
 | [`frontend/`](frontend/README.md) | Language profiles, elaboration behavior, and the host/hardware boundary |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable language features and their public semantics |
 | [`core/`](core/README.md) | Direct construction or inspection of types, IR, `Builder`, and verification results |
-| [`std/`](std/README.md) | Reusable components, interfaces, flows, memories, and circuit generators |
+| [`std/`](std/README.md) | Foundational protocols, host utilities, decode, storage, and generic generators |
+| [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and typed pipeline composition |
 | [`analysis/`](analysis/README.md) | Optional reports and certification over a completed design |
 | [`backend/`](backend/README.md) | CIRCT lowering and emitted hardware |
 | [`formal/`](formal/README.md) | Rosette-backed equivalence, reachability, and combinational properties |

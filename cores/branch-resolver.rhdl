@@ -2,7 +2,7 @@
 // Resolves conditional and unconditional control transfers from orthogonal controls.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 bundle BranchResolverControl():
   enable: Bool

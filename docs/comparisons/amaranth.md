@@ -263,7 +263,7 @@ the elaborated circuit.
 - [Amaranth pattern matching](https://amaranth-lang.org/docs/amaranth/latest/guide.html#match-operator)
 - [Amaranth interfaces and connections](https://amaranth-lang.org/docs/amaranth/latest/stdlib/wiring.html)
 - [Amaranth data streams](https://amaranth-lang.org/docs/amaranth/latest/stdlib/stream.html)
-- [Rhodium standard flow composition](../../rhodium/std/README.md#flow-control-circuits)
+- [Rhodium flow composition](../../flow/README.md#component-catalog)
 - [Rhodium typed decode patterns](../../rhodium/std/README.md#typed-decode-patterns)
 - [Rhodium core semantics](../../rhodium/core/README.md)
 - [Rhodium frontend semantics](../../rhodium/frontend/README.md)

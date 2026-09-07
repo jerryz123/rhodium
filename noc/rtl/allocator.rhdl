@@ -2,7 +2,7 @@
 // Selects fair router grants while honoring escape-certified fallback targets.
 
 import:
-  lib("rhodium/std/flow/matcher.rhdl") open
+  lib("flow/matcher.rhdl") open
 
 export:
   RouterAllocator

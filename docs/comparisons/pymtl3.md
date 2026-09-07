@@ -267,7 +267,7 @@ same component vocabulary.
 - PyMTL3 [primary repository](https://github.com/pymtl/pymtl3)
 - PyMTL3 [standard stream interfaces](https://github.com/pymtl/pymtl3/blob/master/pymtl3/stdlib/stream/ifcs.py)
 - PyMTL3 [multi-level modeling paper](https://www.csl.cornell.edu/~cbatten/pdfs/batten-pymtl3-nvidia2023.pdf)
-- Rhodium [standard flow composition](../../rhodium/std/README.md#flow-control-circuits)
+- Rhodium [standard flow composition](../../flow/README.md#component-catalog)
 - Rhodium [typed decode patterns](../../rhodium/std/README.md#typed-decode-patterns)
   and [decode generation](../../rhodium/std/README.md#typed-decode-generation)
 - Rhodium [architecture](../../rhodium/README.md), [core semantics](../../rhodium/core/README.md),

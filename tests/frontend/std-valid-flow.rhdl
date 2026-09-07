@@ -2,7 +2,7 @@
 // Provides interface-boundary coverage and invalid Valid-flow test cases.
 
 import:
-  lib("rhodium/std/flow.rhdl") open
+  lib("flow/main.rhdl") open
 
 interface TaggedFlow(T):
   role producer
