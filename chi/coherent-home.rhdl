@@ -599,7 +599,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
       phase <== CHIHNFPhase.AwaitSnoopWriteCompletion
     otherwise:
       received_data_ids <== remaining_write_data_ids
-      when (or_reduce(remaining_write_data_ids) === Bool(#false)):
+      when (!or_reduce(remaining_write_data_ids)):
         phase <== CHIHNFPhase.AwaitSubordinateCompletion
   elsewhen (subordinate_response_fire & awaiting_any_subordinate_completion):
     phase <== mux(awaiting_snoop_write_completion,

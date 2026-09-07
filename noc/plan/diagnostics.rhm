@@ -88,7 +88,7 @@ class AuthoredRoutingFailure(kind :: String,
                              rule_names :: List.of(String)):
   method describe():
     def candidate:
-      if candidate_vc == #false
+      if !candidate_vc
       | ""
       | " -> " ++ candidate_vc.describe()
     def rules:

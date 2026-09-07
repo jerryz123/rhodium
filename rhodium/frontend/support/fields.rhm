@@ -284,7 +284,7 @@ fun hardware_variant_view_valid(view :: HardwareVariantView) :~ HardwareFields:
   view.valid
 
 fun hardware_variant_view_payload(view :: HardwareVariantView) :~ HardwareFields:
-  unless view.payload != #false
+  unless view.payload
   | error(~who: #'view, "nullary hardware variants do not have payloads")
   view.payload
 
@@ -393,7 +393,7 @@ fun hardware_as_bits(value :: HardwareEntity,
                      location :: Location = Location()) :~ HardwareFields:
   def source = kernel.read(value, location)
   def width = source.type.packed_width()
-  unless data_type(source.type) && width != #false
+  unless data_type(source.type) && width
   | error(~who: who, role ++ " must have a packable DataType")
   if bits_type(source.type)
   | source
@@ -416,10 +416,10 @@ fun hardware_as_vec(value :: HardwareEntity,
                     location :: Location = Location()) :~ HardwareFields:
   def source = kernel.read(value, location)
   def source_width = source.type.packed_width()
-  unless data_type(source.type) && source_width != #false
+  unless data_type(source.type) && source_width
   | error(~who: #'as_vec, "value must have a packable DataType")
   def element_width = element_type.packed_width()
-  unless element_width != #false
+  unless element_width
   | error(~who: #'as_vec, "element type must be a packable DataType")
   unless source_width mod element_width == 0
   | error(~who: #'as_vec,

@@ -165,7 +165,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               | trace_model.elastic_stages():
                   def owner_path = instance_path ++ [trace_model.elastic_instance().operation.attribute("name")]
                   trace_model.elastic_stages().map(fun (stage): EventTraceStage(owner_path, stage.advance, stage.valid))
-              | trace_model.latency_cycles() != #false:
+              | trace_model.latency_cycles():
                   for List (_ in 0..trace_model.latency_cycles()): EventTraceStage()
               | ~else: #false
             when trace_model.atomic_join_inputs()
@@ -273,8 +273,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
                 arc.source,
                 visiting ++ [vertex],
                 next_path,
-                if latency_cycles != #false && arc.latency_cycles != #false | latency_cycles + arc.latency_cycles | #false,
-                if trace_stages != #false && arc.trace_stages != #false | arc.trace_stages ++ trace_stages | #false
+                if latency_cycles && arc.latency_cycles | latency_cycles + arc.latency_cycles | #false,
+                if trace_stages && arc.trace_stages | arc.trace_stages ++ trace_stages | #false
               )
             candidates
 
@@ -324,7 +324,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
             EventTraceSelection(selection.instance_path, selection.grants,
                                 selection.inputs.map(fun (input): trace_plan(input, visiting ++ [vertex])))
         | arcs.length() == 0 && vertex in roots: EventTraceSource(#false)
-        | arcs.length() == 1 && arcs[0].trace_stages != #false:
+        | arcs.length() == 1 && arcs[0].trace_stages:
             def upstream = trace_plan(arcs[0].source, visiting ++ [vertex])
             if arcs[0].trace_stages.length() == 0
             | upstream

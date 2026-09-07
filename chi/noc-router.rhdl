@@ -238,7 +238,7 @@ fun chi_noc_link_type(params :: CHIRouterParams):
 fun chi_router_link_index(canonical :: List.of(RouterFamilyLinkConnection),
                           connection :: RouterFamilyLinkConnection) :: Nat:
   def found = canonical.find_index(fun (candidate): link_id_equal(candidate.link.id, connection.link.id))
-  unless found != #false
+  unless found
   | error(~who: #'CHIRouter,
           "channel router link is absent from the CHI physical-link shape")
   found

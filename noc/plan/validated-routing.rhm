@@ -235,16 +235,16 @@ fun finish_validated_routing(materialized :: MaterializedRouting,
 
 fun compile_routing(problem :: RoutingProblem,
                     ~escape: escape_request :~ False || EscapeValidationRequest = #false):
-  unless escape_request == #false || escape_request is_a EscapeValidationRequest
+  unless !escape_request || escape_request is_a EscapeValidationRequest
   | error(~who: #'compile_routing,
           "~escape must be an EscapeValidationRequest or #false")
-  when escape_request != #false && !(escape_request.topology === problem.topology)
+  when escape_request && !(escape_request.topology === problem.topology)
   | error(~who: #'compile_routing,
           "escape validation request belongs to a different topology")
   def materialized = materialize_routing(problem)
   def reachable = analyze_reachability(materialized)
   def dependency_graph = build_dependency_graph(reachable)
-  if escape_request == #false
+  if !escape_request
   | block:
       def proof = check_dependency_acyclicity(dependency_graph)
       if proof is_a DependencyCycle

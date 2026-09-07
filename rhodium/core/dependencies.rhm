@@ -53,7 +53,7 @@ fun identity_index(items :: List.of(Value), item :: Value):
   def mutable result = #false
   for (candidate in items,
        index in 0..items.length()):
-    when result == #false && candidate === item
+    when !result && candidate === item
     | result := index
   result
 
@@ -61,7 +61,7 @@ fun equal_index(items :: List.of(String), item :: String):
   def mutable result = #false
   for (candidate in items,
        index in 0..items.length()):
-    when result == #false && candidate == item
+    when !result && candidate == item
     | result := index
   result
 

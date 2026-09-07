@@ -13,7 +13,7 @@ fun duplicate_name(names :: List.of(String), name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
 fun contains_name(names :: List.of(String), name :: String):
-  names.find(fun (candidate): candidate == name) != #false
+  names.contains(name)
 
 fun validate_group_names(subject :: String,
                          names :: NonemptyList.of(NonemptyString)):

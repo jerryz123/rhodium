@@ -153,7 +153,7 @@ fun operation_local_index(operation :: Operation):
        index in 0..operation.module_def.operations.length()):
     when candidate === operation
     | found := index
-  unless found != #false
+  unless found
   | error(~who: #'emit_circt, "operation is not owned by its module")
   found
 
@@ -862,7 +862,7 @@ fun sync_memory_type(operation :: Operation):
           "synchronous memory element type must have a packed width")
   def mask_granularity = operation.attribute("mask_granularity", #false)
   def mask_width:
-    if mask_granularity == #false
+    if !mask_granularity
     | #false
     | width / mask_granularity
   String.append("!seq.firmem<", to_string(operation.attribute("depth")),
@@ -879,7 +879,7 @@ fun emit_sync_memory(operation :: Operation):
   def flat_element = flat_data_type(element_type)
   def mask_granularity = operation.attribute("mask_granularity", #false)
   def mask_width:
-    if mask_granularity == #false
+    if !mask_granularity
     | #false
     | element_type.packed_width() / mask_granularity
   def mutable place_index = 0

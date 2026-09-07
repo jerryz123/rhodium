@@ -16,7 +16,7 @@ fun contains_vc(vcs :: List.of(VCId), vc :: VCId):
 fun vc_index(vcs :: List.of(VCId), vc :: VCId):
   def mutable found = #false
   for (index in 0..vcs.length()):
-    when found == #false && vc_id_equal(vcs[index], vc)
+    when !found && vc_id_equal(vcs[index], vc)
     | found := index
   found
 
@@ -28,7 +28,7 @@ class AcyclicCertificate(graph :: VCDependencyGraph,
 
   method rank(vc :: VCId):
     def found = vc_index(ordered_vcs, vc)
-    when found == #false
+    when !found
     | error(~who: #'AcyclicCertificate,
             "VC has no certified rank: " ++ vc.describe())
     found
@@ -108,7 +108,7 @@ fun find_cycle(graph :: VCDependencyGraph):
       unless cycle
       | block:
           def target_index = vc_index(current_vertices, edge.target_vc)
-          if target_index != #false
+          if target_index
           | cycle := _DependencyCycle(
               graph,
               active_edges.drop(target_index) ++ [edge]
@@ -131,7 +131,7 @@ fun find_cycle(graph :: VCDependencyGraph):
 
 fun check_dependency_acyclicity(graph :: VCDependencyGraph):
   def order = stable_topological_order(graph)
-  if order != #false
+  if order
   | _AcyclicCertificate(graph, order)
   | block:
       def cycle = find_cycle(graph)

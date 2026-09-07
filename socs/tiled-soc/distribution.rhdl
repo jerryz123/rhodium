@@ -215,7 +215,7 @@ fun distribution_link_index(connections :: List.of(RouterFamilyLinkConnection),
   def found = connections.find_index(
     fun (candidate): link_id_equal(candidate.link.id, connection.link.id)
   )
-  unless found != #false
+  unless found
   | error(~who: #'TiledDistributionNetwork,
           "distribution link is absent from its router site")
   found

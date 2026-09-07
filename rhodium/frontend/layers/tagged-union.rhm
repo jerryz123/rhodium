@@ -66,7 +66,7 @@ fun tag_schema(schema :: VariantSchema):
 fun build_tagged_union_type(schema :: VariantSchema):
   def mutable maximum_payload_width = 0
   for (member in schema.members):
-    when member.payload_type != #false
+    when member.payload_type
     | unless packable_type(member.payload_type)
       | error(~who: #'tagged_union,
               "variant payloads must have packable DataType types")
@@ -118,7 +118,7 @@ fun materialize_union_bits(type :: TaggedUnionType,
   | kernel.cast(tag_bits, type, #false, location)
   | block:
       def payload_bits:
-        if payload == #false
+        if !payload
         | kernel.literal(Bits(type.payload_width), 0, #false, location)
         | block:
             def packed = hardware_as_bits(payload, #'tagged_union, "variant payload", #false, location)
@@ -181,7 +181,7 @@ fun union_variant(type :: TaggedUnionType,
                   member_name :: AsciiIdentifier):
   def member = union_member(type, member_name)
   def tag = enum_value(type.tag_type, member_name)
-  if member.payload_type == #false
+  if !member.payload_type
   | NullaryUnionVariant(type, member, tag)
   | PayloadUnionVariant(type, member, tag)
 
@@ -234,7 +234,7 @@ fun tagged_union_value_view(entity :: HardwareEntity,
   def packed = hardware_as_bits(value, #'view, "value", #false, location)
   def valid = union_variant_valid(value, packed, variant, location)
   def payload:
-    if variant.member.payload_type == #false
+    if !variant.member.payload_type
     | #false
     | block:
         def payload_width = variant.member.payload_type.packed_width()

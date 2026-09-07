@@ -49,7 +49,7 @@ fun require_route_key(route_classes :: List.of(RouteClass),
     route_classes,
     fun (candidate): candidate === route_class
   )
-  unless found != #false
+  unless found
   | error(~who: #'RouterPlan,
           "route class does not belong to this router plan")
   found
@@ -63,7 +63,7 @@ fun require_origin_key(origins :: List.of(Injection || HeldVC),
     origins,
     fun (candidate): origin_equal(candidate, origin)
   )
-  unless found != #false
+  unless found
   | error(~who: #'RouterPlan, "origin does not belong to this router plan")
   found
 
@@ -81,7 +81,7 @@ fun require_target_bit(targets :: List.of(VCId || EjectionTerminal),
     targets,
     fun (candidate): target_equal(candidate, target)
   )
-  unless found != #false
+  unless found
   | error(~who: #'RouterPlan, "target does not belong to this router plan")
   found
 

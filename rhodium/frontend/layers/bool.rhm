@@ -167,7 +167,7 @@ class _MaybeOneHotType(width :: PosInt):
 
   // No argument constructs absence; a host index constructs a present lane.
   override method call(index :: False || Nat = #false):
-    if index == #false
+    if !index
     | packed_literal(this, 0)
     | block:
         unless index < width
@@ -339,7 +339,7 @@ fun packed_reduction_list(entities :: List.of(HardwareEntity),
   def packed_elements = for List (entity in entities):
     def value = kernel.read(entity, location)
     def width = value.type.packed_width()
-    unless data_type(value.type) && width != #false
+    unless data_type(value.type) && width
     | error(~who: who,
             location.describe() ++ ": " ++ spelling ++ " list elements must have packable DataTypes")
     hardware_as_bits(value, who, spelling ++ " list element", #false, location)
@@ -362,7 +362,7 @@ fun packed_reduction_operand(entity :: HardwareEntity || List.of(HardwareEntity)
   | block:
       def value = kernel.read(entity, location)
       def width = value.type.packed_width()
-      unless data_type(value.type) && width != #false
+      unless data_type(value.type) && width
       | error(~who: who,
               location.describe() ++ ": " ++ spelling ++ " operand must have a packable DataType")
       values(hardware_as_bits(value, who, spelling ++ " operand", #false, location), width)
@@ -535,7 +535,7 @@ fun build_priority_encoder_oh(entity :: HardwareEntity,
           location.describe() ++ ": priority_encoder_oh operand must be one packable DataType")
   def value = kernel.read(entity, location)
   def width = value.type.packed_width()
-  unless data_type(value.type) && width != #false
+  unless data_type(value.type) && width
   | error(~who: #'priority_encoder_oh,
           location.describe() ++ ": priority_encoder_oh operand must have a packable DataType")
   def packed = hardware_as_bits(
@@ -686,7 +686,7 @@ fun priority_encoder(entity :: HardwareEntity,
           location.describe() ++ ": priority_encoder operand must be one packable DataType")
   def value = kernel.read(entity, location)
   def width = value.type.packed_width()
-  unless data_type(value.type) && width != #false
+  unless data_type(value.type) && width
   | error(~who: #'priority_encoder,
           location.describe() ++ ": priority_encoder operand must have a packable DataType")
   def packed = hardware_as_bits(

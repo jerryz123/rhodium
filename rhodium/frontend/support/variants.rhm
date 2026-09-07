@@ -42,7 +42,7 @@ class VariantSchema(name :: String,
 
 fun payload_type_equal(left :: False || DataType,
                        right :: False || DataType):
-  if left == #false || right == #false
+  if !left || !right
   | left == #false && right == #false
   | type_equal(left, right)
 
@@ -92,7 +92,7 @@ fun validate_variant_specs(name :: String,
     | maximum_encoding := encoding
   def minimum_width = required_variant_width(maximum_encoding)
   def width:
-    if requested_width == #false
+    if !requested_width
     | minimum_width
     | block:
         when requested_width < minimum_width

@@ -70,10 +70,10 @@ class InstructionExpansion(target :: InstructionSpec,
       unless bindings.filter(~keep: fun (binding): binding.target == field).length() == 1
       | error(~who: #'InstructionExpansion,
               "expansion must bind every target operand exactly once")
-    when immediate != #false && target.immediate == #false
+    when immediate && !target.immediate
     | error(~who: #'InstructionExpansion,
             "expansion supplies an immediate to a target without one")
-    when immediate == #false && target.immediate != #false
+    when !immediate && target.immediate
     | error(~who: #'InstructionExpansion,
             "expansion must supply every target immediate")
     when immediate is_a ImmediateLayout && immediate.width > target.immediate.width

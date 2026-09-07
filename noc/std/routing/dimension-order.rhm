@@ -20,10 +20,10 @@ fun duplicate_name(names :: List, name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
 fun validate_vc_groups(mesh :: RectangularMesh, vc_groups :: False || List):
-  unless vc_groups == #false || (vc_groups is_a List && vc_groups.length() > 0)
+  unless !vc_groups || (vc_groups is_a List && vc_groups.length() > 0)
   | error(~who: #'dimension_order,
           "dimension-order VC groups must be #false or a nonempty List")
-  when vc_groups != #false
+  when vc_groups
   | for (name in vc_groups):
       unless name is_a String && name.length() > 0 && !name.contains("/")
       | error(~who: #'dimension_order,
@@ -64,7 +64,7 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
     validate_vc_groups(mesh, vc_groups)
     super(mesh,
           dimensions,
-          (if vc_groups == #false
+          (if !vc_groups
            | #false
            | vc_groups.sort(fun (left, right): left < right)))
 
@@ -93,7 +93,7 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
 
   override method describe():
     def group_description:
-      if vc_groups == #false
+      if !vc_groups
       | "all"
       | String.join(vc_groups, ",")
     String.append("dimension-order(", String.join(dimensions, ","),

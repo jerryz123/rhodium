@@ -202,7 +202,7 @@ class CandidateVCGroupPolicy(names :: NonemptyList.of(NonemptyString)):
     super(names.sort(fun (left, right): left < right))
 
   override method allows(context :: RoutingContext):
-    names.find(fun (name): name == context.candidate_vc.group) != #false
+    names.contains(context.candidate_vc.group)
 
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
 

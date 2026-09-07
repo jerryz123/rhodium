@@ -346,7 +346,7 @@ fun build_mux_lookup(design :: Design,
   )
   def mutable previous_key = #false
   for (case in normalized_cases):
-    when previous_key != #false && previous_key == case[0]
+    when previous_key && previous_key == case[0]
     | fail(who, "mux lookup keys must be unique")
     previous_key := case[0]
   build_value_operation(design,
@@ -407,10 +407,10 @@ class Builder(design :: Design):
                     result_name :: False || AsciiIdentifier = #false,
                     result_type :: False || FlatDataType = #false,
                     location :: Location = Location()):
-    unless (result_name == #false && result_type == #false) || (result_name != #false && result_type != #false)
+    unless (!result_name && !result_type) || (result_name && result_type)
     | fail(#'dpi_import, "DPI result name and type must be supplied together")
     def results:
-      if result_type == #false
+      if !result_type
       | []
       | [DpiResult(result_name, result_type, "return")]
     this.dpi_import_results(name,
@@ -502,7 +502,7 @@ class Builder(design :: Design):
     | fail(#'assert, "assert reset must be Reset")
     unless flat_data_type(guard.type) && data_width(guard.type) == 1
     | fail(#'assert, "assert guard must be a one-bit FlatDataType")
-    when label != #false
+    when label
     | ensure_hardware_name(label, #'assert)
     def operation_id = design.fresh_id()
     def operands = [condition, clock, reset, guard]
@@ -1660,7 +1660,7 @@ class Builder(design :: Design):
     when has_read_write && (has_read || has_write)
     | fail(#'sync_memory,
            "a read-write port cannot be combined with separate read or write ports yet")
-    when mask_granularity != #false
+    when mask_granularity
     | unless mask_granularity is_a PosInt
       | fail(#'sync_memory,
              "synchronous memory mask granularity must be PosInt")
@@ -1677,7 +1677,7 @@ class Builder(design :: Design):
     def operation_id = design.fresh_id()
     def address_type = Bits(memory_address_width(depth))
     def mask_type:
-      if mask_granularity == #false
+      if !mask_granularity
       | #false
       | Bits(element_type.packed_width() / mask_granularity)
     def mutable places = []

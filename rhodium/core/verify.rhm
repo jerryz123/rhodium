@@ -55,13 +55,13 @@ fun check_schema(operation :: Operation):
   def schema = schema_for(operation.opcode)
   unless schema
   | fail_operation(operation, "unknown operation " ++ operation.opcode)
-  when schema.operand_count != #false && operation.operands.length() != schema.operand_count
+  when schema.operand_count && operation.operands.length() != schema.operand_count
   | fail_operation(operation,
                    operation.opcode ++ " has the wrong number of operands")
-  when schema.result_count != #false && operation.results.length() != schema.result_count
+  when schema.result_count && operation.results.length() != schema.result_count
   | fail_operation(operation,
                    operation.opcode ++ " has the wrong number of results")
-  when schema.place_count != #false && operation.places.length() != schema.place_count
+  when schema.place_count && operation.places.length() != schema.place_count
   | fail_operation(operation,
                    operation.opcode ++ " has the wrong number of places")
   for (attribute_name in schema.required_attributes):
@@ -233,7 +233,7 @@ fun check_operation_types(module_def :: Module,
         | fail_operation(operation, "mux lookup keys must be host natural numbers")
         unless bits.length(key) <= width
         | fail_operation(operation, "mux lookup key does not fit its selector type")
-        when previous_key != #false && previous_key >= key
+        when previous_key && previous_key >= key
         | fail_operation(operation, "mux lookup keys must be unique and increasing")
         previous_key := key
       unless data_type(default_value.type) && type_equal(default_value.type, result.type)
@@ -457,7 +457,7 @@ fun check_operation_types(module_def :: Module,
       when has_read_write && (has_read || has_write)
       | fail_operation(operation,
                        "a read-write port cannot be combined with separate read or write ports yet")
-      when mask_granularity != #false
+      when mask_granularity
       | unless mask_granularity is_a PosInt
         | fail_operation(operation,
                          "synchronous memory mask granularity must be positive")
@@ -553,7 +553,7 @@ fun check_operation_types(module_def :: Module,
       unless flat_data_type(guard.type) && data_width(guard.type) == 1
       | fail_operation(operation,
                        "assert guard must be a one-bit FlatDataType")
-      unless label == #false || (label is_a String && assertion_label_identifier.is_match(label))
+      unless !label || (label is_a String && assertion_label_identifier.is_match(label))
       | fail_operation(operation,
                        "assert label must be an ASCII identifier")
   | "dpi_call" || "dpi_register":

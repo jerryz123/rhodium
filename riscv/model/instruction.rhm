@@ -55,9 +55,9 @@ class InstructionSpec(name :: NonemptyString,
       unless fields.filter(~keep: fun (binding): binding.field == field).length() == 1
       | error(~who: #'encode,
               "field " ++ field.name ++ " must be supplied exactly once for " ++ name)
-    when immediate_value != #false && format.immediate == #false
+    when immediate_value && !format.immediate
     | error(~who: #'encode, name ++ " does not have an immediate")
-    when immediate_value == #false && format.immediate != #false
+    when !immediate_value && format.immediate
     | error(~who: #'encode, name ++ " requires an immediate")
 
     def mutable word = encoding.value

@@ -37,7 +37,7 @@ class SoCBootConfig(reset_address :: Nat,
     )
     | error(~who: #'image_for,
             "SoC description boot layout must match the BootROM configuration")
-    unless description.boot.address_register == #false || description.boot.address_register.base == boot_address_register
+    unless (!description.boot.address_register) || description.boot.address_register.base == boot_address_register
     | error(~who: #'image_for, "SoC description boot-address register must match the BootROM configuration")
     def device_tree_bytes = description.to_device_tree().to_dtb().to_list()
     def image = BootROMImage(

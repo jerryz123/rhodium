@@ -62,7 +62,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
                         ~xlen: xlen :: XLen = XLen.X64):
   unless reset_address mod 4 == 0
   | error(~who: #'riscv_bootrom_image, "reset address must be four-byte aligned")
-  unless boot_address_register == #false || boot_address_register mod 8 == 0
+  unless !boot_address_register || boot_address_register mod 8 == 0
   | error(~who: #'riscv_bootrom_image, "boot-address register must be eight-byte aligned")
   unless payload_address mod 4 == 0
   | error(~who: #'riscv_bootrom_image, "payload address must be four-byte aligned")
@@ -90,7 +90,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
     BNE.encode([
       rs1.constrain(10),
       rs2.constrain(0)
-    ], ~immediate: (if boot_address_register == #false | 20 | 28))
+    ], ~immediate: (if !boot_address_register | 20 | 28))
   ]
 
   def device_tree_immediates = pc_relative_immediates(
@@ -106,11 +106,11 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
 
   def payload_immediates = pc_relative_immediates(
     reset_address + (words.length() * 4),
-    (if boot_address_register == #false | payload_address | boot_address_register),
-    (if boot_address_register == #false | "payload" | "boot-address register")
+    (if !boot_address_register | payload_address | boot_address_register),
+    (if !boot_address_register | "payload" | "boot-address register")
   )
   words := words ++ [AUIPC.encode([rd.constrain(5)], ~immediate: payload_immediates[0])]
-  if boot_address_register == #false
+  if !boot_address_register
   | words := words ++ [JALR.encode([rd.constrain(0), rs1.constrain(5)], ~immediate: payload_immediates[1])]
   | def load = (if xlen == XLen.X32 | LW | LD)
     words := words ++ [load.encode([rd.constrain(6), rs1.constrain(5)], ~immediate: payload_immediates[1]),

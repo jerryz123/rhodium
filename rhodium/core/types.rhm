@@ -104,7 +104,7 @@ class RecordType(fields :: NonemptyList.of(RecordField),
   nonfinal
   constructor (fields :: NonemptyList.of(RecordField),
                preferred_name :~ False || AsciiIdentifier = #false):
-    unless preferred_name == #false || preferred_name is_a AsciiIdentifier
+    unless !preferred_name || preferred_name is_a AsciiIdentifier
     | error(~who: #'RecordType,
             "preferred name must be an ASCII identifier or #false")
     for (field in fields):
@@ -138,7 +138,7 @@ class RecordType(fields :: NonemptyList.of(RecordField),
     def mutable packable = #true
     for (field in fields):
       def field_width = field.type.packed_width()
-      if field_width == #false
+      if !field_width
       | packable := #false
       | width := width + field_width
     if packable | width | #false
@@ -156,7 +156,7 @@ class VectorType(length :: PosInt, element_type :: DataType):
 
   override method packed_width():
     def element_width = element_type.packed_width()
-    if element_width == #false | #false | length * element_width
+    if !element_width | #false | length * element_width
 
 fun hardware_type(type :~ matching(_)):
   type is_a HardwareType

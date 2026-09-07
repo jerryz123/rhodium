@@ -30,7 +30,7 @@ fun validate_group_set(mesh :: RectangularMesh,
             "mesh has no VC group " ++ name)
 
 fun group_selected(names :: List.of(String), group :: String):
-  names.find(fun (name): name == group) != #false
+  names.contains(group)
 
 fun groups_overlap(left :: List.of(String), right :: List.of(String)):
   left.find(fun (name): group_selected(right, name)) != #false

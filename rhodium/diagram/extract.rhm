@@ -182,12 +182,12 @@ fun instance_endpoint(operation :: Operation, group :: InterfaceGroup):
           if binding.direction.from_role == group.role
           | block:
               def index = port_index(child.outputs, binding.port_name)
-              unless index != #false
+              unless index
               | error(~who: #'diagram, "interface output is missing from instance")
               operation.results[index]
           | block:
               def index = port_index(child.inputs, binding.port_name)
-              unless index != #false
+              unless index
               | error(~who: #'diagram, "interface input is missing from instance")
               operation.places[index]
         InterfaceBinding(binding.direction, binding.port_name, entity)
@@ -239,7 +239,7 @@ fun value_source_terminals(value :: Value,
                            source_cache :: MutableMap,
                            visiting :: List.of(Nat) = []):
   def cached = source_cache.get(value.id, #false)
-  if cached != #false
+  if cached
   | cached
   | block:
       def matching = outputs.filter(

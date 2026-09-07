@@ -181,7 +181,7 @@ class InstructionFormat(name :: NonemptyString,
                operands :: List.of(RegisterOperand),
                immediate :~ False || ImmediateLayout = #false,
                auxiliary_fields :: List.of(BitField) = []):
-    unless immediate == #false || immediate is_a ImmediateLayout
+    unless !immediate || immediate is_a ImmediateLayout
     | error(~who: #'InstructionFormat,
             "format immediate must be an ImmediateLayout or #false")
     def immediate_fields:

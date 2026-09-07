@@ -15,7 +15,7 @@ def up_phase = "up"
 def down_phase = "down"
 
 fun contains_name(names :: List.of(String), name :: String):
-  names.find(fun (candidate): candidate == name) != #false
+  names.contains(name)
 
 fun duplicate_name(names :: List.of(String), name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1

@@ -317,7 +317,7 @@ fun compile_chi_channel_adapter_plans(
   CHIChannelAdapterPlans(
     compile_chi_channel_adapter_plan(compilations.req, p),
     compile_chi_channel_adapter_plan(compilations.rsp, p),
-    if compilations.snp == #false
+    if !compilations.snp
     | #false
     | compile_chi_channel_adapter_plan(compilations.snp, p),
     compile_chi_channel_adapter_plan(compilations.dat, p)
