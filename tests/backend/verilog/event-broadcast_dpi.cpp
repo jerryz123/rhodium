@@ -1,5 +1,5 @@
 // Reconstructs broadcast ancestry from public transfers and compares the complete DPI graph.
-#include "../../../rhodium/event/runtime/rhodium_event.h"
+#include "../../../rhodium/event/runtime/rheg.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -20,7 +20,7 @@ struct Coverage {
 };
 std::array<Lane, 3> lanes;
 std::array<Coverage, 3> coverage;
-rhodium_event::Graph expected;
+rheg::Graph expected;
 std::uint64_t cycle = 0;
 bool in_reset = true;
 [[noreturn]] void fail(const std::string& message) {
@@ -89,9 +89,9 @@ extern "C" void event_broadcast_sample(unsigned lane, unsigned reset, unsigned i
   }
 }
 extern "C" void event_broadcast_check() {
-  if (rhodium_event::graph().json() != expected.json())
+  if (rheg::graph().json() != expected.json())
     fail("buffered broadcast graph mismatch at cycle " + std::to_string(cycle)
-         + "\nactual: " + rhodium_event::graph().json() + "expected: " + expected.json());
+         + "\nactual: " + rheg::graph().json() + "expected: " + expected.json());
   if (!in_reset) ++cycle;
 }
 extern "C" void event_broadcast_finish() {

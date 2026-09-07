@@ -1,13 +1,59 @@
-// Collects DPI callbacks and exports validated snapshots with optional epoch timing.
-#include "rhodium_event.h"
+// Collects rheg DPI callbacks and exports timed snapshots and settled-cycle batches.
+#include "rheg.h"
 
 #include <sstream>
 #include <stdexcept>
 #include <limits>
 
-namespace rhodium_event {
+namespace rheg {
+static void validate_entries(const std::map<Ref, Node>& nodes,
+                             const std::set<std::pair<Ref, Ref>>& edges,
+                             const std::map<Ref, Node>& all_nodes,
+                             const Manifest* manifest_);
 Graph& graph() { static Graph value; return value; }
-void Graph::clear() { nodes.clear(); edges.clear(); }
+void Graph::clear() {
+  if (streaming_) throw std::runtime_error("end event stream before clearing graph");
+  nodes.clear(); edges.clear();
+}
+Snapshot Graph::begin_stream() {
+  if (streaming_ || !nodes.empty() || !edges.empty())
+    throw std::runtime_error("event stream requires an empty graph and no active stream");
+  if (!timing_) throw std::runtime_error("event stream requires bound timing");
+  auto header = snapshot();
+  streaming_ = true;
+  started_ = true;
+  finished_cycle_.reset();
+  return header;
+}
+void Graph::end_stream() {
+  if (!streaming_) throw std::runtime_error("no active event stream");
+  if (!pending_nodes_.empty() || !pending_edges_.empty())
+    throw std::runtime_error("finish event cycle before ending stream");
+  streaming_ = false;
+  finished_cycle_.reset();
+}
+CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
+  if (!streaming_) throw std::runtime_error("no active event stream");
+  if (finished_cycle_ && cycle <= *finished_cycle_)
+    throw std::runtime_error("event stream cycle must increase");
+  CycleBatch batch{cycle, {}, pending_edges_};
+  for (const auto& ref : pending_nodes_) {
+    const auto& node = nodes.at(ref);
+    if (!node.present) throw std::runtime_error("incomplete event node or payload");
+    if (node.cycle > cycle || (finished_cycle_ && node.cycle <= *finished_cycle_))
+      throw std::runtime_error("event node outside unfinished cycle interval");
+    batch.nodes.emplace(ref, node);
+  }
+  for (const auto& edge : pending_edges_)
+    if (!pending_nodes_.count(edge.second))
+      throw std::runtime_error("event edge child already streamed");
+  // Validate only new entries, resolving older parents against retained nodes.
+  validate_entries(batch.nodes, batch.edges, nodes, manifest_.get());
+  pending_nodes_.clear();
+  pending_edges_.clear();
+  finished_cycle_ = cycle;
+  return batch;
+}
 void Graph::bind_timing(const TraceTiming& timing) {
   if (timing_ || started_ || !nodes.empty() || !edges.empty())
     throw std::runtime_error("event timing must be bound once before callbacks");
@@ -26,7 +72,10 @@ void Graph::bind_manifest(const Manifest& manifest) {
       throw std::runtime_error("event manifest dependency has unknown site");
   manifest_ = std::make_shared<const Manifest>(manifest);
 }
-void Graph::validate() const {
+static void validate_entries(const std::map<Ref, Node>& nodes,
+                             const std::set<std::pair<Ref, Ref>>& edges,
+                             const std::map<Ref, Node>& all_nodes,
+                             const Manifest* manifest_) {
   for (const auto& entry : nodes) {
     const auto& node = entry.second;
     if (manifest_) {
@@ -43,14 +92,17 @@ void Graph::validate() const {
       throw std::runtime_error("nonzero event payload padding");
   }
   for (const auto& edge : edges) {
-    if (!nodes.count(edge.first) || !nodes.count(edge.second))
+    if (!all_nodes.count(edge.first) || !all_nodes.count(edge.second))
       throw std::runtime_error("event edge has no corresponding node");
     if (manifest_ && !manifest_->dependencies.count({edge.first.site, edge.second.site}))
       throw std::runtime_error("event edge is not a permitted manifest dependency: " +
                                std::to_string(edge.first.site) + " -> " + std::to_string(edge.second.site));
-    if (nodes.at(edge.first).cycle > nodes.at(edge.second).cycle)
+    if (all_nodes.at(edge.first).cycle > all_nodes.at(edge.second).cycle)
       throw std::runtime_error("event parent occurs after child");
   }
+}
+void Graph::validate() const {
+  validate_entries(nodes, edges, nodes, manifest_.get());
 }
 Snapshot Graph::snapshot() const {
   if (!manifest_) throw std::runtime_error("event snapshot requires a bound compiler manifest");
@@ -68,8 +120,8 @@ std::string Snapshot::json() const {
   return "{\"format\":\"rhodium-event-trace\",\"version\":1,\"manifest\":" +
          manifest().json + metadata + ",\"occurrences\":" + graph_.json() + "}\n";
 }
-std::string Graph::json() const {
-  validate();
+static std::string occurrences_json(const std::map<Ref, Node>& nodes,
+                                    const std::set<std::pair<Ref, Ref>>& edges) {
   std::ostringstream out;
   // Sequences and cycles are decimal strings: JS consumers must not round
   // 64-bit identities to floating-point numbers.
@@ -99,7 +151,19 @@ std::string Graph::json() const {
   out << "]}\n";
   return out.str();
 }
+std::string Graph::json() const {
+  validate();
+  return occurrences_json(nodes, edges);
+}
+std::string CycleBatch::json() const {
+  auto occurrences = occurrences_json(nodes, edges);
+  occurrences.pop_back(); // One complete JSON object per line for pipe consumers.
+  return "{\"format\":\"rhodium-event-cycle\",\"version\":1,\"cycle\":\"" +
+         std::to_string(cycle) + "\",\"occurrences\":" + occurrences + "}\n";
+}
 void Graph::record_node(Ref ref, std::uint64_t cycle, std::uint32_t width) {
+  if (streaming_ && finished_cycle_ && cycle <= *finished_cycle_)
+    throw std::runtime_error("event node cycle already streamed");
   started_ = true;
   epoch_active_ = true;
   auto& node = nodes[ref];
@@ -107,19 +171,28 @@ void Graph::record_node(Ref ref, std::uint64_t cycle, std::uint32_t width) {
   node.present = true;
   node.cycle = cycle;
   node.width = width;
+  if (streaming_) pending_nodes_.insert(ref);
 }
 void Graph::record_payload(Ref ref, std::uint32_t index, std::uint32_t word) {
+  if (streaming_ && nodes.count(ref) && nodes.at(ref).present && !pending_nodes_.count(ref))
+    throw std::runtime_error("event payload node already streamed");
   started_ = true;
   epoch_active_ = true;
   auto& words = nodes[ref].words;
   if (!words.emplace(index, word).second) throw std::runtime_error("duplicate event payload word");
+  if (streaming_) pending_nodes_.insert(ref);
 }
 void Graph::record_edge(Ref parent, Ref child) {
+  if (streaming_ && nodes.count(child) && nodes.at(child).present && !pending_nodes_.count(child))
+    throw std::runtime_error("event edge child already streamed");
   started_ = true;
   epoch_active_ = true;
   edges.insert({parent, child});
+  if (streaming_) pending_edges_.insert({parent, child});
 }
 void Graph::reset(bool active) {
+  if (active && streaming_ && (epoch_active_ || finished_cycle_ || !pending_nodes_.empty() || !pending_edges_.empty()))
+    throw std::runtime_error("end event stream before reset");
   started_ = true;
   if (active) {
     if (epoch_active_ && timing_) {
@@ -127,7 +200,7 @@ void Graph::reset(bool active) {
         throw std::runtime_error("event epoch identity exhausted");
       ++timing_->epoch_id;
     }
-    clear();
+    nodes.clear(); edges.clear();
     epoch_active_ = false;
   } else {
     epoch_active_ = true;
@@ -135,18 +208,18 @@ void Graph::reset(bool active) {
 }
 }
 
-extern "C" void rhodium_event_reset(std::uint8_t active) {
-  rhodium_event::graph().reset(active != 0);
+extern "C" void rheg_reset(std::uint8_t active) {
+  rheg::graph().reset(active != 0);
 }
-extern "C" void rhodium_event_node(std::uint32_t site, std::uint64_t sequence,
+extern "C" void rheg_node(std::uint32_t site, std::uint64_t sequence,
                                     std::uint64_t cycle, std::uint32_t width) {
-  rhodium_event::graph().record_node({site, sequence}, cycle, width);
+  rheg::graph().record_node({site, sequence}, cycle, width);
 }
-extern "C" void rhodium_event_payload(std::uint32_t site, std::uint64_t sequence,
+extern "C" void rheg_payload(std::uint32_t site, std::uint64_t sequence,
                                        std::uint32_t index, std::uint32_t word) {
-  rhodium_event::graph().record_payload({site, sequence}, index, word);
+  rheg::graph().record_payload({site, sequence}, index, word);
 }
-extern "C" void rhodium_event_edge(std::uint32_t child, std::uint64_t child_sequence,
+extern "C" void rheg_edge(std::uint32_t child, std::uint64_t child_sequence,
                                     std::uint32_t parent, std::uint64_t parent_sequence) {
-  rhodium_event::graph().record_edge({parent, parent_sequence}, {child, child_sequence});
+  rheg::graph().record_edge({parent, parent_sequence}, {child, child_sequence});
 }

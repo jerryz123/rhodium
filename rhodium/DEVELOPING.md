@@ -95,7 +95,7 @@ internal module implementing its shared frontend forms is called the
 | [`language.rhm`](language.rhm), [`base/language.rhm`](base/language.rhm) | Compose ordinary Rhombus host control with one public Rhodium profile | Standard or foundation |
 | [`../rfpl/`](../rfpl/README.md) | Physical views over existing modules: opaque hard macros and wiring-only composite floorplans with contained child coordinates | Public core IR only |
 | [`diagram/`](diagram/README.md) | Read-only logical block, hierarchy, compound-interface, and flow visualization with JSON and DOT output | Core IR and interface-owned nonsemantic metadata |
-| [`event/`](event/README.md) | Static dependency inference, immutable metadata/DPI instrumentation, and manifest-bound runtime snapshots | Core IR, Builder, verifier, logical diagrams, other event modules, and Racket JSON string encoding; the C++ runtime uses the standard library only |
+| [`event/`](event/README.md) | Static dependency inference, immutable metadata/DPI instrumentation, manifest-bound snapshots, and settled-cycle export | Core IR, Builder, verifier, logical diagrams, other event modules, and Racket JSON string encoding; the C++ runtime uses the standard library only; the optional C++ Perfetto library privately uses nlohmann JSON |
 | [`std/`](std/README.md) | Optional host utilities, protocols, and circuit generators written in ordinary Rhodium | Public `#lang rhodium` authoring surface only |
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and configured topology stages | Public `#lang rhodium`; focused `std/` modules; other flow modules |
 | [`backend/`](backend/README.md) | Consume verified public IR; currently lower it through CIRCT | Core only |

@@ -1,10 +1,10 @@
 // Checks simulated event occurrences against an independent transfer scoreboard.
-#include "../../../rhodium/event/runtime/rhodium_event.h"
+#include "../../../rhodium/event/runtime/rheg.h"
 #include <stdexcept>
 
 namespace {
-using rhodium_event::Ref;
-rhodium_event::Graph expected;
+using rheg::Ref;
+rheg::Graph expected;
 void expect(std::uint32_t site, std::uint64_t seq, std::uint64_t cycle,
             std::uint64_t payload, std::uint32_t high = 0,
             bool wide = false, int parent = -1, std::uint64_t parent_seq = 0) {
@@ -46,22 +46,22 @@ extern "C" void event_runtime_check(std::uint32_t phase) {
     expect(5, 1, 3, 9, 1, true, 4, 2);
   }
   if (phase == 6) full(7, 8, 1, 0);
-  if (rhodium_event::graph().json() != expected.json())
+  if (rheg::graph().json() != expected.json())
     throw std::runtime_error("event graph differs from transfer scoreboard at phase " + std::to_string(phase)
-                             + "\nactual: " + rhodium_event::graph().json() + "expected: " + expected.json());
+                             + "\nactual: " + rheg::graph().json() + "expected: " + expected.json());
 }
 
 extern "C" void event_runtime_order_test() {
   // Edges and payload chunks may arrive before their node callbacks.
-  rhodium_event_edge(1, 4, 0, 9);
-  rhodium_event_edge(1, 4, 0, 9);
-  rhodium_event_payload(1, 4, 0, 7);
-  rhodium_event_node(1, 4, 2, 8);
-  rhodium_event_node(0, 9, 2, 0);
-  rhodium_event::graph().validate();
-  if (rhodium_event::graph().edges.size() != 1) throw std::runtime_error("edge deduplication failed");
+  rheg_edge(1, 4, 0, 9);
+  rheg_edge(1, 4, 0, 9);
+  rheg_payload(1, 4, 0, 7);
+  rheg_node(1, 4, 2, 8);
+  rheg_node(0, 9, 2, 0);
+  rheg::graph().validate();
+  if (rheg::graph().edges.size() != 1) throw std::runtime_error("edge deduplication failed");
   bool rejected = false;
-  try { rhodium_event_node(0, 9, 2, 0); } catch (const std::runtime_error&) { rejected = true; }
+  try { rheg_node(0, 9, 2, 0); } catch (const std::runtime_error&) { rejected = true; }
   if (!rejected) throw std::runtime_error("duplicate identity was accepted");
-  rhodium_event_reset(1);
+  rheg_reset(1);
 }

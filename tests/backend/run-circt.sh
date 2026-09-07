@@ -430,7 +430,7 @@ verify_fixture() {
     dpi_sources+=("$test_dpi_source")
   fi
   if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join ]]; then
-    dpi_sources+=("$repo_dir/rhodium/event/runtime/rhodium_event.cc")
+    dpi_sources+=("$repo_dir/rhodium/event/runtime/rheg.cc")
   fi
 
   if [[ "$simulate_fixtures" == true && -n "$top" ]]; then

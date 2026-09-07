@@ -1,5 +1,5 @@
 // Predicts payload transfers and exact event edges independently of inserted RTL.
-#include "../../../rhodium/event/runtime/rhodium_event.h"
+#include "../../../rhodium/event/runtime/rheg.h"
 #include <array>
 #include <deque>
 #include <cstdio>
@@ -15,7 +15,7 @@ struct Pending {
   std::uint64_t cycle, parent;
   std::uint32_t payload;
 };
-rhodium_event::Graph expected;
+rheg::Graph expected;
 std::array<std::uint64_t, 3> sequences{};
 std::uint64_t cycle = 0;
 std::deque<Pending> middle, completed;
@@ -68,7 +68,7 @@ extern "C" void event_pipeline_sample(std::uint32_t reset, std::uint32_t valid,
 }
 
 extern "C" void event_pipeline_check() {
-  if (rhodium_event::graph().json() != expected.json())
+  if (rheg::graph().json() != expected.json())
     fail("fixed pipeline event graph mismatch\nactual: "
-         + rhodium_event::graph().json() + "expected: " + expected.json());
+         + rheg::graph().json() + "expected: " + expected.json());
 }

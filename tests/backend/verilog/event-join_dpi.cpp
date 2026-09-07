@@ -1,5 +1,5 @@
 // Checks manifest-bound join snapshots against parent sets reconstructed from public transfers.
-#include "../../../rhodium/event/runtime/rhodium_event.h"
+#include "../../../rhodium/event/runtime/rheg.h"
 #include "event-join_manifest.h"
 #include <array>
 #include <cstdio>
@@ -8,7 +8,7 @@
 #include <vector>
 
 namespace {
-struct Token { unsigned payload = 0; std::vector<rhodium_event::Ref> parents; };
+struct Token { unsigned payload = 0; std::vector<rheg::Ref> parents; };
 struct Lane {
   std::array<std::deque<Token>, 3> inputs;
   std::array<std::deque<Token>, 2> replicas, outputs;
@@ -25,7 +25,7 @@ struct Coverage {
 std::array<Lane, 4> lanes;
 std::array<Coverage, 4> coverage;
 constexpr std::array<unsigned, 4> bases{0, 5, 10, 16};
-rhodium_event::Graph expected;
+rheg::Graph expected;
 std::uint64_t cycle = 0;
 bool in_reset = true;
 std::array<std::deque<Token>, 2> occurrences;
@@ -38,8 +38,8 @@ Token pop(std::deque<Token>& queue) {
   if (queue.empty()) fail("join boundary transfer has no accepted input");
   auto item = queue.front(); queue.pop_front(); return item;
 }
-Token node(unsigned lane, unsigned local, unsigned payload, const std::vector<rhodium_event::Ref>& parents = {}) {
-  const rhodium_event::Ref self{bases[lane] + local, lanes[lane].sequences[local]++};
+Token node(unsigned lane, unsigned local, unsigned payload, const std::vector<rheg::Ref>& parents = {}) {
+  const rheg::Ref self{bases[lane] + local, lanes[lane].sequences[local]++};
   auto& value = expected.nodes[self];
   value.present = true; value.width = 8; value.cycle = cycle; value.words[0] = payload;
   for (const auto& parent : parents) expected.edges.insert({parent, self});
@@ -127,16 +127,16 @@ extern "C" void event_join_sample(unsigned lane, unsigned reset, unsigned in_val
   }
 }
 extern "C" void event_join_check() {
-  if (rhodium_event::graph().json() != expected.json())
+  if (rheg::graph().json() != expected.json())
     fail("join graph mismatch at cycle " + std::to_string(cycle)
-         + "\nactual: " + rhodium_event::graph().json() + "expected: " + expected.json());
+         + "\nactual: " + rheg::graph().json() + "expected: " + expected.json());
   if (!in_reset) ++cycle;
 }
 extern "C" void event_join_occurrences(unsigned reset, unsigned input_fire, unsigned payload,
     unsigned output_fire, unsigned result) {
   if (reset) { occurrences = {}; occurrence_sequences = {}; return; }
   if (input_fire) {
-    const rhodium_event::Ref self{21, occurrence_sequences[0]++};
+    const rheg::Ref self{21, occurrence_sequences[0]++};
     auto& value = expected.nodes[self];
     value.present = true; value.width = 8; value.cycle = cycle; value.words[0] = payload;
     occurrences[payload & 1].push_back({payload, {self}});
@@ -144,7 +144,7 @@ extern "C" void event_join_occurrences(unsigned reset, unsigned input_fire, unsi
   if (output_fire) {
     auto item = join(pop(occurrences[0]), pop(occurrences[1]), true);
     if (item.payload != result) fail("distinct occurrence join payload mismatch");
-    const rhodium_event::Ref self{22, occurrence_sequences[1]++};
+    const rheg::Ref self{22, occurrence_sequences[1]++};
     auto& value = expected.nodes[self];
     value.present = true; value.width = 8; value.cycle = cycle; value.words[0] = result;
     const auto before = expected.edges.size();
@@ -154,10 +154,10 @@ extern "C" void event_join_occurrences(unsigned reset, unsigned input_fire, unsi
   }
 }
 extern "C" void event_join_bind() {
-  rhodium_event::graph().bind_manifest(rhodium_event_generated::manifest());
+  rheg::graph().bind_manifest(rheg_generated::manifest());
 }
 extern "C" void event_join_finish() {
-  const auto snapshot = rhodium_event::graph().snapshot();
+  const auto snapshot = rheg::graph().snapshot();
   if (snapshot.nodes().size() != expected.nodes.size() || snapshot.edges().size() != expected.edges.size() ||
       snapshot.json().find("\"format\":\"rhodium-event-trace\"") == std::string::npos)
     fail("manifest-bound join snapshot differs from transfer scoreboard");

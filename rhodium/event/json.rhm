@@ -90,8 +90,8 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
   )
   String.join([
     "// Binds this compiler manifest to its runtime site and dependency tables.\n",
-    "#pragma once\n#include \"rhodium_event.h\"\n",
-    "namespace rhodium_event_generated {\ninline rhodium_event::Manifest manifest() {\n  return {R\"",
+    "#pragma once\n#include \"rheg.h\"\n",
+    "namespace rheg_generated {\ninline rheg::Manifest manifest() {\n  return {R\"",
     tag ++ "(" ++ json ++ ")" ++ tag ++ "\", {" ++ String.join(widths, ","),
     "}, {" ++ String.join(edges, ",") ++ "}};\n}\n}\n"
   ], "")

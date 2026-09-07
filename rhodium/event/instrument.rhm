@@ -190,13 +190,13 @@ fun instrument_events(logical :: DesignElaboration,
   def builder = Builder(design)
   def imports = MutableMap{}
   for (original in logical.design.dpi_imports):
-    when original.name.starts_with("rhodium_event_")
+    when original.name.starts_with("rheg_")
     | error(~who: #'instrument_events, "reserved event DPI import: " ++ original.name)
     imports[original.id] := builder.dpi_import_results(original.name, original.input_names, original.input_types, original.results, original.location)
-  def node_dpi = builder.dpi_import("rhodium_event_node", ["site", "sequence", "cycle", "width"], [Bits(32), Bits(64), Bits(64), Bits(32)])
-  def word_dpi = builder.dpi_import("rhodium_event_payload", ["site", "sequence", "index", "word"], [Bits(32), Bits(64), Bits(32), Bits(32)])
-  def edge_dpi = builder.dpi_import("rhodium_event_edge", ["child", "child_sequence", "parent", "parent_sequence"], [Bits(32), Bits(64), Bits(32), Bits(64)])
-  def reset_dpi = builder.dpi_import("rhodium_event_reset", ["active"], [Bits(1)])
+  def node_dpi = builder.dpi_import("rheg_node", ["site", "sequence", "cycle", "width"], [Bits(32), Bits(64), Bits(64), Bits(32)])
+  def word_dpi = builder.dpi_import("rheg_payload", ["site", "sequence", "index", "word"], [Bits(32), Bits(64), Bits(32), Bits(32)])
+  def edge_dpi = builder.dpi_import("rheg_edge", ["child", "child_sequence", "parent", "parent_sequence"], [Bits(32), Bits(64), Bits(32), Bits(64)])
+  def reset_dpi = builder.dpi_import("rheg_reset", ["active"], [Bits(1)])
 
   fun subtree_sites(occurrence :: Occurrence):
     manifest.sites.filter(~keep: fun (site): within(site, occurrence.path))

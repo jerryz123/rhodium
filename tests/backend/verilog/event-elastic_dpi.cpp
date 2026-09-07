@@ -1,5 +1,5 @@
 // Uses transaction FIFOs, not pipeline enables, to check elastic runtime parent identity.
-#include "../../../rhodium/event/runtime/rhodium_event.h"
+#include "../../../rhodium/event/runtime/rheg.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -12,7 +12,7 @@ struct Lane {
   std::array<std::uint64_t, 3> sequences{};
 };
 std::array<Lane, 2> lanes;
-rhodium_event::Graph expected;
+rheg::Graph expected;
 std::uint64_t cycle = 0, stalls = 0, simultaneous = 0, flushes = 0, bubbles = 0;
 std::array<unsigned, 2> accepted{};
 bool in_reset = true;
@@ -79,9 +79,9 @@ extern "C" void event_elastic_sample(unsigned lane, unsigned reset, unsigned val
 }
 
 extern "C" void event_elastic_check() {
-  if (rhodium_event::graph().json() != expected.json())
+  if (rheg::graph().json() != expected.json())
     fail("elastic event graph mismatch at cycle " + std::to_string(cycle)
-         + "\nactual: " + rhodium_event::graph().json() + "expected: " + expected.json());
+         + "\nactual: " + rheg::graph().json() + "expected: " + expected.json());
   if (!in_reset) ++cycle;
 }
 

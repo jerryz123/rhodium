@@ -1,5 +1,5 @@
-// Tests manifest validation, callback ordering, snapshot timing, and reset epochs.
-#include "../../rhodium/event/runtime/rhodium_event.h"
+// Tests manifest validation, callback ordering, timed snapshots, and streaming boundaries.
+#include "../../rhodium/event/runtime/rheg.h"
 #include <algorithm>
 #include <array>
 #include <functional>
@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <type_traits>
 
-using namespace rhodium_event;
+using namespace rheg;
 namespace {
 void require(bool condition) {
   if (!condition) throw std::runtime_error("collector test expectation failed");
@@ -151,28 +151,62 @@ int main() {
   rejects([&] { exhausted.reset(true); }, "epoch identity exhausted");
   require(exhausted.snapshot().nodes().size() == 1); // No destructive wraparound.
 
+  Graph stream;
+  stream.bind_manifest(descriptor());
+  rejects([&] { stream.begin_stream(); }, "bound timing");
+  stream.bind_timing({100000000});
+  require(stream.begin_stream().nodes().empty());
+  rejects([&] { stream.begin_stream(); }, "no active stream");
+  stream.reset(true);
+  stream.record_node({0, 0}, 0, 0);
+  rejects([&] { stream.end_stream(); }, "finish event cycle");
+  rejects([&] { stream.reset(true); }, "end event stream");
+  rejects([&] { stream.clear(); }, "end event stream");
+  const auto first_batch = stream.finish_cycle(0);
+  require(first_batch.nodes.size() == 1);
+  require(first_batch.json().find("\"format\":\"rhodium-event-cycle\"") != std::string::npos);
+  rejects([&] { stream.finish_cycle(0); }, "cycle must increase");
+  rejects([&] { stream.record_node({0, 1}, 0, 0); }, "already streamed");
+  rejects([&] { stream.record_payload({0, 0}, 0, 0); }, "already streamed");
+  stream.record_edge({0, 0}, {1, 0});
+  stream.record_payload({1, 0}, 0, 7);
+  rejects([&] { stream.finish_cycle(1); }, "incomplete event node");
+  stream.record_node({1, 0}, 2, 8);
+  rejects([&] { stream.finish_cycle(1); }, "outside unfinished");
+  const auto second_batch = stream.finish_cycle(2);
+  require(second_batch.nodes.size() == 1 && second_batch.edges.size() == 1);
+  require(stream.snapshot().nodes().size() == 2); // Capture mode keeps history.
+  rejects([&] { stream.record_edge({0, 0}, {1, 0}); }, "already streamed");
+  require(stream.finish_cycle(3).nodes.empty());
+  stream.end_stream();
+  rejects([&] { stream.finish_cycle(4); }, "no active");
+  stream.reset(true);
+  require(stream.begin_stream().timing()->epoch_id == 1);
+  stream.end_stream();
+  require(first_batch.nodes.size() == 1); // Owning deltas survive reset.
+
   // Real ABI: same-site distinct occurrences survive deduplication; large
   // sequence/cycle identities remain decimal strings in the bundled export.
-  rhodium_event::graph().bind_manifest(descriptor());
+  rheg::graph().bind_manifest(descriptor());
   constexpr std::uint64_t large = 9007199254740993ULL;
-  rhodium_event::graph().bind_timing({large, large});
-  rhodium_event_edge(1, large, 0, large);
-  rhodium_event_edge(1, large, 0, large);
-  rhodium_event_edge(1, large, 0, large + 1);
-  rhodium_event_payload(1, large, 0, 7);
-  rhodium_event_node(1, large, large, 8);
-  rhodium_event_node(0, large, large, 0);
-  rhodium_event_node(0, large + 1, large, 0);
-  const auto snapshot = rhodium_event::graph().snapshot();
+  rheg::graph().bind_timing({large, large});
+  rheg_edge(1, large, 0, large);
+  rheg_edge(1, large, 0, large);
+  rheg_edge(1, large, 0, large + 1);
+  rheg_payload(1, large, 0, 7);
+  rheg_node(1, large, large, 8);
+  rheg_node(0, large, large, 0);
+  rheg_node(0, large + 1, large, 0);
+  const auto snapshot = rheg::graph().snapshot();
   require(snapshot.edges().size() == 2);
   require(snapshot.json().find("\"9007199254740993\"") != std::string::npos);
   require(snapshot.json() == "{\"format\":\"rhodium-event-trace\",\"version\":1,\"manifest\":" +
-          descriptor().json + ",\"timing\":{\"clock_frequency_hz\":\"9007199254740993\",\"epoch_id\":\"9007199254740993\",\"origin\":\"cycle-zero\"},\"occurrences\":" + rhodium_event::graph().json() + "}\n");
-  rhodium_event_reset(1);
-  require(rhodium_event::graph().snapshot().nodes().empty());
+          descriptor().json + ",\"timing\":{\"clock_frequency_hz\":\"9007199254740993\",\"epoch_id\":\"9007199254740993\",\"origin\":\"cycle-zero\"},\"occurrences\":" + rheg::graph().json() + "}\n");
+  rheg_reset(1);
+  require(rheg::graph().snapshot().nodes().empty());
   require(snapshot.nodes().size() == 3);
   require(snapshot.timing()->epoch_id == large);
-  require(rhodium_event::graph().snapshot().timing()->epoch_id == large + 1);
+  require(rheg::graph().snapshot().timing()->epoch_id == large + 1);
   std::cout << snapshot.json();
   std::cerr << "event collector tests passed (120 callback permutations)\n";
 }

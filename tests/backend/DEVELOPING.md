@@ -1,4 +1,4 @@
-<!-- Explains CIRCT fixtures, event snapshot tests, simulations, and exact Verilog references. -->
+<!-- Explains CIRCT fixtures, event snapshot/stream tests, and Verilog references. -->
 
 # Developing backend tests
 
@@ -70,6 +70,12 @@ uses this path to bind its manifest before callbacks and export a validated
 snapshot. These headers are generated artifacts, never checked-in references.
 `run-event-collector.sh` owns standalone C++ contract tests and is also invoked
 by the `event-runtime` simulation fixture.
+The optional `run-event-perfetto.sh` builds `event-stream-test.cpp`,
+`event-perfetto-test.cpp`, and the standalone converter, checks live/replay
+parity, and queries the native Perfetto importer without Python. See the
+[stream validation guide](../../rhodium/event/DEVELOPING.md#focused-validation).
+This compatibility test is separate from default CIRCT simulation so Perfetto
+does not become a simulator build dependency.
 
 MLIR, generated SystemVerilog, Verilator object directories, and logs are
 created in a temporary `/tmp/rhodium-circt.*` directory and removed when the

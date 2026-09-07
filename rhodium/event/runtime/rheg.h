@@ -1,6 +1,6 @@
-// Defines manifest-bound snapshots with optional epoch timing and the fixed DPI ABI.
-#ifndef RHODIUM_EVENT_H
-#define RHODIUM_EVENT_H
+// Defines Rhodium Hardware Event Graph (rheg) snapshots, streaming batches, and DPI ABI.
+#ifndef RHEG_H
+#define RHEG_H
 
 #include <cstdint>
 #include <map>
@@ -11,7 +11,7 @@
 #include <tuple>
 #include <vector>
 
-namespace rhodium_event {
+namespace rheg {
 struct Ref {
   std::uint32_t site;
   std::uint64_t sequence;
@@ -38,6 +38,12 @@ struct TraceTiming {
   std::uint64_t clock_frequency_hz = 0;
   std::uint64_t epoch_id = 0;
 };
+struct CycleBatch {
+  std::uint64_t cycle;
+  std::map<Ref, Node> nodes;
+  std::set<std::pair<Ref, Ref>> edges;
+  std::string json() const;
+};
 struct Graph {
   std::map<Ref, Node> nodes;
   std::set<std::pair<Ref, Ref>> edges; // parent, child
@@ -47,6 +53,10 @@ struct Graph {
   void bind_manifest(const Manifest& manifest);
   void bind_timing(const TraceTiming& timing);
   Snapshot snapshot() const;
+  // Begin on an empty bound graph; finish only after callbacks have settled.
+  Snapshot begin_stream();
+  CycleBatch finish_cycle(std::uint64_t cycle);
+  void end_stream();
   void record_node(Ref ref, std::uint64_t cycle, std::uint32_t width);
   void record_payload(Ref ref, std::uint32_t index, std::uint32_t word);
   void record_edge(Ref parent, Ref child);
@@ -57,6 +67,10 @@ private:
   std::optional<TraceTiming> timing_;
   bool started_ = false;
   bool epoch_active_ = false;
+  bool streaming_ = false;
+  std::optional<std::uint64_t> finished_cycle_;
+  std::set<Ref> pending_nodes_;
+  std::set<std::pair<Ref, Ref>> pending_edges_;
 };
 // Owns a validated copy: later callbacks and reset cannot change this view.
 class Snapshot {
@@ -77,12 +91,12 @@ Graph& graph();
 }
 
 extern "C" {
-void rhodium_event_reset(std::uint8_t active);
-void rhodium_event_node(std::uint32_t site, std::uint64_t sequence,
+void rheg_reset(std::uint8_t active);
+void rheg_node(std::uint32_t site, std::uint64_t sequence,
                         std::uint64_t cycle, std::uint32_t width);
-void rhodium_event_payload(std::uint32_t site, std::uint64_t sequence,
+void rheg_payload(std::uint32_t site, std::uint64_t sequence,
                            std::uint32_t index, std::uint32_t word);
-void rhodium_event_edge(std::uint32_t child, std::uint64_t child_sequence,
+void rheg_edge(std::uint32_t child, std::uint64_t child_sequence,
                         std::uint32_t parent, std::uint64_t parent_sequence);
 }
 #endif

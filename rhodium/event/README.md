@@ -1,6 +1,10 @@
-<!-- Describes inferred event lineage, DPI emission, and timing-aware trace snapshots. -->
+<!-- Describes event lineage, timed snapshots, and shared C++ Perfetto live/replay export. -->
 
 # Event graphs
+
+The C++ runtime and export library are named **rheg**, for Rhodium Hardware
+Event Graph. The namespace is `rheg`, and DPI symbols use the `rheg_` prefix.
+Existing `rhodium-event-*` JSON format identifiers remain unchanged.
 
 Use `rhodium/event` to infer possible direct dependencies between event sites
 annotated on ready-valid flow topology. Static inference is read-only;
@@ -235,14 +239,14 @@ or allowing identity wraparound. Cycle counts start at zero after reset.
 
 ## DPI runtime and visualization handoff
 
-Link [`runtime/rhodium_event.cc`](runtime/rhodium_event.cc) into the simulator.
-Its [header](runtime/rhodium_event.h) defines the fixed ABI and `graph()` API:
+Link [`runtime/rheg.cc`](runtime/rheg.cc) into the simulator.
+Its [header](runtime/rheg.h) defines the fixed ABI and `graph()` API:
 
-- `rhodium_event_node` records a site, sequence, cycle, and payload width.
-- `rhodium_event_payload` supplies zero-padded 32-bit words, least-significant
+- `rheg_node` records a site, sequence, cycle, and payload width.
+- `rheg_payload` supplies zero-padded 32-bit words, least-significant
   word first, so arbitrary fixed-width packed payloads use the same ABI.
-- `rhodium_event_edge` records an exact parent/child reference pair.
-- `rhodium_event_reset` clears the graph on an asserted sampled reset.
+- `rheg_edge` records an exact parent/child reference pair.
+- `rheg_reset` clears the graph on an asserted sampled reset.
 
 The site number is the zero-based index into **the accompanying manifest's
 `sites` array**, not a hash. Together with the per-site sequence it identifies
@@ -252,7 +256,7 @@ reference is an ordinary packed record containing `valid`, `site`, and
 
 The collector tolerates node, payload, and edge callbacks in any order and
 deduplicates edges. After the simulator has settled the sampled edge, call
-`rhodium_event::graph().json()` for deterministic output; incomplete callbacks
+`rheg::graph().json()` for deterministic output; incomplete callbacks
 and duplicate identities are errors. The export uses decimal strings for
 64-bit sequence/cycle values to avoid rounding in JavaScript. Join numeric
 sites with the compiler manifest to recover labels, hierarchy,
@@ -269,16 +273,16 @@ generated header, and bind its descriptor before evaluating the simulator:
 ```cpp
 #include "my_trace_manifest.h"
 
-rhodium_event::graph().bind_manifest(rhodium_event_generated::manifest());
+rheg::graph().bind_manifest(rheg_generated::manifest());
 // Evaluate the simulator, including its initial sampled reset.
 // After all callbacks for an edge have settled:
-const auto snapshot = rhodium_event::graph().snapshot();
+const auto snapshot = rheg::graph().snapshot();
 const auto trace_json = snapshot.json();
 ```
 
 The generated header contains both the complete version-1 manifest JSON and
 matching numeric site-width/dependency tables. It defines one
-`rhodium_event_generated::manifest()` function per instrumented top; do not
+`rheg_generated::manifest()` function per instrumented top; do not
 combine headers for different tops in one translation unit. The descriptor is
 trusted compiler output, not an API for parsing arbitrary JSON. Binding copies
 it, is permitted only once before any callback (including reset), and survives
@@ -313,7 +317,7 @@ Before any simulator evaluation or callback, bind run timing separately from
 the compiler manifest (the two bindings may occur in either order):
 
 ```cpp
-rhodium_event::graph().bind_timing(rhodium_event::TraceTiming{100000000, 0});
+rheg::graph().bind_timing(rheg::TraceTiming{100000000, 0});
 ```
 
 `TraceTiming` holds a positive 64-bit `clock_frequency_hz` and a 64-bit starting
@@ -321,7 +325,7 @@ rhodium_event::graph().bind_timing(rhodium_event::TraceTiming{100000000, 0});
 before any callback including reset. There is no assumed frequency default.
 SoC integration should supply `SoCClockConfig.clock_frequency_hz`, not
 `timebase_frequency_hz`; standalone integrations supply their own frequency.
-Automatic SoC harness plumbing and Perfetto conversion are not yet provided.
+Automatic SoC harness plumbing is not yet provided.
 
 `Snapshot::timing()` returns a const optional timing value. Untimed snapshots
 remain supported and retain their existing JSON shape. Timed snapshots add an
@@ -350,6 +354,98 @@ callbacks distinguish nonempty epochs without harness changes. To count empty
 epochs too, the harness must call `graph().reset(false)` after reset deassertion;
 without that notification, empty intervals between asserted resets are
 indistinguishable from continuously held reset and share an epoch ID.
+
+### Streaming to Perfetto
+
+The optional [`rheg_perfetto`](perfetto/rheg_perfetto.h) C++
+library writes native `.pftrace` packets as settled batches arrive. The same
+encoder powers the standalone `rheg-perfetto` snapshot converter.
+Neither export nor its tests use Python. Build with CMake 3.20+ and a C++17
+Clang/GCC compiler on macOS or Linux:
+
+```sh
+cmake -S rhodium/event/perfetto -B /tmp/rhodium-perfetto-build
+cmake --build /tmp/rhodium-perfetto-build -j 4
+```
+
+The build uses nlohmann JSON 3.12.0, found locally or fetched from a hash-pinned
+archive. Offline builds may set `FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON` to its
+extracted source directory. This private dependency parses the manifest once
+and saved snapshots; the collector itself remains standard-library-only. Native
+protobuf encoding requires neither the Perfetto SDK nor a protobuf runtime.
+
+For integration, `add_subdirectory(rhodium/event/perfetto)` and link the
+`rheg_perfetto` CMake target. It links `rheg_runtime` transitively;
+do not also compile another copy of the collector. After binding a manifest
+and timing, begin a stream on an empty graph:
+
+```cpp
+#include "rheg_perfetto.h"
+#include <fstream>
+
+auto& events = rheg::graph();
+const auto header = events.begin_stream();
+std::ofstream output("trace.pftrace", std::ios::binary);
+rheg::PerfettoWriter writer(output, header.manifest(), *header.timing());
+// Evaluate the simulator and let all callbacks settle for event cycle N.
+writer.write(events.finish_cycle(N)); // Repeat at settled boundaries.
+events.end_stream(); // Only after the final batch has been delivered.
+```
+
+```sh
+/tmp/rhodium-perfetto-build/rheg-perfetto snapshot.json > replay.pftrace
+```
+
+The binary reads a complete timed `rhodium-event-trace` snapshot emitted by
+`snapshot().json()`, validates it, and writes binary Perfetto to stdout with
+diagnostics on stderr. A library caller can use `read_event_trace(input)` and
+`write_perfetto(output, snapshot)` for the same operation. It is a snapshot
+postprocessor, not a parser for the optional cycle-batch JSON log. Streaming
+passes typed batches directly to the writer, without JSON serialization or a
+helper process. Streaming and replay use identical ordering and encoding.
+
+The caller owns the output stream and must keep it alive for the writer's
+lifetime. Choose a fresh output path: ordinary file opening and shell redirection
+can overwrite an existing file. Each writer represents one reset epoch.
+Each successfully written batch is flushed and leaves an importable prefix.
+I/O failure can leave a partial final packet: treat the output as incomplete,
+do not resume the same writer. Invalid batches do not advance writer state;
+retain the batch returned by `finish_cycle` if retry is needed. A converter
+error can leave partial stdout; discard that output. No recording service is
+needed. This is incremental
+file generation, not a live-refresh connection to the Perfetto UI.
+
+`finish_cycle(N)` is a watermark: no later callback may supply a node at or
+before N, a payload for a flushed node, or an edge to a flushed child. Watermarks
+must strictly increase; the first may be zero and empty batches are allowed.
+An old parent may acquire new children in later batches. Validation failures
+leave the pending batch available for completion and retry. Batches own their
+new nodes and edges. Capture mode still retains the complete in-memory graph
+for snapshots; use callback APIs, not direct mutation of public graph containers,
+while streaming. The exporter retains a compact identity/cycle index for the
+epoch, so neither component claims bounded total memory.
+
+End the stream before reset (except an initial held reset before activity),
+then use a new header and output file for the next epoch. The simulator must
+supply the instrumentation's event-cycle count, not an unrelated harness tick.
+No DPI ABI or RTL changes are required for this explicit host boundary.
+
+Each occurrence becomes a zero-duration slice on a thread track named with its
+full site ID. Full paths disambiguate repeated instances; nested generic track
+groups are not supported by this first flow mapping. Payload words, exact cycle,
+sequence, epoch, frequency, and source location are retained as arguments.
+Timestamps use `floor(cycle * 1000000000 / frequency)` with integer arithmetic
+and reject signed-64-bit nanosecond overflow. Fractional nanoseconds are
+quantized without cumulative drift. No occupancy or stall duration is inferred.
+
+The native protobuf contains legacy `s`/`f` flow records enclosed by each
+zero-duration occurrence slice. A source identity gets one flow start; each
+child adds a non-closing flow end for each parent. Unlike modern flow steps,
+this preserves the original source through delayed fanout and supports joins
+without inventing sibling dependencies or predicting future edge IDs. Events
+within a batch are ordered by cycle and dependency; same-cycle cycles in the
+graph are rejected. This compatibility mapping is covered by Trace Processor
+tests; it is deliberately isolated from the graph schema and collector.
 
 The current collector supports one instrumented top per process on the
 simulator thread. It retains the whole current epoch in memory. Instrumented

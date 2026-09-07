@@ -43,8 +43,8 @@ check:
   result.manifest.sites.length() ~is 8
   result.manifest.sites.map(fun (site): site.label) ~is ["left-input", "left-output", "right-input", "right-output", "wide-input", "wide-output", "mapped", "mapped"]
   result.manifest.dependencies.length() ~is 5
-  emitted.contains("sim.func.dpi.call @rhodium_event_node") ~is #true
-  emitted.contains("sim.func.dpi.call @rhodium_event_edge") ~is #true
+  emitted.contains("sim.func.dpi.call @rheg_node") ~is #true
+  emitted.contains("sim.func.dpi.call @rheg_edge") ~is #true
   emitted.contains("__event_in_") ~is #true
   emitted.contains("__event_out_") ~is #true
   instrument_events(static_fixture.linear).manifest.sites.length() ~is 3
