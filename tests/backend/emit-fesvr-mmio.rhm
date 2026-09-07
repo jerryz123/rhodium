@@ -1,0 +1,34 @@
+#lang rhombus
+// Emits the host CHI engine with coherent RAM and exact-width device services.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../chi/main.rhdl" open
+  "../../riscv/rtl/pma.rhdl" open
+  "../../socs/endpoint-params.rhdl" open
+  "../../sims/fesvr/direct-memory-htif.rhdl".FesvrCHIAccess
+
+def p = CHIFlitParams()
+def memory = CHIHomeParams("memory", 5, CHINodeKind.HNF, ~max_outstanding: 1)
+def devices = CHIHomeParams("devices", 6, CHINodeKind.HNI, ~max_outstanding: 1)
+def sets = [AddressSet(0x80000000, 0xfff), AddressSet(0x1000, 7), AddressSet(0x10000000, 7), AddressSet(0x10000, 0xfff)]
+def homes = [memory, devices, devices, devices]
+def attrs = [RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true),
+             RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #true),
+             RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false),
+             RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)]
+def sizes = [TransferSizes(1, 64), TransferSizes(4, 8), TransferSizes(1, 1), TransferSizes(4, 8)]
+def services = for List (index in 0..4):
+  CHIHomeServiceParams(
+    homes[index], [sets[index]],
+    [CHIRequestSupport((if index == 0 | CHIReqOpcode.ReadClean | CHIReqOpcode.ReadNoSnp), sizes[index])] ++ (if index == 3 | [] | [CHIRequestSupport((if index == 0 | CHIReqOpcode.WriteUniquePtl | CHIReqOpcode.WriteNoSnpPtl), sizes[index])]))
+def design = embedded.run_elaboration(
+  fun ():
+    FesvrCHIAccess(
+      p, soc_host_node(1),
+      CHIHomeMap(p, for List (region in sets, home in homes): CHIHomeMapEntry(region, home)),
+      RiscvPhysicalMemoryMap(p.request_address_width, for List (region in sets, attributes in attrs): RiscvPhysicalMemoryRegion(region, attributes)),
+      services)
+)
+print(emit_circt(design))

@@ -37,20 +37,20 @@ check:
   compiled.host.node.node_id ~is 24
   compiled.host.node.kind ~is chi.CHINodeKind.RNF
   compiled.host.node.emits.req ~is (
-    [chi.CHIReqOpcode.ReadClean, chi.CHIReqOpcode.WriteUniquePtl]
+    [chi.CHIReqOpcode.ReadClean, chi.CHIReqOpcode.WriteUniquePtl, chi.CHIReqOpcode.ReadNoSnp, chi.CHIReqOpcode.WriteNoSnpPtl]
   )
   compiled.host.node.supports.snp ~is chi.chi_rnf_snoop_opcodes
   compiled.hnf_config.requester_endpoints.length() ~is 17
   compiled.hnf_config.requester_endpoints.map(fun (port): port.node_id) ~is (
     [24, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
   )
-  compiled.device_home.home_params.requester_endpoints.map(fun (port): port.node_id) ~is [16, 17, 18, 19, 20, 21, 22, 23]
+  compiled.device_home.home_params.requester_endpoints.map(fun (port): port.node_id) ~is [16, 17, 18, 19, 20, 21, 22, 23, 24]
   compiled.device_home.home.node_id ~is 36
   compiled.bootrom.device.node.node_id ~is 54
   compiled.aclint.device.node.node_id ~is 52
   compiled.plic.device.node.node_id ~is 55
   compiled.uart.device.node.node_id ~is 53
-  compiled.device_home.home_params.requester_endpoints.length() ~is 8
+  compiled.device_home.home_params.requester_endpoints.length() ~is 9
   compiled.device_home.home_params.subordinate_map.entry(0x00010000).target_node_id ~is 54
   compiled.device_home.home_params.subordinate_map.entry(0x02000000).target_node_id ~is 52
   compiled.device_home.home_params.subordinate_map.entry(0x0c000000).target_node_id ~is 55
@@ -170,7 +170,7 @@ check:
   compiled.rv5stages.length() ~is 8
   compiled.transits.length() ~is 3
   compiled.llcs.length() ~is 4
-  compiled.connections.length() ~is 81
+  compiled.connections.length() ~is 82
   compiled.connections.filter(
     ~keep: fun (connection): connection is_a chi.CHISNConnection
   ).length() ~is 5
@@ -227,10 +227,10 @@ check:
   compiled.uart.placement.site.router === compiled.uart.placement.router ~is #true
 
 check:
-  compiled.compilations.req.routes.length() ~is 81
-  compiled.compilations.rsp.routes.length() ~is 157
+  compiled.compilations.req.routes.length() ~is 82
+  compiled.compilations.rsp.routes.length() ~is 159
   compiled.snp_compilation.routes.length() ~is 68
-  compiled.compilations.dat.routes.length() ~is 162
+  compiled.compilations.dat.routes.length() ~is 164
   compiled.families.req.members.length() ~is 20
   compiled.families.rsp.members.length() ~is 20
   compiled.families.snp.members.length() ~is 20

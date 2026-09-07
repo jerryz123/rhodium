@@ -138,6 +138,30 @@ class CHIICNPortParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKi
     validate_endpoint_capabilities(kind, emits, supports, "icn", #'CHIICNPortParams)
     super(name, node_id, kind, emits, supports, max_outstanding)
 
+// A Home sees only the traffic negotiated for its address space. The parent
+// remains the complete ICN endpoint, including an RN-F's mandatory snoop plane.
+class CHIRequesterHomeParams(endpoint :: CHIICNPortParams,
+                             emits :: CHIChannelCapabilities,
+                             supports :: CHIChannelCapabilities):
+  implements StableCircuitParam
+
+  property name: endpoint.name
+  property node_id: endpoint.node_id
+  property kind: endpoint.kind
+  property max_outstanding: endpoint.max_outstanding
+
+  constructor (endpoint :: CHIICNPortParams,
+               ~emits: emits :: CHIChannelCapabilities,
+               ~supports: supports :: CHIChannelCapabilities):
+    unless [CHINodeKind.RNI, CHINodeKind.RNF].contains(endpoint.kind)
+    | error(~who: #'CHIRequesterHomeParams, "Home traffic must describe a requester")
+    unless endpoint.emits.contains_all(emits) && endpoint.supports.contains_all(supports)
+    | error(~who: #'CHIRequesterHomeParams, "Home traffic must be a subset of endpoint capabilities")
+    super(endpoint, emits, supports)
+
+annot.macro 'CHIHomeRequesterParams':
+  'CHIICNPortParams || CHIRequesterHomeParams'
+
 class CHIRNLinkParams(flit :: CHIFlitParams,
                       ~tx_req_credits: tx_req_credits :: PosInt = 2,
                       ~tx_rsp_credits: tx_rsp_credits :: PosInt = 2,
@@ -322,6 +346,8 @@ export:
   CHIChannelCapabilities
   CHINodeParams
   CHIICNPortParams
+  CHIRequesterHomeParams
+  CHIHomeRequesterParams
   CHIRNLinkParams
   CHIRNILinkParams
   CHISNLinkParams

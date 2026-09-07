@@ -20,7 +20,7 @@ fun soc_host_node(node_id :: Nat) :: CHINodeParams:
     node_id,
     CHINodeKind.RNF,
     ~emits: CHIChannelCapabilities(
-      ~req: [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl],
+      ~req: [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl],
       ~rsp: [CHIRspOpcode.SnpResp],
       ~dat: [CHIDatOpcode.NonCopyBackWriteData]
     ),
@@ -32,6 +32,29 @@ fun soc_host_node(node_id :: Nat) :: CHINodeParams:
     ~max_outstanding: 1
   )
 
+// Project complete host identity into the traffic accepted by each Home.
+fun soc_host_home_port(node :: CHINodeParams, ~coherent: coherent :: Boolean):
+  CHIRequesterHomeParams(
+    requester_icn_endpoint(node),
+    ~emits: CHIChannelCapabilities(
+      ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+      ~snp: (if coherent | chi_rnf_snoop_opcodes | []),
+      ~dat: [CHIDatOpcode.CompData]),
+    ~supports: CHIChannelCapabilities(
+      ~req: (if coherent | [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl] | [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl]),
+      ~rsp: (if coherent | [CHIRspOpcode.SnpResp] | []),
+      ~dat: [CHIDatOpcode.NonCopyBackWriteData]))
+
+fun soc_host_memory_service(home :: CHIHomeParams,
+                            address_sets :: NonemptyList.of(AddressSet),
+                            requests :: NonemptyList.of(CHIRequestSupport)):
+  CHIHomeServiceParams(
+    home, address_sets,
+    for List (request in requests.filter(~keep: fun (request): [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl].contains(request.opcode))):
+      CHIRequestSupport((if request.opcode == CHIReqOpcode.ReadNoSnp | CHIReqOpcode.ReadClean | CHIReqOpcode.WriteUniquePtl), request.sizes))
+
 export:
+  soc_host_home_port
+  soc_host_memory_service
   requester_icn_endpoint
   soc_host_node

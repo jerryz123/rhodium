@@ -39,7 +39,7 @@ check:
   soc.simple_soc_device_home_params.subordinate_map.entry(0x10000000).target_node_id ~is 11
   soc.simple_soc_host_node.kind ~is chi.CHINodeKind.RNF
   soc.simple_soc_host_node.emits.req ~is (
-    [chi.CHIReqOpcode.ReadClean, chi.CHIReqOpcode.WriteUniquePtl]
+    [chi.CHIReqOpcode.ReadClean, chi.CHIReqOpcode.WriteUniquePtl, chi.CHIReqOpcode.ReadNoSnp, chi.CHIReqOpcode.WriteNoSnpPtl]
   )
   soc.simple_soc_host_node.supports.snp ~is chi.chi_rnf_snoop_opcodes
   soc.simple_soc_memory_node.kind ~is chi.CHINodeKind.SNF
@@ -80,7 +80,7 @@ check:
       [route.source.node_id,
        route.destination.node_id,
        route.route_key]
-  ) ~is [[6, 10, 0], [6, 14, 1], [6, 12, 2], [6, 13, 3], [6, 11, 4], [1, 5, 5], [3, 5, 6], [2, 5, 7], [4, 6, 8]]
+  ) ~is [[6, 10, 0], [6, 14, 1], [6, 12, 2], [6, 13, 3], [6, 11, 4], [1, 6, 5], [1, 5, 6], [3, 5, 7], [2, 5, 8], [4, 6, 9]]
   soc.simple_soc_req_router_config.input_count ~is 5
   soc.simple_soc_req_router_config.target_count ~is 7
   soc.simple_soc_rsp_router_config.input_count ~is 11

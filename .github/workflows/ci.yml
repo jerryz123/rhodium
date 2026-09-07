@@ -255,5 +255,10 @@ jobs:
         run: |
           make -C sims smoke SOC=simple
           make -C sims smoke SOC=tiled
+      - name: Verify exact host MMIO on all three SoCs
+        run: |
+          make -C sims host-mmio-test SOC=simple
+          make -C sims host-mmio-test SOC=mini
+          make -C sims host-mmio-test SOC=tiled
       - name: Execute mapped MiniSoC through standard FESVR flow
         run: make -C vlsi/sim smoke

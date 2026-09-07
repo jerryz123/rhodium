@@ -11,7 +11,7 @@ sync_circuit SoCHarness():
   output exit: Bits(32)
   interface uart(SoCUartInterface(), ~role: soc)
 
-  inst requester(FesvrRequester(XLen.X64, mini.mini_soc_flit, mini.mini_soc_host_node, mini.mini_soc_home_map))
+  inst requester(FesvrRequester(XLen.X64, mini.mini_soc_flit, mini.mini_soc_host_node, mini.mini_soc_home_map, mini.mini_soc_fabric_params.rv5stage_config.physical_map, mini.mini_soc_fabric_params.host_services))
   inst soc(mini.MiniSoC())
 
   requester.port <=> soc.host.memory

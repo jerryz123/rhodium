@@ -25,7 +25,7 @@ Contributors changing a composition should read
 | `TiledSoC` | 8 in the default 5x4 layout | Four internal 8 KiB `CHIRam` banks | Four inclusive LLC slices plus BootROM and routed device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
 
 All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
-non-caching coherent RN-F memory port for loading and observation, plus a
+non-caching RN-F port for coherent RAM and non-snooping MMIO access, plus a
 one-shot release channel. Each author-facing SoC parameter object owns one
 `RVCoreProfile`, and the same profile specializes the instantiated core and its
 architectural description. `SimpleSoC` defaults to RV64D and the full C
@@ -100,6 +100,12 @@ payload, it releases the SoC; the SoC starts every hart at its configured reset
 address. No SoC contains FESVR behavior, DPI calls, or a simulator-specific
 loader.
 
+The same host RN-F reaches the device HNI with `ReadNoSnp` and
+`WriteNoSnpPtl`. Per-Home capability projections preserve its physical identity
+while keeping coherent operations on HN-F paths and non-snooping operations on
+the device path. Physical maps and Home service descriptions are also exposed
+to external host adapters for permission and transfer-size checks.
+
 [`boot.rhdl`](boot.rhdl) owns the shared reset address, payload address, ROM
 layout and finalized image, executable non-cacheable PMA entry, and multihart
 release distributor. Every current SoC uses an 8 KiB BootROM at
@@ -116,9 +122,10 @@ The default ROM still uses its static payload jump: activating the indirect
 trampoline first requires fixing shared RN-I data-request admission, which
 currently lets uncached instruction traffic repeatedly force a ROM data load
 to replay.
-It is reachable through the core RN-I and existing device HNI, not the host's
-coherent RAM port. FESVR and the harness entry-equality checks are unchanged:
-host MMIO programming remains future work. For an indirect trampoline, complete programming before the one-shot release;
+It is reachable through both the core RN-I and the host RN-F via the existing
+device HNI. FESVR can access the register, but automatic ELF-entry programming
+and the indirect trampoline remain future work; harness entry-equality checks
+are unchanged. For an indirect trampoline, complete programming before the one-shot release;
 concurrent updates and warm reboot are not supported.
 The boot layout describes the register's service region for overlap checking;
 no operating-system device-tree binding is introduced for it.
@@ -284,8 +291,8 @@ address while retaining the complete global line address as its tag. Its
 subordinate projector then maps sparse global bank addresses into the dense
 local backing RAM before fragmentation. The 16 coherent requester endpoints
 plus the host RN-F connect to all four HN-Fs, while the eight uncached
-requester endpoints connect to the device HN-I and its subordinate side
-connects to all five SN-Is. Together they compile 81 REQ, 157 RSP, 68 SNP, and 162
+requester endpoints and host RN-F connect to the device HN-I and its subordinate side
+connects to all five SN-Is. Together they compile 82 REQ, 159 RSP, 68 SNP, and 164
 DAT routes before any hardware elaborates.
 
 Each tile owns one `CHIRouter`, containing independent REQ/RSP/SNP/DAT

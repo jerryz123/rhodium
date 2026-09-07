@@ -14,7 +14,8 @@ rhodium::fesvr::DirectMemoryHtif* transport = nullptr;
 void clear_outputs(unsigned char* request_valid,
                    unsigned char* request_write,
                    long long* request_address,
-                   int* request_data,
+                   long long* request_data,
+                   unsigned char* request_length,
                    unsigned char* response_ready,
                    unsigned char* start_valid,
                    long long* start_entry) {
@@ -22,6 +23,7 @@ void clear_outputs(unsigned char* request_valid,
   *request_write = 0;
   *request_address = 0;
   *request_data = 0;
+  *request_length = 0;
   *response_ready = 0;
   *start_valid = 0;
   *start_entry = 0;
@@ -33,12 +35,14 @@ int rhodium_htif_tick(unsigned char reset,
                    unsigned char target_xlen,
                    unsigned char request_ready,
                    unsigned char response_valid,
-                   int response_data,
+                   long long response_data,
+                   unsigned char response_status,
                    unsigned char start_ready,
                    unsigned char* request_valid,
                    unsigned char* request_write,
                    long long* request_address,
-                   int* request_data,
+                   long long* request_data,
+                   unsigned char* request_length,
                    unsigned char* response_ready,
                    unsigned char* start_valid,
                    long long* start_entry) {
@@ -47,6 +51,7 @@ int rhodium_htif_tick(unsigned char reset,
                   request_write,
                   request_address,
                   request_data,
+                  request_length,
                   response_ready,
                   start_valid,
                   start_entry);
@@ -63,14 +68,16 @@ int rhodium_htif_tick(unsigned char reset,
 
   transport->tick(request_ready != 0,
                   response_valid != 0,
-                  static_cast<std::uint32_t>(response_data),
+                  static_cast<std::uint64_t>(response_data),
+                  response_status,
                   start_ready != 0);
 
   const auto& request = transport->request();
   *request_valid = transport->request_valid();
   *request_write = request.write;
   *request_address = static_cast<long long>(request.address);
-  *request_data = static_cast<int>(request.data);
+  *request_data = static_cast<long long>(request.data);
+  *request_length = request.length;
   *response_ready = transport->response_ready();
   *start_valid = transport->start_valid();
   *start_entry = static_cast<long long>(transport->start_entry());

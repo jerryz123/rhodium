@@ -106,13 +106,24 @@ Run the end-to-end execution path for each supported system with:
 make -C sims smoke SOC=simple
 make -C sims smoke SOC=mini
 make -C sims smoke SOC=tiled
+make -C sims host-mmio-test SOC=simple
+make -C sims host-mmio-test SOC=mini
+make -C sims host-mmio-test SOC=tiled
 ```
 
-The C++ checks require a Verilator installation, lowering requires the pinned
-CIRCT tool or an explicit `CIRCT_OPT`, and execution requires FESVR plus the
-RISC-V cross compiler. Rhombus checks use repository wrappers with fresh
+The transport checks require the pinned FESVR library; DPI checks also require
+Verilator. Lowering requires the pinned CIRCT tool or an explicit `CIRCT_OPT`,
+and execution requires FESVR plus the RISC-V cross compiler. Rhombus checks use repository wrappers with fresh
 compiled roots. Technology-mapped simulation remains owned by
 [`../vlsi/sim/`](../vlsi/sim/README.md).
+
+`transport-test` exercises the pinned FESVR `memif_t` path, exact-width and zero
+writes, backpressure, and target errors. The backend `fesvr-mmio` fixture tests
+the DPI-independent `FesvrCHIAccess` engine with coherent RAM fragmentation,
+exact MMIO, response validation, and backpressure. `host-mmio-test` loads ELF
+segments into the boot-address register and UART scratch register, checks them
+on the core, and reads a device signature back through FESVR. It deliberately
+keeps the static BootROM release contract; it is not a dynamic-entry boot test.
 
 The Zicboz payload checks all 64 offsets and neighboring blocks through the
 normal FESVR flow. Its final signature also lets FESVR read the dirty cache

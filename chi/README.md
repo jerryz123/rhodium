@@ -168,6 +168,15 @@ the two sides while independently declaring emitted and accepted
 - identical flit parameters, including optional-field selections; and
 - equal credit limits for each corresponding physical channel.
 
+`CHIRequesterHomeParams` projects an RN-I or RN-F ICN endpoint into a subset
+of its emitted and accepted capabilities for one Home. Its NodeID, kind, and
+capacity remain those of the physical endpoint. Homes accept either complete
+ICN endpoints or these projections through `CHIHomeRequesterParams`; projections
+cannot add capabilities. This permits one RN-F to use coherent traffic toward
+an HN-F and non-snooping traffic toward an HN-I without a second endpoint or
+a fictitious RN-I identity. HN-F configurations still require complete RN-F
+snoop support on their own path.
+
 Each physical protocol channel is `Credited(flit, credit_limit)`. The four Link
 activation wires are named relative to the node: the node drives
 `tx_link_active_request` and `rx_link_active_ack`, while the ICN drives
@@ -308,7 +317,7 @@ flowchart LR
 
 | Component | Use it for | Principal contract |
 | --- | --- | --- |
-| [`CHIHNI`](home.rhdl) | Non-coherent RN-I requesters reaching one or more SN-I services | Bounded Home-owned slots and translation of requester TxnIDs, ReturnTxnIDs, data targets, and subordinate DBIDs |
+| [`CHIHNI`](home.rhdl) | Non-coherent RN-I or RN-F Home traffic reaching one or more SN-I services | Bounded Home-owned slots and translation of requester TxnIDs, ReturnTxnIDs, data targets, and subordinate DBIDs |
 | [`CHIHNF`](coherent-home.rhdl) | Mixed RN-I/RN-F traffic without an LLC | One globally active transaction; broadcast coherence and dirty intervention before non-snoopable subordinate traffic |
 | [`CHIInclusiveHNF`](inclusive-home.rhdl) | Mixed RN-I/RN-F traffic with a blocking inclusive LLC | Set-associative `SyncRam1RW` tag/data arrays, hit service, victim invalidation, dirty intervention/writeback, and one active transaction |
 | [`CHIRam`](ram.rhdl) | Synthesizable non-coherent memory | SN-F by default or SN-I by selection; configurable 128/256/512-bit DAT and native transfers from one beat through 64 bytes |

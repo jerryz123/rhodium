@@ -45,7 +45,7 @@ imports of named SoCs from shared components.
 | Architectural host description and device-tree projection | [`description.rhm`](description.rhm) |
 | Concrete processor profiles and physical-address inputs shared with host generators | [`core-profiles.rhm`](core-profiles.rhm) |
 | Core-neutral catalog of concrete RISC-V UDB configurations | [`udb.rhm`](udb.rhm) |
-| Common coherent host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
+| Common RAM/MMIO host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
 | Shared single-core parameter derivation and direct composition | [`single-core-system.rhdl`](single-core-system.rhdl) |
 | Shared host and ICN endpoint descriptions | [`endpoint-params.rhdl`](endpoint-params.rhdl) |
 | Shared boot-address register, BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
@@ -65,8 +65,11 @@ imports of named SoCs from shared components.
    NoC, or device package before composing it here.
 2. Derive PMA and CHI Home routing from one physical-region description so an
    address cannot enter the fabric with contradictory policy.
-3. Keep host loading coherent and use the shared `SoCHostInterface`; do not add
-   a simulator mailbox or binary loader to synthesizable hardware.
+3. Keep host RAM access coherent and route device access through the device
+   Home using the shared `SoCHostInterface`. Derive host access services from
+   the same memory and subordinate descriptions, with per-Home capability
+   projections for the shared RN-F. Do not add a simulator mailbox or binary
+   loader to synthesizable hardware.
 4. For tiled changes, extend the author configuration and private compiler,
    then derive occurrence IDs, routes, family plans, and link assignments once.
    Do not expose a second author-managed compiled plan.

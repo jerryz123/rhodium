@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines the common coherent loader-memory and boot-release boundary exposed by SoCs.
+// Defines the shared coherent RAM, non-snooping MMIO, and boot-release host boundary.
 
 import:
   lib("rhodium/std/ready-valid.rhdl").IrrevocableCtrl

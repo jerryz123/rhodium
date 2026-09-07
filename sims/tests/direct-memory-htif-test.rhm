@@ -21,6 +21,7 @@ def result_names = ["request_valid",
                     "request_write",
                     "request_address",
                     "request_data",
+                    "request_length",
                     "response_ready",
                     "start_valid",
                     "start_entry",
@@ -30,11 +31,13 @@ check:
   fesvr_import.name ~is "rhodium_htif_tick"
   fesvr_import.input_names ~is [
     "reset", "target_xlen", "request_ready", "response_valid",
-    "response_data", "start_ready"
+    "response_data", "response_status", "start_ready"
   ]
   fesvr_import.results.map(fun (result): result.name) ~is result_names
   type_equal(fesvr_import.results[2].type, Bits(64)) ~is #true
-  type_equal(fesvr_import.results[6].type, Bits(64)) ~is #true
-  fesvr_register.results.length() ~is 8
+  type_equal(fesvr_import.results[3].type, Bits(64)) ~is #true
+  type_equal(fesvr_import.results[4].type, Bits(8)) ~is #true
+  type_equal(fesvr_import.results[7].type, Bits(64)) ~is #true
+  fesvr_register.results.length() ~is 9
   verify_design(fesvr.design) ~is #void
   verify_design(fesvr_rv32_design) ~is #void

@@ -82,6 +82,8 @@ export:
   CHIChannelCapabilities
   CHINodeParams
   CHIICNPortParams
+  CHIRequesterHomeParams
+  CHIHomeRequesterParams
   CHIRNLinkParams
   CHIRNILinkParams
   CHISNLinkParams

@@ -35,11 +35,13 @@ SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
 SIMULATOR_BINARY := $(SOC_OBJECT_DIR)/VTestDriver
 SMOKE_BINARY := $(SOC_BUILD_DIR)/rv5stage_smoke.elf
+HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/rv5stage_host_mmio.elf
+HOST_MMIO_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_host_mmio.signature
 ZICBOZ_BINARY := $(SOC_BUILD_DIR)/rv5stage_zicboz.elf
 ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zicboz.signature
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
-.PHONY: all setup simulator run smoke zicboz-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
+.PHONY: all setup simulator run smoke host-mmio-test zicboz-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
 
 all: simulator
 
@@ -60,6 +62,11 @@ run: simulator
 
 smoke: $(SMOKE_BINARY)
 	$(MAKE) run SOC=$(SOC) BINARY=$(SMOKE_BINARY)
+
+host-mmio-test: $(HOST_MMIO_BINARY) $(SIMULATOR_BINARY)
+	$(SIMULATOR_BINARY) +signature=$(HOST_MMIO_SIGNATURE) +signature-granularity=8 $(HOST_MMIO_BINARY)
+	awk '{ if ($$0 != "123456789abcdef0") exit 1 } END { if (NR != 1) exit 1 }' $(HOST_MMIO_SIGNATURE)
+	@echo "Host boot-register and UART MMIO checks passed"
 
 zicboz-test: $(ZICBOZ_BINARY) $(SIMULATOR_BINARY)
 	$(SIMULATOR_BINARY) +signature=$(ZICBOZ_SIGNATURE) +signature-granularity=16 $(ZICBOZ_BINARY)
@@ -83,7 +90,9 @@ chi-dpi-memory-test: | $(DPI_BUILD_DIR)
 	  -o $(DPI_BUILD_DIR)/chi_dpi_memory_dpi_test
 	$(DPI_BUILD_DIR)/chi_dpi_memory_dpi_test
 
-transport-test:
+transport-test: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(FESVR_DIR)/direct_mem_htif.cc tests/direct_mem_htif_test.cc $(FESVR_LIBRARY) -pthread -o $(DPI_BUILD_DIR)/direct_mem_htif_test
+	$(DPI_BUILD_DIR)/direct_mem_htif_test
 	cd $(REPO_DIR) && RACO="$(RACO)" tools/run-racket-tests.sh \
 	  sims/tests/direct-memory-htif-test.rhm
 
@@ -138,6 +147,10 @@ $(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
                  tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+
+$(HOST_MMIO_BINARY): tests/programs/rv5stage_host_mmio.S tests/programs/rv5stage_host_mmio.ld | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
+	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_host_mmio.ld $< -o $@
 
 $(ZICBOZ_BINARY): tests/programs/rv5stage_zicboz.S tests/programs/rv5stage_zicboz.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64im_zicsr -mabi=lp64 -nostdlib -nostartfiles \

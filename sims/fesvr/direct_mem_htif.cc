@@ -1,33 +1,35 @@
-// Implements a width-aware direct-memory HTIF transport over aligned word chunks.
+// Preserves exact FESVR byte ranges and reports target access failures without extra MMIO reads.
 #include "direct_mem_htif.h"
 
 #include <stdexcept>
+#include <algorithm>
+#include <cstdio>
+#include <limits>
+#include <sstream>
 
 namespace rhodium::fesvr {
 namespace {
 
-constexpr std::size_t kWordBytes = sizeof(std::uint32_t);
+constexpr std::size_t kMaxBytes = sizeof(std::uint64_t);
 
-std::uint32_t load_little_endian_word(const void* source) {
+std::uint64_t load_little_endian(const void* source, std::size_t length) {
   const auto* bytes = static_cast<const std::uint8_t*>(source);
-  return static_cast<std::uint32_t>(bytes[0]) |
-         (static_cast<std::uint32_t>(bytes[1]) << 8) |
-         (static_cast<std::uint32_t>(bytes[2]) << 16) |
-         (static_cast<std::uint32_t>(bytes[3]) << 24);
+  std::uint64_t value = 0;
+  for (std::size_t i = 0; i < length; ++i)
+    value |= static_cast<std::uint64_t>(bytes[i]) << (8 * i);
+  return value;
 }
 
-void store_little_endian_word(std::uint32_t word, void* destination) {
+void store_little_endian(std::uint64_t word, void* destination, std::size_t length) {
   auto* bytes = static_cast<std::uint8_t*>(destination);
-  bytes[0] = static_cast<std::uint8_t>(word);
-  bytes[1] = static_cast<std::uint8_t>(word >> 8);
-  bytes[2] = static_cast<std::uint8_t>(word >> 16);
-  bytes[3] = static_cast<std::uint8_t>(word >> 24);
+  for (std::size_t i = 0; i < length; ++i)
+    bytes[i] = static_cast<std::uint8_t>(word >> (8 * i));
 }
 
-void require_word_transfer(addr_t address, std::size_t length) {
-  if (length != kWordBytes || (address & (kWordBytes - 1)) != 0) {
-    throw std::runtime_error("direct-memory HTIF requires aligned four-byte transfers");
-  }
+void require_transfer(addr_t address, std::size_t length) {
+  if (length == 0 || length > kMaxBytes ||
+      address > std::numeric_limits<addr_t>::max() - (length - 1))
+    throw std::runtime_error("direct-memory HTIF requires a non-wrapping one-to-eight-byte chunk");
 }
 
 }  // namespace
@@ -44,7 +46,12 @@ DirectMemoryHtif::DirectMemoryHtif(int argc, char** argv, int expected_xlen)
 
 void DirectMemoryHtif::host_thread_main(void* argument) {
   auto* transport = static_cast<DirectMemoryHtif*>(argument);
-  transport->run();
+  try {
+    transport->run();
+  } catch (const std::exception& error) {
+    std::fprintf(stderr, "FESVR transport failed: %s\n", error.what());
+    transport->failed_ = true;
+  }
   while (true) {
     transport->switch_to_target();
   }
@@ -52,7 +59,8 @@ void DirectMemoryHtif::host_thread_main(void* argument) {
 
 void DirectMemoryHtif::tick(bool request_ready,
                             bool response_valid,
-                            std::uint32_t response_data,
+                            std::uint64_t response_data,
+                            std::uint8_t response_status,
                             bool start_ready) {
   if (request_pending_) {
     if (!request_exposed_) {
@@ -63,6 +71,7 @@ void DirectMemoryHtif::tick(bool request_ready,
 
     if (request_accepted_ && response_valid) {
       response_data_ = response_data;
+      response_status_ = response_status;
       request_pending_ = false;
       request_exposed_ = false;
       request_accepted_ = false;
@@ -102,6 +111,7 @@ std::uint64_t DirectMemoryHtif::start_entry() const {
 }
 
 std::uint32_t DirectMemoryHtif::exit_word() {
+  if (failed_) return 3;
   return done() ? (static_cast<std::uint32_t>(exit_code()) << 1) | 1 : 0;
 }
 
@@ -117,32 +127,46 @@ void DirectMemoryHtif::reset() {
 void DirectMemoryHtif::read_chunk(addr_t address,
                                   std::size_t length,
                                   void* destination) {
-  require_word_transfer(address, length);
-  store_little_endian_word(transact(false, address, 0), destination);
+  require_transfer(address, length);
+  store_little_endian(transact(false, address, 0, length), destination, length);
 }
 
 void DirectMemoryHtif::write_chunk(addr_t address,
                                    std::size_t length,
                                    const void* source) {
-  require_word_transfer(address, length);
-  transact(true, address, load_little_endian_word(source));
+  require_transfer(address, length);
+  transact(true, address, load_little_endian(source, length), length);
+}
+
+void DirectMemoryHtif::clear_chunk(addr_t address, std::size_t length) {
+  if (length != 0 && address > std::numeric_limits<addr_t>::max() - (length - 1))
+    throw std::runtime_error("direct-memory HTIF clear range wraps the address space");
+  while (length != 0) {
+    const auto count = std::min(length, kMaxBytes);
+    transact(true, address, 0, count);
+    address += count;
+    length -= count;
+  }
 }
 
 std::size_t DirectMemoryHtif::chunk_align() {
-  return kWordBytes;
+  // Prevent memif_t from widening reads or synthesizing read-modify-write.
+  return 1;
 }
 
 std::size_t DirectMemoryHtif::chunk_max_size() {
-  return kWordBytes;
+  return kMaxBytes;
 }
 
 void DirectMemoryHtif::idle() {
   switch_to_target();
 }
 
-std::uint32_t DirectMemoryHtif::transact(bool write,
+std::uint64_t DirectMemoryHtif::transact(bool write,
                                          addr_t address,
-                                         std::uint32_t data) {
+                                         std::uint64_t data,
+                                         std::size_t length) {
+  require_transfer(address, length);
   if (request_pending_) {
     throw std::logic_error("direct-memory HTIF permits only one outstanding request");
   }
@@ -151,6 +175,7 @@ std::uint32_t DirectMemoryHtif::transact(bool write,
       .write = write,
       .address = address,
       .data = data,
+      .length = static_cast<std::uint8_t>(length),
   };
   request_pending_ = true;
   request_exposed_ = false;
@@ -158,6 +183,13 @@ std::uint32_t DirectMemoryHtif::transact(bool write,
 
   while (request_pending_) {
     switch_to_target();
+  }
+  if (response_status_ != 0) {
+    std::ostringstream message;
+    message << (write ? "write" : "read") << " at 0x" << std::hex << address
+            << std::dec << " (" << length << " bytes), target status "
+            << static_cast<unsigned>(response_status_);
+    throw std::runtime_error(message.str());
   }
   return response_data_;
 }

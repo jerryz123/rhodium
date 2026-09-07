@@ -15,7 +15,7 @@ import:
   lib("chi/fabric.rhdl") open
 
 class CHIHNFConfig(flit :: CHIFlitParams,
-                   requester_endpoints :: NonemptyList.of(CHIICNPortParams),
+                   requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams),
                    service_mask :: Nat,
                    service_requests :: NonemptyList.of(CHIRequestSupport)):
   implements StableCircuitParam
@@ -26,7 +26,7 @@ class CHIHNFConfig(flit :: CHIFlitParams,
     )
 
   constructor (flit :: CHIFlitParams,
-               requester_endpoints :: NonemptyList.of(CHIICNPortParams),
+               requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams),
                service_mask :: Nat,
                service_requests :: NonemptyList.of(CHIRequestSupport)):
     unless bits.length(service_mask) <= flit.request_address_width
@@ -66,6 +66,9 @@ class CHIHNFConfig(flit :: CHIFlitParams,
         | error(~who: #'CHIHNFConfig,
                 "requester NodeIDs must be unique")
         | #void
+    for (endpoint in requester_endpoints):
+      unless endpoint.kind != CHINodeKind.RNF || endpoint.emits.contains_all(CHIChannelCapabilities(~snp: chi_rnf_snoop_opcodes))
+      | error(~who: #'CHIHNFConfig, "RN-F Home traffic must retain snoop capabilities")
     def snoop_endpoints = requester_endpoints.filter(
       ~keep: fun (endpoint): endpoint.kind == CHINodeKind.RNF
     )

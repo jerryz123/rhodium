@@ -13,7 +13,7 @@ sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = tiled.default_tiled
   output exit: Bits(32)
   interface uart(SoCUartInterface(), ~role: soc)
 
-  inst requester(FesvrRequester(XLen.X64, implementation.flit, implementation.host.node, implementation.home_map))
+  inst requester(FesvrRequester(XLen.X64, implementation.flit, implementation.host.node, implementation.home_map, implementation.rv5stage_config.physical_map, implementation.host_services))
   inst soc(tiled.TiledSoC(soc_config))
 
   requester.port <=> soc.host.memory

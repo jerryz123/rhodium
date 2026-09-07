@@ -45,6 +45,8 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
   property boot: platform.boot
   property device_home: platform.home
   property host_port: requester_icn_endpoint(host_node)
+  property host_services:
+    [soc_host_memory_service(home, memory_service.address_sets, memory_service.requests)] ++ platform.host_services
   property memory_attributes: RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
   property memory_region:
     def region = AddressSet(memory_base, memory_bytes - 1)
@@ -78,7 +80,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
   property home_config:
     CHIHNFConfig(
       flit,
-      [host_port, instruction_port, data_port],
+      [soc_host_home_port(host_node, ~coherent: #true), instruction_port, data_port],
       memory_bytes - 1,
       memory_requests
     )
@@ -88,7 +90,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
                  memory_port,
                  memory_service)
   property device_home_params:
-    platform.home_params([uncached_port])
+    platform.home_params([uncached_port, soc_host_home_port(host_node, ~coherent: #false)])
 
   method description(model :: NonemptyString,
                      compatible :: NonemptyList.of(NonemptyString),
@@ -123,6 +125,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
   property uart_site: CHISNSite(NamePath(["devices", "uart"]), platform.uart.node.node_id, router)
   property connections: [
     CHIRNFConnection(host_site, home_requester_site),
+    CHIRNIConnection(host_site, device_home_requester_site),
     CHIRNFConnection(instruction_site, home_requester_site),
     CHIRNFConnection(data_site, home_requester_site),
     CHIRNIConnection(uncached_site,

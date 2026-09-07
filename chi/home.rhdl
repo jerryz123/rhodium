@@ -18,7 +18,7 @@ import:
 // Describes the protocol and endpoint contract without requiring either side
 // to be realized as a physical CHI link.
 class CHIHNIParams(home :: CHIHomeParams,
-                   requester_endpoints :: NonemptyList.of(CHIICNPortParams),
+                   requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams),
                    subordinate_map :: CHISubordinateMap):
   implements StableCircuitParam
 
@@ -28,9 +28,9 @@ fun checked_chi_hni_params(params :: CHIHNIParams):
   unless params.home.kind == CHINodeKind.HNI
   | error(~who: #'CHIHNI, "home kind must be HN-I")
   for (endpoint in params.requester_endpoints):
-    unless endpoint.kind == CHINodeKind.RNI
+    unless [CHINodeKind.RNI, CHINodeKind.RNF].contains(endpoint.kind)
     | error(~who: #'CHIHNI,
-            "requester endpoints must describe RN-Is")
+            "requester endpoints must describe RN-I or RN-F Home traffic")
   unless bits.length(params.home.node_id) <= params.flit.node_id_width
   | error(~who: #'CHIHNI,
           "Home NodeID must fit the physical NodeID width")

@@ -118,7 +118,10 @@ class SoCPlatformParams(flit :: CHIFlitParams,
     [bootrom.region,
      RV5StageCHIRegion(RiscvPhysicalMemoryRegion(boot_address.service.address_sets[0], soc_boot_address_attributes), home)] ++ soc_peripheral_regions(home)
 
-  method home_params(requester_endpoints :: NonemptyList.of(CHIICNPortParams)):
+  property host_services:
+    subordinate_map.services.map(fun (service): CHIHomeServiceParams(home, service.address_sets, service.requests))
+
+  method home_params(requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams)):
     CHIHNIParams(home, requester_endpoints, subordinate_map)
 
 export:

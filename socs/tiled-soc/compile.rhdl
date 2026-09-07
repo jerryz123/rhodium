@@ -149,6 +149,9 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
                              transits :: List.of(TransitTileInstance)):
   implements StableCircuitParam
 
+  property host_services:
+    (for List (entry in home_map.entries.filter(~keep: fun (entry): entry.home.kind == CHINodeKind.HNF)):
+       soc_host_memory_service(entry.home, [entry.address_set], ram_config.requests)) ++ platform.host_services
   property width :: PosInt: config.layout.width
   property height :: PosInt: config.layout.height
   property snp_compilation :: CHIChannelCompilation: compilations.snp
@@ -296,7 +299,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   for (requester in rnf_sites):
     for (llc_placement in llc_placements):
       connections := connections ++ [CHIRNFConnection(requester, llc_placement.home_site)]
-  for (requester in uncached_sites):
+  for (requester in [host_placement.site] ++ uncached_sites):
     connections := connections ++ [CHIRNIConnection(requester, device_home_placement.requester_site)]
   connections := connections ++ [
     CHISNConnection(device_home_placement.subordinate_site, bootrom_placement.site),
@@ -389,7 +392,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                         placement.instruction_node_id,
                         placement.data_node_id,
                         ~uncached_node_id: placement.uncached_node_id)
-  def mutable requester_ports = [host_port]
+  def mutable requester_ports = [soc_host_home_port(host_node, ~coherent: #true)]
   for (params in rv5stage_chi_params):
     requester_ports := requester_ports ++ [
       requester_icn_endpoint(params.instruction_node),
@@ -399,7 +402,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     fun (params): requester_icn_endpoint(params.uncached_node)
   )
 
-  def device_home_params = platform.home_params(uncached_ports)
+  def device_home_params = platform.home_params(uncached_ports ++ [soc_host_home_port(host_node, ~coherent: #false)])
 
   def ram_config = CHIRamConfig(flit,
                                 memory.bank_bytes,

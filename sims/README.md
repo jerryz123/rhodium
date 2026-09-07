@@ -32,7 +32,7 @@ flowchart LR
   Driver["TestDriver.v<br/>clock, reset, UART pins, and exit"]
 
   subgraph Harness["Generated SoCHarness top - sims ownership"]
-    FESVR["FesvrRequester<br/>coherent host RN-F"]
+    FESVR["FesvrRequester<br/>RAM + MMIO host RN-F"]
     SoC["Selected SoC instance<br/>BootROM + hardware owned by socs/"]
     DPIMemory["CHIDPIMemory<br/>SimpleSoC only"]
 
@@ -113,12 +113,20 @@ into a one-shot release; every hart starts at the reset address, hart zero
 jumps to the loaded payload, and secondary harts park in the ROM.
 
 `DirectMemoryHtif` presents FESVR's abstract memory chunks as one-outstanding,
-aligned 32-bit transactions. Target XLEN may be 32 or 64; addresses and entry
-points remain 64-bit. `FesvrRequester` is a non-caching RN-F that converts
-those private ready-valid DPI signals into coherent CHI `ReadClean` and
-`WriteUniquePtl` transactions and reports Invalid for every snoop. ELF loading
-and `tohost`/`fromhost` polling therefore observe dirty RV5Stage cache lines
-without reserving a special mailbox address range.
+one-to-eight-byte transactions with 64-bit addresses and data. It never widens
+device reads or synthesizes read-modify-write for narrow writes. Target XLEN
+may be 32 or 64. `FesvrRequester` uses the SoC's physical map and Home service
+descriptions to select coherent `ReadClean`/`WriteUniquePtl` for cacheable RAM
+or `ReadNoSnp`/`WriteNoSnpPtl` for non-cacheable regions. RAM chunks may be
+fragmented into aligned transfers; MMIO must be an exact, aligned, supported
+1/2/4/8-byte access. Unmapped, forbidden, or unsupported accesses fail before
+device traffic is issued. Target and protocol errors stop FESVR with failure.
+
+The requester retains no cache lines and reports Invalid for every snoop.
+ELF loading and `tohost`/`fromhost` polling still observe dirty RV5Stage cache
+lines without reserving a special mailbox address range. The same endpoint
+can access platform devices, including the boot-address register and UART.
+This does not change the static BootROM jump or ELF-entry equality check above.
 
 ## Architectural certification tests
 

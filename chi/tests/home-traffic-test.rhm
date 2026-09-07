@@ -1,0 +1,37 @@
+#lang rhombus
+// Checks destination-specific requester capabilities without changing physical node identity.
+
+import:
+  "../main.rhdl" open
+  "../transaction.rhdl".chi_initial_requester_capabilities
+
+def endpoint = CHIICNPortParams(
+  "mixed-host", 1, CHINodeKind.RNF,
+  ~emits: CHIChannelCapabilities(~snp: chi_rnf_snoop_opcodes, ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp], ~dat: [CHIDatOpcode.CompData]),
+  ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl], ~rsp: [CHIRspOpcode.SnpResp], ~dat: [CHIDatOpcode.NonCopyBackWriteData]),
+  ~max_outstanding: 1
+)
+def io = CHIRequesterHomeParams(
+  endpoint,
+  ~emits: CHIChannelCapabilities(~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp], ~dat: [CHIDatOpcode.CompData]),
+  ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl], ~dat: [CHIDatOpcode.NonCopyBackWriteData])
+)
+check:
+  io.endpoint === endpoint ~is #true
+  io.node_id ~is 1
+  io.kind ~is CHINodeKind.RNF
+  io.max_outstanding ~is 1
+  io.emits.snp ~is []
+  endpoint.emits.snp ~is chi_rnf_snoop_opcodes
+  chi_initial_requester_capabilities(io.supports, io.emits) ~is #true
+  CHIRequesterHomeParams(endpoint, ~emits: io.emits,
+                         ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadUnique])) ~throws "subset"
+  CHIRequesterHomeParams(endpoint, ~emits: CHIChannelCapabilities(~rsp: [CHIRspOpcode.RetryAck]),
+                         ~supports: io.supports) ~throws "subset"
+  CHIHNFConfig(CHIFlitParams(), [io], 0xfff,
+               [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 64))]) ~throws "unsupported request opcode"
+  CHIHNFConfig(
+    CHIFlitParams(),
+    [CHIRequesterHomeParams(endpoint, ~emits: io.emits,
+                            ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadClean]))],
+    0xfff, [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 64))]) ~throws "snoop capabilities"
