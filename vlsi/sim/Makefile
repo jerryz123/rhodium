@@ -141,7 +141,7 @@ $(SIMULATOR_BINARY): $(SOC_VERILOG) $(MAPPING_STAMP) $(SIMS_DIR)/TestDriver.v \
 		$(FESVR_DIR)/direct_mem_htif.cc $(FESVR_DIR)/direct_mem_htif.h \
 		$(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
 		$(VERILATOR_DIR)/direct_mem_htif_dpi.h $(FESVR_LIBRARY)
-	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --build-jobs 0 \
+	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD --build-jobs 0 \
 		--top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 		$(SOC_VERILOG) $(MEMORY_WRAPPERS) $(FUNCTIONAL_MODELS) \
 		$(SIMS_DIR)/TestDriver.v $(FESVR_DIR)/direct_mem_htif.cc \
