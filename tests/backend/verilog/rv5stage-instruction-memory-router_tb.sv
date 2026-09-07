@@ -1,4 +1,4 @@
-// Verifies RV5Stage instruction PMA routing and ordered response ownership.
+// Verifies instruction routing, owner capacity, request/response stalls, and flush cancellation.
 module rv5stage_instruction_memory_router_tb;
   typedef struct packed {
     logic flush;
@@ -57,6 +57,15 @@ module rv5stage_instruction_memory_router_tb;
     core_in.request.valid = 1'b1;
     core_in.request.bits.address = 64'h1000;
     core_in.request.bits.cacheable = 1'b1;
+    cache_in.request.ready = 1'b0;
+    repeat (3) begin
+      #1;
+      assert (!core_out.request.ready && cache_out.request.valid && !uncached_out.request.valid &&
+              cache_out.request.bits.address == 64'h1000)
+        else $fatal(1, "cached request did not retain routing under backpressure");
+      tick();
+    end
+    cache_in.request.ready = 1'b1;
     #1;
     assert (core_out.request.ready && cache_out.request.valid &&
             !uncached_out.request.valid && cache_out.request.bits.address == 64'h1000)
@@ -73,6 +82,13 @@ module rv5stage_instruction_memory_router_tb;
             !uncached_out.request.bits.cacheable && !uncached_out.request.bits.device)
       else $fatal(1, "non-cacheable instruction request did not route to RN-I");
     tick();
+
+    // Both owner slots are occupied; a third fetch cannot reach either path.
+    core_in.request.bits.address = 64'hd000;
+    #1;
+    assert (!core_out.request.ready && !cache_out.request.valid && !uncached_out.request.valid)
+      else $fatal(1, "request escaped without a free response-owner slot");
+    tick();
     core_in.request.valid = 1'b0;
 
     // The second response cannot pass the first even if it arrives first.
@@ -83,6 +99,15 @@ module rv5stage_instruction_memory_router_tb;
       else $fatal(1, "uncached response bypassed an older cached response");
     cache_in.response.valid = 1'b1;
     cache_in.response.bits.word = 32'h1111_1111;
+    core_in.response.ready = 1'b0;
+    repeat (3) begin
+      #1;
+      assert (core_out.response.valid && core_out.response.bits.word == 32'h1111_1111 &&
+              !cache_out.response.ready && !uncached_out.response.ready)
+        else $fatal(1, "stalled response lost its owner or advanced another path");
+      tick();
+    end
+    core_in.response.ready = 1'b1;
     #1;
     assert (core_out.response.valid && core_out.response.bits.word == 32'h1111_1111 &&
             cache_out.response.ready && !uncached_out.response.ready)
@@ -96,12 +121,24 @@ module rv5stage_instruction_memory_router_tb;
     tick();
     uncached_in.response.valid = 1'b0;
 
+    core_in.request.valid = 1'b1;
+    core_in.request.bits.cacheable = 1'b1;
+    tick();
+    cache_in.response.valid = 1'b1;
     core_in.flush = 1'b1;
     core_in.request.valid = 1'b1;
     #1;
     assert (!core_out.request.ready && !cache_out.request.valid &&
-            !uncached_out.request.valid && cache_out.flush && uncached_out.flush)
+            !uncached_out.request.valid && !core_out.response.valid &&
+            !cache_out.response.ready && !uncached_out.response.ready && cache_out.flush && uncached_out.flush)
       else $fatal(1, "instruction flush did not suppress and propagate correctly");
+    tick();
+    core_in.flush = 1'b0;
+    core_in.request.valid = 1'b0;
+    cache_in.response.valid = 1'b0;
+    #1;
+    assert (!core_out.response.valid)
+      else $fatal(1, "flushed response owner survived cancellation");
 
     $display("RV5Stage instruction memory routing passed");
     $finish;

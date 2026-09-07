@@ -148,6 +148,10 @@ Verilator `UNOPTFLAT` warning setting for packed interfaces; assertions and
 runtime convergence checks remain enabled. Keep simulator entry programming and SoC
 BootROM policy separate from this core-level regression.
 
+For instruction-router flow changes, select `rv5stage-instruction-memory-router`
+and `rv5stage-io-boot`. The router bench covers owner-queue capacity, request and
+response stalls, cached/uncached response ordering, and flush cancellation.
+
 For Zicbom, use the composed decode test and the WB, MMU, physical-router,
 and self-snooped cache fixtures:
 

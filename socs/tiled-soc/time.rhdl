@@ -6,6 +6,7 @@ import:
   lib("flow/offer-register.rhdl").OfferRegister
   lib("flow/flit.rhdl").Packetizer
   lib("flow/flit.rhdl").Reassembler
+  lib("flow/map.rhdl").map_flow
   lib("rhodium/std/flit.rhdl").FramedFixedFlit
 
 def TiledTimeChunkWidth = 16
@@ -29,8 +30,7 @@ sync_circuit TiledTimeSweeper(hart_count :: PosInt):
   reg snapshot(Bits(64))
   reg hart_index(~init: bits(0, hart_width))
 
-  pending.update.valid <== update.valid
-  pending.update.bits <== update.bits
+  update |> pending.update
   // An update arriving while idle supersedes the stored offer before the next
   // sweep begins.
   pending.egress.ready <== !active & !update.valid
@@ -41,10 +41,12 @@ sync_circuit TiledTimeSweeper(hart_count :: PosInt):
   packetizer.ingress.valid <== active & packet_pending
   packetizer.ingress.bits <== snapshot
 
-  egress.valid <== packetizer.egress.valid
-  egress.bits.hart <== hart_index
-  egress.bits.flit <== packetizer.egress.bits
-  packetizer.egress.ready <== egress.ready
+  // The destination advances only after the last flit transfers, so it stays
+  // stable with every stalled packetizer offer.
+  (packetizer.egress |> map_flow(~stable: #true, flit => TiledTimeBeat(hart_count)):
+    hart: hart_index
+    flit: flit
+  ) |> egress
   def beat_fire = egress.fire()
   def packet_fire = beat_fire & egress.bits.flit.last
 
@@ -72,9 +74,7 @@ sync_circuit TiledTimeReceiver():
   inst reassembler(Reassembler(Bits(64), TiledTimeChunkWidth))
   reg time_value(~init: bits(0, 64))
 
-  ingress.ready <== reassembler.ingress.ready
-  reassembler.ingress.valid <== ingress.valid
-  reassembler.ingress.bits <== ingress.bits
+  ingress |> reassembler.ingress
   reassembler.egress.ready <== Bool(#true)
   value <== mux(reassembler.egress.valid, reassembler.egress.bits, time_value)
 

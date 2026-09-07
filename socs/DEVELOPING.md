@@ -108,6 +108,16 @@ Use the package-local target while iterating:
 make -C socs config-test
 ```
 
+For tiled streaming adapters, run the focused behavioral fixtures:
+
+```sh
+FIXTURES='tiled-time tiled-distribution' bash tests/backend/run-circt.sh --simulate-only
+```
+
+These cover stalled time packets, latest-snapshot coalescing, complete timestamp
+reconstruction, and independently backpressured time/interrupt routes. Preserve
+the one-VC router's explicit availability signals when changing payload adapters.
+
 The host target covers address maps, node policy, layouts, and compiled routing
 plans. Connected hierarchy, time distribution, devices, and processor behavior
 belong to the executable smoke tests in

@@ -92,7 +92,7 @@ integration_fixtures=(
   clocked-dpi assertions hierarchy bundle interface-array
   queue-options rr-arbiter packet-rr-arbiter round-robin-matcher ctrl-queue-options
   state-flow
-  tiled-distribution
+  tiled-time tiled-distribution
   dont-care decode noc-route-computer noc-router noc-network noc-wormhole noc-router-family noc-escape-router
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
@@ -598,6 +598,7 @@ fixture_specs=(
   'flit-formats|flit_formats_tb|examples/std/flit-formats.rhdl|design|verilog_reference'
   'state-flow|state_flow_tb|examples/std/state-flow.rhdl|design|-'
   'tiled-distribution|tiled_distribution_tb|socs/tests/tiled-distribution-fixture.rhdl|distribution_design|-'
+  'tiled-time|tiled_time_tb|socs/tests/tiled-distribution-fixture.rhdl|time_design|-'
   'scoreboard|scoreboard_tb|examples/std/scoreboard.rhdl|design|verilog_reference'
   'full-adder||examples/rtl/full-adder.rhdl|design|verilog_reference'
   'adder-core||examples/lop/adder-core.rhm|design|verilog_reference'

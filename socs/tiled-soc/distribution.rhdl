@@ -321,15 +321,9 @@ sync_circuit TiledDistributionNetwork(plan :: TiledDistributionPlan):
     def external_interrupt_view = external_interrupt_source.bits.payload.view(
       TiledDistributionMessage.ExternalInterrupt
     )
-    time_egress[hart.index].valid <== time_source.valid
-    time_egress[hart.index].bits <== time_view.payload
-    time_source.ready <== time_egress[hart.index].ready
-    interrupt_egress[hart.index].valid <== interrupt_source.valid
-    interrupt_egress[hart.index].bits <== interrupt_view.payload
-    interrupt_source.ready <== interrupt_egress[hart.index].ready
-    external_interrupt_egress[hart.index].valid <== external_interrupt_source.valid
-    external_interrupt_egress[hart.index].bits <== external_interrupt_view.payload
-    external_interrupt_source.ready <== external_interrupt_egress[hart.index].ready
+    time_source |> map_flow(beat => beat.payload.view(TiledDistributionMessage.Time).payload) |> time_egress[hart.index]
+    interrupt_source |> map_flow(beat => beat.payload.view(TiledDistributionMessage.Interrupt).payload) |> interrupt_egress[hart.index]
+    external_interrupt_source |> map_flow(beat => beat.payload.view(TiledDistributionMessage.ExternalInterrupt).payload) |> external_interrupt_egress[hart.index]
     assert(!time_source.valid ||| time_view.valid.into(Bool),
            "tiled_distribution_time_variant")
     assert(!interrupt_source.valid ||| interrupt_view.valid.into(Bool),

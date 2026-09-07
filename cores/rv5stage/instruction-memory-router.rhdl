@@ -15,32 +15,28 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   inst owners(Queue(Bool, 2), ~reset_when: core.flush)
   def request = core.request.bits
   def request_uncached = !request.cacheable
-  def selected_ready = mux(request_uncached,
-                           uncached.request.ready,
-                           cache.request.ready)
-
-  core.request.ready <== !core.flush & owners.ingress.ready & selected_ready
+  def Array(cache_requests, uncached_requests) = (
+    core.request |> gate_flow(!core.flush & owners.ingress.ready)
+      |> demux_flow(2, request => (!request.cacheable).as_bits())
+  )
   cache.flush <== core.flush
   cache.invalidate_all <== core.invalidate_all
-  cache.request.valid <== core.request.valid & !core.flush & owners.ingress.ready & !request_uncached
-  cache.request.bits <== RV5StageInstructionReq(xlen):
+  (cache_requests |> map_flow(request => RV5StageInstructionReq(xlen)):
     address: request.address
+  ) |> cache.request
   uncached.flush <== core.flush
   uncached.invalidate_all <== core.invalidate_all
-  uncached.request.valid <== core.request.valid & !core.flush & owners.ingress.ready & request_uncached
-  uncached.request.bits <== request
+  uncached_requests |> uncached.request
   owners.ingress.valid <== core.request.fire()
   owners.ingress.bits <== request_uncached
 
   def owner_valid = owners.egress.valid
   def owner_uncached = owners.egress.bits
-  def selected_valid = mux(owner_uncached,
-                           uncached.response.valid,
-                           cache.response.valid)
+  // Keep the ordered response boundary explicit: generic gated arbitration
+  // exposes Decoupled, while the physical instruction interface is Irrevocable.
+  def selected_valid = mux(owner_uncached, uncached.response.valid, cache.response.valid)
   core.response.valid <== owner_valid & selected_valid & !core.flush
-  core.response.bits <== mux(owner_uncached,
-                             uncached.response.bits,
-                             cache.response.bits)
+  core.response.bits <== mux(owner_uncached, uncached.response.bits, cache.response.bits)
   cache.response.ready <== owner_valid & !owner_uncached & core.response.ready & !core.flush
   uncached.response.ready <== owner_valid & owner_uncached & core.response.ready & !core.flush
   owners.egress.ready <== core.response.fire()

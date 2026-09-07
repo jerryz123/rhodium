@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates a compact two-hart platform distribution network for focused testing.
+// Provides two-hart distribution and time-sweep integration fixtures for behavioral testing.
 
 import:
   lib("noc/authoring/main.rhm").VCGroup
@@ -35,9 +35,31 @@ sync_circuit TiledDistributionFixture():
 
 def distribution_design = elaborate(TiledDistributionFixture())
 
+sync_circuit TiledTimeFixture():
+  interface update(Valid(Bits(64)), ~role: consumer)
+  input accepting: Vec(2, Bool)
+  output hart_time: Vec(2, Bits(64))
+  output offered: TiledTimeBeat(2)
+  output offer_valid: Bool
+  output transferred: Bool
+
+  inst sweeper(TiledTimeSweeper(2))
+  update |> sweeper.update
+  offered <== sweeper.egress.bits
+  offer_valid <== sweeper.egress.valid
+  def lanes = sweeper.egress |> demux_flow(2, beat => beat.hart)
+  for (index in 0..2):
+    inst receiver(TiledTimeReceiver())
+    lanes[index] |> gate_flow(accepting[index]) |> map_flow(beat => beat.flit) |> receiver.ingress
+    hart_time[index] <== receiver.value
+  transferred <== sweeper.egress.fire()
+
+def time_design = elaborate(TiledTimeFixture())
+
 export:
   DistributionHartCount
   distribution_mesh
   distribution_plan
   TiledDistributionFixture
   distribution_design
+  time_design
