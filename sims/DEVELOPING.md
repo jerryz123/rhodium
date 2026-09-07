@@ -65,7 +65,10 @@ ELF outputs before each build so changes to core support cannot leave stale
 tests for the upstream runner; preserve cached reference intermediates.
 Reference/harness limitations remain distinct from core extension support;
 extend and validate the projection as newly selected suites expose gaps.
-Privileged-test enablement remains a separate integration step.
+Always enable privileged tests as well; missing platform hooks and reference
+model mismatches must surface as build or execution failures, not suite exclusions.
+Use ACT's keep-going mode to attempt every selected build even when others fail;
+the generation command still returns failure if any build fails.
 
 `arch-test/build.py` invokes the upstream CLI with its required Sail version
 set to 0.14; the pinned ACT still requires 0.13.1. This keeps the upstream

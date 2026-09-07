@@ -444,13 +444,18 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     read CsrId.Marchid: zero
     read CsrId.Mimpid: zero
     read CsrId.Mhartid: hart_id
+    read CsrId.Mconfigptr: zero
+    // RV32 status high fields are fixed zero without hypervisor or big-endian support.
+    read CsrId.Mstatush: zero
+    read CsrId.Menvcfgh: zero
   def rv32_counter_halves = if xlen == XLen.X32 | Bool(#true) | Bool(#false)
   def high_counter_ids = [CsrId.Cycleh, CsrId.Timeh, CsrId.Instreth, CsrId.Mcycleh, CsrId.Minstreth] ++ HpmCounterHighIds ++ MachineHpmCounterHighIds
   def high_counter_unavailable = !rv32_counter_halves & csr.is_one_of(high_counter_ids.map(csr_bits))
   def fp_csr = csr.is_one_of(csr_bits(CsrId.Fflags), csr_bits(CsrId.Frm), csr_bits(CsrId.Fcsr))
   def fp_access_enabled = Bool(floating_point_supports_f(profile)) & or_reduce(fp_csrs.status)
   assert(!fp_update.valid ||| fp_access_enabled, "rv5stage_fp_update_enabled")
-  def csr_recognized = bank.recognized & !high_counter_unavailable & (!fp_csr ||| fp_access_enabled)
+  def high_machine_csr_unavailable = !rv32_counter_halves & csr.is_one_of(csr_bits(CsrId.Mstatush), csr_bits(CsrId.Menvcfgh))
+  def csr_recognized = bank.recognized & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled)
   def csr_read_value = bank.read_value
   def write_requested = csr_write_requested(commit.bits.system.csr, commit.bits.instruction[15..20])
   def csr_read_only = csr[10..12] === bits(3, 2)

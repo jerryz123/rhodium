@@ -44,14 +44,15 @@ check:
   rv64_yaml.contains("{ name: \"Zcd\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zicbop\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zimop\", version: \"= 1.0.0\" }") ~is #true
-  rv64_yaml.contains("{ name: \"S\", version: \"= 1.11.0\" }") ~is #true
-  rv64_yaml.contains("{ name: \"Sm\", version: \"= 1.11.0\" }") ~is #true
+  rv64_yaml.contains("{ name: \"S\", version: \"= 1.12.0\" }") ~is #true
+  rv64_yaml.contains("{ name: \"Sm\", version: \"= 1.12.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Sv39\", version: \"= 1.0.0\" }") ~is #true
-  rv64_yaml.contains("{ name: \"Svade\",") ~is #false
+  rv64_yaml.contains("{ name: \"Svade\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("  PHYS_ADDR_WIDTH: 44") ~is #true
   rv64_yaml.contains("  CACHE_BLOCK_SIZE: 64") ~is #true
   rv64_yaml.contains("  FORCE_UPGRADE_CBO_INVAL_TO_FLUSH: false") ~is #true
   rv64_yaml.contains("  ASID_WIDTH: 0") ~is #true
+  rv64_yaml.contains("  CONFIG_PTR_ADDRESS: 0") ~is #true
   rv64_yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
   rv64_yaml.contains("  MISALIGNED_LDST: false") ~is #true
   rv64_yaml.contains("  LRSC_FAIL_ON_NON_EXACT_LRSC: true") ~is #true
@@ -71,6 +72,9 @@ check:
   rv32_yaml.contains("{ name: \"C\",") ~is #false
   rv32_yaml.contains("{ name: \"Sv39\",") ~is #false
   rv32_yaml.contains("{ name: \"Svbare\", version: \"= 1.0.0\" }") ~is #true
+  rv32_yaml.contains("{ name: \"Sm\", version: \"= 1.12.0\" }") ~is #true
+  rv32_yaml.contains("{ name: \"Svade\",") ~is #false
+  rv32_yaml.contains("  CONFIG_PTR_ADDRESS: 0") ~is #true
   rv32_yaml.contains("  MSTATUS_FS_LEGAL_VALUES: [0]") ~is #true
   rv32_yaml.contains("  TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY: false") ~is #true
   rv5stage_udb_configuration(

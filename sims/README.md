@@ -173,9 +173,11 @@ so `satp.ASID` expectations match the configured core's implemented width.
 
 Selection is not a claim that every candidate has passed. The initial reference
 adapter was validated with RV64I and M-mode startup; it is not yet a complete
-UDB-to-Sail projection. ACT's `include_priv_tests` remains false as a separate
-harness limitation. The pinned ACT filter can still select virtual-memory
-suites whose metadata does not directly require its privilege extensions.
+UDB-to-Sail projection. ACT's `include_priv_tests` is always true: privileged
+tests are selected by the same UDB extension and parameter constraints as all
+other tests, without a separate harness exclusion.
+Generation attempts all selected tests even if some fail, and reports an overall
+failure in that case. `arch-test-run` can exercise the ELFs that did build.
 The full DUT device and PMA map is not modeled for this stage. Sail retains
 the reference-only interrupt devices required by ACT; DUT interrupt hooks
 fail if invoked. Build, reference-model, and DUT failures in newly selected suites

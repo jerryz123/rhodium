@@ -23,6 +23,8 @@ enum CsrId
 | Timeh
 | Instreth
 | Mstatus
+| Mstatush
+| Menvcfgh
 | Misa
 | Medeleg
 | Mideleg
@@ -43,6 +45,7 @@ enum CsrId
 | Marchid
 | Mimpid
 | Mhartid
+| Mconfigptr
 
 | Hpmcounter3
 | Hpmcounter4
@@ -254,9 +257,10 @@ def CsrIds = [
   CsrId.Cycleh, CsrId.Timeh, CsrId.Instreth,
   CsrId.Mstatus, CsrId.Misa, CsrId.Medeleg, CsrId.Mideleg,
   CsrId.Mie, CsrId.Mtvec, CsrId.Mcounteren, CsrId.Menvcfg,
+  CsrId.Mstatush, CsrId.Menvcfgh,
   CsrId.Mscratch, CsrId.Mepc, CsrId.Mcause, CsrId.Mtval, CsrId.Mip,
   CsrId.Mcycle, CsrId.Minstret, CsrId.Mcycleh, CsrId.Minstreth,
-  CsrId.Mvendorid, CsrId.Marchid, CsrId.Mimpid, CsrId.Mhartid
+  CsrId.Mvendorid, CsrId.Marchid, CsrId.Mimpid, CsrId.Mhartid, CsrId.Mconfigptr
 ] ++ HpmCounterIds ++ HpmCounterHighIds ++ MachineHpmCounterIds ++ MachineHpmCounterHighIds ++ MachineHpmEventIds
 
 fun csr_address(id :: CsrId) :: Nat:
@@ -282,6 +286,8 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Timeh: 0xc81
   | CsrId.Instreth: 0xc82
   | CsrId.Mstatus: 0x300
+  | CsrId.Mstatush: 0x310
+  | CsrId.Menvcfgh: 0x31a
   | CsrId.Misa: 0x301
   | CsrId.Medeleg: 0x302
   | CsrId.Mideleg: 0x303
@@ -302,6 +308,7 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Marchid: 0xf12
   | CsrId.Mimpid: 0xf13
   | CsrId.Mhartid: 0xf14
+  | CsrId.Mconfigptr: 0xf15
 
   | CsrId.Hpmcounter3: 0xc03
   | CsrId.Hpmcounter4: 0xc04

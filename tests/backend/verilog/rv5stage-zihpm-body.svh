@@ -1,4 +1,4 @@
-// Sweeps all zero-valued HPM slots, write intent, RV32 halves, and S/U permissions.
+// Sweeps zero-valued HPM and minimal machine CSRs, write intent, XLEN, and S/U permissions.
   typedef logic [XLEN-1:0] word_t;
   typedef struct packed {
     word_t pc;
@@ -136,6 +136,14 @@
     #1;
     reset = 0;
     assert (privilege == 3) else $fatal(1, "CSR reset privilege mismatch");
+    readonly_zero('hf15); // No configuration structure is provided.
+    if (XLEN == 32) begin
+      writable_zero('h310); // Little-endian, non-hypervisor mstatush.
+      writable_zero('h31a); // No implemented high menvcfg fields.
+    end else begin
+      illegal_access('h310);
+      illegal_access('h31a);
+    end
     for (int index = 3; index <= 31; index++) begin
       writable_zero(12'('hb00 + index));
       writable_zero(12'('h320 + index));
@@ -155,6 +163,14 @@
     access_csr('h306, 2, 0, 0, 0, 7);
     access_csr('h106, 2, 0, 0, 0, 7);
     for (int mode = 0; mode <= 1; mode++) begin
+      enter_mode(2'(mode));
+      illegal_access('hf15);
+      if (XLEN == 32) begin
+        enter_mode(2'(mode));
+        illegal_access('h310);
+        enter_mode(2'(mode));
+        illegal_access('h31a);
+      end
       for (int index = 3; index <= 31; index++) begin
         enter_mode(2'(mode));
         illegal_access(12'('hc00 + index));

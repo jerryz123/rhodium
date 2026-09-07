@@ -1,4 +1,4 @@
-# Checks UDB-to-Sail projection, ACT completion, and stale-free full-suite generation.
+# Checks UDB-to-Sail projection, privileged-inclusive generation, and ACT completion.
 import importlib.util
 from pathlib import Path
 import runpy
@@ -13,12 +13,20 @@ RUNNER = Path(__file__).resolve().parents[1] / "arch-test" / "run.py"
 
 
 class ArchTestConfigTest(unittest.TestCase):
-    def test_asid_width_comes_from_core_profile(self):
+    def test_configuration_includes_privileged_tests(self):
         spec = importlib.util.spec_from_file_location("act_configure", RUNNER.with_name("configure.py"))
         configure = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(configure)
-        for width in (0, 7, 16):
-            with self.subTest(asid_width=width):
+        config = configure.test_config("simple-soc", "gcc", "objdump", "/tmp/sail", "/tmp/udb.yaml")
+        self.assertIs(config["include_priv_tests"], True)
+        self.assertEqual(config["udb_config"], str(Path("/tmp/udb.yaml").resolve()))
+
+    def test_architecture_settings_come_from_core_profile(self):
+        spec = importlib.util.spec_from_file_location("act_configure", RUNNER.with_name("configure.py"))
+        configure = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(configure)
+        for width, version, svade in ((0, "= 1.12.0", True), (7, "1.12", False), (16, "1.11", False)):
+            with self.subTest(asid_width=width, privileged_version=version, svade=svade):
                 params = dict(MXLEN=64, NUM_PMP_ENTRIES=0, MISALIGNED_LDST=False,
                               MISALIGNED_LDST_EXCEPTION_PRIORITY="high", M_MODE_ENDIANNESS="little",
                               HPM_COUNTER_EN=[False] * 32, MCOUNTENABLE_EN=[False] * 32,
@@ -32,7 +40,8 @@ class ArchTestConfigTest(unittest.TestCase):
                                   "REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED"):
                     params[parameter] = True
                 default = {
-                    "extensions": {"V": {}, "Stateen": {"Smstateen": {}, "Ssstateen": {}}},
+                    "extensions": {"Svade": {"supported": not svade}, "V": {},
+                                   "Stateen": {"Smstateen": {}, "Ssstateen": {}}},
                     "base": {"mtvec": {"direct": {}, "vectored": {}},
                              "stvec": {"direct": {}, "vectored": {}}, "mstatus": {}, "xtval_nonzero": {},
                              "medeleg": {"delegatable_bits": {"len": 64, "value": "0xfc_b7ff"}}},
@@ -42,9 +51,15 @@ class ArchTestConfigTest(unittest.TestCase):
                     ]},
                     "platform": {"reservation": {}},
                 }
-                udb = {"params": params, "implemented_extensions": [{"name": "Sm", "version": "1.11"}]}
+                extensions = [{"name": "Sm", "version": version}]
+                if svade:
+                    extensions.append({"name": "Svade", "version": "= 1.0.0"})
+                udb = {"params": params, "implemented_extensions": extensions}
                 config = configure.sail_config(default, udb, 0x80000000, 0x40000000)
                 self.assertEqual(config["memory"]["asidlen"], width)
+                self.assertEqual(config["base"]["privileged_isa_version"],
+                                 "Privileged_ISA_1_11" if version == "1.11" else "Privileged_ISA_1_12")
+                self.assertIs(config["extensions"]["Svade"]["supported"], svade)
                 self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"],
                                  {"Some": "AlignmentException"})
                 self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0xcb3ff)
@@ -84,6 +99,7 @@ class ArchTestGenerationTest(unittest.TestCase):
                 "import sys\nfrom pathlib import Path\n"
                 "assert Path(sys.argv[1]).name == 'build.py'\n"
                 "assert sys.argv[sys.argv.index('--extensions') + 1] == 'all'\n"
+                "assert '--keep-going' in sys.argv\n"
                 f"elf_dir = Path({str(elf_dir)!r})\n"
                 "assert not list(elf_dir.rglob('*.elf'))\n"
                 "(elf_dir / 'selected.elf').touch()\n"

@@ -378,10 +378,11 @@ LR/SC reservations, and the implemented base counters. Physical address width
 and PMA granularity remain explicit inputs because they are properties of the
 core's integration rather than `RVCoreProfile`.
 
-The projection conservatively declares `S` and `Sm` 1.11. RV5Stage faults on
-unset Sv39 A/D bits, but does not advertise the post-1.12 `Svade` extension
-name because the core does not yet implement the mandatory 1.12 `mconfigptr`
-and RV32 `mstatush` CSRs.
+The projection declares `S` and `Sm` 1.12, matching the environment-configuration
+CSRs and trap-return behavior. `mconfigptr` reads as zero (no configuration
+structure), and RV32 `mstatush` and `menvcfgh` are fixed at zero with writes ignored. Sv39
+profiles also declare `Svade`: unset PTE A/D bits cause page faults instead of
+hardware page-table updates. Reference models derive these behaviors from UDB.
 
 Generate the configuration for one checked-in SoC composition from the
 repository root:

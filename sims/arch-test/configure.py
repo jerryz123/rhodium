@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Prepares an ACT integer-test bundle from generated UDB and platform memory inputs.
+# Prepares all UDB-applicable ACT tests and their Sail/platform configuration.
 import argparse
 import json
 import math
@@ -13,11 +13,7 @@ def bits(value, width=64):
 
 
 def sail_config(default, udb, origin, size):
-    """Project the settings needed by unprivileged I tests and their M-mode startup.
-
-    This is deliberately not a general UDB-to-Sail converter. Privileged tests
-    remain disabled until WARL, delegation, interrupts, and PMAs are modeled.
-    """
+    """Project modeled UDB settings; surface remaining model/platform gaps in ACT."""
     params = udb["params"]
     extensions = {entry["name"]: str(entry["version"]).removeprefix("= ") for entry in udb["implemented_extensions"]}
     if params["MXLEN"] != 64 or params["NUM_PMP_ENTRIES"] != 0:
@@ -85,12 +81,18 @@ def sail_config(default, udb, origin, size):
                  vector_misaligned_atomicity_granule_size_exp=0, supports_cbo_zero=False)
     # ACT requires Sail's CLINT and synthetic interrupt device even for I-only
     # signature builds. Keep their reference-only IO region; these do not claim
-    # that the DUT exposes the synthetic devices or enable privileged tests.
+    # that the DUT exposes the synthetic devices. Missing DUT hooks fail at runtime.
     io = next(region for region in memory["regions"] if not region["attributes"]["cacheable"])
     memory["regions"] = [io, ram]
     memory["dtb_address"] = bits(origin)
     default["platform"]["reservation"]["require_exact_reservation_addr"] = params["LRSC_FAIL_ON_NON_EXACT_LRSC"]
     return default
+
+
+def test_config(name, compiler, objdump, sail, udb):
+    return dict(name=name, compiler_exe=compiler, objdump_exe=objdump,
+                ref_model_exe=str(Path(sail).resolve()), udb_config=str(Path(udb).resolve()),
+                linker_script="link.ld", dut_include_dir=".", include_priv_tests=True)
 
 
 def main():
@@ -127,11 +129,9 @@ def main():
         linker = linker.replace("@" + key + "@", hex(value))
     (args.output / "link.ld").write_text(linker)
     shutil.copyfile(source / "rvmodel_macros.h", args.output / "rvmodel_macros.h")
-    (args.output / "sail.json").write_text("// Configures Sail for the selected UDB integer-test target.\n" + json.dumps(config, indent=2) + "\n")
+    (args.output / "sail.json").write_text("// Configures Sail for the selected UDB target.\n" + json.dumps(config, indent=2) + "\n")
     subprocess.run([sail, "--config", str(args.output / "sail.json"), "--validate-config"], check=True)
-    act = dict(name=args.name, compiler_exe=args.compiler, objdump_exe=args.objdump,
-               ref_model_exe=str(Path(sail).resolve()), udb_config=str(args.udb.resolve()),
-               linker_script="link.ld", dut_include_dir=".", include_priv_tests=False)
+    act = test_config(args.name, args.compiler, args.objdump, sail, args.udb)
     with (args.output / "test_config.yaml").open("w") as output:
         output.write("# Connects generated UDB and platform files to ACT4.\n")
         YAML().dump(act, output)

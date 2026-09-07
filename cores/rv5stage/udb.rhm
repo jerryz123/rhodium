@@ -83,12 +83,12 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
     extension("Zihpm", "2.0"),
     extension("Zimop", "1.0.0"),
     extension("U", "1.0.0"),
-    extension("S", "1.11.0"),
-    extension("Sm", "1.11.0"),
+    extension("S", "1.12.0"),
+    extension("Sm", "1.12.0"),
     extension("Svbare", "1.0.0")
   ]
   when profile.mmu_mode == RV5StageMmuMode.Sv39
-  | result := result ++ [extension("Sv39", "1.0.0")]
+  | result := result ++ [extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")]
   result
 
 fun rv5stage_udb_parameters(profile :: RVCoreProfile,
@@ -124,6 +124,7 @@ fun rv5stage_udb_parameters(profile :: RVCoreProfile,
     natural_parameter("MTVAL_WIDTH", xlen),
     boolean_parameter("MARCHID_IMPLEMENTED", #false),
     boolean_parameter("MIMPID_IMPLEMENTED", #false),
+    natural_parameter("CONFIG_PTR_ADDRESS", 0),
     natural_parameter("VENDOR_ID_BANK", 0),
     natural_parameter("VENDOR_ID_OFFSET", 0),
     boolean_parameter("MISALIGNED_LDST", #false),
