@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises stateless subordinate messages at every data width with optional DAT fields on and off.
+// Exercises repeated stateless message construction in one circuit across DAT widths and optional fields.
 
 import:
   lib("chi/params.rhdl").CHIFlitParams
@@ -13,20 +13,17 @@ def o256 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_w
 def w512 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 512)
 def o512 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 512, ~dat_rsvdc_width: 32, ~data_check: #true, ~poison: #true)
 
-circuit CHIReadMessageFixture(p :: CHIFlitParams):
-  input request: CHIReqFlit(p)
-  input node_id: Bits(16)
-  input data_id: Bits(2)
-  input data: Bits(p.data_width)
-  output result: CHIDatFlit(p)
-  result <== chi_sn_read_completion(p, node_id, request, data_id, data)
-
 circuit CHIMessageFixture():
   input request: CHIReqFlit(w128)
   input node_id: Bits(16)
   input dbid: Bits(5)
   input data_id: Bits(2)
   input data: Bits(512)
+  input other_request: CHIReqFlit(w128)
+  input other_node_id: Bits(16)
+  input other_dbid: Bits(5)
+  input other_data_id: Bits(2)
+  input other_data: Bits(128)
   output dbid_response: CHIRspFlit(w128)
   output write_response: CHIRspFlit(w128)
   output read_w128: CHIDatFlit(w128)
@@ -35,45 +32,21 @@ circuit CHIMessageFixture():
   output read_o256: CHIDatFlit(o256)
   output read_w512: CHIDatFlit(w512)
   output read_o512: CHIDatFlit(o512)
+  output other_dbid_response: CHIRspFlit(w128)
+  output other_write_response: CHIRspFlit(w128)
+  output other_read_response: CHIDatFlit(w128)
 
   dbid_response <== chi_sn_dbid_response(w128, node_id, request, dbid)
   write_response <== chi_sn_write_completion(w128, node_id, request, dbid)
-  inst w128_builder(CHIReadMessageFixture(w128))
-  w128_builder.request <== request
-  w128_builder.node_id <== node_id
-  w128_builder.data_id <== data_id
-  w128_builder.data <== data[0..128]
-  read_w128 <== w128_builder.result
-  inst o128_builder(CHIReadMessageFixture(o128))
-  o128_builder.request <== request
-  o128_builder.node_id <== node_id
-  o128_builder.data_id <== data_id
-  o128_builder.data <== data[0..128]
-  read_o128 <== o128_builder.result
-  inst w256_builder(CHIReadMessageFixture(w256))
-  w256_builder.request <== request
-  w256_builder.node_id <== node_id
-  w256_builder.data_id <== data_id
-  w256_builder.data <== data[0..256]
-  read_w256 <== w256_builder.result
-  inst o256_builder(CHIReadMessageFixture(o256))
-  o256_builder.request <== request
-  o256_builder.node_id <== node_id
-  o256_builder.data_id <== data_id
-  o256_builder.data <== data[0..256]
-  read_o256 <== o256_builder.result
-  inst w512_builder(CHIReadMessageFixture(w512))
-  w512_builder.request <== request
-  w512_builder.node_id <== node_id
-  w512_builder.data_id <== data_id
-  w512_builder.data <== data[0..512]
-  read_w512 <== w512_builder.result
-  inst o512_builder(CHIReadMessageFixture(o512))
-  o512_builder.request <== request
-  o512_builder.node_id <== node_id
-  o512_builder.data_id <== data_id
-  o512_builder.data <== data[0..512]
-  read_o512 <== o512_builder.result
+  other_dbid_response <== chi_sn_dbid_response(w128, other_node_id, other_request, other_dbid)
+  other_write_response <== chi_sn_write_completion(w128, other_node_id, other_request, other_dbid)
+  other_read_response <== chi_sn_read_completion(w128, other_node_id, other_request, other_data_id, other_data)
+  read_w128 <== chi_sn_read_completion(w128, node_id, request.into(CHIReqFlit(w128)), data_id, data[0..128])
+  read_o128 <== chi_sn_read_completion(o128, node_id, request.into(CHIReqFlit(o128)), data_id, data[0..128])
+  read_w256 <== chi_sn_read_completion(w256, node_id, request.into(CHIReqFlit(w256)), data_id, data[0..256])
+  read_o256 <== chi_sn_read_completion(o256, node_id, request.into(CHIReqFlit(o256)), data_id, data[0..256])
+  read_w512 <== chi_sn_read_completion(w512, node_id, request.into(CHIReqFlit(w512)), data_id, data[0..512])
+  read_o512 <== chi_sn_read_completion(o512, node_id, request.into(CHIReqFlit(o512)), data_id, data[0..512])
 
 def design = elaborate(CHIMessageFixture())
 

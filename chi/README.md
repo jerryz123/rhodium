@@ -83,6 +83,8 @@ enables from the transfer, and accepts the packet's DataID and payload. These
 builders emit successful responses with the existing inactive/default optional
 fields; they do not allocate transactions, validate endpoint capabilities, or
 implement retry, error, or coherence policy.
+They return immutable values and can be called repeatedly in one circuit
+without allocating named wires or sharing state between calls.
 
 The package boundary follows the protocol layering:
 

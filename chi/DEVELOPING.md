@@ -50,7 +50,11 @@ receipt state, not response construction. Devices can consume the builders
 through `main.rhdl`; RAM imports their owner directly. Keep address maps,
 device side effects, and endpoint policy with callers. The `chi-messages`
 simulation checks routing, byte masks, payloads, and default fields at all DAT
-widths with optional fields enabled and disabled.
+widths with optional fields enabled and disabled, including repeated calls in
+one circuit with distinct inputs. Builders should construct immutable values,
+not declare caller-scoped named wires. The read-completion builder's zero
+literal expresses only its existing inactive-field policy; it is not a
+universal default for other CHI messages.
 
 Packet position and naturally aligned, unelided transfer packet sets belong in
 `protocol.rhdl`, below both engines and monitors. Use its address-aware helpers
