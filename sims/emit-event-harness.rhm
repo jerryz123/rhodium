@@ -1,0 +1,16 @@
+#lang rhombus
+// Instruments the SimpleSoC harness and exports its matching descriptor and clock configuration.
+
+import:
+  "simple-soc-harness.rhdl" as harness
+  "../rhodium/backend/circt.rhm".emit_circt
+  "../rhodium/event/main.rhm" open
+
+def traced = instrument_events(harness.elaboration)
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
+def trace_clock_frequency_hz = harness.trace_clock_frequency_hz
+print(emit_circt(traced.instrumented.design))
+
+export:
+  event_manifest_cpp
+  trace_clock_frequency_hz

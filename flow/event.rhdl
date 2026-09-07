@@ -8,6 +8,7 @@ import:
 // Preserves a ready-valid transaction while attaching a compiler-visible event
 // site to the identity transform.
 fun trace_event(label :: String,
+                ~root: root :: Boolean = #false,
                 ~terminal: terminal :: Boolean = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -27,6 +28,7 @@ fun trace_event(label :: String,
         ~payload: input_endpoint.field("bits"),
         ~valid: input_endpoint.field("valid"),
         ~ready: output_endpoint.field("ready"),
+        ~root,
         ~terminal
       )
     )
@@ -34,6 +36,7 @@ fun trace_event(label :: String,
 // Valid has no reverse readiness member, so its transparent event checkpoint
 // forwards only the offer and payload.
 fun trace_valid_event(label :: String,
+                      ~root: root :: Boolean = #false,
                       ~terminal: terminal :: Boolean = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -51,6 +54,7 @@ fun trace_valid_event(label :: String,
         label,
         ~payload: input_endpoint.field("bits"),
         ~valid: input_endpoint.field("valid"),
+        ~root,
         ~terminal
       )
     )

@@ -102,7 +102,9 @@ check_matrix_entry rhodium/event/analyze.rhm circt_matrix ci-circt-language-test
 check_matrix_entry rheg/runtime/rheg.cc circt_matrix ci-circt-language-test
 check_matrix_entry rheg/perfetto/rheg_perfetto.cc host_matrix ci-host-backend-test
 check_matrix_entry rheg/tests/event-collector-test.cpp circt_matrix ci-circt-language-test
-check_field rhodium/event/analyze.rhm simulation false
+check_field rhodium/event/analyze.rhm simulation true
+check_field rheg/runtime/rheg.cc simulation true
+check_field rheg/perfetto/rheg_perfetto.cc simulation true
 check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-foundation-test
 check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-hygiene-test
 check_matrix_entry flow/main.rhdl host_matrix ci-host-cores-test

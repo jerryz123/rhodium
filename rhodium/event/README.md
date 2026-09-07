@@ -12,6 +12,15 @@ synthesizable event references and result-less DPI calls.
 
 ## Annotate events
 
+Use `trace_event(label, ~root: #true)` or `trace_valid_event(label, ~root: #true)`
+to explicitly start a lineage at a checkpoint, including at an opaque component
+output. A root intentionally has no incoming dependency, even if an upstream
+annotation exists; downstream inference proceeds normally from its new identity.
+The manifest records this decision as `sites[].root`. The default is false:
+ordinary checkpoints still reject opaque or uncertified ancestry. Root does not
+certify the hidden component, relax clock/reset checks, or correlate its inputs
+and outputs. The low-level `describe_interface_event` accepts the same option.
+
 The [flow library facade](../../flow/README.md) exports transparent event checkpoints:
 
 ```rhombus
@@ -186,9 +195,11 @@ event is created. The original payload and handshake hardware is unchanged.
 
 `EventInstrumentationConfig(clock_port, reset_port)` selects the top-level
 `Clock` and synchronous `Reset` inputs (defaults: `"clock"`, `"reset"`). All
-functional clock/reset signals in the reachable hierarchy must resolve to
-these inputs through direct wiring or casts. Generated clocks and independent
-reset domains are rejected. Assert reset for at least one sampled rising edge
+functional clock/reset signals in occurrences owning event sites or observed
+trace controls must resolve to these inputs through direct wiring or casts.
+Generated clocks and independent reset domains in those occurrences are
+rejected; untouched opaque subtrees may retain private domains. Assert reset
+for at least one sampled rising edge
 before tracing. Reset clears all trace counters and the runtime graph;
 identities are unique within that reset epoch, not across retained epochs.
 

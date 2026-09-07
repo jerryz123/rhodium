@@ -91,6 +91,50 @@ imported nor elaborated. Every harness emits the same parameterless
 `SoCHarness` Verilog top contract, allowing `TestDriver.v` to remain shared;
 there is no Rhodium variant enum or conditional harness circuit.
 
+## Export SimpleSoC events to Perfetto
+
+Tracing is opt-in and currently supports `SOC=simple`:
+
+```sh
+make -C sims smoke SOC=simple TRACE=1 TRACE_FILE=/tmp/simple-soc.pftrace
+make -C sims run SOC=simple TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
+```
+
+Choose a fresh trace path: the exporter overwrites the selected output file.
+Open the resulting `.pftrace` in Perfetto. Traced builds live in
+`/tmp/rhodium-sims/simple-trace/`, separate from ordinary builds. `TRACE=0`
+(the default) neither instruments RTL nor links the optional exporter.
+Direct invocation of a traced binary requires `+rheg-trace=/absolute/path`.
+The same binary can run different target programs and trace destinations.
+
+Four checkpoints observe real external-memory request and response handshakes:
+`memory-request` to `memory-accept`, and `memory-response` to `soc-response`.
+Each pair describes the same transfer across a transparent harness wire, so its
+inferred edge has zero latency and preserves the payload. Data channels remain
+untraced. These memory checkpoints do not match requests to responses through
+the CHI controller or identify the originating instructions.
+The request and response source checkpoints explicitly use `~root: #true` to
+start observation at these opaque component outputs.
+
+The trace also includes the core's connected Fetch → Decode → Execute → Memory
+→ WB stage events. See the [core tracing contract](../cores/rv5stage/README.md#pipeline-event-tracing)
+for transfer predicates, squash behavior, payloads, and the distinction between
+WB arrival and retirement. These pipeline events have their own root; they are
+not connected through unmodeled cache/MMU transactions to the memory checkpoints.
+
+The emitter generates the manifest and C++ clock constant from the same harness
+configuration as the instrumented RTL. The current SimpleSoC configuration is
+100 MHz; export uses that frequency, not the testbench delay or timer timebase.
+The driver binds metadata before callbacks and flushes each sampled cycle on
+the following falling edge, including the final cycle before exit or timeout.
+Only the initial reset epoch is supported by this driver. A timeout returns
+failure but leaves the settled prefix available for diagnosis; output after an
+export/I/O failure must be treated as incomplete.
+
+The optional build requires CMake and the [RHEG exporter dependencies](../rheg/README.md#streaming-to-perfetto).
+For offline builds, set `NLOHMANN_JSON_SOURCE_DIR` to an extracted pinned
+nlohmann JSON 3.12.0 tree. Set `BUILD_JOBS` to bound native compilation (default 4).
+
 ## Run a target
 
 Run any FESVR-compatible target binary through an already-built simulator:
@@ -106,6 +150,8 @@ make -C sims run SOC=tiled BINARY=/absolute/path/to/program.elf
 argument vector through VPI to `DirectMemoryHtif`. FESVR owns ELF parsing,
 segment loading, entry-point discovery, `tohost`/`fromhost` polling, and exit
 status; the Makefile and RTL do not implement a separate binary loader.
+The Verilator binding removes only the driver-owned `+rheg-trace=` and
+`+max-cycles=` options before passing arguments to FESVR.
 
 After ELF loading completes, the C++ transport writes the reported entry point
 to the SoC's configured 64-bit boot-address register through the ordinary memory

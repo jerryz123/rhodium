@@ -82,8 +82,42 @@ circuit EventBadGuard():
 
 def terminal_chain = elaborate_with_top(EventTerminalChain())
 fun bad_guard(): elaborate_with_top(EventBadGuard())
+
+sync_circuit EventUntouchedCounter():
+  output value: Bits(8)
+  reg count(~init: bits(7, 8))
+  count <== count + bits(1, 8)
+  value <== count
+
+bundle EventOpaquePayload():
+  tag: Bits(3)
+  data: Bits(70)
+
+sync_circuit EventOpaqueSource():
+  interface output_link(Decoupled(EventOpaquePayload()), ~role: producer)
+  def local_reset = !reset_active().into(Bool)
+  inst state(EventUntouchedCounter(), ~reset_when: local_reset)
+  output_link.valid <== bits(1, 1).into(Bool)
+  output_link.bits <== EventOpaquePayload():
+    tag: bits(5, 3)
+    data: state.value.zext(70)
+
+sync_circuit EventRootBoundary(root :: Boolean):
+  interface sink(Decoupled(EventOpaquePayload()), ~role: producer)
+  inst opaque(EventOpaqueSource())
+  opaque.output_link |> trace_event("start", ~root: root) |> trace_event("end") |> sink
+
+sync_circuit EventRootCut():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  source |> trace_valid_event("before") |> trace_valid_event("start", ~root: #true) |> trace_valid_event("end") |> sink
+
+fun root_boundary(root :: Boolean): elaborate_with_top(EventRootBoundary(root))
+def root_cut = elaborate_with_top(EventRootCut())
 export:
   runtime
   wrong_domain
   terminal_chain
   bad_guard
+  root_boundary
+  root_cut

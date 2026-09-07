@@ -96,7 +96,8 @@ rheg::graph().bind_timing(rheg::TraceTiming{100000000, 0});
 before any callback including reset. There is no assumed frequency default.
 SoC integration should supply `SoCClockConfig.clock_frequency_hz`, not
 `timebase_frequency_hz`; standalone integrations supply their own frequency.
-Automatic SoC harness plumbing is not yet provided.
+The [SimpleSoC simulator](../sims/README.md#export-simplesoc-events-to-perfetto)
+supplies this timing in its opt-in trace build; other integrations bind it explicitly.
 
 `Snapshot::timing()` returns a const optional timing value. Untimed snapshots
 remain supported and retain their existing JSON shape. Timed snapshots add an
@@ -201,16 +202,20 @@ then use a new header and output file for the next epoch. The simulator must
 supply the instrumentation's event-cycle count, not an unrelated harness tick.
 No DPI ABI or RTL changes are required for this explicit host boundary.
 
-Each occurrence becomes a zero-duration slice on a thread track named with its
-full site ID. Full paths disambiguate repeated instances; nested generic track
-groups are not supported by this first flow mapping. Payload words, exact cycle,
+Each occurrence becomes a one-cycle slice spanning `[N, N+1)` on a track named
+with its annotated event label, without a synthetic thread-ID suffix. Each site
+retains a separate track even when labels repeat; the full site path remains in
+the track description and event arguments. These are non-thread tracks grouped
+under the top-level design. Payload words, exact cycle,
 sequence, epoch, frequency, and source location are retained as arguments.
-Timestamps use `floor(cycle * 1000000000 / frequency)` with integer arithmetic
-and reject signed-64-bit nanosecond overflow. Fractional nanoseconds are
-quantized without cumulative drift. No occupancy or stall duration is inferred.
+Both boundaries use `floor(cycle * 1000000000 / frequency)` with integer
+arithmetic and reject signed-64-bit nanosecond overflow before writing a batch.
+Fractional nanoseconds are quantized independently without cumulative drift;
+sub-nanosecond cycles can quantize to zero duration. This one-cycle display width
+does not infer occupancy or time stalled between checkpoints.
 
 The native protobuf contains legacy `s`/`f` flow records enclosed by each
-zero-duration occurrence slice. A source identity gets one flow start; each
+one-cycle occurrence slice. A source identity gets one flow start; each
 child adds a non-closing flow end for each parent. Unlike modern flow steps,
 this preserves the original source through delayed fanout and supports joins
 without inventing sibling dependencies or predicting future edge IDs. Events

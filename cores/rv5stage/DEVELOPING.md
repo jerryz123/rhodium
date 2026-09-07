@@ -81,6 +81,26 @@ contexts must not select arithmetic operands. The reusable multiplier captures
 raw operands before its magnitude-preparation cycle; keep that register boundary
 between WB selection and full-width negation.
 
+## Pipeline event annotations
+
+`core.rhdl` describes the existing stage instances with public interface trace
+contracts. Keep storage certification bound to those instances; do not replace
+always-capture payload registers or derive controls from generated signal names.
+EX's payload is still computed unconditionally; its flow filter qualifies only
+token validity, preserving the feed-forward datapath and cancellation timing.
+
+Fetch is an explicit root because cache/MMU/fetch assembly is outside the traced
+lineage. Later checkpoints must not become independent roots to hide an
+unsupported path. Decode fires only after hazard gating. Keep WB arrival distinct
+from architectural retirement and deferred completion.
+
+After edits, run `rv5stage-core` for forwarding, stalls, replay, redirects, and
+deferred completion, then the SimpleSoC trace smoke. Its native Perfetto checks
+follow exact occurrence edges, extract RV64 PCs from the canonical packed
+payloads, and check one-cycle or elastic delays without requiring every fetched
+token to survive. The conversion/fanout compiler fixture covers both Valid
+replication outputs, including a dropping branch.
+
 ## Maintain the UDB projection
 
 Keep selectable extension membership derived from `RVCoreProfile`. Keep fixed

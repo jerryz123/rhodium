@@ -162,10 +162,11 @@ fun instrument_events(logical :: DesignElaboration,
     | op.opcode == "rtl.cast": control_root(op.operands[0], occurrence)
     | ~else: error(~who: #'instrument_events, "generated or opaque clock/reset in " ++ String.join(occurrence.path, "/"))
   for (occurrence in occurrences):
+    def traced_domain = manifest.sites.find(fun (site): site.instance_path == occurrence.path) != #false || controls.find(fun (control): control.path == occurrence.path) != #false
     for (value in occurrence.original.values):
       when value.name.starts_with("__event_")
       | error(~who: #'instrument_events, "reserved instrumentation name: " ++ value.name)
-      when clock_type(value.type) || reset_type(value.type)
+      when traced_domain && (clock_type(value.type) || reset_type(value.type))
       | def expected = (if clock_type(value.type) | top_clock.value | top_reset.value)
         unless control_root(value, occurrence) === expected
         | error(~who: #'instrument_events, "tracing requires one clock and reset epoch: " ++ String.join(occurrence.path, "/"))
@@ -174,7 +175,7 @@ fun instrument_events(logical :: DesignElaboration,
       | error(~who: #'instrument_events, "reserved instrumentation name: " ++ place.name)
     for (op in occurrence.original.operations):
       for (operand in op.operands):
-        when clock_type(operand.type) || reset_type(operand.type)
+        when traced_domain && (clock_type(operand.type) || reset_type(operand.type))
         | def expected = (if clock_type(operand.type) | top_clock.value | top_reset.value)
           unless control_root(operand, occurrence) === expected
           | error(~who: #'instrument_events, "tracing requires one clock and reset epoch: " ++ String.join(occurrence.path, "/"))
@@ -306,7 +307,9 @@ fun instrument_events(logical :: DesignElaboration,
       def id = builder.constant(module_def, Bits(32), site_ids[site.id])
       def sequence = sequences[site.id]
       def fire = fires[site.id]
-      def width = if annotation.payload | data_width(annotation.payload.type) | 0
+      def width = if annotation.payload | annotation.payload.type.packed_width() | 0
+      unless width is_a Nat
+      | error(~who: #'instrument_events, "event payload requires a canonical packed width: " ++ site.id)
       builder.dpi_call(module_def, node_dpi, [id, sequence, cycle, builder.constant(module_def, Bits(32), width)], clock, fire)
       when annotation.payload
       | def packed = builder.cast(module_def, copied.values[annotation.payload.id], Bits(width))

@@ -42,6 +42,7 @@ fun json_site(site :: EventSite):
     "payload_type": site.payload_type || #false,
     "payload_width": site.payload_width || #false,
     "terminal": site.terminal,
+    "root": site.root,
     "source_location": site.source_location
   }
 

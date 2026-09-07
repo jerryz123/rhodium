@@ -124,9 +124,10 @@ struct PerfettoWriter::Impl {
     integer(process, 1, 1); bytes(process, 6, description.top);
     bytes(descriptor, 3, process); bytes(p, 60, descriptor); packet(stream, p);
     for (std::size_t i = 0; i < description.sites.size(); ++i) {
-      std::string track, thread, pkt;
-      integer(track, 1, i + 1); integer(thread, 1, 1); integer(thread, 2, i + 1);
-      bytes(thread, 5, description.sites[i].id); bytes(track, 4, thread);
+      std::string track, pkt;
+      integer(track, 1, i + 1); integer(track, 5, description.sites.size() + 1);
+      bytes(track, 2, description.sites[i].label); integer(track, 15, 2);
+      bytes(track, 14, description.sites[i].id);
       bytes(pkt, 60, track); packet(stream, pkt);
     }
     flush(stream);
@@ -140,12 +141,12 @@ struct PerfettoWriter::Impl {
       require(bool(output), "Perfetto output write failed");
     } catch (...) { failed = true; throw; }
   }
-  std::uint64_t timestamp(std::uint64_t cycle) const {
-    const auto ns = static_cast<__uint128_t>(cycle) * 1000000000 / timing.clock_frequency_hz;
+  std::uint64_t timestamp(__uint128_t cycle) const {
+    const auto ns = cycle * 1000000000 / timing.clock_frequency_hz;
     require(ns <= INT64_MAX, "Perfetto timestamp overflow");
     return static_cast<std::uint64_t>(ns);
   }
-  void event(std::string& stream, Ref ref, std::uint64_t cycle, std::string fields) const {
+  void event(std::string& stream, Ref ref, __uint128_t cycle, std::string fields) const {
     integer(fields, 11, std::uint64_t(ref.site) + 1);
     std::string pkt;
     integer(pkt, 8, timestamp(cycle)); integer(pkt, 58, 6); // Synthetic BOOTTIME ns.
@@ -171,6 +172,7 @@ struct PerfettoWriter::Impl {
       require(!(node.width % 32) || !(node.words.rbegin()->second >> (node.width % 32)), "nonzero payload padding");
       indegree[ref] = 0;
       timestamp(node.cycle);
+      timestamp(static_cast<__uint128_t>(node.cycle) + 1);
     }
     for (const auto& [parent, child] : batch.edges) {
       require(batch.nodes.count(child) && (batch.nodes.count(parent) || known.count(parent)), "missing edge endpoint or child already streamed");
@@ -215,7 +217,8 @@ struct PerfettoWriter::Impl {
         flow(stream, ref, node.cycle, 'f', identity);
       }
       flow(stream, ref, node.cycle, 's', id);
-      fields.clear(); integer(fields, 9, 2); event(stream, ref, node.cycle, fields);
+      fields.clear(); integer(fields, 9, 2);
+      event(stream, ref, static_cast<__uint128_t>(node.cycle) + 1, fields);
     }
     flush(stream);
     known.merge(additions); // Transfer already allocated nodes after successful I/O.

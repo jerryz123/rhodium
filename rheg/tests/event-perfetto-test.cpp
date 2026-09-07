@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
   rejects([&] { writer.write(invalid); }, "cyclic");
   check(output.str() == prefix);
   writer.write(second);
-  auto third = batch(3, {1, 1});
+  auto third = batch(2, {1, 1});
   third.edges.insert({{1, 0}, {1, 1}});
   writer.write(third);
   check(output.str().substr(0, prefix.size()) == prefix);
@@ -64,8 +64,18 @@ int main(int argc, char** argv) {
   PerfettoWriter huge(overflow, manifest(), {1});
   auto largest = batch(UINT64_MAX, {0, 0}, 8);
   rejects([&] { huge.write(largest); }, "timestamp overflow");
+  const auto before_overflow = overflow.str();
+  auto end_overflow = batch(INT64_MAX / 1000000000, {0, 0}, 8);
+  rejects([&] { huge.write(end_overflow); }, "timestamp overflow");
+  check(overflow.str() == before_overflow);
+  std::ostringstream last_cycle;
+  PerfettoWriter maximum(last_cycle, manifest(), {UINT64_MAX});
+  maximum.write(largest); // N+1 is computed wide, never wrapped to cycle zero.
+  std::ofstream boundary(std::string(argv[1]) + "/last-cycle.pftrace", std::ios::binary);
+  boundary << last_cycle.str(); boundary.close(); check(bool(boundary));
   auto padding = first; padding.nodes.begin()->second.words[0] = 256;
   rejects([&] { huge.write(padding); }, "padding");
+  huge.write(first); // Rejected end boundaries must not advance the writer.
 
   Graph graph;
   graph.bind_manifest(manifest()); graph.bind_timing({300000000, UINT64_MAX});
@@ -82,6 +92,14 @@ int main(int argc, char** argv) {
   std::ostringstream replay;
   write_perfetto(replay, snapshot);
   check(replay.str() == output.str());
+  auto repeated = manifest();
+  auto repeated_label = repeated.json.find("\"label\":\"issued\"");
+  check(repeated_label != std::string::npos);
+  repeated.json.replace(repeated_label, 16, "\"label\":\"accepted\"");
+  std::ofstream named(std::string(argv[1]) + "/repeated-label.pftrace", std::ios::binary);
+  PerfettoWriter repeated_writer(named, repeated, {300000000});
+  for (const auto& b : {first, second, third}) repeated_writer.write(b);
+  named.close(); check(bool(named));
   for (const auto& text : {std::string("{\"format\":1,\"format\":2}"),
                            graph.snapshot().json() + " garbage"}) {
     std::istringstream malformed(text);

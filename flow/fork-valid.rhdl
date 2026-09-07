@@ -20,7 +20,8 @@ fun fork_valid(n :: PosInt)
       describe_interface_transform(
         interface_transform(input_link, output_links),
         "fork-valid",
-        {"outputs": n}
+        {"outputs": n},
+        ~trace_model: interface_trace_atomic_fork(n)
       )
     )
 

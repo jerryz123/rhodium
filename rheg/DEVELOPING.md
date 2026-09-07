@@ -58,7 +58,14 @@ For offline JSON dependency resolution, set `NLOHMANN_JSON_SOURCE_DIR` to an
 extracted 3.12.0 source tree. The script reports the tested processor version.
 The producer emits delayed fanout and a same-cycle join with reversed site
 ordering. Native SQL checks cover timestamps/durations, edges, identities, and
-parser diagnostics. C++ tests cover invalid batches, strict JSON parsing,
+parser diagnostics, explicit track labels, and complete one-cycle slices in
+every flushed prefix. Use named non-thread tracks under the top-level process
+and disable sibling merging to preserve distinct sites with repeated labels.
+Native tests must verify legacy flow attachment on these tracks as well as
+the absence of synthetic thread association (which adds numeric UI suffixes).
+Use wide arithmetic for the N+1 boundary and validate it before output; test
+adjacent slices and fractional clock periods as well as end-only overflow.
+C++ tests cover invalid batches, strict JSON parsing,
 quantization, overflow, empty traces, and poisoned output streams. The snapshot
 parser rejects duplicate keys, excessive nesting, fractional/negative integer
 fields, overflow, incomplete nodes, and manifest-invalid edges. Converter errors

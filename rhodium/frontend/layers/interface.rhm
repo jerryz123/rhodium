@@ -500,7 +500,8 @@ class InterfaceEventGroup(module_def :: Module,
                           terminal :: Boolean,
                           location :: Location,
                           valid :: False || Value = #false,
-                          ready :: False || Value = #false):
+                          ready :: False || Value = #false,
+                          root :: Boolean = #false):
   implements ModuleMetadataPayload
 class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
@@ -1866,6 +1867,7 @@ fun describe_interface_transform(handle :: Handle,
 // retaining a dedicated metadata record for compiler consumers.
 fun describe_interface_event(handle :: Handle,
                              label :: String,
+                             ~root: root :: Boolean = #false,
                              ~payload: payload :: False || HardwareEntity = #false,
                              ~terminal: terminal :: Boolean = #false,
                              ~valid: valid :: False || HardwareEntity = #false,
@@ -1910,12 +1912,13 @@ fun describe_interface_event(handle :: Handle,
                                   terminal,
                                   location,
                                   transfer_value(valid),
-                                  transfer_value(ready))
+                                  transfer_value(ready),
+                                  root)
   module_def.add_metadata(interface_event_group_namespace, event)
   describe_interface_transform(
     handle,
     "event",
-    {"label": label, "site": site_index, "terminal": terminal},
+    {"label": label, "site": site_index, "terminal": terminal, "root": root},
     ~trace_model: interface_trace_passthrough()
   )
 

@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <string_view>
+#include <vector>
 
 #include <vpi_user.h>
 
@@ -55,7 +57,15 @@ int rhodium_htif_tick(unsigned char reset,
     if (!vpi_get_vlog_info(&info)) {
       std::abort();
     }
-    transport = new rhodium::fesvr::DirectMemoryHtif(info.argc, info.argv, target_xlen, static_cast<std::uint64_t>(boot_address_register));
+    // TestDriver owns these plusargs; do not let FESVR interpret them as an ELF
+    // filename. Preserve all other host and target arguments, including order.
+    static std::vector<char*> htif_arguments;
+    for (int index = 0; index < info.argc; ++index) {
+      const std::string_view argument(info.argv[index]);
+      if (index != 0 && (argument.starts_with("+rheg-trace=") || argument.starts_with("+max-cycles="))) continue;
+      htif_arguments.push_back(info.argv[index]);
+    }
+    transport = new rhodium::fesvr::DirectMemoryHtif(static_cast<int>(htif_arguments.size()), htif_arguments.data(), target_xlen, static_cast<std::uint64_t>(boot_address_register));
   }
 
   transport->tick(request_ready != 0,

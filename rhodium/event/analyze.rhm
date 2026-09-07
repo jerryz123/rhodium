@@ -142,7 +142,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  if annotation.payload | annotation.payload.type.describe() | #false,
                                  if annotation.payload | annotation.payload.type.packed_width() | #false,
                                  annotation.terminal,
-                                 annotation.location.describe())
+                                 annotation.location.describe(),
+                                 annotation.root)
             sites := sites ++ [site]
             site_inputs[site.id] := input_ports.map(
               fun (port): terminal_id(instance_path, flow_block.id, port.id)
@@ -280,7 +281,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
 
   def mutable dependencies = []
   for (site in sites):
-    for (input in site_inputs.get(site.id, [])):
+    for (input in (if site.root | [] | site_inputs.get(site.id, []))):
       for (candidate in nearest_events(input)):
         def dependency = EventDependency(candidate.site.id,
                                          site.id,
@@ -334,5 +335,5 @@ fun infer_event_manifest(logical :: DesignElaboration,
     cached_plans[vertex]
   when dynamic
   | for (site in sites):
-      plans[site.id] := trace_plan(site_inputs[site.id][0])
+      plans[site.id] := if site.root | EventTraceSource(#false) | trace_plan(site_inputs[site.id][0])
   EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]))

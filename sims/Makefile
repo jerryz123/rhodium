@@ -6,6 +6,10 @@ CHI_DPI_DIR := $(REPO_DIR)/chi/dpi
 FESVR_REVISION := e1fa113cfb6d55d878a3c1ea3befa8d9c13ce154
 FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(FESVR_REVISION)
 SOC ?= simple
+TRACE ?= 0
+TRACE_FILE ?=
+NLOHMANN_JSON_SOURCE_DIR ?=
+BUILD_JOBS ?= 4
 BUILD_ROOT ?= /tmp/rhodium-sims
 CXX ?= c++
 RISCV_CC ?= riscv64-unknown-elf-gcc
@@ -28,6 +32,23 @@ CPPFLAGS += -I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_
 CXXFLAGS += -std=c++20 -Wall -Wextra -Werror
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
 SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC)
+ifeq ($(TRACE),1)
+ifneq ($(SOC),simple)
+$(error TRACE=1 currently supports SOC=simple only)
+endif
+SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC)-trace
+TRACE_HEADER := $(SOC_BUILD_DIR)/soc_events.h
+TRACE_BUILD_DIR := $(SOC_BUILD_DIR)/rheg
+TRACE_LIBRARY := $(TRACE_BUILD_DIR)/librheg_perfetto.a
+TRACE_SOURCES := $(VERILATOR_DIR)/rheg_dpi.cc
+TRACE_DEPENDENCIES := $(TRACE_HEADER) $(TRACE_LIBRARY)
+TRACE_VFLAGS := +define+RHEG_TRACE
+TRACE_CFLAGS := -I$(SOC_BUILD_DIR) -I$(REPO_DIR)/rheg/runtime -I$(REPO_DIR)/rheg/perfetto
+TRACE_LDFLAGS := $(TRACE_LIBRARY) $(TRACE_BUILD_DIR)/librheg_runtime.a
+TRACE_RUN_ARGS = +rheg-trace=$(abspath $(TRACE_FILE))
+else ifneq ($(TRACE),0)
+$(error TRACE must be 0 or 1)
+endif
 DPI_BUILD_DIR := $(BUILD_ROOT)/tools
 TILED_LOWERING_DIR := $(BUILD_ROOT)/tiled-lowering
 SOC_MLIR := $(SOC_BUILD_DIR)/soc_harness.mlir
@@ -42,7 +63,10 @@ ZICBOZ_BINARY := $(SOC_BUILD_DIR)/rv5stage_zicboz.elf
 ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zicboz.signature
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
-.PHONY: all setup simulator run smoke boot-test host-mmio-test zicboz-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
+# Failed elaboration or lowering must not leave a reusable partial artifact.
+.DELETE_ON_ERROR:
+
+.PHONY: all setup simulator run smoke trace-smoke boot-test host-mmio-test zicboz-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
 
 all: simulator
 
@@ -57,14 +81,24 @@ simulator: $(SIMULATOR_BINARY)
 	@echo "Ready $(SOC) simulator: $(SIMULATOR_BINARY)"
 
 run: simulator
+ifeq ($(TRACE),1)
+	@test -n "$(TRACE_FILE)" || (echo "TRACE_FILE is required for TRACE=1" >&2; exit 2)
+endif
 	@test -n "$(BINARY)" || \
 	  (echo "BINARY is required; use 'make -C sims run BINARY=/path/to/program.elf'" >&2; exit 2)
 	@test -f "$(abspath $(BINARY))" || \
 	  (echo "target binary does not exist: $(abspath $(BINARY))" >&2; exit 2)
-	$(SIMULATOR_BINARY) $(HTIF_ARGS) "$(abspath $(BINARY))" $(TARGET_ARGS)
+	$(SIMULATOR_BINARY) $(TRACE_RUN_ARGS) $(HTIF_ARGS) "$(abspath $(BINARY))" $(TARGET_ARGS)
 
 smoke: $(SMOKE_BINARY)
 	$(MAKE) run SOC=$(SOC) BINARY=$(SMOKE_BINARY)
+
+trace-smoke:
+	@test -n "$(TRACE_PROCESSOR)" || (echo "TRACE_PROCESSOR must name the native Perfetto importer" >&2; exit 2)
+	@test -n "$(TRACE_FILE)" || (echo "TRACE_FILE is required" >&2; exit 2)
+	$(MAKE) smoke SOC=simple TRACE=1
+	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-trace.sh "$(TRACE_FILE)"
+	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/simple-trace/obj/VTestDriver" "$(BUILD_ROOT)/simple-trace/rv5stage_smoke.elf"
 
 boot-test: $(BOOT_BINARIES) simulator
 	@set -e; for binary in $(BOOT_BINARIES); do $(SIMULATOR_BINARY) "$$binary"; done
@@ -120,8 +154,25 @@ $(SOC_BUILD_DIR) $(DPI_BUILD_DIR) $(TILED_LOWERING_DIR):
 $(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) | $(SOC_BUILD_DIR)
 	@test -n "$(HARNESS_SOURCE)" || \
 	  (echo "unsupported SOC '$(SOC)'; expected simple, mini, or tiled" >&2; exit 2)
+ifeq ($(TRACE),1)
+	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
+	  sims/materialize-event-harness.rkt $(TRACE_HEADER) > $(SOC_MLIR)
+else
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
 	  $(HARNESS_EMITTER) $(HARNESS_SOURCE) > $(SOC_MLIR)
+endif
+
+ifeq ($(TRACE),1)
+$(SOC_MLIR): $(CURDIR)/materialize-event-harness.rkt
+$(TRACE_HEADER): $(SOC_MLIR)
+	@test -f $@ || (cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
+	  sims/materialize-event-harness.rkt $@ > $(SOC_MLIR))
+
+$(TRACE_LIBRARY): $(wildcard $(REPO_DIR)/rheg/runtime/* $(REPO_DIR)/rheg/perfetto/*)
+	cmake -S $(REPO_DIR)/rheg/perfetto -B $(TRACE_BUILD_DIR) \
+	  $(if $(NLOHMANN_JSON_SOURCE_DIR),-DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=$(NLOHMANN_JSON_SOURCE_DIR))
+	cmake --build $(TRACE_BUILD_DIR) -j $(BUILD_JOBS)
+endif
 
 $(SOC_VERILOG): $(SOC_MLIR)
 	@test -x "$(CIRCT_OPT)" || \
@@ -135,21 +186,25 @@ $(SOC_VERILOG): $(SOC_MLIR)
 	  --export-verilog $(SOC_MLIR) -o /dev/null > $(SOC_VERILOG)
 
 ifeq ($(PREBUILT_SIMULATOR),)
-$(SIMULATOR_BINARY): $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
+$(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
+                     $(VERILATOR_DIR)/relink.mk \
                      $(FESVR_DIR)/direct_mem_htif.cc \
                      $(FESVR_DIR)/direct_mem_htif.h \
                      $(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
                      $(VERILATOR_DIR)/direct_mem_htif_dpi.h \
                      $(SOC_DPI_SOURCE) \
                      $(SOC_DPI_HEADER) \
+                     $(TRACE_SOURCES) $(TRACE_DEPENDENCIES) \
                      $(FESVR_LIBRARY)
-	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD --build-jobs 0 \
+	# The outer prerequisites include libraries omitted from Verilator's link rule.
+	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD --build-jobs $(BUILD_JOBS) $(TRACE_VFLAGS) \
+	  -MAKEFLAGS "-f $(VERILATOR_DIR)/relink.mk" \
 	  --top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 	  $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
 	  $(FESVR_DIR)/direct_mem_htif.cc $(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
-	  $(SOC_DPI_SOURCE) \
-	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -std=c++20" \
-	  -LDFLAGS "$(FESVR_LIBRARY) -pthread"
+	  $(SOC_DPI_SOURCE) $(TRACE_SOURCES) \
+	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -std=c++20 $(TRACE_CFLAGS)" \
+	  -LDFLAGS "$(FESVR_LIBRARY) -pthread $(TRACE_LDFLAGS)"
 else
 $(SIMULATOR_BINARY):
 	@echo "Prebuilt simulator is missing: $@" >&2; exit 2

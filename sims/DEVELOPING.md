@@ -53,6 +53,47 @@ systems cannot reuse another system's generated RTL.
 
 ## Focused validation
 
+### Event export integration
+
+The SimpleSoC harness owns transparent external-memory checkpoints. Keep them
+outside synthesizable SoC code. `emit-event-harness.rhm` instruments one
+elaboration, and `materialize-event-harness.rkt` saves its matching descriptor
+and configured frequency alongside MLIR. The opt-in build links `rheg_dpi.cc`
+with the independent RHEG libraries. Do not duplicate collector or encoder
+logic in this adapter. `TestDriver.v` releases reset and observes completion on
+falling edges; trace batches therefore follow all rising-edge callbacks.
+Verilator's generated link rule omits user archives from its prerequisites.
+When the outer simulator target is stale, `verilator/relink.mk` marks only the
+generated executable target phony to force linking. Its model archive still
+follows normal dependencies on both initial and incremental builds. Check both
+an absent model archive and an archive-only library update when changing this rule.
+
+Run the real smoke with native importer validation:
+
+```sh
+make -C sims trace-smoke TRACE_FILE=/tmp/simple-soc.pftrace \
+  TRACE_PROCESSOR=/path/to/native/trace_processor_shell
+```
+
+`tests/check-event-trace.sh` requires request traffic and checks the two allowed
+same-cycle edge families, paired payload/sequence equality, exact configured
+timestamps, one-cycle slice widths, readable track labels, and importer errors.
+This optional test requires native Perfetto
+and does not require RSP activity: the smoke's reads return data on DAT.
+It is separate from ordinary simulation CI. `tests/check-event-driver.sh`
+checks missing trace path, failed output open, and a small-cycle timeout with
+an importable settled prefix. Also run untraced SimpleSoC smoke after changing
+the common driver.
+
+`tests/check-core-events.sql` additionally requires all five scalar pipeline
+stages, exact permitted edge families, one parent per non-root event, no duplicate
+children, matching RV64 PCs, and one-cycle downstream latency (elastic IF/ID may
+take longer). It requires repeated fetched PCs to exercise distinct occurrences.
+PC extraction relies on the documented core bundle layouts, whose leading field
+is XLEN-wide PC. Keep this test synchronized if that layout changes.
+
+### Other simulation contracts
+
 The ACT flow is included from `arch-test/Makefile.inc`. Each
 `arch-test/configs/<name>.mk` selects a UDB catalog entry, a simulator, and the
 platform RAM window. Add future platforms through these entries; processor

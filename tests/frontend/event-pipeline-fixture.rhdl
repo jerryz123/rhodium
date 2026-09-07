@@ -30,6 +30,16 @@ sync_circuit EventPipeline():
 
 def pipeline = elaborate_with_top(EventPipeline())
 
+// The core crosses a ready-valid conversion and fans out Valid observations.
+sync_circuit EventValidConversion():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Valid(Bits(8)), ~role: producer)
+  def Array(left, right) = source |> trace_event("accepted") |> to_valid() |> valid_pipe_always_capture(1) |> fork_valid(2)
+  left |> trace_valid_event("left") |> sinks[0]
+  right |> filter_valid(payload => payload =/= bits(0, 8)) |> trace_valid_event("right") |> sinks[1]
+
+def valid_conversion = elaborate_with_top(EventValidConversion())
+
 // Invalid use of the supported fixed-latency contract: a route cannot
 // describe two inputs as a one-to-one pipeline.
 sync_circuit EventBadLatencyShape():
@@ -43,5 +53,6 @@ fun bad_latency_count(): interface_trace_fixed_latency(0)
 
 export:
   pipeline
+  valid_conversion
   bad_latency_shape
   bad_latency_count

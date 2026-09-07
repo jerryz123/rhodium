@@ -33,15 +33,19 @@ for index in 0 1 2; do
     1) nodes=2; edges=1 ;;
     2) nodes=4; edges=4 ;;
   esac
-  assert_query "$file" "SELECT count(*)=$nodes AND sum(dur=0 AND ts=CASE name WHEN 'source' THEN 0 WHEN 'left' THEN 10 ELSE 20 END)=$nodes AS ok FROM slice"
+  assert_query "$file" "SELECT count(*)=$nodes AND sum(dur=10 AND ts=CASE name WHEN 'source' THEN 0 WHEN 'left' THEN 10 ELSE 20 END)=$nodes AS ok FROM slice"
+  assert_query "$file" "SELECT count(*)=$nodes AND sum(t.name=s.name)=$nodes AS ok FROM slice s JOIN track t ON t.id=s.track_id"
+  assert_query "$file" "SELECT count(*)=0 AS ok FROM slice s JOIN thread_track t ON t.id=s.track_id"
   assert_query "$file" "SELECT count(*)=$edges AS ok FROM flow"
   assert_query "$file" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
   assert_query "$file" "SELECT count(*)=$nodes AND min(string_value)='9007199254740993' AND max(string_value)='9007199254740993' AS ok FROM args WHERE key='debug.sequence'"
 done
 assert_query "$stream_test_dir/live.pftrace.prefix1" "SELECT count(*)=1 AND min(a.name)='source' AND min(b.name)='left' AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
 assert_query "$stream_test_dir/live.pftrace" "SELECT count(*)=4 AND count(DISTINCT a.name||'->'||b.name)=4 AND sum((a.name||'->'||b.name) IN ('source->left','source->right','left->join','right->join'))=4 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
-assert_query "$stream_test_dir/build/precision.pftrace" "SELECT count(*)=3 AND min(ts)=0 AND max(ts)=10 AND sum(ts)=13 AS ok FROM slice"
+assert_query "$stream_test_dir/build/precision.pftrace" "SELECT count(*)=3 AND min(ts)=0 AND max(ts)=6 AND sum(ts)=9 AND min(dur)=3 AND max(dur)=4 AND sum(dur)=10 AND max(depth)=0 AS ok FROM slice"
 assert_query "$stream_test_dir/build/precision.pftrace" "SELECT count(*)=3 AND min(string_value)='18446744073709551615' AND max(string_value)='18446744073709551615' AS ok FROM args WHERE key='debug.epoch_id'"
+assert_query "$stream_test_dir/build/last-cycle.pftrace" "SELECT count(*)=1 AND min(ts)=1000000000 AND min(dur)=0 AS ok FROM slice"
+assert_query "$stream_test_dir/build/repeated-label.pftrace" "SELECT count(*)=3 AND count(DISTINCT track_id)=2 AND sum(name='accepted')=3 AS ok FROM slice"
 if "$stream_test_dir/build/rheg-perfetto" "$stream_test_dir/nonexistent.json" > "$stream_test_dir/invalid.pftrace" 2> "$stream_test_dir/invalid.log"; then
   echo 'Converter accepted missing input' >&2
   exit 1

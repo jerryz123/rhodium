@@ -7,6 +7,7 @@ import:
   lib("socs/simple-soc.rhdl") as simple
   lib("socs/peripherals.rhdl").SoCUartInterface
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
+  lib("flow/event.rhdl") open
 
 sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_params):
   output exit: Bits(32)
@@ -19,14 +20,20 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
 
   requester.port <=> soc.host.memory
   uart <=> soc.uart
-  soc.memory <=> memory.port
+  soc.memory.req |> trace_event("memory-request", ~root: #true) |> trace_event("memory-accept", ~terminal: #true) |> memory.port.req
+  memory.port.rsp |> trace_event("memory-response", ~root: #true) |> trace_event("soc-response", ~terminal: #true) |> soc.memory.rsp
+  soc.memory.dat <=> memory.port.dat
   memory.identity <== chi.CHIRamIdentity(fabric_params.flit):
     node_id: bits(fabric_params.memory_port.node_id, fabric_params.flit.node_id_width)
     base_address: bits(fabric_params.memory_base, fabric_params.flit.request_address_width)
   exit <== requester.exit
 
-def design = elaborate(SoCHarness())
+def elaboration = elaborate_with_top(SoCHarness())
+def design = elaboration.design
+def trace_clock_frequency_hz = simple.simple_soc_params.clocks.clock_frequency_hz
 
 export:
   SoCHarness
   design
+  elaboration
+  trace_clock_frequency_hz

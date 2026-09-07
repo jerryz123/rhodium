@@ -101,6 +101,9 @@ ingress |> queue(4, ~pipe: #true) |> pipe(2) |> egress
 the same annotation for `Valid`. These helpers do not add state or runtime
 effects; `rhodium/event` consumes their metadata to infer possible nearest
 dependencies. Labels are nonempty and unique within a module definition.
+Both helpers accept `~root: #true` to explicitly start a new lineage at an
+opaque component output or cut off earlier ancestry. The [event contract](../rhodium/event/README.md#annotate-events)
+defines this opt-in boundary; ordinary checkpoints retain strict inference.
 
 ```rhombus
 ingress
@@ -115,6 +118,9 @@ synthesizable lineage and DPI emission for linear combinational paths and
 fixed-latency `valid_pipe`, elastic `pipe`, in-order `queue`, and ready-valid
 `arbiter`/`rr_arbiter`, `demux_flow`, `atomic_fork`, `broadcast`, and `zip_flow` paths.
 Selective/control-only forks and joins still require dynamic trace adapters.
+`to_valid` certifies its always-ready, zero-storage conversion, and `fork_valid`
+certifies synchronous zero-storage replication of each Valid pulse. Both preserve
+event lineage; `valid_pipe_always_capture` already publishes fixed latency.
 `pipe` publishes its actual per-stage load and input-valid controls as typed
 metadata; the instrumenter observes them to keep shadow references aligned
 under stalls without changing functional ready/valid/payload behavior.

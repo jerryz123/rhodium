@@ -1254,6 +1254,10 @@ or partial consumption. `interface_trace_merge(count)` remains route-only.
 requires `~valid`. Clock/reset selection belongs to the instrumenter, not to
 interface metadata.
 
+`describe_interface_event(..., ~root: #true)` declares an intentional lineage
+start. The default is false. See the [event contract](../../event/README.md#annotate-events)
+for dependency-cut semantics; this annotation never certifies opaque hardware.
+
 ### Injection and ejection boundaries
 
 `inject_interface(protocol, ...)` creates an endpoint from ordinary hardware,

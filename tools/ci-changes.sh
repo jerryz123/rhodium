@@ -259,6 +259,7 @@ classify_path() {
       host_foundation=true
       host_backend=true
       circt_language=true
+      simulation=true
       ;;
     rhodium/core/*|rhodium/analysis/*|rhodium/frontend/*|rhodium/base/*|rhodium/language.rhm|rhodium/main.rkt)
       mark_all

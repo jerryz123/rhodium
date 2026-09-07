@@ -67,7 +67,11 @@ Original extension metadata remains on the original elaboration, including for
 unchanged imported definitions.
 
 Copying therefore scales with distinct unchanged definitions plus modified
-occurrences; analysis and clock/reset validation remain occurrence-aware.
+occurrences; analysis remains occurrence-aware. Validate clock/reset lineage
+for occurrences that own event sites or observed storage/selection controls,
+following their bindings through ancestors. Untouched opaque subtrees may have
+private reset domains; they are not part of the traced epoch. Explicit roots
+allow observation of such outputs without asserting lineage inside them.
 Fixed-latency paths compose their certified cycle counts during inference and
 place a reference delay line in the consumer's module. Each stage samples the
 entire upstream reference unconditionally and resets to invalid. This placement
@@ -154,6 +158,12 @@ The same certified-divergence check accepts distinct recipients. Both latency
 and linear `trace_stages` are false; branch-local storage wraps this plan node.
 
 ## Extend trace coverage
+
+Explicit root checkpoints cut dependency traversal at their own inputs in both
+static inference and dynamic plans. Keep their output identity registered in the
+normal event map so downstream lineage remains exact. Default checkpoints must
+continue to reject opaque/disconnected ancestry; never infer root intent from a
+failed traversal. Root is metadata only and does not alter functional wiring.
 
 `EventTraceJoin` concatenates the contributing input lineages without adding a
 visible node. Lower plans to a record containing transaction validity and a

@@ -22,6 +22,24 @@ def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
 def after = emit_circt(fixture.runtime.design)
 def emitted = emit_circt(result.instrumented.design)
+def rooted = instrument_events(fixture.root_boundary(#true))
+def cut = instrument_events(fixture.root_cut)
+def converted = instrument_events(pipeline_fixture.valid_conversion)
+check:
+  converted.manifest.dependencies.length() ~is 2
+  converted.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [1, 1]
+  emit_circt(converted.instrumented.design).contains("sim.func.dpi.call @rheg_edge") ~is #true
+  instrument_events(fixture.root_boundary(#false)) ~throws "opaque or disconnected boundary"
+  rooted.manifest.sites.map(fun (site): site.root) ~is [#true, #false]
+  rooted.manifest.sites.map(fun (site): site.payload_width) ~is [73, 73]
+  emit_circt(rooted.instrumented.design).contains("sim.func.dpi.call @rheg_payload") ~is #true
+  rooted.manifest.dependencies.length() ~is 1
+  rooted.manifest.site(rooted.manifest.dependencies[0].parent).label ~is "start"
+  rooted.manifest.site(rooted.manifest.dependencies[0].child).label ~is "end"
+  infer_event_manifest(fixture.root_cut).dependencies.length() ~is 1
+  cut.manifest.dependencies.length() ~is 1
+  cut.manifest.site(cut.manifest.dependencies[0].parent).label ~is "start"
+  event_manifest_to_json(rooted.manifest).contains("\"root\":true") ~is #true
 
 fun child(module_def :: Module, name :: String):
   module_def.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")

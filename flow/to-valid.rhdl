@@ -23,7 +23,8 @@ fun to_valid()
       source,
       describe_interface_transform(
         interface_transform(input_link, output_link),
-        "to-valid"
+        "to-valid",
+        ~trace_model: interface_trace_combinational()
       )
     )
 

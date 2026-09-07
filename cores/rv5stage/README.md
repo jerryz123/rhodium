@@ -59,6 +59,27 @@ retained L1D miss/refill context preserve the selector without changing
 translation, permissions, ordering, or coherence. It expresses architectural
 intent, not a cache policy: allocation and replacement remain unchanged.
 
+## Pipeline event tracing
+
+The core carries metadata-only checkpoints named `core.fetch`, `core.decode`,
+`core.execute`, `core.memory`, and `core.wb`. Ordinary elaboration does not add
+counters or DPI calls; the optional event compiler instruments a separate design.
+The [SimpleSoC trace build](../../sims/README.md#export-simplesoc-events-to-perfetto)
+includes these sites automatically.
+
+Fetch records acceptance from the fetch queue into IF/ID and starts a new
+lineage. Decode records issue after hazard and squash gating, not every stalled
+cycle. Execute and Memory record surviving stage transfers; WB records arrival
+at the scalar writeback stage. Inferred edges follow the real elastic IF/ID
+controls and one-cycle always-capture registers. Repeated PCs have separate
+occurrence identities; squashed tokens may have no later-stage descendant.
+
+Payloads retain each stage's packed bundle, including PC and instruction.
+WB is not retirement: replay, traps, maintenance/WRS holding, and deferred
+load/multiply/divide/FP completion remain outside this first pipeline trace.
+No dependency is inferred between the memory-boundary graph and fetch through
+the cache/MMU, or across a replay's subsequent refetch.
+
 ## Cache-block management
 
 Zicbom operates on fixed 64-byte blocks. Decode checks current-privilege
