@@ -59,6 +59,7 @@ circuit CHIMessageFixture():
   output downstream_w128: CHIReqFlit(w128)
   output write_w128: CHIDatFlit(w128)
   output upstream_w128: CHIDatFlit(w128)
+  output requester_write_w128: CHIDatFlit(w128)
   def req_w128 :: CHIReqFlit(w128) = home_request_bits[0..CHIReqFlit(w128).packed_width()].into(CHIReqFlit(w128))
   def dat_w128 :: CHIDatFlit(w128) = home_data_bits[0..CHIDatFlit(w128).packed_width()].into(CHIDatFlit(w128))
   original_req_w128 <== req_w128
@@ -66,11 +67,14 @@ circuit CHIMessageFixture():
   downstream_w128 <== chi_home_downstream_request(w128, node_id, other_node_id, req_w128, other_request.address, other_request.size_or_num_req, other_request.opcode, other_request.txn_id, other_request.mem_attr.early_write_acknowledge)
   write_w128 <== chi_hnf_snoop_write_data(w128, node_id, other_node_id, other_request.txn_id, dat_w128)
   upstream_w128 <== chi_home_upstream_read_data(w128, node_id, req_w128, other_data[0..3], dat_w128)
+  requester_write_w128 <== chi_rn_write_data(w128, node_id, other_node_id, other_request.txn_id, dat_w128.data, dat_w128.byte_enable,
+                                             ~data_id: dat_w128.data_id, ~ccid: dat_w128.ccid, ~dbid_or_mecid: dat_w128.dbid_or_mecid)
   output original_req_h128: CHIReqFlit(h128)
   output original_dat_h128: CHIDatFlit(h128)
   output downstream_h128: CHIReqFlit(h128)
   output write_h128: CHIDatFlit(h128)
   output upstream_h128: CHIDatFlit(h128)
+  output requester_write_h128: CHIDatFlit(h128)
   def req_h128 :: CHIReqFlit(h128) = home_request_bits[0..CHIReqFlit(h128).packed_width()].into(CHIReqFlit(h128))
   def dat_h128 :: CHIDatFlit(h128) = home_data_bits[0..CHIDatFlit(h128).packed_width()].into(CHIDatFlit(h128))
   original_req_h128 <== req_h128
@@ -78,11 +82,14 @@ circuit CHIMessageFixture():
   downstream_h128 <== chi_home_downstream_request(h128, node_id, other_node_id, req_h128, other_request.address, other_request.size_or_num_req, other_request.opcode, other_request.txn_id, other_request.mem_attr.early_write_acknowledge)
   write_h128 <== chi_hnf_snoop_write_data(h128, node_id, other_node_id, other_request.txn_id, dat_h128)
   upstream_h128 <== chi_home_upstream_read_data(h128, node_id, req_h128, other_data[0..3], dat_h128)
+  requester_write_h128 <== chi_rn_write_data(h128, node_id, other_node_id, other_request.txn_id, dat_h128.data, dat_h128.byte_enable,
+                                             ~data_id: dat_h128.data_id, ~ccid: dat_h128.ccid, ~dbid_or_mecid: dat_h128.dbid_or_mecid)
   output original_req_w256: CHIReqFlit(w256)
   output original_dat_w256: CHIDatFlit(w256)
   output downstream_w256: CHIReqFlit(w256)
   output write_w256: CHIDatFlit(w256)
   output upstream_w256: CHIDatFlit(w256)
+  output requester_write_w256: CHIDatFlit(w256)
   def req_w256 :: CHIReqFlit(w256) = home_request_bits[0..CHIReqFlit(w256).packed_width()].into(CHIReqFlit(w256))
   def dat_w256 :: CHIDatFlit(w256) = home_data_bits[0..CHIDatFlit(w256).packed_width()].into(CHIDatFlit(w256))
   original_req_w256 <== req_w256
@@ -90,11 +97,14 @@ circuit CHIMessageFixture():
   downstream_w256 <== chi_home_downstream_request(w256, node_id, other_node_id, req_w256, other_request.address, other_request.size_or_num_req, other_request.opcode, other_request.txn_id, other_request.mem_attr.early_write_acknowledge)
   write_w256 <== chi_hnf_snoop_write_data(w256, node_id, other_node_id, other_request.txn_id, dat_w256)
   upstream_w256 <== chi_home_upstream_read_data(w256, node_id, req_w256, other_data[0..3], dat_w256)
+  requester_write_w256 <== chi_rn_write_data(w256, node_id, other_node_id, other_request.txn_id, dat_w256.data, dat_w256.byte_enable,
+                                             ~data_id: dat_w256.data_id, ~ccid: dat_w256.ccid, ~dbid_or_mecid: dat_w256.dbid_or_mecid)
   output original_req_h256: CHIReqFlit(h256)
   output original_dat_h256: CHIDatFlit(h256)
   output downstream_h256: CHIReqFlit(h256)
   output write_h256: CHIDatFlit(h256)
   output upstream_h256: CHIDatFlit(h256)
+  output requester_write_h256: CHIDatFlit(h256)
   def req_h256 :: CHIReqFlit(h256) = home_request_bits[0..CHIReqFlit(h256).packed_width()].into(CHIReqFlit(h256))
   def dat_h256 :: CHIDatFlit(h256) = home_data_bits[0..CHIDatFlit(h256).packed_width()].into(CHIDatFlit(h256))
   original_req_h256 <== req_h256
@@ -102,11 +112,14 @@ circuit CHIMessageFixture():
   downstream_h256 <== chi_home_downstream_request(h256, node_id, other_node_id, req_h256, other_request.address, other_request.size_or_num_req, other_request.opcode, other_request.txn_id, other_request.mem_attr.early_write_acknowledge)
   write_h256 <== chi_hnf_snoop_write_data(h256, node_id, other_node_id, other_request.txn_id, dat_h256)
   upstream_h256 <== chi_home_upstream_read_data(h256, node_id, req_h256, other_data[0..3], dat_h256)
+  requester_write_h256 <== chi_rn_write_data(h256, node_id, other_node_id, other_request.txn_id, dat_h256.data, dat_h256.byte_enable,
+                                             ~data_id: dat_h256.data_id, ~ccid: dat_h256.ccid, ~dbid_or_mecid: dat_h256.dbid_or_mecid)
   output original_req_w512: CHIReqFlit(w512)
   output original_dat_w512: CHIDatFlit(w512)
   output downstream_w512: CHIReqFlit(w512)
   output write_w512: CHIDatFlit(w512)
   output upstream_w512: CHIDatFlit(w512)
+  output requester_write_w512: CHIDatFlit(w512)
   def req_w512 :: CHIReqFlit(w512) = home_request_bits[0..CHIReqFlit(w512).packed_width()].into(CHIReqFlit(w512))
   def dat_w512 :: CHIDatFlit(w512) = home_data_bits[0..CHIDatFlit(w512).packed_width()].into(CHIDatFlit(w512))
   original_req_w512 <== req_w512
@@ -114,11 +127,14 @@ circuit CHIMessageFixture():
   downstream_w512 <== chi_home_downstream_request(w512, node_id, other_node_id, req_w512, other_request.address, other_request.size_or_num_req, other_request.opcode, other_request.txn_id, other_request.mem_attr.early_write_acknowledge)
   write_w512 <== chi_hnf_snoop_write_data(w512, node_id, other_node_id, other_request.txn_id, dat_w512)
   upstream_w512 <== chi_home_upstream_read_data(w512, node_id, req_w512, other_data[0..3], dat_w512)
+  requester_write_w512 <== chi_rn_write_data(w512, node_id, other_node_id, other_request.txn_id, dat_w512.data, dat_w512.byte_enable,
+                                             ~data_id: dat_w512.data_id, ~ccid: dat_w512.ccid, ~dbid_or_mecid: dat_w512.dbid_or_mecid)
   output original_req_h512: CHIReqFlit(h512)
   output original_dat_h512: CHIDatFlit(h512)
   output downstream_h512: CHIReqFlit(h512)
   output write_h512: CHIDatFlit(h512)
   output upstream_h512: CHIDatFlit(h512)
+  output requester_write_h512: CHIDatFlit(h512)
   def req_h512 :: CHIReqFlit(h512) = home_request_bits[0..CHIReqFlit(h512).packed_width()].into(CHIReqFlit(h512))
   def dat_h512 :: CHIDatFlit(h512) = home_data_bits[0..CHIDatFlit(h512).packed_width()].into(CHIDatFlit(h512))
   original_req_h512 <== req_h512
@@ -126,6 +142,8 @@ circuit CHIMessageFixture():
   downstream_h512 <== chi_home_downstream_request(h512, node_id, other_node_id, req_h512, other_request.address, other_request.size_or_num_req, other_request.opcode, other_request.txn_id, other_request.mem_attr.early_write_acknowledge)
   write_h512 <== chi_hnf_snoop_write_data(h512, node_id, other_node_id, other_request.txn_id, dat_h512)
   upstream_h512 <== chi_home_upstream_read_data(h512, node_id, req_h512, other_data[0..3], dat_h512)
+  requester_write_h512 <== chi_rn_write_data(h512, node_id, other_node_id, other_request.txn_id, dat_h512.data, dat_h512.byte_enable,
+                                             ~data_id: dat_h512.data_id, ~ccid: dat_h512.ccid, ~dbid_or_mecid: dat_h512.dbid_or_mecid)
 
 def design = elaborate(CHIMessageFixture())
 

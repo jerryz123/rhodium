@@ -124,6 +124,11 @@ make -C sims boot-test SOC=mini
 make -C sims boot-test SOC=tiled
 ```
 
+FESVR's write-data wrapper retains lane placement, masks, and packet-position
+policy while using [`chi/messages.rhdl`](../chi/messages.rhdl) for immutable
+`NonCopyBackWriteData` construction. Preserve its explicit DataID, CCID, and
+DBID/MECID choices independently of the core requester profile.
+
 The transport checks require the pinned FESVR library; DPI checks also require
 Verilator. Lowering requires the pinned CIRCT tool or an explicit `CIRCT_OPT`,
 and execution requires FESVR plus the RISC-V cross compiler. Rhombus checks use repository wrappers with fresh

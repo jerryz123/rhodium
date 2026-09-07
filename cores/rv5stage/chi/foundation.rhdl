@@ -314,42 +314,10 @@ fun rv5stage_chi_write_data(p :: CHIFlitParams,
                             byte_enable :: Bits(p.byte_enable_width))
   :~ CHIDatFlit(p):
   def address = rv5stage_chi_address(raw_address, p)
-  def critical_chunk = address[4..6]
-  wire flit: CHIDatFlit(p)
-  if p.poison_width > 0
-  | flit.poison <== bits(0, p.poison_width)
-  | #void
-  if p.data_check_width > 0
-  | flit.data_check <== bits(0, p.data_check_width)
-  | #void
-  flit.data <== data
-  flit.byte_enable <== byte_enable
-  if p.dat_rsvdc_width > 0
-  | flit.rsvdc <== bits(0, p.dat_rsvdc_width)
-  | #void
-  flit.replicate <== Bool(#false)
-  flit.num_dat <== bits(0, 2)
-  flit.cah <== Bool(#false)
-  flit.trace_tag <== Bool(#false)
-  flit.tag_update <== bits(0, p.tag_update_width)
-  flit.tag <== bits(0, p.tag_width)
-  flit.tag_op <== CHITagOp.Invalid
-  flit.cache_line_id <== bits(0, 6)
-  flit.data_id <== chi_line_data_id(address, p)
-  flit.ccid <== critical_chunk
-  flit.dbid_or_mecid <== dbid.zext(16)
-  flit.c_busy <== bits(0, 3)
-  flit.data_pull <== Bool(#false)
-  flit.data_source_or_fwd_state <== bits(0, 8)
-  flit.resp <== bits(0, 3)
-  flit.resp_err <== CHIRespErr.OK
-  flit.opcode <== CHIDatOpcode.NonCopyBackWriteData
-  flit.home_nid_or_pbha_or_mismatched_mecid <== home_node_id
-  flit.txn_id <== dbid
-  flit.src_id <== node_id
-  flit.tgt_id <== home_node_id
-  flit.qos <== bits(0, 4)
-  flit
+  chi_rn_write_data(p, node_id, home_node_id, dbid, data, byte_enable,
+                    ~data_id: chi_line_data_id(address, p),
+                    ~ccid: address[4..6],
+                    ~dbid_or_mecid: dbid.zext(16))
 
 export:
   RV5StageRefillResponses

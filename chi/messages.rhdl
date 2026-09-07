@@ -1,5 +1,5 @@
 #lang rhodium
-// Constructs stateless subordinate responses and Home message transforms without engine policy.
+// Constructs stateless requester/subordinate messages and Home transforms without engine policy.
 
 import:
   lib("rhodium/std/bits.rhdl") open
@@ -54,6 +54,33 @@ fun chi_sn_read_completion(p :: CHIFlitParams,
     ~src_id: node_id,
     ~tgt_id: request.return_nid_or_stash_nid_or_data_target,
     ~qos: request.qos
+  )
+
+fun chi_rn_write_data(p :: CHIFlitParams,
+                      node_id :: Bits(p.node_id_width),
+                      home_node_id :: Bits(p.node_id_width),
+                      dbid :: Bits(12),
+                      data :: Bits(p.data_width),
+                      byte_enable :: Bits(p.byte_enable_width),
+                      ~data_id: data_id :: Bits(2),
+                      ~ccid: ccid :: Bits(2),
+                      ~dbid_or_mecid: dbid_or_mecid :: Bits(16)) :~ CHIDatFlit(p):
+  // This requester profile leaves inactive and optional fields zero. Packet
+  // position and the overloaded DBID/MECID field remain caller decisions.
+  def inactive :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
+  inactive.updated(
+    ~data: data,
+    ~byte_enable: byte_enable,
+    ~tag_op: CHITagOp.Invalid,
+    ~data_id: data_id,
+    ~ccid: ccid,
+    ~dbid_or_mecid: dbid_or_mecid,
+    ~resp_err: CHIRespErr.OK,
+    ~opcode: CHIDatOpcode.NonCopyBackWriteData,
+    ~home_nid_or_pbha_or_mismatched_mecid: home_node_id,
+    ~txn_id: dbid,
+    ~src_id: node_id,
+    ~tgt_id: home_node_id
   )
 
 fun chi_hnf_response(p :: CHIFlitParams,
@@ -146,6 +173,7 @@ fun chi_home_upstream_read_data(p :: CHIFlitParams,
   )
 
 export:
+  chi_rn_write_data
   chi_hnf_response
   chi_home_downstream_request
   chi_hnf_snoop_write_data

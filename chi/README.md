@@ -86,6 +86,13 @@ implement retry, error, or coherence policy.
 They return immutable values and can be called repeatedly in one circuit
 without allocating named wires or sharing state between calls.
 
+`chi_rn_write_data` constructs the current requester `NonCopyBackWriteData`
+profile from a payload, byte enables, routing IDs, and DBID. Its required
+`~data_id`, `~ccid`, and `~dbid_or_mecid` arguments keep packet-position and
+overloaded-field choices explicit. Inactive and optional fields are zero;
+this is not a general constructor for every CHI DAT profile. Callers retain
+address normalization, lane placement, masks, and cacheability policy.
+
 `messages.rhdl` also provides Home response construction and immutable
 downstream-request, snoop-write-data, and upstream-read-data transforms.
 These preserve untouched packet metadata, including optional fields. Callers

@@ -14,11 +14,17 @@ module chi_messages_tb;
   CHIMessageFixture dut(.request(request), .node_id(node_id), .dbid(dbid), .data_id(data_id), .data(data),
                         .home_request_bits(home_request_bits), .home_data_bits(home_data_bits),
                         .original_req_w128(), .original_dat_w128(), .downstream_w128(), .write_w128(), .upstream_w128(),
+                        .requester_write_w128(),
                         .original_req_h128(), .original_dat_h128(), .downstream_h128(), .write_h128(), .upstream_h128(),
+                        .requester_write_h128(),
                         .original_req_w256(), .original_dat_w256(), .downstream_w256(), .write_w256(), .upstream_w256(),
+                        .requester_write_w256(),
                         .original_req_h256(), .original_dat_h256(), .downstream_h256(), .write_h256(), .upstream_h256(),
+                        .requester_write_h256(),
                         .original_req_w512(), .original_dat_w512(), .downstream_w512(), .write_w512(), .upstream_w512(),
+                        .requester_write_w512(),
                         .original_req_h512(), .original_dat_h512(), .downstream_h512(), .write_h512(), .upstream_h512(),
+                        .requester_write_h512(),
                         .other_request(other_request), .other_node_id(other_node_id), .other_dbid(other_dbid),
                         .other_data_id(other_data_id), .other_data(other_data),
                         .dbid_response(), .write_response(), .other_dbid_response(), .other_write_response(), .other_read_response(),
@@ -106,6 +112,18 @@ module chi_messages_tb;
     expected_dat.tgt_id = dut.original_req_``P.return_nid_or_stash_nid_or_data_target; \
     expected_dat.qos = dut.original_req_``P.qos; \
     assert (dut.upstream_``P === expected_dat) else $fatal(1, "Home read DAT transform mismatch"); \
+    expected_dat = '0; \
+    expected_dat.data = dut.original_dat_``P.data; \
+    expected_dat.byte_enable = dut.original_dat_``P.byte_enable; \
+    expected_dat.data_id = dut.original_dat_``P.data_id; \
+    expected_dat.ccid = dut.original_dat_``P.ccid; \
+    expected_dat.dbid_or_mecid = dut.original_dat_``P.dbid_or_mecid; \
+    expected_dat.opcode = 4'h3; \
+    expected_dat.home_nid_or_pbha_or_mismatched_mecid = other_node_id; \
+    expected_dat.txn_id = other_request.txn_id; \
+    expected_dat.src_id = node_id; \
+    expected_dat.tgt_id = other_node_id; \
+    assert (dut.requester_write_``P === expected_dat) else $fatal(1, "Requester write DAT construction mismatch"); \
   end
 
   initial begin

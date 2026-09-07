@@ -226,41 +226,10 @@ fun fesvr_chi_write_data(p :: CHIFlitParams,
   def lane = address[0..alignment_bits(p.data_bytes)]
   def placed_data = data.zext(p.data_width) << (lane.zext(alignment_bits(p.data_width)) << 3)
   def byte_enable = transfer_byte_mask(address, size, p.data_bytes)
-  wire write_data: CHIDatFlit(p)
-  if p.poison_width > 0
-  | write_data.poison <== bits(0, p.poison_width)
-  | #void
-  if p.data_check_width > 0
-  | write_data.data_check <== bits(0, p.data_check_width)
-  | #void
-  write_data.data <== placed_data
-  write_data.byte_enable <== byte_enable.into(Bits(p.data_bytes))
-  if p.dat_rsvdc_width > 0
-  | write_data.rsvdc <== bits(0, p.dat_rsvdc_width)
-  | #void
-  write_data.replicate <== Bool(#false)
-  write_data.num_dat <== bits(0, 2)
-  write_data.cah <== Bool(#false)
-  write_data.trace_tag <== Bool(#false)
-  write_data.tag_update <== bits(0, p.tag_update_width)
-  write_data.tag <== bits(0, p.tag_width)
-  write_data.tag_op <== CHITagOp.Invalid
-  write_data.cache_line_id <== bits(0, 6)
-  write_data.data_id <== mux(cacheable, chi_line_data_id(address, p), bits(0, 2))
-  write_data.ccid <== bits(0, 2)
-  write_data.dbid_or_mecid <== bits(0, 16)
-  write_data.c_busy <== bits(0, 3)
-  write_data.data_pull <== Bool(#false)
-  write_data.data_source_or_fwd_state <== bits(0, 8)
-  write_data.resp <== bits(0, 3)
-  write_data.resp_err <== CHIRespErr.OK
-  write_data.opcode <== CHIDatOpcode.NonCopyBackWriteData
-  write_data.home_nid_or_pbha_or_mismatched_mecid <== home_node_id
-  write_data.txn_id <== dbid
-  write_data.src_id <== bits(node_id, p.node_id_width)
-  write_data.tgt_id <== home_node_id
-  write_data.qos <== bits(0, 4)
-  write_data
+  chi_rn_write_data(p, bits(node_id, p.node_id_width), home_node_id, dbid, placed_data, byte_enable.into(Bits(p.data_bytes)),
+                    ~data_id: mux(cacheable, chi_line_data_id(address, p), bits(0, 2)),
+                    ~ccid: bits(0, 2),
+                    ~dbid_or_mecid: bits(0, 16))
 
 // The complete chunk is validated before issuing any CHI traffic. Only normal
 // cacheable RAM can be fragmented; side-effecting MMIO retains its exact width.

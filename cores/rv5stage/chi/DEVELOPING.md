@@ -19,6 +19,11 @@ uncached engines depend on it; writeback additionally composes write-unique.
 The I-cache and D-cache instantiate the shared engines, while `rv5stage.rhdl`
 owns external channel composition.
 
+Requester write-data packet construction is shared through
+[`chi/messages.rhdl`](../../../chi/messages.rhdl). The foundation wrapper
+retains address normalization and its DataID, CCID, and DBID-field choices;
+the shared builder does not depend on core geometry or physical-memory policy.
+
 ## Implementation map
 
 | File | Ownership |
