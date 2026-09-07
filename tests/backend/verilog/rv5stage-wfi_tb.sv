@@ -76,7 +76,7 @@ module rv5stage_wfi_tb;
   logic handler_mepc_seen;
   logic [9:0] cycles;
 
-  RV5StageCore dut (.*);
+  RV5StageCore dut (.prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

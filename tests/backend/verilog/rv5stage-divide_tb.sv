@@ -65,7 +65,7 @@ module rv5stage_divide_tb;
   logic [3:0] stores_seen;
   localparam logic [2:0] MEMORY_STORE = 3'd2;
 
-  RV5StageCore dut (.*);
+  RV5StageCore dut (.prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);
