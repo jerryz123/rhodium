@@ -1,5 +1,5 @@
 #lang rhombus
-// Lowers lineage plans to shadow storage and exclusive selection/routing with DPI emission.
+// Lowers lineage plans to shadow storage, selected routes, and atomic replication with DPI emission.
 
 import:
   "../core/ir.rhm" open
@@ -52,6 +52,7 @@ fun instrument_events(logical :: DesignElaboration,
     | plan is_a EventTraceSource: [plan.site]
     | plan is_a EventTracePipeline: sources(plan.input)
     | plan is_a EventTraceRouting: sources(plan.input)
+    | plan is_a EventTraceReplication: sources(plan.input)
     | ~else:
         def mutable found = []
         for (input in plan.inputs): found := found ++ sources(input)
@@ -61,18 +62,20 @@ fun instrument_events(logical :: DesignElaboration,
     | plan is_a EventTraceSource: []
     | plan is_a EventTracePipeline: plan_controls(plan.input) ++ plan.stages
     | plan is_a EventTraceRouting: plan_controls(plan.input) ++ [plan]
+    | plan is_a EventTraceReplication: plan_controls(plan.input)
     | ~else:
         def mutable found = [plan]
         for (input in plan.inputs): found := found ++ plan_controls(input)
         found
-  // Alternatives record certified branch choices for one source occurrence.
-  // Different child sites must disagree at a shared routing decision; an
-  // arbitrary fork or two distinct demuxes do not establish exclusion.
+  // Alternatives record certified divergence from one source occurrence.
+  // Different children must use distinct outputs of a shared exclusive router
+  // or atomic replicator. A common output or unrelated transforms do not suffice.
   fun alternatives(plan :: EventTracePlan, source :: String, choices :: List = []):
     cond
     | plan is_a EventTraceSource: (if plan.site == source | [choices] | [])
     | plan is_a EventTracePipeline: alternatives(plan.input, source, choices)
     | plan is_a EventTraceRouting: alternatives(plan.input, source, choices ++ [[plan.routing_id, plan.output_index]])
+    | plan is_a EventTraceReplication: alternatives(plan.input, source, choices ++ [[plan.replication_id, plan.output_index]])
     | ~else:
         def mutable found = []
         for (input in plan.inputs): found := found ++ alternatives(input, source, choices)
@@ -342,6 +345,7 @@ fun instrument_events(logical :: DesignElaboration,
           | def result:
               cond
               | plan is_a EventTraceSource: references[plan.site]
+              | plan is_a EventTraceReplication: emit_plan(plan.input)
               | plan is_a EventTracePipeline:
                   def mutable reference = emit_plan(plan.input)
                   for (stage in plan.stages): reference := emit_stage(stage, reference)

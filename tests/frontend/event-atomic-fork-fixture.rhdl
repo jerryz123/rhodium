@@ -1,0 +1,145 @@
+#lang rhodium
+// Exercises atomic replication, branch-local storage, hierarchy, and malformed trace contracts.
+
+import:
+  lib("rhodium/std/flow.rhdl") open
+
+sync_circuit EventAtomicForkNetwork(buffered :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress[3](Decoupled(Bits(8)), ~role: producer)
+  output fork_valid: Bool
+  output fork_ready: Bool
+  output transfers: Bits(3)
+  def incoming = if buffered | ingress |> queue(2, ~pipe: #true) | ingress
+  def branches = incoming |> atomic_fork(3)
+  if buffered
+  | branches[0] |> pipe(1) |> egress[0]
+    branches[1] |> queue(3, ~flow: #true, ~pipe: #true) |> egress[1]
+    branches[2] |> queue(2) |> pipe(2) |> egress[2]
+  | for (index in 0..3): branches[index] |> egress[index]
+  fork_valid <== incoming.valid
+  fork_ready <== incoming.ready
+  transfers <== vec(for List (index in 0..3): branches[index].valid & branches[index].ready).as_bits()
+
+sync_circuit EventAtomicForkLane(buffered :: Boolean, traced :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress[3](Decoupled(Bits(8)), ~role: producer)
+  output fork_valid: Bool
+  output fork_ready: Bool
+  output transfers: Bits(3)
+  inst network(EventAtomicForkNetwork(buffered))
+  if traced
+  | ingress |> trace_event("accepted") |> network.ingress
+  | ingress |> network.ingress
+  for (index in 0..3):
+    if traced
+    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~terminal: #true) |> egress[index]
+    | network.egress[index] |> egress[index]
+  fork_valid <== network.fork_valid
+  fork_ready <== network.fork_ready
+  transfers <== network.transfers
+
+sync_circuit EventAtomicFork():
+  interface sources[3](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[9](Decoupled(Bits(8)), ~role: producer)
+  interface gold_sources[3](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sinks[9](Decoupled(Bits(8)), ~role: producer)
+  output fork_valid0: Bool
+  output fork_ready0: Bool
+  output transfers0: Bits(3)
+  inst lane0(EventAtomicForkLane(#false, #true))
+  inst gold0(EventAtomicForkLane(#false, #false))
+  sources[0] |> lane0.ingress
+  gold_sources[0] |> gold0.ingress
+  for (index in 0..3):
+    lane0.egress[index] |> sinks[0 + index]
+    gold0.egress[index] |> gold_sinks[0 + index]
+  fork_valid0 <== lane0.fork_valid
+  fork_ready0 <== lane0.fork_ready
+  transfers0 <== lane0.transfers
+  output fork_valid1: Bool
+  output fork_ready1: Bool
+  output transfers1: Bits(3)
+  inst lane1(EventAtomicForkLane(#true, #true))
+  inst gold1(EventAtomicForkLane(#true, #false))
+  sources[1] |> lane1.ingress
+  gold_sources[1] |> gold1.ingress
+  for (index in 0..3):
+    lane1.egress[index] |> sinks[3 + index]
+    gold1.egress[index] |> gold_sinks[3 + index]
+  fork_valid1 <== lane1.fork_valid
+  fork_ready1 <== lane1.fork_ready
+  transfers1 <== lane1.transfers
+  output fork_valid2: Bool
+  output fork_ready2: Bool
+  output transfers2: Bits(3)
+  inst lane2(EventAtomicForkLane(#true, #true))
+  inst gold2(EventAtomicForkLane(#true, #false))
+  sources[2] |> lane2.ingress
+  gold_sources[2] |> gold2.ingress
+  for (index in 0..3):
+    lane2.egress[index] |> sinks[6 + index]
+    gold2.egress[index] |> gold_sinks[6 + index]
+  fork_valid2 <== lane2.fork_valid
+  fork_ready2 <== lane2.fork_ready
+  transfers2 <== lane2.transfers
+
+sync_circuit EventNestedAtomicFork():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[3](Decoupled(Bits(8)), ~role: producer)
+  def outer = source |> trace_event("root") |> atomic_fork(2)
+  def inner = outer[0] |> queue(2) |> atomic_fork(2)
+  inner[0] |> trace_event("a") |> sinks[0]
+  inner[1] |> trace_event("b") |> sinks[1]
+  outer[1] |> trace_event("c") |> sinks[2]
+
+sync_circuit EventForkRouting(fork_first :: Boolean):
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[3](Decoupled(Bits(8)), ~role: producer)
+  def root = source |> trace_event("root")
+  def outer = if fork_first | root |> atomic_fork(2) | root |> demux_flow(2, payload => payload[0])
+  def buffered = outer[0] |> queue(2)
+  def inner = if fork_first | buffered |> demux_flow(2, payload => payload[1]) | buffered |> atomic_fork(2)
+  inner[0] |> trace_event("a") |> sinks[0]
+  inner[1] |> trace_event("b") |> sinks[1]
+  outer[1] |> trace_event("c") |> sinks[2]
+
+sync_circuit EventForkArbiter():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def branches = source |> trace_event("root") |> atomic_fork(2)
+  def left = branches[0] |> pipe(1)
+  def right = branches[1] |> queue(2)
+  Array(left, right) |> rr_arbiter() |> pipe(1) |> trace_event("completed") |> sink
+
+sync_circuit EventSingletonFork():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def branches = source |> trace_event("root") |> atomic_fork(1)
+  branches[0] |> trace_event("completed") |> sink
+
+sync_circuit EventBadAtomicFork(count :: Nat, duplicate :: Boolean):
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Decoupled(Bits(8)), ~role: producer)
+  def declared = interface_trace_atomic_fork(count)
+  def model = if duplicate | InterfaceTraceModel([InterfaceTraceRoute(0, 0), InterfaceTraceRoute(0, 0)], declared.dynamic) | declared
+  describe_interface_transform(InterfaceHandle(source, sinks), "atomic-fork", ~trace_model: model)
+
+def replicated = elaborate_with_top(EventAtomicFork())
+fun nested(): elaborate_with_top(EventNestedAtomicFork())
+fun routed(fork_first :: Boolean): elaborate_with_top(EventForkRouting(fork_first))
+fun rejoined(): elaborate_with_top(EventForkArbiter())
+fun singleton(): elaborate_with_top(EventSingletonFork())
+fun bad_count(): elaborate_with_top(EventBadAtomicFork(0, #false))
+fun bad_shape(): elaborate_with_top(EventBadAtomicFork(1, #false))
+fun bad_routes(): elaborate_with_top(EventBadAtomicFork(2, #true))
+
+export:
+  replicated
+  nested
+  routed
+  rejoined
+  singleton
+  bad_count
+  bad_shape
+  bad_routes

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines atomic one-to-many forks for payload-bearing and control-only flows.
+// Defines atomic forks and certifies payload-bearing flow replication for tracing.
 
 import:
   rhombus/meta open
@@ -70,7 +70,7 @@ fun atomic_fork(n :: PosInt)
         "atomic-fork",
         {"outputs": n},
         fork_stage,
-        ~trace_model: interface_trace_broadcast(n)
+        ~trace_model: interface_trace_atomic_fork(n)
       )
     )
 

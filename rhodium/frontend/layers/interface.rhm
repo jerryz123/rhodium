@@ -34,6 +34,7 @@ export:
   InterfaceTraceQueue
   InterfaceTraceSelection
   InterfaceTraceRouting
+  InterfaceTraceAtomicFork
   InterfaceTransformGroup
   InterfaceEventGroup
   InterfaceConnectionGroup
@@ -55,6 +56,7 @@ export:
   describe_interface_selection
   interface_trace_selection
   interface_trace_routing
+  interface_trace_atomic_fork
   interface_trace_broadcast
   interface_trace_merge
   interface_trace_crossbar
@@ -432,15 +434,18 @@ class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value))
   implements ModuleMetadataPayload
 class InterfaceTraceSelection(instance :: Instance, grants :: NonemptyList.of(Value))
 class InterfaceTraceRouting(predicates :: NonemptyList.of(Value))
+// Zero-storage replication: every output transfers exactly when the input does.
+class InterfaceTraceAtomicFork(output_count :: PosInt)
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
     | dynamic is_a InterfaceTraceCombinational: 0
     | dynamic is_a InterfaceTraceSelection: 0
     | dynamic is_a InterfaceTraceRouting: 0
+    | dynamic is_a InterfaceTraceAtomicFork: 0
     | ~else: #false
   method elastic_stages():
     if dynamic is_a InterfaceTraceElastic | dynamic.stages | #false
@@ -456,6 +461,8 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceSelection | dynamic.instance | #false
   method routing_predicates():
     if dynamic is_a InterfaceTraceRouting | dynamic.predicates | #false
+  method atomic_fork_outputs():
+    if dynamic is_a InterfaceTraceAtomicFork | dynamic.output_count | #false
 
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
@@ -1696,6 +1703,10 @@ fun interface_trace_routing(predicates :: NonemptyList.of(HardwareEntity)):
   InterfaceTraceModel(for List (index in 0..predicate_values.length()): InterfaceTraceRoute(0, index),
                       InterfaceTraceRouting(predicate_values))
 
+fun interface_trace_atomic_fork(output_count :: PosInt):
+  InterfaceTraceModel(for List (index in 0..output_count): InterfaceTraceRoute(0, index),
+                      InterfaceTraceAtomicFork(output_count))
+
 fun interface_trace_broadcast(output_count :: PosInt):
   InterfaceTraceModel(
     for List (output_index in 0..output_count):
@@ -1730,8 +1741,11 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
         for (value in trace_model.routing_predicates()):
           unless value.module_def === kernel.active_module() && flat_data_type(value.type) && data_width(value.type) == 1
           | error(~who: #'describe_interface_transform, "routing predicates must be local one-bit data")
-      | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
-        | error(~who: #'describe_interface_transform, "dynamic trace semantics require exactly one input and output")
+      | if trace_model.atomic_fork_outputs()
+        | unless input_count == 1 && output_count == trace_model.atomic_fork_outputs() && trace_model.routes.length() == output_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..output_count): [0, index])
+          | error(~who: #'describe_interface_transform, "atomic fork trace requires exactly one input and one ordered route per output")
+        | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
+          | error(~who: #'describe_interface_transform, "dynamic trace semantics require exactly one input and output")
     def guard = if trace_model.dynamic is_a InterfaceTraceCombinational | trace_model.dynamic.guard | #false
     when guard && (!(guard.module_def === kernel.active_module()) || !flat_data_type(guard.type) || data_width(guard.type) != 1)
     | error(~who: #'describe_interface_transform, "trace guard must be local one-bit data")

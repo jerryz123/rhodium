@@ -121,11 +121,23 @@ Observe the original inline predicate values in their owning module; never
 rebuild the selector decoder. Default the reference to invalid and assert
 mutual exclusion, just as for grants. For each parent with multiple children,
 enumerate source-to-child alternatives through the plan. Every pair targeting
-different child sites must disagree at some shared routing occurrence. Distinct
-routers or a common branch do not prove exclusion. The proof concerns each
+different child sites must diverge at some shared certified routing or atomic
+replication occurrence. Distinct transforms or a common branch do not authorize
+fanout. For routing the proof concerns each
 transaction's routing decision, not simultaneous completion cycles: buffered
 branches may emit descendants of different parents concurrently. Static latency
 is zero at routing, while linear `trace_stages` are false across it.
+
+`EventTraceReplication` preserves a concrete atomic-fork occurrence ID and
+output index around one upstream plan. Keep this node during inference so the
+fanout check can distinguish certified replication from an unexplained split.
+The same pairwise path check accepts distinct outputs of a common replicator,
+without claiming they are mutually exclusive. During lowering, recurse into
+its input unchanged: the fork has no storage and all output transfers coincide
+with input acceptance. Branch-local storage must wrap the replicated reference,
+and its actual controls determine capture. Replication itself adds no observed
+controls or state, so functional fork definitions remain shareable imports.
+Static latency is zero; linear `trace_stages` remain false across replication.
 
 ## Extend trace coverage
 
@@ -165,6 +177,12 @@ round-robin wrappers supply it; the compiler never recreates priority rotation.
 output predicates, complete ordered routes, local one-bit controls, and blocking
 when no predicate is true. `demux_flow` reuses those same predicates in functional
 valid/ready wiring; the compiler does not infer this contract for direct instances.
+`InterfaceTraceAtomicFork` certifies zero-storage all-or-none replication, not
+independent delivery. Validate a positive output count, one input, and the exact
+ordered output routes. `atomic_fork` supplies this contract without changing
+functional wiring. Like combinational passthrough, this is a trusted adapter
+contract, not a proof of arbitrary RTL. Selective and control-only forks keep
+their route-only models until their specific semantics are supported.
 Inference adds these typed delays across flow arcs; it never parses display
 labels or transform properties for timing. The manifest retains unknown latency
 as false rather than interpreting it as zero. Never upgrade route-only metadata
@@ -225,6 +243,15 @@ with pending work. Its scoreboard assigns parents using public routing-boundary
 transfers, then compares exact graph JSON, including repeated payloads. Host
 checks cover nested routing, arbiter reconvergence, malformed contracts, immutable
 original emission, and shared unannotated definitions.
+The `event-atomic-fork` fixture checks three-way all-or-none public transfers,
+pre-fork queues, different branch-local buffers, repeated hierarchy, bubbles,
+independent and simultaneous completions, draining, and reset with pending work.
+The independent transfer scoreboard copies one accepted parent into each branch
+queue and compares exact graph JSON; repeated payloads prevent value matching
+from substituting for occurrence identity. Unannotated lanes check functional
+equivalence. Host checks cover nested replication, composition with demuxes and
+arbiters, singleton forks, malformed contracts, and rejection of uncertified
+fanout.
 
 Every direct Racket or Rhombus command must use a fresh `PLTCOMPILEDROOTS` as
 required by the repository `AGENTS.md`.

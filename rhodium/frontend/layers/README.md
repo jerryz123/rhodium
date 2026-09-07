@@ -1139,7 +1139,7 @@ delay, one-to-one non-inventing transfers, and synchronous reset flushing.
 It must not describe stalls, clock enables, or variable latency. Storage and
 combinational passthrough contracts require exactly one input and output route.
 The trace model's
-`latency_cycles()` returns zero for combinational transfer, selection, or routing, the declared delay
+`latency_cycles()` returns zero for combinational transfer, selection, routing, or atomic replication, the declared delay
 for fixed latency, or false for elastic, queue, or uncertified route-only models.
 
 An elastic implementation calls
@@ -1195,6 +1195,19 @@ output; `routing_predicates()` exposes the original controls. Instrumentation
 checks mutual exclusion and masks lineage before downstream storage. This
 contract is distinct from broadcast: separate child sites are legal only when
 their routes prove mutually exclusive choices of a shared routing occurrence.
+
+`interface_trace_atomic_fork(output_count)` constructs an
+`InterfaceTraceAtomicFork` contract for zero-storage, one-to-many replication.
+Every output transfers exactly once in the same cycle as the input, or no
+endpoint transfers. Output offers need not be identical: peer readiness may
+gate each output's validity. The model validates one input, the positive
+declared output count, and a complete ordered route per output;
+`atomic_fork_outputs()` exposes that count. This is an explicit semantic
+certification, not a circuit-level proof of arbitrary user implementations.
+It must not describe selective forks, dropping, or independently accepted
+broadcasts. Compiler consumers may replicate the live parent reference without
+new state or reconstructed handshake logic; branch storage uses its own
+functional transfer controls.
 
 `describe_interface_event` accepts explicit local one-bit
 `~valid` and optional `~ready` values for the event transfer predicate; `~ready`

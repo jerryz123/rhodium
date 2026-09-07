@@ -14,6 +14,7 @@ import:
   "../frontend/event-queue-fixture.rhdl" as queue_fixture
   "../frontend/event-arbiter-fixture.rhdl" as arbiter_fixture
   "../frontend/event-demux-fixture.rhdl" as demux_fixture
+  "../frontend/event-atomic-fork-fixture.rhdl" as fork_fixture
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
@@ -45,7 +46,7 @@ check:
   emitted.contains("__event_in_") ~is #true
   emitted.contains("__event_out_") ~is #true
   instrument_events(static_fixture.linear).manifest.sites.length() ~is 3
-  instrument_events(static_fixture.forked) ~throws "dynamic trace semantics"
+  instrument_events(static_fixture.forked).manifest.dependencies.length() ~is 2
   instrument_events(static_fixture.merged) ~throws "dynamic trace semantics"
   instrument_events(fixture.wrong_domain()) ~throws "one clock and reset epoch"
   instrument_events(fixture.terminal_chain) ~throws "terminal event has a downstream annotation"
@@ -172,3 +173,32 @@ check:
   demux_fixture.foreign_controls() ~throws "local one-bit data"
   instrument_events(demux_fixture.uncertified_fanout()) ~throws "uncertified fanout"
   instrument_events(demux_fixture.singleton()).manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0]
+
+def fork_before = emit_circt(fork_fixture.replicated.design)
+def replicated = instrument_events(fork_fixture.replicated)
+def fork_sites = replicated.manifest.sites.filter(~keep: fun (site): site.label.starts_with("branch"))
+def fork_plans = fork_sites.map(fun (site): replicated.manifest.trace_plans[site.id])
+check:
+  replicated.manifest.sites.length() ~is 12
+  replicated.manifest.dependencies.length() ~is 9
+  replicated.manifest.dependencies.take(3).map(fun (edge): edge.latency_cycles) ~is [0, 0, 0]
+  replicated.manifest.dependencies.map(fun (edge): edge.trace_stages) ~is [#false, #false, #false, #false, #false, #false, #false, #false, #false]
+  fork_plans.take(3).map(fun (plan): plan is_a EventTraceReplication) ~is [#true, #true, #true]
+  fork_plans.take(3).map(fun (plan): plan.output_index) ~is [0, 1, 2]
+  fork_plans[0].replication_id ~is fork_plans[2].replication_id
+  fork_plans[0].input === fork_plans[2].input ~is #true
+  fork_plans[3].input is_a EventTraceReplication ~is #true
+  fork_plans[3].input.input is_a EventTracePipeline ~is #true
+  fork_plans[3].input.replication_id != fork_plans[6].input.replication_id ~is #true
+  emit_circt(fork_fixture.replicated.design) ~is fork_before
+  child(replicated.instrumented.top, "lane1") === child(replicated.instrumented.top, "lane2") ~is #false
+  child(replicated.instrumented.top, "gold1") === child(replicated.instrumented.top, "gold2") ~is #true
+  has_trace_ports(child(child(replicated.instrumented.top, "gold2"), "network")) ~is #false
+  instrument_events(fork_fixture.nested()).manifest.dependencies.length() ~is 3
+  instrument_events(fork_fixture.routed(#true)).manifest.dependencies.length() ~is 3
+  instrument_events(fork_fixture.routed(#false)).manifest.dependencies.length() ~is 3
+  instrument_events(fork_fixture.rejoined()).manifest.dependencies.length() ~is 2
+  instrument_events(fork_fixture.singleton()).manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0]
+  fork_fixture.bad_count() ~throws "PosInt"
+  fork_fixture.bad_shape() ~throws "one ordered route per output"
+  fork_fixture.bad_routes() ~throws "one ordered route per output"

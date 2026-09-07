@@ -1,4 +1,4 @@
-<!-- Describes static event manifests and opt-in storage, selection, and routing lineage with DPI emission. -->
+<!-- Describes static event manifests and opt-in storage, routing, and replication lineage with DPI emission. -->
 
 # Event graphs
 
@@ -56,7 +56,7 @@ The structured result contains:
 - `EventDependency`: parent ID, child ID, ordered intervening transform path,
   `latency_cycles` (a nonnegative fixed delay, or `false` for variable/unknown
   latency), and ordered `trace_stages` for a linear path (`false` when the path
-  includes selection, routing, or is uncertified);
+  includes selection, routing, replication, or is uncertified);
 - `EventManifest`: original elaboration, sites, dependencies, and `trace_plans`
   keyed by child site ID when inferred with `~dynamic: #true`.
 
@@ -69,6 +69,9 @@ leave `trace_plans` empty. `EventTraceRouting` wraps one input plan with an
 occurrence-qualified routing ID, original predicates, and output index. Its
 reference is invalid on every unselected branch; storage after routing retains
 the selected identity independently of subsequent selector changes.
+`EventTraceReplication` wraps one input plan with a concrete atomic-fork ID and
+output index. All outputs inherit the same reference; downstream storage wraps
+each branch's copy. It creates no additional visible event sites.
 
 `event_manifest_to_json` emits a deterministic version-1 object with format
 name `rhodium-event-graph`, the selected top, sites, and dependencies.
@@ -88,8 +91,9 @@ unmodeled transform is rejected rather than assigned an approximate parent.
 - The manifest describes possible static dependencies, not runtime event
   occurrences.
 - Static inference never inserts hardware. Dynamic instrumentation supports
-  the storage and selection subset described below; forks and joins still
-  require future dynamic adapters.
+  the storage, selection, and atomic replication subset described below;
+  selective/control-only forks, independent broadcasts, and joins still require
+  future dynamic adapters.
 - Only flat top-level flow endpoints are traceable; nested interface members
   are rejected.
 - Source locations are retained when an annotation supplies one through the
@@ -122,19 +126,30 @@ The supported dynamic path consists of annotations, interface connections,
 hierarchy boundaries, `map_flow`, `map_valid`, `filter_flow`, `filter_valid`,
 `gate_flow`, fixed-latency `valid_pipe(stages)`, and elastic ready-valid
 `pipe(stages)`, in-order `queue(depth, ~pipe: ..., ~flow: ...)`,
-ready-valid `arbiter(...)` and `rr_arbiter(...)`, and `demux_flow(...)`.
+ready-valid `arbiter(...)` and `rr_arbiter(...)`, `demux_flow(...)`, and `atomic_fork(...)`.
 Every intervening transform needs a typed dynamic trace
-contract. Route-only models (including control-only queues, forks and joins), disconnected or opaque
+contract. Route-only models (including control-only queues, selective/control-only forks and joins), disconnected or opaque
 upstream boundaries, uncertified multiple-parent paths,
 uncertified fanout dependencies, and descendants of terminal events are rejected.
 Multiple child sites are supported only when every pair of possible paths from
-their shared parent chooses different outputs of a common certified routing
-occurrence. This supports nested demuxes and branch-local storage, not replication.
+their shared parent uses different outputs of a common certified routing or
+atomic-replication occurrence. This supports nested demuxes, atomic forks, and
+branch-local storage; an unexplained split remains an error.
 Routing checks predicate mutual exclusion at runtime. No selected output means
 no input transfer, while older buffered branches can still complete together.
 If a selection path has any annotated ancestor, every selectable input path
 must have one; partially annotated ancestry is rejected with a diagnostic.
 An annotation with no annotated ancestor on any path remains a root event.
+
+At an atomic fork, every branch accepts the same input transaction together.
+The compiler forwards the same parent reference onto each branch without new
+fork-local state or observation signals. Queues and pipes after the fork retain
+their own copies, so downstream events may complete independently and at
+different cycles. Each emits one DPI edge to its nearest annotated parent;
+there is no synthetic fork node and no change to the collector ABI. An arbiter
+may later select individual replicas, producing separate occurrences with the
+same ancestor. Combining several inputs into one joined event remains a
+separate multi-parent feature.
 
 `EventInstrumentationConfig(clock_port, reset_port)` selects the top-level
 `Clock` and synchronous `Reset` inputs (defaults: `"clock"`, `"reset"`). All

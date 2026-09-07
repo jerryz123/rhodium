@@ -630,7 +630,8 @@ ingress
 The [event package](../event/README.md) can also rebuild a separate design with
 synthesizable lineage and DPI emission for linear combinational paths and
 fixed-latency `valid_pipe`, elastic `pipe`, in-order `queue`, and ready-valid
-`arbiter`/`rr_arbiter` and `demux_flow` paths. Forks and joins remain static-analysis-only boundaries.
+`arbiter`/`rr_arbiter`, `demux_flow`, and `atomic_fork` paths. Selective/control-only
+forks and joins still require dynamic trace adapters.
 `pipe` publishes its actual per-stage load and input-valid controls as typed
 metadata; the instrumenter observes them to keep shadow references aligned
 under stalls without changing functional ready/valid/payload behavior.
@@ -854,6 +855,13 @@ def stable = buffered
              |> gate_flow(!hazard)
              |> pipe(1)
 ```
+
+`atomic_fork(n)` certifies all-or-none, same-cycle replication for event tracing.
+Every branch inherits the same parent occurrence; branch-local pipes and queues
+retain it even when their downstream annotations fire on different cycles.
+The compiler adds no fork event or fork-local metadata storage and leaves the
+functional fork unchanged. This contract does not cover selective atomic forks,
+control-only forks, or independently accepted broadcasts.
 
 `demux_flow` publishes its actual output-selection predicates for event tracing.
 Only the selected branch inherits a transferred parent reference; branch-local
