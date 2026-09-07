@@ -50,13 +50,15 @@ module iterative_divider_tb;
     input logic [7:0] quotient,
     input logic [7:0] remainder
   );
-    repeat (7) begin
+    repeat (8) begin
       assert (!response_out.valid)
         else $fatal(1, "divider response arrived before eight iterations");
       assert (!request_out.ready)
         else $fatal(1, "divider accepted a request while active");
       tick();
     end
+    assert (!response_out.valid && !request_out.ready)
+      else $fatal(1, "divider skipped its registered finalization cycle");
     tick();
     assert (response_out.valid && response_out.bits.quotient == quotient &&
             response_out.bits.remainder == remainder)

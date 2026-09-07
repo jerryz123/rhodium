@@ -13,9 +13,10 @@ bundle DividerResponse(width :: PosInt):
   quotient: Bits(width)
   remainder: Bits(width)
 
-// Accepts one request, resolves one quotient bit per cycle, and returns both
-// mathematical projections. Division by zero returns an all-one quotient and
-// the original dividend; signed overflow wraps to the fixed-width minimum.
+// Accepts one request, resolves one quotient bit per cycle, finalizes signs on
+// a separate cycle, and returns both mathematical projections. Division by
+// zero returns an all-one quotient and the original dividend; signed overflow
+// wraps to the fixed-width minimum.
 sync_circuit IterativeDivider(width :: PosInt):
   def remainder_width = width + 1
   def count_width = index_width(width)
@@ -24,6 +25,7 @@ sync_circuit IterativeDivider(width :: PosInt):
   interface response(Irrevocable(DividerResponse(width)), ~role: producer)
 
   reg active(~init: Bool(#false))
+  reg finalizing(~init: Bool(#false))
   reg count(~init: bits(0, count_width))
   reg dividend(Bits(width))
   reg divisor(Bits(width))
@@ -35,7 +37,7 @@ sync_circuit IterativeDivider(width :: PosInt):
   reg response_valid(~init: Bool(#false))
   reg response_bits(DividerResponse(width))
 
-  request.ready <== !active & (!response_valid ||| response.ready)
+  request.ready <== !active & !finalizing & (!response_valid ||| response.ready)
   response.valid <== response_valid
   response.bits <== response_bits
 
@@ -47,11 +49,12 @@ sync_circuit IterativeDivider(width :: PosInt):
   def divisor_magnitude = mux(divisor_negative, -request.bits.divisor, request.bits.divisor)
   def shifted_remainder :: Bits(remainder_width) = (partial_remainder[0..width] ++ dividend[width - 1])
   def extended_divisor = divisor.zext(remainder_width)
-  def quotient_bit :: Bool = shifted_remainder >= extended_divisor
-  def next_remainder :: Bits(remainder_width) = mux(quotient_bit, shifted_remainder - extended_divisor, shifted_remainder)
+  def difference :: Bits(remainder_width) = shifted_remainder - extended_divisor
+  def quotient_bit :: Bool = !difference[width].into(Bool)
+  def next_remainder :: Bits(remainder_width) = mux(quotient_bit, difference, shifted_remainder)
   def next_dividend :: Bits(width) = (dividend << 1) ||| quotient_bit.as_bits().zext(width)
-  def quotient_value = mux(negate_quotient, -next_dividend, next_dividend)
-  def remainder_magnitude :: Bits(width) = next_remainder[0..width]
+  def quotient_value = mux(negate_quotient, -dividend, dividend)
+  def remainder_magnitude :: Bits(width) = partial_remainder[0..width]
   def remainder_value = mux(negate_remainder, -remainder_magnitude, remainder_magnitude)
   def final_quotient = mux(divide_by_zero, !bits(0, width), quotient_value)
   def final_remainder = mux(divide_by_zero, original_dividend, remainder_value)
@@ -59,6 +62,7 @@ sync_circuit IterativeDivider(width :: PosInt):
 
   when request_fire:
     active <== Bool(#true)
+    finalizing <== Bool(#false)
     count <== bits(0, count_width)
     dividend <== dividend_magnitude
     divisor <== divisor_magnitude
@@ -70,6 +74,11 @@ sync_circuit IterativeDivider(width :: PosInt):
     response_valid <== Bool(#false)
   elsewhen (active & last_iteration):
     active <== Bool(#false)
+    finalizing <== Bool(#true)
+    dividend <== next_dividend
+    partial_remainder <== next_remainder
+  elsewhen finalizing:
+    finalizing <== Bool(#false)
     response_valid <== Bool(#true)
     response_bits <== DividerResponse(width):
       quotient: final_quotient
