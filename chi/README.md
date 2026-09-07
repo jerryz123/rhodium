@@ -86,6 +86,12 @@ implement retry, error, or coherence policy.
 They return immutable values and can be called repeatedly in one circuit
 without allocating named wires or sharing state between calls.
 
+`messages.rhdl` also provides Home response construction and immutable
+downstream-request, snoop-write-data, and upstream-read-data transforms.
+These preserve untouched packet metadata, including optional fields. Callers
+supply routing identities and policy decisions; the helpers neither allocate
+transactions nor choose a coherence policy.
+
 The package boundary follows the protocol layering:
 
 - `chi/` owns CHI node roles, flits, opcodes, transactions, Protocol Credits,

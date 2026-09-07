@@ -165,6 +165,9 @@ export:
   chi_sn_dbid_response
   chi_sn_write_completion
   chi_sn_read_completion
+  chi_home_downstream_request
+  chi_hnf_snoop_write_data
+  chi_home_upstream_read_data
   CHIRamConfig
   CHIRamParams
   CHIRamIdentity

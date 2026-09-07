@@ -7,6 +7,7 @@ import:
   lib("chi/params.rhdl") open
   lib("chi/flits.rhdl") open
   lib("chi/protocol.rhdl") open
+  lib("chi/messages.rhdl") open
   lib("chi/coherence.rhdl") open
   lib("chi/transaction.rhdl") open
   lib("chi/link.rhdl") open
@@ -202,27 +203,6 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
   ) & !request.exp_comp_ack & !request.multi_req
   mux(chi_cache_maintenance(request.opcode), maintenance_supported, ordinary_supported) & address_supported
 
-fun chi_hnf_response(p :: CHIFlitParams,
-                     home_node_id :: Bits(p.node_id_width),
-                     request :: CHIReqFlit(p),
-                     opcode :: CHIRspOpcode,
-                     ~error: error :: CHIRespErr = CHIRespErr.OK) :~ CHIRspFlit(p):
-  CHIRspFlit(p):
-    cache_line_id: bits(0, 6)
-    trace_tag: Bool(#false)
-    tag_op: CHITagOp.Invalid
-    pcrd_type: bits(0, 4)
-    dbid_or_group_id: bits(0, 12)
-    c_busy: bits(0, 3)
-    fwd_state_or_data_pull: bits(0, 3)
-    resp: bits(0, 3)
-    resp_err: error
-    opcode: opcode
-    txn_id: request.txn_id
-    src_id: home_node_id
-    tgt_id: request.src_id
-    qos: request.qos
-
 fun chi_hnf_snoop(p :: CHIFlitParams,
                   home_node_id :: Bits(p.node_id_width),
                   request :: CHIReqFlit(p),
@@ -255,50 +235,8 @@ fun chi_hnf_downstream_request(p :: CHIFlitParams,
                                ~address: address :: Bits(p.request_address_width) = request.address,
                                ~size: size :: Bits(6) = request.size_or_num_req,
                                ~opcode: opcode :: CHIReqOpcode = chi_hnf_subordinate_opcode(request.opcode)) :~ CHIReqFlit(p):
-  wire downstream: CHIReqFlit(p)
-  if p.req_rsvdc_width > 0
-  | downstream.rsvdc <== request.rsvdc
-  | #void
-  if p.sec_sid_width > 0
-  | downstream.sec_sid1 <== request.sec_sid1
-  | #void
-  if p.request_security_width > 0
-  | downstream.mecid_or_stream_id <== request.mecid_or_stream_id
-  | #void
-  if p.pbha_width > 0
-  | downstream.pbha <== request.pbha
-  | #void
-  if p.mpam_width > 0
-  | downstream.mpam <== request.mpam
-  | #void
-  downstream.trace_tag <== request.trace_tag
-  downstream.tag_op <== request.tag_op
-  downstream.exp_comp_ack <== Bool(#false)
-  downstream.excl_snoop_me_cah <== Bool(#false)
-  downstream.group_id_or_lpid <== request.group_id_or_lpid
-  downstream.snp_attr_or_do_dwt <== Bool(#false)
-  downstream.mem_attr <== CHIMemAttr():
-    allocate: request.mem_attr.allocate
-    cacheable: request.mem_attr.cacheable
-    device: request.mem_attr.device
-    early_write_acknowledge: request.mem_attr.early_write_acknowledge & !chi_cache_maintenance(request.opcode)
-  downstream.pcrd_type <== bits(0, 4)
-  downstream.order <== CHIOrder.NoOrder
-  downstream.allow_retry <== Bool(#false)
-  downstream.likely_shared <== request.likely_shared
-  downstream.pas <== request.pas
-  downstream.address <== address
-  downstream.size_or_num_req <== size
-  downstream.multi_req <== Bool(#false)
-  downstream.opcode <== opcode
-  downstream.return_txn_id_or_stash_lpid <== bits(0, 12)
-  downstream.stash_nid_valid_endian_deep_prefetch_tgt_hint <== Bool(#false)
-  downstream.return_nid_or_stash_nid_or_data_target <== home_node_id
-  downstream.txn_id <== bits(0, 12)
-  downstream.src_id <== home_node_id
-  downstream.tgt_id <== subordinate_node_id
-  downstream.qos <== request.qos
-  downstream
+  chi_home_downstream_request(p, home_node_id, subordinate_node_id, request, address, size, opcode, bits(0, 12),
+                              request.mem_attr.early_write_acknowledge & !chi_cache_maintenance(request.opcode))
 
 fun chi_hnf_snoop_write_request(p :: CHIFlitParams,
                                 home_node_id :: Bits(p.node_id_width),
@@ -352,92 +290,17 @@ fun chi_hnf_snoop_write_request(p :: CHIFlitParams,
   snoop_write_request.qos <== request.qos
   snoop_write_request
 
-fun chi_hnf_snoop_write_data(p :: CHIFlitParams,
-                             home_node_id :: Bits(p.node_id_width),
-                             subordinate_node_id :: Bits(p.node_id_width),
-                             subordinate_dbid :: Bits(12),
-                             data :: CHIDatFlit(p)) :~ CHIDatFlit(p):
-  wire snoop_write_data: CHIDatFlit(p)
-  if p.poison_width > 0
-  | snoop_write_data.poison <== data.poison
-  | #void
-  if p.data_check_width > 0
-  | snoop_write_data.data_check <== data.data_check
-  | #void
-  snoop_write_data.data <== data.data
-  snoop_write_data.byte_enable <== data.byte_enable
-  if p.dat_rsvdc_width > 0
-  | snoop_write_data.rsvdc <== data.rsvdc
-  | #void
-  snoop_write_data.replicate <== Bool(#false)
-  snoop_write_data.num_dat <== bits(0, 2)
-  snoop_write_data.cah <== Bool(#false)
-  snoop_write_data.trace_tag <== data.trace_tag
-  snoop_write_data.tag_update <== data.tag_update
-  snoop_write_data.tag <== data.tag
-  snoop_write_data.tag_op <== data.tag_op
-  snoop_write_data.cache_line_id <== data.cache_line_id
-  snoop_write_data.data_id <== data.data_id
-  snoop_write_data.ccid <== data.ccid
-  snoop_write_data.dbid_or_mecid <== subordinate_dbid.zext(16)
-  snoop_write_data.c_busy <== bits(0, 3)
-  snoop_write_data.data_pull <== Bool(#false)
-  snoop_write_data.data_source_or_fwd_state <== bits(0, 8)
-  snoop_write_data.resp <== bits(0, 3)
-  snoop_write_data.resp_err <== data.resp_err
-  snoop_write_data.opcode <== CHIDatOpcode.NonCopyBackWriteData
-  snoop_write_data.home_nid_or_pbha_or_mismatched_mecid <== home_node_id
-  snoop_write_data.txn_id <== subordinate_dbid
-  snoop_write_data.src_id <== home_node_id
-  snoop_write_data.tgt_id <== subordinate_node_id
-  snoop_write_data.qos <== data.qos
-  snoop_write_data
-
 fun chi_hnf_upstream_read_data(p :: CHIFlitParams,
                                home_node_id :: Bits(p.node_id_width),
                                request :: CHIReqFlit(p),
                                coherent :: Bool,
                                data :: CHIDatFlit(p)) :~ CHIDatFlit(p):
-  wire upstream: CHIDatFlit(p)
-  if p.poison_width > 0
-  | upstream.poison <== data.poison
-  | #void
-  if p.data_check_width > 0
-  | upstream.data_check <== data.data_check
-  | #void
-  upstream.data <== data.data
-  upstream.byte_enable <== data.byte_enable
-  if p.dat_rsvdc_width > 0
-  | upstream.rsvdc <== data.rsvdc
-  | #void
-  upstream.replicate <== data.replicate
-  upstream.num_dat <== data.num_dat
-  upstream.cah <== data.cah
-  upstream.trace_tag <== data.trace_tag
-  upstream.tag_update <== data.tag_update
-  upstream.tag <== data.tag
-  upstream.tag_op <== data.tag_op
-  upstream.cache_line_id <== data.cache_line_id
-  upstream.data_id <== data.data_id
-  upstream.ccid <== data.ccid
-  upstream.dbid_or_mecid <== bits(0, 16)
-  upstream.c_busy <== data.c_busy
-  upstream.data_pull <== Bool(#false)
-  upstream.data_source_or_fwd_state <== bits(0, 8)
   def coherent_response = CHICoherentResponse():
     pass_dirty: Bool(#false)
     state: mux(request.opcode === CHIReqOpcode.ReadUnique,
                CHIResponseState.Unique,
                CHIResponseState.SharedClean)
-  upstream.resp <== mux(coherent, coherent_response.as_bits(), bits(0, 3))
-  upstream.resp_err <== data.resp_err
-  upstream.opcode <== CHIDatOpcode.CompData
-  upstream.home_nid_or_pbha_or_mismatched_mecid <== home_node_id
-  upstream.txn_id <== request.return_txn_id_or_stash_lpid
-  upstream.src_id <== home_node_id
-  upstream.tgt_id <== request.return_nid_or_stash_nid_or_data_target
-  upstream.qos <== request.qos
-  upstream
+  chi_home_upstream_read_data(p, home_node_id, request, mux(coherent, coherent_response.as_bits(), bits(0, 3)), data)
 
 sync_circuit CHIHNF(config :: CHIHNFConfig):
   def checked = config

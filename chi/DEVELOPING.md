@@ -32,7 +32,7 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 | Area | Owning modules | Responsibility |
 |---|---|---|
 | Wire | [`params.rhdl`](params.rhdl), [`flits.rhdl`](flits.rhdl), [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) | Physical configuration, packed payloads, packet helpers, and coherent state vocabulary |
-| Messages | [`messages.rhdl`](messages.rhdl) | Stateless subordinate DBID, write-completion, and read-completion construction; no allocator or endpoint state |
+| Messages | [`messages.rhdl`](messages.rhdl) | Stateless subordinate responses, Home responses, and metadata-preserving REQ/DAT transforms; no allocator or endpoint state |
 | Endpoint and service | [`link.rhdl`](link.rhdl), [`channels.rhdl`](channels.rhdl), [`fabric.rhdl`](fabric.rhdl) | Credited links, ready-valid engine boundaries, capabilities, services, and address maps |
 | Checking and control | [`monitor.rhdl`](monitor.rhdl), [`transaction.rhdl`](transaction.rhdl), [`coherent-transaction.rhdl`](coherent-transaction.rhdl), [`retryable-transaction.rhdl`](retryable-transaction.rhdl) | Link assertions, bounded transaction checks, and reusable retry association |
 | Homes and storage | [`subordinate-slots.rhdl`](subordinate-slots.rhdl), [`home.rhdl`](home.rhdl), [`coherent-home.rhdl`](coherent-home.rhdl), [`inclusive-home.rhdl`](inclusive-home.rhdl), [`ram.rhdl`](ram.rhdl), [`dpi-memory.rhdl`](dpi-memory.rhdl), [`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl), [`address-projector.rhdl`](address-projector.rhdl) | Transaction allocation, Home engines, backing memory, fragmentation, and address projection |
@@ -55,6 +55,15 @@ one circuit with distinct inputs. Builders should construct immutable values,
 not declare caller-scoped named wires. The read-completion builder's zero
 literal expresses only its existing inactive-field policy; it is not a
 universal default for other CHI messages.
+
+Home REQ/DAT forwarding uses immutable field replacement to retain untouched
+metadata, including optional fields. `coherent-home.rhdl` keeps the policy
+wrappers that select downstream opcodes, early-write acknowledgement, and
+coherent response state; `messages.rhdl` receives those decisions explicitly.
+The inclusive Home shares those wrappers, not the serialized Home's state.
+The constructor fixture compares complete transformed packets at every DAT
+width, with optional REQ/DAT metadata enabled and disabled. Run it alongside
+both Home and maintenance fixtures when changing these transforms.
 
 Packet position and naturally aligned, unelided transfer packet sets belong in
 `protocol.rhdl`, below both engines and monitors. Use its address-aware helpers

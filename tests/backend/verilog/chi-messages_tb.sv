@@ -1,5 +1,7 @@
-// Checks independent repeated message calls, response routing, byte masks, and optional defaults at all DAT widths.
+// Checks repeated CHI builders and complete Home transforms, including optional metadata at every DAT width.
 module chi_messages_tb;
+  logic [511:0] home_request_bits;
+  logic [1023:0] home_data_bits;
   CHIReqFlit request, other_request;
   logic [15:0] node_id;
   logic [4:0] dbid;
@@ -10,6 +12,13 @@ module chi_messages_tb;
   logic [1:0] other_data_id;
   logic [127:0] other_data;
   CHIMessageFixture dut(.request(request), .node_id(node_id), .dbid(dbid), .data_id(data_id), .data(data),
+                        .home_request_bits(home_request_bits), .home_data_bits(home_data_bits),
+                        .original_req_w128(), .original_dat_w128(), .downstream_w128(), .write_w128(), .upstream_w128(),
+                        .original_req_h128(), .original_dat_h128(), .downstream_h128(), .write_h128(), .upstream_h128(),
+                        .original_req_w256(), .original_dat_w256(), .downstream_w256(), .write_w256(), .upstream_w256(),
+                        .original_req_h256(), .original_dat_h256(), .downstream_h256(), .write_h256(), .upstream_h256(),
+                        .original_req_w512(), .original_dat_w512(), .downstream_w512(), .write_w512(), .upstream_w512(),
+                        .original_req_h512(), .original_dat_h512(), .downstream_h512(), .write_h512(), .upstream_h512(),
                         .other_request(other_request), .other_node_id(other_node_id), .other_dbid(other_dbid),
                         .other_data_id(other_data_id), .other_data(other_data),
                         .dbid_response(), .write_response(), .other_dbid_response(), .other_write_response(), .other_read_response(),
@@ -47,6 +56,58 @@ module chi_messages_tb;
            dut.PORT.data_source_or_fwd_state, dut.PORT.resp, dut.PORT.resp_err} == '0) \
     else $fatal(1, "read defaults mismatch: %s", `"PORT`");
 
+`define CHECK_HOME(P) \
+  begin \
+    type(dut.original_req_``P) expected_req; \
+    type(dut.original_dat_``P) expected_dat; \
+    expected_req = dut.original_req_``P; \
+    expected_req.exp_comp_ack = 0; \
+    expected_req.excl_snoop_me_cah = 0; \
+    expected_req.snp_attr_or_do_dwt = 0; \
+    expected_req.mem_attr.early_write_acknowledge = other_request.mem_attr.early_write_acknowledge; \
+    expected_req.pcrd_type = 0; \
+    expected_req.order = 0; \
+    expected_req.allow_retry = 0; \
+    expected_req.address = other_request.address; \
+    expected_req.size_or_num_req = other_request.size_or_num_req; \
+    expected_req.multi_req = 0; \
+    expected_req.opcode = other_request.opcode; \
+    expected_req.return_txn_id_or_stash_lpid = 0; \
+    expected_req.stash_nid_valid_endian_deep_prefetch_tgt_hint = 0; \
+    expected_req.return_nid_or_stash_nid_or_data_target = node_id; \
+    expected_req.txn_id = other_request.txn_id; \
+    expected_req.src_id = node_id; \
+    expected_req.tgt_id = other_node_id; \
+    assert (dut.downstream_``P === expected_req) else $fatal(1, "Home REQ transform mismatch"); \
+    expected_dat = dut.original_dat_``P; \
+    expected_dat.replicate = 0; \
+    expected_dat.num_dat = 0; \
+    expected_dat.cah = 0; \
+    expected_dat.dbid_or_mecid = {4'b0, other_request.txn_id}; \
+    expected_dat.c_busy = 0; \
+    expected_dat.data_pull = 0; \
+    expected_dat.data_source_or_fwd_state = 0; \
+    expected_dat.resp = 0; \
+    expected_dat.opcode = 4'h3; \
+    expected_dat.home_nid_or_pbha_or_mismatched_mecid = node_id; \
+    expected_dat.txn_id = other_request.txn_id; \
+    expected_dat.src_id = node_id; \
+    expected_dat.tgt_id = other_node_id; \
+    assert (dut.write_``P === expected_dat) else $fatal(1, "Home write DAT transform mismatch"); \
+    expected_dat = dut.original_dat_``P; \
+    expected_dat.dbid_or_mecid = 0; \
+    expected_dat.data_pull = 0; \
+    expected_dat.data_source_or_fwd_state = 0; \
+    expected_dat.resp = other_data[2:0]; \
+    expected_dat.opcode = 4'h4; \
+    expected_dat.home_nid_or_pbha_or_mismatched_mecid = node_id; \
+    expected_dat.txn_id = dut.original_req_``P.return_txn_id_or_stash_lpid; \
+    expected_dat.src_id = node_id; \
+    expected_dat.tgt_id = dut.original_req_``P.return_nid_or_stash_nid_or_data_target; \
+    expected_dat.qos = dut.original_req_``P.qos; \
+    assert (dut.upstream_``P === expected_dat) else $fatal(1, "Home read DAT transform mismatch"); \
+  end
+
   initial begin
     for (int sz = 0; sz <= 6; sz++) begin
       for (int addr = 0; addr < 256; addr += (1 << sz)) begin
@@ -66,7 +127,15 @@ module chi_messages_tb;
         other_dbid = ~dbid;
         other_data_id = ~data_id;
         other_data = ~data[127:0];
+        for (int b = 0; b < 512; b += 32) home_request_bits[b +: 32] = $urandom;
+        for (int b = 0; b < 1024; b += 32) home_data_bits[b +: 32] = $urandom;
         #1;
+        `CHECK_HOME(w128)
+        `CHECK_HOME(h128)
+        `CHECK_HOME(w256)
+        `CHECK_HOME(h256)
+        `CHECK_HOME(w512)
+        `CHECK_HOME(h512)
         `CHECK_RSP(dbid_response, 5'h06, request, node_id, dbid)
         `CHECK_RSP(write_response, 5'h04, request, node_id, dbid)
         `CHECK_RSP(other_dbid_response, 5'h06, other_request, other_node_id, other_dbid)
@@ -89,4 +158,5 @@ module chi_messages_tb;
   end
 `undef CHECK_RSP
 `undef CHECK_DAT
+`undef CHECK_HOME
 endmodule
