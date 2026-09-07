@@ -1,4 +1,4 @@
-// Checks RV32 VIPT block-zero installation and all sixteen SRAM words on misses and owned hits.
+// Checks RV32 staged block-zero lookup, younger-load replay, and all sixteen SRAM words.
 module rv5stage_dcache_rv32_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
@@ -98,6 +98,8 @@ module rv5stage_dcache_rv32_tb;
     assert (acknowledgements == 1 && responses == 1) else $fatal(1, "RV32 zero completion count");
     for (int offset = 0; offset < 64; offset++) begin
       send_request(32'h1000 + 32'(offset), 4'd6);
+      send_request(32'h1000 + 32'((offset / 4) * 4), 4'd1);
+      expect_response(32'd0);
       expect_response(32'd0);
       for (int word = 0; word < 16; word++) begin
         send_request(32'h1000 + 32'(word * 4), 4'd1);

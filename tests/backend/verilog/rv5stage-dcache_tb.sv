@@ -1,4 +1,4 @@
-// Verifies RV5Stage VIPT L1D aliases, canceled reads, structural buffering, mutations, and coherence.
+// Verifies staged VIPT L1D lookup, retained-request rereads, mutations, and coherence.
 module rv5stage_dcache_tb;
   typedef struct packed {
     logic [63:0] address;
@@ -97,6 +97,10 @@ module rv5stage_dcache_tb;
 
   RV5StageL1DCache dut (.*);
   always #5 clock = ~clock;
+  initial begin
+    #1000000;
+    $fatal(1, "L1D staged lookup/coherence watchdog expired");
+  end
 
   task automatic tick;
     begin
@@ -496,6 +500,9 @@ module rv5stage_dcache_tb;
     expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd1);
     send_core_request(PREFETCH_READ_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd2);
     send_core_request(PREFETCH_READ_ADDRESS + 64'd8, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd3);
+    assert (!core_out.response.valid)
+      else $fatal(1, "load response bypassed the registered S2 lookup result");
+    tick();
     assert (core_out.response.valid)
       else $fatal(1, "VIPT load hit did not bypass the empty structural buffer");
     expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd2);
@@ -522,10 +529,12 @@ module rv5stage_dcache_tb;
       else $fatal(1, "data cache reported drained during a refill");
     // The first miss may stop internal queue drain, but its SRAM result must
     // not feed back into request acceptance while structural capacity remains.
-    tick();
     assert (core_out.request.ready)
       else $fatal(1, "data cache request readiness depended on a lookup miss");
+    // This younger lookup is already in S1 when the older S2 miss blocks it.
+    // It must reread the installed line instead of launching a duplicate miss.
     send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd4);
+    send_core_request(ADDRESS + 64'd8, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd5);
     accept_request(READ_CLEAN, ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
     send_response(PCRD_GRANT, 12'd0, 12'd0, 4'd6);
     send_response(RETRY_ACK, 12'd0, 12'd0, 4'd6);
@@ -535,6 +544,9 @@ module rv5stage_dcache_tb;
     accept_comp_ack();
     expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd3);
     expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd4);
+    expect_core_response(64'h01234567_89abcdef, DATA_DESTINATION_INTEGER, 5'd5);
+    assert (!tx_req_pending)
+      else $fatal(1, "retained lookup used stale metadata after refill");
 
     // An AMO to a shared line acquires Unique ownership, returns the old
     // doubleword, installs the updated value, and leaves the line dirty.
@@ -558,10 +570,16 @@ module rv5stage_dcache_tb;
     send_core_request(ADDRESS + 64'h28, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA_2, 5'd0);
     assert (!core_out.response.valid)
       else $fatal(1, "local store responded in its SRAM lookup cycle");
+    // The immediately following load initially reads the pre-store SRAM word.
+    // Its retained request must reread after the older mutation commits.
+    send_core_request(ADDRESS + 64'h28, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd6);
+    assert (!core_out.response.valid)
+      else $fatal(1, "local store bypassed the registered ownership decision");
     tick();
     assert (!core_out.response.valid)
       else $fatal(1, "local store bypassed the registered mutation stage");
     expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
+    expect_core_response(STORE_DATA_2, DATA_DESTINATION_INTEGER, 5'd6);
     tick();
     assert (!tx_req_pending && !tx_dat_pending)
       else $fatal(1, "UniqueDirty store unexpectedly reached CHI");
@@ -717,6 +735,7 @@ module rv5stage_dcache_tb;
     accept_comp_ack();
     expect_core_response(LINE[63:0], DATA_DESTINATION_INTEGER, 5'd1);
     send_core_request(PREFETCH_WRITE_ADDRESS + 64'h201, MEMORY_ZERO, ATOMIC_SWAP, ~64'd0, 5'd0);
+    send_core_request(PREFETCH_WRITE_ADDRESS + 64'h208, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd2);
     for (beat = 0; beat < 8; beat++) begin
       accept_request(WRITE_UNIQUE_PTL, PREFETCH_WRITE_ADDRESS + 64'(beat * 8), 12'd1, 6'd3, 1'b1, 4'd0);
       send_response(COMP_DBID_RESP, 12'd1, 12'h055, 4'd0);
@@ -731,6 +750,7 @@ module rv5stage_dcache_tb;
     return_line(PREFETCH_WRITE_ADDRESS + 64'h200, LINE, 3'b010);
     accept_comp_ack();
     expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
+    expect_core_response(64'd0, DATA_DESTINATION_INTEGER, 5'd2);
     // MakeInvalid discards even a dirty line and must return only SnpResp_I.
     send_snoop(PREFETCH_WRITE_ADDRESS + 64'h200, 12'h07a, 5'h0a);
     for (integer wait_cycles = 0; !chi_out.requester_responses.valid && wait_cycles < 100; wait_cycles++) begin

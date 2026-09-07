@@ -102,15 +102,16 @@ flowchart LR
   Core["Core request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
   Core -->|"empty buffer + available SRAM"| Lookup
   Virtual["Early virtual index"] --> Lookup
-  Queue --> Lookup["One-stage lookup Pipe<br/>tag + state + XLEN word SRAMs"]
-  Lookup -->|load hit| Load["LoadGen"]
-  Lookup -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
+  Queue --> Lookup["S1 lookup Pipe<br/>tag + state + XLEN word SRAMs"]
+  Lookup --> Resolved["Registered S2 result<br/>word + hit + coherence + victim"]
+  Resolved -->|load hit| Load["LoadGen"]
+  Resolved -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
   Pending --> Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
   Load --> Response["One-stage ValidPipe<br/>ordered response"]
   Mutate --> Arrays["Tag, state, and data arrays"]
   Mutate --> Response
 
-  Lookup -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
+  Resolved -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
   Victim -->|yes| Gather["Gather 64-byte line"]
   Gather --> Writeback["8 serialized 64-bit<br/>WriteUniquePtl transactions"]
   Writeback --> Refill["ReadClean or ReadUnique<br/>retry-aware refill"]
@@ -138,10 +139,19 @@ reads the arrays in parallel with translation and PMA checks. Its permitted
 physical request bypasses the queue into the lookup pipeline at the read edge.
 Otherwise, accepted physical requests enter the queue and later index using
 their unchanged page-offset bits. Queued requests always precede fresh demands.
-A one-stage `Pipe` carries issued request context alongside the synchronous SRAM
-lookup. Consecutive load hits advance every cycle. A
-mandatory one-stage `ValidPipe` registers the non-backpressurable response. A
-store, SC, or AMO that already has Unique ownership first captures its request,
+A one-stage `Pipe` retains S1 request context alongside the synchronous SRAM
+lookup. Tag comparison and word/state selection feed an always-captured S2
+result register. Only S2 checks access ownership and LR/SC reservation, chooses
+eviction or refill, and produces hit responses. Consecutive load hits still
+advance every cycle; an uncontended hit responds two edges after its array-read
+edge, through S2 and the mandatory response `ValidPipe`.
+
+An older S2 miss or mutation stops younger S1 advancement. The cache retains
+that younger request, discards its array result, and rereads after the older
+operation completes. Pending snoops may use the arrays while the retained
+request waits; replay then observes updated tags, coherence state, and data.
+Only requests with reserved downstream capacity enter S2, which never stalls.
+A store, SC, or AMO that already has Unique ownership first captures its request,
 selected way, and old value in a one-entry mutation register. On the following
 edge it updates the selected byte lanes and sets UniqueDirty without emitting
 REQ or DAT traffic; an AMO returns the captured value from before that update.

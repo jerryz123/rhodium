@@ -45,6 +45,13 @@ importing the instruction-cache package.
    Geometry rejection belongs to `../profile.rhm`.
 2. Keep the one-request-per-cycle load-hit path separate from blocking miss,
    acquisition, gather, writeback, and installation state.
+   S1 owns array reads, tag comparison, and word/state selection; its result
+   crosses `ValidPipeAlwaysCapture` before S2 checks permissions and launches
+   transactions. Reserve S2 capacity before advancing S1. Retain and reread
+   younger S1 requests blocked by older S2 work or snoops; never retain their
+   stale array results across mutation, refill, or coherence service. Include
+   both stages in drain and maintenance ordering, but let snoops pass a retained
+   S1 request once its outstanding read and S2 have drained.
 3. Publish refill metadata only after the last word, and invalidate a dirty
    victim before reusing its way.
 4. Preserve explicit SRAM ownership and priority among core lookup, line
