@@ -273,8 +273,11 @@ returns the walker to Idle without publishing a completion.
 | L1 cache hit, miss, refill, coherence, or replacement behavior | Not a translation fault source | The cache subsystem; both cache protocols leave translation and PMA faults to their callers |
 
 The parent core converts the MMU's page/access signals at WB into the exact
-exception cause. `MemoryOperation.needs_unique()` selects store-class causes for
-Store, SC, and AMO; Load and LR use load-class causes. Trap priority and
+exception cause. `MemoryOperation.store_fault_class()` selects store-class causes
+for stores, atomics, and cache-block operations; Load and LR use load-class causes.
+Management requests use `Sv39Access.CacheManagement` rather than the Store
+access class: they require A, ignore D, and admit read or write permission.
+Trap priority and
 `stval`/`mtval` updates belong to the
 [privileged-state contract](../README.md#privileged-and-architectural-state).
 

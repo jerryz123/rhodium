@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage's public boundary, width specialization, and configuration rejection.
+// Checks RV5Stage's public boundary, Zicbom composition at both widths, and configuration rejection.
 
 import:
   "../../../rhodium/frontend/kernel.rhm" as embedded
@@ -12,17 +12,19 @@ import:
 
 def config = test_params.test_rv5stage_chi_config
 def params = test_params.test_rv5stage_chi_params
+def extensions = core_profile.RV5StageExtensions(~zicbom: #true)
 def rv64_design = embedded.run_elaboration(
   fun (): rv5stage.RV5Stage(
     core_profile.RVCoreProfile(
       ~xlen: XLen.X64,
+      ~extensions: extensions,
       ~mmu_mode: core_profile.RV5StageMmuMode.Sv39
     ),
     ~chi: config
   )
 )
 def rv32_design = embedded.run_elaboration(
-  fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X32), ~chi: config)
+  fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X32, ~extensions: extensions), ~chi: config)
 )
 def rv64 = rv64_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def rv32 = rv32_design.modules.find(fun (module_def): module_def.name == "RV5Stage")

@@ -3,6 +3,7 @@
 
 import:
   "../../../riscv/isa/zicboz.rhm" open
+  "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/rv32i.rhm" as rv32
@@ -95,8 +96,10 @@ circuit RV5StageDivideInstructionDecoder(xlen :: XLen):
   control <== decoded.value
 
 def ZicbozDivideCases = instruction_cases(ZicbozInstructions, unused_divide)
+def ZicbomDivideCases = instruction_cases(ZicbomInstructions, unused_divide)
 
 export:
+  ZicbomDivideCases
   ZicbozDivideCases
   RV5StageDivideControl
   RV32MDivideControlCases

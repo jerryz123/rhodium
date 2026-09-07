@@ -25,6 +25,9 @@ bundle RV5StageDataReq(xlen :: XLen):
   floating_point_precision: RV5StageFloatPrecision
 
 bundle RV5StageDataResp(xlen :: XLen):
+  // Management retains retirement context for delayed faults. Other current
+  // engines report rejection before acceptance and return successful responses.
+  access_fault: Bool
   data: Bits(xlen.width)
   destination: RV5StageDataDestination
   rd: Bits(5)

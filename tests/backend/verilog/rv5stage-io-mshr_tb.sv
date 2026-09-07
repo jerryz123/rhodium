@@ -113,7 +113,7 @@ module rv5stage_io_mshr_tb;
     core_in.request.valid = 1;
     core_in.request.bits = '0;
     core_in.request.bits.address = 64'h8004;
-    core_in.request.bits.access = 3'd1;
+    core_in.request.bits.access = 4'd1;
     core_in.request.bits.width = 2'd2;
     core_in.request.bits.unsigned_0 = 1;
     core_in.request.bits.destination = 2'd2;
@@ -128,7 +128,7 @@ module rv5stage_io_mshr_tb;
     // nor a cached request may replace or pass the retained operation.
     core_in.request.bits = '0;
     core_in.request.bits.address = 64'h8010;
-    core_in.request.bits.access = 3'd2;
+    core_in.request.bits.access = 4'd2;
     repeat (4) begin
       #1;
       assert (!core_out.request.ready && !core_out.drained && !chi_out.req.valid)
@@ -211,7 +211,7 @@ module rv5stage_io_mshr_tb;
     core_in.request.valid = 1;
     core_in.request.bits = '0;
     core_in.request.bits.address = 64'h8004;
-    core_in.request.bits.access = 3'd2;
+    core_in.request.bits.access = 4'd2;
     core_in.request.bits.width = 2'd2;
     core_in.request.bits.data = 64'h12345678;
     #1;
@@ -267,7 +267,7 @@ module rv5stage_io_mshr_tb;
     tick();
     core_in.request.valid = 1;
     core_in.request.bits.address = 64'h8000;
-    core_in.request.bits.access = 3'd1;
+    core_in.request.bits.access = 4'd1;
     tick();
     reset = 1;
     core_in = '0;

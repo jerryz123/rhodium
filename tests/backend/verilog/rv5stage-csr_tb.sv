@@ -1,5 +1,7 @@
 // Verifies RV5Stage integer/FP CSR state, traps, interrupts, and privilege returns.
 module rv5stage_csr_tb;
+  logic [1:0] cbo_operation = 0;
+  logic [2:0] cbo_permission;
   typedef struct packed {
     logic supervisor_software;
     logic machine_software;

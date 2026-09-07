@@ -14,12 +14,12 @@ def rv32_design = embedded.run_elaboration(fun (): csr.RV5StageCsrFile(RVCorePro
 def rv32 = rv32_design.modules[0]
 check:
   rv64.inputs.map(fun (port): port.name) ~is [
-    "clock", "reset", "interrupts", "hart_id", "time_counter", "interrupt_boundary", "interrupt_pc", "commit_in", "fp_update_in"
+    "clock", "reset", "interrupts", "hart_id", "time_counter", "interrupt_boundary", "interrupt_pc", "commit_in", "fp_update_in", "cbo_operation"
   ]
   rv64.outputs.map(fun (port): port.name) ~is [
     "redirect_out", "interrupt_request", "wfi_retired", "wfi_wake",
     "writeback_valid", "writeback_value", "privilege", "mstatus", "satp",
-    "frm", "fp_enabled", "cbo_zero_enabled", "translation_flush"
+    "frm", "fp_enabled", "cbo_zero_enabled", "cbo_permission", "translation_flush"
   ]
   rv64.find_input("interrupts").type.field("machine_timer").type.bit_width() ~is 1
   rv64.find_input("commit_in").type.field("bits").type.field("pc").type.width ~is 64

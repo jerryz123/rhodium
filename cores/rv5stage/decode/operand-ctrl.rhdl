@@ -3,6 +3,7 @@
 
 import:
   "../../../riscv/isa/zicboz.rhm" open
+  "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -217,8 +218,10 @@ def RV32IOperandDecode = ValidDecodeGen(RV32IOperandCases)
 def RV64IOperandDecode = ValidDecodeGen(RV64IOperandCases)
 
 def ZicbozOperandCases = instruction_cases(ZicbozInstructions, load_reserved_operands)
+def ZicbomOperandCases = instruction_cases(ZicbomInstructions, load_reserved_operands)
 
 export:
+  ZicbomOperandCases
   ZicbozOperandCases
   OperandASelect
   OperandBSelect

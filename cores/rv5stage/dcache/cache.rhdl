@@ -82,6 +82,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   inst refill(RV5StageLineRefill(RV5StageL1DTransactionContext(xlen, way_width), width, config))
   inst snoop(RV5StageDataSnoop(width, config))
   inst writeback(RV5StageLineWriteback(RV5StageL1DTransactionContext(xlen, way_width), width, config, 1))
+  inst maintenance(CHICacheMaintenance(p, RV5StageDataReq(xlen)))
+  maintenance.node_id <== node_id
+  maintenance.txn_id <== bits(2, 12)
   refill.node_id <== node_id
   snoop.node_id <== node_id
   writeback.node_id <== node_id
@@ -95,7 +98,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // This mandatory register isolates the SRAM result path. Responses cannot
   // be backpressured.
   inst responses(ValidPipe(RV5StageDataResp(xlen), 1))
-  inst protocol_requests(Arbiter(CHIReqFlit(p), 2))
+  inst protocol_requests(Arbiter(CHIReqFlit(p), 3))
   inst protocol_responses(Arbiter(CHIRspFlit(p), 2))
   inst protocol_data(Arbiter(CHIDatFlit(p), 2))
   inst refill_commands(Arbiter(RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width), 2))
@@ -144,6 +147,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def incoming_snoops = chi.snoops
   refill.requests |> protocol_requests.ingress[0]
   writeback.requests |> protocol_requests.ingress[1]
+  maintenance.requests |> protocol_requests.ingress[2]
   protocol_requests.egress |> outgoing_requests
   incoming_data |> refill.response_data
   refill.acknowledgements |> protocol_responses.ingress[0]
@@ -155,11 +159,33 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   incoming_snoops |> snoop.snoops
   def snoop_pending = snoop.pending
   def writeback_active = !writeback.command.ready
-  def Array(refill_response, writeback_response) = (
-    incoming_responses |> demux_flow(2, _response => writeback_active.as_bits())
+  def maintenance_active = !maintenance.command.ready
+  def Array(refill_response, writeback_response, maintenance_response) = (
+    incoming_responses |> demux_flow(3, _response => mux(maintenance_active, bits(2, 2), writeback_active.as_bits().zext(2)))
   )
   refill_response |> refill.responses
   writeback_response |> writeback.responses
+  maintenance_response |> maintenance.responses
+  def Array(ordinary_requests, management_requests) = core_requests.egress |> demux_flow(2, request => request.access.into(MemoryOperation).is_cache_management().as_bits())
+  def management_waiting = management_requests.valid
+  def management_address = rv5stage_chi_address(align_down(management_requests.bits.address, RV5StageCacheLineBytes), p)
+  def management_home = config.home_map.lookup(management_address)
+  (
+    management_requests |> gate_flow(refill.command.ready & writeback.command.ready & !lookup.egress.valid & !responses.egress.valid & !pending_mutation_valid & !refill_installing & (gather_state === RV5StageDataGatherState.Idle))
+      |> map_flow(request => CHICacheMaintenanceCommand(p, RV5StageDataReq(xlen))):
+         address: management_address
+         opcode: mux_lookup(
+           request.access, ~default: CHIReqOpcode.MakeInvalid,
+           [[MemoryOperation.CacheBlockClean, CHIReqOpcode.CleanShared],
+            [MemoryOperation.CacheBlockFlush, CHIReqOpcode.CleanInvalid]]
+         )
+         snoop_me: Bool(#true)
+         home_id: management_home.node_id
+         pas: CHIPAS.Secure
+         context: request
+  ) |> maintenance.command
+  maintenance.completion.ready <== Bool(#true)
+  def maintenance_complete = maintenance.completion.fire()
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
   def queued_request = or_reduce(core_requests.count)
@@ -399,10 +425,10 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
               gathered_line,
               bits(0, RV5StageCacheLineBytes * 8)).as_vec(Bits(64))
 
-  def lookup_accepts_input = refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !lookup_needs_refill & !local_mutation
+  def lookup_accepts_input = !management_waiting & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !lookup_needs_refill & !local_mutation
   core.request |> core_requests.ingress
-  core_requests.egress.ready <== lookup_accepts_input & lookup.ingress.ready
-  lookup.ingress.valid <== lookup_accepts_input & (core_requests.egress.valid ||| issue_prefetch)
+  ordinary_requests.ready <== lookup_accepts_input & lookup.ingress.ready
+  lookup.ingress.valid <== lookup_accepts_input & (ordinary_requests.valid ||| issue_prefetch)
   lookup.ingress.bits <== RV5StageL1DLookup(xlen):
     request: issue_request
     prefetch: issue_prefetch
@@ -418,14 +444,14 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
-  core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !pending_mutation_valid & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
+  core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !responses.egress.valid & !pending_mutation_valid & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
   def produces_load_hit = lookup_load & line_hit
   def produces_failed_sc = lookup_sc & !reservation_matches
-  def produces_response = produces_load_hit ||| local_mutation_complete ||| produces_failed_sc ||| (install_refill & !completion_prefetch)
+  def produces_response = maintenance_complete ||| produces_load_hit ||| local_mutation_complete ||| produces_failed_sc ||| (install_refill & !completion_prefetch)
   def response_request :: RV5StageDataReq(xlen) = mux(
-    install_refill,
-    completion_request,
-    mux(local_mutation_commit, pending_mutation_request, lookup_request)
+    maintenance_complete,
+    maintenance.completion.bits.context,
+    mux(install_refill, completion_request, mux(local_mutation_commit, pending_mutation_request, lookup_request))
   )
   def response_access :: MemoryOperation = response_request.access
   def response_address = response_request.address
@@ -433,6 +459,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def response_old_value = mux(local_mutation_commit, pending_mutation_old_value, load_gen.value)
   responses.ingress.valid <== produces_response
   responses.ingress.bits <== RV5StageDataResp(xlen):
+    access_fault: maintenance_complete & (maintenance.completion.bits.error =/= CHIRespErr.OK)
     data: mux(response_access.returns_old_value(),
               response_old_value,
               mux(response_access.is_store_conditional() & produces_failed_sc,

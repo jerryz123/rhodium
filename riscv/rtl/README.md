@@ -208,9 +208,10 @@ The integrating core must classify a denied CSR operation as illegal, a
 translation denial as a store page fault, and a physical denial as a store
 access fault. Keep the original rs1 value for tval, align only the maintenance
 address, and do not generate an alignment exception. These helpers neither
-issue a transaction nor enable Zicbom in a processor profile. RV5Stage currently
-reuses the shared CBZE/WARL handling with Zicbom disabled until execution is
-integrated. See the [CMO specification](https://docs.riscv.org/reference/isa/unpriv/cmo.html).
+issue a transaction nor enable Zicbom in a processor profile. RV5Stage's
+[opt-in integration](../../cores/rv5stage/README.md#cache-block-management)
+owns decode, precise retirement, and CHI execution. See the
+[CMO specification](https://docs.riscv.org/reference/isa/unpriv/cmo.html).
 
 ## Floating-point policy
 

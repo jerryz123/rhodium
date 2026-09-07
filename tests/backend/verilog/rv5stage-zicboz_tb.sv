@@ -23,7 +23,7 @@ module rv5stage_zicboz_tb;
   } instruction_out_t;
   typedef struct packed {
     logic [63:0] address;
-    logic [2:0] access;
+    logic [3:0] access;
     logic [3:0] atomic;
     logic [1:0] width;
     logic unsigned_0;
@@ -34,6 +34,7 @@ module rv5stage_zicboz_tb;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
+    logic access_fault;
     logic [63:0] data;
     logic [1:0] destination;
     logic [4:0] rd;
@@ -49,8 +50,8 @@ module rv5stage_zicboz_tb;
   } data_in_t;
   typedef struct packed { data_req_t request; } data_out_t;
 
-  localparam logic [2:0] MEMORY_LOAD = 3'd1;
-  localparam logic [2:0] MEMORY_STORE = 3'd2;
+  localparam logic [3:0] MEMORY_LOAD = 4'd1;
+  localparam logic [3:0] MEMORY_STORE = 4'd2;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
@@ -105,9 +106,9 @@ module rv5stage_zicboz_tb;
     instruction_access_in.response.valid = instruction_response_valid;
     instruction_access_in.response.bits.word = instruction_response_bits;
     data_access_in = '0;
-    data_access_in.request.ready = data_access_out.request.bits.access != 3'd6 || (scenario == 0 && attempts >= 3);
-    data_access_in.request_fault = data_access_out.request.valid && data_access_out.request.bits.access == 3'd6 && scenario == 2;
-    data_access_in.request_access_fault = data_access_out.request.valid && data_access_out.request.bits.access == 3'd6 && scenario == 1;
+    data_access_in.request.ready = data_access_out.request.bits.access != 4'd6 || (scenario == 0 && attempts >= 3);
+    data_access_in.request_fault = data_access_out.request.valid && data_access_out.request.bits.access == 4'd6 && scenario == 2;
+    data_access_in.request_access_fault = data_access_out.request.valid && data_access_out.request.bits.access == 4'd6 && scenario == 1;
     data_access_in.response.valid = pending_cycles == 1;
     data_access_in.drained = pending_cycles == 0;
   end
@@ -133,7 +134,7 @@ module rv5stage_zicboz_tb;
         end
       end
       if (pending_cycles != 0) pending_cycles <= pending_cycles - 1;
-      if (data_access_out.request.valid && data_access_out.request.bits.access == 3'd6) begin
+      if (data_access_out.request.valid && data_access_out.request.bits.access == 4'd6) begin
         assert (scenario != 3 && data_access_out.request.bits.address == 63 &&
                 data_access_out.request.bits.destination == 0)
           else $fatal(1, "CBO.ZERO lost its address, had a destination, or bypassed CBZE");

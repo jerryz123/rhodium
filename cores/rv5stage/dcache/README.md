@@ -21,7 +21,7 @@ Contributors changing the L1D implementation should read
 | Core protocol | Ordered `Decoupled` requests and non-backpressurable `Valid` responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
-| CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteUniquePtl`, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
+| CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
 | Prefetch | Demand-priority Valid event; read intent uses `ReadClean`, write intent uses `ReadUnique`, and neither responds or mutates data |
 
 `RV5StageL1DCache(xlen, cache, ~chi: config)` accepts `XLen.X32` or
@@ -38,10 +38,10 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 
 | Direction | Member | Meaning |
 |---|---|---|
-| Requester → cache | `request: Decoupled(RV5StageDataReq)` | Permitted physical XLEN byte address; load/store/LR/SC/AMO kind; atomic function; scalar width; load signedness; XLEN source data; destination bank; five-bit `rd`; and FP precision metadata |
+| Requester → cache | `request: Decoupled(RV5StageDataReq)` | Permitted physical XLEN byte address; scalar or cache-block operation; atomic function; scalar width; load signedness; XLEN source data; destination bank; five-bit `rd`; and FP precision metadata |
 | MMU → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
 | MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical read/write hint; no acceptance or completion |
-| Cache → requester | `response: Valid(RV5StageDataResp)` | Ordered XLEN load/atomic/SC result plus destination, `rd`, and FP precision metadata |
+| Cache → requester | `response: Valid(RV5StageDataResp)` | Ordered completion with `access_fault`, XLEN load/atomic/SC result, destination, `rd`, and FP precision metadata |
 | Cache → requester | `request_fault`, `request_access_fault` | Always false in this physical cache; translation and PMA routing own architectural faults |
 | Cache → requester | `drained` | Combinational quiescence observation used by architectural serialization |
 
@@ -64,10 +64,10 @@ and supply their physical address on both paths.
 
 `drained` is true only when no request is accepted that cycle and no queued
 request, core lookup, registered mutation, acquisition/refill, dirty-line drain,
-gather, or refill installation remains active. It does not include the response pipe or an
-independently serviced snoop; the parent serialization logic separately waits
-for older deferred completions. It is an observation, not a separate fence
-transaction.
+gather, refill installation, maintenance transaction, or response remains active.
+It does not include an independently serviced snoop; the parent serialization
+logic separately waits for older deferred completions. It is an observation,
+not a separate fence transaction.
 
 ## Non-cacheable data IO-MSHR
 
@@ -187,6 +187,19 @@ buffer. The shared [writeback engine](../chi/README.md#writes-and-dirty-writebac
 and serializes eight retryable, 64-bit `WriteUniquePtl` transactions. The
 replacement refill cannot start until all eight complete.
 
+## Cache-block management
+
+`CacheBlockClean`, `CacheBlockInvalidate`, and `CacheBlockFlush` requests issue
+`CleanShared`, `MakeInvalid`, and `CleanInvalid`, respectively, with SnoopMe
+enabled and no allocation. They drain older cache work, bypass demand lookup,
+and block younger lookup until Home completion. Even a local miss is sent to
+Home so other coherent caches are included. Snoop service remains independent
+through retries and completion waits; it also handles the issuing cache's copy.
+
+Every operation returns one non-backpressurable response. Its `access_fault`
+field reports a non-OK CHI completion; the parent retains architectural context
+to classify and retire or trap. Translation and PMA checks remain parent-owned.
+
 ## Snoop ordering and responses
 
 The shared [data-snoop engine](../chi/README.md#snoop-handling) owns each request's lifetime,
@@ -202,7 +215,8 @@ refill keeps the ports through the final word.
 | Miss | `SnpResp` reporting Invalid | None |
 | Clean hit, retained | `SnpResp` with the stored or requested shared state | Retain or downgrade to SharedClean |
 | Clean hit, invalidating or `RetToSrc` | `SnpResp` reporting Invalid | Invalidate |
-| Dirty hit | Complete-line `SnpRespData` with `PassDirty` and Invalid | Invalidate after the final data packet |
+| Dirty hit, data-preserving snoop | Complete-line `SnpRespData` with `PassDirty` and Invalid | Invalidate after the final data packet |
+| Make-invalid hit | `SnpResp` reporting Invalid, no data | Discard the copy, including dirty data |
 | Two-packet `SnpDVMOp` | One `SnpResp` after the second packet | No array access |
 
 A dirty response first gathers every XLEN word from the selected way. Home then
@@ -238,5 +252,5 @@ advance replacement state.
   the parent core's fence/invalidation sequence and independent CHI snoops.
 - Dirty replacement uses eight supported `WriteUniquePtl` transactions rather
   than CHI's `WriteBackFull` transaction family.
-- The cache does not generate translation, alignment, PMA, or access faults;
-  those belong to the parent memory hierarchy.
+- The cache does not generate translation, alignment, or PMA faults. It reports
+  maintenance completion errors for classification by the parent core.

@@ -126,6 +126,24 @@ Verilator `UNOPTFLAT` warning setting for packed interfaces; assertions and
 runtime convergence checks remain enabled. Keep simulator entry programming and SoC
 BootROM policy separate from this core-level regression.
 
+For Zicbom, use the composed decode test and the WB, MMU, physical-router,
+and self-snooped cache fixtures:
+
+```sh
+export PLTCOMPILEDROOTS="$(mktemp -d)"
+tools/run-racket-tests.sh cores/rv5stage/tests/zicbom-test.rhm cores/rv5stage/tests/rv5stage-test.rhm cores/rv5stage/tests/udb-test.rhm
+FIXTURES='rv5stage-zicbom rv5stage-csr rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' \
+  bash tests/backend/run-circt.sh --simulate-only
+```
+
+Keep retirement context in the core, reusable xenvcfg policy in `riscv/rtl`,
+and transaction lifetime in `CHICacheMaintenance`. The data response's
+`access_fault` is a completion status, distinct from pre-acceptance request
+faults. Ordinary accesses currently produce successful completion status;
+do not silently generalize asynchronous ordinary-load error retirement.
+The pending CMO must never reissue, accept younger instructions, or block the
+cache's independent snoop service.
+
 For WB authorization and scalar/FP integration, run:
 
 ```sh

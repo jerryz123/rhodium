@@ -1,0 +1,51 @@
+#lang rhodium
+// Checks Zicbom's composed controls, opt-in catalog, and architectural profile.
+
+import:
+  "../../../rhodium/std/decode.rhdl" open
+  "../../../riscv/isa/zicbom.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/model/formats.rhm" open
+  "../profile.rhm" open
+  "../decode/core-ctrl.rhdl" open
+  "../decode/operand-ctrl.rhdl" open
+  "../decode/mem-ctrl.rhdl" open
+  "../decode/writeback-ctrl.rhdl" open
+  "../../alu.rhdl" open
+
+for (entry in [[CBO_INVAL, MemoryOperation.CacheBlockInvalidate], [CBO_CLEAN, MemoryOperation.CacheBlockClean], [CBO_FLUSH, MemoryOperation.CacheBlockFlush]]):
+  def expected = partial_pattern(RV5StageControl()):
+    alu:
+      partial_pattern(AluControl()):
+        result_select: AluResultSelect.Adder
+        subtract: Bool(#false)
+        word: Bool(#false)
+    operand:
+      pattern(OperandControl()):
+        uses_rs1: Bool(#true)
+        uses_rs2: Bool(#false)
+        left: OperandASelect.Register
+        right: OperandBSelect.Immediate
+        immediate: ImmediateSelect.None
+    memory:
+      partial_pattern(MemoryControl()):
+        access: entry[1]
+    writeback:
+      partial_pattern(WritebackControl()):
+        enable: Bool(#false)
+    floating_point_valid: Bool(#false)
+  for (source in 0..32):
+    def word = entry[0].encode([rs1.constrain(source)])
+    def row = ZicbomCoreControlCases.find(fun (candidate): candidate.input.matches(bits(word, 32)))
+    check:
+      expected.subsumes(row.output) ~is #true
+
+for (xlen in [XLen.X32, XLen.X64]):
+  def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~zicbom: #true))
+  def instructions = rv5stage_instructions(xlen, FloatingPointProfile.None, HalfPrecisionProfile.None, ~zicbom: #true)
+  check:
+    profile.isa_extensions.contains("zicbom") ~is #true
+  for (cbo in ZicbomInstructions):
+    check:
+      instructions.filter(~keep: fun (instruction): instruction.name == cbo.name).length() ~is 1

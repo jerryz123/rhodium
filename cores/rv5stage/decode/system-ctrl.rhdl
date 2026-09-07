@@ -3,6 +3,7 @@
 
 import:
   "../../../riscv/isa/zicboz.rhm" open
+  "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -96,8 +97,10 @@ def RV64RV5StageSystemCases = RV64ISystemCases ++ instruction_cases(
 ) ++ ZicsrSystemCases ++ PrivilegedSystemCases ++ instruction_cases(ZifenceiInstructions, no_system)
 
 def ZicbozSystemCases = instruction_cases(ZicbozInstructions, no_system)
+def ZicbomSystemCases = instruction_cases(ZicbomInstructions, no_system)
 
 export:
+  ZicbomSystemCases
   ZicbozSystemCases
   CsrOperation
   csr_write_requested

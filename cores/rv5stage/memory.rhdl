@@ -14,6 +14,9 @@ hardware_enum MemoryOperation:
   StoreConditional
   Atomic
   CacheBlockZero
+  CacheBlockInvalidate
+  CacheBlockClean
+  CacheBlockFlush
 
   method is_memory(operation) :: Bool:
     operation =/= MemoryOperation.None
@@ -30,6 +33,15 @@ hardware_enum MemoryOperation:
 
   method is_cache_block_zero(operation) :: Bool:
     operation === MemoryOperation.CacheBlockZero
+
+  method is_cache_management(operation) :: Bool:
+    operation.is_one_of(MemoryOperation.CacheBlockInvalidate, MemoryOperation.CacheBlockClean, MemoryOperation.CacheBlockFlush)
+
+  method is_cache_block(operation) :: Bool:
+    operation.is_cache_block_zero() ||| operation.is_cache_management()
+
+  method store_fault_class(operation) :: Bool:
+    operation.needs_unique() ||| operation.is_cache_management()
 
   method is_store_conditional(operation) :: Bool:
     operation === MemoryOperation.StoreConditional

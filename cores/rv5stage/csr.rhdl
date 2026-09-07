@@ -308,11 +308,14 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   output frm: Bits(3)
   output fp_enabled: Bool
   output cbo_zero_enabled: Bool
+  input cbo_operation: CboManagementOperation
+  output cbo_permission: CboManagementPermission()
   output translation_flush: Bool
 
   reg privilege_state(PrivilegeMode, ~init: PrivilegeMode.Machine)
   reg state(RV5StageCsrState(xlen), ~init: literal(RV5StageCsrState(xlen), 0))
   cbo_zero_enabled <== cbo_zero_permitted(xlen, privilege_state === PrivilegeMode.User, privilege_state === PrivilegeMode.Supervisor, state.menvcfg, state.senvcfg, ~zicboz: core_profile.extensions.zicboz)
+  cbo_permission <== cbo_management_permission(xlen, cbo_operation, privilege_state === PrivilegeMode.User, privilege_state === PrivilegeMode.Supervisor, state.menvcfg, state.senvcfg, ~zicbom: core_profile.extensions.zicbom)
   inst counters(RiscvBaseCounters(xlen))
   def FpCsrModule = if floating_point_supports_f(profile) | RV5StageFpCsrs() | RV5StageDisabledFpCsrs()
   inst fp_csrs(FpCsrModule)
@@ -359,7 +362,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     csr CsrId.Senvcfg:
       read: state.senvcfg
       write value:
-        state.senvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: #false, ~zicboz: core_profile.extensions.zicboz)
+        state.senvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz)
     storage CsrId.Sscratch: state.sscratch
     csr CsrId.Sepc:
       read: state.sepc
@@ -415,7 +418,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     csr CsrId.Menvcfg:
       read: state.menvcfg
       write value:
-        state.menvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: #false, ~zicboz: core_profile.extensions.zicboz)
+        state.menvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz)
     storage CsrId.Mscratch: state.mscratch
     csr CsrId.Mepc:
       read: state.mepc

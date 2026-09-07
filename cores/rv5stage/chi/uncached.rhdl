@@ -182,6 +182,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
 
   core.response.valid <== data_read_valid ||| (completion_fire & (!zero_active ||| zero_last))
   core.response.bits <== RV5StageDataResp(xlen):
+    access_fault: Bool(#false)
     data: mux(data_read_valid, load_gen.value, bits(0, width))
     destination: destination
     rd: rd

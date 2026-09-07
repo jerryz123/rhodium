@@ -3,6 +3,7 @@
 
 import:
   "../../../riscv/isa/zicboz.rhm" open
+  "../../../riscv/isa/zicbom.rhm" open
   "../../multiplier.rhdl" open
   "decode-support.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -91,8 +92,10 @@ circuit RV5StageMultiplyInstructionDecoder(xlen :: XLen):
   control <== decoded.value
 
 def ZicbozMultiplyCases = instruction_cases(ZicbozInstructions, unused_multiply)
+def ZicbomMultiplyCases = instruction_cases(ZicbomInstructions, unused_multiply)
 
 export:
+  ZicbomMultiplyCases
   ZicbozMultiplyCases
   RV5StageMultiplyControl
   RV32ZmmulControlCases

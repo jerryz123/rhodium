@@ -43,7 +43,7 @@ module rv5stage_uncached_tb;
     } dat;
   } chi_out_t;
 
-  localparam logic [2:0] LOAD = 3'd1;
+  localparam logic [3:0] LOAD = 4'd1;
   localparam logic [6:0] READ_NO_SNP = 7'h04;
   localparam logic [3:0] COMP_DATA = 4'h4;
 
@@ -181,7 +181,7 @@ module rv5stage_uncached_tb;
     // eight acknowledged writes, including backpressure at every CHI boundary.
     core_in.request.valid = 1'b1;
     core_in.request.bits.request.address = 64'hc03f;
-    core_in.request.bits.request.access = 3'd6;
+    core_in.request.bits.request.access = 4'd6;
     core_in.request.bits.request.destination = 2'd0;
     core_in.request.bits.device = 1'b0;
     tick();
@@ -239,7 +239,7 @@ module rv5stage_uncached_tb;
     // Device writes must use Home-issued DBIDs, not direct write transfer.
     core_in.request.valid = 1'b1;
     core_in.request.bits.request.address = 64'h8004;
-    core_in.request.bits.request.access = 3'd2; // Store
+    core_in.request.bits.request.access = 4'd2; // Store
     core_in.request.bits.request.width = 2'd2;
     core_in.request.bits.request.data = 64'h12345678;
     core_in.request.bits.device = 1'b1;

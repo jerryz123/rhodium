@@ -3,6 +3,7 @@
 
 import:
   "../../../riscv/isa/zicboz.rhm" open
+  "../../../riscv/isa/zicbom.rhm" open
   "../memory.rhdl" open
   "decode-support.rhdl" open
   "../../load-store.rhdl" open
@@ -229,8 +230,15 @@ def RV64IMemoryDecode = ValidDecodeGen(RV64IMemoryCases)
 def zero_memory = partial_pattern(MemoryControl()):
   access: MemoryOperation.CacheBlockZero
 def ZicbozMemoryCases = instruction_cases(ZicbozInstructions, zero_memory)
+def ZicbomMemoryCases = for List (entry in [[CBO_INVAL, MemoryOperation.CacheBlockInvalidate], [CBO_CLEAN, MemoryOperation.CacheBlockClean], [CBO_FLUSH, MemoryOperation.CacheBlockFlush]]):
+  DecodeCase(
+    instruction_pattern(entry[0]),
+    partial_pattern(MemoryControl()):
+      access: entry[1]
+  )
 
 export:
+  ZicbomMemoryCases
   ZicbozMemoryCases
   MemoryOperation
   RV5StageAtomicOperation

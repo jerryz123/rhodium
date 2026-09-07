@@ -44,14 +44,14 @@ module rv5stage_dcache_rv32_tb;
     #4;
   endtask
 
-  task automatic send_request(input logic [31:0] address, input logic [2:0] access);
+  task automatic send_request(input logic [31:0] address, input logic [3:0] access);
     for (int cycle = 0; cycle < 100 && !core_out.request.ready; cycle++) tick();
     assert (core_out.request.ready) else $fatal(1, "RV32 request timeout");
     core_in.request.bits = '0;
     core_in.request.bits.address = address;
     core_in.request.bits.access = access;
     core_in.request.bits.width = 2'd2;
-    core_in.request.bits.destination = access == 3'd1 ? 2'd1 : 2'd0;
+    core_in.request.bits.destination = access == 4'd1 ? 2'd1 : 2'd0;
     core_in.request.valid = 1;
     tick();
     core_in.request.valid = 0;
@@ -73,7 +73,7 @@ module rv5stage_dcache_rv32_tb;
     chi_in.requests.ready = 1;
     chi_in.requester_responses.ready = 1;
     tick();
-    send_request(32'h103f, 3'd6);
+    send_request(32'h103f, 4'd6);
     for (int cycle = 0; cycle < 100 && requests == 0; cycle++) tick();
     assert (requests == 1 && responses == 0 && !core_out.drained)
       else $fatal(1, "RV32 zero completed without ownership");
@@ -97,10 +97,10 @@ module rv5stage_dcache_rv32_tb;
     expect_response(32'd0);
     assert (acknowledgements == 1 && responses == 1) else $fatal(1, "RV32 zero completion count");
     for (int offset = 0; offset < 64; offset++) begin
-      send_request(32'h1000 + 32'(offset), 3'd6);
+      send_request(32'h1000 + 32'(offset), 4'd6);
       expect_response(32'd0);
       for (int word = 0; word < 16; word++) begin
-        send_request(32'h1000 + 32'(word * 4), 3'd1);
+        send_request(32'h1000 + 32'(word * 4), 4'd1);
         expect_response(32'd0);
       end
       assert (requests == 1) else $fatal(1, "owned RV32 zero issued new traffic");

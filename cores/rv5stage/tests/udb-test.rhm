@@ -14,6 +14,7 @@ def rv64_double = RVCoreProfile(
     ~floating_point: FloatingPointProfile.D,
     ~zicbop: #true,
     ~zicboz: #true,
+    ~zicbom: #true,
     ~compressed: CCompressedExtensions
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
@@ -26,6 +27,7 @@ def rv64_yaml = rv5stage_udb_configuration(
 ).to_yaml()
 
 check:
+  rv64_yaml.contains("{ name: \"Zicbom\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zicboz\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("name: \"rhodium-rv5stage-rv64dc\"") ~is #true
   rv64_yaml.contains("{ name: \"D\", version: \"= 2.2.0\" }") ~is #true
@@ -40,6 +42,7 @@ check:
   rv64_yaml.contains("{ name: \"Svade\",") ~is #false
   rv64_yaml.contains("  PHYS_ADDR_WIDTH: 44") ~is #true
   rv64_yaml.contains("  CACHE_BLOCK_SIZE: 64") ~is #true
+  rv64_yaml.contains("  FORCE_UPGRADE_CBO_INVAL_TO_FLUSH: false") ~is #true
   rv64_yaml.contains("  ASID_WIDTH: 0") ~is #true
   rv64_yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
   rv64_yaml.contains("  MISALIGNED_LDST: false") ~is #true

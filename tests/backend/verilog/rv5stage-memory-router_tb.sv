@@ -2,7 +2,7 @@
 module rv5stage_memory_router_tb;
   typedef struct packed {
     logic [31:0] address;
-    logic [2:0] access;
+    logic [3:0] access;
     logic [3:0] atomic;
     logic [1:0] width;
     logic unsigned_0;
@@ -14,6 +14,7 @@ module rv5stage_memory_router_tb;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed {
+    logic access_fault;
     logic [31:0] data;
     logic [1:0] destination;
     logic [4:0] rd;
@@ -32,10 +33,10 @@ module rv5stage_memory_router_tb;
     logic drained;
   } responder_t;
 
-  localparam logic [2:0] LOAD = 3'd1;
-  localparam logic [2:0] STORE = 3'd2;
-  localparam logic [2:0] LOAD_RESERVED = 3'd3;
-  localparam logic [2:0] ATOMIC = 3'd5;
+  localparam logic [3:0] LOAD = 4'd1;
+  localparam logic [3:0] STORE = 4'd2;
+  localparam logic [3:0] LOAD_RESERVED = 4'd3;
+  localparam logic [3:0] ATOMIC = 4'd5;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
@@ -56,7 +57,7 @@ module rv5stage_memory_router_tb;
 
   task automatic check_request(
       input logic [31:0] address,
-      input logic [2:0] access,
+      input logic [3:0] access,
       input logic expected_cache,
       input logic expected_device,
       input logic expected_access_fault
@@ -103,7 +104,7 @@ module rv5stage_memory_router_tb;
     assert (uncached_out.request.bits.device)
       else $fatal(1, "device PMA was not forwarded to the uncached path");
     check_request(32'h00002000, ATOMIC, 1'b0, 1'b0, 1'b1);
-    check_request(32'h00002000, 3'd0, 1'b0, 1'b0, 1'b1);
+    check_request(32'h00002000, 4'd0, 1'b0, 1'b0, 1'b1);
     check_request(32'h00003000, LOAD_RESERVED, 1'b0, 1'b0, 1'b1);
     check_request(32'h00003000, STORE, 1'b0, 1'b0, 1'b1);
     check_request(32'h00005000, LOAD, 1'b0, 1'b1, 1'b0);
@@ -118,14 +119,33 @@ module rv5stage_memory_router_tb;
     // Block permission is checked at both ends, independent of rs1 alignment
     // and scalar width. Uncached RAM is legal; devices and partial blocks are not.
     for (int offset = 0; offset < 64; offset++) begin
-      check_request(32'h1000 + offset, 3'd6, 1'b1, 1'b0, 1'b0);
-      check_request(32'h7000 + offset, 3'd6, 1'b0, 1'b1, 1'b0);
+      check_request(32'h1000 + offset, 4'd6, 1'b1, 1'b0, 1'b0);
+      check_request(32'h7000 + offset, 4'd6, 1'b0, 1'b1, 1'b0);
     end
-    check_request(32'h2001, 3'd6, 1'b0, 1'b0, 1'b1);
-    check_request(32'h3001, 3'd6, 1'b0, 1'b0, 1'b1);
-    check_request(32'h5001, 3'd6, 1'b0, 1'b0, 1'b1);
-    check_request(32'h8001, 3'd6, 1'b0, 1'b0, 1'b1);
-    check_request(32'hffff, 3'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'h2001, 4'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'h3001, 4'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'h5001, 4'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'h8001, 4'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'hffff, 4'd6, 1'b0, 1'b0, 1'b1);
+
+    // Management is permitted by either read or write access, not CBZE/atomic
+    // capability; static uncached regions complete without device accesses.
+    for (int operation = 7; operation <= 9; operation++) begin
+      check_request(32'h103f, 4'(operation), 1, 0, 0);
+      check_request(32'h3001, 4'(operation), 1, 0, 0);
+      check_request(32'h2001, 4'(operation), 0, 0, 0);
+      check_request(32'h5001, 4'(operation), 0, 0, 0);
+      check_request(32'h8001, 4'(operation), 0, 0, 1);
+      check_request(32'h6001, 4'(operation), 0, 0, 1);
+    end
+    check_request(32'h5001, 4'd8, 0, 0, 0);
+    clock = 1; #1; clock = 0;
+    core_in.request.valid = 0;
+    #1;
+    assert (core_out.response.valid && !core_out.response.bits.access_fault && !cache_out.request.valid && !uncached_out.request.valid)
+      else $fatal(1, "uncached maintenance failed its registered no-IO completion");
+    clock = 1; #1; clock = 0;
+    core_in.request.valid = 1;
 
     // Older cached work prevents IO admission, but instruction-owned RN-I
     // activity alone does not prevent a cached access or occupy the IO-MSHR.
@@ -148,6 +168,13 @@ module rv5stage_memory_router_tb;
               !core_out.drained && uncached_out.request.valid &&
               uncached_out.request.bits.request.address == 32'h2000)
         else $fatal(1, "queued IO did not retain payload or block younger cached work");
+      core_in.request.bits.address = 32'h5001;
+      core_in.request.bits.access = 4'd8;
+      #1;
+      assert (!core_out.request.ready && !core_out.response.valid)
+        else $fatal(1, "uncached CMO bypassed an older IO-MSHR operation");
+      core_in.request.bits.address = 32'h1000;
+      core_in.request.bits.access = LOAD;
       tick();
     end
     uncached_in.request.ready = 1'b1;

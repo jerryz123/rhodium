@@ -33,6 +33,8 @@ Contributors changing the core should read
 The integer decode includes RV32I/RV64I, A, B, M, Zicond, Zimop, Zicsr, Zifencei, and
 the supported privileged instructions. Optional Zicbop decode turns its
 otherwise legal `ORI x0` hints into best-effort WB-authorized prefetch events.
+Optional Zicbom adds `CBO.CLEAN`, `CBO.INVAL`, and `CBO.FLUSH`; enable it with
+`RV5StageExtensions(~zicbom: #true)`. It remains disabled by default.
 Optional C expansion follows the
 selected XLEN and FP profile; RV32F or RV64F and RV64D rows, plus optional
 Zfhmin, Zfh, and Zfa rows, are added only by their matching FP specialization. Zicntr
@@ -40,6 +42,31 @@ views come from the CSR block rather than instruction rows. The
 [`decode guide`](decode/README.md#select-a-decode-specialization) owns the exact
 specialization matrix and catalog composition. RV32D and an RV64F-only core are
 deliberately rejected.
+
+## Cache-block management
+
+Zicbom operates on fixed 64-byte blocks. Decode checks current-privilege
+CBIE/CBCFE permissions and resolves invalidate-to-flush conversion using the
+[shared CMO policy](../../riscv/rtl/README.md#cache-block-permissions).
+Translation independently uses effective data privilege, including MPRV, and
+the management access class. The physical router checks the complete block.
+The original unaligned rs1 address is preserved for faults; alignment is not
+an exception for these instructions.
+
+A CMO waits for older work in Decode and prevents younger instructions from
+issuing. WB alone authorizes its memory request. Rejected dispatch replays;
+accepted dispatch retains one retirement context outside the feed-forward
+pipeline and is never reissued. Completion retires it, or raises a precise
+store access fault on a CHI error. Younger effects and interrupt entry wait
+until this context is resolved. CSR denial is illegal-instruction, and
+translation denial is store-page-fault.
+
+The D-cache sends a self-snooped CHI maintenance transaction even on a local
+miss. Home owns coherent-system completion; the existing snoop path owns
+local dirty-data transfer, cleaning, invalidation, and reservation changes.
+Statically uncached physical regions cannot contain cached copies: after
+permission checks and older traffic drain, they complete without device IO.
+This does not add PMP, hypervisor support, or dynamic PMA reconfiguration.
 
 ## Microarchitecture
 

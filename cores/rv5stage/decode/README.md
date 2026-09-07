@@ -16,7 +16,7 @@ Contributors changing decode ownership or instruction coverage should read
 ## Select a decode specialization
 
 `RV5StageInstructionDecoder` accepts `xlen`, `profile`, `half_precision`, and
-the default-disabled `zfa`, `zicbop`, and `zicboz` switches as host parameters. They
+the default-disabled `zfa`, `zicbop`, `zicboz`, and `zicbom` switches as host parameters. They
 select the instruction catalogs before hardware is generated:
 
 | Specialization | Selected rows |

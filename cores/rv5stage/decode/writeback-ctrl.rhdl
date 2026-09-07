@@ -3,6 +3,7 @@
 
 import:
   "../../../riscv/isa/zicboz.rhm" open
+  "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -113,8 +114,10 @@ def RV32IWritebackDecode = ValidDecodeGen(RV32IWritebackCases)
 def RV64IWritebackDecode = ValidDecodeGen(RV64IWritebackCases)
 
 def ZicbozWritebackCases = instruction_cases(ZicbozInstructions, no_writeback)
+def ZicbomWritebackCases = instruction_cases(ZicbomInstructions, no_writeback)
 
 export:
+  ZicbomWritebackCases
   ZicbozWritebackCases
   WritebackSelect
   WritebackControl

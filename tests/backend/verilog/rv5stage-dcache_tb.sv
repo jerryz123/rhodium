@@ -2,7 +2,7 @@
 module rv5stage_dcache_tb;
   typedef struct packed {
     logic [63:0] address;
-    logic [2:0] access;
+    logic [3:0] access;
     logic [3:0] atomic;
     logic [1:0] width;
     logic unsigned_load;
@@ -16,6 +16,7 @@ module rv5stage_dcache_tb;
   typedef struct packed { logic valid; prefetch_bits_t bits; } prefetch_t;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed {
+    logic access_fault;
     logic [63:0] data;
     logic [1:0] destination;
     logic [4:0] rd;
@@ -61,12 +62,12 @@ module rv5stage_dcache_tb;
   localparam logic [3:0] COMP_DATA = 4'h4;
   localparam logic [6:0] HOME_ID = 7'd1;
   localparam logic [6:0] CACHE_ID = 7'd3;
-  localparam logic [2:0] MEMORY_LOAD = 3'd1;
-  localparam logic [2:0] MEMORY_STORE = 3'd2;
-  localparam logic [2:0] MEMORY_LR = 3'd3;
-  localparam logic [2:0] MEMORY_SC = 3'd4;
-  localparam logic [2:0] MEMORY_ATOMIC = 3'd5;
-  localparam logic [2:0] MEMORY_ZERO = 3'd6;
+  localparam logic [3:0] MEMORY_LOAD = 4'd1;
+  localparam logic [3:0] MEMORY_STORE = 4'd2;
+  localparam logic [3:0] MEMORY_LR = 4'd3;
+  localparam logic [3:0] MEMORY_SC = 4'd4;
+  localparam logic [3:0] MEMORY_ATOMIC = 4'd5;
+  localparam logic [3:0] MEMORY_ZERO = 4'd6;
   localparam logic [3:0] ATOMIC_SWAP = 4'd0;
   localparam logic [3:0] ATOMIC_ADD = 4'd1;
   localparam logic [1:0] DATA_DESTINATION_NONE = 2'd0;
@@ -176,7 +177,7 @@ module rv5stage_dcache_tb;
 
   task automatic send_core_request(
     input logic [63:0] address,
-    input logic [2:0] access,
+    input logic [3:0] access,
     input logic [3:0] atomic,
     input logic [63:0] data,
     input logic [4:0] rd
@@ -196,7 +197,7 @@ module rv5stage_dcache_tb;
                                width: 2'd3,
                                unsigned_load: 1'b0,
                                data: data,
-                               destination: (access == MEMORY_STORE || access == MEMORY_ZERO) ? DATA_DESTINATION_NONE : DATA_DESTINATION_INTEGER,
+                               destination: (access == MEMORY_STORE || access == MEMORY_ZERO || access >= 7) ? DATA_DESTINATION_NONE : DATA_DESTINATION_INTEGER,
                                rd: rd,
                                floating_point_precision: 2'b01};
       core_in.request.valid = 1'b1;
@@ -287,7 +288,8 @@ module rv5stage_dcache_tb;
 
   task automatic expect_core_response(input logic [63:0] data,
                                       input logic [1:0] destination,
-                                      input logic [4:0] rd);
+                                      input logic [4:0] rd,
+                                      input logic access_fault = 0);
     integer cycles;
     begin
       cycles = 0;
@@ -296,6 +298,7 @@ module rv5stage_dcache_tb;
         cycles = cycles + 1;
       end
       assert (core_out.response.valid &&
+              core_out.response.bits.access_fault == access_fault &&
               core_out.response.bits.data == data &&
               core_out.response.bits.destination == destination &&
               core_out.response.bits.rd == rd &&
@@ -317,13 +320,15 @@ module rv5stage_dcache_tb;
     input logic [4:0] opcode,
     input logic [11:0] txn_id,
     input logic [11:0] dbid,
-    input logic [3:0] pcrd_type
+    input logic [3:0] pcrd_type,
+    input logic [1:0] error = 0
   );
     begin
       wait_rsp_credit();
       chi_in.responses.bits = '0;
       chi_in.responses.bits.dbid_or_group_id = dbid;
       chi_in.responses.bits.pcrd_type = pcrd_type;
+      chi_in.responses.bits.resp_err = error;
       chi_in.responses.bits.opcode = opcode;
       chi_in.responses.bits.txn_id = txn_id;
       chi_in.responses.bits.src_id = HOME_ID;
@@ -754,7 +759,68 @@ module rv5stage_dcache_tb;
     send_core_request(ADDRESS + 64'h10c0, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd22);
     expect_core_response(64'h88776655_44332211, DATA_DESTINATION_INTEGER, 5'd22);
 
-    $display("RV5Stage VIPT write-back data-cache simulation passed");
+    // A maintenance requester keeps snoop service live until Home completion.
+    // Dirty data is preserved by clean/flush and deliberately discarded by inval.
+    for (int operation = 7; operation <= 9; operation++) begin
+      reset = 1; tick(); tick(); reset = 0;
+      tx_req_pending = 0; tx_rsp_pending = 0; tx_dat_pending = 0;
+      send_core_request(ADDRESS, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA, 0);
+      accept_request(READ_UNIQUE, ADDRESS, 0, 6, 1, 0);
+      return_line(ADDRESS, LINE, 3'b010);
+      accept_comp_ack();
+      expect_core_response(0, DATA_DESTINATION_NONE, 0);
+      evict_dirty_line = LINE; evict_dirty_line[63:0] = STORE_DATA;
+      send_core_request(ADDRESS + 63, 4'(operation), ATOMIC_SWAP, 0, 0);
+      for (int cycles = 0; !tx_req_pending && cycles < 100; cycles++) tick();
+      assert (tx_req_pending && captured_req.opcode == (operation == 7 ? 7'h0a : operation == 8 ? 7'h08 : 7'h09) && captured_req.address == ADDRESS[43:0] && captured_req.txn_id == 2 && captured_req.excl_snoop_me_cah && captured_req.mem_attr == 4'h4 && !captured_req.exp_comp_ack)
+        else $fatal(1, "bad maintenance command");
+      tx_req_pending = 0;
+      if (operation == 8) begin
+        send_response(PCRD_GRANT, 0, 0, 4'h5);
+        send_response(RETRY_ACK, 2, 0, 4'h5);
+        for (int cycles = 0; !tx_req_pending && cycles < 100; cycles++) tick();
+        assert (tx_req_pending && captured_req.opcode == 7'h08 && !captured_req.allow_retry && captured_req.pcrd_type == 5 && captured_req.txn_id == 2)
+          else $fatal(1, "CMO retry lost command or credit");
+        tx_req_pending = 0;
+      end
+      chi_in.request_data.ready = 0;
+      send_snoop(ADDRESS, 12'h07b, operation == 7 ? 5'h0a : operation == 8 ? 5'h08 : 5'h09);
+      if (operation == 7) begin
+        for (int cycles = 0; !chi_out.requester_responses.valid && cycles < 100; cycles++) begin
+          assert (!chi_out.request_data.valid) else $fatal(1, "CMO invalidate wrote dirty data");
+          tick();
+        end
+        assert (chi_out.requester_responses.valid && chi_out.requester_responses.bits.resp == 0)
+          else $fatal(1, "CMO invalidate did not respond");
+        tick(); tx_rsp_pending = 0;
+      end else begin
+        for (beat = 0; beat < 4; beat++)
+          accept_snoop_data(beat, evict_dirty_line, 12'h07b);
+        tick();
+      end
+      repeat (5) begin
+        assert (!core_out.response.valid && !core_out.drained) else $fatal(1, "CMO completed before Home");
+        tick();
+      end
+      send_response(COMP, 2, 0, 0);
+      expect_core_response(0, DATA_DESTINATION_NONE, 0);
+      send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
+      // The existing dirty-snoop policy relinquishes its local copy, including
+      // for CleanShared. Clean is allowed to invalidate after preserving data.
+      accept_request(READ_CLEAN, ADDRESS, 0, 6, 1, 0);
+      return_line(ADDRESS, operation == 7 ? LINE : evict_dirty_line, 3'b001);
+      accept_comp_ack();
+      expect_core_response(operation == 7 ? LINE[63:0] : STORE_DATA, DATA_DESTINATION_INTEGER, 1);
+      assert (!tx_req_pending) else $fatal(1, "unexpected maintenance traffic");
+      // A miss still travels to Home; a failed completion must be observable.
+      send_core_request(ADDRESS + 64'h1000, 4'd9, ATOMIC_SWAP, 0, 0);
+      for (int cycles = 0; !tx_req_pending && cycles < 100; cycles++) tick();
+      assert (tx_req_pending && captured_req.opcode == 7'h09) else $fatal(1, "CMO miss was silently dropped");
+      tx_req_pending = 0;
+      send_response(COMP, 2, 0, 0, 2'b10);
+      expect_core_response(0, DATA_DESTINATION_NONE, 0, 1);
+    end
+    $display("RV5Stage VIPT write-back data-cache and self-snooped maintenance simulation passed");
     $finish;
   end
 endmodule

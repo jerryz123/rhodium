@@ -23,7 +23,7 @@ module rv5stage_mmu_replay_tb;
   } physical_instruction_req_t;
   typedef struct packed {
     logic [63:0] address;
-    logic [2:0] access;
+    logic [3:0] access;
     logic [3:0] atomic;
     logic [1:0] width;
     logic unsigned_0;
@@ -34,6 +34,7 @@ module rv5stage_mmu_replay_tb;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
+    logic access_fault;
     logic [63:0] data;
     logic [1:0] destination;
     logic [4:0] rd;
@@ -71,7 +72,7 @@ module rv5stage_mmu_replay_tb;
 
   localparam logic [1:0] PRIVILEGE_U = 2'd0;
   localparam logic [1:0] PRIVILEGE_S = 2'd1;
-  localparam logic [2:0] MEMORY_LOAD = 3'd1;
+  localparam logic [3:0] MEMORY_LOAD = 4'd1;
   localparam logic [1:0] MEMORY_DOUBLE = 2'd3;
   localparam logic [1:0] DATA_DESTINATION_INTEGER = 2'd1;
   localparam logic [63:0] VIRTUAL_ADDRESS = 64'h4000;
@@ -111,6 +112,7 @@ module rv5stage_mmu_replay_tb;
   logic translated_request_seen;
   logic page_fault_phase;
   logic zero_request = 1'b0;
+  logic [3:0] management_operation = 0;
   logic page_fault_pte_seen;
 
   RV5StageMmu dut (.*);
@@ -123,8 +125,8 @@ module rv5stage_mmu_replay_tb;
     instruction_in.request.bits.address = instruction_address;
     instruction_in.response.ready = 1'b1;
     data_in.request.valid = data_request_valid;
-    data_in.request.bits.address = (page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS) + (zero_request ? 64'd63 : 64'd0);
-    data_in.request.bits.access = zero_request ? 3'd6 : MEMORY_LOAD;
+    data_in.request.bits.address = (page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS) + (zero_request || management_operation != 0 ? 64'd63 : 64'd0);
+    data_in.request.bits.access = management_operation != 0 ? management_operation : zero_request ? 4'd6 : 4'(MEMORY_LOAD);
     data_in.request.bits.atomic = '0;
     data_in.request.bits.width = MEMORY_DOUBLE;
     data_in.request.bits.unsigned_0 = 1'b1;
@@ -138,6 +140,7 @@ module rv5stage_mmu_replay_tb;
     data_memory_in.request_fault = 1'b0;
     data_memory_in.request_access_fault = 1'b0;
     data_memory_in.response.valid = pte_response_valid;
+    data_memory_in.response.bits.access_fault = 0;
     data_memory_in.response.bits.data = pte_response_data;
     data_memory_in.response.bits.destination = '0;
     data_memory_in.response.bits.rd = '0;
@@ -188,7 +191,7 @@ module rv5stage_mmu_replay_tb;
           pte_response_data <= LEVEL_0_LEAF;
           pte_requests <= 3;
         end else begin
-          assert (data_request_valid && data_memory_out.request.bits.address == PHYSICAL_ADDRESS &&
+          assert (data_request_valid && data_memory_out.request.bits.address == PHYSICAL_ADDRESS + (management_operation != 0 ? 64'd63 : 64'd0) &&
                   data_memory_out.request.bits.destination == DATA_DESTINATION_INTEGER &&
                   data_memory_out.request.bits.rd == 5'd7)
             else $fatal(1, "replayed request was not translated with its metadata intact");
@@ -200,7 +203,7 @@ module rv5stage_mmu_replay_tb;
 
   initial begin
     wait (!reset);
-    repeat (240) @(posedge clock);
+    repeat (400) @(posedge clock);
     $fatal(1, "DTLB walk or replay did not complete");
   end
 
@@ -289,6 +292,25 @@ module rv5stage_mmu_replay_tb;
     #1;
     data_request_valid = 1'b0;
     zero_request = 1'b0;
+
+    // Management uses a distinct translation class: A is required, D is not.
+    // The original byte offset survives translation for precise trap metadata.
+    for (int operation = 7; operation <= 9; operation++) begin
+      @(negedge clock); management_operation = 4'(operation); data_request_valid = 1;
+      #1;
+      assert (data_out.request.ready && !data_out.request_fault && data_memory_out.request.valid && data_memory_out.request.bits.access == 4'(operation) && data_memory_out.request.bits.address == PHYSICAL_ADDRESS + 63)
+        else $fatal(1, "CMO did not use management translation permissions");
+      tick();
+      @(negedge clock); data_request_valid = 0;
+    end
+    // MPRV affects translation even though xenvcfg authorization uses current M.
+    privilege = 2'd3; mstatus = 64'h20000; data_request_valid = 1;
+    #1;
+    assert (data_out.request_fault && !data_memory_out.request.valid)
+      else $fatal(1, "CMO ignored effective U privilege under MPRV");
+    tick();
+    @(negedge clock); data_request_valid = 0; management_operation = 0;
+    privilege = PRIVILEGE_S; mstatus = 0;
 
     // The leaf is readable and accessed but not dirty. PREFETCH.W is still
     // permitted because prefetch translation accepts any R/W/X permission and

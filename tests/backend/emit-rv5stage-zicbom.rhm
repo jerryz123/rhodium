@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits the feature-enabled scalar core for precise CMO retirement tests.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm".XLen
+  "../../cores/rv5stage/core.rhdl".RV5StageCore
+  "../../cores/rv5stage/profile.rhm" open
+
+def design = embedded.run_elaboration(fun (): RV5StageCore(RVCoreProfile(
+  ~xlen: XLen.X64,
+  ~extensions: RV5StageExtensions(~zicbom: #true)
+)))
+print(emit_circt(design))

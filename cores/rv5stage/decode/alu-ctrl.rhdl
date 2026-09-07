@@ -3,6 +3,7 @@
 
 import:
   "../../../riscv/isa/zicboz.rhm" open
+  "../../../riscv/isa/zicbom.rhm" open
   "../../alu.rhdl" open
   "decode-support.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
@@ -231,8 +232,10 @@ circuit RV64IAluInstructionDecoder():
   control <== decoded.value
 
 def ZicbozAluCases = instruction_cases(ZicbozInstructions, address_alu)
+def ZicbomAluCases = instruction_cases(ZicbomInstructions, address_alu)
 
 export:
+  ZicbomAluCases
   ZicbozAluCases
   RV32IAluCases
   RV64IAluCases

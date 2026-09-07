@@ -65,7 +65,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_request :: RV5StageDataReq(xlen) = data.request.bits
   def data_memory_operation :: MemoryOperation = data_request.access
   def data_virtual_address = if xlen == XLen.X32 | data_request.address.zext(64) | data_request.address
-  def data_access_kind = mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load)
+  def data_access_kind = mux(data_memory_operation.is_cache_management(), Sv39Access.CacheManagement, mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load))
 
   itlb.virtual_address <== instruction_virtual_address
   itlb.access <== Sv39Access.Fetch

@@ -23,7 +23,7 @@ module rv5stage_core_tb;
   } instruction_out_t;
   typedef struct packed {
     logic [63:0] address;
-    logic [2:0] access;
+    logic [3:0] access;
     logic [3:0] atomic;
     logic [1:0] width;
     logic unsigned_0;
@@ -34,6 +34,7 @@ module rv5stage_core_tb;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
+    logic access_fault;
     logic [63:0] data;
     logic [1:0] destination;
     logic [4:0] rd;
@@ -78,7 +79,7 @@ module rv5stage_core_tb;
   logic saw_fence_i_invalidate;
   logic saw_fence_i_refetch;
   logic [2:0] fetch_flushes;
-  localparam logic [2:0] MEMORY_LOAD = 3'd1;
+  localparam logic [3:0] MEMORY_LOAD = 4'd1;
   localparam logic [1:0] DATA_DESTINATION_NONE = 2'd0;
   localparam logic [1:0] DATA_DESTINATION_INTEGER = 2'd1;
 

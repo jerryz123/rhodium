@@ -38,6 +38,12 @@ such 64-bit writes and completes only after the final beat completes.
 
 ## Snoop handling
 
+The data RN-F also advertises `CleanShared`, `CleanInvalid`, and `MakeInvalid`.
+L1D composes the shared [`CHICacheMaintenance`](../../../chi/cache-maintenance.rhdl)
+engine with SnoopMe enabled, so its own copy is handled by the same snoop path
+as peer copies. Maintenance does not hold the cache's SRAM while waiting on
+CHI; Home completion, including its error status, is returned to the core.
+
 The clean and data snoop engines retain each accepted request until its cache
 lookup and CHI response finish. They pair two-part DVM operations, hold response
 traffic stable under backpressure, and return explicit cache updates. Clean
