@@ -1,0 +1,50 @@
+#lang rhombus
+// Defines ratified Zihintntl 1.0 locality hints and their compressed aliases.
+
+import:
+  "../../support/annotations.rhm".NonemptyString
+  "../model/main.rhm" open
+  "integer-common.rhm".OP
+  "compressed.rhm" open
+
+fun locality_hint(name :: NonemptyString, selector :: Nat):
+  instruction(name, SystemFormat, [opcode.constrain(OP), rd.constrain(0), funct3.constrain(0), rs1.constrain(0), rs2.constrain(selector), funct7.constrain(0)])
+
+def NTL_P1 = locality_hint("NTL.P1", 2)
+def NTL_PALL = locality_hint("NTL.PALL", 3)
+def NTL_S1 = locality_hint("NTL.S1", 4)
+def NTL_ALL = locality_hint("NTL.ALL", 5)
+def ZihintntlInstructions = [NTL_P1, NTL_PALL, NTL_S1, NTL_ALL]
+def ZihintntlRevision = "Zihintntl 1.0"
+def Zihintntl = InstructionCatalog("Zihintntl", ZihintntlRevision, ZihintntlInstructions)
+
+fun compressed_locality_hint(target :: InstructionSpec, selector :: Nat):
+  compressed_instruction(
+    "C." ++ target.name,
+    quadrant_requirements(2, 4) ++ [compressed_bit12.constrain(1), compressed_rd_rs1.constrain(0), compressed_rs2.constrain(selector)],
+    expansion(target, [])
+  )
+
+def C_NTL_P1 = compressed_locality_hint(NTL_P1, 2)
+def C_NTL_PALL = compressed_locality_hint(NTL_PALL, 3)
+def C_NTL_S1 = compressed_locality_hint(NTL_S1, 4)
+def C_NTL_ALL = compressed_locality_hint(NTL_ALL, 5)
+// These aliases overlap C.ADD. Existing C/Zca expansion already preserves
+// their canonical ADD words; do not append aliases to a disjoint Zca catalog.
+def ZihintntlCompressedInstructions = [C_NTL_P1, C_NTL_PALL, C_NTL_S1, C_NTL_ALL]
+def ZihintntlCompressed = CompressedInstructionCatalog("compressed Zihintntl", ZihintntlRevision, ZihintntlCompressedInstructions)
+
+export:
+  NTL_P1
+  NTL_PALL
+  NTL_S1
+  NTL_ALL
+  ZihintntlInstructions
+  ZihintntlRevision
+  Zihintntl
+  C_NTL_P1
+  C_NTL_PALL
+  C_NTL_S1
+  C_NTL_ALL
+  ZihintntlCompressedInstructions
+  ZihintntlCompressed

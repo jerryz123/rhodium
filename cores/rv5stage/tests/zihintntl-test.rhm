@@ -1,0 +1,87 @@
+#lang rhodium
+// Checks NTL overlays, exact side-effect-free controls, compressed targets, and single-decoder composition.
+
+import:
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("rhodium/std/decode.rhdl") open
+  "../../../riscv/isa/zihintntl.rhm" open
+  "../../../riscv/isa/zihintpause.rhm" open
+  "../../../riscv/isa/zca.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../branch-resolver.rhdl" open
+  "../../cache-prefetch.rhdl" open
+  "../decode/core-ctrl.rhdl" open
+  "../decode/hint-ctrl.rhdl" open
+  "../decode/fence-ctrl.rhdl" open
+  "../decode/operand-ctrl.rhdl" open
+  "../decode/branch-ctrl.rhdl" open
+  "../decode/writeback-ctrl.rhdl" open
+  "../decode/mem-ctrl.rhdl" open
+  "../decode/system-ctrl.rhdl" open
+
+def hints = [HintOperation.NtlP1, HintOperation.NtlPall, HintOperation.NtlS1, HintOperation.NtlAll]
+def compressed_words = [0x900a, 0x900e, 0x9012, 0x9016]
+
+for (instruction in ZihintntlInstructions, hint in hints, compressed_word in compressed_words):
+  def expected = partial_pattern(RV5StageControl()):
+    hint: hint
+    operand:
+      partial_pattern(OperandControl()):
+        uses_rs1: Bool(#false)
+        uses_rs2: Bool(#false)
+    branch:
+      partial_pattern(BranchControl()):
+        resolver:
+          partial_pattern(BranchResolverControl()):
+            enable: Bool(#false)
+    memory:
+      partial_pattern(MemoryControl()):
+        access: MemoryOperation.None
+    prefetch: CachePrefetchOperation.None
+    writeback:
+      partial_pattern(WritebackControl()):
+        enable: Bool(#false)
+    system:
+      partial_pattern(SystemControl()):
+        csr: CsrOperation.None
+        action: SystemOperation.None
+    fence:
+      pattern(FenceControl()):
+        action: FenceOperation.None
+    floating_point_valid: Bool(#false)
+  def row = ZihintntlCoreControlCases.find(fun (candidate): candidate.input.matches(bits(instruction.encode([]), 32)))
+  check:
+    row.input.care_bits ~is 0xffffffff
+    expected.subsumes(row.output) ~is #true
+    row.output.subsumes(expected) ~is #true
+  for (catalog in [RV32Zca, RV64Zca]):
+    check: row.input.matches(bits(catalog.matching(compressed_word).expand(compressed_word), 32)) ~is #true
+
+for (base in [RV32RV5StageControlCases, RV64RV5StageControlCases]):
+  def cases = overlay_decode_cases(base, ZihintntlCoreControlCases ++ ZihintpauseCoreControlCases)
+  for (word in [0x00000033, 0x00100033, 0x00600033, 0x002000b3, 0x00208033, 0x40200033]):
+    def original = base.find(fun (row): row.input.matches(bits(word, 32))).output
+    def overlaid = cases.find(fun (row): row.input.matches(bits(word, 32))).output
+    check:
+      original.subsumes(overlaid) ~is #true
+      overlaid.subsumes(original) ~is #true
+  check:
+    ZihintpauseCoreControlCases[0].output.subsumes(cases.find(fun (row): row.input.matches(bits(PAUSE.encode([]), 32))).output) ~is #true
+
+for (config in [[XLen.X32, FloatingPointProfile.None], [XLen.X64, FloatingPointProfile.None], [XLen.X32, FloatingPointProfile.F], [XLen.X64, FloatingPointProfile.D]]):
+  for (enabled in [#false, #true]):
+    def design = embedded.run_elaboration(fun (): RV5StageInstructionDecoder(config[0], config[1], ~zihintntl: enabled, ~zihintpause: #true, ~zawrs: #true, ~zicbop: #true))
+    def decoders = design.modules[0].operations.filter(~keep: fun (operation): operation.opcode == "rtl.decode")
+    check: decoders.length() ~is 1
+    for (instruction in ZihintntlInstructions):
+      def rows = decoders[0].attribute("cases").filter(~keep: fun (row): row[0] == instruction.encoding.value && row[1] == 0xffffffff)
+      def matching = decoders[0].attribute("cases").filter(~keep: fun (row): (instruction.encoding.value bits.and row[1]) == row[0])
+      def expected_cases = if enabled | ZihintntlCoreControlCases | (if config[0] == XLen.X32 | RV32RV5StageControlCases | RV64RV5StageControlCases)
+      def expected = expected_cases.find(fun (row): row.input.matches(bits(instruction.encode([]), 32))).output
+      check:
+        rows.length() ~is (if enabled | 1 | 0)
+        matching.length() ~is 1
+        (matching[0][2] bits.and expected.care_bits) ~is expected.value_bits
+        (matching[0][3] bits.and expected.care_bits) ~is expected.care_bits
+        rv5stage_instructions(config[0], config[1], HalfPrecisionProfile.None, ~zihintntl: enabled).contains(instruction) ~is enabled

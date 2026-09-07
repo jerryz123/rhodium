@@ -1,0 +1,45 @@
+#lang rhombus
+// Checks exact locality-hint words, operand-free assembly, and C/Zca expansion equivalence.
+
+import:
+  rhombus.bits.(<<) as <<
+  "../isa/zihintntl.rhm" open
+  "../isa/integer-common.rhm" open
+  "../isa/zca.rhm" open
+  "../model/main.rhm" open
+
+def words = [0x00200033, 0x00300033, 0x00400033, 0x00500033]
+def compressed_words = [0x900a, 0x900e, 0x9012, 0x9016]
+
+check:
+  Zihintntl.revision ~is "Zihintntl 1.0"
+  Zihintntl.instructions ~is ZihintntlInstructions
+  ZihintntlInstructions.map(fun (instruction): instruction.name) ~is ["NTL.P1", "NTL.PALL", "NTL.S1", "NTL.ALL"]
+
+for (instruction in ZihintntlInstructions, word in words,
+     compressed in ZihintntlCompressedInstructions, compressed_word in compressed_words):
+  check:
+    instruction.encode([]) ~is word
+    instruction.encoding.care ~is 0xffffffff
+    instruction.operands ~is []
+    instruction.immediate ~is #false
+    ADD.matches(word) ~is #true
+    Zihintntl.matching(word) === instruction ~is #true
+    instruction.encode([rs2.constrain(2)]) ~throws "not an explicit field"
+    compressed.name ~is "C." ++ instruction.name
+    compressed.expand(compressed_word) ~is word
+    compressed.encodings[0].care ~is 0xffff
+    ZihintntlCompressed.matching(compressed_word) === compressed ~is #true
+    RV32Zca.matching(compressed_word).expand(compressed_word) ~is word
+    RV64Zca.matching(compressed_word).expand(compressed_word) ~is word
+  for (bit in 0..32):
+    check:
+      instruction.matches(word bits.xor (1 << bit)) ~is #false
+  for (bit in 0..16):
+    check:
+      compressed.matches(compressed_word bits.xor (1 << bit)) ~is #false
+
+for (word in [0x00000033, 0x00100033, 0x00600033, 0x002000b3, 0x00208033, 0x40200033]):
+  check: Zihintntl.matching(word) ~is #false
+for (word in [0x9002, 0x9006, 0x901a, 0x908a]):
+  check: ZihintntlCompressed.matching(word) ~is #false

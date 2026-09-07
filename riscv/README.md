@@ -140,6 +140,7 @@ downstream decode composition must resolve their overlap with the base encoding.
 | [`isa/a.rhm`](isa/a.rhm) | `RV32A`, `RV64A` | A 2.1 word and RV64 doubleword LR/SC and AMO encodings with variable `aq`/`rl` |
 | [`isa/zawrs.rhm`](isa/zawrs.rhm) | `Zawrs` | XLEN-independent Zawrs 1.01 `WRS.NTO` and `WRS.STO` encodings, with no explicit operands |
 | [`isa/zihintpause.rhm`](isa/zihintpause.rhm) | `Zihintpause` | XLEN-independent Zihintpause 2.0 operand-free PAUSE hint |
+| [`isa/zihintntl.rhm`](isa/zihintntl.rhm) | `Zihintntl`, `ZihintntlCompressed` | Zihintntl 1.0 operand-free NTL.P1/PALL/S1/ALL and named C.NTL aliases |
 | [`isa/zba.rhm`](isa/zba.rhm) | `RV32Zba`, `RV64Zba` | Ratified Zba 1.0.0 address generation |
 | [`isa/zbb.rhm`](isa/zbb.rhm) | `RV32Zbb`, `RV64Zbb` | Ratified Zbb 1.0.0 basic bit manipulation |
 | [`isa/zbs.rhm`](isa/zbs.rhm) | `RV32Zbs`, `RV64Zbs` | Ratified Zbs 1.0.0 single-bit operations |
@@ -160,6 +161,12 @@ serialization remain processor responsibilities.
 The PAUSE catalog follows the [ratified Zihintpause specification](https://docs.riscv.org/reference/isa/v20260120/unpriv/zihintpause.html).
 Its exact word intentionally overlaps base FENCE; consumers refine the base
 relation with an overlay rather than putting both in a disjoint catalog.
+
+The locality-hint catalogs follow [Zihintntl 1.0](https://docs.riscv.org/reference/isa/v20260120/unpriv/zihintntl.html).
+Their exact encodings overlap ADD and C.ADD. `ZihintntlCompressed` is a separate
+alias catalog, not an extension to append to the disjoint C/Zca catalogs:
+existing C/Zca expansion already produces the same canonical 32-bit words.
+The encoded register selectors are fixed hint fields, not explicit operands.
 
 The Zawrs catalog follows the [ratified wait-on-reservation specification](https://docs.riscv.org/reference/isa/unpriv/zawrs.html)
 and [canonical opcode definitions](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_zawrs).

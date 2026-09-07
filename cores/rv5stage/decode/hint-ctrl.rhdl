@@ -4,6 +4,10 @@
 hardware_enum HintOperation:
   None
   Pause
+  NtlP1
+  NtlPall
+  NtlS1
+  NtlAll
 
 export:
   HintOperation

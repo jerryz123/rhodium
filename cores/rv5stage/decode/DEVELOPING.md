@@ -31,7 +31,7 @@ execution and retirement behavior.
 | [`writeback-ctrl.rhdl`](writeback-ctrl.rhdl) | Scalar architectural write enable and result source |
 | [`system-ctrl.rhdl`](system-ctrl.rhdl) | Zicsr operation, ECALL, EBREAK, WFI, MRET, SRET, and decode-only WRS.NTO/WRS.STO actions |
 | [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | FENCE, FENCE.I, and SFENCE.VMA actions |
-| [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE hint selector, separate from fence/system serialization |
+| [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE and NTL selectors, separate from fence/system serialization |
 | [`fp-ctrl.rhdl`](fp-ctrl.rhdl) | FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
 | [`decode-support.rhdl`](decode-support.rhdl) | Catalog-independent case construction, exclusion, exact-pattern comparison, and component lookup helpers |
 | [`core-ctrl.rhdl`](core-ctrl.rhdl) | `RV5StageControl`, core-row composition, scalar controls for FP rows, profile validation, and the integrated decoder circuit |
@@ -72,6 +72,18 @@ rebinding by name. Memory width is the shared
 | FP domains, metadata, profiles, and single-decode structure | [`../tests/fp-ctrl-test.rhm`](../tests/fp-ctrl-test.rhm) |
 
 ## Focused validation
+
+For ISA/decode-only Zihintntl changes:
+
+```sh
+tools/run-racket-tests.sh riscv/tests/zihintntl-test.rhm cores/rv5stage/tests/zihintntl-test.rhm cores/rv5stage/tests/zihintpause-test.rhm cores/rv5stage/tests/core-ctrl-test.rhm
+```
+
+These cover exact base/compressed words, canonical C/Zca expansion, inactive
+control care masks, neighboring ADD/SUB preservation, PAUSE coexistence, and
+single-decoder RV32/RV64 integer/FP specializations. Hint rows share the
+side-effect-free constructor in `core-ctrl.rhdl`; locality policy remains a
+future WB/cache consumer, not a decoder responsibility.
 
 For decode-only Zawrs changes:
 

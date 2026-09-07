@@ -8,6 +8,17 @@ WB; register use, writeback, memory, and ordinary fence actions are disabled.
 Neighboring FENCE encodings retain their original controls. Disabled profiles
 continue to decode the word as FENCE.
 
+The standalone decoder's `~zihintntl: #true` option overlays the four exact NTL
+words on ADD, selecting `HintOperation.NtlP1`, `NtlPall`, `NtlS1`, or `NtlAll`.
+These rows have no register operands, register writes, branch, memory, prefetch,
+system, or fence effects. Neighboring ADD/SUB words and disabled-decoder
+specializations retain the base controls. C/Zca already expands the compressed
+aliases to these same words. PAUSE and NTL overlays share one combined decoder.
+
+This is ISA/decode support only: RVCoreProfile and the SoCs do not select or
+advertise Zihintntl yet. WB target association, request metadata, and cache
+policy are deliberately not implemented by this decoder option.
+
 RV5Stage maps each selected instruction encoding directly to the structured
 `RV5StageControl` consumed by the core. There is no intermediate
 instruction-kind enum. Integer and floating-point rows are composed at host

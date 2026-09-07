@@ -19,6 +19,7 @@ import:
   "fence-ctrl.rhdl" open
   "hint-ctrl.rhdl" open
   "../../../riscv/isa/zihintpause.rhm" open
+  "../../../riscv/isa/zihintntl.rhm" open
   "fp-ctrl.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -214,10 +215,10 @@ def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions)
       floating_point: pattern(RV5StageFloatingPointControl(), _)
   )
 
-// PAUSE overrides one FENCE word without imposing memory ordering or register use.
-def ZihintpauseCoreControlCases = [
+// Hint overlays preserve intent without introducing register use or architectural effects.
+fun hint_control_case(instruction :: InstructionSpec, hint :: HintOperation):
   DecodeCase(
-    instruction_pattern(PAUSE),
+    instruction_pattern(instruction),
     partial_pattern(RV5StageControl()):
       operand:
         partial_pattern(OperandControl()):
@@ -229,9 +230,15 @@ def ZihintpauseCoreControlCases = [
       writeback: inactive_writeback_control
       system: inactive_system_control
       fence: inactive_fence_control
-      hint: HintOperation.Pause
+      hint: hint
       floating_point_valid: Bool(#false)
   )
+def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, HintOperation.Pause)]
+def ZihintntlCoreControlCases = [
+  hint_control_case(NTL_P1, HintOperation.NtlP1),
+  hint_control_case(NTL_PALL, HintOperation.NtlPall),
+  hint_control_case(NTL_S1, HintOperation.NtlS1),
+  hint_control_case(NTL_ALL, HintOperation.NtlAll)
 ]
 
 // Reservation waits retain retirement context in the core.
@@ -310,11 +317,12 @@ fun rv5stage_instructions(xlen :: XLen,
                           ~zicbop: zicbop_enabled :: Boolean = #false,
                           ~zawrs: zawrs_enabled :: Boolean = #false,
                           ~zihintpause: zihintpause_enabled :: Boolean = #false,
+                          ~zihintntl: zihintntl_enabled :: Boolean = #false,
                           ~zicbom: zicbom_enabled :: Boolean = #false,
                           ~zicboz: zicboz_enabled :: Boolean = #false) :: List.of(InstructionSpec):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   def base_integer_instructions = if xlen == XLen.X32 | RV32RV5StageInstructions | RV64RV5StageInstructions
-  def integer_instructions = base_integer_instructions ++ (if zicbop_enabled | zicbop.ZicbopInstructions | []) ++ (if zicboz_enabled | ZicbozInstructions | []) ++ (if zicbom_enabled | ZicbomInstructions | []) ++ (if zawrs_enabled | ZawrsInstructions | []) ++ (if zihintpause_enabled | ZihintpauseInstructions | [])
+  def integer_instructions = base_integer_instructions ++ (if zicbop_enabled | zicbop.ZicbopInstructions | []) ++ (if zicboz_enabled | ZicbozInstructions | []) ++ (if zicbom_enabled | ZicbomInstructions | []) ++ (if zawrs_enabled | ZawrsInstructions | []) ++ (if zihintpause_enabled | ZihintpauseInstructions | []) ++ (if zihintntl_enabled | ZihintntlInstructions | [])
   if profile == FloatingPointProfile.None
   | integer_instructions
   | integer_instructions ++ rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled)
@@ -367,6 +375,7 @@ circuit RV5StageInstructionDecoder(
   ~zicbop: zicbop_enabled :: Boolean = #false,
   ~zawrs: zawrs_enabled :: Boolean = #false,
   ~zihintpause: zihintpause_enabled :: Boolean = #false,
+  ~zihintntl: zihintntl_enabled :: Boolean = #false,
   ~zicbom: zicbom_enabled :: Boolean = #false,
   ~zicboz: zicboz_enabled :: Boolean = #false
 ):
@@ -377,7 +386,8 @@ circuit RV5StageInstructionDecoder(
 
   def base_integer_cases = if xlen == XLen.X32 | RV32RV5StageControlCases | RV64RV5StageControlCases
   def integer_cases = (if zicbop_enabled | overlay_decode_cases(base_integer_cases, ZicbopCoreControlCases) | base_integer_cases) ++ (if zicboz_enabled | ZicbozCoreControlCases | []) ++ (if zicbom_enabled | ZicbomCoreControlCases | []) ++ (if zawrs_enabled | ZawrsCoreControlCases | [])
-  def hinted_cases = if zihintpause_enabled | overlay_decode_cases(integer_cases, ZihintpauseCoreControlCases) | integer_cases
+  def hint_overrides = (if zihintpause_enabled | ZihintpauseCoreControlCases | []) ++ (if zihintntl_enabled | ZihintntlCoreControlCases | [])
+  def hinted_cases = if hint_overrides.is_empty() | integer_cases | overlay_decode_cases(integer_cases, hint_overrides)
   def selected_cases:
     if profile == FloatingPointProfile.None
     | hinted_cases
@@ -390,6 +400,7 @@ circuit RV5StageInstructionDecoder(
   control <== decoded.value
 
 export:
+  ZihintntlCoreControlCases
   ZihintpauseCoreControlCases
   ZawrsCoreControlCases
   ZicbomCoreControlCases
