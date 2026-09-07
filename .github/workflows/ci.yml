@@ -32,6 +32,10 @@ jobs:
       circt: "${{ steps.filter.outputs.circt }}"
       circt_matrix: "${{ steps.filter.outputs.circt_matrix }}"
       simulation: "${{ steps.filter.outputs.simulation }}"
+      programs: "${{ steps.filter.outputs.programs }}"
+      program_native: "${{ steps.filter.outputs.program_native }}"
+      program_arch: "${{ steps.filter.outputs.program_arch }}"
+      program_matrix: "${{ steps.filter.outputs.program_matrix }}"
       examples: "${{ steps.filter.outputs.examples }}"
       example_matrix: "${{ steps.filter.outputs.example_matrix }}"
     steps:
@@ -61,7 +65,7 @@ jobs:
   compile-racket:
     name: Compile Rhodium once
     needs: changes
-    if: needs.changes.outputs.host == 'true' || needs.changes.outputs.examples == 'true' || needs.changes.outputs.circt == 'true' || needs.changes.outputs.simulation == 'true'
+    if: needs.changes.outputs.host == 'true' || needs.changes.outputs.examples == 'true' || needs.changes.outputs.circt == 'true' || needs.changes.outputs.simulation == 'true' || needs.changes.outputs.programs == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -190,7 +194,7 @@ jobs:
 
   simulation:
     name: SoC simulation harnesses
-    needs: [changes, compile-racket]
+    needs: [changes, compile-racket, simple-soc-build]
     if: needs.changes.outputs.simulation == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -246,23 +250,272 @@ jobs:
         run: make -C sims transport-test
       - name: Test ACT completion adapter
         run: make -C sims arch-test-adapter-test
+      - name: Test program suite adapters
+        run: make -C sims program-test-adapter-test
+      - name: Download exact SimpleSoC simulator
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: simple-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/simple-soc
+      - name: Restore simulator executable permission
+        run: chmod +x "$RUNNER_TEMP/simple-soc/VTestDriver"
       - name: Build reusable SoC simulators
         run: |
-          make -C sims simulator SOC=simple
           make -C sims simulator SOC=tiled
       - name: Execute both SoCs through standard FESVR flow
         run: |
-          make -C sims smoke SOC=simple
+          make -C sims smoke SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
           make -C sims smoke SOC=tiled
       - name: Verify exact host MMIO on all three SoCs
         run: |
-          make -C sims host-mmio-test SOC=simple
+          make -C sims host-mmio-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
           make -C sims host-mmio-test SOC=mini
           make -C sims host-mmio-test SOC=tiled
       - name: Boot distinct ELF entries through each SoC boot register
         run: |
-          make -C sims boot-test SOC=simple
+          make -C sims boot-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
           make -C sims boot-test SOC=mini
           make -C sims boot-test SOC=tiled
       - name: Execute mapped MiniSoC through standard FESVR flow
         run: make -C vlsi/sim smoke
+
+  simple-soc-build:
+    name: Build shared SimpleSoC simulator
+    needs: [changes, compile-racket]
+    if: needs.changes.outputs.simulation == 'true' || needs.changes.outputs.programs == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: "${{ env.RACKET_VERSION }}"
+      - uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: "${{ env.RACKET_VERSION }}"
+          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
+      - uses: ./.github/actions/setup-verilator
+      - name: Cache CIRCT
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/firtool-*
+          key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
+      - name: Cache FESVR
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/fesvr-*
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ hashFiles('sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+      - name: Build and attest simulator
+        run: |
+          make setup-circt
+          make -C sims setup simulator SOC=simple
+          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/simple/obj/VTestDriver --soc simple
+          ldd /tmp/rhodium-sims/simple/obj/VTestDriver
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: simple-soc-${{ github.sha }}
+          path: |
+            /tmp/rhodium-sims/simple/obj/VTestDriver
+            /tmp/rhodium-sims/simple/obj/VTestDriver.json
+          if-no-files-found: error
+          retention-days: 3
+
+  simple-soc-programs:
+    name: SimpleSoC (${{ matrix.suite }})
+    needs: [changes, compile-racket, simple-soc-build]
+    if: needs.changes.outputs.program_native == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.program_matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Initialize suite sources and record revisions
+        id: sources
+        run: |
+          make -C sims program-test-setup
+          echo "revision=$(git rev-parse HEAD:riscv/riscv-isa-tests)" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup-riscv-toolchain
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: simple-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/simple-soc
+      - name: Verify downloaded simulator
+        run: |
+          chmod +x "$RUNNER_TEMP/simple-soc/VTestDriver"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/simple-soc/VTestDriver" --soc simple
+          ldd "$RUNNER_TEMP/simple-soc/VTestDriver"
+      - name: Test adapter contracts
+        run: make -C sims program-test-adapter-test arch-test-adapter-test
+      - name: Cache ISA and benchmark builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/rhodium-program-tests/${{ matrix.suite }}/build
+          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/program-test/build.py', 'sims/program-test/isa.mk') }}"
+      - name: Build and run every selected workload
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/program-logs"
+          make -C sims "$SUITE-test" SOC=simple \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver" \
+            PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
+      - name: Publish workload results and diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: simple-soc-${{ matrix.suite }}-results-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/program-logs
+            /tmp/rhodium-program-tests/*/manifest.json
+            /tmp/rhodium-program-tests/*/build.log
+            /tmp/rhodium-program-tests/*/results
+          if-no-files-found: warn
+          retention-days: 7
+
+  simple-soc-arch-build:
+    name: Generate SimpleSoC ACT ELFs once
+    needs: [changes, compile-racket]
+    if: needs.changes.outputs.program_arch == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Initialize pinned ACT sources
+        id: sources
+        run: |
+          git submodule update --init riscv/riscv-arch-test
+          echo "revision=$(git rev-parse HEAD:riscv/riscv-arch-test)" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup-riscv-toolchain
+      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: "${{ env.RACKET_VERSION }}"
+      - uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: "${{ env.RACKET_VERSION }}"
+          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install ACT native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential ruby-dev bundler libgmp-dev libyaml-dev zlib1g-dev
+      - name: Cache ACT dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/act-venv
+            .tools/act-bundle
+            .tools/act-cache
+            .tools/act-data
+            .tools/sail-0.14
+          key: "${{ runner.os }}-${{ runner.arch }}-act-${{ steps.sources.outputs.revision }}-${{ hashFiles('sims/arch-test/setup.sh') }}"
+      - name: Set up ACT and generate platform configuration
+        id: act-config
+        run: |
+          make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=simple-soc
+          echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/simple-soc/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Cache ACT reference products
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /tmp/rhodium-arch-test/work/**/build
+            /tmp/rhodium-arch-test/work/**/.act_build_cache.json
+          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**') }}"
+      - name: Generate and package every selected ELF
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/act"
+          make -C sims arch-test-elfs ACT_CONFIGURATION=simple-soc ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
+          test -n "$(find /tmp/rhodium-arch-test/work/simple-soc/simple-soc/elfs -name '*.elf' -print -quit)"
+          tar -czhf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/simple-soc/simple-soc/elfs .
+          cd "$RUNNER_TEMP/act"
+          sha256sum elfs.tar.gz > elfs.sha256
+      - name: Publish exact-commit ACT payloads
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: simple-soc-arch-elfs-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/act/elfs.tar.gz
+            ${{ runner.temp }}/act/elfs.sha256
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+      - name: Publish generation diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: simple-soc-arch-generation-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/act/generation.log
+            /tmp/rhodium-arch-test/configs
+            /tmp/rhodium-arch-test/work/**/*.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  simple-soc-arch:
+    name: SimpleSoC (arch ${{ matrix.shard }})
+    needs: [changes, simple-soc-build, simple-soc-arch-build]
+    if: needs.changes.outputs.program_arch == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Initialize upstream runner
+        run: git submodule update --init riscv/riscv-arch-test
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: simple-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/simple-soc
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: simple-soc-arch-elfs-${{ github.sha }}
+          path: ${{ runner.temp }}/act
+      - name: Verify and unpack shared artifacts
+        run: |
+          chmod +x "$RUNNER_TEMP/simple-soc/VTestDriver"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/simple-soc/VTestDriver" --soc simple
+          ldd "$RUNNER_TEMP/simple-soc/VTestDriver"
+          (cd "$RUNNER_TEMP/act" && sha256sum --check elfs.sha256)
+          mkdir -p /tmp/rhodium-arch-test/work/simple-soc/simple-soc/elfs
+          tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/simple-soc/simple-soc/elfs
+      - name: Test ACT adapter and partition contracts
+        run: make -C sims arch-test-adapter-test
+      - name: Run the complete deterministic shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -o pipefail
+          make -C sims arch-test-run ACT_CONFIGURATION=simple-soc ACT_PYTHON=python3 \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver" \
+            ACT_JOBS=2 ACT_SHARDS=4 ACT_SHARD="$SHARD" 2>&1 | tee "$RUNNER_TEMP/act/run.log"
+      - name: Publish shard results and inventory
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: simple-soc-arch-${{ matrix.shard }}-results-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/act/run.log
+            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/inventory.json
+            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/results.json
+            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/junit.xml
+            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/summary.log
+            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/logs
+          if-no-files-found: warn
+          retention-days: 7

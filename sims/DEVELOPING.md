@@ -31,6 +31,7 @@ systems cannot reuse another system's generated RTL.
 | Clock, reset, UART pins, and exit | [`TestDriver.v`](TestDriver.v) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
+| Upstream ISA/benchmark builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
 | CHI simulation memory | [`../chi/dpi-memory.rhdl`](../chi/dpi-memory.rhdl) and [`../chi/dpi/`](../chi/dpi/) |
 
 ## Add or change a harness
@@ -84,15 +85,51 @@ contracts together. The shared linker layout keeps test data addresses equal
 between Sail signature payloads and self-checking DUT payloads; model-specific
 text and HTIF mailboxes follow test data and stack.
 
-Run `make -C sims arch-test-adapter-test` for generation and completion-protocol
-checks using system Python and no ACT dependencies; the simulation CI job runs
-this target. With ACT installed, run `make -C sims arch-test` to generate and
-execute all applicable tests. This is
-an explicit optional toolchain workflow; it is not added to routine CI in this
-initial integration. When changing the driver, also run the existing smoke
+Run `make -C sims arch-test-adapter-test program-test-adapter-test` for generation,
+completion, deadlines, artifact identity, and complete-result checks using system
+Python without ACT dependencies. CI runs these checks before workloads. With ACT
+installed, run `make -C sims arch-test` to generate and execute all applicable
+tests; the architecture-test CI lane uses this same target. When changing the driver, also run the existing smoke
 and exercise a small `+max-cycles` timeout. See the
 [operator guide](README.md#architectural-certification-tests) for setup and
 current coverage limits.
+
+### Software suite and artifact maintenance
+
+`program-test/isa.mk` includes upstream build rules and selects their physical
+test inventories. `build.py` owns benchmark selection, build flags, and
+content-addressed ELF directories. Update selections for architecture or
+execution-environment compatibility, never to hide failures. Keep sources in
+the pinned submodule untouched. Compiler/source/adapter changes must invalidate
+binary reuse; regenerate the manifest on every build invocation.
+
+`program-test/run.py` owns ISA/benchmark process-group deadlines and JSON/JUnit
+reporting. ACT retains upstream `run_tests.py`; `arch-test/report.py` checks its
+summary against the full generated inventory. Never interpret an empty or partial
+suite as success, and preserve the upstream runner's nonzero status independently
+of reporting. Failed generation must stop before DUT execution.
+
+ACT generation runs once in CI, separately from the native simulator build. It
+publishes a checksum-verified archive with dereferenced ELF contents, so reference
+build paths and upstream symlinks cannot leak into consumers. Four execution jobs
+need only the native simulator, Python, and upstream runner, not Sail, Ruby, Racket,
+or a compiler. `arch-test/shard.py` takes every sorted generated ELF and partitions
+by index modulo shard count. Its tests enforce disjoint full coverage and safe
+replacement of stale shard links. Shard inventories and results are artifacts;
+all four matrix jobs must complete to claim full execution coverage.
+
+The shared CI build publishes `VTestDriver` and its JSON attestation. Consumers
+set `PREBUILT_SIMULATOR` to the downloaded executable. This bypasses native
+build prerequisites and verifies commit, platform, SoC, and binary hash before
+execution; missing artifacts must fail rather than silently build a replacement.
+`artifact.py record` is run immediately after a successful simulator build in
+the clean CI checkout. The executable uses statically linked FESVR and standard
+Ubuntu runtime libraries; all producer/consumer jobs use the same runner image.
+
+Keep tool downloads checksum-pinned and update compiler/ACT/Sail compatibility
+together. Cache ACT reference products using generated configuration content,
+upstream revisions, compiler, and adapter inputs. Generated ELF inventory is
+still replaced on every ACT build. Keep result files out of binary caches.
 
 Run host binding checks with:
 

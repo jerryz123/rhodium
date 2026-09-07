@@ -1,0 +1,16 @@
+# Restores and verifies the shared bare-metal compiler and C libraries for software CI.
+name: Set up RISC-V software toolchain
+description: Install the pinned RV64 GCC/Newlib toolchain for ISA, benchmark, and ACT builds.
+runs:
+  using: composite
+  steps:
+    - name: Cache RISC-V toolchain
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .tools/riscv-toolchain
+        key: "${{ runner.os }}-${{ runner.arch }}-riscv-toolchain-${{ hashFiles('tools/install-riscv-toolchain.sh') }}"
+    - name: Install and verify toolchain
+      shell: bash
+      run: |
+        bash tools/install-riscv-toolchain.sh
+        echo "$GITHUB_WORKSPACE/.tools/riscv-toolchain/bin" >> "$GITHUB_PATH"

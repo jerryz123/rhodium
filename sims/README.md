@@ -134,6 +134,59 @@ ELF loading and `tohost`/`fromhost` polling still observe dirty RV5Stage cache
 lines without reserving a special mailbox address range. The same endpoint
 can access platform devices, including the boot-address register and UART.
 
+## SimpleSoC software suites
+
+Run the pinned upstream ISA tests and benchmarks through the same FESVR-backed
+SimpleSoC simulator used by architectural tests:
+
+```sh
+make -C sims program-test-setup
+make -C sims isa-test SOC=simple
+make -C sims benchmark-test SOC=simple
+```
+
+After also installing ACT dependencies below, `make -C sims program-test
+SOC=simple` runs all three suites. This aggregate stops if a suite fails;
+CI runs the suites independently so one failure does not suppress the others.
+
+The ISA adapter selects upstream physical-environment tests for RV64 I/M/A/F/D/C,
+Zba/Zbb/Zbs/Zicond, and Zicboz. It omits `rv64ui-p-ma_data`, which requires
+successful misaligned accesses rather than SimpleSoC's traps. Virtual-environment
+and privileged-platform groups are outside this initial ISA adapter; ACT keeps
+its own independent selection and limitations. The adapter consumes upstream
+Makefrag inventories, so additions to selected groups are included automatically.
+
+Benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`, `multiply`,
+`mm`, `dhrystone`, and `spmv`, compiled for RV64IMAFDC with the double-float ABI.
+Multihart, vector, and PMP benchmarks require capabilities outside this platform.
+These are compatibility selections, not a list of tests proven to pass. Any
+selected workload failure fails its suite; there are no expected-failure masks.
+
+Use a bare-metal compiler with C headers and `libm`, not only an assembler.
+CI installs a checksum-pinned GCC/Newlib release via
+`bash tools/install-riscv-toolchain.sh` (x86-64 Linux); local builds accept
+`RISCV_CC=/path/to/riscv64-unknown-elf-gcc`.
+
+`PROGRAM_BUILD_ROOT` defaults to `/tmp/rhodium-program-tests`. Each suite writes
+a manifest, build log, per-test execution logs, `results.json`, and `junit.xml`.
+The manifest records source/compiler provenance, exclusions, and ELF checksums.
+The runner requires confirmed HTIF success and executes the entire manifest,
+including tests following a failure. Empty selections and missing/modified ELFs
+are errors. Results include exact simulator commands for reruns.
+
+`PROGRAM_JOBS` defaults to one; `PROGRAM_TIMEOUT` defaults to 300 seconds per ELF.
+`PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks use
+`BENCHMARK_MAX_CYCLES=100000000`. These are initial safety budgets, including
+loading, not measured performance requirements. Override them when diagnosing
+timeouts. Benchmark CI checks correctness, never exact cycle counts.
+
+CI selects the three suites on pull requests and pushes to `main`; manual dispatch
+selects all three. ACT generates its full ELF inventory once, then partitions it
+across four execution jobs. Every job consumes the same exact-commit SimpleSoC
+executable. ISA/benchmark binaries and ACT reference products are cached by their
+build inputs, but results are always rerun. Full Linux suite validation remains
+necessary before treating these new lanes as required branch-protection checks.
+
 ## Architectural certification tests
 
 The ACT4 integration selects suites from the configured core's UDB description.
@@ -165,6 +218,13 @@ ELFs without regenerating the bundle. An empty ELF directory is an error.
 Outputs and per-test logs live under
 `/tmp/rhodium-arch-test`; set `ACT_BUILD_ROOT` to change that location.
 `ACT_SAIL`, `ACT_VENV`, and `ACT_BUNDLE_PATH` select installed tool locations.
+The adapter also writes `results.json` and `junit.xml` beside ACT's `summary.log`,
+accounting for every generated ELF and rejecting missing results.
+For distributed execution, `arch-test-run ACT_SHARDS=4 ACT_SHARD=0` runs the
+first of four deterministic, disjoint partitions. Run indices 0 through 3 to
+cover the full suite. Each shard writes its inventory and results under
+`shards/<index>/`; the default `ACT_SHARDS=1` runs the complete inventory.
+Partitioning never filters by extension or prior test results.
 `RISCV_CC` and `ACT_OBJDUMP` select compiler tools.
 
 Generation always considers all extensions. ACT selects applicable tests using
@@ -190,7 +250,10 @@ The runner translates confirmed HTIF completion into ACT's `RVCP-SUMMARY`
 protocol. Console printing macros are empty, so failures currently report
 completion status and simulator logs without ACT's detailed mismatch console.
 `ACT_MAX_CYCLES` defaults to ten million cycles; `ACT_TIMEOUT` defaults to 300
-seconds per ELF. `ACT_JOBS` defaults to one simulator at a time. The shared
+seconds per ELF. `ACT_JOBS` defaults to one simulator at a time;
+`ACT_BUILD_JOBS` defaults to two compilation/reference tasks at a time. The shared
+CI lane sets `ACT_FAST=1` to omit bulk disassembly; leave it at its default of
+zero when generating local disassembly for debugging. The shared
 driver also accepts `HTIF_ARGS='+permissive +max-cycles=N +permissive-off'`
 for ordinary `run`; the permissive brackets keep FESVR from treating a
 simulator option as the ELF name.

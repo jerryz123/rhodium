@@ -73,6 +73,12 @@ flowchart TD
     Compile --> Examples["Example matrix<br/>one owning example group per shard"]
     Compile --> CIRCT["CIRCT matrix<br/>language, standard library,<br/>protocols, cores, RFPL"]
     Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
+    Compile --> SimpleBuild["Build SimpleSoC once<br/>exact-commit executable artifact"]
+    SimpleBuild --> Simulation
+    SimpleBuild --> Programs["SimpleSoC software matrix<br/>ISA tests and benchmarks"]
+    Compile --> ActBuild["Generate all ACT ELFs once"]
+    SimpleBuild --> ActRun["ACT execution<br/>four disjoint shards"]
+    ActBuild --> ActRun
 ```
 
 Known dependency paths can select several branches. For example, NoC, RISC-V,
@@ -81,6 +87,20 @@ when their behavior feeds system composition. Backend implementation or fixture
 changes select the backend host shard and every external CIRCT group. The
 simulation job remains independent from backend fixtures and owns the
 repository's full harness flow.
+
+The software matrix independently selects ISA tests, benchmarks, and ACT. Shared
+SimpleSoC dependencies (including CHI, NoC, devices, and RISC-V support) select all
+three; suite-only adapter/source changes select the owning lane. ACT configuration
+generation uses the exact compiled root; ISA/benchmark execution needs only the
+compiler and native simulator artifact. All software builds use the same pinned
+GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing
+the compiler or reference-model toolchain again. Four deterministic shards cover
+the full generated inventory, including failures. They run independently with bounded process parallelism and
+upload logs plus JSON/JUnit results even when execution fails. Do not add
+`continue-on-error` or pass-based exclusions to make new suites green. Measure a
+complete Linux run and resolve baseline failures before marking the new jobs
+required in branch protection. Platform/privileged ACT coverage limits remain
+in the [simulation guide](../sims/README.md#architectural-certification-tests).
 
 Recognized documentation and inert repository metadata select no functional
 test jobs. The optional Emacs integration and most of `vlsi/` have no

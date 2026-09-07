@@ -1,5 +1,6 @@
 # Checks UDB-to-Sail projection, privileged-inclusive generation, and ACT completion.
 import importlib.util
+import os
 from pathlib import Path
 import runpy
 import subprocess
@@ -66,6 +67,31 @@ class ArchTestConfigTest(unittest.TestCase):
 
 
 class ArchTestGenerationTest(unittest.TestCase):
+    def test_shards_cover_inventory_exactly_once_and_replace_stale_links(self):
+        spec = importlib.util.spec_from_file_location('act_shard', RUNNER.with_name('shard.py'))
+        sharder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(sharder)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            elfs = root / 'elfs'
+            (elfs / 'nested').mkdir(parents=True)
+            for index in range(11):
+                (elfs / 'nested' / f'{index}.elf').touch()
+            partitions = [sharder.partition(elfs, root / f'shard-{i}/elfs', i, 4) for i in range(4)]
+            combined = [elf for group in partitions for elf in group]
+            self.assertEqual(len(combined), len(set(combined)))
+            self.assertEqual(set(combined), set(elfs.resolve().rglob('*.elf')))
+            (elfs / 'nested/0.elf').unlink()
+            sharder.partition(elfs, root / 'shard-0/elfs', 0, 4)
+            self.assertFalse((root / 'shard-0/elfs/nested/0.elf').is_symlink())
+            self.assertEqual(len(list(elfs.rglob('*.elf'))), 10)
+            foreign = root / 'foreign/elfs'
+            foreign.mkdir(parents=True)
+            (foreign / 'keep.elf').symlink_to(elfs / 'nested/1.elf')
+            with self.assertRaises(ValueError):
+                sharder.partition(elfs, foreign, 0, 4)
+            self.assertTrue((foreign / 'keep.elf').is_symlink())
+
     def test_entry_point_requires_sail_014_without_replacing_version_check(self):
         config = ModuleType("act.config")
         config.REQUIRED_SAIL_VERSION = "0.13.1"
@@ -117,6 +143,61 @@ class ArchTestGenerationTest(unittest.TestCase):
 
 
 class ArchTestRunnerTest(unittest.TestCase):
+    def test_make_runs_only_its_shard_and_preserves_upstream_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            elfs = root / 'work/simple-soc/simple-soc/elfs'
+            elfs.mkdir(parents=True)
+            for index in range(8):
+                (elfs / f'{index}.elf').touch()
+            binary = root / 'VTestDriver'
+            binary.write_bytes(b'fake native artifact')
+            artifact = RUNNER.parents[1] / 'program-test/artifact.py'
+            subprocess.run([sys.executable, str(artifact), 'record', '--binary', str(binary), '--soc', 'simple'], check=True)
+            (root / 'run_tests.py').write_text(
+                '# Emulates upstream ACT execution for the Make/shard/result contract.\n'
+                'import os, sys\nfrom pathlib import Path\n'
+                'elfs = Path(sys.argv[-1])\n'
+                "names = sorted(path.name for path in elfs.rglob('*.elf'))\n"
+                "assert names == ['1.elf', '5.elf'], names\n"
+                "summary = ''.join(f'{Path(n).stem}.log  RVCP-SUMMARY: TEST PASSED - Test File \\\"test.S\\\"\\n' for n in names)\n"
+                "(elfs.parent / 'summary.log').write_text(summary)\n"
+                "sys.exit(int(os.environ.get('FAKE_ACT_EXIT', '0')))\n"
+            )
+            command = ['make', '-C', str(RUNNER.parents[1]), 'arch-test-run',
+                       f'ACT_DIR={root}', f'ACT_BUILD_ROOT={root}', f'ACT_PYTHON={sys.executable}',
+                       f'PYTHON={sys.executable}', f'PREBUILT_SIMULATOR={binary}', 'ACT_SHARDS=4', 'ACT_SHARD=1']
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((elfs.parent / 'shards/1/results.json').is_file())
+            result = subprocess.run(command, env={**os.environ, 'FAKE_ACT_EXIT': '7'}, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+
+    def test_report_rejects_missing_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            elfs = root / 'elfs'
+            elfs.mkdir()
+            (elfs / 'complete.elf').touch()
+            (elfs / 'missing.elf').touch()
+            (root / 'summary.log').write_text('complete.log  RVCP-SUMMARY: TEST PASSED - Test File "complete.S"\n')
+            result = subprocess.run([sys.executable, str(RUNNER.with_name('report.py')), str(elfs)], capture_output=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b'"error": 1', result.stdout)
+            self.assertTrue((root / 'junit.xml').is_file())
+
+    def test_report_distinguishes_cycle_timeout_from_target_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'elfs').mkdir()
+            (root / 'logs').mkdir()
+            (root / 'elfs/limited.elf').touch()
+            (root / 'logs/limited.log').write_text('SoC harness simulation timed out\n')
+            (root / 'summary.log').write_text('limited.log  RVCP-SUMMARY: TEST FAILED - Test File "limited.S"\n')
+            result = subprocess.run([sys.executable, str(RUNNER.with_name('report.py')), str(root / 'elfs')], capture_output=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(b'"timeout": 1', result.stdout)
+
     def run_simulator(self, output, code):
         with tempfile.TemporaryDirectory(prefix="rhodium-act-test-") as directory:
             root = Path(directory)

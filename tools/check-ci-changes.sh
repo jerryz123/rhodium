@@ -60,6 +60,7 @@ check_no_jobs() {
   if [[ "$(field_value "$output" host)" != false \
       || "$(field_value "$output" circt)" != false \
       || "$(field_value "$output" simulation)" != false \
+      || "$(field_value "$output" programs)" != false \
       || "$(field_value "$output" examples)" != false ]]; then
     echo "$path: expected no CI jobs" >&2
     echo "$output" >&2
@@ -68,6 +69,19 @@ check_no_jobs() {
 }
 
 check_no_jobs README.md
+check_field sims/arch-test/configure.py program_arch true
+check_field sims/arch-test/configure.py program_native false
+check_field sims/program-test/isa.mk program_matrix '{"include":[{"suite":"isa"}]}'
+check_field sims/program-test/isa.mk simulation false
+check_field sims/arch-test/configure.py simulation false
+check_field riscv/riscv-isa-tests program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'
+for path in cores/rv5stage/core.rhdl chi/link.rhdl noc/rtl/router.rhdl devices/aclint.rhdl socs/simple-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
+  check_field "$path" program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'
+  check_field "$path" program_arch true
+done
+check_field tools/write-riscv-udb-config.rhm program_arch true
+check_field tools/install-riscv-toolchain.sh programs true
+check_field .github/workflows/ci.yml programs true
 check_no_jobs flow/README.md
 check_no_jobs flow/DEVELOPING.md
 check_no_jobs tests/backend/README.md
@@ -225,11 +239,12 @@ while IFS= read -r path; do
       ;;
   esac
   case "$path" in
-    Makefile|*.rhm|*.rhdl|*.rkt|*.rktd|*.sh|*.sv|*.cc|*.cpp|*.h|*.S|*.ld|*.rfpl|*.yml|*.yaml)
+    Makefile|*.mk|*.inc|*.py|*.rhm|*.rhdl|*.rkt|*.rktd|*.sh|*.sv|*.cc|*.cpp|*.h|*.S|*.ld|*.rfpl|*.yml|*.yaml)
       output="$(classification_for "$path")"
       if [[ "$(field_value "$output" host)" != true \
           && "$(field_value "$output" circt)" != true \
           && "$(field_value "$output" simulation)" != true \
+          && "$(field_value "$output" programs)" != true \
           && "$(field_value "$output" examples)" != true ]]; then
         echo "$path: tracked executable source selects no CI job" >&2
         exit 1
@@ -242,7 +257,8 @@ all_jobs="$($classifier --all)"
 if [[ "$(field_value "$all_jobs" host)" != true \
     || "$(field_value "$all_jobs" circt)" != true \
     || "$(field_value "$all_jobs" simulation)" != true \
-    || "$(field_value "$all_jobs" examples)" != true ]]; then
+    || "$(field_value "$all_jobs" examples)" != true \
+    || "$(field_value "$all_jobs" programs)" != true ]]; then
   echo "--all did not select every CI job" >&2
   exit 1
 fi

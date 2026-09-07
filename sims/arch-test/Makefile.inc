@@ -11,8 +11,15 @@ ACT_CONFIG_DIR := $(ACT_BUILD_ROOT)/configs/$(ACT_CONFIGURATION)
 ACT_WORKDIR := $(ACT_BUILD_ROOT)/work/$(ACT_CONFIGURATION)
 ACT_BUNDLE_PATH ?= $(REPO_DIR)/.tools/act-bundle
 ACT_JOBS ?= 1
+ACT_BUILD_JOBS ?= 2
+ACT_FAST ?= 0
+ACT_SHARD ?= 0
+ACT_SHARDS ?= 1
+ACT_ELF_DIR = $(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs
+ACT_RUN_ELF_DIR = $(if $(filter 1,$(ACT_SHARDS)),$(ACT_ELF_DIR),$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/shards/$(ACT_SHARD)/elfs)
 ACT_TIMEOUT ?= 300
 ACT_MAX_CYCLES ?= 10000000
+ACT_SIMULATOR = $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(BUILD_ROOT)/$(ACT_SOC)/obj/VTestDriver)
 ACT_PLATFORM := $(CURDIR)/arch-test/configs/$(ACT_CONFIGURATION).mk
 -include $(ACT_PLATFORM)
 
@@ -33,7 +40,7 @@ arch-test-elfs: arch-test-config
 	fi
 	cd "$(ACT_DIR)" && XDG_CACHE_HOME="$(REPO_DIR)/.tools/act-cache" XDG_DATA_HOME="$(REPO_DIR)/.tools/act-data" \
 	  BUNDLE_PATH="$(ACT_BUNDLE_PATH)" "$(ACT_PYTHON)" "$(CURDIR)/arch-test/build.py" \
-	  "$(ACT_CONFIG_DIR)/test_config.yaml" --workdir "$(ACT_WORKDIR)" --test-dir tests --extensions all --keep-going
+	  "$(ACT_CONFIG_DIR)/test_config.yaml" --workdir "$(ACT_WORKDIR)" --test-dir tests --extensions all --keep-going --jobs $(ACT_BUILD_JOBS) $(if $(filter 1,$(ACT_FAST)),--fast)
 
 arch-test: arch-test-elfs
 	$(MAKE) arch-test-run
@@ -44,9 +51,13 @@ arch-test-run:
 	  test -n "$$(find "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" -name '*.elf' -type f -print -quit)" || \
 	  (echo "No ACT ELFs; run arch-test-elfs first" >&2; exit 2)
 	$(MAKE) simulator SOC=$(ACT_SOC)
-	$(ACT_PYTHON) $(ACT_DIR)/run_tests.py --jobs $(ACT_JOBS) --timeout $(ACT_TIMEOUT) \
-	  '$(ACT_PYTHON) $(CURDIR)/arch-test/run.py --simulator $(BUILD_ROOT)/$(ACT_SOC)/obj/VTestDriver --max-cycles $(ACT_MAX_CYCLES)' \
-	  $(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs
+	$(if $(filter 1,$(ACT_SHARDS)),@true,$(PYTHON) arch-test/shard.py --elf-dir "$(ACT_ELF_DIR)" --output "$(ACT_RUN_ELF_DIR)" --index $(ACT_SHARD) --count $(ACT_SHARDS))
+	rm -f "$(ACT_RUN_ELF_DIR)/../summary.log"
+	@status=0; $(ACT_PYTHON) $(ACT_DIR)/run_tests.py --jobs $(ACT_JOBS) --timeout $(ACT_TIMEOUT) \
+	  '"$(ACT_PYTHON)" "$(CURDIR)/arch-test/run.py" --simulator "$(ACT_SIMULATOR)" --max-cycles $(ACT_MAX_CYCLES)' \
+	  $(ACT_RUN_ELF_DIR) || status=$$?; \
+	$(PYTHON) arch-test/report.py $(ACT_RUN_ELF_DIR) || status=1; \
+	exit $$status
 
 arch-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_arch_test.py'

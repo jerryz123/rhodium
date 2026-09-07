@@ -15,6 +15,9 @@ circt_protocols=false
 circt_cores=false
 circt_rfpl=false
 simulation=false
+program_isa=false
+program_benchmark=false
+program_arch=false
 examples=false
 example_rtl=false
 example_clocking=false
@@ -73,7 +76,14 @@ mark_all() {
   mark_all_host
   mark_all_circt
   simulation=true
+  mark_all_programs
   mark_all_examples
+}
+
+mark_all_programs() {
+  program_isa=true
+  program_benchmark=true
+  program_arch=true
 }
 
 append_matrix_entry() {
@@ -90,6 +100,8 @@ emit_jobs() {
   local host_matrix=""
   local circt_matrix=""
   local example_matrix=""
+  local program_matrix=""
+  local programs=false
 
   if [[ "$host_foundation" == true ]]; then
     host=true
@@ -152,6 +164,18 @@ emit_jobs() {
   [[ "$example_cores" == true ]] && append_matrix_entry example_matrix '{"name":"processor cores","target":"examples-cores"}'
   [[ "$example_rv5stage" == true ]] && append_matrix_entry example_matrix '{"name":"RV5Stage","target":"examples-rv5stage"}'
 
+  [[ "$program_arch" == true ]] && programs=true
+  for suite in isa benchmark; do
+    local variable="program_$suite"
+    if [[ "${!variable}" == true ]]; then
+      programs=true
+      append_matrix_entry program_matrix "{\"suite\":\"$suite\"}"
+    fi
+  done
+  echo "programs=$programs"
+  echo "program_arch=$program_arch"
+  echo "program_native=$([[ "$program_isa" == true || "$program_benchmark" == true ]] && echo true || echo false)"
+  echo "program_matrix={\"include\":[$program_matrix]}"
   echo "host=$host"
   echo "host_matrix={\"include\":[$host_matrix]}"
   echo "circt=$circt"
@@ -163,6 +187,18 @@ emit_jobs() {
 
 classify_path() {
   local path="$1"
+  # Workloads follow the complete SimpleSoC dependency closure independently
+  # of host/CIRCT grouping. More specific suite paths must precede broad roots.
+  case "$path" in
+    *.md|LICENSE|LICENSE.*|AGENTS.md|.gitignore|.gitattributes|tests/emacs/*|tools/emacs/*) ;;
+    sims/program-test/isa.mk) program_isa=true ;;
+    sims/arch-test/*|sims/tests/test_arch_test.py|riscv/riscv-arch-test|riscv/riscv-arch-test/*|tools/write-riscv-udb-config.rhm)
+      program_arch=true ;;
+    riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|sims/program-test/build.py)
+      program_isa=true; program_benchmark=true ;;
+    rhodium/core/*|rhodium/frontend/*|rhodium/base/*|rhodium/std/*|rhodium/backend/*|rhodium/language.rhm|rhodium/main.rkt|flow/*|cores/*|riscv/*|hardfloat/*|chi/*|noc/*|devices/*|socs/*|sims/*|support/annotations.rhm|devicetree/*|tools/install-circt.sh|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
+      mark_all_programs ;;
+  esac
   case "$path" in
     tests/emacs/*|tools/emacs/*)
       ;;
@@ -185,6 +221,12 @@ classify_path() {
     .github/workflows/ci.yml|tools/ci-changes.sh|tools/check-ci-changes.sh)
       mark_all
       ;;
+    sims/program-test/artifact.py|sims/program-test/Makefile.inc)
+      simulation=true
+      ;;
+    riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|riscv/riscv-arch-test|riscv/riscv-arch-test/*|sims/arch-test/*|sims/program-test/*|sims/tests/test_program_test.py|sims/tests/test_arch_test.py|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
+      # These are covered by the selected software lane's adapter and workload checks.
+      ;;
     Makefile)
       mark_all
       ;;
@@ -197,6 +239,7 @@ classify_path() {
       mark_all_host
       mark_all_examples
       simulation=true
+      mark_all_programs
       ;;
     tools/write-rv5stage-core-diagram.rhm)
       mark_example_rv5stage

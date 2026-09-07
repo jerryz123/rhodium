@@ -33,7 +33,7 @@ TILED_LOWERING_DIR := $(BUILD_ROOT)/tiled-lowering
 SOC_MLIR := $(SOC_BUILD_DIR)/soc_harness.mlir
 SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
-SIMULATOR_BINARY := $(SOC_OBJECT_DIR)/VTestDriver
+SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(SOC_OBJECT_DIR)/VTestDriver)
 SMOKE_BINARY := $(SOC_BUILD_DIR)/rv5stage_smoke.elf
 BOOT_BINARIES := $(SOC_BUILD_DIR)/rv5stage_boot_2000.elf $(SOC_BUILD_DIR)/rv5stage_boot_3000.elf
 HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/rv5stage_host_mmio.elf
@@ -47,12 +47,14 @@ SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -
 all: simulator
 
 include arch-test/Makefile.inc
+include program-test/Makefile.inc
 
 setup:
 	$(FESVR_DIR)/install.sh
 
 simulator: $(SIMULATOR_BINARY)
-	@echo "Built $(SOC) simulator: $(SIMULATOR_BINARY)"
+	$(if $(PREBUILT_SIMULATOR),$(PYTHON) program-test/artifact.py verify --binary "$(SIMULATOR_BINARY)" --soc "$(SOC)",@true)
+	@echo "Ready $(SOC) simulator: $(SIMULATOR_BINARY)"
 
 run: simulator
 	@test -n "$(BINARY)" || \
@@ -64,16 +66,16 @@ run: simulator
 smoke: $(SMOKE_BINARY)
 	$(MAKE) run SOC=$(SOC) BINARY=$(SMOKE_BINARY)
 
-boot-test: $(BOOT_BINARIES) $(SIMULATOR_BINARY)
+boot-test: $(BOOT_BINARIES) simulator
 	@set -e; for binary in $(BOOT_BINARIES); do $(SIMULATOR_BINARY) "$$binary"; done
 	@echo "Two ELF entries booted through the same $(SOC) harness and ROM"
 
-host-mmio-test: $(HOST_MMIO_BINARY) $(SIMULATOR_BINARY)
+host-mmio-test: $(HOST_MMIO_BINARY) simulator
 	$(SIMULATOR_BINARY) +signature=$(HOST_MMIO_SIGNATURE) +signature-granularity=8 $(HOST_MMIO_BINARY)
 	awk '{ if ($$0 != "123456789abcdef0") exit 1 } END { if (NR != 1) exit 1 }' $(HOST_MMIO_SIGNATURE)
 	@echo "Host boot-register and UART MMIO checks passed"
 
-zicboz-test: $(ZICBOZ_BINARY) $(SIMULATOR_BINARY)
+zicboz-test: $(ZICBOZ_BINARY) simulator
 	$(SIMULATOR_BINARY) +signature=$(ZICBOZ_SIGNATURE) +signature-granularity=16 $(ZICBOZ_BINARY)
 	awk '{ expected = (NR > 4 && NR <= 8) ? "00000000000000000000000000000000" : "ffffffffffffffffffffffffffffffff"; if ($$0 != expected) exit 1 } END { if (NR != 12) exit 1 }' $(ZICBOZ_SIGNATURE)
 	@echo "Zicboz offset, neighbor, and coherent signature checks passed"
@@ -132,6 +134,7 @@ $(SOC_VERILOG): $(SOC_MLIR)
 	  --sv-mask-non-synthesizable='mode=ifdef macro=SYNTHESIS' \
 	  --export-verilog $(SOC_MLIR) -o /dev/null > $(SOC_VERILOG)
 
+ifeq ($(PREBUILT_SIMULATOR),)
 $(SIMULATOR_BINARY): $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
                      $(FESVR_DIR)/direct_mem_htif.cc \
                      $(FESVR_DIR)/direct_mem_htif.h \
@@ -147,6 +150,10 @@ $(SIMULATOR_BINARY): $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
 	  $(SOC_DPI_SOURCE) \
 	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -std=c++20" \
 	  -LDFLAGS "$(FESVR_LIBRARY) -pthread"
+else
+$(SIMULATOR_BINARY):
+	@echo "Prebuilt simulator is missing: $@" >&2; exit 2
+endif
 
 $(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
                  tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
