@@ -92,7 +92,6 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
   def p = config.flit
   def window_bytes = config.window_bytes
   def window_address_width = alignment_bits(window_bytes)
-  def beat_address_width = alignment_bits(p.data_bytes)
   def image_bytes = config.image.padded_bytes(window_bytes)
   def contents = vec(image_bytes.map(fun (byte): bits(byte, 8)))
 
@@ -131,10 +130,7 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
   def selected_data_id = priority_encoder(pending_data_ids.as_vec(Bool))
   def selected_data_id_mask = one_hot(selected_data_id).as_bits()
   def final_data = pending_data_ids === selected_data_id_mask
-  def beat_offset = (chi_transfer_beat(selected_data_id, p) ++ bits(0, beat_address_width)).zext(
-    p.request_address_width
-  )
-  def beat_address = align_down(request.address, p.data_bytes) + beat_offset
+  def beat_address = chi_data_address(request.address, selected_data_id, p)
   def relative_beat_address :: Bits(p.request_address_width) = beat_address - identity.base_address
   def relative_index = relative_beat_address[0..window_address_width]
   def response_bytes = vec(
@@ -159,7 +155,7 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
   when request_fire:
     active <== Bool(#true)
     request <== incoming
-    pending_data_ids <== chi_transfer_data_ids(incoming_size, p)
+    pending_data_ids <== chi_transfer_data_ids(incoming.address, incoming_size, p)
   elsewhen response_fire:
     active <== !final_data
     pending_data_ids <== pending_data_ids & !selected_data_id_mask

@@ -2,10 +2,9 @@
 // Implements a native CHI subordinate memory backed by a simulator DPI model.
 
 import:
-  lib("rhodium/std/bits.rhdl").alignment_bits
   lib("rhodium/std/flow.rhdl") open
   lib("chi/ram.rhdl") open
-  lib("chi/protocol.rhdl").chi_transfer_beat
+  lib("chi/protocol.rhdl").chi_data_address
   lib("chi/channels.rhdl").CHISNChannels
 
 // A fixed-width DPI boundary covers every CHI data width supported by
@@ -32,11 +31,7 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig):
   fun backend():
     fun connect(issue :: Endpoint, completion :: Endpoint):
       def operation = issue.bits
-      def beat_offset = concat(
-        chi_transfer_beat(operation.data_id, p),
-        bits(0, alignment_bits(p.data_bytes))
-      ).zext(p.request_address_width)
-      def relative_address = operation.request.address + beat_offset - identity.base_address
+      def relative_address = chi_data_address(operation.request.address, operation.data_id, p) - identity.base_address
       def access_enable = issue.valid & !reset_active().into(Bool)
       def write_data = if p.data_width == 512 | operation.data | operation.data.zext(512)
       def raw_write_mask = operation.mask.as_bits()

@@ -207,7 +207,7 @@ sync_circuit Aclint(config :: AclintConfig):
   port.dat.response.bits <== chi_sn_read_completion(p,
                                                     identity.node_id,
                                                     request,
-                                                    bits(0, 2),
+                                                    chi_line_data_id(request.address, p),
                                                     read_response_data)
   def read_response_fire = port.dat.response.fire()
 

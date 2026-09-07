@@ -34,8 +34,6 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
           "address width must cover the line offset")
   def packet_count = RV5StageCacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
-  def data_id_stride = p.data_bytes / 16
-  def data_id_stride_width = alignment_bits(data_id_stride)
 
   input node_id: Bits(p.node_id_width)
   interface command(Decoupled(RV5StageLineRefillCommand(Context, address_width)),
@@ -109,19 +107,7 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
   def coherent_response = incoming_data.resp.into(CHICoherentResponse())
   def all_data_received = and_reduce(received_packets)
   def first_data_packet = !or_reduce(received_packets)
-  def packet_index:
-    if packet_count == 1
-    | bits(0, packet_index_width)
-    | incoming_data.data_id[
-        data_id_stride_width..(data_id_stride_width + packet_index_width)
-      ]
-  def expected_data_id = mux_lookup(
-    packet_index,
-    ~default: bits(0, 2),
-    for List (index in 0..packet_count):
-      [index,
-       rv5stage_chi_address(line_address, p)[4..6] + bits(index * data_id_stride, 2)]
-  )
+  def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
   def packet_was_received = received_packets[packet_index]
   def next_received_packets = received_packets.updated(packet_index, Bool(#true))
   def next_line = line.as_vec(Bits(p.data_width)).updated(
@@ -139,7 +125,7 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
            "line_refill_response_target")
     assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === home_id,
            "line_refill_response_home")
-    assert(incoming_data.data_id === expected_data_id,
+    assert(chi_data_id_valid(incoming_data.data_id, p),
            "line_refill_response_data_id")
     assert(!packet_was_received,
            "line_refill_response_data_id_unique")

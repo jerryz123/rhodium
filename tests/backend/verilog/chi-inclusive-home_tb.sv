@@ -93,14 +93,15 @@ module chi_inclusive_home_tb;
   endtask
 
   task automatic send_request(input logic [43:0] address,
-                              input logic [6:0] opcode);
+                              input logic [6:0] opcode,
+                              input logic [5:0] request_size = 6'd6);
     begin
       requester_requests_in.bits = '0;
       requester_requests_in.bits.src_id = HTIF_ID;
       requester_requests_in.bits.tgt_id = HOME_ID;
       requester_requests_in.bits.opcode = opcode;
       requester_requests_in.bits.address = address;
-      requester_requests_in.bits.size_or_num_req = 6'd6;
+      requester_requests_in.bits.size_or_num_req = request_size;
       requester_requests_in.bits.return_nid_or_stash_nid_or_data_target = HTIF_ID;
       requester_requests_in.valid = 1'b1;
       #1;
@@ -318,6 +319,15 @@ module chi_inclusive_home_tb;
     accept_cached_packet(2'd3, 8'h13);
     assert (!port_out.subordinate.req.valid)
       else $fatal(1, "inclusive Home missed on a resident line");
+
+    // RN-I subline responses retain physical line positions, just like RN-F.
+    send_request(LINE0 + 44'd16, READ_NO_SNP, 6'd4);
+    repeat (3) tick();
+    accept_cached_packet(2'd1, 8'h11);
+    send_request(LINE0 + 44'd32, READ_NO_SNP, 6'd5);
+    repeat (3) tick();
+    accept_cached_packet(2'd2, 8'h12);
+    accept_cached_packet(2'd3, 8'h13);
 
     send_request(LINE0, WRITE_NO_SNP_FULL);
     requester_responses_ready_in.ready = 1'b1;

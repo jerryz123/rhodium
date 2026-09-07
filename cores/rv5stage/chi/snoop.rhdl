@@ -137,7 +137,6 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
   def p = config.flit
   def packet_count :: PosInt = RV5StageCacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)
-  def data_id_stride = p.data_bytes / 16
 
   input node_id: Bits(p.node_id_width)
   input cache_ready: Bool
@@ -210,12 +209,8 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
   def response_fire = responses.fire()
 
   def packet_data = line.as_bits().as_vec(Bits(p.data_width))[packet_index]
-  def packet_data_id = mux_lookup(
-    packet_index,
-    ~default: bits(0, 2),
-    for List (index in 0..packet_count):
-      [index, bits(index * data_id_stride, 2)]
-  )
+  def packet_beat = if packet_index_width == 2 | packet_index | packet_index.zext(2)
+  def packet_data_id = chi_transfer_data_id(packet_beat, p)
   wire snoop_data: CHIDatFlit(p)
   if p.poison_width > 0
   | snoop_data.poison <== bits(0, p.poison_width)

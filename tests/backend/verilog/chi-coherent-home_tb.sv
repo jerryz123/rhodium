@@ -198,7 +198,7 @@ module chi_coherent_home_tb;
       #1;
       assert (port_out.subordinate.dat.request.valid &&
               port_out.subordinate.dat.request.bits.opcode == NON_COPY_BACK_WRITE_DATA &&
-              port_out.subordinate.dat.request.bits.data_id == 2'd0 &&
+              port_out.subordinate.dat.request.bits.data_id == packet_id &&
               port_out.subordinate.dat.request.bits.data == {120'h0, 6'h0, packet_id})
         else $fatal(1, "HN-F did not translate dirty snoop data");
       tick();

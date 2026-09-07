@@ -114,6 +114,11 @@ module bootrom_tb;
     check_response(2'd0, 12'h502, 16'h00f0, BEAT_0);
     port_in.dat.response.ready = 1'b0;
 
+    issue_read(12'h103, BOOTROM_BASE + 44'd16, 6'd2, 12'h503);
+    port_in.dat.response.ready = 1'b1;
+    check_response(2'd1, 12'h503, 16'h000f, BEAT_1);
+    port_in.dat.response.ready = 1'b0;
+
     assert (!port_out.rsp.response.valid)
       else $fatal(1, "read-only BootROM unexpectedly emitted a response flit");
     $display("CHI BootROM read and backpressure behavior passed");

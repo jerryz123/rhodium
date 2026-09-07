@@ -134,6 +134,22 @@ non-snoopable, DBID-allocating, data-direction, and snoop-response queries.
 Generic `enum_valid` checks encoding membership; endpoint capabilities decide
 whether a declared opcode is legal on a particular connection.
 
+`chi_transfer_data_ids(address, size, p)` returns the expected four-bit packet
+set for a naturally aligned transfer without data elision. The same rule serves
+coherent and non-coherent traffic. DataID identifies a physical position within
+a 64-byte line, not a transfer-relative beat: narrow accesses use Addr[5:4] at
+128 bits, Addr[5] followed by zero at 256 bits, and zero at 512 bits. CCID remains
+a separate critical-chunk identifier. These are the rules in
+[IHI 0050H B2.9.4](https://documentation-service.arm.com/static/68d13eb5bd7cab51328bee7a).
+
+`chi_line_data_id(address, p)` selects that physical packet;
+`chi_transfer_beat(data_id, p)` and `chi_transfer_data_id(beat, p)` convert between
+line packet indices and DataIDs. `chi_data_address(address, data_id, p)` returns
+the packet-aligned byte address within the request's line. Memory backends use
+it instead of adding a DataID-derived offset to the request address again.
+The former checker-owned `coherent_read_data_ids` is replaced by the shared
+address-aware `chi_transfer_data_ids` API.
+
 [`coherence.rhdl`](coherence.rhdl) adds `CHICacheState`,
 `CHIResponseState`, and the packed `CHICoherentResponse` view. Because the RSP
 and DAT `Resp` bits are opcode-dependent, coherent code explicitly converts

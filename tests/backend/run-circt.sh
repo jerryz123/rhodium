@@ -658,6 +658,7 @@ direct_fixture_specs=(
   'rv64i-alu-decode|'
   'credited-monitor-overgrant|'
   'chi-foundation|chi_foundation_tb'
+  'chi-packets|chi_packets_tb'
   'chi-full-flits|'
   'chi-link|chi_link_tb'
   'chi-monitor|chi_monitor_tb'

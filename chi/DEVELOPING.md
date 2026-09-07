@@ -43,6 +43,15 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 
 ## Extend a protocol layer
 
+Packet position and naturally aligned, unelided transfer packet sets belong in
+`protocol.rhdl`, below both engines and monitors. Use its address-aware helpers
+for RAM/DPI addressing and requester, subordinate, Home, and refill logic; do
+not introduce node-role-specific DataID renumbering. Each engine and monitor
+keeps its own receipt state and checks duplicate/unexpected packets. The
+`chi-packets` backend fixture compares all three bus widths with independent
+byte-enumeration expectations and runs RV5Stage write constructors through DAT
+monitoring; RAM and fragmenter fixtures cover storage and multibeat retirement.
+
 1. Confirm the behavior's owner: physical field, packet helper, link contract,
    service/capability description, monitor, transaction engine, storage
    adapter, or CHI-to-NoC mapping.

@@ -147,7 +147,7 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def data_slot_valid = incoming_data.txn_id < bits(limit, 12)
   def selected_request = write_requests[data_slot]
   def incoming_data_id = one_hot(incoming_data.data_id).as_bits()
-  def expected_data_ids = chi_transfer_data_ids(chi_req_size(p, selected_request), p)
+  def expected_data_ids = chi_transfer_data_ids(selected_request.address, chi_req_size(p, selected_request), p)
   def received_data_ids = received_write_data_ids[data_slot]
   def data_id_expected = or_reduce(expected_data_ids & incoming_data_id)
   def data_id_new = !or_reduce(received_data_ids & incoming_data_id)

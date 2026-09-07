@@ -256,10 +256,17 @@ module chi_ram_tb;
     assert (dbid_a != dbid_b)
       else $fatal(1, "concurrent CHIRam writes reused a live DBID");
 
-    issue_write_data(dbid_a, 2'd0, 16'hffff, 128'h11111111222222223333333344444444);
-    issue_write_data(dbid_b, 2'd0, 16'hffff, 128'haaaaaaaabbbbbbbbccccccccdddddddd);
+    issue_write_data(dbid_a, 2'd1, 16'hffff, 128'h11111111222222223333333344444444);
+    issue_write_data(dbid_b, 2'd2, 16'hffff, 128'haaaaaaaabbbbbbbbccccccccdddddddd);
     accept_comp(12'h201, dbid_a);
     accept_comp(12'h202, dbid_b);
+
+    // DataID is a line position, not an offset to add to these narrow requests.
+    issue_request(READ_NO_SNP, 12'h203, 44'h080000010, 6'd4, 12'h503);
+    accept_read(12'h503, 2'd1, 16'hffff, 128'h11111111222222223333333344444444);
+    issue_request(READ_NO_SNP, 12'h204, 44'h080000020, 6'd5, 12'h504);
+    accept_read(12'h504, 2'd2, 16'hffff, 128'haaaaaaaabbbbbbbbccccccccdddddddd);
+    accept_read(12'h504, 2'd3, 16'hffff, 128'h33333333333333333333333333333333);
 
     $display("CHI decoupled RAM simulation passed");
     $finish;

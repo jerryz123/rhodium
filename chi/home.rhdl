@@ -229,7 +229,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def write_data_slot_valid = upstream_write_data.txn_id < bits(limit, 12)
   def write_data_request = requests[write_data_slot]
   def write_data_id = one_hot(upstream_write_data.data_id).as_bits()
-  def write_data_expected_ids = chi_transfer_data_ids(chi_req_size(p, write_data_request), p)
+  def write_data_expected_ids = chi_transfer_data_ids(write_data_request.address, chi_req_size(p, write_data_request), p)
   def write_data_received_ids = received_write_data_ids[write_data_slot]
   def next_write_data_ids = write_data_received_ids ||| write_data_id
   def final_write_data = next_write_data_ids === write_data_expected_ids
@@ -269,7 +269,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   def read_data_slot_valid = downstream_read_data.txn_id < bits(limit, 12)
   def read_data_request = requests[read_data_slot]
   def read_data_id = one_hot(downstream_read_data.data_id).as_bits()
-  def read_data_expected_ids = chi_transfer_data_ids(chi_req_size(p, read_data_request), p)
+  def read_data_expected_ids = chi_transfer_data_ids(read_data_request.address, chi_req_size(p, read_data_request), p)
   def read_data_received_ids = received_read_data_ids[read_data_slot]
   def next_read_data_ids = read_data_received_ids ||| read_data_id
   def final_read_data = next_read_data_ids === read_data_expected_ids

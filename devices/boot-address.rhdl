@@ -99,7 +99,7 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
   def write_data_supported = (incoming_data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (
     incoming_data.txn_id === bits(0, 12)
   ) & (incoming_data.src_id === request.src_id) & (incoming_data.tgt_id === identity.node_id) & (
-    incoming_data.data_id === bits(0, 2)
+    incoming_data.data_id === chi_line_data_id(request.address, p)
   ) & mask_supported & (!full_write ||| (incoming_data.byte_enable === requested_mask))
   port.dat.request.ready <== !ordinary_data ||| (write_data_expected & write_data_supported)
   def write_data_fire = port.dat.request.fire() & ordinary_data
@@ -110,7 +110,7 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
                         chi_sn_dbid_response(p, identity.node_id, request, bits(0, 1)),
                         chi_sn_write_completion(p, identity.node_id, request, bits(0, 1)))
   port.dat.response.valid <== state === BootAddressState.ReadResponse
-  port.dat.response.bits <== chi_sn_read_completion(p, identity.node_id, request, bits(0, 2), read_data)
+  port.dat.response.bits <== chi_sn_read_completion(p, identity.node_id, request, chi_line_data_id(request.address, p), read_data)
 
   when request_fire:
     request <== incoming

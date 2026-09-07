@@ -8,7 +8,6 @@ import:
   lib("chi/flits.rhdl") open
   lib("chi/protocol.rhdl") open
   lib("chi/coherence.rhdl") open
-  lib("chi/coherent-transaction.rhdl").coherent_read_data_ids
   lib("chi/transaction.rhdl") open
   lib("chi/link.rhdl") open
   lib("chi/channels.rhdl") open
@@ -378,7 +377,7 @@ fun chi_hnf_snoop_write_data(p :: CHIFlitParams,
   snoop_write_data.tag <== data.tag
   snoop_write_data.tag_op <== data.tag_op
   snoop_write_data.cache_line_id <== data.cache_line_id
-  snoop_write_data.data_id <== bits(0, 2)
+  snoop_write_data.data_id <== data.data_id
   snoop_write_data.ccid <== data.ccid
   snoop_write_data.dbid_or_mecid <== subordinate_dbid.zext(16)
   snoop_write_data.c_busy <== bits(0, 3)
@@ -511,11 +510,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   def write_data_fire = requester_data_fire & receiving_write_data
   def snoop_data_fire = requester_data_fire & receiving_snoop_data
   def incoming_write_data_id = one_hot(requester.request_data.bits.data_id).as_bits()
-  def expected_write_data_ids = mux(
-    requester_is_rnf,
-    coherent_read_data_ids(request.address, chi_req_size(p, request), p),
-    chi_transfer_data_ids(chi_req_size(p, request), p)
-  )
+  def expected_write_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
   def next_write_data_ids = received_data_ids ||| incoming_write_data_id
   def final_write_data = next_write_data_ids === expected_write_data_ids
   // A multi-packet snoop response keeps valid asserted while the Home writes
@@ -547,7 +542,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
            "chi_hnf_write_data_id_unique")
   def snoop_data_id = one_hot(requester.request_data.bits.data_id).as_bits()
   def next_snoop_data_ids = received_snoop_data_ids ||| snoop_data_id
-  def expected_snoop_data_ids = coherent_read_data_ids(
+  def expected_snoop_data_ids = chi_transfer_data_ids(
     request.address,
     CHITransferSize.Bytes64,
     p
@@ -641,19 +636,6 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   def selected_write_data_id = priority_encoder(received_data_ids.as_vec(Bool))
   def sent_write_data_id = one_hot(selected_write_data_id).as_bits()
   def remaining_write_data_ids = received_data_ids & !sent_write_data_id
-  def coherent_base_data_id = mux(
-    chi_req_size(p, request).as_bits() <= bits(4, 3),
-    request.address[4..6],
-    chi_line_data_id(request.address, p)
-  )
-  def downstream_write_data_id = mux(
-    requester_is_rnf,
-    chi_transfer_data_id(
-      chi_transfer_beat(selected_write_data_id - coherent_base_data_id, p),
-      p
-    ),
-    selected_write_data_id
-  )
   subordinate.dat.request.valid <== send_subordinate_data ||| send_snoop_write_data
   subordinate.dat.request.bits <== mux(
     send_snoop_write_data,
@@ -661,7 +643,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
     chi_hni_downstream_write_data(
       p,
       write_data[selected_write_data_id],
-      downstream_write_data_id,
+      selected_write_data_id,
       request.qos,
       home_id,
       subordinate_id,
@@ -685,9 +667,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   def read_data_fire = subordinate.dat.response.fire()
   def read_data_id = one_hot(subordinate.dat.response.bits.data_id).as_bits()
   def next_received_data_ids = received_data_ids ||| read_data_id
-  def expected_data_ids = coherent_read_data_ids(request.address,
-                                                 chi_req_size(p, request),
-                                                 p)
+  def expected_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
   def final_read_data = next_received_data_ids === expected_data_ids
   when (subordinate.dat.response.valid & forwarding_read):
     assert(subordinate.dat.response.bits.opcode === CHIDatOpcode.CompData,

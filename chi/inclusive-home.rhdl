@@ -10,7 +10,6 @@ import:
   lib("chi/flits.rhdl") open
   lib("chi/protocol.rhdl") open
   lib("chi/coherence.rhdl") open
-  lib("chi/coherent-transaction.rhdl").coherent_read_data_ids
   lib("chi/transaction.rhdl") open
   lib("chi/link.rhdl") open
   lib("chi/channels.rhdl") open
@@ -272,22 +271,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def requester_write_data_fire = requester_data_fire & receiving_requester_data
   def snoop_data_fire = requester_data_fire & awaiting_snoop
   def requester_data_id_mask = one_hot(requester.request_data.bits.data_id).as_bits()
-  def expected_requester_data_ids = mux(
-    requester_is_rnf,
-    coherent_read_data_ids(request.address, chi_req_size(p, request), p),
-    chi_transfer_data_ids(chi_req_size(p, request), p)
-  )
+  def expected_requester_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
   def next_requester_data_ids = received_requester_data_ids ||| requester_data_id_mask
   def final_requester_data = next_requester_data_ids === expected_requester_data_ids
-  def requester_write_rni_line_data_id = chi_line_data_id(request.address, p) + (
-    chi_transfer_data_id(chi_transfer_beat(requester.request_data.bits.data_id, p), p)
-  )
-  def requester_write_line_data_id = mux(
-    requester_is_rnf,
-    requester.request_data.bits.data_id,
-    requester_write_rni_line_data_id
-  )
-  def requester_write_line_packet = chi_transfer_beat(requester_write_line_data_id, p)[0..packet_index_width]
+  def requester_write_line_packet = chi_transfer_beat(requester.request_data.bits.data_id, p)[0..packet_index_width]
   def requester_write_line_data_mask = vec(
     for List (packet in 0..line_packets):
       requester_write_line_packet === bits(packet, packet_index_width)
@@ -308,7 +295,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   def snoop_data_id_mask = one_hot(requester.request_data.bits.data_id).as_bits()
   def next_snoop_data_ids = received_snoop_data_ids ||| snoop_data_id_mask
-  def expected_snoop_data_ids = chi_transfer_data_ids(CHITransferSize.Bytes64, p)
+  def expected_snoop_data_ids = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
   def final_snoop_data = next_snoop_data_ids === expected_snoop_data_ids
   when (requester.request_data.valid & awaiting_snoop):
     when maintenance:
@@ -454,7 +441,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def fill_data_fire = subordinate.dat.response.fire()
   def fill_data_id_mask = one_hot(subordinate.dat.response.bits.data_id).as_bits()
   def next_fill_data_ids = received_fill_data_ids ||| fill_data_id_mask
-  def expected_fill_data_ids = chi_transfer_data_ids(CHITransferSize.Bytes64, p)
+  def expected_fill_data_ids = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
   def final_fill_data = next_fill_data_ids === expected_fill_data_ids
   when (subordinate.dat.response.valid & receiving_fill):
     assert(subordinate.dat.response.bits.opcode === CHIDatOpcode.CompData,
@@ -464,22 +451,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(!or_reduce(received_fill_data_ids & fill_data_id_mask),
            "chi_inclusive_hnf_fill_data_id_unique")
 
-  def request_response_data_ids = mux(
-    requester_is_rnf,
-    coherent_read_data_ids(request.address, chi_req_size(p, request), p),
-    chi_transfer_data_ids(chi_req_size(p, request), p)
-  )
+  def request_response_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
   def selected_response_data_id = priority_encoder(remaining_response_data_ids.as_vec(Bool))
   def final_response_data = remaining_response_data_ids === one_hot(selected_response_data_id).as_bits()
-  def response_rni_line_data_id = chi_line_data_id(request.address, p) + (
-    chi_transfer_data_id(chi_transfer_beat(selected_response_data_id, p), p)
-  )
-  def response_line_data_id = mux(
-    requester_is_rnf,
-    selected_response_data_id,
-    response_rni_line_data_id
-  )
-  def response_line_packet = chi_transfer_beat(response_line_data_id, p)[0..packet_index_width]
+  def response_line_packet = chi_transfer_beat(selected_response_data_id, p)[0..packet_index_width]
   def sending_cached_data = phase === CHIInclusiveHNFPhase.SendCachedData
   requester.response_data.valid <== sending_cached_data
   requester.response_data.bits <== chi_inclusive_cached_data(

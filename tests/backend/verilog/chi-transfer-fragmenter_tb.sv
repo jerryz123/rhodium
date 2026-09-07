@@ -104,6 +104,7 @@ module chi_transfer_fragmenter_tb;
       request_data_in.bits.src_id = HOME_ID;
       request_data_in.bits.tgt_id = RAM_ID;
       request_data_in.bits.txn_id = dbid;
+      request_data_in.bits.data_id = address[5:4];
       request_data_in.bits.byte_enable = 16'hffff;
       request_data_in.bits.data = data;
       request_data_in.valid = 1'b1;
@@ -212,6 +213,15 @@ module chi_transfer_fragmenter_tb;
     accept_read_beat(2'd1, 128'h11111111111111111111111111111111);
     accept_read_beat(2'd2, 128'h22222222222222222222222222222222);
     accept_read_beat(2'd3, 128'h33333333333333333333333333333333);
+
+    // Fragmenting the upper half of a line must preserve DataIDs 2 and 3.
+    issue_request(READ_NO_SNP, 12'h201, 44'h080000020, 6'd5, 12'h700);
+    accept_read_beat(2'd2, 128'h22222222222222222222222222222222);
+    accept_read_beat(2'd3, 128'h33333333333333333333333333333333);
+
+    write_word(44'h080000010, 12'h202, 128'hfedcba98765432100123456789abcdef);
+    issue_request(READ_NO_SNP, 12'h203, 44'h080000010, 6'd4, 12'h700);
+    accept_read_beat(2'd1, 128'hfedcba98765432100123456789abcdef);
 
     $display("CHI transfer fragmenter simulation passed");
     $finish;

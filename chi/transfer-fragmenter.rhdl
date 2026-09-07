@@ -117,50 +117,6 @@ fun chi_fragmented_request(p :: CHIFlitParams,
   child.qos <== request.qos
   child
 
-fun chi_fragmented_read_data(p :: CHIFlitParams,
-                             data :: CHIDatFlit(p),
-                             child_index :: Bits(2)) :~ CHIDatFlit(p):
-  wire parent: CHIDatFlit(p)
-  if p.poison_width > 0
-  | parent.poison <== data.poison
-  | #void
-  if p.data_check_width > 0
-  | parent.data_check <== data.data_check
-  | #void
-  parent.data <== data.data
-  parent.byte_enable <== data.byte_enable
-  if p.dat_rsvdc_width > 0
-  | parent.rsvdc <== data.rsvdc
-  | #void
-  parent.replicate <== data.replicate
-  parent.num_dat <== data.num_dat
-  parent.cah <== data.cah
-  parent.trace_tag <== data.trace_tag
-  parent.tag_update <== data.tag_update
-  parent.tag <== data.tag
-  parent.tag_op <== data.tag_op
-  parent.cache_line_id <== data.cache_line_id
-  def parent_data_id:
-    cond
-    | p.data_width == 128: child_index
-    | p.data_width == 256: (child_index[0..1] ++ bits(0, 1))
-    | ~else: bits(0, 2)
-  parent.data_id <== parent_data_id
-  parent.ccid <== data.ccid
-  parent.dbid_or_mecid <== data.dbid_or_mecid
-  parent.c_busy <== data.c_busy
-  parent.data_pull <== data.data_pull
-  parent.data_source_or_fwd_state <== data.data_source_or_fwd_state
-  parent.resp <== data.resp
-  parent.resp_err <== data.resp_err
-  parent.opcode <== data.opcode
-  parent.home_nid_or_pbha_or_mismatched_mecid <== data.home_nid_or_pbha_or_mismatched_mecid
-  parent.txn_id <== data.txn_id
-  parent.src_id <== data.src_id
-  parent.tgt_id <== data.tgt_id
-  parent.qos <== data.qos
-  parent
-
 fun chi_fragmented_write_data(p :: CHIFlitParams,
                               data :: CHIDatFlit(p),
                               dbid :: Bits(12)) :~ CHIDatFlit(p):
@@ -184,7 +140,7 @@ fun chi_fragmented_write_data(p :: CHIFlitParams,
   write_packet.tag <== data.tag
   write_packet.tag_op <== data.tag_op
   write_packet.cache_line_id <== data.cache_line_id
-  write_packet.data_id <== bits(0, 2)
+  write_packet.data_id <== data.data_id
   write_packet.ccid <== data.ccid
   write_packet.dbid_or_mecid <== data.dbid_or_mecid
   write_packet.c_busy <== data.c_busy
@@ -283,7 +239,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
 
   def receive_write_data = phase === CHITransferFragmenterPhase.ReceiveWriteData
   def incoming_write_data_id = one_hot(upstream.dat.request.bits.data_id).as_bits()
-  def expected_write_data_ids = chi_transfer_data_ids(chi_req_size(p, request), p)
+  def expected_write_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
   def next_received_write_data_ids = received_write_data_ids ||| incoming_write_data_id
   def final_parent_write_data = next_received_write_data_ids === expected_write_data_ids
   upstream.dat.request.ready <== receive_write_data
@@ -297,7 +253,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
            "chi_transfer_fragmenter_write_data_id_unique")
 
   def send_write_data = phase === CHITransferFragmenterPhase.SendWriteData
-  def child_write_data_id = chi_transfer_data_id(child_index, p)
+  def child_write_data_id = chi_line_data_id(request.address, p) + chi_transfer_data_id(child_index, p)
   downstream.dat.request.valid <== send_write_data
   downstream.dat.request.bits <== chi_fragmented_write_data(
     p,
@@ -308,7 +264,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
 
   def await_read_data = phase === CHITransferFragmenterPhase.AwaitReadData
   upstream.dat.response.valid <== await_read_data & downstream.dat.response.valid
-  upstream.dat.response.bits <== chi_fragmented_read_data(p, downstream.dat.response.bits, child_index)
+  upstream.dat.response.bits <== downstream.dat.response.bits
   downstream.dat.response.ready <== await_read_data & upstream.dat.response.ready
   def read_data_fire = downstream.dat.response.fire()
 

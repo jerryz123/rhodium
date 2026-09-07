@@ -285,6 +285,7 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
     read_active <== Bool(#true)
     read_allocation <== allocated_reads.bits
     pending_read_data_ids <== chi_transfer_data_ids(
+      allocated_reads.bits.request.address,
       chi_req_size(p, allocated_reads.bits.request),
       p
     )
@@ -353,11 +354,7 @@ sync_circuit CHIRam(config :: CHIRamConfig):
     fun connect(issue :: Endpoint, completion :: Endpoint):
       (
         issue |> map_valid(operation):
-          def beat_offset = concat(
-            chi_transfer_beat(operation.data_id, p),
-            bits(0, low_width)
-          ).zext(p.request_address_width)
-          def relative_address :: Bits(p.request_address_width) = operation.request.address + beat_offset - identity.base_address
+          def relative_address :: Bits(p.request_address_width) = chi_data_address(operation.request.address, operation.data_id, p) - identity.base_address
           def word_address = relative_address[low_width..(low_width + word_address_width)]
           ReadWriteRequest(word_address_width, Bits(8), p.data_bytes):
             address: word_address

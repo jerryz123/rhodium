@@ -420,7 +420,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
       txn_id: req.txn_id
       completer_id: req.tgt_id
       dbid: bits(0, 12)
-      expected_data_ids: chi_transfer_data_ids(chi_req_size(p, req), p)
+      expected_data_ids: chi_transfer_data_ids(req.address, chi_req_size(p, req), p)
       received_data_ids: bits(0, 4)
   def allocate = req_event & req_opcode.supports_initial_transaction() & (
     !duplicate_txn & allocation_available
@@ -625,7 +625,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
       return_txn_id: req.return_txn_id_or_stash_lpid
       return_node_id: req.return_nid_or_stash_nid_or_data_target
       dbid: bits(0, 12)
-      expected_data_ids: chi_transfer_data_ids(chi_req_size(p, req), p)
+      expected_data_ids: chi_transfer_data_ids(req.address, chi_req_size(p, req), p)
       received_data_ids: bits(0, 4)
   def allocate = req_event & req_opcode.supports_initial_transaction() & (
     !duplicate_txn & allocation_available
@@ -924,7 +924,7 @@ fun home_transaction_monitor(p :: CHIFlitParams,
             requester_qos: upstream_request.qos
             subordinate_id: downstream_request.tgt_id
             subordinate_dbid: bits(0, 12)
-            expected_data_ids: chi_transfer_data_ids(chi_req_size(p, upstream_request), p)
+            expected_data_ids: chi_transfer_data_ids(upstream_request.address, chi_req_size(p, upstream_request), p)
             received_data_ids: bits(0, 4)
         def after_dbid:
           CHIHomeTransaction(p):

@@ -1,0 +1,69 @@
+#lang rhodium
+// Exercises shared packet layout and RV5Stage write construction against CHI DAT monitoring at every bus width.
+
+import:
+  lib("chi/main.rhdl") open
+  lib("chi/monitor.rhdl").monitor_chi_dat
+  lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_write_data
+
+sync_circuit CHIPacketWidthFixture(p :: CHIFlitParams):
+  input address: Bits(8)
+  input size: CHITransferSize
+  input data_id: Bits(2)
+  input valid: Bool
+  output packet_set: Bits(4)
+  output packet_count: Bits(2)
+  output write_id: Bits(2)
+  output critical_chunk: Bits(2)
+  output valid_id: Bool
+  output packet_address: Bits(8)
+
+  def data = rv5stage_chi_write_data(p, bits(3, p.node_id_width), bits(9, p.node_id_width), bits(0, 12), address, bits(0, p.data_width), bits(0, p.data_bytes))
+  packet_set <== chi_transfer_data_ids(address, size, p)
+  packet_count <== chi_data_beats_minus_one(size, p)
+  write_id <== data.data_id
+  critical_chunk <== data.ccid
+  valid_id <== chi_data_id_valid(data_id, p)
+  packet_address <== chi_data_address(address, data_id, p)
+  reg credit_balance(~init: bits(1, 1))
+  // An active link replenishes each consumed credit; the monitor owns balance updates.
+  monitor_chi_dat(p, 1, valid, data.opcode, data.txn_id, data.src_id, data.data_id, valid, credit_balance, Bool(#true), Bool(#true), Bool(#true), [CHIDatOpcode.NonCopyBackWriteData], 3, "_source", "packet_constructor")
+
+sync_circuit CHIPacketFixture():
+  input address: Bits(8)
+  input size: CHITransferSize
+  input data_id: Bits(2)
+  input valid: Bool
+  output packet_sets: Vec(3, Bits(4))
+  output packet_counts: Vec(3, Bits(2))
+  output write_ids: Vec(3, Bits(2))
+  output critical_chunks: Vec(3, Bits(2))
+  output valid_ids: Vec(3, Bool)
+  output packet_addresses: Vec(3, Bits(8))
+
+  inst narrow(CHIPacketWidthFixture(CHIFlitParams(~data_width: 128)))
+  inst medium(CHIPacketWidthFixture(CHIFlitParams(~data_width: 256)))
+  inst wide(CHIPacketWidthFixture(CHIFlitParams(~data_width: 512)))
+  narrow.address <== address
+  medium.address <== address
+  wide.address <== address
+  narrow.size <== size
+  medium.size <== size
+  wide.size <== size
+  narrow.data_id <== data_id
+  medium.data_id <== data_id
+  wide.data_id <== data_id
+  narrow.valid <== valid
+  medium.valid <== valid
+  wide.valid <== valid
+  packet_sets <== vec([narrow.packet_set, medium.packet_set, wide.packet_set])
+  packet_counts <== vec([narrow.packet_count, medium.packet_count, wide.packet_count])
+  write_ids <== vec([narrow.write_id, medium.write_id, wide.write_id])
+  critical_chunks <== vec([narrow.critical_chunk, medium.critical_chunk, wide.critical_chunk])
+  valid_ids <== vec([narrow.valid_id, medium.valid_id, wide.valid_id])
+  packet_addresses <== vec([narrow.packet_address, medium.packet_address, wide.packet_address])
+
+def design = elaborate(CHIPacketFixture())
+
+export:
+  design

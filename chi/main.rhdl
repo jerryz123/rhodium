@@ -51,6 +51,7 @@ export:
   chi_transfer_data_id
   chi_transfer_beat
   chi_line_data_id
+  chi_data_address
   CHICacheState
   CHIResponseState
   CHICoherentResponse
@@ -63,7 +64,6 @@ export:
   CHICoherentReadTransaction
   CHISnoopTransaction
   chi_initial_coherent_requester_capabilities
-  coherent_read_data_ids
   CHIResponseRule
   CHIResponseProfile
   response_profile

@@ -331,9 +331,7 @@ fun rv5stage_chi_write_data(p :: CHIFlitParams,
   flit.tag <== bits(0, p.tag_width)
   flit.tag_op <== CHITagOp.Invalid
   flit.cache_line_id <== bits(0, 6)
-  // RV5Stage writes at most eight bytes, so the single narrow packet uses the
-  // exact Addr[5:4] of its lowest addressed byte at every CHI data width.
-  flit.data_id <== critical_chunk
+  flit.data_id <== chi_line_data_id(address, p)
   flit.ccid <== critical_chunk
   flit.dbid_or_mecid <== dbid.zext(16)
   flit.c_busy <== bits(0, 3)
