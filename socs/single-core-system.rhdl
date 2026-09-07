@@ -175,7 +175,6 @@ fun populate_single_core(params :: SingleCoreSystemParams,
   inst aclint(Aclint(params.platform.aclint_config))
   inst plic(Plic(params.platform.plic_config))
   inst uart_device(Uart16550(params.platform.uart_config))
-  inst boot(SoCBootDistributor(1))
   inst timebase(Counter(description.clocks.timebase_period_cycles))
   inst req_router(SimpleRouter(CHIReqFlit(params.flit), params.req_router_config))
   inst rsp_router(SimpleRouter(CHIRspFlit(params.flit), params.rsp_router_config))
@@ -302,8 +301,6 @@ fun populate_single_core(params :: SingleCoreSystemParams,
   uart.tx <== uart_device.tx
   uart.interrupt <== uart_device.interrupt
   plic.sources <== vec([uart_device.interrupt])
-  host.release |> boot.release
-  boot.hart_release[0] |> rv5stage.release
   rv5stage.interrupts <== RV5StageInterrupts():
     supervisor_software: Bool(#false)
     machine_software: aclint.machine_software[0]

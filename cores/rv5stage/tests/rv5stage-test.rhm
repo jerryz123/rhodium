@@ -36,14 +36,12 @@ check:
   params.instruction_node.node_id ~is 2
   params.data_node.node_id ~is 3
   rv64.inputs.map(fun (port): port.name) ~is [
-    "clock", "reset", "chi_identity", "release_in", "interrupts", "hart_id",
+    "clock", "reset", "chi_identity", "interrupts", "hart_id",
     "time_counter", "imem_in", "dmem_in", "umem_in"
   ]
   rv64.outputs.map(fun (port): port.name) ~is [
-    "release_out", "imem_out", "dmem_out", "umem_out"
+    "imem_out", "dmem_out", "umem_out"
   ]
-  rv64.find_input("release_in").type.field("valid").type.packed_width() ~is 1
-  rv32.find_input("release_in").type.field("valid").type.packed_width() ~is 1
   rv32.find_output("dmem_out").type.field("request_data").type.field("bits").type.field("data").type.width ~is 128
   embedded.run_elaboration(
     fun (): rv5stage.RV5Stage(

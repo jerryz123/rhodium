@@ -12,7 +12,7 @@ import:
 
 def p = CHIFlitParams()
 def home = CHIHomeParams("devices", 6, CHINodeKind.HNI, ~max_outstanding: 1)
-def region = AddressSet(0x3000, 7)
+def region = AddressSet(0x3000, 31)
 def service = CHIHomeServiceParams(home, [region], [
   CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(4, 8)),
   CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, TransferSizes(4, 8))

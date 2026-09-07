@@ -70,7 +70,7 @@ check:
   compiled.home_map.entry(0x1000).target_node_id ~is 36
   compiled.platform.subordinate_map.entry(0x1000).target_node_id ~is 56
   description.boot.address_register.address_set ~is compiled.platform.boot_address.service.address_sets[0]
-  compiled.platform.boot_address_config.reset_value ~is compiled.config.boot.payload_address
+  compiled.platform.boot_address_config.reset_value ~is 0
   compiled.home_map.entry(0x80000000).target_node_id ~is 32
   compiled.home_map.entry(0x8000003f).target_node_id ~is 32
   compiled.home_map.entry(0x80000040).target_node_id ~is 33

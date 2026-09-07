@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks shared SoC BootROM metadata, generated reset programs, and release distribution.
+// Checks shared SoC BootROM metadata, generated polling reset programs, and image layout.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -10,12 +10,6 @@ import:
   "../description.rhm" open
   "boot-fixture.rhdl" as fixture
 
-def top = fixture.design.modules.find(
-  fun (module_def): module_def.name == "SoCBootDistributor"
-)
-def assertion_labels = top.operations.filter(
-  ~keep: fun (operation): operation.opcode == "verif.assert"
-).map(fun (operation): operation.attribute("label"))
 def tiny_boot = boot.SoCBootConfig(
   ~reset_address: 0x10000,
   ~payload_address: 0x80000000,
@@ -66,15 +60,6 @@ check:
   fixture.params.region.physical.attributes.atomic ~is #false
   fixture.params.region.physical.attributes.device ~is #false
   fixture.params.region.physical.attributes.read_idempotent ~is #true
-  top.inputs.map(fun (port): port.name) ~is [
-    "clock", "reset", "release_in",
-    "hart_release_0_in", "hart_release_1_in", "hart_release_2_in", "hart_release_3_in"
-  ]
-  top.outputs.map(fun (port): port.name) ~is [
-    "release_out", "hart_release_0_out", "hart_release_1_out", "hart_release_2_out", "hart_release_3_out"
-  ]
-  assertion_labels.contains("soc_boot_release_once") ~is #true
-  verify_design(fixture.design) ~is #void
 
   boot.riscv_soc_boot_config(~reset_address: 0x10004) ~throws "aligned"
   boot.riscv_soc_boot_config(~device_tree_offset: 0x104) ~throws "eight-byte aligned"

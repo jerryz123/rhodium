@@ -1,4 +1,4 @@
-// Verifies entry programming supersedes ELF device data and leaves an MMIO signature for FESVR.
+// Verifies startup entry publication, ELF-loaded UART data, and an MMIO signature for FESVR.
 .section .text
 .globl _start
 _start:
@@ -24,8 +24,6 @@ done:
 1:
   j 1b
 
-.section .boot_register,"aw",@progbits
-.dword 0x8877665544332211
 .section .uart_scratch,"aw",@progbits
 .byte 0xa5
 .section .tohost,"aw",@progbits

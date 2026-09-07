@@ -1,6 +1,5 @@
 // Verifies WB-only CMO dispatch, precise completion, privilege policy, and squash.
 module rv5stage_zicbom_tb;
-  typedef struct packed { logic valid; } release_t;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageInstructionReq bits; } ireq_t;
   typedef struct packed { logic valid; RV5StageInstructionResp bits; } iresp_t;
@@ -13,8 +12,6 @@ module rv5stage_zicbom_tb;
   logic clock = 0, reset = 1;
   logic [63:0] time_counter = 0, hart_id = 0;
   RV5StageInterrupts interrupts;
-  release_t release_in;
-  ready_t release_out;
   iin_t instruction_access_in;
   iout_t instruction_access_out;
   din_t data_access_in;
@@ -121,13 +118,13 @@ module rv5stage_zicbom_tb;
     end
   end
   initial begin
-    interrupts = '0; release_in = '0;
+    interrupts = '0;
     for (scenario = 0; scenario <= 10; scenario++) begin
       reset = 1;
       repeat (2) @(posedge clock);
-      @(negedge clock); reset = 0; release_in.valid = 1'b1;
+      @(negedge clock); reset = 0;
       @(posedge clock);
-      @(negedge clock); release_in.valid = 0;
+      @(negedge clock);
       for (int cycles = 0; cycles < 1500 && !done; cycles++) begin @(posedge clock); #1; end
       assert (done) else $fatal(1, "CMO scenario %0d timed out", scenario);
     end

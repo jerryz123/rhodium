@@ -131,19 +131,18 @@ compiled roots. Technology-mapped simulation remains owned by
 writes, backpressure, and target errors. The backend `fesvr-mmio` fixture tests
 the DPI-independent `FesvrCHIAccess` engine with coherent RAM fragmentation,
 exact MMIO, response validation, and backpressure. `host-mmio-test` loads ELF
-segments into the boot-address register and UART scratch register, verifies
-that startup replaces the former with the ELF entry while preserving the
-latter, and reads a device signature back through FESVR.
+data into the UART scratch register, verifies the published ELF entry and
+preserved UART value, and reads a device signature back through FESVR.
 
 `FesvrBootAccess` owns startup arbitration around the existing `FesvrCHIAccess`
 engine. It drains loading requests and responses, writes eight bytes to the
-configured register, consumes the successful completion, and holds release
-until the SoC accepts it. Only then is the native HTIF entry notification
+configured register, and consumes the successful completion. Only then is the native HTIF entry notification
 acknowledged and ordinary host polling resumed. A startup failure latches a
 failure exit in `FesvrRequester`; the generic C++ transport has no SoC address.
 The `fesvr-boot` backend fixture tests this same DPI-independent composition
 with a relocated register, CHI request/DBID/data/completion stalls, host-response
-and release backpressure, target/protocol failures, RV32 entry overflow, and
+backpressure, target/protocol failures, RV32 entry overflow, zero entries,
+loading writes overlapping the reserved boot register, and
 reset. `boot-test` exercises actual FESVR and the indirect ROM at two different
 ELF entry points on every SoC. Both tests are included in their owning CI jobs.
 

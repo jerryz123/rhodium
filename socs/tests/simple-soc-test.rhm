@@ -20,7 +20,7 @@ check:
   soc.simple_soc_home_map.entry(0x2000) ~is #false
   soc.simple_soc_device_home_params.subordinate_map.entry(0x1000).target_node_id ~is 14
   description.boot.address_register.address_set ~is soc.simple_soc_platform.boot_address.service.address_sets[0]
-  soc.simple_soc_platform.boot_address_config.reset_value ~is soc.simple_soc_params.fabric.boot.payload_address
+  soc.simple_soc_platform.boot_address_config.reset_value ~is 0
   soc.simple_soc_home_map.entry(0x80000000).home === soc.simple_soc_home ~is #true
   soc.simple_soc_home_map.entry(0xbfffffff).home === soc.simple_soc_home ~is #true
   soc.simple_soc_home_map.entry(0xc0000000) ~is #false

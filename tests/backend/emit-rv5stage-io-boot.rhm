@@ -1,15 +1,12 @@
 #lang rhombus
-// Emits a complete RV64 core for non-cacheable load-and-indirect-jump boot testing.
+// Emits a complete RV64 core and the real generated polling ROM for CHI boot testing.
 
 import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../riscv/isa/xlen.rhm".XLen
-  "../../cores/rv5stage/rv5stage.rhdl".RV5Stage
-  "../../cores/rv5stage/profile.rhm" open
-  "../../cores/rv5stage/tests/params.rhdl".test_rv5stage_uncached_config
+  "../../socs/tests/polling-boot-fixture.rhdl".RV5StagePollingBoot
 
 def design = embedded.run_elaboration(
-  fun (): RV5Stage(RVCoreProfile(~xlen: XLen.X64), ~chi: test_rv5stage_uncached_config, ~reset_address: 0xc000)
+  fun (): RV5StagePollingBoot()
 )
 print(emit_circt(design))

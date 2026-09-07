@@ -8,7 +8,6 @@ module rv5stage_zicboz_tb;
     logic supervisor_external;
     logic machine_external;
   } interrupts_t;
-  typedef struct packed { logic valid; } release_in_t;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
   typedef struct packed { logic valid; instruction_req_bits_t bits; } instruction_req_t;
@@ -58,10 +57,8 @@ module rv5stage_zicboz_tb;
   logic [63:0] time_counter = '0;
   logic [63:0] hart_id = '0;
   interrupts_t interrupts;
-  release_in_t release_in;
   instruction_in_t instruction_access_in;
   data_in_t data_access_in;
-  ready_t release_out;
   instruction_out_t instruction_access_out;
   data_out_t data_access_out;
 
@@ -169,17 +166,13 @@ module rv5stage_zicboz_tb;
 
   initial begin
     interrupts = '0;
-    release_in = '0;
     for (scenario = 0; scenario < 4; scenario++) begin
       reset = 1;
       repeat (2) @(posedge clock);
       @(negedge clock);
       reset = 0;
-
-      release_in.valid = 1;
       @(posedge clock);
       @(negedge clock);
-      release_in.valid = 0;
       for (int cycles = 0; cycles < 600 && !done; cycles++) begin
         @(posedge clock);
         #1;

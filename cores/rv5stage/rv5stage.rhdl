@@ -27,7 +27,6 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   def p = config.flit
 
   input chi_identity: RV5StageCHIIdentity(p)
-  interface release(IrrevocableCtrl(), ~role: consumer)
   input interrupts: RV5StageInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
@@ -45,7 +44,6 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   l1i.node_id <== chi_identity.instruction_node_id
   l1d.node_id <== chi_identity.data_node_id
   uncached.node_id <== chi_identity.uncached_node_id
-  release |> core.release
   core.interrupts <== interrupts
   core.hart_id <== hart_id
   core.time_counter <== time_counter

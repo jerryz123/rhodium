@@ -1,11 +1,9 @@
 #lang rhodium
-// Defines indirect SoC BootROM configuration, PMA metadata, and multihart release distribution.
+// Defines polling SoC BootROM configuration, image layout, and executable PMA metadata.
 
 import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
-  lib("flow/broadcast.rhdl").CtrlBroadcast
-  lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/main.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
   lib("riscv/rtl/pma.rhdl") open
@@ -121,22 +119,6 @@ class SoCBootROMParams(flit :: CHIFlitParams,
       home
     )
 
-sync_circuit SoCBootDistributor(hart_count :: PosInt):
-  interface release(IrrevocableCtrl(), ~role: consumer)
-  interface hart_release[hart_count](IrrevocableCtrl(), ~role: producer)
-
-  inst broadcast(CtrlBroadcast(hart_count))
-  reg released(~init: Bool(#false))
-
-  broadcast.ingress.valid <== release.valid & !released
-  release.ready <== broadcast.ingress.ready & !released
-  hart_release <=> broadcast.egress
-
-  when (release.fire()):
-    released <== Bool(#true)
-  when (release.valid):
-    assert(!released, "soc_boot_release_once")
-
 export:
   SoCBootAddressBase
   SoCBootROMWindowBytes
@@ -146,4 +128,3 @@ export:
   DefaultSoCBootConfig
   soc_bootrom_attributes
   SoCBootROMParams
-  SoCBootDistributor

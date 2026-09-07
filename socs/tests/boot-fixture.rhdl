@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates shared SoC BootROM metadata and a four-hart boot-release distributor.
+// Builds shared SoC BootROM metadata and its finalized four-hart image.
 
 import:
   lib("chi/main.rhdl") open
@@ -33,7 +33,6 @@ def description = RiscvSoCDescription(
   )
 )
 def image = boot.image_for(description)
-def design = elaborate(SoCBootDistributor(4))
 
 export:
   boot
@@ -42,4 +41,3 @@ export:
   params
   description
   image
-  design

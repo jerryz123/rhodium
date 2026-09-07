@@ -82,7 +82,7 @@ class SoCPlatformParams(flit :: CHIFlitParams,
 
   property bootrom:
     SoCBootROMParams(flit, home, bootrom_node_id, boot)
-  property boot_address_config: BootAddressConfig(flit, boot.payload_address)
+  property boot_address_config: BootAddressConfig(flit, 0)
   property boot_address:
     BootAddressParams("soc-boot-address", boot_address_node_id, boot_address_config, boot.boot_address_register)
   property aclint_config: AclintConfig(flit, hart_count)

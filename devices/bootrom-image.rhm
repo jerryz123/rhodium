@@ -48,8 +48,10 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
 //   jalr  zero, payload_lower(t0)
 //   // Indirect mode replaces those two instructions with:
 //   auipc t0, boot_address_register_upper
-//   ld    t0, boot_address_register_lower(t0)  // lw for RV32
-//   jalr  zero, 0(t0)
+// poll:
+//   ld    t1, boot_address_register_lower(t0)  // lw for RV32
+//   beqz  t1, poll
+//   jalr  zero, 0(t1)
 // park:
 //   wfi
 //   j     park
@@ -88,7 +90,7 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
     BNE.encode([
       rs1.constrain(10),
       rs2.constrain(0)
-    ], ~immediate: (if boot_address_register == #false | 20 | 24))
+    ], ~immediate: (if boot_address_register == #false | 20 | 28))
   ]
 
   def device_tree_immediates = pc_relative_immediates(
@@ -111,8 +113,9 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
   if boot_address_register == #false
   | words := words ++ [JALR.encode([rd.constrain(0), rs1.constrain(5)], ~immediate: payload_immediates[1])]
   | def load = (if xlen == XLen.X32 | LW | LD)
-    words := words ++ [load.encode([rd.constrain(5), rs1.constrain(5)], ~immediate: payload_immediates[1]),
-                       JALR.encode([rd.constrain(0), rs1.constrain(5)], ~immediate: 0)]
+    words := words ++ [load.encode([rd.constrain(6), rs1.constrain(5)], ~immediate: payload_immediates[1]),
+                       BEQ.encode([rs1.constrain(6), rs2.constrain(0)], ~immediate: -4),
+                       JALR.encode([rd.constrain(0), rs1.constrain(6)], ~immediate: 0)]
 
   words := words ++ [WFI.encode([]), JAL.encode([rd.constrain(0)], ~immediate: -4)]
   BootROMImage(instruction_words_to_bytes(words))

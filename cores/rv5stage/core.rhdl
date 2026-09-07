@@ -63,7 +63,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   | error(~who: #'RV5StageCore, "reset address must be instruction aligned")
   def reset_pc = bits(reset_address, width)
 
-  interface release(IrrevocableCtrl(), ~role: consumer)
   input interrupts: RV5StageInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
@@ -196,23 +195,20 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def squash = exception_in_flight ||| memory_replay_event ||| redirect_link.right.valid
   reg started(~init: Bool(#false))
   reg waiting_for_interrupt(~init: Bool(#false))
-  reg architectural_pc(~init: zero)
-  release.ready <== !started & !memory_exception_event
-  def release_fire = release.fire()
+  reg architectural_pc(~init: reset_pc)
+  // Seed fetch once after reset; software in the reset image owns boot waiting.
+  def reset_start = !started
   def fetch_valid = started & !squash & !csrs.interrupt_request & !waiting_for_interrupt
   fetch.active <== fetch_valid
   fetch.flush <== memory_exception_event ||| memory_replay_event
-  fetch.restart_valid <== redirect_link.right.valid ||| release_fire
+  fetch.restart_valid <== redirect_link.right.valid ||| reset_start
   fetch.restart_pc <== mux(redirect_link.right.valid, redirect_link.right.bits, reset_pc)
   fetch.invalidate_all <== fence_i_commit
   fetch.memory <=> instruction_access
   fetch.fetched |> if_id_pipe.ingress
-  when release_fire:
-    started <== Bool(#true)
+  started <== Bool(#true)
   when (csrs.redirect.valid):
     architectural_pc <== csrs.redirect.bits
-  elsewhen release_fire:
-    architectural_pc <== reset_pc
   elsewhen (commit_valid & !commit_bits.exception_valid):
     architectural_pc <== commit_bits.resume_pc
 

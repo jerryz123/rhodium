@@ -140,8 +140,9 @@ FIXTURES='rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-
 The router fixture covers RV32 permission rejection and cached/uncached
 exclusion. The composed IO-MSHR fixture covers RV64 retained payloads, fetch
 arbitration and cancellation, backpressure, exactly-once completion, and reset.
-The complete-core boot fixture executes an uncached register load followed by
-`jalr`, then fence-ordered signature stores at three CHI response latencies;
+The complete-core boot fixture executes the generated polling ROM with delayed
+entry publication, secondary-hart parking, and fence-ordered signature stores
+at three CHI response latencies;
 neither L1 cache may issue a request. This full-core fixture uses the SoC harness's
 Verilator `UNOPTFLAT` warning setting for packed interfaces; assertions and
 runtime convergence checks remain enabled. Keep simulator entry programming and SoC

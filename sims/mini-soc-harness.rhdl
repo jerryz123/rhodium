@@ -15,7 +15,6 @@ sync_circuit SoCHarness():
   inst soc(mini.MiniSoC())
 
   requester.port <=> soc.host.memory
-  requester.release <=> soc.host.release
   uart <=> soc.uart
   exit <== requester.exit
 

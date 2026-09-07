@@ -44,10 +44,10 @@ def params = system_params()
 def relocated = system_params(0x40000000, 12, 0x40002000, 0x3000)
 check:
   relocated.platform.boot_address.base_address ~is 0x3000
-  relocated.platform.boot_address_config.reset_value ~is 0x40002000
+  relocated.platform.boot_address_config.reset_value ~is 0
   relocated.home_map.entry(0x3000).home.node_id ~is 16
   relocated.home_map.entry(0x1000) ~is #false
-  relocated.boot.program.size_bytes ~is 36
+  relocated.boot.program.size_bytes ~is 40
   riscv_soc_boot_config(~boot_address_register: 0x1008) ~throws "page aligned"
   system_params(0x40000000, 12, 0x40000000, 0x40000000).rv5stage_config ~throws "overlap"
   params.device_home_params.requester_endpoints[1].kind ~is CHINodeKind.RNF

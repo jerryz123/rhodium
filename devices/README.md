@@ -138,19 +138,18 @@ and are not accepted. Writes become visible when their data transfers;
 completion and read responses remain stable under backpressure.
 
 There is no start command, interrupt, lock, or per-hart state. The platform
-must complete programming before releasing harts and must not race updates
-with the ROM's read. The device does not validate the stored value as an
+can reset the register to zero and publish a nonzero entry in one complete
+eight-byte write after payload loading finishes. The device does not validate the stored value as an
 executable address or provide a warm-reboot protocol.
 
 `riscv_bootrom_image(~boot_address_register: address, ~xlen: xlen)` generates
-a 36-byte indirect trampoline instead of the default immediate trampoline.
-Hart zero loads the payload entry with `LW` for RV32 or `LD` for RV64 and
+a 40-byte polling trampoline instead of the default immediate trampoline.
+Hart zero retains the register address in `t0` and repeatedly loads the entry
+into `t1` with `LW` for RV32 or `LD` for RV64 until it is nonzero. It then
 jumps without changing the DTB handoff or secondary-hart parking. The register
 must be eight-byte aligned and reachable by the ROM's PC-relative load;
 the loaded payload itself is not constrained by that PC-relative range.
-The concrete SoCs map the register but retain their immediate trampoline
-until RV5Stage's shared RN-I path can admit data loads reliably while fetching
-uncached instructions.
+The concrete SoCs use this polling trampoline and reset the register to zero.
 
 ## Integrate ACLINT
 

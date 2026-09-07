@@ -1,8 +1,7 @@
 #lang rhodium
-// Defines the shared coherent RAM, non-snooping MMIO, and boot-release host boundary.
+// Defines the shared coherent RAM and non-snooping MMIO host boundary.
 
 import:
-  lib("rhodium/std/ready-valid.rhdl").IrrevocableCtrl
   lib("chi/main.rhdl").CHIFlitParams
   lib("chi/main.rhdl").CHIRNChannels
 
@@ -13,9 +12,6 @@ interface SoCHostInterface(p :: CHIFlitParams):
 
   soc -> host:
     memory: CHIRNChannels(p)
-
-  host -> soc:
-    release: IrrevocableCtrl()
 
 export:
   SoCHostInterface

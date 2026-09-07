@@ -17,7 +17,6 @@ sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = tiled.default_tiled
   inst soc(tiled.TiledSoC(soc_config))
 
   requester.port <=> soc.host.memory
-  requester.release <=> soc.host.release
   uart <=> soc.uart
   exit <== requester.exit
 

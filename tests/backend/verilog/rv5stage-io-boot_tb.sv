@@ -1,4 +1,4 @@
-// Boots the complete core through an uncached register load and jalr under delayed CHI service.
+// Executes the generated polling BootROM, delayed entry publication, and secondary parking through CHI.
 module rv5stage_io_boot_tb;
   typedef struct packed {
     struct packed { logic ready; } req;
@@ -23,35 +23,33 @@ module rv5stage_io_boot_tb;
     } dat;
   } chi_out_t;
   logic clock = 0, reset = 1;
-  struct packed { logic valid; } release_in;
-  struct packed { logic ready; } release_out;
+  logic [63:0] hart_id = 0, entry_address = 0;
+  logic [9:0][31:0] boot_words;
   chi_in_t umem_in;
   chi_out_t umem_out;
   localparam int IDLE = 0, READ = 1, DBID = 2, DATA = 3, COMP = 4;
   int state = IDLE, delay_left = 0, latency = 0, cycle = 0;
   int boot_reads = 0, stores = 0, completions = 0, payload_fetches = 0;
+  bit park_fetched = 0;
   logic [43:0] address;
   logic [127:0] read_value;
 
-  RV5Stage dut (
-    .clock, .reset, .release_in, .release_out,
-    .chi_identity({7'd2, 7'd3, 7'd5}),
-    .interrupts('0), .hart_id(64'd0), .time_counter(64'd0),
+  RV5StagePollingBoot dut (
+    .clock, .reset, .hart_id, .boot_words,
     .imem_in('0), .dmem_in('0), .imem_out(), .dmem_out(),
     .umem_in, .umem_out
   );
 
   function automatic logic [31:0] instruction_at(input logic [43:0] pc);
+    if (pc >= 44'hc000 && pc < 44'hc028) return boot_words[(pc - 44'hc000) >> 2];
     case (pc)
-      44'hc000: return 32'h000082b7; // lui t0, 8       # boot register at 0x8000
-      44'hc004: return 32'h0002b303; // ld t1, 0(t0)
-      44'hc008: return 32'h00030067; // jalr zero, t1, 0
-      44'hc100: return 32'h02a00313; // addi t1, zero, 42
-      44'hc104: return 32'h0062a423; // sw t1, 8(t0)    # first signature
-      44'hc108: return 32'h0ff0000f; // fence iorw, iorw
-      44'hc10c: return 32'h0062a623; // sw t1, 12(t0)   # after first completion
-      44'hc110: return 32'h10500073; // wfi
-      44'hc114: return 32'hffdff06f; // j -4
+      44'hc100: return 32'h000082b7; // lui t0, 8
+      44'hc104: return 32'h02a00313; // addi t1, zero, 42
+      44'hc108: return 32'h0062a423; // sw t1, 8(t0)
+      44'hc10c: return 32'h0ff0000f; // fence iorw, iorw
+      44'hc110: return 32'h0062a623; // sw t1, 12(t0)
+      44'hc114: return 32'h10500073; // wfi
+      44'hc118: return 32'hffdff06f; // j -4
       default: return 32'h00000013;
     endcase
   endfunction
@@ -79,6 +77,7 @@ module rv5stage_io_boot_tb;
       stores <= 0;
       completions <= 0;
       payload_fetches <= 0;
+      park_fetched <= 0;
       read_value <= 0;
       address <= 0;
     end else begin
@@ -96,10 +95,10 @@ module rv5stage_io_boot_tb;
         if (umem_out.req.bits.opcode == 7'h04) begin
           state <= READ;
           if (umem_out.req.bits.address == 44'h8000) begin
-            assert (umem_out.req.bits.size_or_num_req == 6'd3 && boot_reads == 0)
-              else $fatal(1, "boot register load duplicated or widened");
+            assert (umem_out.req.bits.size_or_num_req == 6'd3 && hart_id == 0)
+              else $fatal(1, "incorrect polling width or secondary accessed entry register");
             boot_reads <= boot_reads + 1;
-            read_value <= 128'hc100;
+            read_value <= 128'(entry_address);
           end else begin
             assert (umem_out.req.bits.address >= 44'hc000 &&
                     umem_out.req.bits.address < 44'h10000 &&
@@ -108,6 +107,7 @@ module rv5stage_io_boot_tb;
             read_value <= 128'(instruction_at(umem_out.req.bits.address)) <<
                           (32 * umem_out.req.bits.address[3:2]);
             if (umem_out.req.bits.address == 44'hc100) payload_fetches <= payload_fetches + 1;
+            if (umem_out.req.bits.address == 44'hc020) park_fetched <= 1;
           end
         end else begin
           assert (umem_out.req.bits.opcode == 7'h1c &&
@@ -146,35 +146,28 @@ module rv5stage_io_boot_tb;
   endtask
 
   initial begin
-    release_in = '0;
     for (int run = 0; run < 3; run++) begin
       latency = run == 0 ? 0 : run == 1 ? 3 : 17;
       reset = 1;
+      entry_address = 0;
       tick();
       reset = 0;
-      repeat (5) begin
-        tick();
-        assert (!dut.imem_out.requests.valid && !dut.dmem_out.requests.valid && !umem_out.req.valid)
-          else $fatal(1, "core fetched before release");
-      end
-      release_in.valid = 1;
-
-      #1;
-      assert (release_out.ready) else $fatal(1, "boot release not accepted");
-      tick();
-      repeat (3) begin
-        assert (!release_out.ready) else $fatal(1, "core accepted a second release");
-        tick();
-      end
-      release_in.valid = 0;
+      for (int wait_cycle = 0; wait_cycle < 3000 && boot_reads < 3; wait_cycle++) tick();
+      assert (boot_reads >= 3 && stores == 0 && payload_fetches == 0)
+        else $fatal(1, "core did not wait in ROM for entry publication");
+      entry_address = 64'hc100;
       for (int wait_cycle = 0; wait_cycle < 3000 && completions != 2; wait_cycle++) tick();
-      assert (completions == 2 && boot_reads == 1 && payload_fetches > 0)
+      assert (completions == 2 && boot_reads >= 4 && payload_fetches > 0)
         else $fatal(1, "indirect boot made no progress at latency %0d", latency);
       repeat (80) tick();
-      assert (completions == 2 && boot_reads == 1 && stores == 2)
+      assert (completions == 2 && stores == 2)
         else $fatal(1, "boot produced repeated architectural effects");
     end
-    $display("RV5Stage uncached ld/jalr boot and IO fence passed at three CHI latencies");
+    reset = 1; hart_id = 1; tick(); reset = 0;
+    repeat (600) tick();
+    assert (park_fetched && boot_reads == 0 && payload_fetches == 0 && stores == 0 && state == IDLE)
+      else $fatal(1, "secondary hart did not park in ROM");
+    $display("RV5Stage generated polling ROM, reset, secondary parking, and IO fence passed at three CHI latencies");
     $finish;
   end
 endmodule

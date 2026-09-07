@@ -113,13 +113,11 @@ plans. Connected hierarchy, time distribution, devices, and processor behavior
 belong to the executable smoke tests in
 [`../sims/DEVELOPING.md`](../sims/DEVELOPING.md).
 
-For one-shot boot distribution, run:
+For execution of the generated polling ROM, run:
 
 ```sh
-FIXTURE=soc-boot-release bash tests/backend/run-circt.sh --simulate-only
+FIXTURE=rv5stage-io-boot bash tests/backend/run-circt.sh --simulate-only
 ```
 
-This cores-group CI fixture checks
-control-only release retention with independently stalled harts, exactly-once
-delivery, and reset while some releases remain pending. The configured reset
-address specializes each core and is not carried by this distributor.
+This cores-group CI fixture checks delayed entry publication, uncached fetch
+and data contention, secondary-hart parking, and reset using the generated ROM.

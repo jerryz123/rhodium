@@ -25,8 +25,8 @@ Contributors changing a composition should read
 | `TiledSoC` | 8 in the default 5x4 layout | Four internal 8 KiB `CHIRam` banks | Four inclusive LLC slices plus BootROM and routed device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
 
 All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
-non-caching RN-F port for coherent RAM and non-snooping MMIO access, plus a
-one-shot release channel. Each author-facing SoC parameter object owns one
+non-caching RN-F port for coherent RAM and non-snooping MMIO access.
+Each author-facing SoC parameter object owns one
 `RVCoreProfile`, and the same profile specializes the instantiated core and its
 architectural description. `SimpleSoC` defaults to RV64D and the full C
 composition, `MiniSoC` to integer-only RV64 with 2 KiB direct-mapped L1s, and
@@ -95,11 +95,10 @@ Generated configurations are build artifacts and must not be committed.
 
 The external host loads and observes memory with coherent `ReadClean` and
 `WriteUniquePtl` transactions, so its requests snoop private caches and
-simulator mailboxes may live in ordinary coherent memory. After loading a
-payload, it releases the SoC; the SoC starts every hart at its configured reset
-address. The reset address specializes each core; the multihart distributor
-carries only a control-only release, retaining it independently for each hart
-until accepted. No SoC contains FESVR behavior, DPI calls, or a simulator-specific
+simulator mailboxes may live in ordinary coherent memory. Every hart starts at
+its configured reset address when reset is deasserted; hart zero waits in the
+ROM while the host loads the payload and publishes its entry address.
+No SoC contains FESVR behavior, DPI calls, or a simulator-specific
 loader.
 
 The same host RN-F reaches the device HNI with `ReadNoSnp` and
@@ -109,21 +108,23 @@ the device path. Physical maps and Home service descriptions are also exposed
 to external host adapters for permission and transfer-size checks.
 
 [`boot.rhdl`](boot.rhdl) owns the shared reset address, payload address, ROM
-layout and finalized image, executable non-cacheable PMA entry, and multihart
-release distributor. Every current SoC uses an 8 KiB BootROM at
+layout and finalized image, and executable non-cacheable PMA entry.
+Every current SoC uses an 8 KiB BootROM at
 `0x00010000..0x00011fff`. Hart zero receives its embedded DTB address in `a1`
 and loads its payload entry from the boot-address register; every secondary hart parks
 in the ROM's `WFI` loop. Instruction fetches reach the ROM as uncached
 four-byte `ReadNoSnp` requests and do not fill L1I.
 
 Every SoC maps the 64-bit boot-address register at `0x1000` in the
-`0x1000..0x1fff` device window. Its reset value is `boot.payload_address`
-(default `0x80000000`); `boot.boot_address_register` configures its base.
+`0x1000..0x1fff` device window. Its reset value is zero;
+`boot.boot_address_register` configures its base.
 The register is non-cacheable, non-executable, and has idempotent reads.
 It is reachable through both the core RN-I and the host RN-F via the existing
-device HNI. The default ROM uses an indirect trampoline, so the external host
-must complete any entry programming before the one-shot release. Without a
-host update it uses the configured reset value. The simulator's FESVR adapter
+device HNI. The default ROM polls until the register is nonzero. After all
+payload writes complete, the host publishes the entry with one complete
+eight-byte write, avoiding a partially updated pointer. Without publication,
+hart zero keeps polling; zero is reserved and cannot be a payload entry.
+The simulator's FESVR adapter
 programs the ELF entry automatically; see the [execution contract](../sims/README.md#run-a-target).
 Concurrent updates and warm reboot are not supported.
 The boot layout describes the register's service region for overlap checking;
@@ -176,7 +177,6 @@ flowchart LR
   Fabric <--> UART
   UART -. source 1 .-> PLIC
   PLIC -. MEIP / SEIP .-> Core
-  Host -. release .-> Core
 ```
 
 The RN-I, three RN-F, and five subordinate relationships reuse one physical

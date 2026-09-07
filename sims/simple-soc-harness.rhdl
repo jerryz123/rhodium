@@ -18,7 +18,6 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
   inst memory(chi.CHIDPIMemory(chi.CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64)))
 
   requester.port <=> soc.host.memory
-  requester.release <=> soc.host.release
   uart <=> soc.uart
   soc.memory <=> memory.port
   memory.identity <== chi.CHIRamIdentity(fabric_params.flit):

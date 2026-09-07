@@ -37,7 +37,7 @@ flowchart LR
     DPIMemory["CHIDPIMemory<br/>SimpleSoC only"]
 
     FESVR <--> SoC
-    FESVR -.->|"release after load"| SoC
+    FESVR -.->|"publish entry after load"| SoC
     SoC <--> DPIMemory
   end
 
@@ -109,14 +109,13 @@ status; the Makefile and RTL do not implement a separate binary loader.
 
 After ELF loading completes, each harness writes the reported entry point to
 the SoC's configured 64-bit boot-address register through its CHI host port.
-Only successful final write completion permits the one-shot, control-only
-release. The ELF entry is carried by the register write, not the release channel. Every
-hart starts at the ROM reset address; hart zero loads the entry from the
+Only successful final write completion acknowledges the HTIF entry notification.
+Every hart starts at the ROM reset address as reset deasserts; hart zero polls
+the initially zero register while loading proceeds, then loads the entry from the
 register and jumps to it with `a0 = mhartid` and `a1 = embedded DTB address`.
-Secondary harts park in the ROM. The ELF entry need not match the register's
-configured reset value, and changing binaries does not require rebuilding RTL.
-Startup programming supersedes any ELF segment loaded into the boot register.
-Startup errors report a nonzero exit without releasing the cores.
+Secondary harts park in the ROM. Changing binaries does not require rebuilding
+RTL. Zero entries and ELF loading writes overlapping the boot register are
+rejected, preventing premature publication. Startup errors report a nonzero exit.
 
 `DirectMemoryHtif` presents FESVR's abstract memory chunks as one-outstanding,
 one-to-eight-byte transactions with 64-bit addresses and data. It never widens

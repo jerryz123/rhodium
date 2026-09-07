@@ -48,18 +48,21 @@ def config = bootrom.CHIBootROMConfig(layout)
 def params = bootrom.CHIBootROMParams("test-bootrom", 12, layout)
 
 check:
-  indirect64.size_bytes ~is 36
-  indirect32.size_bytes ~is 36
+  indirect64.size_bytes ~is 40
+  indirect32.size_bytes ~is 40
   LD.matches(image_word(indirect64, 5)) ~is #true
   LW.matches(image_word(indirect32, 5)) ~is #true
   pc_relative_target(indirect64, RiscvBootROMResetAddress, 4) ~is 0x1000
   pc_relative_target(indirect32, RiscvBootROMResetAddress, 4) ~is 0x2000
   pc_relative_target(indirect64, RiscvBootROMResetAddress, 2) ~is 0x10100
-  BImmediate.decode(image_word(indirect64, 1)) ~is 24
-  JALR.matches(image_word(indirect64, 6)) ~is #true
-  IImmediate.decode(image_word(indirect64, 6)) ~is 0
-  WFI.matches(image_word(indirect64, 7)) ~is #true
-  JImmediate.decode(image_word(indirect64, 8)) ~is 0x1ffffc
+  BImmediate.decode(image_word(indirect64, 1)) ~is 28
+  BEQ.matches(image_word(indirect64, 6)) ~is #true
+  BImmediate.decode(image_word(indirect64, 6)) ~is 0x1ffc
+  rd.extract(image_word(indirect64, 5)) ~is 6
+  JALR.matches(image_word(indirect64, 7)) ~is #true
+  IImmediate.decode(image_word(indirect64, 7)) ~is 0
+  WFI.matches(image_word(indirect64, 8)) ~is #true
+  JImmediate.decode(image_word(indirect64, 9)) ~is 0x1ffffc
   riscv_bootrom_image(~boot_address_register: 0x1004) ~throws "eight-byte aligned"
   default_image.size_bytes ~is 32
   default_words ~is [
