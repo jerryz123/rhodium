@@ -1,10 +1,10 @@
-// Verifies FESVR-loaded device segments and leaves a boot-register signature for host readback.
+// Verifies entry programming supersedes ELF device data and leaves an MMIO signature for FESVR.
 .section .text
 .globl _start
 _start:
   li t0, 0x1000
   ld t1, 0(t0)
-  li t2, 0x8877665544332211
+  la t2, _start
   bne t1, t2, fail
   li t0, 0x10000007
   lbu t1, 0(t0)

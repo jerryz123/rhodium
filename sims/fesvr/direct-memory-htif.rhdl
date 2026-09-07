@@ -1,5 +1,5 @@
 #lang rhodium
-// Bridges exact-width FESVR transactions to coherent RAM and non-snooping MMIO CHI traffic.
+// Bridges FESVR RAM/MMIO traffic and programs the boot entry before releasing cores.
 
 import:
   lib("rhodium/std/bits.rhdl") open
@@ -422,19 +422,85 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   elsewhen (responses.fire()):
     state <== FesvrCHIState.Idle
 
-// Startup remains a separate ELF-entry notification; this does not program or
-// bypass the SoC's boot-address register.
+hardware_enum FesvrBootState:
+  Loading
+  WriteEntry
+  AwaitCompletion
+  Release
+  Running
+  Failed
+
+// DPI-independent host access and startup ordering. The entry handshake is
+// acknowledged only when the SoC accepts release, after the final CHI Comp.
+sync_circuit FesvrBootAccess(xlen :: XLen,
+                             flit :: CHIFlitParams,
+                             node :: CHINodeParams,
+                             home_map :: CHIHomeMap,
+                             physical_map :: RiscvPhysicalMemoryMap,
+                             services :: NonemptyList.of(CHIHomeServiceParams),
+                             boot_address_register :: Nat):
+  unless boot_address_register mod 8 == 0 && boot_address_register < (1 << 64)
+  | error(~who: #'FesvrBootAccess, "boot-address register must be an aligned 64-bit address")
+  interface port(CHIRNChannels(flit), ~role: node)
+  interface requests(Decoupled(FesvrMemoryRequest()), ~role: consumer)
+  interface responses(Decoupled(FesvrMemoryResponse()), ~role: producer)
+  interface entry(Irrevocable(Bits(64)), ~role: consumer)
+  interface start(Irrevocable(Bits(xlen.width)), ~role: producer)
+  output failed: Bool
+
+  inst access(FesvrCHIAccess(flit, node, home_map, physical_map, services))
+  reg state(~init: FesvrBootState.Loading)
+  reg host_pending(~init: Bool(#false))
+  reg saved_entry(~init: bits(0, 64))
+  def host_enabled = state.is_one_of(FesvrBootState.Loading, FesvrBootState.Running)
+  def programming = state === FesvrBootState.WriteEntry
+  def waiting = state === FesvrBootState.AwaitCompletion
+  def entry_fits = if xlen == XLen.X32 | !or_reduce(entry.bits[32..64]) | Bool(#true)
+
+  access.port <=> port
+  access.requests.valid <== programming ||| (host_enabled & !host_pending & requests.valid)
+  def boot_request = FesvrMemoryRequest():
+    write: Bool(#true)
+    address: bits(boot_address_register, 64)
+    data: saved_entry
+    length: bits(8, 8)
+  access.requests.bits <== mux(programming, boot_request, requests.bits)
+  requests.ready <== host_enabled & !host_pending & access.requests.ready
+  responses.valid <== host_pending & access.responses.valid
+  responses.bits <== access.responses.bits
+  access.responses.ready <== waiting ||| (host_pending & responses.ready)
+  start.valid <== state === FesvrBootState.Release
+  start.bits <== if xlen == XLen.X32 | saved_entry[0..32] | saved_entry
+  entry.ready <== start.fire()
+  failed <== state === FesvrBootState.Failed
+
+  when (requests.fire()):
+    host_pending <== Bool(#true)
+  elsewhen (responses.fire()):
+    host_pending <== Bool(#false)
+
+  when ((state === FesvrBootState.Loading) & !host_pending & !requests.valid & entry.valid):
+    saved_entry <== entry.bits
+    state <== mux(entry_fits, FesvrBootState.WriteEntry, FesvrBootState.Failed)
+  elsewhen (programming & access.requests.fire()):
+    state <== FesvrBootState.AwaitCompletion
+  elsewhen (waiting & access.responses.fire()):
+    state <== mux(access.responses.bits.status === FesvrMemoryStatus.Success, FesvrBootState.Release, FesvrBootState.Failed)
+  elsewhen (start.fire()):
+    state <== FesvrBootState.Running
+
 sync_circuit FesvrRequester(xlen :: XLen,
                             flit :: CHIFlitParams,
                             node :: CHINodeParams,
                             home_map :: CHIHomeMap,
                             physical_map :: RiscvPhysicalMemoryMap,
-                            services :: NonemptyList.of(CHIHomeServiceParams)):
+                            services :: NonemptyList.of(CHIHomeServiceParams),
+                            boot_address_register :: Nat):
   interface port(CHIRNChannels(flit), ~role: node)
   interface start(Irrevocable(Bits(xlen.width)), ~role: producer)
   output exit: Bits(32)
   inst raw(DirectMemoryHTIF(xlen))
-  inst access(FesvrCHIAccess(flit, node, home_map, physical_map, services))
+  inst access(FesvrBootAccess(xlen, flit, node, home_map, physical_map, services, boot_address_register))
   access.port <=> port
   access.requests.valid <== raw.request_valid
   access.requests.bits <== FesvrMemoryRequest():
@@ -447,13 +513,13 @@ sync_circuit FesvrRequester(xlen :: XLen,
   raw.response_data <== access.responses.bits.data
   raw.response_status <== access.responses.bits.status.as_bits()
   access.responses.ready <== raw.response_ready
-  def start_entry_fits = if xlen == XLen.X32 | !or_reduce(raw.start_entry[32..64]) | Bool(#true)
-  when (raw.start_valid):
-    assert(start_entry_fits, "fesvr_start_entry_fits_xlen")
-  raw.start_ready <== start.ready & start_entry_fits
-  start.valid <== raw.start_valid & start_entry_fits
-  start.bits <== if xlen == XLen.X32 | raw.start_entry[0..32] | raw.start_entry
-  exit <== raw.exit
+  access.entry.valid <== raw.start_valid
+  access.entry.bits <== raw.start_entry
+  raw.start_ready <== access.entry.ready
+  start <=> access.start
+  // Use the same nonzero failure encoding as the native transport. Never
+  // acknowledge startup after a target/protocol error or an oversized entry.
+  exit <== mux(access.failed, bits(3, 32), raw.exit)
 
 export:
   DirectMemoryHTIF
@@ -463,5 +529,6 @@ export:
   FesvrMemoryResponse
   FesvrMemoryStatus
   FesvrCHIAccess
+  FesvrBootAccess
   FesvrRequester
   design

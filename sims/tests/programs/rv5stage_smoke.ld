@@ -1,10 +1,10 @@
-/* Places the executing RV5Stage smoke and its HTIF mailboxes in SoC memory. */
+/* Places relocatable RV5Stage smoke code and fixed HTIF mailboxes in SoC memory. */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
 SECTIONS
 {
-  . = 0x80000000;
+  . = DEFINED(payload_entry) ? payload_entry : 0x80000000;
   .text : { *(.text*) }
 
   . = 0x80001000;

@@ -5,6 +5,7 @@ import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/std/interconnect.rhdl".AddressSet
   "../../devices/bootrom-image.rhm" open
+  "../../riscv/isa/xlen.rhm".XLen
   "../boot.rhdl" as boot
   "../description.rhm" open
   "boot-fixture.rhdl" as fixture
@@ -45,6 +46,8 @@ check:
   fixture.boot.window_bytes ~is 0x2000
   fixture.boot.device_tree_offset ~is boot.SoCBootROMDeviceTreeOffset
   fixture.boot.device_tree_address ~is 0x10100
+  fixture.boot.program.bytes ~is riscv_bootrom_image(~device_tree_address: 0x10100, ~boot_address_register: 0x1000, ~xlen: XLen.X64).bytes
+  boot.riscv_soc_boot_config(~xlen: XLen.X32).program.bytes ~is riscv_bootrom_image(~device_tree_address: 0x10100, ~boot_address_register: 0x1000, ~xlen: XLen.X32).bytes
   fixture.image.bytes[fixture.boot.device_tree_offset] ~is 0xd0
   fixture.image.bytes[fixture.boot.device_tree_offset + 1] ~is 0x0d
   fixture.image.bytes[fixture.boot.device_tree_offset + 2] ~is 0xfe

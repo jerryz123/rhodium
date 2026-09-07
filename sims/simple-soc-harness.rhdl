@@ -13,23 +13,19 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
   interface uart(SoCUartInterface(), ~role: soc)
 
   def fabric_params = params.fabric
-  inst requester(FesvrRequester(XLen.X64, fabric_params.flit, fabric_params.host_node, fabric_params.home_map, fabric_params.rv5stage_config.physical_map, fabric_params.host_services))
+  inst requester(FesvrRequester(XLen.X64, fabric_params.flit, fabric_params.host_node, fabric_params.home_map, fabric_params.rv5stage_config.physical_map, fabric_params.host_services, fabric_params.boot.boot_address_register))
   inst soc(simple.SimpleSoC(params))
   inst memory(chi.CHIDPIMemory(chi.CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64)))
 
   requester.port <=> soc.host.memory
-  def boot_entry_matches = requester.start.bits === bits(fabric_params.boot.payload_address, 64)
-  soc.host.release.valid <== requester.start.valid & boot_entry_matches
-  requester.start.ready <== soc.host.release.ready & boot_entry_matches
+  soc.host.release.valid <== requester.start.valid
+  requester.start.ready <== soc.host.release.ready
   uart <=> soc.uart
   soc.memory <=> memory.port
   memory.identity <== chi.CHIRamIdentity(fabric_params.flit):
     node_id: bits(fabric_params.memory_port.node_id, fabric_params.flit.node_id_width)
     base_address: bits(fabric_params.memory_base, fabric_params.flit.request_address_width)
   exit <== requester.exit
-
-  when (requester.start.valid):
-    assert(boot_entry_matches, "fesvr_entry_matches_boot_payload")
 
 def design = elaborate(SoCHarness())
 

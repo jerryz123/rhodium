@@ -1,4 +1,4 @@
-// Checks the BootROM handoff and mapped boot-address register before reporting through HTIF.
+// Checks relocatable BootROM handoff, hart/DTB arguments, and the boot register through HTIF.
 .section .text
 .globl _start
 _start:
@@ -10,7 +10,7 @@ _start:
   bne t1, t2, fail
   li t0, 0x1000
   ld t1, 0(t0)
-  li t2, 0x80000000
+  la t2, _start
   bne t1, t2, fail
   // After handoff, exercise both word lanes without any concurrent ROM reader.
   // This is register readback coverage, not a warm-reboot protocol.

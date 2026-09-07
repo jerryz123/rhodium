@@ -349,6 +349,10 @@ classify_path() {
       mark_example_cores
       mark_example_rv5stage
       ;;
+    sims/fesvr/*.rhdl)
+      circt_protocols=true
+      simulation=true
+      ;;
     sims/*)
       simulation=true
       ;;

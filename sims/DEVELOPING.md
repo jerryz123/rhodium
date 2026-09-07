@@ -116,6 +116,9 @@ make -C sims smoke SOC=tiled
 make -C sims host-mmio-test SOC=simple
 make -C sims host-mmio-test SOC=mini
 make -C sims host-mmio-test SOC=tiled
+make -C sims boot-test SOC=simple
+make -C sims boot-test SOC=mini
+make -C sims boot-test SOC=tiled
 ```
 
 The transport checks require the pinned FESVR library; DPI checks also require
@@ -128,9 +131,21 @@ compiled roots. Technology-mapped simulation remains owned by
 writes, backpressure, and target errors. The backend `fesvr-mmio` fixture tests
 the DPI-independent `FesvrCHIAccess` engine with coherent RAM fragmentation,
 exact MMIO, response validation, and backpressure. `host-mmio-test` loads ELF
-segments into the boot-address register and UART scratch register, checks them
-on the core, and reads a device signature back through FESVR. It deliberately
-keeps the static BootROM release contract; it is not a dynamic-entry boot test.
+segments into the boot-address register and UART scratch register, verifies
+that startup replaces the former with the ELF entry while preserving the
+latter, and reads a device signature back through FESVR.
+
+`FesvrBootAccess` owns startup arbitration around the existing `FesvrCHIAccess`
+engine. It drains loading requests and responses, writes eight bytes to the
+configured register, consumes the successful completion, and holds release
+until the SoC accepts it. Only then is the native HTIF entry notification
+acknowledged and ordinary host polling resumed. A startup failure latches a
+failure exit in `FesvrRequester`; the generic C++ transport has no SoC address.
+The `fesvr-boot` backend fixture tests this same DPI-independent composition
+with a relocated register, CHI request/DBID/data/completion stalls, host-response
+and release backpressure, target/protocol failures, RV32 entry overflow, and
+reset. `boot-test` exercises actual FESVR and the indirect ROM at two different
+ELF entry points on every SoC. Both tests are included in their owning CI jobs.
 
 The Zicboz payload checks all 64 offsets and neighboring blocks through the
 normal FESVR flow. Its final signature also lets FESVR read the dirty cache

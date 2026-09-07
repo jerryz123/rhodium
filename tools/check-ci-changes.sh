@@ -131,6 +131,8 @@ check_matrix_entry chi/dpi-memory.rhdl host_matrix ci-host-protocols-test
 check_matrix_entry chi/dpi-memory.rhdl circt_matrix ci-circt-protocols-test
 check_field chi/dpi-memory.rhdl simulation true
 check_field chi/dpi/chi_dpi_memory_dpi.cc simulation true
+check_matrix_entry sims/fesvr/direct-memory-htif.rhdl circt_matrix ci-circt-protocols-test
+check_field sims/fesvr/direct-memory-htif.rhdl simulation true
 check_matrix_entry cores/rv5stage/core.rhdl host_matrix ci-host-cores-test
 check_matrix_entry cores/rv5stage/core.rhdl host_matrix ci-host-socs-test
 check_matrix_entry cores/rv5stage/core.rhdl circt_matrix ci-circt-cores-test

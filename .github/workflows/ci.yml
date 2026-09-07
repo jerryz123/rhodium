@@ -259,5 +259,10 @@ jobs:
           make -C sims host-mmio-test SOC=simple
           make -C sims host-mmio-test SOC=mini
           make -C sims host-mmio-test SOC=tiled
+      - name: Boot distinct ELF entries through each SoC boot register
+        run: |
+          make -C sims boot-test SOC=simple
+          make -C sims boot-test SOC=mini
+          make -C sims boot-test SOC=tiled
       - name: Execute mapped MiniSoC through standard FESVR flow
         run: make -C vlsi/sim smoke

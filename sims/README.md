@@ -107,10 +107,15 @@ argument vector through VPI to `DirectMemoryHtif`. FESVR owns ELF parsing,
 segment loading, entry-point discovery, `tohost`/`fromhost` polling, and exit
 status; the Makefile and RTL do not implement a separate binary loader.
 
-Each harness requires the ELF entry point reported by FESVR to match the SoC's
-configured BootROM payload address. It then converts that entry notification
-into a one-shot release; every hart starts at the reset address, hart zero
-jumps to the loaded payload, and secondary harts park in the ROM.
+After ELF loading completes, each harness writes the reported entry point to
+the SoC's configured 64-bit boot-address register through its CHI host port.
+Only successful final write completion permits the one-shot release. Every
+hart starts at the ROM reset address; hart zero loads the entry from the
+register and jumps to it with `a0 = mhartid` and `a1 = embedded DTB address`.
+Secondary harts park in the ROM. The ELF entry need not match the register's
+configured reset value, and changing binaries does not require rebuilding RTL.
+Startup programming supersedes any ELF segment loaded into the boot register.
+Startup errors report a nonzero exit without releasing the cores.
 
 `DirectMemoryHtif` presents FESVR's abstract memory chunks as one-outstanding,
 one-to-eight-byte transactions with 64-bit addresses and data. It never widens
@@ -126,7 +131,6 @@ The requester retains no cache lines and reports Invalid for every snoop.
 ELF loading and `tohost`/`fromhost` polling still observe dirty RV5Stage cache
 lines without reserving a special mailbox address range. The same endpoint
 can access platform devices, including the boot-address register and UART.
-This does not change the static BootROM jump or ELF-entry equality check above.
 
 ## Architectural certification tests
 
@@ -200,12 +204,19 @@ Run the genuine execution smoke for any system:
 make -C sims smoke SOC=simple
 make -C sims smoke SOC=mini
 make -C sims smoke SOC=tiled
+make -C sims boot-test SOC=simple
+make -C sims boot-test SOC=mini
+make -C sims boot-test SOC=tiled
 ```
 
 The smoke starts with `tohost` cleared, executes RV64I instructions on
 RV5Stage, stores the passing value into a dirty L1D line, and succeeds only
 after the coherent FESVR requester observes that write. It uses the same `run`
 path as an external target binary.
+
+`boot-test` runs the same handoff checks at ELF entries `0x80002000` and
+`0x80003000` through one compiled simulator and ROM per SoC. It verifies the
+runtime register value, primary hart ID, and embedded DTB pointer and magic.
 
 Contributor binding, structural, and lowering checks are documented in
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).

@@ -35,13 +35,14 @@ SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
 SIMULATOR_BINARY := $(SOC_OBJECT_DIR)/VTestDriver
 SMOKE_BINARY := $(SOC_BUILD_DIR)/rv5stage_smoke.elf
+BOOT_BINARIES := $(SOC_BUILD_DIR)/rv5stage_boot_2000.elf $(SOC_BUILD_DIR)/rv5stage_boot_3000.elf
 HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/rv5stage_host_mmio.elf
 HOST_MMIO_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_host_mmio.signature
 ZICBOZ_BINARY := $(SOC_BUILD_DIR)/rv5stage_zicboz.elf
 ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zicboz.signature
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
-.PHONY: all setup simulator run smoke host-mmio-test zicboz-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
+.PHONY: all setup simulator run smoke boot-test host-mmio-test zicboz-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
 
 all: simulator
 
@@ -62,6 +63,10 @@ run: simulator
 
 smoke: $(SMOKE_BINARY)
 	$(MAKE) run SOC=$(SOC) BINARY=$(SMOKE_BINARY)
+
+boot-test: $(BOOT_BINARIES) $(SIMULATOR_BINARY)
+	@set -e; for binary in $(BOOT_BINARIES); do $(SIMULATOR_BINARY) "$$binary"; done
+	@echo "Two ELF entries booted through the same $(SOC) harness and ROM"
 
 host-mmio-test: $(HOST_MMIO_BINARY) $(SIMULATOR_BINARY)
 	$(SIMULATOR_BINARY) +signature=$(HOST_MMIO_SIGNATURE) +signature-granularity=8 $(HOST_MMIO_BINARY)
@@ -151,6 +156,11 @@ $(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
 $(HOST_MMIO_BINARY): tests/programs/rv5stage_host_mmio.S tests/programs/rv5stage_host_mmio.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_host_mmio.ld $< -o $@
+
+$(SOC_BUILD_DIR)/rv5stage_boot_%.elf: tests/programs/rv5stage_smoke.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
+	  -Wl,--build-id=none -Wl,--defsym,payload_entry=0x8000$* \
+	  -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
 
 $(ZICBOZ_BINARY): tests/programs/rv5stage_zicboz.S tests/programs/rv5stage_zicboz.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64im_zicsr -mabi=lp64 -nostdlib -nostartfiles \

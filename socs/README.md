@@ -110,7 +110,7 @@ to external host adapters for permission and transfer-size checks.
 layout and finalized image, executable non-cacheable PMA entry, and multihart
 release distributor. Every current SoC uses an 8 KiB BootROM at
 `0x00010000..0x00011fff`. Hart zero receives its embedded DTB address in `a1`
-and jumps to the configured normal-memory payload; every secondary hart parks
+and loads its payload entry from the boot-address register; every secondary hart parks
 in the ROM's `WFI` loop. Instruction fetches reach the ROM as uncached
 four-byte `ReadNoSnp` requests and do not fill L1I.
 
@@ -118,15 +118,12 @@ Every SoC maps the 64-bit boot-address register at `0x1000` in the
 `0x1000..0x1fff` device window. Its reset value is `boot.payload_address`
 (default `0x80000000`); `boot.boot_address_register` configures its base.
 The register is non-cacheable, non-executable, and has idempotent reads.
-The default ROM still uses its static payload jump: activating the indirect
-trampoline first requires fixing shared RN-I data-request admission, which
-currently lets uncached instruction traffic repeatedly force a ROM data load
-to replay.
 It is reachable through both the core RN-I and the host RN-F via the existing
-device HNI. FESVR can access the register, but automatic ELF-entry programming
-and the indirect trampoline remain future work; harness entry-equality checks
-are unchanged. For an indirect trampoline, complete programming before the one-shot release;
-concurrent updates and warm reboot are not supported.
+device HNI. The default ROM uses an indirect trampoline, so the external host
+must complete any entry programming before the one-shot release. Without a
+host update it uses the configured reset value. The simulator's FESVR adapter
+programs the ELF entry automatically; see the [execution contract](../sims/README.md#run-a-target).
+Concurrent updates and warm reboot are not supported.
 The boot layout describes the register's service region for overlap checking;
 no operating-system device-tree binding is introduced for it.
 

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines shared SoC BootROM configuration, PMA metadata, and multihart release distribution.
+// Defines indirect SoC BootROM configuration, PMA metadata, and multihart release distribution.
 
 import:
   lib("support/annotations.rhm") open
@@ -9,6 +9,7 @@ import:
   lib("chi/main.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
   lib("riscv/rtl/pma.rhdl") open
+  lib("riscv/isa/xlen.rhm").XLen
   lib("devices/bootrom-image.rhm") open
   lib("devices/bootrom.rhdl") open
   lib("devices/boot-address.rhdl").BootAddressWindowBytes
@@ -76,19 +77,20 @@ fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMRes
                           ~payload_address: payload_address :: Nat = RiscvBootROMPayloadAddress,
                           ~window_bytes: window_bytes :: Pow2Int = SoCBootROMWindowBytes,
                           ~device_tree_offset: device_tree_offset :: Nat = SoCBootROMDeviceTreeOffset,
-                          ~boot_address_register: boot_address_register :: Nat = SoCBootAddressBase):
+                          ~boot_address_register: boot_address_register :: Nat = SoCBootAddressBase,
+                          ~xlen: xlen :: XLen = XLen.X64):
   SoCBootConfig(
     ~reset_address: reset_address,
     ~payload_address: payload_address,
     ~boot_address_register: boot_address_register,
     ~window_bytes: window_bytes,
     ~device_tree_offset: device_tree_offset,
-    // Keep the default static trampoline until shared RN-I data admission
-    // can retain a load while an uncached instruction transaction is active.
     ~program: riscv_bootrom_image(
       reset_address,
       payload_address,
-      ~device_tree_address: reset_address + device_tree_offset
+      ~device_tree_address: reset_address + device_tree_offset,
+      ~boot_address_register: boot_address_register,
+      ~xlen: xlen
     )
   )
 
