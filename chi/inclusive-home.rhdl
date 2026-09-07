@@ -10,11 +10,9 @@ import:
   lib("chi/flits.rhdl") open
   lib("chi/protocol.rhdl") open
   lib("chi/coherence.rhdl") open
-  lib("chi/transaction.rhdl") open
-  lib("chi/link.rhdl") open
   lib("chi/channels.rhdl") open
-  lib("chi/fabric.rhdl") open
-  lib("chi/coherent-home.rhdl") open
+  lib("chi/home-common.rhdl") open
+  lib("chi/messages.rhdl") open
   lib("chi/address-projector.rhdl") open
 
 class CHIInclusiveHNFConfig(home :: CHIHNFConfig,

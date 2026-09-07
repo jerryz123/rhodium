@@ -33,6 +33,7 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 |---|---|---|
 | Wire | [`params.rhdl`](params.rhdl), [`flits.rhdl`](flits.rhdl), [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) | Physical configuration, packed payloads, packet helpers, and coherent state vocabulary |
 | Messages | [`messages.rhdl`](messages.rhdl) | Stateless requester write data, subordinate/Home responses, and metadata-preserving REQ/DAT transforms; no allocator or endpoint state |
+| Shared Home support | [`home-common.rhdl`](home-common.rhdl) | HN-F configuration, placement validation, runtime identity, request legality, and Home-specific message policy; no state machine |
 | Single-beat devices | [`single-beat-subordinate.rhdl`](single-beat-subordinate.rhdl) | One-outstanding MMIO sequencing, saved request/read snapshot, common write association, and response backpressure |
 | Endpoint and service | [`link.rhdl`](link.rhdl), [`channels.rhdl`](channels.rhdl), [`fabric.rhdl`](fabric.rhdl) | Credited links, ready-valid engine boundaries, capabilities, services, and address maps |
 | Checking and control | [`monitor.rhdl`](monitor.rhdl), [`transaction.rhdl`](transaction.rhdl), [`coherent-transaction.rhdl`](coherent-transaction.rhdl), [`retryable-transaction.rhdl`](retryable-transaction.rhdl) | Link assertions, bounded transaction checks, and reusable retry association |
@@ -110,13 +111,22 @@ checks every output bit, including inactive optional fields, across DAT widths;
 packet rules and engine consumers.
 
 Home REQ/DAT forwarding uses immutable field replacement to retain untouched
-metadata, including optional fields. `coherent-home.rhdl` keeps the policy
+metadata, including optional fields. `home-common.rhdl` keeps the policy
 wrappers that select downstream opcodes, early-write acknowledgement, and
 coherent response state; `messages.rhdl` receives those decisions explicitly.
-The inclusive Home shares those wrappers, not the serialized Home's state.
+Both Home implementations import those wrappers directly; neither implementation
+imports the other. Shared configuration and identity also live in
+`home-common.rhdl`. Preserve the existing facade and coherent-Home re-exports
+for callers while making new shared consumers import the owning module.
+Keep LLC lookup, replacement, dirty-data ownership, and retirement in their
+respective engines rather than adding modes to one shared state machine.
 The constructor fixture compares complete transformed packets at every DAT
 width, with optional REQ/DAT metadata enabled and disabled. Run it alongside
-both Home and maintenance fixtures when changing these transforms.
+both Home and maintenance fixtures when changing these transforms. Snoop and
+intervention-write packet construction lives in `messages.rhdl`; its callers
+choose opcode, address override, transaction identity, and early-write-ack policy.
+The builders preserve the existing zero policy for inactive optional fields
+and return immutable values, so repeated calls do not allocate colliding wires.
 
 Packet position and naturally aligned, unelided transfer packet sets belong in
 `protocol.rhdl`, below both engines and monitors. Use its address-aware helpers

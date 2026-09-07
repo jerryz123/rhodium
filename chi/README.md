@@ -99,6 +99,12 @@ These preserve untouched packet metadata, including optional fields. Callers
 supply routing identities and policy decisions; the helpers neither allocate
 transactions nor choose a coherence policy.
 
+`chi_home_snoop` constructs a non-forward snoop using an explicit address,
+opcode, and TxnID. `chi_home_snoop_write_request` constructs a full-packet
+backing write from intervention data, with explicit TxnID and early-write-ack
+choice. Both use the existing inactive-field zero policy, including optional
+metadata, rather than copying every request field.
+
 `CHINodeParams.icn_peer()` derives the matching ICN endpoint: it appends
 `-icn` to the name, retains NodeID, node kind, and outstanding limit, and swaps
 emitted and supported capabilities. Use explicit `CHIICNPortParams` when the
@@ -106,6 +112,11 @@ ICN contract is intentionally different from the node's exact peer.
 `CHIHNFParams(home, config, subordinate_service)` derives its
 `subordinate_endpoint` from that service and validates it against the Home
 configuration.
+
+Import `lib("chi/home-common.rhdl")` for shared `CHIHNFConfig`,
+`CHIHNFParams`, `CHIHNFIdentity`, and Home request/message policy helpers.
+It does not instantiate a Home engine. These types remain available through
+`chi/main.rhdl` and their existing coherent-Home exports.
 
 `CHISingleBeatSubordinate(p, label)` supplies one-outstanding, single-beat
 MMIO sequencing on a native `CHISNChannels` port. It returns DBID zero for

@@ -172,7 +172,56 @@ fun chi_home_upstream_read_data(p :: CHIFlitParams,
     ~qos: request.qos
   )
 
+// Non-forward snoops leave inactive optional fields zero; Home policy supplies
+// the opcode, target address, and transaction identity explicitly.
+fun chi_home_snoop(p :: CHIFlitParams,
+                   home_node_id :: Bits(p.node_id_width),
+                   request :: CHIReqFlit(p),
+                   address :: Bits(p.request_address_width),
+                   opcode :: CHISnpOpcode,
+                   txn_id :: Bits(12)) :~ CHISnpFlit(p):
+  def inactive :: CHISnpFlit(p) = literal(CHISnpFlit(p), 0)
+  inactive.updated(
+    ~trace_tag: request.trace_tag,
+    ~pas: request.pas,
+    ~address: address[3..(3 + p.snoop_address_width)],
+    ~opcode: opcode,
+    ~txn_id: txn_id,
+    ~src_id: home_node_id,
+    ~qos: request.qos
+  )
+
+// Materializes a full-packet backing write for accepted intervention data.
+// The Home retains acknowledgement policy and transaction allocation.
+fun chi_home_snoop_write_request(p :: CHIFlitParams,
+                                 home_node_id :: Bits(p.node_id_width),
+                                 subordinate_node_id :: Bits(p.node_id_width),
+                                 request :: CHIReqFlit(p),
+                                 data :: CHIDatFlit(p),
+                                 txn_id :: Bits(12),
+                                 early_write_acknowledge :: Bool) :~ CHIReqFlit(p):
+  def line_address = request.address[6..p.request_address_width] ++ bits(0, 6)
+  def packet_offset = (data.data_id ++ bits(0, 4)).zext(p.request_address_width)
+  def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
+  inactive.updated(
+    ~trace_tag: data.trace_tag,
+    ~tag_op: CHITagOp.Invalid,
+    ~mem_attr: request.mem_attr.updated(~early_write_acknowledge: early_write_acknowledge),
+    ~order: CHIOrder.NoOrder,
+    ~pas: request.pas,
+    ~address: line_address + packet_offset,
+    ~size_or_num_req: bits(alignment_bits(p.data_bytes), 6),
+    ~opcode: CHIReqOpcode.WriteNoSnpFull,
+    ~return_nid_or_stash_nid_or_data_target: home_node_id,
+    ~txn_id: txn_id,
+    ~src_id: home_node_id,
+    ~tgt_id: subordinate_node_id,
+    ~qos: request.qos
+  )
+
 export:
+  chi_home_snoop
+  chi_home_snoop_write_request
   chi_rn_write_data
   chi_hnf_response
   chi_home_downstream_request

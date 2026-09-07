@@ -25,6 +25,7 @@ import:
   lib("chi/transfer-fragmenter.rhdl") open
   lib("chi/address-projector.rhdl") open
   lib("chi/home.rhdl") open
+  lib("chi/home-common.rhdl") open
   lib("chi/coherent-home.rhdl") open
   lib("chi/inclusive-home.rhdl") open
 
@@ -169,6 +170,8 @@ export:
   CHISingleBeatSubordinate
   chi_rn_write_data
   chi_home_downstream_request
+  chi_home_snoop
+  chi_home_snoop_write_request
   chi_hnf_snoop_write_data
   chi_home_upstream_read_data
   CHIRamConfig

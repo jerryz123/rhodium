@@ -14,17 +14,17 @@ module chi_messages_tb;
   CHIMessageFixture dut(.request(request), .node_id(node_id), .dbid(dbid), .data_id(data_id), .data(data),
                         .home_request_bits(home_request_bits), .home_data_bits(home_data_bits),
                         .original_req_w128(), .original_dat_w128(), .downstream_w128(), .write_w128(), .upstream_w128(),
-                        .requester_write_w128(),
+                        .requester_write_w128(), .snoop_w128(), .intervention_w128(),
                         .original_req_h128(), .original_dat_h128(), .downstream_h128(), .write_h128(), .upstream_h128(),
-                        .requester_write_h128(),
+                        .requester_write_h128(), .snoop_h128(), .intervention_h128(),
                         .original_req_w256(), .original_dat_w256(), .downstream_w256(), .write_w256(), .upstream_w256(),
-                        .requester_write_w256(),
+                        .requester_write_w256(), .snoop_w256(), .intervention_w256(),
                         .original_req_h256(), .original_dat_h256(), .downstream_h256(), .write_h256(), .upstream_h256(),
-                        .requester_write_h256(),
+                        .requester_write_h256(), .snoop_h256(), .intervention_h256(),
                         .original_req_w512(), .original_dat_w512(), .downstream_w512(), .write_w512(), .upstream_w512(),
-                        .requester_write_w512(),
+                        .requester_write_w512(), .snoop_w512(), .intervention_w512(),
                         .original_req_h512(), .original_dat_h512(), .downstream_h512(), .write_h512(), .upstream_h512(),
-                        .requester_write_h512(),
+                        .requester_write_h512(), .snoop_h512(), .intervention_h512(),
                         .other_request(other_request), .other_node_id(other_node_id), .other_dbid(other_dbid),
                         .other_data_id(other_data_id), .other_data(other_data),
                         .dbid_response(), .write_response(), .other_dbid_response(), .other_write_response(), .other_read_response(),
@@ -66,6 +66,7 @@ module chi_messages_tb;
   begin \
     type(dut.original_req_``P) expected_req; \
     type(dut.original_dat_``P) expected_dat; \
+    type(dut.snoop_``P) expected_snp; \
     expected_req = dut.original_req_``P; \
     expected_req.exp_comp_ack = 0; \
     expected_req.excl_snoop_me_cah = 0; \
@@ -124,6 +125,29 @@ module chi_messages_tb;
     expected_dat.src_id = node_id; \
     expected_dat.tgt_id = other_node_id; \
     assert (dut.requester_write_``P === expected_dat) else $fatal(1, "Requester write DAT construction mismatch"); \
+    expected_snp = '0; \
+    expected_snp.trace_tag = dut.original_req_``P.trace_tag; \
+    expected_snp.pas = dut.original_req_``P.pas; \
+    expected_snp.address = other_request.address[51:3]; \
+    expected_snp.opcode = 5'h07; \
+    expected_snp.txn_id = other_request.txn_id; \
+    expected_snp.src_id = node_id; \
+    expected_snp.qos = dut.original_req_``P.qos; \
+    assert (dut.snoop_``P === expected_snp) else $fatal(1, "Home SNP construction mismatch"); \
+    expected_req = '0; \
+    expected_req.trace_tag = dut.original_dat_``P.trace_tag; \
+    expected_req.mem_attr = dut.original_req_``P.mem_attr; \
+    expected_req.mem_attr.early_write_acknowledge = other_request.mem_attr.early_write_acknowledge; \
+    expected_req.pas = dut.original_req_``P.pas; \
+    expected_req.address = {dut.original_req_``P.address[51:6], dut.original_dat_``P.data_id, 4'b0}; \
+    expected_req.size_or_num_req = 6'($clog2($bits(dut.original_dat_``P.data) / 8)); \
+    expected_req.opcode = 7'h1d; \
+    expected_req.return_nid_or_stash_nid_or_data_target = node_id; \
+    expected_req.txn_id = other_request.txn_id; \
+    expected_req.src_id = node_id; \
+    expected_req.tgt_id = other_node_id; \
+    expected_req.qos = dut.original_req_``P.qos; \
+    assert (dut.intervention_``P === expected_req) else $fatal(1, "Home intervention REQ construction mismatch"); \
   end
 
   initial begin
