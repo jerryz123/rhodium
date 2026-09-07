@@ -2,6 +2,7 @@
 // Defines RV5Stage's CSR, synchronous trap, and privileged-return controls.
 
 import:
+  "../../../riscv/isa/zicboz.rhm" open
   "decode-support.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -94,7 +95,10 @@ def RV64RV5StageSystemCases = RV64ISystemCases ++ instruction_cases(
   no_system
 ) ++ ZicsrSystemCases ++ PrivilegedSystemCases ++ instruction_cases(ZifenceiInstructions, no_system)
 
+def ZicbozSystemCases = instruction_cases(ZicbozInstructions, no_system)
+
 export:
+  ZicbozSystemCases
   CsrOperation
   csr_write_requested
   SystemOperation

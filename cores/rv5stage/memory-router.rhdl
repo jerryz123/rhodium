@@ -4,11 +4,13 @@
 import:
   "../load-store.rhdl".MemoryWidth
   "memory.rhdl" open
+  "profile.rhm".RV5StageCacheLineBytes
   "dcache/protocol.rhdl" open
   "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/rtl/pma.rhdl" open
   lib("rhodium/std/flow.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
 
 sync_circuit RV5StageMemoryRouter(xlen :: XLen,
                                   physical_map :: RiscvPhysicalMemoryMap):
@@ -25,7 +27,10 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
      [MemoryWidth.Half, bits(1, xlen.width)],
      [MemoryWidth.Word, bits(3, xlen.width)]]
   )
-  def physical = physical_map.lookup(request.address, request.address +& last_byte_offset)
+  def zero_block = operation.is_cache_block_zero()
+  def first_address = mux(zero_block, align_down(request.address, RV5StageCacheLineBytes), request.address)
+  def last_address = first_address +& mux(zero_block, bits(RV5StageCacheLineBytes - 1, xlen.width), last_byte_offset)
+  def physical = physical_map.lookup(first_address, last_address)
   def request_reads = operation.is_load() ||| operation.is_atomic()
   def request_writes = operation.needs_unique()
   def request_is_atomic = operation.is_one_of(MemoryOperation.LoadReserved,
@@ -33,7 +38,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
                                               MemoryOperation.Atomic)
   def request_permitted = physical.mapped & (!request_reads ||| physical.readable) & (
     !request_writes ||| physical.writable
-  ) & (!request_is_atomic ||| physical.atomic)
+  ) & (!request_is_atomic ||| physical.atomic) & (!zero_block ||| physical.cache_block_zero)
   def request_is_uncached = !physical.cacheable
   def cache_available = uncached.drained
   def uncached_available = cache.drained

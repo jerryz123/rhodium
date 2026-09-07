@@ -13,6 +13,7 @@ def rv64_double = RVCoreProfile(
   ~extensions: RV5StageExtensions(
     ~floating_point: FloatingPointProfile.D,
     ~zicbop: #true,
+    ~zicboz: #true,
     ~compressed: CCompressedExtensions
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
@@ -25,6 +26,7 @@ def rv64_yaml = rv5stage_udb_configuration(
 ).to_yaml()
 
 check:
+  rv64_yaml.contains("{ name: \"Zicboz\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("name: \"rhodium-rv5stage-rv64dc\"") ~is #true
   rv64_yaml.contains("{ name: \"D\", version: \"= 2.2.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"C\", version: \"= 2.0\" }") ~is #true

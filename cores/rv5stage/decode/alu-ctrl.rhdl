@@ -2,6 +2,7 @@
 // Maps base integer, B, and Zicond instructions onto shared ALU resources.
 
 import:
+  "../../../riscv/isa/zicboz.rhm" open
   "../../alu.rhdl" open
   "decode-support.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
@@ -229,7 +230,10 @@ circuit RV64IAluInstructionDecoder():
   valid <== decoded.valid
   control <== decoded.value
 
+def ZicbozAluCases = instruction_cases(ZicbozInstructions, address_alu)
+
 export:
+  ZicbozAluCases
   RV32IAluCases
   RV64IAluCases
   RV32BAluCases

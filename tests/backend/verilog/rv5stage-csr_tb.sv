@@ -106,6 +106,7 @@ module rv5stage_csr_tb;
   logic [63:0] satp;
   logic [2:0] frm;
   logic fp_enabled;
+  logic cbo_zero_enabled;
   logic translation_flush;
 
   RV5StageCsrFile dut (.*);
@@ -506,6 +507,31 @@ module rv5stage_csr_tb;
     csr_access(CSR_SET, CSR_FCSR, 64'h0, 64'h82);
 
     $display("RV5Stage CSR and privilege transitions passed");
+    reset_dut();
+    assert (cbo_zero_enabled) else $fatal(1, "M mode must allow CBO.ZERO");
+    csr_access(CSR_WRITE, 12'h30a, ~64'd0, 64'd0);
+    csr_access(CSR_SET, 12'h30a, 64'd0, 64'h80);
+    csr_access(CSR_WRITE, 12'h10a, ~64'd0, 64'd0);
+    csr_access(CSR_SET, 12'h10a, 64'd0, 64'h80);
+    enter_supervisor(64'd0);
+    assert (cbo_zero_enabled) else $fatal(1, "M CBZE did not enable S mode");
+    csr_access(CSR_WRITE, 12'h10a, 64'd0, 64'h80);
+    assert (cbo_zero_enabled) else $fatal(1, "S CBZE must not restrict S mode");
+    csr_access(CSR_WRITE, CSR_SEPC, 64'h300, 64'd0);
+    system_action(SYSTEM_SRET, 64'd0, 64'h300);
+    assert (privilege == PRIVILEGE_U && !cbo_zero_enabled)
+      else $fatal(1, "U mode must require S CBZE");
+    reset_dut();
+    csr_access(CSR_WRITE, 12'h30a, 64'h80, 64'd0);
+    csr_access(CSR_WRITE, 12'h10a, 64'h80, 64'd0);
+    csr_access(CSR_WRITE, CSR_MEPC, 64'h300, 64'd0);
+    system_action(SYSTEM_MRET, 64'd0, 64'h300);
+    assert (privilege == PRIVILEGE_U && cbo_zero_enabled)
+      else $fatal(1, "both CBZE bits did not enable U mode");
+    reset_dut();
+    csr_access(CSR_WRITE, 12'h10a, 64'h80, 64'd0);
+    enter_supervisor(64'd0);
+    assert (!cbo_zero_enabled) else $fatal(1, "S mode must require M CBZE");
     $finish;
   end
 endmodule

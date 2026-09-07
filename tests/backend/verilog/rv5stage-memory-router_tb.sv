@@ -92,6 +92,18 @@ module rv5stage_memory_router_tb;
     check_request(32'h00004000, LOAD, 1'b0, 1'b0, 1'b1);
     core_in.request.bits.width = 2'd0;
 
+    // Block permission is checked at both ends, independent of rs1 alignment
+    // and scalar width. Uncached RAM is legal; devices and partial blocks are not.
+    for (int offset = 0; offset < 64; offset++) begin
+      check_request(32'h1000 + offset, 3'd6, 1'b1, 1'b0, 1'b0);
+      check_request(32'h7000 + offset, 3'd6, 1'b0, 1'b1, 1'b0);
+    end
+    check_request(32'h2001, 3'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'h3001, 3'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'h5001, 3'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'h8001, 3'd6, 1'b0, 1'b0, 1'b1);
+    check_request(32'hffff, 3'd6, 1'b0, 1'b0, 1'b1);
+
     cache_in.request_access_fault = 1'b1;
     check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b1);
     cache_in.request_access_fault = 1'b0;

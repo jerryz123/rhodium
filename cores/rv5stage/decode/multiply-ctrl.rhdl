@@ -2,6 +2,7 @@
 // Defines RV5Stage's RV32 and RV64 Zmmul multiplier-control relation.
 
 import:
+  "../../../riscv/isa/zicboz.rhm" open
   "../../multiplier.rhdl" open
   "decode-support.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -89,7 +90,10 @@ circuit RV5StageMultiplyInstructionDecoder(xlen :: XLen):
   valid <== decoded.valid
   control <== decoded.value
 
+def ZicbozMultiplyCases = instruction_cases(ZicbozInstructions, unused_multiply)
+
 export:
+  ZicbozMultiplyCases
   RV5StageMultiplyControl
   RV32ZmmulControlCases
   RV64ZmmulControlCases

@@ -80,7 +80,7 @@ module rv5stage_mmu_replay_tb;
   localparam logic [63:0] SATP_SV39_ROOT_1 = 64'h80000000_00000001;
   localparam logic [63:0] LEVEL_2_POINTER = 64'h801;
   localparam logic [63:0] LEVEL_1_POINTER = 64'hc01;
-  localparam logic [63:0] LEVEL_0_LEAF = 64'h2043;
+  localparam logic [63:0] LEVEL_0_LEAF = 64'h2047;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
@@ -105,6 +105,7 @@ module rv5stage_mmu_replay_tb;
   logic [1:0] pte_requests;
   logic translated_request_seen;
   logic page_fault_phase;
+  logic zero_request = 1'b0;
   logic page_fault_pte_seen;
 
   RV5StageMmu dut (.*);
@@ -115,8 +116,8 @@ module rv5stage_mmu_replay_tb;
     instruction_in.flush = instruction_flush;
     instruction_in.response.ready = 1'b1;
     data_in.request.valid = data_request_valid;
-    data_in.request.bits.address = page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS;
-    data_in.request.bits.access = MEMORY_LOAD;
+    data_in.request.bits.address = (page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS) + (zero_request ? 64'd63 : 64'd0);
+    data_in.request.bits.access = zero_request ? 3'd6 : MEMORY_LOAD;
     data_in.request.bits.atomic = '0;
     data_in.request.bits.width = MEMORY_DOUBLE;
     data_in.request.bits.unsigned_0 = 1'b1;
@@ -258,6 +259,19 @@ module rv5stage_mmu_replay_tb;
     #1 data_request_valid = 1'b0;
     assert (translated_request_seen)
       else $fatal(1, "translated replay was not accepted downstream");
+
+    // A writable but non-dirty leaf may serve loads, but CBO.ZERO must fault
+    // under the core's fault-on-A/D policy, even on a nonaligned TLB hit.
+    @(negedge clock);
+    zero_request = 1'b1;
+    data_request_valid = 1'b1;
+    #1;
+    assert (data_out.request.ready && data_out.request_fault && !data_memory_out.request.valid)
+      else $fatal(1, "CBO.ZERO did not enforce store dirty-bit permission");
+    @(posedge clock);
+    #1;
+    data_request_valid = 1'b0;
+    zero_request = 1'b0;
 
     // The leaf is readable and accessed but not dirty. PREFETCH.W is still
     // permitted because prefetch translation accepts any R/W/X permission and

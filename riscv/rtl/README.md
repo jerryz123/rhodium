@@ -163,7 +163,10 @@ device-memory transaction semantics. `RiscvPhysicalMemoryMap.lookup(first,
 last)` accepts arbitrary-width hardware addresses, rejects high bits outside
 the configured physical width, and reports attributes only when both endpoints
 lie in the same region. A transfer therefore cannot straddle PMA regions.
-Interconnect routing and Home ownership remain outside this adapter.
+The optional `~cache_block_zero` attribute defaults to false and explicitly
+permits cache-block zero accesses independently of cacheability. Callers must
+also check write permission and pass the complete aligned block range to
+`lookup`. Interconnect routing and Home ownership remain outside this adapter.
 
 [`sv39.rhdl`](sv39.rhdl) materializes the pure Sv39 constants as typed PTE,
 access, translation, canonical-address, VPN, leaf, structural-validity,

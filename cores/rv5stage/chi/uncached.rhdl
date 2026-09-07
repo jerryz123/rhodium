@@ -3,6 +3,7 @@
 
 import:
   "foundation.rhdl" open
+  "../profile.rhm".RV5StageCacheLineBytes
   "../fp/types.rhdl" open
   "../memory.rhdl" open
   "../dcache/protocol.rhdl" open
@@ -54,12 +55,17 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   reg dbid(Bits(12))
   reg write_data(Bits(64))
   reg write_mask(Mask(8))
+  reg zero_active(~init: Bool(#false))
+  reg zero_index(Bits(index_width(RV5StageCacheLineBytes / 8)), ~init: bits(0, index_width(RV5StageCacheLineBytes / 8)))
 
   def idle = state === RV5StageUncachedState.Idle
   def command :: RV5StageDataReq(xlen) = core.request.bits.request
   def command_access :: MemoryOperation = command.access
   def command_supported = command_access.is_one_of(MemoryOperation.Load,
-                                                   MemoryOperation.Store)
+                                                   MemoryOperation.Store,
+                                                   MemoryOperation.CacheBlockZero)
+  def command_zero = command_access.is_cache_block_zero()
+  def zero_last = zero_index === bits(RV5StageCacheLineBytes / 8 - 1, index_width(RV5StageCacheLineBytes / 8))
   def instruction_command = instruction.request.bits
   def select_data = core.request.valid
   def select_instruction = !select_data
@@ -70,16 +76,16 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   def selected_home = mux(select_instruction, instruction_home, command_home)
   def selected_address = mux(select_instruction,
                              instruction_command.address,
-                             command.address)
+                             mux(command_zero, align_down(command.address, RV5StageCacheLineBytes), command.address))
   def selected_size = mux(
     select_instruction,
     CHITransferSize.Bytes4,
-    command.width.as_bits().zext(3).into(CHITransferSize)
+    mux(command_zero, CHITransferSize.Bytes8, command.width.as_bits().zext(3).into(CHITransferSize))
   )
   def selected_opcode = mux(
     select_instruction,
     CHIReqOpcode.ReadNoSnp,
-    mux(command_access.is_store(), CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp)
+    mux(command_access.is_store() ||| command_zero, CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp)
   )
   def selected_device = mux(select_instruction,
                             instruction_command.device,
@@ -174,7 +180,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     page_fault: Bool(#false)
     access_fault: Bool(#false)
 
-  core.response.valid <== data_read_valid ||| completion_fire
+  core.response.valid <== data_read_valid ||| (completion_fire & (!zero_active ||| zero_last))
   core.response.bits <== RV5StageDataResp(xlen):
     data: mux(data_read_valid, load_gen.value, bits(0, width))
     destination: destination
@@ -196,8 +202,10 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     request_size <== selected_size
     request_opcode <== selected_opcode
     request_device <== selected_device
-    write_data <== store_gen.data
-    write_mask <== store_gen.mask
+    write_data <== mux(command_zero, bits(0, 64), store_gen.data)
+    write_mask <== mux(command_zero, (!bits(0, 8)).into(Mask(8)), store_gen.mask)
+    zero_active <== select_data & command_zero
+    zero_index <== bits(0, index_width(RV5StageCacheLineBytes / 8))
     state <== RV5StageUncachedState.Request
   elsewhen (request_pending & owner_is_instruction & instruction.flush):
     state <== RV5StageUncachedState.Idle
@@ -210,6 +218,10 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     state <== RV5StageUncachedState.WriteData
   elsewhen write_data_fire:
     state <== RV5StageUncachedState.WriteResponse
+  elsewhen (completion_fire & zero_active & !zero_last):
+    address <== address + bits(8, width)
+    zero_index <== zero_index + bits(1, index_width(RV5StageCacheLineBytes / 8))
+    state <== RV5StageUncachedState.Request
   elsewhen (read_fire ||| completion_fire):
     state <== RV5StageUncachedState.Idle
 

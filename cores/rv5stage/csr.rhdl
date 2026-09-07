@@ -37,6 +37,8 @@ bundle RV5StageCsrCommit(xlen :: XLen):
   exception_value: Bits(xlen.width)
 
 bundle RV5StageCsrState(xlen :: XLen):
+  menvcfg: Bits(xlen.width)
+  senvcfg: Bits(xlen.width)
   mstatus: Bits(xlen.width)
   medeleg: Bits(xlen.width)
   mideleg: Bits(xlen.width)
@@ -281,6 +283,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def interrupt_enable_mask = bits(0xaaa, width)
   def supervisor_interrupt_mask = bits(0x222, width)
   def counter_enable_mask = bits(0x7, width)
+  def envcfg_mask = bits(if core_profile.extensions.zicboz | 0x80 | 0, width)
   def tvec_mask = !bits(0x3, width)
   def epc_mask = if compressed_enabled | !bits(0x1, width) | !bits(0x3, width)
   def mpp_mask = bits(0x1800, width)
@@ -304,10 +307,16 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   output satp: Bits(width)
   output frm: Bits(3)
   output fp_enabled: Bool
+  output cbo_zero_enabled: Bool
   output translation_flush: Bool
 
   reg privilege_state(PrivilegeMode, ~init: PrivilegeMode.Machine)
   reg state(RV5StageCsrState(xlen), ~init: literal(RV5StageCsrState(xlen), 0))
+  cbo_zero_enabled <== Bool(core_profile.extensions.zicboz) & (
+    (privilege_state === PrivilegeMode.Machine) ||| (
+      state.menvcfg[7].into(Bool) & ((privilege_state =/= PrivilegeMode.User) ||| state.senvcfg[7].into(Bool))
+    )
+  )
   inst counters(RiscvBaseCounters(xlen))
   def FpCsrModule = if floating_point_supports_f(profile) | RV5StageFpCsrs() | RV5StageDisabledFpCsrs()
   inst fp_csrs(FpCsrModule)
@@ -351,7 +360,10 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
       read: state.scounteren
       write value:
         state.scounteren <== value & counter_enable_mask
-    read CsrId.Senvcfg: zero
+    csr CsrId.Senvcfg:
+      read: state.senvcfg
+      write value:
+        state.senvcfg <== value & envcfg_mask
     storage CsrId.Sscratch: state.sscratch
     csr CsrId.Sepc:
       read: state.sepc
@@ -404,7 +416,10 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
       read: state.mcounteren
       write value:
         state.mcounteren <== value & counter_enable_mask
-    read CsrId.Menvcfg: zero
+    csr CsrId.Menvcfg:
+      read: state.menvcfg
+      write value:
+        state.menvcfg <== value & envcfg_mask
     storage CsrId.Mscratch: state.mscratch
     csr CsrId.Mepc:
       read: state.mepc

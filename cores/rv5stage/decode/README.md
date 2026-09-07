@@ -16,7 +16,7 @@ Contributors changing decode ownership or instruction coverage should read
 ## Select a decode specialization
 
 `RV5StageInstructionDecoder` accepts `xlen`, `profile`, `half_precision`, and
-the default-disabled `zfa` and `zicbop` switches as host parameters. They
+the default-disabled `zfa`, `zicbop`, and `zicboz` switches as host parameters. They
 select the instruction catalogs before hardware is generated:
 
 | Specialization | Selected rows |
@@ -27,6 +27,8 @@ select the instruction catalogs before hardware is generated:
 | RV64D | The RV64 core rows plus the RV64F and RV64D catalogs |
 
 Enabling Zicbop overlays its three prefetch rows on any of these selections.
+Zicboz instead appends one ordinary composed row: rs1 address generation,
+`MemoryOperation.CacheBlockZero`, and no architectural register write.
 The standard decode library subtracts those exact regions from the broad
 `ORI` row, preserving one unordered decode relation. When disabled, the same
 encodings retain their ordinary legal `ORI x0` hint meaning.

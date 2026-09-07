@@ -53,5 +53,11 @@ and `WriteNoSnpPtl`, routes read data back to the accepted owner, drains flushed
 instruction work without publishing it, reports unsupported data operations as
 access faults, and asserts address, Home, response, and packet invariants.
 
+For a PMA-authorized `CacheBlockZero`, the engine aligns the address to 64
+bytes and serializes eight zero-valued, full-mask 64-bit writes. Only the
+last acknowledged write produces a core response. No other request can
+interleave, and `drained` stays false until the entire operation completes.
+The engine does not recheck PMAs; the upstream router owns block-wide permission.
+
 See [`DEVELOPING.md`](DEVELOPING.md) for source ownership, dependency rules,
 and focused validation.

@@ -30,7 +30,7 @@ def simple_soc_home = CHIHomeParams("simple-home", 5, CHINodeKind.HNF, ~max_outs
 def simple_soc_device_home = CHIHomeParams("simple-device-home", 6, CHINodeKind.HNI, ~max_outstanding: 1)
 def simple_soc_memory_base = 0x80000000
 def simple_soc_memory_bytes = 0x40000000
-def simple_soc_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
+def simple_soc_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
 def simple_soc_clocks = SoCClockConfig(
   ~clock_frequency_hz: 100000000,
   ~timebase_frequency_hz: 100000000

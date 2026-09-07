@@ -19,7 +19,7 @@ check:
   rv64.outputs.map(fun (port): port.name) ~is [
     "redirect_out", "interrupt_request", "wfi_retired", "wfi_wake",
     "writeback_valid", "writeback_value", "privilege", "mstatus", "satp",
-    "frm", "fp_enabled", "translation_flush"
+    "frm", "fp_enabled", "cbo_zero_enabled", "translation_flush"
   ]
   rv64.find_input("interrupts").type.field("machine_timer").type.bit_width() ~is 1
   rv64.find_input("commit_in").type.field("bits").type.field("pc").type.width ~is 64

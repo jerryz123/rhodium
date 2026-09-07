@@ -100,6 +100,21 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For Zicboz, keep permission/fault ownership above the cache, and exercise
+both XLEN SRAM sequences as well as the one-completion uncached sequence:
+
+```sh
+tools/run-racket-tests.sh cores/rv5stage/tests/zicboz-test.rhm
+FIXTURES='rv5stage-zicboz rv5stage-csr rv5stage-memory-router rv5stage-mmu-replay rv5stage-dcache rv5stage-dcache-rv32 rv5stage-uncached' \
+  bash tests/backend/run-circt.sh --simulate-only
+```
+
+The scalar fixture covers request rejection/replay, fence drain ordering,
+store-class faults with original `rs1` trap values, and CBZE denial. The cache
+fixtures cover all byte offsets and complete-line visibility. The FESVR
+payload and simulator validation remain owned by
+[`sims/DEVELOPING.md`](../../sims/DEVELOPING.md).
+
 Run host checks only when decode, configuration, specialization, or public
 elaboration-time validation changes:
 

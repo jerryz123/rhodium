@@ -295,7 +295,7 @@ specialization input to `RV5Stage` and `RV5StageCore`.
 | Parameter | Meaning |
 |---|---|
 | `profile.xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
-| `profile.extensions` | Floating-point, half-precision, Zfa, Zicbop, and compressed-extension selection; Zicbop defaults to disabled |
+| `profile.extensions` | Floating-point, half-precision, Zfa, Zicbop, Zicboz, and compressed-extension selection; Zicbop and Zicboz default to disabled |
 | `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
 | `profile.cache_geometry` | Independent L1I and L1D set and way geometry |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |
@@ -388,6 +388,23 @@ non-cacheable instruction and data requests arbitrate onto the same
 one-outstanding RN-I engine, with a presented data request taking priority.
 Unmapped, denied, or non-cacheable atomic requests fault locally
 instead of entering CHI.
+
+With Zicboz enabled, `cbo.zero` zeros the entire naturally aligned 64-byte block
+containing `rs1`. It uses the ordinary store-translation path, with no scalar
+alignment requirement or register result. M-mode may always execute it;
+S-mode requires `menvcfg.CBZE`, and U-mode requires both `menvcfg.CBZE` and
+`senvcfg.CBZE`. These bit-7 fields reset to zero and are read-only zero when
+the extension is disabled. Other environment-configuration fields remain zero.
+The original virtual address is retained for store page/access faults.
+
+The PMA router requires write permission and explicit block-zero support
+over the complete block before accepting any side effect. Normal SoC RAM
+supports block zero; ROM and devices do not. Cacheability is independent:
+L1D zeros an exclusively owned line and retains it dirty, while uncached RAM
+uses eight acknowledged 64-bit writes and produces one completion. The memory
+path stays undrained throughout either operation. Fences wait for both
+in-pipeline memory instructions and accepted memory work. Block zero does not
+provide instruction-cache synchronization; modified code still needs FENCE.I.
 
 With Zicbop enabled, `RV5StageCore` computes the virtual prefetch address in
 Execute and emits `Valid(CachePrefetchReq(xlen.width))`. This event has no

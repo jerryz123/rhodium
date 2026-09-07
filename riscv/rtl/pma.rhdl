@@ -11,7 +11,8 @@ class RiscvPhysicalMemoryAttributes(readable :: Boolean,
                                     cacheable :: Boolean,
                                     atomic :: Boolean,
                                     device :: Boolean,
-                                    read_idempotent :: Boolean):
+                                    read_idempotent :: Boolean,
+                                    cache_block_zero :: Boolean):
   implements StableCircuitParam
 
   constructor (readable :: Boolean,
@@ -20,12 +21,13 @@ class RiscvPhysicalMemoryAttributes(readable :: Boolean,
                cacheable :: Boolean,
                atomic :: Boolean,
                device :: Boolean,
-               read_idempotent :: Boolean):
+               read_idempotent :: Boolean,
+               ~cache_block_zero: cache_block_zero :: Boolean = #false):
     if cacheable && device
     | error(~who: #'RiscvPhysicalMemoryAttributes,
             "cacheable physical memory cannot use device-memory semantics")
     | #void
-    super(readable, writable, executable, cacheable, atomic, device, read_idempotent)
+    super(readable, writable, executable, cacheable, atomic, device, read_idempotent, cache_block_zero)
 
 class RiscvPhysicalMemoryRegion(address_set :: AddressSet,
                                 attributes :: RiscvPhysicalMemoryAttributes):
@@ -40,6 +42,7 @@ bundle RiscvPhysicalMemoryLookup():
   atomic: Bool
   device: Bool
   read_idempotent: Bool
+  cache_block_zero: Bool
 
 class RiscvPhysicalMemoryMap(address_width :: PosInt,
                              regions :: NonemptyList.of(RiscvPhysicalMemoryRegion)):
@@ -89,6 +92,7 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
     def mutable atomic = Bool(#false)
     def mutable device = Bool(#false)
     def mutable read_idempotent = Bool(#false)
+    def mutable cache_block_zero = Bool(#false)
     for (region in regions):
       def matches = region.address_set.matches(address) & region.address_set.matches(last_address)
       mapped := mapped ||| matches
@@ -99,6 +103,7 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
       atomic := mux(matches, Bool(region.attributes.atomic), atomic)
       device := mux(matches, Bool(region.attributes.device), device)
       read_idempotent := mux(matches, Bool(region.attributes.read_idempotent), read_idempotent)
+      cache_block_zero := mux(matches, Bool(region.attributes.cache_block_zero), cache_block_zero)
     RiscvPhysicalMemoryLookup():
       mapped: fits & last_fits & mapped
       readable: fits & last_fits & mapped & readable
@@ -108,6 +113,7 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
       atomic: fits & last_fits & mapped & atomic
       device: fits & last_fits & mapped & device
       read_idempotent: fits & last_fits & mapped & read_idempotent
+      cache_block_zero: fits & last_fits & mapped & cache_block_zero
 
 export:
   RiscvPhysicalMemoryAttributes

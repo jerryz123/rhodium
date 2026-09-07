@@ -106,3 +106,11 @@ CIRCT tool or an explicit `CIRCT_OPT`, and execution requires FESVR plus the
 RISC-V cross compiler. Rhombus checks use repository wrappers with fresh
 compiled roots. Technology-mapped simulation remains owned by
 [`../vlsi/sim/`](../vlsi/sim/README.md).
+
+The Zicboz payload checks all 64 offsets and neighboring blocks through the
+normal FESVR flow. Its final signature also lets FESVR read the dirty cache
+line coherently after the program exits:
+
+```sh
+make -C sims zicboz-test SOC=simple
+```

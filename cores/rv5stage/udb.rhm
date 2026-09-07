@@ -57,6 +57,8 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
   | result := result ++ [extension("Zfa", "1.0.0")]
   when selected.zicbop
   | result := result ++ [extension("Zicbop", "1.0.0")]
+  when selected.zicboz
+  | result := result ++ [extension("Zicboz", "1.0.0")]
   when selected.compressed_misa_c(xlen)
   | result := result ++ [extension("C", "2.0")]
   when compressed_extensions_enabled(selected.compressed)
@@ -170,7 +172,7 @@ fun rv5stage_udb_parameters(profile :: RVCoreProfile,
     natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", [0]),
     natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", if floating_point_supports_f(selected.floating_point) | [0, 1, 2, 3] | [0])
   ]
-  when selected.zicbop
+  when selected.zicbop || selected.zicboz
   | result := result ++ [natural_parameter("CACHE_BLOCK_SIZE", RV5StageCacheLineBytes)]
   when floating_point_supports_f(selected.floating_point)
   | result := result ++ [

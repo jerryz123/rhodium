@@ -386,7 +386,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def device_home = config.device_home
   def platform = config.platform_for(device_home)
 
-  def memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
+  def memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
   def rv5stage_config = RV5StageCHIConfig(
     flit,
     (for List (placement in llc_placements,

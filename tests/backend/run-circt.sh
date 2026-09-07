@@ -683,6 +683,7 @@ direct_fixture_specs=(
   'rv5stage-core-rv32f|'
   'rv5stage-core-rv64d|'
   'rv5stage-data-fault|rv5stage_data_fault_tb'
+  'rv5stage-zicboz|rv5stage_zicboz_tb'
   'rv5stage-mmu-replay|rv5stage_mmu_replay_tb'
   'rv5stage-interrupt|rv5stage_interrupt_tb'
   'rv5stage-wfi|rv5stage_wfi_tb'
@@ -694,7 +695,7 @@ direct_fixture_specs=(
   'rv5stage-core-rv32|'
   'rv5stage-icache|rv5stage_icache_tb'
   'rv5stage-dcache|rv5stage_dcache_tb'
-  'rv5stage-dcache-rv32|'
+  'rv5stage-dcache-rv32|rv5stage_dcache_rv32_tb'
 )
 
 fixture_declared() {

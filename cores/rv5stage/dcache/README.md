@@ -107,6 +107,15 @@ selected way, and old value in a one-entry mutation register. On the following
 edge it updates the selected byte lanes and sets UniqueDirty without emitting
 REQ or DAT traffic; an AMO returns the captured value from before that update.
 
+`MemoryOperation.CacheBlockZero` carries the original address and no result
+destination. A Unique hit writes zeros to every XLEN word while blocking
+lookups and snoops for that bounded SRAM interval. A shared hit or miss uses
+`ReadUnique`, including ordinary dirty-victim writeback, then installs zeros
+instead of the returned data. Both paths leave UniqueDirty, clear a matching
+reservation, and produce one response after the final word. RV64 takes eight
+word writes and RV32 sixteen. Snoop handling remains available while waiting
+for ownership, avoiding a dependency on a blocked Home transaction.
+
 The Valid prefetch path joins only at the lookup input and cannot backpressure
 the MMU. A queued or same-cycle demand request wins. A read hint that misses
 launches the ordinary clean refill; a write hint that misses or finds a shared

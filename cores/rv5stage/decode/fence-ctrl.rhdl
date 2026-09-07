@@ -2,6 +2,7 @@
 // Defines RV5Stage's explicit memory- and instruction-fence controls.
 
 import:
+  "../../../riscv/isa/zicboz.rhm" open
   "decode-support.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -65,7 +66,10 @@ def RV64RV5StageFenceCases = RV64IFenceCases ++ instruction_cases(
   address_translation_fence
 )
 
+def ZicbozFenceCases = instruction_cases(ZicbozInstructions, no_fence)
+
 export:
+  ZicbozFenceCases
   FenceOperation
   FenceControl
   RV32IFenceCases

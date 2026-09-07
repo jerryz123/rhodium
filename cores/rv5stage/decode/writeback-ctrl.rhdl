@@ -2,6 +2,7 @@
 // Defines base and extension architectural writeback and result-source controls.
 
 import:
+  "../../../riscv/isa/zicboz.rhm" open
   "decode-support.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -111,7 +112,10 @@ def RV64RV5StageWritebackCases = RV64IWritebackCases ++ instruction_cases(
 def RV32IWritebackDecode = ValidDecodeGen(RV32IWritebackCases)
 def RV64IWritebackDecode = ValidDecodeGen(RV64IWritebackCases)
 
+def ZicbozWritebackCases = instruction_cases(ZicbozInstructions, no_writeback)
+
 export:
+  ZicbozWritebackCases
   WritebackSelect
   WritebackControl
   RV32IWritebackCases

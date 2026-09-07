@@ -116,6 +116,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   reg pending_mutation_request(RV5StageDataReq(xlen))
   reg pending_mutation_way(Bits(way_width))
   reg pending_mutation_old_value(Bits(width))
+  reg pending_zero_index(~init: bits(0, word_index_width))
   reg refill_installing(~init: Bool(#false))
   reg refill_install_index(~init: bits(0, word_index_width))
   reg gather_state(~init: RV5StageDataGatherState.Idle)
@@ -203,10 +204,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def lookup_ready = lookup.egress.valid & tags.port.response.valid & states.port.response.valid
   def lookup_load = lookup_ready & !lookup_prefetch & lookup_access.is_load()
   def lookup_store = lookup_ready & !lookup_prefetch & lookup_access.is_store()
+  def lookup_zero = lookup_ready & !lookup_prefetch & lookup_access.is_cache_block_zero()
   def lookup_atomic = lookup_ready & !lookup_prefetch & lookup_access.is_atomic()
   def lookup_sc = lookup_ready & !lookup_prefetch & lookup_access.is_store_conditional()
   def reservation_matches = reservation_valid & (reservation_address === lookup_request.address) & (reservation_width === lookup_request.width)
-  def lookup_mutation = lookup_store ||| lookup_atomic ||| (lookup_sc & reservation_matches)
+  def lookup_mutation = lookup_store ||| lookup_zero ||| lookup_atomic ||| (lookup_sc & reservation_matches)
   def mutation_has_ownership = lookup_mutation & line_hit & lookup_state.is_unique()
   def prefetch_needs_refill = lookup_ready & lookup_prefetch & (!line_hit ||| (lookup_prefetch_write & !lookup_state.is_unique()))
   def prefetch_dirty_victim = prefetch_needs_refill & !line_hit & victim_valid & victim_state.is_dirty()
@@ -310,6 +312,10 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def local_mutation_capture = local_mutation & lookup.egress.fire()
   def local_mutation_commit = pending_mutation_valid
   def pending_mutation_access :: MemoryOperation = pending_mutation_request.access
+  // Owned hits keep the SRAM until the complete block is zero. No new CHI
+  // transaction is held up by this bounded interval; snoops resume afterward.
+  def pending_zero = pending_mutation_access.is_cache_block_zero()
+  def local_mutation_complete = local_mutation_commit & (!pending_zero ||| (pending_zero_index === bits(words_per_line - 1, word_index_width)))
   local_atomic_alu.old_value <== pending_mutation_old_value
   local_atomic_alu.operand <== pending_mutation_request.data
   local_atomic_alu.memory_width <== pending_mutation_request.width
@@ -317,7 +323,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   local_store_gen.address <== pending_mutation_request.address
   local_store_gen.value <== mux(pending_mutation_access.is_atomic(), local_atomic_alu.value, pending_mutation_request.data)
   local_store_gen.width <== pending_mutation_request.width
-  def local_store_word_data = local_store_gen.data.as_vec(Bits(8))
+  def local_store_word_data = mux(pending_zero, bits(0, width), local_store_gen.data).as_vec(Bits(8))
 
   refill_load_gen.address <== completion_request.address
   refill_load_gen.data <== refilled_word
@@ -340,7 +346,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
           refill_store_word_data[byte_index],
           refill_install_bytes[byte_index])
   )
-  def refill_install_data = mux(mutate_refill_word, merged_refill_word, refill_install_bytes)
+  def refill_install_data = mux(completion_access.is_cache_block_zero(), bits(0, width).as_vec(Bits(8)), mux(mutate_refill_word, merged_refill_word, refill_install_bytes))
   def cache_write = refill_install_word ||| local_mutation_commit
   assert(refill.command.ready ||| writeback.command.ready,
          "l1d_backing_owner_exclusive")
@@ -403,7 +409,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !pending_mutation_valid & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
   def produces_load_hit = lookup_load & line_hit
   def produces_failed_sc = lookup_sc & !reservation_matches
-  def produces_response = produces_load_hit ||| local_mutation_commit ||| produces_failed_sc ||| (install_refill & !completion_prefetch)
+  def produces_response = produces_load_hit ||| local_mutation_complete ||| produces_failed_sc ||| (install_refill & !completion_prefetch)
   def response_request :: RV5StageDataReq(xlen) = mux(
     install_refill,
     completion_request,
@@ -429,7 +435,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def snoop_update_way_mask = rv5stage_cache_way_mask(cache, snoop_way)
   def full_byte_mask = (!bits(0, word_bytes)).into(Mask(word_bytes))
   def refill_lane_mask = rv5stage_cache_lane_mask(cache, completion_way, word_bytes, full_byte_mask)
-  def local_mutation_lane_mask = rv5stage_cache_lane_mask(cache, pending_mutation_way, word_bytes, local_store_gen.mask)
+  def local_mutation_lane_mask = rv5stage_cache_lane_mask(cache, pending_mutation_way, word_bytes, mux(pending_zero, full_byte_mask, local_store_gen.mask))
   def line_write_bytes = mux(local_mutation_commit, local_store_word_data, refill_install_data)
   def mutable repeated_line_write_bytes = []
   for (_way in 0..ways):
@@ -469,7 +475,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     write: install_refill ||| local_mutation_commit ||| update_snoop_state
     data: vec(for List (_way in 0..ways): state_write_data)
     mask: state_write_mask
-  def local_mutation_address = pending_mutation_request.address[word_offset_width..(offset_width + set_width)]
+  def local_mutation_address = mux(pending_zero, pending_mutation_request.address[offset_width..(offset_width + set_width)] ++ pending_zero_index, pending_mutation_request.address[word_offset_width..(offset_width + set_width)])
   def refill_install_address = (completion_set ++ refill_install_index)
   def gather_address = (gather_set ++ gather_issue_index)
   lines.port.request.valid <== lookup_issue ||| cache_write ||| gather_issue
@@ -491,8 +497,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     pending_mutation_request <== lookup_request
     pending_mutation_way <== lookup_selection.index
     pending_mutation_old_value <== load_gen.value
-  elsewhen local_mutation_commit:
+    pending_zero_index <== bits(0, word_index_width)
+  elsewhen local_mutation_complete:
     pending_mutation_valid <== Bool(#false)
+  elsewhen local_mutation_commit:
+    pending_zero_index <== pending_zero_index + bits(1, word_index_width)
 
   when refill_install_start:
     refill_installing <== Bool(#true)
@@ -552,11 +561,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     install_refill & (completion_access === MemoryOperation.LoadReserved)
   )
   def lookup_reservation_clear = lookup.egress.fire() & !local_mutation_capture & (
-    lookup_sc ||| ((lookup_store ||| lookup_atomic) & (lookup_line_address === reservation_line_address))
+    lookup_sc ||| ((lookup_store ||| lookup_zero ||| lookup_atomic) & (lookup_line_address === reservation_line_address))
   )
   def mutation_reservation_clear = local_mutation_commit & (
     pending_mutation_access.is_store_conditional() ||| (
-      (pending_mutation_access.is_store() ||| pending_mutation_access.is_atomic()) & (pending_mutation_line_address === reservation_line_address)
+      (pending_mutation_access.is_store() ||| pending_zero ||| pending_mutation_access.is_atomic()) & (pending_mutation_line_address === reservation_line_address)
     )
   )
   def snoop_reservation_clear = snoop.update.valid & snoop.update.bits.invalidate & (

@@ -177,6 +177,64 @@ module rv5stage_uncached_tb;
     assert (core_out.drained)
       else $fatal(1, "uncached engine did not return to idle");
 
+    // One accepted, arbitrarily aligned zero request stays outstanding across
+    // eight acknowledged writes, including backpressure at every CHI boundary.
+    core_in.request.valid = 1'b1;
+    core_in.request.bits.request.address = 64'hc03f;
+    core_in.request.bits.request.access = 3'd6;
+    core_in.request.bits.request.destination = 2'd0;
+    core_in.request.bits.device = 1'b0;
+    tick();
+    core_in.request.valid = 1'b0;
+    for (int word = 0; word < 8; word++) begin
+      chi_in.req.ready = 1'b0;
+      repeat (3) begin
+        #1;
+        assert (chi_out.req.valid && chi_out.req.bits.address == 44'hc000 + 44'(word * 8) &&
+                chi_out.req.bits.opcode == 7'h1c && chi_out.req.bits.size_or_num_req == 6'd3 &&
+                !chi_out.req.bits.mem_attr.device && !chi_out.req.bits.mem_attr.cacheable &&
+                !core_out.drained && !core_out.response.valid && !core_out.request.ready)
+          else $fatal(1, "incorrect zero write request %0d", word);
+        tick();
+      end
+      chi_in.req.ready = 1'b1;
+      tick();
+      chi_in.rsp.response.bits = '0;
+      chi_in.rsp.response.bits.opcode = 5'h06;
+      chi_in.rsp.response.bits.src_id = 7'd4;
+      chi_in.rsp.response.bits.dbid_or_group_id = 12'h33;
+      chi_in.rsp.response.valid = 1'b1;
+      #1;
+      assert (chi_out.rsp.response.ready) else $fatal(1, "zero DBID not accepted");
+      tick();
+      chi_in.rsp.response.valid = 1'b0;
+      chi_in.dat.request.ready = 1'b0;
+      repeat (3) begin
+        #1;
+        assert (chi_out.dat.request.valid && chi_out.dat.request.bits.data == 0 &&
+                chi_out.dat.request.bits.byte_enable == (((word & 1) != 0) ? 16'hff00 : 16'h00ff) &&
+                chi_out.dat.request.bits.txn_id == 12'h33 && !core_out.response.valid && !core_out.drained)
+          else $fatal(1, "incorrect zero write data %0d", word);
+        tick();
+      end
+      chi_in.dat.request.ready = 1'b1;
+      tick();
+      repeat (3) begin
+        assert (!core_out.response.valid && !core_out.drained)
+          else $fatal(1, "zero completed before acknowledgement");
+        tick();
+      end
+      chi_in.rsp.response.bits.opcode = 5'h04;
+      chi_in.rsp.response.valid = 1'b1;
+      #1;
+      assert (core_out.response.valid == (word == 7) && !core_out.drained)
+        else $fatal(1, "zero produced an intermediate completion");
+      tick();
+      chi_in.rsp.response.valid = 1'b0;
+    end
+    #1;
+    assert (core_out.drained && !core_out.response.valid && !chi_out.req.valid)
+      else $fatal(1, "zero did not complete exactly once");
     $display("RV5Stage shared uncached instruction/data path passed");
     $finish;
   end

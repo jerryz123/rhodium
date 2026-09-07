@@ -2,6 +2,7 @@
 // Defines RV5Stage's load, store, LR/SC, and AMO decode controls.
 
 import:
+  "../../../riscv/isa/zicboz.rhm" open
   "../memory.rhdl" open
   "decode-support.rhdl" open
   "../../load-store.rhdl" open
@@ -225,7 +226,12 @@ def RV64RV5StageMemoryCases = RV64IMemoryCases ++ instruction_cases(
 def RV32IMemoryDecode = ValidDecodeGen(RV32IMemoryCases)
 def RV64IMemoryDecode = ValidDecodeGen(RV64IMemoryCases)
 
+def zero_memory = partial_pattern(MemoryControl()):
+  access: MemoryOperation.CacheBlockZero
+def ZicbozMemoryCases = instruction_cases(ZicbozInstructions, zero_memory)
+
 export:
+  ZicbozMemoryCases
   MemoryOperation
   RV5StageAtomicOperation
   MemoryControl

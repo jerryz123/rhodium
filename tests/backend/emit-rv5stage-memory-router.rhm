@@ -9,17 +9,20 @@ import:
   "../../riscv/rtl/pma.rhdl" open
   "../../cores/rv5stage/memory-router.rhdl".RV5StageMemoryRouter
 
-def readable_writable_memory = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
+def readable_writable_memory = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
 def readable_writable_device = RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)
 def read_only_memory = RiscvPhysicalMemoryAttributes(#true, #false, #true, #true, #false, #false, #true)
 def read_only_uncached_memory = RiscvPhysicalMemoryAttributes(#true, #false, #false, #false, #false, #false, #true)
+def zero_uncached_memory = RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #false, #true, ~cache_block_zero: #true)
 def physical_map = RiscvPhysicalMemoryMap(
   16,
   [RiscvPhysicalMemoryRegion(AddressSet(0x1000, 0x0fff), readable_writable_memory),
    RiscvPhysicalMemoryRegion(AddressSet(0x2000, 0x0fff), readable_writable_device),
    RiscvPhysicalMemoryRegion(AddressSet(0x3000, 0x0fff), read_only_memory),
    RiscvPhysicalMemoryRegion(AddressSet(0x4000, 0x0003), readable_writable_device),
-   RiscvPhysicalMemoryRegion(AddressSet(0x5000, 0x0fff), read_only_uncached_memory)]
+   RiscvPhysicalMemoryRegion(AddressSet(0x5000, 0x0fff), read_only_uncached_memory),
+   RiscvPhysicalMemoryRegion(AddressSet(0x7000, 0x0fff), zero_uncached_memory),
+   RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x001f), readable_writable_memory)]
 )
 def design = embedded.run_elaboration(fun (): RV5StageMemoryRouter(XLen.X32, physical_map))
 print(emit_circt(design))

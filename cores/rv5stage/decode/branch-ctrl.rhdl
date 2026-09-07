@@ -2,6 +2,7 @@
 // Maps base control transfers and disabled extension cases to branch controls.
 
 import:
+  "../../../riscv/isa/zicboz.rhm" open
   "decode-support.rhdl" open
   "../../branch-resolver.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
@@ -95,7 +96,12 @@ def RV64RV5StageBranchCases = branch_cases(
 def RV32IBranchDecode = ValidDecodeGen(RV32IBranchCases)
 def RV64IBranchDecode = ValidDecodeGen(RV64IBranchCases)
 
+def no_branch = partial_pattern(BranchControl()):
+  resolver: disabled_resolver
+def ZicbozBranchCases = instruction_cases(ZicbozInstructions, no_branch)
+
 export:
+  ZicbozBranchCases
   BranchControl
   RV32IBranchCases
   RV64IBranchCases

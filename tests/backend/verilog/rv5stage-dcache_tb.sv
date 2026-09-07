@@ -66,6 +66,7 @@ module rv5stage_dcache_tb;
   localparam logic [2:0] MEMORY_LR = 3'd3;
   localparam logic [2:0] MEMORY_SC = 3'd4;
   localparam logic [2:0] MEMORY_ATOMIC = 3'd5;
+  localparam logic [2:0] MEMORY_ZERO = 3'd6;
   localparam logic [3:0] ATOMIC_SWAP = 4'd0;
   localparam logic [3:0] ATOMIC_ADD = 4'd1;
   localparam logic [1:0] DATA_DESTINATION_NONE = 2'd0;
@@ -189,7 +190,7 @@ module rv5stage_dcache_tb;
                                width: 2'd3,
                                unsigned_load: 1'b0,
                                data: data,
-                               destination: access == MEMORY_STORE ? DATA_DESTINATION_NONE : DATA_DESTINATION_INTEGER,
+                               destination: (access == MEMORY_STORE || access == MEMORY_ZERO) ? DATA_DESTINATION_NONE : DATA_DESTINATION_INTEGER,
                                rd: rd,
                                floating_point_precision: 2'b01};
       core_in.request.valid = 1'b1;
@@ -616,6 +617,77 @@ module rv5stage_dcache_tb;
     send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd18);
     expect_core_response(64'habcdef01_23456789, DATA_DESTINATION_INTEGER, 5'd18);
 
+    // A unique hit zeros all words, ignores the byte offset and clears LR.
+    send_core_request(PREFETCH_WRITE_ADDRESS, MEMORY_LR, ATOMIC_SWAP, 64'd0, 5'd12);
+    expect_core_response(STORE_DATA, DATA_DESTINATION_INTEGER, 5'd12);
+    for (int offset = 0; offset < 64; offset++) begin
+      send_core_request(PREFETCH_WRITE_ADDRESS + 64'(offset), MEMORY_ZERO, ATOMIC_SWAP, ~64'd0, 5'd0);
+      expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
+      assert (!tx_req_pending) else $fatal(1, "unique zero issued CHI traffic");
+      for (int word = 0; word < 8; word++) begin
+        send_core_request(PREFETCH_WRITE_ADDRESS + 64'(word * 8), MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd1);
+        expect_core_response(64'd0, DATA_DESTINATION_INTEGER, 5'd1);
+      end
+    end
+    send_core_request(PREFETCH_WRITE_ADDRESS, MEMORY_SC, ATOMIC_SWAP, STORE_DATA, 5'd12);
+    expect_core_response(64'd1, DATA_DESTINATION_INTEGER, 5'd12);
+    send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd18);
+    expect_core_response(64'habcdef01_23456789, DATA_DESTINATION_INTEGER, 5'd18);
+
+    // A shared hit must acquire Unique before writing, then a coherent observer
+    // receives all zeros. It cannot see a partially overwritten SRAM line.
+    grant_req_credit();
+    send_core_request(PREFETCH_READ_ADDRESS + 64'd63, MEMORY_ZERO, ATOMIC_SWAP, ~64'd0, 5'd0);
+    accept_request(READ_UNIQUE, PREFETCH_READ_ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
+    assert (!core_out.drained && !core_out.response.valid)
+      else $fatal(1, "zero completed before ownership");
+    return_line(PREFETCH_READ_ADDRESS, LINE, 3'b010);
+    accept_comp_ack();
+    expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
+    send_snoop(PREFETCH_READ_ADDRESS, 12'h078);
+    for (beat = 0; beat < 4; beat++)
+      accept_snoop_data(beat, 512'd0, 12'h078);
+    tick();
+
+    // The invalidated line takes the same ownership/install path on a miss.
+    grant_req_credit();
+    send_core_request(PREFETCH_READ_ADDRESS + 64'd1, MEMORY_ZERO, ATOMIC_SWAP, ~64'd0, 5'd0);
+    accept_request(READ_UNIQUE, PREFETCH_READ_ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
+    return_line(PREFETCH_READ_ADDRESS, LINE, 3'b010);
+    accept_comp_ack();
+    expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
+    for (int word = 0; word < 8; word++) begin
+      send_core_request(PREFETCH_READ_ADDRESS + 64'(word * 8), MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd1);
+      expect_core_response(64'd0, DATA_DESTINATION_INTEGER, 5'd1);
+    end
+    // A zero miss must first preserve the dirty victim. Its eight writes
+    // carry the old zeroed line, then the new block acquires Unique ownership.
+    grant_req_credit();
+    grant_dat_credit();
+    send_core_request(PREFETCH_WRITE_ADDRESS + 64'h100, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd1);
+    accept_request(READ_CLEAN, PREFETCH_WRITE_ADDRESS + 64'h100, 12'd0, 6'd6, 1'b1, 4'd0);
+    return_line(PREFETCH_WRITE_ADDRESS + 64'h100, LINE, 3'b001);
+    accept_comp_ack();
+    expect_core_response(LINE[63:0], DATA_DESTINATION_INTEGER, 5'd1);
+    send_core_request(PREFETCH_WRITE_ADDRESS + 64'h201, MEMORY_ZERO, ATOMIC_SWAP, ~64'd0, 5'd0);
+    for (beat = 0; beat < 8; beat++) begin
+      accept_request(WRITE_UNIQUE_PTL, PREFETCH_WRITE_ADDRESS + 64'(beat * 8), 12'd1, 6'd3, 1'b1, 4'd0);
+      send_response(COMP_DBID_RESP, 12'd1, 12'h055, 4'd0);
+      accept_write_data(64'd0, beat / 2, (beat & 1) != 0);
+    end
+    accept_request(READ_UNIQUE, PREFETCH_WRITE_ADDRESS + 64'h200, 12'd0, 6'd6, 1'b1, 4'd0);
+    // Home may need a snoop before returning the owned block. Serve it while
+    // awaiting refill, rather than reserving SRAM throughout the transaction.
+    send_snoop(PREFETCH_READ_ADDRESS, 12'h079);
+    for (beat = 0; beat < 4; beat++)
+      accept_snoop_data(beat, 512'd0, 12'h079);
+    return_line(PREFETCH_WRITE_ADDRESS + 64'h200, LINE, 3'b010);
+    accept_comp_ack();
+    expect_core_response(64'd0, DATA_DESTINATION_NONE, 5'd0);
+    send_snoop(PREFETCH_WRITE_ADDRESS + 64'h200, 12'h07a);
+    for (beat = 0; beat < 4; beat++)
+      accept_snoop_data(beat, 512'd0, 12'h07a);
+    tick();
     $display("RV5Stage write-back data-cache simulation passed");
     $finish;
   end

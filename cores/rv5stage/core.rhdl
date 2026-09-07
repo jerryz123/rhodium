@@ -46,12 +46,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def half_precision = extensions.half_precision
   def zfa_enabled = extensions.zfa
   def zicbop_enabled = extensions.zicbop
+  def zicboz_enabled = extensions.zicboz
   def compressed_extensions = extensions.compressed
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
-  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled).map(fun (instruction): instruction.name)
+  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled).map(fun (instruction): instruction.name)
 
   interface start(Irrevocable(Bits(width)), ~role: consumer)
   input interrupts: RV5StageInterrupts()
@@ -95,7 +96,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   inst ex_mem_pipe(ValidPipe(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipe(MemoryWriteback(xlen), 1))
 
-  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled))
+  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled))
   inst registers(RV5StageRegisterFile(xlen))
   inst alu(ALU(xlen))
   inst branch_resolver(BranchResolver(width))
@@ -229,6 +230,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
   def fp_rounding = riscv_rounding_mode(instruction_field(riscv_fields.rm, instruction), csrs.frm)
   def decoded_immediate = control.operand.immediate.decode(instruction, width)
   def decoded_illegal = decode_bits.compressed_illegal ||| !decoder.valid ||| (
+    control.memory.access.is_cache_block_zero() & !csrs.cbo_zero_enabled
+  ) ||| (
     control.floating_point_valid & (
       !csrs.fp_enabled ||| (
         control.floating_point.execution.uses_rounding_mode & !fp_rounding.valid
@@ -320,7 +323,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
     or_reduce(fp_integer_scoreboard.busy) ||| !fp.drained
   )
   def serializing_waits_for_deferred = serializing_operation(control.system, control.fence) & deferred_state_pending
-  def fence_waits_for_data = control.fence.is_fence_operation() & !data_access.drained
+  // Include older accesses not yet accepted by the LSU: drained alone can
+  // still be true while a block zero (or scalar store) is in Execute/Memory.
+  def older_memory_in_flight = (id_ex.valid & id_ex.bits.memory_operation.into(MemoryOperation).is_memory()) ||| (memory.valid & memory.bits.data_request_valid)
+  def fence_waits_for_data = control.fence.is_fence_operation() & (older_memory_in_flight ||| !data_access.drained)
   def decoded_needs_multiplier = (control.writeback.source === WritebackSelect.Multiply) & control.writeback.enable & or_reduce(rd)
   def id_ex_has_multiply = id_ex.valid & (id_ex.bits.writeback_source === WritebackSelect.Multiply) & id_ex.bits.writeback_enable & or_reduce(id_ex.bits.rd)
   def memory_has_multiply = memory.valid & (memory.bits.writeback_source === WritebackSelect.Multiply) & memory.bits.writeback_enable & or_reduce(memory.bits.rd)
@@ -434,8 +440,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile):
     id_ex.bits.pc + id_ex.bits.immediate
   )
   def redirect_aligned = is_aligned(computed_redirect_target, instruction_alignment)
-  def memory_aligned = id_ex.bits.memory_width.is_aligned(alu.result)
   def execute_memory_operation :: MemoryOperation = id_ex.bits.memory_operation
+  def memory_aligned = execute_memory_operation.is_cache_block_zero() ||| id_ex.bits.memory_width.is_aligned(alu.result)
   def execute_prefetch_operation :: CachePrefetchOperation = id_ex.bits.prefetch_operation
   def execute_is_memory = execute_memory_operation.is_memory()
   def fp_execution_control :: RV5StageFloatExecutionControl() = id_ex.bits.floating_point_control.execution

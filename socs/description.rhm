@@ -143,7 +143,11 @@ fun cpu_node(hart :: Nat,
      DeviceTreeProperty("i-cache-size", DeviceTreeU32(instruction_cache.capacity_bytes)),
      DeviceTreeProperty("d-cache-block-size", DeviceTreeU32(RV5StageCacheLineBytes)),
      DeviceTreeProperty("d-cache-sets", DeviceTreeU32(data_cache.sets)),
-     DeviceTreeProperty("d-cache-size", DeviceTreeU32(data_cache.capacity_bytes))],
+     DeviceTreeProperty("d-cache-size", DeviceTreeU32(data_cache.capacity_bytes))] ++ (
+      if profile.extensions.zicboz
+      | [DeviceTreeProperty("riscv,cboz-block-size", DeviceTreeU32(RV5StageCacheLineBytes))]
+      | []
+    ),
     [DeviceTreeNode(
        "interrupt-controller",
        [DeviceTreeProperty("#interrupt-cells", DeviceTreeU32(1)),

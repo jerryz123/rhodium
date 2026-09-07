@@ -8,7 +8,7 @@ import:
 
 def test_rv5stage_flit = CHIFlitParams()
 def test_rv5stage_home = CHIHomeParams("test-rv5stage-home", 1, CHINodeKind.HNF, ~max_outstanding: 2)
-def test_rv5stage_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)
+def test_rv5stage_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
 def test_rv5stage_chi_config = RV5StageCHIConfig(
   test_rv5stage_flit,
   [RV5StageCHIRegion(

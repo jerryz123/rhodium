@@ -35,9 +35,11 @@ SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
 SIMULATOR_BINARY := $(SOC_OBJECT_DIR)/VTestDriver
 SMOKE_BINARY := $(SOC_BUILD_DIR)/rv5stage_smoke.elf
+ZICBOZ_BINARY := $(SOC_BUILD_DIR)/rv5stage_zicboz.elf
+ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zicboz.signature
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
-.PHONY: all setup simulator run smoke dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
+.PHONY: all setup simulator run smoke zicboz-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
 
 all: simulator
 
@@ -58,6 +60,11 @@ run: simulator
 
 smoke: $(SMOKE_BINARY)
 	$(MAKE) run SOC=$(SOC) BINARY=$(SMOKE_BINARY)
+
+zicboz-test: $(ZICBOZ_BINARY) $(SIMULATOR_BINARY)
+	$(SIMULATOR_BINARY) +signature=$(ZICBOZ_SIGNATURE) +signature-granularity=16 $(ZICBOZ_BINARY)
+	awk '{ expected = (NR > 4 && NR <= 8) ? "00000000000000000000000000000000" : "ffffffffffffffffffffffffffffffff"; if ($$0 != expected) exit 1 } END { if (NR != 12) exit 1 }' $(ZICBOZ_SIGNATURE)
+	@echo "Zicboz offset, neighbor, and coherent signature checks passed"
 
 dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	@test -n "$(VERILATOR_ROOT)" || \
@@ -131,3 +138,7 @@ $(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
                  tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+
+$(ZICBOZ_BINARY): tests/programs/rv5stage_zicboz.S tests/programs/rv5stage_zicboz.ld | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=rv64im_zicsr -mabi=lp64 -nostdlib -nostartfiles \
+	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_zicboz.ld $< -o $@

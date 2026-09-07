@@ -31,9 +31,11 @@ one-shot release channel. Each author-facing SoC parameter object owns one
 architectural description. `SimpleSoC` defaults to RV64D and the full C
 composition, `MiniSoC` to integer-only RV64 with 2 KiB direct-mapped L1s, and
 `TiledSoC` to integer-only RV64 with the C composition. All three select Sv39;
-Zicbop is enabled in each default profile, while half precision and Zfa remain
+Zicbop and Zicboz are enabled in each default profile, while half precision and Zfa remain
 disabled. Supply an alternate `RVCoreProfile` through the owning SoC parameter
 object to change those selections.
+Zicboz-capable CPU nodes advertise `riscv,cboz-block-size = 64`; normal RAM
+permits block zero, while ROM and peripheral regions reject it.
 
 Every system also exposes the shared [`SoCUartInterface`](peripherals.rhdl)
 containing RX, TX, and interrupt signals.
