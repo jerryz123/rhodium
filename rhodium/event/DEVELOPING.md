@@ -110,8 +110,8 @@ as queue and pipeline controls. Lower plans recursively at each consuming
 annotation, memoizing constructed plan values to share common storage. Grant
 muxes default to invalid and assert pairwise exclusion using an accumulated
 seen-grant bit. Downstream storage wraps the mux result exactly once. Each
-occurrence still emits one edge, with the dynamically selected parent site and
-sequence. Reject partial annotated ancestry across selectable inputs, uncertified fanout,
+occurrence emits edges for the valid parent slots of the selected lineage.
+Reject partial annotated ancestry across selectable or joined inputs, uncertified fanout,
 uncertified merges, and terminal ancestors. An all-unannotated path establishes
 a root checkpoint instead of requiring fabricated parent identities.
 
@@ -150,6 +150,23 @@ The same certified-divergence check accepts distinct recipients. Both latency
 and linear `trace_stages` are false; branch-local storage wraps this plan node.
 
 ## Extend trace coverage
+
+`EventTraceJoin` concatenates the contributing input lineages without adding a
+visible node. Lower plans to a record containing transaction validity and a
+`VectorType(P, EventRef)`. Capacity is computed from the plan, not from payload
+width or the number of distinct static sites: sum at joins, maximum at selection,
+one at a source annotation. Preserve each slot's validity when padding selection
+inputs. The separate transaction-valid bit is the conjunction at joins and is
+selected, stored, or gated together with the vector everywhere else.
+
+Storage must use the incoming lineage type and a matching invalid reset value;
+never fall back to single-reference memory/registers after a join. Broadcast
+reconvergence still shares storage within a consuming plan. Hidden annotation
+ports stay singleton `EventRef` because every annotation replaces its incoming
+lineage with its own identity. At emission, assert transaction completeness and
+call the existing edge DPI for each valid slot. Keep duplicate references in
+hardware; the runtime edge set removes duplicate occurrence pairs. Do not
+deduplicate by site alone or flatten an arbiter into the union of possible inputs.
 
 Attach an `InterfaceTraceModel` only when a transform can state its possible
 top-level endpoint routes exactly. Route indices refer to the transform's
@@ -208,6 +225,13 @@ to dynamic passthrough merely because its endpoint cardinality is one-to-one.
 An unmodeled transform is a supported boundary: inference reports the concrete
 transform occurrence and stops with an error when a downstream annotation
 requires traversal through it.
+
+`InterfaceTraceAtomicJoin` certifies zero-storage all-input rendezvous: every
+input transfers exactly when the single output transfers. Validate positive
+input count and complete ordered routes. `zip_flow` supplies this contract;
+route-only merge metadata is not upgraded implicitly. There are no new observed
+controls for the join itself. Static latency is zero and linear `trace_stages`
+are false across it; inference constructs `EventTraceJoin` instead.
 
 ## Focused validation
 
@@ -277,6 +301,16 @@ deliveries before installing a new resident parent and rejects duplicate deliver
 Coverage requires independent stalls, simultaneous completions, partial-delivery
 reset, buffered reset, replacement, and draining. Complete DPI graphs and
 unannotated functional lanes are compared every cycle.
+
+The `event-join` fixture checks multi-parent references through input and output
+storage, nested joins, atomic-fork and broadcast reconvergence, differently sized
+arbiter inputs, downstream demuxes, repeated hierarchy, and annotation cut points.
+Its oracle reconstructs parent sets from public transfers, not trace vectors.
+Compare complete graph JSON and unannotated functional lanes. Coverage requires
+stalls, reset with outstanding work, both selection alternatives, duplicate-edge
+deduplication, distinct occurrences from the same site, and final draining.
+Host checks validate capacity bounds, original-design immutability, atomic routes,
+and rejection of partial annotated ancestry.
 
 Every direct Racket or Rhombus command must use a fresh `PLTCOMPILEDROOTS` as
 required by the repository `AGENTS.md`.

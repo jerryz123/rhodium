@@ -35,6 +35,7 @@ export:
   InterfaceTraceSelection
   InterfaceTraceRouting
   InterfaceTraceAtomicFork
+  InterfaceTraceAtomicJoin
   InterfaceTraceBufferedBroadcast
   InterfaceTransformGroup
   InterfaceEventGroup
@@ -58,6 +59,7 @@ export:
   interface_trace_selection
   interface_trace_routing
   interface_trace_atomic_fork
+  interface_trace_atomic_join
   interface_trace_broadcast
   describe_interface_broadcast_storage
   interface_trace_buffered_broadcast
@@ -439,6 +441,8 @@ class InterfaceTraceSelection(instance :: Instance, grants :: NonemptyList.of(Va
 class InterfaceTraceRouting(predicates :: NonemptyList.of(Value))
 // Zero-storage replication: every output transfers exactly when the input does.
 class InterfaceTraceAtomicFork(output_count :: PosInt)
+// Zero-storage rendezvous: every input transfers exactly when the output does.
+class InterfaceTraceAtomicJoin(input_count :: PosInt)
 // One resident item, captured on acceptance, retained for independent recipients.
 class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :: NonemptyList.of(Value)):
   implements ModuleMetadataPayload
@@ -446,7 +450,7 @@ class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :
 class InterfaceTraceBufferedBroadcast(instance :: Instance, storage :: InterfaceBroadcastStorage)
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
@@ -454,6 +458,7 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     | dynamic is_a InterfaceTraceSelection: 0
     | dynamic is_a InterfaceTraceRouting: 0
     | dynamic is_a InterfaceTraceAtomicFork: 0
+    | dynamic is_a InterfaceTraceAtomicJoin: 0
     | ~else: #false
   method elastic_stages():
     if dynamic is_a InterfaceTraceElastic | dynamic.stages | #false
@@ -471,6 +476,8 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceRouting | dynamic.predicates | #false
   method atomic_fork_outputs():
     if dynamic is_a InterfaceTraceAtomicFork | dynamic.output_count | #false
+  method atomic_join_inputs():
+    if dynamic is_a InterfaceTraceAtomicJoin | dynamic.input_count | #false
   method broadcast_storage():
     if dynamic is_a InterfaceTraceBufferedBroadcast | dynamic.storage | #false
   method broadcast_instance():
@@ -1720,6 +1727,10 @@ fun interface_trace_atomic_fork(output_count :: PosInt):
   InterfaceTraceModel(for List (index in 0..output_count): InterfaceTraceRoute(0, index),
                       InterfaceTraceAtomicFork(output_count))
 
+fun interface_trace_atomic_join(input_count :: PosInt):
+  InterfaceTraceModel(for List (index in 0..input_count): InterfaceTraceRoute(index, 0),
+                      InterfaceTraceAtomicJoin(input_count))
+
 // Outputs observe the old resident item on an edge that accepts a replacement.
 // Pending bits are the functional per-recipient ownership state; reset flushes it.
 fun describe_interface_broadcast_storage(accept :: HardwareEntity, pending :: NonemptyList.of(HardwareEntity)):
@@ -1767,7 +1778,10 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
                                    output_shape :: InterfaceEndpoint || Array):
   def input_count = interface_endpoint_shape_count(input_shape)
   def output_count = interface_endpoint_shape_count(output_shape)
-  when trace_model.dynamic
+  when trace_model.atomic_join_inputs()
+  | unless output_count == 1 && input_count == trace_model.atomic_join_inputs() && trace_model.routes.length() == input_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..input_count): [index, 0])
+    | error(~who: #'describe_interface_transform, "atomic join trace requires exactly one output and one ordered route per input")
+  when trace_model.dynamic && !trace_model.atomic_join_inputs()
   | if trace_model.selection_grants()
     | unless output_count == 1 && input_count == trace_model.selection_grants().length() && trace_model.routes.length() == input_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..input_count): [index, 0])
       | error(~who: #'describe_interface_transform, "selection trace requires one grant and route per input and exactly one output")

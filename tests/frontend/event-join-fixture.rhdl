@@ -1,0 +1,116 @@
+#lang rhodium
+// Exercises nested joins, replica reconvergence, variable-width selection, and annotation cut points.
+
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
+  interface ingress[3](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  output first_fire: Bool
+  output replicas_fire: Bits(2)
+  output rejoin_fire: Bool
+  output combine_inputs: Bits(2)
+  output combine_fire: Bool
+  output routes_fire: Bits(2)
+  def inputs = for Array (index in 0..3):
+    if traced | ingress[index] |> trace_event("root" ++ to_string(index)) | ingress[index]
+  def left = inputs[0] |> queue(2, ~pipe: #true)
+  def right = inputs[1] |> pipe(2)
+  def third = inputs[2] |> queue(2)
+  def first = Array(left, right) |> zip_flow(a, b => a ^ b)
+  def checkpoint = if traced && mode == 2 | first |> trace_event("joined") | first
+  def replicas = if mode == 0 | checkpoint |> atomic_fork(2) | checkpoint |> broadcast(2)
+  def branch0 = replicas[0] |> pipe(1)
+  def branch1 = replicas[1] |> queue(2)
+  def rejoined = Array(branch0, branch1) |> zip_flow(a, b => a)
+  def stored = rejoined |> queue(2)
+  def combined = if mode == 0 | Array(stored, third) |> zip_flow(a, b => a ^ b) | Array(stored, third) |> rr_arbiter()
+  def routed = combined |> queue(3, ~flow: #true, ~pipe: #true) |> demux_flow(2, payload => payload[0])
+  def outputs = Array(routed[0] |> pipe(1), routed[1] |> queue(2))
+  for (index in 0..2):
+    if traced
+    | outputs[index] |> trace_event("completed" ++ to_string(index), ~terminal: #true) |> egress[index]
+    | outputs[index] |> egress[index]
+  first_fire <== first.valid & first.ready
+  replicas_fire <== vec(for List (index in 0..2): replicas[index].valid & replicas[index].ready).as_bits()
+  rejoin_fire <== rejoined.valid & rejoined.ready
+  combine_inputs <== vec([stored.valid & stored.ready, third.valid & third.ready]).as_bits()
+  combine_fire <== combined.valid & combined.ready
+  routes_fire <== vec(for List (index in 0..2): routed[index].valid & routed[index].ready).as_bits()
+
+sync_circuit EventJoinOccurrences(traced :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  def root = if traced | ingress |> trace_event("occurrences") | ingress
+  def routes = root |> demux_flow(2, payload => payload[0])
+  def even = routes[0] |> queue(2)
+  def odd = routes[1] |> pipe(2)
+  def paired = Array(even, odd) |> zip_flow(a, b => a ^ b) |> queue(2, ~flow: #true)
+  if traced
+  | paired |> trace_event("paired", ~terminal: #true) |> egress
+  | paired |> egress
+
+sync_circuit EventJoin():
+  interface sources[12](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[8](Decoupled(Bits(8)), ~role: producer)
+  interface gold_sources[12](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sinks[8](Decoupled(Bits(8)), ~role: producer)
+  interface sequence_source(Decoupled(Bits(8)), ~role: consumer)
+  interface sequence_sink(Decoupled(Bits(8)), ~role: producer)
+  interface gold_sequence_source(Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sequence_sink(Decoupled(Bits(8)), ~role: producer)
+  output first_fire: Bits(4)
+  output replicas_fire: Bits(8)
+  output rejoin_fire: Bits(4)
+  output combine_inputs: Bits(8)
+  output combine_fire: Bits(4)
+  output routes_fire: Bits(8)
+  def lanes = for List (index in 0..4):
+    def mode = if index == 3 | 1 | index
+    inst lane(EventJoinLane(mode, #true))
+    inst gold(EventJoinLane(mode, #false))
+    for (port in 0..3):
+      sources[index * 3 + port] |> lane.ingress[port]
+      gold_sources[index * 3 + port] |> gold.ingress[port]
+    for (port in 0..2):
+      lane.egress[port] |> sinks[index * 2 + port]
+      gold.egress[port] |> gold_sinks[index * 2 + port]
+    [lane.first_fire, lane.replicas_fire, lane.rejoin_fire, lane.combine_inputs, lane.combine_fire, lane.routes_fire]
+  first_fire <== vec(lanes.map(fun (lane): lane[0])).as_bits()
+  replicas_fire <== vec(lanes.map(fun (lane): lane[1])).as_bits()
+  rejoin_fire <== vec(lanes.map(fun (lane): lane[2])).as_bits()
+  combine_inputs <== vec(lanes.map(fun (lane): lane[3])).as_bits()
+  combine_fire <== vec(lanes.map(fun (lane): lane[4])).as_bits()
+  routes_fire <== vec(lanes.map(fun (lane): lane[5])).as_bits()
+  inst occurrences(EventJoinOccurrences(#true))
+  inst gold_occurrences(EventJoinOccurrences(#false))
+  sequence_source |> occurrences.ingress
+  occurrences.egress |> sequence_sink
+  gold_sequence_source |> gold_occurrences.ingress
+  gold_occurrences.egress |> gold_sequence_sink
+
+sync_circuit EventBadJoin(count :: Nat, duplicate :: Boolean):
+  interface sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def declared = interface_trace_atomic_join(count)
+  def model = if duplicate | InterfaceTraceModel([InterfaceTraceRoute(0, 0), InterfaceTraceRoute(0, 0)], declared.dynamic) | declared
+  describe_interface_transform(InterfaceHandle(sources, sink), "join", ~trace_model: model)
+
+sync_circuit EventPartialJoin():
+  interface sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def left = sources[0] |> trace_event("left")
+  Array(left, sources[1]) |> zip_flow(a, b => a ^ b) |> trace_event("joined") |> sink
+
+def joined = elaborate_with_top(EventJoin())
+fun bad_count(): elaborate_with_top(EventBadJoin(0, #false))
+fun bad_shape(): elaborate_with_top(EventBadJoin(1, #false))
+fun bad_routes(): elaborate_with_top(EventBadJoin(2, #true))
+fun partial(): elaborate_with_top(EventPartialJoin())
+export:
+  joined
+  bad_count
+  bad_shape
+  bad_routes
+  partial

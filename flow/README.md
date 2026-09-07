@@ -113,8 +113,8 @@ ingress
 The [event package](../rhodium/event/README.md) can also rebuild a separate design with
 synthesizable lineage and DPI emission for linear combinational paths and
 fixed-latency `valid_pipe`, elastic `pipe`, in-order `queue`, and ready-valid
-`arbiter`/`rr_arbiter`, `demux_flow`, `atomic_fork`, and `broadcast` paths. Selective/control-only
-forks and joins still require dynamic trace adapters.
+`arbiter`/`rr_arbiter`, `demux_flow`, `atomic_fork`, `broadcast`, and `zip_flow` paths.
+Selective/control-only forks and joins still require dynamic trace adapters.
 `pipe` publishes its actual per-stage load and input-valid controls as typed
 metadata; the instrumenter observes them to keep shadow references aligned
 under stalls without changing functional ready/valid/payload behavior.
@@ -478,6 +478,15 @@ count from its input array and returns an output endpoint array:
 ```
 
 ## Joining and branching topologies
+
+`zip_flow` certifies atomic all-input consumption for event tracing. Its output
+carries the nearest annotated parents from both inputs, including through
+subsequent queues, pipes, routing, and replication. A downstream checkpoint
+emits one edge per distinct contributing occurrence, then replaces that ancestry
+with its own identity. Rejoining copies of the same occurrence produces one
+edge; different occurrences from the same site remain separate. Every joined
+input path must have an annotated ancestor if any does. See the
+[event contract](../rhodium/event/README.md) for lineage bounds and DPI behavior.
 
 `selective_join()` consumes a flat source array containing one selection flow
 followed by homogeneous data flows. The selection token carries `Mask(n)`,

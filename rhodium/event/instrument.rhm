@@ -1,5 +1,5 @@
 #lang rhombus
-// Lowers lineage plans to shadow storage, selected routes, and replication with DPI emission.
+// Lowers bounded multi-parent lineage through storage, routing, joins, and DPI emission.
 
 import:
   "../core/ir.rhm" open
@@ -65,6 +65,10 @@ fun instrument_events(logical :: DesignElaboration,
     | plan is_a EventTraceRouting: plan_controls(plan.input) ++ [plan]
     | plan is_a EventTraceReplication: plan_controls(plan.input)
     | plan is_a EventTraceBroadcast: plan_controls(plan.input) ++ [plan]
+    | plan is_a EventTraceJoin:
+        def mutable found = []
+        for (input in plan.inputs): found := found ++ plan_controls(input)
+        found
     | ~else:
         def mutable found = [plan]
         for (input in plan.inputs): found := found ++ plan_controls(input)
@@ -92,7 +96,7 @@ fun instrument_events(logical :: DesignElaboration,
     when edges.length() > 0
     | def plan = manifest.trace_plans[site.id]
       when #false in sources(plan)
-      | error(~who: #'instrument_events, "selection requires an annotated ancestor on every input path: " ++ site.id)
+      | error(~who: #'instrument_events, "selection or join requires an annotated ancestor on every input path: " ++ site.id)
       parent_plans[site.id] := plan
     def children = MutableSet{}
     for (edge in manifest.dependencies):
@@ -317,6 +321,23 @@ fun instrument_events(logical :: DesignElaboration,
             ["valid", builder.constant(module_def, Bits(1), 0)],
             ["site", builder.constant(module_def, Bits(32), 0)], ["sequence", zero]
           ])
+        // Transaction completeness is distinct from padded parent-slot validity.
+        // Selection can choose differently sized lineages; joins require every
+        // contributing input, but unused selection padding must emit no edge.
+        fun lineage(valid :: Value, parents :: NonemptyList.of(Value)):
+          def vector = builder.vector_create(module_def, VectorType(parents.length(), reference_type), parents)
+          def type = RecordType([RecordField("valid", Bits(1)), RecordField("parents", vector.type)])
+          builder.record_create(module_def, type, [["valid", valid], ["parents", vector]])
+        fun parent_slots(reference :: Value):
+          def vector = builder.record_get(module_def, reference, "parents")
+          for List (index in 0..vector.type.length): builder.vector_get(module_def, vector, index)
+        fun empty_lineage(count :: PosInt):
+          lineage(builder.constant(module_def, Bits(1), 0), for List (_ in 0..count): empty_reference)
+        fun pad_lineage(reference :: Value, count :: PosInt):
+          def parents = parent_slots(reference)
+          if parents.length() == count
+          | reference
+          | lineage(builder.record_get(module_def, reference, "valid"), parents ++ (for List (_ in parents.length()..count): empty_reference))
         def built_plans = MutableMap.by(===){}
         def built_broadcasts = MutableMap{}
         def mutable next_stage = 0
@@ -326,21 +347,22 @@ fun instrument_events(logical :: DesignElaboration,
           name
         fun emit_stage(stage :: EventTraceStage || EventTraceQueue, reference :: Value):
             def name = stage_name()
+            def empty = empty_lineage(reference.type.field("parents").type.length)
             fun observe(value :: Value): observed[control_ids[[stage.instance_path, value.id]]]
             if stage is_a EventTraceQueue
-            | def storage = builder.memory(module_def, name, stage.depth, reference_type)
+            | def storage = builder.memory(module_def, name, stage.depth, reference.type)
               def stored = builder.memory_read_async(module_def, storage, observe(stage.read_address))
               def enqueue = builder.bit_and(module_def, active, observe(stage.enqueue))
               builder.memory_write(module_def, storage, observe(stage.write_address), reference, clock, enqueue)
               // Functional occupancy hides stale memory after reset or dequeue;
               // no shadow pointers, occupancy counter, or payload are needed.
-              def resident = builder.mux_lookup(module_def, observe(stage.stored_valid), empty_reference, [[1, stored]])
+              def resident = builder.mux_lookup(module_def, observe(stage.stored_valid), empty, [[1, stored]])
               builder.assert(module_def, builder.record_get(module_def, resident, "valid"), clock, reset, observe(stage.dequeue), name ++ "_dequeue_present")
               builder.mux_lookup(module_def, observe(stage.bypass), resident, [[1, reference]])
             | block:
-                def delayed = builder.register(module_def, name, reference_type, clock, reset, empty_reference)
+                def delayed = builder.register(module_def, name, reference.type, clock, reset, empty)
                 if stage.advance
-                | def incoming = builder.mux_lookup(module_def, observe(stage.valid), empty_reference, [[1, reference]])
+                | def incoming = builder.mux_lookup(module_def, observe(stage.valid), empty, [[1, reference]])
                   builder.drive(delayed.next, builder.mux_lookup(module_def, observe(stage.advance), delayed.current, [[1, incoming]]))
                 | builder.drive(delayed.next, reference)
                 delayed.current
@@ -348,20 +370,30 @@ fun instrument_events(logical :: DesignElaboration,
           unless built_plans.has_key(plan)
           | def result:
               cond
-              | plan is_a EventTraceSource: references[plan.site]
+              | plan is_a EventTraceSource:
+                  def reference = references[plan.site]
+                  lineage(builder.record_get(module_def, reference, "valid"), [reference])
+              | plan is_a EventTraceJoin:
+                  def mutable valid = yes
+                  def mutable parents = []
+                  for (input in plan.inputs):
+                    def incoming = emit_plan(input)
+                    valid := builder.bit_and(module_def, valid, builder.record_get(module_def, incoming, "valid"))
+                    parents := parents ++ parent_slots(incoming)
+                  lineage(valid, parents)
               | plan is_a EventTraceReplication: emit_plan(plan.input)
               | plan is_a EventTraceBroadcast:
                   fun observe(value :: Value): observed[control_ids[[plan.instance_path, value.id]]]
                   unless built_broadcasts.has_key(plan.broadcast_id)
                   | def name = stage_name()
                     def incoming = emit_plan(plan.input)
-                    def resident = builder.register(module_def, name, reference_type, clock, reset, empty_reference)
+                    def resident = builder.register(module_def, name, incoming.type, clock, reset, empty_lineage(event_trace_capacity(plan)))
                     builder.drive(resident.next, builder.mux_lookup(module_def, observe(plan.accept), resident.current, [[1, incoming]]))
                     builder.assert(module_def, builder.record_get(module_def, incoming, "valid"), clock, reset, observe(plan.accept), name ++ "_accept_present")
                     built_broadcasts[plan.broadcast_id] := resident.current
                   // No bypass: last-recipient delivery uses the old reference
                   // even when this same edge captures the replacement input.
-                  builder.mux_lookup(module_def, observe(plan.pending), empty_reference, [[1, built_broadcasts[plan.broadcast_id]]])
+                  builder.mux_lookup(module_def, observe(plan.pending), empty_lineage(event_trace_capacity(plan)), [[1, built_broadcasts[plan.broadcast_id]]])
               | plan is_a EventTracePipeline:
                   def mutable reference = emit_plan(plan.input)
                   for (stage in plan.stages): reference := emit_stage(stage, reference)
@@ -375,24 +407,27 @@ fun instrument_events(logical :: DesignElaboration,
                     builder.assert(module_def, builder.bit_not(module_def, overlap), clock, reset, yes, name ++ "_onehot_" ++ to_string(index))
                     seen := builder.bit_or(module_def, seen, selected)
                   def selected = observed[control_ids[[plan.instance_path, plan.predicates[plan.output_index].id]]]
-                  builder.mux_lookup(module_def, selected, empty_reference, [[1, emit_plan(plan.input)]])
+                  builder.mux_lookup(module_def, selected, empty_lineage(event_trace_capacity(plan)), [[1, emit_plan(plan.input)]])
               | ~else:
                   def name = stage_name()
-                  def mutable reference = empty_reference
+                  def count = event_trace_capacity(plan)
+                  def mutable reference = empty_lineage(count)
                   def mutable seen = builder.constant(module_def, Bits(1), 0)
                   for (input in plan.inputs, grant in plan.grants, index in 0..plan.grants.length()):
                     def selected = observed[control_ids[[plan.instance_path, grant.id]]]
                     def overlap = builder.bit_and(module_def, seen, selected)
                     builder.assert(module_def, builder.bit_not(module_def, overlap), clock, reset, yes, name ++ "_onehot_" ++ to_string(index))
                     seen := builder.bit_or(module_def, seen, selected)
-                    reference := builder.mux_lookup(module_def, selected, reference, [[1, emit_plan(input)]])
+                    reference := builder.mux_lookup(module_def, selected, reference, [[1, pad_lineage(emit_plan(input), count)]])
                   reference
             built_plans[plan] := result
           built_plans[plan]
         def reference = emit_plan(parent_plans[site.id])
         def parent_valid = builder.record_get(module_def, reference, "valid")
         builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
-        builder.dpi_call(module_def, edge_dpi, [id, sequence, builder.record_get(module_def, reference, "site"), builder.record_get(module_def, reference, "sequence")], clock, builder.bit_and(module_def, fire, parent_valid))
+        for (parent in parent_slots(reference)):
+          def emit = builder.bit_and(module_def, builder.bit_and(module_def, fire, parent_valid), builder.record_get(module_def, parent, "valid"))
+          builder.dpi_call(module_def, edge_dpi, [id, sequence, builder.record_get(module_def, parent, "site"), builder.record_get(module_def, parent, "sequence")], clock, emit)
     unless occurrence === root
     | for (site in subtree_sites(occurrence)):
         builder.drive(builder.output(module_def, ref_name("__event_out_", site), reference_type), references[site.id])

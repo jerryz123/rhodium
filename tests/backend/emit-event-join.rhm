@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits multi-parent join instrumentation beside unannotated functional reference lanes.
+
+import:
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/event/main.rhm".instrument_events
+  "../frontend/event-join-fixture.rhdl" as fixture
+
+print(emit_circt(instrument_events(fixture.joined).instrumented.design))

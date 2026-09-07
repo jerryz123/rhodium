@@ -24,7 +24,7 @@ fun finish_zip_flow_handle(left_link :: Handle,
     interface_transform(Array(left_link, right_link), output_link),
     "zip",
     {"inputs": 2},
-    ~trace_model: interface_trace_merge(2)
+    ~trace_model: interface_trace_atomic_join(2)
   )
 
 // The source is a two-element Array of payload/protocol types or endpoints.

@@ -75,6 +75,11 @@ each branch's copy. It creates no additional visible event sites.
 `EventTraceBroadcast` additionally retains the concrete buffered-broadcast ID,
 input-acceptance control, and selected recipient's pending bit. Its latency is
 variable and its outputs use a stored parent, not the live input reference.
+`EventTraceJoin` combines the ordered input plans of an atomic rendezvous.
+`event_trace_capacity(plan)` reports its statically bounded parent-slot count:
+one at an annotation, the sum at a join, the maximum at selection, and unchanged
+through storage, routing, or replication. Duplicate identities still occupy
+slots; the runtime deduplicates emitted edges by the complete occurrence pair.
 
 `event_manifest_to_json` emits a deterministic version-1 object with format
 name `rhodium-event-graph`, the selected top, sites, and dependencies.
@@ -95,7 +100,7 @@ unmodeled transform is rejected rather than assigned an approximate parent.
   occurrences.
 - Static inference never inserts hardware. Dynamic instrumentation supports
   the storage, selection, and replication subset described below;
-  selective/control-only forks, control-only broadcasts, and joins still require
+  selective/control-only forks, control-only broadcasts, and selective/control-only joins still require
   future dynamic adapters.
 - Only flat top-level flow endpoints are traceable; nested interface members
   are rejected.
@@ -129,9 +134,9 @@ The supported dynamic path consists of annotations, interface connections,
 hierarchy boundaries, `map_flow`, `map_valid`, `filter_flow`, `filter_valid`,
 `gate_flow`, fixed-latency `valid_pipe(stages)`, and elastic ready-valid
 `pipe(stages)`, in-order `queue(depth, ~pipe: ..., ~flow: ...)`,
-ready-valid `arbiter(...)` and `rr_arbiter(...)`, `demux_flow(...)`, `atomic_fork(...)`, and `broadcast(...)`.
+ready-valid `arbiter(...)` and `rr_arbiter(...)`, `demux_flow(...)`, `atomic_fork(...)`, `broadcast(...)`, and atomic `zip_flow(...)`.
 Every intervening transform needs a typed dynamic trace
-contract. Route-only models (including control-only queues, selective/control-only forks and joins), disconnected or opaque
+contract. Route-only models (including control-only queues and selective/control-only forks), unmodeled joins, disconnected or opaque
 upstream boundaries, uncertified multiple-parent paths,
 uncertified fanout dependencies, and descendants of terminal events are rejected.
 Multiple child sites are supported only when every pair of possible paths from
@@ -151,8 +156,22 @@ their own copies, so downstream events may complete independently and at
 different cycles. Each emits one DPI edge to its nearest annotated parent;
 there is no synthetic fork node and no change to the collector ABI. An arbiter
 may later select individual replicas, producing separate occurrences with the
-same ancestor. Combining several inputs into one joined event remains a
-separate multi-parent feature.
+same ancestor. An atomic `zip_flow` instead combines all input lineages.
+
+An annotation after a join emits one node and a DPI edge for each valid incoming
+parent slot, then exposes only its own reference to downstream instrumentation.
+Synthesizable records carry a transaction-valid bit and a bounded vector of
+references through queues, pipelines, routing, and replication. Arbiters select
+the entire lineage and pad shorter inputs with invalid slots. Transaction
+validity requires every contributing join input; invalid padding is not a
+missing contributor. Partially annotated join ancestry is rejected, as with
+selection. An entirely unannotated ancestry establishes a new root event.
+
+Fork/broadcast reconvergence can repeat an identical parent occurrence. Duplicate
+DPI calls are allowed; the collector's edge set deduplicates them. Different
+sequence numbers at the same site remain distinct parents. The DPI ABI and
+manifest JSON format are unchanged. Direct `Join` instances and selective or
+control-only joins need their own trace adapters; they are not inferred by name.
 
 At a buffered broadcast, input acceptance captures the parent reference in a
 shadow register. Each recipient's actual pending bit gates its copy; recipients

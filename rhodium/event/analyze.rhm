@@ -1,5 +1,5 @@
 #lang rhombus
-// Infers static parents and nested storage, selection, routing, and replication plans.
+// Infers static parents and nested storage, selection, routing, replication, and join plans.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -71,6 +71,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def site_inputs = MutableMap{}
   def unsupported_by_output = MutableMap{}
   def selections = MutableMap{}
+  def joins = MutableMap{}
   def routings = MutableMap{}
   def replications = MutableMap{}
   def broadcasts = MutableMap{}
@@ -152,6 +153,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
           | def stages:
               cond
               | trace_model.selection_grants(): #false
+              | trace_model.atomic_join_inputs(): #false
               | trace_model.routing_predicates(): #false
               | trace_model.atomic_fork_outputs(): #false
               | trace_model.broadcast_storage(): #false
@@ -166,6 +168,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
               | trace_model.latency_cycles() != #false:
                   for List (_ in 0..trace_model.latency_cycles()): EventTraceStage()
               | ~else: #false
+            when trace_model.atomic_join_inputs()
+            | def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
+              joins[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := inputs
             when trace_model.selection_grants()
             | def owner_path = instance_path ++ [trace_model.selection_instance().operation.attribute("name")]
               def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
@@ -298,12 +303,14 @@ fun infer_event_manifest(logical :: DesignElaboration,
     | def event = event_by_output.get(vertex, #false)
       def arcs = incoming.get(vertex, [])
       def selection = selections.get(vertex, #false)
+      def join = joins.get(vertex, #false)
       def routing = routings.get(vertex, #false)
       def replication = replications.get(vertex, #false)
       def broadcast = broadcasts.get(vertex, #false)
       def plan:
         cond
         | event: EventTraceSource(event.id)
+        | join: EventTraceJoin(join.map(fun (input): trace_plan(input, visiting ++ [vertex])))
         | broadcast:
             EventTraceBroadcast(trace_plan(broadcast.input, visiting ++ [vertex]), broadcast.instance_path,
                                 broadcast.broadcast_id, broadcast.accept, broadcast.pending, broadcast.output_index)

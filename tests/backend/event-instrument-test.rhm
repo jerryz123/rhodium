@@ -16,6 +16,7 @@ import:
   "../frontend/event-demux-fixture.rhdl" as demux_fixture
   "../frontend/event-atomic-fork-fixture.rhdl" as fork_fixture
   "../frontend/event-broadcast-fixture.rhdl" as broadcast_fixture
+  "../frontend/event-join-fixture.rhdl" as join_fixture
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
@@ -48,7 +49,7 @@ check:
   emitted.contains("__event_out_") ~is #true
   instrument_events(static_fixture.linear).manifest.sites.length() ~is 3
   instrument_events(static_fixture.forked).manifest.dependencies.length() ~is 2
-  instrument_events(static_fixture.merged) ~throws "dynamic trace semantics"
+  instrument_events(static_fixture.merged).manifest.dependencies.length() ~is 2
   instrument_events(fixture.wrong_domain()) ~throws "one clock and reset epoch"
   instrument_events(fixture.terminal_chain) ~throws "terminal event has a downstream annotation"
   fixture.bad_guard() ~throws "trace guard must be local one-bit data"
@@ -240,3 +241,23 @@ check:
   broadcast_fixture.duplicate_controls() ~throws "already declared"
   broadcast_fixture.bad_shape() ~throws "one ordered route and pending bit per output"
   broadcast_fixture.bad_routes() ~throws "one ordered route and pending bit per output"
+
+def join_before = emit_circt(join_fixture.joined.design)
+def joined = instrument_events(join_fixture.joined)
+def join_completions = joined.manifest.sites.filter(~keep: fun (site): site.label.starts_with("completed"))
+def join_plans = join_completions.map(fun (site): joined.manifest.trace_plans[site.id])
+def checkpoint = joined.manifest.sites.find(fun (site): site.label == "joined")
+def joined_simple = instrument_events(static_fixture.merged)
+def simple_join_site = joined_simple.manifest.sites.find(fun (site): site.label == "joined")
+check:
+  joined.manifest.sites.map(fun (site): site.label) ~is ["root0", "root1", "root2", "completed0", "completed1", "root0", "root1", "root2", "completed0", "completed1", "root0", "root1", "root2", "joined", "completed0", "completed1", "root0", "root1", "root2", "completed0", "completed1", "occurrences", "paired"]
+  join_plans.map(event_trace_capacity) ~is [5, 5, 4, 4, 2, 2, 4, 4]
+  event_trace_capacity(joined.manifest.trace_plans[checkpoint.id]) ~is 2
+  joined_simple.manifest.trace_plans[simple_join_site.id] is_a EventTraceJoin ~is #true
+  joined_simple.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0, 0]
+  joined_simple.manifest.dependencies.map(fun (edge): edge.trace_stages) ~is [#false, #false]
+  emit_circt(join_fixture.joined.design) ~is join_before
+  join_fixture.bad_count() ~throws "PosInt"
+  join_fixture.bad_shape() ~throws "one ordered route per input"
+  join_fixture.bad_routes() ~throws "one ordered route per input"
+  instrument_events(join_fixture.partial()) ~throws "annotated ancestor on every input path"

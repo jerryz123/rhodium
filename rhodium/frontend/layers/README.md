@@ -1240,6 +1240,15 @@ same edge that accepts a replacement. There is no empty bypass; synchronous
 reset flushes pending delivery. This is a trusted adapter contract, not a proof
 of arbitrary RTL. The older `interface_trace_broadcast(count)` remains route-only.
 
+`interface_trace_atomic_join(input_count)` constructs an
+`InterfaceTraceAtomicJoin` contract for a zero-storage all-input rendezvous.
+All inputs transfer exactly when its single output transfers; no input can be
+consumed independently. The model validates a positive count and one ordered
+route per input. `atomic_join_inputs()` exposes the count and latency is zero.
+Compiler consumers combine all contributing lineages, unlike selection, which
+chooses one input. This trusted adapter contract does not cover selective joins
+or partial consumption. `interface_trace_merge(count)` remains route-only.
+
 `describe_interface_event` accepts explicit local one-bit
 `~valid` and optional `~ready` values for the event transfer predicate; `~ready`
 requires `~valid`. Clock/reset selection belongs to the instrumenter, not to

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines structured lineage through sources, storage, selection, routing, and replication.
+// Defines structured lineage and bounded parent capacities through storage, routing, replication, and joins.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -17,6 +17,8 @@ export:
   EventTraceRouting
   EventTraceReplication
   EventTraceBroadcast
+  EventTraceJoin
+  event_trace_capacity
   EventManifest
 
 class EventSite(id :: String,
@@ -61,6 +63,33 @@ class EventTraceBroadcast(input :: EventTracePlan, instance_path :: List.of(Stri
                           broadcast_id :: String, accept :: Value, pending :: Value, output_index :: Nat):
   implements EventTracePlan
   method controls(): [accept, pending]
+
+class EventTraceJoin(inputs :: NonemptyList.of(EventTracePlan)):
+  implements EventTracePlan
+
+// Capacity counts slots, not distinct identities; the runtime deduplicates edges.
+// An annotation resets ancestry to one reference, so history does not accumulate.
+fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
+  def capacities = MutableMap.by(===){}
+  fun capacity(node :: EventTracePlan):
+    unless capacities.has_key(node)
+    | def count:
+        cond
+        | node is_a EventTraceSource: 1
+        | node is_a EventTraceJoin:
+            def mutable total = 0
+            for (input in node.inputs): total := total + capacity(input)
+            total
+        | node is_a EventTraceSelection:
+            def mutable largest = 1
+            for (input in node.inputs):
+              def count = capacity(input)
+              when count > largest | largest := count
+            largest
+        | ~else: capacity(node.input)
+      capacities[node] := count
+    capacities[node]
+  capacity(plan)
 
 class EventDependency(parent :: String,
                       child :: String,
