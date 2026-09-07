@@ -1,5 +1,5 @@
 // Predicts payload transfers and exact event edges independently of inserted RTL.
-#include "../../../rhodium/event/runtime/rheg.h"
+#include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <deque>
 #include <cstdio>

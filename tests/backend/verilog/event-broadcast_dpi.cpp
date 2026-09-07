@@ -1,5 +1,5 @@
 // Reconstructs broadcast ancestry from public transfers and compares the complete DPI graph.
-#include "../../../rhodium/event/runtime/rheg.h"
+#include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>

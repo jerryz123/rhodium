@@ -1,5 +1,5 @@
 // Tests manifest validation, callback ordering, timed snapshots, and streaming boundaries.
-#include "../../rhodium/event/runtime/rheg.h"
+#include "../runtime/rheg.h"
 #include <algorithm>
 #include <array>
 #include <functional>

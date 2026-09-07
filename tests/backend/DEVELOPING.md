@@ -59,7 +59,7 @@ fails and reports the expected assertion label, so an expected failure is not
 treated as an unchecked crash.
 
 The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, and `event-join` direct fixtures
-additionally link the event package's collector implementation. Each local DPI companion is a transfer scoreboard,
+additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
 
 An emitter may additionally export `event_manifest_cpp`, generated from the
@@ -68,12 +68,12 @@ to `<fixture>_manifest.h` beside temporary MLIR. The runner supplies that direct
 and the event runtime include directory to the C++ compiler. The join fixture
 uses this path to bind its manifest before callbacks and export a validated
 snapshot. These headers are generated artifacts, never checked-in references.
-`run-event-collector.sh` owns standalone C++ contract tests and is also invoked
+`../../rheg/tests/run-event-collector.sh` owns standalone C++ contract tests and is also invoked
 by the `event-runtime` simulation fixture.
-The optional `run-event-perfetto.sh` builds `event-stream-test.cpp`,
+The optional `../../rheg/tests/run-event-perfetto.sh` builds `event-stream-test.cpp`,
 `event-perfetto-test.cpp`, and the standalone converter, checks live/replay
 parity, and queries the native Perfetto importer without Python. See the
-[stream validation guide](../../rhodium/event/DEVELOPING.md#focused-validation).
+[stream validation guide](../../rheg/DEVELOPING.md#focused-validation).
 This compatibility test is separate from default CIRCT simulation so Perfetto
 does not become a simulator build dependency.
 

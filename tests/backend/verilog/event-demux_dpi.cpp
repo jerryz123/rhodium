@@ -1,5 +1,5 @@
 // Reconstructs exact demux ancestry from public routing transfers, not compiler observations.
-#include "../../../rhodium/event/runtime/rheg.h"
+#include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>

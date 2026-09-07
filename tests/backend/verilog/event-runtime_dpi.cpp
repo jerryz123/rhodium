@@ -1,5 +1,5 @@
 // Checks simulated event occurrences against an independent transfer scoreboard.
-#include "../../../rhodium/event/runtime/rheg.h"
+#include "../../../rheg/runtime/rheg.h"
 #include <stdexcept>
 
 namespace {

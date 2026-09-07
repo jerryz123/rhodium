@@ -430,15 +430,15 @@ verify_fixture() {
     dpi_sources+=("$test_dpi_source")
   fi
   if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join ]]; then
-    dpi_sources+=("$repo_dir/rhodium/event/runtime/rheg.cc")
+    dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
   if [[ "$simulate_fixtures" == true && -n "$top" ]]; then
     if [[ -f "$test_tmp_dir/${fixture}_manifest.h" ]]; then
-      verilator_args+=(-CFLAGS "-I$test_tmp_dir -I$repo_dir/rhodium/event/runtime")
+      verilator_args+=(-CFLAGS "-I$test_tmp_dir -I$repo_dir/rheg/runtime")
     fi
     if [[ "$fixture" == event-runtime ]]; then
-      bash "$repo_dir/tests/backend/run-event-collector.sh"
+      bash "$repo_dir/rheg/tests/run-event-collector.sh"
     fi
     # Match the SoC harness setting for the complete core's packed-interface
     # scheduling loops. Keep assertions and runtime convergence checks enabled.

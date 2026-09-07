@@ -196,6 +196,10 @@ SystemVerilog.
   inventory and temporal provenance
 - [`rhodium/diagram/README.md`](rhodium/diagram/README.md) — logical hierarchy,
   interface, and flow diagrams
+- [`rhodium/event/README.md`](rhodium/event/README.md) — event dependency
+  inference and compiler instrumentation
+- [`rheg/README.md`](rheg/README.md) — C++ event collection and streaming or
+  standalone Perfetto export
 - [`rhodium/backend/README.md`](rhodium/backend/README.md) — CIRCT lowering and
   SystemVerilog generation
 - [`rhodium/formal/README.md`](rhodium/formal/README.md) — Rosette equivalence,

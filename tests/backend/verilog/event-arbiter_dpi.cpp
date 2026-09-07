@@ -1,5 +1,5 @@
 // Reconstructs arbiter ancestry from accepted transfers, never from compiler grant observations.
-#include "../../../rhodium/event/runtime/rheg.h"
+#include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>

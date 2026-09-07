@@ -1,5 +1,5 @@
 // Checks queue lineage from public transfers without using hardware storage controls.
-#include "../../../rhodium/event/runtime/rheg.h"
+#include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>

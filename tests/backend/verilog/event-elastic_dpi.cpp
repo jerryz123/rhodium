@@ -1,5 +1,5 @@
 // Uses transaction FIFOs, not pipeline enables, to check elastic runtime parent identity.
-#include "../../../rhodium/event/runtime/rheg.h"
+#include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>
 #include <cstdlib>

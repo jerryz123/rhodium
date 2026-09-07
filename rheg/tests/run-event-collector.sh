@@ -5,8 +5,8 @@ repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 collector_tmp_dir="$(mktemp -d /tmp/rhodium-event-collector.XXXXXX)"
 trap 'rm -rf "$collector_tmp_dir"' EXIT
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror \
-  "$repo_dir/tests/backend/event-collector-test.cpp" \
-  "$repo_dir/rhodium/event/runtime/rheg.cc" \
+  "$repo_dir/rheg/tests/event-collector-test.cpp" \
+  "$repo_dir/rheg/runtime/rheg.cc" \
   -o "$collector_tmp_dir/event-collector-test"
 "$collector_tmp_dir/event-collector-test" > "$collector_tmp_dir/trace.json"
 "$repo_dir/tools/run-racket.sh" -e '

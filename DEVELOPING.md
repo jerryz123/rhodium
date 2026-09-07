@@ -38,6 +38,8 @@ Choose the lowest package that owns the behavior before editing:
 | Backend-independent analysis | [`rhodium/analysis/DEVELOPING.md`](rhodium/analysis/DEVELOPING.md) |
 | CIRCT lowering | [`rhodium/backend/DEVELOPING.md`](rhodium/backend/DEVELOPING.md) |
 | Logical diagram extraction or rendering | [`rhodium/diagram/DEVELOPING.md`](rhodium/diagram/DEVELOPING.md) |
+| Event dependency inference or compiler instrumentation | [`rhodium/event/DEVELOPING.md`](rhodium/event/DEVELOPING.md) |
+| C++ event collection or Perfetto export | [`rheg/DEVELOPING.md`](rheg/DEVELOPING.md) |
 | Rosette-backed formal semantics | [`rhodium/formal/DEVELOPING.md`](rhodium/formal/DEVELOPING.md) |
 | Shared dependency-neutral annotations | [`support/DEVELOPING.md`](support/DEVELOPING.md) |
 | Pure RISC-V model or ISA catalog | [`riscv/DEVELOPING.md`](riscv/DEVELOPING.md) |

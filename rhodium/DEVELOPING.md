@@ -95,7 +95,8 @@ internal module implementing its shared frontend forms is called the
 | [`language.rhm`](language.rhm), [`base/language.rhm`](base/language.rhm) | Compose ordinary Rhombus host control with one public Rhodium profile | Standard or foundation |
 | [`../rfpl/`](../rfpl/README.md) | Physical views over existing modules: opaque hard macros and wiring-only composite floorplans with contained child coordinates | Public core IR only |
 | [`diagram/`](diagram/README.md) | Read-only logical block, hierarchy, compound-interface, and flow visualization with JSON and DOT output | Core IR and interface-owned nonsemantic metadata |
-| [`event/`](event/README.md) | Static dependency inference, immutable metadata/DPI instrumentation, manifest-bound snapshots, and settled-cycle export | Core IR, Builder, verifier, logical diagrams, other event modules, and Racket JSON string encoding; the C++ runtime uses the standard library only; the optional C++ Perfetto library privately uses nlohmann JSON |
+| [`event/`](event/README.md) | Static dependency inference, immutable metadata/DPI instrumentation, and manifest/descriptor generation | Core IR, Builder, verifier, logical diagrams, other event modules, and Racket JSON string encoding |
+| [`../rheg/`](../rheg/README.md) | Independent C++ event collector, manifest-bound snapshots, and streaming/standalone Perfetto export | Runtime: C++ standard library only; exporter: runtime and private nlohmann JSON dependency |
 | [`std/`](std/README.md) | Optional host utilities, protocols, and circuit generators written in ordinary Rhodium | Public `#lang rhodium` authoring surface only |
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and configured topology stages | Public `#lang rhodium`; focused `std/` modules; other flow modules |
 | [`backend/`](backend/README.md) | Consume verified public IR; currently lower it through CIRCT | Core only |
@@ -107,6 +108,10 @@ internal module implementing its shared frontend forms is called the
 | [`../riscv/rtl/`](../riscv/rtl/README.md) | Converts RISC-V instruction encodings into generic typed decode patterns | Pure RISC-V model; public `#lang rhodium` libraries |
 | [`../hardfloat/`](../hardfloat/README.md) | Rhodium port of Berkeley HardFloat representations and floating-point units | Public `#lang rhodium` authoring surface only |
 | [`../vlsi/`](../vlsi/README.md) | Physical-design integration, design/technology policy, and mapped simulation | Public authoring/backend surfaces; `sram/`; `sims/`; external VLSI tools and harnesses |
+
+The event compiler and RHEG exchange generated descriptors and fixed DPI calls;
+neither imports the other's implementation. Event inference consumes generic
+interface metadata, not `flow` library implementation modules.
 
 HardFloat is representative of an external domain library over the public
 language: Rhodium implementation packages do not depend on it, while its tests

@@ -1,5 +1,5 @@
 // Checks manifest-bound join snapshots against parent sets reconstructed from public transfers.
-#include "../../../rhodium/event/runtime/rheg.h"
+#include "../../../rheg/runtime/rheg.h"
 #include "event-join_manifest.h"
 #include <array>
 #include <cstdio>

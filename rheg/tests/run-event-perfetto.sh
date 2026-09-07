@@ -9,7 +9,7 @@ cmake_options=(-DRHEG_PERFETTO_TESTS=ON '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Werror
 if [[ -n "${NLOHMANN_JSON_SOURCE_DIR:-}" ]]; then
   cmake_options+=("-DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=$NLOHMANN_JSON_SOURCE_DIR")
 fi
-cmake -S "$repo_dir/rhodium/event/perfetto" -B "$stream_test_dir/build" "${cmake_options[@]}"
+cmake -S "$repo_dir/rheg/perfetto" -B "$stream_test_dir/build" "${cmake_options[@]}"
 cmake --build "$stream_test_dir/build" -j 4
 ctest --test-dir "$stream_test_dir/build" --output-on-failure
 "$stream_test_dir/build/event-stream-test" "$stream_test_dir/snapshot.json" "$stream_test_dir/live.pftrace"

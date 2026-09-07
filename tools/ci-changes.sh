@@ -212,7 +212,7 @@ classify_path() {
     .githooks/pre-commit|tools/check-parameter-annotations.rkt|tools/parameter-annotation-scope.txt|tools/check-boundaries.sh|rfpl/check-boundaries.sh|noc/check-boundaries.sh|riscv/check-boundaries.sh|chi/check-boundaries.sh|cores/check-boundaries.sh|socs/check-boundaries.sh)
       host_hygiene=true
       ;;
-    rhodium/event/*)
+    rhodium/event/*|rheg/*)
       host_foundation=true
       host_backend=true
       circt_language=true
