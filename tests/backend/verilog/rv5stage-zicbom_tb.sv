@@ -1,4 +1,4 @@
-// Verifies WB-only CMO dispatch, precise completion, privilege policy, and squash.
+// Verifies WB-only CMO dispatch, precise completion, arithmetic resumption, privilege policy, and squash.
 module rv5stage_zicbom_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageInstructionReq bits; } ireq_t;
@@ -33,6 +33,19 @@ module rv5stage_zicbom_tb;
     return 32'h0000a00f;                   // invalidate
   endfunction
   function automatic logic [31:0] instruction_at(input logic [63:0] address);
+    if (scenario == 11) begin
+      case (address)
+        64'h100: return 32'h03f00093; // x1 = 63
+        64'h104: return 32'hff900293; // x5 = -7
+        64'h108: return 32'h00900313; // x6 = 9
+        64'h10c: return 32'h0000a00f; // cbo.inval (x1)
+        64'h110: return 32'h026283b3; // mul x7, x5, x6
+        64'h114: return 32'h0263c433; // div x8, x7, x6
+        64'h118: return 32'h02703023; // sd x7, 32(x0)
+        64'h11c: return 32'h02803423; // sd x8, 40(x0)
+        default: return 32'h0000006f;
+      endcase
+    end
     case (address)
       64'h0: return 32'h342021f3;    // csrr x3, mcause
       64'h4: return 32'h00303423;    // sd x3, 8(x0)
@@ -99,7 +112,15 @@ module rv5stage_zicbom_tb;
       end
       if (data_access_out.request.valid && data_access_out.request.bits.access == 2) begin
         assert (pending_cycles == 0) else $fatal(1, "younger store/trap escaped pending CMO");
-        if (scenario < 3 || scenario == 7 || scenario == 8 || scenario == 10) begin
+        if (scenario == 11) begin
+          assert (accepted == 1 && attempts == 4)
+            else $fatal(1, "arithmetic resumption changed CMO acceptance count");
+          assert (data_access_out.request.bits.address == (stores == 0 ? 32 : 40) &&
+                  data_access_out.request.bits.data == (stores == 0 ? 64'hffffffffffffffc1 : 64'hfffffffffffffff9))
+            else $fatal(1, "arithmetic operands corrupted after CMO completion");
+          if (stores == 1) done <= 1;
+          stores <= stores + 1;
+        end else if (scenario < 3 || scenario == 7 || scenario == 8 || scenario == 10) begin
           assert (data_access_out.request.bits.address == 32 && accepted == (scenario == 10 ? 0 : 1) && attempts == (scenario == 10 ? 0 : 4))
             else $fatal(1, "CMO replay, squash or ordered completion failed");
           if (scenario < 3) assert (data_access_out.request.bits.data == 3)
@@ -120,7 +141,7 @@ module rv5stage_zicbom_tb;
   end
   initial begin
     interrupts = '0;
-    for (scenario = 0; scenario <= 10; scenario++) begin
+    for (scenario = 0; scenario <= 11; scenario++) begin
       reset = 1;
       repeat (2) @(posedge clock);
       @(negedge clock); reset = 0;

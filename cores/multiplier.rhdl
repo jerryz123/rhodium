@@ -13,8 +13,8 @@ bundle MultiplierRequest(width :: PosInt):
   right: Bits(width)
   mode: MultiplierMode()
 
-// Accepts one request, consumes one multiplier bit per cycle, and returns the
-// full double-width product. The response remains stable under backpressure;
+// Captures one request, prepares magnitudes for one cycle, then consumes one
+// multiplier bit per cycle. The double-width response stays stable under backpressure;
 // a replacement request can be accepted as the prior response is consumed.
 sync_circuit IterativeMultiplier(width :: PosInt):
   def product_width = width * 2
@@ -24,6 +24,9 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   interface response(Irrevocable(Bits(product_width)), ~role: producer)
 
   reg active(~init: Bool(#false))
+  reg preparing(~init: Bool(#false))
+  reg left_negative(Bool)
+  reg right_negative(Bool)
   reg count(~init: bits(0, count_width))
   reg multiplicand(Bits(product_width))
   reg multiplier(Bits(width))
@@ -38,10 +41,11 @@ sync_circuit IterativeMultiplier(width :: PosInt):
 
   def request_fire = request.fire()
   def response_fire = response.fire()
-  def left_negative = request.bits.mode.left_signed & request.bits.left[width - 1].into(Bool)
-  def right_negative = request.bits.mode.right_signed & request.bits.right[width - 1].into(Bool)
-  def left_magnitude = mux(left_negative, -request.bits.left, request.bits.left)
-  def right_magnitude = mux(right_negative, -request.bits.right, request.bits.right)
+  def request_left_negative = request.bits.mode.left_signed & request.bits.left[width - 1].into(Bool)
+  def request_right_negative = request.bits.mode.right_signed & request.bits.right[width - 1].into(Bool)
+  def left_operand = multiplicand[0..width]
+  def left_magnitude = mux(left_negative, -left_operand, left_operand)
+  def right_magnitude = mux(right_negative, -multiplier, multiplier)
   def addend = mux(multiplier[0].into(Bool), multiplicand, bits(0, product_width))
   def accumulated = accumulator + addend
   def last_iteration = count === bits(width - 1, count_width)
@@ -49,12 +53,19 @@ sync_circuit IterativeMultiplier(width :: PosInt):
 
   when request_fire:
     active <== Bool(#true)
+    preparing <== Bool(#true)
+    left_negative <== request_left_negative
+    right_negative <== request_right_negative
     count <== bits(0, count_width)
+    multiplicand <== request.bits.left.zext(product_width)
+    multiplier <== request.bits.right
+    accumulator <== bits(0, product_width)
+    negate_result <== request_left_negative ^ request_right_negative
+    response_valid <== Bool(#false)
+  elsewhen preparing:
+    preparing <== Bool(#false)
     multiplicand <== left_magnitude.zext(product_width)
     multiplier <== right_magnitude
-    accumulator <== bits(0, product_width)
-    negate_result <== left_negative ^ right_negative
-    response_valid <== Bool(#false)
   elsewhen (active & last_iteration):
     active <== Bool(#false)
     response_valid <== Bool(#true)

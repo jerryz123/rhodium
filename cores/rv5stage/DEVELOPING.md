@@ -75,6 +75,12 @@ same-cycle word consumption into the request address or move ITLB lookup back
 onto a live core request. Use the fetch, MMU-replay, I-cache, instruction-router,
 and IO-boot fixtures when changing this boundary.
 
+Mul/div dispatch validity comes from authorized commit, but operand payloads
+come directly from the normal WB pipeline token. Retained CMO and WRS retirement
+contexts must not select arithmetic operands. The reusable multiplier captures
+raw operands before its magnitude-preparation cycle; keep that register boundary
+between WB selection and full-width negation.
+
 ## Maintain the UDB projection
 
 Keep selectable extension membership derived from `RVCoreProfile`. Keep fixed

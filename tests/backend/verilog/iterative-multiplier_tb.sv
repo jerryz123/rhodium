@@ -1,4 +1,4 @@
-// Exercises unsigned, mixed-signed, backpressured, and replacement multiplier transactions.
+// Checks captured operands, preparation latency, reset, signed products, and response backpressure.
 module iterative_multiplier_tb;
   typedef struct packed {
     logic left_signed;
@@ -45,17 +45,17 @@ module iterative_multiplier_tb;
     request_in = '{valid: 1'b1, bits: '{left, right, '{left_signed, right_signed}}};
     tick();
     request_in.valid = 1'b0;
+    request_in.bits = '0; // Preparation must use the accepted operands, not the live request.
   endtask
 
   task automatic expect_product(input logic [15:0] expected);
-    repeat (7) begin
+    repeat (9) begin
       assert (!response_out.valid)
-        else $fatal(1, "multiplier response arrived before eight iterations");
+        else $fatal(1, "multiplier response arrived before preparation and eight iterations");
       assert (!request_out.ready)
         else $fatal(1, "multiplier accepted a request while active");
       tick();
     end
-    tick();
     assert (response_out.valid && response_out.bits == expected)
       else $fatal(1, "multiplier product mismatch");
   endtask
@@ -97,6 +97,24 @@ module iterative_multiplier_tb;
     assert (!response_out.valid)
       else $fatal(1, "consumed response remained valid");
     expect_product(16'hfe02);
+
+    issue(8'h80, 8'h80, 1'b1, 1'b1);
+    expect_product(16'h4000);
+    issue(8'h00, 8'h80, 1'b0, 1'b1);
+    expect_product(16'h0000);
+
+    // Reset between acceptance and magnitude preparation must cancel the request.
+    issue(8'h81, 8'h7f, 1'b1, 1'b1);
+    reset = 1'b1;
+    tick();
+    reset = 1'b0;
+    repeat (10) begin
+      assert (!response_out.valid && request_out.ready)
+        else $fatal(1, "reset did not cancel multiplier preparation");
+      tick();
+    end
+    issue(8'hff, 8'hff, 1'b1, 1'b1);
+    expect_product(16'h0001);
 
     tick();
     assert (!response_out.valid && request_out.ready)

@@ -792,12 +792,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           )
   ) |> commit_write
 
+  // Retirement authorizes issue; retained maintenance/WRS context never selects arithmetic operands.
   (
     commit
       |> filter_valid(committed => !committed.replay & (
           committed.writeback_source === WritebackSelect.Multiply
         ) & committed.write_enable & or_reduce(committed.rd))
-      |> map_valid(committed => committed.multiply_issue)
+      |> map_valid(_committed => pipeline_wb.bits.multiply_issue)
   ) |> multiplier.issue
   when commit_has_multiply:
     assert(multiplier.available, "rv5stage_multiplier_commit_reserved")
@@ -806,7 +807,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       |> filter_valid(committed => !committed.replay & (
           committed.writeback_source === WritebackSelect.Divide
         ) & committed.write_enable & or_reduce(committed.rd))
-      |> map_valid(committed => committed.divide_issue)
+      |> map_valid(_committed => pipeline_wb.bits.divide_issue)
   ) |> divider.issue
   when commit_has_divide:
     assert(divider.available, "rv5stage_divider_commit_reserved")
