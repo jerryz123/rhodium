@@ -1,4 +1,4 @@
-// Verifies early VIPT lookup, DTLB replay, faults, and pipelined prefetch translation and cancellation.
+// Verifies MMU data-port drain, backpressure, response routing, replay, faults, and prefetch cancellation.
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -114,6 +114,10 @@ module rv5stage_mmu_replay_tb;
   logic zero_request = 1'b0;
   logic [3:0] management_operation = 0;
   logic page_fault_pte_seen;
+  logic memory_ready = 1'b0;
+  logic memory_idle = 1'b0;
+  logic ordinary_response_valid = 1'b0;
+  data_req_bits_t stalled_request;
 
   RV5StageMmu dut (.*);
   always #5 clock = ~clock;
@@ -136,16 +140,16 @@ module rv5stage_mmu_replay_tb;
     data_in.request.bits.floating_point_precision = '0;
     instruction_memory_in = '0;
     instruction_memory_in.request.ready = 1'b1;
-    data_memory_in.request.ready = 1'b1;
+    data_memory_in.request.ready = memory_ready;
     data_memory_in.request_fault = 1'b0;
     data_memory_in.request_access_fault = 1'b0;
-    data_memory_in.response.valid = pte_response_valid;
+    data_memory_in.response.valid = pte_response_valid || ordinary_response_valid;
     data_memory_in.response.bits.access_fault = 0;
-    data_memory_in.response.bits.data = pte_response_data;
-    data_memory_in.response.bits.destination = '0;
-    data_memory_in.response.bits.rd = '0;
+    data_memory_in.response.bits.data = ordinary_response_valid ? 64'hfeedface_12345678 : pte_response_data;
+    data_memory_in.response.bits.destination = ordinary_response_valid ? DATA_DESTINATION_INTEGER : 2'd0;
+    data_memory_in.response.bits.rd = ordinary_response_valid ? 5'd7 : 5'd0;
     data_memory_in.response.bits.floating_point_precision = '0;
-    data_memory_in.drained = !pte_response_valid;
+    data_memory_in.drained = memory_idle && !pte_response_valid;
   end
 
   always_ff @(posedge clock) begin
@@ -157,6 +161,9 @@ module rv5stage_mmu_replay_tb;
       page_fault_pte_seen <= 1'b0;
     end else begin
       pte_response_valid <= 1'b0;
+      if (pte_response_valid)
+        assert (!data_out.response.valid)
+          else $fatal(1, "page-table response leaked onto the core data path");
       assert (!instruction_memory_out.request.valid)
         else $fatal(1, "data miss unexpectedly issued an instruction-memory request");
       if (data_memory_out.request.valid && data_memory_in.request.ready) begin
@@ -266,9 +273,50 @@ module rv5stage_mmu_replay_tb;
     @(posedge clock);
     #1 data_request_valid = 1'b0;
 
+    // A walk must drain older data work, including its nonbackpressured reply.
+    repeat (2) begin
+      tick();
+      assert (!data_memory_out.request.valid && !data_out.drained)
+        else $fatal(1, "page-table request bypassed older data work");
+    end
+    @(negedge clock);
+    ordinary_response_valid = 1'b1;
+    #1;
+    assert (data_out.response.valid && data_out.response.bits == data_memory_in.response.bits)
+      else $fatal(1, "older data response was lost or routed to the walker");
+    tick();
+    @(negedge clock);
+    ordinary_response_valid = 1'b0;
+    memory_idle = 1'b1;
+    tick();
+    assert (!data_memory_out.request.valid)
+      else $fatal(1, "walker did not wait for two quiet observations");
+    tick();
+    assert (data_memory_out.request.valid && data_memory_out.request.bits.address == 64'h1000)
+      else $fatal(1, "drained walker did not offer the first PTE request");
+    stalled_request = data_memory_out.request.bits;
+    repeat (3) begin
+      tick();
+      assert (data_memory_out.request.valid && data_memory_out.request.bits == stalled_request && pte_requests == 0)
+        else $fatal(1, "stalled PTE request changed or was accepted without readiness");
+    end
+    @(negedge clock);
+    memory_ready = 1'b1;
+
     wait (pte_requests == 3 && data_out.drained);
     @(negedge clock);
+    memory_ready = 1'b0;
     data_request_valid = 1'b1;
+    #1;
+    stalled_request = data_memory_out.request.bits;
+    repeat (2) begin
+      assert (!data_out.request.ready && data_memory_out.request.valid &&
+              data_memory_out.request.bits == stalled_request && !translated_request_seen)
+        else $fatal(1, "translated request did not propagate downstream backpressure");
+      tick();
+    end
+    @(negedge clock);
+    memory_ready = 1'b1;
     #1;
     assert (data_out.request.ready && data_memory_out.request.valid &&
             data_memory_out.request.bits.address == PHYSICAL_ADDRESS)
@@ -279,6 +327,14 @@ module rv5stage_mmu_replay_tb;
     #1 data_request_valid = 1'b0;
     assert (translated_request_seen)
       else $fatal(1, "translated replay was not accepted downstream");
+    @(negedge clock);
+    ordinary_response_valid = 1'b1;
+    #1;
+    assert (data_out.response.valid && data_out.response.bits == data_memory_in.response.bits)
+      else $fatal(1, "replayed data response lost its payload or metadata");
+    tick();
+    @(negedge clock);
+    ordinary_response_valid = 1'b0;
 
     // A writable but non-dirty leaf may serve loads, but CBO.ZERO must fault
     // under the core's fault-on-A/D policy, even on a nonaligned TLB hit.

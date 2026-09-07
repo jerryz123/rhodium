@@ -237,7 +237,11 @@ lookups.
 virtual address, root PPN, access kind, effective privilege, `SUM`, and `MXR`,
 then visits Sv39 levels 2, 1, and 0. At each level it issues the physical
 64-bit PTE address `table_ppn * 4096 + vpn[level] * 8` and waits for exactly one
-irrevocable 64-bit response before continuing.
+non-backpressured `Valid(Bits(64))` response before continuing. The response
+must arrive in a later cycle while the walker is waiting for it; there is no
+response `ready` signal or buffering at this boundary. Cancellation may discard
+a response arriving on the cancellation edge. Walk completions remain
+irrevocable and may be backpressured.
 
 A walk succeeds at the first structurally valid, aligned leaf whose permission
 check passes. Non-leaf `G` bits are accumulated into the result. The completion

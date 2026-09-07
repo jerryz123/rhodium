@@ -236,57 +236,48 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   // The walker owns L1D exclusively. Its PTE request waits for two quiescent
   // observations, which drain the cache's nonbackpressured response stage.
-  def walker_memory_request = walker.memory.request
-  def walk_uses_data_memory = walk_active & walker_data_quiet_twice & walker_memory_request.valid
+  def walker_memory_request = walker.memory.request |> gate_flow(walk_active & walker_data_quiet_twice)
+  def walk_uses_data_memory = walker_memory_request.valid
   def data_forwarding_enabled = !walk_active
   data_lookup.valid <== walk_uses_data_memory ||| (data.request.valid & data_forwarding_enabled)
   data_lookup.bits <== mux(walk_uses_data_memory,
                            if xlen == XLen.X32 | walker_memory_request.bits[0..32] | walker_memory_request.bits,
                            data_request.address)
-  data.request.ready <== mux(
-    data_page_fault ||| data_walk_access_fault,
-    Bool(#true),
-    data_forwarding_enabled & (!data_translation_enabled ||| dtlb.hit) & data_memory.request.ready
-  )
   data.request_fault <== data.request.valid & data_page_fault
   data.request_access_fault <== data.request.valid & !data_page_fault & (
     data_walk_access_fault ||| (data_forwarding_enabled & data_memory.request_access_fault)
   )
-  data_memory.request.valid <== mux(
-    walk_uses_data_memory,
-    walker_memory_request.valid,
-    data.request.valid & data_forwarding_enabled & (!data_translation_enabled ||| dtlb.hit) & !(
-      data_page_fault ||| data_walk_access_fault
-    )
+  def walker_data_request = walker_memory_request |> map_flow(address => RV5StageDataReq(xlen)):
+    address: if xlen == XLen.X32 | address[0..32] | address
+    access: MemoryOperation.Load
+    atomic: RV5StageAtomicOperation.Swap
+    width: MemoryWidth.Double
+    unsigned: Bool(#true)
+    data: bits(0, width)
+    destination: RV5StageDataDestination.None
+    rd: bits(0, 5)
+    floating_point_precision: RV5StageFloatPrecision.Single
+  // Local faults consume the core attempt; unresolved translations and walker
+  // ownership block it. Neither case may issue a physical request.
+  def core_data_request = (
+    data.request
+      |> filter_flow(_request => !(data_page_fault ||| data_walk_access_fault))
+      |> gate_flow(data_forwarding_enabled & (!data_translation_enabled ||| dtlb.hit))
+      |> map_flow(request => request.updated(
+        ~address: if xlen == XLen.X32 | request.address | mux(data_translation_enabled, dtlb.physical_address.zext(64), request.address),
+        ~access: data_memory_operation
+      ))
   )
-  data_memory.request.bits <== mux(
-    walk_uses_data_memory,
-    RV5StageDataReq(xlen):
-      address: if xlen == XLen.X32 | walker_memory_request.bits[0..32] | walker_memory_request.bits
-      access: MemoryOperation.Load
-      atomic: RV5StageAtomicOperation.Swap
-      width: MemoryWidth.Double
-      unsigned: Bool(#true)
-      data: bits(0, width)
-      destination: RV5StageDataDestination.None
-      rd: bits(0, 5)
-      floating_point_precision: RV5StageFloatPrecision.Single,
-    data_request.updated(
-      ~address: if xlen == XLen.X32 | data_request.address | mux(
-        data_translation_enabled,
-        dtlb.physical_address.zext(64),
-        data_request.address
-      ),
-      ~access: data_memory_operation
-    )
-  )
-  walker_memory_request.ready <== walk_active & walker_data_quiet_twice & data_memory.request.ready
+  // The ownership gates, not arbiter priority, serialize the two sources.
+  assert(!(walker_data_request.valid & core_data_request.valid), "rv5stage_mmu_data_requests_exclusive")
+  Array(walker_data_request, core_data_request) |> arbiter() |> data_memory.request
   walker.memory.request_access_fault <== data_memory.request_access_fault
   def walker_memory_request_fire = walker_memory_request.fire()
-  walker.memory.response.valid <== data_memory.response.valid & walker_memory_outstanding
-  walker.memory.response.bits <== if xlen == XLen.X32 | data_memory.response.bits.data.zext(64) | data_memory.response.bits.data
-  data.response.valid <== data_memory.response.valid & !walker_memory_outstanding
-  data.response.bits <== data_memory.response.bits
+  def Array(walker_responses, core_responses) = data_memory.response |> fork_valid(2)
+  walker_responses |> filter_valid(_response => walker_memory_outstanding)
+    |> map_valid(response => if xlen == XLen.X32 | response.data.zext(64) | response.data)
+    |> walker.memory.response
+  core_responses |> filter_valid(_response => !walker_memory_outstanding) |> data.response
   // A saved fault is replay metadata, not outstanding memory work. Waiting
   // for its replay here would deadlock a WB trap/interrupt draining the LSU.
   data.drained <== !walk_active & data_memory.drained

@@ -19,6 +19,12 @@ superpages, and physical-address construction. Keep translation state and
 RV5Stage arbitration here rather than moving them into the pure RISC-V model or
 the caches.
 
+The shared data-port adapter uses gated, payload-mapped request flows and a
+stateless arbiter. Ownership gates keep its sources mutually exclusive;
+arbiter priority does not replace the drain or response-owner state. Response
+branches use `Valid` filtering and mapping, and the walker asserts that a
+routed response arrives while it is waiting.
+
 ## Implementation map
 
 | File | Ownership |
@@ -70,7 +76,9 @@ The wrapper creates a fresh compiled root when one is not supplied. Keep this
 test limited to public translation contracts; do not add internal operation or
 state snapshots. The Verilator fixture pulses one data request, checks the three
 expected PTE addresses, and requires a later retry to use the filled DTLB while
-preserving request metadata. It also checks prefetch latency and back-to-back
+preserving request metadata. It also checks two-observation draining, stalled
+walker and core requests, and isolation of PTE responses from ordinary replies.
+It checks prefetch latency and back-to-back
 throughput, TLB selection and rejection, Bare/PMA behavior, and synchronous
 cancellation at either stage on flush, invalidation, context change, and reset.
 Use the parent

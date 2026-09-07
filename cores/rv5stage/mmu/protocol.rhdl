@@ -43,7 +43,7 @@ interface RV5StagePageTableMemory():
 
   responder -> requester:
     request_access_fault: Bool
-    response: Irrevocable(Bits(64))
+    response: Valid(Bits(64))
 
 export:
   RV5StageTranslationRequest

@@ -33,8 +33,9 @@ sync_circuit RV5StagePageTableWalker():
   memory.request.valid <== state === RV5StagePageWalkState.Request
   memory.request.bits <== (table_ppn ++ bits(0, 12)).zext(64) + (vpn_index ++ bits(0, 3)).zext(64)
   def memory_request_fire = memory.request.fire()
-  memory.response.ready <== state === RV5StagePageWalkState.Response
-  def memory_response_fire = memory.response.fire()
+  def waiting_for_memory = state === RV5StagePageWalkState.Response
+  assert(!memory.response.valid ||| waiting_for_memory, "rv5stage_ptw_response_expected")
+  def memory_response_received = memory.response.valid & waiting_for_memory
   def pte = memory.response.bits.into(Sv39Pte())
   def leaf = sv39_leaf(pte)
   def structural_fault = !sv39_pte_structurally_valid(pte) ||| (
@@ -98,7 +99,7 @@ sync_circuit RV5StagePageTableWalker():
       access_fault: Bool(#true)
   elsewhen (memory_request_fire & !memory.request_access_fault):
     state <== RV5StagePageWalkState.Response
-  elsewhen memory_response_fire:
+  elsewhen memory_response_received:
     when completes_walk:
       state <== RV5StagePageWalkState.Complete
       result <== RV5StageTranslationResult():
