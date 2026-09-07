@@ -1,7 +1,8 @@
 #lang rhodium
-// Composes RV5Stage's scalar, Zicbop, floating-point, and privileged controls.
+// Composes RV5Stage's scalar, optional-extension, floating-point, and system controls.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../alu.rhdl" open
   "../../branch-resolver.rhdl" open
   "../../load-store.rhdl" open
@@ -207,6 +208,20 @@ def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions)
       floating_point: pattern(RV5StageFloatingPointControl(), _)
   )
 
+// Decode-only rows until the core has commit-owned reservation waiting.
+def ZawrsCoreControlCases = compose_control_cases(
+  ZawrsInstructions,
+  ZawrsAluCases,
+  ZawrsOperandCases,
+  ZawrsBranchCases,
+  ZawrsMemoryCases,
+  ZawrsMultiplyCases,
+  ZawrsDivideCases,
+  ZawrsWritebackCases,
+  ZawrsSystemCases,
+  ZawrsFenceCases
+)
+
 def ZicbozCoreControlCases = compose_control_cases(
   ZicbozInstructions,
   ZicbozAluCases,
@@ -267,11 +282,12 @@ fun rv5stage_instructions(xlen :: XLen,
                           half_precision :: HalfPrecisionProfile,
                           ~zfa: zfa_enabled :: Boolean = #false,
                           ~zicbop: zicbop_enabled :: Boolean = #false,
+                          ~zawrs: zawrs_enabled :: Boolean = #false,
                           ~zicbom: zicbom_enabled :: Boolean = #false,
                           ~zicboz: zicboz_enabled :: Boolean = #false) :: List.of(InstructionSpec):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   def base_integer_instructions = if xlen == XLen.X32 | RV32RV5StageInstructions | RV64RV5StageInstructions
-  def integer_instructions = base_integer_instructions ++ (if zicbop_enabled | zicbop.ZicbopInstructions | []) ++ (if zicboz_enabled | ZicbozInstructions | []) ++ (if zicbom_enabled | ZicbomInstructions | [])
+  def integer_instructions = base_integer_instructions ++ (if zicbop_enabled | zicbop.ZicbopInstructions | []) ++ (if zicboz_enabled | ZicbozInstructions | []) ++ (if zicbom_enabled | ZicbomInstructions | []) ++ (if zawrs_enabled | ZawrsInstructions | [])
   if profile == FloatingPointProfile.None
   | integer_instructions
   | integer_instructions ++ rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled)
@@ -322,6 +338,7 @@ circuit RV5StageInstructionDecoder(
   half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
   ~zfa: zfa_enabled :: Boolean = #false,
   ~zicbop: zicbop_enabled :: Boolean = #false,
+  ~zawrs: zawrs_enabled :: Boolean = #false,
   ~zicbom: zicbom_enabled :: Boolean = #false,
   ~zicboz: zicboz_enabled :: Boolean = #false
 ):
@@ -331,7 +348,7 @@ circuit RV5StageInstructionDecoder(
   output control: RV5StageControl()
 
   def base_integer_cases = if xlen == XLen.X32 | RV32RV5StageControlCases | RV64RV5StageControlCases
-  def integer_cases = (if zicbop_enabled | overlay_decode_cases(base_integer_cases, ZicbopCoreControlCases) | base_integer_cases) ++ (if zicboz_enabled | ZicbozCoreControlCases | []) ++ (if zicbom_enabled | ZicbomCoreControlCases | [])
+  def integer_cases = (if zicbop_enabled | overlay_decode_cases(base_integer_cases, ZicbopCoreControlCases) | base_integer_cases) ++ (if zicboz_enabled | ZicbozCoreControlCases | []) ++ (if zicbom_enabled | ZicbomCoreControlCases | []) ++ (if zawrs_enabled | ZawrsCoreControlCases | [])
   def selected_cases:
     if profile == FloatingPointProfile.None
     | integer_cases
@@ -344,6 +361,7 @@ circuit RV5StageInstructionDecoder(
   control <== decoded.value
 
 export:
+  ZawrsCoreControlCases
   ZicbomCoreControlCases
   ZicbozCoreControlCases
   RV5StageControl

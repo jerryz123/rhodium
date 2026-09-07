@@ -2,6 +2,7 @@
 // Defines RV5Stage's RV32 and RV64 integer divide/remainder control relation.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
@@ -98,7 +99,10 @@ circuit RV5StageDivideInstructionDecoder(xlen :: XLen):
 def ZicbozDivideCases = instruction_cases(ZicbozInstructions, unused_divide)
 def ZicbomDivideCases = instruction_cases(ZicbomInstructions, unused_divide)
 
+def ZawrsDivideCases = instruction_cases(ZawrsInstructions, unused_divide)
+
 export:
+  ZawrsDivideCases
   ZicbomDivideCases
   ZicbozDivideCases
   RV5StageDivideControl

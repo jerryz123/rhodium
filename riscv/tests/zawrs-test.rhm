@@ -1,0 +1,37 @@
+#lang rhombus
+// Checks exact Zawrs encodings, operand-free assembly, and SYSTEM catalog separation.
+
+import:
+  rhombus.bits.(<<) as <<
+  "../isa/zawrs.rhm" open
+  "../isa/privileged.rhm" open
+  "../isa/integer-common.rhm" open
+  "../model/main.rhm" open
+
+def expected_words = [0x00d00073, 0x01d00073]
+def system_catalog = InstructionCatalog("system and reservation waits", "test", [ECALL, EBREAK] ++ PrivilegedInstructions ++ ZawrsInstructions)
+
+check:
+  Zawrs.revision ~is "Zawrs 1.01"
+  Zawrs.instructions ~is ZawrsInstructions
+  ZawrsInstructions.map(fun (instruction): instruction.name) ~is ["WRS.NTO", "WRS.STO"]
+  ZawrsInstructions.map(fun (instruction): instruction.encode([])) ~is expected_words
+
+for (instruction in ZawrsInstructions, word in expected_words):
+  check:
+    instruction.format === SystemFormat ~is #true
+    instruction.operands ~is []
+    instruction.immediate ~is #false
+    instruction.encoding.care ~is 0xffffffff
+    Zawrs.find(instruction.name) === instruction ~is #true
+    Zawrs.matching(word) === instruction ~is #true
+    system_catalog.matching(word) === instruction ~is #true
+    instruction.encode([rd.constrain(0)]) ~throws "not an explicit field"
+    instruction.encode([], ~immediate: 0) ~throws "does not have an immediate"
+  for (bit in 0..32):
+    check:
+      instruction.matches(word bits.xor (1 << bit)) ~is #false
+
+for (instruction in [ECALL, EBREAK] ++ PrivilegedInstructions):
+  check:
+    Zawrs.matching(instruction.encoding.value) ~is #false

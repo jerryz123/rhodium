@@ -546,6 +546,8 @@ and FESVR simulation belongs to the [simulation guide](../../sims/README.md).
 
 ## Deliberate limits
 
+- Zawrs has [catalog and decode-only support](decode/README.md#decode-only-zawrs);
+  reservation waiting is not integrated or advertised by core profiles.
 - RV32D and RV64F-only core specializations are rejected.
 - PMP, programmable HPM counters, vectored trap mode, and platform interrupt
   controllers remain outside this slice.

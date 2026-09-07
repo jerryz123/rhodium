@@ -1,7 +1,8 @@
 #lang rhodium
-// Defines RV5Stage's CSR, synchronous trap, and privileged-return controls.
+// Defines RV5Stage's CSR, trap, return, and wait instruction controls.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
@@ -31,6 +32,8 @@ hardware_enum SystemOperation:
   Mret
   Sret
   Wfi
+  WrsNto
+  WrsSto
 
 bundle SystemControl():
   csr: CsrOperation
@@ -99,7 +102,13 @@ def RV64RV5StageSystemCases = RV64ISystemCases ++ instruction_cases(
 def ZicbozSystemCases = instruction_cases(ZicbozInstructions, no_system)
 def ZicbomSystemCases = instruction_cases(ZicbomInstructions, no_system)
 
+def ZawrsSystemCases = combine_case_groups([
+  instruction_cases([WRS_NTO], system_control(SystemOperation.WrsNto)),
+  instruction_cases([WRS_STO], system_control(SystemOperation.WrsSto))
+])
+
 export:
+  ZawrsSystemCases
   ZicbomSystemCases
   ZicbozSystemCases
   CsrOperation

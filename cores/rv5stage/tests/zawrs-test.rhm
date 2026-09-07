@@ -1,0 +1,72 @@
+#lang rhodium
+// Checks Zawrs control care masks and opt-in single-table RV32/RV64 decoding.
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/std/decode.rhdl" open
+  "../../../riscv/isa/zawrs.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../branch-resolver.rhdl" open
+  "../../cache-prefetch.rhdl" open
+  "../decode/core-ctrl.rhdl" open
+  "../decode/operand-ctrl.rhdl" open
+  "../decode/branch-ctrl.rhdl" open
+  "../decode/mem-ctrl.rhdl" open
+  "../decode/writeback-ctrl.rhdl" open
+  "../decode/system-ctrl.rhdl" open
+  "../decode/fence-ctrl.rhdl" open
+
+check:
+  ZawrsCoreControlCases.length() ~is 2
+  ZawrsSystemCases.length() ~is 2
+
+for (instruction in ZawrsInstructions, action in [SystemOperation.WrsNto, SystemOperation.WrsSto]):
+  def row = ZawrsCoreControlCases.find(fun (candidate): candidate.input.matches(bits(instruction.encode([]), 32)))
+  def expected = partial_pattern(RV5StageControl()):
+    operand:
+      partial_pattern(OperandControl()):
+        uses_rs1: Bool(#false)
+        uses_rs2: Bool(#false)
+    branch:
+      partial_pattern(BranchControl()):
+        resolver:
+          partial_pattern(BranchResolverControl()):
+            enable: Bool(#false)
+    memory:
+      partial_pattern(MemoryControl()):
+        access: MemoryOperation.None
+    prefetch: CachePrefetchOperation.None
+    writeback:
+      partial_pattern(WritebackControl()):
+        enable: Bool(#false)
+    system:
+      partial_pattern(SystemControl()):
+        csr: CsrOperation.None
+        action: action
+    fence:
+      pattern(FenceControl()):
+        action: FenceOperation.None
+    floating_point_valid: Bool(#false)
+  check:
+    row.input.care_bits ~is 0xffffffff
+    expected.subsumes(row.output) ~is #true
+    // No extra constraints on inactive ALU, multiply, divide, or FP fields.
+    row.output.subsumes(expected) ~is #true
+
+for (configuration in [[XLen.X32, FloatingPointProfile.None], [XLen.X64, FloatingPointProfile.None], [XLen.X32, FloatingPointProfile.F], [XLen.X64, FloatingPointProfile.D]]):
+  def xlen = configuration[0]
+  def fp = configuration[1]
+  for (enabled in [#false, #true]):
+    def instructions = rv5stage_instructions(xlen, fp, HalfPrecisionProfile.None, ~zawrs: enabled)
+    def design = embedded.run_elaboration(fun (): RV5StageInstructionDecoder(xlen, fp, ~zawrs: enabled))
+    def decoders = design.modules[0].operations.filter(~keep: fun (operation): operation.opcode == "rtl.decode")
+    check:
+      decoders.length() ~is 1
+      decoders[0].attribute("cases").length() ~is instructions.length()
+    for (instruction in ZawrsInstructions):
+      def rows = decoders[0].attribute("cases").filter(~keep: fun (row): row[0] == instruction.encoding.value && row[1] == 0xffffffff)
+      check:
+        instructions.contains(instruction) ~is enabled
+        rows.length() ~is (if enabled | 1 | 0)

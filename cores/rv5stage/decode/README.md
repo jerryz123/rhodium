@@ -16,7 +16,7 @@ Contributors changing decode ownership or instruction coverage should read
 ## Select a decode specialization
 
 `RV5StageInstructionDecoder` accepts `xlen`, `profile`, `half_precision`, and
-the default-disabled `zfa`, `zicbop`, `zicboz`, and `zicbom` switches as host parameters. They
+the default-disabled `zfa`, `zicbop`, `zicboz`, `zicbom`, and `zawrs` switches as host parameters. They
 select the instruction catalogs before hardware is generated:
 
 | Specialization | Selected rows |
@@ -52,7 +52,7 @@ With FP disabled, the prebuilt RV32 or RV64 core relation is selected instead.
 
 ```mermaid
 flowchart LR
-    PARAMS["xlen + FP profile + half profile + Zfa + Zicbop"]
+    PARAMS["xlen + FP/half profiles + optional decode extensions"]
     CORECAT["Selected core catalog<br/>I + M + A + B + Zicond + Zimop + system"]
     FPCAT["Selected FP catalog<br/>F / F+D / optional Zfhmin, Zfh, or Zfa"]
     COLUMNS["Component relations<br/>ALU, operands, branch, memory,<br/>multiply, divide, writeback, system, fence"]
@@ -99,6 +99,24 @@ control relation, not an independent runtime decoder.
 `fp-ctrl.rhdl` also exports a standalone FP decoder for focused use, but
 `RV5StageInstructionDecoder` composes its case lists directly and does not
 instantiate that circuit beside the core decoder.
+
+## Decode-only Zawrs
+
+`RV5StageInstructionDecoder(..., ~zawrs: #true)` and the matching
+`rv5stage_instructions(..., ~zawrs: #true)` selection append the two exact
+`WRS.NTO`/`WRS.STO` rows. `ZawrsCoreControlCases` composes the ordinary
+component-owned columns; `ZawrsSystemCases` selects `SystemOperation.WrsNto`
+or `SystemOperation.WrsSto`. Both classify as system operations for future
+serialization, use no explicit integer operands, and disable register writes,
+memory requests, branches, prefetch, FP execution, and fence actions. Inactive
+datapath controls remain don't-cares. The rows join the same single decoder,
+including when FP is selected.
+
+This switch is a decoder-development API, not a processor feature flag.
+`RVCoreProfile`, ISA advertisement, UDB claims, and the instantiated core decoder
+remain unchanged. Reservation observation, WB waiting, timeout/privilege policy,
+precise retirement, and interrupt wakeup must be implemented before enabling
+Zawrs in a core configuration.
 
 ## Change the owning control column
 

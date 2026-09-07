@@ -2,6 +2,7 @@
 // Maps base integer, B, and Zicond instructions onto shared ALU resources.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
   "../../alu.rhdl" open
@@ -234,7 +235,10 @@ circuit RV64IAluInstructionDecoder():
 def ZicbozAluCases = instruction_cases(ZicbozInstructions, address_alu)
 def ZicbomAluCases = instruction_cases(ZicbomInstructions, address_alu)
 
+def ZawrsAluCases = instruction_cases(ZawrsInstructions, unused_alu)
+
 export:
+  ZawrsAluCases
   ZicbomAluCases
   ZicbozAluCases
   RV32IAluCases

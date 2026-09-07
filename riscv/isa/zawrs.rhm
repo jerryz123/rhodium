@@ -1,0 +1,20 @@
+#lang rhombus
+// Defines the XLEN-independent Zawrs 1.01 wait-on-reservation instruction catalog.
+
+import:
+  "../model/main.rhm" open
+  "integer-common.rhm".system_instruction
+
+// Ratified Zawrs and riscv-opcodes/extensions/rv_zawrs specify exact SYSTEM words.
+def WRS_NTO = system_instruction("WRS.NTO", 0x00d)
+def WRS_STO = system_instruction("WRS.STO", 0x01d)
+def ZawrsInstructions = [WRS_NTO, WRS_STO]
+def ZawrsRevision = "Zawrs 1.01"
+def Zawrs = InstructionCatalog("Zawrs", ZawrsRevision, ZawrsInstructions)
+
+export:
+  WRS_NTO
+  WRS_STO
+  ZawrsInstructions
+  ZawrsRevision
+  Zawrs

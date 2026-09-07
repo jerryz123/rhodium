@@ -2,6 +2,7 @@
 // Defines RV5Stage's load, store, LR/SC, and AMO decode controls.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
   "../memory.rhdl" open
@@ -237,7 +238,10 @@ def ZicbomMemoryCases = for List (entry in [[CBO_INVAL, MemoryOperation.CacheBlo
       access: entry[1]
   )
 
+def ZawrsMemoryCases = instruction_cases(ZawrsInstructions, no_memory)
+
 export:
+  ZawrsMemoryCases
   ZicbomMemoryCases
   ZicbozMemoryCases
   MemoryOperation

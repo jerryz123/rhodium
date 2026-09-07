@@ -2,6 +2,7 @@
 // Defines RV5Stage's explicit memory- and instruction-fence controls.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
@@ -70,7 +71,10 @@ def RV64RV5StageFenceCases = RV64IFenceCases ++ instruction_cases(
 def ZicbozFenceCases = instruction_cases(ZicbozInstructions, no_fence)
 def ZicbomFenceCases = instruction_cases(ZicbomInstructions, no_fence)
 
+def ZawrsFenceCases = instruction_cases(ZawrsInstructions, no_fence)
+
 export:
+  ZawrsFenceCases
   ZicbomFenceCases
   ZicbozFenceCases
   FenceOperation

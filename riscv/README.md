@@ -138,6 +138,7 @@ downstream decode composition must resolve their overlap with the base encoding.
 | [`isa/zmmul.rhm`](isa/zmmul.rhm) | `RV32Zmmul`, `RV64Zmmul` | Multiply-only Zmmul 1.0; RV64 adds `MULW` |
 | [`isa/m.rhm`](isa/m.rhm) | `RV32M`, `RV64M` | M 2.0, reusing Zmmul objects and adding divide/remainder operations |
 | [`isa/a.rhm`](isa/a.rhm) | `RV32A`, `RV64A` | A 2.1 word and RV64 doubleword LR/SC and AMO encodings with variable `aq`/`rl` |
+| [`isa/zawrs.rhm`](isa/zawrs.rhm) | `Zawrs` | XLEN-independent Zawrs 1.01 `WRS.NTO` and `WRS.STO` encodings, with no explicit operands |
 | [`isa/zba.rhm`](isa/zba.rhm) | `RV32Zba`, `RV64Zba` | Ratified Zba 1.0.0 address generation |
 | [`isa/zbb.rhm`](isa/zbb.rhm) | `RV32Zbb`, `RV64Zbb` | Ratified Zbb 1.0.0 basic bit manipulation |
 | [`isa/zbs.rhm`](isa/zbs.rhm) | `RV32Zbs`, `RV64Zbs` | Ratified Zbs 1.0.0 single-bit operations |
@@ -154,6 +155,11 @@ These catalogs describe architectural dependencies and encodings only. Atomic
 reservation and coherence policy, multiply/divide execution, conditional-mask
 datapaths, CSR behavior, cache-management execution, and instruction-cache
 serialization remain processor responsibilities.
+
+The Zawrs catalog follows the [ratified wait-on-reservation specification](https://docs.riscv.org/reference/isa/unpriv/zawrs.html)
+and [canonical opcode definitions](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_zawrs).
+It describes the instructions, not reservation tracking, waiting, interrupt
+wakeup, or `mstatus.TW` timeout policy.
 
 ### Compressed instructions
 

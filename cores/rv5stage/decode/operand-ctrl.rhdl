@@ -2,6 +2,7 @@
 // Defines base and extension register use, operand routing, and immediate controls.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
@@ -220,7 +221,10 @@ def RV64IOperandDecode = ValidDecodeGen(RV64IOperandCases)
 def ZicbozOperandCases = instruction_cases(ZicbozInstructions, load_reserved_operands)
 def ZicbomOperandCases = instruction_cases(ZicbomInstructions, load_reserved_operands)
 
+def ZawrsOperandCases = instruction_cases(ZawrsInstructions, no_operands)
+
 export:
+  ZawrsOperandCases
   ZicbomOperandCases
   ZicbozOperandCases
   OperandASelect

@@ -2,6 +2,7 @@
 // Maps base control transfers and disabled extension cases to branch controls.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
   "decode-support.rhdl" open
@@ -102,7 +103,10 @@ def no_branch = partial_pattern(BranchControl()):
 def ZicbozBranchCases = instruction_cases(ZicbozInstructions, no_branch)
 def ZicbomBranchCases = instruction_cases(ZicbomInstructions, no_branch)
 
+def ZawrsBranchCases = instruction_cases(ZawrsInstructions, no_branch)
+
 export:
+  ZawrsBranchCases
   ZicbomBranchCases
   ZicbozBranchCases
   BranchControl

@@ -2,6 +2,7 @@
 // Defines RV5Stage's RV32 and RV64 Zmmul multiplier-control relation.
 
 import:
+  "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
   "../../multiplier.rhdl" open
@@ -94,7 +95,10 @@ circuit RV5StageMultiplyInstructionDecoder(xlen :: XLen):
 def ZicbozMultiplyCases = instruction_cases(ZicbozInstructions, unused_multiply)
 def ZicbomMultiplyCases = instruction_cases(ZicbomInstructions, unused_multiply)
 
+def ZawrsMultiplyCases = instruction_cases(ZawrsInstructions, unused_multiply)
+
 export:
+  ZawrsMultiplyCases
   ZicbomMultiplyCases
   ZicbozMultiplyCases
   RV5StageMultiplyControl
