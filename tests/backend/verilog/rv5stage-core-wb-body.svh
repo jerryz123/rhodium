@@ -15,6 +15,7 @@ typedef struct packed {
   logic [1:0] destination;
   logic [4:0] rd;
   logic [1:0] precision;
+  logic [2:0] locality;
 } dreq_bits_t;
 typedef struct packed { logic valid; dreq_bits_t bits; } dreq_t;
 typedef struct packed {
