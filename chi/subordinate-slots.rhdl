@@ -24,92 +24,6 @@ bundle CHISNMatchedWrite(p :: CHIFlitParams, slot_width :: PosInt):
   data: CHIDatFlit(p)
   last: Bool
 
-fun chi_sn_dbid_response(p :: CHIFlitParams,
-                         node_id :: Bits(p.node_id_width),
-                         request :: CHIReqFlit(p),
-                         dbid :: Bits) :~ CHIRspFlit(p):
-  CHIRspFlit(p):
-    cache_line_id: bits(0, 6)
-    trace_tag: Bool(#false)
-    tag_op: CHITagOp.Invalid
-    pcrd_type: bits(0, 4)
-    dbid_or_group_id: dbid.zext(12)
-    c_busy: bits(0, 3)
-    fwd_state_or_data_pull: bits(0, 3)
-    resp: bits(0, 3)
-    resp_err: CHIRespErr.OK
-    opcode: CHIRspOpcode.DBIDResp
-    txn_id: request.txn_id
-    src_id: node_id
-    tgt_id: request.src_id
-    qos: request.qos
-
-fun chi_sn_write_completion(p :: CHIFlitParams,
-                            node_id :: Bits(p.node_id_width),
-                            request :: CHIReqFlit(p),
-                            dbid :: Bits) :~ CHIRspFlit(p):
-  CHIRspFlit(p):
-    cache_line_id: bits(0, 6)
-    trace_tag: Bool(#false)
-    tag_op: CHITagOp.Invalid
-    pcrd_type: bits(0, 4)
-    dbid_or_group_id: dbid.zext(12)
-    c_busy: bits(0, 3)
-    fwd_state_or_data_pull: bits(0, 3)
-    resp: bits(0, 3)
-    resp_err: CHIRespErr.OK
-    opcode: CHIRspOpcode.Comp
-    txn_id: request.txn_id
-    src_id: node_id
-    tgt_id: request.src_id
-    qos: request.qos
-
-fun chi_sn_read_completion(p :: CHIFlitParams,
-                           node_id :: Bits(p.node_id_width),
-                           request :: CHIReqFlit(p),
-                           data_id :: Bits(2),
-                           data :: Bits(p.data_width)) :~ CHIDatFlit(p):
-  wire response: CHIDatFlit(p)
-  if p.poison_width > 0
-  | response.poison <== bits(0, p.poison_width)
-  | #void
-  if p.data_check_width > 0
-  | response.data_check <== bits(0, p.data_check_width)
-  | #void
-  response.data <== data
-  def multi_packet = chi_data_beats_minus_one(chi_req_size(p, request), p) =/= bits(0, 2)
-  response.byte_enable <== mux(
-    multi_packet,
-    bits((1 << p.data_bytes) - 1, p.data_bytes),
-    transfer_byte_mask(request.address, request.size_or_num_req[0..3], p.data_bytes).into(Bits(p.data_bytes))
-  )
-  if p.dat_rsvdc_width > 0
-  | response.rsvdc <== bits(0, p.dat_rsvdc_width)
-  | #void
-  response.replicate <== Bool(#false)
-  response.num_dat <== bits(0, 2)
-  response.cah <== Bool(#false)
-  response.trace_tag <== Bool(#false)
-  response.tag_update <== bits(0, p.tag_update_width)
-  response.tag <== bits(0, p.tag_width)
-  response.tag_op <== CHITagOp.Invalid
-  response.cache_line_id <== bits(0, 6)
-  response.data_id <== data_id
-  response.ccid <== bits(0, 2)
-  response.dbid_or_mecid <== bits(0, 16)
-  response.c_busy <== bits(0, 3)
-  response.data_pull <== Bool(#false)
-  response.data_source_or_fwd_state <== bits(0, 8)
-  response.resp <== bits(0, 3)
-  response.resp_err <== CHIRespErr.OK
-  response.opcode <== CHIDatOpcode.CompData
-  response.home_nid_or_pbha_or_mismatched_mecid <== node_id
-  response.txn_id <== request.return_txn_id_or_stash_lpid
-  response.src_id <== node_id
-  response.tgt_id <== request.return_nid_or_stash_nid_or_data_target
-  response.qos <== request.qos
-  response
-
 sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def slot_width = index_width(limit)
 
@@ -205,9 +119,6 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
       assert(occupied[index], "chi_sn_transaction_slot_write_is_occupied")
 
 export:
-  chi_sn_dbid_response
-  chi_sn_write_completion
-  chi_sn_read_completion
   CHISNTransactionAllocation
   CHISNAllocatedTransaction
   CHISNMatchedWrite

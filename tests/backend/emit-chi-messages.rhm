@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the width- and option-specialized subordinate message regression.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../chi/tests/messages-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

@@ -75,6 +75,15 @@ import:
   lib("chi/main.rhdl") open
 ```
 
+For stateless subordinate responses, import `lib("chi/messages.rhdl")` directly
+or use the facade. `chi_sn_dbid_response` and `chi_sn_write_completion` correlate
+responses with the request's source and TxnID and the supplied DBID;
+`chi_sn_read_completion` uses its return-node/return-TxnID fields, derives byte
+enables from the transfer, and accepts the packet's DataID and payload. These
+builders emit successful responses with the existing inactive/default optional
+fields; they do not allocate transactions, validate endpoint capabilities, or
+implement retry, error, or coherence policy.
+
 The package boundary follows the protocol layering:
 
 - `chi/` owns CHI node roles, flits, opcodes, transactions, Protocol Credits,

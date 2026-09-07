@@ -32,6 +32,7 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 | Area | Owning modules | Responsibility |
 |---|---|---|
 | Wire | [`params.rhdl`](params.rhdl), [`flits.rhdl`](flits.rhdl), [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) | Physical configuration, packed payloads, packet helpers, and coherent state vocabulary |
+| Messages | [`messages.rhdl`](messages.rhdl) | Stateless subordinate DBID, write-completion, and read-completion construction; no allocator or endpoint state |
 | Endpoint and service | [`link.rhdl`](link.rhdl), [`channels.rhdl`](channels.rhdl), [`fabric.rhdl`](fabric.rhdl) | Credited links, ready-valid engine boundaries, capabilities, services, and address maps |
 | Checking and control | [`monitor.rhdl`](monitor.rhdl), [`transaction.rhdl`](transaction.rhdl), [`coherent-transaction.rhdl`](coherent-transaction.rhdl), [`retryable-transaction.rhdl`](retryable-transaction.rhdl) | Link assertions, bounded transaction checks, and reusable retry association |
 | Homes and storage | [`subordinate-slots.rhdl`](subordinate-slots.rhdl), [`home.rhdl`](home.rhdl), [`coherent-home.rhdl`](coherent-home.rhdl), [`inclusive-home.rhdl`](inclusive-home.rhdl), [`ram.rhdl`](ram.rhdl), [`dpi-memory.rhdl`](dpi-memory.rhdl), [`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl), [`address-projector.rhdl`](address-projector.rhdl) | Transaction allocation, Home engines, backing memory, fragmentation, and address projection |
@@ -42,6 +43,14 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 | Backend coverage | [`../tests/backend/`](../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) | CIRCT fixtures and Verilator benches |
 
 ## Extend a protocol layer
+
+Semantic packet construction belongs in `messages.rhdl`, below transaction
+engines. The subordinate allocator owns occupancy, DBID association, and packet
+receipt state, not response construction. Devices can consume the builders
+through `main.rhdl`; RAM imports their owner directly. Keep address maps,
+device side effects, and endpoint policy with callers. The `chi-messages`
+simulation checks routing, byte masks, payloads, and default fields at all DAT
+widths with optional fields enabled and disabled.
 
 Packet position and naturally aligned, unelided transfer packet sets belong in
 `protocol.rhdl`, below both engines and monitors. Use its address-aware helpers

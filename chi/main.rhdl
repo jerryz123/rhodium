@@ -5,6 +5,7 @@ import:
   lib("chi/params.rhdl") open
   lib("chi/flits.rhdl") open
   lib("chi/protocol.rhdl") open
+  lib("chi/messages.rhdl") open
   lib("chi/coherence.rhdl") open
   lib("chi/transaction.rhdl") open
   lib("chi/coherent-transaction.rhdl") open

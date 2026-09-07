@@ -15,6 +15,7 @@ import:
   lib("chi/channels.rhdl").CHISNChannels
   lib("chi/fabric.rhdl") open
   lib("chi/subordinate-slots.rhdl") open
+  lib("chi/messages.rhdl") open
 
 bundle CHIRamMemoryOperation(p :: CHIFlitParams, slot_width :: PosInt):
   write: Bool

@@ -671,6 +671,7 @@ direct_fixture_specs=(
   'credited-monitor-overgrant|'
   'chi-foundation|chi_foundation_tb'
   'chi-packets|chi_packets_tb'
+  'chi-messages|chi_messages_tb'
   'chi-request-update|chi_request_update_tb'
   'chi-full-flits|'
   'chi-link|chi_link_tb'
