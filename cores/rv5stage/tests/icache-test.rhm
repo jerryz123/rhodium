@@ -36,11 +36,13 @@ check:
   instruction_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 64
   instruction_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64
   instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 64
+  data_width(instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
   instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("word").type.width ~is 32
   instruction_cache.find_output("chi_out").type.field("requests").type.field("bits").type.field("address").type.width ~is 44
   rv32_instruction_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 32
+  data_width(rv32_instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
   rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("word").type.width ~is 32
   embedded.run_elaboration(
     fun (): RV5StageCacheConfig(3, 1)

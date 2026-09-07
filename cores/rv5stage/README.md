@@ -143,8 +143,9 @@ decisions remain explicit: in particular, an L1D request that is not ready
 becomes a replay, so its request boundary must not turn readiness into EX/MEM
 backpressure.
 
-Fetch retains up to two ordered, aligned instruction words in a flushable
-window so the physical instruction hierarchy can preserve response order while
+Fetch reserves up to four ordered, aligned instruction words in a flushable
+ring, with separate request, response, and assembly pointers, so the physical
+instruction hierarchy can preserve response order while
 the pipelined L1I accepts and returns one hit per cycle. Redirects clear that
 window and flush the MMU, instruction-router, L1I lookup, and buffered-response
 state. A wrong-path refill may finish internally but cannot return an
@@ -208,11 +209,17 @@ ordinary WB result uses the other write port. WAW gating prevents both ports
 from targeting the same register in one cycle, and a WB-aligned cache hit can
 set and clear a destination without an extra busy cycle.
 
-[`fetch.rhdl`](fetch.rhdl) keeps a two-entry window of ordered, aligned L1I
-words and a five-entry flow-through queue of assembled instructions. Fetch
-advances when that producer-owned queue accepts an instruction, so Decode
-backpressure can drain or fill the queue but cannot combinationally control the
-next L1I request. With C enabled Fetch can reuse either halfword, assemble a
+[`fetch.rhdl`](fetch.rhdl) keeps a four-entry reserved word ring and a five-entry
+flow-through queue of assembled instructions. The registered request PC advances
+by four bytes on request acceptance; the assembly PC advances by two or four
+bytes on instruction enqueue. Neither word consumption nor Decode readiness
+selects the live request address, and returned buffer credit is registered.
+The MMU admits S0 virtual reads into a two-entry non-flow-through request queue.
+S1 translates its registered head while L1I resolves the preceding SRAM read;
+S2 registers the selected word or refill context. A blocked S1 request remains
+queued and locally reissues its virtual read, without core replay or duplicate
+accepted physical requests. See the [MMU guide](mmu/README.md#request-flow).
+With C enabled Fetch can reuse either halfword, assemble a
 32-bit instruction that straddles adjacent words, and expand legal compressed
 instructions before the ordinary decoder. It retains the original 16-bit word
 for illegal-instruction trap values, reports second-word faults precisely, and

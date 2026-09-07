@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's VIPT instruction cache with paired virtual reads and physical resolution.
+// Pipelines S0 virtual SRAM reads, S1 physical tag resolution, and S2 instruction outcomes.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -30,6 +30,11 @@ bundle RV5StageL1ILookup(address_width :: PosInt):
   address: Bits(address_width)
   prefetch: Bool
 
+bundle RV5StageL1IResolved(address_width :: PosInt, way_width :: PosInt):
+  context: RV5StageL1IRefillContext(address_width, way_width)
+  hit: Bool
+  word: Bits(32)
+
 sync_circuit RV5StageL1ICache(xlen :: XLen,
                               cache :: RV5StageCacheConfig,
                               ~chi: config :: RV5StageCHIConfig):
@@ -53,7 +58,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
 
   input node_id: Bits(p.node_id_width)
   interface core(RV5StageInstructionAccess(xlen), ~role: responder)
-  interface virtual_lookup(Valid(Bits(width)), ~role: consumer)
+  interface virtual_lookup(Decoupled(Bits(width)), ~role: consumer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface chi(CHIRNChannels(p), ~role: node)
 
@@ -64,9 +69,10 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   inst snoop(RV5StageCleanSnoop(width, config))
   refill.node_id <== node_id
   snoop.node_id <== node_id
-  inst lookup(Pipe(RV5StageL1ILookup(width), 1))
   inst response_arbiter(Arbiter(RV5StageInstructionResp(), 2))
   def cache_flush = core.flush ||| core.invalidate_all
+  inst array_read(ValidPipeAlwaysCapture(RV5StageL1ILookup(width), 1), ~reset_when: cache_flush)
+  inst lookup(ValidPipeAlwaysCapture(RV5StageL1IResolved(width, way_width), 1), ~reset_when: cache_flush)
   inst responses(Queue(RV5StageInstructionResp(), 2, ~flow: #true), ~reset_when: cache_flush)
   inst protocol_responses(Arbiter(CHIRspFlit(p), 2))
 
@@ -103,7 +109,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   // A queued refill does not make its line resident. Let snoops inspect the
   // current cache while that transaction waits, and hold installation until
   // the snoop completes so the shared SRAM ports remain single-owner.
-  snoop.cache_ready <== !lookup.egress.valid & !refill_installing & !cache_flush
+  snoop.cache_ready <== !array_read.egress.valid & !lookup.egress.valid & !refill_installing & !cache_flush
   def snoop_lookup_start = snoop.lookup.valid
   def snoop_address = snoop.address
   def snoop_set = snoop_address[offset_width..(offset_width + set_width)]
@@ -134,12 +140,11 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & (prefetch_request.operation === CachePrefetchOperation.Instruction)
   def lookup_input_prefetch = !virtual_lookup.valid & prefetch_valid
-  def lookup_input_address = mux(lookup_input_prefetch, prefetch_request.address, core.request.bits.address)
   def lookup_index_address = mux(lookup_input_prefetch, prefetch_request.address, virtual_lookup.bits)
   def request_set_value = lookup_index_address[offset_width..(offset_width + set_width)]
   def request_data_address = lookup_index_address[word_offset_width..(offset_width + set_width)]
-  def lookup_context = lookup.egress.bits.into(RV5StageL1ILookup(width))
-  def lookup_address = lookup_context.address
+  def array_context = array_read.egress.bits.into(RV5StageL1ILookup(width))
+  def lookup_address = mux(array_context.prefetch, array_context.address, core.request.bits.address)
   def lookup_set = lookup_address[offset_width..(offset_width + set_width)]
   def lookup_tag = lookup_address[(offset_width + set_width)..width]
   def lookup_valids = valid_lines[lookup_set]
@@ -149,7 +154,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   )
   def lookup_selection = priority_encoder_oh(lookup_matches)
   def line_hit = lookup_selection.valid
-  def lookup_miss = lookup.egress.valid & tags.port.response.valid & !line_hit
+  def lookup_miss = lookup.egress.valid & !lookup.egress.bits.hit
   def cached_words = lines.port.response.bits.as_bits().as_vec(Bits(width))
   def cached_word = lookup_selection.mux(
     for List (way in 0..ways): cached_words[way],
@@ -161,7 +166,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     | mux(lookup_address[2].into(Bool), cached_word[32..64], cached_word[0..32])
   for (left in 0..ways):
     for (right in (left + 1)..ways):
-      when (lookup.egress.valid & tags.port.response.valid):
+      when (array_read.egress.valid & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)):
         assert(!(lookup_matches[left] & lookup_matches[right]),
                "l1i_core_hit_unique")
   def completion_address = refill.completion.bits.context.address
@@ -185,47 +190,47 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   when response_fire:
     assert(or_reduce(outstanding), "l1i_response_has_request")
 
-  // Lookup and SRAM response tokens advance together. Response capacity uses
-  // registered accounting so downstream response readiness cannot become a
-  // combinational request-admission path. A miss transfers its address into
-  // the refill engine and blocks new requests until that transaction completes.
-  def lookup_accepts_input = !cache_flush & !snoop_pending & refill.command.ready & !lookup_miss & response_capacity
-  core.request.ready <== lookup_accepts_input & lookup.ingress.ready
-  lookup.ingress.valid <== lookup_accepts_input & (core.request.valid ||| lookup_input_prefetch)
-  lookup.ingress.bits <== RV5StageL1ILookup(width):
-    address: lookup_input_address
+  // S0 admission has no translation, S1 tag-match, or response-ready dependency.
+  // Unresolved reads are discarded; the MMU retains and reissues their requests.
+  def array_accepts_input = !cache_flush & !snoop_pending & refill.command.ready & !refill_installing
+  virtual_lookup.ready <== array_accepts_input
+  def array_lookup_issue = array_accepts_input & (virtual_lookup.valid ||| lookup_input_prefetch)
+  def array_request = RV5StageL1ILookup(width):
+    address: lookup_index_address
     prefetch: lookup_input_prefetch
+  inject_flow(Valid(RV5StageL1ILookup(width)), ~valid: array_lookup_issue, ~bits: array_request) |> array_read.ingress
+  // S1 pairs the preceding SRAM read with its permitted physical resolution.
+  def lookup_accepts_input = !cache_flush & !snoop_pending & refill.command.ready & !lookup_miss & response_capacity
+  core.request.ready <== lookup_accepts_input & array_read.egress.valid & !array_context.prefetch & tags.port.response.valid
+  def lookup_issue = lookup_accepts_input & array_read.egress.valid & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)
+  def resolved_context = RV5StageL1IRefillContext(width, way_width):
+    address: lookup_address
+    way: rv5stage_cache_replacement_way(cache, lookup_valids, replacement_ways[lookup_set])
+    prefetch: array_context.prefetch
+  def resolved_lookup = RV5StageL1IResolved(width, way_width):
+    context: resolved_context
+    hit: line_hit
+    word: cached_fetch_word
+  inject_flow(Valid(RV5StageL1IResolved(width, way_width)), ~valid: lookup_issue, ~bits: resolved_lookup) |> lookup.ingress
   def request_fire = core.request.fire()
-  def lookup_issue = lookup.ingress.fire()
-  // A read may be discarded when translation misses, faults, or selects MMIO.
-  // Only the paired permitted physical request creates a lookup-result token.
-  def array_lookup_issue = lookup_accepts_input & lookup.ingress.ready & (virtual_lookup.valid ||| lookup_input_prefetch)
   when request_fire:
-    assert(virtual_lookup.valid, "l1i_physical_request_has_virtual_lookup")
-    assert(virtual_lookup.bits[0..12] === core.request.bits.address[0..12], "l1i_vipt_page_offset_matches")
+    assert(array_read.egress.valid & !array_context.prefetch, "l1i_physical_request_has_virtual_lookup")
+    assert(array_context.address[0..12] === core.request.bits.address[0..12], "l1i_vipt_page_offset_matches")
   when lookup_issue:
-    assert(array_lookup_issue, "l1i_resolution_has_array_read")
+    assert(tags.port.response.valid & lines.port.response.valid, "l1i_resolution_has_array_read")
 
   def Array(miss_path, hit_path) = (
     lookup.egress
-      |> filter_flow(_context => tags.port.response.valid & !cache_flush)
-      |> demux_flow(2, _context => line_hit.as_bits())
+      |> filter_valid(_result => !cache_flush)
+      |> to_decoupled()
+      |> demux_flow(2, result => result.hit.as_bits())
   )
-  fun refill_context(context :: RV5StageL1ILookup(width)) :~ RV5StageL1IRefillContext(width, way_width):
-    def address = context.address
-    def set = address[offset_width..(offset_width + set_width)]
-    def valid = valid_lines[set]
-    def replacement = replacement_ways[set]
-    RV5StageL1IRefillContext(width, way_width):
-      address: address
-      way: rv5stage_cache_replacement_way(cache, valid, replacement)
-      prefetch: context.prefetch
   def refill_commands = (
     miss_path
-      |> map_flow(context => RV5StageLineRefillCommand(RV5StageL1IRefillContext(width, way_width), width)):
-        line_address: align_down(context.address, RV5StageCacheLineBytes)
+      |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1IRefillContext(width, way_width), width)):
+        line_address: align_down(result.context.address, RV5StageCacheLineBytes)
         opcode: CHIReqOpcode.ReadClean
-        context: refill_context(context)
+        context: result.context
   )
   refill_commands |> refill.command
   assert(!lookup_miss ||| cache_flush ||| refill.command.ready,
@@ -233,9 +238,9 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
 
   def hit_responses = (
     hit_path
-      |> filter_flow(context => !context.prefetch)
-      |> map_flow(_context => RV5StageInstructionResp()):
-        word: cached_fetch_word
+      |> filter_flow(result => !result.context.prefetch)
+      |> map_flow(result => RV5StageInstructionResp()):
+        word: result.word
         page_fault: Bool(#false)
         access_fault: Bool(#false)
   )

@@ -29,7 +29,7 @@ each other; share external transaction machinery through the CHI package.
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
-| [`fetch.rhdl`](fetch.rhdl) | Aligned-word window, configured compressed-profile expansion, instruction queue, and redirect flushing |
+| [`fetch.rhdl`](fetch.rhdl) | Independent request/assembly PCs, four-word reservation ring, compressed expansion, instruction queue, and redirect flushing |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
@@ -67,6 +67,13 @@ each other; share external transaction machinery through the CHI package.
    the composed core. Do not add an elaboration snapshot for every submodule.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,
    or deliberate limits change.
+
+Keep frontend stage ownership explicit: Fetch owns aligned request generation
+and assembly, MMU owns registered S1 address/translation and local read retry,
+and L1I owns S0 SRAM admission and always-captured S2 resolution. Do not fold
+same-cycle word consumption into the request address or move ITLB lookup back
+onto a live core request. Use the fetch, MMU-replay, I-cache, instruction-router,
+and IO-boot fixtures when changing this boundary.
 
 ## Maintain the UDB projection
 

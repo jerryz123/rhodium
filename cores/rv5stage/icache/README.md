@@ -43,7 +43,7 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 | Direction | Member | Meaning |
 |---|---|---|
 | Fetch → cache | `request: Decoupled(RV5StageInstructionReq)` | XLEN-wide physical byte address |
-| MMU → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
+| MMU → cache | `virtual_lookup: Decoupled(Bits(XLEN))` | S0 virtual read with structural SRAM-port admission; physical resolution follows in S1 |
 | MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical `PREFETCH.I`; no acceptance or response |
 | Fetch → cache | `flush` | Discard speculative lookup and buffered-response state |
 | Fetch → cache | `invalidate_all` | Perform the flush behavior and invalidate every resident line |
@@ -56,9 +56,10 @@ The line size is a fixed RV5Stage constant rather than a cache parameter.
 
 `virtual_lookup` is a separate cache port, not a member of the core/Fetch
 instruction-access interface. It supplies the SRAM index without waiting for
-ITLB/PMA resolution. A physical request accepted at that edge must have a live
-virtual lookup with identical bits `[11:0]`; assertions enforce both conditions.
-Only its physical address and demand token enter the lookup pipeline. A virtual
+ITLB/PMA resolution. A physical request accepted in S1 must have a preceding
+accepted virtual lookup with identical bits `[11:0]`; assertions enforce both
+conditions. The translated physical tag is compared with that SRAM result, and
+the selected word/hit decision/refill context are registered into S2. A virtual
 read without an accepted physical request is discarded, including on a TLB
 miss, fault, uncached selection, or flush. Such reads cannot respond or allocate.
 Physical prefetches use the same SRAM port and lose to a live virtual demand.
@@ -70,11 +71,11 @@ transactions outside the core response path:
 
 ```mermaid
 flowchart LR
-  Virtual["Early virtual index"] --> Lookup["One-stage lookup Pipe<br/>tag + XLEN word SRAMs"]
-  Fetch["Permitted physical request<br/>paired at read edge"] --> Lookup
-  Lookup -->|hit| Select["RV32 word or<br/>RV64 half-word select"]
-  Select --> Merge["Hit / refill response arbiter"]
-  Lookup -->|miss| Refill["64-byte ReadClean<br/>retry-aware refill"]
+  Virtual["S0 virtual index"] --> Lookup["S1 SRAM result + physical tag compare"]
+  Fetch["S1 permitted physical request<br/>registered MMU address"] --> Lookup
+  Lookup --> Resolved["S2 registered hit word<br/>or miss context"]
+  Resolved -->|hit| Merge["Hit / refill response arbiter"]
+  Resolved -->|miss| Refill["64-byte ReadClean<br/>retry-aware refill"]
   Refill --> Install["Install one XLEN word/cycle<br/>publish metadata last"]
   Install --> Arrays["Tag, clean state,<br/>and data arrays"]
   Install --> Merge
@@ -92,8 +93,12 @@ XLEN word per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. RV32 returns the selected SRAM word directly. RV64 uses
 address bit 2 to select its low or high 32-bit instruction.
 
-A one-stage `Pipe` carries the address and demand/prefetch tag alongside the
-synchronous lookup. A hit can admit the next request immediately. Hit and live-refill results merge before
+An always-captured S1 token carries the virtual address and demand/prefetch tag
+alongside the synchronous lookup. A second always-captured stage registers the
+resolved hit word or miss context. S0 port admission does not wait for S1
+translation or tag comparison. A blocked or unmatched physical resolution drops
+that read; the MMU owns local retry. A hit can admit the next request immediately.
+Hit and live-refill results merge before
 a two-entry flow-through queue, which preserves ordered `Irrevocable` responses
 under Fetch backpressure. Outstanding-request accounting reserves response
 capacity and never exceeds two. A released slot becomes available to request

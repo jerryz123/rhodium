@@ -1,4 +1,4 @@
-// Verifies MMU data-port drain, backpressure, response routing, replay, faults, and prefetch cancellation.
+// Verifies registered instruction retry, MMU data-port drain, backpressure, faults, and prefetches.
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -89,6 +89,7 @@ module rv5stage_mmu_replay_tb;
   data_in_t data_in;
   typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;
   lookup_t instruction_lookup_out;
+  ready_t instruction_lookup_in = '{ready: 1'b1};
   lookup_t data_lookup_out;
   instruction_memory_in_t instruction_memory_in;
   data_memory_in_t data_memory_in;
@@ -118,6 +119,14 @@ module rv5stage_mmu_replay_tb;
   logic memory_idle = 1'b0;
   logic ordinary_response_valid = 1'b0;
   data_req_bits_t stalled_request;
+  logic instruction_phase = 1'b0;
+  logic instruction_blocked = 1'b0;
+  logic instruction_return_valid = 1'b0;
+  logic [31:0] instruction_return_word;
+  integer instruction_requests_seen = 0;
+  integer instruction_responses_seen = 0;
+  logic instruction_translation_phase = 1'b0;
+  integer instruction_pte_requests = 0;
 
   RV5StageMmu dut (.*);
   always #5 clock = ~clock;
@@ -139,7 +148,9 @@ module rv5stage_mmu_replay_tb;
     data_in.request.bits.rd = 5'd7;
     data_in.request.bits.floating_point_precision = '0;
     instruction_memory_in = '0;
-    instruction_memory_in.request.ready = 1'b1;
+    instruction_memory_in.request.ready = !instruction_blocked;
+    instruction_memory_in.response.valid = instruction_return_valid;
+    instruction_memory_in.response.bits = '{word: instruction_return_word, page_fault: 1'b0, access_fault: 1'b0};
     data_memory_in.request.ready = memory_ready;
     data_memory_in.request_fault = 1'b0;
     data_memory_in.request_access_fault = 1'b0;
@@ -164,7 +175,7 @@ module rv5stage_mmu_replay_tb;
       if (pte_response_valid)
         assert (!data_out.response.valid)
           else $fatal(1, "page-table response leaked onto the core data path");
-      assert (!instruction_memory_out.request.valid)
+      assert (instruction_phase || !instruction_memory_out.request.valid)
         else $fatal(1, "data miss unexpectedly issued an instruction-memory request");
       if (data_memory_out.request.valid && data_memory_in.request.ready) begin
         assert (data_lookup_out.valid &&
@@ -173,7 +184,38 @@ module rv5stage_mmu_replay_tb;
         if (!data_request_valid)
           assert (data_lookup_out.bits == data_memory_out.request.bits.address)
             else $fatal(1, "PTW read did not supply a physical lookup index");
-        if (page_fault_phase) begin
+        if (instruction_translation_phase) begin
+          case (instruction_pte_requests)
+            0, 4: begin
+              assert (data_memory_out.request.bits.address == 64'h1000)
+                else $fatal(1, "ITLB walk lost its root");
+              pte_response_data <= LEVEL_2_POINTER;
+            end
+            1, 5: begin
+              assert (data_memory_out.request.bits.address == 64'h2000)
+                else $fatal(1, "ITLB walk lost its middle level");
+              pte_response_data <= LEVEL_1_POINTER;
+            end
+            2: begin
+              assert (data_memory_out.request.bits.address == 64'h3020)
+                else $fatal(1, "ITLB walk used the live input instead of the retained PC");
+              pte_response_data <= 64'h204b; // Valid, readable, executable, accessed.
+            end
+            3: begin
+              assert (data_memory_out.request.bits.address == 64'h1000)
+                else $fatal(1, "canceled ITLB fault used an unexpected root");
+              pte_response_data <= 0;
+            end
+            6: begin
+              assert (data_memory_out.request.bits.address == 64'h3028)
+                else $fatal(1, "post-redirect ITLB walk lost its new PC");
+              pte_response_data <= 64'h284b; // Maps VA 0x5000 to PA 0xa000.
+            end
+            default: $fatal(1, "ITLB hit unnecessarily restarted the walker");
+          endcase
+          pte_response_valid <= 1'b1;
+          instruction_pte_requests <= instruction_pte_requests + 1;
+        end else if (page_fault_phase) begin
           assert (!page_fault_pte_seen && data_memory_out.request.bits.address == 64'h1000)
             else $fatal(1, "faulting walk issued an unexpected PTE request");
           pte_response_valid <= 1'b1;
@@ -208,9 +250,30 @@ module rv5stage_mmu_replay_tb;
     end
   end
 
+  always_ff @(posedge clock) begin
+    instruction_return_valid <= 1'b0;
+    if (instruction_phase && !instruction_flush) begin
+      if (instruction_memory_out.request.valid && instruction_memory_in.request.ready) begin
+        assert (instruction_requests_seen < (instruction_translation_phase ? 5 : 2) &&
+                instruction_memory_out.request.bits.address ==
+                  (instruction_requests_seen == 4 ? 64'ha000 : 64'h8000 + 4 * 64'(instruction_requests_seen % 2)))
+          else $fatal(1, "instruction retry lost order or duplicated a physical request");
+        instruction_return_valid <= 1'b1;
+        instruction_return_word <= 32'h100 + 32'(instruction_requests_seen);
+        instruction_requests_seen <= instruction_requests_seen + 1;
+      end
+      if (instruction_out.response.valid) begin
+        assert (instruction_out.response.bits.word == 32'h100 + 32'(instruction_responses_seen) &&
+                !instruction_out.response.bits.page_fault && !instruction_out.response.bits.access_fault)
+          else $fatal(1, "registered instruction response lost its owner");
+        instruction_responses_seen <= instruction_responses_seen + 1;
+      end
+    end
+  end
+
   initial begin
     wait (!reset);
-    repeat (400) @(posedge clock);
+    repeat (600) @(posedge clock);
     $fatal(1, "DTLB walk or replay did not complete");
   end
 
@@ -519,7 +582,7 @@ module rv5stage_mmu_replay_tb;
     instruction_request_valid = 1;
     #1;
     assert (instruction_lookup_out.valid && instruction_lookup_out.bits == instruction_address &&
-            !instruction_out.request.ready && !instruction_memory_out.request.valid)
+            instruction_out.request.ready && !instruction_memory_out.request.valid)
       else $fatal(1, "ITLB miss waited for translation before presenting its index");
     instruction_flush = 1;
     #1;
@@ -538,9 +601,108 @@ module rv5stage_mmu_replay_tb;
       else $fatal(1, "PMA-denied fetch did not separate early read from physical resolution");
     tick();
     instruction_request_valid = 0;
+    // Translation and fault classification use the admitted S1 address, not
+    // the live S0 payload, and publish the fault through S2 ownership.
+    instruction_address = 64'h80000000;
+    tick();
     assert (instruction_out.response.valid && instruction_out.response.bits.access_fault)
       else $fatal(1, "PMA-denied early fetch lost its architectural fault");
-    $display("RV5Stage DTLB demand, fault, and pipelined prefetch translation passed");
+    tick();
+
+    // Admit consecutive S0 words while S1 is blocked, then alter the live
+    // request payload. Local rereads must resolve each original word once.
+    @(negedge clock);
+    instruction_phase = 1;
+    instruction_blocked = 1;
+    instruction_address = 64'h8000;
+    instruction_request_valid = 1;
+    #1;
+    assert (instruction_out.request.ready && !instruction_memory_out.request.valid)
+      else $fatal(1, "S0 instruction admission waited for physical readiness");
+    tick();
+    instruction_address = 64'h8004;
+    #1;
+    assert (instruction_out.request.ready && instruction_memory_out.request.valid &&
+            instruction_memory_out.request.bits.address == 64'h8000)
+      else $fatal(1, "S1 translation used the live S0 address");
+    tick();
+    instruction_request_valid = 0;
+    instruction_address = 64'hdead0000;
+    repeat (4) tick();
+    assert (instruction_lookup_out.valid && instruction_lookup_out.bits == 64'h8000)
+      else $fatal(1, "blocked instruction did not retry its retained virtual address");
+    instruction_blocked = 0;
+    wait (instruction_responses_seen == 2);
+    repeat (3) tick();
+    assert (instruction_requests_seen == 2 && !instruction_memory_out.request.valid)
+      else $fatal(1, "instruction retry duplicated completion");
+
+    @(negedge clock);
+    instruction_blocked = 1;
+    instruction_request_valid = 1;
+    instruction_address = 64'h8008;
+    tick();
+    instruction_request_valid = 0;
+    instruction_flush = 1;
+    tick();
+    instruction_flush = 0;
+    instruction_blocked = 0;
+    repeat (4) tick();
+    assert (instruction_requests_seen == 2 && !instruction_lookup_out.valid)
+      else $fatal(1, "flushed S1 instruction escaped to physical memory");
+
+    // A real ITLB miss keeps two admitted PCs across the entire walk. The
+    // second word must reuse the fill, with no duplicate physical acceptance.
+    @(negedge clock);
+    instruction_translation_phase = 1;
+    satp = SATP_SV39_ROOT_1;
+    privilege = PRIVILEGE_S;
+    mstatus = 0;
+    instruction_address = VIRTUAL_ADDRESS;
+    instruction_request_valid = 1;
+    #1;
+    assert (instruction_out.request.ready && !instruction_memory_out.request.valid)
+      else $fatal(1, "ITLB miss prevented structural S0 admission");
+    tick();
+    instruction_address = VIRTUAL_ADDRESS + 4;
+    #1;
+    assert (instruction_out.request.ready && !instruction_memory_out.request.valid)
+      else $fatal(1, "younger S0 request borrowed an unresolved translation");
+    tick();
+    instruction_request_valid = 0;
+    instruction_address = 64'hdead0000;
+    wait (instruction_responses_seen == 4);
+    repeat (4) tick();
+    assert (instruction_pte_requests == 3 && instruction_requests_seen == 4 &&
+            !instruction_lookup_out.valid && !instruction_memory_out.request.valid)
+      else $fatal(1, "ITLB local replay did not finish exactly once per admitted word");
+
+    // Retain a walker fault while the reread port is unavailable, then redirect.
+    // The canceled fault must not strand the walker for a subsequent ITLB miss.
+    @(negedge clock);
+    instruction_address = 64'h9000;
+    instruction_request_valid = 1;
+    tick();
+    instruction_request_valid = 0;
+    instruction_lookup_in.ready = 0;
+    wait (instruction_pte_requests == 4);
+    repeat (8) tick();
+    assert (!instruction_out.response.valid && instruction_requests_seen == 4)
+      else $fatal(1, "blocked fault escaped before its retained S1 request resolved");
+    instruction_flush = 1;
+    tick();
+    instruction_flush = 0;
+    instruction_lookup_in.ready = 1;
+    instruction_address = 64'h5000;
+    instruction_request_valid = 1;
+    tick();
+    instruction_request_valid = 0;
+    instruction_address = 64'hdead0000;
+    wait (instruction_responses_seen == 5);
+    repeat (4) tick();
+    assert (instruction_pte_requests == 7 && instruction_requests_seen == 5)
+      else $fatal(1, "redirect did not release the retained ITLB fault");
+    $display("RV5Stage registered ITLB retry, DTLB demand, faults, and pipelined prefetch translation passed");
     $finish;
   end
 endmodule

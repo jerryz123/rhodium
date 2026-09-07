@@ -42,8 +42,10 @@ routed response arrives while it is waiting.
 
 1. Decide whether the change is reusable Sv39 representation/policy or
    RV5Stage state and arbitration. Put only the former in `riscv/rtl`.
-2. Preserve address correlation for walk completions and faults while the
-   original Decoupled request is held.
+2. Preserve address correlation for walk completions and faults. The instruction
+   request is retained in the MMU's registered queue after S0 admission; the
+   core may change its payload immediately after acceptance. A blocked S1
+   locally reissues its virtual read and must never duplicate a physical fire.
 3. Keep page faults distinct from physical PTE access faults and suppress every
    rejected physical resolution before it reaches a cache or device. Early
    virtual SRAM reads are permitted, but cannot create a successful cache token

@@ -1,4 +1,4 @@
-// Checks fetch assembly, queued run-ahead under backpressure, restart, and faults.
+// Checks independent word-request generation, assembly, reserved run-ahead, restart, and faults.
 module rv5stage_fetch_tb;
   typedef struct packed { logic [63:0] address; } request_bits_t;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;
@@ -34,6 +34,7 @@ module rv5stage_fetch_tb;
   response_bits_t response_bits;
   logic fetched_ready = 1'b1;
   integer stalled_requests;
+  logic [63:0] held_request_address;
 
   RV5StageInstructionFetch dut (.*);
   always #5 clock = ~clock;
@@ -119,6 +120,12 @@ module rv5stage_fetch_tb;
     wait (fetched_out.valid && fetched_out.bits.pc == 64'h100);
     #1;
     assert (fetched_out.bits.instruction == 32'h00000013);
+    held_request_address = memory_out.request.bits.address;
+    active = 1'b0;
+    #1;
+    assert (memory_out.request.bits.address == held_request_address)
+      else $fatal(1, "same-cycle squash selected a different fetch address");
+    active = 1'b1;
     @(posedge clock);
     #1;
     assert (fetched_out.valid && fetched_out.bits.pc == 64'h104 &&

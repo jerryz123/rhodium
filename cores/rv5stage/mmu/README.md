@@ -42,18 +42,26 @@ memory or the uncached engine for a non-cacheable region. Consequently, the walk
 arbitration point is the shared physical data port immediately before that
 router; a cacheable PTE read follows the ordinary L1D path.
 
-Separate `instruction_lookup` and `data_lookup` Valid outputs carry the early
-virtual byte address directly to each cache, bypassing physical routers. Their
-validity and index do not depend on a TLB hit, permission, or PMA classification.
-The permitted physical request remains the resolution/acceptance path and is
-paired with that virtual read at the same edge. On the data side, walker
-ownership selects a physical PTE address on both paths. A rejected or unresolved
-read cannot create a cache result or side effect; architectural fault and replay
-timing is unchanged. See the cache guides for structural admission and buffering.
+`instruction_lookup: Decoupled(Bits(XLEN))` launches S0 virtual reads directly
+into L1I, bypassing physical routing. Core request acceptance atomically reserves
+that read and a two-entry, non-flow-through request queue. ITLB lookup and PMA
+checks use only the registered queue head in S1, not the live S0 address.
+Physical acceptance requires a matching preceding virtual read. If translation,
+physical routing, or response capacity blocks S1, a registered retry decision
+reissues the retained head's virtual read; speculative younger reads are simply
+discarded. The queued request leaves only when its physical request or local
+fault is accepted, preserving exactly-once ordered responses. Flush clears the
+request/read/retry state along with response ownership.
+
+`data_lookup` remains a Valid early index paired with data resolution at the same
+edge; walker ownership selects the physical PTE address on both data paths.
+Neither cache's S0 index depends on TLB/PMA results. A rejected or unresolved
+read cannot create a cache result or side effect. See the cache guides for
+structural admission and buffering.
 
 ```mermaid
 flowchart LR
-  FETCH["Core Fetch<br/>virtual request"] --> ILOOKUP["ITLB lookup"]
+  FETCH["Core Fetch<br/>S0 virtual request"] --> IREQ["Registered S1 request queue"] --> ILOOKUP["ITLB lookup"]
   LSU["Core WB<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
   FETCH -->|"early virtual SRAM index"| L1I
   LSU -->|"early virtual SRAM index"| L1D

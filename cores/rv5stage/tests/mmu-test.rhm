@@ -36,6 +36,7 @@ check:
   walker_module.find_output("completion_out").type.field("bits").type.field("physical_address").type.width ~is 56
   mmu_module.find_input("satp").type.width ~is 64
   mmu_module.find_output("instruction_lookup_out").type.field("bits").type.width ~is 64
+  data_width(mmu_module.find_input("instruction_lookup_in").type.field("ready").type) ~is 1
   mmu_module.find_output("data_lookup_out").type.field("bits").type.width ~is 64
   type_equal(
     mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("page_fault").type,

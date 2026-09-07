@@ -1,4 +1,4 @@
-// Verifies RV5Stage VIPT L1I aliases, canceled reads, refills, hits, snoops, and paired DVM.
+// Verifies staged VIPT reads and physical resolutions, aliases, refills, backpressure, and snoops.
 module rv5stage_icache_tb;
   typedef struct packed { logic [63:0] address; } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
@@ -50,10 +50,13 @@ module rv5stage_icache_tb;
   prefetch_t prefetch_in;
   typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;
   lookup_t virtual_lookup_in;
+  ready_t virtual_lookup_out;
   logic probe_only = 1'b0;
+  logic lookup_override = 1'b0;
+  lookup_t staged_lookup;
   logic [63:0] virtual_page_xor = 64'h4000_0000;
-  assign virtual_lookup_in = {core_in.request.valid | probe_only,
-                              core_in.request.bits.address ^ virtual_page_xor};
+  assign virtual_lookup_in = lookup_override ? staged_lookup :
+    lookup_t'({core_in.request.valid | probe_only, core_in.request.bits.address ^ virtual_page_xor});
   chi_in_t chi_in;
   chi_out_t chi_out;
   logic forbid_core_response = 1'b0;
@@ -123,14 +126,18 @@ module rv5stage_icache_tb;
     integer cycles;
     begin
       cycles = 0;
+      core_in.request.bits.address = address;
+      probe_only = 1'b1;
+      // Launch S0 before expecting S1 physical acceptance; retry a blocked read.
+      tick();
+      probe_only = 1'b0;
+      core_in.request.valid = 1'b1;
       while (!core_out.request.ready && cycles < 100) begin
         tick();
         cycles = cycles + 1;
       end
       assert (core_out.request.ready)
         else $fatal(1, "L1I did not accept a core request");
-      core_in.request.bits.address = address;
-      core_in.request.valid = 1'b1;
       tick();
       core_in.request.valid = 1'b0;
     end
@@ -343,6 +350,31 @@ module rv5stage_icache_tb;
     expect_instruction(32'h33333333);
     send_core_request(ADDRESS + 64'd12);
     expect_instruction(32'h44444444);
+
+    // Different S0 and S1 addresses coexist: physical tag resolution must use
+    // the preceding SRAM read, while a new virtual read enters every cycle.
+    lookup_override = 1'b1;
+    staged_lookup = '{valid: 1'b1, bits: ADDRESS ^ virtual_page_xor};
+    #1;
+    assert (virtual_lookup_out.ready);
+    tick();
+    core_in.request = '{valid: 1'b1, bits: '{address: ADDRESS}};
+    staged_lookup.bits = (ADDRESS + 64'd4) ^ virtual_page_xor;
+    #1;
+    assert (core_out.request.ready && virtual_lookup_out.ready);
+    tick();
+    assert (core_out.response.valid && core_out.response.bits.word == 32'h11111111)
+      else $fatal(1, "S2 did not retain the first pipelined hit");
+    core_in.request.bits.address = ADDRESS + 64'd4;
+    staged_lookup.valid = 1'b0;
+    #1;
+    assert (core_out.request.ready);
+    tick();
+    core_in.request.valid = 1'b0;
+    assert (core_out.response.valid && core_out.response.bits.word == 32'h22222222)
+      else $fatal(1, "S0/S1 address overlap corrupted a consecutive hit");
+    tick();
+    lookup_override = 1'b0;
 
     // Fill both reserved response slots, then prove that releasing one does
     // not create a combinational response-ready-to-request-ready path.
