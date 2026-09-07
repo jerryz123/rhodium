@@ -111,6 +111,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   ))
   reg snoop_way(~init: bits(0, way_width))
   reg reservation_valid(~init: Bool(#false))
+  core.reservation_valid <== reservation_valid
   reg reservation_address(~init: bits(0, width))
   reg reservation_width(~init: MemoryWidth.Word)
   // A resolved local store, AMO, or successful SC commits from this register

@@ -25,7 +25,7 @@ typedef struct packed {
   logic [1:0] precision;
 } dresp_bits_t;
 typedef struct packed { logic valid; dresp_bits_t bits; } dresp_t;
-typedef struct packed { ready_t request; logic request_fault, request_access_fault; dresp_t response; logic drained; } din_t;
+typedef struct packed { ready_t request; logic request_fault, request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;
 typedef struct packed { dreq_t request; } dout_t;
 logic clock = 0, reset = 1;
 logic [63:0] time_counter = 0;

@@ -16,6 +16,11 @@ instead of treating this page as a component catalog.
 Contributors changing a composition should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
+All three default core profiles enable
+[Zawrs reservation waiting](../cores/rv5stage/README.md#reservation-waiting).
+Their device-tree ISA extension lists and UDB configurations derive this claim
+from the same profile that selects the hardware decoder and wait controller.
+
 ## Choose a system
 
 | System | Default processors | Normal-memory termination | Coherence structure | Default core specialization | Best fit |

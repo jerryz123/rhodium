@@ -49,12 +49,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def zicbop_enabled = extensions.zicbop
   def zicboz_enabled = extensions.zicboz
   def zicbom_enabled = extensions.zicbom
+  def zawrs_enabled = extensions.zawrs
   def compressed_extensions = extensions.compressed
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
-  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled).map(fun (instruction): instruction.name)
+  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled).map(fun (instruction): instruction.name)
 
   def instruction_alignment = if compressed_enabled | 2 | 4
   unless reset_address < (1 << width)
@@ -102,7 +103,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen), 1))
 
-  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled))
+  inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled))
   inst registers(RV5StageRegisterFile(xlen))
   inst alu(ALU(xlen))
   inst branch_resolver(BranchResolver(width))
@@ -129,10 +130,31 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   reg maintenance_instruction(MemoryWriteback(xlen))
   wire maintenance_accepted: Bool
   def pipeline_wb = mem_wb_pipe.egress
+  // WRS owns its retirement context outside the feed-forward pipeline. Wake
+  // levels win over timeout, including a reservation lost on entry to waiting.
+  reg reservation_wait_pending(~init: Bool(#false))
+  reg reservation_wait_instruction(MemoryWriteback(xlen))
+  reg reservation_wait_count(~init: bits(0, 12))
+  def reservation_wait_wake = !data_access.reservation_valid ||| csrs.wfi_wake
+  def reservation_wait_expired = and_reduce(reservation_wait_count)
+  def reservation_wait_short = reservation_wait_instruction.system.action === SystemOperation.WrsSto
+  def reservation_wait_tw = (csrs.privilege =/= PrivilegeMode.Machine) & csrs.mstatus[21].into(Bool)
+  def reservation_wait_timeout = reservation_wait_expired & (reservation_wait_short ||| reservation_wait_tw)
+  def reservation_wait_done = reservation_wait_pending & (reservation_wait_wake ||| reservation_wait_timeout)
+  def reservation_wait_illegal = reservation_wait_done & !reservation_wait_wake & !reservation_wait_short & reservation_wait_tw
+  def reservation_wait_accept = Bool(zawrs_enabled) & pipeline_wb.valid & !maintenance_pending & !reservation_wait_pending & !pending_exception_valid & !pipeline_wb.bits.replay & !pipeline_wb.bits.exception_valid & pipeline_wb.bits.system.action.is_one_of(SystemOperation.WrsNto, SystemOperation.WrsSto)
+  when reservation_wait_accept:
+    reservation_wait_pending <== Bool(#true)
+    reservation_wait_instruction <== pipeline_wb.bits
+    reservation_wait_count <== bits(0, 12)
+  elsewhen reservation_wait_done:
+    reservation_wait_pending <== Bool(#false)
+  elsewhen (reservation_wait_pending & !reservation_wait_expired):
+    reservation_wait_count <== reservation_wait_count + bits(1, 12)
   def maintenance_done = maintenance_pending & data_access.response.valid
   when (data_access.response.valid & data_access.response.bits.access_fault):
     assert(maintenance_pending, "rv5stage_completion_fault_has_retirement_context")
-  def wb = inject_flow(Valid(MemoryWriteback(xlen)), ~valid: mux(maintenance_pending, maintenance_done, pipeline_wb.valid), ~bits: mux(maintenance_pending, maintenance_instruction, pipeline_wb.bits))
+  def wb = inject_flow(Valid(MemoryWriteback(xlen)), ~valid: mux(reservation_wait_pending, reservation_wait_done, mux(maintenance_pending, maintenance_done, pipeline_wb.valid & !reservation_wait_accept)), ~bits: mux(reservation_wait_pending, reservation_wait_instruction, mux(maintenance_pending, maintenance_instruction, pipeline_wb.bits)))
   def wb_bits :: MemoryWriteback(xlen) = wb.bits
   wire commit_result: MemoryWriteback(xlen)
   def commit = inject_flow(Valid(MemoryWriteback(xlen)), ~valid: wb.valid & !maintenance_accepted & !pending_exception_valid, ~bits: commit_result)
@@ -198,7 +220,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   reg architectural_pc(~init: reset_pc)
   // Seed fetch once after reset; software in the reset image owns boot waiting.
   def reset_start = !started
-  def fetch_valid = started & !squash & !csrs.interrupt_request & !waiting_for_interrupt
+  def fetch_valid = started & !squash & !csrs.interrupt_request & !waiting_for_interrupt & !reservation_wait_pending & !reservation_wait_accept
   fetch.active <== fetch_valid
   fetch.flush <== memory_exception_event ||| memory_replay_event
   fetch.restart_valid <== redirect_link.right.valid ||| reset_start
@@ -343,7 +365,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def serializing_in_id_ex = id_ex.valid & (serializing_operation(id_ex.bits.system, id_ex.bits.fence) ||| id_ex.bits.memory_operation.into(MemoryOperation).is_cache_management())
   def serializing_in_memory = memory.valid & (serializing_operation(memory.bits.system, memory.bits.fence) ||| memory.bits.data_request.access.into(MemoryOperation).is_cache_management())
   def serializing_in_commit = commit_valid & serializing_operation(wb_bits.system, wb_bits.fence)
-  def serializing_in_flight = serializing_in_id_ex ||| serializing_in_memory ||| serializing_in_commit ||| maintenance_pending ||| (pipeline_wb.valid & pipeline_wb.bits.data_request.access.into(MemoryOperation).is_cache_management())
+  def serializing_in_flight = serializing_in_id_ex ||| serializing_in_memory ||| serializing_in_commit ||| maintenance_pending ||| reservation_wait_pending ||| reservation_wait_accept ||| (pipeline_wb.valid & pipeline_wb.bits.data_request.access.into(MemoryOperation).is_cache_management())
   def commit_is_deferred = commit_valid & deferred_writeback(
     commit_bits.writeback_source
   ) & commit_bits.write_enable
@@ -637,7 +659,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // WB is the sole instruction-side dispatch boundary. An attempted request
   // either faults, transfers irrevocably, or replays without any side effect.
   // Loads also issue here: their address may select a side-effecting device.
-  def wb_attempt = pipeline_wb.valid & !maintenance_pending & !pending_exception_valid & !wb_bits.replay & !wb_bits.exception_valid
+  def wb_attempt = pipeline_wb.valid & !maintenance_pending & !reservation_wait_pending & !reservation_wait_accept & !pending_exception_valid & !wb_bits.replay & !wb_bits.exception_valid
   def wb_memory_attempt = wb_attempt & wb_bits.data_request_valid
   def wb_fp_load = wb_bits.data_request.destination === RV5StageDataDestination.FloatingPoint
   // Use registered destination availability for request admission. The FP
@@ -672,6 +694,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     wb_exception <== data_exception(wb_bits.data_request.access, wb_bits.data_request.address, ExceptionCause.StorePageFault, ExceptionCause.LoadPageFault)
   elsewhen wb_access_fault:
     wb_exception <== data_exception(wb_bits.data_request.access, wb_bits.data_request.address, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault)
+  elsewhen reservation_wait_illegal:
+    wb_exception <== RV5StageException(xlen):
+      valid: Bool(#true)
+      cause: exception_cause_bits(ExceptionCause.IllegalInstruction, width)
+      value: instruction_value(wb_bits.instruction)
   otherwise:
     wb_exception <== RV5StageException(xlen):
       valid: Bool(#false)
@@ -702,7 +729,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def current_exception_wait = commit_valid & commit_bits.exception_valid & (deferred_results_pending ||| !data_access.drained)
   def architectural_commit = mux(pending_exception_valid, pending_exception, commit_bits)
   def pending_exception_ready = pending_exception_valid & !deferred_results_pending & data_access.drained
-  csrs.interrupt_boundary <== !maintenance_pending & !pending_exception_valid & !id_ex.valid & !memory.valid & !wb.valid & !deferred_results_pending & data_access.drained
+  csrs.interrupt_boundary <== !maintenance_pending & !reservation_wait_pending & !reservation_wait_accept & !pending_exception_valid & !id_ex.valid & !memory.valid & !wb.valid & !deferred_results_pending & data_access.drained
   csrs.interrupt_pc <== mux(commit_replay,
                             commit_bits.pc,
                             mux(commit_valid, commit_bits.resume_pc, architectural_pc))

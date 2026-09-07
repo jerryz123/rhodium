@@ -49,7 +49,7 @@ module rv5stage_mmu_replay_tb;
     logic request_fault;
     logic request_access_fault;
     data_resp_t response;
-    logic drained;
+    logic drained; logic reservation_valid;
   } data_out_t;
   typedef struct packed {
     ready_t request;
@@ -66,7 +66,7 @@ module rv5stage_mmu_replay_tb;
     logic request_fault;
     logic request_access_fault;
     data_resp_t response;
-    logic drained;
+    logic drained; logic reservation_valid;
   } data_memory_in_t;
   typedef struct packed { data_req_t request; } data_memory_out_t;
 
@@ -161,6 +161,7 @@ module rv5stage_mmu_replay_tb;
     data_memory_in.response.bits.rd = ordinary_response_valid ? 5'd7 : 5'd0;
     data_memory_in.response.bits.floating_point_precision = '0;
     data_memory_in.drained = memory_idle && !pte_response_valid;
+    data_memory_in.reservation_valid = memory_idle;
   end
 
   always_ff @(posedge clock) begin
@@ -172,6 +173,8 @@ module rv5stage_mmu_replay_tb;
       page_fault_pte_seen <= 1'b0;
     end else begin
       pte_response_valid <= 1'b0;
+      assert (data_out.reservation_valid == data_memory_in.reservation_valid)
+        else $fatal(1, "MMU did not forward reservation status");
       if (pte_response_valid)
         assert (!data_out.response.valid)
           else $fatal(1, "page-table response leaked onto the core data path");

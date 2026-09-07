@@ -116,6 +116,22 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For WB-owned Zawrs waiting and the cache-owned reservation observation path:
+
+```sh
+FIXTURES='rv5stage-zawrs rv5stage-wfi rv5stage-dcache rv5stage-memory-router rv5stage-mmu-replay' \
+  bash tests/backend/run-circt.sh --simulate-only
+```
+
+The WRS bench checks retirement deltas through CSRs, original trap PC/value,
+globally masked and enabled interrupt wake, timeout and privilege policy, and
+invalidation before and during entry. Cache and adapter benches cover the
+reservation level independently of instruction waiting. Keep pending WRS
+context in the core, LR/SC state in L1D, and timer/interrupt policy independent
+of physical clock gating. Select Zawrs through `RV5StageExtensions`, keeping
+core decoder selection, ISA descriptions, and UDB claims derived from that
+same profile. The UDB database names the ratified extension version `1.0.0`.
+
 For Zihpm CSR catalogs, profile claims, and access semantics, run:
 
 ```sh

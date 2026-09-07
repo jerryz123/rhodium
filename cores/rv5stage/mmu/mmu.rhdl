@@ -296,6 +296,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // A saved fault is replay metadata, not outstanding memory work. Waiting
   // for its replay here would deadlock a WB trap/interrupt draining the LSU.
   data.drained <== !walk_active & data_memory.drained
+  data.reservation_valid <== data_memory.reservation_valid
 
   def fault_latch_reset = invalidate_all ||| cancel_instruction_walk ||| (instruction.flush & fault_valid & !fault_is_data)
   def latched_instruction_fault_accepted = instruction_head.fire() & instruction_translation_enabled & latched_instruction_fault

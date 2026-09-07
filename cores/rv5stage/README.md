@@ -556,10 +556,32 @@ Contributor host, CIRCT, and Verilator workflows are documented in
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation). SoC-level architectural
 and FESVR simulation belongs to the [simulation guide](../../sims/README.md).
 
+## Reservation waiting
+
+`RV5StageExtensions(~zawrs: #true)` enables Zawrs through the core profile,
+including decoder selection, ISA descriptions, and the UDB extension claim.
+The generic extension default remains disabled; SimpleSoC, MiniSoC, and
+TiledSoC explicitly enable it. Zawrs adds no single-letter `misa` bit.
+
+WRS serializes behind older authorized work and is accepted only at WB. A
+pending instruction retains its retirement context outside the feed-forward
+pipeline, blocks younger issue, and pauses Fetch without blocking coherence
+service. The data interface's `reservation_valid` is the cache-owned LR/SC
+level, forwarded unchanged through the memory router and MMU. An invalid
+reservation or a locally enabled pending interrupt completes the wait,
+regardless of global interrupt enable. Level observation covers invalidation
+before entry as well as during waiting; completing WRS does not clear LR state.
+
+`WRS.STO` completes after at most 4,096 pending cycles. `WRS.NTO` has no normal
+timeout, but below M-mode with `mstatus.TW=1` the same bound raises an illegal
+instruction exception with the original PC and instruction. Wake wins over
+timeout on the same cycle. Both instructions are legal in U-mode, and TW does
+not restrict STO. Successful completion retires exactly once; a timeout trap
+does not retire. An interrupt taken after a successful wake records the
+successor PC. Clock gating and hypervisor modes are not implemented.
+
 ## Deliberate limits
 
-- Zawrs has [catalog and decode-only support](decode/README.md#decode-only-zawrs);
-  reservation waiting is not integrated or advertised by core profiles.
 - RV32D and RV64F-only core specializations are rejected.
 - PMP, programmable HPM counters, vectored trap mode, and platform interrupt
   controllers remain outside this slice.

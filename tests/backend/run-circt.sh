@@ -728,6 +728,7 @@ direct_fixture_specs=(
   'rv5stage-mmu-replay|rv5stage_mmu_replay_tb'
   'rv5stage-interrupt|rv5stage_interrupt_tb'
   'rv5stage-wfi|rv5stage_wfi_tb'
+  'rv5stage-zawrs|rv5stage_zawrs_tb'
   'rv5stage-instruction-memory-router|rv5stage_instruction_memory_router_tb'
   'rv5stage-memory-router|rv5stage_memory_router_tb'
   'rv5stage-uncached|rv5stage_uncached_tb'

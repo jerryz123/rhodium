@@ -45,7 +45,7 @@ module rv5stage_data_fault_tb;
     logic request_fault;
     logic request_access_fault;
     data_resp_t response;
-    logic drained;
+    logic drained; logic reservation_valid;
   } data_in_t;
   typedef struct packed { data_req_t request; } data_out_t;
 
@@ -101,6 +101,7 @@ module rv5stage_data_fault_tb;
                                           data_access_out.request.bits.address == 64'd0;
     data_access_in.response = '0;
     data_access_in.drained = 1'b1;
+    data_access_in.reservation_valid = 1'b0;
   end
 
   always_ff @(posedge clock) begin

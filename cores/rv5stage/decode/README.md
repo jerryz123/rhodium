@@ -106,17 +106,16 @@ instantiate that circuit beside the core decoder.
 `rv5stage_instructions(..., ~zawrs: #true)` selection append the two exact
 `WRS.NTO`/`WRS.STO` rows. `ZawrsCoreControlCases` composes the ordinary
 component-owned columns; `ZawrsSystemCases` selects `SystemOperation.WrsNto`
-or `SystemOperation.WrsSto`. Both classify as system operations for future
-serialization, use no explicit integer operands, and disable register writes,
+or `SystemOperation.WrsSto`. Both classify as serializing system operations,
+use no explicit integer operands, and disable register writes,
 memory requests, branches, prefetch, FP execution, and fence actions. Inactive
 datapath controls remain don't-cares. The rows join the same single decoder,
 including when FP is selected.
 
-This switch is a decoder-development API, not a processor feature flag.
-`RVCoreProfile`, ISA advertisement, UDB claims, and the instantiated core decoder
-remain unchanged. Reservation observation, WB waiting, timeout/privilege policy,
-precise retirement, and interrupt wakeup must be implemented before enabling
-Zawrs in a core configuration.
+The core derives this switch from `RV5StageExtensions(~zawrs: #true)` for
+[WB-owned reservation waiting](../README.md#reservation-waiting), ISA
+advertisement, and UDB claims. The decoder switch alone does not implement
+execution semantics.
 
 ## Change the owning control column
 

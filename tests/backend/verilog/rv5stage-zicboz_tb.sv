@@ -45,7 +45,7 @@ module rv5stage_zicboz_tb;
     logic request_fault;
     logic request_access_fault;
     data_resp_t response;
-    logic drained;
+    logic drained; logic reservation_valid;
   } data_in_t;
   typedef struct packed { data_req_t request; } data_out_t;
 
@@ -108,6 +108,7 @@ module rv5stage_zicboz_tb;
     data_access_in.request_access_fault = data_access_out.request.valid && data_access_out.request.bits.access == 4'd6 && scenario == 1;
     data_access_in.response.valid = pending_cycles == 1;
     data_access_in.drained = pending_cycles == 0;
+    data_access_in.reservation_valid = 1'b0;
   end
 
   always_ff @(posedge clock) begin

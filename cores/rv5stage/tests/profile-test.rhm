@@ -32,6 +32,9 @@ def rv32_half = RVCoreProfile(
 )
 
 check:
+  RV5StageExtensions().zawrs ~is #false
+  RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~zawrs: #true)).isa_extensions.contains("zawrs") ~is #true
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zawrs: #true)).misa_value ~is rv64_integer.misa_value
   rv64_integer.isa_base ~is "rv64i"
   rv64_integer.isa_extensions ~is [
     "i", "m", "a", "b", "zba", "zbb", "zbs",

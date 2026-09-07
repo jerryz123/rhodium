@@ -40,7 +40,7 @@ module rv5stage_core_tb;
     logic [1:0] floating_point_precision;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
-  typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; } data_in_t;
+  typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
   typedef struct packed { data_req_t request; } data_out_t;
 
   logic clock = 1'b0;
@@ -137,6 +137,7 @@ module rv5stage_core_tb;
     data_access_in.response.bits.rd = data_response_rd;
     data_access_in.response.bits.floating_point_precision = 2'b01;
     data_access_in.drained = 1'b1;
+    data_access_in.reservation_valid = 1'b0;
   end
 
   always_ff @(posedge clock) begin

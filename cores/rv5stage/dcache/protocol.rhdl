@@ -46,6 +46,7 @@ interface RV5StageDataAccess(xlen :: XLen):
     request_access_fault: Bool
     response: Valid(RV5StageDataResp(xlen))
     drained: Bool
+    reservation_valid: Bool
 
 export:
   RV5StageDataDestination

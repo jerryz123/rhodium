@@ -81,7 +81,8 @@ tools/run-racket-tests.sh riscv/tests/zawrs-test.rhm cores/rv5stage/tests/zawrs-
 These checks cover exact operand-free encodings, neighboring SYSTEM patterns,
 inactive-column care masks, and one combined decoder for enabled/disabled
 RV32/RV64 integer and FP selections. Execution and wakeup tests belong to the
-later wait-controller integration, not this catalog/decode cut.
+[core wait-controller fixture](../DEVELOPING.md#focused-validation), not the
+catalog/decode checks.
 
 From the repository root, run both decode owners in one fresh-root wrapper:
 

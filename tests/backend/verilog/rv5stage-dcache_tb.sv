@@ -24,7 +24,7 @@ module rv5stage_dcache_tb;
   } core_resp_bits_t;
   typedef struct packed { logic valid; core_resp_bits_t bits; } core_resp_t;
   typedef struct packed { core_req_t request; } core_in_t;
-  typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; core_resp_t response; logic drained; } core_out_t;
+  typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; core_resp_t response; logic drained; logic reservation_valid; } core_out_t;
 
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } rsp_forward_t;
@@ -572,6 +572,7 @@ module rv5stage_dcache_tb;
     // and a second SC fails without issuing any coherence traffic.
     send_core_request(ADDRESS + 64'h28, MEMORY_LR, ATOMIC_SWAP, 64'd0, 5'd8);
     expect_core_response(STORE_DATA_2, DATA_DESTINATION_INTEGER, 5'd8);
+    assert (core_out.reservation_valid) else $fatal(1, "LR did not publish reservation status");
     // A rejected SC may read the SRAM but cannot consume the LR reservation
     // or write data. The next permitted SC through another alias must succeed.
     core_in.request.bits.access = MEMORY_SC;
@@ -586,6 +587,7 @@ module rv5stage_dcache_tb;
     virtual_page_xor = 64'hc000_0000;
     send_core_request(ADDRESS + 64'h28, MEMORY_SC, ATOMIC_SWAP, STORE_DATA, 5'd9);
     expect_core_response(64'd0, DATA_DESTINATION_INTEGER, 5'd9);
+    assert (!core_out.reservation_valid) else $fatal(1, "SC did not clear reservation status");
     send_core_request(ADDRESS + 64'h28, MEMORY_SC, ATOMIC_SWAP, STORE_DATA_2, 5'd10);
     expect_core_response(64'd1, DATA_DESTINATION_INTEGER, 5'd10);
     tick();
@@ -651,6 +653,7 @@ module rv5stage_dcache_tb;
     for (beat = 0; beat < 4; beat = beat + 1)
       accept_snoop_data(beat, evict_dirty_line, 12'h077);
     tick();
+    assert (!core_out.reservation_valid) else $fatal(1, "snoop did not clear reservation status");
     send_core_request(EVICT_ADDRESS + 64'h8, MEMORY_SC, ATOMIC_SWAP, STORE_DATA_2, 5'd13);
     expect_core_response(64'd1, DATA_DESTINATION_INTEGER, 5'd13);
     tick();

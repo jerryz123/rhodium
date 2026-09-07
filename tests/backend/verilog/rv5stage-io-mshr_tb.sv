@@ -18,7 +18,7 @@ module rv5stage_io_mshr_tb;
     logic request_fault;
     logic request_access_fault;
     struct packed { logic valid; RV5StageDataResp bits; } response;
-    logic drained;
+    logic drained; logic reservation_valid;
   } data_responder_t;
   typedef struct packed {
     struct packed { logic ready; } req;

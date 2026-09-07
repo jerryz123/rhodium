@@ -41,9 +41,10 @@ module rv5stage_memory_router_tb;
   logic clock = 1'b0;
   logic reset = 1'b1;
   requester_t core_in;
-  responder_t cache_in;
+  typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; response_t response; logic drained; logic reservation_valid; } cached_responder_t;
+  cached_responder_t cache_in;
   responder_t uncached_in;
-  responder_t core_out;
+  cached_responder_t core_out;
   requester_t cache_out;
   uncached_requester_t uncached_out;
 
@@ -97,6 +98,12 @@ module rv5stage_memory_router_tb;
     cache_in.drained = 1'b1;
     uncached_in.request.ready = 1'b1;
     uncached_in.drained = 1'b1;
+    cache_in.reservation_valid = 1'b1;
+    #1;
+    assert (core_out.reservation_valid) else $fatal(1, "reservation status was not routed");
+    cache_in.reservation_valid = 1'b0;
+    #1;
+    assert (!core_out.reservation_valid) else $fatal(1, "reservation invalidation was not routed");
 
     check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b0);
     check_request(32'h00001000, STORE, 1'b1, 1'b0, 1'b0);

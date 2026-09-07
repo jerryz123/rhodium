@@ -11,7 +11,7 @@ import:
 
 def profile = RVCoreProfile(
   ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(~zicboz: #true),
+  ~extensions: RV5StageExtensions(~zicboz: #true, ~zawrs: #true),
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
 def clocks = SoCClockConfig(
@@ -90,6 +90,7 @@ check:
   dts.contains("model = \"Rhodium test SoC\";") ~is #true
   dts.contains("riscv,isa-base = \"rv64i\";") ~is #true
   dts.contains("riscv,isa-extensions = \"i\", \"m\", \"a\"") ~is #true
+  dts.contains("\"zawrs\"") ~is #true
   dts.contains("mmu-type = \"riscv,sv39\";") ~is #true
   dts.contains("riscv,cboz-block-size = <0x40>;") ~is #true
   dts.contains("reg = <0x0 0x80000000 0x0 0x40000000>;") ~is #true

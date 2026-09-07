@@ -7,7 +7,7 @@ module rv5stage_zicbom_tb;
   typedef struct packed { logic flush; logic invalidate_all; ireq_t request; ready_t response; } iout_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } dreq_t;
   typedef struct packed { logic valid; RV5StageDataResp bits; } dresp_t;
-  typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dresp_t response; logic drained; } din_t;
+  typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;
   typedef struct packed { dreq_t request; } dout_t;
   logic clock = 0, reset = 1;
   logic [63:0] time_counter = 0, hart_id = 0;
@@ -69,6 +69,7 @@ module rv5stage_zicbom_tb;
   assign data_access_in.response.valid = pending_cycles == 1;
   assign data_access_in.response.bits = {scenario == 3, {($bits(RV5StageDataResp)-1){1'b0}}};
   assign data_access_in.drained = pending_cycles == 0;
+  assign data_access_in.reservation_valid = 1'b0;
   always_ff @(posedge clock) begin
     if (reset) begin
       instruction_response_valid <= 0;

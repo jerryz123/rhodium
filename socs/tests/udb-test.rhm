@@ -3,6 +3,17 @@
 
 import:
   "../udb.rhm" open
+  "../core-profiles.rhm" open
+
+for (profile in [simple_soc_core_profile, mini_soc_core_profile, tiled_soc_core_profile]):
+  check:
+    profile.extensions.zawrs ~is #true
+    profile.isa_extensions.contains("zawrs") ~is #true
+
+for (name in RiscvUdbConfigurationNames):
+  check:
+    riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zawrs\", version: \"= 1.0.0\" }") ~is #true
+    riscv_udb_configuration(name).to_yaml().contains("  ZAWRS_NTO_IS_NOP: false") ~is #true
 
 check:
   RiscvUdbConfigurationNames ~is ["simple-soc", "mini-soc", "tiled-soc"]

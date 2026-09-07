@@ -227,6 +227,11 @@ reservation, valid-line, replacement, and child transaction-engine state.
 ## LR/SC reservation
 
 LR records one exact byte address and scalar width in a cache-local reservation.
+The core-facing `reservation_valid` output exposes that registered state for
+WRS observation, independently of request readiness or data-path draining.
+The MMU and physical router forward this level unchanged; WRS does not own or
+clear a second reservation. Invalidation on the entry edge is visible on the
+next cycle, so a waiting core cannot lose a wake pulse.
 SC succeeds only while both still match. It obtains Unique ownership when
 necessary, updates the cached word, returns zero, and leaves the line
 UniqueDirty. A locally successful SC clears the reservation when its registered
