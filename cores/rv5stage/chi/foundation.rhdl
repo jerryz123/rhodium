@@ -228,7 +228,9 @@ fun rv5stage_chi_request(p :: CHIFlitParams,
   request.exp_comp_ack <== expect_comp_ack
   request.excl_snoop_me_cah <== Bool(#false)
   request.group_id_or_lpid <== bits(0, 8)
-  request.snp_attr_or_do_dwt <== Bool(#true)
+  // On WriteNoSnp this shared bit means DoDWT, not SnpAttr. These engines
+  // route write data through the Home and never request direct transfer.
+  request.snp_attr_or_do_dwt <== !opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
   request.mem_attr <== CHIMemAttr():
     allocate: allocate_hint
     cacheable: cacheable

@@ -29,19 +29,29 @@ def service = CHISubordinateServiceParams(
    CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
 )
 
-fun system_params(base :: Nat = 0x40000000, instruction_id :: Nat = 12, payload :: Nat = 0x40000000) :: SingleCoreSystemParams:
+fun system_params(base :: Nat = 0x40000000, instruction_id :: Nat = 12, payload :: Nat = 0x40000000, register_base :: Nat = SoCBootAddressBase) :: SingleCoreSystemParams:
   SingleCoreSystemParams(
     p, base, 0x20000, service,
     CHIHomeParams("memory-home", 15, CHINodeKind.HNF, ~max_outstanding: 1),
     soc_host_node(11),
     SoCPlatformParams(p, 1,
                       CHIHomeParams("device-home", 16, CHINodeKind.HNI, ~max_outstanding: 1),
-                      riscv_soc_boot_config(~payload_address: payload), 21, 20, 23, 22),
+                      riscv_soc_boot_config(~payload_address: payload, ~boot_address_register: register_base), 21, 20, 23, 22, 24),
     ~instruction_node_id: instruction_id, ~data_node_id: 13, ~uncached_node_id: 14
   )
 
 def params = system_params()
+def relocated = system_params(0x40000000, 12, 0x40002000, 0x3000)
 check:
+  relocated.platform.boot_address.base_address ~is 0x3000
+  relocated.platform.boot_address_config.reset_value ~is 0x40002000
+  relocated.home_map.entry(0x3000).home.node_id ~is 16
+  relocated.home_map.entry(0x1000) ~is #false
+  relocated.boot.program.size_bytes ~is 32
+  riscv_soc_boot_config(~boot_address_register: 0x1008) ~throws "page aligned"
+  system_params(0x40000000, 12, 0x40000000, 0x40000000).rv5stage_config ~throws "overlap"
+  params.boot_address_site.node_id ~is 24
+  params.device_home_params.subordinate_map.entry(SoCBootAddressBase).target_node_id ~is 24
   params.flit.data_width ~is 256
   params.memory_port.node_id ~is 19
   params.home_map.entry(0x40000000).home.node_id ~is 15
@@ -56,7 +66,7 @@ check:
   params.uncached_site.node_id ~is 14
   params.device_home_params.subordinate_map.entry(SoCAclintBase).target_node_id ~is 20
   params.compilations.req.routes.map(fun (route): [route.source.node_id, route.destination.node_id]) ~is (
-    [[16, 20], [16, 21], [16, 23], [16, 22], [11, 15], [13, 15], [12, 15], [14, 16]]
+    [[16, 20], [16, 24], [16, 21], [16, 23], [16, 22], [11, 15], [13, 15], [12, 15], [14, 16]]
   )
   system_params(0x50000000).memory_region ~throws "memory service must cover"
   system_params(0x40000000, 12, 0x50000000).memory_region ~throws "payload address"

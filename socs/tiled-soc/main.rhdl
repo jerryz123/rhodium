@@ -6,6 +6,7 @@ import:
   lib("rhodium/std/counter.rhdl").Counter
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity
   lib("devices/bootrom.rhdl") open
+  lib("devices/boot-address.rhdl") open
   lib("devices/aclint.rhdl").AclintIdentity
   lib("devices/plic.rhdl").PlicIdentity
   lib("devices/uart16550.rhdl").Uart16550Identity
@@ -43,7 +44,8 @@ def default_tiled_soc_config = TiledSoCConfig(
     ~bootrom_subordinate: 54,
     ~aclint_subordinate: 52,
     ~plic_subordinate: 55,
-    ~uart_subordinate: 53
+    ~uart_subordinate: 53,
+    ~boot_address_subordinate: 56
   ),
   ~memory: StripedMemory(
     ~base: 0x80000000,
@@ -76,6 +78,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
   inst host_tile(HostTile(implementation.host.tile_params))
   inst device_home(DeviceHomeTile(implementation.device_home.tile_params))
   inst bootrom(CHIBootROM(implementation.platform.bootrom.rom_config(config.description)))
+  inst boot_address(CHIBootAddressRegister(implementation.platform.boot_address_config))
   inst boot(SoCBootDistributor(64, implementation.rv5stages.length(), config.boot.reset_address))
   inst aclint(AclintTile(implementation.aclint.tile_params))
   inst plic(PlicTile(implementation.plic.tile_params))
@@ -127,6 +130,10 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
     node_id: bits(implementation.bootrom.device.node_id, p.node_id_width)
     base_address: bits(implementation.bootrom.device.base_address, p.request_address_width)
   bootrom.port <=> device_home.subordinate[0]
+  boot_address.identity <== BootAddressIdentity(p):
+    node_id: bits(implementation.platform.boot_address.node_id, p.node_id_width)
+    base_address: bits(implementation.platform.boot_address.base_address, p.request_address_width)
+  boot_address.port <=> device_home.subordinate[1]
   aclint.identity <== AclintTileIdentity(p, site_width):
     site_key: bits(implementation.site_key(implementation.aclint.placement.router), site_width)
     aclint: (AclintIdentity(p):

@@ -1,4 +1,4 @@
-// Verifies RV5Stage instruction/data arbitration and non-allocating RN-I fetches.
+// Verifies RV5Stage instruction/data arbitration, non-allocating fetches, and Home-routed device stores.
 module rv5stage_uncached_tb;
   typedef struct packed {
     logic flush;
@@ -235,6 +235,46 @@ module rv5stage_uncached_tb;
     #1;
     assert (core_out.drained && !core_out.response.valid && !chi_out.req.valid)
       else $fatal(1, "zero did not complete exactly once");
+
+    // Device writes must use Home-issued DBIDs, not direct write transfer.
+    core_in.request.valid = 1'b1;
+    core_in.request.bits.request.address = 64'h8004;
+    core_in.request.bits.request.access = 3'd2; // Store
+    core_in.request.bits.request.width = 2'd2;
+    core_in.request.bits.request.data = 64'h12345678;
+    core_in.request.bits.device = 1'b1;
+    #1;
+    assert (core_out.request.ready) else $fatal(1, "device store not accepted");
+    tick();
+    core_in.request.valid = 0;
+    #1;
+    assert (chi_out.req.valid && chi_out.req.bits.opcode == 7'h1c &&
+            !chi_out.req.bits.snp_attr_or_do_dwt)
+      else $fatal(1, "device store incorrectly requested direct write transfer");
+    tick();
+    chi_in.rsp.response.valid = 1;
+    chi_in.rsp.response.bits = '0;
+    chi_in.rsp.response.bits.opcode = 5'h06; // DBIDResp
+    chi_in.rsp.response.bits.src_id = 7'd4;
+    chi_in.rsp.response.bits.dbid_or_group_id = 12'h123;
+    tick();
+    chi_in.rsp.response.valid = 0;
+    #1;
+    assert (chi_out.dat.request.valid && chi_out.dat.request.bits.tgt_id == 7'd4 &&
+            chi_out.dat.request.bits.txn_id == 12'h123 &&
+            chi_out.dat.request.bits.byte_enable == 16'h00f0 &&
+            chi_out.dat.request.bits.data == 128'h1234567800000000)
+      else $fatal(1, "device store did not use the Home DBID and correct byte lanes");
+    tick();
+    chi_in.rsp.response.valid = 1;
+    chi_in.rsp.response.bits.opcode = 5'h04; // Comp
+    #1;
+    assert (core_out.response.valid) else $fatal(1, "device store did not complete");
+    tick();
+    chi_in.rsp.response.valid = 0;
+    #1;
+    assert (core_out.drained) else $fatal(1, "device store did not drain");
+
     $display("RV5Stage shared uncached instruction/data path passed");
     $finish;
   end

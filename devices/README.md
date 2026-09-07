@@ -19,6 +19,7 @@ SoC address map:
 
 | Component | Purpose | External contract | Main specialization |
 | --- | --- | --- | --- |
+| `CHIBootAddressRegister` | Mutable 64-bit payload entry | One-outstanding CHI SN-I; aligned 4/8-byte reads and writes with byte enables | CHI flits and reset value |
 | `CHIBootROM` | Immutable boot storage | One-outstanding CHI SN-I; `ReadNoSnp`, 1--64 bytes | CHI flits, power-of-two window, and `BootROMImage` |
 | `Aclint` | Per-hart machine software and timer interrupts | One-outstanding CHI SN-I; `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`, 1--8 bytes; explicit `tick` | CHI flits and 1--4095 harts |
 | `Plic` | Prioritized external interrupt delivery | One-outstanding CHI SN-I; 32-bit `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`; level-sensitive source inputs and per-context interrupt outputs | CHI flits, sources, contexts, and priority width |
@@ -58,17 +59,19 @@ flowchart LR
 
   subgraph Hardware["devices/ - synthesizable"]
     Image["BootROMImage"] --> Boot["CHIBootROM<br/>read-only SN-I"]
+    BootAddress["CHIBootAddressRegister<br/>payload-entry SN-I"]
     ACLINT["Aclint<br/>timer + software interrupts"]
     PLIC["Plic<br/>external interrupts"]
     UART["Uart16550<br/>registers + FIFOs"] --> Pins["RX / TX / interrupt"]
   end
 
   Home --> Boot
+  Home --> BootAddress
   Home --> ACLINT
-  Home -.-> PLIC
+  Home --> PLIC
   Home --> UART
   ACLINT -->|"mtime, MTIP, MSIP"| Requester
-  PLIC -.->|"external interrupt contexts"| Requester
+  PLIC -->|"external interrupt contexts"| Requester
 
   subgraph Simulation["device-level simulation only"]
     Model["UartDPI"] <--> PTY["uart_dpi.cc<br/>host PTY"]
@@ -78,12 +81,11 @@ flowchart LR
   Model -.->|"optional RX hookup"| Pins
 ```
 
-The solid paths match the current SoC integrations; the dashed PLIC path is the
-standalone device boundary introduced ahead of SoC adoption. `SimpleSoC` and
-`MiniSoC` instantiate all three devices through the shared
+`SimpleSoC` and `MiniSoC` instantiate the devices through the shared
 [`SoCPlatformParams`](../socs/peripherals.rhdl); `TiledSoC` colocates its
-BootROM with the device Home and places the other devices in dedicated
-[`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl) and
+BootROM and boot-address register with the device Home and places the other
+devices in dedicated [`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl),
+[`PlicTile`](../socs/tiled-soc/tiles/plic.rhdl), and
 [`UartTile`](../socs/tiled-soc/tiles/uart.rhdl) wrappers. Follow the
 [SoC guide](../socs/README.md) for their addresses, NodeIDs, routes, and
 processor connections rather than duplicating those system contracts here.
@@ -118,6 +120,37 @@ It is immutable: writes and unsupported, misaligned, out-of-window, or
 wrong-target requests assert rather than changing storage. The default window
 is 8 KiB and the default parameter base is the reset address, but an integrating
 platform still owns the actual reset vector and mapped occurrence.
+
+## Integrate the boot-address register
+
+[`boot-address.rhdl`](boot-address.rhdl) implements `CHIBootAddressRegister`.
+Its 4 KiB service window contains one 64-bit read/write register at offset zero:
+aligned four-byte accesses select the low or high half, and eight-byte accesses
+select the whole register. Other offsets and sizes assert. `BootAddressConfig`
+takes the CHI flits and a 64-bit reset value; `BootAddressParams` supplies
+the occurrence's name, NodeID, and page-aligned base address.
+
+Reads are side-effect-free and captured when the request is accepted.
+`WriteNoSnpPtl` honors any subset of the requested byte lanes, including an
+empty mask; `WriteNoSnpFull` requires all requested lanes. Enabled lanes outside
+the transfer, incorrect write-data identity, or unsupported requests assert
+and are not accepted. Writes become visible when their data transfers;
+completion and read responses remain stable under backpressure.
+
+There is no start command, interrupt, lock, or per-hart state. The platform
+must complete programming before releasing harts and must not race updates
+with the ROM's read. The device does not validate the stored value as an
+executable address or provide a warm-reboot protocol.
+
+`riscv_bootrom_image(~boot_address_register: address, ~xlen: xlen)` generates
+a 36-byte indirect trampoline instead of the default immediate trampoline.
+Hart zero loads the payload entry with `LW` for RV32 or `LD` for RV64 and
+jumps without changing the DTB handoff or secondary-hart parking. The register
+must be eight-byte aligned and reachable by the ROM's PC-relative load;
+the loaded payload itself is not constrained by that PC-relative range.
+The concrete SoCs map the register but retain their immediate trampoline
+until RV5Stage's shared RN-I path can admit data loads reliably while fetching
+uncached instructions.
 
 ## Integrate ACLINT
 

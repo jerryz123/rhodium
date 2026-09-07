@@ -85,7 +85,7 @@ def simple_soc_params = SimpleSoCParams(
     simple_soc_memory_service, simple_soc_home, simple_soc_host_node,
     SoCPlatformParams(simple_soc_flit, 1, simple_soc_device_home,
                       riscv_soc_boot_config(~payload_address: simple_soc_memory_base),
-                      12, 10, 13, 11)
+                      12, 10, 13, 11, 14)
   ),
   ~llc_sets: 64,
   ~llc_ways: 4
@@ -120,6 +120,7 @@ def simple_soc_uncached_site = simple_soc_params.fabric.uncached_site
 def simple_soc_home_requester_site = simple_soc_params.fabric.home_requester_site
 def simple_soc_device_home_requester_site = simple_soc_params.fabric.device_home_requester_site
 def simple_soc_device_home_subordinate_site = simple_soc_params.fabric.device_home_subordinate_site
+def simple_soc_boot_address_site = simple_soc_params.fabric.boot_address_site
 def simple_soc_bootrom_site = simple_soc_params.fabric.bootrom_site
 def simple_soc_aclint_site = simple_soc_params.fabric.aclint_site
 def simple_soc_plic_site = simple_soc_params.fabric.plic_site
@@ -191,6 +192,7 @@ export:
   simple_soc_device_home_requester_site
   simple_soc_device_home_subordinate_site
   simple_soc_bootrom_site
+  simple_soc_boot_address_site
   simple_soc_aclint_site
   simple_soc_plic_site
   simple_soc_uart_site

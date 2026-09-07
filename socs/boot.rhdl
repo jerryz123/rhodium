@@ -11,7 +11,10 @@ import:
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/bootrom-image.rhm") open
   lib("devices/bootrom.rhdl") open
+  lib("devices/boot-address.rhdl").BootAddressWindowBytes
   "description.rhm".RiscvSoCDescription
+
+def SoCBootAddressBase = 0x1000
 
 def SoCBootROMWindowBytes = CHIBootROMDefaultWindowBytes
 def SoCBootROMDeviceTreeOffset = 0x100
@@ -20,7 +23,8 @@ class SoCBootConfig(reset_address :: Nat,
                     payload_address :: Nat,
                     window_bytes :: Pow2Int,
                     device_tree_offset :: Nat,
-                    program :: BootROMImage):
+                    program :: BootROMImage,
+                    boot_address_register :: Nat):
   implements StableCircuitParam
 
   property device_tree_address :: Nat:
@@ -34,6 +38,8 @@ class SoCBootConfig(reset_address :: Nat,
     )
     | error(~who: #'image_for,
             "SoC description boot layout must match the BootROM configuration")
+    unless description.boot.address_register == #false || description.boot.address_register.base == boot_address_register
+    | error(~who: #'image_for, "SoC description boot-address register must match the BootROM configuration")
     def device_tree_bytes = description.to_device_tree().to_dtb().to_list()
     def image = BootROMImage(
       program.bytes ++ (
@@ -48,7 +54,8 @@ class SoCBootConfig(reset_address :: Nat,
                ~payload_address: payload_address :: Nat,
                ~window_bytes: window_bytes :: Pow2Int,
                ~device_tree_offset: device_tree_offset :: Nat,
-               ~program: program :: BootROMImage):
+               ~program: program :: BootROMImage,
+               ~boot_address_register: boot_address_register :: Nat = SoCBootAddressBase):
     unless reset_address mod window_bytes == 0
     | error(~who: #'SoCBootConfig,
             "reset address must be aligned to the BootROM window")
@@ -59,17 +66,25 @@ class SoCBootConfig(reset_address :: Nat,
             "reset program must fit before the embedded device tree")
     unless device_tree_offset < window_bytes
     | error(~who: #'SoCBootConfig, "device-tree offset must lie in the BootROM window")
-    super(reset_address, payload_address, window_bytes, device_tree_offset, program)
+    unless boot_address_register mod BootAddressWindowBytes == 0
+    | error(~who: #'SoCBootConfig, "boot-address register must be page aligned")
+    unless payload_address < (1 << 64)
+    | error(~who: #'SoCBootConfig, "default payload address must fit in 64 bits")
+    super(reset_address, payload_address, window_bytes, device_tree_offset, program, boot_address_register)
 
 fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMResetAddress,
                           ~payload_address: payload_address :: Nat = RiscvBootROMPayloadAddress,
                           ~window_bytes: window_bytes :: Pow2Int = SoCBootROMWindowBytes,
-                          ~device_tree_offset: device_tree_offset :: Nat = SoCBootROMDeviceTreeOffset):
+                          ~device_tree_offset: device_tree_offset :: Nat = SoCBootROMDeviceTreeOffset,
+                          ~boot_address_register: boot_address_register :: Nat = SoCBootAddressBase):
   SoCBootConfig(
     ~reset_address: reset_address,
     ~payload_address: payload_address,
+    ~boot_address_register: boot_address_register,
     ~window_bytes: window_bytes,
     ~device_tree_offset: device_tree_offset,
+    // Keep the default static trampoline until shared RN-I data admission
+    // can retain a load while an uncached instruction transaction is active.
     ~program: riscv_bootrom_image(
       reset_address,
       payload_address,
@@ -128,6 +143,7 @@ sync_circuit SoCBootDistributor(width :: PosInt,
     assert(!released, "soc_boot_release_once")
 
 export:
+  SoCBootAddressBase
   SoCBootROMWindowBytes
   SoCBootROMDeviceTreeOffset
   SoCBootConfig

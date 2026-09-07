@@ -97,7 +97,7 @@ integration_fixtures=(
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
   credited-flow credited-monitor credited-monitor-overgrant flit-formats
-  aclint bootrom plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
+  aclint bootrom boot-address plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
   rv5stage-core rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-multiply rv5stage-dcache
 )
 
@@ -194,7 +194,7 @@ fixture_in_group() {
     std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant)
       return 0
       ;;
-    protocols:aclint|protocols:bootrom|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
+    protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
     cores:rv32i-*|cores:rv64i-*|cores:load-store|cores:load-store-rv32-word|cores:bit-manip*|cores:iterative-multiplier|cores:iterative-divider|cores:riscv-counters-*|cores:riscv-floating-point|cores:riscv-compressed|cores:scoreboard|cores:rv5stage-*)
@@ -634,6 +634,7 @@ direct_fixture_specs=(
   'event-runtime|event_runtime_tb'
   'aclint|aclint_tb'
   'bootrom|bootrom_tb'
+  'boot-address|boot_address_tb'
   'plic|plic_tb'
   'uart16550|uart16550_tb'
   'uart-dpi|uart_dpi_tb'
@@ -839,6 +840,14 @@ run_expected_assertion_failure chi-coherent \
 run_expected_assertion_failure chi-ram chi_ram_invalid_tb \
   tests/backend/verilog/chi-ram-invalid_tb.sv \
   chi_ram_request_address_supported
+for boot_address_case in hole alignment size source mask; do
+  boot_address_assertion=boot_address_request_supported
+  if [[ "$boot_address_case" == source || "$boot_address_case" == mask ]]; then
+    boot_address_assertion=boot_address_write_data_supported
+  fi
+  run_expected_assertion_failure boot-address "boot_address_${boot_address_case}_tb" \
+    tests/backend/verilog/boot-address-invalid-tb.sv "$boot_address_assertion"
+done
 run_expected_assertion_failure plic plic_invalid_access_tb \
   tests/backend/verilog/plic-invalid-access-tb.sv \
   plic_request_supported

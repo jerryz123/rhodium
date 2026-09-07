@@ -1,0 +1,13 @@
+#lang rhombus
+// Emits the standalone boot-address register for CHI transaction simulation.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../chi/main.rhdl" as chi
+  "../../devices/boot-address.rhdl" as boot
+
+def design = embedded.run_elaboration(
+  fun (): boot.CHIBootAddressRegister(boot.BootAddressConfig(chi.CHIFlitParams(), 0x1234567880000000))
+)
+print(emit_circt(design))

@@ -6,6 +6,8 @@ import:
   "../../chi/main.rhdl" as chi
   "../../riscv/model/main.rhm" open
   "../../riscv/isa/integer-common.rhm" open
+  "../../riscv/isa/rv64i.rhm".LD
+  "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/isa/privileged.rhm" open
   "../../riscv/isa/zicsr.rhm" open
   "../bootrom-image.rhm" open
@@ -38,12 +40,27 @@ def relocated_image = riscv_bootrom_image(
 )
 def default_words = for List (index in 0..(default_image.size_bytes / 4)):
   image_word(default_image, index)
+def indirect64 = riscv_bootrom_image(~boot_address_register: 0x1000, ~device_tree_address: 0x10100)
+def indirect32 = riscv_bootrom_image(~boot_address_register: 0x2000, ~xlen: XLen.X32)
 def flit = chi.CHIFlitParams()
 def layout = bootrom.CHIBootROMLayout(flit, ~window_bytes: 64)
 def config = bootrom.CHIBootROMConfig(layout)
 def params = bootrom.CHIBootROMParams("test-bootrom", 12, layout)
 
 check:
+  indirect64.size_bytes ~is 36
+  indirect32.size_bytes ~is 36
+  LD.matches(image_word(indirect64, 5)) ~is #true
+  LW.matches(image_word(indirect32, 5)) ~is #true
+  pc_relative_target(indirect64, RiscvBootROMResetAddress, 4) ~is 0x1000
+  pc_relative_target(indirect32, RiscvBootROMResetAddress, 4) ~is 0x2000
+  pc_relative_target(indirect64, RiscvBootROMResetAddress, 2) ~is 0x10100
+  BImmediate.decode(image_word(indirect64, 1)) ~is 24
+  JALR.matches(image_word(indirect64, 6)) ~is #true
+  IImmediate.decode(image_word(indirect64, 6)) ~is 0
+  WFI.matches(image_word(indirect64, 7)) ~is #true
+  JImmediate.decode(image_word(indirect64, 8)) ~is 0x1ffffc
+  riscv_bootrom_image(~boot_address_register: 0x1004) ~throws "eight-byte aligned"
   default_image.size_bytes ~is 32
   default_words ~is [
     0xf1402573,

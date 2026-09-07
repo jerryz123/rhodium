@@ -30,7 +30,7 @@ fun mini_soc_system_params(ram :: CHIRamParams,
     mini_soc_host_node,
     SoCPlatformParams(ram.config.flit, 1,
                       CHIHomeParams("mini-device-home", 6, CHINodeKind.HNI, ~max_outstanding: 1),
-                      boot, 12, 10, 13, 11)
+                      boot, 12, 10, 13, 11, 14)
   )
 
 class MiniSoCParams(ram :: CHIRamParams,

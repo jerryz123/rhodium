@@ -17,6 +17,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/bootrom.rhdl") open
+  lib("devices/boot-address.rhdl") open
   lib("devices/aclint.rhdl") open
   lib("devices/plic.rhdl") open
   lib("devices/uart16550.rhdl") open
@@ -115,6 +116,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
   property home_requester_site: CHIRNICNSite(NamePath(["home", "requesters"]), home.node_id, router)
   property device_home_requester_site: CHIRNICNSite(NamePath(["device-home", "requesters"]), device_home.node_id, router)
   property device_home_subordinate_site: CHISNICNSite(NamePath(["device-home", "subordinate"]), device_home.node_id, router)
+  property boot_address_site: CHISNSite(NamePath(["devices", "boot-address"]), platform.boot_address.node.node_id, router)
   property bootrom_site: CHISNSite(NamePath(["devices", "bootrom"]), platform.bootrom.rom_params.node.node_id, router)
   property aclint_site: CHISNSite(NamePath(["devices", "aclint"]), platform.aclint.node.node_id, router)
   property plic_site: CHISNSite(NamePath(["devices", "plic"]), platform.plic.node.node_id, router)
@@ -127,6 +129,8 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
                      device_home_requester_site),
     CHISNConnection(device_home_subordinate_site,
                     bootrom_site),
+    CHISNConnection(device_home_subordinate_site,
+                    boot_address_site),
     CHISNConnection(device_home_subordinate_site,
                     aclint_site),
     CHISNConnection(device_home_subordinate_site,
@@ -164,6 +168,7 @@ fun populate_single_core(params :: SingleCoreSystemParams,
   inst home(home_module)
   inst device_home(CHIHNI(params.device_home_params))
   inst bootrom(CHIBootROM(params.platform.bootrom.rom_config(description)))
+  inst boot_address(CHIBootAddressRegister(params.platform.boot_address_config))
   inst aclint(Aclint(params.platform.aclint_config))
   inst plic(Plic(params.platform.plic_config))
   inst uart_device(Uart16550(params.platform.uart_config))
@@ -185,6 +190,9 @@ fun populate_single_core(params :: SingleCoreSystemParams,
   bootrom.identity <== CHIBootROMIdentity(params.flit):
     node_id: bits(params.platform.bootrom.rom_params.node.node_id, params.flit.node_id_width)
     base_address: bits(params.boot.reset_address, params.flit.request_address_width)
+  boot_address.identity <== BootAddressIdentity(params.flit):
+    node_id: bits(params.platform.boot_address.node.node_id, params.flit.node_id_width)
+    base_address: bits(params.platform.boot_address.base_address, params.flit.request_address_width)
   aclint.identity <== AclintIdentity(params.flit):
     node_id: bits(params.platform.aclint.node.node_id, params.flit.node_id_width)
     base_address: bits(params.platform.aclint.base_address, params.flit.request_address_width)
@@ -251,6 +259,13 @@ fun populate_single_core(params :: SingleCoreSystemParams,
                              ~adapters: params.adapter_plans)
   connect_chi_sn_node(bootrom.port,
                       ~node: params.bootrom_site,
+                      ~req_targets: req_router.target,
+                      ~rsp_ingress: rsp_router.ingress,
+                      ~dat_targets: dat_router.target,
+                      ~dat_ingress: dat_router.ingress,
+                      ~adapters: params.adapter_plans)
+  connect_chi_sn_node(boot_address.port,
+                      ~node: params.boot_address_site,
                       ~req_targets: req_router.target,
                       ~rsp_ingress: rsp_router.ingress,
                       ~dat_targets: dat_router.target,

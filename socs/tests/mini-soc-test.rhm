@@ -34,5 +34,8 @@ check:
   description.uart.region.address_set ~is soc.mini_soc_fabric_params.platform.uart.service.address_sets[0]
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base).home === soc.mini_soc_fabric_params.home ~is #true
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base + soc.mini_soc_memory_bytes) ~is #false
+  soc.mini_soc_home_map.entry(0x1000).home === soc.mini_soc_fabric_params.device_home ~is #true
+  soc.mini_soc_fabric_params.platform.subordinate_map.entry(0x1000).target_node_id ~is 14
+  description.boot.address_register.address_set ~is soc.mini_soc_fabric_params.platform.boot_address.service.address_sets[0]
   soc.mini_soc_home_map.entry(0x00010000).home === soc.mini_soc_fabric_params.device_home ~is #true
   soc.mini_soc_home_map.entry(0x0c000000).home === soc.mini_soc_fabric_params.device_home ~is #true

@@ -108,7 +108,22 @@ and jumps to the configured normal-memory payload; every secondary hart parks
 in the ROM's `WFI` loop. Instruction fetches reach the ROM as uncached
 four-byte `ReadNoSnp` requests and do not fill L1I.
 
-[`peripherals.rhdl`](peripherals.rhdl) aggregates the BootROM, ACLINT, PLIC, and UART
+Every SoC maps the 64-bit boot-address register at `0x1000` in the
+`0x1000..0x1fff` device window. Its reset value is `boot.payload_address`
+(default `0x80000000`); `boot.boot_address_register` configures its base.
+The register is non-cacheable, non-executable, and has idempotent reads.
+The default ROM still uses its static payload jump: activating the indirect
+trampoline first requires fixing shared RN-I data-request admission, which
+currently lets uncached instruction traffic repeatedly force a ROM data load
+to replay.
+It is reachable through the core RN-I and existing device HNI, not the host's
+coherent RAM port. FESVR and the harness entry-equality checks are unchanged:
+host MMIO programming remains future work. For an indirect trampoline, complete programming before the one-shot release;
+concurrent updates and warm reboot are not supported.
+The boot layout describes the register's service region for overlap checking;
+no operating-system device-tree binding is introduced for it.
+
+[`peripherals.rhdl`](peripherals.rhdl) aggregates the boot-address register, BootROM, ACLINT, PLIC, and UART
 service occurrences into one platform HN-I map and owns the UART pin interface.
 The ACLINT occupies `0x02000000..0x0200ffff`. Its `mtime`
 counter drives RV5Stage's `time` CSR, while each hart's MTIP and MSIP levels
@@ -137,6 +152,7 @@ flowchart LR
   MemoryHome["Inclusive HN-F<br/>NodeID 5"]
   ExternalMemory["External SN-F<br/>NodeID 9"]
   DeviceHome["HN-I<br/>NodeID 6"]
+  BootAddress["Boot address SN-I<br/>NodeID 14<br/>0x1000..0x1fff"]
   BootROM["BootROM SN-I<br/>NodeID 12<br/>0x00010000..0x00011fff"]
   ACLINT["ACLINT SN-I<br/>NodeID 10<br/>0x02000000..0x0200ffff"]
   PLIC["PLIC SN-I<br/>NodeID 13<br/>0x0c000000..0x0fffffff"]
@@ -148,6 +164,7 @@ flowchart LR
   MemoryHome <--> ExternalMemory
   Fabric <--> DeviceHome
   Fabric <--> BootROM
+  Fabric <--> BootAddress
   Fabric <--> ACLINT
   Fabric <--> PLIC
   Fabric <--> UART
@@ -156,10 +173,10 @@ flowchart LR
   Host -. release .-> Core
 ```
 
-The RN-I, three RN-F, and four subordinate relationships reuse one physical
+The RN-I, three RN-F, and five subordinate relationships reuse one physical
 single-router topology but independently compile validation, route keys,
-buffering, and allocation for the four CHI channel planes. REQ is 5-to-6, RSP
-is 10-to-7, DAT is 11-to-11, and SNP is 1-to-3 because all three RN-Fs receive
+buffering, and allocation for the four CHI channel planes. REQ is 5-to-7, RSP
+is 11-to-7, DAT is 12-to-12, and SNP is 1-to-3 because all three RN-Fs receive
 snoops. Router arity therefore follows the permitted protocol paths instead of
 an all-node cross product.
 
@@ -172,7 +189,7 @@ this direct path needs no fragmenter.
 
 Device addresses instead leave RV5Stage through its uncached RN-I, cross the
 HN-I, re-enter the same physical fabric through the Home's subordinate-side
-attachment, and terminate at the CHI-native BootROM, ACLINT, PLIC, or UART SN-I
+attachment, and terminate at the CHI-native boot-address register, BootROM, ACLINT, PLIC, or UART SN-I
 attachment. Both paths are derived from one physical-region table. Each region pairs
 RISC-V read, write, execute, cacheability, and atomic attributes with its CHI
 Home; the SoC derives the `CHIHomeMap` from those entries. Requests outside the
@@ -251,12 +268,12 @@ service routers in the middle row, and four `LLCTile`s in the upper row, with
 three transit tiles completing the rectangular mesh.
 The middle row contains the external host RN-F, a `DeviceHomeTile` with both
 sides of the shared HN-I, an `AclintTile`, a `PlicTile`, and a `UartTile`. The HN subordinate
-side reaches all four device SN-Is through the same CHI mesh rather than direct
+side reaches all five device SN-Is through the same CHI mesh rather than direct
 wires. The system allocates 16 RN-F NodeIDs for the eight L1I/L1D pairs, eight
 RN-I NodeIDs for
 uncached device traffic, one host RN-F, four HN-Fs, one HN-I, four SN-Fs, one
-BootROM SN-I, one ACLINT SN-I, one PLIC SN-I, and one UART SN-I. The BootROM is colocated with
-the device Home and uses that router's composable local SN attachment.
+boot-address SN-I, one BootROM SN-I, one ACLINT SN-I, one PLIC SN-I, and one UART SN-I. The BootROM and boot-address register (default NodeID 56) are colocated with
+the device Home and use that router's composable local SN attachments.
 
 Four 8 KiB banks cover `0x80000000` through `0x80007fff` with 64-byte
 cache-line striping. Each LLC tile contains a 16-set, four-way cache, giving
@@ -268,7 +285,7 @@ subordinate projector then maps sparse global bank addresses into the dense
 local backing RAM before fragmentation. The 16 coherent requester endpoints
 plus the host RN-F connect to all four HN-Fs, while the eight uncached
 requester endpoints connect to the device HN-I and its subordinate side
-connects to all four SN-Is. Together they compile 80 REQ, 156 RSP, 68 SNP, and 160
+connects to all five SN-Is. Together they compile 81 REQ, 157 RSP, 68 SNP, and 162
 DAT routes before any hardware elaborates.
 
 Each tile owns one `CHIRouter`, containing independent REQ/RSP/SNP/DAT

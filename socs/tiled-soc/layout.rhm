@@ -148,7 +148,8 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                    bootrom_subordinate :: Nat,
                    aclint_subordinate :: Nat,
                    plic_subordinate :: Nat,
-                   uart_subordinate :: Nat):
+                   uart_subordinate :: Nat,
+                   boot_address_subordinate :: Nat):
   constructor (~rv5stage_coherent_base: rv5stage_coherent_base :: Nat,
                ~rv5stage_uncached_base: rv5stage_uncached_base :: Nat,
                ~host: host :: Nat,
@@ -158,7 +159,8 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                ~bootrom_subordinate: bootrom_subordinate :: Nat,
                ~aclint_subordinate: aclint_subordinate :: Nat,
                ~plic_subordinate: plic_subordinate :: Nat,
-               ~uart_subordinate: uart_subordinate :: Nat):
+               ~uart_subordinate: uart_subordinate :: Nat,
+               ~boot_address_subordinate: boot_address_subordinate :: Nat):
     super(rv5stage_coherent_base,
           rv5stage_uncached_base,
           host,
@@ -168,7 +170,8 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
           bootrom_subordinate,
           aclint_subordinate,
           plic_subordinate,
-          uart_subordinate)
+          uart_subordinate,
+          boot_address_subordinate)
 
 class StripedMemory(base :: Nat,
                     bank_bytes :: Pow2Int,
@@ -217,7 +220,8 @@ class TiledSoCConfig(layout :: TileGrid,
                       node_ids.bootrom_subordinate,
                       node_ids.aclint_subordinate,
                       node_ids.plic_subordinate,
-                      node_ids.uart_subordinate)
+                      node_ids.uart_subordinate,
+                      node_ids.boot_address_subordinate)
   property platform: platform_for(device_home)
   property description:
     RiscvSoCDescription(

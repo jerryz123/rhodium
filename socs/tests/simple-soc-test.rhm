@@ -12,11 +12,15 @@ def compact_soc_params = soc.SimpleSoCParams(
   ~llc_ways: 2
 )
 def description = soc.simple_soc_params.description
-
 check:
   soc.simple_soc_core_profile.extensions.zicbop ~is #true
   soc.simple_soc_topology.injections ~is []
   soc.simple_soc_topology.ejections ~is []
+  soc.simple_soc_home_map.entry(0x1000).home === soc.simple_soc_device_home ~is #true
+  soc.simple_soc_home_map.entry(0x2000) ~is #false
+  soc.simple_soc_device_home_params.subordinate_map.entry(0x1000).target_node_id ~is 14
+  description.boot.address_register.address_set ~is soc.simple_soc_platform.boot_address.service.address_sets[0]
+  soc.simple_soc_platform.boot_address_config.reset_value ~is soc.simple_soc_params.fabric.boot.payload_address
   soc.simple_soc_home_map.entry(0x80000000).home === soc.simple_soc_home ~is #true
   soc.simple_soc_home_map.entry(0xbfffffff).home === soc.simple_soc_home ~is #true
   soc.simple_soc_home_map.entry(0xc0000000) ~is #false
@@ -76,20 +80,20 @@ check:
       [route.source.node_id,
        route.destination.node_id,
        route.route_key]
-  ) ~is [[6, 10, 0], [6, 12, 1], [6, 13, 2], [6, 11, 3], [1, 5, 4], [3, 5, 5], [2, 5, 6], [4, 6, 7]]
+  ) ~is [[6, 10, 0], [6, 14, 1], [6, 12, 2], [6, 13, 3], [6, 11, 4], [1, 5, 5], [3, 5, 6], [2, 5, 7], [4, 6, 8]]
   soc.simple_soc_req_router_config.input_count ~is 5
-  soc.simple_soc_req_router_config.target_count ~is 6
-  soc.simple_soc_rsp_router_config.input_count ~is 10
+  soc.simple_soc_req_router_config.target_count ~is 7
+  soc.simple_soc_rsp_router_config.input_count ~is 11
   soc.simple_soc_rsp_router_config.target_count ~is 7
   soc.simple_soc_snp_router_config.input_count ~is 1
   soc.simple_soc_snp_router_config.target_count ~is 3
-  soc.simple_soc_dat_router_config.input_count ~is 11
-  soc.simple_soc_dat_router_config.target_count ~is 11
+  soc.simple_soc_dat_router_config.input_count ~is 12
+  soc.simple_soc_dat_router_config.target_count ~is 12
   soc.simple_soc_adapter_plans.req.injections.length() ~is 5
-  soc.simple_soc_adapter_plans.rsp.injections.length() ~is 10
+  soc.simple_soc_adapter_plans.rsp.injections.length() ~is 11
   snp_adapters.injections.length() ~is 1
   snp_adapters.ejections.length() ~is 3
-  soc.simple_soc_adapter_plans.dat.injections.length() ~is 11
+  soc.simple_soc_adapter_plans.dat.injections.length() ~is 12
   soc.simple_soc_host_site.req.terminal.describe() ~is "requesters/host/req"
   soc.simple_soc_host_site.snp.terminal.describe() ~is "requesters/host/snp"
   soc.simple_soc_instruction_site.snp.terminal.describe() ~is "requesters/rv5stage-l1i/snp"

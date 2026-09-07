@@ -1,0 +1,139 @@
+#lang rhodium
+// Implements a byte-masked 64-bit payload-entry register behind a one-outstanding CHI SN-I port.
+
+import:
+  lib("support/annotations.rhm").NonemptyString
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("chi/main.rhdl") open
+
+def BootAddressWindowBytes = 0x1000
+
+class BootAddressConfig(flit :: CHIFlitParams,
+                        reset_value :: Int.in(0 ..= 0xffffffffffffffff)):
+  implements StableCircuitParam
+
+  property transfers: TransferSizes(4, 8)
+  property requests:
+    [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
+     CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
+     CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
+
+class BootAddressParams(name :: NonemptyString,
+                        node_id :: Nat,
+                        config :: BootAddressConfig,
+                        base_address :: Nat):
+  property node:
+    CHINodeParams(
+      name,
+      node_id,
+      CHINodeKind.SNI,
+      ~emits: CHIChannelCapabilities(
+        ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+        ~dat: [CHIDatOpcode.CompData]
+      ),
+      ~supports: CHIChannelCapabilities(
+        ~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl],
+        ~dat: [CHIDatOpcode.NonCopyBackWriteData]
+      ),
+      ~max_outstanding: 1
+    )
+  property icn_port:
+    CHIICNPortParams(name ++ "-icn", node_id, CHINodeKind.SNI,
+                     ~emits: node.supports, ~supports: node.emits, ~max_outstanding: 1)
+  property service:
+    CHISubordinateServiceParams(icn_port, [AddressSet(base_address, BootAddressWindowBytes - 1)], config.requests)
+
+  constructor (name :: NonemptyString, node_id :: Nat, config :: BootAddressConfig, base_address :: Nat):
+    unless base_address mod BootAddressWindowBytes == 0
+    | error(~who: #'BootAddressParams, "base address must be aligned to the boot-address window")
+    unless bits.length((base_address + BootAddressWindowBytes) - 1) <= config.flit.request_address_width
+    | error(~who: #'BootAddressParams, "boot-address window must fit in the CHI request address width")
+    unless bits.length(node_id) <= config.flit.node_id_width
+    | error(~who: #'BootAddressParams, "NodeID must fit in the physical NodeID width")
+    super(name, node_id, config, base_address)
+
+bundle BootAddressIdentity(p :: CHIFlitParams):
+  node_id: Bits(p.node_id_width)
+  base_address: Bits(p.request_address_width)
+
+hardware_enum BootAddressState:
+  Idle
+  ReadResponse
+  WriteDBID
+  WriteData
+  WriteResponse
+
+sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
+  def p = config.flit
+  def lane_width = alignment_bits(p.data_bytes)
+  input identity: BootAddressIdentity(p)
+  interface port(CHISNChannels(p), ~role: node)
+
+  reg address(~init: bits(config.reset_value, 64))
+  reg state(~init: BootAddressState.Idle)
+  reg request(CHIReqFlit(p))
+  reg read_data(Bits(p.data_width))
+
+  def incoming = port.req.bits
+  def incoming_opcode :: CHIReqOpcode = incoming.opcode
+  def ordinary_request = incoming_opcode =/= CHIReqOpcode.ReqLCrdReturn
+  def incoming_write = incoming_opcode.is_initial_write()
+  def relative = incoming.address - identity.base_address
+  def word_access = (incoming.size_or_num_req === bits(2, 6)) & is_aligned(incoming.address, 4)
+  def doubleword_access = (incoming.size_or_num_req === bits(3, 6)) & is_aligned(incoming.address, 8)
+  def incoming_supported = incoming_opcode.is_one_of(CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl) & (
+    incoming.tgt_id === identity.node_id
+  ) & (incoming.address >= identity.base_address) & (relative < bits(8, p.request_address_width)) & (word_access ||| doubleword_access)
+  port.req.ready <== !ordinary_request ||| ((state === BootAddressState.Idle) & incoming_supported)
+  def request_fire = port.req.fire() & ordinary_request
+
+  // The register occupies the first eight byte lanes of its aligned window.
+  // Read data is captured on acceptance and remains stable under backpressure.
+  def incoming_data = port.dat.request.bits
+  def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
+  def write_data_expected = state === BootAddressState.WriteData
+  def requested_mask = transfer_byte_mask(request.address[0..lane_width], chi_req_size(p, request).as_bits(), p.data_bytes).as_bits()
+  def full_write = request.opcode === CHIReqOpcode.WriteNoSnpFull
+  def mask_supported = (incoming_data.byte_enable & !requested_mask) === bits(0, p.data_bytes)
+  def write_data_supported = (incoming_data.opcode === CHIDatOpcode.NonCopyBackWriteData) & (
+    incoming_data.txn_id === bits(0, 12)
+  ) & (incoming_data.src_id === request.src_id) & (incoming_data.tgt_id === identity.node_id) & (
+    incoming_data.data_id === bits(0, 2)
+  ) & mask_supported & (!full_write ||| (incoming_data.byte_enable === requested_mask))
+  port.dat.request.ready <== !ordinary_data ||| (write_data_expected & write_data_supported)
+  def write_data_fire = port.dat.request.fire() & ordinary_data
+  def write_mask = vec(for List (byte in 0..8): mux(incoming_data.byte_enable[byte].into(Bool), bits(0xff, 8), bits(0, 8))).as_bits()
+
+  port.rsp.valid <== state.is_one_of(BootAddressState.WriteDBID, BootAddressState.WriteResponse)
+  port.rsp.bits <== mux(state === BootAddressState.WriteDBID,
+                        chi_sn_dbid_response(p, identity.node_id, request, bits(0, 1)),
+                        chi_sn_write_completion(p, identity.node_id, request, bits(0, 1)))
+  port.dat.response.valid <== state === BootAddressState.ReadResponse
+  port.dat.response.bits <== chi_sn_read_completion(p, identity.node_id, request, bits(0, 2), read_data)
+
+  when request_fire:
+    request <== incoming
+    state <== mux(incoming_write, BootAddressState.WriteDBID, BootAddressState.ReadResponse)
+    when (!incoming_write):
+      read_data <== address.zext(p.data_width)
+  elsewhen (port.rsp.fire() & (state === BootAddressState.WriteDBID)):
+    state <== BootAddressState.WriteData
+  elsewhen write_data_fire:
+    address <== masked_merge(address, incoming_data.data[0..64], write_mask)
+    state <== BootAddressState.WriteResponse
+  elsewhen (port.rsp.fire() ||| port.dat.response.fire()):
+    state <== BootAddressState.Idle
+
+  when (port.req.valid & ordinary_request):
+    assert(incoming_supported, "boot_address_request_supported")
+  when (port.dat.request.valid & ordinary_data):
+    assert(write_data_expected, "boot_address_write_data_expected")
+    assert(write_data_supported, "boot_address_write_data_supported")
+
+export:
+  BootAddressWindowBytes
+  BootAddressConfig
+  BootAddressParams
+  BootAddressIdentity
+  CHIBootAddressRegister

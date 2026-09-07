@@ -48,7 +48,7 @@ imports of named SoCs from shared components.
 | Common coherent host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
 | Shared single-core parameter derivation and direct composition | [`single-core-system.rhdl`](single-core-system.rhdl) |
 | Shared host and ICN endpoint descriptions | [`endpoint-params.rhdl`](endpoint-params.rhdl) |
-| Shared BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
+| Shared boot-address register, BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
 | Primary external-memory composition | [`simple-soc.rhdl`](simple-soc.rhdl) |
 | Compact internal-memory composition | [`mini-soc.rhdl`](mini-soc.rhdl) |
 | Tiled public entrypoint | [`tiled-soc/main.rhdl`](tiled-soc/main.rhdl) |

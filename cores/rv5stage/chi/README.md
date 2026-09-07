@@ -52,6 +52,8 @@ RN-I endpoint with at most one outstanding transaction. It emits `ReadNoSnp`
 and `WriteNoSnpPtl`, routes read data back to the accepted owner, drains flushed
 instruction work without publishing it, reports unsupported data operations as
 access faults, and asserts address, Home, response, and packet invariants.
+Device writes use the Home's DBID and return write data to that Home; they do
+not request direct write transfer.
 
 For a PMA-authorized `CacheBlockZero`, the engine aligns the address to 64
 bytes and serializes eight zero-valued, full-mask 64-bit writes. Only the

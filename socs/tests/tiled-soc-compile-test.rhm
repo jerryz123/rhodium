@@ -67,6 +67,10 @@ check:
   compiled.llc_config.ways ~is 4
 
 check:
+  compiled.home_map.entry(0x1000).target_node_id ~is 36
+  compiled.platform.subordinate_map.entry(0x1000).target_node_id ~is 56
+  description.boot.address_register.address_set ~is compiled.platform.boot_address.service.address_sets[0]
+  compiled.platform.boot_address_config.reset_value ~is compiled.config.boot.payload_address
   compiled.home_map.entry(0x80000000).target_node_id ~is 32
   compiled.home_map.entry(0x8000003f).target_node_id ~is 32
   compiled.home_map.entry(0x80000040).target_node_id ~is 33
@@ -86,7 +90,7 @@ check:
   compiled.home_map.entry(0x10000007).target_node_id ~is 36
   compiled.home_map.entry(0x10000008) ~is #false
   compiled.home_map.entries.map(fun (entry): entry.address_set.mask) ~is (
-    [0x7f3f, 0x7f3f, 0x7f3f, 0x7f3f, 0x1fff, 0xffff, 0x3ffffff, 0x7]
+    [0x7f3f, 0x7f3f, 0x7f3f, 0x7f3f, 0x1fff, 0xfff, 0xffff, 0x3ffffff, 0x7]
   )
   compiled.llcs.map(fun (llc): llc.ram_params.base_address) ~is [0, 0, 0, 0]
   compiled.llcs.map(fun (llc): llc.projector_params.project(0x80000100 + (llc.projector_params.bank_index * 64))) ~is (
@@ -149,7 +153,7 @@ check:
   compiled.device_home.tile_params.router.attachment.hni_requester_locals[0].req.site_keys ~is [6]
   compiled.device_home.tile_params.router.attachment.hn_subordinate_locals.length() ~is 1
   compiled.device_home.tile_params.router.attachment.hn_subordinate_locals[0].req.site_keys ~is [6]
-  compiled.device_home.tile_params.router.attachment.sn_locals.length() ~is 1
+  compiled.device_home.tile_params.router.attachment.sn_locals.length() ~is 2
   compiled.device_home.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [6]
   compiled.aclint.tile_params.router.attachment.sn_locals.length() ~is 1
   compiled.aclint.tile_params.router.attachment.sn_locals[0].req.site_keys ~is [10]
@@ -166,16 +170,16 @@ check:
   compiled.rv5stages.length() ~is 8
   compiled.transits.length() ~is 3
   compiled.llcs.length() ~is 4
-  compiled.connections.length() ~is 80
+  compiled.connections.length() ~is 81
   compiled.connections.filter(
     ~keep: fun (connection): connection is_a chi.CHISNConnection
-  ).length() ~is 4
-  compiled.node_ids.length() ~is 38
+  ).length() ~is 5
+  compiled.node_ids.length() ~is 39
   compiled.node_ids.sort(fun (left, right): left < right) ~is (
     [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
      16, 17, 18, 19, 20, 21, 22, 23,
      24,
-     32, 33, 34, 35, 36, 48, 49, 50, 51, 52, 53, 54, 55]
+     32, 33, 34, 35, 36, 48, 49, 50, 51, 52, 53, 54, 55, 56]
   )
 
 check:
@@ -223,10 +227,10 @@ check:
   compiled.uart.placement.site.router === compiled.uart.placement.router ~is #true
 
 check:
-  compiled.compilations.req.routes.length() ~is 80
-  compiled.compilations.rsp.routes.length() ~is 156
+  compiled.compilations.req.routes.length() ~is 81
+  compiled.compilations.rsp.routes.length() ~is 157
   compiled.snp_compilation.routes.length() ~is 68
-  compiled.compilations.dat.routes.length() ~is 160
+  compiled.compilations.dat.routes.length() ~is 162
   compiled.families.req.members.length() ~is 20
   compiled.families.rsp.members.length() ~is 20
   compiled.families.snp.members.length() ~is 20

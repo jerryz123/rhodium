@@ -249,6 +249,8 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     CHISNSite(NamePath(["devices", "bootrom"]), ids.bootrom_subordinate, device_home_router)
   )
 
+  def boot_address_site = CHISNSite(NamePath(["devices", "boot-address"]), ids.boot_address_subordinate, device_home_router)
+
   def aclint_cell = layout.aclints[0]
   def aclint_router = mesh.node_at(aclint_cell.coordinate.x, aclint_cell.coordinate.y)
   def aclint_placement = TiledAclintPlacement(
@@ -298,6 +300,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     connections := connections ++ [CHIRNIConnection(requester, device_home_placement.requester_site)]
   connections := connections ++ [
     CHISNConnection(device_home_placement.subordinate_site, bootrom_placement.site),
+    CHISNConnection(device_home_placement.subordinate_site, boot_address_site),
     CHISNConnection(device_home_placement.subordinate_site, aclint_placement.site),
     CHISNConnection(device_home_placement.subordinate_site, plic_placement.site),
     CHISNConnection(device_home_placement.subordinate_site, uart_placement.site)
@@ -337,6 +340,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   ) ++ [host_placement.node_id,
         device_home_placement.node_id,
         bootrom_placement.node_id,
+        ids.boot_address_subordinate,
         aclint_placement.node_id,
         plic_placement.node_id,
         uart_placement.node_id]
@@ -494,7 +498,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       CHIRouterAttachments(
         ~hni_requester_sites: [[device_home_placement.requester_site]],
         ~hn_subordinate_sites: [[device_home_placement.subordinate_site]],
-        ~sn_sites: [[bootrom_placement.site]]
+        ~sn_sites: [[bootrom_placement.site, boot_address_site]]
       )
     )
   )

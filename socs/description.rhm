@@ -53,16 +53,18 @@ class SoCAddressRegion(address_set :: AddressSet):
 
 class RiscvBootLayout(rom :: SoCAddressRegion,
                       reset_address :: Nat,
-                      payload_address :: Nat):
+                      payload_address :: Nat,
+                      address_register :: False || SoCAddressRegion):
   implements StableCircuitParam
 
   constructor (~rom: rom :: SoCAddressRegion,
                ~reset_address: reset_address :: Nat,
-               ~payload_address: payload_address :: Nat):
+               ~payload_address: payload_address :: Nat,
+               ~address_register: address_register :: False || SoCAddressRegion = #false):
     unless rom.contains(reset_address)
     | error(~who: #'RiscvBootLayout,
             "reset address must lie in the BootROM region")
-    super(rom, reset_address, payload_address)
+    super(rom, reset_address, payload_address, address_register)
 
 class RiscvAclintDescription(region :: SoCAddressRegion):
   implements StableCircuitParam
@@ -270,6 +272,8 @@ class RiscvSoCDescription(model :: NonemptyString,
     | error(~who: #'RiscvSoCDescription,
             "boot payload address must lie in architectural memory")
     def mutable regions = memory_regions ++ [boot.rom, aclint.region]
+    when boot.address_register is_a SoCAddressRegion
+    | regions := regions ++ [boot.address_register]
     when plic is_a RiscvPlicDescription
     | for (context in plic.contexts):
         unless for any (hart in harts): hart == context.hart
