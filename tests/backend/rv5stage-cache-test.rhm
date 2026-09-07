@@ -58,4 +58,4 @@ check:
   rv32_instruction_circt.contains("rtl.sync_memory") ~is #false
   rv32_data_circt.contains("rtl.sync_memory") ~is #false
   rv32_data_circt.contains("seq.firmem") ~is #true
-  rv32_data_circt.contains("!hw.struct<data: i32, destination: i2, rd: i5, floating_point_precision: i2>") ~is #true
+  rv32_data_circt.contains("!hw.struct<access_fault: i1, data: i32, destination: i2, rd: i5, floating_point_precision: i2>") ~is #true

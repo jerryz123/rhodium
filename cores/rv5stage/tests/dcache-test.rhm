@@ -34,7 +34,7 @@ check:
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 64
   cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64
   cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 64
-  cache.find_input("core_in").type.field("request").type.field("bits").type.field("access").type.width ~is 3
+  cache.find_input("core_in").type.field("request").type.field("bits").type.field("access").type.width ~is 4
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("atomic").type.width ~is 4
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("destination").type.width ~is 2
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("rd").type.width ~is 5
