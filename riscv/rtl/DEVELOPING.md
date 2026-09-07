@@ -28,6 +28,7 @@ direction.
 | Field and immediate materialization | [`instruction-fields.rhdl`](instruction-fields.rhdl) |
 | Compressed expansion | [`compressed.rhdl`](compressed.rhdl) |
 | CSR values and bank construction | [`csr.rhdl`](csr.rhdl) |
+| CMO privilege, WARL, and physical permission policy | [`cmo.rhdl`](cmo.rhdl) |
 | Base architectural counters | [`counters.rhdl`](counters.rhdl) |
 | Trap and interrupt cause conversion | [`trap.rhdl`](trap.rhdl), [`interrupt.rhdl`](interrupt.rhdl) |
 | Physical-memory attributes | [`pma.rhdl`](pma.rhdl) |
@@ -56,6 +57,13 @@ RISC-V policy around public HardFloat types without acquiring arithmetic
 implementation.
 
 ## Focused validation
+
+For CMO permission changes, select the `riscv-cmo` backend fixture. It sweeps
+M/S/U privilege and both xenvcfg controls, RV32/RV64 WARL images, all Sv39 access
+classes and low PTE permission/A/D combinations, and physical attributes.
+Include `rv5stage-csr`, `rv5stage-zicboz`, and `rv5stage-mmu-replay` when shared
+CSR or translation behavior changes. These fixtures check behavior, not IR
+shape; use the [backend guide](../../tests/backend/DEVELOPING.md) for invocation.
 
 From the repository root, run:
 

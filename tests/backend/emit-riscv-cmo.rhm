@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the reusable CMO permission and translation-policy integration fixture.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../frontend/riscv-cmo-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

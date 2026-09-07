@@ -13,6 +13,7 @@ import:
   "../../riscv/isa/trap.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/csr.rhdl" open
+  "../../riscv/rtl/cmo.rhdl" open
   "../../riscv/rtl/counters.rhdl" open
   "../../riscv/rtl/interrupt.rhdl" open
   "../../riscv/rtl/trap.rhdl" open
@@ -283,7 +284,6 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def interrupt_enable_mask = bits(0xaaa, width)
   def supervisor_interrupt_mask = bits(0x222, width)
   def counter_enable_mask = bits(0x7, width)
-  def envcfg_mask = bits(if core_profile.extensions.zicboz | 0x80 | 0, width)
   def tvec_mask = !bits(0x3, width)
   def epc_mask = if compressed_enabled | !bits(0x1, width) | !bits(0x3, width)
   def mpp_mask = bits(0x1800, width)
@@ -312,11 +312,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
 
   reg privilege_state(PrivilegeMode, ~init: PrivilegeMode.Machine)
   reg state(RV5StageCsrState(xlen), ~init: literal(RV5StageCsrState(xlen), 0))
-  cbo_zero_enabled <== Bool(core_profile.extensions.zicboz) & (
-    (privilege_state === PrivilegeMode.Machine) ||| (
-      state.menvcfg[7].into(Bool) & ((privilege_state =/= PrivilegeMode.User) ||| state.senvcfg[7].into(Bool))
-    )
-  )
+  cbo_zero_enabled <== cbo_zero_permitted(xlen, privilege_state === PrivilegeMode.User, privilege_state === PrivilegeMode.Supervisor, state.menvcfg, state.senvcfg, ~zicboz: core_profile.extensions.zicboz)
   inst counters(RiscvBaseCounters(xlen))
   def FpCsrModule = if floating_point_supports_f(profile) | RV5StageFpCsrs() | RV5StageDisabledFpCsrs()
   inst fp_csrs(FpCsrModule)
@@ -363,7 +359,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     csr CsrId.Senvcfg:
       read: state.senvcfg
       write value:
-        state.senvcfg <== value & envcfg_mask
+        state.senvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: #false, ~zicboz: core_profile.extensions.zicboz)
     storage CsrId.Sscratch: state.sscratch
     csr CsrId.Sepc:
       read: state.sepc
@@ -419,7 +415,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     csr CsrId.Menvcfg:
       read: state.menvcfg
       write value:
-        state.menvcfg <== value & envcfg_mask
+        state.menvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: #false, ~zicboz: core_profile.extensions.zicboz)
     storage CsrId.Mscratch: state.mscratch
     csr CsrId.Mepc:
       read: state.mepc

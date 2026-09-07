@@ -1,0 +1,50 @@
+#lang rhodium
+// Exercises CMO CSR policy, physical permissions, and all Sv39 demand access classes.
+
+import:
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/rtl/cmo.rhdl") open
+  lib("riscv/rtl/pma.rhdl") open
+  lib("riscv/rtl/sv39.rhdl") open
+
+circuit RiscvCmoFixture():
+  input operation: CboManagementOperation
+  input user_mode: Bool
+  input supervisor_mode: Bool
+  input menvcfg: Bits(64)
+  input senvcfg: Bits(64)
+  input raw_pte: Bits(64)
+  input access: Sv39Access
+  input sum: Bool
+  input mxr: Bool
+  input physical: RiscvPhysicalMemoryLookup()
+  output permission64: CboManagementPermission()
+  output permission32: CboManagementPermission()
+  output disabled: CboManagementPermission()
+  output fields64: Bits(64)
+  output fields32: Bits(32)
+  output fields_management: Bits(64)
+  output fields_zero: Bits(64)
+  output fields_disabled: Bits(64)
+  output zero_permitted: Bool
+  output zero_disabled: Bool
+  output translation_permitted: Bool
+  output physical_permitted: Bool
+
+  permission64 <== cbo_management_permission(XLen.X64, operation, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicbom: #true)
+  permission32 <== cbo_management_permission(XLen.X32, operation, user_mode, supervisor_mode, menvcfg[0..32], senvcfg[0..32], ~zicbom: #true)
+  disabled <== cbo_management_permission(XLen.X64, operation, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicbom: #false)
+  fields64 <== cmo_envcfg_fields(XLen.X64, menvcfg, ~zicbom: #true, ~zicboz: #true)
+  fields32 <== cmo_envcfg_fields(XLen.X32, menvcfg[0..32], ~zicbom: #true, ~zicboz: #true)
+  fields_management <== cmo_envcfg_fields(XLen.X64, menvcfg, ~zicbom: #true, ~zicboz: #false)
+  fields_zero <== cmo_envcfg_fields(XLen.X64, menvcfg, ~zicbom: #false, ~zicboz: #true)
+  fields_disabled <== cmo_envcfg_fields(XLen.X64, menvcfg, ~zicbom: #false, ~zicboz: #false)
+  zero_permitted <== cbo_zero_permitted(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #true)
+  zero_disabled <== cbo_zero_permitted(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #false)
+  translation_permitted <== sv39_permission_valid(sv39_pte(raw_pte), access, user_mode, supervisor_mode, sum, mxr)
+  physical_permitted <== cbo_management_physical_permission(physical)
+
+def design = elaborate(RiscvCmoFixture())
+
+export:
+  design

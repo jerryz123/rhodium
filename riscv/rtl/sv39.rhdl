@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines typed hardware values and pure combinational helpers for Sv39.
+// Defines Sv39 values and demand, cache-management, and prefetch permission helpers.
 
 import:
   "../isa/sv39.rhm" open
@@ -9,6 +9,7 @@ hardware_enum Sv39Access:
   Fetch
   Load
   Store
+  CacheManagement
 
 bundle Sv39Pte():
   ppn: Bits(44)
@@ -77,9 +78,12 @@ fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
     pte.user,
     !pte.user ||| (supervisor_mode & sum & (access =/= Sv39Access.Fetch))
   )
+  // Management checks load-or-store access and A, but never checks or sets D.
+  // PTE structural validity remains the caller's separate leaf check.
   def access_valid = mux_lookup(access, ~default: pte.write & pte.dirty):
     Sv39Access.Fetch: pte.execute
     Sv39Access.Load: pte.read ||| (mxr & pte.execute)
+    Sv39Access.CacheManagement: pte.read ||| pte.write ||| (mxr & pte.execute)
   privilege_valid & access_valid & pte.accessed
 
 // Prefetch permission is the union of fetch, load, and store permission, but

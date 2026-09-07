@@ -1,0 +1,67 @@
+#lang rhodium
+// Defines M/S/U cache-block privilege policy and xenvcfg WARL field handling.
+
+import:
+  "../isa/xlen.rhm" open
+  "pma.rhdl".RiscvPhysicalMemoryLookup
+
+hardware_enum CboManagementOperation:
+  Invalidate
+  Clean
+  Flush
+
+hardware_enum CboInvalidateMode(~width: 2):
+  Disabled = 0
+  Flush = 1
+  Invalidate = 3
+
+bundle CboManagementPermission():
+  permitted: Bool
+  operation: CboManagementOperation
+
+// Return only the CMO-owned CSR fields; other xenvcfg fields remain caller-owned.
+// The reserved CBIE=10 write deterministically becomes Disabled, not Invalidate.
+fun cmo_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width),
+                      ~zicbom: zicbom :: Boolean, ~zicboz: zicboz :: Boolean) :~ Bits(xlen.width):
+  def cbie = value[4..6]
+  def legal_cbie = mux(cbie === bits(2, 2), bits(0, 2), cbie)
+  def management = if zicbom | concat(value[6], legal_cbie, bits(0, 4)).zext(xlen.width) | bits(0, xlen.width)
+  def zero = if zicboz | value & bits(0x80, xlen.width) | bits(0, xlen.width)
+  management ||| zero
+
+// Current execution privilege controls xenvcfg; MPRV affects translation only.
+fun cbo_management_permission(xlen :: XLen, operation :: CboManagementOperation,
+                              user_mode :: Bool, supervisor_mode :: Bool,
+                              menvcfg :: Bits(xlen.width), senvcfg :: Bits(xlen.width),
+                              ~zicbom: zicbom :: Boolean) :~ CboManagementPermission():
+  def below_machine = user_mode ||| supervisor_mode
+  def machine_mode = menvcfg[4..6].into(CboInvalidateMode)
+  def supervisor_control = senvcfg[4..6].into(CboInvalidateMode)
+  def machine_invalidate_enabled = machine_mode.is_one_of(CboInvalidateMode.Flush, CboInvalidateMode.Invalidate)
+  def supervisor_invalidate_enabled = supervisor_control.is_one_of(CboInvalidateMode.Flush, CboInvalidateMode.Invalidate)
+  def invalidate_enabled = (!below_machine ||| machine_invalidate_enabled) & (!user_mode ||| supervisor_invalidate_enabled)
+  def clean_flush_enabled = (!below_machine ||| menvcfg[6].into(Bool)) & (!user_mode ||| senvcfg[6].into(Bool))
+  def force_flush = (below_machine & (machine_mode === CboInvalidateMode.Flush)) ||| (user_mode & (supervisor_control === CboInvalidateMode.Flush))
+  def invalidate = operation === CboManagementOperation.Invalidate
+  CboManagementPermission():
+    permitted: Bool(zicbom) & mux(invalidate, invalidate_enabled, clean_flush_enabled)
+    operation: mux(invalidate & force_flush, CboManagementOperation.Flush, operation)
+
+fun cbo_zero_permitted(xlen :: XLen, user_mode :: Bool, supervisor_mode :: Bool,
+                       menvcfg :: Bits(xlen.width), senvcfg :: Bits(xlen.width),
+                       ~zicboz: zicboz :: Boolean) :~ Bool:
+  Bool(zicboz) & (!(user_mode ||| supervisor_mode) ||| menvcfg[7].into(Bool)) & (!user_mode ||| senvcfg[7].into(Bool))
+
+// The caller looks up the complete aligned block. Cacheability, atomics, and
+// CBO.ZERO support are not permissions for cache management. PMP is separate.
+fun cbo_management_physical_permission(physical :: RiscvPhysicalMemoryLookup()) :~ Bool:
+  physical.mapped & (physical.readable ||| physical.writable)
+
+export:
+  CboManagementOperation
+  CboInvalidateMode
+  CboManagementPermission
+  cmo_envcfg_fields
+  cbo_management_permission
+  cbo_zero_permitted
+  cbo_management_physical_permission

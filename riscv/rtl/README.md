@@ -48,6 +48,7 @@ Dependency enforcement and extension workflow are documented in
 | [`compressed.rhdl`](compressed.rhdl) | `RiscvCompressedExpansion`, `RiscvCompressedExpander`, `compressed_selector_cases` | Recognize legal C encodings and emit canonical 32-bit instructions |
 | [`mop.rhdl`](mop.rhdl) | `resolve_mop_decode_cases` | Compatibility name for the standard decode-overlay operation |
 | [`csr.rhdl`](csr.rhdl) | `CsrBank`, `csr_bits`, `csr_bank` | Convert `CsrId` and define exact-key CSR recognition, reads, and writes |
+| [`cmo.rhdl`](cmo.rhdl) | `CboManagementOperation`, `CboInvalidateMode`, `CboManagementPermission`, and `cbo_*`/`cmo_*` helpers | M/S/U CMO permission, invalidate-to-flush conversion, xenvcfg WARL fields, and physical permission |
 | [`counters.rhdl`](counters.rhdl) | `RiscvCounterWrite`, `RiscvBaseCounters` | Reusable 64-bit `mcycle` and `minstret` state for RV32/RV64 |
 | [`trap.rhdl`](trap.rhdl) | `exception_cause_bits` | Convert architectural synchronous causes to width-specialized hardware |
 | [`interrupt.rhdl`](interrupt.rhdl) | `interrupt_cause_bits` | Convert architectural interrupt causes to `xcause` values |
@@ -176,6 +177,40 @@ store permission under current privilege, `SUM`, and `MXR` while deliberately
 ignoring `A` and `D`. Page-table walk
 state, TLB organization, replacement, faults, and processor integration are
 not part of this reusable combinational layer.
+
+### Cache-block permissions
+
+[`cmo.rhdl`](cmo.rhdl) separates CSR permission from translation and physical
+permission. Its `cbo_management_permission` helper takes **current** M/S/U
+execution privilege as `user_mode` and `supervisor_mode` (both false means M),
+not MPRV's effective data privilege. M bypasses xenvcfg restrictions; S obeys
+menvcfg; U obeys both menvcfg and senvcfg. CBIE enables invalidate or converts
+it into a flush, with either applicable flush setting taking precedence.
+CBCFE gates clean/flush independently of CBIE. A false `~zicbom` denies all
+three instructions even in M-mode. Hypervisor modes are outside this helper.
+
+`cmo_envcfg_fields` returns only the implemented CBIE/CBCFE/CBZE fields for
+RV32 or RV64. It maps reserved CBIE=10 writes to 00 and zeros fields for
+disabled extensions. It does not gate writes to one xenvcfg based on another;
+the hierarchy applies at instruction execution. Callers merge any other
+implemented xenvcfg fields separately. `cbo_zero_permitted` provides the
+corresponding hierarchical CBZE rule.
+
+`Sv39Access.CacheManagement` uses the **effective data-access privilege**,
+SUM, and MXR. It permits load or store access, requires A, and ignores D.
+As with the other access classes, PTE validity and leaf structure are checked
+separately. `cbo_management_physical_permission` accepts a mapped block with
+read or write permission regardless of cacheability, device classification,
+atomic support, or CBO.ZERO capability. Supply the complete aligned block to
+the physical-map lookup; PMP permission remains a separate caller check.
+
+The integrating core must classify a denied CSR operation as illegal, a
+translation denial as a store page fault, and a physical denial as a store
+access fault. Keep the original rs1 value for tval, align only the maintenance
+address, and do not generate an alignment exception. These helpers neither
+issue a transaction nor enable Zicbom in a processor profile. RV5Stage currently
+reuses the shared CBZE/WARL handling with Zicbom disabled until execution is
+integrated. See the [CMO specification](https://docs.riscv.org/reference/isa/unpriv/cmo.html).
 
 ## Floating-point policy
 

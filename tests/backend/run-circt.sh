@@ -197,7 +197,7 @@ fixture_in_group() {
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
-    cores:rv32i-*|cores:rv64i-*|cores:load-store|cores:load-store-rv32-word|cores:bit-manip*|cores:iterative-multiplier|cores:iterative-divider|cores:riscv-counters-*|cores:riscv-floating-point|cores:riscv-compressed|cores:scoreboard|cores:rv5stage-*)
+    cores:rv32i-*|cores:rv64i-*|cores:load-store|cores:load-store-rv32-word|cores:bit-manip*|cores:iterative-multiplier|cores:iterative-divider|cores:riscv-counters-*|cores:riscv-cmo|cores:riscv-floating-point|cores:riscv-compressed|cores:scoreboard|cores:rv5stage-*)
       return 0
       ;;
     *)
@@ -675,6 +675,7 @@ direct_fixture_specs=(
   'chi-router-composition|'
   'chi-transfer-fragmenter|chi_transfer_fragmenter_tb'
   'load-store|load_store_tb'
+  'riscv-cmo|riscv_cmo_tb'
   'load-store-rv32-word|load_store_rv32_word_tb'
   'bit-manip|bit_manip_tb'
   'bit-manip-rv32|bit_manip_rv32_tb'
