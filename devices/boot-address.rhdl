@@ -68,11 +68,10 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
   def request = transaction.request
 
   def incoming = port.req.bits
-  def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def relative = incoming.address - identity.base_address
   def word_access = (incoming.size_or_num_req === bits(2, 6)) & incoming.address.is_aligned(4)
   def doubleword_access = (incoming.size_or_num_req === bits(3, 6)) & incoming.address.is_aligned(8)
-  def incoming_supported = incoming_opcode.is_one_of(CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl) & (
+  def incoming_supported = incoming.opcode.is_one_of(CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl) & (
     incoming.tgt_id === identity.node_id
   ) & (incoming.address >= identity.base_address) & (relative < bits(8, p.request_address_width)) & (word_access ||| doubleword_access)
   transaction.request_supported <== incoming_supported

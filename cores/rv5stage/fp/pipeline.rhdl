@@ -172,7 +172,7 @@ sync_circuit RV5StageFpPipeline(
 
   fun register_busy(index :: Bits(5)) :~ Bool:
     scoreboard_busy(register_count, currently_busy, index)
-  def control :: RV5StageFloatingPointControl() = issue.bits.control
+  def control = issue.bits.control
   def source_hazard = (
     control.registers.uses_frs1 & register_busy(issue.bits.frs1)
   ) ||| (

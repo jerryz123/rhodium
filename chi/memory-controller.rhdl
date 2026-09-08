@@ -122,7 +122,7 @@ fun monitor_chi_ram_request(config :: CHIRamConfig,
                             valid :: Bool,
                             request :: CHIReqFlit(config.flit)):
   def p = config.flit
-  def request_opcode :: CHIReqOpcode = request.opcode
+  def request_opcode = request.opcode
   def size = request.size_or_num_req[0..3]
   def max_size = alignment_bits(config.max_transfer_bytes)
   def alignment_cases = for List (encoded_size in 0..(max_size + 1)):

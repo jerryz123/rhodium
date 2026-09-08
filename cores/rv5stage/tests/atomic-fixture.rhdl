@@ -15,7 +15,7 @@ circuit RV5StageAtomicFixture(xlen :: XLen):
   output needs_unique: Bool
   output value: Bits(width)
 
-  def access :: MemoryOperation = request.access
+  def access = request.access
   inst atomic_alu(RV5StageAtomicALU(xlen))
   is_load <== access.is_load()
   needs_unique <== access.needs_unique()

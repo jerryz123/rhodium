@@ -21,7 +21,7 @@ sync_circuit RV5StageIOMSHR(xlen :: XLen):
   def idle = state === RV5StageIOMSHRState.Idle
   def queued = state === RV5StageIOMSHRState.Queued
   def active = state === RV5StageIOMSHRState.Active
-  def operation :: MemoryOperation = core.request.bits.request.access
+  def operation = core.request.bits.request.access
   def supported = operation.is_one_of(MemoryOperation.Load, MemoryOperation.Store, MemoryOperation.CacheBlockZero)
 
   // Admission depends on this data slot, not the shared engine's fetch owner.

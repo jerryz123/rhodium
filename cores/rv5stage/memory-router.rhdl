@@ -25,7 +25,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   io_mshr.memory |> uncached
 
   def request :: RV5StageDataReq(xlen) = core.request.bits
-  def operation :: MemoryOperation = request.access
+  def operation = request.access
   def last_byte_offset :: Bits(xlen.width) = mux_lookup(
     request.width,
     ~default: bits(7, xlen.width),

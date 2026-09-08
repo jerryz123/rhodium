@@ -254,7 +254,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def transaction_way = mux(line_hit, resolved.egress.bits.hit_way, resolved.egress.bits.allocation_way)
   def victim_valid = resolved.egress.bits.victim_valid
   def victim_state = resolved.egress.bits.victim_state.into(CHICacheState)
-  def lookup_access :: MemoryOperation = lookup_request.access
+  def lookup_access = lookup_request.access
   def lookup_ready = resolved.egress.valid
   def lookup_load = lookup_ready & !lookup_prefetch & lookup_access.is_load()
   def lookup_store = lookup_ready & !lookup_prefetch & lookup_access.is_store()
@@ -346,14 +346,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def completion_request = completion_context.request
   def completion_prefetch = completion_context.prefetch
   def completion_way = completion_context.way
-  def completion_access :: MemoryOperation = completion_request.access
+  def completion_access = completion_request.access
   def completion_set = completion_request.address[offset_width..(offset_width + set_width)]
   def completion_tag = completion_request.address[(offset_width + set_width)..width]
   def completion_word_index = completion_request.address[word_offset_width..offset_width]
   def refill_words = refill.completion.bits.line.as_bits().as_vec(Bits(width))
   def load_request :: RV5StageDataReq(xlen) = mux(refill.completion.valid, completion_request, lookup_request)
-  def load_access :: MemoryOperation = load_request.access
-  def load_unsigned = mux(load_access === MemoryOperation.Load,
+  def load_unsigned = mux(load_request.access === MemoryOperation.Load,
                           load_request.unsigned,
                           Bool(#false))
   def refilled_word = refill_words[completion_word_index]
@@ -365,7 +364,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def local_mutation = lookup_mutation & mutation_has_ownership
   def local_mutation_capture = local_mutation & resolved_path.fire()
   def local_mutation_commit = pending_mutation_valid
-  def pending_mutation_access :: MemoryOperation = pending_mutation_request.access
+  def pending_mutation_access = pending_mutation_request.access
   // Owned hits keep the SRAM until the complete block is zero. No new CHI
   // transaction is held up by this bounded interval; snoops resume afterward.
   def pending_zero = pending_mutation_access.is_cache_block_zero()
@@ -508,7 +507,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     maintenance.completion.bits.context,
     mux(complete_refill, completion_request, mux(local_mutation_commit, pending_mutation_request, lookup_request))
   )
-  def response_access :: MemoryOperation = response_request.access
+  def response_access = response_request.access
   def response_address = response_request.address
   def response_width = response_request.width
   def response_old_value = mux(local_mutation_commit, pending_mutation_old_value, load_gen.value)

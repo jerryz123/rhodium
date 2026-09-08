@@ -106,9 +106,6 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   reg coherent_dvm_first_pending(~init: Bool(#false))
   reg coherent_dvm_source_id(~init: bits(0, p.node_id_width))
   reg coherent_dvm_txn_id(~init: bits(0, 12))
-  def tx_rsp_opcode :: CHIRspOpcode = tx_rsp.opcode
-  def tx_dat_opcode :: CHIDatOpcode = tx_dat.opcode
-  def rx_snp_opcode :: CHISnpOpcode = rx_snp.opcode
 
   def req_event = tx_req_valid & req.opcode.is_one_of(CHIReqOpcode.ReadShared,
                                                       CHIReqOpcode.ReadClean,
@@ -120,8 +117,8 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def dvm_event = snoop_event & (rx_snp.opcode === CHISnpOpcode.SnpDVMOp)
   def dvm_second_event = dvm_event & coherent_dvm_first_pending
   def tracked_snoop_event = snoop_event & (!dvm_event ||| dvm_second_event)
-  def snoop_rsp_event = tx_rsp_valid & tx_rsp_opcode.is_snoop_response()
-  def snoop_dat_event = tx_dat_valid & tx_dat_opcode.is_snoop_response()
+  def snoop_rsp_event = tx_rsp_valid & tx_rsp.opcode.is_snoop_response()
+  def snoop_dat_event = tx_dat_valid & tx_dat.opcode.is_snoop_response()
   def forward_data_event = tx_dat_valid & (tx_dat.opcode === CHIDatOpcode.CompData)
 
   def free_reads = vec(
@@ -319,7 +316,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def allocated_snoop:
     CHISnoopTransaction(p):
       live: Bool(#true)
-      forward: rx_snp_opcode.is_forward()
+      forward: rx_snp.opcode.is_forward()
       txn_id: rx_snp.txn_id
       home_id: rx_snp.src_id
       forward_txn_id: rx_snp.fwd_txn_id_or_stash_lpid_or_vmid_ext

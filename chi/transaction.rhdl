@@ -304,7 +304,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
   def empty = empty_chi_requester_transaction(p)
   def initial = vec(for List (_index in 0..limit): empty)
   reg entries(~init: initial)
-  def req_opcode :: CHIReqOpcode = req.opcode
+  def req_opcode = req.opcode
 
   def req_event = tx_req_valid & (req.opcode =/= CHIReqOpcode.ReqLCrdReturn)
   def rsp_event = rx_rsp_valid & (rsp.opcode =/= CHIRspOpcode.RespLCrdReturn)
@@ -505,7 +505,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
   def empty = empty_chi_subordinate_transaction(p)
   def initial = vec(for List (_index in 0..limit): empty)
   reg entries(~init: initial)
-  def req_opcode :: CHIReqOpcode = req.opcode
+  def req_opcode = req.opcode
 
   def req_event = rx_req_valid & (req.opcode =/= CHIReqOpcode.ReqLCrdReturn)
   def rsp_event = tx_rsp_valid & (rsp.opcode =/= CHIRspOpcode.RespLCrdReturn)
@@ -731,7 +731,7 @@ fun home_transaction_monitor(p :: CHIFlitParams,
   def empty = empty_chi_home_transaction(p)
   def initial = vec(for List (_index in 0..limit): empty)
   reg entries(~init: initial)
-  def upstream_request_opcode :: CHIReqOpcode = upstream_request.opcode
+  def upstream_request_opcode = upstream_request.opcode
   def slot_width = index_width(limit)
   def request_slot = downstream_request.txn_id[0..slot_width]
   def response_slot = downstream_response.txn_id[0..slot_width]

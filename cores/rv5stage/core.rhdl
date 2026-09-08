@@ -420,7 +420,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def divide_resource_hazard = decoded_needs_divider & !decoded_fault & (
     !divider.available ||| id_ex_has_divide ||| memory_has_divide ||| commit_has_divide
   )
-  def decoded_fp_execution_control :: RV5StageFloatExecutionControl() = control.floating_point.execution
+  def decoded_fp_execution_control = control.floating_point.execution
   def decoded_fp_memory = control.floating_point_valid & (
     decoded_fp_execution_control.unit === RV5StageFloatUnit.Memory
   )
@@ -488,8 +488,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // consumer is canceled independently; it does not select an older operand.
   // The WB selector names the normal pipeline token, not retained retirement context.
   fun forwarded_register_value(operand :: RV5StageOperand(xlen)):
-    def stage_sel :: RV5StageBypassStage = operand.stage_sel
-    stage_sel.mux({
+    operand.stage_sel.mux({
       RV5StageBypassStage.RegisterFile: operand.value,
       RV5StageBypassStage.Memory: memory.bits.result,
       RV5StageBypassStage.Writeback: pipeline_wb.bits.value
@@ -521,11 +520,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     id_ex.bits.pc + id_ex.bits.immediate
   )
   def redirect_aligned = computed_redirect_target.is_aligned(instruction_alignment)
-  def execute_memory_operation :: MemoryOperation = id_ex.bits.memory_operation
+  def execute_memory_operation = id_ex.bits.memory_operation
   def memory_aligned = execute_memory_operation.is_cache_block() ||| id_ex.bits.memory_width.is_aligned(alu.result)
-  def execute_prefetch_operation :: CachePrefetchOperation = id_ex.bits.prefetch_operation
   def execute_is_memory = execute_memory_operation.is_memory()
-  def fp_execution_control :: RV5StageFloatExecutionControl() = id_ex.bits.floating_point_control.execution
+  def fp_execution_control = id_ex.bits.floating_point_control.execution
   def execute_is_fp = id_ex.bits.floating_point_valid
   def execute_fp_memory = execute_is_fp & (fp_execution_control.unit === RV5StageFloatUnit.Memory)
   def execute_fp_store = execute_fp_memory & fp_execution_control.memory_write
@@ -598,7 +596,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def execute_transfer = id_ex.valid & !older_pipeline_squash
   def execute_prefetch_request = CachePrefetchReq(width):
     address: alu.result
-    operation: execute_prefetch_operation
+    operation: id_ex.bits.prefetch_operation
   def fp_store_response_match = fp.store_response.valid & (
     fp.store_response.bits.context === id_ex.bits.pc
   )

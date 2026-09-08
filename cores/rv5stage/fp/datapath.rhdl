@@ -118,7 +118,7 @@ circuit RV5StageFpFormatDatapath(
   input request: RV5StageFpExecutionRequest(xlen, profile, Context)
   output completion: RV5StageFpCompletion(xlen, profile, Context)
 
-  def control :: RV5StageFloatExecutionControl() = request.control.execution
+  def control = request.control.execution
   def left = riscv_unbox(format, flen, request.left)
   def right = riscv_unbox(format, flen, request.right)
   def third = riscv_unbox(format, flen, request.third)
@@ -346,7 +346,7 @@ circuit RV5StageFpFixedD(xlen :: XLen,
   single.request <== request
   double.request <== request
 
-  def control :: RV5StageFloatExecutionControl() = request.control.execution
+  def control = request.control.execution
   def source_single = control.source_precision === RV5StageFloatPrecision.Single
   def floating_point_destination = request.control.registers.destination === RV5StageFloatDestination.FloatingPoint
   def ordinary_single = mux(floating_point_destination, control.destination_precision === RV5StageFloatPrecision.Single, source_single)
@@ -406,7 +406,7 @@ circuit RV5StageFpFixedFHalf(xlen :: XLen,
   half.request <== request
   single.request <== request
 
-  def control :: RV5StageFloatExecutionControl() = request.control.execution
+  def control = request.control.execution
   def fp_destination = request.control.registers.destination === RV5StageFloatDestination.FloatingPoint
   def ordinary_half = mux(fp_destination,
                           control.destination_precision === RV5StageFloatPrecision.Half,
@@ -454,7 +454,7 @@ circuit RV5StageFpFixedDHalf(xlen :: XLen,
   half.request <== request
   base.request <== request
 
-  def control :: RV5StageFloatExecutionControl() = request.control.execution
+  def control = request.control.execution
   def fp_destination = request.control.registers.destination === RV5StageFloatDestination.FloatingPoint
   def ordinary_half = mux(fp_destination,
                           control.destination_precision === RV5StageFloatPrecision.Half,

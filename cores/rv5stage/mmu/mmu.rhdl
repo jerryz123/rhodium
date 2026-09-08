@@ -74,7 +74,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inject_flow(Valid(Bits(width)), ~valid: instruction_lookup.fire(), ~bits: instruction_lookup.bits) |> instruction_read.ingress
   def instruction_read_matches = instruction_read.egress.valid & (instruction_read.egress.bits === instruction_address)
   def data_request :: RV5StageDataReq(xlen) = data.request.bits
-  def data_memory_operation :: MemoryOperation = data_request.access
+  def data_memory_operation = data_request.access
   def data_virtual_address = if xlen == XLen.X32 | data_request.address.zext(64) | data_request.address
   def data_access_kind = mux(data_memory_operation.is_cache_management(), Sv39Access.CacheManagement, mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load))
 

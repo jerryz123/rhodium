@@ -66,7 +66,7 @@ sync_circuit OutputGreedyRoundRobinMatcher(input_count :: PosInt,
         requests[input_index][output_index] & !input_taken[input_index]
     )
     def choice :: CircularPriorityChoice(input_count, priority_width) = circular_priority_onehot(eligible, next_priorities[output_index])
-    def selected_row :: MaybeOneHot(input_count) = choice.grant
+    def selected_row = choice.grant
     output_grant_rows := output_grant_rows ++ [selected_row]
     output_choices := output_choices ++ [choice]
     for (input_index in 0..input_count):

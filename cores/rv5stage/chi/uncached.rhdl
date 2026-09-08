@@ -60,7 +60,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
 
   def idle = state === RV5StageUncachedState.Idle
   def command :: RV5StageDataReq(xlen) = core.request.bits.request
-  def command_access :: MemoryOperation = command.access
+  def command_access = command.access
   def command_supported = command_access.is_one_of(MemoryOperation.Load,
                                                    MemoryOperation.Store,
                                                    MemoryOperation.CacheBlockZero)

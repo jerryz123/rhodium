@@ -148,7 +148,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
   def rx_head = rx_fifo.egress.bits
 
   def incoming = port.req.bits
-  def incoming_opcode :: CHIReqOpcode = incoming.opcode
+  def incoming_opcode = incoming.opcode
   def incoming_write = (incoming_opcode === CHIReqOpcode.WriteNoSnpFull) ||| (
     incoming_opcode === CHIReqOpcode.WriteNoSnpPtl
   )

@@ -103,7 +103,51 @@ sync_circuit EnumMethodPropagation():
 
 def design = elaborate(EnumMethodPropagation())
 
+// Parameterized argument and result annotations must preserve nested selectors.
+bundle SelectedOperand(width :: PosInt):
+  stage_sel: OneHotState
+  value: Bits(width)
+
+bundle NestedOperand(width :: PosInt):
+  operand: SelectedOperand(width)
+
+fun select_operand(width :: PosInt, value :: NestedOperand(width)):
+  value.operand.stage_sel.mux({
+    OneHotState.Idle: bits(0, width),
+    OneHotState.Read: value.operand.value,
+    OneHotState.Write: bits(1, width)
+  })
+
+circuit AnnotatedBundleSelection(width :: PosInt, annotated :: Boolean):
+  input source: NestedOperand(width)
+  output result: Bits(width)
+  output active: Bool
+  fun identity(value :: NestedOperand(width)) :: NestedOperand(width):
+    value
+  fun is_active(value :: NestedOperand(width)):
+    value.operand.stage_sel.is_access()
+  if annotated
+  | block:
+      result <== select_operand(width, identity(source))
+      active <== is_active(identity(source))
+  | block:
+      result <== source.operand.stage_sel.mux({
+        OneHotState.Idle: bits(0, width),
+        OneHotState.Read: source.operand.value,
+        OneHotState.Write: bits(1, width)
+      })
+      active <== source.operand.stage_sel.is_access()
+
+circuit WrongBundleSpecialization():
+  input source: NestedOperand(8)
+  output result: Bits(16)
+  fun select_operand(value :: NestedOperand(16)):
+    value.operand.value
+  result <== select_operand(source)
+
 export:
+  AnnotatedBundleSelection
+  WrongBundleSpecialization
   CacheState
   SparseState
   WideState

@@ -3,6 +3,7 @@
 
 import:
   "../../rhodium/core/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
   "../../rhodium/frontend/layers/enum.rhm".enum_encoding
   "../../rhodium/frontend/layers/enum.rhm".enum_width
   "enum-method-fixture.rhdl" as fixture
@@ -32,3 +33,14 @@ check:
   ors.length() ~is 0
   onehot_muxes.length() ~is 1
   verify_design(fixture.design) ~is #void
+
+// Annotating helpers changes neither the selection IR nor its concrete widths.
+for (width in [8, 16]):
+  def direct = embedded.run_elaboration(fun (): fixture.AnnotatedBundleSelection(width, #false))
+  def annotated = embedded.run_elaboration(fun (): fixture.AnnotatedBundleSelection(width, #true))
+  check:
+    dump_ir(annotated) ~is dump_ir(direct)
+    verify_design(annotated) ~is #void
+
+check:
+  embedded.run_elaboration(fun (): fixture.WrongBundleSpecialization()) ~throws "annotation"

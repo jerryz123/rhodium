@@ -235,8 +235,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   def idle = phase === CHIInclusiveHNFPhase.Idle
   def incoming_request = requester.requests.bits
-  def incoming_opcode :: CHIReqOpcode = incoming_request.opcode
-  def incoming_write = chi_hnf_subordinate_opcode(incoming_opcode).is_initial_write()
+  def incoming_write = chi_hnf_subordinate_opcode(incoming_request.opcode).is_initial_write()
   def incoming_coherent = chi_hnf_source_is_rnf(p, home_config, incoming_request)
   requester.requests.ready <== idle
   def request_fire = requester.requests.fire()

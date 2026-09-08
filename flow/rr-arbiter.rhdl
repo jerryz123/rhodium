@@ -20,7 +20,7 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
   assert(next_priority <= bits(n - 1, width), "rr_priority_in_range")
   def requests = vec(for List (index in 0..n): ingress[index].valid)
   def choice :: CircularPriorityChoice(n, width) = circular_priority_onehot(requests, next_priority)
-  def grant :: MaybeOneHot(n) = choice.grant
+  def grant = choice.grant
 
   for (index in 0..n):
     ingress[index].ready <== egress.ready & grant[index]
@@ -52,7 +52,7 @@ sync_circuit CtrlRRArbiter(n :: PosInt):
   assert(next_priority <= bits(n - 1, width), "ctrl_rr_priority_in_range")
   def requests = vec(for List (index in 0..n): ingress[index].valid)
   def choice :: CircularPriorityChoice(n, width) = circular_priority_onehot(requests, next_priority)
-  def grant :: MaybeOneHot(n) = choice.grant
+  def grant = choice.grant
 
   for (index in 0..n):
     ingress[index].ready <== egress.ready & grant[index]

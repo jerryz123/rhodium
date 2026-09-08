@@ -95,7 +95,7 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
   reg pending_data_ids(~init: bits(0, 4))
 
   def incoming = port.req.bits
-  def incoming_opcode :: CHIReqOpcode = incoming.opcode
+  def incoming_opcode = incoming.opcode
   def ordinary_request = incoming_opcode =/= CHIReqOpcode.ReqLCrdReturn
   def incoming_size = chi_req_size(p, incoming)
   def incoming_transfer_bytes = bits(1, p.request_address_width) << incoming_size.as_bits()
@@ -140,8 +140,7 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
                                                     response_bytes.as_bits())
   def response_fire = port.dat.response.fire()
 
-  def incoming_data_opcode :: CHIDatOpcode = port.dat.request.bits.opcode
-  def ordinary_data = incoming_data_opcode =/= CHIDatOpcode.DataLCrdReturn
+  def ordinary_data = port.dat.request.bits.opcode =/= CHIDatOpcode.DataLCrdReturn
   port.dat.request.ready <== !ordinary_data
 
   when request_fire:

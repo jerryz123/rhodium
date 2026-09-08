@@ -7,6 +7,7 @@ import:
   "../../core/ir.rhm" open
   "../kernel.rhm" as kernel
   "../support/fields.rhm".HardwareFields
+  "../support/fields.rhm".value_surface_static_info_key
   "../support/generator-parameters.rhm".GeneratorParameter
   "../support/generator-parameters.rhm".substitute_generator_parameters
   "../support/hardware-methods.rhm".HardwareMethods
@@ -168,6 +169,21 @@ annot.macro 'BundleStaticFields($(field_name :: Identifier): $field_annotation, 
 annot.macro 'BundleTypeDescriptor':
   annot_meta.pack_predicate('fun (value): value is_a RecordType')
 
+// Function argument annotations expand before earlier host arguments are bound.
+// Recover declared type annotations without parsing those arguments as expressions;
+// a host type parameter supplies only the surface statically known at the use site.
+annot.macro 'BundleAnnotationField($type)':
+  match type
+  | '$(name :: Identifier) $tail ...' when syntax_meta.value(name, annot_meta.space, #false):
+      '$type'
+  | '$(name :: Identifier)':
+      def infos = statinfo_meta.lookup(name, 'value_surface_static_info_key')
+      if infos
+      | annot_meta.pack_predicate('fun (_value): #true', statinfo_meta.unpack(infos))
+      | 'HardwareFields'
+  | ~else:
+      'HardwareFields'
+
 defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...): $clause; ...':
   def type_constructor = Syntax.make_id(
     name.to_source_string() ++ "_bundle_type",
@@ -187,6 +203,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   def mutable field_names = []
   def mutable static_fields = []
   def mutable descriptor_static_fields = []
+  def mutable annotation_static_fields = []
   def mutable method_names = []
   def mutable method_entries = []
   def mutable method_definitions = []
@@ -199,6 +216,9 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
     def substituted_type = substitute_bundle_parameters(field_type)
     descriptor_static_fields := descriptor_static_fields ++ [
       '$field_name: HardwareFields.from_type($substituted_type)'
+    ]
+    annotation_static_fields := annotation_static_fields ++ [
+      '$field_name: BundleAnnotationField($substituted_type)'
     ]
   for (item in [clause, ...]):
     match item
@@ -307,6 +327,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   let [field_group, ...] = field_groups
   let [static_field, ...] = static_fields
   let [descriptor_static_field, ...] = descriptor_static_fields
+  let [annotation_static_field, ...] = annotation_static_fields
   let [method_entry, ...] = method_entries
   let [method_definition, ...] = method_definitions
   let [parameter_binding, ...] = [parameter.binding, ...]
@@ -367,7 +388,8 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
               )'
        | '$name': '$family_name'
        annot.macro '$name($('$')$parameter_binding, ...)':
-         'HardwareFields.of($type_constructor($('$')$parameter_binding, ...))'
+         'BundleFields($type_constructor($('$')$parameter_binding, ...),
+                       $annotation_static_field, ...)'
      »'
 
 expr.macro 'record($type):
