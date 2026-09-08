@@ -60,8 +60,15 @@ importing the instruction-cache package.
    movement, or reservation invalidation.
 4. Preserve explicit SRAM ownership and priority among core lookup, line
    gather, refill installation, and snoop service.
-5. Keep LR/SC reservation invalidation aligned with local mutation,
-   replacement, and invalidating snoops. Do not move architectural alignment or
+5. Acquire Unique for LR without treating it as a store for translation,
+   faults, dirty state, or refill mutation. SC authorization is a local owned
+   hit decision; never retain it in a refill context. Keep reservation expiry,
+   mutation/replacement invalidation, and probe state changes consistent with
+   the [bounded LR/SC contract](README.md#lrsc-reservation).
+   Gate new snoop admission rather than masking an accepted snoop's pending
+   state. Protect the CompAck-to-install interval and give waiting lookups a
+   bounded turn after `snoop.completed`. Countdown progress must not depend on
+   core, memory, or snoop readiness. Do not move architectural alignment or
    PMA faults into the cache.
 6. Keep prefetch response-free and demand-priority; write intent may acquire
    UniqueClean ownership but must not mutate data or make a line dirty.
@@ -84,7 +91,7 @@ tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
 Test cache, transaction, and atomic behavior through compiled fixtures:
 
 ```sh
-FIXTURES='rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-memory-router rv5stage-io-mshr' \
+FIXTURES='rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' \
   bash tests/backend/run-circt.sh --simulate-only
 ```
 
@@ -93,3 +100,15 @@ complete-core integration. Backend fixture names include `rv5stage-dcache` and
 `rv5stage-dcache-rv32`; use the backend test
 [`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) for CIRCT and Verilator
 modes. Repository wrappers provide a fresh compiled root.
+
+The RV64 cache bench covers cold and shared-hit LR ownership, a probe offered
+at CompAck, delayed SC under pending eviction traffic, expiry, repeated LR,
+and reacquisition after revocation. RV32 separately covers expiry and local
+SC failure without new CHI traffic. `rv5stage-lrsc-progress` connects two actual
+L1Ds to a two-set, one-way inclusive Home and CHI SRAM through registered,
+round-robin channel transport. It forces read-only
+LLC replacement during delayed SC, checks dirty-data preservation through
+eviction, permits an intervening writer after a stalled LR expires, and
+completes two competing LR/SC pairs through exclusive acquisition.
+These tests do not replace constrained instruction-loop testing through a
+complete SoC, including fetch, translation, and network arbitration.

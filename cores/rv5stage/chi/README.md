@@ -44,6 +44,11 @@ engine with SnoopMe enabled, so its own copy is handled by the same snoop path
 as peer copies. Maintenance does not hold the cache's SRAM while waiting on
 CHI; Home completion, including its error status, is returned to the core.
 
+The data snoop engine exposes `completed`, a one-cycle event on acceptance of
+its final response packet. The cache can use it for bounded local/probe
+arbitration without reconstructing packet accounting. Backpressure through
+`cache_ready` applies to new snoops, not an already accepted transaction.
+
 The clean and data snoop engines retain each accepted request until its cache
 lookup and CHI response finish. They pair two-part DVM operations, hold response
 traffic stable under backpressure, and return explicit cache updates. Clean

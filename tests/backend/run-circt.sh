@@ -755,6 +755,7 @@ direct_fixture_specs=(
   'rv5stage-icache|rv5stage_icache_tb'
   'rv5stage-dcache|rv5stage_dcache_tb'
   'rv5stage-dcache-rv32|rv5stage_dcache_rv32_tb'
+  'rv5stage-lrsc-progress|rv5stage_lrsc_progress_tb'
 )
 
 fixture_declared() {

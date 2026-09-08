@@ -184,11 +184,12 @@ victim is dirty, avoiding nonbinding writeback traffic.
 
 | Lookup outcome | Action | Installed or resulting state |
 |---|---|---|
-| Default-locality load or any LR miss | Issue `ReadClean` | SharedClean or UniqueClean from the CHI response |
+| Default-locality ordinary load miss | Issue `ReadClean` | SharedClean or UniqueClean from the CHI response |
+| LR miss or SharedClean hit | Issue `ReadUnique` without data mutation | UniqueClean |
 | Ordinary load miss with non-default locality | Issue `ReadClean`, consume the transaction buffer without installation | No resident-line or replacement-state change |
 | Store/AMO miss | Allocate a way and issue `ReadUnique` | Merge the mutation while installing; UniqueDirty |
 | Store/AMO hit in SharedClean | Retain the current way and issue `ReadUnique` | Merge the mutation while installing; UniqueDirty |
-| Successful SC without Unique ownership | Use the same `ReadUnique` acquisition path | UniqueDirty |
+| Matching SC on a Unique hit | Commit locally without CHI acquisition | UniqueDirty |
 | Failed SC | Return one without CHI traffic or a data-array update | Unchanged |
 | Dirty allocation victim | Gather the line, complete writeback, then issue the refill | Victim invalidated before replacement installation |
 
@@ -206,8 +207,9 @@ instead selects completion without installation. The complete clean line is
 consumed after `CompAck`, using normal load lane extraction and destination
 metadata. [CHI permits silent eviction of a clean copy](https://documentation-service.arm.com/static/5f914ecbf86e16515cdc2b4d)
 (section 4.6): no data, tag, valid, or state array is written, no victim is
-drained, and replacement pointers and
-resident LR reservations are untouched. Younger requests remain ordered behind
+drained, and replacement pointers are untouched. It does not explicitly clear
+a resident LR reservation, whose independent lifetime can still expire.
+Younger requests remain ordered behind
 the blocking transaction and reread their retained lookups afterward. Snoops
 continue to service resident lines while the read is outstanding.
 
@@ -240,10 +242,12 @@ to classify and retire or trap. Translation and PMA checks remain parent-owned.
 
 The shared [data-snoop engine](../chi/README.md#snoop-handling) owns each request's lifetime,
 DVM pairing, lookup-result capture, stable CHI response, and dirty-data packet
-sequence. A pending snoop prevents a new core lookup. It waits behind an active
-lookup, registered mutation, line gather, or refill installation, but it may run while a captured
-refill or writeback transaction is otherwise waiting on CHI. A snoop already
-waiting when a refill completes wins the SRAM; once installation begins, the
+sequence. Outside the [bounded local-service windows](#lrsc-reservation), a
+pending snoop prevents a new core lookup. It waits behind an active lookup,
+registered mutation, line gather, or refill installation, but it may run while
+a captured refill or writeback transaction is otherwise waiting on CHI.
+An already accepted snoop finishes before refill installation. New snoops are
+deferred from CompAck through installation; once installation begins, the
 refill keeps the ports through the final word.
 
 | Cached result | CHI response | Local transition |
@@ -268,16 +272,38 @@ WRS observation, independently of request readiness or data-path draining.
 The MMU and physical router forward this level unchanged; WRS does not own or
 clear a second reservation. Invalidation on the entry edge is visible on the
 next cycle, so a waiting core cannot lose a wake pulse.
-SC succeeds only while both still match. It obtains Unique ownership when
-necessary, updates the cached word, returns zero, and leaves the line
+LR obtains Unique ownership before completing, including an ownership upgrade
+on a SharedClean hit, but does not write data or dirty a clean line. This is
+cache policy: LR still uses architectural load translation and permissions.
+SC succeeds only while address and width match and the line is still locally
+Unique. It never launches an ownership acquisition or refill; it updates the
+cached word, returns zero, and leaves the line
 UniqueDirty. A locally successful SC clears the reservation when its registered
 mutation commits. A failed SC returns one without issuing CHI traffic or writing
 the array and clears the reservation with its lookup; every SC attempt therefore
 clears the reservation.
 
-The reservation is also cleared by a same-line local store or AMO, an
-invalidating snoop for that line, or replacement of the reserved line. A
-downgrade that does not invalidate the line does not independently clear it.
+The reservation is also cleared by a same-line local store or AMO, a snoop
+changing that line's state, or replacement of the reserved line.
+
+Reservations have a bounded lifetime independent of core stalls. For the
+128-cycle protected interval, new snoops wait and best-effort prefetches are
+dropped. SC can therefore finish locally even when a Home is waiting to evict
+the inclusive copy. Expiry clears `reservation_valid`, also waking WRS, and
+allows snoops to proceed. A three-cycle backoff prevents immediate renewal;
+another LR during a live interval ends it instead of extending it. Such an LR
+still returns load data, but may leave no reservation.
+
+New snoops also wait from refill CompAck through SRAM installation. An
+eight-cycle service window follows installation, or completion of a snoop
+when a local lookup is waiting, so neither immediate revocation nor continuous
+probe traffic can monopolize lookup admission. Already accepted snoops finish
+normally; these windows do not freeze transaction engines or promise bounded
+external memory latency.
+
+These are microarchitectural progress mechanisms, not a published `Ziccrse`
+claim. Full-system constrained-loop progress still depends on instruction
+fetch, translation, Home/network fairness, and the chosen core timing budget.
 
 ## Replacement and deliberate limits
 

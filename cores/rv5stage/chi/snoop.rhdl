@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's clean-line RN-F snoop and paired-DVM transaction engine.
+// Implements RV5Stage's clean/data RN-F snoop lifetimes, completion events, and paired DVM.
 
 import:
   "../cache.rhdl" open
@@ -143,6 +143,7 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
   input node_id: Bits(p.node_id_width)
   input cache_ready: Bool
   output pending: Bool
+  output completed: Bool
   output address: Bits(address_width)
   interface snoops(Decoupled(CHISnpFlit(p)), ~role: consumer)
   interface responses(Decoupled(CHIRspFlit(p)), ~role: producer)
@@ -256,6 +257,7 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
   def data_fire = data.fire()
   def final_packet = packet_index === bits(packet_count - 1, packet_index_width)
   def snoop_complete = response_fire ||| (data_fire & final_packet)
+  completed <== snoop_complete
 
   update.valid <== snoop_complete & uses_lookup & line_hit & (
     dirty_hit ||| discards_clean_line ||| shares_state

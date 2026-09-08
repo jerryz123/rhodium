@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits the two-cache inclusive-Home LR/SC progress integration fixture.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../cores/rv5stage/tests/lrsc-progress-fixture.rhdl".RV5StageLRSCProgress
+
+def design = embedded.run_elaboration(fun (): RV5StageLRSCProgress())
+print(emit_circt(design))

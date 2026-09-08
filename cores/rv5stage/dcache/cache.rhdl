@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's VIPT write-back cache with registered lookup results and delayed mutation.
+// Implements RV5Stage's VIPT write-back cache, delayed mutation, and bounded exclusive LR/SC window.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -126,6 +126,15 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     for List (_set in 0..sets): bits(0, way_width)
   ))
   reg snoop_way(~init: bits(0, way_width))
+  // Fixed microarchitectural budget, not an ISA promise about cycle counts.
+  // Allow sixteen scalar instructions with pipeline/redirect slack, then let
+  // probes run even if the core is stalled. Repeated LR cannot renew a window.
+  def reservation_cycles = 128
+  def reservation_backoff = 3
+  def reservation_count_width = index_width(reservation_cycles + reservation_backoff + 1)
+  reg reservation_count(~init: bits(0, reservation_count_width))
+  reg core_service_count(~init: bits(0, 4))
+  def reservation_protected = reservation_count > bits(reservation_backoff, reservation_count_width)
   reg reservation_valid(~init: Bool(#false))
   core.reservation_valid <== reservation_valid
   reg reservation_address(~init: bits(0, width))
@@ -173,7 +182,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   writeback.data |> protocol_data.ingress[0]
   snoop.data |> protocol_data.ingress[1]
   protocol_data.egress |> outgoing_data
-  incoming_snoops |> snoop.snoops
+  // Stop new probes, not an already accepted snoop. In particular protect the
+  // acknowledged grant until SRAM installation; Home may probe after CompAck.
+  def protect_refill = refill.acknowledgements.valid ||| refill.completion.valid
+  def protect_core = reservation_protected ||| core_service_count.or_reduce()
+  incoming_snoops |> gate_flow(!(protect_refill ||| protect_core)) |> snoop.snoops
   def snoop_pending = snoop.pending
   def writeback_active = !writeback.command.ready
   def maintenance_active = !maintenance.command.ready
@@ -206,7 +219,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
   def queued_request = core_requests.count.or_reduce()
-  def issue_prefetch = prefetch_valid & !virtual_lookup.valid & !queued_request
+  def issue_prefetch = prefetch_valid & !virtual_lookup.valid & !queued_request & !reservation_count.or_reduce()
   def issue_request :: RV5StageDataReq(xlen) = mux(
     issue_prefetch,
     RV5StageDataReq(xlen):
@@ -264,12 +277,14 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def lookup_zero = lookup_ready & !lookup_prefetch & lookup_access.is_cache_block_zero()
   def lookup_atomic = lookup_ready & !lookup_prefetch & lookup_access.is_atomic()
   def lookup_sc = lookup_ready & !lookup_prefetch & lookup_access.is_store_conditional()
+  def lookup_lr = lookup_load & (lookup_access === MemoryOperation.LoadReserved)
   def reservation_matches = reservation_valid & (reservation_address === lookup_request.address) & (reservation_width === lookup_request.width)
-  def lookup_mutation = lookup_store ||| lookup_zero ||| lookup_atomic ||| (lookup_sc & reservation_matches)
+  def sc_authorized = reservation_matches & line_hit & lookup_state.is_unique()
+  def lookup_mutation = lookup_store ||| lookup_zero ||| lookup_atomic ||| (lookup_sc & sc_authorized)
   def mutation_has_ownership = lookup_mutation & line_hit & lookup_state.is_unique()
-  def prefetch_needs_refill = lookup_ready & lookup_prefetch & (!line_hit ||| (lookup_prefetch_write & !lookup_state.is_unique()))
+  def prefetch_needs_refill = lookup_ready & lookup_prefetch & !reservation_count.or_reduce() & (!line_hit ||| (lookup_prefetch_write & !lookup_state.is_unique()))
   def prefetch_dirty_victim = prefetch_needs_refill & !line_hit & victim_valid & victim_state.is_dirty()
-  def lookup_needs_refill = lookup_load & !line_hit ||| lookup_mutation & !mutation_has_ownership ||| (prefetch_needs_refill & !prefetch_dirty_victim)
+  def lookup_needs_refill = lookup_load & (!line_hit ||| (lookup_lr & !lookup_state.is_unique())) ||| lookup_mutation & !mutation_has_ownership ||| (prefetch_needs_refill & !prefetch_dirty_victim)
   // Every NTL selector discourages L1 retention. Keep that policy separate
   // from architectural intent; LR, mutations, and prefetches still allocate.
   def bypass_refill = !lookup_prefetch & !line_hit & (lookup_access === MemoryOperation.Load) & (lookup_request.locality =/= RV5StageMemoryLocality.Default)
@@ -303,7 +318,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     direct_refill_path
       |> map_flow(request => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width)):
         line_address: request.request.address.as_bits().align_down(RV5StageCacheLineBytes)
-        opcode: mux(request.prefetch_write ||| request.request.access.into(MemoryOperation).needs_unique(),
+        opcode: mux(request.prefetch_write ||| request.request.access.into(MemoryOperation).needs_unique() ||| (request.request.access === MemoryOperation.LoadReserved),
                     CHIReqOpcode.ReadUnique,
                     CHIReqOpcode.ReadClean)
         context: transaction_context(request, transaction_way, !line_hit & !bypass_refill, !bypass_refill)
@@ -323,7 +338,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     writeback.completion
       |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width)):
         line_address: result.context.request.address.as_bits().align_down(RV5StageCacheLineBytes)
-        opcode: mux(result.context.prefetch_write ||| result.context.request.access.into(MemoryOperation).needs_unique(),
+        opcode: mux(result.context.prefetch_write ||| result.context.request.access.into(MemoryOperation).needs_unique() ||| (result.context.request.access === MemoryOperation.LoadReserved),
                     CHIReqOpcode.ReadUnique,
                     CHIReqOpcode.ReadClean)
         context: result.context
@@ -331,8 +346,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   post_eviction_refills |> refill_commands.ingress[1]
   refill_commands.egress |> refill.command
 
-  // A snoop waiting before installation wins the SRAM. Once installation
-  // starts, the refill owns the port until every XLEN word has been written.
+  // Finish an already accepted snoop before installation. New probes wait
+  // from CompAck through installation and the bounded post-grant window.
   def completion_context = refill.completion.bits.context
   def refill_can_complete = !snoop_pending & gather_idle & !refill_installing & !pending_mutation_valid
   def refill_install_start = refill.completion.valid & completion_context.install & refill_can_complete
@@ -346,6 +361,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def install_refill = complete_refill & completion_context.install
   when complete_refill:
     assert(!refill.completion.bits.pass_dirty, "l1d_refill_not_dirty")
+    assert(!completion_context.request.access.into(MemoryOperation).is_store_conditional(), "l1d_sc_never_refills")
+    when (completion_context.request.access === MemoryOperation.LoadReserved):
+      assert(refill.completion.bits.state === CHIResponseState.Unique, "l1d_lr_refill_owned")
   def completion_request = completion_context.request
   def completion_prefetch = completion_context.prefetch
   def completion_way = completion_context.way
@@ -502,8 +520,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
   core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
-  def produces_load_hit = lookup_load & line_hit
-  def produces_failed_sc = lookup_sc & !reservation_matches
+  def produces_load_hit = lookup_load & line_hit & (!lookup_lr ||| lookup_state.is_unique())
+  def produces_failed_sc = lookup_sc & !sc_authorized
   def produces_response = maintenance_complete ||| produces_load_hit ||| local_mutation_complete ||| produces_failed_sc ||| (complete_refill & !completion_prefetch)
   def response_request :: RV5StageDataReq(xlen) = mux(
     maintenance_complete,
@@ -664,18 +682,36 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
       (pending_mutation_access.is_store() ||| pending_zero ||| pending_mutation_access.is_atomic()) & (pending_mutation_line_address === reservation_line_address)
     )
   )
-  def snoop_reservation_clear = snoop.update.valid & snoop.update.bits.invalidate & (
+  def snoop_reservation_clear = snoop.update.valid & (
     snoop.update.bits.address.align_down(RV5StageCacheLineBytes) === reservation_line_address
   )
   def replacement_reservation_clear = resolved_path.fire() & lookup_needs_refill & !bypass_refill & !line_hit & victim_valid & (
     victim_address === reservation_line_address
   )
-  when completing_lr:
+  def reservation_clear = lookup_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear
+  def reservation_expiring = reservation_count === bits(reservation_backoff + 1, reservation_count_width)
+  def establish_reservation = completing_lr & !reservation_count.or_reduce()
+  when establish_reservation:
     reservation_valid <== Bool(#true)
     reservation_address <== response_address
     reservation_width <== response_width
-  elsewhen (reservation_valid & (lookup_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear)):
+    reservation_count <== bits(reservation_cycles + reservation_backoff, reservation_count_width)
+  elsewhen ((reservation_valid & reservation_clear) ||| (completing_lr & reservation_protected)):
     reservation_valid <== Bool(#false)
+    reservation_count <== bits(reservation_backoff, reservation_count_width)
+  elsewhen (reservation_count.or_reduce()):
+    reservation_count <== reservation_count - bits(1, reservation_count_width)
+    when reservation_expiring:
+      reservation_valid <== Bool(#false)
+
+  // A completed probe also gives a waiting local lookup a bounded turn.
+  // Otherwise an endless stream of unrelated probes could prevent even the
+  // first LR from reaching S2. Active CHI engines remain independently live.
+  def waiting_lookup = core_requests.egress.valid ||| lookup.egress.valid ||| virtual_lookup.valid
+  when (install_refill ||| (snoop.completed & waiting_lookup)):
+    core_service_count <== bits(8, 4)
+  elsewhen (core_service_count.or_reduce()):
+    core_service_count <== core_service_count - bits(1, 4)
 
   when (snoop.update.valid & snoop.update.bits.invalidate):
     valid_lines <== valid_lines.updated(

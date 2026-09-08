@@ -1,4 +1,4 @@
-// Verifies L1D coherence, AMOArithmetic, 64-byte blocks, and bounded LR/SC reservations.
+// Verifies L1D coherence, AMOArithmetic, and exclusive LR/SC progress with bounded probe deferral.
 module rv5stage_dcache_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed {
@@ -95,6 +95,9 @@ module rv5stage_dcache_tb;
   logic forbid_core_response = 1'b0;
   logic watch_amo_response = 0;
   integer amo_response_count = 0;
+  logic watch_progress_snoop = 0;
+  logic forbid_progress_snoop = 0;
+  integer progress_snoop_accepts = 0;
   CHIReqFlit captured_req;
   CHIRspFlit captured_rsp;
   CHIDatFlit captured_dat;
@@ -108,6 +111,11 @@ module rv5stage_dcache_tb;
 
   task automatic tick;
     begin
+      if (forbid_progress_snoop)
+        assert (!(chi_in.snoops.valid && chi_out.snoops.ready))
+          else $fatal(1, "probe revoked the protected LR/SC ownership window");
+      if (watch_progress_snoop && chi_in.snoops.valid && chi_out.snoops.ready)
+        progress_snoop_accepts++;
       if (watch_amo_response && core_out.response.valid) begin
         assert (!core_out.response.bits.access_fault && core_out.response.bits.data == 1 && core_out.response.bits.rd == 2)
           else $fatal(1, "contended AMO lost its old-value response");
@@ -130,6 +138,8 @@ module rv5stage_dcache_tb;
       end
       @(posedge clock);
       #1;
+      if (watch_progress_snoop && progress_snoop_accepts != 0)
+        chi_in.snoops = '0;
     end
   endtask
 
@@ -398,7 +408,7 @@ module rv5stage_dcache_tb;
       // Present the real opcode while waiting; idle LCrdReturn is always ready.
       #1;
       cycles = 0;
-      while (!chi_out.snoops.ready && cycles < 100) begin
+      while (!chi_out.snoops.ready && cycles < 256) begin
         tick();
         cycles = cycles + 1;
       end
@@ -687,8 +697,8 @@ module rv5stage_dcache_tb;
       expect_core_response(64'habcdef01_23456789, 2'd2, 5'd23);
       if (attempt == 0)
         expect_core_response(64'h37363534_33323130, DATA_DESTINATION_INTEGER, 5'd26);
-      assert (core_out.reservation_valid)
-        else $fatal(1, "non-allocating miss cleared resident reservation");
+      // Reservation lifetime is bounded independently of these deliberately
+      // stalled transactions; residency is checked by the following hits.
       // Hinted dirty hits must read the local authoritative value, not memory.
       send_core_request(ADDRESS + 64'h28, MEMORY_LOAD, ATOMIC_SWAP, 0, 5'd24, 3'(locality));
       expect_core_response(STORE_DATA, DATA_DESTINATION_INTEGER, 5'd24);
@@ -1048,6 +1058,127 @@ module rv5stage_dcache_tb;
       end
     end
     $display("RV64 AMOArithmetic passed: 72 hit + 18 miss W/D cases, word-lane preservation, and contending snoop");
+    // Model Home's invalidating probe for a read-only inclusive-LLC victim.
+    // It may wait, but must observe SC's new dirty data, or run after a bounded
+    // timeout. No write or successful SC by another participant is injected.
+    for (int scenario = 0; scenario < 3; scenario++) begin
+      logic [511:0] progress_line;
+      reset = 1;
+      chi_in.snoops = '0;
+      chi_in.request_data.ready = 0;
+      prefetch_in = '0;
+      repeat (2) tick();
+      reset = 0;
+      tx_req_pending = 0;
+      tx_rsp_pending = 0;
+      tx_dat_pending = 0;
+      tick();
+      progress_line = LINE;
+      // Cover both an absent LR line and the shared-hit ownership upgrade.
+      if (scenario == 1) begin
+        send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
+        accept_request(READ_CLEAN, ADDRESS, 0, 6, 1, 0);
+        return_line(ADDRESS, LINE, 3'b001);
+        accept_comp_ack();
+        expect_core_response(LINE[63:0], DATA_DESTINATION_INTEGER, 1);
+      end
+      send_core_request(ADDRESS, MEMORY_LR, ATOMIC_SWAP, 0, 1);
+      accept_request(READ_UNIQUE, ADDRESS, 0, 6, 1, 0);
+      repeat (12) begin
+        assert (!core_out.response.valid && !core_out.reservation_valid)
+          else $fatal(1, "LR completed before exclusive acquisition");
+        tick();
+      end
+      return_line(ADDRESS, LINE, 3'b010);
+      // The earliest post-grant probe must not slip between CompAck and install.
+      progress_snoop_accepts = 0;
+      watch_progress_snoop = 1;
+      forbid_progress_snoop = 1;
+      chi_in.snoops.bits = '0;
+      chi_in.snoops.bits.address = ADDRESS[43:3];
+      chi_in.snoops.bits.opcode = SNP_CLEAN_INVALID;
+      chi_in.snoops.bits.txn_id = 12'h079;
+      chi_in.snoops.bits.src_id = HOME_ID;
+      chi_in.snoops.valid = 1;
+      accept_comp_ack();
+      expect_core_response(LINE[63:0], DATA_DESTINATION_INTEGER, 1);
+      assert (core_out.reservation_valid) else $fatal(1, "owned LR did not reserve");
+      if (scenario == 0) begin
+        // Leave ample time for sixteen scalar instructions while probes and
+        // best-effort colliding prefetches remain continuously offered.
+        prefetch_in = '{valid: 1, bits: '{address: THIRD_ADDRESS, operation: 2'd2}};
+        repeat (80) tick();
+        prefetch_in = '0;
+        assert (!tx_req_pending) else $fatal(1, "prefetch disturbed a protected LR");
+        forbid_progress_snoop = 0;
+        send_core_request(ADDRESS, MEMORY_SC, ATOMIC_SWAP, STORE_DATA, 2);
+        expect_core_response(0, DATA_DESTINATION_INTEGER, 2);
+        progress_line[63:0] = STORE_DATA;
+      end else begin
+        forbid_progress_snoop = 0;
+        if (scenario == 2) begin
+          // Repeated LR is not allowed to renew a probe-blocking reservation.
+          send_core_request(ADDRESS, MEMORY_LR, ATOMIC_SWAP, 0, 1);
+          expect_core_response(LINE[63:0], DATA_DESTINATION_INTEGER, 1);
+        end
+      end
+      for (int cycle = 0; progress_snoop_accepts == 0 && cycle < 160; cycle++) tick();
+      assert (progress_snoop_accepts == 1 && !core_out.reservation_valid && !tx_req_pending)
+        else $fatal(1, "reservation starved a probe or SC attempted reacquisition");
+      watch_progress_snoop = 0;
+      if (scenario == 0) begin
+        for (int packet = 0; packet < 4; packet++) accept_snoop_data(packet, progress_line, 12'h079);
+      end else begin
+        for (int cycle = 0; !tx_rsp_pending && cycle < 100; cycle++) tick();
+        assert (tx_rsp_pending && captured_rsp.opcode == 1 && captured_rsp.resp == 0 && captured_rsp.txn_id == 12'h079)
+          else $fatal(1, "expired reservation failed clean probe completion");
+        tx_rsp_pending = 0;
+      end
+      send_core_request(ADDRESS, MEMORY_SC, ATOMIC_SWAP, STORE_DATA_2, 2);
+      expect_core_response(1, DATA_DESTINATION_INTEGER, 2);
+      assert (!tx_req_pending) else $fatal(1, "revoked SC issued a refill");
+      // An intervening writer can now supply a new value. Failed SC must not
+      // carry its old authorization across that subsequent acquisition.
+      send_core_request(ADDRESS, MEMORY_LR, ATOMIC_SWAP, 0, 1);
+      accept_request(READ_UNIQUE, ADDRESS, 0, 6, 1, 0);
+      progress_line[63:0] = STORE_DATA_2;
+      return_line(ADDRESS, progress_line, 3'b010);
+      accept_comp_ack();
+      expect_core_response(STORE_DATA_2, DATA_DESTINATION_INTEGER, 1);
+      send_core_request(ADDRESS, MEMORY_SC, ATOMIC_SWAP, STORE_DATA, 2);
+      expect_core_response(0, DATA_DESTINATION_INTEGER, 2);
+    end
+    $display("LR/SC progress passed: exclusive LR, shared upgrade, post-grant probe, delayed local SC, timeout, repeated LR, reacquisition");
+    // Start with no reservation or post-grant protection. Continuous probes
+    // of an unrelated line must still give a waiting local LR a lookup turn.
+    reset = 1;
+    repeat (2) tick();
+    reset = 0;
+    tx_req_pending = 0;
+    tx_rsp_pending = 0;
+    tx_dat_pending = 0;
+    tick();
+    send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
+    accept_request(READ_CLEAN, ADDRESS, 0, 6, 1, 0);
+    return_line(ADDRESS, LINE, 3'b010);
+    accept_comp_ack();
+    expect_core_response(LINE[63:0], DATA_DESTINATION_INTEGER, 1);
+    repeat (12) tick();
+    chi_in.snoops.bits = '0;
+    chi_in.snoops.bits.address = THIRD_ADDRESS[43:3];
+    chi_in.snoops.bits.opcode = SNP_CLEAN_INVALID;
+    chi_in.snoops.bits.txn_id = 12'h07a;
+    chi_in.snoops.bits.src_id = HOME_ID;
+    chi_in.snoops.valid = 1;
+    repeat (12) tick();
+    send_core_request(ADDRESS, MEMORY_LR, ATOMIC_SWAP, 0, 1);
+    expect_core_response(LINE[63:0], DATA_DESTINATION_INTEGER, 1);
+    assert (core_out.reservation_valid && !chi_out.snoops.ready && !tx_req_pending)
+      else $fatal(1, "continuous unrelated probes starved local LR");
+    send_core_request(ADDRESS, MEMORY_SC, ATOMIC_SWAP, STORE_DATA, 2);
+    expect_core_response(0, DATA_DESTINATION_INTEGER, 2);
+    chi_in.snoops = '0;
+    $display("LR admission under continuous unrelated probes passed");
     $display("RV5Stage VIPT write-back data-cache and self-snooped maintenance simulation passed");
     $finish;
   end
