@@ -35,6 +35,10 @@ for name in simple mini tiled; do
   cmp "$fixture_dir/$name.dtb" "$fixture_dir/$name-from-dts.dtb"
   # The public ISA advertisement must follow the default hardware profile.
   case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+    *" zkt "*) ;;
+    *) echo "$name DTB does not advertise Zkt" >&2; exit 1 ;;
+  esac
+  case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" zihintntl "*) ;;
     *) echo "$name DTB does not advertise Zihintntl" >&2; exit 1 ;;
   esac

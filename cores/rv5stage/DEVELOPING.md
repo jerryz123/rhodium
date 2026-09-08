@@ -160,6 +160,34 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For Zkt, run the architecture/profile/advertisement checks and the four timing
+fixtures:
+
+```sh
+export PLTCOMPILEDROOTS="$(mktemp -d)"
+tools/run-racket-tests.sh riscv/tests/zkt-test.rhm tests/backend/rv5stage-zkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
+FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64 rv5stage-zkt-rv32f rv5stage-zkt-rv64d' bash tests/backend/run-circt.sh --simulate-only
+bash socs/tests/run-device-tree.sh
+```
+
+The program generator intersects implemented catalogs with the pure architectural
+Zkt family list and encodes instructions through their descriptors. Keep coverage
+complete when adding an instruction to that intersection. No cross-compiler or
+checked-in generated program image is needed. Two full cores receive identical
+instruction streams and scheduling but different operands; compare every public
+fetch/data control event, including dependent consumers and deferred hazards.
+The FP-enabled fixtures exercise the integer timing contract with FP hardware
+present, not a constant-time claim about FP instructions.
+
+A separate public-component rig forces load/multiply completion overlap and sink
+backpressure, checking exact fixed multiplier latency and retained arithmetic
+results. Keep it aligned with the core's four-input completion priority. These
+are differential RTL regressions plus a source-level timing design argument,
+not exhaustive formal noninterference or physical side-channel certification.
+Review operand-to-control dependencies whenever changing forwarding, hazard
+gating, iteration termination, or completion selection. In particular, a
+zero-operand early exit in the multiplier must fail this regression.
+
 For NTL WB association and request propagation, select `rv5stage-ntl`,
 `rv5stage-mmu-replay`, `rv5stage-memory-router`, and `rv5stage-dcache`.
 The core bench checks all four selectors, non-memory consumption, replacement,

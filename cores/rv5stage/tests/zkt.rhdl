@@ -1,0 +1,81 @@
+#lang rhodium
+// Wraps the public core interfaces with a catalog-generated instruction ROM for timing comparison.
+
+import:
+  "zkt-program.rhm" open
+  "../core.rhdl" open
+  "../profile.rhm" open
+  "../interrupt.rhdl" open
+  "../multiply.rhdl" open
+  "../decode/multiply-ctrl.rhdl" open
+  "../register-file.rhdl" open
+  "../icache/protocol.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../csr.rhdl".PrivilegeMode
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageZkt(profile :: RVCoreProfile):
+  def width = profile.xlen.width
+  interface instruction_access(RV5StageInstructionAccess(profile.xlen), ~role: requester)
+  interface data_access(RV5StageDataAccess(profile.xlen), ~role: requester)
+  output privilege: PrivilegeMode
+  output mstatus: Bits(width)
+  output satp: Bits(width)
+  output translation_flush: Bool
+  output program_word: Bits(32)
+  output probe_count: Bits(32)
+  // A separate public-component rig forces completion overlap instead of
+  // inferring internal arbiter coverage from elapsed program time.
+  input multiply_issue: Bool
+  input multiply_left: Bits(width)
+  input multiply_right: Bits(width)
+  input multiply_control: RV5StageMultiplyControl()
+  input load_valid: Bool
+  input load_value: Bits(width)
+  input completion_ready: Bool
+  output multiply_available: Bool
+  output multiply_valid: Bool
+  output completion_valid: Bool
+  output completion_value: Bits(width)
+  output completion_chosen: Bits(2)
+  inst multiplier(RV5StageMultiplier(profile.xlen))
+  inst completions(Arbiter(RegisterFileWrite(profile.xlen), 4))
+  multiplier.issue.valid <== multiply_issue
+  multiplier.issue.bits <== RV5StageMultiplyIssue(profile.xlen):
+    left: multiply_left
+    right: multiply_right
+    control: multiply_control
+    rd: bits(8, 5)
+  multiply_available <== multiplier.available
+  multiply_valid <== multiplier.completion.valid
+  completions.ingress[0].valid <== load_valid
+  completions.ingress[0].bits <== RegisterFileWrite(profile.xlen):
+    address: bits(9, 5)
+    data: load_value
+  (multiplier.completion |> map_flow(~stable: #true, result => RegisterFileWrite(profile.xlen)):
+    address: result.rd
+    data: result.value
+  ) |> completions.ingress[1]
+  for (index in 2..4):
+    completions.ingress[index].valid <== Bool(#false)
+    completions.ingress[index].bits <== bits(0, width + 5).into(RegisterFileWrite(profile.xlen))
+  completions.egress.ready <== completion_ready
+  completion_valid <== completions.egress.valid
+  completion_value <== completions.egress.bits.data
+  completion_chosen <== completions.chosen
+  inst core(RV5StageCore(profile, ~reset_address: 0x10000))
+  core.interrupts <== bits(0, 6).into(RV5StageInterrupts())
+  core.hart_id <== bits(0, width)
+  core.time_counter <== bits(0, 64)
+  core.instruction_access <=> instruction_access
+  core.data_access <=> data_access
+  privilege <== core.privilege
+  mstatus <== core.mstatus
+  satp <== core.satp
+  translation_flush <== core.translation_flush
+  def program = zkt_program(profile)
+  probe_count <== bits(program.probes.length(), 32)
+  program_word <== mux_lookup(instruction_access.request.bits.address, ~default: bits(0x13, 32), for List (index in 0..program.words.length()): [0x10000 + index * 4, bits(program.words[index], 32)])
+
+export:
+  RV5StageZkt

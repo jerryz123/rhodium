@@ -65,6 +65,17 @@ Generate one with `make
 riscv-udb-config RISCV_UDB_CONFIGURATION=<name>`; adding another processor does
 not require a new Make target or writer.
 
+## Timing-contract metadata
+
+[`isa/zkt.rhm`](isa/zkt.rhm) supplies `ZktVersion` and
+`zkt_instruction_names(xlen)`: the architecture-owned instruction-family scope
+for data-independent execution latency. This is not an opcode catalog and does
+not imply those instructions are implemented. Consumers intersect it with their
+implemented catalogs; HINT forms are exempt, and the scalar-crypto `seed` CSR
+has a separate entropy-timing requirement. The scope follows the
+[RISC-V Zkt definition](https://github.com/riscv/riscv-unified-db/blob/main/spec/std/isa/ext/Zkt.yaml).
+Concrete cores own the timing proof, regressions, and advertisement.
+
 ## Pure model
 
 [`model/main.rhm`](model/main.rhm) re-exports the complete pure model. Import a

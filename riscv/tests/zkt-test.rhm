@@ -1,0 +1,25 @@
+#lang rhombus
+// Checks the architecture-owned Zkt timing scope and XLEN-specific instruction families.
+
+import:
+  "../isa/zkt.rhm" open
+  "../isa/xlen.rhm".XLen
+
+for (xlen in [XLen.X32, XLen.X64]):
+  def names = zkt_instruction_names(xlen)
+  for (name in names):
+    check: names.filter(~keep: fun (candidate): candidate == name).length() ~is 1
+  for (name in ["ADD", "MULHSU", "ROR", "C.SRLI", "C.SRAI", "C.SLLI", "C.MUL", "CZERO.EQZ", "CZERO.NEZ"]):
+    check: names.contains(name) ~is #true
+  // These are implemented instructions, deliberately outside the timing contract.
+  for (name in ["LW", "SW", "BEQ", "DIV", "REM", "FADD.S", "CSRRW", "FENCE.I"]):
+    check: names.contains(name) ~is #false
+
+check:
+  ZktVersion ~is "1.0.1"
+  zkt_instruction_names(XLen.X32).contains("AES32ESI") ~is #true
+  zkt_instruction_names(XLen.X64).contains("AES64ES") ~is #true
+  zkt_instruction_names(XLen.X32).contains("MULW") ~is #false
+  zkt_instruction_names(XLen.X64).contains("MULW") ~is #true
+  zkt_instruction_names(XLen.X32).contains("C.ADDIW") ~is #false
+  zkt_instruction_names(XLen.X64).contains("C.ADDIW") ~is #true

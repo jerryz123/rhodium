@@ -43,6 +43,28 @@ views come from the CSR block rather than instruction rows. The
 specialization matrix and catalog composition. RV32D and an RV64F-only core are
 deliberately rejected.
 
+## Data-independent timing (Zkt)
+
+Every RV32 and RV64 profile advertises **Zkt 1.0.1**, including FP-enabled
+specializations. This is an intrinsic execution guarantee, not an optional
+decoder feature: it adds no instruction, CSR, or `misa` bit. Profile-derived
+device trees advertise `zkt`; the UDB projection includes the exact version.
+
+Implemented instructions in the [architectural Zkt scope](../../riscv/isa/zkt.rhm)
+have operand-independent execution latency. The ALU is combinational; multiply
+uses a fixed capture/preparation/iteration sequence without operand-based early
+exit. Forwarding, scoreboards, issue, and completion arbitration depend on
+instruction/register metadata and availability, not arithmetic operand values.
+
+This does **not** promise identical elapsed cycles under different environments:
+fetch stalls, older work, and completion contention may delay execution. The
+comparison holds code, initial control state, and external scheduling fixed
+while varying covered operands. Loads/stores, conditional branches, divide and
+remainder, FP instructions, CSR accesses, and fences are outside this contract.
+It is not a guarantee against cache-address leakage, speculation attacks, power,
+or electromagnetic side channels. See the
+[RISC-V Zkt definition](https://github.com/riscv/riscv-unified-db/blob/main/spec/std/isa/ext/Zkt.yaml).
+
 ## Non-temporal locality hints
 
 `RV5StageExtensions(~zihintntl: #true)` enables the four NTL hints and their

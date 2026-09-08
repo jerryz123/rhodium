@@ -45,19 +45,19 @@ check:
   rv64_integer.isa_base ~is "rv64i"
   rv64_integer.isa_extensions ~is [
     "i", "m", "a", "b", "zba", "zbb", "zbs",
-    "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop"
+    "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"
   ]
   rv64_integer.misa_extension_bits ~is 0x141103
   rv64_integer.misa_value ~is 0x8000000000141103
   rv64_double.isa_extensions ~is [
     "i", "m", "a", "f", "d", "c", "b", "zba", "zbb", "zbs",
-    "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop"
+    "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"
   ]
   rv64_double.misa_value ~is 0x800000000014112f
   rv32_half.isa_base ~is "rv32i"
   rv32_half.isa_extensions ~is [
     "i", "m", "a", "f", "b", "zba", "zbb", "zbs", "zca", "zcb", "zcf",
-    "zfa", "zfhmin", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop"
+    "zfa", "zfhmin", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"
   ]
   rv32_half.cache_geometry.instruction.capacity_bytes ~is 4096
   rv32_half.cache_geometry.data.capacity_bytes ~is 4096

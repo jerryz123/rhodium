@@ -32,6 +32,7 @@ def rv64_yaml = rv5stage_udb_configuration(
 def no_hpm_values = for List (_index in 0..32): "false"
 
 check:
+  rv64_yaml.contains("{ name: \"Zkt\", version: \"= 1.0.1\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zihintntl\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zihintpause\", version: \"= 2.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zawrs\", version: \"= 1.0.0\" }") ~is #true
@@ -71,6 +72,7 @@ def rv32_yaml = rv5stage_udb_configuration(
 ).to_yaml()
 
 check:
+  rv32_yaml.contains("{ name: \"Zkt\", version: \"= 1.0.1\" }") ~is #true
   rv32_yaml.contains("{ name: \"Zihpm\", version: \"= 2.0\" }") ~is #true
   rv32_yaml.contains("{ name: \"F\",") ~is #false
   rv32_yaml.contains("{ name: \"C\",") ~is #false

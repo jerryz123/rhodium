@@ -7,6 +7,7 @@ import:
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
+  "../../riscv/isa/zkt.rhm".ZktVersion
   "profile.rhm" open
 
 fun extension(name :: NonemptyString, version :: NonemptyString):
@@ -86,6 +87,7 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
     extension("Zifencei", "2.0.0"),
     extension("Zihpm", "2.0"),
     extension("Zimop", "1.0.0"),
+    extension("Zkt", ZktVersion),
     extension("U", "1.0.0"),
     extension("S", "1.12.0"),
     extension("Sm", "1.12.0"),

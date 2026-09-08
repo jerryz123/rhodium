@@ -1,0 +1,42 @@
+#lang rhombus
+// Defines Zkt's architectural timing scope, independently of implemented opcode catalogs.
+
+import:
+  "xlen.rhm".XLen
+
+// Zkt 1.0.1, with the current architectural Zicond/Zca/Zcb listings:
+// https://github.com/riscv/riscv-unified-db/blob/main/spec/std/isa/ext/Zkt.yaml
+// These are instruction families, not a decoder or a claim that they exist.
+// HINT encodings are exempt. The seed CSR has a separate entropy-timing rule.
+def ZktVersion = "1.0.1"
+def common_names = [
+  "LUI", "AUIPC", "ADDI", "SLTI", "SLTIU", "XORI", "ORI", "ANDI",
+  "SLLI", "SRLI", "SRAI", "ADD", "SUB", "SLL", "SLT", "SLTU",
+  "XOR", "SRL", "SRA", "OR", "AND", "CZERO.EQZ", "CZERO.NEZ",
+  "MUL", "MULH", "MULHSU", "MULHU",
+  "C.NOP", "C.ADDI", "C.LUI", "C.SRLI", "C.SRAI", "C.ANDI",
+  "C.SUB", "C.XOR", "C.OR", "C.AND", "C.SLLI", "C.MV", "C.ADD",
+  "C.MUL", "C.NOT", "C.ZEXT.B",
+  "SHA256SIG0", "SHA256SIG1", "SHA256SUM0", "SHA256SUM1",
+  "SM3P0", "SM3P1", "SM4ED", "SM4KS",
+  "CLMUL", "CLMULH", "XPERM4", "XPERM8", "ROR", "ROL", "RORI",
+  "ANDN", "ORN", "XNOR", "PACK", "PACKH", "BREV8", "REV8"
+]
+def rv32_names = [
+  "AES32DSI", "AES32DSMI", "AES32ESI", "AES32ESMI",
+  "SHA512SIG0H", "SHA512SIG0L", "SHA512SIG1H", "SHA512SIG1L",
+  "SHA512SUM0R", "SHA512SUM1R", "ZIP", "UNZIP"
+]
+def rv64_names = [
+  "ADDIW", "SLLIW", "SRLIW", "SRAIW", "ADDW", "SUBW", "SLLW", "SRLW", "SRAW",
+  "MULW", "C.ADDIW", "C.SUBW", "C.ADDW",
+  "AES64DS", "AES64DSM", "AES64ES", "AES64ESM", "AES64IM", "AES64KS1I", "AES64KS2",
+  "SHA512SIG0", "SHA512SIG1", "SHA512SUM0", "SHA512SUM1", "RORW", "ROLW", "RORIW", "PACKW"
+]
+
+fun zkt_instruction_names(xlen :: XLen) :: NonemptyList.of(String):
+  common_names ++ (if xlen == XLen.X32 | rv32_names | rv64_names)
+
+export:
+  ZktVersion
+  zkt_instruction_names
