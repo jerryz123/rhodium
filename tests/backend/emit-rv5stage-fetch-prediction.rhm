@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits compressed fetch with a small trained BTB for predicted-stream behavioral tests.
+import:
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/c.rhm".CCompressedExtensions
+  "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/xlen.rhm".XLen
+  "../../cores/rv5stage/fetch.rhdl".RV5StageInstructionFetch
+  "../../cores/rv5stage/decode/core-ctrl.rhdl".rv5stage_instructions
+def names = rv5stage_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.None).map(fun (instruction): instruction.name)
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageInstructionFetch(XLen.X64, FloatingPointProfile.D, ~compressed: CCompressedExtensions, ~supported_instructions: names, ~btb_entries: 4))))

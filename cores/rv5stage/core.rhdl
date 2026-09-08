@@ -2,6 +2,7 @@
 // Implements RV5Stage's five-stage core with composable flows and explicit state logic.
 
 import:
+  "btb.rhdl" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../load-store.rhdl" open
@@ -41,7 +42,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
-sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_address :: Nat):
+sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 16):
   def xlen = core_profile.xlen
   def extensions = core_profile.extensions
   def profile = extensions.floating_point
@@ -124,7 +125,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def FpModule = if floating_point_supports_f(profile) | RV5StageFpPipeline(xlen, effective_fp_profile, Bits(width), ~half_precision: half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst fp(FpModule)
   inst csrs(RV5StageCsrFile(core_profile))
-  inst fetch(RV5StageInstructionFetch(xlen, profile, ~compressed: compressed_extensions, ~supported_instructions: supported_instruction_names))
+  inst fetch(RV5StageInstructionFetch(xlen, profile, ~compressed: compressed_extensions, ~supported_instructions: supported_instruction_names, ~btb_entries: btb_entries))
   csrs.interrupts <== interrupts
   csrs.hart_id <== hart_id
   csrs.time_counter <== time_counter
@@ -250,6 +251,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   fetch.restart_valid <== redirect_link.right.valid ||| reset_start
   fetch.restart_pc <== mux(redirect_link.right.valid, redirect_link.right.bits, reset_pc)
   fetch.invalidate_all <== fence_i_commit
+  fetch.predictor_flush <== fence_i_commit ||| csrs.translation_flush ||| csrs.redirect.valid
+  fetch.branch_update.valid <== memory_stage_valid & !memory_exception_event & !memory_replay_event
+  fetch.branch_update.bits <== memory.bits.branch_update
   fetch.memory <=> instruction_access
   def fetched = fetch.fetched |> trace_event("core.s1.fetch", ~root: #true, ~fields: operation):
     pc: operation.pc
@@ -450,6 +454,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           instruction: fetched.instruction
           raw_instruction: fetched.raw_instruction
           sequential_pc: fetched.sequential_pc
+          predicted_next_pc: fetched.predicted_next_pc
           alu_control: control.alu
           operand_left: control.operand.left
           operand_right: control.operand.right
@@ -633,7 +638,15 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def execute_payload = ExecuteMemory(xlen):
     pc: id_ex.bits.pc
     resume_pc: mux(redirect_requested, computed_redirect_target, id_ex.bits.sequential_pc)
-    redirect_valid: redirect_requested & !execute_exception.valid
+    redirect_valid: (mux(redirect_requested, computed_redirect_target, id_ex.bits.sequential_pc) =/= id_ex.bits.predicted_next_pc) & !execute_exception.valid
+    branch_update:
+      RV5StageBranchUpdate(xlen):
+        pc: id_ex.bits.pc
+        target: computed_redirect_target
+        branch: id_ex.bits.branch_control.enable
+        conditional: !id_ex.bits.branch_control.unconditional
+        taken: redirect_requested
+        compressed: id_ex.bits.sequential_pc === (id_ex.bits.pc + bits(2, width))
     instruction: id_ex.bits.instruction
     replay: execute_replay
     data_request_valid: execute_is_memory & !execute_request_fault & !execute_replay

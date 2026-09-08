@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits a three-entry BTB to test associative matching and non-power-of-two replacement.
+import:
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm".XLen
+  "../../cores/rv5stage/btb.rhdl".RV5StageBtb
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageBtb(XLen.X64, 3))))

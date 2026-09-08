@@ -2,6 +2,7 @@
 // Defines RV5Stage's pipeline payload and sideband bundle types.
 
 import:
+  "btb.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../alu.rhdl" open
@@ -29,6 +30,7 @@ bundle FetchDecode(xlen :: XLen):
   instruction: Bits(32)
   raw_instruction: Bits(32)
   sequential_pc: Bits(xlen.width)
+  predicted_next_pc: Bits(xlen.width)
   compressed_illegal: Bool
   instruction_page_fault: Bool
   instruction_access_fault: Bool
@@ -48,6 +50,7 @@ bundle DecodeExecute(xlen :: XLen):
   instruction: Bits(32)
   raw_instruction: Bits(32)
   sequential_pc: Bits(xlen.width)
+  predicted_next_pc: Bits(xlen.width)
   alu_control: AluControl()
   operand_left: OperandASelect
   operand_right: OperandBSelect
@@ -90,6 +93,7 @@ bundle ExecuteMemory(xlen :: XLen):
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
+  branch_update: RV5StageBranchUpdate(xlen)
   instruction: Bits(32)
   replay: Bool
   data_request_valid: Bool

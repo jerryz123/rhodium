@@ -1,0 +1,26 @@
+#lang rhodium
+// Compares otherwise identical RV64 pipelines with enabled and disabled branch prediction.
+import:
+  "../core.rhdl".RV5StageCore
+  "../profile.rhm" open
+  "../icache/protocol.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../interrupt.rhdl" open
+  "../../../riscv/isa/xlen.rhm".XLen
+  "../../../riscv/isa/fp-profile.rhm".FloatingPointProfile
+
+sync_circuit BranchPredictionFixture():
+  def profile = RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.None))
+  interface instruction[2](RV5StageInstructionAccess(XLen.X64), ~role: requester)
+  interface data[2](RV5StageDataAccess(XLen.X64), ~role: requester)
+  for (index in 0..2):
+    inst core(RV5StageCore(profile, ~reset_address: 0, ~btb_entries: if index == 0 | 16 | 0))
+    core.interrupts <== literal(RV5StageInterrupts(), 0)
+    core.hart_id <== bits(0, 64)
+    core.time_counter <== bits(0, 64)
+    core.instruction_access |> instruction[index]
+    core.data_access |> data[index]
+
+def design = elaborate(BranchPredictionFixture())
+export:
+  design

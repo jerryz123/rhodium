@@ -1,0 +1,87 @@
+#lang rhodium
+// Predicts the earliest taken branch in a fetch word using fully associative local counters.
+
+import:
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+bundle RV5StagePrediction(xlen :: XLen):
+  valid: Bool
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  compressed: Bool
+
+bundle RV5StageBranchUpdate(xlen :: XLen):
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  branch: Bool
+  conditional: Bool
+  taken: Bool
+  compressed: Bool
+
+bundle RV5StageBtbEntry(xlen :: XLen):
+  valid: Bool
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  conditional: Bool
+  compressed: Bool
+  counter: Bits(2)
+
+sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
+  input cursor: Bits(xlen.width)
+  input invalidate_all: Bool
+  interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
+  interface update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
+  output prediction: RV5StagePrediction(xlen)
+
+  if entry_count == 0
+  | prediction <== literal(RV5StagePrediction(xlen), 0)
+  | block:
+      def index_bits = index_width(entry_count)
+      reg entries(~init: vec(for List (_index in 0..entry_count): literal(RV5StageBtbEntry(xlen), 0)))
+      reg replacement(~init: bits(0, index_bits))
+      def candidates = vec(
+        for List (index in 0..entry_count):
+          def entry = entries[index]
+          entry.valid & (entry.pc[2..xlen.width] === cursor[2..xlen.width]) & (!cursor[1].into(Bool) ||| entry.pc[1].into(Bool)) & (!entry.conditional ||| entry.counter[1].into(Bool))
+      )
+      def lower = vec(for List (index in 0..entry_count): candidates[index] & !entries[index].pc[1].into(Bool))
+      def selected = entries[priority_encoder(mux(lower.or_reduce(), lower, candidates))]
+      prediction <== RV5StagePrediction(xlen):
+        valid: candidates.or_reduce() & !invalidate_all
+        pc: selected.pc
+        target: selected.target
+        compressed: selected.compressed
+
+      def matches = vec(for List (index in 0..entry_count): entries[index].valid & (entries[index].pc === update.bits.pc))
+      def empty = vec(for List (index in 0..entry_count): !entries[index].valid)
+      def matched = matches.or_reduce()
+      def selected_index = mux(matched, priority_encoder(matches), mux(empty.or_reduce(), priority_encoder(empty), replacement))
+      def previous = entries[selected_index]
+      def incremented = mux(previous.counter === bits(3, 2), previous.counter, previous.counter + bits(1, 2))
+      def decremented = mux(previous.counter === bits(0, 2), previous.counter, previous.counter - bits(1, 2))
+      def write = update.valid & (matched ||| (update.bits.branch & update.bits.taken))
+      when invalidate_all:
+        replacement <== bits(0, index_bits)
+      elsewhen (write & !matched & !invalidate.valid):
+        replacement <== mux(selected_index === bits(entry_count - 1, index_bits), bits(0, index_bits), selected_index + bits(1, index_bits))
+      for (index in 0..entry_count):
+        when invalidate_all:
+          entries[index] <== literal(RV5StageBtbEntry(xlen), 0)
+        elsewhen (invalidate.valid & (entries[index].pc === invalidate.bits)):
+          entries[index] <== entries[index].updated(~valid: Bool(#false))
+        elsewhen (write & !invalidate.valid & (selected_index === bits(index, index_bits))):
+          entries[index] <== RV5StageBtbEntry(xlen):
+            valid: update.bits.branch
+            pc: update.bits.pc
+            target: update.bits.target
+            conditional: update.bits.conditional
+            compressed: update.bits.compressed
+            counter: mux(matched, mux(update.bits.taken, incremented, decremented), bits(2, 2))
+
+export:
+  RV5StagePrediction
+  RV5StageBranchUpdate
+  RV5StageBtbEntry
+  RV5StageBtb

@@ -99,7 +99,7 @@ integration_fixtures=(
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
   credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask
   fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
-  rv5stage-core rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
+  rv5stage-core rv5stage-branch-prediction rv5stage-fetch-prediction rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
 )
 
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -720,6 +720,9 @@ direct_fixture_specs=(
   'rv5stage-atomic|rv5stage_atomic_tb'
   'rv5stage-access-fault|rv5stage_access_fault_tb'
   'rv5stage-fetch|rv5stage_fetch_tb'
+  'rv5stage-btb|rv5stage_btb_tb'
+  'rv5stage-fetch-prediction|rv5stage_fetch_prediction_tb'
+  'rv5stage-branch-prediction|rv5stage_branch_prediction_tb'
   'rv5stage-fetch-admission|'
   'shift-queue|shift_queue_tb'
   'rv5stage-core|rv5stage_core_tb'

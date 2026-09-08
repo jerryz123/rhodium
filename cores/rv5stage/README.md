@@ -307,9 +307,9 @@ from targeting the same register in one cycle, and a WB-aligned cache hit can
 set and clear a destination without an extra busy cycle.
 
 [`fetch.rhdl`](fetch.rhdl) keeps a four-entry reserved word ring and a five-entry
-flow-through queue of assembled instructions. The registered request PC advances
-by four bytes on request acceptance; the assembly PC advances by two or four
-bytes on instruction enqueue. Neither word consumption nor Decode readiness
+flow-through queue of assembled instructions. The registered request PC follows
+the predicted stream on request acceptance; the assembly PC follows the captured
+prediction or advances by two or four bytes on instruction enqueue. Neither word consumption nor Decode readiness
 selects the live request address, and returned buffer credit is registered.
 The MMU admits S0 virtual reads into a two-entry non-flow-through request queue.
 S1 translates its registered head while L1I resolves the preceding SRAM read;
@@ -321,6 +321,39 @@ With C enabled Fetch can reuse either halfword, assemble a
 instructions before the ordinary decoder. It retains the original 16-bit word
 for illegal-instruction trap values, reports second-word faults precisely, and
 flushes retained, queued, or outstanding wrong-path data on redirects.
+
+### Branch prediction
+
+`RV5Stage` and `RV5StageCore` accept `~btb_entries` (default 16, zero disables
+prediction). The fully associative BTB stores full instruction-PC tags, targets,
+instruction lengths, and conditional/unconditional classification. Each entry
+has a two-bit saturating counter; conditional branches predict taken in the upper
+two states, and unconditional jumps predict taken on a hit. Invalid slots are
+allocated first, then round-robin replacement is used. No return-address stack,
+global history, or separate direction table is present.
+
+Lookup runs alongside the current word request and chooses the earliest
+predicted-taken branch at or after the request's starting halfword. An accepted
+request captures its prediction in the word ring and selects the next request
+PC. The target can be requested on the following cycle without a flush or
+prediction-induced bubble. A 32-bit branch starting in the upper halfword first
+requests its required continuation word, then the target. Cache/translation
+misses, downstream stalls, and exhausted reservations still stall fetching.
+
+Assembly retains instructions up to the predicted branch, discards trailing
+halfwords, and continues through already requested target words. Predictions
+belong to individual request occurrences, including repeated addresses in loops;
+later BTB training cannot change a buffered instruction's predicted next PC.
+Stale instruction lengths or cuts inside an instruction trigger local frontend
+repair while preserving older assembled instructions.
+
+EX computes the actual next PC; MEM recovers only when it differs from the
+captured predicted next PC, with older exceptions and replay retaining priority.
+Live nonfaulting/nonreplaying MEM instructions train the predictor. Taken misses
+allocate weakly taken entries; conditional hits train on both outcomes. Resolved
+nonbranches remove stale matching entries. Reset, `FENCE.I`, translation flushes,
+and trap/return transitions invalidate the table; ordinary branch recovery does
+not. Prediction is microarchitectural and does not change the ISA/UDB profile.
 
 The optional [FP subsystem](fp/README.md) owns the FP register file, FPR
 scoreboard, execution lanes, LSU bridges, and completion arbitration. FP

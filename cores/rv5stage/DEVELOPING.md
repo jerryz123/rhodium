@@ -28,6 +28,7 @@ each other; share external transaction machinery through the CHI package.
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
+| [`btb.rhdl`](btb.rhdl) | Associative word lookup, local direction counters, training, and prediction metadata |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`fetch.rhdl`](fetch.rhdl) | Independent request/assembly PCs, four-word reservation ring, compressed expansion, instruction queue, and redirect flushing |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
@@ -92,6 +93,29 @@ Do not count in-flight requests a second time or borrow same-cycle dequeue
 credit. The `rv5stage-fetch-admission` structural fixture guards this timing
 contract using hierarchical port-leaf dependencies; run it in `--verify-only`
 mode alongside the behavioral fetch and I-cache fixtures.
+
+The request ring follows predicted control flow, not globally contiguous
+addresses. Only instruction continuations require adjacent word addresses.
+Capture the BTB response on request acceptance; never reconstruct a buffered
+prediction from the live table. A straddling taken branch releases two words,
+so reservation accounting adds accepted requests and subtracts the released
+word count. Correct predictions do not assert memory flush or reset either queue.
+Malformed cuts use a registered local repair command that preserves older
+assembled instructions. Architectural recovery overrides local repair.
+
+Keep predictor updates in MEM behind older-WB cancellation, faults, and replay.
+Update by current PC match rather than a stale entry index; invalidation wins
+over training. Preserve `sequential_pc` for links and `predicted_next_pc` for
+recovery as distinct payload fields. The BTB is ordinary named-core RTL, not a
+new language feature or ISA profile parameter.
+
+For predictor changes run `rv5stage-btb`, `rv5stage-fetch-prediction`, and
+`rv5stage-branch-prediction`, then existing `rv5stage-fetch`, `rv5stage-core`,
+and fault/replay fixtures. The paired core test compares actual stores, cycle
+counts, flushes, and consecutive backedge requests with prediction enabled and
+disabled; it does not inspect internal predictor state. The fetch test covers
+compressed branch ordering, continuation words, duplicate-PC occurrences,
+backpressure, stale-cut repair, and precise continuation faults.
 
 Mul/div dispatch validity comes from authorized commit, but operand payloads
 come directly from the normal WB pipeline token. Retained CMO and WRS retirement

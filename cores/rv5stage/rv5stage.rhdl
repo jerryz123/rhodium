@@ -20,7 +20,8 @@ import:
 
 sync_circuit RV5Stage(profile :: RVCoreProfile,
                       ~reset_address: reset_address :: Nat,
-                      ~chi: config :: RV5StageCHIConfig):
+                      ~chi: config :: RV5StageCHIConfig,
+                      ~btb_entries: btb_entries :: Nat = 16):
   def xlen = profile.xlen
   def extensions = profile.extensions
   def width = xlen.width
@@ -34,7 +35,7 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   interface dmem(CHIRNChannels(p), ~role: node)
   interface umem(CHIRNIChannels(p), ~role: node)
 
-  inst core(RV5StageCore(profile, ~reset_address: reset_address))
+  inst core(RV5StageCore(profile, ~reset_address: reset_address, ~btb_entries: btb_entries))
   inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map))
   inst l1i(RV5StageL1ICache(xlen, profile.cache_geometry.instruction, ~chi: config))
   inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config))
