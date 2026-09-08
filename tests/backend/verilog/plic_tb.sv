@@ -213,6 +213,8 @@ module plic_tb;
     assert (context_interrupts == 0)
       else $fatal(1, "PLIC reset asserted a context interrupt");
     read32(12'h100, PLIC_BASE, 32'h0);
+    read32(12'h120, CLAIM0, 32'd0);
+    read32(12'h121, CLAIM1, 32'd0);
 
     write32_opcode(WRITE_NO_SNP_FULL, 12'h101, PRIORITY1, 32'd3);
     write32(12'h102, PRIORITY2, 32'd3);
@@ -281,14 +283,19 @@ module plic_tb;
     write32(12'h11b, ENABLE1, 32'h00000002);
     sources = 3'b001;
     cycle();
-    sources = '0;
-    cycle();
     assert (context_interrupts == 2'b11)
       else $fatal(1, "shared pending source did not reach both contexts");
     read32(12'h11c, CLAIM1, 32'd1);
     assert (context_interrupts == 0)
       else $fatal(1, "claim did not globally clear pending source state");
+    // A held level cannot be claimed twice before its gateway is completed.
+    read32(12'h122, CLAIM0, 32'd0);
+    read32(12'h123, CLAIM1, 32'd0);
+    sources = '0;
+    cycle();
     write32(12'h11d, CLAIM1, 32'd1);
+    read32(12'h124, CLAIM0, 32'd0);
+    read32(12'h125, CLAIM1, 32'd0);
 
     $display("CHI-native PLIC priority, context, and gateway behavior passed");
     $finish;

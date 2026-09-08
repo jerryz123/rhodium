@@ -32,6 +32,8 @@ check:
   description.plic.region.address_set ~is soc.mini_soc_fabric_params.platform.plic.service.address_sets[0]
   description.plic.contexts.length() ~is 2
   description.uart.region.address_set ~is soc.mini_soc_fabric_params.platform.uart.service.address_sets[0]
+  description.uart.interrupt.controller.address_set ~is description.plic.region.address_set
+  description.uart.interrupt.source_id ~is description.plic.sources[0].source_id
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base).home === soc.mini_soc_fabric_params.home ~is #true
   soc.mini_soc_home_map.entry(soc.mini_soc_memory_base + soc.mini_soc_memory_bytes) ~is #false
   soc.mini_soc_home_map.entry(0x1000).home === soc.mini_soc_fabric_params.device_home ~is #true

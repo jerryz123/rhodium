@@ -64,6 +64,8 @@ check:
   description.plic.sources[0].source_id ~is 1
   description.plic.contexts.length() ~is 2
   description.uart.region.address_set ~is soc.simple_soc_uart_params.service.address_sets[0]
+  description.uart.interrupt.controller.address_set ~is description.plic.region.address_set
+  description.uart.interrupt.source_id ~is description.plic.sources[0].source_id
   compact_soc_params.llc_config.sets ~is 16
   compact_soc_params.llc_config.ways ~is 2
   compact_soc_params.llc_config.capacity_bytes ~is 2048

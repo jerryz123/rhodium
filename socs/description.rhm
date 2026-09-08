@@ -69,7 +69,12 @@ class RiscvBootLayout(rom :: SoCAddressRegion,
 class RiscvAclintDescription(region :: SoCAddressRegion):
   implements StableCircuitParam
 
-class RiscvUartDescription(region :: SoCAddressRegion):
+class RiscvPlicInterrupt(controller :: SoCAddressRegion,
+                         source_id :: PosInt):
+  implements StableCircuitParam
+
+class RiscvUartDescription(region :: SoCAddressRegion,
+                           interrupt :: RiscvPlicInterrupt):
   implements StableCircuitParam
 
 class RiscvPlicSource(source_id :: PosInt,
@@ -111,6 +116,14 @@ class RiscvPlicDescription(region :: SoCAddressRegion,
               "PLIC hart and interrupt context pairs must be unique")
     super(region, priority_width, sources, contexts)
 
+  // IDs may be sparse; ndev describes the implemented ID range, not its usage.
+  property source_count :: PosInt:
+    def mutable count = 0
+    for (source in sources):
+      when source.source_id > count
+      | count := source.source_id
+    count
+
 def RiscvMachineSoftwareInterrupt = 3
 def RiscvMachineTimerInterrupt = 7
 
@@ -119,6 +132,9 @@ fun unit_address(address :: Nat) :: String:
 
 fun cpu_interrupt_label(hart :: Nat):
   DeviceTreeLabel("cpu_intc_" ++ String.from_int(hart))
+
+fun plic_interrupt_label(region :: SoCAddressRegion):
+  DeviceTreeLabel("plic_" ++ unit_address(region.base))
 
 fun mmu_type(mode :: RV5StageMmuMode):
   match mode
@@ -195,10 +211,29 @@ fun aclint_node(aclint :: RiscvAclintDescription,
      DeviceTreeProperty("interrupts-extended", DeviceTreeCells(interrupts))]
   )
 
+fun plic_node(plic :: RiscvPlicDescription):
+  def mutable interrupts = []
+  // List position is the MMIO context index; never sort by hart or privilege.
+  for (context in plic.contexts):
+    interrupts := interrupts ++ [
+      DeviceTreePhandle(cpu_interrupt_label(context.hart)),
+      DeviceTreeU32(interrupt_code(context.interrupt))
+    ]
+  DeviceTreeNode(
+    "interrupt-controller@" ++ unit_address(plic.region.base),
+    [DeviceTreeProperty("compatible", DeviceTreeString("sifive,plic-1.0.0")),
+     DeviceTreeProperty("reg", plic.region.to_device_tree_cells()),
+     DeviceTreeProperty("#address-cells", DeviceTreeU32(0)),
+     DeviceTreeProperty("#interrupt-cells", DeviceTreeU32(1)),
+     DeviceTreeProperty("interrupt-controller", DeviceTreeEmpty()),
+     DeviceTreeProperty("riscv,ndev", DeviceTreeU32(plic.source_count)),
+     DeviceTreeProperty("interrupts-extended", DeviceTreeCells(interrupts))],
+    [],
+    ~label: plic_interrupt_label(plic.region)
+  )
+
 fun uart_node(uart :: RiscvUartDescription,
               clocks :: SoCClockConfig):
-  // Hardware routes the UART through the PLIC, but device-tree PLIC and
-  // interrupt bindings are intentionally deferred to the next DT milestone.
   DeviceTreeNode(
     "serial@" ++ unit_address(uart.region.base),
     [DeviceTreeProperty("compatible", DeviceTreeString("ns16550a")),
@@ -206,14 +241,19 @@ fun uart_node(uart :: RiscvUartDescription,
      DeviceTreeProperty("clock-frequency", DeviceTreeU32(clocks.clock_frequency_hz)),
      DeviceTreeProperty("reg-shift", DeviceTreeU32(0)),
      DeviceTreeProperty("reg-io-width", DeviceTreeU32(1)),
-     DeviceTreeProperty("status", DeviceTreeString("disabled"))]
+     DeviceTreeProperty("interrupt-parent", DeviceTreePhandle(plic_interrupt_label(uart.interrupt.controller))),
+     DeviceTreeProperty("interrupts", DeviceTreeU32(uart.interrupt.source_id)),
+     DeviceTreeProperty("status", DeviceTreeString("okay"))]
   )
 
 fun soc_node(harts :: NonemptyList.of(Nat),
              clocks :: SoCClockConfig,
              aclint :: RiscvAclintDescription,
+             plic :: False || RiscvPlicDescription,
              uart :: False || RiscvUartDescription):
   def mutable children = [aclint_node(aclint, harts)]
+  when plic is_a RiscvPlicDescription
+  | children := children ++ [plic_node(plic)]
   when uart is_a RiscvUartDescription
   | children := children ++ [uart_node(uart, clocks)]
   DeviceTreeNode(
@@ -281,7 +321,13 @@ class RiscvSoCDescription(model :: NonemptyString,
                 "PLIC contexts must reference described harts")
       regions := regions ++ [plic.region]
     when uart is_a RiscvUartDescription
-    | regions := regions ++ [uart.region]
+    | unless plic is_a RiscvPlicDescription
+      | error(~who: #'RiscvSoCDescription, "UART interrupt requires a described PLIC")
+      unless uart.interrupt.controller.address_set == plic.region.address_set
+      | error(~who: #'RiscvSoCDescription, "UART interrupt must reference the described PLIC region")
+      unless for any (source in plic.sources): source.source_id == uart.interrupt.source_id
+      | error(~who: #'RiscvSoCDescription, "UART interrupt must reference a described PLIC source")
+      regions := regions ++ [uart.region]
     require_disjoint_regions(regions)
     super(model,
           compatible,
@@ -304,7 +350,7 @@ class RiscvSoCDescription(model :: NonemptyString,
          DeviceTreeProperty("#size-cells", DeviceTreeU32(2))],
         [cpus_node(harts, core_profile, clocks)] ++ (
           for List (region in memory_regions): memory_node(region)
-        ) ++ [soc_node(harts, clocks, aclint, uart)]
+        ) ++ [soc_node(harts, clocks, aclint, plic, uart)]
       ),
       ~boot_cpuid: harts[0]
     )
@@ -317,5 +363,6 @@ export:
   RiscvPlicSource
   RiscvPlicContext
   RiscvPlicDescription
+  RiscvPlicInterrupt
   RiscvUartDescription
   RiscvSoCDescription

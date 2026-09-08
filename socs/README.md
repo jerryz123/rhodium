@@ -75,10 +75,19 @@ controller, plus the shared CLINT-compatible ACLINT. Each SoC serializes this
 same description directly into its BootROM at offset `0x100`; the reset program
 passes the resulting eight-byte-aligned address to hart zero in `a1`.
 
-The current device-tree projection does not yet emit the described PLIC, so it
-continues to include the 16550-compatible UART as disabled. Its register window
-and input clock are accurate; PLIC and UART interrupt bindings are the next
-device-tree integration milestone.
+The projection emits a `sifive,plic-1.0.0` interrupt controller and enables the
+16550-compatible UART with its input clock, byte-wide registers, and PLIC
+interrupt binding. `RiscvPlicInterrupt` explicitly references a controller region
+and source ID; construction rejects missing controllers, mismatched regions,
+and undeclared sources. PLIC contexts retain their description order as MMIO
+context indices, and `riscv,ndev` is the highest supported source ID, including
+unused IDs below it. The default UART uses source 1.
+
+The PLIC uses the standard driver-compatible string; there is not yet an
+upstream platform-specific DT schema entry for Rhodium. Interoperability tests
+check DTS/DTB encoding and bindings, not full Linux `dt-schema` acceptance or
+an OS boot. Enabling the node does not select a console, add BootROM UART code,
+or connect a simulation PTY.
 
 ## RISC-V UDB configuration catalog
 

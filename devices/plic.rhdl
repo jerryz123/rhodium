@@ -203,7 +203,7 @@ sync_circuit Plic(config :: PlicConfig):
   )[0..32]
   def priority_value = priorities[priority_index].zext(32)
   def threshold_value = thresholds[active_context].zext(32)
-  def claim_value = selected_winner.source_id.zext(32)
+  def claim_value = mux(selected_winner.valid, selected_winner.source_id.zext(32), bits(0, 32))
   def selected_value = mux(
     priority_access,
     priority_value,

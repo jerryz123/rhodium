@@ -100,6 +100,12 @@ properties with `fdtdump` and `fdtget`. It also checks that the same native DTB
 bytes are finalized into each SoC's BootROM image. Generated artifacts remain
 temporary.
 
+The device-tree checks resolve UART interrupt-parent phandles and verify every
+PLIC context against its hart's interrupt controller. Preserve context list
+order: it identifies the PLIC's MMIO context indices, not a sortable CPU list.
+The executable simulator smoke exercises UART TX-empty assertion, both hart-zero
+external interrupt inputs, M/S claim arbitration, completion, and rearming.
+
 The DTB subprocess uses `tools/run-racket.sh`: local runs rebuild changed
 dependencies, while CI reuses its verified exact-commit bytecode artifact.
 Keep this entrypoint in the root Makefile's compilation manifest.

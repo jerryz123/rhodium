@@ -111,7 +111,10 @@ class SoCPlatformParams(flit :: CHIFlitParams,
       soc_plic_contexts(hart_count)
     )
   property uart_description:
-    RiscvUartDescription(SoCAddressRegion(uart.service.address_sets[0]))
+    RiscvUartDescription(
+      SoCAddressRegion(uart.service.address_sets[0]),
+      RiscvPlicInterrupt(SoCAddressRegion(plic.service.address_sets[0]), SoCPlicUartSource)
+    )
   property subordinate_map:
     CHISubordinateMap(flit, [bootrom.rom_params.service, boot_address.service, aclint.service, plic.service, uart.service])
   property regions:

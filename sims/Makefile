@@ -220,7 +220,7 @@ endif
 
 $(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
                  tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
+	$(RISCV_CC) -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
 
 $(HOST_MMIO_BINARY): tests/programs/rv5stage_host_mmio.S tests/programs/rv5stage_host_mmio.ld | $(SOC_BUILD_DIR)
@@ -228,7 +228,7 @@ $(HOST_MMIO_BINARY): tests/programs/rv5stage_host_mmio.S tests/programs/rv5stage
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_host_mmio.ld $< -o $@
 
 $(SOC_BUILD_DIR)/rv5stage_boot_%.elf: tests/programs/rv5stage_smoke.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
+	$(RISCV_CC) -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,--defsym,payload_entry=0x8000$* \
 	  -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
 

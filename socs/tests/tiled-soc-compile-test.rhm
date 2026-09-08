@@ -34,6 +34,8 @@ check:
   description.plic.region.address_set ~is compiled.platform.plic.service.address_sets[0]
   description.plic.contexts.length() ~is 16
   description.uart.region.address_set ~is compiled.platform.uart.service.address_sets[0]
+  description.uart.interrupt.controller.address_set ~is description.plic.region.address_set
+  description.uart.interrupt.source_id ~is description.plic.sources[0].source_id
   compiled.host.node.node_id ~is 24
   compiled.host.node.kind ~is chi.CHINodeKind.RNF
   compiled.host.node.emits.req ~is (
