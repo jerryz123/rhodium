@@ -101,10 +101,8 @@ ingress |> queue(4, ~pipe: #true) |> pipe(2) |> egress
 `Decoupled` or `Irrevocable` payload flow. `trace_valid_event(label)` provides
 the same annotation for `Valid`. These helpers do not add state or runtime
 effects; `rhodium/event` consumes their metadata to infer possible nearest
-dependencies. Labels are nonempty and unique within a module definition.
-Both helpers accept `~root: #true` to explicitly start a new lineage at an
-opaque component output or cut off earlier ancestry. The [event contract](../rhodium/event/README.md#annotate-events)
-defines this opt-in boundary; ordinary checkpoints retain strict inference.
+dependencies. The [annotation contract](../rhodium/event/README.md#annotate-events)
+owns label rules, root/terminal semantics, and supported tracing behavior.
 
 Bare checkpoints capture identity and timing only. Select named scalar observations
 without changing the forwarded payload:
@@ -115,43 +113,12 @@ def observed = ingress |> trace_event("fetch", ~fields: payload):
   instruction: payload.instruction
 ```
 
-The `~fields` binder is last in the argument list and retains typed payload
-access. Nested selections and combinational expressions are supported. An
-entry `count(~format: "unsigned"): payload.count` overrides the display encoding;
-see the [capture contract](../rhodium/event/README.md#capture-fields).
-Instruction observations can explicitly select `~format: "riscv"` with `~isa`
-and a same-site `~pc` capture name; these options affect host display only.
-Use `~payload: #true` explicitly for a whole-payload diagnostic dump.
-
-```rhombus
-ingress
-  |> trace_event("accepted")
-  |> queue(4)
-  |> trace_event("issued", ~terminal: #true)
-  |> egress
-```
-
-The [event package](../rhodium/event/README.md) can also rebuild a separate design with
-synthesizable lineage and DPI emission for linear combinational paths and
-fixed-latency `valid_pipe`, elastic `pipe`, in-order `queue`, and ready-valid
-`arbiter`/`rr_arbiter`, `demux_flow`, `atomic_fork`, `broadcast`, and `zip_flow` paths.
-Selective/control-only forks and joins still require dynamic trace adapters.
-`to_valid` certifies its always-ready, zero-storage conversion, and `fork_valid`
-certifies synchronous zero-storage replication of each Valid pulse. Both preserve
-event lineage; `valid_pipe_always_capture` already publishes fixed latency.
-`pipe` publishes its actual per-stage load and input-valid controls as typed
-metadata; the instrumenter observes them to keep shadow references aligned
-under stalls without changing functional ready/valid/payload behavior.
-`queue` publishes actual storage operations, addresses, occupancy validity, and
-bypass selection. Shadow metadata supports all `~pipe`/`~flow` combinations,
-including depth one and non-power-of-two depths, without adding payload storage
-or duplicating functional pointers. Control-only queues remain route-only.
-Both ready-valid arbiters publish the actual grants used for functional
-selection. The event compiler selects the winning input's lineage and carries
-that reference through downstream storage, even if the arbiter subsequently
-changes its grant. The event package documents the annotation coverage required
-on selector inputs. Valid-only, control-only, and packet arbiters need dedicated
-dynamic contracts.
+The [capture contract](../rhodium/event/README.md#capture-fields) describes the
+typed binder, scalar formats, instruction disassembly, and explicit raw dumps.
+The event compiler owns the [supported-transform table](../rhodium/event/README.md#traceable-transforms)
+and [instrumentation limits](../rhodium/event/README.md#deliberate-limits).
+Flow components publish typed contracts using their actual functional controls;
+they do not implement compiler lineage propagation or depend on the compiler.
 
 Packet arbitration takes an inline predicate that identifies the final beat.
 The selected input remains the sole owner across stalls and bubbles until that
@@ -418,28 +385,19 @@ def stable = buffered
              |> pipe(1)
 ```
 
-`atomic_fork(n)` certifies all-or-none, same-cycle replication for event tracing.
-Every branch inherits the same parent occurrence; branch-local pipes and queues
-retain it even when their downstream annotations fire on different cycles.
-The compiler adds no fork event or fork-local metadata storage and leaves the
-functional fork unchanged. This contract does not cover selective atomic forks,
-control-only forks, or independently accepted broadcasts.
+`atomic_fork(n)` publishes an all-or-none, same-cycle replication contract for
+[event tracing](../rhodium/event/README.md#traceable-transforms). Selective,
+control-only, and independently accepted replication have different contracts.
 
 `broadcast(n)` configures `Broadcast(T, n)` as an indexable array of
 `Irrevocable` endpoints, or a disconnected handle when given a payload/type
 seed. Unlike `atomic_fork`, it stores one payload and lets recipients accept
-independently, exactly once each. It publishes the actual acceptance and
-pending-recipient signals for tracing. The compiler stores a parent reference
-on input acceptance and retains it for each pending recipient, including across
-stalls. If the last recipient completes while a replacement input is accepted,
-that completion still names the old parent. Reset flushes outstanding delivery
-and lineage. No synthetic event is added and the DPI ABI is unchanged.
+independently, exactly once each. It publishes actual acceptance and pending
+controls for tracing. Reset flushes outstanding delivery; simultaneous final
+delivery and replacement still deliver the old item to the completing recipient.
 
-`demux_flow` publishes its actual output-selection predicates for event tracing.
-Only the selected branch inherits a transferred parent reference; branch-local
-pipes and queues retain that identity even when the selector changes. Invalid
-selectors block ingress and create no new descendants (older buffered work may
-still complete). Direct `Demux` and control-only routing need separate adapters.
+`demux_flow` publishes its actual output-selection predicates for event tracing;
+direct `Demux` and control-only routing need separate adapters.
 
 `demux_flow(n, payload => selector)` is a one-to-many routing stage whose
 selector may observe the offered payload and ambient hardware. The ordinary
@@ -503,14 +461,10 @@ count from its input array and returns an output endpoint array:
 
 ## Joining and branching topologies
 
-`zip_flow` certifies atomic all-input consumption for event tracing. Its output
-carries the nearest annotated parents from both inputs, including through
-subsequent queues, pipes, routing, and replication. A downstream checkpoint
-emits one edge per distinct contributing occurrence, then replaces that ancestry
-with its own identity. Rejoining copies of the same occurrence produces one
-edge; different occurrences from the same site remain separate. Every joined
-input path must have an annotated ancestor if any does. See the
-[event contract](../rhodium/event/README.md) for lineage bounds and DPI behavior.
+`zip_flow` publishes an atomic all-input consumption contract for event tracing.
+The [event compiler](../rhodium/event/README.md#traceable-transforms) owns parent
+combination and reconvergence semantics; selective/control-only joins need
+separate dynamic adapters.
 
 `selective_join()` consumes a flat source array containing one selection flow
 followed by homogeneous data flows. The selection token carries `Mask(n)`,

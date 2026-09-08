@@ -4,13 +4,20 @@
 
 RHEG is the independent C++ runtime and export library for hardware event
 graphs. Its namespace is `rheg`, and DPI symbols use the `rheg_` prefix.
-Existing `rhodium-event-*` JSON format identifiers remain unchanged.
 It does not depend on `flow` or compiler implementation modules; the
 [compiler event pass](../rhodium/event/README.md) generates its descriptor and DPI calls.
 
+For a ready-to-run pipeline trace, start with the
+[SimpleSoC simulator](../sims/README.md#export-simplesoc-events-to-perfetto).
+For a custom simulator, bind the [manifest](#validated-trace-snapshots) and
+[timing](#optional-trace-timing), then choose [streaming or replay](#streaming-to-perfetto).
+The [Perfetto display contract](#perfetto-display-and-queries) explains tracks,
+slice names, timing, and queries.
+
 ## DPI runtime and visualization handoff
 
-Link [`runtime/rheg.cc`](runtime/rheg.cc) into the simulator.
+The collector requires C++17 and the standard library. Link
+[`runtime/rheg.cc`](runtime/rheg.cc) into the simulator.
 Its [header](runtime/rheg.h) defines the fixed ABI and `graph()` API:
 
 - `rheg_node` records a site, sequence, cycle, and payload width.
@@ -21,9 +28,8 @@ Its [header](runtime/rheg.h) defines the fixed ABI and `graph()` API:
 
 The site number is the zero-based index into **the accompanying manifest's
 `sites` array**, not a hash. Together with the per-site sequence it identifies
-one concrete occurrence, even for repeated module definitions. Each hidden
-reference is an ordinary packed record containing `valid`, `site`, and
-`sequence`. Manifest IDs retain the exact human-readable hierarchy path.
+one concrete occurrence, even for repeated module definitions. Manifest IDs
+retain the exact human-readable hierarchy path.
 
 The collector tolerates node, payload, and edge callbacks in any order and
 deduplicates edges. After the simulator has settled the sampled edge, call
@@ -34,7 +40,7 @@ sites with the compiler manifest to recover labels, hierarchy,
 source locations, and payload schemas. The collector itself has no visualizer
 or runtime manifest parser; the optional Perfetto library provides snapshot parsing.
 
-### Validated trace snapshots
+## Validated trace snapshots
 
 Generate a companion C++ header with
 `event_manifest_to_cpp(traced.manifest)` from the **same** `instrument_events`
@@ -78,18 +84,16 @@ each retaining its own existing format and version. It preserves decimal-string
 64-bit identities and deterministic ordering. Reset clears live occurrences,
 not saved snapshots; never merge reset epochs by site/sequence alone.
 
-The existing occurrence-only `graph().json()` and fixed DPI entry points remain
-available. Snapshots copy the current epoch and therefore require additional
-memory proportional to the retained graph.
+The occurrence-only `graph().json()` is also available. Snapshots copy the
+current epoch and require additional memory proportional to the retained graph.
 
-### Named captures
+## Named captures
 
-New compiler manifests include an ordered `fields` schema for every site and
+Compiler manifests include an ordered `fields` schema for every site and
 matching C++ `Manifest::fields` tables. Each field has a unique ASCII identifier
 name, positive width, LSB offset, and encoding. Fields exactly cover the compact
 capture in declaration order, most-significant first; omitted observations do
 not occupy bits or generate callbacks. A zero-width site has an empty field list.
-The DPI ABI and occurrence-word representation remain unchanged.
 
 At a settled boundary, use `graph.field(ref, "pc")` or
 `snapshot.field(ref, "pc")`. `FieldValue` provides width, encoding, LSW-first
@@ -106,14 +110,14 @@ strings. Booleans and integers use native scalar arguments; values wider than
 Raw word arrays and aggregate widths are no longer normal display arguments.
 An explicit raw capture appears as `raw`.
 
-These are additive version-1 manifest fields. Legacy snapshots without the
-schema retain their old raw-word display, but cannot provide named lookup.
+The schema is additive within version 1. Legacy snapshots without it retain
+raw-word display, but cannot provide named lookup.
 Mixed schema presence, duplicate names, overlaps, gaps, out-of-range fields,
 invalid encodings, and JSON/C++ table mismatches are errors. The collector
 validates typed descriptors without acquiring a JSON dependency; the shared
 export library interprets the same schema for streaming and replay.
 
-### Instruction disassembly
+## Instruction disassembly
 
 Fields with `encoding: "riscv"` include `isa` (an explicit RV32I/RV64I ISA
 string) and `pc` (a same-site hex/unsigned capture alias of XLEN width).
@@ -128,7 +132,7 @@ associated PC, wrapping at XLEN; it does not resolve ELF symbols. Unknown or
 unsupported encodings retain fixed-width hex. Disassembly is presentation, not
 an architectural legality check. The graph and snapshot preserve the original
 bits, available through the normal field accessors. Live and standalone exports
-use the same decoder and a bounded cache keyed by ISA, PC, bits, and capture width.
+use the same formatter.
 
 When a site has exactly one `riscv` field, each Perfetto slice is named with its
 disassembled mnemonic (including aliases such as `li` and `j`), or raw hex for
@@ -137,14 +141,7 @@ names retain the site labels, such as `core.s1.fetch`; queries selecting stages
 should join `slice.track_id` to `track.id`. Sites with no instruction field or
 multiple instruction fields retain their site label as the slice name.
 
-Only the optional Perfetto library builds the decoder; the collector remains
-standard-library-only. CMake downloads the checksum-pinned Spike source revision
-and builds its disassembler, not its simulator or FESVR. Offline builds can set
-`FETCHCONTENT_SOURCE_DIR_RHEG_SPIKE`; the test script and simulator make targets
-accept the equivalent `RHEG_SPIKE_SOURCE_DIR` path. LLVM, Python, and external
-disassembler processes are not required.
-
-### Optional trace timing
+## Optional trace timing
 
 Before any simulator evaluation or callback, bind run timing separately from
 the compiler manifest (the two bindings may occur in either order):
@@ -174,8 +171,8 @@ means cycle zero maps to timestamp zero in each epoch; no wall-clock alignment
 is implied. At 100 MHz, each cycle represents 10 ns. The collector keeps exact
 cycles and does not perform timestamp conversion.
 
-The runtime requires C++17. An initial asserted reset preserves the supplied
-epoch ID. After a deasserted reset callback or any occurrence callback, the next asserted reset increments
+An initial asserted reset preserves the supplied epoch ID. After a deasserted
+reset callback or any occurrence callback, the next asserted reset increments
 the epoch once and clears live occurrences. Holding reset asserted does not
 increment it repeatedly. Frequency survives reset, and old snapshots retain
 their original epoch and data. Epoch exhaustion is an error before clearing
@@ -189,24 +186,29 @@ epochs too, the harness must call `graph().reset(false)` after reset deassertion
 without that notification, empty intervals between asserted resets are
 indistinguishable from continuously held reset and share an epoch ID.
 
-### Streaming to Perfetto
+## Streaming to Perfetto
 
 The optional [`rheg_perfetto`](perfetto/rheg_perfetto.h) C++
 library writes native `.pftrace` packets as settled batches arrive. The same
 encoder powers the standalone `rheg-perfetto` snapshot converter.
-Neither export nor its tests use Python. Build with CMake 3.20+ and a C++17
-Clang/GCC compiler on macOS or Linux:
+Build with CMake 3.20+ and a C++17 Clang/GCC compiler on macOS or Linux:
 
 ```sh
 cmake -S rheg/perfetto -B /tmp/rhodium-perfetto-build
 cmake --build /tmp/rhodium-perfetto-build -j 4
 ```
 
-The build uses nlohmann JSON 3.12.0, found locally or fetched from a hash-pinned
-archive. Offline builds may set `FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON` to its
-extracted source directory. This private dependency parses the manifest once
-and saved snapshots; the collector itself remains standard-library-only. Native
-protobuf encoding requires neither the Perfetto SDK nor a protobuf runtime.
+The exporter privately uses nlohmann JSON 3.12.0 (found locally or fetched) and
+Spike's disassembler (fetched at a pinned revision). Downloads are checksum-pinned.
+The Spike simulator and FESVR are not built. No Python, LLVM, external disassembler
+process, Perfetto SDK, or protobuf runtime is required.
+
+For offline builds, point CMake at extracted source trees:
+
+| Dependency | CMake option | Test-script / simulator make variable |
+|---|---|---|
+| nlohmann JSON | `FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON` | `NLOHMANN_JSON_SOURCE_DIR` |
+| Spike | `FETCHCONTENT_SOURCE_DIR_RHEG_SPIKE` | `RHEG_SPIKE_SOURCE_DIR` |
 
 For integration, `add_subdirectory(rheg/perfetto)` and link the
 `rheg_perfetto` CMake target. It links `rheg_runtime` transitively;
@@ -238,6 +240,8 @@ postprocessor, not a parser for the optional cycle-batch JSON log. Streaming
 passes typed batches directly to the writer, without JSON serialization or a
 helper process. Streaming and replay use identical ordering and encoding.
 
+### Stream lifecycle and failures
+
 The caller owns the output stream and must keep it alive for the writer's
 lifetime. Choose a fresh output path: ordinary file opening and shell redirection
 can overwrite an existing file. Each writer represents one reset epoch.
@@ -246,8 +250,8 @@ I/O failure can leave a partial final packet: treat the output as incomplete,
 do not resume the same writer. Invalid batches do not advance writer state;
 retain the batch returned by `finish_cycle` if retry is needed. A converter
 error can leave partial stdout; discard that output. No recording service is
-needed. This is incremental
-file generation, not a live-refresh connection to the Perfetto UI.
+needed. This is incremental file generation, not a live-refresh connection to
+the Perfetto UI.
 
 `finish_cycle(N)` is a watermark: no later callback may supply a node at or
 before N, a payload for a flushed node, or an edge to a flushed child. Watermarks
@@ -262,7 +266,8 @@ epoch, so neither component claims bounded total memory.
 End the stream before reset (except an initial held reset before activity),
 then use a new header and output file for the next epoch. The simulator must
 supply the instrumentation's event-cycle count, not an unrelated harness tick.
-No DPI ABI or RTL changes are required for this explicit host boundary.
+
+## Perfetto display and queries
 
 Each occurrence becomes a one-cycle slice spanning `[N, N+1)` on a track named
 with its annotated event label, without a synthetic thread-ID suffix. Each site
@@ -271,6 +276,8 @@ grouped under a custom track named for the top-level design. This group requests
 lexicographic child ordering, independent of site IDs or callback order; viewers
 may override this display hint. Occurrence arguments contain only exact
 cycle, sequence, and captured values (legacy snapshots retain their raw words).
+Slice names normally match their site labels; a single tagged instruction uses
+its [disassembled mnemonic](#instruction-disassembly) instead.
 Frequency and epoch are emitted once before occurrences as trace metadata,
 available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and
 `cr-rheg.epoch_id`, with exact decimal `str_value` values. Even an empty trace
@@ -289,14 +296,25 @@ Fractional nanoseconds are quantized independently without cumulative drift;
 sub-nanosecond cycles can quantize to zero duration. This one-cycle display width
 does not infer occupancy or time stalled between checkpoints.
 
-The native protobuf contains legacy `s`/`f` flow records enclosed by each
-one-cycle occurrence slice. A source identity gets one flow start; each
-child adds a non-closing flow end for each parent. Unlike modern flow steps,
-this preserves the original source through delayed fanout and supports joins
-without inventing sibling dependencies or predicting future edge IDs. Events
-within a batch are ordered by cycle and dependency; same-cycle cycles in the
-graph are rejected. This compatibility mapping is covered by Trace Processor
-tests; it is deliberately isolated from the graph schema and collector.
+Dependency arrows connect exact parent and child occurrences, including delayed
+fanout and joins. Events within a batch are ordered by cycle and dependency;
+same-cycle dependency cycles are rejected. The display width does not alter
+graph lineage.
+
+Query stage identity through the track, independently of each slice's mnemonic:
+
+```sql
+SELECT t.name AS stage, s.name AS mnemonic,
+       EXTRACT_ARG(s.arg_set_id, 'debug.pc') AS pc,
+       EXTRACT_ARG(s.arg_set_id, 'debug.instruction') AS instruction
+FROM slice s JOIN track t ON t.id = s.track_id
+WHERE t.name GLOB 'core.*';
+```
+
+## Scope and compatibility
+
+The fixed `rheg_*` ABI and version-1 `rhodium-event-*` JSON identifiers remain
+stable. Named-field schemas and optional timing extend version 1 additively.
 
 The current collector supports one instrumented top per process on the
 simulator thread. It retains the whole current epoch in memory. Instrumented

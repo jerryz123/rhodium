@@ -1,125 +1,137 @@
-<!-- Defines RHEG runtime and Perfetto implementation ownership and focused validation. -->
+<!-- Defines RHEG collector invariants, Perfetto encoding, decoder ownership, and validation. -->
 
 # Developing RHEG
 
-Read the public [`README.md`](README.md) for integration and trace contracts.
-This package owns the C++ event collector, export library, standalone converter,
-and their contract tests. It imports neither `flow` nor the Rhodium compiler.
-The [compiler event pass](../rhodium/event/DEVELOPING.md) produces the manifest
-descriptor and instrumented RTL consumed through the fixed DPI ABI.
+Read [README.md](README.md) for integration, schema, timing, and export contracts.
+RHEG imports neither `flow` nor the Rhodium compiler. The
+[event compiler](../rhodium/event/DEVELOPING.md) produces the matching descriptor
+and ordinary RTL/DPI instrumentation.
 
 ## Architecture and ownership
 
-- `runtime/` owns the fixed-width C ABI, order-independent graph storage,
-  validation, and deterministic occurrence JSON.
-- `perfetto/` owns the optional C++ encoder library and standalone snapshot
-  converter. `PerfettoWriter` accepts typed cycle batches; `read_event_trace`
-  parses saved snapshots and `write_perfetto` feeds the same encoder. The JSON
-  parser is private to this component, never a collector dependency. Native
-  wire encoding uses the small documented field subset of the Perfetto v58.2
-  schema; verify field changes with the actual native importer, not just a
-  matching homegrown decoder. CMake pins the JSON dependency's archive digest.
-- `tests/` owns standalone collector, encoder, parser, and native importer
-  contracts. Compiler/RTL integration fixtures stay in `tests/backend/`.
+| Component | Responsibility |
+|---|---|
+| `runtime/` | Fixed C ABI, order-independent collection, validation, snapshots and occurrence JSON |
+| `perfetto/` | C++ native encoder, private JSON parser and instruction decoder, standalone converter |
+| `tests/` | Collector, exporter, parser, and native importer contracts |
+| `tests/backend/` | Compiler/RTL integration fixtures, owned outside RHEG |
 
-Keep the runtime standard-library-only and the JSON parser private to the
-optional exporter. Preserve namespace `rheg`, the `rheg_*` DPI ABI, and existing
-`rhodium-event-*` JSON format identifiers across packaging changes.
+Keep the collector standard-library-only. Preserve namespace `rheg`, the fixed
+`rheg_*` ABI, and `rhodium-event-*` format identifiers. Presentation changes must
+not change graph storage or DPI packing. Build generated headers and RTL from
+the same instrumentation result; descriptor binding is not an authenticity check.
+
+## Collector and snapshot invariants
+
+Bind an owned copy of the trusted compiler descriptor before callbacks and retain
+it across reset. `Graph::validate` checks settled completeness and, when bound,
+site widths and allowed static edges. Parent cycles may equal child cycles.
+Validate observed parents, not every possible static parent: selection chooses
+a subset dynamically, while instrumented logic enforces join completeness.
+
+Keep capture words compact in nodes; resolve fields through immutable site
+schema. Width, offset, overlap, gap, encoding, and named-field extraction checks
+belong in the collector. Never infer captures from type-description strings.
+The exporter parses and cross-checks JSON against typed tables once, then reuses
+the collector extractor. Preserve legacy no-schema snapshots.
+
+`Snapshot` owns a validated graph copy with const views and its bound manifest;
+it has no visualization dependency. Optional timing belongs in the trace
+envelope, not `EventManifest` or instrumentation configuration. Snapshot copying
+freezes timing and epoch too. Track whether activity or a deassertion notification
+occurred since reset, so held reset advances the epoch only once. Check epoch
+exhaustion before clearing state. Preserve the public distinction between
+`clear()` and reset, including notification of otherwise empty epochs.
+
+Streaming adds pending-reference and pending-edge sets only while enabled.
+`finish_cycle` validates the delta against retained parents and the same manifest
+rules as snapshots; do not rescan historical payloads per cycle. Clear pending
+entries only after constructing and validating the batch. Reject callbacks that
+could mutate an emitted child. Full-epoch retention and snapshot copying remain
+intentional; bounded-memory collection is separate work.
+
+## Perfetto encoding
+
+`PerfettoWriter` accepts typed settled batches. `read_event_trace` parses saved
+snapshots; `write_perfetto` feeds the same writer. Keep JSON private to the exporter.
+The parser rejects duplicate keys, excessive nesting, invalid integer forms,
+overflow, incomplete nodes, and manifest-invalid edges.
+
+Encode the documented field subset of the Perfetto v58.2 native schema. Run
+timing and epoch go once into ChromeEventBundle metadata before descriptors or
+occurrences. Site identity, source location, and capture layout go in the JSON
+TrackDescriptor description; v58.2 has no arbitrary track annotation field.
+Occurrence arguments contain only exact cycle, sequence, and captured values.
+
+Use non-thread tracks under a custom design group with
+`child_ordering = LEXICOGRAPHIC`; process/thread descriptors ignore that hint.
+Disable sibling merging to keep repeated labels distinct. Track labels remain
+site labels; only a site with exactly one `riscv` field gets mnemonic slice names.
+Use the full formatted field as the argument and its first token as the name;
+unknown hex and ambiguous multi-instruction sites follow the README fallback.
+
+Legacy `s`/`f` flow records sit inside each occurrence slice. Give each source
+identity one flow start and each child a non-closing end per parent. This
+preserves the original source through delayed fanout and supports joins without
+introducing sibling dependencies or predicting future edges. Modern flow-step
+semantics are not an interchangeable encoding. Topologically order same-cycle
+events and reject cyclic dependencies before writing the batch.
+
+Use wide integer arithmetic for both cycle boundaries, especially N+1; validate
+signed-64-bit nanosecond overflow before output. Quantize boundaries independently
+to prevent drift. Each successful batch flush must leave an importable prefix.
+Invalid input must not advance writer state; an I/O-poisoned writer is not
+resumable. Converter diagnostics go to stderr and failures return nonzero;
+stdout may already contain a partial trace.
+
+## Instruction decoder
+
+Validate `riscv` capture widths and PC references in the standard-library-only
+collector. Validate full ISA configurations when constructing the exporter,
+before writing any bytes. Disassembly is presentation, not legality validation.
+
+Keep Spike headers private. CMake checksum-pins its source and builds the three
+disassembler sources into the Perfetto archive, not the simulator or FESVR.
+The build-local ISA parser replaces its two abort sites with exceptions; verify
+those sites before adapting them, and leave downloaded sources and licenses
+unchanged. No subprocess or simulator state is involved.
+
+Own decoder instances per ISA per writer. Cache by ISA, PC, bits, and capture
+width; clear the bounded cache at 4096 entries. Resolve only the full `pc + ` or
+`pc - ` operand syntax, not a mnemonic suffix such as `auipc`. Wrap targets at
+XLEN, normalize spacing, and retain raw hex for unknown/unsupported encodings.
+No symbol lookup or graph mutation belongs here.
 
 ## Focused validation
 
-Named capture extraction and descriptor-layout validation belong to the
-standard-library-only runtime. Keep fields compact in nodes; resolve names
-through the immutable site schema. The exporter parses and cross-checks JSON
-against these tables once, then uses the runtime extractor for every field.
-Native prefix tests cover unaligned PC/instruction, bool, signed/unsigned
-scalars, and a 65-bit decimal value alongside live/replay parity. Preserve the
-legacy no-schema path for old snapshots. Never infer fields from type strings.
-
-The `riscv` field format carries an ISA string and a same-site PC reference.
-Validate field widths/references in the standard-library-only runtime; validate
-ISA extensions when constructing the exporter, before writing any bytes. Keep
-Spike headers private to the exporter and its three-source disassembler build.
-CMake pins the source checksum and creates a build-local ISA parser copy whose
-two abort sites throw exceptions instead. It checks those sites before adapting
-them; leave downloaded sources and their license unchanged. No simulator state,
-FESVR link, or subprocess is needed for decoding. Decoder instances are per ISA
-per writer; the 4096-entry cache clears when full and includes PC in its key.
-Native fixtures cover RV32/RV64, compressed and FP instructions, PC-relative
-targets and wraparound, unknown fallbacks, ordinary same-named fields, preserved
-raw values, and live/replay parity. This is not instruction-legality validation.
-
-Emit run-wide frequency/epoch once using ChromeEventBundle metadata, before the
-track descriptors and any occurrences. Keep site identity, source location, and
-capture layout in TrackDescriptor's JSON description; v58.2 has no arbitrary
-track annotation field. Native importer tests check the metadata table and
-track source args, including empty traces and every streamed prefix. Occurrence
-args retain only sequence, exact cycle, and values; even legacy payload widths
-belong on tracks. Do not change graph/snapshot storage or the DPI ABI for an
-export-presentation change.
-
-The runtime binds trusted compiler descriptors before the first callback and
-retains that binding across reset. Keep the DPI ABI independent of manifest
-loading. `Graph::validate` checks settled completeness and, when bound, site
-widths and allowed static edges. Cycle order allows equality. Do not require
-all possible static parents: arbitration selects a subset dynamically.
-`Snapshot` owns a validated graph copy, exposes only const views, and embeds
-the bound manifest in its JSON export. It has no visualization dependencies.
-Run timing belongs to the collector/snapshot envelope, not `EventManifest` or
-instrumentation configuration. Store an owned optional timing value; copying a
-graph into a snapshot also freezes its epoch. Track whether an epoch has run
-since the last asserted reset so reset held over several cycles advances only
-once. Check epoch exhaustion before clearing data. The standalone collector
-test owns binding-order, missing/invalid timing, exact JSON integers, initial
-and repeated reset, empty epochs, overflow, and saved-timing coverage.
-Streaming adds pending-reference and pending-edge sets only while explicitly
-enabled. `finish_cycle` validates the delta against retained parent nodes and
-the same manifest checks used by full snapshots; it does not scan historical
-payloads each cycle. Clear pending entries only after the batch has been built
-and validated. Reject callbacks that could mutate an already emitted child.
-Snapshots remain capture-mode objects; bounded-memory collection is separate.
-
-`TRACE_PROCESSOR=/path/to/trace_processor_shell bash rheg/tests/run-event-perfetto.sh`
-builds and runs C++ contracts, compares live output byte-for-byte with standalone
-replay, and queries every emitted prefix using the native Trace Processor CLI.
-No Python package, Python launcher, or local RPC server is used. Supply an
-official native executable (verified with v58.2), not its Python download wrapper.
-For offline JSON dependency resolution, set `NLOHMANN_JSON_SOURCE_DIR` to an
-extracted 3.12.0 source tree. The script reports the tested processor version.
-The producer emits delayed fanout and a same-cycle join with reversed site
-ordering. Native SQL checks cover timestamps/durations, edges, identities, and
-parser diagnostics, explicit track labels, and complete one-cycle slices in
-every flushed prefix. Use named non-thread tracks under a custom top-level
-design group with `child_ordering = LEXICOGRAPHIC`; process/thread descriptors
-ignore this hint. Verify the imported parent relationship and ordering hint in
-every prefix. Disable sibling merging to preserve distinct sites with repeated labels.
-Native tests must verify legacy flow attachment on these tracks as well as
-the absence of synthetic thread association (which adds numeric UI suffixes).
-Use wide arithmetic for the N+1 boundary and validate it before output; test
-adjacent slices and fractional clock periods as well as end-only overflow.
-C++ tests cover invalid batches, strict JSON parsing,
-quantization, overflow, empty traces, and poisoned output streams. The snapshot
-parser rejects duplicate keys, excessive nesting, fractional/negative integer
-fields, overflow, incomplete nodes, and manifest-invalid edges. Converter errors
-are nonzero exits with diagnostics on stderr; stdout may be partial on failure.
-Keep generated traces and downloaded binaries out of version control.
-
-`bash rheg/tests/run-event-collector.sh` exercises the collector without
-CIRCT/Verilator, including all 120 permutations of a small callback set,
-incomplete data, binding misuse, payload errors, cycle order, duplicate edges,
-same-site distinct parents, large identities, and snapshot lifetime across reset.
-
-Run Racket commands (including the collector script's JSON check) with a newly
-created `PLTCOMPILEDROOTS`, following the repository `AGENTS.md`:
+Build/test commands run from the repository root. Use a fresh compiled root for
+the collector script's Racket JSON check, following
+[AGENTS.md](../AGENTS.md#verification):
 
 ```sh
 export PLTCOMPILEDROOTS="$(mktemp -d /tmp/rheg-tests.XXXXXX)"
 bash rheg/tests/run-event-collector.sh
-TRACE_PROCESSOR=/path/to/trace_processor_shell bash rheg/tests/run-event-perfetto.sh
+TRACE_PROCESSOR=/path/to/native/trace_processor_shell bash rheg/tests/run-event-perfetto.sh
 ```
 
-After ABI or generated-descriptor changes, also run the compiler/RTL integration
-fixtures described in the [compiler validation guide](../rhodium/event/DEVELOPING.md#focused-validation).
-Run `make check-boundaries` and `bash tools/check-ci-changes.sh` after package
-moves or dependency changes. Generated traces and build directories stay out
-of version control.
+Use an official native Trace Processor executable, not its Python download
+wrapper (verified with v58.2). The runner reports its version. Offline dependency
+variables are listed in the [build guide](README.md#streaming-to-perfetto).
+No Python package, launcher, or RPC server participates in these tests.
+
+| Boundary | Required evidence |
+|---|---|
+| Collector callbacks | All 120 order permutations, incomplete data, binding misuse, payload errors, cycle order, edge deduplication and same-site distinct parents |
+| Captures | Unaligned fields, bool/signed/unsigned values, a 65-bit decimal value, malformed schemas and exact raw preservation |
+| Snapshots and timing | Binding order, missing/invalid timing, exact 64-bit JSON values, immutable copies, initial/held/empty reset epochs and exhaustion |
+| Streaming and replay | Byte-identical output, watermarks, every flushed prefix, delayed fanout and same-cycle joins with reversed site ordering |
+| Native display | One-cycle durations, fractional periods, N+1 overflow, track hierarchy/order, repeated labels without thread association, flow attachment, metadata even in empty traces and no parser errors |
+| Disassembly | RV32/RV64, compressed/FP/CSR instructions, PC-relative targets and wraparound, `auipc`, unknown fallbacks, explicit aliases, ordinary fields named instruction, multi-instruction fallback and live/replay parity |
+| Failure handling | Strict JSON rejection, invalid batches, poisoned output streams, nonzero converter errors and empty/malformed inputs |
+
+Use the real native importer for wire-format changes, not just a matching local
+decoder. After ABI or descriptor changes, run the
+[compiler/RTL fixtures](../rhodium/event/DEVELOPING.md#focused-validation). For
+simulator integration, run the [trace smoke](../sims/DEVELOPING.md#event-export-integration).
+Run `make check-boundaries` and `bash tools/check-ci-changes.sh` after package or
+dependency changes. Keep traces, downloaded tools, and build artifacts untracked.

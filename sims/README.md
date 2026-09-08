@@ -122,18 +122,17 @@ for transfer predicates, squash behavior, payloads, and the distinction between
 WB arrival and retirement. These pipeline events have their own root; they are
 not connected through unmodeled cache/MMU transactions to the memory checkpoints.
 
-The emitter generates the manifest and C++ clock constant from the same harness
-configuration as the instrumented RTL. The current SimpleSoC configuration is
-100 MHz; export uses that frequency, not the testbench delay or timer timebase.
-The driver binds metadata before callbacks and flushes each sampled cycle on
-the following falling edge, including the final cycle before exit or timeout.
-Only the initial reset epoch is supported by this driver. A timeout returns
-failure but leaves the settled prefix available for diagnosis; output after an
-export/I/O failure must be treated as incomplete.
+The trace uses the SoC's configured frequency (currently 100 MHz for SimpleSoC),
+not the testbench delay or timer timebase. Tracks identify stages; instruction
+slices show mnemonics, with full assembly in their arguments. See the
+[RHEG display contract](../rheg/README.md#perfetto-display-and-queries) for timing,
+metadata, and SQL queries. Only the initial reset epoch is supported by this
+driver. Exit and timeout flush the final settled cycle. A timeout returns failure
+but leaves an importable prefix; output after an export/I/O failure is incomplete.
 
 The optional build requires CMake and the [RHEG exporter dependencies](../rheg/README.md#streaming-to-perfetto).
-For offline builds, set `NLOHMANN_JSON_SOURCE_DIR` to an extracted pinned
-nlohmann JSON 3.12.0 tree. Set `BUILD_JOBS` to bound native compilation (default 4).
+That guide also lists the offline source-tree variables for JSON and the Spike
+disassembler. Set `BUILD_JOBS` to bound native compilation (default 4).
 
 ## Run a target
 

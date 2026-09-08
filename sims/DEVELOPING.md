@@ -62,6 +62,9 @@ and configured frequency alongside MLIR. The opt-in build links `rheg_dpi.cc`
 with the independent RHEG libraries. Do not duplicate collector or encoder
 logic in this adapter. `TestDriver.v` releases reset and observes completion on
 falling edges; trace batches therefore follow all rising-edge callbacks.
+Bind descriptor and timing before callbacks, and flush the final settled cycle
+before normal exit or timeout. Keep emitter, generated clock constant, descriptor,
+and RTL tied to the same harness configuration.
 Verilator's generated link rule omits user archives from its prerequisites.
 When the outer simulator target is stale, `verilator/relink.mk` marks only the
 generated executable target phony to force linking. Its model archive still
@@ -92,6 +95,9 @@ stages, exact permitted edge families, one parent per non-root event, no duplica
 children, matching RV64 PCs, and one-cycle downstream latency (elastic IF/ID may
 take longer). It requires repeated fetched PCs to exercise distinct occurrences.
 PC and instruction checks use named captures, independently of core bundle layout.
+Select stages through track names, not mnemonic slice names, and check full
+disassembly separately from the mnemonic. Generic display/schema rules belong
+to [RHEG](../rheg/DEVELOPING.md#perfetto-encoding), not this adapter.
 Memory pairs explicitly retain raw capture for their payload-equality checks.
 
 ### Other simulation contracts
