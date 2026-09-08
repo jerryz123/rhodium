@@ -1156,6 +1156,10 @@ encoding and accepts `~format` overrides. Named fields and explicit raw
 The `riscv` format additionally requires `~isa` and `~pc`; the PC reference must
 name a same-site hex/unsigned capture of matching XLEN. The layer checks metadata
 shape without importing an ISA decoder; disassembly remains host-side export.
+The `enum` format derives symbols from the captured hardware enum via shared
+variant-schema support. `~label: #true` explicitly selects at most one enum
+capture as the exported event name. Revalidate directly constructed field
+descriptors against the original enum type; see the linked capture contract.
 
 Static routes alone do not authorize runtime instrumentation. The optional
 `InterfaceTraceCombinational` contract certifies zero-storage, non-inventing,

@@ -14,6 +14,7 @@ void validate_capture_schema(const Manifest& manifest) {
   for (std::size_t site = 0; site < manifest.fields.size(); ++site) {
     std::uint64_t remaining = manifest.payload_widths[site];
     std::set<std::string> names;
+    bool labeled = false;
     for (const auto& field : manifest.fields[site]) {
       if (field.name.empty() || !names.insert(field.name).second)
         throw std::runtime_error("duplicate or empty capture field name");
@@ -26,8 +27,25 @@ void validate_capture_schema(const Manifest& manifest) {
       if (!field.width || field.width > remaining || field.offset != remaining - field.width)
         throw std::runtime_error("invalid capture field layout");
       if (field.encoding != "hex" && field.encoding != "unsigned" &&
-          field.encoding != "signed" && field.encoding != "bool" && field.encoding != "riscv")
+          field.encoding != "signed" && field.encoding != "bool" && field.encoding != "riscv" && field.encoding != "enum")
         throw std::runtime_error("unsupported capture encoding");
+      if (field.encoding == "enum") {
+        if (field.width > 64 || field.symbols.empty())
+          throw std::runtime_error("enum capture requires symbols and at most 64 bits");
+        std::set<std::uint64_t> values;
+        std::set<std::string> symbols;
+        for (const auto& symbol : field.symbols) {
+          if (symbol.second.empty() || symbol.second.find('\0') != std::string::npos ||
+              !values.insert(symbol.first).second || !symbols.insert(symbol.second).second ||
+              (field.width < 64 && symbol.first >= (std::uint64_t(1) << field.width)))
+            throw std::runtime_error("invalid or duplicate enum symbol");
+        }
+      } else if (!field.symbols.empty() || field.label) {
+        throw std::runtime_error("symbols and label selection require enum capture format");
+      }
+      if (field.label && labeled)
+        throw std::runtime_error("at most one capture may select the event label");
+      labeled = labeled || field.label;
       if (field.encoding == "riscv") {
         if ((field.width != 16 && field.width != 32) ||
             (field.isa.compare(0, 5, "rv32i") && field.isa.compare(0, 5, "rv64i")) ||

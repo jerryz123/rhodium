@@ -123,6 +123,21 @@ invalid encodings, and JSON/C++ table mismatches are errors. The collector
 validates typed descriptors without acquiring a JSON dependency; the shared
 export library interprets the same schema for streaming and replay.
 
+## Enum labels
+
+Fields with `encoding: "enum"` carry a nonempty `symbols` array of
+`{"value":"2","name":"ReadClean"}` entries. Values are exact unsigned decimal
+strings; names and values must be unique and values must fit the field's width
+(1–64 bits). The compiler supplies these tables from hardware enum declarations.
+`Field::symbols` carries the matching numeric/string pairs in the C++ descriptor.
+
+An explicit `label: true` selects one enum field per site as the Perfetto slice
+name. Known values use the member name; unknown values use fixed-width hex.
+Track names and numeric field arguments are unchanged. Enum labels take precedence
+over instruction mnemonics; without selection, existing naming behavior remains.
+Symbol tables live in static track descriptions, not repeated event arguments.
+RHEG contains no CHI-specific opcode table and does not correlate transactions.
+
 ## Instruction disassembly
 
 Fields with `encoding: "riscv"` include `isa` (an explicit RV32I/RV64I ISA
@@ -140,8 +155,9 @@ an architectural legality check. The graph and snapshot preserve the original
 bits, available through the normal field accessors. Live and standalone exports
 use the same formatter.
 
-When a site has exactly one `riscv` field, each Perfetto slice is named with its
-disassembled mnemonic (including aliases such as `li` and `j`), or raw hex for
+Without an explicit enum label, a site with exactly one `riscv` field names each
+Perfetto slice with its disassembled mnemonic (including aliases such as `li`
+and `j`), or raw hex for
 an unknown encoding. The full assembly remains in the field argument. Track
 names retain the site labels, such as `core.s1.fetch`; queries selecting stages
 should join `slice.track_id` to `track.id`. Sites with no instruction field or
@@ -289,7 +305,8 @@ lexicographic child ordering, independent of site IDs or callback order; viewers
 may override this display hint. Occurrence arguments contain only exact
 cycle, sequence, and captured values (legacy snapshots retain their raw words).
 Slice names normally match their site labels; a single tagged instruction uses
-its [disassembled mnemonic](#instruction-disassembly) instead.
+its [disassembled mnemonic](#instruction-disassembly) instead. An explicitly
+selected [enum label](#enum-labels) takes precedence over both.
 Frequency and epoch are emitted once before occurrences as trace metadata,
 available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and
 `cr-rheg.epoch_id`, with exact decimal `str_value` values. Even an empty trace

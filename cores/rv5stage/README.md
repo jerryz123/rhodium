@@ -176,13 +176,16 @@ not an entire transaction or cache occupancy interval:
 | `txdat` | Outgoing data beat, including writeback and dirty snoop data |
 | `rxsnp` | Incoming snoop |
 
+Individual slices use the observed flit's CHI opcode name, such as `ReadClean`,
+`CompData`, or `CompAck`; track names stay `icache.*` and `dcache.*`.
 Captures include numeric CHI opcodes and transaction/source/target IDs where
 present. REQ captures address, size, and retry/ack controls; RSP captures
 DBID/group, response state/error, and credit type; DAT captures DBID/MECID,
 DataID, response state/error, and byte enables, but **not the data payload**.
 SNP captures its byte address (restoring the implicit three low zero bits),
-source/transaction IDs, opcode, and return-to-source control. Opcode values
-remain numeric; there is no host-side CHI opcode formatter yet.
+source/transaction IDs, opcode, and return-to-source control. Opcode names come
+from the channel's hardware enum declaration, not a separate host table. Unknown
+encodings use hex slice names and retain their numeric opcode argument.
 
 Each channel is an explicit root and terminal observation. These events do not
 infer request-to-response ancestry through CHI transaction state, NoC/Home/LLC

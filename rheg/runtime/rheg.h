@@ -9,6 +9,7 @@
 #include <set>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace rheg {
@@ -31,9 +32,11 @@ struct Field {
   std::uint32_t width, offset;
   std::string encoding;
   std::string isa = {}, pc = {};
+  std::vector<std::pair<std::uint64_t, std::string>> symbols = {};
+  bool label = false;
   bool operator==(const Field& other) const {
-    return std::tie(name, width, offset, encoding, isa, pc) ==
-           std::tie(other.name, other.width, other.offset, other.encoding, other.isa, other.pc);
+    return std::tie(name, width, offset, encoding, isa, pc, symbols, label) ==
+           std::tie(other.name, other.width, other.offset, other.encoding, other.isa, other.pc, other.symbols, other.label);
   }
 };
 struct FieldValue {

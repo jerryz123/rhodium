@@ -77,7 +77,12 @@ inline. These limits bound dictionary memory, not whole-epoch graph retention.
 Use non-thread tracks under a custom design group with
 `child_ordering = LEXICOGRAPHIC`; process/thread descriptors ignore that hint.
 Disable sibling merging to keep repeated labels distinct. Track labels remain
-site labels; only a site with exactly one `riscv` field gets mnemonic slice names.
+site labels. An explicit enum label field uses the compiler-supplied symbol table,
+with fixed-width hex for unknown values and unchanged numeric capture arguments.
+Validate unique fitting symbol values/names and at most one selected label; include
+both symbols and selection in JSON/C++ descriptor equality. Never duplicate domain
+opcode tables in RHEG or infer label selection from a field's name. Without an
+explicit label, only a site with exactly one `riscv` field gets mnemonic slice names.
 Use the full formatted field as the argument and its first token as the name;
 unknown hex and ambiguous multi-instruction sites follow the README fallback.
 

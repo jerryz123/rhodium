@@ -14,6 +14,9 @@ import:
   "../support/generator-parameters.rhm".substitute_generator_parameters
   "../support/instance-members.rhm".InstanceMembers
   "../support/instance-members.rhm".register_member_resolver
+  "../support/variants.rhm".enum_type
+  "../support/variants.rhm".enum_members
+  "../support/variants.rhm".enum_encoding
 
 export:
   InterfaceDirection
@@ -496,12 +499,14 @@ class InterfaceTransformGroup(module_def :: Module,
                               trace_model :: False || InterfaceTraceModel = #false):
   implements ModuleMetadataPayload
 class InterfaceEventField(name :: String, value :: Value, encoding :: String,
-                          isa :: String = "", pc :: String = "")
+                          isa :: String = "", pc :: String = "",
+                          symbols :: List.of(Map) = [], label :: Boolean = #false)
 
 // Capture expressions are local observations, independent of lineage metadata.
 fun event_field(name :: String, value :: HardwareEntity,
                 ~format: encoding :: False || String = #false,
                 ~isa: isa :: String = "", ~pc: pc :: String = "",
+                ~label: label :: Boolean = #false,
                 ~location: location :: Location = Location()) :: InterfaceEventField:
   def captured = kernel.read(value, location)
   unless name is_a AsciiIdentifier && flat_data_type(captured.type)
@@ -509,7 +514,7 @@ fun event_field(name :: String, value :: HardwareEntity,
   when name in ["cycle", "sequence"]
   | error(~who: #'event_field, "reserved capture field name: " ++ name)
   def format = encoding || (if bool_type(captured.type) | "bool" | (if signed_arithmetic_type(captured.type) | "signed" | "hex"))
-  unless format in ["hex", "unsigned", "signed", "bool", "riscv"]
+  unless format in ["hex", "unsigned", "signed", "bool", "riscv", "enum"]
   | error(~who: #'event_field, "unsupported capture format")
   when format == "bool" && captured.type.packed_width() != 1
   | error(~who: #'event_field, "boolean capture must be one bit")
@@ -519,7 +524,16 @@ fun event_field(name :: String, value :: HardwareEntity,
       | error(~who: #'event_field, "RISC-V capture requires 16/32 bits, an rv32i/rv64i ISA, and a PC field name")
   | unless isa == "" && pc == ""
     | error(~who: #'event_field, "ISA and PC options require RISC-V capture format")
-  InterfaceEventField(name, captured, format, isa, pc)
+  def symbols:
+    if format == "enum"
+    | block:
+        unless enum_type(captured.type) && captured.type.packed_width() <= 64
+        | error(~who: #'event_field, "enum capture requires a hardware enum of at most 64 bits")
+        enum_members(captured.type).map(fun (member): {"name": member, "value": to_string(enum_encoding(captured.type, member))})
+    | []
+  when label && format != "enum"
+  | error(~who: #'event_field, "event label selection requires enum capture format")
+  InterfaceEventField(name, captured, format, isa, pc, symbols, label)
 
 class InterfaceEventGroup(module_def :: Module,
                           site_index :: Nat,
@@ -1916,12 +1930,16 @@ fun describe_interface_event(handle :: Handle,
   def names = MutableSet{}
   for (field in fields):
     // Validate even descriptors constructed directly through the public class.
-    event_field(field.name, field.value, ~format: field.encoding, ~isa: field.isa, ~pc: field.pc, ~location: location)
+    def normalized = event_field(field.name, field.value, ~format: field.encoding, ~isa: field.isa, ~pc: field.pc, ~label: field.label, ~location: location)
+    unless field.symbols == normalized.symbols
+    | error(~who: #'describe_interface_event, "enum symbols must match the captured hardware type")
     when field.name in names
     | error(~who: #'describe_interface_event, "duplicate capture field name: " ++ field.name)
     names.add(field.name)
     unless field.value.module_def === module_def
     | error(~who: #'describe_interface_event, "capture field must belong to the annotated module")
+  when fields.filter(~keep: fun (field): field.label).length() > 1
+  | error(~who: #'describe_interface_event, "at most one capture may select the event label")
   for (field in fields):
     when field.encoding == "riscv"
     | def pc_field = fields.find(fun (candidate): candidate.name == field.pc)

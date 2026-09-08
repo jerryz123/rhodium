@@ -110,7 +110,8 @@ Memory pairs explicitly retain raw capture for their payload-equality checks.
 `tests/check-cache-events.sql` checks observed private-cache CHI descriptors
 (the importer omits idle channels from its track table),
 exact named capture layouts, actual I/D request and refill-data activity, node
-identity, successful response status, byte-addressed snoops, and isolated event
+identity, decoded opcode slice names against per-channel enum metadata, successful
+response status, byte-addressed snoops, and isolated event
 lineage at these opaque transaction boundaries. Keep scalar and external-memory
 checks scoped to their own tracks when adding cache channels. See the
 [RV5Stage annotation owner](../cores/rv5stage/DEVELOPING.md#pipeline-event-annotations).

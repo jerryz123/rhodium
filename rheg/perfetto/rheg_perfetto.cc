@@ -79,12 +79,21 @@ Description describe(const Json& json) {
       const auto& fields = site.at("fields");
       require(fields.is_array(), "capture fields must be an array");
       std::vector<Field> captures;
-      for (const auto& field : fields)
+      for (const auto& field : fields) {
         captures.push_back({field.at("name").get<std::string>(),
                            static_cast<std::uint32_t>(number(field.at("width"), UINT32_MAX)),
                            static_cast<std::uint32_t>(number(field.at("offset"), UINT32_MAX)),
                            field.at("encoding").get<std::string>(),
                            field.value("isa", std::string()), field.value("pc", std::string())});
+        auto& capture = captures.back();
+        capture.label = field.value("label", false);
+        if (field.contains("symbols")) {
+          require(field.at("symbols").is_array(), "enum symbols must be an array");
+          require(capture.encoding == "enum", "symbols require enum capture format");
+          for (const auto& symbol : field.at("symbols"))
+            capture.symbols.emplace_back(number(symbol.at("value")), symbol.at("name").get<std::string>());
+        }
+      }
       result.manifest.fields.push_back(std::move(captures));
     }
   }
@@ -172,7 +181,7 @@ void capture_annotation(std::string& event, PendingInterns& interns, const Field
   const auto value = capture_field(node, field);
   const auto& name = field.name;
   if (field.encoding == "hex" || field.width > 64 ||
-      (field.encoding == "unsigned" && value.unsigned_value() > INT64_MAX)) {
+      ((field.encoding == "unsigned" || field.encoding == "enum") && value.unsigned_value() > INT64_MAX)) {
     annotation(event, interns, name, field.encoding == "hex" ? value.hex() : value.decimal());
   } else {
     std::string arg;
@@ -286,6 +295,12 @@ struct PerfettoWriter::Impl {
           Json capture = {{"name",field.name}, {"width",field.width},
                           {"offset",field.offset}, {"encoding",field.encoding}};
           if (field.encoding == "riscv") { capture["isa"] = field.isa; capture["pc"] = field.pc; }
+          if (field.encoding == "enum") {
+            capture["symbols"] = Json::array();
+            for (const auto& symbol : field.symbols)
+              capture["symbols"].push_back({{"value",std::to_string(symbol.first)}, {"name",symbol.second}});
+          }
+          if (field.label) capture["label"] = true;
           site["fields"].push_back(std::move(capture));
         }
       }
@@ -366,6 +381,7 @@ struct PerfettoWriter::Impl {
       std::string fields;
       integer(fields, 9, 1);
       std::string mnemonic;
+      std::string selected_label;
       std::size_t instruction_count = 0;
       interns.reference(fields, 3, 22, InternedStrings::Category, "rhodium.event");
       // Unique counters remain exact decimal strings, without filling the dictionary.
@@ -380,6 +396,13 @@ struct PerfettoWriter::Impl {
             ++instruction_count;
           }
           else capture_annotation(fields, interns, field, node);
+          if (field.label) {
+            const auto value = capture_field(node, field);
+            const auto code = value.unsigned_value();
+            const auto symbol = std::find_if(field.symbols.begin(), field.symbols.end(),
+                [&](const auto& entry) { return entry.first == code; });
+            selected_label = symbol == field.symbols.end() ? value.hex() : symbol->second;
+          }
         }
       } else {
         // Old snapshots retain their raw display when no capture schema exists.
@@ -387,8 +410,9 @@ struct PerfettoWriter::Impl {
         for (auto word : node.words) words.push_back(word.second);
         annotation(fields, interns, "payload_words_lsw_first", Json(words).dump());
       }
-      // Only an unambiguous instruction capture names the slice; tracks retain site labels.
+      // Explicit enum labels override instruction naming; tracks retain site labels.
       interns.reference(fields, 10, 23, InternedStrings::Name,
+                        !selected_label.empty() ? selected_label :
                         instruction_count == 1 ? mnemonic : description.sites[ref.site].label);
       event(stream, interns, ref, node.cycle, fields);
       for (auto parent : parents[ref]) {

@@ -101,6 +101,7 @@ values, and incompatible formats fail during elaboration.
 | `signed` | Two's-complement integer; default for SInt |
 | `bool` | One-bit Boolean; default for Bool |
 | `riscv` | Host-disassembled instruction, with explicit ISA and PC reference |
+| `enum` | Numeric capture with a compiler-derived hardware enum symbol table (up to 64 bits) |
 
 For disassembly, replace the instruction entry with:
 
@@ -112,9 +113,24 @@ The instruction must be 16 or 32 bits. `~pc` names another capture at the same
 site with hex/unsigned format and the ISA's XLEN width; it does not capture PC
 again. ISA and PC options are invalid for other formats. The compiler validates
 shape and references; the exporter validates ISA extensions. Capture names do
-not imply formatting, and enum labels are not decoded. See
+not imply formatting. See
 [RHEG instruction formatting](../../rheg/README.md#instruction-disassembly) for
 mnemonic slice names, full assembly arguments, and fallback behavior.
+
+To name events with a hardware enum member, explicitly select that capture:
+
+```rhombus
+opcode(~format: "enum", ~label: #true): flit.opcode
+```
+
+The compiler derives `symbols` from the enum declaration; no handwritten decoder
+table is needed. At most one field per site may have `~label: #true`, currently
+only with `enum` format. Its decoded member name overrides instruction-based
+slice naming, while the track keeps its site label. Unknown values use
+fixed-width hex labels. The field argument remains numeric, including for known
+members; enum captures without label selection do not rename events. Ordinary
+Bits values cannot request enum format. These options do not infer transaction
+relationships or change the captured bit layout.
 
 For an intentional whole-payload dump, use `~payload: #true` to create a single
 `raw` capture; do not combine it with named fields. Low-level adapters can pass
@@ -125,8 +141,8 @@ accepts root and terminal metadata.
 All captures sample with their occurrence's transfer predicate. They are local
 observations, not extra values propagated along dependency edges. The manifest's
 ordered `sites[].fields` records names, source types, widths, LSB offsets, and
-encodings, plus ISA/PC metadata when requested. Packing is most-significant-field
-first; `payload_width` sums selected widths, not the functional payload width.
+encodings, plus ISA/PC or enum symbols/label metadata when requested. Packing is
+most-significant-field first; `payload_width` sums selected widths, not the functional payload width.
 No selection means no payload DPI calls. See [named graph access](../../rheg/README.md#named-captures).
 
 ## Infer a manifest

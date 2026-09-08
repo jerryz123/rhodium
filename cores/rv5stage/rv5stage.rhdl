@@ -24,7 +24,7 @@ import:
 fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String):
   def requests = cache.field("requests") |> trace_event(label ++ ".txreq", ~root: #true, ~terminal: #true, ~fields: flit):
     address: flit.address
-    opcode(~format: "unsigned"): flit.opcode
+    opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
     src_id(~format: "unsigned"): flit.src_id
     tgt_id(~format: "unsigned"): flit.tgt_id
@@ -37,7 +37,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     def source = if outgoing | cache.field(channel) | outer.field(channel)
     def sink = if outgoing | outer.field(channel) | cache.field(channel)
     def responses = source |> trace_event(label ++ "." ++ suffix, ~root: #true, ~terminal: #true, ~fields: flit):
-      opcode(~format: "unsigned"): flit.opcode
+      opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
       src_id(~format: "unsigned"): flit.src_id
       tgt_id(~format: "unsigned"): flit.tgt_id
@@ -51,7 +51,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     def source = if outgoing | cache.field(channel) | outer.field(channel)
     def sink = if outgoing | outer.field(channel) | cache.field(channel)
     def data = source |> trace_event(label ++ "." ++ suffix, ~root: #true, ~terminal: #true, ~fields: flit):
-      opcode(~format: "unsigned"): flit.opcode
+      opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
       src_id(~format: "unsigned"): flit.src_id
       tgt_id(~format: "unsigned"): flit.tgt_id
@@ -64,7 +64,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
 
   def snoops = outer.field("snoops") |> trace_event(label ++ ".rxsnp", ~root: #true, ~terminal: #true, ~fields: flit):
     address: flit.address ++ bits(0, 3)
-    opcode(~format: "unsigned"): flit.opcode
+    opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
     src_id(~format: "unsigned"): flit.src_id
     ret_to_src: flit.ret_to_src

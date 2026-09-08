@@ -169,6 +169,10 @@ record packing independently of lineage plans. Generate JSON and C++ tables
 from the same manifest, not a second analysis. Use the JSON string encoder for
 labels/locations and a content-checked raw C++ delimiter to preserve JSON exactly.
 Decoder implementation belongs to RHEG; compiler metadata does not disassemble.
+Enum capture tables come from the frontend's nominal variant schema, with decimal
+string values to preserve full-width encodings. Preserve table order and explicit
+label selection through analysis and JSON/C++ generation. This is display metadata:
+it adds neither payload bits nor lineage state and requires no CIRCT support.
 
 ## Focused validation
 

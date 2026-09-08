@@ -14,7 +14,7 @@ assert_query() {
   fi
 }
 assert_query "SELECT count(*)>0 AND sum(t.name='memory-request')>0 AND sum(t.name='memory-accept')>0 AND sum(t.name NOT IN ('memory-request','memory-accept','memory-response','soc-response','core.s1.fetch','core.s2.decode','core.s3.execute','core.s4.memory','core.s5.wb') AND t.name NOT GLOB '[id]cache.*')=0 AND sum(s.dur!=10)=0 AND max(s.depth)=0 AS ok FROM slice s JOIN track t ON t.id=s.track_id"
-assert_query "SELECT count(*)>0 AND sum(t.name=s.name)=count(*) AS ok FROM slice s JOIN track t ON t.id=s.track_id WHERE t.name NOT GLOB 'core.*'"
+assert_query "SELECT count(*)>0 AND sum(t.name=s.name)=count(*) AS ok FROM slice s JOIN track t ON t.id=s.track_id WHERE t.name NOT GLOB 'core.*' AND t.name NOT GLOB '[id]cache.*'"
 assert_query "SELECT count(*)=(SELECT count(*) FROM slice) AND count(DISTINCT p.id)=1 AND sum(p.name='SoCHarness' AND p.parent_id IS NULL AND EXTRACT_ARG(p.source_arg_set_id,'child_ordering')='lexicographic')=count(*) AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN track p ON p.id=t.parent_id"
 assert_query "SELECT count(*)=0 AS ok FROM slice s JOIN thread_track t ON t.id=s.track_id"
 assert_query "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"

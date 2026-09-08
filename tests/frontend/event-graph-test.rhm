@@ -24,12 +24,25 @@ def hierarchy_inside = hierarchical.sites.filter(
 def json = event_manifest_to_json(linear)
 def cpp = event_manifest_to_cpp(linear)
 def captures = infer_event_manifest(fixture.captures)
+def enum_captures = infer_event_manifest(fixture.enum_captures)
 def unusual_label = "quote\" slash\\ newline\n tab\t null\u0000 bell\u0007 λ )rhdl0"
 def unusual = EventManifest(linear.logical, [
   EventSite("odd", unusual_label, "mod", ["top"], 0, "Valid", #false, #false, #false, "<unknown>")
 ], [])
 
 check:
+  enum_captures.sites[0].payload_width ~is 14
+  enum_captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding, field.label]) ~is [
+    ["operation", 7, 7, "enum", #true], ["observed", 7, 0, "enum", #false]
+  ]
+  enum_captures.sites[0].fields[0].symbols ~is [{"name": "Read", "value": "2"}, {"name": "Write", "value": "5"}]
+  event_manifest_to_json(enum_captures).contains("\"label\":true") ~is #true
+  event_manifest_to_cpp(enum_captures).contains("{{2ULL,\"Read\"},{5ULL,\"Write\"}},true") ~is #true
+  fixture.invalid_captures("enum") ~throws "enum capture requires"
+  fixture.invalid_captures("enum-wide") ~throws "enum capture requires"
+  fixture.invalid_captures("enum-labels") ~throws "at most one capture"
+  fixture.invalid_captures("enum-symbols") ~throws "symbols must match"
+  fixture.invalid_captures("label-format") ~throws "label selection requires"
   captures.sites.map(fun (site): site.payload_width) ~is [102, #false]
   captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding]) ~is [
     ["pc", 64, 38, "hex"], ["instruction", 32, 6, "riscv"],

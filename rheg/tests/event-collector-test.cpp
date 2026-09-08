@@ -51,6 +51,29 @@ int main() {
   }
   Manifest instructions{"trusted", {96}, {}, {{{"pc",64,32,"hex"}, {"opcode",32,0,"riscv","rv64im","pc"}}}};
   Graph instruction_graph; instruction_graph.bind_manifest(instructions);
+  Manifest enums{"trusted", {7}, {}, {{{"opcode",7,0,"enum","","",{{2,"Read"},{5,"Write"}},true}}}};
+  Graph enum_graph; enum_graph.bind_manifest(enums);
+  enum_graph.record_node({0,0}, 0, 7); enum_graph.record_payload({0,0}, 0, 127);
+  require(enum_graph.field({0,0}, "opcode").unsigned_value() == 127); // Unknown encodings remain valid observations.
+  for (const auto& symbols : std::vector<std::vector<std::pair<std::uint64_t,std::string>>>{
+      {{2,"Read"},{2,"Write"}}, {{2,"Read"},{5,"Read"}}, {{128,"Overflow"}}, {{2,""}}, {{2,std::string("x\0y",3)}}}) {
+    auto bad = enums; bad.fields[0][0].symbols = symbols;
+    rejects([&] { validate_capture_schema(bad); }, "enum symbol");
+  }
+  for (const unsigned width : {7U,65U}) {
+    auto bad = enums; bad.payload_widths[0] = width; bad.fields[0][0].width = width;
+    if (width == 7) bad.fields[0][0].symbols.clear();
+    rejects([&] { validate_capture_schema(bad); }, "enum capture requires");
+  }
+  auto non_enum = enums; non_enum.fields[0][0].encoding = "unsigned";
+  rejects([&] { validate_capture_schema(non_enum); }, "require enum capture");
+  auto two_labels = enums; two_labels.payload_widths[0] = 14;
+  two_labels.fields[0].push_back(two_labels.fields[0][0]);
+  two_labels.fields[0][0].offset = 7; two_labels.fields[0][1].name = "other";
+  rejects([&] { validate_capture_schema(two_labels); }, "at most one capture");
+  auto wide_enum = enums; wide_enum.payload_widths[0] = 64; wide_enum.fields[0][0].width = 64;
+  wide_enum.fields[0][0].symbols = {{UINT64_MAX,"All"}};
+  validate_capture_schema(wide_enum);
   for (const auto& field : std::vector<Field>{
       {"opcode",32,0,"riscv","","pc"}, {"opcode",32,0,"riscv","rv64i","absent"},
       {"opcode",32,0,"riscv","rv32i","pc"}, {"opcode",32,0,"hex","rv64i","pc"}}) {

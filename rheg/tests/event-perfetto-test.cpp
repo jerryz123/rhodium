@@ -93,6 +93,64 @@ void instruction_trace(const std::string& path, const std::string& isa, unsigned
   check(flow_counts(live.str()) == std::make_pair(0U, 0U)); // This site cannot parent any event.
   std::ofstream file(path, std::ios::binary); file << live.str(); file.close(); check(bool(file));
 }
+void enum_trace(const std::string& path) {
+  Manifest manifest{R"({"format":"rhodium-event-graph","version":1,"top":"Enums","sites":[
+    {"id":"req","label":"cache.txreq","payload_width":7,"fields":[{"name":"opcode","width":7,"offset":0,"encoding":"enum","symbols":[{"value":"1","name":"ReadShared"},{"value":"2","name":"ReadClean"}],"label":true}]},
+    {"id":"rsp","label":"cache.txrsp","payload_width":7,"fields":[{"name":"operation","width":7,"offset":0,"encoding":"enum","symbols":[{"value":"1","name":"SnpResp"},{"value":"2","name":"CompAck"}],"label":true}]},
+    {"id":"plain","label":"unselected","payload_width":7,"fields":[{"name":"opcode","width":7,"offset":0,"encoding":"enum","symbols":[{"value":"1","name":"NotALabel"}]}]},
+    {"id":"wide","label":"wide","payload_width":64,"fields":[{"name":"opcode","width":64,"offset":0,"encoding":"enum","symbols":[{"value":"18446744073709551615","name":"All"}],"label":true}]}
+    ],"dependencies":[]})", {7,7,7,64}, {}, {
+      {{"opcode",7,0,"enum","","",{{1,"ReadShared"},{2,"ReadClean"}},true}},
+      {{"operation",7,0,"enum","","",{{1,"SnpResp"},{2,"CompAck"}},true}},
+      {{"opcode",7,0,"enum","","",{{1,"NotALabel"}}}},
+      {{"opcode",64,0,"enum","","",{{UINT64_MAX,"All"}},true}}
+    }};
+  Graph graph; graph.bind_manifest(manifest); graph.bind_timing({100000000}); graph.begin_stream();
+  std::ostringstream live; PerfettoWriter writer(live, manifest, {100000000});
+  for (std::uint64_t cycle = 0; cycle < 3; ++cycle) {
+    const unsigned value = cycle == 2 ? 127 : cycle + 1;
+    for (unsigned site = 0; site < 4; ++site) {
+      graph.record_node({site,cycle}, cycle, site == 3 ? 64 : 7);
+      graph.record_payload({site,cycle}, 0, site == 3 ? UINT32_MAX : value);
+      if (site == 3) graph.record_payload({site,cycle}, 1, UINT32_MAX);
+    }
+    writer.write(graph.finish_cycle(cycle));
+  }
+  graph.end_stream();
+  std::istringstream saved(graph.snapshot().json());
+  std::ostringstream replay; write_perfetto(replay, read_event_trace(saved));
+  check(live.str() == replay.str(), "enum live/replay bytes differ");
+  std::ofstream file(path, std::ios::binary); file << live.str(); file.close(); check(bool(file));
+  auto mismatch = manifest; mismatch.fields[0][0].symbols[0].second = "Different";
+  rejects([&] { PerfettoWriter invalid(replay, mismatch, {100000000}); }, "descriptor differs");
+  mismatch = manifest; mismatch.fields[0][0].label = false;
+  rejects([&] { PerfettoWriter invalid(replay, mismatch, {100000000}); }, "descriptor differs");
+  for (const auto& substitution : std::vector<std::pair<std::string,std::string>>{
+      {"\"symbols\":[", "\"symbols\":false,\"ignored\":["},
+      {"\"value\":\"1\"", "\"value\":true"},
+      {"\"label\":true", "\"label\":\"yes\""}}) {
+    auto invalid = manifest;
+    invalid.json.replace(invalid.json.find(substitution.first), substitution.first.size(), substitution.second);
+    try { PerfettoWriter rejected(replay, invalid, {100000000}); }
+    catch (const std::exception&) { continue; }
+    check(false, "invalid enum JSON was accepted");
+  }
+  // A selected enum, regardless of its field name, wins over an instruction mnemonic.
+  auto override_manifest = instruction_manifest("rv64i", 64);
+  auto& chosen = override_manifest.fields[0][2];
+  chosen.encoding = "enum"; chosen.symbols = {{0x00500513,"Explicit"}}; chosen.label = true;
+  const std::string old_encoding = "\"encoding\":\"hex\"";
+  override_manifest.json.replace(override_manifest.json.rfind(old_encoding), old_encoding.size(),
+      "\"encoding\":\"enum\",\"symbols\":[{\"value\":\"5244179\",\"name\":\"Explicit\"}],\"label\":true");
+  Graph override_graph; override_graph.bind_manifest(override_manifest); override_graph.bind_timing({100000000});
+  override_graph.record_node({0,0}, 0, 128);
+  override_graph.record_payload({0,0}, 0, 0x00500513);
+  override_graph.record_payload({0,0}, 1, 0x00500513);
+  override_graph.record_payload({0,0}, 2, 0x1000);
+  override_graph.record_payload({0,0}, 3, 0);
+  std::ofstream explicit_file(path + ".override", std::ios::binary);
+  write_perfetto(explicit_file, override_graph.snapshot()); explicit_file.close(); check(bool(explicit_file));
+}
 void interning_trace(const std::string& path) {
   Graph graph; graph.bind_manifest(instruction_manifest("rv64i", 64)); graph.bind_timing({100000000});
   graph.begin_stream();
@@ -125,6 +183,7 @@ void interning_trace(const std::string& path) {
 }
 int main(int argc, char** argv) {
   check(argc == 2);
+  enum_trace(std::string(argv[1]) + "/enums.pftrace");
   interning_trace(std::string(argv[1]) + "/interning.pftrace");
   instruction_trace(std::string(argv[1]) + "/riscv64.pftrace", "rv64imafdc_zicsr", 64);
   instruction_trace(std::string(argv[1]) + "/riscv64-properties.pftrace", "rv64imafdcb_za64rs_zba_zbb_zbs_zcmop_zic64b_zicbop_zicboz_zawrs_zihintpause_zihintntl_zicntr_zicond_zicsr_zifencei_zihpm_zimop_zkt", 64);

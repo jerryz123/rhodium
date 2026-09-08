@@ -154,6 +154,9 @@ replication outputs, including a dropping branch.
 Keep private-cache outer-channel observations in `rv5stage.rhdl` at the
 L1I/L1D-to-CHI composition boundary. The local connection helper preserves all
 six ready-valid channel directions and captures only named scalar metadata.
+Select each channel's enum opcode with `~format: "enum", ~label: #true`; do not
+hand-maintain REQ/RSP/DAT/SNP decoding tables in the exporter. Check decoded slice
+names independently of numeric opcode captures in the trace smoke.
 Do not infer CHI transaction lineage by matching TxnID/DBID values or by routing
 topology. These explicit root/terminal sites are separate from the scalar
 pipeline graph. After changing them, run the SimpleSoC trace smoke; its
