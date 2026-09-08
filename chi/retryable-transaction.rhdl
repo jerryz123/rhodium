@@ -209,7 +209,7 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
   def response_retry = incoming_response.opcode === CHIRspOpcode.RetryAck
   def response_protocol_credit = incoming_response.opcode === CHIRspOpcode.PCrdGrant
   def response_effects = chi_response_effects(profile, incoming_response.opcode)
-  def response_progress = or_reduce(response_effects)
+  def response_progress = response_effects.or_reduce()
   def progress_expected = active_state & attempt_sent & response_progress & !or_reduce(
     response_effects & received_state
   )

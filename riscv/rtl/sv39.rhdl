@@ -44,12 +44,12 @@ fun sv39_leaf(pte :: Sv39Pte()) :~ Bool:
   pte.read ||| pte.execute
 
 fun sv39_pte_structurally_valid(pte :: Sv39Pte()) :~ Bool:
-  pte.valid & !(pte.write & !pte.read) & !or_reduce(pte.reserved)
+  pte.valid & !(pte.write & !pte.read) & !pte.reserved.or_reduce()
 
 fun sv39_superpage_aligned(pte :: Sv39Pte(), level :: Bits(2)) :~ Bool:
-  mux_lookup(level, ~default: !or_reduce(pte.ppn[0..18])):
+  mux_lookup(level, ~default: !pte.ppn[0..18].or_reduce()):
     0: Bool(#true)
-    1: !or_reduce(pte.ppn[0..9])
+    1: !pte.ppn[0..9].or_reduce()
 
 fun sv39_physical_address(virtual_address :: Bits(64), pte :: Sv39Pte(), level :: Bits(2)) :~ Bits(56):
   mux_lookup(level, ~default: concat(pte.ppn[18..44], virtual_address[12..30], virtual_address[0..12])):

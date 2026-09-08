@@ -19,7 +19,7 @@ fun raw_float_from_ieee(value :: IEEEFloat) :~ RawFloat(value.type.format.expone
   def fraction = packed_value[0..=(significand_width - 2)]
   def zero_exponent = exponent === bits(0, exponent_width)
   def zero_fraction = fraction === bits(0, significand_width - 1)
-  def normalization_distance = count_leading_zeros(fraction)
+  def normalization_distance = fraction.count_leading_zeros()
   def shifted_fraction = fraction << normalization_distance
   def subnormal_fraction = (shifted_fraction[0..=(significand_width - 3)] ++ bits(0, 1))
   def exponent_width_plus_one = exponent_width + 1

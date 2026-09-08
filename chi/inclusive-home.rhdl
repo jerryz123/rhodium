@@ -314,7 +314,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(!or_reduce(received_snoop_data_ids & snoop_data_id_mask),
            "chi_inclusive_hnf_snoop_data_id_unique")
 
-  def snoops_remaining = or_reduce(pending_snoops)
+  def snoops_remaining = pending_snoops.or_reduce()
   def next_snoop_index = priority_encoder(pending_snoops)
   def next_snoop_node = snoop_node_ids[next_snoop_index]
   def send_snoop = phase === CHIInclusiveHNFPhase.SendSnoop
@@ -396,7 +396,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     home_id,
     subordinate_id,
     request,
-    ~address: mux(send_victim_write_request & !maintenance, victim_address, align_down(request.address, 64)),
+    ~address: mux(send_victim_write_request & !maintenance, victim_address, request.address.align_down(64)),
     ~size: bits(6, 6),
     ~opcode: mux(send_victim_write_request,
                  CHIReqOpcode.WriteNoSnpFull,

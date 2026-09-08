@@ -87,7 +87,7 @@ circuit ALU(xlen :: XLen):
   // logic operations. Optional inversion also provides ANDN/ORN/XNOR.
   def bit_index = right[0..shift_width]
   def bit_mask = one_hot(bit_index).into(Bits(width))
-  def conditional_mask = mux(or_reduce(right), !bits(0, width), bits(0, width))
+  def conditional_mask = mux(right.or_reduce(), !bits(0, width), bits(0, width))
   def logic_right_source = mux_lookup(
     control.logic_right_select,
     ~default: right,
@@ -150,14 +150,14 @@ circuit ALU(xlen :: XLen):
   def count_input = mux(control.count_select === AluCountSelect.Leading, reversed_count_source, count_source)
   def count_index = priority_encoder(count_input)
   def active_count_width = if xlen == XLen.X64 | mux(control.word, bits(32, width), bits(width, width)) | bits(width, width)
-  def zero_count = mux(or_reduce(count_input), count_index.zext(width), active_count_width)
+  def zero_count = mux(count_input.or_reduce(), count_index.zext(width), active_count_width)
   def population_count = popcount(count_source).zext(width)
   def count_result = mux(control.count_select === AluCountSelect.Population, population_count, zero_count)
 
   // These unary transforms are genuinely distinct from the shared arithmetic,
   // logic, shift and count resources.
   def byte_results = for List (byte in 0..(width / 8)):
-    mux(or_reduce(left[(byte * 8)..((byte + 1) * 8)]), bits(0xff, 8), bits(0, 8))
+    mux(left[(byte * 8)..((byte + 1) * 8)].or_reduce(), bits(0xff, 8), bits(0, 8))
   def or_combine_bytes = concat(byte_results.reverse())
   def reversed_bytes = for List (byte in 0..(width / 8)):
     left[(byte * 8)..((byte + 1) * 8)]

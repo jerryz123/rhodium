@@ -128,7 +128,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64),
     prefetch_request.address
   )
-  def prefetch_line_address = align_down(prefetch_translated_address, 64)
+  def prefetch_line_address = prefetch_translated_address.align_down(64)
   def prefetch_physical = physical_map.lookup(prefetch_line_address, prefetch_line_address +& bits(63, width))
   def prefetch_access_permitted = mux_lookup(
     prefetch_request.operation,

@@ -182,7 +182,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   maintenance_response |> maintenance.responses
   def Array(ordinary_requests, management_requests) = core_requests.egress |> demux_flow(2, request => request.access.into(MemoryOperation).is_cache_management().as_bits())
   def management_waiting = management_requests.valid
-  def management_address = rv5stage_chi_address(align_down(management_requests.bits.address, RV5StageCacheLineBytes), p)
+  def management_address = rv5stage_chi_address(management_requests.bits.address.align_down(RV5StageCacheLineBytes), p)
   def management_home = config.home_map.lookup(management_address)
   (
     management_requests |> gate_flow(refill.command.ready & writeback.command.ready & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !refill_installing & (gather_state === RV5StageDataGatherState.Idle))
@@ -202,7 +202,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def maintenance_complete = maintenance.completion.fire()
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
-  def queued_request = or_reduce(core_requests.count)
+  def queued_request = core_requests.count.or_reduce()
   def issue_prefetch = prefetch_valid & !virtual_lookup.valid & !queued_request
   def issue_request :: RV5StageDataReq(xlen) = mux(
     issue_prefetch,
@@ -299,7 +299,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def direct_refill_commands = (
     direct_refill_path
       |> map_flow(request => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width)):
-        line_address: align_down(request.request.address.as_bits(), RV5StageCacheLineBytes)
+        line_address: request.request.address.as_bits().align_down(RV5StageCacheLineBytes)
         opcode: mux(request.prefetch_write ||| request.request.access.into(MemoryOperation).needs_unique(),
                     CHIReqOpcode.ReadUnique,
                     CHIReqOpcode.ReadClean)
@@ -319,7 +319,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def post_eviction_refills = (
     writeback.completion
       |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width)):
-        line_address: align_down(result.context.request.address.as_bits(), RV5StageCacheLineBytes)
+        line_address: result.context.request.address.as_bits().align_down(RV5StageCacheLineBytes)
         opcode: mux(result.context.prefetch_write ||| result.context.request.access.into(MemoryOperation).needs_unique(),
                     CHIReqOpcode.ReadUnique,
                     CHIReqOpcode.ReadClean)
@@ -648,9 +648,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   elsewhen snoop_gather_result:
     gather_state <== RV5StageDataGatherState.Idle
 
-  def reservation_line_address = align_down(reservation_address, RV5StageCacheLineBytes)
-  def lookup_line_address = align_down(lookup_request.address, RV5StageCacheLineBytes)
-  def pending_mutation_line_address = align_down(pending_mutation_request.address, RV5StageCacheLineBytes)
+  def reservation_line_address = reservation_address.align_down(RV5StageCacheLineBytes)
+  def lookup_line_address = lookup_request.address.align_down(RV5StageCacheLineBytes)
+  def pending_mutation_line_address = pending_mutation_request.address.align_down(RV5StageCacheLineBytes)
   def completing_lr = produces_load_hit & (lookup_access === MemoryOperation.LoadReserved) ||| (
     install_refill & (completion_access === MemoryOperation.LoadReserved)
   )
@@ -663,7 +663,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     )
   )
   def snoop_reservation_clear = snoop.update.valid & snoop.update.bits.invalidate & (
-    align_down(snoop.update.bits.address, RV5StageCacheLineBytes) === reservation_line_address
+    snoop.update.bits.address.align_down(RV5StageCacheLineBytes) === reservation_line_address
   )
   def replacement_reservation_clear = resolved_path.fire() & lookup_needs_refill & !bypass_refill & !line_hit & victim_valid & (
     victim_address === reservation_line_address

@@ -29,7 +29,7 @@ sync_circuit RV5StagePageTableWalker():
 
   request.ready <== state === RV5StagePageWalkState.Idle
   def request_fire = request.fire()
-  def vpn_index = sv39_vpn(operation.virtual_address, level)
+  def vpn_index = operation.virtual_address.sv39_vpn(level)
   memory.request.valid <== state === RV5StagePageWalkState.Request
   memory.request.bits <== (table_ppn ++ bits(0, 12)).zext(64) + (vpn_index ++ bits(0, 3)).zext(64)
   def memory_request_fire = memory.request.fire()
@@ -37,18 +37,11 @@ sync_circuit RV5StagePageTableWalker():
   assert(!memory.response.valid ||| waiting_for_memory, "rv5stage_ptw_response_expected")
   def memory_response_received = memory.response.valid & waiting_for_memory
   def pte = memory.response.bits.into(Sv39Pte())
-  def leaf = sv39_leaf(pte)
-  def structural_fault = !sv39_pte_structurally_valid(pte) ||| (
-    leaf & !sv39_superpage_aligned(pte, level)
+  def leaf = pte.sv39_leaf()
+  def structural_fault = !pte.sv39_pte_structurally_valid() ||| (
+    leaf & !pte.sv39_superpage_aligned(level)
   ) ||| (!leaf & ((level === bits(0, 2)) ||| pte.dirty ||| pte.accessed ||| pte.user))
-  def permission_fault = leaf & !sv39_permission_valid(
-    pte,
-    operation.access,
-    operation.privilege === PrivilegeMode.User,
-    operation.privilege === PrivilegeMode.Supervisor,
-    operation.sum,
-    operation.mxr
-  )
+  def permission_fault = leaf & !pte.sv39_permission_valid(operation.access, operation.privilege === PrivilegeMode.User, operation.privilege === PrivilegeMode.Supervisor, operation.sum, operation.mxr)
   def completes_walk = structural_fault ||| leaf
   def walk_fault = structural_fault ||| permission_fault
 
@@ -63,9 +56,9 @@ sync_circuit RV5StagePageTableWalker():
     level <== bits(2, 2)
     table_ppn <== request.bits.root_ppn
     global_mapping <== Bool(#false)
-    when (sv39_canonical(request.bits.virtual_address)):
+    when (request.bits.virtual_address.sv39_canonical()):
       state <== RV5StagePageWalkState.Request
-    elsewhen (!sv39_canonical(request.bits.virtual_address)):
+    elsewhen (!request.bits.virtual_address.sv39_canonical()):
       state <== RV5StagePageWalkState.Complete
       result <== RV5StageTranslationResult():
         virtual_address: request.bits.virtual_address

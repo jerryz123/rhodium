@@ -307,10 +307,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def execute_bypass_available = id_ex.valid & id_ex.bits.writeback_enable & !deferred_writeback(id_ex.bits.writeback_source) & (id_ex.bits.writeback_source =/= WritebackSelect.Csr)
   def memory_bypass_available = memory.valid & memory.bits.writeback_enable & !deferred_writeback(memory.bits.writeback_source) & (memory.bits.writeback_source =/= WritebackSelect.Csr)
   fun decoded_operand(index :: Bits(5), register_value :: Bits(width)):
-    def from_memory = or_reduce(index) & execute_bypass_available & (id_ex.bits.rd === index)
+    def from_memory = index.or_reduce() & execute_bypass_available & (id_ex.bits.rd === index)
     RV5StageOperand(xlen):
       from_memory: from_memory
-      from_writeback: !from_memory & or_reduce(index) & memory_bypass_available & (memory.bits.rd === index)
+      from_writeback: !from_memory & index.or_reduce() & memory_bypass_available & (memory.bits.rd === index)
       value: register_value
   fun rv5stage_register_busy(index :: Bits(5)):
     (
@@ -337,7 +337,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def memory_is_deferred = memory.valid & deferred_writeback(memory.bits.writeback_source)
   fun conflicts_with_deferred(deferred_valid :: Bool,
                               deferred_destination :: Bits(5)):
-    deferred_valid & or_reduce(deferred_destination) & (
+    deferred_valid & deferred_destination.or_reduce() & (
       (control.operand.uses_rs1 & (deferred_destination === rs1)) ||| (
         control.operand.uses_rs2 & (deferred_destination === rs2)
       ) ||| (
@@ -354,16 +354,16 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     )
   )
   def scoreboard_raw_hazard = (
-    control.operand.uses_rs1 & or_reduce(rs1) & rv5stage_register_busy(rs1)
+    control.operand.uses_rs1 & rs1.or_reduce() & rv5stage_register_busy(rs1)
   ) ||| (
-    control.operand.uses_rs2 & or_reduce(rs2) & rv5stage_register_busy(rs2)
+    control.operand.uses_rs2 & rs2.or_reduce() & rv5stage_register_busy(rs2)
   )
   def decoded_integer_write = control.writeback.enable ||| (
     control.floating_point_valid & (
       control.floating_point.registers.destination === RV5StageFloatDestination.Integer
     )
   )
-  def scoreboard_waw_hazard = decoded_integer_write & or_reduce(rd) & rv5stage_register_busy(rd)
+  def scoreboard_waw_hazard = decoded_integer_write & rd.or_reduce() & rv5stage_register_busy(rd)
   fun rv5stage_fp_register_busy(index :: Bits(5)):
     scoreboard_busy(register_count, fp.busy, index) ||| (
       id_ex.valid & id_ex.bits.floating_point_valid & (
@@ -396,7 +396,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def commit_is_deferred = commit_valid & deferred_writeback(
     commit_bits.writeback_source
   ) & commit_bits.write_enable
-  def deferred_results_pending = or_reduce(scoreboard.busy) ||| or_reduce(fp_integer_scoreboard.busy) ||| !fp.drained
+  def deferred_results_pending = scoreboard.busy.or_reduce() ||| fp_integer_scoreboard.busy.or_reduce() ||| !fp.drained
   def deferred_state_pending = id_ex_is_deferred ||| memory_is_deferred ||| (
     commit_is_deferred
   ) ||| deferred_results_pending ||| scoreboard_set_link.right.valid ||| (id_ex.valid & id_ex.bits.floating_point_valid) ||| (memory.valid & memory.bits.fp_compute) ||| (wb.valid & wb_bits.fp_compute)
@@ -404,17 +404,17 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // still be true while a block zero (or scalar store) is in Execute/Memory.
   def older_memory_in_flight = (id_ex.valid & id_ex.bits.memory_operation.into(MemoryOperation).is_memory()) ||| (memory.valid & memory.bits.data_request_valid) ||| (wb.valid & wb_bits.data_request_valid)
   def serializing_waits_for_older = (serializing_operation(control.system, control.fence) ||| decoded_management) & (deferred_state_pending ||| older_memory_in_flight ||| !data_access.drained)
-  def decoded_needs_multiplier = (control.writeback.source === WritebackSelect.Multiply) & control.writeback.enable & or_reduce(rd)
-  def id_ex_has_multiply = id_ex.valid & (id_ex.bits.writeback_source === WritebackSelect.Multiply) & id_ex.bits.writeback_enable & or_reduce(id_ex.bits.rd)
-  def memory_has_multiply = memory.valid & (memory.bits.writeback_source === WritebackSelect.Multiply) & memory.bits.writeback_enable & or_reduce(memory.bits.rd)
-  def commit_has_multiply = commit_valid & (commit_bits.writeback_source === WritebackSelect.Multiply) & commit_bits.write_enable & or_reduce(commit_bits.rd)
+  def decoded_needs_multiplier = (control.writeback.source === WritebackSelect.Multiply) & control.writeback.enable & rd.or_reduce()
+  def id_ex_has_multiply = id_ex.valid & (id_ex.bits.writeback_source === WritebackSelect.Multiply) & id_ex.bits.writeback_enable & id_ex.bits.rd.or_reduce()
+  def memory_has_multiply = memory.valid & (memory.bits.writeback_source === WritebackSelect.Multiply) & memory.bits.writeback_enable & memory.bits.rd.or_reduce()
+  def commit_has_multiply = commit_valid & (commit_bits.writeback_source === WritebackSelect.Multiply) & commit_bits.write_enable & commit_bits.rd.or_reduce()
   def multiply_resource_hazard = decoded_needs_multiplier & !decoded_fault & (
     !multiplier.available ||| id_ex_has_multiply ||| memory_has_multiply ||| commit_has_multiply
   )
-  def decoded_needs_divider = (control.writeback.source === WritebackSelect.Divide) & control.writeback.enable & or_reduce(rd)
-  def id_ex_has_divide = id_ex.valid & (id_ex.bits.writeback_source === WritebackSelect.Divide) & id_ex.bits.writeback_enable & or_reduce(id_ex.bits.rd)
-  def memory_has_divide = memory.valid & (memory.bits.writeback_source === WritebackSelect.Divide) & memory.bits.writeback_enable & or_reduce(memory.bits.rd)
-  def commit_has_divide = commit_valid & (commit_bits.writeback_source === WritebackSelect.Divide) & commit_bits.write_enable & or_reduce(commit_bits.rd)
+  def decoded_needs_divider = (control.writeback.source === WritebackSelect.Divide) & control.writeback.enable & rd.or_reduce()
+  def id_ex_has_divide = id_ex.valid & (id_ex.bits.writeback_source === WritebackSelect.Divide) & id_ex.bits.writeback_enable & id_ex.bits.rd.or_reduce()
+  def memory_has_divide = memory.valid & (memory.bits.writeback_source === WritebackSelect.Divide) & memory.bits.writeback_enable & memory.bits.rd.or_reduce()
+  def commit_has_divide = commit_valid & (commit_bits.writeback_source === WritebackSelect.Divide) & commit_bits.write_enable & commit_bits.rd.or_reduce()
   def divide_resource_hazard = decoded_needs_divider & !decoded_fault & (
     !divider.available ||| id_ex_has_divide ||| memory_has_divide ||| commit_has_divide
   )
@@ -518,7 +518,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     (forwarded_rs1 + id_ex.bits.immediate) & !bits(1, width),
     id_ex.bits.pc + id_ex.bits.immediate
   )
-  def redirect_aligned = is_aligned(computed_redirect_target, instruction_alignment)
+  def redirect_aligned = computed_redirect_target.is_aligned(instruction_alignment)
   def execute_memory_operation :: MemoryOperation = id_ex.bits.memory_operation
   def memory_aligned = execute_memory_operation.is_cache_block() ||| id_ex.bits.memory_width.is_aligned(alu.result)
   def execute_prefetch_operation :: CachePrefetchOperation = id_ex.bits.prefetch_operation
@@ -815,7 +815,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     commit
       |> filter_valid(committed => !committed.replay & deferred_writeback(committed.writeback_source) & (
           committed.write_enable
-        ) & or_reduce(committed.rd))
+        ) & committed.rd.or_reduce())
       |> map_valid(committed => committed.rd)
   ) |> scoreboard_set_link.left
 
@@ -838,7 +838,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     commit
       |> filter_valid(committed => !committed.replay & (
           committed.writeback_source === WritebackSelect.Multiply
-        ) & committed.write_enable & or_reduce(committed.rd))
+        ) & committed.write_enable & committed.rd.or_reduce())
       |> map_valid(_committed => pipeline_wb.bits.multiply_issue)
   ) |> multiplier.issue
   when commit_has_multiply:
@@ -847,7 +847,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     commit
       |> filter_valid(committed => !committed.replay & (
           committed.writeback_source === WritebackSelect.Divide
-        ) & committed.write_enable & or_reduce(committed.rd))
+        ) & committed.write_enable & committed.rd.or_reduce())
       |> map_valid(_committed => pipeline_wb.bits.divide_issue)
   ) |> divider.issue
   when commit_has_divide:
@@ -855,7 +855,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
 
   fp_integer_scoreboard.set.valid <== fp.issue.fire() & (
     fp.issue.bits.control.registers.destination === RV5StageFloatDestination.Integer
-  ) & or_reduce(fp.issue.bits.frd)
+  ) & fp.issue.bits.frd.or_reduce()
   fp_integer_scoreboard.set.bits <== fp.issue.bits.frd
 
   // Deferred loads and arithmetic complete outside the ordered pipeline. The
@@ -866,7 +866,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     data_access.response
       |> filter_valid(response => (
           response.destination === RV5StageDataDestination.Integer
-        ) & or_reduce(response.rd))
+        ) & response.rd.or_reduce())
       |> map_valid(response => RegisterFileWrite(xlen)):
           address: response.rd
           data: response.data
@@ -888,7 +888,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     fp.completion
       |> filter_flow(completion => (
           completion.destination === RV5StageFloatDestination.Integer
-        ) & or_reduce(completion.rd))
+        ) & completion.rd.or_reduce())
       |> map_flow(completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.integer_value

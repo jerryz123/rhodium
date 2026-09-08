@@ -67,7 +67,7 @@ sync_circuit Queue(T :: DataType,
       inst read_pointer(PointerCounter)
       inst write_pointer(PointerCounter)
 
-      def empty = !or_reduce(occupancy)
+      def empty = !occupancy.or_reduce()
       def full = occupancy === bits(depth, count_width)
       // Detects an encoded count beyond the queue's physical capacity.
       assert(occupancy <= bits(depth, count_width),
@@ -134,7 +134,7 @@ sync_circuit CtrlQueue(depth :: PosInt,
   | block:
       def count_width = index_width(depth + 1)
       reg occupancy(~init: bits(0, count_width))
-      def empty = !or_reduce(occupancy)
+      def empty = !occupancy.or_reduce()
       def full = occupancy === bits(depth, count_width)
       // The payloadless specialization obeys the same capacity invariant.
       assert(occupancy <= bits(depth, count_width),

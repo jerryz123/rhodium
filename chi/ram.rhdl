@@ -140,7 +140,7 @@ fun monitor_chi_ram_request(config :: CHIRamConfig,
   def size = request.size_or_num_req[0..3]
   def max_size = alignment_bits(config.max_transfer_bytes)
   def alignment_cases = for List (encoded_size in 0..(max_size + 1)):
-    [encoded_size, is_aligned(request.address, 1 << encoded_size)]
+    [encoded_size, request.address.is_aligned(1 << encoded_size)]
   def address_aligned = mux_lookup(
     size,
     ~default: Bool(#false),
@@ -183,7 +183,7 @@ fun monitor_chi_ram_write_data(p :: CHIFlitParams,
   when valid:
     assert(mask_supported, "chi_ram_write_data_mask_supported")
     if p.poison_width > 0
-    | assert(!or_reduce(data.poison), "chi_ram_write_data_not_poisoned")
+    | assert(!data.poison.or_reduce(), "chi_ram_write_data_not_poisoned")
     | #void
 
 circuit CHIRamCompletionRouter(p :: CHIFlitParams,

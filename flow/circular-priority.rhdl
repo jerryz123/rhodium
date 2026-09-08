@@ -27,7 +27,7 @@ fun circular_priority_onehot(requests :: Hardware.packable,
   )
   def eligible_grant = priority_encoder_oh(eligible)
   def wrapped_grant = priority_encoder_oh(requests)
-  def use_eligible = or_reduce(eligible)
+  def use_eligible = eligible.or_reduce()
   def grant = mux(use_eligible, eligible_grant, wrapped_grant)
   CircularPriorityChoice(n, width):
     valid: grant.valid

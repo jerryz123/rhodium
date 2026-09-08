@@ -264,7 +264,7 @@ sync_circuit RV5StageFpPipeline(
   // A same-cycle completion may feed and release a replacement for the same
   // register. Apply clears to the old state before reserving the new writer.
   def next_busy = (busy_state & !clear_mask) ||| set_mask
-  when (or_reduce(set_mask) ||| or_reduce(clear_mask)):
+  when (set_mask.or_reduce() ||| clear_mask.or_reduce()):
     busy_state <== next_busy
   busy <== busy_state
 
@@ -286,12 +286,12 @@ sync_circuit RV5StageFpPipeline(
   when (issue_fire ^ completion_fire):
     outstanding <== next_outstanding
   when completion_fire:
-    assert(or_reduce(outstanding) ||| issue_fire,
+    assert(outstanding.or_reduce() ||| issue_fire,
            "rv5stage_fp_completion_has_issue")
   assert(outstanding <= bits(8, 4), "rv5stage_fp_outstanding_in_range")
   // Speculative store-operand probes are not authorized work and must not
   // prevent a trap or interrupt from draining accepted FP operations.
-  drained <== !or_reduce(outstanding) & !or_reduce(busy_state)
+  drained <== !outstanding.or_reduce() & !busy_state.or_reduce()
 
 export:
   RV5StageDisabledFpPipeline

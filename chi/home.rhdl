@@ -123,7 +123,7 @@ sync_circuit CHIHNI(params :: CHIHNIParams):
   mem subordinate_dbids(limit, Bits(12))
 
   def free_slots = vec(for List (index in 0..limit): !occupied[index])
-  def allocation_available = or_reduce(free_slots)
+  def allocation_available = free_slots.or_reduce()
   def allocation_slot = priority_encoder(free_slots)
   def upstream_request = requester.req.bits
   def upstream_request_opcode :: CHIReqOpcode = upstream_request.opcode

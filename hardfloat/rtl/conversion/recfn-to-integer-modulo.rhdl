@@ -26,7 +26,7 @@ circuit RecFNToIntegerModulo(format :: FloatFormat, integer_width :: PosInt):
   def raw_exponent = raw.signed_exponent.as_bits()
   def magnitude_at_least_one = raw_exponent[format.exponent_width].into(Bool)
   def positive_exponent = raw_exponent[0..format.exponent_width]
-  def magnitude_just_below_one = !magnitude_at_least_one & and_reduce(positive_exponent)
+  def magnitude_just_below_one = !magnitude_at_least_one & positive_exponent.and_reduce()
   def exponent_index_width = index_width(integer_width + format.significand_width)
   def shift_capacity = (1 << exponent_index_width) - 1
   def shifted_width = format.significand_width + shift_capacity
@@ -34,14 +34,14 @@ circuit RecFNToIntegerModulo(format :: FloatFormat, integer_width :: PosInt):
   def shift_source = magnitude_at_least_one ++ raw.significand[0..=(format.significand_width - 2)]
   def shifted_significand = shift_source.zext(shifted_width) << shift_amount
   def aligned_high = shifted_significand[(format.significand_width - 2)..shifted_width]
-  def aligned_significand = aligned_high ++ or_reduce(shifted_significand[0..=(format.significand_width - 3)])
+  def aligned_significand = aligned_high ++ shifted_significand[0..=(format.significand_width - 3)].or_reduce()
   def aligned_for_integer:
     if aligned_significand.type.bit_width() < integer_width + 2 | aligned_significand.zext(integer_width + 2) | aligned_significand
-  def exponent_forces_zero = magnitude_at_least_one & modulo_unsigned_at_least_host(positive_exponent, integer_width + format.significand_width - 1)
+  def exponent_forces_zero = magnitude_at_least_one & positive_exponent.modulo_unsigned_at_least_host(integer_width + format.significand_width - 1)
   def unrounded_integer = mux(exponent_forces_zero, bits(0, integer_width), aligned_for_integer[2..=(integer_width + 1)])
   def retained_lsb = magnitude_at_least_one & !exponent_forces_zero & aligned_significand[2].into(Bool)
   def guard = mux(magnitude_at_least_one, !exponent_forces_zero & aligned_significand[1].into(Bool), magnitude_just_below_one)
-  def sticky = mux(magnitude_at_least_one, !exponent_forces_zero & aligned_significand[0].into(Bool), !raw.is_zero & !magnitude_just_below_one) ||| (magnitude_just_below_one & or_reduce(aligned_significand[0..=1]))
+  def sticky = mux(magnitude_at_least_one, !exponent_forces_zero & aligned_significand[0].into(Bool), !raw.is_zero & !magnitude_just_below_one) ||| (magnitude_just_below_one & aligned_significand[0..=1].or_reduce())
   def inexact = guard ||| sticky
   def increment = rounding_increment(rounding_mode, raw.sign, retained_lsb, guard, sticky)
   def rounded_magnitude = mux(increment, unrounded_integer + bits(1, integer_width), unrounded_integer) ||| rounding_force_odd(rounding_mode, inexact).as_bits().zext(integer_width)

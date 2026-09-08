@@ -69,7 +69,7 @@ sync_circuit IterativeDivider(width :: PosInt):
     partial_remainder <== bits(0, remainder_width)
     negate_quotient <== dividend_negative ^ divisor_negative
     negate_remainder <== dividend_negative
-    divide_by_zero <== !or_reduce(request.bits.divisor)
+    divide_by_zero <== !request.bits.divisor.or_reduce()
     original_dividend <== request.bits.dividend
     response_valid <== Bool(#false)
   elsewhen (active & last_iteration):

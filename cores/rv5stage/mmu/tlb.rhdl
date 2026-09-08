@@ -76,38 +76,25 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
 
   def matches = vec(
     for List (index in 0..entry_count):
-      rv5stage_tlb_entry_matches(entries[index], virtual_address)
+      entries[index].rv5stage_tlb_entry_matches(virtual_address)
   )
   def selected_index = priority_encoder(matches)
   def selected = entries[selected_index]
   def selected_pte = rv5stage_tlb_entry_pte(selected)
-  def selected_hit = enabled & sv39_canonical(virtual_address) & or_reduce(matches)
+  def selected_hit = enabled & virtual_address.sv39_canonical() & matches.or_reduce()
   hit <== !enabled ||| selected_hit
-  fault <== enabled & selected_hit & !sv39_permission_valid(
-    selected_pte,
-    access,
-    privilege === PrivilegeMode.User,
-    privilege === PrivilegeMode.Supervisor,
-    sum,
-    mxr
-  )
+  fault <== enabled & selected_hit & !selected_pte.sv39_permission_valid(access, privilege === PrivilegeMode.User, privilege === PrivilegeMode.Supervisor, sum, mxr)
   physical_address <== mux(enabled, sv39_physical_address(virtual_address, selected_pte, selected.level), virtual_address[0..56])
 
   def probe_matches = vec(
     for List (index in 0..entry_count):
-      rv5stage_tlb_entry_matches(entries[index], probe_virtual_address)
+      entries[index].rv5stage_tlb_entry_matches(probe_virtual_address)
   )
   def probe_selected = entries[priority_encoder(probe_matches)]
   def probe_pte = rv5stage_tlb_entry_pte(probe_selected)
-  def selected_probe_hit = probe_enabled & sv39_canonical(probe_virtual_address) & or_reduce(probe_matches)
+  def selected_probe_hit = probe_enabled & probe_virtual_address.sv39_canonical() & probe_matches.or_reduce()
   probe_hit <== !probe_enabled ||| selected_probe_hit
-  probe_fault <== probe_enabled & selected_probe_hit & !sv39_prefetch_permission_valid(
-    probe_pte,
-    probe_privilege === PrivilegeMode.User,
-    probe_privilege === PrivilegeMode.Supervisor,
-    probe_sum,
-    probe_mxr
-  )
+  probe_fault <== probe_enabled & selected_probe_hit & !probe_pte.sv39_prefetch_permission_valid(probe_privilege === PrivilegeMode.User, probe_privilege === PrivilegeMode.Supervisor, probe_sum, probe_mxr)
   probe_physical_address <== mux(
     probe_enabled,
     sv39_physical_address(probe_virtual_address, probe_pte, probe_selected.level),

@@ -346,11 +346,11 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     csr CsrId.Sstatus:
       read: sstatus_value
       write value:
-        state.mstatus <== masked_merge(state.mstatus, value, sstatus_write_mask)
+        state.mstatus <== state.mstatus.masked_merge(value, sstatus_write_mask)
     csr CsrId.Sie:
       read: state.mie & state.mideleg
       write value:
-        state.mie <== masked_merge(state.mie, value, state.mideleg)
+        state.mie <== state.mie.masked_merge(value, state.mideleg)
     csr CsrId.Stvec:
       read: state.stvec
       write value:
@@ -373,11 +373,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     csr CsrId.Sip:
       read: interrupt_pending & state.mideleg
       write value:
-        state.mip <== masked_merge(
-          state.mip,
-          value,
-          state.mideleg & supervisor_interrupt_mask
-        )
+        state.mip <== state.mip.masked_merge(value, state.mideleg & supervisor_interrupt_mask)
     csr CsrId.Satp:
       read: state.satp
       write value:
@@ -399,7 +395,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     csr CsrId.Mstatus:
       read: mstatus_value
       write value:
-        state.mstatus <== masked_merge(state.mstatus, value, mstatus_write_mask)
+        state.mstatus <== state.mstatus.masked_merge(value, mstatus_write_mask)
     read CsrId.Misa: misa_value
     csr CsrId.Medeleg:
       read: state.medeleg
@@ -452,7 +448,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def high_counter_ids = [CsrId.Cycleh, CsrId.Timeh, CsrId.Instreth, CsrId.Mcycleh, CsrId.Minstreth] ++ HpmCounterHighIds ++ MachineHpmCounterHighIds
   def high_counter_unavailable = !rv32_counter_halves & csr.is_one_of(high_counter_ids.map(csr_bits))
   def fp_csr = csr.is_one_of(csr_bits(CsrId.Fflags), csr_bits(CsrId.Frm), csr_bits(CsrId.Fcsr))
-  def fp_access_enabled = Bool(floating_point_supports_f(profile)) & or_reduce(fp_csrs.status)
+  def fp_access_enabled = Bool(floating_point_supports_f(profile)) & fp_csrs.status.or_reduce()
   assert(!fp_update.valid ||| fp_access_enabled, "rv5stage_fp_update_enabled")
   def high_machine_csr_unavailable = !rv32_counter_halves & csr.is_one_of(csr_bits(CsrId.Mstatush), csr_bits(CsrId.Menvcfgh))
   def csr_recognized = bank.recognized & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled)
@@ -567,7 +563,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def trap_mstatus = mux(trap.to_supervisor, supervisor_trap_status, machine_trap_status)
   def mret_status = flag_value(
     flag_value(
-      masked_merge(state.mstatus, zero, mpp_mask),
+      state.mstatus.masked_merge(zero, mpp_mask),
       bits(0x8, width),
       state.mstatus[7].into(Bool)
     ),
@@ -589,7 +585,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     Bool(#false)
   ) & !bits(0x20000, width)
 
-  writeback_valid <== csr_commit & csr_access_legal & or_reduce(commit.bits.rd)
+  writeback_valid <== csr_commit & csr_access_legal & commit.bits.rd.or_reduce()
   writeback_value <== csr_read_value
   interrupt_request <== interrupt.valid
   wfi_retired <== commit.valid & (commit.bits.system.action === SystemOperation.Wfi) & !synchronous_trap.valid

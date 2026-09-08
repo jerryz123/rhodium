@@ -26,7 +26,7 @@ sync_circuit RouterAllocator(input_count :: PosInt,
         for List (target_index in 0..target_count):
           requests[input_index][target_index] & !fallback_requests[input_index][target_index] & target_available[target_index]
       )
-      mux(or_reduce(adaptive_ready), adaptive_ready, fallback_requests[input_index])
+      mux(adaptive_ready.or_reduce(), adaptive_ready, fallback_requests[input_index])
   )
 
   inst matcher(OutputGreedyRoundRobinMatcher(input_count, target_count))

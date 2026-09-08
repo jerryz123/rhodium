@@ -195,7 +195,7 @@ fun rv5stage_chi_address_fits(address :: Bits,
   def width = hardware_value_type(address).bit_width()
   if width <= p.request_address_width
   | Bool(#true)
-  | !or_reduce(address[p.request_address_width..width])
+  | !address[p.request_address_width..width].or_reduce()
 
 fun rv5stage_chi_request(p :: CHIFlitParams,
                          node_id :: Bits(p.node_id_width),

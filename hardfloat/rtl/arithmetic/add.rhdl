@@ -77,7 +77,7 @@ circuit AddRawFN(format :: FloatFormat):
   def close_groups = close_adjusted_sum.as_vec(Bits(2))
   def close_reduced_groups = close_groups.map(fun (group): group =/= bits(0, 2))
   def close_reduced_sum = close_reduced_groups.as_bits()
-  def close_normalization_reduced = count_leading_zeros(close_reduced_sum)
+  def close_normalization_reduced = close_reduced_sum.count_leading_zeros()
   def close_normalization_distance:
     if close_normalization_reduced.type.bit_width() == align_distance_width
     | close_normalization_reduced << 1
@@ -85,9 +85,7 @@ circuit AddRawFN(format :: FloatFormat):
   def close_significand = (
     close_sum.zext(significand_width + 3) << close_normalization_distance
   ) << 1
-  def close_total_cancellation = !or_reduce(
-    close_significand[(significand_width + 1)..=(significand_width + 2)]
-  )
+  def close_total_cancellation = !close_significand[(significand_width + 1)..=(significand_width + 2)].or_reduce()
   def close_sign = a.sign ^ (signed_close_sum < sint(0, close_width))
 
   def far_sign = mux(negative_exponent_difference, effective_sign_b, a.sign)
@@ -103,7 +101,7 @@ circuit AddRawFN(format :: FloatFormat):
     if align_distance_width <= 2
     | bits(0, far_mask_width)
     | low_mask(alignment_distance[2..align_distance_width], far_mask_width, 0)
-  def far_sticky = or_reduce(far_main_aligned[0..=2]) ||| or_reduce(far_reduced & far_round_extra_mask)
+  def far_sticky = far_main_aligned[0..=2].or_reduce() ||| or_reduce(far_reduced & far_round_extra_mask)
   def far_aligned_smaller = (
     far_main_aligned[3..=(significand_width + 4)]
       ++ far_sticky

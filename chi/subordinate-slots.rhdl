@@ -44,7 +44,7 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   mem write_requests(limit, CHIReqFlit(p))
 
   def free_slots = vec(for List (index in 0..limit): !occupied[index])
-  def allocation_available = or_reduce(free_slots)
+  def allocation_available = free_slots.or_reduce()
   def selected_allocation_slot = priority_encoder(free_slots)
   (
     allocation

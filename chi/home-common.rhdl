@@ -175,7 +175,7 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
         size >= bits(alignment_bits(support.sizes.min_bytes), 3)
       ) & (size <= bits(alignment_bits(support.sizes.max_bytes), 3))
   ))
-  def maintenance_supported = chi_cache_maintenance(request.opcode) & is_aligned(request.address, 64) & (
+  def maintenance_supported = chi_cache_maintenance(request.opcode) & request.address.is_aligned(64) & (
     chi_req_size(p, request) === CHITransferSize.Bytes64
   ) & !request.exp_comp_ack & !request.multi_req
   mux(chi_cache_maintenance(request.opcode), maintenance_supported, ordinary_supported) & address_supported

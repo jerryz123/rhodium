@@ -57,7 +57,7 @@ circuit HardFloatRepresentation():
   recoded_a <== encoded_a
   restored_a <== encoded_a.to_ieee()
   classification <== encoded_a.classify()
-  leading_zero_count <== count_leading_zeros(packed_a[0..(format.significand_width - 1)])
+  leading_zero_count <== packed_a[0..(format.significand_width - 1)].count_leading_zeros()
   descending_low_mask <== low_mask(packed_a[0..6], 6, 18)
   ascending_low_mask <== low_mask(packed_a[0..6], 18, 6)
 

@@ -86,7 +86,7 @@ fun riscv_nan_box(format :: FloatFormat, value :: IEEEFloat(format), width :: Po
 fun riscv_nan_box_valid(format :: FloatFormat, width :: PosInt, value :: Bits(width)) :~ Bool:
   unless width >= format.ieee_width
   | error(~who: #'riscv_nan_box_valid, "container width must cover the floating-point value")
-  if width == format.ieee_width | Bool(#true) | and_reduce(value[format.ieee_width..width])
+  if width == format.ieee_width | Bool(#true) | value[format.ieee_width..width].and_reduce()
 
 fun riscv_unbox(format :: FloatFormat, width :: PosInt, value :: Bits(width)) :~ IEEEFloat(format):
   unless width >= format.ieee_width

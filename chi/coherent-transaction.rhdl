@@ -128,7 +128,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       reads[index].phase === CHICoherentReadPhase.Free
   )
-  def read_allocation_available = or_reduce(free_reads)
+  def read_allocation_available = free_reads.or_reduce()
   def read_allocation_index = priority_encoder(free_reads)
   def duplicate_read_txn = or_reduce(
     for List (index in 0..limit):
@@ -159,7 +159,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
       (reads[index].phase === CHICoherentReadPhase.AwaitData) & (
         reads[index].txn_id === rx_dat.txn_id
       ) & (
-        !or_reduce(reads[index].received_data_ids) ||| (
+        !reads[index].received_data_ids.or_reduce() ||| (
           reads[index].home_id === rx_dat.home_nid_or_pbha_or_mismatched_mecid
         ) & (
           reads[index].comp_ack_txn_id === rx_dat.dbid_or_mecid[0..12]
@@ -169,7 +169,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   def comp_ack_match = or_reduce(
     for List (index in 0..limit):
       (reads[index].phase =/= CHICoherentReadPhase.Free) & (
-        or_reduce(reads[index].received_data_ids)
+        reads[index].received_data_ids.or_reduce()
       ) & (
         reads[index].comp_ack_txn_id === tx_rsp.txn_id
       ) & (reads[index].home_id === tx_rsp.tgt_id)
@@ -223,7 +223,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         ) & (entry.txn_id === rx_dat.txn_id)
         def comp_ack_here = comp_ack_event & (
           entry.phase =/= CHICoherentReadPhase.Free
-        ) & or_reduce(entry.received_data_ids) & (
+        ) & entry.received_data_ids.or_reduce() & (
           entry.comp_ack_txn_id === tx_rsp.txn_id
         ) & (
           entry.home_id === tx_rsp.tgt_id
@@ -233,7 +233,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
           entry.received_data_ids ||| read_data_id,
           entry.received_data_ids
         )
-        def first_data = !or_reduce(entry.received_data_ids)
+        def first_data = !entry.received_data_ids.or_reduce()
         def next_comp_ack_seen = entry.comp_ack_seen ||| comp_ack_here
         def data_complete = next_received_data_ids === entry.expected_data_ids
         def completed = data_complete & next_comp_ack_seen
@@ -264,7 +264,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   reads <== next_reads
 
   def free_snoops = vec(for List (index in 0..limit): !snoops[index].live)
-  def snoop_allocation_available = or_reduce(free_snoops)
+  def snoop_allocation_available = free_snoops.or_reduce()
   def snoop_allocation_index = priority_encoder(free_snoops)
   def duplicate_snoop = or_reduce(
     for List (index in 0..limit):

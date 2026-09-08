@@ -114,9 +114,7 @@ sync_circuit Aclint(config :: AclintConfig):
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def incoming_write = incoming_opcode.is_initial_write()
   def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
-  def incoming_in_window = (incoming.address >= identity.base_address) & !or_reduce(
-    incoming_relative_full[AclintAddressWidth..p.request_address_width]
-  )
+  def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[AclintAddressWidth..p.request_address_width].or_reduce()
   def incoming_supported = incoming_opcode.supports_initial_transaction() & incoming_in_window & (
     incoming.size_or_num_req[0..3] <= bits(3, 3)
   ) & (
@@ -171,7 +169,7 @@ sync_circuit Aclint(config :: AclintConfig):
   // The update stream carries the state that becomes visible after this edge,
   // allowing sparse consumers to capture the new timer value without polling.
   def mtime_write = write_data_fire & mtime_access
-  def written_mtime = masked_merge(mtime, write_value, write_mask)
+  def written_mtime = mtime.masked_merge(write_value, write_mask)
   def incremented_mtime = mtime + bits(1, 64)
 
   transaction.read_data <== register_read_data
@@ -181,7 +179,7 @@ sync_circuit Aclint(config :: AclintConfig):
   elsewhen tick:
     mtime <== incremented_mtime
   when (write_data_fire & mtimecmp_access):
-    mtimecmp[mtimecmp_index] <== masked_merge(mtimecmp[mtimecmp_index], write_value, write_mask)
+    mtimecmp[mtimecmp_index] <== mtimecmp[mtimecmp_index].masked_merge(write_value, write_mask)
   when (write_data_fire & mswi_access & register_mask[0].into(Bool)):
     msip[mswi_index] <== register_data[0].into(Bool)
 

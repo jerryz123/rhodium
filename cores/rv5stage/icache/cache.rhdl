@@ -188,7 +188,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def response_capacity = outstanding < bits(2, outstanding_width)
   assert(outstanding <= bits(2, outstanding_width), "l1i_outstanding_in_range")
   when response_fire:
-    assert(or_reduce(outstanding), "l1i_response_has_request")
+    assert(outstanding.or_reduce(), "l1i_response_has_request")
 
   // S0 admission has no translation, S1 tag-match, or response-ready dependency.
   // Unresolved reads are discarded; the MMU retains and reissues their requests.
@@ -228,7 +228,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def refill_commands = (
     miss_path
       |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1IRefillContext(width, way_width), width)):
-        line_address: align_down(result.context.address, RV5StageCacheLineBytes)
+        line_address: result.context.address.align_down(RV5StageCacheLineBytes)
         opcode: CHIReqOpcode.ReadClean
         context: result.context
   )

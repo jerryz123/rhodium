@@ -52,7 +52,7 @@ fun monitor_chi_transport(credit_limit :: PosInt,
   assert(!valid ||| ack, label_prefix ++ "_flit_active")
   assert(!credit ||| credit_active, label_prefix ++ "_credit_active")
   when stopped:
-    assert(!or_reduce(credit_balance), label_prefix ++ "_credits_returned")
+    assert(!credit_balance.or_reduce(), label_prefix ++ "_credits_returned")
   when (valid & lcrd_return):
     assert(!request & ack, label_prefix ++ "_lcrd_during_deactivate")
 
@@ -122,7 +122,7 @@ fun monitor_chi_req_fields(p :: CHIFlitParams,
       assert(txn_id === bits(0, 12),
              label_prefix ++ "_lcrd_txn_id_zero")
     when (!lcrd_return & !multi_req):
-      assert(!or_reduce(size_or_num_req[3..6]),
+      assert(!size_or_num_req[3..6].or_reduce(),
              label_prefix ++ "_size_reserved_zero")
       assert(chi_size_valid(size_or_num_req[0..3].into(CHITransferSize)),
              label_prefix ++ "_size_valid")

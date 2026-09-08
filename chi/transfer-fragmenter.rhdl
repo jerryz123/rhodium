@@ -164,7 +164,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
     incoming_size.as_bits(),
     ~default: Bool(#false),
     for List (encoded_size in 0..7):
-      [encoded_size, is_aligned(incoming_request.address, 1 << encoded_size)]
+      [encoded_size, incoming_request.address.is_aligned(1 << encoded_size)]
   )
   upstream.req.ready <== idle
   def upstream_request_fire = upstream.req.fire()

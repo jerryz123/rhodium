@@ -76,7 +76,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   def selected_home = mux(select_instruction, instruction_home, command_home)
   def selected_address = mux(select_instruction,
                              instruction_command.address,
-                             mux(command_zero, align_down(command.address, RV5StageCacheLineBytes), command.address))
+                             mux(command_zero, command.address.align_down(RV5StageCacheLineBytes), command.address))
   def selected_size = mux(
     select_instruction,
     CHITransferSize.Bytes4,
@@ -239,7 +239,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   when (instruction.request.valid & idle & !select_data & !instruction.flush):
     assert(!instruction_command.cacheable,
            "rv5stage_uncached_instruction_not_cacheable")
-    assert(is_aligned(instruction_command.address, 4),
+    assert(instruction_command.address.is_aligned(4),
            "rv5stage_uncached_instruction_aligned")
     assert(rv5stage_chi_address_fits(instruction_command.address, p),
            "rv5stage_uncached_instruction_address_fits")

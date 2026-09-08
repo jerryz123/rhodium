@@ -79,11 +79,11 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
     def fits:
       if raw_width <= address_width
       | Bool(#true)
-      | !or_reduce(raw_address[address_width..raw_width])
+      | !raw_address[address_width..raw_width].or_reduce()
     def last_fits:
       if raw_last_width <= address_width
       | Bool(#true)
-      | !or_reduce(raw_last_address[address_width..raw_last_width])
+      | !raw_last_address[address_width..raw_last_width].or_reduce()
     def mutable mapped = Bool(#false)
     def mutable readable = Bool(#false)
     def mutable writable = Bool(#false)

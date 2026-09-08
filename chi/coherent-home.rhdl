@@ -150,7 +150,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
     assert(requester.request_data.bits.resp.into(CHICoherentResponse()).pass_dirty,
            "chi_hnf_snoop_data_passes_dirty")
 
-  def snoops_remaining = or_reduce(pending_snoops)
+  def snoops_remaining = pending_snoops.or_reduce()
   def next_snoop_index = priority_encoder(pending_snoops)
   def next_snoop_node = snoop_node_ids[next_snoop_index]
   requester.snoops.valid <== (phase === CHIHNFPhase.SendSnoop) & snoops_remaining
@@ -328,7 +328,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
       phase <== CHIHNFPhase.AwaitSnoopWriteCompletion
     otherwise:
       received_data_ids <== remaining_write_data_ids
-      when (!or_reduce(remaining_write_data_ids)):
+      when (!remaining_write_data_ids.or_reduce()):
         phase <== CHIHNFPhase.AwaitSubordinateCompletion
   elsewhen (subordinate_response_fire & awaiting_any_subordinate_completion):
     phase <== mux(awaiting_snoop_write_completion,

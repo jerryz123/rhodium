@@ -21,7 +21,7 @@ fun raw_float_from_integer(signed_input :: Bool,
     if integer_width == extended_integer_width
     | magnitude
     | magnitude.zext(extended_integer_width)
-  def normalization_distance = count_leading_zeros(extended_magnitude)
+  def normalization_distance = extended_magnitude.count_leading_zeros()
   def normalized = extended_magnitude << normalization_distance
   def significand = normalized[(extended_integer_width - integer_width)..extended_integer_width]
   def exponent_bits = (bits(2, 2) ++ (!normalization_distance[0..=(exponent_width - 2)]))

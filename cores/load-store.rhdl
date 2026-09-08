@@ -16,11 +16,11 @@ hardware_enum MemoryWidth:
   method is_aligned(width, address :: Bits) :: Bool:
     mux_lookup(
       width,
-      ~default: is_aligned(address, 8),
+      ~default: address.is_aligned(8),
       [
-        [MemoryWidth.Byte, is_aligned(address, 1)],
-        [MemoryWidth.Half, is_aligned(address, 2)],
-        [MemoryWidth.Word, is_aligned(address, 4)]
+        [MemoryWidth.Byte, address.is_aligned(1)],
+        [MemoryWidth.Half, address.is_aligned(2)],
+        [MemoryWidth.Word, address.is_aligned(4)]
       ]
     )
 

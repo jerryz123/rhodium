@@ -62,7 +62,7 @@ fun system_control(operation :: SystemOperation):
 
 fun csr_write_requested(operation :: CsrOperation, source_specifier :: Bits(5)) :~ Bool:
   (operation === CsrOperation.Write) ||| (
-    operation.is_one_of(CsrOperation.Set, CsrOperation.Clear) & or_reduce(source_specifier)
+    operation.is_one_of(CsrOperation.Set, CsrOperation.Clear) & source_specifier.or_reduce()
   )
 
 def ZicsrSystemCases = combine_case_groups([

@@ -23,8 +23,8 @@ sync_circuit RV5StageRegisterFile(xlen :: XLen):
   reg registers(~init: initial)
 
   def Array(first_write, second_write) = writes
-  def writing_first = first_write.valid & or_reduce(first_write.bits.address)
-  def writing_second = second_write.valid & or_reduce(second_write.bits.address)
+  def writing_first = first_write.valid & first_write.bits.address.or_reduce()
+  def writing_second = second_write.valid & second_write.bits.address.or_reduce()
   // Scoreboard WAW gating keeps enabled architectural writes distinct. If that
   // invariant is violated, same-destination write behavior is undefined.
   when writing_first:
@@ -33,8 +33,8 @@ sync_circuit RV5StageRegisterFile(xlen :: XLen):
     registers[second_write.bits.address] <== second_write.bits.data
 
   // Forward each valid write to same-cycle reads; colliding writes are invalid.
-  def read_1_zero = !or_reduce(read_address_1)
-  def read_2_zero = !or_reduce(read_address_2)
+  def read_1_zero = !read_address_1.or_reduce()
+  def read_2_zero = !read_address_2.or_reduce()
   def read_1_from_first_write = writing_first & (first_write.bits.address === read_address_1)
   def read_1_from_second_write = writing_second & (second_write.bits.address === read_address_1)
   def read_2_from_first_write = writing_first & (first_write.bits.address === read_address_2)

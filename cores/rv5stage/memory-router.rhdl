@@ -35,7 +35,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   )
   def zero_block = operation.is_cache_block_zero()
   def management = operation.is_cache_management()
-  def first_address = mux(operation.is_cache_block(), align_down(request.address, RV5StageCacheLineBytes), request.address)
+  def first_address = mux(operation.is_cache_block(), request.address.align_down(RV5StageCacheLineBytes), request.address)
   def last_address = first_address +& mux(operation.is_cache_block(), bits(RV5StageCacheLineBytes - 1, xlen.width), last_byte_offset)
   def physical = physical_map.lookup(first_address, last_address)
   def request_reads = operation.is_load() ||| operation.is_atomic()

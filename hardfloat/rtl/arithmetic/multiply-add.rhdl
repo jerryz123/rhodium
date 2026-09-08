@@ -106,8 +106,8 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
   def aligned_c_tail = main_aligned_c.as_bits()[0..=2]
   def aligned_c_sticky = mux(
     subtract_magnitudes,
-    and_reduce(aligned_c_tail) & !reduced_c_extra_bit,
-    or_reduce(aligned_c_tail) ||| reduced_c_extra_bit
+    aligned_c_tail.and_reduce() & !reduced_c_extra_bit,
+    aligned_c_tail.or_reduce() ||| reduced_c_extra_bit
   )
   def aligned_c = (
     main_aligned_c.as_bits()[3..=(significand_sum_width + 2)]
@@ -180,7 +180,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   def c_dominant_extra = mux(
     intermediate.subtract_magnitudes,
     or_reduce(!significand_sum[1..=significand_width]),
-    or_reduce(significand_sum[1..=(significand_width + 1)])
+    significand_sum[1..=(significand_width + 1)].or_reduce()
   )
   def c_dominant_main:
     (c_dominant_absolute_sum << intermediate.c_alignment_distance)[
@@ -206,7 +206,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
         or_reduce(c_dominant_reduced & fma_extend(mask, c_dominant_reduced.type.bit_width()))
   def c_dominant_significand = (
     c_dominant_main[3..=(significand_width + 4)]
-      ++ (or_reduce(c_dominant_main[0..=2]) ||| c_dominant_reduced_extra ||| c_dominant_extra)
+      ++ (c_dominant_main[0..=2].or_reduce() ||| c_dominant_reduced_extra ||| c_dominant_extra)
   )
 
   def non_dominant_sum_sign = significand_sum[(significand_width * 2) + 3].into(Bool)
@@ -219,7 +219,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   def non_dominant_groups = non_dominant_reduced_source.as_vec(Bits(2))
   def non_dominant_reduced_groups = non_dominant_groups.map(fun (group): group =/= bits(0, 2))
   def non_dominant_reduced = non_dominant_reduced_groups.as_bits()
-  def non_dominant_normalization_reduced = count_leading_zeros(non_dominant_reduced)
+  def non_dominant_normalization_reduced = non_dominant_reduced.count_leading_zeros()
   def non_dominant_normalization_width = non_dominant_normalization_reduced.type.bit_width() + 1
   def non_dominant_normalization_distance = non_dominant_normalization_reduced.zext(non_dominant_normalization_width) << 1
   def non_dominant_exponent_adjustment = non_dominant_normalization_distance.zext(exponent_width + 2).into(SInt(exponent_width + 2))
@@ -248,7 +248,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   )
   def non_dominant_significand = (
     non_dominant_main[3..=(significand_width + 4)]
-      ++ (or_reduce(non_dominant_main[0..=2]) ||| non_dominant_reduced_extra)
+      ++ (non_dominant_main[0..=2].or_reduce() ||| non_dominant_reduced_extra)
   )
   def non_dominant_cancellation:
     non_dominant_significand[(significand_width + 1)..=(significand_width + 2)] === bits(0, 2)

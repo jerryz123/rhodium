@@ -105,7 +105,7 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
     transfer_end >= incoming.address
   ) & (transfer_end <= window_end)
   def incoming_alignment_cases = for List (encoded_size in 0..7):
-    [encoded_size, is_aligned(incoming.address, 1 << encoded_size)]
+    [encoded_size, incoming.address.is_aligned(1 << encoded_size)]
   def incoming_supported = (incoming_opcode === CHIReqOpcode.ReadNoSnp) & (
     incoming.size_or_num_req[3..6] === bits(0, 3)
   ) & chi_size_valid(incoming_size) & (

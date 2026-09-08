@@ -314,7 +314,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       entries[index].phase === CHIInitialTransactionPhase.Free
   )
-  def allocation_available = or_reduce(free_entries)
+  def allocation_available = free_entries.or_reduce()
   def allocation_index = priority_encoder(free_entries)
   def duplicate_txn = or_reduce(
     for List (index in 0..limit):
@@ -515,7 +515,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       entries[index].phase === CHIInitialTransactionPhase.Free
   )
-  def allocation_available = or_reduce(free_entries)
+  def allocation_available = free_entries.or_reduce()
   def allocation_index = priority_encoder(free_entries)
   def duplicate_txn = or_reduce(
     for List (index in 0..limit):

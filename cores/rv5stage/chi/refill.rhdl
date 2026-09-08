@@ -64,7 +64,7 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
   when command_fire:
     // The integrated core's physical map makes these address checks internal
     // invariants; direct cache users still receive a precise assertion.
-    assert(is_aligned(command.bits.line_address, RV5StageCacheLineBytes),
+    assert(command.bits.line_address.is_aligned(RV5StageCacheLineBytes),
            "line_refill_address_aligned")
     assert(rv5stage_chi_address_fits(command.bits.line_address, p),
            "line_refill_address_fits_chi")
@@ -105,8 +105,8 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
 
   def incoming_data = response_data.bits
   def coherent_response = incoming_data.resp.into(CHICoherentResponse())
-  def all_data_received = and_reduce(received_packets)
-  def first_data_packet = !or_reduce(received_packets)
+  def all_data_received = received_packets.and_reduce()
+  def first_data_packet = !received_packets.or_reduce()
   def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
   def packet_was_received = received_packets[packet_index]
   def next_received_packets = received_packets.updated(packet_index, Bool(#true))

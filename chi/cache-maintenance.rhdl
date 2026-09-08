@@ -103,7 +103,7 @@ sync_circuit CHICacheMaintenance(p :: CHIFlitParams, Context :: DataType):
   control.finish <== completion.fire()
   when command_fire:
     assert(chi_cache_maintenance(command.bits.opcode), "chi_maintenance_opcode")
-    assert(is_aligned(command.bits.address, 64), "chi_maintenance_aligned")
+    assert(command.bits.address.is_aligned(64), "chi_maintenance_aligned")
     saved <== command.bits
     saved_node <== node_id
     saved_txn <== txn_id

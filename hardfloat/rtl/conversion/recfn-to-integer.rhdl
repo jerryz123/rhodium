@@ -34,7 +34,7 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
   def raw_exponent = raw.signed_exponent.as_bits()
   def magnitude_at_least_one = raw_exponent[format.exponent_width].into(Bool)
   def positive_exponent = raw_exponent[0..format.exponent_width]
-  def magnitude_just_below_one = !magnitude_at_least_one & and_reduce(positive_exponent)
+  def magnitude_just_below_one = !magnitude_at_least_one & positive_exponent.and_reduce()
 
   def exponent_index_width:
     if (format.exponent_width - 1) < index_width(integer_width)
@@ -52,7 +52,7 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
   def aligned_high = shifted_significand[(format.significand_width - 2)..shifted_width]
   def aligned_significand = (
     aligned_high
-      ++ or_reduce(shifted_significand[0..=(format.significand_width - 3)])
+      ++ shifted_significand[0..=(format.significand_width - 3)].or_reduce()
   )
   def aligned_for_integer:
     if aligned_significand.type.bit_width() < integer_width + 2
@@ -61,28 +61,28 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
   def unrounded_integer = aligned_for_integer[2..=(integer_width + 1)]
   def common_inexact = mux(
     magnitude_at_least_one,
-    or_reduce(aligned_significand[0..=1]),
+    aligned_significand[0..=1].or_reduce(),
     !raw.is_zero
   )
   def retained_lsb = magnitude_at_least_one & aligned_significand[2].into(Bool)
   def guard = mux(magnitude_at_least_one, aligned_significand[1].into(Bool), magnitude_just_below_one)
-  def sticky = mux(magnitude_at_least_one, aligned_significand[0].into(Bool), !raw.is_zero & !magnitude_just_below_one) ||| (magnitude_just_below_one & or_reduce(aligned_significand[0..=1]))
+  def sticky = mux(magnitude_at_least_one, aligned_significand[0].into(Bool), !raw.is_zero & !magnitude_just_below_one) ||| (magnitude_just_below_one & aligned_significand[0..=1].or_reduce())
   def round_increment = rounding_increment(rounding_mode, raw.sign, retained_lsb, guard, sticky)
   def rounded_magnitude = mux(round_increment, unrounded_integer + bits(1, integer_width), unrounded_integer) ||| rounding_force_odd(rounding_mode, common_inexact).as_bits().zext(integer_width)
   def rounded_integer = mux(raw.sign, -rounded_magnitude, rounded_magnitude)
 
-  def at_overflow_edge = unsigned_equal_host(positive_exponent, integer_width - 1)
-  def round_carry_but_two = and_reduce(unrounded_integer[0..=(integer_width - 3)]) & round_increment
+  def at_overflow_edge = positive_exponent.unsigned_equal_host(integer_width - 1)
+  def round_carry_but_two = unrounded_integer[0..=(integer_width - 3)].and_reduce() & round_increment
   def signed_negative_overflow = at_overflow_edge & (
-    or_reduce(unrounded_integer[0..=(integer_width - 2)]) ||| round_increment
+    unrounded_integer[0..=(integer_width - 2)].or_reduce() ||| round_increment
   )
   def signed_positive_overflow = at_overflow_edge ||| (
-    unsigned_equal_host(positive_exponent, integer_width - 2) & round_carry_but_two
+    positive_exponent.unsigned_equal_host(integer_width - 2) & round_carry_but_two
   )
   def unsigned_positive_overflow = (
     at_overflow_edge & unrounded_integer[integer_width - 2].into(Bool) & round_carry_but_two
   )
-  def overflow_at_magnitude = unsigned_at_least_host(positive_exponent, integer_width) ||| mux(
+  def overflow_at_magnitude = positive_exponent.unsigned_at_least_host(integer_width) ||| mux(
     signed_output,
     mux(raw.sign, signed_negative_overflow, signed_positive_overflow),
     raw.sign ||| unsigned_positive_overflow
