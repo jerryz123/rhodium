@@ -106,6 +106,21 @@ Both helpers accept `~root: #true` to explicitly start a new lineage at an
 opaque component output or cut off earlier ancestry. The [event contract](../rhodium/event/README.md#annotate-events)
 defines this opt-in boundary; ordinary checkpoints retain strict inference.
 
+Bare checkpoints capture identity and timing only. Select named scalar observations
+without changing the forwarded payload:
+
+```rhombus
+def observed = ingress |> trace_event("fetch", ~fields: payload):
+  pc: payload.pc
+  instruction: payload.instruction
+```
+
+The `~fields` binder is last in the argument list and retains typed payload
+access. Nested selections and combinational expressions are supported. An
+entry `count(~format: "unsigned"): payload.count` overrides the display encoding;
+see the [capture contract](../rhodium/event/README.md#capture-fields).
+Use `~payload: #true` explicitly for a whole-payload diagnostic dump.
+
 ```rhombus
 ingress
   |> trace_event("accepted")

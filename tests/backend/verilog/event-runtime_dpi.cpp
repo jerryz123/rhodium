@@ -16,6 +16,12 @@ void expect(std::uint32_t site, std::uint64_t seq, std::uint64_t cycle,
   if (wide) {
     node.words[1] = static_cast<std::uint32_t>(payload >> 32);
     node.words[2] = high;
+    if (site == 5) {
+      // Selected low 37 bits plus the top bit; middle 27 bits are not captured.
+      const auto selected = ((payload & ((1ULL << 37) - 1)) << 1) | high;
+      node.width = 38;
+      node.words = {{0, static_cast<std::uint32_t>(selected)}, {1, static_cast<std::uint32_t>(selected >> 32)}};
+    }
   }
   if (parent >= 0) expected.edges.insert({{static_cast<std::uint32_t>(parent), parent_seq}, {site, seq}});
 }

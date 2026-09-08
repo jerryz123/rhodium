@@ -36,13 +36,51 @@ source
 
 `trace_event` accepts `Decoupled` and `Irrevocable` payload flows.
 `trace_valid_event` is the corresponding nonbackpressured `Valid` checkpoint.
-Both preserve the original protocol and payload and record the complete flow
-payload as the initial event payload schema. `~terminal: #true` marks an event
+Both preserve the original protocol and payload. Bare checkpoints capture no
+payload fields. `~terminal: #true` marks an event
 as terminal metadata without changing the transparent hardware path.
 
 Labels must be nonempty and unique within one module definition. A reused
 module definition still produces a distinct event-site occurrence for every
 concrete instance path.
+
+### Capture fields
+
+Select observations with a typed binder, independently at each checkpoint:
+
+```rhombus
+def observed = source |> trace_event("fetch", ~root: #true, ~fields: payload):
+  pc: payload.pc
+  instruction: payload.instruction
+  low_pc(~format: "unsigned"): payload.pc[0..5]
+```
+
+Names are unique ASCII identifiers, preserved in exported arguments; `cycle`
+and `sequence` are reserved for built-in event arguments. Values must be local
+scalar hardware expressions; nested field selections, aliases, slices, and combinational
+expressions are allowed. Select aggregate leaves explicitly or cast an aggregate
+to Bits for an intentional packed capture. Missing members, duplicate names,
+foreign-module values, and incompatible formats fail during elaboration.
+The optional formats are `hex`, `unsigned`, `signed` (two's complement), and
+`bool` (one bit only). Defaults are `bool` for Bool, `signed` for SInt, and
+`hex` for other scalar types. Enum labels are not decoded in this first version.
+
+For an explicit whole-payload dump use `~payload: #true`; this creates the
+single `raw` capture. Do not combine it with named captures. Low-level adapters
+can pass `~fields: [event_field("pc", pc), ...]` to `describe_interface_event`;
+its existing `~payload: value` remains an explicit raw capture.
+
+`sites[].fields` records ordered names, source type descriptions, widths,
+least-significant-bit offsets, and encodings. Offsets describe only the selected
+capture record: the first field occupies its most-significant bits. The aggregate
+`payload_width` is the sum of selected widths, not the functional payload width.
+No selection means no payload DPI calls. The unchanged word ABI transports this
+compact record; [RHEG](../../rheg/README.md#named-captures) exposes named values.
+
+All fields sample under the same transfer predicate as their occurrence.
+Selection does not change event identity, lineage inference, hidden reference
+storage, reset, or timing. Captures are local observations, not extra data
+propagated along dependency edges.
 
 ## Infer a manifest
 

@@ -16,7 +16,7 @@ template<class F> void rejects(F action, const std::string& text) {
   throw std::runtime_error("expected rejection: " + text);
 }
 Manifest manifest() {
-  return {R"({"format":"rhodium-event-graph","version":1,"top":"Test","sites":[{"id":"root/accepted","label":"accepted","payload_width":8},{"id":"root/issued","label":"issued","payload_width":0}],"dependencies":[{"parent":"root/accepted","child":"root/issued"},{"parent":"root/issued","child":"root/issued"}]})",
+  return {R"({"format":"rhodium-event-graph","version":1,"top":"Test","sites":[{"id":"root/accepted","label":"accepted","source_location":"fixture.rhdl:17","payload_width":8},{"id":"root/issued","label":"issued","payload_width":0}],"dependencies":[{"parent":"root/accepted","child":"root/issued"},{"parent":"root/issued","child":"root/issued"}]})",
           {8, 0}, {{0, 1}, {1, 1}}};
 }
 CycleBatch batch(std::uint64_t cycle, Ref ref, unsigned width = 0) {
@@ -136,5 +136,36 @@ int main(int argc, char** argv) {
   Graph empty; empty.bind_manifest(manifest()); empty.bind_timing({1});
   std::ostringstream empty_trace; write_perfetto(empty_trace, empty.snapshot());
   check(!empty_trace.str().empty());
+  std::ofstream empty_file(std::string(argv[1]) + "/empty.pftrace", std::ios::binary);
+  empty_file << empty_trace.str(); empty_file.close(); check(bool(empty_file));
+  Manifest named_manifest{
+    R"({"format":"rhodium-event-graph","version":1,"top":"Named","sites":[{"id":"capture","payload_width":8,"fields":[{"name":"value","width":8,"offset":0,"encoding":"unsigned"}]}],"dependencies":[]})",
+    {8}, {}, {{{"value",8,0,"unsigned"}}}};
+  Graph named_graph; named_graph.bind_manifest(named_manifest); named_graph.bind_timing({1});
+  named_graph.record_node({0,0},0,8); named_graph.record_payload({0,0},0,255);
+  std::istringstream named_input(named_graph.snapshot().json());
+  check(read_event_trace(named_input).field({0,0},"value").unsigned_value() == 255);
+  auto mismatch = named_manifest; mismatch.fields[0][0].name = "different";
+  rejects([&] { PerfettoWriter w(empty_trace, mismatch, {1}); }, "differs from JSON");
+  for (const auto& reserved : {"cycle", "sequence"}) {
+    auto text = named_graph.snapshot().json();
+    const auto pos = text.find("\"name\":\"value\""); check(pos != std::string::npos);
+    text.replace(pos, 14, std::string("\"name\":\"") + reserved + "\"");
+    std::istringstream invalid_capture(text);
+    rejects([&] { read_event_trace(invalid_capture); },
+            std::string("reserved capture field name: ") + reserved);
+  }
+  for (const auto& change : std::vector<std::pair<std::string,std::string>>{
+         {"\"offset\":0", "\"offset\":1"}, {"\"offset\":0", "\"offset\":-1"},
+         {"\"width\":8", "\"width\":0"}, {"\"width\":8", "\"width\":1.5"},
+         {"\"width\":8", "\"width\":4294967296"}, {"\"name\":\"value\"", "\"name\":\"\""},
+         {"\"encoding\":\"unsigned\"", "\"encoding\":\"float\""},
+         {"\"encoding\":\"unsigned\"", "\"encoding\":\"bool\""}}) {
+    auto text = named_graph.snapshot().json();
+    const auto pos = text.find(change.first); check(pos != std::string::npos);
+    text.replace(pos, change.first.size(), change.second);
+    std::istringstream invalid_capture(text);
+    rejects([&] { read_event_trace(invalid_capture); }, "");
+  }
   std::cout << "C++ Perfetto writer and snapshot parser tests passed\n";
 }

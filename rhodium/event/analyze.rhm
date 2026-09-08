@@ -133,6 +133,11 @@ fun infer_event_manifest(logical :: DesignElaboration,
         | block:
             def annotation = flow_block.event_annotation
             def site_id = occurrence_prefix(instance_path) ++ "/event:" ++ to_string(annotation.site_index)
+            def mutable capture_offset = if annotation.payload | annotation.payload.type.packed_width() | 0
+            def captures = for List (field in annotation.fields):
+              def width = field.value.type.packed_width()
+              capture_offset := capture_offset - width
+              EventField(field.name, field.value.type.describe(), width, capture_offset, field.encoding)
             def site = EventSite(site_id,
                                  annotation.label,
                                  module_diagram.name,
@@ -143,7 +148,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  if annotation.payload | annotation.payload.type.packed_width() | #false,
                                  annotation.terminal,
                                  annotation.location.describe(),
-                                 annotation.root)
+                                 annotation.root,
+                                 captures)
             sites := sites ++ [site]
             site_inputs[site.id] := input_ports.map(
               fun (port): terminal_id(instance_path, flow_block.id, port.id)

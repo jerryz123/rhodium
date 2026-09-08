@@ -28,6 +28,23 @@ optional exporter. Preserve namespace `rheg`, the `rheg_*` DPI ABI, and existing
 
 ## Focused validation
 
+Named capture extraction and descriptor-layout validation belong to the
+standard-library-only runtime. Keep fields compact in nodes; resolve names
+through the immutable site schema. The exporter parses and cross-checks JSON
+against these tables once, then uses the runtime extractor for every field.
+Native prefix tests cover unaligned PC/instruction, bool, signed/unsigned
+scalars, and a 65-bit decimal value alongside live/replay parity. Preserve the
+legacy no-schema path for old snapshots. Never infer fields from type strings.
+
+Emit run-wide frequency/epoch once using ChromeEventBundle metadata, before the
+track descriptors and any occurrences. Keep site identity, source location, and
+capture layout in TrackDescriptor's JSON description; v58.2 has no arbitrary
+track annotation field. Native importer tests check the metadata table and
+track source args, including empty traces and every streamed prefix. Occurrence
+args retain only sequence, exact cycle, and values; even legacy payload widths
+belong on tracks. Do not change graph/snapshot storage or the DPI ABI for an
+export-presentation change.
+
 The runtime binds trusted compiler descriptors before the first callback and
 retains that binding across reset. Keep the DPI ABI independent of manifest
 loading. `Graph::validate` checks settled completeness and, when bound, site

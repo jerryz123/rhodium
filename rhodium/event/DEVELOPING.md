@@ -249,6 +249,16 @@ are false across it; inference constructs `EventTraceJoin` instead.
 
 ## Focused validation
 
+Named observations are normalized by the interface layer to an ordered selected
+record plus field descriptors. Ordinary scalar projections retain original IR
+ownership; only that selected record reaches word instrumentation. Analysis
+derives field widths and offsets from canonical record packing, independently
+of lineage plans. Emit both JSON schema and C++ tables from the same manifest.
+The graph fixture covers nested/computed captures and rejection; the runtime
+fixture captures 38 selected bits from a 65-bit input and checks exact words,
+unchanged output transfers, and parent identities. Keep `use_static` coverage
+for capture binders in the configured-flow static test.
+
 Standalone collector and exporter contracts live in
 [`rheg/tests/`](../../rheg/DEVELOPING.md#focused-validation).
 The `event-runtime` simulation runner includes the collector contract test. The

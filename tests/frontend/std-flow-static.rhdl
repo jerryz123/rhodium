@@ -75,6 +75,10 @@ sync_circuit FlowStaticInformation():
 
   inst captured_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1))
   def captured_nibble = captured_payload.egress.bits.low_nibble()
+  def named_capture = captured_payload.egress |> trace_valid_event("named", ~fields: payload):
+    word: payload.word
+    nibble: payload.word[0..4]
+  def named_word = named_capture.bits.word
 
   interface demux_input(Decoupled(Bits(8)), ~role: consumer)
   def routed = demux_input |> demux_flow(3, payload => payload[0..2])

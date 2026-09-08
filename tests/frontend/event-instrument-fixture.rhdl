@@ -23,7 +23,7 @@ sync_circuit EventRuntimeChild():
   mapper.data <== ingress.bits
   ingress
     |> map_flow(payload => mapper.result)
-    |> trace_event("mapped")
+    |> trace_event("mapped", ~payload: #true)
     |> filter_flow(payload => !(payload === bits(3, 8)))
     |> egress
 
@@ -48,16 +48,18 @@ sync_circuit EventRuntime():
   interface wide_sink(Valid(Bits(65)), ~role: producer)
   inst left(EventRuntimeWrapper())
   inst right(EventRuntimeWrapper())
-  sources[0] |> trace_event("left-input") |> gate_flow(enabled) |> left.ingress
-  left.egress |> trace_event("left-output", ~terminal: #true) |> sinks[0]
-  sources[1] |> trace_event("right-input") |> right.ingress
-  right.egress |> trace_event("right-output", ~terminal: #true) |> sinks[1]
-  wide_source
-    |> trace_valid_event("wide-input")
+  sources[0] |> trace_event("left-input", ~payload: #true) |> gate_flow(enabled) |> left.ingress
+  left.egress |> trace_event("left-output", ~payload: #true, ~terminal: #true) |> sinks[0]
+  sources[1] |> trace_event("right-input", ~payload: #true) |> right.ingress
+  right.egress |> trace_event("right-output", ~payload: #true, ~terminal: #true) |> sinks[1]
+  def observed_wide = wide_source
+    |> trace_valid_event("wide-input", ~payload: #true)
     |> map_valid(payload => payload)
     |> filter_valid(payload => !(payload === bits(0, 65)))
-    |> trace_valid_event("wide-output", ~terminal: #true)
-    |> wide_sink
+    |> trace_valid_event("wide-output", ~terminal: #true, ~fields: payload):
+         low: payload[0..37]
+         high: payload[64]
+  observed_wide |> wide_sink
 
 circuit EventWrongDomain():
   input clock: Clock
@@ -66,8 +68,8 @@ circuit EventWrongDomain():
   inst child(EventRuntimeChild(), ~clock: other_clock, ~reset: reset)
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  source |> trace_event("before") |> child.ingress
-  child.egress |> trace_event("after") |> sink
+  source |> trace_event("before", ~payload: #true) |> child.ingress
+  child.egress |> trace_event("after", ~payload: #true) |> sink
 
 def runtime = elaborate_with_top(EventRuntime())
 fun wrong_domain(): elaborate_with_top(EventWrongDomain())
@@ -75,7 +77,7 @@ fun wrong_domain(): elaborate_with_top(EventWrongDomain())
 sync_circuit EventTerminalChain():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  source |> trace_event("stop", ~terminal: #true) |> trace_event("after-stop") |> sink
+  source |> trace_event("stop", ~payload: #true, ~terminal: #true) |> trace_event("after-stop", ~payload: #true) |> sink
 
 circuit EventBadGuard():
   def invalid = interface_trace_combinational(~guard: bits(0, 2))
@@ -105,12 +107,12 @@ sync_circuit EventOpaqueSource():
 sync_circuit EventRootBoundary(root :: Boolean):
   interface sink(Decoupled(EventOpaquePayload()), ~role: producer)
   inst opaque(EventOpaqueSource())
-  opaque.output_link |> trace_event("start", ~root: root) |> trace_event("end") |> sink
+  opaque.output_link |> trace_event("start", ~payload: #true, ~root: root) |> trace_event("end", ~payload: #true) |> sink
 
 sync_circuit EventRootCut():
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sink(Valid(Bits(8)), ~role: producer)
-  source |> trace_valid_event("before") |> trace_valid_event("start", ~root: #true) |> trace_valid_event("end") |> sink
+  source |> trace_valid_event("before", ~payload: #true) |> trace_valid_event("start", ~payload: #true, ~root: #true) |> trace_valid_event("end", ~payload: #true) |> sink
 
 fun root_boundary(root :: Boolean): elaborate_with_top(EventRootBoundary(root))
 def root_cut = elaborate_with_top(EventRootCut())

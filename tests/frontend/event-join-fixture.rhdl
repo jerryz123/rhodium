@@ -14,12 +14,12 @@ sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
   output combine_fire: Bool
   output routes_fire: Bits(2)
   def inputs = for Array (index in 0..3):
-    if traced | ingress[index] |> trace_event("root" ++ to_string(index)) | ingress[index]
+    if traced | ingress[index] |> trace_event("root" ++ to_string(index), ~payload: #true) | ingress[index]
   def left = inputs[0] |> queue(2, ~pipe: #true)
   def right = inputs[1] |> pipe(2)
   def third = inputs[2] |> queue(2)
   def first = Array(left, right) |> zip_flow(a, b => a ^ b)
-  def checkpoint = if traced && mode == 2 | first |> trace_event("joined") | first
+  def checkpoint = if traced && mode == 2 | first |> trace_event("joined", ~payload: #true) | first
   def replicas = if mode == 0 | checkpoint |> atomic_fork(2) | checkpoint |> broadcast(2)
   def branch0 = replicas[0] |> pipe(1)
   def branch1 = replicas[1] |> queue(2)
@@ -30,7 +30,7 @@ sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
   def outputs = Array(routed[0] |> pipe(1), routed[1] |> queue(2))
   for (index in 0..2):
     if traced
-    | outputs[index] |> trace_event("completed" ++ to_string(index), ~terminal: #true) |> egress[index]
+    | outputs[index] |> trace_event("completed" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
     | outputs[index] |> egress[index]
   first_fire <== first.valid & first.ready
   replicas_fire <== vec(for List (index in 0..2): replicas[index].valid & replicas[index].ready).as_bits()
@@ -42,13 +42,13 @@ sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
 sync_circuit EventJoinOccurrences(traced :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)
-  def root = if traced | ingress |> trace_event("occurrences") | ingress
+  def root = if traced | ingress |> trace_event("occurrences", ~payload: #true) | ingress
   def routes = root |> demux_flow(2, payload => payload[0])
   def even = routes[0] |> queue(2)
   def odd = routes[1] |> pipe(2)
   def paired = Array(even, odd) |> zip_flow(a, b => a ^ b) |> queue(2, ~flow: #true)
   if traced
-  | paired |> trace_event("paired", ~terminal: #true) |> egress
+  | paired |> trace_event("paired", ~payload: #true, ~terminal: #true) |> egress
   | paired |> egress
 
 sync_circuit EventJoin():
@@ -100,8 +100,8 @@ sync_circuit EventBadJoin(count :: Nat, duplicate :: Boolean):
 sync_circuit EventPartialJoin():
   interface sources[2](Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  def left = sources[0] |> trace_event("left")
-  Array(left, sources[1]) |> zip_flow(a, b => a ^ b) |> trace_event("joined") |> sink
+  def left = sources[0] |> trace_event("left", ~payload: #true)
+  Array(left, sources[1]) |> zip_flow(a, b => a ^ b) |> trace_event("joined", ~payload: #true) |> sink
 
 def joined = elaborate_with_top(EventJoin())
 fun bad_count(): elaborate_with_top(EventBadJoin(0, #false))

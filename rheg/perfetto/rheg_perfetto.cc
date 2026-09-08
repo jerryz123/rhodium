@@ -65,13 +65,27 @@ Description describe(const Json& json) {
   const auto& sites = json.at("sites");
   require(sites.is_array() && !sites.empty() && sites.size() < INT32_MAX, "invalid manifest site table");
   std::map<std::string, std::uint32_t> ids;
+  const bool named = sites.front().contains("fields");
   for (const auto& site : sites) {
     const auto id = site.at("id").get<std::string>();
     require(!id.empty() && ids.emplace(id, ids.size()).second, "duplicate or empty site identity");
     result.sites.push_back({id, site.value("label", id), site.value("source_location", std::string("<unknown>"))});
     const auto& width = site.at("payload_width");
     result.manifest.payload_widths.push_back(width == Json(false) ? 0 : number(width, UINT32_MAX));
+    require(site.contains("fields") == named, "inconsistent capture schema presence");
+    if (named) {
+      const auto& fields = site.at("fields");
+      require(fields.is_array(), "capture fields must be an array");
+      std::vector<Field> captures;
+      for (const auto& field : fields)
+        captures.push_back({field.at("name").get<std::string>(),
+                           static_cast<std::uint32_t>(number(field.at("width"), UINT32_MAX)),
+                           static_cast<std::uint32_t>(number(field.at("offset"), UINT32_MAX)),
+                           field.at("encoding").get<std::string>()});
+      result.manifest.fields.push_back(std::move(captures));
+    }
   }
+  validate_capture_schema(result.manifest);
   require(json.at("dependencies").is_array(), "dependencies must be an array");
   for (const auto& edge : json.at("dependencies")) {
     auto parent = ids.find(edge.at("parent").get<std::string>());
@@ -104,6 +118,21 @@ void annotation(std::string& event, const std::string& name, const std::string& 
   std::string arg;
   bytes(arg, 10, name); bytes(arg, 6, value); bytes(event, 4, arg);
 }
+void capture_annotation(std::string& event, const Field& field, const Node& node) {
+  const auto value = capture_field(node, field);
+  const auto& name = field.name;
+  if (field.encoding == "hex" || field.width > 64 ||
+      (field.encoding == "unsigned" && value.unsigned_value() > INT64_MAX)) {
+    annotation(event, name, field.encoding == "hex" ? value.hex() : value.decimal());
+  } else {
+    std::string arg;
+    bytes(arg, 10, name);
+    if (field.encoding == "bool") integer(arg, 2, value.unsigned_value());
+    else if (field.encoding == "signed") integer(arg, 4, static_cast<std::uint64_t>(value.signed_value()));
+    else integer(arg, 3, value.unsigned_value());
+    bytes(event, 4, arg);
+  }
+}
 }
 
 struct PerfettoWriter::Impl {
@@ -118,8 +147,18 @@ struct PerfettoWriter::Impl {
       : output(out), description(describe(parse(manifest.json))), timing(clock) {
     require(timing.clock_frequency_hz != 0, "positive clock frequency required");
     require(description.manifest.payload_widths == manifest.payload_widths &&
-            description.manifest.dependencies == manifest.dependencies, "manifest descriptor differs from JSON");
+            description.manifest.dependencies == manifest.dependencies &&
+            description.manifest.fields == manifest.fields, "manifest descriptor differs from JSON");
     std::string stream, descriptor, process, p;
+    // Run-wide metadata precedes every occurrence, including in empty/prefix traces.
+    std::string metadata, metadata_packet;
+    for (const auto& entry : std::vector<std::pair<std::string,std::uint64_t>>{
+           {"rheg.clock_frequency_hz", timing.clock_frequency_hz}, {"rheg.epoch_id", timing.epoch_id}}) {
+      std::string item;
+      bytes(item, 1, entry.first); bytes(item, 2, std::to_string(entry.second));
+      bytes(metadata, 2, item); // ChromeEventBundle.metadata / ChromeMetadata.string_value.
+    }
+    bytes(metadata_packet, 5, metadata); packet(stream, metadata_packet);
     integer(descriptor, 1, description.sites.size() + 1);
     integer(process, 1, 1); bytes(process, 6, description.top);
     bytes(descriptor, 3, process); bytes(p, 60, descriptor); packet(stream, p);
@@ -127,7 +166,16 @@ struct PerfettoWriter::Impl {
       std::string track, pkt;
       integer(track, 1, i + 1); integer(track, 5, description.sites.size() + 1);
       bytes(track, 2, description.sites[i].label); integer(track, 15, 2);
-      bytes(track, 14, description.sites[i].id);
+      Json site = {{"site_id", description.sites[i].id},
+                   {"source_location", description.sites[i].source},
+                   {"payload_width", description.manifest.payload_widths[i]}};
+      if (!description.manifest.fields.empty()) {
+        site["fields"] = Json::array();
+        for (const auto& field : description.manifest.fields[i])
+          site["fields"].push_back({{"name",field.name}, {"width",field.width},
+                                     {"offset",field.offset}, {"encoding",field.encoding}});
+      }
+      bytes(track, 14, site.dump(2)); // TrackDescriptor has description, not arbitrary annotations.
       bytes(pkt, 60, track); packet(stream, pkt);
     }
     flush(stream);
@@ -200,17 +248,17 @@ struct PerfettoWriter::Impl {
       std::string fields;
       integer(fields, 9, 1); bytes(fields, 23, description.sites[ref.site].label);
       bytes(fields, 22, "rhodium.event");
-      annotation(fields, "site", std::to_string(ref.site));
       annotation(fields, "sequence", std::to_string(ref.sequence));
       annotation(fields, "cycle", std::to_string(node.cycle));
-      annotation(fields, "epoch_id", std::to_string(timing.epoch_id));
-      annotation(fields, "clock_frequency_hz", std::to_string(timing.clock_frequency_hz));
-      annotation(fields, "payload_width", std::to_string(node.width));
-      std::vector<std::uint32_t> words;
-      for (auto word : node.words) words.push_back(word.second);
-      annotation(fields, "payload_words_lsw_first", Json(words).dump());
-      annotation(fields, "site_id", description.sites[ref.site].id);
-      annotation(fields, "source_location", description.sites[ref.site].source);
+      if (!description.manifest.fields.empty()) {
+        for (const auto& field : description.manifest.fields[ref.site])
+          capture_annotation(fields, field, node);
+      } else {
+        // Old snapshots retain their raw display when no capture schema exists.
+        std::vector<std::uint32_t> words;
+        for (auto word : node.words) words.push_back(word.second);
+        annotation(fields, "payload_words_lsw_first", Json(words).dump());
+      }
       event(stream, ref, node.cycle, fields);
       for (auto parent : parents[ref]) {
         const auto identity = additions.count(parent) ? additions.at(parent).first : known.at(parent).first;

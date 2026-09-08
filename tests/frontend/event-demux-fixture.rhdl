@@ -29,11 +29,11 @@ sync_circuit EventDemuxLane(buffered :: Boolean, traced :: Boolean):
   inst network(EventDemuxNetwork(buffered))
   network.selector <== selector
   if traced
-  | ingress |> trace_event("accepted") |> network.ingress
+  | ingress |> trace_event("accepted", ~payload: #true) |> network.ingress
   | ingress |> network.ingress
   for (index in 0..3):
     if traced
-    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~terminal: #true) |> egress[index]
+    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
     | network.egress[index] |> egress[index]
   route_valid <== network.route_valid
   route_ready <== network.route_ready
@@ -87,19 +87,19 @@ sync_circuit EventDemux():
 sync_circuit EventNestedDemux():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sinks[3](Decoupled(Bits(8)), ~role: producer)
-  def outer = source |> trace_event("root") |> demux_flow(2, payload => payload[0])
+  def outer = source |> trace_event("root", ~payload: #true) |> demux_flow(2, payload => payload[0])
   def inner = outer[0] |> queue(2) |> demux_flow(2, payload => payload[1])
-  inner[0] |> trace_event("a") |> sinks[0]
-  inner[1] |> trace_event("b") |> sinks[1]
-  outer[1] |> trace_event("c") |> sinks[2]
+  inner[0] |> trace_event("a", ~payload: #true) |> sinks[0]
+  inner[1] |> trace_event("b", ~payload: #true) |> sinks[1]
+  outer[1] |> trace_event("c", ~payload: #true) |> sinks[2]
 
 sync_circuit EventRoutingRejoin():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  def branches = source |> trace_event("root") |> demux_flow(2, payload => payload[0])
+  def branches = source |> trace_event("root", ~payload: #true) |> demux_flow(2, payload => payload[0])
   def left = branches[0] |> pipe(1)
   def right = branches[1] |> queue(2)
-  Array(left, right) |> rr_arbiter() |> pipe(1) |> trace_event("completed") |> sink
+  Array(left, right) |> rr_arbiter() |> pipe(1) |> trace_event("completed", ~payload: #true) |> sink
 
 sync_circuit EventBadRoutingWidth():
   interface_trace_routing([bits(0, 2)])
@@ -108,8 +108,8 @@ sync_circuit EventSingletonDemux():
   input selector: Bits(1)
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  def branches = source |> trace_event("root") |> demux_flow(1, payload => selector)
-  branches[0] |> trace_event("completed") |> sink
+  def branches = source |> trace_event("root", ~payload: #true) |> demux_flow(1, payload => selector)
+  branches[0] |> trace_event("completed", ~payload: #true) |> sink
 sync_circuit EventBadRoutingShape():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sinks[2](Decoupled(Bits(8)), ~role: producer)
@@ -133,9 +133,9 @@ sync_circuit EventForeignRouting():
 sync_circuit EventUncertifiedFanout():
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sinks[2](Valid(Bits(8)), ~role: producer)
-  def root = source |> trace_valid_event("root")
-  root |> trace_valid_event("left") |> sinks[0]
-  root |> trace_valid_event("right") |> sinks[1]
+  def root = source |> trace_valid_event("root", ~payload: #true)
+  root |> trace_valid_event("left", ~payload: #true) |> sinks[0]
+  root |> trace_valid_event("right", ~payload: #true) |> sinks[1]
 
 def routed = elaborate_with_top(EventDemux())
 fun nested(): elaborate_with_top(EventNestedDemux())

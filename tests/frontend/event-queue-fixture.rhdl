@@ -16,13 +16,13 @@ sync_circuit EventQueueLane(depth :: PosInt, piped :: Boolean, flowed :: Boolean
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)
   inst storage(EventQueueStorage(depth, piped, flowed, composed))
-  def accepted = if traced | ingress |> trace_event("accepted") | ingress
+  def accepted = if traced | ingress |> trace_event("accepted", ~payload: #true) | ingress
   if composed
   | accepted |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> storage.ingress
   | accepted |> storage.ingress
   def arrived = if composed | storage.egress |> map_flow(payload => payload + bits(1, 8)) |> filter_flow(payload => !(payload === bits(4, 8))) | storage.egress
   if traced
-  | arrived |> trace_event("completed", ~terminal: #true) |> egress
+  | arrived |> trace_event("completed", ~payload: #true, ~terminal: #true) |> egress
   | arrived |> egress
 
 sync_circuit EventQueue():

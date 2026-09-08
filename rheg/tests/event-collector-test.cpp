@@ -36,6 +36,43 @@ Graph populated() {
 }
 }
 int main() {
+  auto schema = descriptor();
+  schema.fields = {{}, {{"small", 3, 5, "unsigned"}, {"signed", 5, 0, "signed"}}};
+  Graph named; named.bind_manifest(schema);
+  named.record_node({1, 0}, 0, 8); named.record_payload({1, 0}, 0, 0xf9);
+  require(named.field({1, 0}, "small").unsigned_value() == 7);
+  require(named.field({1, 0}, "signed").signed_value() == -7);
+  require(named.snapshot().field({1, 0}, "signed").decimal() == "-7");
+  rejects([&] { named.field({1, 0}, "absent"); }, "unknown capture field");
+  for (const auto& reserved : {"cycle", "sequence"}) {
+    auto bad = schema; bad.fields[1][1].name = reserved;
+    rejects([&] { Graph rejected; rejected.bind_manifest(bad); },
+            std::string("reserved capture field name: ") + reserved);
+  }
+  for (auto invalid_field : std::vector<Field>{{"small",5,0,"hex"}, {"bad",5,1,"hex"},
+                                              {"bad",5,0,"bool"}, {"bad",5,0,"float"},
+                                              {"",5,0,"hex"}, {"bad",0,0,"hex"}}) {
+    auto bad = schema; bad.fields[1][1] = invalid_field;
+    rejects([&] { Graph rejected; rejected.bind_manifest(bad); }, "capture");
+  }
+  Node bits{true, 0, 200, {}};
+  for (unsigned i = 0; i < 7; ++i) bits.words[i] = 0x8abcdef1U ^ (i * 0x1234567U);
+  bits.words[6] &= 255;
+  for (unsigned offset = 0; offset < 66; ++offset) {
+    for (unsigned width = 1; width <= 130; ++width) {
+      const auto selected = capture_field(bits, {"test",width,offset,"hex"});
+      for (unsigned bit = 0; bit < width; ++bit)
+        require(((selected.words[bit/32] >> (bit%32)) & 1) ==
+                ((bits.words[(offset+bit)/32] >> ((offset+bit)%32)) & 1));
+      if (width % 32) require((selected.words.back() >> (width % 32)) == 0);
+    }
+  }
+  const FieldValue wide{65,"unsigned",{UINT32_MAX,UINT32_MAX,1}};
+  require(wide.hex() == "0x1ffffffffffffffff");
+  require(wide.decimal() == "36893488147419103231");
+  rejects([&] { wide.unsigned_value(); }, "exceeds 64");
+  require((FieldValue{65,"signed",{0,0,1}}.decimal()) == "-18446744073709551616");
+  require((FieldValue{64,"signed",{0,0x80000000}}.signed_value()) == INT64_MIN);
   static_assert(std::is_const_v<std::remove_reference_t<decltype(std::declval<Snapshot>().nodes())>>);
   static_assert(std::is_const_v<std::remove_reference_t<decltype(std::declval<Snapshot>().edges())>>);
   static_assert(std::is_const_v<std::remove_reference_t<decltype(std::declval<Snapshot>().manifest())>>);

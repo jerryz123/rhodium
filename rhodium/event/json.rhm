@@ -41,6 +41,10 @@ fun json_site(site :: EventSite):
     "protocol": site.protocol,
     "payload_type": site.payload_type || #false,
     "payload_width": site.payload_width || #false,
+    "fields": site.fields.map(fun (field): {
+      "name": field.name, "type": field.type, "width": field.width,
+      "offset": field.offset, "encoding": field.encoding
+    }),
     "terminal": site.terminal,
     "root": site.root,
     "source_location": site.source_location
@@ -83,6 +87,15 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
     unless (site.payload_width || 0) < 2 ** 32
     | error(~who: #'event_manifest_to_cpp, "runtime payload width must fit 32 bits")
   def widths = manifest.sites.map(fun (site): to_string(site.payload_width || 0))
+  fun cpp_field(field :: EventField):
+    // Names are raw literals too: quotes, backslashes and Unicode are not C++ escapes.
+    def name_tag = tag ++ "f"
+    when field.name.contains(")" ++ name_tag ++ "\"") || field.name.contains("\u0000")
+    | error(~who: #'event_manifest_to_cpp, "capture name cannot be represented in descriptor")
+    "{R\"" ++ name_tag ++ "(" ++ field.name ++ ")" ++ name_tag ++ "\"," ++ to_string(field.width) ++ "," ++ to_string(field.offset) ++ "," ++ json_string(field.encoding) ++ "}"
+  def fields = manifest.sites.map(
+    fun (site): "{" ++ String.join(site.fields.map(cpp_field), ",") ++ "}"
+  )
   def edges = manifest.dependencies.map(
     fun (edge):
       unless ids.has_key(edge.parent) && ids.has_key(edge.child)
@@ -94,5 +107,5 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
     "#pragma once\n#include \"rheg.h\"\n",
     "namespace rheg_generated {\ninline rheg::Manifest manifest() {\n  return {R\"",
     tag ++ "(" ++ json ++ ")" ++ tag ++ "\", {" ++ String.join(widths, ","),
-    "}, {" ++ String.join(edges, ",") ++ "}};\n}\n}\n"
+    "}, {" ++ String.join(edges, ",") ++ "}, {" ++ String.join(fields, ",") ++ "}};\n}\n}\n"
   ], "")

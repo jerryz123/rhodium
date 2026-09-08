@@ -78,6 +78,8 @@ make -C sims trace-smoke TRACE_FILE=/tmp/simple-soc.pftrace \
 `tests/check-event-trace.sh` requires request traffic and checks the two allowed
 same-cycle edge families, paired payload/sequence equality, exact configured
 timestamps, one-cycle slice widths, readable track labels, and importer errors.
+It checks run timing once in the metadata table and site/capture context in
+track descriptions, with no redundant run/site arguments on occurrences.
 This optional test requires native Perfetto
 and does not require RSP activity: the smoke's reads return data on DAT.
 It is separate from ordinary simulation CI. `tests/check-event-driver.sh`
@@ -89,8 +91,8 @@ the common driver.
 stages, exact permitted edge families, one parent per non-root event, no duplicate
 children, matching RV64 PCs, and one-cycle downstream latency (elastic IF/ID may
 take longer). It requires repeated fetched PCs to exercise distinct occurrences.
-PC extraction relies on the documented core bundle layouts, whose leading field
-is XLEN-wide PC. Keep this test synchronized if that layout changes.
+PC and instruction checks use named captures, independently of core bundle layout.
+Memory pairs explicitly retain raw capture for their payload-equality checks.
 
 ### Other simulation contracts
 

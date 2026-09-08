@@ -106,8 +106,8 @@ from architectural retirement and deferred completion.
 
 After edits, run `rv5stage-core` for forwarding, stalls, replay, redirects, and
 deferred completion, then the SimpleSoC trace smoke. Its native Perfetto checks
-follow exact occurrence edges, extract RV64 PCs from the canonical packed
-payloads, and check one-cycle or elastic delays without requiring every fetched
+follow exact occurrence edges, compare named PC/instruction captures, and
+check one-cycle or elastic delays without requiring every fetched
 token to survive. The conversion/fanout compiler fixture covers both Valid
 replication outputs, including a dropping branch.
 

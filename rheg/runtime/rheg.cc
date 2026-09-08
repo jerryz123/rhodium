@@ -1,11 +1,103 @@
 // Collects rheg DPI callbacks and exports timed snapshots and settled-cycle batches.
 #include "rheg.h"
 
+#include <algorithm>
 #include <sstream>
 #include <stdexcept>
 #include <limits>
 
 namespace rheg {
+void validate_capture_schema(const Manifest& manifest) {
+  if (manifest.fields.empty()) return; // Legacy snapshots remain readable.
+  if (manifest.fields.size() != manifest.payload_widths.size())
+    throw std::runtime_error("capture schema site count mismatch");
+  for (std::size_t site = 0; site < manifest.fields.size(); ++site) {
+    std::uint64_t remaining = manifest.payload_widths[site];
+    std::set<std::string> names;
+    for (const auto& field : manifest.fields[site]) {
+      if (field.name.empty() || !names.insert(field.name).second)
+        throw std::runtime_error("duplicate or empty capture field name");
+      if (field.name == "cycle" || field.name == "sequence")
+        throw std::runtime_error("reserved capture field name: " + field.name);
+      auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+      if (!letter(field.name.front()) || !std::all_of(field.name.begin(), field.name.end(), [&](char c) {
+            return letter(c) || (c >= '0' && c <= '9');
+          })) throw std::runtime_error("capture field name must be an ASCII identifier");
+      if (!field.width || field.width > remaining || field.offset != remaining - field.width)
+        throw std::runtime_error("invalid capture field layout");
+      if (field.encoding != "hex" && field.encoding != "unsigned" &&
+          field.encoding != "signed" && field.encoding != "bool")
+        throw std::runtime_error("unsupported capture encoding");
+      if (field.encoding == "bool" && field.width != 1)
+        throw std::runtime_error("boolean capture must be one bit");
+      remaining -= field.width;
+    }
+    if (remaining) throw std::runtime_error("incomplete capture field layout");
+  }
+}
+FieldValue capture_field(const Node& node, const Field& field) {
+  if (!node.present || !field.width || std::uint64_t(field.offset) + field.width > node.width)
+    throw std::runtime_error("capture field outside present node");
+  FieldValue result{field.width, field.encoding, {}};
+  for (std::uint64_t bit = 0; bit < field.width; bit += 32) {
+    const auto start = field.offset + bit;
+    const unsigned shift = start % 32;
+    auto word = std::uint64_t(node.words.at(start / 32)) >> shift;
+    const auto count = std::min<std::uint64_t>(32, field.width - bit);
+    if (shift && count > 32 - shift)
+      word |= std::uint64_t(node.words.at(start / 32 + 1)) << (32 - shift);
+    if (count < 32) word &= (std::uint64_t(1) << count) - 1;
+    result.words.push_back(static_cast<std::uint32_t>(word));
+  }
+  return result;
+}
+std::string FieldValue::hex() const {
+  std::string result = "0x";
+  for (std::uint64_t digit = (std::uint64_t(width) + 3) / 4; digit-- > 0;)
+    result += "0123456789abcdef"[(words.at(digit / 8) >> ((digit % 8) * 4)) & 15];
+  return result;
+}
+std::uint64_t FieldValue::unsigned_value() const {
+  if (width > 64) throw std::runtime_error("capture exceeds 64 bits");
+  return words.at(0) | (width > 32 ? std::uint64_t(words.at(1)) << 32 : 0);
+}
+std::int64_t FieldValue::signed_value() const {
+  auto value = unsigned_value();
+  const bool negative = (value >> (width - 1)) & 1;
+  if (!negative) return static_cast<std::int64_t>(value);
+  if (width < 64) value |= UINT64_MAX << width;
+  return -1 - static_cast<std::int64_t>(~value);
+}
+std::string FieldValue::decimal() const {
+  const bool negative = encoding == "signed" && ((words.at((width - 1) / 32) >> ((width - 1) % 32)) & 1);
+  // Double-and-add decimal digits keeps arbitrary-width captures lossless.
+  std::string digits = "0";
+  for (std::uint64_t bit = width; bit-- > 0;) {
+    unsigned carry = ((words.at(bit / 32) >> (bit % 32)) & 1) ^ unsigned(negative);
+    for (auto& digit : digits) {
+      const auto value = unsigned(digit - '0') * 2 + carry;
+      digit = char('0' + value % 10); carry = value / 10;
+    }
+    if (carry) digits += char('0' + carry);
+  }
+  if (negative) {
+    unsigned carry = 1;
+    for (auto& digit : digits) {
+      const auto value = unsigned(digit - '0') + carry;
+      digit = char('0' + value % 10); carry = value / 10;
+    }
+    if (carry) digits += '1';
+    digits += '-';
+  }
+  return std::string(digits.rbegin(), digits.rend());
+}
+FieldValue Graph::field(Ref ref, const std::string& name) const {
+  if (!manifest_ || ref.site >= manifest_->fields.size())
+    throw std::runtime_error("node has no capture schema");
+  for (const auto& field : manifest_->fields[ref.site])
+    if (field.name == name) return capture_field(nodes.at(ref), field);
+  throw std::runtime_error("unknown capture field: " + name);
+}
 static void validate_entries(const std::map<Ref, Node>& nodes,
                              const std::set<std::pair<Ref, Ref>>& edges,
                              const std::map<Ref, Node>& all_nodes,
@@ -70,6 +162,7 @@ void Graph::bind_manifest(const Manifest& manifest) {
   for (const auto& edge : manifest.dependencies)
     if (edge.first >= manifest.payload_widths.size() || edge.second >= manifest.payload_widths.size())
       throw std::runtime_error("event manifest dependency has unknown site");
+  validate_capture_schema(manifest);
   manifest_ = std::make_shared<const Manifest>(manifest);
 }
 static void validate_entries(const std::map<Ref, Node>& nodes,

@@ -79,7 +79,9 @@ at the scalar writeback stage. Inferred edges follow the real elastic IF/ID
 controls and one-cycle always-capture registers. Repeated PCs have separate
 occurrence identities; squashed tokens may have no later-stage descendant.
 
-Payloads retain each stage's packed bundle, including PC and instruction.
+Each checkpoint captures only named `pc` and `instruction` fields (XLEN + 32
+bits), not the complete stage bundle. Perfetto exposes `payload_pc` and
+`payload_instruction` as lossless hexadecimal values.
 WB is not retirement: replay, traps, maintenance/WRS holding, and deferred
 load/multiply/divide/FP completion remain outside this first pipeline trace.
 No dependency is inferred between the memory-boundary graph and fetch through

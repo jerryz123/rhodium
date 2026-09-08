@@ -25,13 +25,36 @@ struct Node {
   std::uint32_t width = 0;
   std::map<std::uint32_t, std::uint32_t> words;
 };
+// Bit offsets index the compact selected capture, not the functional RTL bundle.
+struct Field {
+  std::string name;
+  std::uint32_t width, offset;
+  std::string encoding;
+  bool operator==(const Field& other) const {
+    return std::tie(name, width, offset, encoding) ==
+           std::tie(other.name, other.width, other.offset, other.encoding);
+  }
+};
+struct FieldValue {
+  std::uint32_t width;
+  std::string encoding;
+  std::vector<std::uint32_t> words;
+  std::string hex() const;
+  std::string decimal() const;
+  std::uint64_t unsigned_value() const;
+  std::int64_t signed_value() const;
+};
+FieldValue capture_field(const Node& node, const Field& field);
 // Trusted compiler output, not a runtime JSON parsing API. Site indices and
 // allowed edges are generated together with the accompanying manifest JSON.
 struct Manifest {
   std::string json;
   std::vector<std::uint32_t> payload_widths;
   std::set<std::pair<std::uint32_t, std::uint32_t>> dependencies; // parent, child
+  // Empty outer table denotes a legacy manifest without named captures.
+  std::vector<std::vector<Field>> fields = {};
 };
+void validate_capture_schema(const Manifest& manifest);
 class Snapshot;
 // Run metadata, independent of circuit topology. Cycle zero means timestamp zero.
 struct TraceTiming {
@@ -60,6 +83,7 @@ struct Graph {
   void record_node(Ref ref, std::uint64_t cycle, std::uint32_t width);
   void record_payload(Ref ref, std::uint32_t index, std::uint32_t word);
   void record_edge(Ref parent, Ref child);
+  FieldValue field(Ref ref, const std::string& name) const;
   void reset(bool active);
 private:
   friend class Snapshot;
@@ -80,6 +104,7 @@ public:
   const Manifest& manifest() const { return *graph_.manifest_; }
   const std::optional<TraceTiming>& timing() const { return graph_.timing_; }
   std::string json() const;
+  FieldValue field(Ref ref, const std::string& name) const { return graph_.field(ref, name); }
 private:
   friend struct Graph;
   explicit Snapshot(const Graph& graph) : graph_(graph) {}

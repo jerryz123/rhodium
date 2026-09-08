@@ -9,7 +9,7 @@ sync_circuit EventPipelineChild():
   interface egress(Valid(Bits(8)), ~role: producer)
   ingress
     |> valid_pipe(2)
-    |> trace_valid_event("middle")
+    |> trace_valid_event("middle", ~payload: #true)
     |> map_valid(payload => payload + bits(1, 8))
     |> valid_pipe(1)
     |> egress
@@ -19,13 +19,13 @@ sync_circuit EventPipeline():
   interface sink(Valid(Bits(8)), ~role: producer)
   inst child(EventPipelineChild())
   source
-    |> trace_valid_event("accepted")
+    |> trace_valid_event("accepted", ~payload: #true)
     |> filter_valid(payload => !(payload === bits(0, 8)))
     |> valid_pipe(1)
     |> child.ingress
   child.egress
     |> filter_valid(payload => !(payload === bits(4, 8)))
-    |> trace_valid_event("completed", ~terminal: #true)
+    |> trace_valid_event("completed", ~payload: #true, ~terminal: #true)
     |> sink
 
 def pipeline = elaborate_with_top(EventPipeline())
@@ -34,9 +34,9 @@ def pipeline = elaborate_with_top(EventPipeline())
 sync_circuit EventValidConversion():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sinks[2](Valid(Bits(8)), ~role: producer)
-  def Array(left, right) = source |> trace_event("accepted") |> to_valid() |> valid_pipe_always_capture(1) |> fork_valid(2)
-  left |> trace_valid_event("left") |> sinks[0]
-  right |> filter_valid(payload => payload =/= bits(0, 8)) |> trace_valid_event("right") |> sinks[1]
+  def Array(left, right) = source |> trace_event("accepted", ~payload: #true) |> to_valid() |> valid_pipe_always_capture(1) |> fork_valid(2)
+  left |> trace_valid_event("left", ~payload: #true) |> sinks[0]
+  right |> filter_valid(payload => payload =/= bits(0, 8)) |> trace_valid_event("right", ~payload: #true) |> sinks[1]
 
 def valid_conversion = elaborate_with_top(EventValidConversion())
 

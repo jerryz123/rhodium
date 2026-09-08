@@ -23,12 +23,25 @@ def hierarchy_inside = hierarchical.sites.filter(
 )
 def json = event_manifest_to_json(linear)
 def cpp = event_manifest_to_cpp(linear)
+def captures = infer_event_manifest(fixture.captures)
 def unusual_label = "quote\" slash\\ newline\n tab\t null\u0000 bell\u0007 λ )rhdl0"
 def unusual = EventManifest(linear.logical, [
   EventSite("odd", unusual_label, "mod", ["top"], 0, "Valid", #false, #false, #false, "<unknown>")
 ], [])
 
 check:
+  captures.sites.map(fun (site): site.payload_width) ~is [102, #false]
+  captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding]) ~is [
+    ["pc", 64, 38, "hex"], ["instruction", 32, 6, "hex"],
+    ["fault", 1, 5, "bool"], ["low", 5, 0, "unsigned"]
+  ]
+  dependency_labels(captures) ~is ["selected->identity-only"]
+  fixture.invalid_captures("duplicate") ~throws "duplicate capture"
+  fixture.invalid_captures("aggregate") ~throws "scalar DataType"
+  fixture.invalid_captures("cycle") ~throws "reserved capture field name: cycle"
+  fixture.invalid_captures("sequence") ~throws "reserved capture field name: sequence"
+  fixture.invalid_captures("bool") ~throws "one bit"
+  fixture.invalid_captures("float") ~throws "unsupported capture format"
   linear.sites.map(fun (site): site.label) ~is ["accepted", "issued", "completed"]
   linear.sites.map(fun (site): site.local_site) ~is [0, 1, 2]
   linear.sites.map(fun (site): site.payload_type) ~is ["bits<8>", "bits<8>", "bits<8>"]

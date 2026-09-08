@@ -29,11 +29,11 @@ sync_circuit EventAtomicForkLane(buffered :: Boolean, traced :: Boolean):
   output transfers: Bits(3)
   inst network(EventAtomicForkNetwork(buffered))
   if traced
-  | ingress |> trace_event("accepted") |> network.ingress
+  | ingress |> trace_event("accepted", ~payload: #true) |> network.ingress
   | ingress |> network.ingress
   for (index in 0..3):
     if traced
-    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~terminal: #true) |> egress[index]
+    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
     | network.egress[index] |> egress[index]
   fork_valid <== network.fork_valid
   fork_ready <== network.fork_ready
@@ -87,36 +87,36 @@ sync_circuit EventAtomicFork():
 sync_circuit EventNestedAtomicFork():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sinks[3](Decoupled(Bits(8)), ~role: producer)
-  def outer = source |> trace_event("root") |> atomic_fork(2)
+  def outer = source |> trace_event("root", ~payload: #true) |> atomic_fork(2)
   def inner = outer[0] |> queue(2) |> atomic_fork(2)
-  inner[0] |> trace_event("a") |> sinks[0]
-  inner[1] |> trace_event("b") |> sinks[1]
-  outer[1] |> trace_event("c") |> sinks[2]
+  inner[0] |> trace_event("a", ~payload: #true) |> sinks[0]
+  inner[1] |> trace_event("b", ~payload: #true) |> sinks[1]
+  outer[1] |> trace_event("c", ~payload: #true) |> sinks[2]
 
 sync_circuit EventForkRouting(fork_first :: Boolean):
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sinks[3](Decoupled(Bits(8)), ~role: producer)
-  def root = source |> trace_event("root")
+  def root = source |> trace_event("root", ~payload: #true)
   def outer = if fork_first | root |> atomic_fork(2) | root |> demux_flow(2, payload => payload[0])
   def buffered = outer[0] |> queue(2)
   def inner = if fork_first | buffered |> demux_flow(2, payload => payload[1]) | buffered |> atomic_fork(2)
-  inner[0] |> trace_event("a") |> sinks[0]
-  inner[1] |> trace_event("b") |> sinks[1]
-  outer[1] |> trace_event("c") |> sinks[2]
+  inner[0] |> trace_event("a", ~payload: #true) |> sinks[0]
+  inner[1] |> trace_event("b", ~payload: #true) |> sinks[1]
+  outer[1] |> trace_event("c", ~payload: #true) |> sinks[2]
 
 sync_circuit EventForkArbiter():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  def branches = source |> trace_event("root") |> atomic_fork(2)
+  def branches = source |> trace_event("root", ~payload: #true) |> atomic_fork(2)
   def left = branches[0] |> pipe(1)
   def right = branches[1] |> queue(2)
-  Array(left, right) |> rr_arbiter() |> pipe(1) |> trace_event("completed") |> sink
+  Array(left, right) |> rr_arbiter() |> pipe(1) |> trace_event("completed", ~payload: #true) |> sink
 
 sync_circuit EventSingletonFork():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  def branches = source |> trace_event("root") |> atomic_fork(1)
-  branches[0] |> trace_event("completed") |> sink
+  def branches = source |> trace_event("root", ~payload: #true) |> atomic_fork(1)
+  branches[0] |> trace_event("completed", ~payload: #true) |> sink
 
 sync_circuit EventBadAtomicFork(count :: Nat, duplicate :: Boolean):
   interface source(Decoupled(Bits(8)), ~role: consumer)

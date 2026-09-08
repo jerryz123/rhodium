@@ -82,6 +82,37 @@ The existing occurrence-only `graph().json()` and fixed DPI entry points remain
 available. Snapshots copy the current epoch and therefore require additional
 memory proportional to the retained graph.
 
+### Named captures
+
+New compiler manifests include an ordered `fields` schema for every site and
+matching C++ `Manifest::fields` tables. Each field has a unique ASCII identifier
+name, positive width, LSB offset, and encoding. Fields exactly cover the compact
+capture in declaration order, most-significant first; omitted observations do
+not occupy bits or generate callbacks. A zero-width site has an empty field list.
+The DPI ABI and occurrence-word representation remain unchanged.
+
+At a settled boundary, use `graph.field(ref, "pc")` or
+`snapshot.field(ref, "pc")`. `FieldValue` provides width, encoding, LSW-first
+words, lossless `hex()` and `decimal()`, and checked `unsigned_value()` /
+`signed_value()` access for values up to 64 bits. `decimal()` interprets the sign
+only for the `signed` encoding. `capture_field(node, field)` also works on a
+cycle batch without requiring a retained graph.
+
+Perfetto preserves capture names such as `pc` and `instruction`
+(SQL keys `debug.pc`, etc.). The built-in names `cycle` and `sequence` are
+reserved and rejected as capture names. Bitvectors default to fixed-width hex
+strings. Booleans and integers use native scalar arguments; values wider than
+64 bits, and unsigned values above INT64_MAX, use exact decimal strings.
+Raw word arrays and aggregate widths are no longer normal display arguments.
+An explicit raw capture appears as `raw`.
+
+These are additive version-1 manifest fields. Legacy snapshots without the
+schema retain their old raw-word display, but cannot provide named lookup.
+Mixed schema presence, duplicate names, overlaps, gaps, out-of-range fields,
+invalid encodings, and JSON/C++ table mismatches are errors. The collector
+validates typed descriptors without acquiring a JSON dependency; the shared
+export library interprets the same schema for streaming and replay.
+
 ### Optional trace timing
 
 Before any simulator evaluation or callback, bind run timing separately from
@@ -204,10 +235,21 @@ No DPI ABI or RTL changes are required for this explicit host boundary.
 
 Each occurrence becomes a one-cycle slice spanning `[N, N+1)` on a track named
 with its annotated event label, without a synthetic thread-ID suffix. Each site
-retains a separate track even when labels repeat; the full site path remains in
-the track description and event arguments. These are non-thread tracks grouped
-under the top-level design. Payload words, exact cycle,
-sequence, epoch, frequency, and source location are retained as arguments.
+retains a separate track even when labels repeat. These are non-thread tracks
+grouped under the top-level design. Occurrence arguments contain only exact
+cycle, sequence, and captured values (legacy snapshots retain their raw words).
+Frequency and epoch are emitted once before occurrences as trace metadata,
+available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and
+`cr-rheg.epoch_id`, with exact decimal `str_value` values. Even an empty trace
+or the first flushed prefix contains these values.
+
+Each track's description is JSON containing `site_id`, `source_location`,
+`payload_width`, and, for named captures, the ordered `fields` layout. The UI's
+track description exposes this context without repeating it on every event.
+SQL can read it through `EXTRACT_ARG(track.source_arg_set_id, 'description')`
+and `json_extract`. Numeric site identity is
+`EXTRACT_ARG(track.source_arg_set_id, 'trace_id') - 1`; sequence then identifies
+the occurrence within that site and epoch.
 Both boundaries use `floor(cycle * 1000000000 / frequency)` with integer
 arithmetic and reject signed-64-bit nanosecond overflow before writing a batch.
 Fractional nanoseconds are quantized independently without cumulative drift;

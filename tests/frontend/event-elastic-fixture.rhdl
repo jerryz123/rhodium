@@ -11,7 +11,7 @@ sync_circuit EventElasticChild(traced :: Boolean):
   output middle_payload: Bits(8)
   def arrived = ingress |> pipe(2)
   if traced
-  | arrived |> trace_event("middle") |> map_flow(payload => payload + bits(1, 8)) |> pipe(1) |> egress
+  | arrived |> trace_event("middle", ~payload: #true) |> map_flow(payload => payload + bits(1, 8)) |> pipe(1) |> egress
   | arrived |> map_flow(payload => payload + bits(1, 8)) |> pipe(1) |> egress
   middle_fire <== arrived.valid & arrived.ready
   middle_payload <== arrived.bits
@@ -25,10 +25,10 @@ sync_circuit EventElasticLane(traced :: Boolean):
   middle_fire <== child.middle_fire
   middle_payload <== child.middle_payload
   if traced
-  | ingress |> trace_event("accepted") |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> child.ingress
+  | ingress |> trace_event("accepted", ~payload: #true) |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> child.ingress
   | ingress |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> child.ingress
   if traced
-  | child.egress |> filter_flow(payload => !(payload === bits(4, 8))) |> trace_event("completed", ~terminal: #true) |> egress
+  | child.egress |> filter_flow(payload => !(payload === bits(4, 8))) |> trace_event("completed", ~payload: #true, ~terminal: #true) |> egress
   | child.egress |> filter_flow(payload => !(payload === bits(4, 8))) |> egress
 
 sync_circuit EventElastic():

@@ -138,7 +138,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   reg maintenance_pending(~init: Bool(#false))
   reg maintenance_instruction(MemoryWriteback(xlen))
   wire maintenance_accepted: Bool
-  def pipeline_wb = mem_wb_pipe.egress |> trace_valid_event("core.wb", ~terminal: #true)
+  def pipeline_wb = mem_wb_pipe.egress |> trace_valid_event("core.wb", ~terminal: #true, ~fields: operation):
+    pc: operation.pc
+    instruction: operation.instruction
   // WRS owns its retirement context outside the feed-forward pipeline. Wake
   // levels win over timeout, including a reservation lost on entry to waiting.
   reg reservation_wait_pending(~init: Bool(#false))
@@ -248,7 +250,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   fetch.restart_pc <== mux(redirect_link.right.valid, redirect_link.right.bits, reset_pc)
   fetch.invalidate_all <== fence_i_commit
   fetch.memory <=> instruction_access
-  fetch.fetched |> trace_event("core.fetch", ~root: #true) |> if_id_pipe.ingress
+  def fetched = fetch.fetched |> trace_event("core.fetch", ~root: #true, ~fields: operation):
+    pc: operation.pc
+    instruction: operation.instruction
+  fetched |> if_id_pipe.ingress
   started <== Bool(#true)
   when (csrs.redirect.valid):
     architectural_pc <== csrs.redirect.bits
@@ -430,12 +435,15 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     context: decode_bits.pc
     precision: decoded_fp_execution_control.source_precision
     rs: rs2
-  def decoded_operation:
+  def traced_decode:
     if_id_pipe.egress
       |> filter_flow(_fetched => !squash)
       |> gate_flow(!pipeline_hazard)
-      |> trace_event("core.decode")
-      |> map_flow(fetched => DecodeExecute(xlen)):
+      |> trace_event("core.decode", ~fields: operation):
+           pc: operation.pc
+           instruction: operation.instruction
+  def decoded_operation:
+    traced_decode |> map_flow(fetched => DecodeExecute(xlen)):
           pc: fetched.pc
           instruction: fetched.instruction
           raw_instruction: fetched.raw_instruction
@@ -648,13 +656,17 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     exception_cause: execute_exception.cause
     exception_value: execute_exception.value
 
-  id_ex |> filter_valid(_operation => execute_transfer)
-    |> trace_valid_event("core.execute")
-    |> map_valid(_operation => execute_payload) |> ex_mem_pipe.ingress
+  def traced_execute = id_ex |> filter_valid(_operation => execute_transfer)
+    |> trace_valid_event("core.execute", ~fields: operation):
+         pc: operation.pc
+         instruction: operation.instruction
+  traced_execute |> map_valid(_operation => execute_payload) |> ex_mem_pipe.ingress
 
   // MEM remains speculative: forward prepared operands without dispatch,
   // recover branches, and bypass pure integer results.
-  def live_memory = memory |> filter_valid(_operation => memory_stage_valid) |> trace_valid_event("core.memory")
+  def live_memory = memory |> filter_valid(_operation => memory_stage_valid) |> trace_valid_event("core.memory", ~fields: operation):
+    pc: operation.pc
+    instruction: operation.instruction
   def Array(memory_writeback_path, memory_exception_path, memory_replay_path) = live_memory |> fork_valid(3)
   memory_exception_path |> filter_valid(operation => operation.exception_valid)
     |> map_valid(operation => operation.pc) |> memory_exception_link.left

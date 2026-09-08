@@ -6,6 +6,7 @@ import:
   "../core/ir.rhm".Value
 
 export:
+  EventField
   EventSite
   EventDependency
   EventTraceStage
@@ -21,6 +22,9 @@ export:
   event_trace_capacity
   EventManifest
 
+class EventField(name :: String, type :: String, width :: PosInt,
+                 offset :: Nat, encoding :: String)
+
 class EventSite(id :: String,
                 label :: String,
                 module_name :: String,
@@ -31,7 +35,8 @@ class EventSite(id :: String,
                 payload_width :: False || PosInt,
                 terminal :: Boolean,
                 source_location :: String,
-                root :: Boolean = #false)
+                root :: Boolean = #false,
+                fields :: List.of(EventField) = [])
 
 // Empty controls mean an unconditional one-cycle delay. Elastic controls retain
 // original IR identity plus the concrete occurrence that owns those signals.

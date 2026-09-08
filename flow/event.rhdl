@@ -2,14 +2,17 @@
 // Defines transparent event checkpoints with explicit transfer controls for tracing.
 
 import:
+  rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
 // Preserves a ready-valid transaction while attaching a compiler-visible event
 // site to the identity transform.
-fun trace_event(label :: String,
-                ~root: root :: Boolean = #false,
-                ~terminal: terminal :: Boolean = #false)
+fun trace_event_config(label :: String,
+                       ~root: root :: Boolean = #false,
+                       ~terminal: terminal :: Boolean = #false,
+                       ~payload: raw :: Boolean = #false,
+                       ~capture: capture :: False || Function = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
     def protocol = flow_protocol_type(source)
@@ -25,7 +28,8 @@ fun trace_event(label :: String,
       describe_interface_event(
         interface_transform(input_link, output_link),
         label,
-        ~payload: input_endpoint.field("bits"),
+        ~payload: if raw | input_endpoint.field("bits") | #false,
+        ~fields: if capture | capture(flow_payload_type(source), input_endpoint.field("bits")) | [],
         ~valid: input_endpoint.field("valid"),
         ~ready: output_endpoint.field("ready"),
         ~root,
@@ -35,9 +39,11 @@ fun trace_event(label :: String,
 
 // Valid has no reverse readiness member, so its transparent event checkpoint
 // forwards only the offer and payload.
-fun trace_valid_event(label :: String,
-                      ~root: root :: Boolean = #false,
-                      ~terminal: terminal :: Boolean = #false)
+fun trace_valid_event_config(label :: String,
+                             ~root: root :: Boolean = #false,
+                             ~terminal: terminal :: Boolean = #false,
+                             ~payload: raw :: Boolean = #false,
+                             ~capture: capture :: False || Function = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
     def protocol = valid_flow_protocol_type(source)
@@ -52,12 +58,41 @@ fun trace_valid_event(label :: String,
       describe_interface_event(
         interface_transform(input_link, output_link),
         label,
-        ~payload: input_endpoint.field("bits"),
+        ~payload: if raw | input_endpoint.field("bits") | #false,
+        ~fields: if capture | capture(valid_flow_payload_type(source), input_endpoint.field("bits")) | [],
         ~valid: input_endpoint.field("valid"),
         ~root,
         ~terminal
       )
     )
+
+// Bind the observed payload with its hardware surface, like map_valid. The
+// generic annotation owns validation; these macros only configure observation.
+expr.macro
+| 'trace_event($label, $option, ..., ~fields: $(payload :: Identifier)): $field; ...':
+    'trace_event_config($label, $option, ..., ~capture: capture_fields($payload): $field; ...)'
+| 'trace_event($arg, ...)': 'trace_event_config($arg, ...)'
+| 'trace_event': 'trace_event_config'
+
+expr.macro
+| 'trace_valid_event($label, $option, ..., ~fields: $(payload :: Identifier)): $field; ...':
+    'trace_valid_event_config($label, $option, ..., ~capture: capture_fields($payload): $field; ...)'
+| 'trace_valid_event($arg, ...)': 'trace_valid_event_config($arg, ...)'
+| 'trace_valid_event': 'trace_valid_event_config'
+
+expr.macro 'capture_fields($(payload :: Identifier)): $field; ...':
+  def [capture, ...] = for List (clause in [field, ...]):
+    match clause
+    | '$(name :: Identifier): $value':
+        def text = name.to_source_string()
+        'event_field($text, $value)'
+    | '$(name :: Identifier)(~format: $format): $value':
+        def text = name.to_source_string()
+        'event_field($text, $value, ~format: $format)'
+    | ~else: error(~who: #'trace_event, "expected name: capture expression", clause)
+  'fun (capture_type, capture_bits):
+     def $payload :: Hardware.of(capture_type) = capture_bits
+     [$capture, ...]'
 
 export:
   trace_event

@@ -10,12 +10,12 @@ sync_circuit EventLinear():
   interface sink(Decoupled(Bits(8)), ~role: producer)
 
   source
-    |> trace_event("accepted")
+    |> trace_event("accepted", ~payload: #true)
     |> map_flow(payload => payload + bits(1, 8))
     |> pipe(1)
-    |> trace_event("issued")
+    |> trace_event("issued", ~payload: #true)
     |> queue(2, ~flow: #true)
-    |> trace_event("completed", ~terminal: #true)
+    |> trace_event("completed", ~payload: #true, ~terminal: #true)
     |> sink
 
 sync_circuit EventFork():
@@ -23,34 +23,34 @@ sync_circuit EventFork():
   interface sinks[2](Decoupled(Bits(8)), ~role: producer)
 
   def Array(left, right) = source
-    |> trace_event("fork-root")
+    |> trace_event("fork-root", ~payload: #true)
     |> atomic_fork(2)
-  left |> trace_event("left") |> sinks[0]
-  right |> trace_event("right") |> sinks[1]
+  left |> trace_event("left", ~payload: #true) |> sinks[0]
+  right |> trace_event("right", ~payload: #true) |> sinks[1]
 
 sync_circuit EventMerge():
   interface left_source(Decoupled(Bits(8)), ~role: consumer)
   interface right_source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
 
-  def left = left_source |> trace_event("left")
-  def right = right_source |> trace_event("right")
+  def left = left_source |> trace_event("left", ~payload: #true)
+  def right = right_source |> trace_event("right", ~payload: #true)
   Array(left, right)
     |> zip_flow(left_bits, right_bits => left_bits ^ right_bits)
-    |> trace_event("joined")
+    |> trace_event("joined", ~payload: #true)
     |> sink
 
 circuit EventValid():
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sink(Valid(Bits(8)), ~role: producer)
 
-  source |> trace_valid_event("observed") |> sink
+  source |> trace_valid_event("observed", ~payload: #true) |> sink
 
 sync_circuit EventChild():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)
 
-  ingress |> trace_event("inside") |> egress
+  ingress |> trace_event("inside", ~payload: #true) |> egress
 
 sync_circuit EventHierarchy():
   interface sources[2](Decoupled(Bits(8)), ~role: consumer)
@@ -58,10 +58,10 @@ sync_circuit EventHierarchy():
 
   inst left_child(EventChild())
   inst right_child(EventChild())
-  sources[0] |> trace_event("before-left") |> left_child.ingress
-  left_child.egress |> trace_event("after-left") |> sinks[0]
-  sources[1] |> trace_event("before-right") |> right_child.ingress
-  right_child.egress |> trace_event("after-right") |> sinks[1]
+  sources[0] |> trace_event("before-left", ~payload: #true) |> left_child.ingress
+  left_child.egress |> trace_event("after-left", ~payload: #true) |> sinks[0]
+  sources[1] |> trace_event("before-right", ~payload: #true) |> right_child.ingress
+  right_child.egress |> trace_event("after-right", ~payload: #true) |> sinks[1]
 
 fun opaque_flow()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
@@ -87,23 +87,23 @@ sync_circuit EventOpaque():
   interface sink(Decoupled(Bits(8)), ~role: producer)
 
   source
-    |> trace_event("before")
+    |> trace_event("before", ~payload: #true)
     |> opaque_flow()
-    |> trace_event("after")
+    |> trace_event("after", ~payload: #true)
     |> sink
 
 circuit EmptyEventLabel():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
 
-  source |> trace_event("") |> sink
+  source |> trace_event("", ~payload: #true) |> sink
 
 circuit DuplicateEventLabel():
   interface sources[2](Decoupled(Bits(8)), ~role: consumer)
   interface sinks[2](Decoupled(Bits(8)), ~role: producer)
 
-  sources[0] |> trace_event("duplicate") |> sinks[0]
-  sources[1] |> trace_event("duplicate") |> sinks[1]
+  sources[0] |> trace_event("duplicate", ~payload: #true) |> sinks[0]
+  sources[1] |> trace_event("duplicate", ~payload: #true) |> sinks[1]
 
 def linear = elaborate_with_top(EventLinear())
 def forked = elaborate_with_top(EventFork())
@@ -115,7 +115,57 @@ def opaque = elaborate_with_top(EventOpaque())
 fun elaborate_empty_event(): elaborate_with_top(EmptyEventLabel())
 fun elaborate_duplicate_event(): elaborate_with_top(DuplicateEventLabel())
 
+bundle CaptureNested():
+  pc: Bits(64)
+  instruction: Bits(32)
+
+bundle CapturePayload():
+  ignored: Bits(256)
+  nested: CaptureNested()
+  fault: Bool
+
+sync_circuit EventCaptures():
+  interface source(Decoupled(CapturePayload()), ~role: consumer)
+  interface sink(Decoupled(CapturePayload()), ~role: producer)
+  def selected = source |> trace_event("selected", ~fields: payload):
+    pc: payload.nested.pc
+    instruction: payload.nested.instruction
+    fault: payload.fault
+    low(~format: "unsigned"): payload.nested.pc[0..5] + bits(1, 5)
+  selected |> trace_event("identity-only") |> sink
+
+sync_circuit InvalidCaptures(kind :: String):
+  interface source(Valid(CapturePayload()), ~role: consumer)
+  interface sink(Valid(CapturePayload()), ~role: producer)
+  cond
+  | kind == "duplicate":
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        pc: payload.nested.pc
+        pc: payload.nested.instruction
+      selected |> sink
+  | kind == "aggregate":
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        nested: payload.nested
+      selected |> sink
+  | kind == "cycle":
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        cycle: payload.nested.pc
+      selected |> sink
+  | kind == "sequence":
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        sequence: payload.nested.pc
+      selected |> sink
+  | ~else:
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        value(~format: kind): payload.nested.pc
+      selected |> sink
+
+def captures = elaborate_with_top(EventCaptures())
+fun invalid_captures(kind :: String): elaborate_with_top(InvalidCaptures(kind))
+
 export:
+  captures
+  invalid_captures
   linear
   forked
   merged

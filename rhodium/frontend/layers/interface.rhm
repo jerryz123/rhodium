@@ -3,9 +3,11 @@
 
 import:
   rhombus/meta open
+  "../../../support/annotations.rhm".AsciiIdentifier
   "../../core/ir.rhm" open
   "../kernel.rhm" as kernel
   "../support/fields.rhm".HardwareFields
+  "../support/fields.rhm".bool_type
   "../support/fields.rhm".HardwareMethodFields
   "../support/fields.rhm".hardware_index
   "../support/fields.rhm".value_surface_static_info_key
@@ -39,6 +41,8 @@ export:
   InterfaceTraceBufferedBroadcast
   InterfaceTransformGroup
   InterfaceEventGroup
+  InterfaceEventField
+  event_field
   InterfaceConnectionGroup
   InterfaceLinkGroup
   module_interface_groups
@@ -491,6 +495,24 @@ class InterfaceTransformGroup(module_def :: Module,
                               implementation :: False || Instance,
                               trace_model :: False || InterfaceTraceModel = #false):
   implements ModuleMetadataPayload
+class InterfaceEventField(name :: String, value :: Value, encoding :: String)
+
+// Capture expressions are local observations, independent of lineage metadata.
+fun event_field(name :: String, value :: HardwareEntity,
+                ~format: encoding :: False || String = #false,
+                ~location: location :: Location = Location()) :: InterfaceEventField:
+  def captured = kernel.read(value, location)
+  unless name is_a AsciiIdentifier && flat_data_type(captured.type)
+  | error(~who: #'event_field, "capture requires an ASCII identifier name and scalar DataType")
+  when name in ["cycle", "sequence"]
+  | error(~who: #'event_field, "reserved capture field name: " ++ name)
+  def format = encoding || (if bool_type(captured.type) | "bool" | (if signed_arithmetic_type(captured.type) | "signed" | "hex"))
+  unless format in ["hex", "unsigned", "signed", "bool"]
+  | error(~who: #'event_field, "unsupported capture format")
+  when format == "bool" && captured.type.packed_width() != 1
+  | error(~who: #'event_field, "boolean capture must be one bit")
+  InterfaceEventField(name, captured, format)
+
 class InterfaceEventGroup(module_def :: Module,
                           site_index :: Nat,
                           label :: String,
@@ -501,7 +523,8 @@ class InterfaceEventGroup(module_def :: Module,
                           location :: Location,
                           valid :: False || Value = #false,
                           ready :: False || Value = #false,
-                          root :: Boolean = #false):
+                          root :: Boolean = #false,
+                          fields :: List.of(InterfaceEventField) = []):
   implements ModuleMetadataPayload
 class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
@@ -1869,6 +1892,7 @@ fun describe_interface_event(handle :: Handle,
                              label :: String,
                              ~root: root :: Boolean = #false,
                              ~payload: payload :: False || HardwareEntity = #false,
+                             ~fields: fields :: List.of(InterfaceEventField) = [],
                              ~terminal: terminal :: Boolean = #false,
                              ~valid: valid :: False || HardwareEntity = #false,
                              ~ready: ready :: False || HardwareEntity = #false,
@@ -1879,6 +1903,17 @@ fun describe_interface_event(handle :: Handle,
   | error(~who: #'describe_interface_event,
           "an event annotation requires one input and one output endpoint")
   def module_def = kernel.active_module()
+  when payload && fields.length() > 0
+  | error(~who: #'describe_interface_event, "choose either raw payload or named capture fields")
+  def names = MutableSet{}
+  for (field in fields):
+    // Validate even descriptors constructed directly through the public class.
+    event_field(field.name, field.value, ~format: field.encoding, ~location: location)
+    when field.name in names
+    | error(~who: #'describe_interface_event, "duplicate capture field name: " ++ field.name)
+    names.add(field.name)
+    unless field.value.module_def === module_def
+    | error(~who: #'describe_interface_event, "capture field must belong to the annotated module")
   def existing = module_interface_events(module_def)
   when existing.find(fun (event): event.label == label)
   | error(~who: #'describe_interface_event,
@@ -1894,7 +1929,15 @@ fun describe_interface_event(handle :: Handle,
         | error(~who: #'describe_interface_event,
                 "event payload must have a packed DataType")
         value
-    | #false
+    | if fields.length() == 0
+      | #false
+      | block:
+          // Pack only the selected observations, never the functional bundle.
+          def record_fields = for List (field in fields, index in 0..fields.length()):
+            RecordField("f" ++ to_string(index), field.value.type)
+          kernel.record_create(RecordType(record_fields),
+                               for List (field in fields, declared in record_fields):
+                                 [declared.name, field.value])
   def site_index = existing.length()
   fun transfer_value(signal :: False || HardwareEntity):
     def value = if signal | kernel.read(signal, location) | #false
@@ -1913,7 +1956,8 @@ fun describe_interface_event(handle :: Handle,
                                   location,
                                   transfer_value(valid),
                                   transfer_value(ready),
-                                  root)
+                                  root,
+                                  if payload | [InterfaceEventField("raw", payload_value, "hex")] | fields)
   module_def.add_metadata(interface_event_group_namespace, event)
   describe_interface_transform(
     handle,

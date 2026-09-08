@@ -1147,6 +1147,13 @@ checkpoint. These records are nonsemantic module metadata: they do not modify
 hardware, verification, or backend lowering. A compiler analysis must reject an
 unmodeled transform instead of inferring routes from its label.
 
+Event observations use `~fields: [event_field("pc", value), ...]` with unique
+ASCII names and local scalar values; `cycle` and `sequence` are reserved for
+built-in event arguments. `event_field` infers Bool/SInt/bitvector
+encoding and accepts `~format` overrides. Named fields and explicit raw
+`~payload` are mutually exclusive. See the owning
+[capture contract](../../event/README.md#capture-fields) for formats and transport.
+
 Static routes alone do not authorize runtime instrumentation. The optional
 `InterfaceTraceCombinational` contract certifies zero-storage, non-inventing,
 one-to-one transfer; `interface_trace_combinational(~guard: predicate)` retains
