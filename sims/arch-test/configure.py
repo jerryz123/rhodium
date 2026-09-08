@@ -12,6 +12,23 @@ def bits(value, width=64):
     return {"len": width, "value": hex(value)}
 
 
+RESERVATION_BOUNDS = {"Za64rs": 6, "Za128rs": 7}
+
+
+def validate_reservation_bounds(reservation, extensions):
+    # Sail 0.14 has naturally aligned, fixed-size reservation sets, not switches
+    # for these guarantees. Retain its chosen size; the extensions are bounds,
+    # not requests to enlarge reservations to a cache line.
+    for name, maximum_exp in RESERVATION_BOUNDS.items():
+        if name not in extensions:
+            continue
+        if extensions[name] != "1.0.0":
+            raise ValueError(f"{name} needs a Sail mapping for version {extensions[name]}")
+        size_exp = reservation["reservation_set_size_exp"]
+        if type(size_exp) is not int or not 3 <= size_exp <= maximum_exp:
+            raise ValueError(f"{name} requires an RV64 Sail reservation size between 8 and {1 << maximum_exp} bytes")
+
+
 def sail_config(default, udb, origin, size):
     """Project modeled UDB settings; surface remaining model/platform gaps in ACT."""
     params = udb["params"]
@@ -25,7 +42,7 @@ def sail_config(default, udb, origin, size):
     model_extensions = default["extensions"]
     if extensions.keys() & {"V", "Stateen", "Smstateen", "Ssstateen"}:
         raise ValueError("vector and state-enable configurations need an expanded Sail projection")
-    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm"}
+    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm"} - RESERVATION_BOUNDS.keys()
     if unknown:
         raise ValueError(f"extensions need Sail mapping: {sorted(unknown)}")
     for name, options in model_extensions.items():
@@ -79,10 +96,12 @@ def sail_config(default, udb, origin, size):
     attrs = ram["attributes"]
     attrs.update(atomic_support="AMOArithmetic", misaligned_atomicity_granule_size_exp=0,
                  vector_misaligned_atomicity_granule_size_exp=0, supports_cbo_zero="Zicboz" in extensions)
-    if extensions.keys() & {"Zicbom", "Zicbop", "Zicboz"}:
+    if extensions.keys() & {"Zic64b", "Zicbom", "Zicbop", "Zicboz"}:
         block_size = params["CACHE_BLOCK_SIZE"]
         if type(block_size) is not int or block_size <= 0 or block_size & (block_size - 1):
             raise ValueError("CACHE_BLOCK_SIZE must be a positive power of two")
+        if "Zic64b" in extensions and block_size != 64:
+            raise ValueError("Zic64b requires CACHE_BLOCK_SIZE=64")
         default["platform"]["cache_block_size_exp"] = block_size.bit_length() - 1
     # ACT requires Sail's CLINT and synthetic interrupt device even for I-only
     # signature builds. Keep their reference-only IO region; these do not claim
@@ -92,6 +111,7 @@ def sail_config(default, udb, origin, size):
     memory["regions"] = [io, ram]
     memory["dtb_address"] = bits(origin)
     default["platform"]["reservation"]["require_exact_reservation_addr"] = params["LRSC_FAIL_ON_NON_EXACT_LRSC"]
+    validate_reservation_bounds(default["platform"]["reservation"], extensions)
     return default
 
 

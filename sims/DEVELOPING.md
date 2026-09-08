@@ -134,6 +134,14 @@ entry point when ACT adopts our Sail pin. The 0.14 projection also uses the
 optional LR/SC exception encoding and clears H-only delegation bits when H is
 disabled in UDB.
 
+`Za64rs` and `Za128rs` are reservation bounds, not Sail extension switches.
+Validate their versions and bounds against Sail's naturally aligned reservation
+size without enlarging it. The pinned default is eight bytes: a conforming
+reference choice, not an assertion that it exactly reproduces the DUT's
+access-sized LR.W reservation. `Zic64b` projects and checks a 64-byte cache block
+even when CBO instruction extensions are disabled. Keep these cases in the
+adapter tests so profile guarantees cannot silently bypass platform validation.
+
 Generated YAML, Sail JSON, linker scripts, headers, ELFs, and logs stay in the
 ACT build root. Keep the upstream submodule unmodified. When updating its
 revision, check the required Sail version, bundled UDB gems, and header/runner

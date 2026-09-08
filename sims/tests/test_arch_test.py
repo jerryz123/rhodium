@@ -29,6 +29,7 @@ class ArchTestConfigTest(unittest.TestCase):
         spec.loader.exec_module(configure)
         architectures = ((0, "= 1.12.0", True), (7, "1.12", False), (16, "1.11", False))
         cache_blocks = ((None, None), ("Zicboz", 32), ("Zicboz", 64), ("Zicbom", 128), ("Zicbop", 16),
+                        ("Zic64b", 64), ("Zic64b", 32), ("Zic64b", 128),
                         ("Zicboz", 0), ("Zicboz", -64), ("Zicboz", 48), ("Zicboz", True))
         for (width, version, svade), (cache_extension, block_size) in product(architectures, cache_blocks):
             with self.subTest(asid_width=width, privileged_version=version, svade=svade,
@@ -47,6 +48,7 @@ class ArchTestConfigTest(unittest.TestCase):
                     params[parameter] = True
                 default = {
                     "extensions": {"Svade": {"supported": not svade}, "V": {},
+                                   "Zic64b": {"supported": False},
                                    "Zicboz": {"supported": False}, "Zicbom": {"supported": False}, "Zicbop": {"supported": False},
                                    "Stateen": {"Smstateen": {}, "Ssstateen": {}}},
                     "base": {"mtvec": {"direct": {}, "vectored": {}},
@@ -56,20 +58,25 @@ class ArchTestConfigTest(unittest.TestCase):
                         {"attributes": {"mem_type": "MainMemory", "cacheable": True, "supports_cbo_zero": False}},
                         {"attributes": {"mem_type": "IO", "cacheable": False, "supports_cbo_zero": True}},
                     ]},
-                    "platform": {"reservation": {}, "cache_block_size_exp": 9},
+                    "platform": {"reservation": {"reservation_set_size_exp": 3}, "cache_block_size_exp": 9},
                 }
-                extensions = [{"name": "Sm", "version": version}]
+                extensions = [{"name": "Sm", "version": version},
+                              {"name": "Za64rs", "version": "= 1.0.0"},
+                              {"name": "Za128rs", "version": "1.0.0"}]
                 if svade:
                     extensions.append({"name": "Svade", "version": "= 1.0.0"})
                 if cache_extension:
                     extensions.append({"name": cache_extension, "version": "= 1.0.0"})
                     params["CACHE_BLOCK_SIZE"] = block_size
                 udb = {"params": params, "implemented_extensions": extensions}
-                if cache_extension and (type(block_size) is not int or block_size <= 0 or block_size & (block_size - 1)):
+                if cache_extension and (type(block_size) is not int or block_size <= 0 or block_size & (block_size - 1)
+                                        or (cache_extension == "Zic64b" and block_size != 64)):
                     with self.assertRaisesRegex(ValueError, "CACHE_BLOCK_SIZE"):
                         configure.sail_config(default, udb, 0x80000000, 0x40000000)
                     continue
                 config = configure.sail_config(default, udb, 0x80000000, 0x40000000)
+                self.assertEqual(config["platform"]["reservation"]["reservation_set_size_exp"], 3)
+                self.assertIs(config["platform"]["reservation"]["require_exact_reservation_addr"], True)
                 io, ram = config["memory"]["regions"]
                 self.assertIs(ram["attributes"]["supports_cbo_zero"], cache_extension == "Zicboz")
                 self.assertIs(io["attributes"]["supports_cbo_zero"], False)
@@ -82,6 +89,24 @@ class ArchTestConfigTest(unittest.TestCase):
                 self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"],
                                  {"Some": "AlignmentException"})
                 self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0xcb3ff)
+
+    def test_reservation_guarantees_validate_sail_platform(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        validate = configure["validate_reservation_bounds"]
+        for names, maximum in ((["Za64rs"], 6), (["Za128rs"], 7), (["Za64rs", "Za128rs"], 6)):
+            for size_exp in (3, 6, 7, 8, 2, -1, True, "3"):
+                with self.subTest(names=names, size_exp=size_exp):
+                    reservation = {"reservation_set_size_exp": size_exp}
+                    extensions = dict.fromkeys(names, "1.0.0")
+                    if type(size_exp) is int and 3 <= size_exp <= maximum:
+                        validate(reservation, extensions)
+                        self.assertEqual(reservation["reservation_set_size_exp"], size_exp)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "reservation size"):
+                            validate(reservation, extensions)
+            with self.assertRaisesRegex(ValueError, "version"):
+                validate({"reservation_set_size_exp": 3}, dict.fromkeys(names, "2.0.0"))
+        validate({"reservation_set_size_exp": 12}, {})
 
 
 class ArchTestGenerationTest(unittest.TestCase):
