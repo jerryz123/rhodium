@@ -1,12 +1,26 @@
-# Builds upstream ISA/benchmark ELFs and executes complete manifests on SimpleSoC.
+# Runs full SimpleSoC workload suites and capability-filtered ISA smoke on concrete SoCs.
 RISCV_TESTS_DIR ?= $(REPO_DIR)/riscv/riscv-isa-tests
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
 PROGRAM_TIMEOUT ?= 300
 PROGRAM_MAX_CYCLES ?= 10000000
 BENCHMARK_MAX_CYCLES ?= 100000000
+ISA_SMOKE_DIR := $(PROGRAM_BUILD_ROOT)/$(SOC)/isa-smoke
 
 .PHONY: program-test-setup program-test-adapter-test isa-elfs benchmark-elfs isa-test benchmark-test program-test
+.PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
+isa-smoke-config:
+	mkdir -p "$(ISA_SMOKE_DIR)"
+	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm "$(SOC)" "$(ISA_SMOKE_DIR)/target.json"
+
+isa-smoke-elfs: isa-smoke-config
+	$(PYTHON) program-test/build.py --suite isa --source "$(RISCV_TESTS_DIR)" \
+	  --output "$(ISA_SMOKE_DIR)" --compiler "$(RISCV_CC)" --target "$(ISA_SMOKE_DIR)/target.json"
+
+isa-smoke: isa-smoke-elfs simulator
+	$(PYTHON) program-test/run.py --manifest "$(ISA_SMOKE_DIR)/manifest.json" \
+	  --simulator "$(SIMULATOR_BINARY)" --output "$(ISA_SMOKE_DIR)/results" \
+	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
 program-test-setup:
 	git -C $(REPO_DIR) submodule update --init riscv/riscv-isa-tests
 	git -C $(RISCV_TESTS_DIR) submodule update --init env

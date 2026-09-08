@@ -221,8 +221,9 @@ jobs:
             build-essential \
             cmake \
             device-tree-compiler \
-            gcc-riscv64-unknown-elf \
             zlib1g-dev
+      - name: Install pinned RISC-V compiler
+        uses: ./.github/actions/setup-riscv-toolchain
       - name: Install Verilator
         uses: ./.github/actions/setup-verilator
       - name: Cache FESVR
@@ -283,6 +284,27 @@ jobs:
           make -C sims zihintntl-test SOC=tiled
       - name: Execute mapped MiniSoC through standard FESVR flow
         run: make -C vlsi/sim smoke
+      - name: Prepare upstream ISA sources
+        run: make -C sims program-test-setup
+      - name: Run MiniSoC and TiledSoC ISA smoke subsets
+        run: |
+          status=0
+          for soc in mini tiled; do
+            make -C sims isa-smoke SOC="$soc" PROGRAM_JOBS=2 || status=1
+          done
+          exit "$status"
+      - name: Publish small-SoC ISA smoke results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: small-soc-isa-smoke-${{ github.sha }}
+          path: |
+            /tmp/rhodium-program-tests/*/isa-smoke/target.json
+            /tmp/rhodium-program-tests/*/isa-smoke/manifest.json
+            /tmp/rhodium-program-tests/*/isa-smoke/build.log
+            /tmp/rhodium-program-tests/*/isa-smoke/results
+          if-no-files-found: warn
+          retention-days: 7
 
   simple-soc-build:
     name: Build shared SimpleSoC simulator

@@ -202,6 +202,26 @@ and privileged-platform groups are outside this initial ISA adapter; ACT keeps
 its own independent selection and limitations. The adapter consumes upstream
 Makefrag inventories, so additions to selected groups are included automatically.
 
+MiniSoC and TiledSoC have a smaller, single-hart ISA smoke subset:
+
+```sh
+make -C sims program-test-setup
+make -C sims isa-smoke SOC=mini
+make -C sims isa-smoke SOC=tiled
+```
+
+Selection follows each concrete SoC's core profile and covers representative
+integer arithmetic, branches, loads/stores, multiply/divide, atomics, bit
+operations, conditional zeroing, and cache zeroing where supported. TiledSoC
+also runs the compressed-instruction test. Every selected ELF must fit the
+actual RAM window, including zero-filled BSS; oversized tests fail preparation
+rather than being silently skipped. These physical assembly tests use no
+runtime-allocated stack. Results and target descriptions live under
+`$PROGRAM_BUILD_ROOT/<soc>/isa-smoke/`, independently of the full SimpleSoC
+suites. The existing runner executes every selected test even after failures.
+TiledSoC boots only hart 0: this is mesh-backed memory coverage, not a
+multihart coherence test. ACT and benchmarks remain SimpleSoC-only.
+
 Benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`, `multiply`,
 `mm`, `dhrystone`, and `spmv`, compiled for RV64IMAFDC with the double-float ABI.
 Multihart, vector, and PMP benchmarks require capabilities outside this platform.

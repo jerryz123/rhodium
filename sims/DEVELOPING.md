@@ -146,6 +146,19 @@ execution-environment compatibility, never to hide failures. Keep sources in
 the pinned submodule untouched. Compiler/source/adapter changes must invalidate
 binary reuse; regenerate the manifest on every build invocation.
 
+`program-test/write-target.rhm` projects the existing concrete SoC description
+to the ISA smoke adapter; do not duplicate ISA or RAM constants in Python.
+`SMOKE_GROUPS` selects fixed representative tests by required extension and
+checks their names against upstream inventories. The target description is
+part of the build cache key. Validate every selected ELF's physical PT_LOAD
+ranges (using `p_memsz`, not file size) and executable entry before publishing
+a manifest, including on cache reuse. Physical ISA tests have no dynamic
+stack; adding C workloads requires an explicit stack/linker contract.
+
+The simulation CI job reuses its MiniSoC and TiledSoC executables for
+`isa-smoke`, attempts both targets even if one fails, and uploads independent
+results. Changes to the adapter or upstream ISA sources must select that job.
+
 `program-test/run.py` owns ISA/benchmark process-group deadlines and JSON/JUnit
 reporting. ACT retains upstream `run_tests.py`; `arch-test/report.py` checks its
 summary against the full generated inventory. Never interpret an empty or partial

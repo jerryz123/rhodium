@@ -50,6 +50,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   $(wildcard tests/backend/emit-*.rhm) \
   $(wildcard sims/tests/*.rhm) \
   $(wildcard sims/emit-*.rhm) \
+  $(wildcard sims/program-test/*.rhm) \
   tests/backend/load-example.rkt tests/support/run-negative.rkt \
   noc/tests/language/run-negative.rkt tools/check-parameter-annotations.rkt)
 

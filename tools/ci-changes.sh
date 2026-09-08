@@ -221,10 +221,10 @@ classify_path() {
     .github/workflows/ci.yml|tools/ci-changes.sh|tools/check-ci-changes.sh)
       mark_all
       ;;
-    sims/program-test/artifact.py|sims/program-test/Makefile.inc)
+    sims/program-test/*|sims/tests/test_program_test.py|riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
       simulation=true
       ;;
-    riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|riscv/riscv-arch-test|riscv/riscv-arch-test/*|sims/arch-test/*|sims/program-test/*|sims/tests/test_program_test.py|sims/tests/test_arch_test.py|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
+    riscv/riscv-arch-test|riscv/riscv-arch-test/*|sims/arch-test/*|sims/tests/test_arch_test.py)
       # These are covered by the selected software lane's adapter and workload checks.
       ;;
     Makefile)

@@ -1,0 +1,28 @@
+#lang rhombus
+// Projects concrete SoC capabilities and RAM bounds for upstream physical ISA tests.
+
+import:
+  rhombus/cmdline open
+  "../../socs/simple-soc.rhdl" as simple
+  "../../socs/mini-soc.rhdl" as mini
+  "../../socs/tiled-soc/main.rhdl" as tiled
+  "../../socs/description.rhm".RiscvSoCDescription
+
+def arguments = current_command_line()
+unless arguments.length() == 2
+| error(~who: #'write_program_target, "expected a SoC name and output file")
+def name = arguments[0]
+def description :: RiscvSoCDescription = match name
+| "simple": simple.simple_soc_params.description
+| "mini": mini.mini_soc_params.description
+| "tiled": tiled.default_tiled_soc_config.description
+| ~else: error(~who: #'write_program_target, "expected simple, mini, or tiled")
+
+// ISA extension names are canonical identifiers from the core profile.
+def extensions = String.join(description.core_profile.isa_extensions.map(fun (extension :: String): "\"" ++ extension ++ "\""), ",")
+def region_strings = for List (region in description.memory_regions):
+  "{\"base\":" ++ to_string(region.base) ++ ",\"size\":" ++ to_string(region.size_bytes) ++ "}"
+def regions = String.join(region_strings, ",")
+filesystem.write_string(arguments[1],
+                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.core_profile.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"ram\":[" ++ regions ++ "]}\n",
+                        ~exists: #'truncate)

@@ -72,7 +72,10 @@ check_no_jobs README.md
 check_field sims/arch-test/configure.py program_arch true
 check_field sims/arch-test/configure.py program_native false
 check_field sims/program-test/isa.mk program_matrix '{"include":[{"suite":"isa"}]}'
-check_field sims/program-test/isa.mk simulation false
+check_field sims/program-test/isa.mk simulation true
+check_field sims/program-test/build.py simulation true
+check_field sims/program-test/write-target.rhm simulation true
+check_field riscv/riscv-isa-tests simulation true
 check_field sims/arch-test/configure.py simulation false
 check_field riscv/riscv-isa-tests program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'
 for path in cores/rv5stage/core.rhdl chi/link.rhdl noc/rtl/router.rhdl devices/aclint.rhdl socs/simple-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
