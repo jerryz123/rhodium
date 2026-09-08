@@ -49,6 +49,7 @@ when claiming narrower loading; a selective name import still loads its module.
 | Wire | [`params.rhdl`](params.rhdl), [`flits.rhdl`](flits.rhdl), [`protocol.rhdl`](protocol.rhdl), [`coherence.rhdl`](coherence.rhdl) | Physical configuration, packed payloads, packet helpers, and coherent state vocabulary |
 | Messages | [`messages.rhdl`](messages.rhdl) | Stateless requester write data, subordinate/Home responses, and metadata-preserving REQ/DAT transforms; no allocator or endpoint state |
 | Shared Home support | [`home-common.rhdl`](home-common.rhdl) | HN-F configuration, placement validation, runtime identity, request legality, and Home-specific message policy; no state machine |
+| Home snoop targets | [`home-snoop-targets.rhdl`](home-snoop-targets.rhdl) | Pending-target mask, priority selection, accepted-target removal, and remembered responder NodeID; no response sequencing |
 | Single-beat devices | [`single-beat-subordinate.rhdl`](single-beat-subordinate.rhdl) | One-outstanding MMIO sequencing, saved request/read snapshot, common write association, and response backpressure |
 | Shared memory control | [`memory-controller.rhdl`](memory-controller.rhdl) | Memory configuration and identity, multibeat transaction sequencing, response arbitration, and request/data checks; no storage backend |
 | Endpoint and service | [`link.rhdl`](link.rhdl), [`channels.rhdl`](channels.rhdl), [`fabric.rhdl`](fabric.rhdl) | Credited links, ready-valid engine boundaries, capabilities, services, and address maps |
@@ -184,7 +185,21 @@ imports the other. Shared configuration and identity also live in
 for callers while making new shared consumers import the owning module.
 Keep LLC lookup, replacement, dirty-data ownership, and retirement in their
 respective engines rather than adding modes to one shared state machine.
-The constructor fixture compares complete transformed packets at every DAT
+
+Both Homes instantiate `CHIHomeSnoopTargets` from its owning module. This small
+child circuit shares the Home's clock/reset and replaces only the pending-mask
+and expected-responder registers; it adds no snoop-payload buffer or pipeline
+stage. Each Home computes its target mask, constructs the snoop, and gates
+`target.ready` with its own issue phase and SNP sink readiness. That handshake
+must coincide with the outgoing snoop handshake. In particular, a pending
+target must not advance while the Home is processing the previous responder's
+control, dirty data, or intervention write. Keep receipt masks and completion
+decisions in the Home engines. Mask loading and dispatch are phase-exclusive
+in both callers. Run both Home fixtures and both maintenance fixtures when
+changing this bookkeeping; the shared maintenance bench checks target order,
+stalled dispatch stability, and reset before and after a dispatch.
+
+The message constructor fixture compares complete transformed packets at every DAT
 width, with optional REQ/DAT metadata enabled and disabled. Run it alongside
 both Home and maintenance fixtures when changing these transforms. Snoop and
 intervention-write packet construction lives in `messages.rhdl`; its callers

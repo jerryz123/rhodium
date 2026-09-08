@@ -1,4 +1,4 @@
-// Models independent coherent caches and backing RAM for both Home implementations.
+// Checks both Homes against independent caches/RAM, snoop ordering, stalls, and reset recovery.
 typedef struct packed { logic ready; } ready_t;
 typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
 typedef struct packed { logic valid; CHIRspFlit bits; } rsp_t;
@@ -24,6 +24,10 @@ logic cached [0:3], dirty [0:3];
 logic [43:0] cache_address [0:3];
 logic [127:0] cache_data [0:3][0:3];
 logic snp_active = 0, snp_data = 0, snp_hit = 0;
+logic hold_snoops = 0;
+logic stalled_snoop = 0, maintenance_active = 0;
+logic [1:0] expected_snoops = 0;
+CHISnoopDispatch stalled_dispatch;
 int snp_target = 0, snp_packet = 0;
 logic [4:0] snp_opcode;
 logic [11:0] snp_txn;
@@ -44,7 +48,7 @@ always_comb begin
   port_in.requester.request_data = write_data;
   port_in.requester.responses.ready = cycles % 5 == 0;
   port_in.requester.response_data.ready = cycles % 3 != 0;
-  port_in.requester.snoops.ready = !snp_active && cycles % 3 != 0;
+  port_in.requester.snoops.ready = !hold_snoops && !snp_active && cycles % 3 != 0;
   if (snp_active) begin
     if (snp_data) begin
       port_in.requester.request_data.valid = 1;
@@ -84,6 +88,36 @@ always_comb begin
     port_in.subordinate.dat.response.bits.data_id = 2'(mem_packet);
     port_in.subordinate.dat.response.bits.byte_enable = '1;
     port_in.subordinate.dat.response.bits.data = ram[int'(mem_address[11:4]) + mem_packet];
+  end
+end
+
+always @(posedge clock) begin
+  if (reset) begin
+    stalled_snoop <= 0;
+    maintenance_active <= 0;
+    expected_snoops <= 0;
+  end else begin
+    if (stalled_snoop)
+      assert(port_out.requester.snoops.valid && port_out.requester.snoops.bits == stalled_dispatch)
+        else $fatal(1, "snoop dispatch changed under backpressure");
+    stalled_snoop <= port_out.requester.snoops.valid && !port_in.requester.snoops.ready;
+    stalled_dispatch <= port_out.requester.snoops.bits;
+    if (snp_active)
+      assert(!port_out.requester.snoops.valid) else $fatal(1, "Home issued another snoop before retiring its responder");
+    if (issue.valid && port_out.requester.requests.ready) begin
+      maintenance_active <= issue.bits.opcode inside {7'd8, 7'd9, 7'd10};
+      expected_snoops <= {issue.bits.src_id != 7'd3 || issue.bits.excl_snoop_me_cah,
+                         issue.bits.src_id != 7'd2 || issue.bits.excl_snoop_me_cah};
+    end
+    if (maintenance_active && port_out.requester.snoops.valid && port_in.requester.snoops.ready) begin
+      assert((|expected_snoops) && port_out.requester.snoops.bits.target_id == (expected_snoops[0] ? 7'd2 : 7'd3))
+        else $fatal(1, "Home skipped, repeated, or reordered a snoop target");
+      expected_snoops <= expected_snoops & (port_out.requester.snoops.bits.target_id == 7'd2 ? 2'b10 : 2'b01);
+    end
+    if (maintenance_active && port_out.requester.responses.valid && port_in.requester.responses.ready) begin
+      assert(expected_snoops == 0) else $fatal(1, "Home completed with pending snoop targets");
+      maintenance_active <= 0;
+    end
   end
 end
 
@@ -199,6 +233,26 @@ initial begin
   for (int i = 0; i < 256; i++) ram[i] = {16{8'h11}};
   for (int i = 0; i < 4; i++) begin cached[i] = 0; dirty[i] = 0; cache_address[i] = 0; end
   repeat (3) tick(); reset = 0; tick();
+  // Abort both an unaccepted dispatch and one with a remembered responder and
+  // another target pending. Neither may leak into the next transaction.
+  for (int accept_first = 0; accept_first < 2; accept_first++) begin
+    hold_snoops = 1;
+    send(1, 8, A, 0);
+    while (!port_out.requester.snoops.valid) tick();
+    repeat (3) tick();
+    assert(port_out.requester.snoops.bits.target_id == 7'd2) else $fatal(1, "incorrect first snoop target");
+    if (accept_first != 0) begin
+      hold_snoops = 0;
+      #1; while (!port_in.requester.snoops.ready) tick();
+      tick();
+      assert(snp_active) else $fatal(1, "reset test did not accept its first snoop");
+    end
+    reset = 1; tick();
+    snp_active = 0; snp_data = 0;
+    hold_snoops = 0; reset = 0; tick();
+    assert(port_out.requester.requests.ready && !port_out.requester.snoops.valid)
+      else $fatal(1, "Home did not clear snoop scheduling on reset");
+  end
   // Requester dirty copy participates only with SnpMe. Clean sharers stay clean.
   install(3, A, 1, 8'h22); install(2, A, 0, 8'h22);
   send(3, 8, A, 1); finish(0); check_ram(A, 8'h22);

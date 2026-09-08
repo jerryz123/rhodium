@@ -1,0 +1,35 @@
+#lang rhodium
+// Tracks a Home's pending snoop targets and retains the last dispatched NodeID.
+
+import:
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("chi/home-common.rhdl").CHIHNFConfig
+
+// Loading replaces the mask without changing the remembered responder. The
+// Home gates target.ready until its own response/data sequencing permits issue.
+sync_circuit CHIHomeSnoopTargets(config :: CHIHNFConfig):
+  def p = config.flit
+  def endpoints = config.snoop_endpoints
+  def count :: PosInt = endpoints.length()
+  def node_ids = vec(for List (endpoint in endpoints): bits(endpoint.node_id, p.node_id_width))
+
+  interface load(Valid(Vec(count, Bool)), ~role: consumer)
+  interface target(Decoupled(Bits(p.node_id_width)), ~role: producer)
+  output expected_node: Bits(p.node_id_width)
+
+  reg pending(~init: vec(for List (_index in 0..count): Bool(#false)))
+  reg accepted_node(~init: bits(0, p.node_id_width))
+  def next_index = priority_encoder(pending)
+  def next_node = node_ids[next_index]
+  target.valid <== pending.or_reduce()
+  target.bits <== next_node
+  expected_node <== accepted_node
+
+  when (load.valid):
+    pending <== load.bits
+  elsewhen (target.fire()):
+    pending <== pending.updated(next_index, Bool(#false))
+    accepted_node <== next_node
+
+export:
+  CHIHomeSnoopTargets

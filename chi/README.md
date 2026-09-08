@@ -137,6 +137,15 @@ Import `lib("chi/home-common.rhdl")` for shared `CHIHNFConfig`,
 It does not instantiate a Home engine. These types remain available through
 `chi/main.rhdl` and their existing coherent-Home exports.
 
+`CHIHomeSnoopTargets(config)` in [`home-snoop-targets.rhdl`](home-snoop-targets.rhdl)
+tracks pending snoops in configured endpoint order. Its `load` valid-only input
+replaces the target mask; its `target` ready-valid output offers the lowest-index
+pending NodeID. An accepted target clears that bit and updates `expected_node`,
+which remains unchanged on a later mask load. Reset clears both registers.
+Loading takes priority over dispatch; callers should keep these events exclusive.
+The Home controls when dispatch is allowed and when responses are complete:
+an empty pending mask does not mean the last responder has finished.
+
 `CHISingleBeatSubordinate(p, label)` supplies one-outstanding, single-beat
 MMIO sequencing on a native `CHISNChannels` port. It returns DBID zero for
 writes, validates write opcode/TxnID/source/target association, and holds
