@@ -72,7 +72,7 @@ module rv5stage_data_fault_tb;
   logic faulting_load_seen;
   logic [1:0] stores_seen;
 
-  RV5StageCore dut (.prefetch_out(), .*);
+  RV5StageCore dut (.load_access_in('0), .load_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

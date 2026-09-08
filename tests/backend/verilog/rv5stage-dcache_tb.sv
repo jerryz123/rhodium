@@ -1,4 +1,4 @@
-// Verifies L1D coherence, AMOArithmetic, and exclusive LR/SC progress with bounded probe deferral.
+// Verifies speculative load hits, coherence, AMOArithmetic, and exclusive LR/SC progress.
 module rv5stage_dcache_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed {
@@ -83,6 +83,11 @@ module rv5stage_dcache_tb;
   prefetch_t prefetch_in;
   typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;
   lookup_t virtual_lookup_in;
+  lookup_t load_lookup_in='0;
+  typedef struct packed {logic [63:0] address; logic [1:0] width; logic unsigned_0;} load_bits_t;
+  typedef struct packed {logic valid; load_bits_t bits;} load_request_t;
+  struct packed {load_request_t request;} load_in='0;
+  struct packed {lookup_t response;} load_out;
   logic probe_only = 1'b0;
   logic [63:0] virtual_page_xor = 64'h4000_0000;
   assign virtual_lookup_in = {core_in.request.valid | probe_only,
@@ -141,6 +146,25 @@ module rv5stage_dcache_tb;
       if (watch_progress_snoop && progress_snoop_accepts != 0)
         chi_in.snoops = '0;
     end
+  endtask
+
+  task automatic check_pipeline_load(input logic [63:0] address,
+                                      input bit permitted, expected_hit,
+                                      input logic [63:0] value=0);
+    load_lookup_in='{valid:1'b1,bits:address ^ virtual_page_xor};
+    tick();
+    load_lookup_in='0;
+    load_in.request='{valid:permitted,bits:'{address:address,width:2'd3,unsigned_0:1'b0}};
+    #1;
+    assert(load_out.response.valid==expected_hit)
+      else $fatal(1,"speculative MEM hit mismatch at %h",address);
+    if(expected_hit) assert(load_out.response.bits==value)
+      else $fatal(1,"speculative MEM result mismatch");
+    tick();
+    load_in='0;
+    tick();
+    assert(!core_out.response.valid && !tx_req_pending)
+      else $fatal(1,"speculative lookup created an authorized response or transaction");
   endtask
 
   task automatic send_prefetch(input logic [63:0] address,
@@ -534,6 +558,11 @@ module rv5stage_dcache_tb;
       else $fatal(1, "consecutive VIPT load hits inserted a response bubble");
     expect_core_response(64'h01234567_89abcdef, DATA_DESTINATION_INTEGER, 5'd3);
 
+    check_pipeline_load(PREFETCH_READ_ADDRESS,1,1,64'h88776655_44332211);
+    check_pipeline_load(PREFETCH_READ_ADDRESS+8,1,1,64'h01234567_89abcdef);
+    check_pipeline_load(PREFETCH_READ_ADDRESS,0,0); // no permitted translation
+    check_pipeline_load(ADDRESS,1,0); // cold lookup must not allocate
+
     forbid_core_response = 1'b1;
     send_prefetch(PREFETCH_WRITE_ADDRESS, 2'd3);
     accept_request(READ_UNIQUE, PREFETCH_WRITE_ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
@@ -741,6 +770,7 @@ module rv5stage_dcache_tb;
     evict_dirty_line[1 * 64 +: 64] = STORE_DATA;
     chi_in.request_data.ready = 1'b0;
     send_snoop(EVICT_ADDRESS, 12'h077);
+    check_pipeline_load(EVICT_ADDRESS+8,1,0); // snoop owns the arrays
     for (beat = 0; beat < 4; beat = beat + 1)
       accept_snoop_data(beat, evict_dirty_line, 12'h077);
     tick();
@@ -752,6 +782,7 @@ module rv5stage_dcache_tb;
       else $fatal(1, "snoop-invalidated SC unexpectedly reached CHI");
     assert (core_out.drained)
       else $fatal(1, "data cache did not drain after dirty snoop response");
+    check_pipeline_load(EVICT_ADDRESS+8,1,0); // invalidation cannot expose stale hit data
     send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd18);
     expect_core_response(64'habcdef01_23456789, DATA_DESTINATION_INTEGER, 5'd18);
 

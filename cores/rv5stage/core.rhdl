@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's five-stage core with composable flows and explicit state logic.
+// Implements RV5Stage's five-stage core with EX-issued load hits and ordered side effects.
 
 import:
   "btb.rhdl" open
@@ -74,6 +74,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   input time_counter: Bits(64)
   interface instruction_access(RV5StageInstructionAccess(xlen), ~role: requester)
   interface data_access(RV5StageDataAccess(xlen), ~role: requester)
+  interface load_access(RV5StageLoadAccess(xlen), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
@@ -135,6 +136,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // stage order while still observing downstream occupancy and results.
   def id_ex = id_ex_pipe.egress
   def memory = ex_mem_pipe.egress
+  def memory_load_hit = load_access.response.valid & memory.bits.data_request_valid & (memory.bits.data_request.access === MemoryOperation.Load)
   // Accepted maintenance retains retirement context outside the feed-forward
   // pipeline. Only its completion can retire it; it is never reissued.
   reg maintenance_pending(~init: Bool(#false))
@@ -310,7 +312,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // Decode selects the registered data source that will be present in EX's
   // next cycle. Live MEM faults, replay, and redirects never select operands.
   def execute_bypass_available = id_ex.valid & id_ex.bits.writeback_enable & !deferred_writeback(id_ex.bits.writeback_source) & (id_ex.bits.writeback_source =/= WritebackSelect.Csr)
-  def memory_bypass_available = memory.valid & memory.bits.writeback_enable & !deferred_writeback(memory.bits.writeback_source) & (memory.bits.writeback_source =/= WritebackSelect.Csr)
+  def memory_bypass_available = memory.valid & memory.bits.writeback_enable & (!deferred_writeback(memory.bits.writeback_source) ||| memory_load_hit) & (memory.bits.writeback_source =/= WritebackSelect.Csr)
   fun decoded_operand(index :: Bits(5), register_value :: Bits(width)):
     def from_memory = index.or_reduce() & execute_bypass_available & (id_ex.bits.rd === index)
     def from_writeback = index.or_reduce() & memory_bypass_available & (memory.bits.rd === index)
@@ -340,7 +342,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     )
 
   def id_ex_is_deferred = id_ex.valid & deferred_writeback(id_ex.bits.writeback_source)
-  def memory_is_deferred = memory.valid & deferred_writeback(memory.bits.writeback_source)
+  def memory_is_deferred = memory.valid & deferred_writeback(memory.bits.writeback_source) & !memory_load_hit
   fun conflicts_with_deferred(deferred_valid :: Bool,
                               deferred_destination :: Bits(5)):
     deferred_valid & deferred_destination.or_reduce() & (
@@ -635,6 +637,14 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     floating_point_precision: fp_execution_control.destination_precision
     locality: RV5StageMemoryLocality.Default
 
+  // Ordinary loads read speculatively in EX. Only a permitted MEM hit
+  // becomes normal WB data; misses and side-effecting accesses still need WB.
+  load_access.request.valid <== execute_transfer & !execute_exception.valid & (execute_memory_operation === MemoryOperation.Load)
+  load_access.request.bits <== RV5StageLoadReq(xlen):
+    address: alu.result
+    width: id_ex.bits.memory_width
+    unsigned: id_ex.bits.memory_unsigned
+
   def execute_payload = ExecuteMemory(xlen):
     pc: id_ex.bits.pc
     resume_pc: mux(redirect_requested, computed_redirect_target, id_ex.bits.sequential_pc)
@@ -675,8 +685,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
          instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   traced_execute |> map_valid(_operation => execute_payload) |> ex_mem_pipe.ingress
 
-  // MEM remains speculative: forward prepared operands without dispatch,
-  // recover branches, and bypass pure integer results.
+  // MEM resolves the parallel DTLB/tag/data lookup. Capture successful load
+  // data at the ordinary MEM/WB boundary, alongside pure integer results.
   def live_memory = memory |> filter_valid(_operation => memory_stage_valid) |> trace_valid_event("core.s4.memory", ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
@@ -690,15 +700,16 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     resume_pc: operation.resume_pc
     instruction: operation.instruction
     replay: operation.replay
-    data_request_valid: operation.data_request_valid
+    load_hit: memory_load_hit
+    data_request_valid: operation.data_request_valid & !memory_load_hit
     data_request: operation.data_request
     fp_compute: operation.fp_compute
     fp_issue: operation.fp_issue
     prefetch: operation.prefetch
-    writeback_source: operation.writeback_source
+    writeback_source: mux(memory_load_hit, WritebackSelect.Alu, operation.writeback_source)
     write_enable: operation.writeback_enable & !operation.exception_valid & !operation.replay
     rd: operation.rd
-    value: operation.result
+    value: mux(memory_load_hit, load_access.response.bits, operation.result)
     multiply_issue: operation.multiply_issue
     divide_issue: operation.divide_issue
     system: operation.system
@@ -711,9 +722,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     exception_value: operation.exception_value
   memory_writeback |> mem_wb_pipe.ingress
 
-  // WB is the sole instruction-side dispatch boundary. An attempted request
+  // WB authorizes transactions that did not complete as speculative hits.
+  // An attempted request
   // either faults, transfers irrevocably, or replays without any side effect.
-  // Loads also issue here: their address may select a side-effecting device.
+  // Device reads, misses, and mutations cannot acquire effects speculatively.
   // In-order WB associates NTL with exactly one successor, not one memory
   // access. Rejected dispatch and pipeline replay leave this state untouched.
   reg pending_locality(~init: RV5StageMemoryLocality.Default)
@@ -790,6 +802,14 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
            precision: operation.data_request.floating_point_precision
            rd: operation.data_request.rd
   fp_load_reservation |> to_decoupled() |> fp.load_reserve
+  (
+    wb |> filter_valid(operation => wb_attempt & operation.load_hit & wb_fp_load)
+      |> map_valid(operation => RV5StageFpLoadCompletion(Bits(width))):
+           context: operation.pc
+           precision: operation.data_request.floating_point_precision
+           rd: operation.data_request.rd
+           data: if xlen == XLen.X32 | operation.value.zext(64) | operation.value
+  ) |> fp.load_hit
   commit |> filter_valid(operation => !operation.replay & !operation.exception_valid & wb_bits.prefetch.into(CachePrefetchReq(width)).operation.into(CachePrefetchOperation).is_prefetch())
     |> map_valid(operation => operation.prefetch) |> prefetch
   assert(!(wb_data_fault & wb_memory_replay), "rv5stage_wb_fault_does_not_replay")

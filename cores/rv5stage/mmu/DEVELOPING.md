@@ -51,6 +51,10 @@ routed response arrives while it is waiting.
    virtual SRAM reads are permitted, but cannot create a successful cache token
    without the paired physical request. Wire lookup paths directly in the parent
    composition so translation/PMA cannot feed their indices or validity.
+   The ordinary `load` path registers EX context before sharing the demand DTLB
+   in MEM. WB requests win contention; walks, older data work, permission/PMA
+   rejection, and uncached ranges force fallback. Never use the prefetch probe's
+   relaxed A/D permissions for a demand load or start a speculative data walk.
 4. Preserve exclusive walker ownership from miss acceptance through completion,
    including the two-observation data-path drain and the single response-owner
    bit.

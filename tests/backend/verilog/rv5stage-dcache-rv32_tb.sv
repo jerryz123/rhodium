@@ -30,7 +30,7 @@ module rv5stage_dcache_rv32_tb;
   integer acknowledgements = 0;
   logic [6:0] expected_opcode = 7'h07;
   logic [43:0] expected_address = 44'h1000;
-  RV5StageL1DCache dut (.*);
+  RV5StageL1DCache dut (.load_in('0), .load_out(), .load_lookup_in('0), .*);
 
   task automatic tick;
     if (!reset) begin

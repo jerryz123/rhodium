@@ -20,6 +20,8 @@ sync_circuit BranchPredictionFixture():
     core.time_counter <== bits(0, 64)
     core.instruction_access |> instruction[index]
     core.data_access |> data[index]
+    core.load_access.response.valid <== Bool(#false)
+    core.load_access.response.bits <== bits(0, 64)
 
 def design = elaborate(BranchPredictionFixture())
 export:

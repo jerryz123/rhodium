@@ -81,7 +81,7 @@ module rv5stage_core_tb;
   localparam logic [1:0] DATA_DESTINATION_NONE = 2'd0;
   localparam logic [1:0] DATA_DESTINATION_INTEGER = 2'd1;
 
-  RV5StageCore dut (.prefetch_out(), .*);
+  RV5StageCore dut (.load_access_in('0), .load_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

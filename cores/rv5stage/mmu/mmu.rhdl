@@ -1,5 +1,5 @@
 #lang rhodium
-// Registers instruction lookup requests before translation and retries blocked S1 resolutions locally.
+// Aligns instruction and EX-issued load lookups with translation and authorized miss service.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -27,6 +27,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def width = xlen.width
   interface instruction(RV5StageInstructionAccess(xlen), ~role: responder)
   interface data(RV5StageDataAccess(xlen), ~role: responder)
+  interface load(RV5StageLoadAccess(xlen), ~role: responder)
+  interface load_memory(RV5StageLoadAccess(xlen), ~role: requester)
+  interface load_lookup(Valid(Bits(width)), ~role: producer)
   interface instruction_memory(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
   interface data_memory(RV5StageDataAccess(xlen), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(width)), ~role: producer)
@@ -45,6 +48,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst instruction_requests(Queue(RV5StageInstructionReq(xlen), 2), ~reset_when: instruction.flush)
   inst instruction_read(ValidPipeAlwaysCapture(Bits(width), 1), ~reset_when: instruction.flush)
   reg instruction_retry(~init: Bool(#false))
+  inst load_request(ValidPipeAlwaysCapture(RV5StageLoadReq(xlen), 1))
+  load.request |> load_request.ingress
+  load.request |> map_valid(request => request.address) |> load_lookup
 
   def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | satp[60..64] === bits(8, 4)
   def root_ppn = if xlen == XLen.X32 | bits(0, 44) | satp[0..44]
@@ -85,8 +91,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   itlb.mxr <== mxr
   itlb.enabled <== instruction_translation_enabled
   itlb.invalidate_all <== invalidate_all
-  dtlb.virtual_address <== data_virtual_address
-  dtlb.access <== data_access_kind
+  // Authorized WB requests own the DTLB on contention. Younger MEM loads then
+  // fall back instead of observing a translation belonging to another token.
+  def load_virtual_address = if xlen == XLen.X32 | load_request.egress.bits.address.zext(64) | load_request.egress.bits.address
+  dtlb.virtual_address <== mux(data.request.valid, data_virtual_address, load_virtual_address)
+  dtlb.access <== mux(data.request.valid, data_access_kind, Sv39Access.Load)
   dtlb.privilege <== data_privilege
   dtlb.sum <== sum
   dtlb.mxr <== mxr
@@ -156,6 +165,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg walker_memory_outstanding(~init: Bool(#false))
 
   def data_quiet = data_memory.drained & !data_memory.response.valid
+  def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(data_translation_enabled, dtlb.physical_address.zext(64), load_request.egress.bits.address)
+  def load_last_offset = mux_lookup(load_request.egress.bits.width, ~default: bits(7, width), [[MemoryWidth.Byte, bits(0, width)], [MemoryWidth.Half, bits(1, width)], [MemoryWidth.Word, bits(3, width)]])
+  def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
+  // SRAM reads have no effects. Only an idempotent cacheable RAM hit may
+  // finish early; faults, walks, devices and older transactions use WB retry.
+  load_memory.request.valid <== load_request.egress.valid & !data.request.valid & !walk_active & !invalidate_all & data_quiet & dtlb.hit & !dtlb.fault & load_physical.mapped & load_physical.readable & load_physical.cacheable & load_physical.read_idempotent & !load_physical.device
+  load_memory.request.bits <== load_request.egress.bits.updated(~address: load_address)
+  load_memory.response |> load.response
   def can_start_walk = !walk_active & !fault_valid
   def instruction_miss = instruction_head.valid & !instruction.flush & instruction_translation_enabled & !itlb.hit
   def data_miss = data.request.valid & data_translation_enabled & !dtlb.hit

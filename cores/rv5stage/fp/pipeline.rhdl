@@ -61,6 +61,7 @@ sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
   interface completion(Irrevocable(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
+  interface load_hit(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
   interface store_request(Valid(RV5StageFpStoreRequest(Context)), ~role: consumer)
   interface store_response(Valid(RV5StageFpStoreResponse(Context)), ~role: producer)
   interface state_update(Valid(Bits(5)), ~role: producer)
@@ -98,6 +99,7 @@ sync_circuit RV5StageFpPipeline(
   interface completion(Irrevocable(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
+  interface load_hit(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
   interface store_request(Valid(RV5StageFpStoreRequest(Context)), ~role: consumer)
   interface store_response(Valid(RV5StageFpStoreResponse(Context)), ~role: producer)
   interface state_update(Valid(Bits(5)), ~role: producer)
@@ -147,15 +149,22 @@ sync_circuit RV5StageFpPipeline(
     address: execution_completion.rd
     data: execution_completion.fp_value
 
+  // A scalar WB hit has no deferred reservation. The memory pipeline admits
+  // this path only after older transactions drain, so it cannot collide with
+  // their non-backpressurable load completion on the shared FPR write port.
+  assert(!(load_hit.valid & load_completion.valid), "rv5stage_fp_load_paths_exclusive")
+  when (load_hit.valid):
+    assert(!scoreboard_busy(register_count, busy_state, load_hit.bits.rd), "rv5stage_fp_load_hit_destination_free")
+  def completed_loads = Array(load_completion, load_hit) |> valid_arbiter()
   (
-    load_completion |> map_valid(completed_load):
+    completed_loads |> map_valid(completed_load):
       FloatingPointRegisterWrite(profile):
         address: completed_load.rd
         data: fp_load_value(profile, completed_load.precision, completed_load.data)
   ) |> load_write
-  when (load_completion.valid):
-    assert((load_completion.bits.precision =/= RV5StageFloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_load_precision_supported")
-    assert((load_completion.bits.precision =/= RV5StageFloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_load_supported")
+  when (completed_loads.valid):
+    assert((completed_loads.bits.precision =/= RV5StageFloatPrecision.Double) ||| Bool(profile == FloatingPointProfile.D), "rv5stage_fp_load_precision_supported")
+    assert((completed_loads.bits.precision =/= RV5StageFloatPrecision.Half) ||| Bool(half_precision_supports_zfhmin(half_precision)), "rv5stage_fp_half_load_supported")
 
   def execution_clear = execution_write_valid
   def load_clear = load_completion.valid
@@ -270,7 +279,7 @@ sync_circuit RV5StageFpPipeline(
 
   def completion_fire = completion.fire()
   def execution_flags_update = completion_fire & execution_completion.exception_flags_valid
-  state_update.valid <== load_completion.valid ||| execution_flags_update ||| (
+  state_update.valid <== completed_loads.valid ||| execution_flags_update ||| (
     completion_fire & (execution_completion.destination === RV5StageFloatDestination.FloatingPoint)
   )
   state_update.bits <== mux(

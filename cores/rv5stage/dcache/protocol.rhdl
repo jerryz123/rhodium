@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's ordered core-facing data-cache access protocol.
+// Defines RV5Stage's speculative load-hit and authorized data-transaction protocols.
 
 import:
   "../memory.rhdl" open
@@ -12,6 +12,24 @@ hardware_enum RV5StageDataDestination:
   None
   Integer
   FloatingPoint
+
+bundle RV5StageLoadReq(xlen :: XLen):
+  address: Bits(xlen.width)
+  width: MemoryWidth
+  unsigned: Bool
+
+// The core launches in EX and consumes a hit at the end of MEM. Absence of a
+// response means retry through the authorized transaction path, never success.
+interface RV5StageLoadAccess(xlen :: XLen):
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    request: Valid(RV5StageLoadReq(xlen))
+
+  responder -> requester:
+    response: Valid(Bits(xlen.width))
 
 bundle RV5StageDataReq(xlen :: XLen):
   address: Bits(xlen.width)
@@ -50,6 +68,8 @@ interface RV5StageDataAccess(xlen :: XLen):
     reservation_valid: Bool
 
 export:
+  RV5StageLoadReq
+  RV5StageLoadAccess
   RV5StageDataDestination
   RV5StageDataReq
   RV5StageDataResp

@@ -23,6 +23,7 @@ module rv5stage_fp_pipeline_tb;
   struct packed {logic ready;} completion_in;
   load_reserve_t load_reserve_in;
   load_completion_t load_completion_in;
+  load_completion_t load_hit_in;
   store_request_t store_request_in;
   struct packed {logic ready;} issue_out;
   struct packed {logic valid; RV5StageFpCompletion bits;} completion_out;
@@ -75,10 +76,24 @@ module rv5stage_fp_pipeline_tb;
     completion_in = '0;
     load_reserve_in = '0;
     load_completion_in = '0;
+    load_hit_in = '0;
     store_request_in = '0;
     repeat (2) @(posedge clock);
     #1;
     reset = 1'b0;
+
+    // A scalar WB hit writes without allocating a deferred reservation.
+    @(negedge clock);
+    load_hit_in='{valid:1'b1,bits:'{context_0:8'h33,precision:2'd1,rd:5'd3,data:64'h3f800000}};
+    store_request_in='{valid:1'b1,bits:'{context_0:8'h33,precision:2'd2,rs:5'd3}};
+    #1;
+    assert(state_update_out.valid && busy==0 && drained);
+    @(posedge clock);
+    @(negedge clock);
+    load_hit_in='0; store_request_in='0;
+    #1;
+    assert(store_response_out.valid && store_response_out.bits.data==64'hffffffff3f800000 && busy==0)
+      else $fatal(1,"WB FP hit was not forwarded, boxed, or left a busy reservation");
 
     load_register(5'd1, 64'h3ff0000000000000, 2'd2);
     load_register(5'd2, 64'h0000000000000001, 2'd2);

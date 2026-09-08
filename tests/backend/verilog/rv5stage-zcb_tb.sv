@@ -64,7 +64,7 @@ module rv5stage_zcb_tb;
   localparam logic [1:0] MEMORY_WIDTH_BYTE = 2'd0;
   localparam logic [1:0] DATA_DESTINATION_NONE = 2'd0;
 
-  RV5StageCore dut (.prefetch_out(), .*);
+  RV5StageCore dut (.load_access_in('0), .load_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

@@ -443,7 +443,7 @@ verify_fixture() {
     fi
     # Match the SoC harness setting for the complete core's packed-interface
     # scheduling loops. Keep assertions and runtime convergence checks enabled.
-    if [[ "$fixture" == rv5stage-io-boot || "$fixture" == rv5stage-zkt-* ]]; then
+    if [[ "$fixture" == rv5stage-io-boot || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-zkt-* ]]; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -725,6 +725,7 @@ direct_fixture_specs=(
   'rv5stage-btb|rv5stage_btb_tb'
   'rv5stage-fetch-prediction|rv5stage_fetch_prediction_tb'
   'rv5stage-fetch-throughput|rv5stage_fetch_throughput_tb'
+  'rv5stage-load-hit|rv5stage_load_hit_tb'
   'rv5stage-branch-prediction|rv5stage_branch_prediction_tb'
   'rv5stage-fetch-admission|'
   'shift-queue|shift_queue_tb'

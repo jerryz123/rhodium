@@ -237,14 +237,16 @@ flowchart LR
         IDEX["ID/EX<br/>ValidPipeAlwaysCapture"]
         EX["Execute (EX)<br/>forwarding, branch, AGU"]
         EXMEM["EX/MEM<br/>ValidPipeAlwaysCapture"]
-        MEM["Memory (MEM)<br/>prepared request, redirect, bypass"]
+        MEM["Memory (MEM)<br/>DTLB + tags/data, redirect, bypass"]
         MEMWB["MEM/WB<br/>ValidPipeAlwaysCapture"]
         WB["Writeback (WB)<br/>ordered commit"]
 
         IF --> FQ --> IFID --> ID --> IDEX --> EX --> EXMEM --> MEM --> MEMWB --> WB
     end
 
-    WB -->|"load / store / AMO"| LSU["DTLB + PMA<br/>L1D or uncached path"]
+    EX -->|"virtual load index"| HIT["Parallel DTLB + L1D lookup"]
+    HIT -->|"permitted hit data"| MEM
+    WB -->|"miss / device / mutation"| LSU["Authorized DTLB + PMA<br/>L1D or uncached transaction"]
     LSU -->|"integer load / AMO result"| COMPLETE["Deferred GPR<br/>completion arbiter"]
 
     WB -->|"issue at WB"| MUL["Multiplier"]
@@ -284,8 +286,8 @@ flowchart LR
 | Fetch | Five-entry `Queue`, then IF/ID `Pipe` | Yes | Producer-owned PC generation, L1I request correlation, and redirect flushing |
 | Decode | ID/EX `ValidPipeAlwaysCapture` | No | Structured decode, operand capture and bypass selection, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
 | Execute | EX/MEM `ValidPipeAlwaysCapture` | No | Registered-source forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP operand preparation, and structural replay |
-| Memory | MEM/WB `ValidPipeAlwaysCapture` | No | Prepared-request staging, branch recovery, early fault/replay squash, and bypass |
-| Writeback | Ordered commit | At defined architectural waits | Memory/FP dispatch, translation and access faults, replay, register/CSR effects, traps, fences, and deferred reservations |
+| Memory | MEM/WB `ValidPipeAlwaysCapture` | No | Parallel DTLB/cache lookup, hit-result capture, branch recovery, early fault/replay squash, and bypass |
+| Writeback | Ordered commit | At defined architectural waits | Load-hit writeback, authorized memory/FP dispatch, faults, replay, register/CSR effects, traps, fences, and deferred reservations |
 
 Within the pipeline, the nonbackpressured pipeline token uses `Valid` flow transforms
 for fanout, filtering, and payload mapping. Ready-sensitive architectural
@@ -307,7 +309,9 @@ execution resources are available. Once admitted, its ID/EX token advances on
 the next edge. Decode captures register-file operands (including same-cycle
 architectural writes) and chooses the MEM/WB sources that will be present in
 Execute's next cycle. The youngest eligible writer wins; x0 never bypasses.
-Loads, multiply/divide, and CSR results do not use the immediate-result bypass.
+Load hits use the normal WB bypass; an immediately dependent integer instruction
+waits one cycle while the load is in EX. Multiply/divide, missed loads, and CSR
+results do not use the immediate-result bypass.
 Execute selects only registered operands and registered producer data, never
 live MEM/WB fault, replay, readiness, or redirect outcomes.
 
@@ -320,13 +324,21 @@ wide payload-register mux. Invalid payloads are unspecified and must be ignored.
 Once Execute transfers an instruction into EX/MEM, no later scalar stage can
 backpressure it. Execute prepares branch decisions, effective virtual addresses,
 integer and FP operands, and locally classified faults. Memory stages those
-values and performs branch recovery and integer bypass; it does not authorize
-memory requests or FP execution.
+values and performs branch recovery, parallel load translation/cache lookup,
+and integer bypass; it does not authorize memory transactions or FP execution.
 
-WB is the boundary where an instruction becomes nonspeculative. Loads, stores,
-LR/SC, AMOs, block zero, FP execution, and prefetch hints issue only from WB.
-This includes loads because a translated address may select a side-effecting
-device. CSR changes, fences, integer writes, and deferred destination reservations
+Ordinary integer and FP loads launch in EX. Their virtual page-offset bits
+index L1D SRAMs while the registered request supplies MEM-stage DTLB lookup,
+physical tag comparison, PMA/permission checks, and load lane selection. A
+permitted hit is captured in MEM/WB and written at WB, without a deferred
+reservation or an additional cache-response register. Squashed hits cannot
+write architectural state.
+
+WB is the boundary where an instruction becomes nonspeculative. Misses, busy
+lookups, translation failures, and non-cacheable loads use the authorized
+transaction path, as do stores, LR/SC, AMOs, block zero, FP execution, and
+prefetch hints. Speculative reads never issue device IO or allocate a line.
+CSR changes, fences, integer writes, and deferred destination reservations
 also occur at WB or later. Early operand reads, instruction fetching, translation
 bookkeeping, and autonomous cache/coherence activity are not architectural
 instruction effects and remain independent.
@@ -345,11 +357,13 @@ this boundary does not introduce a reorder buffer or precise late bus faults.
 | Result class | Dispatch point | Completion path |
 |---|---|---|
 | Integer ALU, branch link, immediate, and ordinary CSR result | Scalar pipeline | Ordinary WB register-file port |
-| Load or atomic result | Memory request and GPR reservation accepted at WB | L1D or uncached response to the deferred completion arbiter |
+| Integer load hit | EX request, parallel MEM lookup | Normal WB register-file port and bypass |
+| Missed/busy/uncached load or atomic result | Transaction and GPR reservation accepted at WB | L1D or uncached response to the deferred completion arbiter |
 | Multiply or divide | Execution resource reserved in Decode; GPR reserved and request issued at WB | Deferred completion arbiter |
 | FP result targeting an integer register | FP request and GPR reservation accepted at WB | FP completion to deferred completion arbiter |
 | FP result targeting an FP register | FP request and FPR reservation accepted at WB | FP pipeline's internal FP register-file port |
-| FP load | Memory request and FPR reservation accepted at WB | Memory response to FP pipeline's load port |
+| FP load hit | EX request, parallel MEM lookup | Scalar WB to FP load-hit port, without a deferred reservation |
+| Deferred FP load | Transaction and FPR reservation accepted at WB | Memory response to FP pipeline's load-completion port |
 
 The fixed-priority deferred arbiter gives integer memory responses priority
 because they cannot be backpressured. Multiplier, divider, and FP integer
@@ -621,7 +635,10 @@ not consumed by smaller geometries. MiniSoC's 32-set, one-way caches remain 2 Ki
 RV64 supports Bare and Sv39 translation; RV32 remains Bare. Early virtual
 lookups reach the SRAMs independently of translation and physical-region checks.
 A permitted physical request is paired with the read at the clock edge; only
-that resolved token can subsequently match physical tags or initiate a refill.
+that resolved token can initiate an authorized transaction. For ordinary loads,
+EX's `load_access` launches the virtual read and MEM supplies the translated
+tag; a permitted hit returns directly to MEM/WB. `RV5Stage` connects this path
+through the MMU to L1D alongside the authorized `data_access` transaction port.
 Unresolved or rejected reads have no completion or cache-state effect. Separate eight-entry fully
 associative ITLB and DTLB instances retain PTE permissions and recheck current
 privilege, `SUM`, and `MXR`. A single non-speculative walker services one miss at

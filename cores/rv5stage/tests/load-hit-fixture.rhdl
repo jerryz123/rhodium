@@ -1,0 +1,69 @@
+#lang rhodium
+// Exercises scalar load timing through the real core, DTLB, physical router, and L1D.
+import:
+  "../core.rhdl" open
+  "../profile.rhm" open
+  "../mmu/mmu.rhdl" open
+  "../memory-router.rhdl" open
+  "../dcache/cache.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../icache/protocol.rhdl" open
+  "../uncached-protocol.rhdl" open
+  "../interrupt.rhdl" open
+  "../cache.rhdl" open
+  "params.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/channels.rhdl") open
+  lib("cores/cache-prefetch.rhdl") open
+
+sync_circuit RV5StageLoadHit():
+  interface instruction(RV5StageInstructionAccess(XLen.X64), ~role: requester)
+  interface uncached(RV5StageUncachedDataAccess(XLen.X64), ~role: requester)
+  interface chi(CHIRNChannels(test_rv5stage_flit), ~role: node)
+  output(load_issue, load_hit, transaction_valid, transaction_fire): Bool
+  output load_address: Bits(64)
+  output transaction: RV5StageDataReq(XLen.X64)
+  inst core(RV5StageCore(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D)), ~reset_address: 0))
+  inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_uncached_config.physical_map))
+  inst router(RV5StageMemoryRouter(XLen.X64, test_rv5stage_uncached_config.physical_map))
+  inst cache(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(32, 2), ~chi: test_rv5stage_uncached_config))
+  core.interrupts <== literal(RV5StageInterrupts(), 0)
+  core.hart_id <== bits(0, 64)
+  core.time_counter <== bits(0, 64)
+  core.instruction_access |> instruction
+  core.data_access |> mmu.data
+  core.load_access |> mmu.load
+  mmu.load_lookup |> cache.load_lookup
+  mmu.load_memory |> cache.load
+  mmu.data_lookup |> cache.virtual_lookup
+  mmu.data_memory |> router.core
+  router.cache |> cache.core
+  router.uncached |> uncached
+  mmu.privilege <== core.privilege
+  mmu.mstatus <== core.mstatus
+  mmu.satp <== core.satp
+  mmu.invalidate_all <== core.translation_flush
+  core.prefetch |> mmu.prefetch
+  mmu.physical_prefetch |> cache.prefetch
+  mmu.instruction.request.valid <== Bool(#false)
+  mmu.instruction.request.bits <== literal(RV5StageInstructionReq(XLen.X64), 0)
+  mmu.instruction.response.ready <== Bool(#true)
+  mmu.instruction.flush <== instruction.flush
+  mmu.instruction.invalidate_all <== instruction.invalidate_all
+  mmu.instruction_lookup.ready <== Bool(#true)
+  mmu.instruction_memory.request.ready <== Bool(#false)
+  mmu.instruction_memory.response.valid <== Bool(#false)
+  mmu.instruction_memory.response.bits <== literal(RV5StageInstructionResp(), 0)
+  cache.node_id <== bits(3, 7)
+  cache.chi <=> chi
+  load_issue <== core.load_access.request.valid
+  load_address <== core.load_access.request.bits.address
+  load_hit <== core.load_access.response.valid
+  transaction_valid <== core.data_access.request.valid
+  transaction_fire <== core.data_access.request.fire()
+  transaction <== core.data_access.request.bits
+
+export:
+  RV5StageLoadHit

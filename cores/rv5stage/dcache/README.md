@@ -34,6 +34,19 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 
 ## Core-facing protocol
 
+`RV5StageLoadAccess(xlen)` provides the ordinary pipeline hit path separately
+from authorized transactions. The MMU launches `load_lookup` with the EX
+virtual address, then supplies `load.request` with its permitted physical
+address in MEM. Matching synchronous tag/data outputs produce `load.response`
+combinationally in MEM; the core's MEM/WB register captures the normalized
+value. Back-to-back uncontended hits need no cache-side result/response register.
+
+This lookup has no allocation, mutation, LR reservation, or completion side
+effect. Older transactions and snoops own the SRAM ports first. Missing or
+blocked reads return no hit and are retried through the authorized protocol at
+WB. The parent admits only cacheable, readable, idempotent, non-device ranges
+with successful translation, and cancels architectural use of squashed results.
+
 Requests carry `locality: RV5StageMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). Lookup, retained mutation, dirty-victim eviction, and refill
 context retain the complete request. This is architectural intent, independent
@@ -52,8 +65,8 @@ Prefetch requests use `Default`.
 | Cache → requester | `request_fault`, `request_access_fault` | Always false in this physical cache; translation and PMA routing own architectural faults |
 | Cache → requester | `drained` | Combinational quiescence observation used by architectural serialization |
 
-The request is `Decoupled` because live Execute forwarding may change its
-payload until acceptance. Responses cannot be backpressured. Loads and atomics
+The authorized request is `Decoupled`; an unaccepted WB attempt may be withdrawn
+and replayed. Responses cannot be backpressured. Loads and atomics
 return normalized XLEN values; an RV64 word AMO result is sign extended.
 Successful SC returns zero and failed SC returns one. Ordinary stores also
 produce an ordered completion response, but its data and destination metadata
@@ -106,6 +119,10 @@ into shared engines:
 
 ```mermaid
 flowchart LR
+  EX["EX virtual load index"] --> SRAM["Synchronous tag/state/data read"]
+  SRAM --> MEM["MEM physical tag + LoadGen"]
+  TRANSLATE["Parallel DTLB + PMA permission"] --> MEM
+  MEM -->|"permitted hit"| WB["Core MEM/WB register"]
   Core["Core request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
   Core -->|"empty buffer + available SRAM"| Lookup
   Virtual["Early virtual index"] --> Lookup
@@ -139,7 +156,7 @@ XLEN word per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. An aligned scalar load, store, LR/SC, or AMO therefore
 touches one data row even though coherent transfers operate on a whole line.
 
-A two-entry `Queue` with `flow=true, pipe=false` makes core request readiness solely a
+On the authorized transaction path, a two-entry `Queue` with `flow=true, pipe=false` makes core request readiness solely a
 function of registered queue occupancy. Tag, state, and data results may decide
 whether its egress drains, but cannot feed back combinationally into acceptance.
 When the queue is empty and the SRAM port is available, an early virtual lookup
@@ -149,10 +166,11 @@ Otherwise, accepted physical requests enter the queue and later index using
 their unchanged page-offset bits. Queued requests always precede fresh demands.
 A one-stage `Pipe` retains S1 request context alongside the synchronous SRAM
 lookup. Tag comparison and word/state selection feed an always-captured S2
-result register. Only S2 checks access ownership and LR/SC reservation, chooses
+result register. S2 checks access ownership and LR/SC reservation, chooses
 eviction or refill, and produces hit responses. Consecutive load hits still
 advance every cycle; an uncontended hit responds two edges after its array-read
-edge, through S2 and the mandatory response `ValidPipe`.
+edge, through S2 and the transaction response `ValidPipe`. Ordinary pipeline
+hits bypass these transaction registers as described above.
 
 An older S2 miss or mutation stops younger S1 advancement. The cache retains
 that younger request, discards its array result, and rereads after the older

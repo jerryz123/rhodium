@@ -49,11 +49,13 @@ each other; share external transaction machinery through the CHI package.
    or top-level composition.
 2. Preserve single-issue ordered scalar commit while tracking every deferred
    register-producing operation through its scoreboard and completion path.
-   WB is the authorization boundary for all instruction side effects: memory
-   requests (including potentially side-effecting reads), FP compute, prefetch
-   hints, and destination reservations must not issue from EX or MEM. Rejection
-   replays before acceptance; accepted operations must never be replayed. Keep
-   operand reads and autonomous coherence service independent of authorization.
+   Ordinary loads launch their virtual SRAM read in EX. MEM performs DTLB,
+   physical-tag, permission, and lane selection; a permitted cache hit becomes
+   the normal MEM/WB result. WB remains the authorization boundary for miss
+   transactions, device reads, mutations, FP compute, hints, and reservations.
+   A speculative lookup must never allocate, mutate, reserve a destination, or
+   start device IO. Rejection replays before transaction acceptance; accepted
+   transactions must never be replayed. Keep coherence service independent.
 3. Add architectural state and serialization rules before integrating an
    execution unit that depends on them. Keep F/D/Zfh specialization host-side
    so disabled hardware elaborates away.
@@ -72,6 +74,11 @@ each other; share external transaction machinery through the CHI package.
    mux `wb_bits.value`. The `rv5stage-core` emitter guards ALU operand roots
    against live control or retained contexts, including a positive check for
    the normal WB value source on both operands.
+   A MEM load hit may select the normal WB bypass for the following EX cycle;
+   an EX load still interlocks its immediate dependent. Hit data and the result
+   classification must cross MEM/WB together. FP hits use `load_hit` at WB
+   without allocating a deferred reservation; older data transactions must be
+   drained before admitting that path so the FPR load-write port cannot collide.
 5. Test cycle-visible behavior in the narrowest CIRCT/Verilator fixture, then
    the composed core. Do not add an elaboration snapshot for every submodule.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,
@@ -204,6 +211,20 @@ The JSON targets interactive renderers; the compact DOT view links child
 modules by name instead of flattening them.
 
 ## Focused validation
+
+For the EX/MEM/WB load path, run `rv5stage-load-hit`, `rv5stage-mmu-replay`,
+`rv5stage-dcache`, `rv5stage-dcache-rv32`, and `rv5stage-core`. The integrated
+load-hit fixture checks a cold fill, one-bubble dependent addresses, bubble-free
+vvadd-style warm loads, signed/unsigned lanes, FP hits, exactly-once device
+reads, store-to-load ordering, and a younger lookup squashed by an older WB
+fault. Keep the timing regression at the real core/MMU/router/L1D
+boundary rather than replacing the cache with a fixed-latency response stub.
+Like the complete-core IO-boot fixture, it uses the SoC harness's Verilator
+UNOPTFLAT setting for packed-interface scheduling; assertions and runtime
+convergence checks remain enabled. IO-MSHR request readiness is registered state,
+not a dependency on its request payload or whole `drained` output bundle.
+Include `rv5stage-fp-pipeline`, `rv5stage-core-rv32f`, and `rv5stage-core-rv64d`
+for FP-hit writeback or shared payload changes.
 
 For Ziccif/Ziccamoa validation, select `rv5stage-fetch`, `rv5stage-icache`,
 `rv5stage-dcache`, `rv5stage-dcache-rv32`, `rv5stage-memory-router`,

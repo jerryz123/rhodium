@@ -40,6 +40,19 @@ request unaccepted; the core retains its hint across replay.
 
 ## Request flow
 
+Ordinary loads also have a pipeline-aligned `load` interface. EX launches
+`load_lookup` directly into L1D and registers the load address/width/signedness.
+In MEM the DTLB resolves that captured request in parallel with SRAM outputs.
+The MMU forwards only a permitted cacheable, read-idempotent, non-device physical
+load to `load_memory`; its hit data returns in MEM for the core's WB register.
+This path never starts a walk or device transaction. Misses and rejected hits
+fall back to the authorized WB path described below.
+
+Authorized WB accesses have priority on DTLB contention. An active walk or
+older physical transaction suppresses a speculative hit, preserving ordering
+and preventing load-completion port collisions. Permission checks include the
+ordinary demand-load A-bit check, unlike the best-effort prefetch probe.
+
 [`RV5StageMmu`](mmu.rhdl) is composed between the core and physical hierarchy
 in [`rv5stage.rhdl`](../rv5stage.rhdl). The data-side output first reaches the
 [physical-memory router](../memory-router.rhdl), which selects L1D for cacheable
@@ -58,7 +71,7 @@ discarded. The queued request leaves only when its physical request or local
 fault is accepted, preserving exactly-once ordered responses. Flush clears the
 request/read/retry state along with response ownership.
 
-`data_lookup` remains a Valid early index paired with data resolution at the same
+For authorized fallback transactions, `data_lookup` remains a Valid early index paired with data resolution at the same
 edge; walker ownership selects the physical PTE address on both data paths.
 Neither cache's S0 index depends on TLB/PMA results. A rejected or unresolved
 read cannot create a cache result or side effect. See the cache guides for
@@ -67,7 +80,10 @@ structural admission and buffering.
 ```mermaid
 flowchart LR
   FETCH["Core Fetch<br/>S0 virtual request"] --> IREQ["Registered S1 request queue"] --> ILOOKUP["ITLB lookup"]
-  LSU["Core WB<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
+  LSU["Core WB fallback / mutation<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
+  EXLOAD["Core EX load"] --> LREQ["Registered MEM load context"] --> DLOOKUP
+  EXLOAD -->|"virtual index"| L1D
+  DLOOKUP -->|"permitted speculative hit"| MEMLOAD["L1D tag/data → core MEM/WB"]
   FETCH -->|"early virtual SRAM index"| L1I
   LSU -->|"early virtual SRAM index"| L1D
 

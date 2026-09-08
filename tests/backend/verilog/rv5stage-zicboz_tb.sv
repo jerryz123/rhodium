@@ -74,7 +74,7 @@ module rv5stage_zicboz_tb;
   integer scenario = 0;
   integer attempts, accepted, pending_cycles, stores;
   logic done;
-  RV5StageCore dut (.*);
+  RV5StageCore dut (.load_access_in('0), .load_access_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

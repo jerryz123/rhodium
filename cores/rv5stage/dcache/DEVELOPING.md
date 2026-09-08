@@ -45,6 +45,14 @@ importing the instruction-cache package.
    Geometry rejection belongs to `../profile.rhm`.
 2. Keep the one-request-per-cycle load-hit path separate from blocking miss,
    acquisition, gather, writeback, and installation state.
+   The speculative `load_lookup` read uses only EX's virtual page offset.
+   `load.request` supplies the MEM physical tag and load controls; return its
+   matching SRAM value directly to the core MEM/WB register. Do not insert the
+   authorized transaction path's S2/response registers into that hit path.
+   Registered read ownership and page-offset matching prevent consuming another
+   request's SRAM response. Reject the hit when older work or snoops intervene.
+   This path must not initiate any cache transaction or update architectural state.
+   For authorized transactions,
    S1 owns array reads, tag comparison, and word/state selection; its result
    crosses `ValidPipeAlwaysCapture` before S2 checks permissions and launches
    transactions. Reserve S2 capacity before advancing S1. Retain and reread

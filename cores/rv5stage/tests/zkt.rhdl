@@ -69,6 +69,8 @@ sync_circuit RV5StageZkt(profile :: RVCoreProfile):
   core.time_counter <== bits(0, 64)
   core.instruction_access <=> instruction_access
   core.data_access <=> data_access
+  core.load_access.response.valid <== Bool(#false)
+  core.load_access.response.bits <== bits(0, width)
   privilege <== core.privilege
   mstatus <== core.mstatus
   satp <== core.satp

@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's VIPT write-back cache with independent LR/SC reservation and probe protection.
+// Implements VIPT MEM-stage load hits, authorized transactions, and independent LR/SC probe protection.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -82,6 +82,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   input node_id: Bits(p.node_id_width)
   interface core(RV5StageDataAccess(xlen), ~role: responder)
   interface virtual_lookup(Valid(Bits(width)), ~role: consumer)
+  interface load_lookup(Valid(Bits(width)), ~role: consumer)
+  interface load(RV5StageLoadAccess(xlen), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface chi(CHIRNChannels(p), ~role: node)
 
@@ -89,6 +91,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   inst states(SyncRam1RW(sets, CHICacheState, ways))
   inst lines(SyncRam1RW(data_depth, Bits(8), data_lanes))
   inst load_gen(LoadGen(xlen, word_bytes))
+  inst pipeline_load_gen(LoadGen(xlen, word_bytes))
+  reg load_read_pending(~init: Bool(#false))
+  reg load_read_address(Bits(width))
   inst local_store_gen(StoreGen(xlen, word_bytes))
   inst local_atomic_alu(RV5StageAtomicALU(xlen))
   inst refill_load_gen(LoadGen(xlen, word_bytes))
@@ -219,7 +224,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
   def queued_request = core_requests.count.or_reduce()
-  def issue_prefetch = prefetch_valid & !virtual_lookup.valid & !queued_request & !reservation_count.or_reduce()
+  def issue_prefetch = prefetch_valid & !virtual_lookup.valid & !queued_request & !reservation_count.or_reduce() & !load_lookup.valid
   def issue_request :: RV5StageDataReq(xlen) = mux(
     issue_prefetch,
     RV5StageDataReq(xlen):
@@ -494,7 +499,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
       when (lookup.egress.fire()):
         assert(!(array_matches[left] & array_matches[right]), "l1d_core_hit_unique")
   def lookup_retry = lookup.egress.valid & !lookup_read_pending & lookup_can_advance
-  def array_address = mux(lookup_retry, lookup.egress.bits.request.address, issue_index_address)
+  // The EX read never takes an SRAM port from older authorized work or snoops.
+  // It reserves no transaction and cannot allocate, mutate, or establish LR.
+  def load_issue = load_lookup.valid & lookup_can_advance & !management_waiting & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !virtual_lookup.valid
+  load_read_pending <== load_issue
+  when load_issue:
+    load_read_address <== load_lookup.bits
+  def array_address = mux(load_issue, load_lookup.bits, mux(lookup_retry, lookup.egress.bits.request.address, issue_index_address))
   def issue_set = array_address[offset_width..(offset_width + set_width)]
   def issue_data_address = array_address[word_offset_width..(offset_width + set_width)]
   def lookup_accepts_input = !management_waiting & lookup_can_advance & !lookup_retry
@@ -507,7 +518,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     prefetch_write: issue_prefetch & (prefetch_request.operation === CachePrefetchOperation.Write)
   def request_accept = core.request.fire()
   def lookup_issue = lookup.ingress.fire()
-  def array_lookup_issue = lookup_retry ||| (lookup_accepts_input & lookup.ingress.ready & (queued_request ||| virtual_lookup.valid ||| issue_prefetch))
+  def array_lookup_issue = load_issue ||| lookup_retry ||| (lookup_accepts_input & lookup.ingress.ready & (queued_request ||| virtual_lookup.valid ||| issue_prefetch))
   lookup_read_pending <== lookup_issue ||| lookup_retry
   when (lookup.egress.fire()):
     assert(tags.port.response.valid & states.port.response.valid & lines.port.response.valid, "l1d_s1_array_response_valid")
@@ -516,6 +527,20 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     assert(virtual_lookup.bits[0..12] === core.request.bits.address[0..12], "l1d_vipt_page_offset_matches")
   when lookup_issue:
     assert(array_lookup_issue, "l1d_resolution_has_array_read")
+
+  // In MEM, SRAM outputs and the independently translated physical tag meet.
+  // Return combinational hit data for the core's MEM/WB register: no second
+  // cache result/response register is inserted on this ordinary load path.
+  def load_set = load.request.bits.address[offset_width..(offset_width + set_width)]
+  def load_tag = load.request.bits.address[(offset_width + set_width)..width]
+  def load_matches = vec(for List (way in 0..ways): valid_lines[load_set][way] & (tags.port.response.bits[way] === load_tag))
+  def load_selection = priority_encoder_oh(load_matches)
+  pipeline_load_gen.data <== load_selection.mux(for List (way in 0..ways): array_words[way], ~default: bits(0, width))
+  pipeline_load_gen.address <== load.request.bits.address
+  pipeline_load_gen.width <== load.request.bits.width
+  pipeline_load_gen.unsigned_load <== load.request.bits.unsigned
+  load.response.valid <== load.request.valid & load_read_pending & lookup_can_advance & tags.port.response.valid & states.port.response.valid & lines.port.response.valid & load_selection.valid & (load_read_address[0..12] === load.request.bits.address[0..12])
+  load.response.bits <== pipeline_load_gen.value
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
