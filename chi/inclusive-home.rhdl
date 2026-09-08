@@ -373,13 +373,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def selected_line = line_buffer
   def selected_dirty = dirty_lines[selected_set][selected_way]
   def snoop_line_packet = chi_transfer_beat(requester.request_data.bits.data_id, p)[0..packet_index_width]
-  def snoop_old_bytes = selected_line[snoop_line_packet].as_vec(Bits(8))
-  def snoop_new_bytes = requester.request_data.bits.data.as_vec(Bits(8))
-  def snoop_byte_enables = requester.request_data.bits.byte_enable.as_vec(Bool)
-  def merged_snoop_packet = vec(
-    for List (byte in 0..p.data_bytes):
-      mux(snoop_byte_enables[byte], snoop_new_bytes[byte], snoop_old_bytes[byte])
-  ).as_bits()
+  def merged_snoop_packet = selected_line[snoop_line_packet].masked_merge(requester.request_data.bits.data, requester.request_data.bits.byte_enable.expand_mask(8))
 
   for (left in 0..ways):
     for (right in (left + 1)..ways):
@@ -468,13 +462,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def merged_line = vec(
     for List (packet in 0..line_packets):
       block:
-        def old_bytes = selected_line[packet].as_vec(Bits(8))
-        def new_bytes = requester_write_data[packet].data.as_vec(Bits(8))
-        def byte_enables = requester_write_data[packet].byte_enable.as_vec(Bool)
-        def merged_packet = vec(
-          for List (byte in 0..p.data_bytes):
-            mux(byte_enables[byte], new_bytes[byte], old_bytes[byte])
-        ).as_bits()
+        def merged_packet = selected_line[packet].masked_merge(requester_write_data[packet].data, requester_write_data[packet].byte_enable.expand_mask(8))
         mux(requester_write_valids[packet], merged_packet, selected_line[packet])
   )
 

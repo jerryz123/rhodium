@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates a small blocking inclusive HN-F over the shared CHI test endpoints.
+// Elaborates a small inclusive HN-F with partial requester-write and snoop-data capabilities.
 
 import:
   lib("chi/main.rhdl") open
@@ -13,7 +13,16 @@ def inclusive_home_addressing = CHIAddressProjectorConfig(
 )
 def inclusive_home_base_config = CHIHNFConfig(
   base.coherent_home_config.flit,
-  base.coherent_home_config.requester_endpoints,
+  for List (endpoint in base.coherent_home_config.requester_endpoints):
+    CHIICNPortParams(endpoint.name, endpoint.node_id, endpoint.kind,
+                     ~emits: endpoint.emits,
+                     ~supports: CHIChannelCapabilities(
+                       ~req: endpoint.supports.req ++ (if endpoint.kind == CHINodeKind.RNI | [CHIReqOpcode.WriteNoSnpPtl] | []),
+                       ~rsp: endpoint.supports.rsp,
+                       ~snp: endpoint.supports.snp,
+                       ~dat: endpoint.supports.dat ++ (if endpoint.supports.dat.contains(CHIDatOpcode.SnpRespData) | [CHIDatOpcode.SnpRespDataPtl] | [])
+                     ),
+                     ~max_outstanding: endpoint.max_outstanding),
   inclusive_home_addressing.global_mask,
   base.coherent_home_config.service_requests
 )
