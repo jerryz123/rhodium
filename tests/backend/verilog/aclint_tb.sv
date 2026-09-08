@@ -245,6 +245,19 @@ module aclint_tb;
       else $fatal(1, "MSIP clear did not deassert the interrupt");
     read_register(12'h108, MSWI0, 6'd2, 16'h000f, 128'h0);
 
+    // Shift the upper physical byte lanes into the register's local mask.
+    write_register(12'h109, MTIME, 6'd3, 16'h8100,
+                   128'hab000000_000000cd_00000000_00000000);
+    assert (time_counter == 64'hab345678_000000cd &&
+            time_update_count == 6 && last_time_update == time_counter)
+      else $fatal(1, "sparse mask did not preserve unselected mtime bytes");
+    write_register(12'h10a, MTIME, 6'd3, 16'h0000, '1);
+    assert (time_counter == 64'hab345678_000000cd &&
+            time_update_count == 7 && last_time_update == time_counter)
+      else $fatal(1, "empty mask changed mtime or suppressed its write event");
+    read_register(12'h10b, MTIME, 6'd3, 16'hff00,
+                  128'hab345678_000000cd_00000000_00000000);
+
     $display("CHI-native ACLINT MTIMER and MSWI behavior passed");
     $finish;
   end

@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises generic bit ordering, layout, and alignment operations and invalid parameters.
+// Exercises generic bit ordering, layout, alignment, and lane-mask operations and invalid parameters.
 
 import:
   lib("rhodium/std/bits.rhdl") open
@@ -38,6 +38,33 @@ circuit BitsAlignmentFixture():
   down_4 <== align_down(value, 4)
   down_256 <== align_down(value, 256)
   merged <== masked_merge(value, bits(0xa0, 8), bits(0xf0, 8))
+
+circuit MaskExpansionFixture():
+  input mask: Bits(8)
+  input single: Bits(1)
+  output lanes_1: Bits(8)
+  output lanes_3: Bits(24)
+  output lanes_8: Bits(64)
+  output single_1: Bits(1)
+  output single_7: Bits(7)
+  output sliced_5: Bits(20)
+
+  lanes_1 <== mask.expand_mask(1)
+  lanes_3 <== mask.expand_mask(3)
+  lanes_8 <== expand_mask(mask, 8)
+  single_1 <== single.expand_mask(1)
+  single_7 <== single.expand_mask(7)
+  sliced_5 <== mask[2..6].expand_mask(5)
+
+circuit InvalidMaskLaneWidthFixture(lane_width :: Int):
+  input mask: Bits(8)
+  output expanded: Bits(8)
+  expanded <== mask.expand_mask(lane_width)
+
+circuit NonBitsMaskExpansionFixture():
+  input mask: Bool
+  output expanded: Bits(8)
+  expanded <== expand_mask(mask, 8)
 
 circuit PackFieldsFixture():
   input low: Bool
@@ -112,6 +139,9 @@ circuit TransferBeatTooWideFixture():
 export:
   BitOrderFixture
   BitsAlignmentFixture
+  MaskExpansionFixture
+  InvalidMaskLaneWidthFixture
+  NonBitsMaskExpansionFixture
   PackFieldsFixture
   OverlappingPackFieldsFixture
   OutOfRangePackFieldsFixture

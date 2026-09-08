@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks generic Bits ordering, layout, alignment structure, widths, and host constraints.
+// Checks generic Bits ordering, layout, alignment, lane-mask widths, and host constraints.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -30,8 +30,13 @@ def registered_transfer_design = embedded.run_elaboration(
 )
 def pack_design = embedded.run_elaboration(fun (): fixture.PackFieldsFixture())
 def pack_module = pack_design.modules[0]
+def mask_design = embedded.run_elaboration(fun (): fixture.MaskExpansionFixture())
 
 check:
+  mask_design.modules[0].outputs.map(fun (port): port.type) ~is [Bits(8), Bits(24), Bits(64), Bits(1), Bits(7), Bits(20)]
+  embedded.run_elaboration(fun (): fixture.InvalidMaskLaneWidthFixture(0)) ~throws "PosInt"
+  embedded.run_elaboration(fun (): fixture.InvalidMaskLaneWidthFixture(-1)) ~throws "PosInt"
+  embedded.run_elaboration(fun (): fixture.NonBitsMaskExpansionFixture()) ~throws "Bits"
   bits_std.power_of_two(-2) ~is #false
   bits_std.power_of_two(0) ~is #false
   bits_std.power_of_two(1) ~is #true

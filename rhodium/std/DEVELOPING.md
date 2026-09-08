@@ -146,6 +146,12 @@ the standard-library feature is compiler-facing; a reusable hardware module
 does not need its own elaboration snapshot. Use the corresponding emitter and
 Verilator bench for reset, latency, handshake, and other observable behavior.
 
+Lane-mask expansion belongs in `bits.rhdl`, using ordinary vector construction
+and bit selection without new IR operations or protocol dependencies. The
+`std-bits` host tests cover its result widths and rejected arguments;
+the `expand-mask` backend fixture exhaustively checks bit-to-lane ordering,
+including single-bit and sliced masks and non-byte lane widths.
+
 ## Focused validation
 
 Run Racket and Rhombus through the repository wrapper, which creates the

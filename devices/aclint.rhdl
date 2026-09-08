@@ -75,13 +75,6 @@ bundle AclintIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
   base_address: Bits(p.request_address_width)
 
-fun aclint_byte_mask(mask :: Bits(8)) :~ Bits(64):
-  def enables = mask.as_vec(Bool)
-  vec(
-    for List (index in 0..8):
-      mux(enables[index], bits(0xff, 8), bits(0, 8))
-  ).as_bits()
-
 sync_circuit Aclint(config :: AclintConfig):
   def p = config.flit
   def hart_count = config.hart_count
@@ -153,7 +146,7 @@ sync_circuit Aclint(config :: AclintConfig):
   def register_data :: Bits(p.data_width) = port.dat.request.bits.data >> register_shift
   def register_mask :: Bits(data_bytes) = port.dat.request.bits.byte_enable >> register_lane
   def write_value = register_data[0..64]
-  def write_mask = aclint_byte_mask(register_mask[0..8])
+  def write_mask = register_mask[0..8].expand_mask(8)
   def selected_value = mux(
     mswi_access,
     msip[mswi_index].as_bits().zext(64),

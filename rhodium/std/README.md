@@ -367,8 +367,8 @@ global ranges to a nonempty list of local ranges and returns reversible
 
 ### Bit-vector utilities
 
-[`bits.rhdl`](bits.rhdl) provides reusable ordering, layout, and alignment
-operations over hardware `Bits` values:
+[`bits.rhdl`](bits.rhdl) provides reusable ordering, layout, alignment,
+and lane-mask operations over hardware `Bits` values:
 
 ```rhombus
 import:
@@ -402,6 +402,15 @@ value's width. `is_aligned` checks that the corresponding low bits are zero;
 the identity for `align_down` and always true for `is_aligned`.
 `alignment_bits(alignment)` exposes the exact host-side base-two width for
 protocols and generators that need to size or remove those low bits.
+
+`expand_mask(mask, lane_width)`, also callable as `mask.expand_mask(lane_width)`,
+replicates each enable bit into a lane of `lane_width` bits. Input bit `i`
+controls output bits `[i * lane_width .. (i + 1) * lane_width)`, so the
+least-significant enable controls the least-significant lane. The result is
+`Bits(mask_width * lane_width)`. The mask must be a nonempty `Bits` value and
+the lane width a positive host integer; lane width one preserves the value.
+For example, `bits(0b0101, 4).expand_mask(8)` produces `bits(0x00ff00ff, 32)`.
+This combinational operation is independent of any bus protocol or byte size.
 
 The same module provides `masked_merge(original, replacement, mask)`, which
 selects replacement bits where the mask is set and retains original bits

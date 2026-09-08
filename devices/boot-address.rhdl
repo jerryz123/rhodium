@@ -86,7 +86,7 @@ sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
   transaction.write_supported <== (incoming_data.data_id === chi_line_data_id(request.address, p)) & mask_supported & (!full_write ||| (incoming_data.byte_enable === requested_mask))
   transaction.write_ready <== Bool(#true)
   def write_data_fire = transaction.write_data_fire
-  def write_mask = vec(for List (byte in 0..8): mux(incoming_data.byte_enable[byte].into(Bool), bits(0xff, 8), bits(0, 8))).as_bits()
+  def write_mask = incoming_data.byte_enable[0..8].expand_mask(8)
 
   transaction.read_data <== address.zext(p.data_width)
   when write_data_fire:

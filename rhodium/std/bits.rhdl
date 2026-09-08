@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines bit ordering, layout, alignment, byte-mask, and masked-merge utilities for Bits.
+// Defines bit ordering, layout, alignment, lane-mask expansion, and masked-merge utilities for Bits.
 
 import:
   rhombus/meta open
@@ -100,6 +100,13 @@ fun align_down(value :: Bits,
   | value
   | value & bits((1 << width) - alignment, width)
 
+// Input bit i controls the consecutive output lane starting at i * lane_width.
+fun expand_mask(mask :: Bits, lane_width :: PosInt) :~ Bits(mask.type.bit_width() * lane_width):
+  vec(
+    for List (index in 0..mask.type.bit_width()):
+      mux(mask[index].into(Bool), bits((1 << lane_width) - 1, lane_width), bits(0, lane_width))
+  ).as_bits()
+
 fun masked_merge(original :: Bits,
                  replacement :: Bits(original.type.bit_width()),
                  mask :: Bits(original.type.bit_width())) :~ Bits(original.type.bit_width()):
@@ -138,5 +145,6 @@ export:
   alignment_bits
   is_aligned
   align_down
+  expand_mask
   masked_merge
   transfer_byte_mask

@@ -23,6 +23,11 @@ mask policies retain their original gating versus assertion-only behavior.
 BootROM remains a separate read-only multibeat endpoint. See the
 [CHI developer guide](../chi/DEVELOPING.md) for the engine boundary and tests.
 
+Use `expand_mask` from [`rhodium/std/bits.rhdl`](../rhodium/std/bits.rhdl) for
+lane-enable expansion instead of device-specific byte-mask builders. ACLINT
+owns its physical-lane shift and boot-address owns its low-eight-lane slice;
+the generic helper only expands the resulting enables for `masked_merge`.
+
 Keep synthesizable devices independent of a particular core or SoC. Keep a
 host model behind a narrow DPI boundary and pair it with synthesizable-facing
 Rhodium logic; do not put DPI calls in a SoC.

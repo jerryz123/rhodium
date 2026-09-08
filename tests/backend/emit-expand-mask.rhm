@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits lane-mask expansion for exhaustive checks of bit ordering and lane widths.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../frontend/std-bits-fixture.rhdl" as fixture
+
+print(emit_circt(embedded.run_elaboration(fun (): fixture.MaskExpansionFixture())))
