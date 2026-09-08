@@ -29,27 +29,30 @@ The stack follows a Chipyard-like boundary:
 
 ```mermaid
 flowchart LR
-  Driver["TestDriver.v<br/>clock, reset, UART pins, and exit"]
+  Driver["TestDriver.v<br/>clock, reset, and exit"]
 
   subgraph Harness["Generated SoCHarness top - sims ownership"]
     FESVR["FesvrRequester<br/>RAM + MMIO host RN-F"]
     SoC["Selected SoC instance<br/>BootROM + hardware owned by socs/"]
     DPIMemory["CHIDPIMemory<br/>SimpleSoC only"]
+    UART["UartDPI<br/>serial pins ↔ PTY"]
 
     FESVR <--> SoC
     FESVR -.->|"publish entry after load"| SoC
     SoC <--> DPIMemory
+    SoC <--> UART
   end
 
-  Driver -->|"clock, reset, idle UART RX"| Harness
-  Harness -->|"exit, UART TX + interrupt"| Driver
+  Driver -->|"clock, reset"| Harness
+  Harness -->|"exit"| Driver
 ```
 
-`TestDriver.v` generates clock and reset, holds the UART RX line idle, and
+`TestDriver.v` generates clock and reset and
 observes the harness exit status. Each SoC has a separate parameterless harness
 that instantiates the FESVR requester and connects it to that SoC's common
-`SoCHostInterface`. Each harness passes through the synthesizable UART RX, TX,
-and interrupt boundary; it does not instantiate the UART PTY DPI model. The
+`SoCHostInterface`. Each harness connects its SoC's UART TX and RX pins to
+the device-owned `UartDPI` PTY model. The UART interrupt remains connected to
+the SoC's PLIC. The
 SimpleSoC harness additionally instantiates `CHIDPIMemory`, because only that
 SoC exposes an external normal-memory boundary. No SoC contains DPI calls or
 simulator dependencies.
@@ -80,8 +83,8 @@ channels as a simulation-only external memory model. MiniSoC instead contains
 its own synthesizable `CHIRam`. Each harness has an independent artifact at
 `/tmp/rhodium-sims/<soc>/obj/VTestDriver`, so
 switching configurations cannot reuse generated RTL for the other SoC. The
-shared Verilator `TestDriver` leaves TX and the UART interrupt observable but
-unused and drives RX high as an idle 8-N-1 serial line. Set
+shared Verilator `TestDriver` exposes only clock, reset, and exit; UART traffic
+crosses the PTY inside the harness. Set
 `BUILD_ROOT` when a different artifact root is required. Building a simulator
 does not require or embed a target program.
 
@@ -90,6 +93,34 @@ loads only that module's exported `design`, so unrelated SoCs are neither
 imported nor elaborated. Every harness emits the same parameterless
 `SoCHarness` Verilog top contract, allowing `TestDriver.v` to remain shared;
 there is no Rhodium variant enum or conditional harness circuit.
+
+## Use the UART terminal
+
+Every harness creates UART DPI model 0 and prints `UART DPI model 0 PTY: <path>`
+to stderr on startup. Open that slave path in a terminal client while the
+simulator is running. The PTY is raw and byte-transparent, independent of the
+FESVR console; firmware accesses the actual UART MMIO registers and serial pins.
+The path is process-local and goes away when the simulator exits.
+
+Each `SoCHarness` accepts an elaboration parameter `uart_oversample_divisor`
+(1–65535, default 1). Program the same divisor into the target UART; reset
+divisor zero also behaves as one. At the configured SoC clock frequency,
+the serial bit rate is `clock_frequency_hz / (16 * divisor)`. Terminal-client
+baud settings do not change this simulated timing. A different divisor requires
+specializing the harness's exported design and rebuilding; there is no runtime
+baud autodetection. Framing is 8-N-1. PTY input is queued across reset.
+
+This does not add a BootROM console or select `/chosen/stdout-path`. A target
+must configure and use its UART. The driver's cycle limit still applies, so
+set `HTIF_ARGS=+max-cycles=...` appropriately for interactive programs.
+
+Test all byte values through a real external PTY client with:
+
+```sh
+make -C sims uart-pty-test SOC=mini
+make -C sims uart-pty-test SOC=simple
+make -C sims uart-pty-test SOC=tiled
+```
 
 ## Export SimpleSoC events to Perfetto
 

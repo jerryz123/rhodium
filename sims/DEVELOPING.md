@@ -28,7 +28,8 @@ systems cannot reuse another system's generated RTL.
 | System-specific parameterless tops | [`simple-soc-harness.rhdl`](simple-soc-harness.rhdl), [`mini-soc-harness.rhdl`](mini-soc-harness.rhdl), [`tiled-soc-harness.rhdl`](tiled-soc-harness.rhdl) |
 | Direct-memory FESVR transport and CHI requester | [`fesvr/`](fesvr/) |
 | Verilator VPI/DPI binding | [`verilator/`](verilator/) |
-| Clock, reset, UART pins, and exit | [`TestDriver.v`](TestDriver.v) |
+| Clock, reset, and exit | [`TestDriver.v`](TestDriver.v) |
+| PTY transport and serial conversion reused by every harness | [`../devices/uart-dpi.rhdl`](../devices/uart-dpi.rhdl), [`../devices/dpi/uart_dpi.cc`](../devices/dpi/uart_dpi.cc) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
 | Upstream ISA/benchmark builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
@@ -221,6 +222,9 @@ make -C sims host-mmio-test SOC=tiled
 make -C sims boot-test SOC=simple
 make -C sims boot-test SOC=mini
 make -C sims boot-test SOC=tiled
+make -C sims uart-pty-test SOC=simple
+make -C sims uart-pty-test SOC=mini
+make -C sims uart-pty-test SOC=tiled
 ```
 
 FESVR's write-data wrapper retains lane placement, masks, and packet-position
@@ -233,6 +237,15 @@ Verilator. Lowering requires the pinned CIRCT tool or an explicit `CIRCT_OPT`,
 and execution requires FESVR plus the RISC-V cross compiler. Rhombus checks use repository wrappers with fresh
 compiled roots. Technology-mapped simulation remains owned by
 [`../vlsi/sim/`](../vlsi/sim/README.md).
+
+`uart-pty-test` starts the ordinary simulator, discovers the production PTY path,
+and exchanges all 256 byte values with a polling UART payload. Each byte is
+checked by both the target and the external Python client, with transformed
+replies, a final acknowledgement before process exit, and bounded cycle/wall
+timeouts. It exercises the actual core, CHI MMIO, UART FIFOs, serial engines,
+and PTY; no test-only DPI transport bypasses that path. Simulation CI runs it
+on all three SoCs. Keep the UART C++ source/header in both ordinary and mapped
+simulator link prerequisites when changing this shared harness dependency.
 
 `transport-test` exercises the pinned FESVR `memif_t` path, exact-width and zero
 writes, backpressure, and target errors. The backend `fesvr-mmio` fixture tests

@@ -1,25 +1,27 @@
 #lang rhodium
-// Wraps bootable SimpleSoC with FESVR, simulation memory, and pass-through UART pins.
+// Wraps bootable SimpleSoC with FESVR, simulation memory, and a serial-pin PTY UART model.
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("chi/main.rhdl") as chi
   lib("socs/simple-soc.rhdl") as simple
-  lib("socs/peripherals.rhdl").SoCUartInterface
+  lib("devices/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
   lib("flow/event.rhdl") open
 
-sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_params):
+sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_params,
+                        uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
   output exit: Bits(32)
-  interface uart(SoCUartInterface(), ~role: soc)
 
   def fabric_params = params.fabric
   inst requester(FesvrRequester(XLen.X64, fabric_params.flit, fabric_params.host_node, fabric_params.home_map, fabric_params.rv5stage_config.physical_map, fabric_params.host_services, fabric_params.boot.boot_address_register))
   inst soc(simple.SimpleSoC(params))
+  inst uart(UartDPI(0, uart_oversample_divisor))
   inst memory(chi.CHIDPIMemory(chi.CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64)))
 
   requester.port <=> soc.host.memory
-  uart <=> soc.uart
+  uart.uart_tx <== soc.uart.tx
+  soc.uart.rx <== uart.uart_rx
   soc.memory.req |> trace_event("memory-request", ~payload: #true, ~root: #true) |> trace_event("memory-accept", ~payload: #true, ~terminal: #true) |> memory.port.req
   memory.port.rsp |> trace_event("memory-response", ~payload: #true, ~root: #true) |> trace_event("soc-response", ~payload: #true, ~terminal: #true) |> soc.memory.rsp
   soc.memory.dat <=> memory.port.dat

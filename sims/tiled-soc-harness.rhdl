@@ -1,23 +1,25 @@
 #lang rhodium
-// Wraps bootable TiledSoC with FESVR while passing its synthesizable UART pins through.
+// Wraps bootable TiledSoC with FESVR and a serial-pin PTY UART model.
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("socs/tiled-soc/main.rhdl") as tiled
   lib("socs/tiled-soc/compile.rhdl") as compiler
-  lib("socs/peripherals.rhdl").SoCUartInterface
+  lib("devices/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
 
-sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = tiled.default_tiled_soc_config):
+sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = tiled.default_tiled_soc_config,
+                        uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
   def implementation = compiler.compile_tiled_soc(soc_config)
   output exit: Bits(32)
-  interface uart(SoCUartInterface(), ~role: soc)
 
   inst requester(FesvrRequester(XLen.X64, implementation.flit, implementation.host.node, implementation.home_map, implementation.rv5stage_config.physical_map, implementation.host_services, soc_config.boot.boot_address_register))
   inst soc(tiled.TiledSoC(soc_config))
+  inst uart(UartDPI(0, uart_oversample_divisor))
 
   requester.port <=> soc.host.memory
-  uart <=> soc.uart
+  uart.uart_tx <== soc.uart.tx
+  soc.uart.rx <== uart.uart_rx
   exit <== requester.exit
 
 def design = elaborate(SoCHarness())

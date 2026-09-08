@@ -3,6 +3,7 @@ REPO_DIR := $(abspath ..)
 FESVR_DIR := $(CURDIR)/fesvr
 VERILATOR_DIR := $(CURDIR)/verilator
 CHI_DPI_DIR := $(REPO_DIR)/chi/dpi
+UART_DPI_DIR := $(REPO_DIR)/devices/dpi
 FESVR_REVISION := e1fa113cfb6d55d878a3c1ea3befa8d9c13ce154
 FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(FESVR_REVISION)
 SOC ?= simple
@@ -24,9 +25,9 @@ HARNESS_SOURCE_tiled := sims/tiled-soc-harness.rhdl
 HARNESS_SOURCE := $(HARNESS_SOURCE_$(SOC))
 HARNESS_EMITTER := $(REPO_DIR)/sims/emit-soc-harness.rhm
 SOC_DPI_SOURCE_simple := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc
-SOC_DPI_SOURCE := $(SOC_DPI_SOURCE_$(SOC))
+SOC_DPI_SOURCE := $(SOC_DPI_SOURCE_$(SOC)) $(UART_DPI_DIR)/uart_dpi.cc
 SOC_DPI_HEADER_simple := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h
-SOC_DPI_HEADER := $(SOC_DPI_HEADER_$(SOC))
+SOC_DPI_HEADER := $(SOC_DPI_HEADER_$(SOC)) $(UART_DPI_DIR)/uart_dpi.h
 
 CPPFLAGS += -I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR)
 CXXFLAGS += -std=c++20 -Wall -Wextra -Werror
@@ -56,6 +57,7 @@ SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
 SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(SOC_OBJECT_DIR)/VTestDriver)
 SMOKE_BINARY := $(SOC_BUILD_DIR)/rv5stage_smoke.elf
+UART_PTY_BINARY := $(SOC_BUILD_DIR)/rv5stage_uart_pty.elf
 BOOT_BINARIES := $(SOC_BUILD_DIR)/rv5stage_boot_2000.elf $(SOC_BUILD_DIR)/rv5stage_boot_3000.elf
 HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/rv5stage_host_mmio.elf
 HOST_MMIO_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_host_mmio.signature
@@ -68,7 +70,7 @@ SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -
 # Failed elaboration or lowering must not leave a reusable partial artifact.
 .DELETE_ON_ERROR:
 
-.PHONY: all setup simulator run smoke trace-smoke boot-test host-mmio-test zicboz-test zihintntl-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
+.PHONY: all setup simulator run smoke trace-smoke boot-test host-mmio-test uart-pty-test zicboz-test zihintntl-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
 
 all: simulator
 
@@ -94,6 +96,9 @@ endif
 
 smoke: $(SMOKE_BINARY)
 	$(MAKE) run SOC=$(SOC) BINARY=$(SMOKE_BINARY)
+
+uart-pty-test: $(UART_PTY_BINARY) simulator
+	$(PYTHON) tests/uart_pty_test.py "$(SIMULATOR_BINARY)" "$(UART_PTY_BINARY)"
 
 trace-smoke:
 	@test -n "$(TRACE_PROCESSOR)" || (echo "TRACE_PROCESSOR must name the native Perfetto importer" >&2; exit 2)
@@ -129,6 +134,7 @@ dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	  -c $(VERILATOR_DIR)/direct_mem_htif_dpi.cc -o $(DPI_BUILD_DIR)/direct_mem_htif_dpi.o
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(VERILATOR_ROOT)/include/vltstd \
 	  -c $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc -o $(DPI_BUILD_DIR)/chi_dpi_memory_dpi.o
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $(UART_DPI_DIR)/uart_dpi.cc -o $(DPI_BUILD_DIR)/uart_dpi.o
 
 chi-dpi-memory-test: | $(DPI_BUILD_DIR)
 	@test -n "$(VERILATOR_ROOT)" || \
@@ -222,6 +228,10 @@ endif
 $(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
                  tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
+	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+
+$(UART_PTY_BINARY): tests/programs/rv5stage_uart_pty.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
 
 $(HOST_MMIO_BINARY): tests/programs/rv5stage_host_mmio.S tests/programs/rv5stage_host_mmio.ld | $(SOC_BUILD_DIR)

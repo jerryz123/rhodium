@@ -90,8 +90,8 @@ devices in dedicated [`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl),
 [SoC guide](../socs/README.md) for their addresses, NodeIDs, routes, and
 processor connections rather than duplicating those system contracts here.
 
-All current SoCs instantiate `CHIBootROM`. The current simulator harnesses pass
-the synthesizable UART pins through and do not instantiate `UartDPI`; the
+All current SoCs instantiate `CHIBootROM`. The simulator harnesses connect
+the synthesizable UART pins to `UartDPI`; the
 [simulation guide](../sims/README.md) owns that executable boundary.
 
 ## Build a BootROM image
@@ -233,9 +233,8 @@ under backpressure.
 This is intentionally a compatibility subset, not a claim of complete 16550
 hardware. Only 8-N-1 is implemented; unsupported LCR formats assert. Only RX
 data and TX empty interrupt causes exist, and the hardware boundary exposes
-only `rx`, `tx`, and `interrupt`. Current SoCs expose the UART interrupt but do
-not route it into RV5Stage because they do not yet contain an external
-interrupt controller.
+only `rx`, `tx`, and `interrupt`. Current SoCs route the UART interrupt through
+their PLIC to RV5Stage's external interrupt inputs.
 
 ## Attach the PTY UART model
 
@@ -253,9 +252,9 @@ is active. A received byte with a bad stop bit still reaches the PTY because
 the terminal stream has no framing-error sideband; the model logs and counts
 the error for diagnostics.
 
-This model is currently exercised only by device/backend fixtures. Connecting
-it to a complete executable harness is future simulator integration, not a
-device or SoC requirement.
+The [SoC simulator harnesses](../sims/README.md#use-the-uart-terminal) attach
+this model without adding DPI or host policy to synthesizable SoCs. Standalone
+device/backend fixtures also exercise it independently of processor software.
 
 ## Find the implementation
 

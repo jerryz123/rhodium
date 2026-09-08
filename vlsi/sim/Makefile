@@ -26,6 +26,7 @@ FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(FESVR_REVISION)
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
 FESVR_DIR := $(SIMS_DIR)/fesvr
 VERILATOR_DIR := $(SIMS_DIR)/verilator
+UART_DPI_DIR := $(REPO_DIR)/devices/dpi
 
 CIRCT_OPT ?= $(REPO_DIR)/.tools/firtool-1.155.0/bin/circt-opt
 CIRCT_ROOT ?= $(abspath $(dir $(CIRCT_OPT))/..)
@@ -140,16 +141,17 @@ $(FESVR_LIBRARY):
 $(SIMULATOR_BINARY): $(SOC_VERILOG) $(MAPPING_STAMP) $(SIMS_DIR)/TestDriver.v \
 		$(FESVR_DIR)/direct_mem_htif.cc $(FESVR_DIR)/direct_mem_htif.h \
 		$(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
-		$(VERILATOR_DIR)/direct_mem_htif_dpi.h $(FESVR_LIBRARY)
+		$(VERILATOR_DIR)/direct_mem_htif_dpi.h $(FESVR_LIBRARY) \
+		$(UART_DPI_DIR)/uart_dpi.cc $(UART_DPI_DIR)/uart_dpi.h
 	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD --build-jobs 0 \
 		--top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 		$(SOC_VERILOG) $(MEMORY_WRAPPERS) $(FUNCTIONAL_MODELS) \
 		$(SIMS_DIR)/TestDriver.v $(FESVR_DIR)/direct_mem_htif.cc \
-		$(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
+		$(VERILATOR_DIR)/direct_mem_htif_dpi.cc $(UART_DPI_DIR)/uart_dpi.cc \
 		-CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -std=c++20" \
 		-LDFLAGS "$(FESVR_LIBRARY) -pthread"
 
 $(SMOKE_BINARY): $(SIMS_DIR)/tests/programs/rv5stage_smoke.S \
 		$(SIMS_DIR)/tests/programs/rv5stage_smoke.ld | $(BUILD_DIR)
-	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
+	$(RISCV_CC) -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
 		-Wl,--build-id=none -Wl,-T,$(SIMS_DIR)/tests/programs/rv5stage_smoke.ld $< -o $@

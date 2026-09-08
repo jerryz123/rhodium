@@ -3,7 +3,6 @@ module TestDriver;
   reg clock;
   reg reset;
   wire [31:0] exit;
-  wire [1:0] uart_out;
   integer max_cycles;
 `ifdef RHEG_TRACE
   import "DPI-C" function int rheg_sim_open(input string path);
@@ -16,8 +15,6 @@ module TestDriver;
   SoCHarness dut (
     .clock(clock),
     .reset(reset),
-    .uart_in(1'b1),
-    .uart_out(uart_out),
     .exit(exit)
   );
 
