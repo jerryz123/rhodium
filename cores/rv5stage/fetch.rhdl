@@ -54,7 +54,7 @@ sync_circuit RV5StageInstructionFetch(xlen :: XLen,
   def slot1 = words[read_pointer + bits(1, 2)]
 
   def command = flush ||| restart_valid
-  inst instructions(Queue(FetchDecode(xlen), 5, ~flow: #true), ~reset_when: command)
+  inst instructions(ShiftQueue(FetchDecode(xlen), 5, ~flow: #true), ~reset_when: command)
   def slot0_valid = slot0.state === RV5StageFetchWordState.Valid
   def slot1_valid = slot1.state === RV5StageFetchWordState.Valid
   def slot0_fault = slot0.page_fault ||| slot0.access_fault

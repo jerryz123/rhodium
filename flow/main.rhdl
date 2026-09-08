@@ -9,6 +9,7 @@ import:
   lib("flow/pipe.rhdl") open
   lib("flow/offer-register.rhdl") open
   lib("flow/queue.rhdl") open
+  lib("flow/shift-queue.rhdl") open
   lib("flow/completion-queue.rhdl") open
   lib("flow/credit.rhdl") open
   lib("flow/arbiter.rhdl") open
@@ -71,6 +72,8 @@ export:
   CtrlPipe
   ctrl_pipe
   Queue
+  ShiftQueue
+  shift_queue
   queue
   CtrlQueue
   ctrl_queue

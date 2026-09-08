@@ -4,6 +4,15 @@
 import:
   lib("flow/main.rhdl") open
 
+sync_circuit ShiftQueueChain(~flow: flowing :: Boolean = #false,
+                             ~valid_source: valid_source :: Boolean = #false):
+  def Input = if valid_source | Valid(Bits(8)) | Decoupled(Bits(8))
+  interface ingress(Input, ~role: consumer)
+  interface egress(Irrevocable(Bits(8)), ~role: producer)
+  def stage = shift_queue(2, ~flow: flowing)
+  def detached = Bits(8) |> stage
+  ingress |> stage |> detached |> egress
+
 fun require_byte_irrevocable(
   endpoint :: Endpoint.of(Irrevocable(Bits(8)))
 ) :~ Endpoint:
@@ -261,6 +270,7 @@ circuit ValidPipeMissingSyncDomain():
   ingress |> valid_pipe(1)
 
 export:
+  ShiftQueueChain
   PipeToQueueChain
   ValidPipeWrongProtocol
   ValidPipeNonEndpoint

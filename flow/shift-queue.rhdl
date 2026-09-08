@@ -1,0 +1,69 @@
+#lang rhodium
+// Implements shallow FIFOs with a fixed head register and compact valid mask.
+
+import:
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/reduction.rhdl").tree_reduce
+  lib("flow/ready-valid-support.rhdl") open
+
+sync_circuit ShiftQueue(T :: DataType,
+                        depth :: PosInt,
+                        ~pipe: pipe :: Boolean = #false,
+                        ~flow: flow :: Boolean = #false):
+  interface ingress(Decoupled(T), ~role: consumer)
+  def Egress = if flow | Decoupled(T) | Irrevocable(T)
+  interface egress(Egress, ~role: producer)
+  output count: Bits(index_width(depth + 1))
+  output mask: Bits(depth)
+
+  reg occupied(~init: vec(for List (_ in 0..depth): Bool(#false)))
+  reg payload(Vec(depth, T))
+  def full = occupied[depth - 1]
+  ingress.ready <== if pipe | !full ||| egress.ready | !full
+  egress.valid <== if flow | occupied[0] ||| ingress.valid | occupied[0]
+  egress.bits <== if flow | mux(occupied[0], payload[0], ingress.bits) | payload[0]
+  mask <== occupied.as_bits()
+  def count_bits = for List (index in 0..depth):
+    if depth == 1 | occupied[index].as_bits() | occupied[index].as_bits().zext(index_width(depth + 1))
+  count <== tree_reduce(count_bits, fun (left, right): left + right)
+  def accepted = ingress.fire()
+
+  for (index in 0..depth):
+    def next_occupied = if index + 1 < depth | occupied[index + 1] | Bool(#false)
+    def previous_occupied = if index > 0 | occupied[index - 1] | Bool(#true)
+    def shifted_payload = if index + 1 < depth | mux(next_occupied, payload[index + 1], ingress.bits) | ingress.bits
+    def shift_valid = next_occupied ||| (accepted & (occupied[index] ||| Bool(index == 0 && !flow)))
+    def append = accepted & previous_occupied & !occupied[index]
+    when (egress.ready):
+      occupied[index] <== shift_valid
+      when shift_valid:
+        payload[index] <== shifted_payload
+    otherwise:
+      when append:
+        occupied[index] <== Bool(#true)
+        payload[index] <== ingress.bits
+    if index > 0
+    | assert(!occupied[index] ||| occupied[index - 1], "shift_queue_valids_are_compact")
+    | #void
+
+// Configures a fresh fixed-head FIFO for an endpoint or disconnected topology.
+fun shift_queue(depth :: PosInt,
+                ~pipe: pipe_enabled :: Boolean = #false,
+                ~flow: flow_enabled :: Boolean = #false)
+  :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
+  fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
+    def T = flow_payload_type(source)
+    inst shift_queue_stage(ShiftQueue(T, depth, ~pipe: pipe_enabled, ~flow: flow_enabled))
+    finish_interface_transform(
+      source,
+      describe_interface_transform(
+        InterfaceHandle(shift_queue_stage.ingress, shift_queue_stage.egress),
+        "shift-queue",
+        {"depth": depth, "pipe": pipe_enabled, "flow": flow_enabled},
+        shift_queue_stage
+      )
+    )
+
+export:
+  ShiftQueue
+  shift_queue

@@ -1,0 +1,93 @@
+#lang rhombus
+// Guards registered fetch/MMU/L1I admission boundaries using hierarchical IR dependencies.
+
+import:
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/core/dependencies.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/c.rhm" open
+  "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../cores/rv5stage/fetch.rhdl".RV5StageInstructionFetch
+  "../../cores/rv5stage/decode/core-ctrl.rhdl".rv5stage_instructions
+  "../../cores/rv5stage/mmu/mmu.rhdl".RV5StageMmu
+  "../../cores/rv5stage/profile.rhm".RV5StageMmuMode
+  "../../cores/rv5stage/icache/cache.rhdl".RV5StageL1ICache
+  "../../cores/rv5stage/cache.rhdl".RV5StageCacheConfig
+  "../../cores/rv5stage/tests/params.rhdl" as test_params
+
+// Reuse the verifier's leaf and sequential-cut semantics, including child ports.
+def summaries = MutableMap.by(===){}
+fun flatten(lists):
+  def mutable result = []
+  for (items in lists):
+    result := result ++ items
+  result
+
+fun inputs_of(value, path):
+  def paths = summaries.get(value, #false)
+  unless paths
+  | summaries[value] := MutableMap{}
+  def cached = summaries[value].get(path, #false)
+  if cached
+  | cached
+  | block:
+      def module_def = value.module_def
+      def input_index = identity_index(module_def.inputs.map(fun (port): port.value), value)
+      def operation = module_def.find_operation(value.defining_op_id)
+      def direct = direct_value_dependencies(value, path)
+      def found:
+        cond
+        | input_index is_a Nat:
+            [[module_def.inputs[input_index].name, path]]
+        | direct is_a List:
+            flatten(for List (dependency in direct): inputs_of(dependency.value, dependency.path))
+        | operation && operation.opcode == "rtl.instance":
+            def child = operation.attribute("module")
+            def index = identity_index(operation.results, value)
+            def driver = place_leaf_driver(child.outputs[index].place, path)
+            def groups = for List (leaf in inputs_of(driver.value, driver.path)):
+              def port = child.inputs.find(fun (port): port.name == leaf[0])
+              def child_index = identity_index(child.inputs.map(fun (port): port.value), port.value)
+              def source = place_leaf_driver(operation.places[child_index], leaf[1])
+              inputs_of(source.value, source.path)
+            flatten(groups)
+        | ~else: []
+      def seen = MutableSet{}
+      def unique = MutableList[]
+      for (leaf in found):
+        unless leaf in seen
+        | seen.add(leaf)
+          unique.add(leaf)
+      def result = unique.snapshot()
+      summaries[value][path] := result
+      result
+
+fun check_dependency(top, output_name, output_path, input_name, input_path, expected = #false):
+  def output = top.outputs.find(fun (port): port.name == output_name)
+  def input = top.inputs.find(fun (port): port.name == input_name)
+  unless output && input && output_path in leaf_paths(output.type) && input_path in leaf_paths(input.type)
+  | error(~who: #'fetch_admission, "timing contract references a missing port leaf")
+  def driver = place_leaf_driver(output.place, output_path)
+  def found = [input_name, input_path] in inputs_of(driver.value, driver.path)
+  unless found == expected
+  | error(~who: #'fetch_admission, "unexpected combinational dependency: " ++ input_name ++ " -> " ++ output_name)
+
+def names = rv5stage_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.None).map(fun (instruction): instruction.name)
+def fetch = embedded.run_elaboration_with_top(fun (): RV5StageInstructionFetch(XLen.X64, FloatingPointProfile.D, ~compressed: CCompressedExtensions, ~supported_instructions: names))
+for (path in [["request", "valid"], ["request", "bits", "address"], ["response", "ready"]]):
+  check_dependency(fetch.top, "memory_out", path, "fetched_in", ["ready"])
+check_dependency(fetch.top, "memory_out", ["request", "valid"], "active", [], #true)
+
+def mmu = embedded.run_elaboration_with_top(fun (): RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_params.test_rv5stage_chi_config.physical_map))
+for (path in [["valid"], ["bits"]]):
+  check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_in", ["response", "ready"])
+  check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_memory_in", ["request", "ready"])
+check_dependency(mmu.top, "instruction_out", ["request", "ready"], "instruction_in", ["response", "ready"])
+
+def cache = embedded.run_elaboration_with_top(fun (): RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config))
+for (path in [["response", "ready"], ["request", "valid"], ["request", "bits", "address"]]):
+  check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", path)
+check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", ["flush"], #true)
+
+print(emit_circt(fetch.design))

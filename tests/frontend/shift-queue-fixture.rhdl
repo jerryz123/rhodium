@@ -1,0 +1,194 @@
+#lang rhodium
+// Compares explicit and configured shift FIFOs with pointer FIFOs across options.
+
+import lib("flow/main.rhdl") open
+
+sync_circuit ShiftQueueFixture():
+  interface sources[12](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[12](Decoupled(Bits(8)), ~role: producer)
+  output counts: Vec(12, Bits(3))
+  output masks: Vec(12, Bits(5))
+  output reference_matches: Vec(12, Bool)
+
+  inst lane0(ShiftQueue(Bits(8), 1, ~pipe: #false, ~flow: #false))
+  inst reference0(Queue(Bits(8), 1, ~pipe: #false, ~flow: #false))
+  def configured0 = Bits(8) |> shift_queue(1, ~pipe: #false, ~flow: #false)
+  configured0.left.valid <== sources[0].valid
+  configured0.left.bits <== sources[0].bits
+  configured0.right.ready <== sinks[0].ready
+  sources[0] |> lane0.ingress
+  lane0.egress |> sinks[0]
+  reference0.ingress.valid <== sources[0].valid
+  reference0.ingress.bits <== sources[0].bits
+  reference0.egress.ready <== sinks[0].ready
+  counts[0] <== lane0.count.zext(3)
+  masks[0] <== lane0.mask.zext(5)
+  reference_matches[0] <== (lane0.ingress.ready === reference0.ingress.ready) & (lane0.egress.valid === reference0.egress.valid) & (lane0.count === reference0.count) & (!lane0.egress.valid ||| (lane0.egress.bits === reference0.egress.bits)) & (configured0.left.ready === lane0.ingress.ready) & (configured0.right.valid === lane0.egress.valid) & (!lane0.egress.valid ||| (configured0.right.bits === lane0.egress.bits))
+
+  inst lane1(ShiftQueue(Bits(8), 1, ~pipe: #false, ~flow: #true))
+  inst reference1(Queue(Bits(8), 1, ~pipe: #false, ~flow: #true))
+  def configured1 = Bits(8) |> shift_queue(1, ~pipe: #false, ~flow: #true)
+  configured1.left.valid <== sources[1].valid
+  configured1.left.bits <== sources[1].bits
+  configured1.right.ready <== sinks[1].ready
+  sources[1] |> lane1.ingress
+  lane1.egress |> sinks[1]
+  reference1.ingress.valid <== sources[1].valid
+  reference1.ingress.bits <== sources[1].bits
+  reference1.egress.ready <== sinks[1].ready
+  counts[1] <== lane1.count.zext(3)
+  masks[1] <== lane1.mask.zext(5)
+  reference_matches[1] <== (lane1.ingress.ready === reference1.ingress.ready) & (lane1.egress.valid === reference1.egress.valid) & (lane1.count === reference1.count) & (!lane1.egress.valid ||| (lane1.egress.bits === reference1.egress.bits)) & (configured1.left.ready === lane1.ingress.ready) & (configured1.right.valid === lane1.egress.valid) & (!lane1.egress.valid ||| (configured1.right.bits === lane1.egress.bits))
+
+  inst lane2(ShiftQueue(Bits(8), 1, ~pipe: #true, ~flow: #false))
+  inst reference2(Queue(Bits(8), 1, ~pipe: #true, ~flow: #false))
+  def configured2 = Bits(8) |> shift_queue(1, ~pipe: #true, ~flow: #false)
+  configured2.left.valid <== sources[2].valid
+  configured2.left.bits <== sources[2].bits
+  configured2.right.ready <== sinks[2].ready
+  sources[2] |> lane2.ingress
+  lane2.egress |> sinks[2]
+  reference2.ingress.valid <== sources[2].valid
+  reference2.ingress.bits <== sources[2].bits
+  reference2.egress.ready <== sinks[2].ready
+  counts[2] <== lane2.count.zext(3)
+  masks[2] <== lane2.mask.zext(5)
+  reference_matches[2] <== (lane2.ingress.ready === reference2.ingress.ready) & (lane2.egress.valid === reference2.egress.valid) & (lane2.count === reference2.count) & (!lane2.egress.valid ||| (lane2.egress.bits === reference2.egress.bits)) & (configured2.left.ready === lane2.ingress.ready) & (configured2.right.valid === lane2.egress.valid) & (!lane2.egress.valid ||| (configured2.right.bits === lane2.egress.bits))
+
+  inst lane3(ShiftQueue(Bits(8), 1, ~pipe: #true, ~flow: #true))
+  inst reference3(Queue(Bits(8), 1, ~pipe: #true, ~flow: #true))
+  def configured3 = Bits(8) |> shift_queue(1, ~pipe: #true, ~flow: #true)
+  configured3.left.valid <== sources[3].valid
+  configured3.left.bits <== sources[3].bits
+  configured3.right.ready <== sinks[3].ready
+  sources[3] |> lane3.ingress
+  lane3.egress |> sinks[3]
+  reference3.ingress.valid <== sources[3].valid
+  reference3.ingress.bits <== sources[3].bits
+  reference3.egress.ready <== sinks[3].ready
+  counts[3] <== lane3.count.zext(3)
+  masks[3] <== lane3.mask.zext(5)
+  reference_matches[3] <== (lane3.ingress.ready === reference3.ingress.ready) & (lane3.egress.valid === reference3.egress.valid) & (lane3.count === reference3.count) & (!lane3.egress.valid ||| (lane3.egress.bits === reference3.egress.bits)) & (configured3.left.ready === lane3.ingress.ready) & (configured3.right.valid === lane3.egress.valid) & (!lane3.egress.valid ||| (configured3.right.bits === lane3.egress.bits))
+
+  inst lane4(ShiftQueue(Bits(8), 2, ~pipe: #false, ~flow: #false))
+  inst reference4(Queue(Bits(8), 2, ~pipe: #false, ~flow: #false))
+  def configured4 = Bits(8) |> shift_queue(2, ~pipe: #false, ~flow: #false)
+  configured4.left.valid <== sources[4].valid
+  configured4.left.bits <== sources[4].bits
+  configured4.right.ready <== sinks[4].ready
+  sources[4] |> lane4.ingress
+  lane4.egress |> sinks[4]
+  reference4.ingress.valid <== sources[4].valid
+  reference4.ingress.bits <== sources[4].bits
+  reference4.egress.ready <== sinks[4].ready
+  counts[4] <== lane4.count.zext(3)
+  masks[4] <== lane4.mask.zext(5)
+  reference_matches[4] <== (lane4.ingress.ready === reference4.ingress.ready) & (lane4.egress.valid === reference4.egress.valid) & (lane4.count === reference4.count) & (!lane4.egress.valid ||| (lane4.egress.bits === reference4.egress.bits)) & (configured4.left.ready === lane4.ingress.ready) & (configured4.right.valid === lane4.egress.valid) & (!lane4.egress.valid ||| (configured4.right.bits === lane4.egress.bits))
+
+  inst lane5(ShiftQueue(Bits(8), 2, ~pipe: #false, ~flow: #true))
+  inst reference5(Queue(Bits(8), 2, ~pipe: #false, ~flow: #true))
+  def configured5 = Bits(8) |> shift_queue(2, ~pipe: #false, ~flow: #true)
+  configured5.left.valid <== sources[5].valid
+  configured5.left.bits <== sources[5].bits
+  configured5.right.ready <== sinks[5].ready
+  sources[5] |> lane5.ingress
+  lane5.egress |> sinks[5]
+  reference5.ingress.valid <== sources[5].valid
+  reference5.ingress.bits <== sources[5].bits
+  reference5.egress.ready <== sinks[5].ready
+  counts[5] <== lane5.count.zext(3)
+  masks[5] <== lane5.mask.zext(5)
+  reference_matches[5] <== (lane5.ingress.ready === reference5.ingress.ready) & (lane5.egress.valid === reference5.egress.valid) & (lane5.count === reference5.count) & (!lane5.egress.valid ||| (lane5.egress.bits === reference5.egress.bits)) & (configured5.left.ready === lane5.ingress.ready) & (configured5.right.valid === lane5.egress.valid) & (!lane5.egress.valid ||| (configured5.right.bits === lane5.egress.bits))
+
+  inst lane6(ShiftQueue(Bits(8), 2, ~pipe: #true, ~flow: #false))
+  inst reference6(Queue(Bits(8), 2, ~pipe: #true, ~flow: #false))
+  def configured6 = Bits(8) |> shift_queue(2, ~pipe: #true, ~flow: #false)
+  configured6.left.valid <== sources[6].valid
+  configured6.left.bits <== sources[6].bits
+  configured6.right.ready <== sinks[6].ready
+  sources[6] |> lane6.ingress
+  lane6.egress |> sinks[6]
+  reference6.ingress.valid <== sources[6].valid
+  reference6.ingress.bits <== sources[6].bits
+  reference6.egress.ready <== sinks[6].ready
+  counts[6] <== lane6.count.zext(3)
+  masks[6] <== lane6.mask.zext(5)
+  reference_matches[6] <== (lane6.ingress.ready === reference6.ingress.ready) & (lane6.egress.valid === reference6.egress.valid) & (lane6.count === reference6.count) & (!lane6.egress.valid ||| (lane6.egress.bits === reference6.egress.bits)) & (configured6.left.ready === lane6.ingress.ready) & (configured6.right.valid === lane6.egress.valid) & (!lane6.egress.valid ||| (configured6.right.bits === lane6.egress.bits))
+
+  inst lane7(ShiftQueue(Bits(8), 2, ~pipe: #true, ~flow: #true))
+  inst reference7(Queue(Bits(8), 2, ~pipe: #true, ~flow: #true))
+  def configured7 = Bits(8) |> shift_queue(2, ~pipe: #true, ~flow: #true)
+  configured7.left.valid <== sources[7].valid
+  configured7.left.bits <== sources[7].bits
+  configured7.right.ready <== sinks[7].ready
+  sources[7] |> lane7.ingress
+  lane7.egress |> sinks[7]
+  reference7.ingress.valid <== sources[7].valid
+  reference7.ingress.bits <== sources[7].bits
+  reference7.egress.ready <== sinks[7].ready
+  counts[7] <== lane7.count.zext(3)
+  masks[7] <== lane7.mask.zext(5)
+  reference_matches[7] <== (lane7.ingress.ready === reference7.ingress.ready) & (lane7.egress.valid === reference7.egress.valid) & (lane7.count === reference7.count) & (!lane7.egress.valid ||| (lane7.egress.bits === reference7.egress.bits)) & (configured7.left.ready === lane7.ingress.ready) & (configured7.right.valid === lane7.egress.valid) & (!lane7.egress.valid ||| (configured7.right.bits === lane7.egress.bits))
+
+  inst lane8(ShiftQueue(Bits(8), 5, ~pipe: #false, ~flow: #false))
+  inst reference8(Queue(Bits(8), 5, ~pipe: #false, ~flow: #false))
+  def configured8 = Bits(8) |> shift_queue(5, ~pipe: #false, ~flow: #false)
+  configured8.left.valid <== sources[8].valid
+  configured8.left.bits <== sources[8].bits
+  configured8.right.ready <== sinks[8].ready
+  sources[8] |> lane8.ingress
+  lane8.egress |> sinks[8]
+  reference8.ingress.valid <== sources[8].valid
+  reference8.ingress.bits <== sources[8].bits
+  reference8.egress.ready <== sinks[8].ready
+  counts[8] <== lane8.count
+  masks[8] <== lane8.mask
+  reference_matches[8] <== (lane8.ingress.ready === reference8.ingress.ready) & (lane8.egress.valid === reference8.egress.valid) & (lane8.count === reference8.count) & (!lane8.egress.valid ||| (lane8.egress.bits === reference8.egress.bits)) & (configured8.left.ready === lane8.ingress.ready) & (configured8.right.valid === lane8.egress.valid) & (!lane8.egress.valid ||| (configured8.right.bits === lane8.egress.bits))
+
+  inst lane9(ShiftQueue(Bits(8), 5, ~pipe: #false, ~flow: #true))
+  inst reference9(Queue(Bits(8), 5, ~pipe: #false, ~flow: #true))
+  def configured9 = Bits(8) |> shift_queue(5, ~pipe: #false, ~flow: #true)
+  configured9.left.valid <== sources[9].valid
+  configured9.left.bits <== sources[9].bits
+  configured9.right.ready <== sinks[9].ready
+  sources[9] |> lane9.ingress
+  lane9.egress |> sinks[9]
+  reference9.ingress.valid <== sources[9].valid
+  reference9.ingress.bits <== sources[9].bits
+  reference9.egress.ready <== sinks[9].ready
+  counts[9] <== lane9.count
+  masks[9] <== lane9.mask
+  reference_matches[9] <== (lane9.ingress.ready === reference9.ingress.ready) & (lane9.egress.valid === reference9.egress.valid) & (lane9.count === reference9.count) & (!lane9.egress.valid ||| (lane9.egress.bits === reference9.egress.bits)) & (configured9.left.ready === lane9.ingress.ready) & (configured9.right.valid === lane9.egress.valid) & (!lane9.egress.valid ||| (configured9.right.bits === lane9.egress.bits))
+
+  inst lane10(ShiftQueue(Bits(8), 5, ~pipe: #true, ~flow: #false))
+  inst reference10(Queue(Bits(8), 5, ~pipe: #true, ~flow: #false))
+  def configured10 = Bits(8) |> shift_queue(5, ~pipe: #true, ~flow: #false)
+  configured10.left.valid <== sources[10].valid
+  configured10.left.bits <== sources[10].bits
+  configured10.right.ready <== sinks[10].ready
+  sources[10] |> lane10.ingress
+  lane10.egress |> sinks[10]
+  reference10.ingress.valid <== sources[10].valid
+  reference10.ingress.bits <== sources[10].bits
+  reference10.egress.ready <== sinks[10].ready
+  counts[10] <== lane10.count
+  masks[10] <== lane10.mask
+  reference_matches[10] <== (lane10.ingress.ready === reference10.ingress.ready) & (lane10.egress.valid === reference10.egress.valid) & (lane10.count === reference10.count) & (!lane10.egress.valid ||| (lane10.egress.bits === reference10.egress.bits)) & (configured10.left.ready === lane10.ingress.ready) & (configured10.right.valid === lane10.egress.valid) & (!lane10.egress.valid ||| (configured10.right.bits === lane10.egress.bits))
+
+  inst lane11(ShiftQueue(Bits(8), 5, ~pipe: #true, ~flow: #true))
+  inst reference11(Queue(Bits(8), 5, ~pipe: #true, ~flow: #true))
+  def configured11 = Bits(8) |> shift_queue(5, ~pipe: #true, ~flow: #true)
+  configured11.left.valid <== sources[11].valid
+  configured11.left.bits <== sources[11].bits
+  configured11.right.ready <== sinks[11].ready
+  sources[11] |> lane11.ingress
+  lane11.egress |> sinks[11]
+  reference11.ingress.valid <== sources[11].valid
+  reference11.ingress.bits <== sources[11].bits
+  reference11.egress.ready <== sinks[11].ready
+  counts[11] <== lane11.count
+  masks[11] <== lane11.mask
+  reference_matches[11] <== (lane11.ingress.ready === reference11.ingress.ready) & (lane11.egress.valid === reference11.egress.valid) & (lane11.count === reference11.count) & (!lane11.egress.valid ||| (lane11.egress.bits === reference11.egress.bits)) & (configured11.left.ready === lane11.ingress.ready) & (configured11.right.valid === lane11.egress.valid) & (!lane11.egress.valid ||| (configured11.right.bits === lane11.egress.bits))
+
+export:
+  ShiftQueueFixture

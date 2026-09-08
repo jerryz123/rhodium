@@ -48,6 +48,15 @@ reverse-dependency restrictions, and inventory coverage.
 
 ## Changing a component
 
+`queue.rhdl` owns pointer-based FIFOs; `shift-queue.rhdl` owns shallow
+fixed-head FIFOs. Keep their handshake options equivalent without changing
+the storage architecture of existing `Queue` consumers. The `shift-queue`
+backend fixture checks both implementations against a transaction scoreboard.
+It also compares configured `shift_queue` stages with explicit instances.
+The configured stage uses the common source normalization and dependent
+topology result contract; do not attach pointer-queue lineage metadata to
+shifted storage. Its event-lineage model remains an explicit unsupported boundary.
+
 1. State the public type, timing, reset, handshake, priority, and invalid-input
    contract in README. Keep application-specific routing and policy downstream.
 2. Choose a focused module. Use an inline transform when no additional state
@@ -128,7 +137,7 @@ bash tools/check-ci-changes.sh
 For cycle-visible behavior, select the relevant existing fixtures:
 
 ```sh
-FIXTURES='queue-options rr-arbiter packet-rr-arbiter selective-atomic-fork selective-join state-flow' bash tests/backend/run-circt.sh
+FIXTURES='queue-options shift-queue rr-arbiter packet-rr-arbiter selective-atomic-fork selective-join state-flow' bash tests/backend/run-circt.sh
 ```
 
 The [backend guide](../tests/backend/README.md) owns fixture selection and

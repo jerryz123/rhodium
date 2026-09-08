@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits the multi-configuration shift FIFO behavioral comparison fixture.
+
+import:
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../frontend/shift-queue-fixture.rhdl".ShiftQueueFixture
+
+def design = embedded.run_elaboration(fun (): ShiftQueueFixture())
+print(emit_circt(design))

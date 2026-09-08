@@ -61,6 +61,7 @@ in this library:
 |---|---|---|
 | `Pipe(T, stages)` | `CtrlPipe(stages)` | Registered elastic pipeline with stable output under backpressure |
 | `Queue(T, depth)` | `CtrlQueue(depth)` | Configurable FIFO with occupancy count |
+| `ShiftQueue(T, depth)` | -- | Shallow fixed-head FIFO with occupancy count and valid mask |
 | `Arbiter(T, n)` | `CtrlArbiter(n)` | Fixed-priority, index-zero-first arbitration |
 | `RRArbiter(T, n)` | `CtrlRRArbiter(n)` | Fair round-robin arbitration |
 | `PacketRRArbiter(T, n)` | -- | Round-robin arbitration that retains an input through its final transferred beat |
@@ -620,6 +621,22 @@ payload-bearing transaction. `CtrlPipe` and a non-flowing `CtrlQueue` produce
 depths greater than one compose two `Counter(depth)` pointer instances. Those
 queues assert that occupancy stays within the configured depth. Round-robin
 arbiters similarly assert that their rotating priority remains in range.
+
+`ShiftQueue(T, depth, ~pipe: ..., ~flow: ...)` offers the same handshake,
+reset, count, and output-protocol contracts as `Queue`, using payload registers
+with the oldest stored item always at index zero. Dequeue shifts the remaining
+items; `mask: Bits(depth)` exposes registered occupancy with the low `count`
+bits set. Prefer it for shallow, timing-sensitive FIFOs: it removes the
+read-pointer mux at the cost of additional payload switching. With `pipe`
+disabled, input readiness depends only on registered fullness; output readiness
+still controls payload shifting. Both modules export the configured
+`shift_queue(depth, ~pipe: ..., ~flow: ...)` stage for endpoint chains,
+payload/protocol seeds, and reusable disconnected handles. Use an explicit
+instance when `count` or `mask` is needed. Positive depth and host Boolean
+options are required; reset empties occupancy without resetting payload.
+The stage records topology metadata, but event-lineage instrumentation across
+shift storage is not yet supported (the pointer-queue trace model does not
+describe shifting slots).
 
 `CompletionQueue(Request, Response, depth)` couples a ready-valid request path
 to a nonbackpressured implementation. Each request handshake reserves one

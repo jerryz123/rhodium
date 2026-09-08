@@ -75,6 +75,16 @@ same-cycle word consumption into the request address or move ITLB lookup back
 onto a live core request. Use the fetch, MMU-replay, I-cache, instruction-router,
 and IO-boot fixtures when changing this boundary.
 
+The assembled-instruction buffer uses a five-entry flow-through `ShiftQueue`
+with full-queue pipelining disabled. Decode readiness may control its shifts,
+but must not reach word-request admission or address generation combinationally.
+The four-word `reserved` count includes both outstanding requests and returned
+words; return credit only when assembly releases a word at the clock edge.
+Do not count in-flight requests a second time or borrow same-cycle dequeue
+credit. The `rv5stage-fetch-admission` structural fixture guards this timing
+contract using hierarchical port-leaf dependencies; run it in `--verify-only`
+mode alongside the behavioral fetch and I-cache fixtures.
+
 Mul/div dispatch validity comes from authorized commit, but operand payloads
 come directly from the normal WB pipeline token. Retained CMO and WRS retirement
 contexts must not select arithmetic operands. The reusable multiplier captures

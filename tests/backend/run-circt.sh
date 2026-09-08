@@ -90,7 +90,7 @@ integration_fixtures=(
   vector-update vec-shift-register-param
   async-read-memory sync-memory-masked sync-ram
   clocked-dpi assertions hierarchy bundle interface-array
-  queue-options rr-arbiter packet-rr-arbiter round-robin-matcher ctrl-queue-options
+  queue-options shift-queue rr-arbiter packet-rr-arbiter round-robin-matcher ctrl-queue-options
   state-flow
   tiled-time tiled-distribution
   dont-care decode noc-route-computer noc-router noc-network noc-wormhole noc-router-family noc-escape-router
@@ -192,7 +192,7 @@ fixture_in_group() {
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join)
       return 0
       ;;
-    std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant)
+    std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant)
       return 0
       ;;
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
@@ -719,6 +719,8 @@ direct_fixture_specs=(
   'rv5stage-atomic|rv5stage_atomic_tb'
   'rv5stage-access-fault|rv5stage_access_fault_tb'
   'rv5stage-fetch|rv5stage_fetch_tb'
+  'rv5stage-fetch-admission|'
+  'shift-queue|shift_queue_tb'
   'rv5stage-core|rv5stage_core_tb'
   'rv5stage-zcb|rv5stage_zcb_tb'
   'rv5stage-mop|rv5stage_mop_tb'
