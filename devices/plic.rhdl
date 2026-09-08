@@ -7,7 +7,12 @@ import:
   lib("rhodium/std/interconnect.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/reduction.rhdl").tree_reduce
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl") open
+  lib("chi/link.rhdl") open
+  lib("chi/channels.rhdl").CHISNChannels
+  lib("chi/fabric.rhdl") open
+  lib("chi/single-beat-subordinate.rhdl").CHISingleBeatSubordinate
 
 def PlicAddressWidth = 26
 def PlicWindowBytes = 0x04000000

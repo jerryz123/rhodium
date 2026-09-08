@@ -2,7 +2,11 @@
 // Exposes the author-facing bootable TiledSoC configuration and structural circuit.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/noc-router.rhdl") open
+  lib("chi/memory-controller.rhdl").CHIRamIdentity
+  lib("chi/address-projector.rhdl").CHIAddressProjectorIdentity
+  lib("chi/home-common.rhdl").CHIHNFIdentity
   lib("rhodium/std/counter.rhdl").Counter
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity
   lib("devices/bootrom.rhdl") open

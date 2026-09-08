@@ -4,7 +4,15 @@
 import:
   "../cache.rhdl".RV5StageCacheLineBytes
   lib("rhodium/std/bits.rhdl") open
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl") open
+  lib("chi/protocol.rhdl").chi_line_data_id
+  lib("chi/coherence.rhdl").chi_rnf_snoop_opcodes
+  lib("chi/retryable-transaction.rhdl") open
+  lib("chi/cache-maintenance.rhdl").CHICacheMaintenanceResponses
+  lib("chi/link.rhdl") open
+  lib("chi/fabric.rhdl") open
+  lib("chi/messages.rhdl").chi_rn_write_data
   "../../../riscv/rtl/pma.rhdl" open
 
 def RV5StageRefillResponses = response_profile("rv5stage_refill"):

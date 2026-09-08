@@ -2,7 +2,11 @@
 // Defines shared boot devices, ACLINT, PLIC, UART, PMA, and HN-I platform contracts for SoCs.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/link.rhdl").CHIHomeRequesterParams
+  lib("chi/fabric.rhdl") open
+  lib("chi/home.rhdl").CHIHNIParams
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/boot-address.rhdl") open

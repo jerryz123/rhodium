@@ -2,21 +2,24 @@
 // Checks UART host configuration, CHI service metadata, and parameter rejection.
 
 import:
-  "../../chi/main.rhdl" as chi
+  "../../rhodium/std/interconnect.rhdl".AddressSet
+  "../../chi/params.rhdl".CHIFlitParams
+  "../../chi/flits.rhdl".CHIReqOpcode
+  "../../chi/link.rhdl".CHINodeKind
   "../uart16550.rhdl" as uart
 
-def flit = chi.CHIFlitParams()
+def flit = CHIFlitParams()
 def config = uart.Uart16550Config(flit, 16)
 def params = uart.Uart16550Params("test-uart", 11, config, 0x10000000)
 
 check:
   config.fifo_depth ~is 16
   config.data_bytes ~is 16
-  params.node.kind ~is chi.CHINodeKind.SNI
-  params.service.address_sets[0] ~is chi.AddressSet(0x10000000, 0x7)
-  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 1) ~is #true
-  params.service.supports(chi.CHIReqOpcode.WriteNoSnpPtl, 1) ~is #true
-  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 2) ~is #false
+  params.node.kind ~is CHINodeKind.SNI
+  params.service.address_sets[0] ~is AddressSet(0x10000000, 0x7)
+  params.service.supports(CHIReqOpcode.ReadNoSnp, 1) ~is #true
+  params.service.supports(CHIReqOpcode.WriteNoSnpPtl, 1) ~is #true
+  params.service.supports(CHIReqOpcode.ReadNoSnp, 2) ~is #false
   uart.Uart16550Config(flit, 0) ~throws "Uart16550MaximumFifoDepth"
   uart.Uart16550Config(flit, 17) ~throws "Uart16550MaximumFifoDepth"
   uart.Uart16550Params("", 11, config, 0x10000000) ~throws "NonemptyString"

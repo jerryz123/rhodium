@@ -8,7 +8,12 @@ import:
   lib("flow/gate.rhdl").gate_flow
   lib("rhodium/std/interconnect.rhdl") open
   lib("rhodium/std/ready-valid.rhdl").fire
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl") open
+  lib("chi/link.rhdl") open
+  lib("chi/channels.rhdl").CHISNChannels
+  lib("chi/fabric.rhdl") open
+  lib("chi/single-beat-subordinate.rhdl").CHISingleBeatSubordinate
   "uart.rhdl" open
 
 def Uart16550AddressWidth = 3

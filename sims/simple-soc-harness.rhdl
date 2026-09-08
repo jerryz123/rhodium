@@ -3,7 +3,8 @@
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("chi/main.rhdl") as chi
+  lib("chi/memory-controller.rhdl") open
+  lib("chi/dpi-memory.rhdl").CHIDPIMemory
   lib("socs/simple-soc.rhdl") as simple
   lib("devices/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
@@ -17,7 +18,7 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
   inst requester(FesvrRequester(XLen.X64, fabric_params.flit, fabric_params.host_node, fabric_params.home_map, fabric_params.rv5stage_config.physical_map, fabric_params.host_services, fabric_params.boot.boot_address_register))
   inst soc(simple.SimpleSoC(params))
   inst uart(UartDPI(0, uart_oversample_divisor))
-  inst memory(chi.CHIDPIMemory(chi.CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64)))
+  inst memory(CHIDPIMemory(CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64)))
 
   requester.port <=> soc.host.memory
   uart.uart_tx <== soc.uart.tx
@@ -25,7 +26,7 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
   soc.memory.req |> trace_event("memory-request", ~payload: #true, ~root: #true) |> trace_event("memory-accept", ~payload: #true, ~terminal: #true) |> memory.port.req
   memory.port.rsp |> trace_event("memory-response", ~payload: #true, ~root: #true) |> trace_event("soc-response", ~payload: #true, ~terminal: #true) |> soc.memory.rsp
   soc.memory.dat <=> memory.port.dat
-  memory.identity <== chi.CHIRamIdentity(fabric_params.flit):
+  memory.identity <== CHIRamIdentity(fabric_params.flit):
     node_id: bits(fabric_params.memory_port.node_id, fabric_params.flit.node_id_width)
     base_address: bits(fabric_params.memory_base, fabric_params.flit.request_address_width)
   exit <== requester.exit

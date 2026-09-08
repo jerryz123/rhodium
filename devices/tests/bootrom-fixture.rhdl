@@ -3,7 +3,7 @@
 
 import:
   lib("devices/bootrom.rhdl") open
-  lib("chi/main.rhdl").CHIFlitParams
+  lib("chi/params.rhdl").CHIFlitParams
 
 def flit = CHIFlitParams()
 def layout = CHIBootROMLayout(flit, ~window_bytes: 64)

@@ -2,10 +2,13 @@
 // Checks bootable SimpleSoC host configuration, address maps, and routing plans.
 
 import:
-  "../../chi/main.rhdl" as chi
+  "../../chi/flits.rhdl".CHIReqOpcode
+  "../../chi/coherence.rhdl".chi_rnf_snoop_opcodes
+  "../../chi/link.rhdl".CHINodeKind
+  "../../chi/noc-adapter.rhdl".CHIChannelAdapterPlan
   "../../socs/simple-soc.rhdl" as soc
 
-def snp_adapters :: chi.CHIChannelAdapterPlan = soc.simple_soc_adapter_plans.snp
+def snp_adapters :: CHIChannelAdapterPlan = soc.simple_soc_adapter_plans.snp
 def compact_soc_params = soc.SimpleSoCParams(
   soc.simple_soc_params.fabric,
   ~llc_sets: 16,
@@ -37,12 +40,12 @@ check:
   soc.simple_soc_device_home_params.subordinate_map.entry(0x02000000).target_node_id ~is 10
   soc.simple_soc_device_home_params.subordinate_map.entry(0x0c000000).target_node_id ~is 13
   soc.simple_soc_device_home_params.subordinate_map.entry(0x10000000).target_node_id ~is 11
-  soc.simple_soc_host_node.kind ~is chi.CHINodeKind.RNF
+  soc.simple_soc_host_node.kind ~is CHINodeKind.RNF
   soc.simple_soc_host_node.emits.req ~is (
-    [chi.CHIReqOpcode.ReadClean, chi.CHIReqOpcode.WriteUniquePtl, chi.CHIReqOpcode.ReadNoSnp, chi.CHIReqOpcode.WriteNoSnpPtl]
+    [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl]
   )
-  soc.simple_soc_host_node.supports.snp ~is chi.chi_rnf_snoop_opcodes
-  soc.simple_soc_memory_node.kind ~is chi.CHINodeKind.SNF
+  soc.simple_soc_host_node.supports.snp ~is chi_rnf_snoop_opcodes
+  soc.simple_soc_memory_node.kind ~is CHINodeKind.SNF
   soc.simple_soc_memory_node.node_id ~is 9
   soc.simple_soc_params.llc_config.sets ~is 64
   soc.simple_soc_params.llc_config.ways ~is 4
@@ -70,9 +73,9 @@ check:
   compact_soc_params.llc_config.ways ~is 2
   compact_soc_params.llc_config.capacity_bytes ~is 2048
   soc.simple_soc_memory_service.endpoint === soc.simple_soc_memory_port ~is #true
-  soc.simple_soc_memory_service.supports(chi.CHIReqOpcode.ReadNoSnp, 16) ~is #true
-  soc.simple_soc_memory_service.supports(chi.CHIReqOpcode.ReadNoSnp, 64) ~is #true
-  soc.simple_soc_memory_service.supports(chi.CHIReqOpcode.WriteNoSnpFull, 64) ~is #true
+  soc.simple_soc_memory_service.supports(CHIReqOpcode.ReadNoSnp, 16) ~is #true
+  soc.simple_soc_memory_service.supports(CHIReqOpcode.ReadNoSnp, 64) ~is #true
+  soc.simple_soc_memory_service.supports(CHIReqOpcode.WriteNoSnpFull, 64) ~is #true
   soc.simple_soc_compilations.req.network.validated_routing.dependency_graph.vertices ~is []
   soc.simple_soc_compilations.rsp.network.validated_routing.dependency_graph.vertices ~is []
   soc.simple_soc_snp_compilation.network.validated_routing.dependency_graph.vertices ~is []

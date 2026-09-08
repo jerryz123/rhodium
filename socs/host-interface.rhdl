@@ -2,8 +2,8 @@
 // Defines the shared coherent RAM and non-snooping MMIO host boundary.
 
 import:
-  lib("chi/main.rhdl").CHIFlitParams
-  lib("chi/main.rhdl").CHIRNChannels
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/channels.rhdl").CHIRNChannels
 
 interface SoCHostInterface(p :: CHIFlitParams):
   role host

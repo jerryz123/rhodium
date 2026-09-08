@@ -3,11 +3,14 @@
 
 import:
   "../../rhodium/core/main.rhm".verify_design
-  "../../chi/main.rhdl" as chi
+  "../../rhodium/std/interconnect.rhdl".AddressSet
+  "../../chi/params.rhdl".CHIFlitParams
+  "../../chi/flits.rhdl".CHIReqOpcode
+  "../../chi/link.rhdl".CHINodeKind
   "../plic.rhdl" as plic
   "plic-fixture.rhdl" as fixture
 
-def flit = chi.CHIFlitParams()
+def flit = CHIFlitParams()
 def config = plic.PlicConfig(flit, 3, 2, 3)
 def params = plic.PlicParams("test-plic", 13, config, 0x0c000000)
 
@@ -16,14 +19,14 @@ check:
   config.context_count ~is 2
   config.priority_width ~is 3
   config.data_bytes ~is 16
-  params.node.kind ~is chi.CHINodeKind.SNI
+  params.node.kind ~is CHINodeKind.SNI
   params.node.max_outstanding ~is 1
-  params.service.address_sets[0] ~is chi.AddressSet(0x0c000000, 0x03ffffff)
-  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 4) ~is #true
-  params.service.supports(chi.CHIReqOpcode.WriteNoSnpPtl, 4) ~is #true
-  params.service.supports(chi.CHIReqOpcode.WriteNoSnpFull, 4) ~is #true
-  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 1) ~is #false
-  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 8) ~is #false
+  params.service.address_sets[0] ~is AddressSet(0x0c000000, 0x03ffffff)
+  params.service.supports(CHIReqOpcode.ReadNoSnp, 4) ~is #true
+  params.service.supports(CHIReqOpcode.WriteNoSnpPtl, 4) ~is #true
+  params.service.supports(CHIReqOpcode.WriteNoSnpFull, 4) ~is #true
+  params.service.supports(CHIReqOpcode.ReadNoSnp, 1) ~is #false
+  params.service.supports(CHIReqOpcode.ReadNoSnp, 8) ~is #false
   verify_design(fixture.design) ~is #void
   plic.PlicConfig(flit, 0, 2, 3) ~throws "PlicMaximumSources"
   plic.PlicConfig(flit, 3, 0, 3) ~throws "PlicMaximumContexts"

@@ -14,6 +14,12 @@ simulation-only memory, clock/reset driver, Verilator binding, and target
 execution. Keep processor, device, CHI, NoC, and synthesizable-memory policy in
 their owning packages. Keep DPI and target-loader behavior out of SoCs.
 
+Import the CHI owners used by each simulator component directly. FESVR consumes
+wire, channel, service, and message contracts; the SimpleSoC harness explicitly
+imports `chi/memory-controller.rhdl` and `chi/dpi-memory.rhdl`. Neither needs the
+all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
+owns the public entry-point contract.
+
 Each `SOC` selection maps to one harness module and one isolated build
 directory. The shared emitter loads only that module and every variant exports
 the same `SoCHarness` top contract. Preserve this isolation so switching

@@ -5,7 +5,14 @@ import:
   lib("support/annotations.rhm").NonemptyString
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl").fire
-  lib("chi/main.rhdl") open
+  lib("rhodium/std/interconnect.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl") open
+  lib("chi/protocol.rhdl") open
+  lib("chi/link.rhdl") open
+  lib("chi/channels.rhdl").CHISNChannels
+  lib("chi/fabric.rhdl") open
+  lib("chi/messages.rhdl").chi_sn_read_completion
   "bootrom-image.rhm" open
 
 def CHIBootROMDefaultWindowBytes = 0x2000

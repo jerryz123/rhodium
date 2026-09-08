@@ -2,7 +2,11 @@
 // Defines SoC host capabilities and Home-specific service projections.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("chi/flits.rhdl") open
+  lib("chi/coherence.rhdl").chi_rnf_snoop_opcodes
+  lib("chi/link.rhdl") open
+  lib("chi/fabric.rhdl") open
 
 fun soc_host_node(node_id :: Nat) :: CHINodeParams:
   CHINodeParams(

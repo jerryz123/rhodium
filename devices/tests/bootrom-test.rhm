@@ -3,7 +3,10 @@
 
 import:
   rhombus.bits.(<<) as <<
-  "../../chi/main.rhdl" as chi
+  "../../rhodium/std/interconnect.rhdl".AddressSet
+  "../../chi/params.rhdl".CHIFlitParams
+  "../../chi/flits.rhdl" open
+  "../../chi/link.rhdl".CHINodeKind
   "../../riscv/model/main.rhm" open
   "../../riscv/isa/integer-common.rhm" open
   "../../riscv/isa/rv64i.rhm".LD
@@ -42,7 +45,7 @@ def default_words = for List (index in 0..(default_image.size_bytes / 4)):
   image_word(default_image, index)
 def indirect64 = riscv_bootrom_image(~boot_address_register: 0x1000, ~device_tree_address: 0x10100)
 def indirect32 = riscv_bootrom_image(~boot_address_register: 0x2000, ~xlen: XLen.X32)
-def flit = chi.CHIFlitParams()
+def flit = CHIFlitParams()
 def layout = bootrom.CHIBootROMLayout(flit, ~window_bytes: 64)
 def config = bootrom.CHIBootROMConfig(layout)
 def params = bootrom.CHIBootROMParams("test-bootrom", 12, layout)
@@ -94,13 +97,13 @@ check:
 
   bootrom.CHIBootROMLayout(flit).window_bytes ~is 0x2000
   config.image === DefaultRiscvBootROMImage ~is #true
-  params.node.kind ~is chi.CHINodeKind.SNI
+  params.node.kind ~is CHINodeKind.SNI
   params.node.max_outstanding ~is 1
-  params.node.supports.req ~is [chi.CHIReqOpcode.ReadNoSnp]
-  params.node.emits.dat ~is [chi.CHIDatOpcode.CompData]
-  params.service.address_sets ~is [chi.AddressSet(RiscvBootROMResetAddress, 63)]
-  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 64) ~is #true
-  params.service.supports(chi.CHIReqOpcode.WriteNoSnpFull, 4) ~is #false
+  params.node.supports.req ~is [CHIReqOpcode.ReadNoSnp]
+  params.node.emits.dat ~is [CHIDatOpcode.CompData]
+  params.service.address_sets ~is [AddressSet(RiscvBootROMResetAddress, 63)]
+  params.service.supports(CHIReqOpcode.ReadNoSnp, 64) ~is #true
+  params.service.supports(CHIReqOpcode.WriteNoSnpFull, 4) ~is #false
 
   BootROMImage([0x100]) ~throws "image elements must be bytes"
   bootrom.CHIBootROMLayout(flit, ~window_bytes: 32) ~throws "maximum-size transfer"

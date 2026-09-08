@@ -2,18 +2,21 @@
 // Checks ACLINT host configuration, CHI service metadata, and parameter rejection.
 
 import:
-  "../../chi/main.rhdl" as chi
+  "../../rhodium/std/interconnect.rhdl".AddressSet
+  "../../chi/params.rhdl".CHIFlitParams
+  "../../chi/flits.rhdl".CHIReqOpcode
+  "../../chi/link.rhdl".CHINodeKind
   "../aclint.rhdl" as aclint
 
-def flit = chi.CHIFlitParams()
+def flit = CHIFlitParams()
 def config = aclint.AclintConfig(flit, 2)
 def params = aclint.AclintParams("test-aclint", 9, config, 0x02000000)
 
 check:
   config.hart_count ~is 2
   config.data_bytes ~is 16
-  params.node.kind ~is chi.CHINodeKind.SNI
-  params.service.address_sets[0] ~is chi.AddressSet(0x02000000, 0xffff)
-  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 8) ~is #true
-  params.service.supports(chi.CHIReqOpcode.WriteNoSnpPtl, 8) ~is #true
-  params.service.supports(chi.CHIReqOpcode.ReadNoSnp, 16) ~is #false
+  params.node.kind ~is CHINodeKind.SNI
+  params.service.address_sets[0] ~is AddressSet(0x02000000, 0xffff)
+  params.service.supports(CHIReqOpcode.ReadNoSnp, 8) ~is #true
+  params.service.supports(CHIReqOpcode.WriteNoSnpPtl, 8) ~is #true
+  params.service.supports(CHIReqOpcode.ReadNoSnp, 16) ~is #false

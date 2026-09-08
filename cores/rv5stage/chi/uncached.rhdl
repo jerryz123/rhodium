@@ -13,7 +13,8 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("chi/main.rhdl") open
+  lib("chi/flits.rhdl") open
+  lib("chi/channels.rhdl").CHIRNIChannels
 
 hardware_enum RV5StageUncachedState:
   Idle

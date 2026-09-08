@@ -14,6 +14,12 @@ address placement, PMA and Home routing, clock/tick policy, and interrupt
 wiring. Simulators own terminal processes, executable harnesses, and other
 host policy.
 
+Import CHI contracts and the required engine from their defining modules, as
+described in the [CHI import guide](../chi/README.md#package-boundary-and-import).
+Device configuration uses generic address and transfer types from
+`rhodium/std/interconnect.rhdl`; it does not require the all-CHI facade, NoC,
+Home engines, or either backing-memory implementation.
+
 Boot-address, ACLINT, PLIC, and UART16550 delegate their single-beat CHI
 transaction lifetime to [`CHISingleBeatSubordinate`](../chi/single-beat-subordinate.rhdl).
 Devices retain decode, read snapshots, request-acceptance side effects, and

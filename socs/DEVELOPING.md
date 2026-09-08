@@ -27,6 +27,13 @@ flowchart LR
 Keep reusable component internals in their owning packages. A SoC should
 configure and connect those public contracts, not fork their behavior.
 
+Import CHI contracts, NoC adapters, selected Home engines, and SRAM only where
+the composition uses them; use defining modules instead of the all-CHI facade.
+Shared channel interfaces need only their parameter and channel owners.
+Keep shared memory configuration separate from the concrete RAM import and
+leave DPI memory to the simulator. See the
+[CHI import guide](../chi/README.md#package-boundary-and-import).
+
 MiniSoC, SimpleSoC, and TiledSoC are independent top-level compositions.
 `single-core-system.rhdl` owns `SingleCoreSystemParams` and the
 `populate_single_core` elaboration helper. Parameters derive routing, endpoint

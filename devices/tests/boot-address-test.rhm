@@ -2,17 +2,20 @@
 // Checks the boot-address register's host parameters and supported CHI service sizes.
 
 import:
-  "../../chi/main.rhdl" as chi
+  "../../rhodium/std/interconnect.rhdl".AddressSet
+  "../../chi/params.rhdl".CHIFlitParams
+  "../../chi/flits.rhdl".CHIReqOpcode
+  "../../chi/link.rhdl".CHINodeKind
   "../boot-address.rhdl" open
 
-def flit = chi.CHIFlitParams()
+def flit = CHIFlitParams()
 def config = BootAddressConfig(flit, 0x1234567880000000)
 def params = BootAddressParams("boot-address", 14, config, 0x1000)
 
 check:
   config.reset_value ~is 0x1234567880000000
-  params.service.address_sets ~is [chi.AddressSet(0x1000, 0xfff)]
-  params.node.kind ~is chi.CHINodeKind.SNI
+  params.service.address_sets ~is [AddressSet(0x1000, 0xfff)]
+  params.node.kind ~is CHINodeKind.SNI
   params.node.max_outstanding ~is 1
   BootAddressConfig(flit, -1) ~throws "Int.in"
   BootAddressConfig(flit, 0x10000000000000000) ~throws "Int.in"
@@ -20,7 +23,7 @@ check:
   BootAddressParams("wide", 14, config, 0x100000000000) ~throws "must fit"
   BootAddressParams("wide-node", 128, config, 0x1000) ~throws "NodeID"
 
-for (opcode in [chi.CHIReqOpcode.ReadNoSnp, chi.CHIReqOpcode.WriteNoSnpFull, chi.CHIReqOpcode.WriteNoSnpPtl]):
+for (opcode in [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl]):
   check:
     params.service.supports(opcode, 4) ~is #true
     params.service.supports(opcode, 8) ~is #true

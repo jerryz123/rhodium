@@ -2,7 +2,11 @@
 // Composes an independent compact SoC with on-chip RAM and shared platform devices.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/link.rhdl").CHINodeKind
+  lib("chi/fabric.rhdl").CHIHomeParams
+  lib("chi/memory-controller.rhdl") open
+  lib("chi/ram.rhdl").CHIRam
   lib("cores/rv5stage/profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   "description.rhm".SoCClockConfig

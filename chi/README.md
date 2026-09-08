@@ -5,7 +5,8 @@
 `chi/` is the standalone AMBA CHI domain library. It provides exact protocol
 payloads, node-role contracts, monitoring, transaction engines, address-map
 metadata, and an adapter from CHI channel relationships to validated NoC plans.
-The public facade is [`main.rhdl`](main.rhdl).
+[`main.rhdl`](main.rhdl) is the compatibility convenience facade; the defining
+modules are also public, narrower import entry points.
 
 The wire definitions follow revision IHI 0050H of the AMBA CHI Architecture
 Specification. That revision is the provenance of the implemented encodings,
@@ -68,12 +69,30 @@ flowchart TB
 
 ## Package boundary and import
 
-Import the implemented public surface with:
+Import the entire implemented public surface with:
 
 ```rhombus
 import:
   lib("chi/main.rhdl") open
 ```
+
+For a component that needs only part of CHI, import its defining modules instead.
+For example, a shared requester interface needs only:
+
+```rhombus
+import:
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/channels.rhdl").CHIRNChannels
+```
+
+Import monitoring, NoC adapters, concrete Homes, and SRAM or DPI memory engines
+explicitly when using them. Shared memory configuration comes from
+`memory-controller.rhdl`, not through the SRAM implementation. Generic
+`AddressSet` and `TransferSizes` come from `rhodium/std/interconnect.rhdl`;
+their existing CHI facade exports remain compatible. The
+[implementation map](DEVELOPING.md#implementation-map) identifies the public
+owner modules. Narrow imports reduce dependency and source-loading scope;
+they do not by themselves change the generated RTL or instantiate hardware.
 
 For stateless subordinate responses, import `lib("chi/messages.rhdl")` directly
 or use the facade. `chi_sn_dbid_response` and `chi_sn_write_completion` correlate
@@ -137,7 +156,7 @@ The package boundary follows the protocol layering:
 - `chi/` owns CHI node roles, flits, opcodes, transactions, Protocol Credits,
   Link activation, optional CHI fields, endpoint engines, and CHI-specific
   monitoring.
-- [`devices/`](../devices/README.md) consumes the facade and owns peripheral
+- [`devices/`](../devices/README.md) consumes the defining CHI modules and owns peripheral
   register maps and behavior. CHI does not import platform devices.
 - `rhodium/std` owns protocol-neutral credited transport, ready-valid flows,
   buffering, address and ID sets, storage, and ordinary hardware utilities.

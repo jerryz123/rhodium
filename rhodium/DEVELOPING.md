@@ -113,6 +113,12 @@ The event compiler and RHEG exchange generated descriptors and fixed DPI calls;
 neither imports the other's implementation. Event inference consumes generic
 interface metadata, not `flow` library implementation modules.
 
+CHI consumers in cores, devices, SoCs, and simulators depend directly on the
+defining CHI modules and on `std/interconnect.rhdl` for generic address/transfer
+types. The compatibility facade is not a production dependency boundary; the
+[CHI import guide](../chi/README.md#package-boundary-and-import) and its
+developer implementation map identify the owners.
+
 HardFloat is representative of an external domain library over the public
 language: Rhodium implementation packages do not depend on it, while its tests
 may consume a backend to validate ordinary lowering.

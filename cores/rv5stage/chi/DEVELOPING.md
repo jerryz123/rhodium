@@ -19,6 +19,12 @@ uncached engines depend on it; writeback additionally composes write-unique.
 The I-cache and D-cache instantiate the shared engines, while `rv5stage.rhdl`
 owns external channel composition.
 
+Import CHI wire types, coherence rules, channels, service metadata, and required
+transaction engines from their defining modules. Do not pull NoC, Home, storage,
+or monitoring implementations into the caches through the convenience facade.
+The [CHI import guide](../../../chi/README.md#package-boundary-and-import) owns
+the supported import contract.
+
 Requester write-data packet construction is shared through
 [`chi/messages.rhdl`](../../../chi/messages.rhdl). The foundation wrapper
 retains address normalization and its DataID, CCID, and DBID-field choices;

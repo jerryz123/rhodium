@@ -4,7 +4,11 @@
 import:
   "../single-core-system.rhdl" open
   "../endpoint-params.rhdl" open
-  "../../chi/main.rhdl" open
+  "../../rhodium/std/interconnect.rhdl" open
+  "../../chi/params.rhdl".CHIFlitParams
+  "../../chi/flits.rhdl" open
+  "../../chi/link.rhdl" open
+  "../../chi/fabric.rhdl" open
   "../peripherals.rhdl" open
   "../boot.rhdl" open
 

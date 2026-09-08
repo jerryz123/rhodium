@@ -2,19 +2,21 @@
 // Checks RV5Stage's host-side HN-I classification and uncached RN-I metadata.
 
 import:
-  "../../../chi/main.rhdl" as chi
+  "../../../rhodium/std/interconnect.rhdl".AddressSet
+  "../../../chi/flits.rhdl".CHIReqOpcode
+  "../../../chi/link.rhdl".CHINodeKind
   "../../../riscv/rtl/pma.rhdl" as pma
   "../chi/foundation.rhdl" as rvchi
   "params.rhdl" as params
 
 check:
   params.test_rv5stage_uncached_config.has_uncached ~is #true
-  params.test_rv5stage_uncached_config.normal_address_sets ~is [chi.AddressSet(0, 0x7fff)]
-  params.test_rv5stage_uncached_config.uncached_address_sets ~is [chi.AddressSet(0x8000, 0x3fff), chi.AddressSet(0xc000, 0x3fff)]
+  params.test_rv5stage_uncached_config.normal_address_sets ~is [AddressSet(0, 0x7fff)]
+  params.test_rv5stage_uncached_config.uncached_address_sets ~is [AddressSet(0x8000, 0x3fff), AddressSet(0xc000, 0x3fff)]
   params.test_rv5stage_uncached_config.physical_map.regions.length() ~is 3
   params.test_rv5stage_uncached_config.home_map.entries.map(
     fun (entry): entry.address_set
-  ) ~is [chi.AddressSet(0, 0x7fff), chi.AddressSet(0x8000, 0x3fff), chi.AddressSet(0xc000, 0x3fff)]
+  ) ~is [AddressSet(0, 0x7fff), AddressSet(0x8000, 0x3fff), AddressSet(0xc000, 0x3fff)]
   params.test_rv5stage_uncached_config.physical_map.regions[1].attributes.device ~is #true
   params.test_rv5stage_uncached_config.physical_map.regions[1].attributes.read_idempotent ~is #false
   params.test_rv5stage_uncached_config.physical_map.regions[2].attributes.device ~is #false
@@ -23,20 +25,20 @@ check:
     params.test_rv5stage_flit,
     [rvchi.RV5StageCHIRegion(
        pma.RiscvPhysicalMemoryRegion(
-         chi.AddressSet(0, 0x7fff),
+         AddressSet(0, 0x7fff),
          params.test_rv5stage_memory_attributes
        ),
        params.test_rv5stage_home
      ),
      rvchi.RV5StageCHIRegion(
        pma.RiscvPhysicalMemoryRegion(
-         chi.AddressSet(0xc000, 0x3fff),
+         AddressSet(0xc000, 0x3fff),
          pma.RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #false)
        ),
        params.test_rv5stage_uncached_home
      )]
   ) ~throws "executable RV5Stage regions must permit idempotent reads"
-  params.test_rv5stage_uncached_params.uncached_node.kind ~is chi.CHINodeKind.RNI
+  params.test_rv5stage_uncached_params.uncached_node.kind ~is CHINodeKind.RNI
   params.test_rv5stage_uncached_params.uncached_node.emits.req ~is [
-    chi.CHIReqOpcode.ReadNoSnp, chi.CHIReqOpcode.WriteNoSnpPtl
+    CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl
   ]

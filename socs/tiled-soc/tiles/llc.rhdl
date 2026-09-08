@@ -2,7 +2,14 @@
 // Implements one inclusive LLC slice with its CHI router and backing-memory bank.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/noc-router.rhdl") open
+  lib("chi/memory-controller.rhdl") open
+  lib("chi/ram.rhdl").CHIRam
+  lib("chi/transfer-fragmenter.rhdl") open
+  lib("chi/address-projector.rhdl") open
+  lib("chi/home-common.rhdl").CHIHNFIdentity
+  lib("chi/inclusive-home.rhdl") open
 
 class LLCTileParams(home :: CHIInclusiveHNFConfig,
                     projector :: CHIAddressProjectorConfig,

@@ -2,7 +2,7 @@
 // Checks RV5Stage's host-side CHI response profiles for transaction engines.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("chi/flits.rhdl").CHIRspOpcode
   "../chi/foundation.rhdl" as core_chi
 
 check:

@@ -2,7 +2,9 @@
 // Exercises shared packet layout and RV5Stage write construction against CHI DAT monitoring at every bus width.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl") open
+  lib("chi/protocol.rhdl") open
   lib("chi/monitor.rhdl").monitor_chi_dat
   lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_write_data
 

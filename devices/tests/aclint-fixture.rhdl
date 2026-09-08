@@ -3,7 +3,7 @@
 
 import:
   lib("devices/aclint.rhdl") open
-  lib("chi/main.rhdl").CHIFlitParams
+  lib("chi/params.rhdl").CHIFlitParams
 
 def flit = CHIFlitParams()
 def config = AclintConfig(flit, 2)

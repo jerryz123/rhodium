@@ -27,6 +27,21 @@ stack but not Rhodium or CIRCT. Generic topology, routing, validation, and
 router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 [`check-boundaries.sh`](check-boundaries.sh) enforces these rules.
 
+Production consumers in `devices/`, `cores/`, `socs/`, and `sims/` import the
+defining public modules, not `main.rhdl`. Keep endpoint contracts separate from
+opt-in monitors, NoC composition, Home engines, and storage implementations at
+their use sites. Import protocol-neutral address/transfer types directly from
+`rhodium/std/interconnect.rhdl`, even though CHI retains compatibility re-exports.
+The facade remains available for convenient external use and compatibility
+coverage in `chi/tests/`; do not remove or rename its existing exports.
+Use the existing owners before introducing another aggregation layer.
+
+For import-only migrations, check that declarations and RTL bodies are unchanged
+apart from namespace qualification. Run affected host contracts, device/cache
+behavioral fixtures, and MiniSoC/SimpleSoC/TiledSoC smoke tests for consumers that
+span those compositions, with fresh compiled roots. Inspect transitive imports
+when claiming narrower loading; a selective name import still loads its module.
+
 ## Implementation map
 
 | Area | Owning modules | Responsibility |

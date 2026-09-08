@@ -2,7 +2,8 @@
 // Exposes one tiled-mesh router attachment to an external coherent host RN-F.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("chi/channels.rhdl").CHIRNChannels
+  lib("chi/noc-router.rhdl") open
 
 class HostTileParams(router :: CHIRouterParams):
   implements StableCircuitParam

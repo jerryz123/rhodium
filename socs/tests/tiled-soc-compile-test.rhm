@@ -2,7 +2,10 @@
 // Checks one-step TiledSoC compilation into boot, placement, routing, device, and tile parameters.
 
 import:
-  "../../chi/main.rhdl" as chi
+  "../../chi/flits.rhdl".CHIReqOpcode
+  "../../chi/coherence.rhdl".chi_rnf_snoop_opcodes
+  "../../chi/link.rhdl".CHINodeKind
+  "../../chi/noc-authoring.rhm".CHISNConnection
   "../../cores/rv5stage/profile.rhm" as profile
   "../../riscv/isa/xlen.rhm".XLen
   "../tiled-soc/main.rhdl" as tiled
@@ -37,11 +40,11 @@ check:
   description.uart.interrupt.controller.address_set ~is description.plic.region.address_set
   description.uart.interrupt.source_id ~is description.plic.sources[0].source_id
   compiled.host.node.node_id ~is 24
-  compiled.host.node.kind ~is chi.CHINodeKind.RNF
+  compiled.host.node.kind ~is CHINodeKind.RNF
   compiled.host.node.emits.req ~is (
-    [chi.CHIReqOpcode.ReadClean, chi.CHIReqOpcode.WriteUniquePtl, chi.CHIReqOpcode.ReadNoSnp, chi.CHIReqOpcode.WriteNoSnpPtl]
+    [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl]
   )
-  compiled.host.node.supports.snp ~is chi.chi_rnf_snoop_opcodes
+  compiled.host.node.supports.snp ~is chi_rnf_snoop_opcodes
   compiled.hnf_config.requester_endpoints.length() ~is 17
   compiled.hnf_config.requester_endpoints.map(fun (port): port.node_id) ~is (
     [24, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
@@ -174,7 +177,7 @@ check:
   compiled.llcs.length() ~is 4
   compiled.connections.length() ~is 82
   compiled.connections.filter(
-    ~keep: fun (connection): connection is_a chi.CHISNConnection
+    ~keep: fun (connection): connection is_a CHISNConnection
   ).length() ~is 5
   compiled.node_ids.length() ~is 39
   compiled.node_ids.sort(fun (left, right): left < right) ~is (

@@ -16,7 +16,7 @@ import:
   "mmu/mmu.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("chi/main.rhdl") open
+  lib("chi/channels.rhdl") open
 
 sync_circuit RV5Stage(profile :: RVCoreProfile,
                       ~reset_address: reset_address :: Nat,

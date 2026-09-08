@@ -2,7 +2,18 @@
 // Privately compiles one TiledSoC configuration into boot, placement, fabric, and tile parameters.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/link.rhdl") open
+  lib("chi/noc-authoring.rhm") open
+  lib("chi/noc-adapter.rhdl") open
+  lib("chi/noc-router.rhdl") open
+  lib("chi/fabric.rhdl") open
+  lib("chi/memory-controller.rhdl") open
+  lib("chi/transfer-fragmenter.rhdl") open
+  lib("chi/address-projector.rhdl") open
+  lib("chi/home.rhdl").CHIHNIParams
+  lib("chi/home-common.rhdl") open
+  lib("chi/inclusive-home.rhdl").CHIInclusiveHNFConfig
   lib("noc/authoring/main.rhm") open
   lib("noc/plan/main.rhm") open
   lib("noc/std/topology/main.rhm") open

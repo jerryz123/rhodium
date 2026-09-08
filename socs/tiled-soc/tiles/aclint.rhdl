@@ -2,7 +2,8 @@
 // Attaches one shared ACLINT SN-I to its dedicated CHI service-row router.
 
 import:
-  lib("chi/main.rhdl") open
+  lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/noc-router.rhdl") open
   lib("devices/aclint.rhdl") open
   lib("flow/main.rhdl") open
   "../distribution.rhdl" open
