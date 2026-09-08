@@ -67,7 +67,9 @@ outside synthesizable SoC code. `emit-event-harness.rhm` instruments one
 elaboration, and `materialize-event-harness.rkt` saves its matching descriptor
 and configured frequency alongside MLIR. The opt-in build links `rheg_dpi.cc`
 with the independent RHEG libraries. Do not duplicate collector or encoder
-logic in this adapter. `TestDriver.v` releases reset and observes completion on
+logic in this adapter. The adapter selects gzip only for a `.gz` output suffix and calls
+the exporter's checked `finish()` before closing the file on exit or timeout.
+`TestDriver.v` releases reset and observes completion on
 falling edges; trace batches therefore follow all rising-edge callbacks.
 Bind descriptor and timing before callbacks, and flush the final settled cycle
 before normal exit or timeout. Keep emitter, generated clock constant, descriptor,

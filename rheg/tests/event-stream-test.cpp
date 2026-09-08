@@ -6,7 +6,9 @@
 #include <stdexcept>
 
 int main(int argc, char** argv) {
-  if (argc != 3) throw std::runtime_error("expected snapshot and Perfetto output paths");
+  if (argc != 3 && argc != 4) throw std::runtime_error("expected snapshot and Perfetto output paths, optionally --gzip");
+  const bool gzip = argc == 4 && std::string(argv[3]) == "--gzip";
+  if (argc == 4 && !gzip) throw std::runtime_error("unknown compression option");
   rheg::Graph graph;
   graph.bind_manifest({R"({"format":"rhodium-event-graph","version":1,"top":"StreamTest","sites":[{"id":"top/join","label":"join","payload_width":0,"fields":[]},{"id":"top/right","label":"right","payload_width":0,"fields":[]},{"id":"top/left","label":"left","payload_width":0,"fields":[]},{"id":"top/source","label":"source","payload_width":172,"fields":[{"name":"pc","width":64,"offset":108,"encoding":"hex"},{"name":"instruction","width":32,"offset":76,"encoding":"hex"},{"name":"fault","width":1,"offset":75,"encoding":"bool"},{"name":"count","width":5,"offset":70,"encoding":"unsigned"},{"name":"delta","width":5,"offset":65,"encoding":"signed"},{"name":"wide","width":65,"offset":0,"encoding":"unsigned"}]}],"dependencies":[{"parent":"top/source","child":"top/left"},{"parent":"top/source","child":"top/right"},{"parent":"top/left","child":"top/join"},{"parent":"top/right","child":"top/join"}]})",
                        {0, 0, 0, 172}, {{3, 2}, {3, 1}, {2, 0}, {1, 0}},
@@ -16,7 +18,8 @@ int main(int argc, char** argv) {
   graph.bind_timing({100000000, 9});
   const auto header = graph.begin_stream();
   std::ofstream output(argv[2], std::ios::binary);
-  rheg::PerfettoWriter writer(output, header.manifest(), *header.timing());
+  rheg::PerfettoWriter writer(output, header.manifest(), *header.timing(),
+      gzip ? rheg::PerfettoCompression::Gzip : rheg::PerfettoCompression::None);
   auto finish = [&](std::uint64_t cycle) {
     writer.write(graph.finish_cycle(cycle));
     std::filesystem::copy_file(argv[2], std::string(argv[2]) + ".prefix" + std::to_string(cycle),
@@ -46,6 +49,7 @@ int main(int argc, char** argv) {
   graph.record_node({1, sequence}, 2, 0);
   finish(2);
   graph.end_stream();
+  writer.finish();
   std::ofstream snapshot(argv[1]);
   snapshot << graph.snapshot().json();
   snapshot.close();

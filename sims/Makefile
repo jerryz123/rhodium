@@ -47,7 +47,7 @@ TRACE_SOURCES := $(VERILATOR_DIR)/rheg_dpi.cc
 TRACE_DEPENDENCIES := $(TRACE_HEADER) $(TRACE_LIBRARY)
 TRACE_VFLAGS := +define+RHEG_TRACE
 TRACE_CFLAGS := -I$(SOC_BUILD_DIR) -I$(REPO_DIR)/rheg/runtime -I$(REPO_DIR)/rheg/perfetto
-TRACE_LDFLAGS := $(TRACE_LIBRARY) $(TRACE_BUILD_DIR)/librheg_runtime.a
+TRACE_LDFLAGS := $(TRACE_LIBRARY) $(TRACE_BUILD_DIR)/librheg_runtime.a -lz
 TRACE_RUN_ARGS = +rheg-trace=$(abspath $(TRACE_FILE))
 else ifneq ($(TRACE),0)
 $(error TRACE must be 0 or 1)

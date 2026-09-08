@@ -1,5 +1,7 @@
 // Tests the shared C++ encoder, strict snapshot parser, and failed-output contract.
 #include "rheg_perfetto.h"
+#include <zlib.h>
+#include <array>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -62,6 +64,69 @@ Manifest manifest() {
 }
 CycleBatch batch(std::uint64_t cycle, Ref ref, unsigned width = 0) {
   return {cycle, {{ref, {true, cycle, width, width ? std::map<std::uint32_t, std::uint32_t>{{0, 42}} : std::map<std::uint32_t, std::uint32_t>{}}}}, {}};
+}
+std::string inflate_trace(const std::string& encoded) {
+  z_stream state{};
+  check(inflateInit2(&state, 15 + 16) == Z_OK);
+  state.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(encoded.data()));
+  state.avail_in = encoded.size();
+  std::string decoded;
+  int status;
+  do {
+    std::array<char, 4096> buffer;
+    state.next_out = reinterpret_cast<Bytef*>(buffer.data()); state.avail_out = buffer.size();
+    status = inflate(&state, Z_NO_FLUSH);
+    decoded.append(buffer.data(), buffer.size() - state.avail_out);
+  } while (status == Z_OK && (state.avail_in || state.avail_out == 0));
+  const auto remaining = state.avail_in;
+  inflateEnd(&state);
+  check(remaining == 0 && status == Z_STREAM_END);
+  return decoded;
+}
+void compression_contract(const std::string& path) {
+  std::ostringstream raw, compressed;
+  PerfettoWriter plain(raw, manifest(), {100000000});
+  PerfettoWriter zipped(compressed, manifest(), {100000000}, PerfettoCompression::Gzip);
+  for (std::uint64_t cycle = 0; cycle < 3; ++cycle) {
+    CycleBatch empty{cycle, {}, {}};
+    const auto prefix = compressed.str();
+    plain.write(empty); zipped.write(empty);
+    check(compressed.str() == prefix, "empty batch added gzip framing");
+  }
+  CycleBatch large{10002, {}, {}};
+  std::uint32_t random = 1;
+  for (std::uint64_t i = 0; i < 10000; ++i) {
+    random ^= random << 13; random ^= random >> 17; random ^= random << 5;
+    large.nodes.emplace(Ref{0, i}, Node{true, i + 3, 8, {{0, random & 255}}});
+  }
+  auto invalid = large; invalid.nodes.begin()->second.width = 9;
+  const auto before = compressed.str();
+  rejects([&] { zipped.write(invalid); }, "width mismatch");
+  check(compressed.str() == before);
+  plain.write(large); zipped.write(large);
+  check(compressed.str().size() > before.size(), "gzip did not emit incrementally");
+  plain.finish(); zipped.finish();
+  check(inflate_trace(compressed.str()) == raw.str(), "gzip round trip differs");
+  check(compressed.str().size() < raw.str().size() / 2);
+  const auto finalized = compressed.str();
+  zipped.finish(); check(compressed.str() == finalized);
+  rejects([&] { zipped.write({10003, {}, {}}); }, "already finished");
+  rejects([&] { plain.write({10003, {}, {}}); }, "already finished");
+  std::ofstream file(path, std::ios::binary); file << compressed.str(); file.close(); check(bool(file));
+  Graph empty; empty.bind_manifest(manifest()); empty.bind_timing({1});
+  std::ostringstream empty_raw, empty_gzip;
+  write_perfetto(empty_raw, empty.snapshot());
+  write_perfetto(empty_gzip, empty.snapshot(), PerfettoCompression::Gzip);
+  check(inflate_trace(empty_gzip.str()) == empty_raw.str());
+  for (bool trailer : {false, true}) {
+    std::ostringstream broken;
+    PerfettoWriter failing(broken, manifest(), {1}, PerfettoCompression::Gzip);
+    broken.setstate(std::ios::badbit);
+    rejects([&] { if (trailer) failing.finish(); else failing.write(batch(0, {0, 0}, 8)); }, "write failed");
+    broken.clear();
+    rejects([&] { failing.finish(); }, "previously failed");
+    rejects([&] { failing.write(batch(1, {0, 1}, 8)); }, "previously failed");
+  }
 }
 Manifest instruction_manifest(const std::string& isa, unsigned xlen, unsigned width = 32, bool multiple = false) {
   return {"{\"format\":\"rhodium-event-graph\",\"version\":1,\"top\":\"Instructions\",\"sites\":[{\"id\":\"cpu\",\"label\":\"decode\",\"payload_width\":" + std::to_string(xlen+width+32) +
@@ -183,6 +248,7 @@ void interning_trace(const std::string& path) {
 }
 int main(int argc, char** argv) {
   check(argc == 2);
+  compression_contract(std::string(argv[1]) + "/compressed.pftrace.gz");
   enum_trace(std::string(argv[1]) + "/enums.pftrace");
   interning_trace(std::string(argv[1]) + "/interning.pftrace");
   instruction_trace(std::string(argv[1]) + "/riscv64.pftrace", "rv64imafdc_zicsr", 64);

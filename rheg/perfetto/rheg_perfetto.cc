@@ -2,6 +2,7 @@
 #include "rheg_perfetto.h"
 #include <nlohmann/json.hpp>
 #include <disasm.h>
+#include <zlib.h>
 #include <charconv>
 #include <algorithm>
 #include <array>
@@ -241,6 +242,41 @@ struct RiscvFormatting {
     return result;
   }
 };
+
+// Persistent gzip dictionary, with bounded scratch space independent of trace size.
+struct GzipEncoder {
+  z_stream state{};
+  GzipEncoder() {
+    require(deflateInit2(&state, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8,
+                         Z_DEFAULT_STRATEGY) == Z_OK, "gzip initialization failed");
+  }
+  ~GzipEncoder() { deflateEnd(&state); }
+  int pump(std::ostream& output, int mode) {
+    std::array<unsigned char, 32768> buffer;
+    state.next_out = buffer.data(); state.avail_out = buffer.size();
+    const int result = deflate(&state, mode);
+    require(result == Z_OK || result == Z_STREAM_END, "gzip compression failed");
+    output.write(reinterpret_cast<const char*>(buffer.data()), buffer.size() - state.avail_out);
+    require(bool(output), "Perfetto output write failed");
+    return result;
+  }
+  void write(std::ostream& output, const std::string& data) {
+    if (data.empty()) return;
+    for (std::size_t offset = 0; offset < data.size();) {
+      const auto count = std::min<std::size_t>(data.size() - offset, 65536);
+      state.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(data.data() + offset));
+      state.avail_in = static_cast<uInt>(count);
+      while (state.avail_in) pump(output, Z_NO_FLUSH);
+      offset += count;
+    }
+    // Keep deflate blocks open across batches. Perfetto requires the footer at
+    // finish() before importing gzip, so per-cycle sync flushes buy no live view.
+  }
+  void finish(std::ostream& output) {
+    state.next_in = nullptr; state.avail_in = 0;
+    while (pump(output, Z_FINISH) != Z_STREAM_END) {}
+  }
+};
 }
 
 struct PerfettoWriter::Impl {
@@ -253,8 +289,10 @@ struct PerfettoWriter::Impl {
   std::map<Ref, std::pair<std::uint64_t, std::uint64_t>> known; // flow identity, cycle
   std::optional<std::uint64_t> watermark;
   bool failed = false;
+  bool finished = false;
+  std::unique_ptr<GzipEncoder> gzip;
 
-  Impl(std::ostream& out, const Manifest& manifest, TraceTiming clock)
+  Impl(std::ostream& out, const Manifest& manifest, TraceTiming clock, PerfettoCompression compression)
       : output(out), description(describe(parse(manifest.json))), timing(clock) {
     require(timing.clock_frequency_hz != 0, "positive clock frequency required");
     require(description.manifest.payload_widths == manifest.payload_widths &&
@@ -263,6 +301,9 @@ struct PerfettoWriter::Impl {
     for (const auto& fields : manifest.fields)
       for (const auto& field : fields)
         if (field.encoding == "riscv") instructions.prepare(field.isa);
+    require(compression == PerfettoCompression::None || compression == PerfettoCompression::Gzip,
+            "unsupported Perfetto compression");
+    if (compression == PerfettoCompression::Gzip) gzip = std::make_unique<GzipEncoder>();
     can_parent.resize(description.sites.size(), false);
     for (const auto& edge : description.manifest.dependencies) can_parent[edge.first] = true;
     std::string stream, descriptor, p;
@@ -313,9 +354,20 @@ struct PerfettoWriter::Impl {
     require(!failed, "Perfetto output previously failed");
     require(data.size() <= static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()), "Perfetto batch too large");
     try {
-      output.write(data.data(), static_cast<std::streamsize>(data.size()));
+      if (gzip) gzip->write(output, data);
+      else output.write(data.data(), static_cast<std::streamsize>(data.size()));
       output.flush();
       require(bool(output), "Perfetto output write failed");
+    } catch (...) { failed = true; throw; }
+  }
+  void finish() {
+    require(!failed, "Perfetto output previously failed");
+    if (finished) return;
+    try {
+      if (gzip) gzip->finish(output);
+      output.flush();
+      require(bool(output), "Perfetto output write failed");
+      finished = true;
     } catch (...) { failed = true; throw; }
   }
   std::uint64_t timestamp(__uint128_t cycle) const {
@@ -340,6 +392,7 @@ struct PerfettoWriter::Impl {
   }
   void write(const CycleBatch& batch) {
     require(!failed, "Perfetto output previously failed");
+    require(!finished, "Perfetto writer already finished");
     require(!watermark || batch.cycle > *watermark, "cycle watermark must increase");
     std::map<Ref, std::set<Ref>> parents, children;
     std::map<Ref, std::size_t> indegree;
@@ -429,10 +482,12 @@ struct PerfettoWriter::Impl {
     watermark = batch.cycle;
   }
 };
-PerfettoWriter::PerfettoWriter(std::ostream& output, const Manifest& manifest, TraceTiming timing)
-    : impl_(std::make_unique<Impl>(output, manifest, timing)) {}
+PerfettoWriter::PerfettoWriter(std::ostream& output, const Manifest& manifest, TraceTiming timing,
+                               PerfettoCompression compression)
+    : impl_(std::make_unique<Impl>(output, manifest, timing, compression)) {}
 PerfettoWriter::~PerfettoWriter() = default;
 void PerfettoWriter::write(const CycleBatch& batch) { impl_->write(batch); }
+void PerfettoWriter::finish() { impl_->finish(); }
 
 Snapshot read_event_trace(std::istream& input) {
   const auto json = parse(input);
@@ -456,11 +511,12 @@ Snapshot read_event_trace(std::istream& input) {
   for (const auto& edge : occurrences.at("edges")) graph.record_edge(ref(edge.at("parent")), ref(edge.at("child")));
   return graph.snapshot();
 }
-void write_perfetto(std::ostream& output, const Snapshot& snapshot) {
+void write_perfetto(std::ostream& output, const Snapshot& snapshot, PerfettoCompression compression) {
   require(snapshot.timing().has_value(), "Perfetto export requires timing");
   CycleBatch batch{0, snapshot.nodes(), snapshot.edges()};
   for (const auto& entry : batch.nodes) batch.cycle = std::max(batch.cycle, entry.second.cycle);
-  PerfettoWriter writer(output, snapshot.manifest(), *snapshot.timing());
+  PerfettoWriter writer(output, snapshot.manifest(), *snapshot.timing(), compression);
   writer.write(batch);
+  writer.finish();
 }
 }

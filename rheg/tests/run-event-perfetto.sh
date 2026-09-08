@@ -18,9 +18,18 @@ ctest --test-dir "$stream_test_dir/build" --output-on-failure
 "$stream_test_dir/build/event-stream-test" "$stream_test_dir/snapshot.json" "$stream_test_dir/live.pftrace"
 "$stream_test_dir/build/rheg-perfetto" "$stream_test_dir/snapshot.json" > "$stream_test_dir/replay.pftrace"
 cmp "$stream_test_dir/live.pftrace" "$stream_test_dir/replay.pftrace"
+"$stream_test_dir/build/event-stream-test" "$stream_test_dir/gzip-snapshot.json" "$stream_test_dir/live.pftrace.gz" --gzip
+"$stream_test_dir/build/rheg-perfetto" --gzip "$stream_test_dir/snapshot.json" > "$stream_test_dir/replay.pftrace.gz"
+for mode in live replay; do
+  gzip -t "$stream_test_dir/$mode.pftrace.gz"
+  gzip -dc "$stream_test_dir/$mode.pftrace.gz" | cmp - "$stream_test_dir/$mode.pftrace"
+done
 assert_query() {
   local actual
-  actual=$("$TRACE_PROCESSOR" query "$1" "$2" 2> "$stream_test_dir/processor.log")
+  if ! actual=$("$TRACE_PROCESSOR" query "$1" "$2" 2> "$stream_test_dir/processor.log"); then
+    cat "$stream_test_dir/processor.log" >&2
+    exit 1
+  fi
   if [[ "$actual" != $'"ok"\n1' ]]; then
     printf 'Unexpected Trace Processor result: %s\n' "$actual" >&2
     cat "$stream_test_dir/processor.log" >&2
@@ -52,6 +61,11 @@ for index in 0 1 2; do
   assert_query "$file" "SELECT count(*)=1 AND min(str_value)='9' AS ok FROM metadata WHERE name='cr-rheg.epoch_id'"
   assert_query "$file" "SELECT count(*)=1 AND min(json_extract(a.string_value,'$.site_id'))='top/source' AND min(json_extract(a.string_value,'$.payload_width'))=172 AND min(json_array_length(a.string_value,'$.fields'))=6 AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE t.name='source' AND a.key='description'"
 done
+for mode in live replay; do
+  assert_query "$stream_test_dir/$mode.pftrace.gz" "SELECT (SELECT count(*) FROM slice)=4 AND (SELECT count(*) FROM flow)=4 AND count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
+done
+assert_query "$stream_test_dir/build/compressed.pftrace.gz" "SELECT count(*)=10000 AND min(ts)=30 AND max(ts)=100020 AND sum(dur=10)=10000 AS ok FROM slice"
+assert_query "$stream_test_dir/build/compressed.pftrace.gz" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
 assert_query "$stream_test_dir/build/enums.pftrace" "SELECT count(*)=12 AND sum(s.dur=10 AND s.ts=10*CAST(EXTRACT_ARG(s.arg_set_id,'debug.cycle') AS INT))=12 AND sum(s.name=CASE t.name WHEN 'cache.txreq' THEN CASE EXTRACT_ARG(s.arg_set_id,'debug.opcode') WHEN 1 THEN 'ReadShared' WHEN 2 THEN 'ReadClean' ELSE '0x7f' END WHEN 'cache.txrsp' THEN CASE EXTRACT_ARG(s.arg_set_id,'debug.operation') WHEN 1 THEN 'SnpResp' WHEN 2 THEN 'CompAck' ELSE '0x7f' END WHEN 'unselected' THEN 'unselected' ELSE 'All' END)=12 AS ok FROM slice s JOIN track t ON t.id=s.track_id"
 assert_query "$stream_test_dir/build/enums.pftrace" "SELECT count(*)=3 AND sum(EXTRACT_ARG(s.arg_set_id,'debug.opcode')='18446744073709551615')=3 AS ok FROM slice s JOIN track t ON t.id=s.track_id WHERE t.name='wide'"
 assert_query "$stream_test_dir/build/enums.pftrace" "SELECT count(*)=4 AND sum(json_array_length(a.string_value,'$.fields[0].symbols')>0)=4 AND sum(COALESCE(json_extract(a.string_value,'$.fields[0].label'),0))=3 AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE a.key='description'"
@@ -82,6 +96,11 @@ assert_query "$stream_test_dir/build/last-cycle.pftrace" "SELECT count(*)=1 AND 
 assert_query "$stream_test_dir/build/repeated-label.pftrace" "SELECT count(*)=3 AND count(DISTINCT track_id)=2 AND sum(name='accepted')=3 AS ok FROM slice"
 if "$stream_test_dir/build/rheg-perfetto" "$stream_test_dir/nonexistent.json" > "$stream_test_dir/invalid.pftrace" 2> "$stream_test_dir/invalid.log"; then
   echo 'Converter accepted missing input' >&2
+  exit 1
+fi
+test ! -s "$stream_test_dir/invalid.pftrace"
+if "$stream_test_dir/build/rheg-perfetto" --unknown "$stream_test_dir/snapshot.json" > "$stream_test_dir/invalid.pftrace" 2> "$stream_test_dir/invalid.log"; then
+  echo 'Converter accepted unknown option' >&2
   exit 1
 fi
 test ! -s "$stream_test_dir/invalid.pftrace"

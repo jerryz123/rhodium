@@ -220,7 +220,8 @@ cmake -S rheg/perfetto -B /tmp/rhodium-perfetto-build
 cmake --build /tmp/rhodium-perfetto-build -j 4
 ```
 
-The exporter privately uses nlohmann JSON 3.12.0 (found locally or fetched) and
+The exporter requires system zlib development headers/libraries and privately
+uses nlohmann JSON 3.12.0 (found locally or fetched) and
 Spike's disassembler (fetched at a pinned revision). Downloads are checksum-pinned.
 The Spike simulator and FESVR are not built. No Python, LLVM, external disassembler
 process, Perfetto SDK, or protobuf runtime is required.
@@ -248,10 +249,12 @@ rheg::PerfettoWriter writer(output, header.manifest(), *header.timing());
 // Evaluate the simulator and let all callbacks settle for event cycle N.
 writer.write(events.finish_cycle(N)); // Repeat at settled boundaries.
 events.end_stream(); // Only after the final batch has been delivered.
+writer.finish(); // Flush final framing and report output errors.
 ```
 
 ```sh
 /tmp/rhodium-perfetto-build/rheg-perfetto snapshot.json > replay.pftrace
+/tmp/rhodium-perfetto-build/rheg-perfetto --gzip snapshot.json > replay.pftrace.gz
 ```
 
 The binary reads a complete timed `rhodium-event-trace` snapshot emitted by
@@ -260,7 +263,16 @@ diagnostics on stderr. A library caller can use `read_event_trace(input)` and
 `write_perfetto(output, snapshot)` for the same operation. It is a snapshot
 postprocessor, not a parser for the optional cycle-batch JSON log. Streaming
 passes typed batches directly to the writer, without JSON serialization or a
-helper process. Streaming and replay use identical ordering and encoding.
+helper process. Streaming and replay use identical uncompressed ordering and encoding.
+
+For live gzip compression, pass `rheg::PerfettoCompression::Gzip` as the fourth
+`PerfettoWriter` constructor argument; `write_perfetto` accepts the same option
+as its third argument. Uncompressed output remains the default. Compression runs
+inside the C++ exporter with bounded scratch space and a persistent deflate
+dictionary, not a subprocess or whole-trace buffer. Gzip preserves every protobuf
+byte; compressed live/replay bytes may differ because of batch boundaries.
+Open the finalized `.pftrace.gz` directly in Perfetto. The library does not infer
+compression from filenames; the simulator adapter selects it from a `.gz` suffix.
 
 The encoder interns repeated names, categories, and captured strings, and omits
 flow starts for sites with no possible outgoing dependency. These are lossless
@@ -273,7 +285,14 @@ strings when full; cycle and sequence values remain exact inline decimal strings
 The caller owns the output stream and must keep it alive for the writer's
 lifetime. Choose a fresh output path: ordinary file opening and shell redirection
 can overwrite an existing file. Each writer represents one reset epoch.
-Each successfully written batch is flushed and leaves an importable prefix.
+Call `writer.finish()` after the final batch, before closing the output stream.
+It is idempotent, rejects subsequent writes, and reports finalization failures;
+the destructor only releases resources and does not silently finalize output.
+The standalone converter finalizes automatically. In uncompressed mode, each
+successfully written batch is flushed and leaves an importable prefix. In gzip
+mode, output is compressed incrementally but Perfetto requires the final gzip
+footer: import only after `finish()`. An interrupted process may leave an
+incomplete gzip file; normal simulator exit and timeout both finalize it.
 I/O failure can leave a partial final packet: treat the output as incomplete,
 do not resume the same writer. Invalid batches do not advance writer state;
 retain the batch returned by `finish_cycle` if retry is needed. A converter

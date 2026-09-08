@@ -21,10 +21,13 @@ expect_failure() {
 }
 expect_failure '+rheg-trace=PATH is required' "$simulator" "$program"
 expect_failure 'cannot open trace output' "$simulator" "+rheg-trace=$driver_test_dir/missing/trace.pftrace" "$program"
-expect_failure 'SoC harness simulation timed out' "$simulator" "+rheg-trace=$driver_test_dir/timeout.pftrace" +max-cycles=50 "$program"
-actual=$("$TRACE_PROCESSOR" query "$driver_test_dir/timeout.pftrace" "SELECT (SELECT count(*) FROM slice)>0 AND count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')")
-if [[ "$actual" != $'"ok"\n1' ]]; then
-  printf 'Invalid timeout trace prefix: %s\n' "$actual" >&2
-  exit 1
-fi
+for suffix in .pftrace .pftrace.gz; do
+  expect_failure 'SoC harness simulation timed out' "$simulator" "+rheg-trace=$driver_test_dir/timeout$suffix" +max-cycles=50 "$program"
+  if [[ "$suffix" == *.gz ]]; then gzip -t "$driver_test_dir/timeout$suffix"; fi
+  actual=$("$TRACE_PROCESSOR" query "$driver_test_dir/timeout$suffix" "SELECT (SELECT count(*) FROM slice)>0 AND count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')")
+  if [[ "$actual" != $'"ok"\n1' ]]; then
+    printf 'Invalid timeout trace prefix: %s\n' "$actual" >&2
+    exit 1
+  fi
+done
 echo 'Trace driver missing-path, open-failure, and timeout-prefix checks passed'

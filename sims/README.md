@@ -129,6 +129,7 @@ Tracing is opt-in and currently supports `SOC=simple`:
 ```sh
 make -C sims smoke SOC=simple TRACE=1 TRACE_FILE=/tmp/simple-soc.pftrace
 make -C sims run SOC=simple TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=simple TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
 ```
 
 Choose a fresh trace path: the exporter overwrites the selected output file.
@@ -137,6 +138,11 @@ Open the resulting `.pftrace` in Perfetto. Traced builds live in
 (the default) neither instruments RTL nor links the optional exporter.
 Direct invocation of a traced binary requires `+rheg-trace=/absolute/path`.
 The same binary can run different target programs and trace destinations.
+Choose a filename ending in `.gz` to enable streaming gzip compression in the
+C++ exporter; other names retain raw protobuf output. Open the completed gzip
+file directly in Perfetto. Compression preserves all events, fields, and edges.
+Unlike raw traces, gzip files require finalization before native import; normal
+exit and timeout both finalize them, but abrupt termination can leave a truncated file.
 
 Four checkpoints observe real external-memory request and response handshakes:
 `memory-request` to `memory-accept`, and `memory-response` to `soc-response`.

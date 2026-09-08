@@ -5,6 +5,7 @@
 #include <fstream>
 #include <memory>
 #include <stdexcept>
+#include <string_view>
 
 namespace {
 std::ofstream output;
@@ -27,7 +28,10 @@ extern "C" int rheg_sim_open(const char* path) {
     graph.bind_manifest(rheg_generated::manifest());
     graph.bind_timing({rheg_generated::clock_frequency_hz, 0});
     const auto header = graph.begin_stream();
-    writer = std::make_unique<rheg::PerfettoWriter>(output, header.manifest(), *header.timing());
+    const std::string_view name(path);
+    const auto compression = name.size() >= 3 && name.substr(name.size() - 3) == ".gz"
+        ? rheg::PerfettoCompression::Gzip : rheg::PerfettoCompression::None;
+    writer = std::make_unique<rheg::PerfettoWriter>(output, header.manifest(), *header.timing(), compression);
   });
 }
 
@@ -42,6 +46,7 @@ extern "C" int rheg_sim_close() {
   return checked([&] {
     if (!writer) throw std::runtime_error("trace is not open");
     rheg::graph().end_stream();
+    writer->finish();
     writer.reset();
     output.close();
     if (!output) throw std::runtime_error("trace close failed");

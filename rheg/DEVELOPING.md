@@ -68,7 +68,7 @@ separate sequence-local IID tables. Define each string in the first packet that
 references it; clear incremental state once at the start and mark event packets
 as requiring it. Stage dictionary additions per batch and commit only after a
 successful output flush. IID assignment follows event order, not batch boundaries,
-so live/replay bytes and flushed-prefix importability stay identical.
+so uncompressed live/replay bytes and flushed-prefix importability stay identical.
 Each table admits at most 4096 entries and 1 MiB of string content, with a 1024-byte
 per-string limit. Keep existing IDs valid and fall back to inline encoding when
 admission is exhausted; never reuse an IID. Unique cycle/sequence strings stay
@@ -98,10 +98,21 @@ events and reject cyclic dependencies before writing the batch.
 
 Use wide integer arithmetic for both cycle boundaries, especially N+1; validate
 signed-64-bit nanosecond overflow before output. Quantize boundaries independently
-to prevent drift. Each successful batch flush must leave an importable prefix.
+to prevent drift. Each successful uncompressed batch flush must leave an importable prefix.
 Invalid input must not advance writer state; an I/O-poisoned writer is not
 resumable. Converter diagnostics go to stderr and failures return nonzero;
 stdout may already contain a partial trace.
+
+Optional gzip belongs exclusively to the exporter, using system zlib behind the
+private implementation. Keep one deflate dictionary across batches, feed bounded
+input chunks, and drain output into fixed scratch storage. Do not sync-flush each
+cycle: the native reader requires a final gzip footer anyway. `finish()` writes
+that footer, flushes and checks output, and is idempotent; a write after finishing
+is invalid. Destructors release zlib state without hiding finalization failures.
+Constructor, batch-write, and finalization failures must release resources, and
+any compression/I/O failure poisons the writer. Raw mode retains importable
+per-batch prefixes; gzip mode requires explicit finalization before native import.
+Compare decompressed live/replay bytes, not their compression block boundaries.
 
 ## Instruction decoder
 
@@ -149,6 +160,7 @@ No Python package, launcher, or RPC server participates in these tests.
 | Native display | One-cycle durations, fractional periods, N+1 overflow, track hierarchy/order, repeated labels without thread association, flow attachment, metadata even in empty traces and no parser errors |
 | Disassembly | RV32/RV64, compressed/FP/CSR instructions, PC-relative targets and wraparound, `auipc`, unknown fallbacks, explicit aliases, ordinary fields named instruction, multi-instruction fallback and live/replay parity |
 | Failure handling | Strict JSON rejection, invalid batches, poisoned output streams, nonzero converter errors and empty/malformed inputs |
+| Compression | Gzip round-trip equality, live/replay import, multi-buffer incremental output, empty traces/batches, finalization and poisoned write/footer failures |
 
 Use the real native importer for wire-format changes, not just a matching local
 decoder. After ABI or descriptor changes, run the
