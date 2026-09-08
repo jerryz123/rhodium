@@ -178,6 +178,31 @@ PAS/SnoopMe and retry-attempt fields remain maintenance-owned. Run the message,
 inclusive-Home, both maintenance-Home, and cache-maintenance fixtures for these
 builders; consumer benches compare full packets, not only payloads.
 
+HN-I forwarding also lives in `protocol/messages.rhdl`: immutable REQ/RSP/DAT
+updates retain all untouched metadata, including optional fields. HN-I keeps
+its own return routing and DBID translation policy rather than inheriting
+HN-F field clearing. Historical transaction-module exports remain aliases;
+production message consumers import the owner directly.
+
+Bounded capability predicates belong beside `CHIChannelCapabilities` in
+`protocol/link.rhdl`; requester and subordinate non-coherent checks use the
+same channel sets with reversed directions. These describe supported subsets,
+not selectable monitor profiles. Coverage attachment and checker state remain
+in `transactions/`. Home configuration must not import a checker just to
+validate capabilities.
+
+Home and subordinate maps share a private decode helper in
+`protocol/fabric.rhdl`, but retain distinct service validation and nominal
+result types. Preserve zero NodeID on misses, including a valid hit on NodeID
+zero; construction still rejects overlapping regions. `chi-foundation`
+sweeps both hardware maps over region boundaries and sparse holes.
+
+Bank geometry belongs to `StripedAddressLayout` in
+`rhodium/std/interconnect.rhdl`. Inclusive Homes and SoCs use it directly.
+`CHIAddressProjectorConfig` retains its existing constructor as a CHI-width
+validation wrapper with a `layout` property; the adapter owns native-channel
+forwarding and runtime base translation, not stripe arithmetic.
+
 Service opcode/encoded-Size matching belongs to `CHIRequestSupport.matches`
 in `protocol/fabric.rhdl`. HN-I retains address-map matching; HN-F retains opcode
 translation, runtime service base, and maintenance exceptions. Do not conflate

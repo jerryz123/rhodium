@@ -98,9 +98,9 @@ imports of named SoCs from shared components.
 
 Tiled LLC subordinate ports share the existing CHI fabric with requester and
 device traffic. Compile one `CHISNConnection` from each Home to the single
-memory site, preserving global addresses and Home source IDs. The address
-projector remains only the LLC indexing/ownership description, not a downstream
-RTL adapter. The external service owns transfer support; the simulator derives
+memory site, preserving global addresses and Home source IDs. The generic
+`StripedAddressLayout` supplies LLC indexing and ownership without a CHI address
+projector dependency or downstream RTL adapter. The external service owns transfer support; the simulator derives
 its DPI memory configuration from that service and the architectural capacity.
 
 Run SoC configuration and topology-compilation tests from the repository root:

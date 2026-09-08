@@ -4,7 +4,22 @@
 import:
   "../main.rhdl" as chi
   "../transactions/transaction.rhdl" as transaction
+  "../protocol/link.rhdl" as link
   "transaction-fixture.rhdl" as fixture
+
+// The lower-level predicates retain requester/subordinate duality, including
+// empty and unsupported capability sets; no monitor elaboration is required.
+for (requests in [[], [chi.CHIReqOpcode.ReadNoSnp], [chi.CHIReqOpcode.ReadShared]]):
+  for (responses in [[], [chi.CHIRspOpcode.Comp], [chi.CHIRspOpcode.RetryAck]]):
+    def emitted = chi.CHIChannelCapabilities(~req: requests)
+    def received = chi.CHIChannelCapabilities(~rsp: responses)
+    check:
+      link.chi_initial_requester_capabilities(emitted, received) ~is (
+        requests == [chi.CHIReqOpcode.ReadNoSnp] && responses != [chi.CHIRspOpcode.RetryAck]
+      )
+      link.chi_initial_subordinate_capabilities(received, emitted) ~is (
+        link.chi_initial_requester_capabilities(emitted, received)
+      )
 
 check:
   fixture.transaction_rni_node.max_outstanding ~is 2

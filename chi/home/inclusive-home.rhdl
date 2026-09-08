@@ -14,10 +14,10 @@ import:
   lib("chi/home/home-common.rhdl") open
   lib("chi/home/home-snoop-targets.rhdl").CHIHomeSnoopTargets
   lib("chi/protocol/messages.rhdl") open
-  lib("chi/adapters/address-projector.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
 
 class CHIInclusiveHNFConfig(home :: CHIHNFConfig,
-                            addressing :: CHIAddressProjectorConfig,
+                            addressing :: StripedAddressLayout,
                             sets :: Pow2Int,
                             ways :: PosInt):
   implements StableCircuitParam
@@ -29,15 +29,15 @@ class CHIInclusiveHNFConfig(home :: CHIHNFConfig,
   property capacity_bytes :: PosInt: line_count * 64
 
   constructor (home :: CHIHNFConfig,
-               addressing :: CHIAddressProjectorConfig,
+               addressing :: StripedAddressLayout,
                ~sets: sets :: Pow2Int,
                ~ways: ways :: PosInt):
     unless sets >= 2
     | error(~who: #'CHIInclusiveHNFConfig,
             "set count must be a power of two of at least two")
-    unless addressing.flit == home.flit
+    unless addressing.fits_unsigned_width(home.flit.request_address_width)
     | error(~who: #'CHIInclusiveHNFConfig,
-            "cache addressing must use the Home's CHI flit parameters")
+            "cache addressing must fit the Home's address width")
     unless addressing.global_mask == home.service_mask
     | error(~who: #'CHIInclusiveHNFConfig,
             "cache addressing must describe the Home's service mask")
@@ -278,11 +278,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(requester.requester_responses.bits.src_id === request.src_id,
            "chi_inclusive_hnf_comp_ack_source")
 
-  def cache_address_identity = CHIAddressProjectorIdentity(p):
-    global_service_base: identity.service_base
-    local_base: bits(0, p.request_address_width)
-  def request_cache_address = chi_projected_address(config.addressing, cache_address_identity, request.address)
-  def incoming_cache_address = chi_projected_address(config.addressing, cache_address_identity, incoming_request.address)
+  def request_cache_address = config.addressing.project_offset(request.address - identity.service_base)
+  def incoming_cache_address = config.addressing.project_offset(incoming_request.address - identity.service_base)
   def request_set = request_cache_address[offset_width..(offset_width + set_width)]
   def request_line_address = request.address[offset_width..p.request_address_width]
   def request_write = chi_hnf_subordinate_opcode(request.opcode).is_initial_write()

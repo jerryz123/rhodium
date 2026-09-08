@@ -2,11 +2,11 @@
 // Elaborates a small inclusive HN-F with partial requester-write and snoop-data capabilities.
 
 import:
+  lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
   lib("chi/main.rhdl") open
   "coherent-home-fixture.rhdl" as base
 
-def inclusive_home_addressing = CHIAddressProjectorConfig(
-  base.coherent_home_config.flit,
+def inclusive_home_addressing = StripedAddressLayout(
   0x04000000,
   64,
   4

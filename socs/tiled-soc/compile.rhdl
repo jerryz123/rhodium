@@ -11,7 +11,7 @@ import:
   lib("chi/noc/noc-adapter.rhdl") open
   lib("chi/noc/noc-router.rhdl") open
   lib("chi/protocol/fabric.rhdl") open
-  lib("chi/adapters/address-projector.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
   lib("chi/home/home.rhdl").CHIHNIParams
   lib("chi/home/home-common.rhdl") open
   lib("chi/home/inclusive-home.rhdl").CHIInclusiveHNFConfig
@@ -149,7 +149,7 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
                              flit :: CHIFlitParams,
                              home_map :: CHIHomeMap,
                              rv5stage_config :: RV5StageCHIConfig,
-                             projector_config :: CHIAddressProjectorConfig,
+                             address_layout :: StripedAddressLayout,
                              hnf_config :: CHIHNFConfig,
                              llc_config :: CHIInclusiveHNFConfig,
                              platform :: SoCPlatformParams,
@@ -372,8 +372,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def host_node = soc_host_node(host_placement.node_id)
   def host_port = host_node.icn_peer()
 
-  def projector_config = CHIAddressProjectorConfig(
-    flit,
+  def address_layout = StripedAddressLayout(
     memory.size_bytes / llc_placements.length(),
     memory.stripe_bytes,
     llc_placements.length()
@@ -395,14 +394,14 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                home in homes):
        RV5StageCHIRegion(
          RiscvPhysicalMemoryRegion(
-           projector_config.address_set(memory.base, placement.slice_index),
+           address_layout.address_set(memory.base, placement.slice_index),
            memory_attributes
          ),
          home
        )) ++ platform.regions
   )
   unless for any (placement in llc_placements):
-    projector_config.address_set(memory.base, placement.slice_index).contains(config.boot.payload_address)
+    address_layout.address_set(memory.base, placement.slice_index).contains(config.boot.payload_address)
   | error(~who: #'compile_tiled_soc, "BootROM payload address must lie in normal memory")
 
   def rv5stage_chi_params:
@@ -437,15 +436,15 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def hnf_config = CHIHNFConfig(
     flit,
     requester_ports,
-    projector_config.global_mask,
+    address_layout.global_mask,
     memory_service.requests
   )
   def hnf_params:
     for List (home in homes, placement in llc_placements):
-      CHIHNFParams(home, hnf_config, CHISubordinateServiceParams(memory_service.endpoint, [projector_config.address_set(memory.base, placement.slice_index)], memory_service.requests))
+      CHIHNFParams(home, hnf_config, CHISubordinateServiceParams(memory_service.endpoint, [address_layout.address_set(memory.base, placement.slice_index)], memory_service.requests))
   def llc_config = CHIInclusiveHNFConfig(
     hnf_config,
-    projector_config,
+    address_layout,
     ~sets: config.llc.sets,
     ~ways: config.llc.ways
   )
@@ -585,7 +584,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       LLCTileInstance(placement,
                       home,
                       llc_config,
-                      projector_config.address_set(memory.base, placement.slice_index),
+                      address_layout.address_set(memory.base, placement.slice_index),
                       llc_tile_params)
   def memory_instance = MemoryTileInstance(memory_placement, memory_node, memory_service, memory_router_params)
   def host = HostTileInstance(host_placement, host_node, host_port, host_tile_params)
@@ -610,7 +609,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     flit,
     rv5stage_config.home_map,
     rv5stage_config,
-    projector_config,
+    address_layout,
     hnf_config,
     llc_config,
     platform,

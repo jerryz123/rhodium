@@ -363,6 +363,19 @@ sets and returns false for an empty list. `allocate_id_ranges` assigns exact con
 global ranges to a nonempty list of local ranges and returns reversible
 `IdRangeMap` records without requiring the local ranges to begin at zero.
 
+`StripedAddressLayout(local_bytes, stripe_bytes, bank_count)` describes equal
+power-of-two banks interleaved at a power-of-two byte granularity. Stripes must
+fit within a bank. Its `total_bytes`, `bank_mask`, and `global_mask` properties
+describe the layout; `fits_unsigned_width(width)` checks its relative extent.
+`address_set(global_base, bank_index)` requires an aligned global base and an
+in-range bank index and returns that bank's sparse address set.
+`project(address, global_base, bank_index, ~local_base: 0)` checks membership
+and returns a dense host address. `project_offset(relative)` removes bank bits
+from a hardware `Bits` offset, retaining its width; it checks the layout fits
+that width but does not check runtime membership. Callers own base translation
+and address acceptance. A single bank is an identity projection. None of these
+operations adds storage, a handshake, or protocol policy.
+
 ## Data paths and storage
 
 ### Bit-vector utilities

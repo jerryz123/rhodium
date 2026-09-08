@@ -9,7 +9,7 @@ import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
-  lib("chi/transactions/transaction.rhdl") open
+  lib("chi/protocol/messages.rhdl") open
   lib("chi/protocol/link.rhdl") open
   lib("chi/protocol/channels.rhdl").CHIHNIChannels
   lib("chi/protocol/fabric.rhdl") open

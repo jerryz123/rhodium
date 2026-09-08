@@ -10,7 +10,6 @@ import:
   lib("chi/protocol/link.rhdl") open
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/protocol/fabric.rhdl") open
-  lib("chi/adapters/address-projector.rhdl").CHIAddressProjectorConfig
   lib("chi/home/inclusive-home.rhdl") open
   lib("cores/rv5stage/profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
@@ -65,10 +64,7 @@ class SimpleSoCParams(fabric :: SingleCoreSystemParams,
 
   property llc_config:
     CHIInclusiveHNFConfig(fabric.home_config,
-                          CHIAddressProjectorConfig(fabric.flit,
-                                                    fabric.memory_bytes,
-                                                    64,
-                                                    1),
+                          StripedAddressLayout(fabric.memory_bytes, 64, 1),
                           ~sets: llc_sets,
                           ~ways: llc_ways)
   property description:

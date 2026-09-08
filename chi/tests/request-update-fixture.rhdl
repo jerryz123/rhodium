@@ -1,7 +1,8 @@
 #lang rhodium
-// Exercises CHI address projection with every optional REQ field present.
+// Exercises generic stripe geometry and CHI address projection with every optional REQ field present.
 
 import:
+  lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/adapters/address-projector.rhdl") open
@@ -11,6 +12,15 @@ def p = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52,
                       ~stream_id_width: 16, ~sec_sid_width: 1)
 
 circuit CHIRequestUpdateFixture():
+  input offset: Bits(12)
+  output dense_single: Bits(12)
+  output dense_four: Bits(12)
+  output dense_byte: Bits(12)
+  output dense_stripe_only: Bits(12)
+  dense_single <== StripedAddressLayout(4096, 64, 1).project_offset(offset)
+  dense_four <== StripedAddressLayout(1024, 64, 4).project_offset(offset)
+  dense_byte <== StripedAddressLayout(1024, 1, 4).project_offset(offset)
+  dense_stripe_only <== StripedAddressLayout(1024, 1024, 4).project_offset(offset)
   input source: CHIReqFlit(p)
   input valid: Bool
   input ready: Bool

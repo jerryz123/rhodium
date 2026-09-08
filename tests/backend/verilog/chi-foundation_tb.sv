@@ -1,5 +1,7 @@
-// Checks CHI flit pass-through, protocol classification, and opcode/Size service matching.
+// Checks CHI flits, opcode/Size service matching, and complete hit/miss results from both address maps.
 module chi_foundation_tb;
+  logic [43:0] map_address;
+  logic [7:0] home_lookup, subordinate_lookup;
   logic [136:0] req;
   logic [70:0] rsp;
   logic [93:0] snp;
@@ -34,6 +36,19 @@ module chi_foundation_tb;
   CHIFoundationFixture dut (.*);
 
   initial begin
+    for (int addr = 0; addr < 'h3000; addr++) begin
+      bit hit;
+      int target;
+      hit = (addr >= 'h1000 && addr < 'h1100) ||
+            (addr >= 'h2000 && addr < 'h2040) ||
+            (addr >= 'h2080 && addr < 'h20c0);
+      target = (addr >= 'h2000 && addr < 'h2040) ? 3 :
+               (addr >= 'h2080 && addr < 'h20c0) ? 6 : 0;
+      map_address = 44'(addr);
+      #1;
+      assert(home_lookup == {hit, 7'(target)} && subordinate_lookup == {hit, 7'(target)})
+        else $fatal(1, "Home/subordinate map decode mismatch at %h", addr);
+    end
     // Every opcode and encoded Size, including the reserved Size encoding.
     for (int op = 0; op < 128; op++) begin
       for (int sz = 0; sz < 8; sz++) begin

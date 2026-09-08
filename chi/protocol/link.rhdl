@@ -54,6 +54,54 @@ class CHIChannelCapabilities(~req: req :: List.of(CHIReqOpcode) = [],
       def opcode_literal :: HardwareLiteral = opcode
       opcode_literal.packed_value() == dvm_opcode.packed_value()
 
+fun chi_initial_requester_capabilities(emitted :: CHIChannelCapabilities,
+                                       received :: CHIChannelCapabilities):
+  def allowed_emitted = CHIChannelCapabilities(
+    ~req: [CHIReqOpcode.ReadNoSnp,
+           CHIReqOpcode.WriteNoSnpFull,
+           CHIReqOpcode.WriteNoSnpPtl],
+    ~dat: [CHIDatOpcode.NonCopyBackWriteData]
+  )
+  def allowed_received = CHIChannelCapabilities(
+    ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+    ~dat: [CHIDatOpcode.CompData]
+  )
+  emitted.req.length() > 0 && allowed_emitted.contains_all(emitted) && allowed_received.contains_all(received)
+
+fun chi_initial_subordinate_capabilities(emitted :: CHIChannelCapabilities,
+                                         received :: CHIChannelCapabilities):
+  chi_initial_requester_capabilities(received, emitted)
+
+// Classifies the bounded coherent-read/snoop capability subset shared by
+// endpoint validation and opt-in transaction coverage. This emits no monitor.
+fun chi_initial_coherent_requester_capabilities(
+    emitted :: CHIChannelCapabilities,
+    received :: CHIChannelCapabilities):
+  def allowed_emitted = CHIChannelCapabilities(
+    ~req: [CHIReqOpcode.ReadShared,
+           CHIReqOpcode.ReadClean,
+           CHIReqOpcode.ReadUnique],
+    ~rsp: [CHIRspOpcode.CompAck,
+           CHIRspOpcode.SnpResp,
+           CHIRspOpcode.SnpRespFwded],
+    ~dat: [CHIDatOpcode.SnpRespData,
+           CHIDatOpcode.SnpRespDataPtl,
+           CHIDatOpcode.SnpRespDataFwded,
+           CHIDatOpcode.CompData]
+  )
+  // CompData is optional, while every ordinary RN-F snoop operation is
+  // required below.
+  def allowed_received = CHIChannelCapabilities(
+    ~snp: chi_rnf_snoop_opcodes,
+    ~dat: [CHIDatOpcode.CompData]
+  )
+  def required_received = CHIChannelCapabilities(~snp: chi_rnf_snoop_opcodes)
+  emitted.req.length() > 0 && emitted.rsp.contains(CHIRspOpcode.CompAck) && (
+    emitted.rsp.contains(CHIRspOpcode.SnpResp)
+  ) && allowed_emitted.contains_all(emitted) && allowed_received.contains_all(
+    received
+  ) && received.contains_all(required_received)
+
 fun validate_endpoint_capabilities(kind :: CHINodeKind,
                                    emits :: CHIChannelCapabilities,
                                    supports :: CHIChannelCapabilities,
@@ -346,6 +394,9 @@ interface CHISNLink(link :: CHISNLinkParams,
 
 
 export:
+  chi_initial_requester_capabilities
+  chi_initial_subordinate_capabilities
+  chi_initial_coherent_requester_capabilities
   endpoint_pair_legal
   CHINodeKind
   CHIEndpointParams

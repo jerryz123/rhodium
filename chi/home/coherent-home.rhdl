@@ -9,7 +9,6 @@ import:
   lib("chi/protocol/protocol.rhdl") open
   lib("chi/protocol/messages.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
-  lib("chi/transactions/transaction.rhdl").chi_hni_downstream_write_data
   lib("chi/protocol/channels.rhdl") open
   lib("chi/home/home-common.rhdl") open
   lib("chi/home/home-snoop-targets.rhdl").CHIHomeSnoopTargets

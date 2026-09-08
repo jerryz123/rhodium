@@ -70,7 +70,7 @@ check:
   compiled.rv5stages[0].tile_params.hart_count ~is 8
   compiled.llcs[0].tile_params.home === compiled.llc_config ~is #true
   compiled.llc_config.home === compiled.hnf_config ~is #true
-  compiled.llc_config.addressing === compiled.projector_config ~is #true
+  compiled.llc_config.addressing === compiled.address_layout ~is #true
   compiled.llc_config.sets ~is 16
   compiled.llc_config.ways ~is 4
 

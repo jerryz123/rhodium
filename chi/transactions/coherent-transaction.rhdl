@@ -7,7 +7,7 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
-  lib("chi/protocol/link.rhdl").CHIChannelCapabilities
+  lib("chi/protocol/link.rhdl").chi_initial_coherent_requester_capabilities
 
 hardware_enum CHICoherentReadPhase(~width: 2):
   Free = 0
@@ -32,37 +32,6 @@ bundle CHISnoopTransaction(p :: CHIFlitParams):
   forward_id: Bits(p.node_id_width)
   response_seen: Bool
   forward_data_seen: Bool
-
-// Selects the deliberately bounded coherent requester profile. It monitors
-// complete ReadShared/ReadClean packet sets and every snoop opcode while
-// rejecting transaction classes whose lifetimes this checker does not track.
-fun chi_initial_coherent_requester_capabilities(
-    emitted :: CHIChannelCapabilities,
-    received :: CHIChannelCapabilities):
-  def allowed_emitted = CHIChannelCapabilities(
-    ~req: [CHIReqOpcode.ReadShared,
-           CHIReqOpcode.ReadClean,
-           CHIReqOpcode.ReadUnique],
-    ~rsp: [CHIRspOpcode.CompAck,
-           CHIRspOpcode.SnpResp,
-           CHIRspOpcode.SnpRespFwded],
-    ~dat: [CHIDatOpcode.SnpRespData,
-           CHIDatOpcode.SnpRespDataPtl,
-           CHIDatOpcode.SnpRespDataFwded,
-           CHIDatOpcode.CompData]
-  )
-  // CompData is optional, while every ordinary RN-F snoop operation is
-  // required below.
-  def allowed_received = CHIChannelCapabilities(
-    ~snp: chi_rnf_snoop_opcodes,
-    ~dat: [CHIDatOpcode.CompData]
-  )
-  def required_received = CHIChannelCapabilities(~snp: chi_rnf_snoop_opcodes)
-  emitted.req.length() > 0 && emitted.rsp.contains(CHIRspOpcode.CompAck) && (
-    emitted.rsp.contains(CHIRspOpcode.SnpResp)
-  ) && allowed_emitted.contains_all(emitted) && allowed_received.contains_all(
-    received
-  ) && received.contains_all(required_received)
 
 fun coherent_single_data_fields(data_id :: Bits(2),
                                 num_dat :: Bits(2),

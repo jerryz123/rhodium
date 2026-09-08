@@ -5,41 +5,31 @@ import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl").map_flow
-  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("rhodium/std/interconnect.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/protocol/fabric.rhdl") open
 
+// Compatibility configuration: CHI width validation wraps protocol-neutral geometry.
 class CHIAddressProjectorConfig(flit :: CHIFlitParams,
-                                local_bytes :: Pow2Int,
-                                stripe_bytes :: Pow2Int,
-                                bank_count :: Pow2Int):
+                                layout :: StripedAddressLayout):
   implements StableCircuitParam
 
-  property total_bytes: local_bytes * bank_count
-  property bank_mask: (bank_count - 1) * stripe_bytes
-  property global_mask: total_bytes - 1 - bank_mask
+  property local_bytes: layout.local_bytes
+  property stripe_bytes: layout.stripe_bytes
+  property bank_count: layout.bank_count
+  property total_bytes: layout.total_bytes
+  property bank_mask: layout.bank_mask
+  property global_mask: layout.global_mask
 
-  constructor (flit :: CHIFlitParams,
-               local_bytes :: Pow2Int,
-               stripe_bytes :: Pow2Int,
-               bank_count :: Pow2Int):
-    unless stripe_bytes <= local_bytes
-    | error(~who: #'CHIAddressProjectorConfig,
-            "stripe size must not exceed the local memory size")
-    unless bits.length((local_bytes * bank_count) - 1) <= flit.request_address_width
-    | error(~who: #'CHIAddressProjectorConfig,
-            "striped memory size must fit the request address width")
-    super(flit, local_bytes, stripe_bytes, bank_count)
+  constructor (flit :: CHIFlitParams, local_bytes :: Pow2Int, stripe_bytes :: Pow2Int, bank_count :: Pow2Int):
+    def layout = StripedAddressLayout(local_bytes, stripe_bytes, bank_count)
+    unless layout.fits_unsigned_width(flit.request_address_width)
+    | error(~who: #'CHIAddressProjectorConfig, "striped memory size must fit the request address width")
+    super(flit, layout)
 
   method address_set(global_base :: Nat, bank_index :: Nat):
-    unless global_base mod total_bytes == 0
-    | error(~who: #'CHIAddressProjectorConfig,
-            "global base must be aligned to the total striped memory size")
-    unless bank_index < bank_count
-    | error(~who: #'CHIAddressProjectorConfig,
-            "bank index must be less than the bank count")
-    AddressSet(global_base + (bank_index * stripe_bytes), global_mask)
+    layout.address_set(global_base, bank_index)
 
 class CHIAddressProjectorParams(config :: CHIAddressProjectorConfig,
                                 downstream_service :: CHISubordinateServiceParams,
@@ -73,18 +63,7 @@ class CHIAddressProjectorParams(config :: CHIAddressProjectorConfig,
     super(config, downstream_service, global_base, bank_index)
 
   method project(address :: Nat):
-    unless global_address_set.contains(address)
-    | error(~who: #'CHIAddressProjectorParams,
-            "address is outside this bank's global stripe")
-    def relative = address - global_address_set.base
-    def row = relative >> (
-      alignment_bits(config.stripe_bytes) + alignment_bits(config.bank_count)
-    )
-    local_address_set.base + (
-      row * config.stripe_bytes
-    ) + (
-      relative bits.and (config.stripe_bytes - 1)
-    )
+    config.layout.project(address, global_base, bank_index, ~local_base: local_address_set.base)
 
 bundle CHIAddressProjectorIdentity(p :: CHIFlitParams):
   global_service_base: Bits(p.request_address_width)
@@ -94,18 +73,7 @@ fun chi_projected_address(config :: CHIAddressProjectorConfig,
                           identity :: CHIAddressProjectorIdentity(config.flit),
                           address :: Bits(config.flit.request_address_width))
   :~ Bits(config.flit.request_address_width):
-  def p = config.flit
-  def stripe_width = alignment_bits(config.stripe_bytes)
-  def bank_width = alignment_bits(config.bank_count)
-  def relative :: Bits(p.request_address_width) = address - identity.global_service_base
-  if config.bank_count == 1
-  | identity.local_base + relative
-  | block:
-      def local_offset = (
-        relative[(stripe_width + bank_width)..p.request_address_width]
-          ++ relative[0..stripe_width]
-      )
-      identity.local_base + local_offset.zext(p.request_address_width)
+  identity.local_base + config.layout.project_offset(address - identity.global_service_base)
 
 circuit CHIAddressProjector(config :: CHIAddressProjectorConfig):
   def p = config.flit

@@ -11,7 +11,14 @@ module chi_messages_tb;
   logic [4:0] other_dbid;
   logic [1:0] other_data_id;
   logic [127:0] other_data;
-  CHIMessageFixture dut(.request(request), .node_id(node_id), .dbid(dbid), .data_id(data_id), .data(data),
+  CHIMessageFixture dut(.other_hni_req(), .other_hni_rsp(), .other_hni_write(), .other_hni_read(), .hni_req_w128(),
+                        .hni_rsp_w128(), .hni_write_w128(), .hni_read_w128(), .original_rsp_w128(), .hni_req_h128(),
+                        .hni_rsp_h128(), .hni_write_h128(), .hni_read_h128(), .original_rsp_h128(), .hni_req_w256(),
+                        .hni_rsp_w256(), .hni_write_w256(), .hni_read_w256(), .original_rsp_w256(), .hni_req_h256(),
+                        .hni_rsp_h256(), .hni_write_h256(), .hni_read_h256(), .original_rsp_h256(), .hni_req_w512(),
+                        .hni_rsp_w512(), .hni_write_w512(), .hni_read_w512(), .original_rsp_w512(), .hni_req_h512(),
+                        .hni_rsp_h512(), .hni_write_h512(), .hni_read_h512(), .original_rsp_h512(),
+                       .request(request), .node_id(node_id), .dbid(dbid), .data_id(data_id), .data(data),
                         .home_request_bits(home_request_bits), .home_data_bits(home_data_bits),
                         .original_req_w128(), .original_dat_w128(), .downstream_w128(), .write_w128(), .upstream_w128(),
                         .requester_write_w128(), .snoop_w128(), .intervention_w128(),
@@ -61,6 +68,50 @@ module chi_messages_tb;
            dut.PORT.dbid_or_mecid, dut.PORT.c_busy, dut.PORT.data_pull, \
            dut.PORT.data_source_or_fwd_state, dut.PORT.resp, dut.PORT.resp_err} == '0) \
     else $fatal(1, "read defaults mismatch: %s", `"PORT`");
+
+`define CHECK_HNI(P, REQ_PORT, RSP_PORT, WRITE_PORT, READ_PORT, ORIGINAL_REQ, ORIGINAL_RSP, HOME, TARGET, SLOT, TXN, QOS, WRITE_HOME, DATAID) \
+  begin \
+    type(dut.original_req_``P) expected_req; \
+    type(dut.original_rsp_``P) expected_rsp; \
+    type(dut.original_dat_``P) expected_dat; \
+    expected_req = ORIGINAL_REQ; \
+    expected_req.exp_comp_ack = 0; \
+    expected_req.snp_attr_or_do_dwt = 0; \
+    expected_req.pcrd_type = 0; \
+    expected_req.order = 0; \
+    expected_req.allow_retry = 0; \
+    expected_req.multi_req = 0; \
+    expected_req.return_txn_id_or_stash_lpid = 12'(SLOT); \
+    expected_req.stash_nid_valid_endian_deep_prefetch_tgt_hint = 0; \
+    expected_req.return_nid_or_stash_nid_or_data_target = HOME; \
+    expected_req.txn_id = 12'(SLOT); \
+    expected_req.src_id = HOME; \
+    expected_req.tgt_id = TARGET; \
+    assert(dut.REQ_PORT === expected_req) else $fatal(1, "HNI REQ metadata"); \
+    expected_rsp = ORIGINAL_RSP; \
+    expected_rsp.pcrd_type = 0; \
+    expected_rsp.dbid_or_group_id = 12'(SLOT); \
+    expected_rsp.txn_id = TXN; \
+    expected_rsp.src_id = HOME; \
+    expected_rsp.tgt_id = TARGET; \
+    expected_rsp.qos = QOS; \
+    assert(dut.RSP_PORT === expected_rsp) else $fatal(1, "HNI RSP metadata"); \
+    expected_dat = dut.original_dat_``P; \
+    expected_dat.data_id = DATAID; \
+    expected_dat.home_nid_or_pbha_or_mismatched_mecid = WRITE_HOME; \
+    expected_dat.txn_id = TXN; \
+    expected_dat.src_id = WRITE_HOME; \
+    expected_dat.tgt_id = TARGET; \
+    expected_dat.qos = QOS; \
+    assert(dut.WRITE_PORT === expected_dat) else $fatal(1, "HNI write DAT metadata"); \
+    expected_dat = dut.original_dat_``P; \
+    expected_dat.home_nid_or_pbha_or_mismatched_mecid = HOME; \
+    expected_dat.txn_id = TXN; \
+    expected_dat.src_id = HOME; \
+    expected_dat.tgt_id = TARGET; \
+    expected_dat.qos = QOS; \
+    assert(dut.READ_PORT === expected_dat) else $fatal(1, "HNI read DAT metadata"); \
+  end
 
 `define CHECK_HOME(P) \
   begin \
@@ -172,6 +223,13 @@ module chi_messages_tb;
         for (int b = 0; b < 512; b += 32) home_request_bits[b +: 32] = $urandom;
         for (int b = 0; b < 1024; b += 32) home_data_bits[b +: 32] = $urandom;
         #1;
+        `CHECK_HNI(w128, hni_req_w128, hni_rsp_w128, hni_write_w128, hni_read_w128, dut.original_req_w128, dut.original_rsp_w128, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)
+        `CHECK_HNI(h128, hni_req_h128, hni_rsp_h128, hni_write_h128, hni_read_h128, dut.original_req_h128, dut.original_rsp_h128, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)
+        `CHECK_HNI(w256, hni_req_w256, hni_rsp_w256, hni_write_w256, hni_read_w256, dut.original_req_w256, dut.original_rsp_w256, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)
+        `CHECK_HNI(h256, hni_req_h256, hni_rsp_h256, hni_write_h256, hni_read_h256, dut.original_req_h256, dut.original_rsp_h256, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)
+        `CHECK_HNI(w512, hni_req_w512, hni_rsp_w512, hni_write_w512, hni_read_w512, dut.original_req_w512, dut.original_rsp_w512, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)
+        `CHECK_HNI(h512, hni_req_h512, hni_rsp_h512, hni_write_h512, hni_read_h512, dut.original_req_h512, dut.original_rsp_h512, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)
+        `CHECK_HNI(w128, other_hni_req, other_hni_rsp, other_hni_write, other_hni_read, other_request, ~dut.original_rsp_w128, 16'd42, node_id, other_dbid, request.txn_id, request.qos, other_node_id, data_id)
         `CHECK_HOME(w128)
         `CHECK_HOME(h128)
         `CHECK_HOME(w256)
@@ -200,5 +258,6 @@ module chi_messages_tb;
   end
 `undef CHECK_RSP
 `undef CHECK_DAT
+`undef CHECK_HNI
 `undef CHECK_HOME
 endmodule

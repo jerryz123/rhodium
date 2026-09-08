@@ -481,6 +481,13 @@ capabilities, and service opcode coverage when constructed, before circuit
 elaboration. Constructing an invalid parameter object raises an error even if
 no Home circuit is instantiated.
 
+`CHIInclusiveHNFConfig` takes a protocol-neutral `StripedAddressLayout` from
+[`rhodium/std/interconnect.rhdl`](../rhodium/std/README.md#generic-interconnect-parameters)
+for LLC indexing and sparse service ownership. It does not require an address
+adapter. `CHIAddressProjectorConfig(flit, local_bytes, stripe_bytes, bank_count)`
+remains available for actual CHI boundary projection and exposes the same
+generic geometry through `.layout`.
+
 `CHIHNI` accepts a shared requester channel that retains source NodeID and a
 `CHISubordinateMap` that may select multiple SN-Is. It allocates a Home-owned
 slot, translates the two transaction-ID namespaces, restores read ReturnTxnID

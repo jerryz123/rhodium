@@ -19,6 +19,29 @@ def allocated = interconnect.allocate_id_ranges([
 ])
 def match_module = fixture.design.modules[0]
 
+// Compare striped ownership and dense projection against byte arithmetic.
+for (banks in [1, 2, 4, 8]):
+  for (stripe in [1, 16, 64, 256]):
+    def layout = interconnect.StripedAddressLayout(256, stripe, banks)
+    check:
+      layout.total_bytes ~is 256 * banks
+      layout.fits_unsigned_width(11) ~is #true
+      layout.fits_unsigned_width(7) ~is #false
+    for (offset in 0..layout.total_bytes):
+      def bank = (offset div stripe) mod banks
+      def dense = (offset div (stripe * banks)) * stripe + (offset mod stripe)
+      check:
+        layout.address_set(0x8000, bank).contains(0x8000 + offset) ~is #true
+        layout.project(0x8000 + offset, 0x8000, bank, ~local_base: 0x1000) ~is 0x1000 + dense
+
+check:
+  interconnect.StripedAddressLayout(64, 128, 2) ~throws "must not exceed"
+  interconnect.StripedAddressLayout(256, 64, 3) ~throws "Pow2Int"
+  interconnect.StripedAddressLayout(256, 64, 4).address_set(64, 0) ~throws "aligned"
+  interconnect.StripedAddressLayout(256, 64, 4).address_set(0, 4) ~throws "bank count"
+  interconnect.StripedAddressLayout(256, 64, 4).project(64, 0, 0) ~throws "outside"
+  fixture.projection_design(interconnect.StripedAddressLayout(256, 64, 4), 9) ~throws "must fit the address width"
+
 check:
   ids.start ~is 2
   ids.end ~is 6

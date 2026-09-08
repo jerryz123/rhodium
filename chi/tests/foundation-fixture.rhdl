@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises CHI flit families, protocol classifiers, and hardware service-size matching.
+// Exercises CHI flits, protocol classifiers, service-size matching, and Home/subordinate address decoding.
 
 import:
   lib("chi/main.rhdl") open
@@ -36,6 +36,26 @@ circuit CHIFlitShapeFixture(p :: CHIFlitParams):
   dat_out <== dat
 
 circuit CHIFoundationFixture():
+  input map_address: Bits(params.request_address_width)
+  output home_lookup: CHIHomeLookup(params.node_id_width)
+  output subordinate_lookup: CHISubordinateLookup(params.node_id_width)
+  def supports = [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 64))]
+  def regions = [AddressSet(0x1000, 0xff), AddressSet(0x2000, 0x3f), AddressSet(0x2080, 0x3f)]
+  def homes:
+    for List (index in 0..3):
+      CHIHomeParams("decode-home-" ++ to_string(index), index * 3, CHINodeKind.HNI, ~max_outstanding: 1)
+  def home_map = CHIHomeMap(params, for List (region in regions, home in homes): CHIHomeMapEntry(region, home))
+  def services:
+    for List (region in regions, index in 0..3):
+      CHISubordinateServiceParams(
+        CHIICNPortParams("decode-sn-" ++ to_string(index), index * 3, CHINodeKind.SNI,
+                         ~emits: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadNoSnp]),
+                         ~supports: CHIChannelCapabilities(~dat: [CHIDatOpcode.CompData]),
+                         ~max_outstanding: 1),
+        [region], supports)
+  def subordinate_map = CHISubordinateMap(params, services)
+  home_lookup <== home_map.lookup(map_address)
+  subordinate_lookup <== subordinate_map.lookup(map_address)
   input req: CHIReqFlit(params)
   input rsp: CHIRspFlit(params)
   input snp: CHISnpFlit(params)

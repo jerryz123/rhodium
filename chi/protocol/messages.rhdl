@@ -219,7 +219,79 @@ fun chi_home_snoop_write_request(p :: CHIFlitParams,
     ~qos: request.qos
   )
 
+// Reissues an RN request as an HN-owned subordinate transaction. Initial HN-I
+// traffic returns through the Home Node instead of using direct transfer.
+fun chi_hni_downstream_request(p :: CHIFlitParams,
+                               request :: CHIReqFlit(p),
+                               home_node_id :: Nat,
+                               subordinate_node_id :: Bits(p.node_id_width),
+                               slot :: Bits):
+  request.updated(
+    ~exp_comp_ack: Bool(#false),
+    ~snp_attr_or_do_dwt: Bool(#false),
+    ~pcrd_type: bits(0, 4),
+    ~order: CHIOrder.NoOrder,
+    ~allow_retry: Bool(#false),
+    ~multi_req: Bool(#false),
+    ~return_txn_id_or_stash_lpid: slot.zext(12),
+    ~stash_nid_valid_endian_deep_prefetch_tgt_hint: Bool(#false),
+    ~return_nid_or_stash_nid_or_data_target: bits(home_node_id, p.node_id_width),
+    ~txn_id: slot.zext(12),
+    ~src_id: bits(home_node_id, p.node_id_width),
+    ~tgt_id: subordinate_node_id
+  )
+
+fun chi_hni_upstream_response(p :: CHIFlitParams,
+                              response :: CHIRspFlit(p),
+                              requester_txn_id :: Bits(12),
+                              requester_id :: Bits(p.node_id_width),
+                              requester_qos :: Bits(4),
+                              home_node_id :: Nat,
+                              slot :: Bits):
+  response.updated(
+    ~pcrd_type: bits(0, 4),
+    ~dbid_or_group_id: slot.zext(12),
+    ~txn_id: requester_txn_id,
+    ~src_id: bits(home_node_id, p.node_id_width),
+    ~tgt_id: requester_id,
+    ~qos: requester_qos
+  )
+
+fun chi_hni_downstream_write_data(p :: CHIFlitParams,
+                                  data :: CHIDatFlit(p),
+                                  data_id :: Bits(2),
+                                  requester_qos :: Bits(4),
+                                  home_node_id :: Bits(p.node_id_width),
+                                  subordinate_node_id :: Bits(p.node_id_width),
+                                  subordinate_dbid :: Bits(12)):
+  data.updated(
+    ~data_id: data_id,
+    ~home_nid_or_pbha_or_mismatched_mecid: home_node_id,
+    ~txn_id: subordinate_dbid,
+    ~src_id: home_node_id,
+    ~tgt_id: subordinate_node_id,
+    ~qos: requester_qos
+  )
+
+fun chi_hni_upstream_read_data(p :: CHIFlitParams,
+                               data :: CHIDatFlit(p),
+                               requester_return_txn_id :: Bits(12),
+                               requester_data_target :: Bits(p.node_id_width),
+                               requester_qos :: Bits(4),
+                               home_node_id :: Nat):
+  data.updated(
+    ~home_nid_or_pbha_or_mismatched_mecid: bits(home_node_id, p.node_id_width),
+    ~txn_id: requester_return_txn_id,
+    ~src_id: bits(home_node_id, p.node_id_width),
+    ~tgt_id: requester_data_target,
+    ~qos: requester_qos
+  )
+
 export:
+  chi_hni_downstream_request
+  chi_hni_upstream_response
+  chi_hni_downstream_write_data
+  chi_hni_upstream_read_data
   chi_home_snoop
   chi_home_snoop_write_request
   chi_rn_write_data

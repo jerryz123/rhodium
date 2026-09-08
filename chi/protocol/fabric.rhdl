@@ -120,6 +120,17 @@ class CHISubordinateMapEntry(address_set :: AddressSet,
   property endpoint: service.endpoint
   property target_node_id: service.endpoint.node_id
 
+// Shared decode mechanism; callers retain their nominal result and service contracts.
+// Map construction has already checked disjointness and NodeID/address widths.
+fun chi_map_lookup(address :: Bits, address_sets :: NonemptyList.of(AddressSet), node_ids :: NonemptyList.of(Nat), node_id_width :: PosInt):
+  def mutable valid = Bool(#false)
+  def mutable node_id = bits(0, node_id_width)
+  for (address_set in address_sets, target_node_id in node_ids):
+    def matches = address_set.matches(address)
+    valid := valid ||| matches
+    node_id := mux(matches, bits(target_node_id, node_id_width), node_id)
+  [valid, node_id]
+
 bundle CHISubordinateLookup(node_id_width :: PosInt):
   valid: Bool
   node_id: Bits(node_id_width)
@@ -157,12 +168,7 @@ class CHISubordinateMap(flit :: CHIFlitParams,
 
   method lookup(address :: Bits(flit.request_address_width))
     :~ CHISubordinateLookup(flit.node_id_width):
-    def mutable valid = Bool(#false)
-    def mutable node_id = bits(0, flit.node_id_width)
-    for (entry in entries):
-      def matches = entry.address_set.matches(address)
-      valid := valid ||| matches
-      node_id := mux(matches, bits(entry.target_node_id, flit.node_id_width), node_id)
+    def [valid, node_id] = chi_map_lookup(address, entries.map(fun (entry): entry.address_set), entries.map(fun (entry): entry.target_node_id), flit.node_id_width)
     CHISubordinateLookup(flit.node_id_width):
       valid: valid
       node_id: node_id
@@ -192,12 +198,7 @@ class CHIHomeMap(flit :: CHIFlitParams,
 
   method lookup(address :: Bits(flit.request_address_width))
     :~ CHIHomeLookup(flit.node_id_width):
-    def mutable valid = Bool(#false)
-    def mutable node_id = bits(0, flit.node_id_width)
-    for (entry in entries):
-      def matches = entry.address_set.matches(address)
-      valid := valid ||| matches
-      node_id := mux(matches, bits(entry.target_node_id, flit.node_id_width), node_id)
+    def [valid, node_id] = chi_map_lookup(address, entries.map(fun (entry): entry.address_set), entries.map(fun (entry): entry.target_node_id), flit.node_id_width)
     CHIHomeLookup(flit.node_id_width):
       valid: valid
       node_id: node_id

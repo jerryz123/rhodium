@@ -152,6 +152,14 @@ and bit selection without new IR operations or protocol dependencies. The
 the `expand-mask` backend fixture exhaustively checks bit-to-lane ordering,
 including single-bit and sliced masks and non-byte lane widths.
 
+Striped bank geometry belongs in `interconnect.rhdl`, independently of CHI
+flit parameters. Host projection validates membership; hardware projection
+only removes bank-select bits from a caller-provided relative offset. Host
+`std-interconnect-test.rhm` covers ownership, dense addressing, and rejected
+layouts. The `chi-request-update` behavioral fixture covers single-bank,
+byte-stripe, and whole-bank-stripe projection plus metadata-transparent CHI
+adaptation. CHI adapters and LLCs consume this same geometry.
+
 ## Focused validation
 
 Run Racket and Rhombus through the repository wrapper, which creates the

@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates generic single-set and multiple-set hardware address matching.
+// Supplies generic address matching and parameterized stripe-projection validation fixtures.
 
 import:
   lib("rhodium/std/interconnect.rhdl") open
@@ -18,6 +18,15 @@ circuit AddressSetMatchFixture():
 
 def design = elaborate(AddressSetMatchFixture())
 
+circuit StripedProjectionFixture(layout :: StripedAddressLayout, width :: PosInt):
+  input address: Bits(width)
+  output projected: Bits(width)
+  projected <== layout.project_offset(address)
+
+fun projection_design(layout :: StripedAddressLayout, width :: PosInt):
+  elaborate(StripedProjectionFixture(layout, width))
+
 export:
+  projection_design
   AddressSetMatchFixture
   design
