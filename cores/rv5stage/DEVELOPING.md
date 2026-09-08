@@ -60,9 +60,17 @@ each other; share external transaction machinery through the CHI package.
    caches, Execute, Memory, and WB. Do not collapse speculative flush with
    architectural invalidation.
    Keep integer bypass selection in Decode and register it with the captured
-   operands. Do not qualify forwarding with live MEM fault/replay/kill results;
+   operands. `RV5StageBypassStage` is an exactly-one-hot enum selecting captured
+   register-file data, MEM, or normal WB. Resolve newest-producer priority and
+   the register-file fallback in Decode; EX uses the enum's typed `.mux`.
+   Selectors remain legal during bubbles and are asserted outside token validity.
+   Do not qualify forwarding with live MEM fault/replay/kill results;
    those cancel younger token validity, independently of payload capture.
    Use `ValidPipeAlwaysCapture` for these stage boundaries.
+   EX's WB bypass reads `pipeline_wb.bits.value`, not the retirement-context
+   mux `wb_bits.value`. The `rv5stage-core` emitter guards ALU operand roots
+   against live control or retained contexts, including a positive check for
+   the normal WB value source on both operands.
 5. Test cycle-visible behavior in the narrowest CIRCT/Verilator fixture, then
    the composed core. Do not add an elaboration snapshot for every submodule.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,

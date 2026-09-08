@@ -34,9 +34,13 @@ bundle FetchDecode(xlen :: XLen):
   instruction_access_fault: Bool
   instruction_fault_address: Bits(xlen.width)
 
+hardware_enum RV5StageBypassStage(~encoding: one_hot):
+  RegisterFile
+  Memory
+  Writeback
+
 bundle RV5StageOperand(xlen :: XLen):
-  from_memory: Bool
-  from_writeback: Bool
+  stage_sel: RV5StageBypassStage
   value: Bits(xlen.width)
 
 bundle DecodeExecute(xlen :: XLen):
@@ -135,6 +139,7 @@ bundle MemoryWriteback(xlen :: XLen):
 
 export:
   FetchDecode
+  RV5StageBypassStage
   RV5StageOperand
   DecodeExecute
   RV5StageException

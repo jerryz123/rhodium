@@ -308,9 +308,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def memory_bypass_available = memory.valid & memory.bits.writeback_enable & !deferred_writeback(memory.bits.writeback_source) & (memory.bits.writeback_source =/= WritebackSelect.Csr)
   fun decoded_operand(index :: Bits(5), register_value :: Bits(width)):
     def from_memory = index.or_reduce() & execute_bypass_available & (id_ex.bits.rd === index)
+    def from_writeback = index.or_reduce() & memory_bypass_available & (memory.bits.rd === index)
+    def winner = priority_encoder_oh(from_writeback ++ from_memory)
     RV5StageOperand(xlen):
-      from_memory: from_memory
-      from_writeback: !from_memory & index.or_reduce() & memory_bypass_available & (memory.bits.rd === index)
+      stage_sel: winner.mux([RV5StageBypassStage.Memory, RV5StageBypassStage.Writeback], ~default: RV5StageBypassStage.RegisterFile)
       value: register_value
   fun rv5stage_register_busy(index :: Bits(5)):
     (
@@ -484,16 +485,16 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
 
   // EX uses only registered selectors and data. A killed producer's younger
   // consumer is canceled independently; it does not select an older operand.
+  // The WB selector names the normal pipeline token, not retained retirement context.
   fun forwarded_register_value(operand :: RV5StageOperand(xlen)):
-    mux(
-      operand.from_memory,
-      memory.bits.result,
-      mux(
-        operand.from_writeback,
-        wb_bits.value,
-        operand.value
-      )
-    )
+    def stage_sel :: RV5StageBypassStage = operand.stage_sel
+    stage_sel.mux({
+      RV5StageBypassStage.RegisterFile: operand.value,
+      RV5StageBypassStage.Memory: memory.bits.result,
+      RV5StageBypassStage.Writeback: pipeline_wb.bits.value
+    })
+  assert(enum_valid(id_ex.bits.operand_rs1.stage_sel), "rv5stage_rs1_bypass_stage_is_one_hot")
+  assert(enum_valid(id_ex.bits.operand_rs2.stage_sel), "rv5stage_rs2_bypass_stage_is_one_hot")
   def forwarded_rs1 = forwarded_register_value(id_ex.bits.operand_rs1)
   def forwarded_rs2 = forwarded_register_value(id_ex.bits.operand_rs2)
 
