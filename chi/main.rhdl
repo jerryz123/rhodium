@@ -20,7 +20,8 @@ import:
   lib("chi/monitor.rhdl") open
   lib("chi/fabric.rhdl") open
   lib("chi/subordinate-slots.rhdl") open
-  lib("chi/ram.rhdl") open
+  lib("chi/memory-controller.rhdl") open
+  lib("chi/ram.rhdl").CHIRam
   lib("chi/dpi-memory.rhdl") open
   lib("chi/transfer-fragmenter.rhdl") open
   lib("chi/address-projector.rhdl") open

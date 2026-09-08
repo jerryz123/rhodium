@@ -3,7 +3,7 @@
 
 import:
   lib("flow/main.rhdl") open
-  lib("chi/ram.rhdl") open
+  lib("chi/memory-controller.rhdl") open
   lib("chi/protocol.rhdl").chi_data_address
   lib("chi/channels.rhdl").CHISNChannels
 

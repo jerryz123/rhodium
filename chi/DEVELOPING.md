@@ -35,6 +35,7 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 | Messages | [`messages.rhdl`](messages.rhdl) | Stateless requester write data, subordinate/Home responses, and metadata-preserving REQ/DAT transforms; no allocator or endpoint state |
 | Shared Home support | [`home-common.rhdl`](home-common.rhdl) | HN-F configuration, placement validation, runtime identity, request legality, and Home-specific message policy; no state machine |
 | Single-beat devices | [`single-beat-subordinate.rhdl`](single-beat-subordinate.rhdl) | One-outstanding MMIO sequencing, saved request/read snapshot, common write association, and response backpressure |
+| Shared memory control | [`memory-controller.rhdl`](memory-controller.rhdl) | Memory configuration and identity, multibeat transaction sequencing, response arbitration, and request/data checks; no storage backend |
 | Endpoint and service | [`link.rhdl`](link.rhdl), [`channels.rhdl`](channels.rhdl), [`fabric.rhdl`](fabric.rhdl) | Credited links, ready-valid engine boundaries, capabilities, services, and address maps |
 | Checking and control | [`monitor.rhdl`](monitor.rhdl), [`transaction.rhdl`](transaction.rhdl), [`coherent-transaction.rhdl`](coherent-transaction.rhdl), [`retryable-transaction.rhdl`](retryable-transaction.rhdl) | Link assertions, bounded transaction checks, and reusable retry association |
 | Homes and storage | [`subordinate-slots.rhdl`](subordinate-slots.rhdl), [`home.rhdl`](home.rhdl), [`coherent-home.rhdl`](coherent-home.rhdl), [`inclusive-home.rhdl`](inclusive-home.rhdl), [`ram.rhdl`](ram.rhdl), [`dpi-memory.rhdl`](dpi-memory.rhdl), [`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl), [`address-projector.rhdl`](address-projector.rhdl) | Transaction allocation, Home engines, backing memory, fragmentation, and address projection |
@@ -45,6 +46,28 @@ router machinery remain owned by [`../noc/`](../noc/DEVELOPING.md).
 | Backend coverage | [`../tests/backend/`](../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) | CIRCT fixtures and Verilator benches |
 
 ## Extend a protocol layer
+
+`memory-controller.rhdl` owns the common `CHIRamConfig`, `CHIRamParams`,
+`CHIRamIdentity`, operation/completion payloads, and `build_chi_ram_controller`.
+`ram.rhdl` owns only the `SyncRam1RW` backend and re-exports the shared bindings
+for existing importers. `dpi-memory.rhdl` imports the controller directly and
+owns the DPI ABI, access enable/reset policy, and model-status assertion.
+The facade imports shared configuration from its owner, not through SRAM.
+
+Keep the controller as an elaboration helper, not a wrapper circuit or a new
+public memory protocol. Its backend factory runs once in the caller's module
+and returns the binder for nonstallable issue/completion flows. Preserve the
+operation metadata and ordering on every completion. Both current backends
+complete one cycle after issue; `CompletionQueue` owns capacity reservations
+and downstream backpressure. Storage and DPI policy remain backend-owned.
+Static configuration checks run in the shared constructors; request alignment,
+range, mask, and poison assertions remain runtime controller checks. Do not
+repeat constructor invariants in either concrete memory circuit.
+
+For memory-controller changes, run the RAM configuration and DPI ABI host tests,
+`chi-ram` simulation and its expected invalid-request assertion, the native DPI
+memory test, and MiniSoC/SimpleSoC smoke tests. These cover the SRAM and DPI
+consumers without adding tests of incidental hierarchy or internal instance counts.
 
 NoC adapters share injection wiring and flow-stage bookkeeping in
 `noc-adapter.rhdl`, and reuse generic envelope-removal binding from

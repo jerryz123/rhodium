@@ -461,6 +461,13 @@ SN-F does not make the RAM coherent: an upstream HN-F owns coherence and sends
 only non-snoopable subordinate requests. `CHIDPIMemory` uses the endpoint
 NodeID as its model identity, isolating each sparse DPI store.
 
+Both implementations use the same transaction controller from
+[`memory-controller.rhdl`](memory-controller.rhdl), including configuration,
+identity, DBID handling, multibeat sequencing, and runtime checks. Their external
+ports remain native `CHISNChannels`. Existing imports of `CHIRamConfig`,
+`CHIRamParams`, and `CHIRamIdentity` through `main.rhdl` or `ram.rhdl` continue
+to work; the controller module also provides them directly.
+
 [`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl) widens an intentionally
 narrow subordinate service. The serialized adapter emits one child request per
 physical DAT beat, offsets child addresses, restores the parent read DataIDs,

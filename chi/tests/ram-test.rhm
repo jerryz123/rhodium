@@ -1,9 +1,11 @@
 #lang rhombus
-// Checks CHI RAM host parameters, service metadata, and invalid regions.
+// Checks shared CHI memory configuration, legacy imports, service metadata, and invalid regions.
 
 import:
   rhombus.bits.(<<) as <<
   "../main.rhdl" as chi
+  "../memory-controller.rhdl" as memory
+  "../ram.rhdl" as ram
 
 def flit = chi.CHIFlitParams()
 def config = chi.CHIRamConfig(flit, 64, ~max_outstanding: 2, ~max_transfer_bytes: 64)
@@ -47,3 +49,29 @@ check:
   chi.CHIRamParams("misaligned", 9, config, ~base_address: 32) ~throws "base address must be aligned"
   chi.CHIRamParams("outside", 9, config, ~base_address: (1 << 44)) ~throws "memory region must fit"
   chi.CHIRamParams("wide-node", 128, config) ~throws "NodeID must fit"
+
+// Both existing import paths retain the shared nominal configuration and payload types.
+check:
+  chi.CHIRamConfig === memory.CHIRamConfig ~is #true
+  ram.CHIRamConfig === memory.CHIRamConfig ~is #true
+  ram.CHIRamParams === memory.CHIRamParams ~is #true
+  ram.CHIRamIdentity === memory.CHIRamIdentity ~is #true
+  ram.CHIRamMemoryOperation === memory.CHIRamMemoryOperation ~is #true
+  ram.CHIRamMemoryCompletion === memory.CHIRamMemoryCompletion ~is #true
+  ram.build_chi_ram_controller === memory.build_chi_ram_controller ~is #true
+  memory.CHIRamParams("requester", 9, config, ~kind: chi.CHINodeKind.RNI) ~throws "kind must be SN-F or SN-I"
+
+// Constructor validation is shared by SRAM and DPI, including every DAT width.
+for (width in [128, 256, 512]):
+  def p = chi.CHIFlitParams(~data_width: width)
+  def minimum = memory.CHIRamConfig(p, 2 * p.data_bytes, ~max_outstanding: 1)
+  def lines = memory.CHIRamConfig(p, 128, ~max_outstanding: 1024, ~max_transfer_bytes: 64)
+  check:
+    minimum.max_transfer_bytes ~is p.data_bytes
+    minimum.size_bytes ~is 2 * p.data_bytes
+    minimum.max_outstanding ~is 1
+    lines.transfers.contains(64) ~is #true
+    lines.max_outstanding ~is 1024
+    memory.CHIRamConfig(p, p.data_bytes, ~max_outstanding: 1) ~throws "at least two physical data beats"
+    memory.CHIRamConfig(p, 128, ~max_outstanding: 1, ~max_transfer_bytes: p.data_bytes / 2) ~throws "maximum transfer size"
+    memory.CHIRamConfig(p, 256, ~max_outstanding: 1, ~max_transfer_bytes: 128) ~throws "maximum transfer size"
