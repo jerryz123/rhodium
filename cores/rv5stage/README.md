@@ -161,6 +161,35 @@ load/multiply/divide/FP completion remain outside this first pipeline trace.
 No dependency is inferred between the memory-boundary graph and fetch through
 the cache/MMU, or across a replay's subsequent refetch.
 
+### Private-cache outer traffic
+
+The RV5Stage composition also annotates the L1I and L1D CHI interfaces, with
+`icache.*` and `dcache.*` tracks. Each event is one accepted flit (`valid & ready`),
+not an entire transaction or cache occupancy interval:
+
+| Suffix | Transfer relative to the cache |
+|---|---|
+| `txreq` | Outgoing request, including miss, acquisition, and writeback requests |
+| `rxrsp` | Incoming response, including completion and retry/credit messages |
+| `rxdat` | Incoming data beat, including refill data |
+| `txrsp` | Outgoing response, including CompAck and snoop responses |
+| `txdat` | Outgoing data beat, including writeback and dirty snoop data |
+| `rxsnp` | Incoming snoop |
+
+Captures include numeric CHI opcodes and transaction/source/target IDs where
+present. REQ captures address, size, and retry/ack controls; RSP captures
+DBID/group, response state/error, and credit type; DAT captures DBID/MECID,
+DataID, response state/error, and byte enables, but **not the data payload**.
+SNP captures its byte address (restoring the implicit three low zero bits),
+source/transaction IDs, opcode, and return-to-source control. Opcode values
+remain numeric; there is no host-side CHI opcode formatter yet.
+
+Each channel is an explicit root and terminal observation. These events do not
+infer request-to-response ancestry through CHI transaction state, NoC/Home/LLC
+logic, or the cache-to-pipeline path. Transaction IDs can be reused and have
+channel-specific meaning; equality alone is not an event dependency. Uncached
+RN-I traffic remains outside these private-cache checkpoints.
+
 ## Cache-block management
 
 Zicbom operates on fixed 64-byte blocks. Decode checks current-privilege

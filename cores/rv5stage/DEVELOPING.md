@@ -151,6 +151,16 @@ check one-cycle or elastic delays without requiring every fetched
 token to survive. The conversion/fanout compiler fixture covers both Valid
 replication outputs, including a dropping branch.
 
+Keep private-cache outer-channel observations in `rv5stage.rhdl` at the
+L1I/L1D-to-CHI composition boundary. The local connection helper preserves all
+six ready-valid channel directions and captures only named scalar metadata.
+Do not infer CHI transaction lineage by matching TxnID/DBID values or by routing
+topology. These explicit root/terminal sites are separate from the scalar
+pipeline graph. After changing them, run the SimpleSoC trace smoke; its
+`check-cache-events.sql` checks schemas, real miss/refill traffic, endpoint IDs,
+and the lack of fabricated parent edges. Use a cache-heavy benchmark to inspect
+additional writeback/snoop activity; an idle channel need not emit an event.
+
 ## Maintain the UDB projection
 
 Keep selectable extension membership derived from `RVCoreProfile`. Keep fixed

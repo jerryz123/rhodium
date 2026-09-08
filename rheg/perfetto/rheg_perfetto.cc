@@ -4,6 +4,7 @@
 #include <disasm.h>
 #include <charconv>
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <ostream>
 #include <sstream>
@@ -116,19 +117,66 @@ void bytes(std::string& out, unsigned field, const std::string& value) {
   varint(out, (std::uint64_t(field) << 3) | 2); varint(out, value.size()); out += value;
 }
 void packet(std::string& out, const std::string& value) { bytes(out, 1, value); }
-void annotation(std::string& event, const std::string& name, const std::string& value) {
+
+// One sequence owns four independent IID spaces. Admission is bounded; existing
+// entries remain valid for the epoch and excess/oversized strings stay inline.
+struct InternedStrings {
+  enum Kind { Category, Name, AnnotationName, Value };
+  struct Dictionary {
+    std::map<std::string, std::uint64_t> ids;
+    std::size_t bytes = 0;
+  };
+  std::array<Dictionary, 4> dictionaries;
+};
+struct PendingInterns {
+  InternedStrings& known;
+  InternedStrings added;
+  std::string pending;
+  explicit PendingInterns(InternedStrings& committed) : known(committed) {}
+  void reference(std::string& message, unsigned iid_field, unsigned inline_field,
+                 InternedStrings::Kind kind, const std::string& value) {
+    const auto& prior = known.dictionaries[kind];
+    auto& fresh = added.dictionaries[kind];
+    auto found = prior.ids.find(value);
+    if (found != prior.ids.end()) { integer(message, iid_field, found->second); return; }
+    found = fresh.ids.find(value);
+    if (found != fresh.ids.end()) { integer(message, iid_field, found->second); return; }
+    if (prior.ids.size() + fresh.ids.size() >= 4096 || value.size() > 1024 ||
+        prior.bytes + fresh.bytes + value.size() > 1024 * 1024) {
+      bytes(message, inline_field, value);
+      return;
+    }
+    const auto iid = prior.ids.size() + fresh.ids.size() + 1;
+    fresh.ids.emplace(value, iid); fresh.bytes += value.size();
+    std::string entry; integer(entry, 1, iid); bytes(entry, 2, value);
+    constexpr unsigned tables[] = {1, 2, 3, 29}; // InternedData fields.
+    bytes(pending, tables[kind], entry);
+    integer(message, iid_field, iid);
+  }
+  void commit() {
+    for (std::size_t i = 0; i < added.dictionaries.size(); ++i) {
+      known.dictionaries[i].ids.merge(added.dictionaries[i].ids);
+      known.dictionaries[i].bytes += added.dictionaries[i].bytes;
+    }
+  }
+};
+void annotation(std::string& event, PendingInterns& interns, const std::string& name,
+                const std::string& value, bool intern_value = true) {
   std::string arg;
-  bytes(arg, 10, name); bytes(arg, 6, value); bytes(event, 4, arg);
+  interns.reference(arg, 1, 10, InternedStrings::AnnotationName, name);
+  if (intern_value) interns.reference(arg, 17, 6, InternedStrings::Value, value);
+  else bytes(arg, 6, value);
+  bytes(event, 4, arg);
 }
-void capture_annotation(std::string& event, const Field& field, const Node& node) {
+void capture_annotation(std::string& event, PendingInterns& interns, const Field& field, const Node& node) {
   const auto value = capture_field(node, field);
   const auto& name = field.name;
   if (field.encoding == "hex" || field.width > 64 ||
       (field.encoding == "unsigned" && value.unsigned_value() > INT64_MAX)) {
-    annotation(event, name, field.encoding == "hex" ? value.hex() : value.decimal());
+    annotation(event, interns, name, field.encoding == "hex" ? value.hex() : value.decimal());
   } else {
     std::string arg;
-    bytes(arg, 10, name);
+    interns.reference(arg, 1, 10, InternedStrings::AnnotationName, name);
     if (field.encoding == "bool") integer(arg, 2, value.unsigned_value());
     else if (field.encoding == "signed") integer(arg, 4, static_cast<std::uint64_t>(value.signed_value()));
     else integer(arg, 3, value.unsigned_value());
@@ -191,6 +239,8 @@ struct PerfettoWriter::Impl {
   Description description;
   TraceTiming timing;
   RiscvFormatting instructions;
+  InternedStrings strings;
+  std::vector<bool> can_parent;
   std::map<Ref, std::pair<std::uint64_t, std::uint64_t>> known; // flow identity, cycle
   std::optional<std::uint64_t> watermark;
   bool failed = false;
@@ -204,6 +254,8 @@ struct PerfettoWriter::Impl {
     for (const auto& fields : manifest.fields)
       for (const auto& field : fields)
         if (field.encoding == "riscv") instructions.prepare(field.isa);
+    can_parent.resize(description.sites.size(), false);
+    for (const auto& edge : description.manifest.dependencies) can_parent[edge.first] = true;
     std::string stream, descriptor, p;
     // Run-wide metadata precedes every occurrence, including in empty/prefix traces.
     std::string metadata, metadata_packet;
@@ -213,6 +265,7 @@ struct PerfettoWriter::Impl {
       bytes(item, 1, entry.first); bytes(item, 2, std::to_string(entry.second));
       bytes(metadata, 2, item); // ChromeEventBundle.metadata / ChromeMetadata.string_value.
     }
+    integer(metadata_packet, 10, 1); integer(metadata_packet, 13, 1); // Clear sequence state once.
     bytes(metadata_packet, 5, metadata); packet(stream, metadata_packet);
     integer(descriptor, 1, description.sites.size() + 1);
     bytes(descriptor, 2, description.top);
@@ -255,17 +308,20 @@ struct PerfettoWriter::Impl {
     require(ns <= INT64_MAX, "Perfetto timestamp overflow");
     return static_cast<std::uint64_t>(ns);
   }
-  void event(std::string& stream, Ref ref, __uint128_t cycle, std::string fields) const {
+  void event(std::string& stream, PendingInterns& interns, Ref ref, __uint128_t cycle, std::string fields) const {
     integer(fields, 11, std::uint64_t(ref.site) + 1);
     std::string pkt;
     integer(pkt, 8, timestamp(cycle)); integer(pkt, 58, 6); // Synthetic BOOTTIME ns.
-    integer(pkt, 10, 1); bytes(pkt, 11, fields); packet(stream, pkt);
+    integer(pkt, 10, 1); integer(pkt, 13, 2); // Needs incremental state on sequence 1.
+    if (!interns.pending.empty()) { bytes(pkt, 12, interns.pending); interns.pending.clear(); }
+    bytes(pkt, 11, fields); packet(stream, pkt);
   }
-  void flow(std::string& stream, Ref ref, std::uint64_t cycle, char phase, std::uint64_t id) const {
+  void flow(std::string& stream, PendingInterns& interns, Ref ref, std::uint64_t cycle, char phase, std::uint64_t id) const {
     std::string fields, legacy;
-    bytes(fields, 23, "dependency"); bytes(fields, 22, "rhodium.flow");
+    interns.reference(fields, 10, 23, InternedStrings::Name, "dependency");
+    interns.reference(fields, 3, 22, InternedStrings::Category, "rhodium.flow");
     integer(legacy, 2, phase); integer(legacy, 6, id); integer(legacy, 12, 1);
-    bytes(fields, 6, legacy); event(stream, ref, cycle, fields);
+    bytes(fields, 6, legacy); event(stream, interns, ref, cycle, fields);
   }
   void write(const CycleBatch& batch) {
     require(!failed, "Perfetto output previously failed");
@@ -300,6 +356,7 @@ struct PerfettoWriter::Impl {
     }
     require(order.size() == batch.nodes.size(), "cyclic same-cycle dependencies");
     std::map<Ref, std::pair<std::uint64_t, std::uint64_t>> additions;
+    PendingInterns interns(strings);
     std::string stream;
     for (auto ref : order) {
       const auto& node = batch.nodes.at(ref);
@@ -310,37 +367,40 @@ struct PerfettoWriter::Impl {
       integer(fields, 9, 1);
       std::string mnemonic;
       std::size_t instruction_count = 0;
-      bytes(fields, 22, "rhodium.event");
-      annotation(fields, "sequence", std::to_string(ref.sequence));
-      annotation(fields, "cycle", std::to_string(node.cycle));
+      interns.reference(fields, 3, 22, InternedStrings::Category, "rhodium.event");
+      // Unique counters remain exact decimal strings, without filling the dictionary.
+      annotation(fields, interns, "sequence", std::to_string(ref.sequence), false);
+      annotation(fields, interns, "cycle", std::to_string(node.cycle), false);
       if (!description.manifest.fields.empty()) {
         for (const auto& field : description.manifest.fields[ref.site]) {
           if (field.encoding == "riscv") {
             const auto assembly = instructions.render(field, node, description.manifest.fields[ref.site]);
-            annotation(fields, field.name, assembly);
+            annotation(fields, interns, field.name, assembly);
             mnemonic = assembly.substr(0, assembly.find(' '));
             ++instruction_count;
           }
-          else capture_annotation(fields, field, node);
+          else capture_annotation(fields, interns, field, node);
         }
       } else {
         // Old snapshots retain their raw display when no capture schema exists.
         std::vector<std::uint32_t> words;
         for (auto word : node.words) words.push_back(word.second);
-        annotation(fields, "payload_words_lsw_first", Json(words).dump());
+        annotation(fields, interns, "payload_words_lsw_first", Json(words).dump());
       }
       // Only an unambiguous instruction capture names the slice; tracks retain site labels.
-      bytes(fields, 23, instruction_count == 1 ? mnemonic : description.sites[ref.site].label);
-      event(stream, ref, node.cycle, fields);
+      interns.reference(fields, 10, 23, InternedStrings::Name,
+                        instruction_count == 1 ? mnemonic : description.sites[ref.site].label);
+      event(stream, interns, ref, node.cycle, fields);
       for (auto parent : parents[ref]) {
         const auto identity = additions.count(parent) ? additions.at(parent).first : known.at(parent).first;
-        flow(stream, ref, node.cycle, 'f', identity);
+        flow(stream, interns, ref, node.cycle, 'f', identity);
       }
-      flow(stream, ref, node.cycle, 's', id);
+      if (can_parent[ref.site]) flow(stream, interns, ref, node.cycle, 's', id);
       fields.clear(); integer(fields, 9, 2);
-      event(stream, ref, static_cast<__uint128_t>(node.cycle) + 1, fields);
+      event(stream, interns, ref, static_cast<__uint128_t>(node.cycle) + 1, fields);
     }
     flush(stream);
+    interns.commit();
     known.merge(additions); // Transfer already allocated nodes after successful I/O.
     watermark = batch.cycle;
   }

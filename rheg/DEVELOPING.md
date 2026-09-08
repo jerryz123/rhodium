@@ -63,6 +63,17 @@ occurrences. Site identity, source location, and capture layout go in the JSON
 TrackDescriptor description; v58.2 has no arbitrary track annotation field.
 Occurrence arguments contain only exact cycle, sequence, and captured values.
 
+Intern categories, event names, annotation names, and captured string values in
+separate sequence-local IID tables. Define each string in the first packet that
+references it; clear incremental state once at the start and mark event packets
+as requiring it. Stage dictionary additions per batch and commit only after a
+successful output flush. IID assignment follows event order, not batch boundaries,
+so live/replay bytes and flushed-prefix importability stay identical.
+Each table admits at most 4096 entries and 1 MiB of string content, with a 1024-byte
+per-string limit. Keep existing IDs valid and fall back to inline encoding when
+admission is exhausted; never reuse an IID. Unique cycle/sequence strings stay
+inline. These limits bound dictionary memory, not whole-epoch graph retention.
+
 Use non-thread tracks under a custom design group with
 `child_ordering = LEXICOGRAPHIC`; process/thread descriptors ignore that hint.
 Disable sibling merging to keep repeated labels distinct. Track labels remain
@@ -71,7 +82,10 @@ Use the full formatted field as the argument and its first token as the name;
 unknown hex and ambiguous multi-instruction sites follow the README fallback.
 
 Legacy `s`/`f` flow records sit inside each occurrence slice. Give each source
-identity one flow start and each child a non-closing end per parent. This
+identity one flow start if its site has any outgoing static dependency, and each
+child a non-closing end per parent. Omit starts only for statically terminal
+sites; retain them for possible sources even when no child is currently known,
+including same-site dependencies. This
 preserves the original source through delayed fanout and supports joins without
 introducing sibling dependencies or predicting future edges. Modern flow-step
 semantics are not an interchangeable encoding. Topologically order same-cycle
@@ -92,9 +106,11 @@ before writing any bytes. Disassembly is presentation, not legality validation.
 
 Keep Spike headers private. CMake checksum-pins its source and builds the three
 disassembler sources into the Perfetto archive, not the simulator or FESVR.
-The build-local ISA parser replaces its two abort sites with exceptions; verify
-those sites before adapting them, and leave downloaded sources and licenses
-unchanged. No subprocess or simulator state is involved.
+The build-local ISA parser replaces its two abort sites with exceptions and
+registers the opcode-free `zic64b` cache-block property, absent from the pinned
+parser. Verify the adaptation sites and leave downloaded sources and licenses
+unchanged. Keep the full ISA in trace metadata; do not discard unknown extension
+tokens. No subprocess or simulator state is involved.
 
 Own decoder instances per ISA per writer. Cache by ISA, PC, bits, and capture
 width; clear the bounded cache at 4096 entries. Resolve only the full `pc + ` or
@@ -124,7 +140,7 @@ No Python package, launcher, or RPC server participates in these tests.
 | Collector callbacks | All 120 order permutations, incomplete data, binding misuse, payload errors, cycle order, edge deduplication and same-site distinct parents |
 | Captures | Unaligned fields, bool/signed/unsigned values, a 65-bit decimal value, malformed schemas and exact raw preservation |
 | Snapshots and timing | Binding order, missing/invalid timing, exact 64-bit JSON values, immutable copies, initial/held/empty reset epochs and exhaustion |
-| Streaming and replay | Byte-identical output, watermarks, every flushed prefix, delayed fanout and same-cycle joins with reversed site ordering |
+| Streaming and replay | Byte-identical output, watermarks, every flushed prefix, delayed fanout and same-cycle joins with reversed site ordering; interning across batches and capacity fallback; terminal-start omission and possible-source retention |
 | Native display | One-cycle durations, fractional periods, N+1 overflow, track hierarchy/order, repeated labels without thread association, flow attachment, metadata even in empty traces and no parser errors |
 | Disassembly | RV32/RV64, compressed/FP/CSR instructions, PC-relative targets and wraparound, `auipc`, unknown fallbacks, explicit aliases, ordinary fields named instruction, multi-instruction fallback and live/replay parity |
 | Failure handling | Strict JSON rejection, invalid batches, poisoned output streams, nonzero converter errors and empty/malformed inputs |

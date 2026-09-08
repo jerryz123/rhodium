@@ -9,8 +9,8 @@ FetchContent_Declare(rheg_spike
   URL https://codeload.github.com/riscv-software-src/riscv-isa-sim/tar.gz/e1fa113cfb6d55d878a3c1ea3befa8d9c13ce154
   URL_HASH SHA256=1d605e77d7489d1efd180acf0c562314a1b51138d38a311647d96b5d86e806ec)
 FetchContent_MakeAvailable(rheg_spike)
-# Adapt only parser failure policy: malformed saved manifests must throw, not
-# abort the embedding simulator. The downloaded source tree stays untouched.
+# Adapt parser failures and the opcode-free Zic64b cache-block property.
+# The downloaded source tree stays untouched.
 file(READ "${rheg_spike_SOURCE_DIR}/disasm/isa_parser.cc" spike_parser)
 string(REGEX MATCHALL "  abort\\(\\)" spike_aborts "${spike_parser}")
 list(LENGTH spike_aborts spike_abort_count)
@@ -18,8 +18,16 @@ if(NOT spike_abort_count EQUAL 2)
   message(FATAL_ERROR "Pinned Spike parser failure sites changed")
 endif()
 string(REPLACE "  abort();" "  throw std::invalid_argument(\"invalid RISC-V ISA configuration\");" spike_parser "${spike_parser}")
+# Like Zkt, Zic64b adds no decoder flags. Register it in the parser rather than
+# stripping tokens from the ISA string, preserving syntax and unknown-name checks.
+string(REGEX MATCHALL "[{]\"zkt\"[}]" spike_zkt_entries "${spike_parser}")
+list(LENGTH spike_zkt_entries spike_zkt_count)
+if(NOT spike_zkt_count EQUAL 1)
+  message(FATAL_ERROR "Pinned Spike property-extension table changed")
+endif()
+string(REPLACE "{\"zkt\"}" "{\"zic64b\"},\n  {\"zkt\"}" spike_parser "${spike_parser}")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter/isa_parser.cc" "// Adapts pinned Spike ISA errors to exceptions for embedding.\n${spike_parser}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter/isa_parser.cc" "// Adapts pinned Spike ISA errors and the opcode-free Zic64b property for embedding.\n${spike_parser}")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter/config.h" "// Standalone disassembly requires no simulator configuration defines.\n")
 add_library(rheg_disasm OBJECT
   "${rheg_spike_SOURCE_DIR}/disasm/disasm.cc"

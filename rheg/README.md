@@ -246,6 +246,12 @@ postprocessor, not a parser for the optional cycle-batch JSON log. Streaming
 passes typed batches directly to the writer, without JSON serialization or a
 helper process. Streaming and replay use identical ordering and encoding.
 
+The encoder interns repeated names, categories, and captured strings, and omits
+flow starts for sites with no possible outgoing dependency. These are lossless
+encoding optimizations: displayed events, arguments, timing, and dependency
+arrows are unchanged. Intern tables are bounded, with inline fallback for new
+strings when full; cycle and sequence values remain exact inline decimal strings.
+
 ### Stream lifecycle and failures
 
 The caller owns the output stream and must keep it alive for the writer's

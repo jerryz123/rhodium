@@ -4,10 +4,51 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 using namespace rheg;
 namespace {
-void check(bool value) { if (!value) throw std::runtime_error("Perfetto test expectation failed"); }
+void check(bool value, const char* message = "Perfetto test expectation failed") {
+  if (!value) throw std::runtime_error(message);
+}
+// Inspect wire costs independently of native import's semantic graph assertions.
+struct WireField { unsigned tag; std::uint64_t value; std::string_view bytes; };
+std::vector<WireField> wire_fields(std::string_view data) {
+  std::size_t cursor = 0;
+  auto varint = [&] {
+    std::uint64_t n = 0;
+    for (unsigned shift = 0; shift < 64; shift += 7) {
+      check(cursor < data.size());
+      const auto byte = static_cast<unsigned char>(data[cursor++]);
+      n |= std::uint64_t(byte & 127) << shift;
+      if (!(byte & 128)) return n;
+    }
+    throw std::runtime_error("invalid wire varint");
+  };
+  std::vector<WireField> fields;
+  while (cursor < data.size()) {
+    const auto key = varint(); const auto value = varint();
+    WireField field{static_cast<unsigned>(key >> 3), value, {}};
+    check((key & 7) == 0 || (key & 7) == 2);
+    if ((key & 7) == 2) {
+      check(value <= data.size() - cursor);
+      field.bytes = data.substr(cursor, value); cursor += value;
+    }
+    fields.push_back(field);
+  }
+  return fields;
+}
+std::pair<unsigned, unsigned> flow_counts(std::string_view trace) {
+  std::pair<unsigned, unsigned> result{};
+  for (auto packet : wire_fields(trace)) if (packet.tag == 1)
+    for (auto field : wire_fields(packet.bytes)) if (field.tag == 11)
+      for (auto event : wire_fields(field.bytes)) if (event.tag == 6)
+        for (auto legacy : wire_fields(event.bytes)) if (legacy.tag == 2) {
+          if (legacy.value == 's') ++result.first;
+          if (legacy.value == 'f') ++result.second;
+        }
+  return result;
+}
 template<class F> void rejects(F action, const std::string& text) {
   try { action(); } catch (const std::exception& e) {
     if (std::string(e.what()).find(text) != std::string::npos) return;
@@ -49,17 +90,51 @@ void instruction_trace(const std::string& path, const std::string& isa, unsigned
   std::istringstream saved(graph.snapshot().json());
   const auto snapshot = read_event_trace(saved);
   std::ostringstream replay; write_perfetto(replay, snapshot); check(live.str() == replay.str());
+  check(flow_counts(live.str()) == std::make_pair(0U, 0U)); // This site cannot parent any event.
   std::ofstream file(path, std::ios::binary); file << live.str(); file.close(); check(bool(file));
+}
+void interning_trace(const std::string& path) {
+  Graph graph; graph.bind_manifest(instruction_manifest("rv64i", 64)); graph.bind_timing({100000000});
+  graph.begin_stream();
+  std::ostringstream live; PerfettoWriter writer(live, graph.snapshot().manifest(), {100000000});
+  // More unique PCs than dictionary capacity; then reuse an early and a late PC.
+  // Assembly remains the same throughout, including after inline fallback begins.
+  for (std::uint64_t i = 0; i < 5002; ++i) {
+    const auto pc = i == 5000 ? 0x1000 : i == 5001 ? 0x1000 + 4 * 4999 : 0x1000 + 4 * i;
+    graph.record_node({0,i}, i, 128);
+    graph.record_payload({0,i}, 0, 0x00500513);
+    graph.record_payload({0,i}, 1, 0x00500513);
+    graph.record_payload({0,i}, 2, pc);
+    graph.record_payload({0,i}, 3, 0);
+    writer.write(graph.finish_cycle(i));
+  }
+  graph.end_stream();
+  std::ostringstream replay; write_perfetto(replay, graph.snapshot());
+  check(live.str() == replay.str(), "interning live/replay bytes differ");
+  const auto encoded = live.str();
+  const auto assembly = encoded.find("li a0, 5"); check(assembly != std::string::npos);
+  check(encoded.find("li a0, 5", assembly + 1) == std::string::npos, "assembly was not interned");
+  unsigned values = 0;
+  for (auto packet : wire_fields(encoded))
+    for (auto field : wire_fields(packet.bytes)) if (field.tag == 12)
+      for (auto entry : wire_fields(field.bytes)) if (entry.tag == 29) ++values;
+  check(values == 4096, "interned value dictionary did not respect its capacity");
+  check(flow_counts(encoded) == std::make_pair(0U, 0U));
+  std::ofstream file(path, std::ios::binary); file << encoded; file.close(); check(bool(file));
 }
 }
 int main(int argc, char** argv) {
   check(argc == 2);
+  interning_trace(std::string(argv[1]) + "/interning.pftrace");
   instruction_trace(std::string(argv[1]) + "/riscv64.pftrace", "rv64imafdc_zicsr", 64);
+  instruction_trace(std::string(argv[1]) + "/riscv64-properties.pftrace", "rv64imafdcb_za64rs_zba_zbb_zbs_zcmop_zic64b_zicbop_zicboz_zawrs_zihintpause_zihintntl_zicntr_zicond_zicsr_zifencei_zihpm_zimop_zkt", 64);
   instruction_trace(std::string(argv[1]) + "/riscv32.pftrace", "rv32i", 32);
   instruction_trace(std::string(argv[1]) + "/riscv16.pftrace", "rv32ic", 32, 16);
   instruction_trace(std::string(argv[1]) + "/multiple-instructions.pftrace", "rv64imafdc_zicsr", 64, 32, true);
   std::ostringstream invalid_isa_output;
   rejects([&] { PerfettoWriter w(invalid_isa_output, instruction_manifest("rv64i_znotreal", 64), {1}); }, "invalid RISC-V ISA");
+  rejects([&] { PerfettoWriter w(invalid_isa_output, instruction_manifest("rv64i_zic64bogus", 64), {1}); }, "invalid RISC-V ISA");
+  rejects([&] { PerfettoWriter w(invalid_isa_output, instruction_manifest("rv64i_zic64b_znotreal", 64), {1}); }, "invalid RISC-V ISA");
   check(invalid_isa_output.str().empty());
   std::ostringstream output;
   rejects([&] { PerfettoWriter w(output, manifest(), {0}); }, "positive clock");
@@ -86,6 +161,7 @@ int main(int argc, char** argv) {
   auto third = batch(2, {1, 1});
   third.edges.insert({{1, 0}, {1, 1}});
   writer.write(third);
+  check(flow_counts(output.str()) == std::make_pair(3U, 2U)); // Includes the same-site continuation.
   check(output.str().substr(0, prefix.size()) == prefix);
   std::ofstream precision(std::string(argv[1]) + "/precision.pftrace", std::ios::binary);
   precision << output.str(); precision.close(); check(bool(precision));
@@ -136,6 +212,19 @@ int main(int argc, char** argv) {
   PerfettoWriter repeated_writer(named, repeated, {300000000});
   for (const auto& b : {first, second, third}) repeated_writer.write(b);
   named.close(); check(bool(named));
+  auto terminal = manifest();
+  const std::string self_edge = ",{\"parent\":\"root/issued\",\"child\":\"root/issued\"}";
+  const auto self_pos = terminal.json.find(self_edge); check(self_pos != std::string::npos);
+  terminal.json.erase(self_pos, self_edge.size()); terminal.dependencies.erase({1,1});
+  std::ostringstream terminal_output; PerfettoWriter terminal_writer(terminal_output, terminal, {300000000});
+  terminal_writer.write(first);
+  auto unused_parent = batch(1, {0, 1}, 8);
+  terminal_writer.write(unused_parent); // Potential source still needs a start, even without a known child.
+  auto delayed_child = second; delayed_child.cycle = 2; delayed_child.nodes.begin()->second.cycle = 2;
+  terminal_writer.write(delayed_child);
+  check(flow_counts(terminal_output.str()) == std::make_pair(2U, 1U)); // Terminal issued site has no start.
+  std::ofstream terminal_file(std::string(argv[1]) + "/terminal.pftrace", std::ios::binary);
+  terminal_file << terminal_output.str(); terminal_file.close(); check(bool(terminal_file));
   for (const auto& text : {std::string("{\"format\":1,\"format\":2}"),
                            graph.snapshot().json() + " garbage"}) {
     std::istringstream malformed(text);

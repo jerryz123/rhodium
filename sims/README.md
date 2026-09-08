@@ -141,8 +141,8 @@ The same binary can run different target programs and trace destinations.
 Four checkpoints observe real external-memory request and response handshakes:
 `memory-request` to `memory-accept`, and `memory-response` to `soc-response`.
 Each pair describes the same transfer across a transparent harness wire, so its
-inferred edge has zero latency and preserves the payload. Data channels remain
-untraced. These memory checkpoints do not match requests to responses through
+inferred edge has zero latency and preserves the payload. External SN data
+channels remain untraced. These memory checkpoints do not match requests to responses through
 the CHI controller or identify the originating instructions.
 The request and response source checkpoints explicitly use `~root: #true` to
 start observation at these opaque component outputs.
@@ -152,6 +152,11 @@ The trace also includes the core's connected Fetch → Decode → Execute → Me
 for transfer predicates, squash behavior, payloads, and the distinction between
 WB arrival and retirement. These pipeline events have their own root; they are
 not connected through unmodeled cache/MMU transactions to the memory checkpoints.
+
+It also includes the [private-cache outer CHI channels](../cores/rv5stage/README.md#private-cache-outer-traffic)
+as `icache.*` and `dcache.*` tracks, including request, response, refill-data,
+writeback-data, and snoop transfers. These use compact named control fields,
+not full cache-line payloads, and do not infer transaction ancestry.
 
 The trace uses the SoC's configured frequency (currently 100 MHz for SimpleSoC),
 not the testbench delay or timer timebase. Tracks identify stages; instruction

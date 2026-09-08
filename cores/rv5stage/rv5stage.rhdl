@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes RV5Stage's core and L1 caches behind ready-valid CHI channel bundles.
+// Composes RV5Stage's core and L1 caches with annotated outer CHI transfers.
 
 import:
   "../cache-prefetch.rhdl" open
@@ -17,6 +17,58 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/channels.rhdl") open
+
+// Observe accepted flits at the private-cache boundary. CHI transaction state
+// and the outer fabric are opaque to lineage inference, so each channel starts
+// and ends its own observation; transaction IDs are captures, not parent IDs.
+fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String):
+  def requests = cache.field("requests") |> trace_event(label ++ ".txreq", ~root: #true, ~terminal: #true, ~fields: flit):
+    address: flit.address
+    opcode(~format: "unsigned"): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    src_id(~format: "unsigned"): flit.src_id
+    tgt_id(~format: "unsigned"): flit.tgt_id
+    size_or_num_req(~format: "unsigned"): flit.size_or_num_req
+    allow_retry: flit.allow_retry
+    exp_comp_ack: flit.exp_comp_ack
+  requests |> outer.field("requests")
+
+  for (channel in ["requester_responses", "responses"], suffix in ["txrsp", "rxrsp"], outgoing in [#true, #false]):
+    def source = if outgoing | cache.field(channel) | outer.field(channel)
+    def sink = if outgoing | outer.field(channel) | cache.field(channel)
+    def responses = source |> trace_event(label ++ "." ++ suffix, ~root: #true, ~terminal: #true, ~fields: flit):
+      opcode(~format: "unsigned"): flit.opcode
+      txn_id(~format: "unsigned"): flit.txn_id
+      src_id(~format: "unsigned"): flit.src_id
+      tgt_id(~format: "unsigned"): flit.tgt_id
+      dbid_or_group_id(~format: "unsigned"): flit.dbid_or_group_id
+      resp(~format: "unsigned"): flit.resp
+      resp_err(~format: "unsigned"): flit.resp_err
+      pcrd_type(~format: "unsigned"): flit.pcrd_type
+    responses |> sink
+
+  for (channel in ["request_data", "response_data"], suffix in ["txdat", "rxdat"], outgoing in [#true, #false]):
+    def source = if outgoing | cache.field(channel) | outer.field(channel)
+    def sink = if outgoing | outer.field(channel) | cache.field(channel)
+    def data = source |> trace_event(label ++ "." ++ suffix, ~root: #true, ~terminal: #true, ~fields: flit):
+      opcode(~format: "unsigned"): flit.opcode
+      txn_id(~format: "unsigned"): flit.txn_id
+      src_id(~format: "unsigned"): flit.src_id
+      tgt_id(~format: "unsigned"): flit.tgt_id
+      dbid_or_mecid(~format: "unsigned"): flit.dbid_or_mecid
+      data_id(~format: "unsigned"): flit.data_id
+      resp(~format: "unsigned"): flit.resp
+      resp_err(~format: "unsigned"): flit.resp_err
+      byte_enable: flit.byte_enable
+    data |> sink
+
+  def snoops = outer.field("snoops") |> trace_event(label ++ ".rxsnp", ~root: #true, ~terminal: #true, ~fields: flit):
+    address: flit.address ++ bits(0, 3)
+    opcode(~format: "unsigned"): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    src_id(~format: "unsigned"): flit.src_id
+    ret_to_src: flit.ret_to_src
+  snoops |> cache.field("snoops")
 
 sync_circuit RV5Stage(profile :: RVCoreProfile,
                       ~reset_address: reset_address :: Nat,
@@ -77,8 +129,8 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   mmu.mstatus <== core.mstatus
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
-  l1i.chi <=> imem
-  l1d.chi <=> dmem
+  connect_traced_cache_chi(l1i.chi, imem, "icache")
+  connect_traced_cache_chi(l1d.chi, dmem, "dcache")
   uncached.chi <=> umem
 
 export:
