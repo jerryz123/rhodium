@@ -70,6 +70,27 @@ Zicbom/Zicbop/Zicboz. The projection retains the truthful hardware value;
 validation of those CMO-free configurations requires a corrected UDB definition.
 The concrete SoC profiles enable CMOs and are unaffected.
 
+## Coherent main-memory guarantees
+
+`RV5StageExtensions(~ziccif: #true, ~ziccamoa: #true)` advertises **Ziccif
+1.0.0** and **Ziccamoa 1.0.0** in device trees and UDB. Both default to false
+for custom integrations; MiniSoC, SimpleSoC, and TiledSoC enable both.
+These are integration guarantees, not decoder switches, and do not change `misa`.
+
+Ziccif requires every cacheable coherent main-memory region to support instruction
+fetch, with atomic naturally aligned power-of-two fetches through 32 bits
+(`min(ILEN, XLEN)` here). Ziccamoa requires AMOArithmetic in every such region:
+all nine A-extension AMOs at word width, plus doubleword width for RV64.
+`RV5Stage` checks the corresponding executable and atomic PMAs during elaboration;
+its CHI configuration already requires coherent HN-F Homes and complete cache lines.
+BootROM and device HN-I regions are outside these requirements.
+
+These claims do not provide Ziccrse forward progress, misaligned access support,
+or automatic instruction-cache synchronization; self-modifying code still needs
+the architectural instruction-synchronization sequence. Integrators remain
+responsible for the external Home/memory coherence contract. See the
+[focused validation and its limits](DEVELOPING.md#focused-validation).
+
 ## Data-independent timing (Zkt)
 
 Every RV32 and RV64 profile advertises **Zkt 1.0.1**, including FP-enabled

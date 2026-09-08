@@ -1,4 +1,4 @@
-// Verifies PMA rejection, IO-MSHR admission, and cached/uncached data ordering.
+// Verifies AMO PMA admission/rejection, IO-MSHR admission, and data ordering.
 module rv5stage_memory_router_tb;
   typedef struct packed {
     logic [31:0] address;
@@ -115,6 +115,18 @@ module rv5stage_memory_router_tb;
 
     check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b0);
     check_request(32'h00001000, STORE, 1'b1, 1'b0, 1'b0);
+    // Every AMOArithmetic operation must reach coherent RAM, including its
+    // first and last naturally aligned word, but not a non-atomic/device PMA.
+    core_in.request.bits.width = 2'd2;
+    for (int operation = 0; operation < 9; operation++) begin
+      core_in.request.bits.atomic = 4'(operation);
+      check_request(32'h1000, ATOMIC, 1, 0, 0);
+      check_request(32'h1ffc, ATOMIC, 1, 0, 0);
+      check_request(32'h2000, ATOMIC, 0, 0, 1);
+      check_request(32'h3000, ATOMIC, 0, 0, 1);
+    end
+    core_in.request.bits.atomic = 0;
+    core_in.request.bits.width = 0;
     check_request(32'h00002000, LOAD, 1'b0, 1'b1, 1'b0);
     assert (uncached_out.request.bits.device)
       else $fatal(1, "device PMA was not forwarded to the uncached path");

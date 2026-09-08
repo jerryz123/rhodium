@@ -184,6 +184,34 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For Ziccif/Ziccamoa validation, select `rv5stage-fetch`, `rv5stage-icache`,
+`rv5stage-dcache`, `rv5stage-dcache-rv32`, `rv5stage-memory-router`,
+`chi-coherent-home`, and `chi-inclusive-home`. The L1I regression holds an old
+aligned instruction response through snoop invalidation and a subsequent
+replacement refill at all sixteen word offsets, with reversed/gapped data
+packets. Fetch assembly separately covers aligned words and compressed parcels.
+The L1D regressions check all nine AMOs at RV32 word and RV64 word/doubleword
+widths, old-value returns, signedness, overflow, byte-lane preservation,
+ownership-delayed miss completion, and a snoop contending with an accepted RMW.
+The memory-router fixture admits all nine AMOs at coherent RAM boundaries and
+rejects them for device and non-atomic regions.
+Home fixtures exercise coherent ownership and authoritative dirty-data handling.
+These are component-level behavioral regressions, not an exhaustive concurrent
+multi-hart memory-model proof. Keep AQ/RL ordering and LR/SC progress distinct
+from the memory-region AMOArithmetic capability.
+
+Run `tools/run-racket-tests.sh socs/tests/main-memory-test.rhm` to audit concrete
+SoC PMAs. The test checks every cacheable HN-F region, including sparse tiled
+bank masks, for executable, readable, writable, idempotent, non-device,
+atomic-capable RAM and exact coverage of described memory. Generic
+`RV5StageCHIConfig` still allows restricted cacheable maps. The top-level
+`RV5Stage` elaboration checks them against the selected `ziccif`/`ziccamoa`
+profile claims before instantiating hardware. Keep the default SoC profiles,
+profile/UDB projection tests, and per-hart DTB checks aligned when changing
+these claims. Run `profile-test.rhm`, `udb-test.rhm`, and `rv5stage-test.rhm`
+under this directory's `tests/`, plus `socs/tests/udb-test.rhm` and
+`socs/tests/run-device-tree.sh` from the repository root.
+
 For Zic64b/Za64rs, run `cores/rv5stage/tests/profile-test.rhm`,
 `cores/rv5stage/tests/udb-test.rhm`, and `socs/tests/udb-test.rhm` in one host
 batch, then `bash socs/tests/run-device-tree.sh`. Validate generated RV32 and

@@ -1,5 +1,6 @@
-// Verifies L1D coherence, 64-byte block operations, and bounded LR/SC reservations.
+// Verifies L1D coherence, AMOArithmetic, 64-byte blocks, and bounded LR/SC reservations.
 module rv5stage_dcache_tb;
+  `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed {
     logic [63:0] address;
     logic [3:0] access;
@@ -92,6 +93,8 @@ module rv5stage_dcache_tb;
   logic tx_rsp_pending = 1'b0;
   logic tx_dat_pending = 1'b0;
   logic forbid_core_response = 1'b0;
+  logic watch_amo_response = 0;
+  integer amo_response_count = 0;
   CHIReqFlit captured_req;
   CHIRspFlit captured_rsp;
   CHIDatFlit captured_dat;
@@ -105,6 +108,11 @@ module rv5stage_dcache_tb;
 
   task automatic tick;
     begin
+      if (watch_amo_response && core_out.response.valid) begin
+        assert (!core_out.response.bits.access_fault && core_out.response.bits.data == 1 && core_out.response.bits.rd == 2)
+          else $fatal(1, "contended AMO lost its old-value response");
+        amo_response_count++;
+      end
       if (forbid_core_response)
         assert (!core_out.response.valid)
           else $fatal(1, "L1D produced a response for a prefetch");
@@ -381,6 +389,14 @@ module rv5stage_dcache_tb;
                             input logic [4:0] opcode = SNP_CLEAN_INVALID);
     integer cycles;
     begin
+      chi_in.snoops.bits = '0;
+      chi_in.snoops.bits.address = address[43:3];
+      chi_in.snoops.bits.opcode = opcode;
+      chi_in.snoops.bits.txn_id = txn_id;
+      chi_in.snoops.bits.src_id = HOME_ID;
+      chi_in.snoops.valid = 1'b1;
+      // Present the real opcode while waiting; idle LCrdReturn is always ready.
+      #1;
       cycles = 0;
       while (!chi_out.snoops.ready && cycles < 100) begin
         tick();
@@ -388,12 +404,6 @@ module rv5stage_dcache_tb;
       end
       assert (chi_out.snoops.ready)
         else $fatal(1, "L1D did not accept a snoop");
-      chi_in.snoops.bits = '0;
-      chi_in.snoops.bits.address = address[43:3];
-      chi_in.snoops.bits.opcode = opcode;
-      chi_in.snoops.bits.txn_id = txn_id;
-      chi_in.snoops.bits.src_id = HOME_ID;
-      chi_in.snoops.valid = 1'b1;
       tick();
       chi_in.snoops = '0;
     end
@@ -949,6 +959,95 @@ module rv5stage_dcache_tb;
     send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
     expect_core_response(0, DATA_DESTINATION_INTEGER, 1);
     $display("RV64 reservation bounds passed: 48 aligned W/D sites, adjacent-line isolation, exact address/width, one-shot SC");
+    // Exercise all nine AMOs through the cache, not only the standalone ALU.
+    for (int size = 2; size <= 3; size++) begin
+      for (int operation = 0; operation < 9; operation++) begin
+        for (int sample = 0; sample < 4; sample++) begin
+          logic [63:0] left_value, right_value, result, address, expected_word;
+          left_value = amo_operand(sample);
+          right_value = amo_operand(sample ^ 1);
+          result = amo_reference(left_value, right_value, operation, size == 2);
+          address = ADDRESS + (size == 2 ? ((sample & 1) != 0 ? 64'd4 : 64'd0) : 64'd56);
+          expected_word = 64'hcafef00d_deadbeef;
+          send_core_request(ADDRESS, MEMORY_STORE, ATOMIC_SWAP, expected_word, 0);
+          expect_core_response(0, DATA_DESTINATION_NONE, 0);
+          send_core_request(address, MEMORY_STORE, ATOMIC_SWAP, left_value, 0, 0, 2'b11, 2'(size));
+          expect_core_response(0, DATA_DESTINATION_NONE, 0);
+          send_core_request(address, MEMORY_ATOMIC, 4'(operation), right_value, 2, 0, 2'b11, 2'(size));
+          expect_core_response(size == 2 ? {{32{left_value[31]}}, left_value[31:0]} : left_value, DATA_DESTINATION_INTEGER, 2);
+          send_core_request(address, MEMORY_LOAD, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+          expect_core_response(result, DATA_DESTINATION_INTEGER, 1);
+          if (size == 2) begin
+            expected_word[(sample & 1) * 32 +: 32] = result[31:0];
+            send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
+            expect_core_response(expected_word, DATA_DESTINATION_INTEGER, 1);
+          end
+        end
+      end
+    end
+    // Request acceptance is not the AMO's linearization point. A contending
+    // snoop may win first, but cannot expose a partial RMW or lose the request.
+    send_core_request(ADDRESS, MEMORY_ZERO, ATOMIC_SWAP, 0, 0);
+    expect_core_response(0, DATA_DESTINATION_NONE, 0);
+    send_core_request(ADDRESS + 56, MEMORY_STORE, ATOMIC_SWAP, 1, 0);
+    expect_core_response(0, DATA_DESTINATION_NONE, 0);
+    watch_amo_response = 1;
+    send_core_request(ADDRESS + 56, MEMORY_ATOMIC, ATOMIC_ADD, 2, 2);
+    send_snoop(ADDRESS, 12'h07d);
+    dirty_line = 0;
+    for (beat = 0; beat < 4; beat++) begin
+      if (beat == 3) begin
+        for (int cycles = 0; !chi_out.request_data.valid && cycles < 100; cycles++) tick();
+        assert (chi_out.request_data.valid && chi_out.request_data.bits.data[64 +: 64] inside {64'd1, 64'd3})
+          else $fatal(1, "snoop exposed neither the old nor the complete new AMO value");
+        dirty_line[448 +: 64] = chi_out.request_data.bits.data[64 +: 64];
+      end
+      accept_snoop_data(beat, dirty_line, 12'h07d);
+    end
+    if (dirty_line[448 +: 64] == 1) begin
+      assert (amo_response_count == 0) else $fatal(1, "AMO completed while snoop observed the pre-RMW value");
+      accept_request(READ_UNIQUE, ADDRESS, 0, 6, 1, 0);
+      return_line(ADDRESS, dirty_line, 3'b010);
+      accept_comp_ack();
+    end
+    for (int cycles = 0; amo_response_count == 0 && cycles < 100; cycles++) tick();
+    watch_amo_response = 0;
+    assert (amo_response_count == 1) else $fatal(1, "contended AMO completion count");
+    if (dirty_line[448 +: 64] == 1) begin
+      send_core_request(ADDRESS + 56, MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
+      expect_core_response(3, DATA_DESTINATION_INTEGER, 1);
+    end
+    for (int size = 2; size <= 3; size++) begin
+      for (int operation = 0; operation < 9; operation++) begin
+        logic [63:0] old_value, operand, address, result;
+        logic [511:0] initial_line;
+        reset = 1;
+        repeat (2) tick();
+        reset = 0;
+        tx_req_pending = 0;
+        tx_rsp_pending = 0;
+        tx_dat_pending = 0;
+        tick();
+        old_value = amo_operand(0);
+        operand = amo_operand(1);
+        initial_line = {8{old_value}};
+        address = ADDRESS + (size == 2 ? 64'd4 : 64'd56);
+        if (size == 2) old_value = {{32{initial_line[63]}}, initial_line[63:32]};
+        result = amo_reference(old_value, operand, operation, size == 2);
+        send_core_request(address, MEMORY_ATOMIC, 4'(operation), operand, 2, 0, 2'b11, 2'(size));
+        accept_request(READ_UNIQUE, ADDRESS, 0, 6, 1, 0);
+        repeat (3) begin
+          tick();
+          assert (!core_out.response.valid) else $fatal(1, "AMO completed before ownership/data");
+        end
+        return_line(ADDRESS, initial_line, 3'b010);
+        accept_comp_ack();
+        expect_core_response(old_value, DATA_DESTINATION_INTEGER, 2);
+        send_core_request(address, MEMORY_LOAD, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+        expect_core_response(result, DATA_DESTINATION_INTEGER, 1);
+      end
+    end
+    $display("RV64 AMOArithmetic passed: 72 hit + 18 miss W/D cases, word-lane preservation, and contending snoop");
     $display("RV5Stage VIPT write-back data-cache and self-snooped maintenance simulation passed");
     $finish;
   end

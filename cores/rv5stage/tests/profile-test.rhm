@@ -62,6 +62,16 @@ check:
   rv32_half.cache_geometry.instruction.capacity_bytes ~is 4096
   rv32_half.cache_geometry.data.capacity_bytes ~is 4096
 
+// Memory guarantees are independent opt-ins and do not alter misa.
+for (xlen in [XLen.X32, XLen.X64]):
+  for (fetch in [#false, #true]):
+    for (atomic in [#false, #true]):
+      def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~ziccif: fetch, ~ziccamoa: atomic))
+      check:
+        profile.isa_extensions.contains("ziccif") ~is fetch
+        profile.isa_extensions.contains("ziccamoa") ~is atomic
+        profile.misa_value ~is RVCoreProfile(~xlen: xlen).misa_value
+
 check:
   RV5StageCacheLineBytes ~is 64
   RV5StageCacheConfig(32, 1).capacity_bytes ~is 2048

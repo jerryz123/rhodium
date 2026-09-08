@@ -1,4 +1,4 @@
-// Verifies staged VIPT reads and physical resolutions, aliases, refills, backpressure, and snoops.
+// Verifies VIPT lookup and whole-word instruction visibility across refills and snoops.
 module rv5stage_icache_tb;
   typedef struct packed { logic [63:0] address; } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
@@ -60,12 +60,16 @@ module rv5stage_icache_tb;
   chi_in_t chi_in;
   chi_out_t chi_out;
   logic forbid_core_response = 1'b0;
+  logic hold_old_instruction = 0;
 
   RV5StageL1ICache dut (.*);
   always #5 clock = ~clock;
 
   task automatic tick;
     begin
+      if (hold_old_instruction)
+        assert (core_out.response.valid && core_out.response.bits.word == 32'h55aaaa55 && !core_out.response.bits.access_fault)
+          else $fatal(1, "stalled instruction tore across coherent replacement");
       if (forbid_core_response)
         assert (!core_out.response.valid)
           else $fatal(1, "L1I produced a response for a prefetch");
@@ -172,11 +176,13 @@ module rv5stage_icache_tb;
 
   task automatic return_line(
     input logic [63:0] address,
-    input logic [511:0] line
+    input logic [511:0] line,
+    input int gap = 0
   );
     integer packet;
     begin
       for (packet = 3; packet >= 0; packet = packet - 1) begin
+        repeat (gap) tick();
         wait_dat_credit();
         chi_in.response_data.bits = '0;
         chi_in.response_data.bits.data = line[packet * 128 +: 128];
@@ -241,7 +247,6 @@ module rv5stage_icache_tb;
     input logic ret_to_src
   );
     begin
-      wait_snp_credit();
       chi_in.snoops.bits = '0;
       chi_in.snoops.bits.address = address[43:3];
       chi_in.snoops.bits.opcode = opcode;
@@ -249,6 +254,10 @@ module rv5stage_icache_tb;
       chi_in.snoops.bits.src_id = HOME_ID;
       chi_in.snoops.bits.ret_to_src = ret_to_src;
       chi_in.snoops.valid = 1'b1;
+      // Readiness depends on the presented opcode; idle LCrdReturn readiness
+      // cannot stand in for acceptance of a real snoop during installation.
+      #1;
+      wait_snp_credit();
       tick();
       chi_in.snoops.valid = 1'b0;
       chi_in.snoops.bits = '0;
@@ -272,7 +281,10 @@ module rv5stage_icache_tb;
               chi_out.requester_responses.bits.src_id == CACHE_ID &&
               chi_out.requester_responses.bits.tgt_id == HOME_ID &&
               chi_out.requester_responses.bits.resp == response)
-        else $fatal(1, "L1I emitted malformed clean snoop response");
+        else $fatal(1, "L1I snoop response valid=%b opcode=%h txn=%h src=%d tgt=%d resp=%h expected txn=%h resp=%h",
+                    chi_out.requester_responses.valid, chi_out.requester_responses.bits.opcode,
+                    chi_out.requester_responses.bits.txn_id, chi_out.requester_responses.bits.src_id,
+                    chi_out.requester_responses.bits.tgt_id, chi_out.requester_responses.bits.resp, txn_id, response);
       tick();
     end
   endtask
@@ -574,6 +586,40 @@ module rv5stage_icache_tb;
     send_core_request(ADDRESS + 64'h10c0);
     expect_instruction(32'hb1b1b1b1);
 
+    // Hold an old aligned instruction while invalidation and a new refill
+    // complete behind it. Every observed word must be wholly old or wholly new.
+    for (int offset = 0; offset < 64; offset += 4) begin
+      core_in.invalidate_all = 1;
+      tick();
+      core_in.invalidate_all = 0;
+      core_in.response.ready = 0;
+      grant_req_credit();
+      grant_rsp_credit();
+      send_core_request(ADDRESS + 64'(offset));
+      accept_read_request(ADDRESS);
+      forbid_core_response = 1;
+      return_line(ADDRESS, {16{32'h55aaaa55}}, offset % 3);
+      forbid_core_response = 0;
+      accept_comp_ack();
+      for (int cycles = 0; !core_out.response.valid && cycles < 100; cycles++) tick();
+      assert (core_out.response.valid && core_out.response.bits.word == 32'h55aaaa55)
+        else $fatal(1, "old aligned instruction did not complete");
+      hold_old_instruction = 1;
+      grant_rsp_credit();
+      invalidate_cache(ADDRESS);
+      grant_req_credit();
+      grant_rsp_credit();
+      send_core_request(ADDRESS + 64'(offset));
+      accept_read_request(ADDRESS);
+      return_line(ADDRESS, {16{32'haa5555aa}}, offset % 3);
+      accept_comp_ack();
+      repeat (4) tick();
+      hold_old_instruction = 0;
+      core_in.response.ready = 1;
+      expect_instruction(32'h55aaaa55);
+      expect_instruction(32'haa5555aa);
+    end
+    $display("Ziccif aligned-word visibility passed: 16 offsets, reordered/gapped refills, stalled response across invalidation");
     $display("RV5Stage VIPT instruction-cache simulation passed");
     $finish;
   end

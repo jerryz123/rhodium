@@ -1,5 +1,6 @@
-// Checks RV32 64-byte block operations, bounded LR/SC reservations, and NTL loads.
+// Checks RV32 AMOArithmetic, 64-byte blocks, bounded LR/SC reservations, and NTL loads.
 module rv5stage_dcache_rv32_tb;
+  `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
   typedef struct packed { logic valid; RV5StageDataResp bits; } response_t;
@@ -50,7 +51,8 @@ module rv5stage_dcache_rv32_tb;
                               input logic [2:0] locality = 0,
                               input logic [1:0] size = 2,
                               input logic unsigned_load = 0,
-                              input logic [31:0] data = 0);
+                              input logic [31:0] data = 0,
+                              input logic [3:0] atomic = 0);
     for (int cycle = 0; cycle < 100 && !core_out.request.ready; cycle++) tick();
     assert (core_out.request.ready) else $fatal(1, "RV32 request timeout");
     core_in.request.bits = '0;
@@ -60,7 +62,8 @@ module rv5stage_dcache_rv32_tb;
     core_in.request.bits.unsigned_0 = unsigned_load;
     core_in.request.bits.locality = locality;
     core_in.request.bits.data = data;
-    core_in.request.bits.destination = access inside {4'd1, 4'd3, 4'd4} ? 2'd1 : 2'd0;
+    core_in.request.bits.atomic = atomic;
+    core_in.request.bits.destination = access inside {4'd1, 4'd3, 4'd4, 4'd5} ? 2'd1 : 2'd0;
     core_in.request.valid = 1;
     tick();
     core_in.request.valid = 0;
@@ -182,6 +185,23 @@ module rv5stage_dcache_rv32_tb;
       send_request(32'h1000 + 32'(offset), 4'd2);
       expect_response(0);
     end
+    for (int operation = 0; operation < 9; operation++) begin
+      for (int sample = 0; sample < 4; sample++) begin
+        logic [31:0] left_value, right_value, result;
+        left_value = 32'(amo_operand(sample));
+        right_value = 32'(amo_operand(sample ^ 1));
+        result = 32'(amo_reference({32'b0, left_value}, {32'b0, right_value}, operation, 1));
+        send_request(32'h103c, 4'd2, 0, 2, 0, left_value);
+        expect_response(0);
+        send_request(32'h103c, 4'd5, 0, 2, 0, right_value, 4'(operation));
+        expect_response(left_value);
+        send_request(32'h103c, 4'd1);
+        expect_response(result);
+      end
+    end
+    send_request(32'h103c, 4'd2);
+    expect_response(0);
+    $display("RV32 AMOArithmetic passed: 36 word cases through the cache");
     send_request(32'h103c, 4'd3);
     expect_response(0);
     // Same-line mutation is a permitted conservative reservation invalidation.

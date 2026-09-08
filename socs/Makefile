@@ -22,6 +22,7 @@ config-test:
 	  socs/tests/single-core-system-params-test.rhm \
 	  socs/tests/simple-soc-test.rhm \
 	  socs/tests/mini-soc-test.rhm \
+	  socs/tests/main-memory-test.rhm \
 	  socs/tests/tiled-soc-layout-test.rhm \
 	  socs/tests/tiled-soc-compile-test.rhm; \
 	env PLTCOMPILEDROOTS="$$soc_compiled_root" bash socs/tests/run-device-tree.sh

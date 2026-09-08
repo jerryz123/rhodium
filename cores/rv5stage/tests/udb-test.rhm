@@ -31,6 +31,15 @@ def rv64_yaml = rv5stage_udb_configuration(
 
 def no_hpm_values = for List (_index in 0..32): "false"
 
+for (xlen in [XLen.X32, XLen.X64]):
+  for (fetch in [#false, #true]):
+    for (atomic in [#false, #true]):
+      def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~ziccif: fetch, ~ziccamoa: atomic))
+      def yaml = rv5stage_udb_configuration(profile, "memory-guarantees", "Selected main-memory guarantees", 32).to_yaml()
+      check:
+        yaml.contains("{ name: \"Ziccif\", version: \"= 1.0.0\" }") ~is fetch
+        yaml.contains("{ name: \"Ziccamoa\", version: \"= 1.0.0\" }") ~is atomic
+
 check:
   rv64_yaml.contains("{ name: \"Zkt\", version: \"= 1.0.1\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zihintntl\", version: \"= 1.0.0\" }") ~is #true

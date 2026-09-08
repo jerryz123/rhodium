@@ -5,6 +5,7 @@ import:
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/c.rhm" open
+  "../../../riscv/rtl/pma.rhdl" open
   "../cache.rhdl" as cache
   "../chi/foundation.rhdl" as chi
   "../profile.rhm" as core_profile
@@ -13,12 +14,12 @@ import:
 
 def config = test_params.test_rv5stage_chi_config
 def params = test_params.test_rv5stage_chi_params
-def extensions = core_profile.RV5StageExtensions(~zicbom: #true)
+def extensions = core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true)
 def rv64_design = embedded.run_elaboration(
   fun (): rv5stage.RV5Stage(
     core_profile.RVCoreProfile(
       ~xlen: XLen.X64,
-      ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)),
+      ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)),
       ~mmu_mode: core_profile.RV5StageMmuMode.Sv39
     ),
     ~chi: config,
@@ -30,6 +31,20 @@ def rv32_design = embedded.run_elaboration(
 )
 def rv64 = rv64_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def rv32 = rv32_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
+
+// Valid custom PMAs may omit a capability, but cannot advertise its guarantee.
+for ([attributes, diagnostic] in [
+  [RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #true, #false, #true), "Ziccif"],
+  [RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #false, #false, #true), "Ziccamoa"]
+]):
+  def region = config.regions[0]
+  def restricted = chi.RV5StageCHIConfig(config.flit, [chi.RV5StageCHIRegion(
+    RiscvPhysicalMemoryRegion(region.physical.address_set, attributes), region.home
+  )])
+  check:
+    embedded.run_elaboration(
+      fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X64, ~extensions: extensions), ~chi: restricted, ~reset_address: 0)
+    ) ~throws diagnostic
 
 check:
   params.config === config ~is #true

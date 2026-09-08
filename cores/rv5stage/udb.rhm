@@ -65,6 +65,10 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
   | result := result ++ [extension("Zicboz", "1.0.0")]
   when selected.zicbom
   | result := result ++ [extension("Zicbom", "1.0.0")]
+  when selected.ziccif
+  | result := result ++ [extension("Ziccif", "1.0.0")]
+  when selected.ziccamoa
+  | result := result ++ [extension("Ziccamoa", "1.0.0")]
   when selected.zihintpause
   | result := result ++ [extension("Zihintpause", "2.0.0")]
   when selected.zihintntl

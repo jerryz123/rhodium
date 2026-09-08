@@ -63,7 +63,7 @@ for name in simple mini tiled; do
   hart_count=1
   [[ "$name" != tiled ]] || hart_count=8
   for ((hart=0; hart<hart_count; hart++)); do
-    for extension in zic64b za64rs; do
+    for extension in zic64b za64rs ziccif ziccamoa; do
       case " $(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-extensions) " in
         *" $extension "*) ;;
         *) echo "$name hart $hart DTB does not advertise $extension" >&2; exit 1 ;;

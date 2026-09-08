@@ -119,6 +119,15 @@ Keep this entrypoint in the root Makefile's compilation manifest.
 `bash socs/tests/check-boundaries.sh` exercises import rejection and ensures
 enumeration/search errors cannot silently pass the boundary audit.
 
+`tests/main-memory-test.rhm` checks Ziccif/Ziccamoa memory-map preconditions in
+MiniSoC, SimpleSoC, and TiledSoC. Cacheable regions must be coherent HN-F RAM
+with execute, read, write, and atomic permissions and idempotent reads. The
+disjoint sparse bank sets must cover all described RAM without gaps; do not
+infer coverage from only the first and last address. BootROM and device HN-I
+regions are outside these cacheable/coherent main-memory requirements.
+The [RV5Stage validation guide](../cores/rv5stage/DEVELOPING.md#focused-validation)
+owns the fetch, AMO, and coherence datapath checks and their coverage limits.
+
 Use the package-local target while iterating:
 
 ```sh

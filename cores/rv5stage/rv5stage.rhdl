@@ -27,6 +27,14 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   def width = xlen.width
   def p = config.flit
 
+  // These advertisements constrain the integration, not instruction decode.
+  for (region in config.regions):
+    def attributes = region.physical.attributes
+    unless (!attributes.cacheable) || (!extensions.ziccif) || attributes.executable
+    | error(~who: #'RV5Stage, "Ziccif requires executable cacheable coherent memory")
+    unless (!attributes.cacheable) || (!extensions.ziccamoa) || attributes.atomic
+    | error(~who: #'RV5Stage, "Ziccamoa requires AMOArithmetic in cacheable coherent memory")
+
   input chi_identity: RV5StageCHIIdentity(p)
   input interrupts: RV5StageInterrupts()
   input hart_id: Bits(width)

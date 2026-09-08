@@ -23,6 +23,10 @@ the [Zihintpause hint](../cores/rv5stage/README.md#pause-hint), and
 Their device-tree ISA extension lists and UDB configurations derive this claim
 from the same profile that selects the hardware decoder and wait controller.
 
+All three also advertise the [Ziccif and Ziccamoa main-memory guarantees](../cores/rv5stage/README.md#coherent-main-memory-guarantees).
+Their coherent RAM maps support instruction fetch and all A-extension AMOs;
+these claims do not apply to BootROM or device regions.
+
 ## Choose a system
 
 | System | Default processors | Normal-memory termination | Coherence structure | Default core specialization | Best fit |

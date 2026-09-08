@@ -1,0 +1,48 @@
+#lang rhombus
+// Audits Ziccif/Ziccamoa PMAs and complete coherent-memory coverage in concrete SoCs.
+
+import:
+  "../../chi/main.rhdl" open
+  "../simple-soc.rhdl" as simple
+  "../mini-soc.rhdl" as mini
+  "../tiled-soc/main.rhdl" as tiled
+  "../tiled-soc/compile.rhdl" as compiler
+
+def compiled = compiler.compile_tiled_soc(tiled.default_tiled_soc_config)
+def systems = [
+  [simple.simple_soc_rv5stage_config, simple.simple_soc_params.description],
+  [mini.mini_soc_fabric_params.rv5stage_config, mini.mini_soc_params.description],
+  [compiled.rv5stage_config, tiled.default_tiled_soc_config.description]
+]
+
+fun address_count(mask :: Nat) :: PosInt:
+  if mask == 0 | 1 | 2 * address_count(mask bits.and (mask - 1))
+
+for ([config, description] in systems):
+  def coherent = config.regions.filter(~keep: fun (region): region.physical.attributes.cacheable)
+  def mutable mapped_bytes = 0
+  def mutable described_bytes = 0
+  check: coherent.length() > 0 ~is #true
+  for (region in coherent):
+    def attributes = region.physical.attributes
+    def contained = for any (memory in description.memory_regions):
+      memory.address_set.contains(region.physical.address_set.base) && memory.address_set.contains(region.physical.address_set.base + region.physical.address_set.mask)
+    check:
+      region.home.kind ~is CHINodeKind.HNF
+      attributes.executable ~is #true
+      attributes.readable ~is #true
+      attributes.writable ~is #true
+      attributes.atomic ~is #true
+      attributes.read_idempotent ~is #true
+      attributes.device ~is #false
+      // All bytes of every line must select the same coherent Home.
+      region.physical.address_set.mask bits.and 63 ~is 63
+      contained ~is #true
+    mapped_bytes := mapped_bytes + address_count(region.physical.address_set.mask)
+  // The sparse tiled bank sets must partition, not merely sample, described RAM.
+  // RV5StageCHIConfig already rejects overlapping regions. Cardinality plus
+  // containment proves that no described RAM byte is omitted from these PMAs.
+  for (memory in description.memory_regions): described_bytes := described_bytes + memory.size_bytes
+  check: mapped_bytes ~is described_bytes
+  for (region in config.regions):
+    check: region.physical.attributes.cacheable ~is (region.home.kind == CHINodeKind.HNF)
