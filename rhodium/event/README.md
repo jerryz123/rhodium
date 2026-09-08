@@ -65,6 +65,17 @@ The optional formats are `hex`, `unsigned`, `signed` (two's complement), and
 `bool` (one bit only). Defaults are `bool` for Bool, `signed` for SInt, and
 `hex` for other scalar types. Enum labels are not decoded in this first version.
 
+Use `instruction(~format: "riscv", ~isa: "rv64imafdc_zicsr", ~pc: "pc")`
+to request host-side disassembly. The name `instruction` has no special meaning:
+the explicit format applies equally to any capture alias. Supply a 16- or 32-bit
+instruction and a same-site `pc` capture with a hex/unsigned format and width
+matching the ISA's XLEN. ISA and PC options are invalid for other formats.
+The compiler checks capture shape and references; the exporter validates ISA
+extensions against its pinned decoder. ISA/PC metadata lives in the field schema,
+not individual occurrences. Raw graph values and DPI packing are unchanged.
+See [RHEG instruction formatting](../../rheg/README.md#instruction-disassembly)
+for output, fallback, and decoder limits.
+
 For an explicit whole-payload dump use `~payload: #true`; this creates the
 single `raw` capture. Do not combine it with named captures. Low-level adapters
 can pass `~fields: [event_field("pc", pc), ...]` to `describe_interface_event`;

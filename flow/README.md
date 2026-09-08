@@ -119,6 +119,8 @@ The `~fields` binder is last in the argument list and retains typed payload
 access. Nested selections and combinational expressions are supported. An
 entry `count(~format: "unsigned"): payload.count` overrides the display encoding;
 see the [capture contract](../rhodium/event/README.md#capture-fields).
+Instruction observations can explicitly select `~format: "riscv"` with `~isa`
+and a same-site `~pc` capture name; these options affect host display only.
 Use `~payload: #true` explicitly for a whole-payload diagnostic dump.
 
 ```rhombus

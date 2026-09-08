@@ -55,6 +55,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def zihintntl_enabled = extensions.zihintntl
   def compressed_extensions = extensions.compressed
   def width = xlen.width
+  def trace_isa = "rv" ++ to_string(width) ++ String.join(core_profile.isa_extensions.filter(~keep: fun (name): name.length() == 1), "") ++ "_" ++ String.join(core_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
@@ -138,9 +139,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   reg maintenance_pending(~init: Bool(#false))
   reg maintenance_instruction(MemoryWriteback(xlen))
   wire maintenance_accepted: Bool
-  def pipeline_wb = mem_wb_pipe.egress |> trace_valid_event("core.wb", ~terminal: #true, ~fields: operation):
+  def pipeline_wb = mem_wb_pipe.egress |> trace_valid_event("core.s5.wb", ~terminal: #true, ~fields: operation):
     pc: operation.pc
-    instruction: operation.instruction
+    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   // WRS owns its retirement context outside the feed-forward pipeline. Wake
   // levels win over timeout, including a reservation lost on entry to waiting.
   reg reservation_wait_pending(~init: Bool(#false))
@@ -250,9 +251,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   fetch.restart_pc <== mux(redirect_link.right.valid, redirect_link.right.bits, reset_pc)
   fetch.invalidate_all <== fence_i_commit
   fetch.memory <=> instruction_access
-  def fetched = fetch.fetched |> trace_event("core.fetch", ~root: #true, ~fields: operation):
+  def fetched = fetch.fetched |> trace_event("core.s1.fetch", ~root: #true, ~fields: operation):
     pc: operation.pc
-    instruction: operation.instruction
+    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   fetched |> if_id_pipe.ingress
   started <== Bool(#true)
   when (csrs.redirect.valid):
@@ -440,9 +441,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     if_id_pipe.egress
       |> filter_flow(_fetched => !squash)
       |> gate_flow(!pipeline_hazard)
-      |> trace_event("core.decode", ~fields: operation):
+      |> trace_event("core.s2.decode", ~fields: operation):
            pc: operation.pc
-           instruction: operation.instruction
+           instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   def decoded_operation:
     traced_decode |> map_flow(fetched => DecodeExecute(xlen)):
           pc: fetched.pc
@@ -658,16 +659,16 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     exception_value: execute_exception.value
 
   def traced_execute = id_ex |> filter_valid(_operation => execute_transfer)
-    |> trace_valid_event("core.execute", ~fields: operation):
+    |> trace_valid_event("core.s3.execute", ~fields: operation):
          pc: operation.pc
-         instruction: operation.instruction
+         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   traced_execute |> map_valid(_operation => execute_payload) |> ex_mem_pipe.ingress
 
   // MEM remains speculative: forward prepared operands without dispatch,
   // recover branches, and bypass pure integer results.
-  def live_memory = memory |> filter_valid(_operation => memory_stage_valid) |> trace_valid_event("core.memory", ~fields: operation):
+  def live_memory = memory |> filter_valid(_operation => memory_stage_valid) |> trace_valid_event("core.s4.memory", ~fields: operation):
     pc: operation.pc
-    instruction: operation.instruction
+    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   def Array(memory_writeback_path, memory_exception_path, memory_replay_path) = live_memory |> fork_valid(3)
   memory_exception_path |> filter_valid(operation => operation.exception_valid)
     |> map_valid(operation => operation.pc) |> memory_exception_link.left

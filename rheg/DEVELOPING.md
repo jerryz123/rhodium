@@ -36,6 +36,19 @@ Native prefix tests cover unaligned PC/instruction, bool, signed/unsigned
 scalars, and a 65-bit decimal value alongside live/replay parity. Preserve the
 legacy no-schema path for old snapshots. Never infer fields from type strings.
 
+The `riscv` field format carries an ISA string and a same-site PC reference.
+Validate field widths/references in the standard-library-only runtime; validate
+ISA extensions when constructing the exporter, before writing any bytes. Keep
+Spike headers private to the exporter and its three-source disassembler build.
+CMake pins the source checksum and creates a build-local ISA parser copy whose
+two abort sites throw exceptions instead. It checks those sites before adapting
+them; leave downloaded sources and their license unchanged. No simulator state,
+FESVR link, or subprocess is needed for decoding. Decoder instances are per ISA
+per writer; the 4096-entry cache clears when full and includes PC in its key.
+Native fixtures cover RV32/RV64, compressed and FP instructions, PC-relative
+targets and wraparound, unknown fallbacks, ordinary same-named fields, preserved
+raw values, and live/replay parity. This is not instruction-legality validation.
+
 Emit run-wide frequency/epoch once using ChromeEventBundle metadata, before the
 track descriptors and any occurrences. Keep site identity, source location, and
 capture layout in TrackDescriptor's JSON description; v58.2 has no arbitrary
@@ -76,8 +89,10 @@ extracted 3.12.0 source tree. The script reports the tested processor version.
 The producer emits delayed fanout and a same-cycle join with reversed site
 ordering. Native SQL checks cover timestamps/durations, edges, identities, and
 parser diagnostics, explicit track labels, and complete one-cycle slices in
-every flushed prefix. Use named non-thread tracks under the top-level process
-and disable sibling merging to preserve distinct sites with repeated labels.
+every flushed prefix. Use named non-thread tracks under a custom top-level
+design group with `child_ordering = LEXICOGRAPHIC`; process/thread descriptors
+ignore this hint. Verify the imported parent relationship and ordering hint in
+every prefix. Disable sibling merging to preserve distinct sites with repeated labels.
 Native tests must verify legacy flow attachment on these tracks as well as
 the absence of synthetic thread association (which adds numeric UI suffixes).
 Use wide arithmetic for the N+1 boundary and validate it before output; test

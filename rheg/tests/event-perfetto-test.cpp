@@ -22,9 +22,45 @@ Manifest manifest() {
 CycleBatch batch(std::uint64_t cycle, Ref ref, unsigned width = 0) {
   return {cycle, {{ref, {true, cycle, width, width ? std::map<std::uint32_t, std::uint32_t>{{0, 42}} : std::map<std::uint32_t, std::uint32_t>{}}}}, {}};
 }
+Manifest instruction_manifest(const std::string& isa, unsigned xlen, unsigned width = 32, bool multiple = false) {
+  return {"{\"format\":\"rhodium-event-graph\",\"version\":1,\"top\":\"Instructions\",\"sites\":[{\"id\":\"cpu\",\"label\":\"decode\",\"payload_width\":" + std::to_string(xlen+width+32) +
+    ",\"fields\":[{\"name\":\"address\",\"width\":" + std::to_string(xlen) + ",\"offset\":" + std::to_string(width+32) + ",\"encoding\":\"hex\"},"
+    "{\"name\":\"opcode\",\"width\":" + std::to_string(width) + ",\"offset\":32,\"encoding\":\"riscv\",\"isa\":\"" + isa + "\",\"pc\":\"address\"},"
+    "{\"name\":\"instruction\",\"width\":32,\"offset\":0,\"encoding\":\"" + (multiple ? "riscv\",\"isa\":\"" + isa + "\",\"pc\":\"address" : "hex") + "\"}]}],\"dependencies\":[]}",
+    {xlen+width+32}, {}, {{{"address",xlen,width+32,"hex"}, {"opcode",width,32,"riscv",isa,"address"}, {"instruction",32,0,multiple ? "riscv" : "hex",multiple ? isa : "",multiple ? "address" : ""}}}};
+}
+void instruction_trace(const std::string& path, const std::string& isa, unsigned xlen, unsigned width = 32, bool multiple = false) {
+  Graph graph; graph.bind_manifest(instruction_manifest(isa, xlen, width, multiple)); graph.bind_timing({100000000});
+  graph.begin_stream();
+  std::ostringstream live; PerfettoWriter writer(live, graph.snapshot().manifest(), {100000000});
+  const std::vector<std::uint32_t> opcodes = width == 16 ? std::vector<std::uint32_t>{1,0} :
+    std::vector<std::uint32_t>{0x00500513,0xf1402573,0x0080006f,0x0080006f,0x00053503,0x00b50553,0x0001,0xffffffff,0xffdff06f,0x00000517};
+  for (std::size_t i = 0; i < opcodes.size(); ++i) {
+    const auto pc = i == 3 ? 0x2000 : i == 8 ? 0 : 0x1000;
+    const __uint128_t capture = (__uint128_t(pc) << (width+32)) | (std::uint64_t(opcodes[i]) << 32) | opcodes[i];
+    const auto total = xlen+width+32;
+    graph.record_node({0,i}, i, total);
+    for (unsigned word = 0; word < (total+31)/32; ++word)
+      graph.record_payload({0,i}, word, static_cast<std::uint32_t>(capture >> (32*word)));
+    check(graph.field({0,i}, "opcode").unsigned_value() == opcodes[i]);
+    writer.write(graph.finish_cycle(i));
+  }
+  graph.end_stream();
+  std::istringstream saved(graph.snapshot().json());
+  const auto snapshot = read_event_trace(saved);
+  std::ostringstream replay; write_perfetto(replay, snapshot); check(live.str() == replay.str());
+  std::ofstream file(path, std::ios::binary); file << live.str(); file.close(); check(bool(file));
+}
 }
 int main(int argc, char** argv) {
   check(argc == 2);
+  instruction_trace(std::string(argv[1]) + "/riscv64.pftrace", "rv64imafdc_zicsr", 64);
+  instruction_trace(std::string(argv[1]) + "/riscv32.pftrace", "rv32i", 32);
+  instruction_trace(std::string(argv[1]) + "/riscv16.pftrace", "rv32ic", 32, 16);
+  instruction_trace(std::string(argv[1]) + "/multiple-instructions.pftrace", "rv64imafdc_zicsr", 64, 32, true);
+  std::ostringstream invalid_isa_output;
+  rejects([&] { PerfettoWriter w(invalid_isa_output, instruction_manifest("rv64i_znotreal", 64), {1}); }, "invalid RISC-V ISA");
+  check(invalid_isa_output.str().empty());
   std::ostringstream output;
   rejects([&] { PerfettoWriter w(output, manifest(), {0}); }, "positive clock");
   check(output.str().empty());

@@ -44,7 +44,7 @@ fun json_site(site :: EventSite):
     "fields": site.fields.map(fun (field): {
       "name": field.name, "type": field.type, "width": field.width,
       "offset": field.offset, "encoding": field.encoding
-    }),
+    } ++ (if field.encoding == "riscv" | {"isa": field.isa, "pc": field.pc} | {})),
     "terminal": site.terminal,
     "root": site.root,
     "source_location": site.source_location
@@ -92,7 +92,7 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
     def name_tag = tag ++ "f"
     when field.name.contains(")" ++ name_tag ++ "\"") || field.name.contains("\u0000")
     | error(~who: #'event_manifest_to_cpp, "capture name cannot be represented in descriptor")
-    "{R\"" ++ name_tag ++ "(" ++ field.name ++ ")" ++ name_tag ++ "\"," ++ to_string(field.width) ++ "," ++ to_string(field.offset) ++ "," ++ json_string(field.encoding) ++ "}"
+    "{R\"" ++ name_tag ++ "(" ++ field.name ++ ")" ++ name_tag ++ "\"," ++ to_string(field.width) ++ "," ++ to_string(field.offset) ++ "," ++ json_string(field.encoding) ++ "," ++ json_string(field.isa) ++ "," ++ json_string(field.pc) ++ "}"
   def fields = manifest.sites.map(
     fun (site): "{" ++ String.join(site.fields.map(cpp_field), ",") ++ "}"
   )

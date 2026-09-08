@@ -86,9 +86,9 @@ expr.macro 'capture_fields($(payload :: Identifier)): $field; ...':
     | '$(name :: Identifier): $value':
         def text = name.to_source_string()
         'event_field($text, $value)'
-    | '$(name :: Identifier)(~format: $format): $value':
+    | '$(name :: Identifier)($option, ...): $value':
         def text = name.to_source_string()
-        'event_field($text, $value, ~format: $format)'
+        'event_field($text, $value, $option, ...)'
     | ~else: error(~who: #'trace_event, "expected name: capture expression", clause)
   'fun (capture_type, capture_bits):
      def $payload :: Hardware.of(capture_type) = capture_bits

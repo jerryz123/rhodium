@@ -129,7 +129,7 @@ sync_circuit EventCaptures():
   interface sink(Decoupled(CapturePayload()), ~role: producer)
   def selected = source |> trace_event("selected", ~fields: payload):
     pc: payload.nested.pc
-    instruction: payload.nested.instruction
+    instruction(~format: "riscv", ~isa: "rv64im", ~pc: "pc"): payload.nested.instruction
     fault: payload.fault
     low(~format: "unsigned"): payload.nested.pc[0..5] + bits(1, 5)
   selected |> trace_event("identity-only") |> sink
@@ -138,6 +138,15 @@ sync_circuit InvalidCaptures(kind :: String):
   interface source(Valid(CapturePayload()), ~role: consumer)
   interface sink(Valid(CapturePayload()), ~role: producer)
   cond
+  | kind.starts_with("riscv"):
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        pc: if kind == "riscv-pc-width" | payload.nested.instruction | payload.nested.pc
+        opcode(~format: "riscv", ~isa: (if kind == "riscv-isa" | "missing" | "rv64im"), ~pc: (if kind == "riscv-pc" | "absent" | "pc")): if kind == "riscv-width" | payload.nested.pc | payload.nested.instruction
+      selected |> sink
+  | kind == "metadata":
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        value(~isa: "rv64i"): payload.nested.instruction
+      selected |> sink
   | kind == "duplicate":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         pc: payload.nested.pc

@@ -32,10 +32,19 @@ def unusual = EventManifest(linear.logical, [
 check:
   captures.sites.map(fun (site): site.payload_width) ~is [102, #false]
   captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding]) ~is [
-    ["pc", 64, 38, "hex"], ["instruction", 32, 6, "hex"],
+    ["pc", 64, 38, "hex"], ["instruction", 32, 6, "riscv"],
     ["fault", 1, 5, "bool"], ["low", 5, 0, "unsigned"]
   ]
   dependency_labels(captures) ~is ["selected->identity-only"]
+  captures.sites[0].fields[1].isa ~is "rv64im"
+  captures.sites[0].fields[1].pc ~is "pc"
+  event_manifest_to_json(captures).contains("\"isa\":\"rv64im\"") ~is #true
+  event_manifest_to_cpp(captures).contains("\"riscv\",\"rv64im\",\"pc\"") ~is #true
+  fixture.invalid_captures("riscv-width") ~throws "RISC-V capture requires"
+  fixture.invalid_captures("riscv-isa") ~throws "RISC-V capture requires"
+  fixture.invalid_captures("riscv-pc") ~throws "PC must reference"
+  fixture.invalid_captures("riscv-pc-width") ~throws "PC must reference"
+  fixture.invalid_captures("metadata") ~throws "ISA and PC options require"
   fixture.invalid_captures("duplicate") ~throws "duplicate capture"
   fixture.invalid_captures("aggregate") ~throws "scalar DataType"
   fixture.invalid_captures("cycle") ~throws "reserved capture field name: cycle"

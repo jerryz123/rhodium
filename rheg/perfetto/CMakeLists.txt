@@ -5,6 +5,30 @@ include(FetchContent)
 if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()
+FetchContent_Declare(rheg_spike
+  URL https://codeload.github.com/riscv-software-src/riscv-isa-sim/tar.gz/e1fa113cfb6d55d878a3c1ea3befa8d9c13ce154
+  URL_HASH SHA256=1d605e77d7489d1efd180acf0c562314a1b51138d38a311647d96b5d86e806ec)
+FetchContent_MakeAvailable(rheg_spike)
+# Adapt only parser failure policy: malformed saved manifests must throw, not
+# abort the embedding simulator. The downloaded source tree stays untouched.
+file(READ "${rheg_spike_SOURCE_DIR}/disasm/isa_parser.cc" spike_parser)
+string(REGEX MATCHALL "  abort\\(\\)" spike_aborts "${spike_parser}")
+list(LENGTH spike_aborts spike_abort_count)
+if(NOT spike_abort_count EQUAL 2)
+  message(FATAL_ERROR "Pinned Spike parser failure sites changed")
+endif()
+string(REPLACE "  abort();" "  throw std::invalid_argument(\"invalid RISC-V ISA configuration\");" spike_parser "${spike_parser}")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter/isa_parser.cc" "// Adapts pinned Spike ISA errors to exceptions for embedding.\n${spike_parser}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter/config.h" "// Standalone disassembly requires no simulator configuration defines.\n")
+add_library(rheg_disasm OBJECT
+  "${rheg_spike_SOURCE_DIR}/disasm/disasm.cc"
+  "${rheg_spike_SOURCE_DIR}/disasm/regnames.cc"
+  "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter/isa_parser.cc")
+target_include_directories(rheg_disasm SYSTEM PRIVATE
+  "${rheg_spike_SOURCE_DIR}/riscv" "${rheg_spike_SOURCE_DIR}/softfloat"
+  "${CMAKE_CURRENT_BINARY_DIR}/spike-adapter")
+target_compile_features(rheg_disasm PRIVATE cxx_std_17)
 find_package(nlohmann_json 3.12.0 EXACT QUIET)
 if(NOT nlohmann_json_FOUND)
   FetchContent_Declare(nlohmann_json
@@ -17,8 +41,9 @@ if(NOT TARGET rheg_runtime)
   target_include_directories(rheg_runtime PUBLIC ../runtime)
   target_compile_features(rheg_runtime PUBLIC cxx_std_17)
 endif()
-add_library(rheg_perfetto STATIC rheg_perfetto.cc)
+add_library(rheg_perfetto STATIC rheg_perfetto.cc $<TARGET_OBJECTS:rheg_disasm>)
 target_include_directories(rheg_perfetto PUBLIC .)
+target_include_directories(rheg_perfetto SYSTEM PRIVATE "${rheg_spike_SOURCE_DIR}/riscv")
 target_compile_features(rheg_perfetto PUBLIC cxx_std_17)
 target_link_libraries(rheg_perfetto PUBLIC rheg_runtime PRIVATE nlohmann_json::nlohmann_json)
 add_executable(rheg-perfetto main.cc)

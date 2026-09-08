@@ -137,7 +137,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
             def captures = for List (field in annotation.fields):
               def width = field.value.type.packed_width()
               capture_offset := capture_offset - width
-              EventField(field.name, field.value.type.describe(), width, capture_offset, field.encoding)
+              EventField(field.name, field.value.type.describe(), width, capture_offset, field.encoding, field.isa, field.pc)
             def site = EventSite(site_id,
                                  annotation.label,
                                  module_diagram.name,

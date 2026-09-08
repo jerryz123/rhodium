@@ -1,6 +1,7 @@
 // Encodes Perfetto v58.2 packets and parses rheg trace snapshots in C++.
 #include "rheg_perfetto.h"
 #include <nlohmann/json.hpp>
+#include <disasm.h>
 #include <charconv>
 #include <algorithm>
 #include <limits>
@@ -81,7 +82,8 @@ Description describe(const Json& json) {
         captures.push_back({field.at("name").get<std::string>(),
                            static_cast<std::uint32_t>(number(field.at("width"), UINT32_MAX)),
                            static_cast<std::uint32_t>(number(field.at("offset"), UINT32_MAX)),
-                           field.at("encoding").get<std::string>()});
+                           field.at("encoding").get<std::string>(),
+                           field.value("isa", std::string()), field.value("pc", std::string())});
       result.manifest.fields.push_back(std::move(captures));
     }
   }
@@ -133,12 +135,62 @@ void capture_annotation(std::string& event, const Field& field, const Node& node
     bytes(event, 4, arg);
   }
 }
+
+// Decoder state and its bounded cache are private to one export, never the graph.
+struct RiscvDecoder {
+  isa_parser_t isa;
+  disassembler_t decoder;
+  explicit RiscvDecoder(const std::string& name) : isa(name.c_str(), "MSU"), decoder(&isa, true) {}
+};
+struct RiscvFormatting {
+  std::map<std::string, std::unique_ptr<RiscvDecoder>> decoders;
+  std::map<std::tuple<std::string, std::uint64_t, std::uint32_t, std::uint32_t>, std::string> cache;
+  void prepare(const std::string& isa) {
+    if (!decoders.count(isa)) decoders.emplace(isa, std::make_unique<RiscvDecoder>(isa));
+  }
+  std::string render(const Field& field, const Node& node, const std::vector<Field>& fields) {
+    const auto value = capture_field(node, field);
+    const auto bits = static_cast<std::uint32_t>(value.unsigned_value());
+    const auto pc_field = std::find_if(fields.begin(), fields.end(), [&](const Field& f) { return f.name == field.pc; });
+    const auto pc = capture_field(node, *pc_field).unsigned_value();
+    const auto key = std::make_tuple(field.isa, pc, bits, field.width);
+    if (const auto found = cache.find(key); found != cache.end()) return found->second;
+    insn_t instruction(bits);
+    std::string result = "unknown";
+    const auto length = instruction.length();
+    if ((length == 2 && (bits >> 16) == 0) || (length == 4 && field.width == 32))
+      result = decoders.at(field.isa)->decoder.disassemble(instruction);
+    if (result == "unknown") result = value.hex();
+    else {
+      // Spike expresses branch/jump targets as a final 'pc +/- offset' operand.
+      // Resolve it using the explicitly associated capture, with XLEN wrapping.
+      const auto plus_pos = result.find("pc + ");
+      const auto minus_pos = result.find("pc - ");
+      const auto target_pos = plus_pos != std::string::npos ? plus_pos : minus_pos;
+      if (target_pos != std::string::npos) {
+        const bool subtract = result.at(target_pos + 3) == '-';
+        const auto delta = std::stoull(result.substr(target_pos + 5), nullptr, 0);
+        auto target = subtract ? pc - delta : pc + delta;
+        if (field.isa.compare(0, 4, "rv32") == 0) target &= UINT32_MAX;
+        std::ostringstream address; address << "0x" << std::hex << target;
+        result.replace(target_pos, std::string::npos, address.str());
+      }
+      // Normalize alignment padding into a compact single-line argument.
+      std::istringstream words(result); std::string word; result.clear();
+      while (words >> word) { if (!result.empty()) result += ' '; result += word; }
+    }
+    if (cache.size() >= 4096) cache.clear();
+    cache.emplace(key, result);
+    return result;
+  }
+};
 }
 
 struct PerfettoWriter::Impl {
   std::ostream& output;
   Description description;
   TraceTiming timing;
+  RiscvFormatting instructions;
   std::map<Ref, std::pair<std::uint64_t, std::uint64_t>> known; // flow identity, cycle
   std::optional<std::uint64_t> watermark;
   bool failed = false;
@@ -149,7 +201,10 @@ struct PerfettoWriter::Impl {
     require(description.manifest.payload_widths == manifest.payload_widths &&
             description.manifest.dependencies == manifest.dependencies &&
             description.manifest.fields == manifest.fields, "manifest descriptor differs from JSON");
-    std::string stream, descriptor, process, p;
+    for (const auto& fields : manifest.fields)
+      for (const auto& field : fields)
+        if (field.encoding == "riscv") instructions.prepare(field.isa);
+    std::string stream, descriptor, p;
     // Run-wide metadata precedes every occurrence, including in empty/prefix traces.
     std::string metadata, metadata_packet;
     for (const auto& entry : std::vector<std::pair<std::string,std::uint64_t>>{
@@ -160,8 +215,11 @@ struct PerfettoWriter::Impl {
     }
     bytes(metadata_packet, 5, metadata); packet(stream, metadata_packet);
     integer(descriptor, 1, description.sites.size() + 1);
-    integer(process, 1, 1); bytes(process, 6, description.top);
-    bytes(descriptor, 3, process); bytes(p, 60, descriptor); packet(stream, p);
+    bytes(descriptor, 2, description.top);
+    // A custom group honors child_ordering; process/thread tracks ignore it.
+    integer(descriptor, 11, 1); // TrackDescriptor.child_ordering = LEXICOGRAPHIC.
+    integer(descriptor, 15, 2); // SIBLING_MERGE_BEHAVIOR_NONE.
+    bytes(p, 60, descriptor); packet(stream, p);
     for (std::size_t i = 0; i < description.sites.size(); ++i) {
       std::string track, pkt;
       integer(track, 1, i + 1); integer(track, 5, description.sites.size() + 1);
@@ -171,9 +229,12 @@ struct PerfettoWriter::Impl {
                    {"payload_width", description.manifest.payload_widths[i]}};
       if (!description.manifest.fields.empty()) {
         site["fields"] = Json::array();
-        for (const auto& field : description.manifest.fields[i])
-          site["fields"].push_back({{"name",field.name}, {"width",field.width},
-                                     {"offset",field.offset}, {"encoding",field.encoding}});
+        for (const auto& field : description.manifest.fields[i]) {
+          Json capture = {{"name",field.name}, {"width",field.width},
+                          {"offset",field.offset}, {"encoding",field.encoding}};
+          if (field.encoding == "riscv") { capture["isa"] = field.isa; capture["pc"] = field.pc; }
+          site["fields"].push_back(std::move(capture));
+        }
       }
       bytes(track, 14, site.dump(2)); // TrackDescriptor has description, not arbitrary annotations.
       bytes(pkt, 60, track); packet(stream, pkt);
@@ -246,19 +307,30 @@ struct PerfettoWriter::Impl {
       const auto id = known.size() + additions.size() + 1;
       additions.emplace(ref, std::make_pair(id, node.cycle));
       std::string fields;
-      integer(fields, 9, 1); bytes(fields, 23, description.sites[ref.site].label);
+      integer(fields, 9, 1);
+      std::string mnemonic;
+      std::size_t instruction_count = 0;
       bytes(fields, 22, "rhodium.event");
       annotation(fields, "sequence", std::to_string(ref.sequence));
       annotation(fields, "cycle", std::to_string(node.cycle));
       if (!description.manifest.fields.empty()) {
-        for (const auto& field : description.manifest.fields[ref.site])
-          capture_annotation(fields, field, node);
+        for (const auto& field : description.manifest.fields[ref.site]) {
+          if (field.encoding == "riscv") {
+            const auto assembly = instructions.render(field, node, description.manifest.fields[ref.site]);
+            annotation(fields, field.name, assembly);
+            mnemonic = assembly.substr(0, assembly.find(' '));
+            ++instruction_count;
+          }
+          else capture_annotation(fields, field, node);
+        }
       } else {
         // Old snapshots retain their raw display when no capture schema exists.
         std::vector<std::uint32_t> words;
         for (auto word : node.words) words.push_back(word.second);
         annotation(fields, "payload_words_lsw_first", Json(words).dump());
       }
+      // Only an unambiguous instruction capture names the slice; tracks retain site labels.
+      bytes(fields, 23, instruction_count == 1 ? mnemonic : description.sites[ref.site].label);
       event(stream, ref, node.cycle, fields);
       for (auto parent : parents[ref]) {
         const auto identity = additions.count(parent) ? additions.at(parent).first : known.at(parent).first;

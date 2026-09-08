@@ -113,6 +113,37 @@ invalid encodings, and JSON/C++ table mismatches are errors. The collector
 validates typed descriptors without acquiring a JSON dependency; the shared
 export library interprets the same schema for streaming and replay.
 
+### Instruction disassembly
+
+Fields with `encoding: "riscv"` include `isa` (an explicit RV32I/RV64I ISA
+string) and `pc` (a same-site hex/unsigned capture alias of XLEN width).
+Instructions may be 16 or 32 bits; a 32-bit capture can hold a zero-extended
+compressed instruction. Unsupported widths, missing PC references, and malformed
+ISA configurations are errors. This format is opt-in: a field merely named
+`instruction` is still ordinary hex unless tagged.
+
+The shared C++ exporter uses Spike's pinned disassembler to show assembly under
+the original field name. It resolves relative branch/jump targets using the
+associated PC, wrapping at XLEN; it does not resolve ELF symbols. Unknown or
+unsupported encodings retain fixed-width hex. Disassembly is presentation, not
+an architectural legality check. The graph and snapshot preserve the original
+bits, available through the normal field accessors. Live and standalone exports
+use the same decoder and a bounded cache keyed by ISA, PC, bits, and capture width.
+
+When a site has exactly one `riscv` field, each Perfetto slice is named with its
+disassembled mnemonic (including aliases such as `li` and `j`), or raw hex for
+an unknown encoding. The full assembly remains in the field argument. Track
+names retain the site labels, such as `core.s1.fetch`; queries selecting stages
+should join `slice.track_id` to `track.id`. Sites with no instruction field or
+multiple instruction fields retain their site label as the slice name.
+
+Only the optional Perfetto library builds the decoder; the collector remains
+standard-library-only. CMake downloads the checksum-pinned Spike source revision
+and builds its disassembler, not its simulator or FESVR. Offline builds can set
+`FETCHCONTENT_SOURCE_DIR_RHEG_SPIKE`; the test script and simulator make targets
+accept the equivalent `RHEG_SPIKE_SOURCE_DIR` path. LLVM, Python, and external
+disassembler processes are not required.
+
 ### Optional trace timing
 
 Before any simulator evaluation or callback, bind run timing separately from
@@ -236,7 +267,9 @@ No DPI ABI or RTL changes are required for this explicit host boundary.
 Each occurrence becomes a one-cycle slice spanning `[N, N+1)` on a track named
 with its annotated event label, without a synthetic thread-ID suffix. Each site
 retains a separate track even when labels repeat. These are non-thread tracks
-grouped under the top-level design. Occurrence arguments contain only exact
+grouped under a custom track named for the top-level design. This group requests
+lexicographic child ordering, independent of site IDs or callback order; viewers
+may override this display hint. Occurrence arguments contain only exact
 cycle, sequence, and captured values (legacy snapshots retain their raw words).
 Frequency and epoch are emitted once before occurrences as trace metadata,
 available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and

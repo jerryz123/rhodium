@@ -23,7 +23,7 @@ export:
   EventManifest
 
 class EventField(name :: String, type :: String, width :: PosInt,
-                 offset :: Nat, encoding :: String)
+                 offset :: Nat, encoding :: String, isa :: String = "", pc :: String = "")
 
 class EventSite(id :: String,
                 label :: String,

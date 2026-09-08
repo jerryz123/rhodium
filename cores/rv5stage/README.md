@@ -66,11 +66,12 @@ resident-line preservation, and outer-cache limits.
 
 ## Pipeline event tracing
 
-The core carries metadata-only checkpoints named `core.fetch`, `core.decode`,
-`core.execute`, `core.memory`, and `core.wb`. Ordinary elaboration does not add
+The core carries metadata-only checkpoints named `core.s1.fetch`, `core.s2.decode`,
+`core.s3.execute`, `core.s4.memory`, and `core.s5.wb`. Ordinary elaboration does not add
 counters or DPI calls; the optional event compiler instruments a separate design.
 The [SimpleSoC trace build](../../sims/README.md#export-simplesoc-events-to-perfetto)
-includes these sites automatically.
+includes these sites automatically. Stage-number prefixes keep their names in
+pipeline order when sorted lexicographically.
 
 Fetch records acceptance from the fetch queue into IF/ID and starts a new
 lineage. Decode records issue after hazard and squash gating, not every stalled
@@ -80,8 +81,11 @@ controls and one-cycle always-capture registers. Repeated PCs have separate
 occurrence identities; squashed tokens may have no later-stage descendant.
 
 Each checkpoint captures only named `pc` and `instruction` fields (XLEN + 32
-bits), not the complete stage bundle. Perfetto exposes `payload_pc` and
-`payload_instruction` as lossless hexadecimal values.
+bits), not the complete stage bundle. Perfetto exposes `pc` as hexadecimal and
+`instruction` as host-disassembled RISC-V text, using the core profile's ISA.
+Raw instruction bits remain in the graph. These are already decompressed
+pipeline instructions, so compressed instructions display their expanded form,
+not the original `c.*` mnemonic.
 WB is not retirement: replay, traps, maintenance/WRS holding, and deferred
 load/multiply/divide/FP completion remain outside this first pipeline trace.
 No dependency is inferred between the memory-boundary graph and fetch through

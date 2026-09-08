@@ -1153,6 +1153,9 @@ built-in event arguments. `event_field` infers Bool/SInt/bitvector
 encoding and accepts `~format` overrides. Named fields and explicit raw
 `~payload` are mutually exclusive. See the owning
 [capture contract](../../event/README.md#capture-fields) for formats and transport.
+The `riscv` format additionally requires `~isa` and `~pc`; the PC reference must
+name a same-site hex/unsigned capture of matching XLEN. The layer checks metadata
+shape without importing an ISA decoder; disassembly remains host-side export.
 
 Static routes alone do not authorize runtime instrumentation. The optional
 `InterfaceTraceCombinational` contract certifies zero-storage, non-inventing,

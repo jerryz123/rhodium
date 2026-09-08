@@ -26,8 +26,21 @@ void validate_capture_schema(const Manifest& manifest) {
       if (!field.width || field.width > remaining || field.offset != remaining - field.width)
         throw std::runtime_error("invalid capture field layout");
       if (field.encoding != "hex" && field.encoding != "unsigned" &&
-          field.encoding != "signed" && field.encoding != "bool")
+          field.encoding != "signed" && field.encoding != "bool" && field.encoding != "riscv")
         throw std::runtime_error("unsupported capture encoding");
+      if (field.encoding == "riscv") {
+        if ((field.width != 16 && field.width != 32) ||
+            (field.isa.compare(0, 5, "rv32i") && field.isa.compare(0, 5, "rv64i")) ||
+            field.isa.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") != std::string::npos)
+          throw std::runtime_error("invalid RISC-V capture width or ISA");
+        const auto& fields = manifest.fields[site];
+        const auto pc = std::find_if(fields.begin(), fields.end(), [&](const Field& f) { return f.name == field.pc; });
+        if (pc == fields.end() || (pc->encoding != "hex" && pc->encoding != "unsigned") ||
+            pc->width != (field.isa.compare(0, 4, "rv32") == 0 ? 32U : 64U))
+          throw std::runtime_error("RISC-V capture PC must reference an XLEN-width hex/unsigned field");
+      } else if (!field.isa.empty() || !field.pc.empty()) {
+        throw std::runtime_error("ISA and PC options require RISC-V capture format");
+      }
       if (field.encoding == "bool" && field.width != 1)
         throw std::runtime_error("boolean capture must be one bit");
       remaining -= field.width;

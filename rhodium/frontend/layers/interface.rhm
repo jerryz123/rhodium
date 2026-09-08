@@ -495,11 +495,13 @@ class InterfaceTransformGroup(module_def :: Module,
                               implementation :: False || Instance,
                               trace_model :: False || InterfaceTraceModel = #false):
   implements ModuleMetadataPayload
-class InterfaceEventField(name :: String, value :: Value, encoding :: String)
+class InterfaceEventField(name :: String, value :: Value, encoding :: String,
+                          isa :: String = "", pc :: String = "")
 
 // Capture expressions are local observations, independent of lineage metadata.
 fun event_field(name :: String, value :: HardwareEntity,
                 ~format: encoding :: False || String = #false,
+                ~isa: isa :: String = "", ~pc: pc :: String = "",
                 ~location: location :: Location = Location()) :: InterfaceEventField:
   def captured = kernel.read(value, location)
   unless name is_a AsciiIdentifier && flat_data_type(captured.type)
@@ -507,11 +509,17 @@ fun event_field(name :: String, value :: HardwareEntity,
   when name in ["cycle", "sequence"]
   | error(~who: #'event_field, "reserved capture field name: " ++ name)
   def format = encoding || (if bool_type(captured.type) | "bool" | (if signed_arithmetic_type(captured.type) | "signed" | "hex"))
-  unless format in ["hex", "unsigned", "signed", "bool"]
+  unless format in ["hex", "unsigned", "signed", "bool", "riscv"]
   | error(~who: #'event_field, "unsupported capture format")
   when format == "bool" && captured.type.packed_width() != 1
   | error(~who: #'event_field, "boolean capture must be one bit")
-  InterfaceEventField(name, captured, format)
+  if format == "riscv"
+  | block:
+      unless captured.type.packed_width() in [16, 32] && isa is_a AsciiIdentifier && (isa.starts_with("rv32i") || isa.starts_with("rv64i")) && pc is_a AsciiIdentifier
+      | error(~who: #'event_field, "RISC-V capture requires 16/32 bits, an rv32i/rv64i ISA, and a PC field name")
+  | unless isa == "" && pc == ""
+    | error(~who: #'event_field, "ISA and PC options require RISC-V capture format")
+  InterfaceEventField(name, captured, format, isa, pc)
 
 class InterfaceEventGroup(module_def :: Module,
                           site_index :: Nat,
@@ -1908,12 +1916,17 @@ fun describe_interface_event(handle :: Handle,
   def names = MutableSet{}
   for (field in fields):
     // Validate even descriptors constructed directly through the public class.
-    event_field(field.name, field.value, ~format: field.encoding, ~location: location)
+    event_field(field.name, field.value, ~format: field.encoding, ~isa: field.isa, ~pc: field.pc, ~location: location)
     when field.name in names
     | error(~who: #'describe_interface_event, "duplicate capture field name: " ++ field.name)
     names.add(field.name)
     unless field.value.module_def === module_def
     | error(~who: #'describe_interface_event, "capture field must belong to the annotated module")
+  for (field in fields):
+    when field.encoding == "riscv"
+    | def pc_field = fields.find(fun (candidate): candidate.name == field.pc)
+      unless pc_field && pc_field.encoding in ["hex", "unsigned"] && pc_field.value.type.packed_width() == (if field.isa.starts_with("rv32") | 32 | 64)
+      | error(~who: #'describe_interface_event, "RISC-V capture PC must reference a hex/unsigned field of ISA XLEN width")
   def existing = module_interface_events(module_def)
   when existing.find(fun (event): event.label == label)
   | error(~who: #'describe_interface_event,

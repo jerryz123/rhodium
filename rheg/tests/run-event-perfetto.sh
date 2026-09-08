@@ -9,6 +9,9 @@ cmake_options=(-DRHEG_PERFETTO_TESTS=ON '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Werror
 if [[ -n "${NLOHMANN_JSON_SOURCE_DIR:-}" ]]; then
   cmake_options+=("-DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=$NLOHMANN_JSON_SOURCE_DIR")
 fi
+if [[ -n "${RHEG_SPIKE_SOURCE_DIR:-}" ]]; then
+  cmake_options+=("-DFETCHCONTENT_SOURCE_DIR_RHEG_SPIKE=$RHEG_SPIKE_SOURCE_DIR")
+fi
 cmake -S "$repo_dir/rheg/perfetto" -B "$stream_test_dir/build" "${cmake_options[@]}"
 cmake --build "$stream_test_dir/build" -j 4
 ctest --test-dir "$stream_test_dir/build" --output-on-failure
@@ -35,7 +38,9 @@ for index in 0 1 2; do
   esac
   assert_query "$file" "SELECT count(*)=$nodes AND sum(dur=10 AND ts=CASE name WHEN 'source' THEN 0 WHEN 'left' THEN 10 ELSE 20 END)=$nodes AS ok FROM slice"
   assert_query "$file" "SELECT count(*)=$nodes AND sum(t.name=s.name)=$nodes AS ok FROM slice s JOIN track t ON t.id=s.track_id"
+  assert_query "$file" "SELECT count(*)=$nodes AND count(DISTINCT p.id)=1 AND sum(p.name='StreamTest' AND p.parent_id IS NULL AND EXTRACT_ARG(p.source_arg_set_id,'child_ordering')='lexicographic')=$nodes AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN track p ON p.id=t.parent_id"
   assert_query "$file" "SELECT count(*)=0 AS ok FROM slice s JOIN thread_track t ON t.id=s.track_id"
+  assert_query "$file" "SELECT count(*)=0 AS ok FROM process_track"
   assert_query "$file" "SELECT count(*)=$edges AS ok FROM flow"
   assert_query "$file" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
   # Argument sets can now be shared by same-cycle events on different tracks.
@@ -47,6 +52,14 @@ for index in 0 1 2; do
   assert_query "$file" "SELECT count(*)=1 AND min(str_value)='9' AS ok FROM metadata WHERE name='cr-rheg.epoch_id'"
   assert_query "$file" "SELECT count(*)=1 AND min(json_extract(a.string_value,'$.site_id'))='top/source' AND min(json_extract(a.string_value,'$.payload_width'))=172 AND min(json_array_length(a.string_value,'$.fields'))=6 AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE t.name='source' AND a.key='description'"
 done
+assert_query "$stream_test_dir/build/riscv64.pftrace" "WITH expected(seq,asm) AS (VALUES('0','li a0, 5'),('1','csrr a0, mhartid'),('2','j 0x1008'),('3','j 0x2008'),('4','ld a0, 0(a0)'),('5','fadd.s fa0, fa0, fa1'),('6','c.nop'),('7','0xffffffff'),('8','j 0xfffffffffffffffc'),('9','auipc a0, 0x0')) SELECT count(*)=10 AND sum(EXTRACT_ARG(s.arg_set_id,'debug.opcode')=e.asm)=10 AND sum(length(EXTRACT_ARG(s.arg_set_id,'debug.instruction'))=10)=10 AS ok FROM slice s JOIN expected e ON e.seq=EXTRACT_ARG(s.arg_set_id,'debug.sequence')"
+assert_query "$stream_test_dir/build/riscv32.pftrace" "WITH expected(seq,asm) AS (VALUES('4','0x00053503'),('5','0x00b50553'),('6','0x00000001'),('8','j 0xfffffffc')) SELECT count(*)=4 AND sum(EXTRACT_ARG(s.arg_set_id,'debug.opcode')=e.asm)=4 AS ok FROM slice s JOIN expected e ON e.seq=EXTRACT_ARG(s.arg_set_id,'debug.sequence')"
+assert_query "$stream_test_dir/build/riscv16.pftrace" "SELECT count(*)=2 AND sum(EXTRACT_ARG(arg_set_id,'debug.opcode')='c.nop')=1 AND sum(EXTRACT_ARG(arg_set_id,'debug.opcode')='c.unimp')=1 AS ok FROM slice"
+for fixture in riscv64 riscv32 riscv16; do
+  assert_query "$stream_test_dir/build/$fixture.pftrace" "WITH decoded AS (SELECT s.*, EXTRACT_ARG(s.arg_set_id,'debug.opcode')||' ' AS assembly FROM slice s) SELECT count(*)>0 AND sum(s.name=substr(s.assembly,1,instr(s.assembly,' ')-1) AND t.name='decode' AND s.dur=10 AND s.ts=10*CAST(EXTRACT_ARG(s.arg_set_id,'debug.cycle') AS INT))=count(*) AS ok FROM decoded s JOIN track t ON t.id=s.track_id"
+done
+assert_query "$stream_test_dir/build/multiple-instructions.pftrace" "SELECT count(*)=10 AND sum(s.name='decode' AND t.name='decode' AND EXTRACT_ARG(s.arg_set_id,'debug.opcode')=EXTRACT_ARG(s.arg_set_id,'debug.instruction'))=10 AS ok FROM slice s JOIN track t ON t.id=s.track_id"
+assert_query "$stream_test_dir/build/riscv64.pftrace" "SELECT count(*)=1 AND min(json_extract(a.string_value,'$.fields[1].isa'))='rv64imafdc_zicsr' AND min(json_extract(a.string_value,'$.fields[1].pc'))='address' AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE t.name='decode' AND a.key='description'"
 assert_query "$stream_test_dir/live.pftrace.prefix1" "SELECT count(*)=1 AND min(a.name)='source' AND min(b.name)='left' AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
 assert_query "$stream_test_dir/live.pftrace" "SELECT count(*)=4 AND count(DISTINCT a.name||'->'||b.name)=4 AND sum((a.name||'->'||b.name) IN ('source->left','source->right','left->join','right->join'))=4 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
 assert_query "$stream_test_dir/build/precision.pftrace" "SELECT count(*)=3 AND min(ts)=0 AND max(ts)=6 AND sum(ts)=9 AND min(dur)=3 AND max(dur)=4 AND sum(dur)=10 AND max(depth)=0 AS ok FROM slice"

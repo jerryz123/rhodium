@@ -30,9 +30,10 @@ struct Field {
   std::string name;
   std::uint32_t width, offset;
   std::string encoding;
+  std::string isa = {}, pc = {};
   bool operator==(const Field& other) const {
-    return std::tie(name, width, offset, encoding) ==
-           std::tie(other.name, other.width, other.offset, other.encoding);
+    return std::tie(name, width, offset, encoding, isa, pc) ==
+           std::tie(other.name, other.width, other.offset, other.encoding, other.isa, other.pc);
   }
 };
 struct FieldValue {

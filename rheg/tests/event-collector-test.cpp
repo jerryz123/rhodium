@@ -49,6 +49,14 @@ int main() {
     rejects([&] { Graph rejected; rejected.bind_manifest(bad); },
             std::string("reserved capture field name: ") + reserved);
   }
+  Manifest instructions{"trusted", {96}, {}, {{{"pc",64,32,"hex"}, {"opcode",32,0,"riscv","rv64im","pc"}}}};
+  Graph instruction_graph; instruction_graph.bind_manifest(instructions);
+  for (const auto& field : std::vector<Field>{
+      {"opcode",32,0,"riscv","","pc"}, {"opcode",32,0,"riscv","rv64i","absent"},
+      {"opcode",32,0,"riscv","rv32i","pc"}, {"opcode",32,0,"hex","rv64i","pc"}}) {
+    auto invalid = instructions; invalid.fields[0][1] = field;
+    rejects([&] { Graph rejected; rejected.bind_manifest(invalid); }, "capture");
+  }
   for (auto invalid_field : std::vector<Field>{{"small",5,0,"hex"}, {"bad",5,1,"hex"},
                                               {"bad",5,0,"bool"}, {"bad",5,0,"float"},
                                               {"",5,0,"hex"}, {"bad",0,0,"hex"}}) {
