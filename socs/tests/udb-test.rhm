@@ -21,6 +21,14 @@ for (name in RiscvUdbConfigurationNames):
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zawrs\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("  ZAWRS_NTO_IS_NOP: false") ~is #true
 
+for (profile in [simple_soc_core_profile, tiled_soc_core_profile]):
+  check:
+    profile.isa_extensions.contains("zcmop") ~is #true
+
+for (name in ["simple-soc", "tiled-soc"]):
+  check:
+    riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zcmop\", version: \"= 1.0.0\" }") ~is #true
+
 check:
   RiscvUdbConfigurationNames ~is ["simple-soc", "mini-soc", "tiled-soc"]
   riscv_udb_configuration("simple-soc").name ~is "rhodium-rv5stage-simple-rv64"

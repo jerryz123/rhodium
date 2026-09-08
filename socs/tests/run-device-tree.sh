@@ -40,6 +40,13 @@ for name in simple mini tiled; do
   esac
 done
 
+for name in simple tiled; do
+  case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+    *" zcmop "*) ;;
+    *) echo "$name DTB does not advertise Zcmop" >&2; exit 1 ;;
+  esac
+done
+
 [[ "$(fdtget "$fixture_dir/simple.dtb" / model)" == "Rhodium SimpleSoC" ]]
 [[ "$(fdtget "$fixture_dir/mini.dtb" / model)" == "Rhodium MiniSoC" ]]
 [[ "$(fdtget "$fixture_dir/tiled.dtb" / model)" == "Rhodium TiledSoC" ]]

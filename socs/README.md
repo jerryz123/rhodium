@@ -37,7 +37,8 @@ Each author-facing SoC parameter object owns one
 `RVCoreProfile`, and the same profile specializes the instantiated core and its
 architectural description. `SimpleSoC` defaults to RV64D and the full C
 composition, `MiniSoC` to integer-only RV64 with 2 KiB direct-mapped L1s, and
-`TiledSoC` to integer-only RV64 with the C composition. All three select Sv39;
+`TiledSoC` to integer-only RV64 with the C composition. SimpleSoC and TiledSoC
+also enable Zcmop; MiniSoC keeps compressed instructions disabled. All three select Sv39;
 Zicbop and Zicboz are enabled in each default profile, while half precision and Zfa remain
 disabled. Supply an alternate `RVCoreProfile` through the owning SoC parameter
 object to change those selections.
