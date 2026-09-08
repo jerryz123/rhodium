@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's VIPT write-back cache, delayed mutation, and bounded exclusive LR/SC window.
+// Implements RV5Stage's VIPT write-back cache with independent LR/SC reservation and probe protection.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -127,8 +127,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   ))
   reg snoop_way(~init: bits(0, way_width))
   // Fixed microarchitectural budget, not an ISA promise about cycle counts.
-  // Allow sixteen scalar instructions with pipeline/redirect slack, then let
-  // probes run even if the core is stalled. Repeated LR cannot renew a window.
+  // Give local LR/SC a turn, then admit probes even if the core is stalled.
+  // This bounds probe deferral, not reservation lifetime; repeated LR cannot renew it.
   def reservation_cycles = 128
   def reservation_backoff = 3
   def reservation_count_width = index_width(reservation_cycles + reservation_backoff + 1)
@@ -689,20 +689,22 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     victim_address === reservation_line_address
   )
   def reservation_clear = lookup_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear
-  def reservation_expiring = reservation_count === bits(reservation_backoff + 1, reservation_count_width)
-  def establish_reservation = completing_lr & !reservation_count.or_reduce()
-  when establish_reservation:
+  // Reservation lifetime follows accesses and coherence, not the fairness timer.
+  // A slow SC may still succeed after probes have been allowed to proceed.
+  when completing_lr:
     reservation_valid <== Bool(#true)
     reservation_address <== response_address
     reservation_width <== response_width
+  elsewhen reservation_clear:
+    reservation_valid <== Bool(#false)
+
+  // A repeated LR may replace the reservation, but cannot renew protection.
+  when (completing_lr & !reservation_count.or_reduce()):
     reservation_count <== bits(reservation_cycles + reservation_backoff, reservation_count_width)
   elsewhen ((reservation_valid & reservation_clear) ||| (completing_lr & reservation_protected)):
-    reservation_valid <== Bool(#false)
     reservation_count <== bits(reservation_backoff, reservation_count_width)
   elsewhen (reservation_count.or_reduce()):
     reservation_count <== reservation_count - bits(1, reservation_count_width)
-    when reservation_expiring:
-      reservation_valid <== Bool(#false)
 
   // A completed probe also gives a waiting local lookup a bounded turn.
   // Otherwise an endless stream of unrelated probes could prevent even the

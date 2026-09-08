@@ -91,7 +91,7 @@ module rv5stage_lrsc_progress_tb;
     await_count(0, left_count + 1, 13);
 
     // A stalled reserving client must eventually let a conflicting writer
-    // acquire the line. Its subsequently expired SC must not overwrite it.
+    // acquire the line. Its subsequently revoked SC must not overwrite it.
     left_count = completions[0];
     right_count = completions[1];
     issue(0, 3, 0);
@@ -124,7 +124,7 @@ module rv5stage_lrsc_progress_tb;
     left_count = completions[0];
     issue(0, 1, 0);
     await_count(0, left_count + 1, 101);
-    $display("Two-cache LR/SC progress passed: 12 read-only LLC evictions, dirty-data preservation, stalled-core expiry, intervening write, competing LR/SC");
+    $display("Two-cache LR/SC progress passed: 12 read-only LLC evictions, dirty-data preservation, stalled-core probe admission, intervening write, competing LR/SC");
     $finish;
   end
   initial begin

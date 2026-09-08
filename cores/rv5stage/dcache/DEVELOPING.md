@@ -62,9 +62,9 @@ importing the instruction-cache package.
    gather, refill installation, and snoop service.
 5. Acquire Unique for LR without treating it as a store for translation,
    faults, dirty state, or refill mutation. SC authorization is a local owned
-   hit decision; never retain it in a refill context. Keep reservation expiry,
-   mutation/replacement invalidation, and probe state changes consistent with
-   the [bounded LR/SC contract](README.md#lrsc-reservation).
+   hit decision; never retain it in a refill context. Keep probe-protection expiry
+   separate from reservation validity. Preserve mutation/replacement invalidation
+   and probe state changes under the [LR/SC contract](README.md#lrsc-reservation).
    Gate new snoop admission rather than masking an accepted snoop's pending
    state. Protect the CompAck-to-install interval and give waiting lookups a
    bounded turn after `snoop.completed`. Countdown progress must not depend on
@@ -102,13 +102,14 @@ complete-core integration. Backend fixture names include `rv5stage-dcache` and
 modes. Repository wrappers provide a fresh compiled root.
 
 The RV64 cache bench covers cold and shared-hit LR ownership, a probe offered
-at CompAck, delayed SC under pending eviction traffic, expiry, repeated LR,
-and reacquisition after revocation. RV32 separately covers expiry and local
-SC failure without new CHI traffic. `rv5stage-lrsc-progress` connects two actual
+at CompAck, delayed SC under pending eviction traffic, protection expiry, repeated LR,
+and reacquisition after revocation. RV32 and RV64 also require SC success after
+a quiet delay beyond the protection window, without new CHI traffic.
+`rv5stage-lrsc-progress` connects two actual
 L1Ds to a two-set, one-way inclusive Home and CHI SRAM through registered,
 round-robin channel transport. It forces read-only
 LLC replacement during delayed SC, checks dirty-data preservation through
-eviction, permits an intervening writer after a stalled LR expires, and
+eviction, permits an intervening writer after a stalled LR's protection expires, and
 completes two competing LR/SC pairs through exclusive acquisition.
 These tests do not replace constrained instruction-loop testing through a
 complete SoC, including fetch, translation, and network arbitration.

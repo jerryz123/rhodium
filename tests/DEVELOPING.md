@@ -73,6 +73,7 @@ flowchart TD
     Compile --> Examples["Example matrix<br/>one owning example group per shard"]
     Compile --> CIRCT["CIRCT matrix<br/>language, standard library,<br/>protocols, cores, RFPL"]
     Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
+    Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
     Compile --> SimpleBuild["Build SimpleSoC once<br/>exact-commit executable artifact"]
     SimpleBuild --> Simulation
     SimpleBuild --> Programs["SimpleSoC software matrix<br/>ISA tests and benchmarks"]
@@ -87,6 +88,11 @@ when their behavior feeds system composition. Backend implementation or fixture
 changes select the backend host shard and every external CIRCT group. The
 simulation job remains independent from backend fixtures and owns the
 repository's full harness flow.
+
+The stalled-memory TiledSoC specialization runs in its own job under the same
+simulation change selection. Its separate build and bounded execution cannot
+consume the ordinary harness job's budget or skip downstream smoke coverage.
+Always retain its build/execution log, including on failure or cancellation.
 
 The software matrix independently selects ISA tests, benchmarks, and ACT. Shared
 SimpleSoC dependencies (including CHI, NoC, devices, and RISC-V support) select all

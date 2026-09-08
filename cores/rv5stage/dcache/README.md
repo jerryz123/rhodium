@@ -208,7 +208,7 @@ consumed after `CompAck`, using normal load lane extraction and destination
 metadata. [CHI permits silent eviction of a clean copy](https://documentation-service.arm.com/static/5f914ecbf86e16515cdc2b4d)
 (section 4.6): no data, tag, valid, or state array is written, no victim is
 drained, and replacement pointers are untouched. It does not explicitly clear
-a resident LR reservation, whose independent lifetime can still expire.
+a resident LR reservation, which is still subject to conflicting accesses and coherence events.
 Younger requests remain ordered behind
 the blocking transaction and reread their retained lookups afterward. Snoops
 continue to service resident lines while the read is outstanding.
@@ -286,13 +286,15 @@ clears the reservation.
 The reservation is also cleared by a same-line local store or AMO, a snoop
 changing that line's state, or replacement of the reserved line.
 
-Reservations have a bounded lifetime independent of core stalls. For the
+Probe protection has a bounded lifetime independent of core stalls. For the
 128-cycle protected interval, new snoops wait and best-effort prefetches are
 dropped. SC can therefore finish locally even when a Home is waiting to evict
-the inclusive copy. Expiry clears `reservation_valid`, also waking WRS, and
-allows snoops to proceed. A three-cycle backoff prevents immediate renewal;
-another LR during a live interval ends it instead of extending it. Such an LR
-still returns load data, but may leave no reservation.
+the inclusive copy. Expiry allows snoops to proceed, but does not itself clear
+`reservation_valid`: a delayed SC can succeed if the line remains owned and no
+conflicting event has occurred. A three-cycle backoff prevents immediate renewal;
+another LR during a live interval ends protection instead of extending it, while
+recording the new reservation. WRS observes actual reservation loss, not the
+end of probe protection; its instruction-specific timeout remains core-owned.
 
 New snoops also wait from refill CompAck through SRAM installation. An
 eight-cycle service window follows installation, or completion of a snoop

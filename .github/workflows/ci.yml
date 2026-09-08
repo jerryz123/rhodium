@@ -282,8 +282,6 @@ jobs:
           make -C sims uart-pty-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
           make -C sims uart-pty-test SOC=mini
           make -C sims uart-pty-test SOC=tiled
-      - name: Stress the single TiledSoC memory channel under backpressure
-        run: make -C sims tiled-memory-test
       - name: Verify translated NTL cache policy through FESVR on all three SoCs
         run: |
           make -C sims zihintntl-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
@@ -311,6 +309,57 @@ jobs:
             /tmp/rhodium-program-tests/*/isa-smoke/build.log
             /tmp/rhodium-program-tests/*/isa-smoke/results
           if-no-files-found: warn
+          retention-days: 7
+
+  tiled-memory:
+    name: TiledSoC memory backpressure
+    needs: [changes, compile-racket]
+    if: needs.changes.outputs.simulation == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: "${{ env.RACKET_VERSION }}"
+      - uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: "${{ env.RACKET_VERSION }}"
+          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake zlib1g-dev
+      - uses: ./.github/actions/setup-riscv-toolchain
+      - uses: ./.github/actions/setup-verilator
+      - name: Cache FESVR
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/fesvr-*
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ hashFiles('sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+      - name: Cache CIRCT
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/firtool-*
+          key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
+      - name: Install simulation dependencies
+        run: |
+          make -C sims setup
+          make setup-circt
+      - name: Build and stress the stalled memory channel
+        timeout-minutes: 35
+        shell: bash
+        run: make -C sims tiled-memory-test 2>&1 | tee "$RUNNER_TEMP/tiled-memory.log"
+      - name: Publish memory stress diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tiled-memory-${{ github.sha }}
+          path: ${{ runner.temp }}/tiled-memory.log
           retention-days: 7
 
   simple-soc-build:

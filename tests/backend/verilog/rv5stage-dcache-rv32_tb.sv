@@ -1,4 +1,4 @@
-// Checks RV32 AMOArithmetic, byte-block operations, LR/SC expiry, reservation bounds, and NTL loads.
+// Checks RV32 AMOs, byte blocks, delayed LR/SC, reservation bounds, and NTL loads.
 module rv5stage_dcache_rv32_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed { logic ready; } ready_t;
@@ -213,12 +213,12 @@ module rv5stage_dcache_rv32_tb;
     send_request(32'h103c, 4'd3);
     expect_response(0);
     repeat (160) tick();
-    assert (!core_out.reservation_valid) else $fatal(1, "RV32 stalled core retained reservation indefinitely");
+    assert (core_out.reservation_valid) else $fatal(1, "RV32 protection expiry discarded an unrevoked reservation");
     send_request(32'h103c, 4'd4, 0, 2, 0, 32'h5678);
-    expect_response(1);
-    assert (requests == 6) else $fatal(1, "RV32 expired SC attempted ownership acquisition");
-    send_request(32'h103c, 4'd3);
     expect_response(0);
+    assert (requests == 6) else $fatal(1, "RV32 delayed SC attempted ownership acquisition");
+    send_request(32'h103c, 4'd3);
+    expect_response(32'h5678);
     reset = 1;
     tick();
     assert (!core_out.reservation_valid) else $fatal(1, "RV32 reset retained reservation");

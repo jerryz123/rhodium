@@ -1123,7 +1123,7 @@ module rv5stage_dcache_tb;
         end
       end
       for (int cycle = 0; progress_snoop_accepts == 0 && cycle < 160; cycle++) tick();
-      assert (progress_snoop_accepts == 1 && !core_out.reservation_valid && !tx_req_pending)
+      assert (progress_snoop_accepts == 1 && !tx_req_pending)
         else $fatal(1, "reservation starved a probe or SC attempted reacquisition");
       watch_progress_snoop = 0;
       if (scenario == 0) begin
@@ -1131,9 +1131,10 @@ module rv5stage_dcache_tb;
       end else begin
         for (int cycle = 0; !tx_rsp_pending && cycle < 100; cycle++) tick();
         assert (tx_rsp_pending && captured_rsp.opcode == 1 && captured_rsp.resp == 0 && captured_rsp.txn_id == 12'h079)
-          else $fatal(1, "expired reservation failed clean probe completion");
+          else $fatal(1, "expired protection failed clean probe completion");
         tx_rsp_pending = 0;
       end
+      assert (!core_out.reservation_valid) else $fatal(1, "completed invalidating probe retained reservation");
       send_core_request(ADDRESS, MEMORY_SC, ATOMIC_SWAP, STORE_DATA_2, 2);
       expect_core_response(1, DATA_DESTINATION_INTEGER, 2);
       assert (!tx_req_pending) else $fatal(1, "revoked SC issued a refill");
@@ -1149,6 +1150,23 @@ module rv5stage_dcache_tb;
       expect_core_response(0, DATA_DESTINATION_INTEGER, 2);
     end
     $display("LR/SC progress passed: exclusive LR, shared upgrade, post-grant probe, delayed local SC, timeout, repeated LR, reacquisition");
+    // Timer expiry permits snoops; it does not revoke ownership by itself.
+    // Cover W/D delays longer than the ACT sequence that crossed the window.
+    for (int size = 2; size <= 3; size++) begin
+      send_core_request(ADDRESS, MEMORY_LR, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+      expect_core_response(size == 2 ? {{32{STORE_DATA[31]}}, STORE_DATA[31:0]} : STORE_DATA, DATA_DESTINATION_INTEGER, 1);
+      repeat (192) tick();
+      assert (core_out.reservation_valid) else $fatal(1, "quiet delayed LR lost its reservation");
+      // A repeated LR records a reservation even during an existing window.
+      send_core_request(ADDRESS, MEMORY_LR, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+      expect_core_response(size == 2 ? {{32{STORE_DATA[31]}}, STORE_DATA[31:0]} : STORE_DATA, DATA_DESTINATION_INTEGER, 1);
+      send_core_request(ADDRESS, MEMORY_LR, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+      expect_core_response(size == 2 ? {{32{STORE_DATA[31]}}, STORE_DATA[31:0]} : STORE_DATA, DATA_DESTINATION_INTEGER, 1);
+      repeat (192) tick();
+      send_core_request(ADDRESS, MEMORY_SC, ATOMIC_SWAP, STORE_DATA, 2, 0, 2'b11, 2'(size));
+      expect_core_response(0, DATA_DESTINATION_INTEGER, 2);
+      assert (!tx_req_pending) else $fatal(1, "quiet delayed SC acquired ownership");
+    end
     // Start with no reservation or post-grant protection. Continuous probes
     // of an unrelated line must still give a waiting local LR a lookup turn.
     reset = 1;
