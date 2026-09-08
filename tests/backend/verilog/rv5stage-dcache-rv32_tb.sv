@@ -1,4 +1,4 @@
-// Checks RV32 block-zero SRAM sequencing and non-allocating NTL load normalization.
+// Checks RV32 64-byte block operations, bounded LR/SC reservations, and NTL loads.
 module rv5stage_dcache_rv32_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
@@ -34,7 +34,7 @@ module rv5stage_dcache_rv32_tb;
   task automatic tick;
     if (!reset) begin
       if (chi_out.requests.valid && chi_in.requests.ready) begin
-        assert (chi_out.requests.bits.opcode == expected_opcode && chi_out.requests.bits.address == expected_address)
+        assert (chi_out.requests.bits.opcode == expected_opcode && chi_out.requests.bits.address == expected_address && chi_out.requests.bits.size_or_num_req == 6)
           else $fatal(1, "RV32 zero did not acquire the aligned block");
         requests++;
       end
@@ -49,7 +49,8 @@ module rv5stage_dcache_rv32_tb;
   task automatic send_request(input logic [31:0] address, input logic [3:0] access,
                               input logic [2:0] locality = 0,
                               input logic [1:0] size = 2,
-                              input logic unsigned_load = 0);
+                              input logic unsigned_load = 0,
+                              input logic [31:0] data = 0);
     for (int cycle = 0; cycle < 100 && !core_out.request.ready; cycle++) tick();
     assert (core_out.request.ready) else $fatal(1, "RV32 request timeout");
     core_in.request.bits = '0;
@@ -58,7 +59,8 @@ module rv5stage_dcache_rv32_tb;
     core_in.request.bits.width = size;
     core_in.request.bits.unsigned_0 = unsigned_load;
     core_in.request.bits.locality = locality;
-    core_in.request.bits.destination = access == 4'd1 ? 2'd1 : 2'd0;
+    core_in.request.bits.data = data;
+    core_in.request.bits.destination = access inside {4'd1, 4'd3, 4'd4} ? 2'd1 : 2'd0;
     core_in.request.valid = 1;
     tick();
     core_in.request.valid = 0;
@@ -139,6 +141,61 @@ module rv5stage_dcache_rv32_tb;
       assert (requests == hint + 1 && acknowledgements == hint + 1)
         else $fatal(1, "RV32 NTL disturbed a dirty resident or lost CompAck");
     end
+    // Populate the adjacent line without evicting the zeroed line at 0x1000.
+    expected_opcode = 7'h07;
+    expected_address = 44'h1040;
+    send_request(32'h107f, 4'd6);
+    for (int cycle = 0; cycle < 100 && requests != 6; cycle++) tick();
+    assert (requests == 6) else $fatal(1, "adjacent line did not request ownership");
+    for (int packet = 0; packet < 4; packet++) begin
+      for (int cycle = 0; cycle < 100 && !chi_out.response_data.ready; cycle++) tick();
+      assert (chi_out.response_data.ready) else $fatal(1, "adjacent refill timeout");
+      chi_in.response_data.bits.data = '1;
+      chi_in.response_data.bits.data_id = 2'(packet);
+      chi_in.response_data.bits.resp = 3'b010;
+      chi_in.response_data.valid = 1;
+      tick();
+      chi_in.response_data.valid = 0;
+    end
+    expect_response(0);
+    for (int offset = 0; offset < 128; offset += 4) begin
+      send_request(32'h1000 + 32'(offset), 4'd3);
+      expect_response(0);
+      assert (core_out.reservation_valid) else $fatal(1, "RV32 LR did not reserve word");
+      send_request(32'h1000 + 32'(offset ^ 64), 4'd2);
+      expect_response(0);
+      assert (core_out.reservation_valid) else $fatal(1, "RV32 neighboring line cleared reservation");
+      send_request(32'h1000 + 32'(offset), 4'd4, 0, 2, 0, 32'h1234);
+      expect_response(0);
+      assert (!core_out.reservation_valid) else $fatal(1, "RV32 SC retained reservation");
+      send_request(32'h1000 + 32'(offset), 4'd4, 0, 2, 0, 32'h5678);
+      expect_response(1);
+      send_request(32'h1000 + 32'(offset), 4'd1);
+      expect_response(32'h1234);
+      send_request(32'h1000 + 32'(offset), 4'd3);
+      expect_response(32'h1234);
+      send_request(32'h1000 + 32'(offset ^ 4), 4'd4, 0, 2, 0, 32'h5678);
+      expect_response(1);
+      assert (!core_out.reservation_valid && requests == 6) else $fatal(1, "RV32 mismatched SC retained reservation or issued traffic");
+      send_request(32'h1000 + 32'(offset ^ 4), 4'd1);
+      expect_response(0);
+      send_request(32'h1000 + 32'(offset), 4'd2);
+      expect_response(0);
+    end
+    send_request(32'h103c, 4'd3);
+    expect_response(0);
+    // Same-line mutation is a permitted conservative reservation invalidation.
+    send_request(32'h1000, 4'd2);
+    expect_response(0);
+    assert (!core_out.reservation_valid) else $fatal(1, "RV32 same-line store retained reservation");
+    send_request(32'h103c, 4'd4, 0, 2, 0, 32'h5678);
+    expect_response(1);
+    send_request(32'h103c, 4'd3);
+    expect_response(0);
+    reset = 1;
+    tick();
+    assert (!core_out.reservation_valid) else $fatal(1, "RV32 reset retained reservation");
+    $display("RV32 reservation bounds passed: 32 aligned W sites, adjacent-line isolation, exact address, one-shot SC");
     $display("RV32 block-zero SRAM sequencing passed");
     $finish;
   end

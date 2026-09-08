@@ -1,4 +1,4 @@
-// Verifies staged L1D lookup, coherent non-allocating NTL loads, mutations, and snoops.
+// Verifies L1D coherence, 64-byte block operations, and bounded LR/SC reservations.
 module rv5stage_dcache_tb;
   typedef struct packed {
     logic [63:0] address;
@@ -187,7 +187,8 @@ module rv5stage_dcache_tb;
     input logic [63:0] data,
     input logic [4:0] rd,
     input logic [2:0] locality = 3'd0,
-    input logic [1:0] destination = 2'b11
+    input logic [1:0] destination = 2'b11,
+    input logic [1:0] size = 2'd3
   );
     integer cycles;
     begin
@@ -201,7 +202,7 @@ module rv5stage_dcache_tb;
       core_in.request.bits = '{address: address,
                                access: access,
                                atomic: atomic,
-                               width: 2'd3,
+                               width: size,
                                unsigned_load: 1'b0,
                                data: data,
                                destination: destination != 2'b11 ? destination : ((access == MEMORY_STORE || access == MEMORY_ZERO || access >= 7) ? DATA_DESTINATION_NONE : DATA_DESTINATION_INTEGER),
@@ -896,6 +897,58 @@ module rv5stage_dcache_tb;
       send_response(COMP, 2, 0, 0, 2'b10);
       expect_core_response(0, DATA_DESTINATION_NONE, 0, 1);
     end
+    // Start with two adjacent UniqueClean lines. Exercise every aligned W/D
+    // reservation on both sides of a 64-byte boundary within one 128-byte block.
+    reset = 1;
+    repeat (2) tick();
+    reset = 0;
+    tx_req_pending = 0;
+    tx_rsp_pending = 0;
+    tx_dat_pending = 0;
+    tick();
+    assert (!core_out.reservation_valid) else $fatal(1, "reset retained reservation");
+    for (int line_index = 0; line_index < 2; line_index++) begin
+      send_core_request(ADDRESS + 64'(line_index * 64), MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
+      accept_request(READ_CLEAN, ADDRESS + 64'(line_index * 64), 0, 6, 1, 0);
+      return_line(ADDRESS + 64'(line_index * 64), 0, 3'b010);
+      accept_comp_ack();
+      expect_core_response(0, DATA_DESTINATION_INTEGER, 1);
+    end
+    for (int size = 2; size <= 3; size++) begin
+      for (int offset = 0; offset < 128; offset += (1 << size)) begin
+        send_core_request(ADDRESS + 64'(offset), MEMORY_LR, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+        expect_core_response(0, DATA_DESTINATION_INTEGER, 1);
+        assert (core_out.reservation_valid) else $fatal(1, "LR failed to establish reservation");
+        // A neighboring line is outside the reservation, even in the same 128-byte block.
+        send_core_request(ADDRESS + 64'(offset ^ 64), MEMORY_STORE, ATOMIC_SWAP, 0, 0, 0, 2'b11, 2'(size));
+        expect_core_response(0, DATA_DESTINATION_NONE, 0);
+        assert (core_out.reservation_valid) else $fatal(1, "neighboring line cleared reservation");
+        send_core_request(ADDRESS + 64'(offset), MEMORY_SC, ATOMIC_SWAP, 64'h1234, 2, 0, 2'b11, 2'(size));
+        expect_core_response(0, DATA_DESTINATION_INTEGER, 2);
+        assert (!core_out.reservation_valid) else $fatal(1, "successful SC retained reservation");
+        send_core_request(ADDRESS + 64'(offset), MEMORY_SC, ATOMIC_SWAP, 64'h5678, 2, 0, 2'b11, 2'(size));
+        expect_core_response(1, DATA_DESTINATION_INTEGER, 2);
+        send_core_request(ADDRESS + 64'(offset), MEMORY_LOAD, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+        expect_core_response(64'h1234, DATA_DESTINATION_INTEGER, 1);
+        send_core_request(ADDRESS + 64'(offset), MEMORY_LR, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+        expect_core_response(64'h1234, DATA_DESTINATION_INTEGER, 1);
+        send_core_request(ADDRESS + 64'(offset ^ (1 << size)), MEMORY_SC, ATOMIC_SWAP, 64'h5678, 2, 0, 2'b11, 2'(size));
+        expect_core_response(1, DATA_DESTINATION_INTEGER, 2);
+        assert (!core_out.reservation_valid && !tx_req_pending) else $fatal(1, "mismatched SC retained reservation or issued traffic");
+        send_core_request(ADDRESS + 64'(offset ^ (1 << size)), MEMORY_LOAD, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'(size));
+        expect_core_response(0, DATA_DESTINATION_INTEGER, 1);
+        send_core_request(ADDRESS + 64'(offset), MEMORY_STORE, ATOMIC_SWAP, 0, 0, 0, 2'b11, 2'(size));
+        expect_core_response(0, DATA_DESTINATION_NONE, 0);
+      end
+    end
+    // Address equality alone is insufficient: a W reservation cannot authorize SC.D.
+    send_core_request(ADDRESS, MEMORY_LR, ATOMIC_SWAP, 0, 1, 0, 2'b11, 2'd2);
+    expect_core_response(0, DATA_DESTINATION_INTEGER, 1);
+    send_core_request(ADDRESS, MEMORY_SC, ATOMIC_SWAP, 64'h5678, 2);
+    expect_core_response(1, DATA_DESTINATION_INTEGER, 2);
+    send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 1);
+    expect_core_response(0, DATA_DESTINATION_INTEGER, 1);
+    $display("RV64 reservation bounds passed: 48 aligned W/D sites, adjacent-line isolation, exact address/width, one-shot SC");
     $display("RV5Stage VIPT write-back data-cache and self-snooped maintenance simulation passed");
     $finish;
   end

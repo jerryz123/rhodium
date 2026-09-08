@@ -160,6 +160,21 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+For Zic64b/Za64rs, run `cores/rv5stage/tests/profile-test.rhm`,
+`cores/rv5stage/tests/udb-test.rhm`, and `socs/tests/udb-test.rhm` in one host
+batch, then `bash socs/tests/run-device-tree.sh`. Validate generated RV32 and
+RV64 UDB configurations as described above; `Za64rs` requires the implied
+`Za128rs` entry, and `Zic64b` requires `CACHE_BLOCK_SIZE` even with CMO disabled.
+Account for the [UDB 0.1.16 applicability limitation](README.md#cache-block-and-reservation-bounds)
+when validating CMO-free configurations. Do not omit the hardware fact or
+silently enable CMO decode to satisfy that database version.
+Select `rv5stage-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32` for
+CIRCT/Verilator validation. The data-cache benches cover all 64 CBO byte offsets,
+aligned word/doubleword LR/SC sites on both sides of a 64-byte boundary,
+neighboring-line isolation, exact SC matching, and one-shot reservation use;
+the RV64 bench also covers invalidating snoops. These size/boundary regressions
+do not establish eventual LR/SC success under adversarial coherence traffic.
+
 For Zkt, run the architecture/profile/advertisement checks and the four timing
 fixtures:
 

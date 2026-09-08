@@ -7,6 +7,8 @@ import:
 
 for (profile in [simple_soc_core_profile, mini_soc_core_profile, tiled_soc_core_profile]):
   check:
+    profile.isa_extensions.contains("zic64b") ~is #true
+    profile.isa_extensions.contains("za64rs") ~is #true
     profile.isa_extensions.contains("zkt") ~is #true
     profile.extensions.zawrs ~is #true
     profile.extensions.zihintpause ~is #true
@@ -17,6 +19,8 @@ for (profile in [simple_soc_core_profile, mini_soc_core_profile, tiled_soc_core_
 
 for (name in RiscvUdbConfigurationNames):
   check:
+    riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zic64b\", version: \"= 1.0.0\" }") ~is #true
+    riscv_udb_configuration(name).to_yaml().contains("{ name: \"Za64rs\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zkt\", version: \"= 1.0.1\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zihintntl\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zihintpause\", version: \"= 2.0.0\" }") ~is #true

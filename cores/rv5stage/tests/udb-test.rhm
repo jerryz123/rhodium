@@ -71,6 +71,16 @@ def rv32_yaml = rv5stage_udb_configuration(
   32
 ).to_yaml()
 
+// Fixed geometry claims apply even without any CMO decoder enabled. UDB's
+// extension closure includes the weaker reservation bound implied by Za64rs.
+for (yaml in [rv32_yaml, rv64_yaml]):
+  check:
+    yaml.contains("{ name: \"Zic64b\", version: \"= 1.0.0\" }") ~is #true
+    yaml.contains("{ name: \"Za64rs\", version: \"= 1.0.0\" }") ~is #true
+    yaml.contains("{ name: \"Za128rs\", version: \"= 1.0.0\" }") ~is #true
+    yaml.contains("  CACHE_BLOCK_SIZE: 64") ~is #true
+    yaml.contains("  LRSC_RESERVATION_STRATEGY: \"reserve exactly enough to cover the access\"") ~is #true
+
 check:
   rv32_yaml.contains("{ name: \"Zkt\", version: \"= 1.0.1\" }") ~is #true
   rv32_yaml.contains("{ name: \"Zihpm\", version: \"= 2.0\" }") ~is #true

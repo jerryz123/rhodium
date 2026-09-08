@@ -41,6 +41,9 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
     extension("A", "2.1.0"),
     extension("Zaamo", "1.0.0"),
     extension("Zalrsc", "1.0.0"),
+    extension("Za64rs", "1.0.0"),
+    extension("Za128rs", "1.0.0"),
+    extension("Zic64b", "1.0.0"),
     extension("B", "1.0.0"),
     extension("Zba", "1.0.0"),
     extension("Zbb", "1.0.0"),
@@ -112,6 +115,7 @@ fun rv5stage_udb_parameters(profile :: RVCoreProfile,
     natural_parameter("MXLEN", xlen),
     natural_parameter("PHYS_ADDR_WIDTH", physical_address_width),
     natural_parameter("PMA_GRANULARITY", pma_granularity_log2),
+    natural_parameter("CACHE_BLOCK_SIZE", RV5StageCacheLineBytes),
     boolean_parameter("PRECISE_SYNCHRONOUS_EXCEPTIONS", #true),
     boolean_parameter("TRAP_ON_ECALL_FROM_M", #true),
     boolean_parameter("TRAP_ON_EBREAK", #true),
@@ -186,8 +190,6 @@ fun rv5stage_udb_parameters(profile :: RVCoreProfile,
   ]
   when profile.mmu_mode == RV5StageMmuMode.Bare
   | result := result ++ [boolean_parameter("TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY", #false)]
-  when selected.zicbop || selected.zicboz || selected.zicbom
-  | result := result ++ [natural_parameter("CACHE_BLOCK_SIZE", RV5StageCacheLineBytes)]
   when selected.zicbom
   | result := result ++ [boolean_parameter("FORCE_UPGRADE_CBO_INVAL_TO_FLUSH", #false)]
   when selected.zawrs

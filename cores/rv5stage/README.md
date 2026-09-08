@@ -43,6 +43,33 @@ views come from the CSR block rather than instruction rows. The
 specialization matrix and catalog composition. RV32D and an RV64F-only core are
 deliberately rejected.
 
+## Cache-block and reservation bounds
+
+Every RV32 and RV64 profile advertises **Zic64b 1.0.0** and **Za64rs 1.0.0**,
+including profiles without CMO instructions. These describe existing hardware;
+they add no opcodes, CSRs, `misa` bits, or enable switches.
+
+Zic64b fixes the naturally aligned cache block at 64 bytes across L1I, L1D,
+refill/writeback, and cache-block operations. Cache capacity and associativity
+remain configurable, but line size does not. Za64rs bounds a contiguous,
+naturally aligned reservation set to **at most** 64 bytes, not exactly 64.
+RV5Stage reserves the naturally aligned LR access (4 bytes for LR.W, 8 for
+RV64 LR.D) and requires SC to match its physical address and width. Conservative
+same-line invalidations may also cause SC failure; the
+[L1D reservation contract](dcache/README.md#lrsc-reservation) describes them.
+This size guarantee does not establish Ziccrse's LR/SC forward-progress guarantee.
+
+Profile-derived device trees advertise `zic64b` and `za64rs`. UDB includes their
+exact versions, the implied weaker `Za128rs` bound, a 64-byte `CACHE_BLOCK_SIZE`
+even without CMO decode, and the access-sized `LRSC_RESERVATION_STRATEGY`.
+Definitions follow the [ratified profiles](https://docs.riscv.org/reference/rvb23/v1.0/rvb23.html).
+
+UDB 0.1.16 has an applicability inconsistency for CMO-free profiles: Zic64b
+requires `CACHE_BLOCK_SIZE`, but that database defines the parameter only for
+Zicbom/Zicbop/Zicboz. The projection retains the truthful hardware value;
+validation of those CMO-free configurations requires a corrected UDB definition.
+The concrete SoC profiles enable CMOs and are unaffected.
+
 ## Data-independent timing (Zkt)
 
 Every RV32 and RV64 profile advertises **Zkt 1.0.1**, including FP-enabled
