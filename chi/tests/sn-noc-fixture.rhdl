@@ -56,27 +56,21 @@ sync_circuit CHISNNoCFixture():
   inst rsp_router(SimpleRouter(CHIRspFlit(sn_noc_flit), sn_noc_rsp_router_config))
   inst dat_router(SimpleRouter(CHIDatFlit(sn_noc_flit), sn_noc_dat_router_config))
 
+  def router_ports = CHINoCPorts(
+    CHINoCPlane(req_router.ingress, req_router.target),
+    CHINoCPlane(rsp_router.ingress, rsp_router.target),
+    CHINoCPlane(dat_router.ingress, dat_router.target)
+  )
+
   connect_chi_hn_subordinate(home,
                              ~home: sn_noc_home,
-                             ~req_ingress: req_router.ingress,
-                             ~rsp_targets: rsp_router.target,
-                             ~dat_ingress: dat_router.ingress,
-                             ~dat_targets: dat_router.target,
-                             ~adapters: sn_noc_adapters)
+                             ~ports: router_ports, ~adapters: sn_noc_adapters)
   connect_chi_sn_node(first,
                       ~node: sn_noc_first,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: sn_noc_adapters)
+                      ~ports: router_ports, ~adapters: sn_noc_adapters)
   connect_chi_sn_node(second,
                       ~node: sn_noc_second,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: sn_noc_adapters)
+                      ~ports: router_ports, ~adapters: sn_noc_adapters)
 
 def sn_noc_design = elaborate(CHISNNoCFixture())
 

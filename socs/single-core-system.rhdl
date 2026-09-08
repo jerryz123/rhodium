@@ -204,95 +204,23 @@ fun populate_single_core(params :: SingleCoreSystemParams,
     node_id: bits(params.platform.uart.node.node_id, params.flit.node_id_width)
     base_address: bits(params.platform.uart.base_address, params.flit.request_address_width)
 
-  connect_chi_rnf_node(host.memory,
-                       ~node: params.host_site,
-                       ~req_ingress: req_router.ingress,
-                       ~rsp_ingress: rsp_router.ingress,
-                       ~rsp_targets: rsp_router.target,
-                       ~snp_targets: snp_router.target,
-                       ~dat_ingress: dat_router.ingress,
-                       ~dat_targets: dat_router.target,
-                       ~adapters: params.adapter_plans)
-  connect_chi_rnf_node(rv5stage.imem,
-                       ~node: params.instruction_site,
-                       ~req_ingress: req_router.ingress,
-                       ~rsp_ingress: rsp_router.ingress,
-                       ~rsp_targets: rsp_router.target,
-                       ~snp_targets: snp_router.target,
-                       ~dat_ingress: dat_router.ingress,
-                       ~dat_targets: dat_router.target,
-                       ~adapters: params.adapter_plans)
-  connect_chi_rnf_node(rv5stage.dmem,
-                       ~node: params.data_site,
-                       ~req_ingress: req_router.ingress,
-                       ~rsp_ingress: rsp_router.ingress,
-                       ~rsp_targets: rsp_router.target,
-                       ~snp_targets: snp_router.target,
-                       ~dat_ingress: dat_router.ingress,
-                       ~dat_targets: dat_router.target,
-                       ~adapters: params.adapter_plans)
-  connect_chi_rni(rv5stage.umem,
-                  device_home.port.requester,
-                  ~node: params.uncached_site,
-                  ~icn: params.device_home_requester_site,
-                  ~req_ingress: req_router.ingress,
-                  ~req_targets: req_router.target,
-                  ~rsp_ingress: rsp_router.ingress,
-                  ~rsp_targets: rsp_router.target,
-                  ~dat_ingress: dat_router.ingress,
-                  ~dat_targets: dat_router.target,
-                  ~adapters: params.adapter_plans)
-  connect_chi_hn_requesters(home.port.requester,
-                            ~home: params.home_requester_site,
-                            ~req_targets: req_router.target,
-                            ~rsp_ingress: rsp_router.ingress,
-                            ~rsp_targets: rsp_router.target,
-                            ~snp_ingress: snp_router.ingress,
-                            ~dat_ingress: dat_router.ingress,
-                            ~dat_targets: dat_router.target,
-                            ~adapters: params.adapter_plans)
-  connect_chi_hn_subordinate(device_home.port.subordinate,
-                             ~home: params.device_home_subordinate_site,
-                             ~req_ingress: req_router.ingress,
-                             ~rsp_targets: rsp_router.target,
-                             ~dat_ingress: dat_router.ingress,
-                             ~dat_targets: dat_router.target,
-                             ~adapters: params.adapter_plans)
-  connect_chi_sn_node(bootrom.port,
-                      ~node: params.bootrom_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: params.adapter_plans)
-  connect_chi_sn_node(boot_address.port,
-                      ~node: params.boot_address_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: params.adapter_plans)
-  connect_chi_sn_node(aclint.port,
-                      ~node: params.aclint_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: params.adapter_plans)
-  connect_chi_sn_node(plic.port,
-                      ~node: params.plic_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: params.adapter_plans)
-  connect_chi_sn_node(uart_device.port,
-                      ~node: params.uart_site,
-                      ~req_targets: req_router.target,
-                      ~rsp_ingress: rsp_router.ingress,
-                      ~dat_targets: dat_router.target,
-                      ~dat_ingress: dat_router.ingress,
-                      ~adapters: params.adapter_plans)
+  def router_ports = CHINoCPorts(
+    CHINoCPlane(req_router.ingress, req_router.target),
+    CHINoCPlane(rsp_router.ingress, rsp_router.target),
+    CHINoCPlane(dat_router.ingress, dat_router.target),
+    ~snp: CHINoCPlane(snp_router.ingress, snp_router.target)
+  )
+  connect_chi_rnf_node(host.memory, ~node: params.host_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_rnf_node(rv5stage.imem, ~node: params.instruction_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_rnf_node(rv5stage.dmem, ~node: params.data_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_rni(rv5stage.umem, device_home.port.requester, ~node: params.uncached_site, ~icn: params.device_home_requester_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_hn_requesters(home.port.requester, ~home: params.home_requester_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_hn_subordinate(device_home.port.subordinate, ~home: params.device_home_subordinate_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_sn_node(bootrom.port, ~node: params.bootrom_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_sn_node(boot_address.port, ~node: params.boot_address_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_sn_node(aclint.port, ~node: params.aclint_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_sn_node(plic.port, ~node: params.plic_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_sn_node(uart_device.port, ~node: params.uart_site, ~ports: router_ports, ~adapters: params.adapter_plans)
   home.port.subordinate <=> memory
   timebase.enable <== Bool(#true)
   aclint.tick <== timebase.wrap

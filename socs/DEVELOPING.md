@@ -34,6 +34,9 @@ identities, PMA, and descriptions from each caller's memory service and platform
 parameters. The helper emits the processor, chosen Home, routers, and platform
 devices directly into the caller; it adds no hardware wrapper. MiniSoC owns its
 RAM configuration, while SimpleSoC owns an external service and LLC geometry.
+The helper groups its existing router endpoints in CHI's `CHINoCPorts` view and
+passes that view to the typed RN/HN/SN attachment helpers. CHI owns the shared
+injection/ejection queue policy; this view adds no circuit hierarchy.
 `endpoint-params.rhdl` supplies host descriptions shared with the tiled compiler;
 exact ICN peers are derived through CHI's `node.icn_peer()` method. Home
 parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects imports between peer SoCs and

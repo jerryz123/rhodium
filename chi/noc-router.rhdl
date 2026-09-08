@@ -4,7 +4,6 @@
 import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("flow/queue.rhdl").queue
   lib("chi/params.rhdl").CHIFlitParams
   lib("chi/flits.rhdl") open
   lib("chi/channels.rhdl") open
@@ -485,8 +484,11 @@ sync_circuit CHIRouter(params :: CHIRouterParams):
   interface outgoing_links[physical_outputs](Link, ~role: source)
 
   inst req_router(SimpleRouterFamily(CHIReqFlit(p), req_config))
+  def req_plane = CHINoCPlane(req_router.ingress, req_router.target)
   inst rsp_router(SimpleRouterFamily(CHIRspFlit(p), rsp_config))
+  def rsp_plane = CHINoCPlane(rsp_router.ingress, rsp_router.target)
   inst dat_router(SimpleRouterFamily(CHIDatFlit(p), dat_config))
+  def dat_plane = CHINoCPlane(dat_router.ingress, dat_router.target)
 
   cond
   | params.attachment.rni_locals.length() > 0:
@@ -494,17 +496,15 @@ sync_circuit CHIRouter(params :: CHIRouterParams):
       for (index in 0..params.attachment.rni_locals.length()):
         def local_plan :: CHIRNILocalAttachmentPlan = params.attachment.rni_locals[index]
         def req = local_plan.req
-        (rni_local[index].req |> chi_req_noc_family_inject(req, site_key)) <=> req_router.ingress[req.input_index]
+        req_plane.inject(rni_local[index].req, req.input_index, chi_req_noc_family_inject(req, site_key))
         def rsp_requester = local_plan.rsp_requester
         def rsp_response = local_plan.rsp_response
-        (rni_local[index].rsp.requester |> chi_rsp_noc_family_inject(rsp_requester, site_key)) <=> rsp_router.ingress[rsp_requester.input_index]
-        (rsp_router.target[rsp_response.target_index].egress |> queue(1) |> chi_rsp_noc_family_eject(rsp_response, site_key)) <=> rni_local[index].rsp.response
-        rsp_router.target[rsp_response.target_index].available <== rsp_router.target[rsp_response.target_index].egress.ready
+        rsp_plane.inject(rni_local[index].rsp.requester, rsp_requester.input_index, chi_rsp_noc_family_inject(rsp_requester, site_key))
+        rsp_plane.eject(rni_local[index].rsp.response, rsp_response.target_index, chi_rsp_noc_family_eject(rsp_response, site_key))
         def dat_request = local_plan.dat_request
         def dat_response = local_plan.dat_response
-        (rni_local[index].dat.request |> chi_dat_noc_family_inject(dat_request, site_key)) <=> dat_router.ingress[dat_request.input_index]
-        (dat_router.target[dat_response.target_index].egress |> queue(1) |> chi_dat_noc_family_eject(dat_response, site_key)) <=> rni_local[index].dat.response
-        dat_router.target[dat_response.target_index].available <== dat_router.target[dat_response.target_index].egress.ready
+        dat_plane.inject(rni_local[index].dat.request, dat_request.input_index, chi_dat_noc_family_inject(dat_request, site_key))
+        dat_plane.eject(rni_local[index].dat.response, dat_response.target_index, chi_dat_noc_family_eject(dat_response, site_key))
   | ~else: #void
 
   cond
@@ -513,18 +513,15 @@ sync_circuit CHIRouter(params :: CHIRouterParams):
       for (index in 0..params.attachment.hni_requester_locals.length()):
         def local_plan :: CHIHNILocalAttachmentPlan = params.attachment.hni_requester_locals[index]
         def req = local_plan.req
-        (req_router.target[req.target_index].egress |> queue(1) |> chi_req_noc_family_eject(req, site_key)) <=> hni_requester_local[index].req
-        req_router.target[req.target_index].available <== req_router.target[req.target_index].egress.ready
+        req_plane.eject(hni_requester_local[index].req, req.target_index, chi_req_noc_family_eject(req, site_key))
         def rsp_requester = local_plan.rsp_requester
         def rsp_response = local_plan.rsp_response
-        (rsp_router.target[rsp_requester.target_index].egress |> queue(1) |> chi_rsp_noc_family_eject(rsp_requester, site_key)) <=> hni_requester_local[index].rsp.requester
-        rsp_router.target[rsp_requester.target_index].available <== rsp_router.target[rsp_requester.target_index].egress.ready
-        (hni_requester_local[index].rsp.response |> chi_rsp_noc_family_inject(rsp_response, site_key)) <=> rsp_router.ingress[rsp_response.input_index]
+        rsp_plane.eject(hni_requester_local[index].rsp.requester, rsp_requester.target_index, chi_rsp_noc_family_eject(rsp_requester, site_key))
+        rsp_plane.inject(hni_requester_local[index].rsp.response, rsp_response.input_index, chi_rsp_noc_family_inject(rsp_response, site_key))
         def dat_request = local_plan.dat_request
         def dat_response = local_plan.dat_response
-        (dat_router.target[dat_request.target_index].egress |> queue(1) |> chi_dat_noc_family_eject(dat_request, site_key)) <=> hni_requester_local[index].dat.request
-        dat_router.target[dat_request.target_index].available <== dat_router.target[dat_request.target_index].egress.ready
-        (hni_requester_local[index].dat.response |> chi_dat_noc_family_inject(dat_response, site_key)) <=> dat_router.ingress[dat_response.input_index]
+        dat_plane.eject(hni_requester_local[index].dat.request, dat_request.target_index, chi_dat_noc_family_eject(dat_request, site_key))
+        dat_plane.inject(hni_requester_local[index].dat.response, dat_response.input_index, chi_dat_noc_family_inject(dat_response, site_key))
   | ~else: #void
 
   cond
@@ -533,15 +530,13 @@ sync_circuit CHIRouter(params :: CHIRouterParams):
       for (index in 0..params.attachment.hn_subordinate_locals.length()):
         def local_plan :: CHIHNSubordinateLocalAttachmentPlan = params.attachment.hn_subordinate_locals[index]
         def req = local_plan.req
-        (hn_subordinate_local[index].req |> chi_req_noc_family_inject(req, site_key)) <=> req_router.ingress[req.input_index]
+        req_plane.inject(hn_subordinate_local[index].req, req.input_index, chi_req_noc_family_inject(req, site_key))
         def rsp = local_plan.rsp
-        (rsp_router.target[rsp.target_index].egress |> queue(1) |> chi_rsp_noc_family_eject(rsp, site_key)) <=> hn_subordinate_local[index].rsp
-        rsp_router.target[rsp.target_index].available <== rsp_router.target[rsp.target_index].egress.ready
+        rsp_plane.eject(hn_subordinate_local[index].rsp, rsp.target_index, chi_rsp_noc_family_eject(rsp, site_key))
         def dat_request = local_plan.dat_request
         def dat_response = local_plan.dat_response
-        (hn_subordinate_local[index].dat.request |> chi_dat_noc_family_inject(dat_request, site_key)) <=> dat_router.ingress[dat_request.input_index]
-        (dat_router.target[dat_response.target_index].egress |> queue(1) |> chi_dat_noc_family_eject(dat_response, site_key)) <=> hn_subordinate_local[index].dat.response
-        dat_router.target[dat_response.target_index].available <== dat_router.target[dat_response.target_index].egress.ready
+        dat_plane.inject(hn_subordinate_local[index].dat.request, dat_request.input_index, chi_dat_noc_family_inject(dat_request, site_key))
+        dat_plane.eject(hn_subordinate_local[index].dat.response, dat_response.target_index, chi_dat_noc_family_eject(dat_response, site_key))
   | ~else: #void
 
   cond
@@ -550,41 +545,37 @@ sync_circuit CHIRouter(params :: CHIRouterParams):
       for (index in 0..params.attachment.sn_locals.length()):
         def local_plan :: CHISNLocalAttachmentPlan = params.attachment.sn_locals[index]
         def req = local_plan.req
-        (req_router.target[req.target_index].egress |> queue(1) |> chi_req_noc_family_eject(req, site_key)) <=> sn_local[index].req
-        req_router.target[req.target_index].available <== req_router.target[req.target_index].egress.ready
+        req_plane.eject(sn_local[index].req, req.target_index, chi_req_noc_family_eject(req, site_key))
         def rsp = local_plan.rsp
-        (sn_local[index].rsp |> chi_rsp_noc_family_inject(rsp, site_key)) <=> rsp_router.ingress[rsp.input_index]
+        rsp_plane.inject(sn_local[index].rsp, rsp.input_index, chi_rsp_noc_family_inject(rsp, site_key))
         def dat_request = local_plan.dat_request
         def dat_response = local_plan.dat_response
-        (dat_router.target[dat_request.target_index].egress |> queue(1) |> chi_dat_noc_family_eject(dat_request, site_key)) <=> sn_local[index].dat.request
-        dat_router.target[dat_request.target_index].available <== dat_router.target[dat_request.target_index].egress.ready
-        (sn_local[index].dat.response |> chi_dat_noc_family_inject(dat_response, site_key)) <=> dat_router.ingress[dat_response.input_index]
+        dat_plane.eject(sn_local[index].dat.request, dat_request.target_index, chi_dat_noc_family_eject(dat_request, site_key))
+        dat_plane.inject(sn_local[index].dat.response, dat_response.input_index, chi_dat_noc_family_inject(dat_response, site_key))
   | ~else: #void
 
   cond
   | params.routers.snp is_a SimpleRouterFamilyConfig:
       def snp_config :: SimpleRouterFamilyConfig = params.routers.snp
       inst snp_router(SimpleRouterFamily(CHISnpFlit(p), snp_config))
+      def snp_plane = CHINoCPlane(snp_router.ingress, snp_router.target)
       cond
       | params.attachment.rnf_locals.length() > 0:
           interface rnf_local[params.attachment.rnf_locals.length()](CHIRNChannels(p), ~role: icn)
           for (index in 0..params.attachment.rnf_locals.length()):
             def local_plan :: CHIRNFLocalAttachmentPlan = params.attachment.rnf_locals[index]
             def req = local_plan.req
-            (rnf_local[index].requests |> chi_req_noc_family_inject(req, site_key)) <=> req_router.ingress[req.input_index]
+            req_plane.inject(rnf_local[index].requests, req.input_index, chi_req_noc_family_inject(req, site_key))
             def rsp_requester = local_plan.rsp_requester
             def rsp_response = local_plan.rsp_response
-            (rnf_local[index].requester_responses |> chi_rsp_noc_family_inject(rsp_requester, site_key)) <=> rsp_router.ingress[rsp_requester.input_index]
-            (rsp_router.target[rsp_response.target_index].egress |> queue(1) |> chi_rsp_noc_family_eject(rsp_response, site_key)) <=> rnf_local[index].responses
-            rsp_router.target[rsp_response.target_index].available <== rsp_router.target[rsp_response.target_index].egress.ready
+            rsp_plane.inject(rnf_local[index].requester_responses, rsp_requester.input_index, chi_rsp_noc_family_inject(rsp_requester, site_key))
+            rsp_plane.eject(rnf_local[index].responses, rsp_response.target_index, chi_rsp_noc_family_eject(rsp_response, site_key))
             def snp = local_plan.snp
-            (snp_router.target[snp.target_index].egress |> queue(1) |> chi_snp_noc_family_eject(snp, site_key)) <=> rnf_local[index].snoops
-            snp_router.target[snp.target_index].available <== snp_router.target[snp.target_index].egress.ready
+            snp_plane.eject(rnf_local[index].snoops, snp.target_index, chi_snp_noc_family_eject(snp, site_key))
             def dat_request = local_plan.dat_request
             def dat_response = local_plan.dat_response
-            (rnf_local[index].request_data |> chi_dat_noc_family_inject(dat_request, site_key)) <=> dat_router.ingress[dat_request.input_index]
-            (dat_router.target[dat_response.target_index].egress |> queue(1) |> chi_dat_noc_family_eject(dat_response, site_key)) <=> rnf_local[index].response_data
-            dat_router.target[dat_response.target_index].available <== dat_router.target[dat_response.target_index].egress.ready
+            dat_plane.inject(rnf_local[index].request_data, dat_request.input_index, chi_dat_noc_family_inject(dat_request, site_key))
+            dat_plane.eject(rnf_local[index].response_data, dat_response.target_index, chi_dat_noc_family_eject(dat_response, site_key))
       | ~else: #void
       cond
       | params.attachment.hnf_requester_locals.length() > 0:
@@ -592,20 +583,17 @@ sync_circuit CHIRouter(params :: CHIRouterParams):
           for (index in 0..params.attachment.hnf_requester_locals.length()):
             def local_plan :: CHIHNFLocalAttachmentPlan = params.attachment.hnf_requester_locals[index]
             def req = local_plan.req
-            (req_router.target[req.target_index].egress |> queue(1) |> chi_req_noc_family_eject(req, site_key)) <=> hnf_requester_local[index].requests
-            req_router.target[req.target_index].available <== req_router.target[req.target_index].egress.ready
+            req_plane.eject(hnf_requester_local[index].requests, req.target_index, chi_req_noc_family_eject(req, site_key))
             def rsp_requester = local_plan.rsp_requester
             def rsp_response = local_plan.rsp_response
-            (rsp_router.target[rsp_requester.target_index].egress |> queue(1) |> chi_rsp_noc_family_eject(rsp_requester, site_key)) <=> hnf_requester_local[index].requester_responses
-            rsp_router.target[rsp_requester.target_index].available <== rsp_router.target[rsp_requester.target_index].egress.ready
-            (hnf_requester_local[index].responses |> chi_rsp_noc_family_inject(rsp_response, site_key)) <=> rsp_router.ingress[rsp_response.input_index]
+            rsp_plane.eject(hnf_requester_local[index].requester_responses, rsp_requester.target_index, chi_rsp_noc_family_eject(rsp_requester, site_key))
+            rsp_plane.inject(hnf_requester_local[index].responses, rsp_response.input_index, chi_rsp_noc_family_inject(rsp_response, site_key))
             def snp = local_plan.snp
-            (hnf_requester_local[index].snoops |> chi_snp_noc_family_inject(snp, site_key)) <=> snp_router.ingress[snp.input_index]
+            snp_plane.inject(hnf_requester_local[index].snoops, snp.input_index, chi_snp_noc_family_inject(snp, site_key))
             def dat_request = local_plan.dat_request
             def dat_response = local_plan.dat_response
-            (dat_router.target[dat_request.target_index].egress |> queue(1) |> chi_dat_noc_family_eject(dat_request, site_key)) <=> hnf_requester_local[index].request_data
-            dat_router.target[dat_request.target_index].available <== dat_router.target[dat_request.target_index].egress.ready
-            (hnf_requester_local[index].response_data |> chi_dat_noc_family_inject(dat_response, site_key)) <=> dat_router.ingress[dat_response.input_index]
+            dat_plane.eject(hnf_requester_local[index].request_data, dat_request.target_index, chi_dat_noc_family_eject(dat_request, site_key))
+            dat_plane.inject(hnf_requester_local[index].response_data, dat_response.input_index, chi_dat_noc_family_inject(dat_response, site_key))
       | ~else: #void
       close_router_local_ports(CHISnpFlit(p), snp_config, snp_router.ingress, snp_router.target,
                                params.attachment.snp_inputs, params.attachment.snp_targets)

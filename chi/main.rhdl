@@ -117,6 +117,8 @@ export:
   compile_chi_channel_adapter_plan
   compile_chi_channel_family_adapter_plan
   compile_chi_channel_adapter_plans
+  CHINoCPlane
+  CHINoCPorts
   connect_chi_rni_node
   connect_chi_rnf_node
   connect_chi_hn_requesters

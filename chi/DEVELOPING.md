@@ -59,6 +59,19 @@ checks the transform kinds, fixed NodeID properties, and implementation
 associations consumed by diagram/event tooling. Run the SNP, subordinate,
 family NoC, and router-composition integration fixtures alongside it.
 
+Endpoint attachment policy lives in `CHINoCPlane` in `noc-adapter.rhdl`.
+Both fixed connection helpers and `CHIRouter`'s family attachments use its
+injection and queued-ejection methods; keep the RN/HN/SN field mappings and
+fixed versus family adapter choices explicit at their callers. The one-entry
+queue precedes the ejection adapter, and router availability tracks its input
+readiness, not the final sink. `CHINoCPorts` groups existing plane endpoints for
+fixed-router callers without introducing circuit parameters, ports, or hierarchy.
+Generic physical-link binding remains in `noc/rtl`, outside this CHI queue policy.
+The SN fixture exercises fixed attachments in both directions under stalls;
+the family fixture fills, stalls, and drains an asymmetric three-router path
+with complete-packet ordering checks. Validate MiniSoC and SimpleSoC for fixed
+RN-F/HN attachments and TiledSoC for coherent family attachments.
+
 Monitoring attachments in `monitor.rhdl` separate credited transport checks,
 shared packet checks, and accepted-event transaction attachment. Both credited
 and ready-valid wrappers call the same coverage validation and transaction

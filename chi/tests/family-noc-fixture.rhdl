@@ -1,15 +1,15 @@
 #lang rhodium
-// Defines an asymmetric CHI channel whose family ejection index differs from its local index.
+// Exercises shared CHI attachments on an asymmetric family-remapped three-router path.
 
 import:
   lib("chi/main.rhdl") open
+  lib("chi/noc-adapter.rhdl") as adapter
   lib("chi/noc-authoring.rhm") as chi_authoring
   lib("noc/authoring/main.rhm") open
   lib("noc/language/main.rhm").topology
   lib("noc/plan/main.rhm") open
   lib("noc/rtl/router.rhdl") open
   lib("rhodium/std/ready-valid.rhdl").Decoupled
-  lib("flow/queue.rhdl").queue
 
 def family_noc_flit = CHIFlitParams()
 def family_noc_topology = topology:
@@ -49,7 +49,7 @@ def family_noc_source_node = family_noc_compilation.network.router_id(family_noc
 def family_noc_middle_node = family_noc_compilation.network.router_id(family_noc_middle_router)
 def family_noc_target_node = family_noc_compilation.network.router_id(family_noc_target_router)
 
-fun require_family_link(source_router, destination_router):
+fun require_family_link(source_router :: NodeRef, destination_router :: NodeRef):
   def source_site_key = family_noc_router_family.site_key(
     family_noc_compilation.network.router_id(source_router)
   )
@@ -96,7 +96,13 @@ sync_circuit CHIFamilyNoCFixture():
   )
 
   def injection_config = family_noc_family_adapters.injection(family_noc_source.terminal)
-  (request_in |> chi_req_noc_inject(injection_config)) <=> source.ingress[injection_config.input_index]
+  def family_injection = adapter.compile_chi_noc_family_injection_config(
+    family_noc_family_adapters,
+    family_noc_router_config.route_decoder.site_width,
+    [adapter.CHINoCFamilyInjectionRow(family_noc_router_family.site_key(family_noc_source_node), injection_config)]
+  )
+  def source_plane = CHINoCPlane(source.ingress, source.target)
+  source_plane.inject(request_in, family_injection.input_index, adapter.chi_req_noc_family_inject(family_injection, source.site_key))
 
   def source_target :: Endpoint = source.target[family_noc_source_middle.source_target_indices[0]]
   source_target.egress <=> middle.ingress[family_noc_source_middle.destination_input_indices[0]]
@@ -106,9 +112,12 @@ sync_circuit CHIFamilyNoCFixture():
   middle_target.available <== middle_target.egress.ready
 
   def ejection_config = family_noc_family_adapters.ejection(family_noc_target.terminal)
-  def ejection_target :: Endpoint = target.target[ejection_config.target_index]
-  (ejection_target.egress |> queue(1) |> chi_req_noc_eject(ejection_config)) <=> request_out
-  ejection_target.available <== ejection_target.egress.ready
+  def family_ejection = adapter.compile_chi_noc_family_ejection_config(
+    family_noc_router_config.route_decoder.site_width,
+    [adapter.CHINoCFamilyEjectionRow(family_noc_router_family.site_key(family_noc_target_node), ejection_config)]
+  )
+  def target_plane = CHINoCPlane(target.ingress, target.target)
+  target_plane.eject(request_out, family_ejection.target_index, adapter.chi_req_noc_family_eject(family_ejection, target.site_key))
 
 def family_noc_design = elaborate(CHIFamilyNoCFixture())
 

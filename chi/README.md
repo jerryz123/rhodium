@@ -372,6 +372,28 @@ adapter plans compile every `(site key, target NodeID)` relation before RTL
 elaboration and provide complete attachments for RN-I, RN-F, HN requester, HN
 subordinate, and SN roles.
 
+Fixed-router attachment helpers take `~ports: CHINoCPorts(...)` alongside
+`~adapters: compiled_plans`. Build the port view once from the existing routers:
+
+```rhombus
+def ports = CHINoCPorts(
+  CHINoCPlane(req_router.ingress, req_router.target),
+  CHINoCPlane(rsp_router.ingress, rsp_router.target),
+  CHINoCPlane(dat_router.ingress, dat_router.target),
+  ~snp: CHINoCPlane(snp_router.ingress, snp_router.target)
+)
+connect_chi_rnf_node(requester, ~node: requester_site,
+                     ~ports: ports, ~adapters: adapter_plans)
+```
+
+Omit `~snp` for non-coherent fabrics. These are host-side views of endpoints
+in the current module, not extra interfaces or hardware wrappers. Fixed and
+family attachments share `CHINoCPlane.inject(source, index, adapter)` and
+`.eject(sink, index, adapter)`. Injection adds no queue; ejection places one
+`queue(1)` before the adapter and advertises that queue's input readiness to
+the router. The compiled plan selects the slot and the typed adapter determines
+channel routing and identity checks.
+
 [`noc-router.rhdl`](noc-router.rhdl) composes three independent generic router
 families for RN-I/HN-I/SN-only fabrics or four when coherent requester traffic
 requires SNP. A shared `RouterFamilyPhysicalPlan` proves that all present
