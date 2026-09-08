@@ -4,7 +4,7 @@
 import:
   "../../noc/authoring/main.rhm" open
   "../../noc/language/main.rhm".topology
-  "../noc-authoring.rhm" open
+  "../noc/noc-authoring.rhm" open
 
 def physical = topology:
   node xbar

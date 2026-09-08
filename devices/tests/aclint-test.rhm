@@ -3,9 +3,9 @@
 
 import:
   "../../rhodium/std/interconnect.rhdl".AddressSet
-  "../../chi/params.rhdl".CHIFlitParams
-  "../../chi/flits.rhdl".CHIReqOpcode
-  "../../chi/link.rhdl".CHINodeKind
+  "../../chi/protocol/params.rhdl".CHIFlitParams
+  "../../chi/protocol/flits.rhdl".CHIReqOpcode
+  "../../chi/protocol/link.rhdl".CHINodeKind
   "../aclint.rhdl" as aclint
 
 def flit = CHIFlitParams()

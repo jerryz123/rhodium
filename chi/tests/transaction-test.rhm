@@ -3,7 +3,7 @@
 
 import:
   "../main.rhdl" as chi
-  "../transaction.rhdl" as transaction
+  "../transactions/transaction.rhdl" as transaction
   "transaction-fixture.rhdl" as fixture
 
 check:

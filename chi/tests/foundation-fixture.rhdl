@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates every CHI flit family and the initial protocol classifiers.
+// Exercises CHI flit families, protocol classifiers, and hardware service-size matching.
 
 import:
   lib("chi/main.rhdl") open
@@ -65,6 +65,10 @@ circuit CHIFoundationFixture():
   output size_valid: Bool
   output data_beats_minus_one: Bits(2)
   output data_id_valid: Bool
+  output match_byte: Bool
+  output match_line: Bool
+  output match_middle: Bool
+  output match_large: Bool
 
   req_out <== req
   rsp_out <== rsp
@@ -85,6 +89,10 @@ circuit CHIFoundationFixture():
   size_valid <== chi_size_valid(size)
   data_beats_minus_one <== chi_data_beats_minus_one(size, params)
   data_id_valid <== chi_data_id_valid(data_id, params)
+  match_byte <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 1)).matches(req_opcode, size)
+  match_line <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 64)).matches(req_opcode, size)
+  match_middle <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(4, 16)).matches(req_opcode, size)
+  match_large <== CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(32, 64)).matches(req_opcode, size)
 
 def design = elaborate(CHIFoundationFixture())
 def full_design = elaborate(CHIFlitShapeFixture(full_params))

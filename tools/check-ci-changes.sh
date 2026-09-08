@@ -78,7 +78,7 @@ check_field sims/program-test/write-target.rhm simulation true
 check_field riscv/riscv-isa-tests simulation true
 check_field sims/arch-test/configure.py simulation false
 check_field riscv/riscv-isa-tests program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'
-for path in cores/rv5stage/core.rhdl chi/link.rhdl noc/rtl/router.rhdl devices/aclint.rhdl socs/simple-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
+for path in cores/rv5stage/core.rhdl chi/protocol/link.rhdl noc/rtl/router.rhdl devices/aclint.rhdl socs/simple-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
   check_field "$path" program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'
   check_field "$path" program_arch true
 done
@@ -144,18 +144,18 @@ check_matrix_entry devicetree/main.rhm host_matrix ci-host-models-test
 check_field devicetree/main.rhm circt false
 check_field devicetree/main.rhm simulation false
 check_field hardfloat/tests/verilator/representation_tb.sv simulation true
-check_matrix_entry chi/link.rhdl host_matrix ci-host-protocols-test
-check_matrix_entry chi/link.rhdl host_matrix ci-host-socs-test
-check_matrix_entry chi/link.rhdl host_matrix ci-host-hygiene-test
-check_matrix_entry chi/link.rhdl circt_matrix ci-circt-protocols-test
-check_matrix_entry chi/dpi-memory.rhdl host_matrix ci-host-protocols-test
-check_matrix_entry chi/dpi-memory.rhdl circt_matrix ci-circt-protocols-test
-check_field chi/dpi-memory.rhdl simulation true
-check_matrix_entry chi/memory-controller.rhdl host_matrix ci-host-protocols-test
-check_matrix_entry chi/memory-controller.rhdl host_matrix ci-host-socs-test
-check_matrix_entry chi/memory-controller.rhdl circt_matrix ci-circt-protocols-test
-check_field chi/memory-controller.rhdl simulation true
-check_field chi/dpi/chi_dpi_memory_dpi.cc simulation true
+check_matrix_entry chi/protocol/link.rhdl host_matrix ci-host-protocols-test
+check_matrix_entry chi/protocol/link.rhdl host_matrix ci-host-socs-test
+check_matrix_entry chi/protocol/link.rhdl host_matrix ci-host-hygiene-test
+check_matrix_entry chi/protocol/link.rhdl circt_matrix ci-circt-protocols-test
+check_matrix_entry chi/subordinate/dpi-memory.rhdl host_matrix ci-host-protocols-test
+check_matrix_entry chi/subordinate/dpi-memory.rhdl circt_matrix ci-circt-protocols-test
+check_field chi/subordinate/dpi-memory.rhdl simulation true
+check_matrix_entry chi/subordinate/memory-controller.rhdl host_matrix ci-host-protocols-test
+check_matrix_entry chi/subordinate/memory-controller.rhdl host_matrix ci-host-socs-test
+check_matrix_entry chi/subordinate/memory-controller.rhdl circt_matrix ci-circt-protocols-test
+check_field chi/subordinate/memory-controller.rhdl simulation true
+check_field chi/subordinate/dpi/chi_dpi_memory_dpi.cc simulation true
 check_matrix_entry sims/fesvr/direct-memory-htif.rhdl circt_matrix ci-circt-protocols-test
 check_field sims/fesvr/direct-memory-htif.rhdl simulation true
 check_matrix_entry cores/rv5stage/core.rhdl host_matrix ci-host-cores-test

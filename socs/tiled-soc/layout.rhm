@@ -4,9 +4,9 @@
 import:
   rhombus/meta open
   "../../noc/std/topology/rectangular-mesh.rhm".MeshCoordinate
-  "../../chi/params.rhdl".CHIFlitParams
-  "../../chi/fabric.rhdl".CHIHomeParams
-  "../../chi/link.rhdl".CHINodeKind
+  "../../chi/protocol/params.rhdl".CHIFlitParams
+  "../../chi/protocol/fabric.rhdl".CHIHomeParams
+  "../../chi/protocol/link.rhdl".CHINodeKind
   "../../rhodium/std/bits.rhdl".Pow2Int
   "../../rhodium/std/interconnect.rhdl".AddressSet
   "../../rhodium/frontend/foundation.rhm".StableCircuitParam

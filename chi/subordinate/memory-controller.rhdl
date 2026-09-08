@@ -1,0 +1,325 @@
+#lang rhodium
+// Shares CHI memory configuration, transaction scheduling, and checks across SRAM and DPI backends.
+
+import:
+  lib("support/annotations.rhm") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/params.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl") open
+  lib("chi/transactions/transaction.rhdl") open
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  lib("chi/protocol/fabric.rhdl") open
+  lib("chi/subordinate/subordinate-slots.rhdl") open
+  lib("chi/protocol/messages.rhdl") open
+
+bundle CHIRamMemoryOperation(p :: CHIFlitParams, slot_width :: PosInt):
+  write: Bool
+  slot: Bits(slot_width)
+  request: CHIReqFlit(p)
+  data_id: Bits(2)
+  last: Bool
+  data: Bits(p.data_width)
+  mask: Mask(p.data_bytes)
+
+bundle CHIRamMemoryCompletion(p :: CHIFlitParams, slot_width :: PosInt):
+  memory_operation: CHIRamMemoryOperation(p, slot_width)
+  data: Bits(p.data_width)
+
+bundle CHIRamIdentity(p :: CHIFlitParams):
+  node_id: Bits(p.node_id_width)
+  base_address: Bits(p.request_address_width)
+
+class CHIRamConfig(flit :: CHIFlitParams,
+                   size_bytes :: Pow2Int,
+                   max_outstanding :: Int.in(1 ..= 1024),
+                   max_transfer_bytes :: Pow2Int):
+  implements StableCircuitParam
+
+  property transfers: TransferSizes(1, max_transfer_bytes)
+  property requests:
+    [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
+     CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
+     CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
+
+  constructor (flit :: CHIFlitParams,
+               size_bytes :: Pow2Int,
+               ~max_outstanding: max_outstanding :: Int.in(1 ..= 1024),
+               ~max_transfer_bytes: max_transfer_bytes :: Pow2Int = flit.data_bytes):
+    unless size_bytes >= (2 * flit.data_bytes)
+    | error(~who: #'CHIRamConfig,
+            "size must contain at least two physical data beats")
+    unless max_transfer_bytes >= flit.data_bytes && max_transfer_bytes <= 64 && (
+      max_transfer_bytes <= size_bytes
+    )
+    | error(~who: #'CHIRamConfig,
+            "maximum transfer size must be from one DAT beat through 64 bytes and fit in the RAM")
+    super(flit, size_bytes, max_outstanding, max_transfer_bytes)
+
+class CHIRamParams(name :: NonemptyString,
+                   node_id :: Nat,
+                   config :: CHIRamConfig,
+                   ~base_address: base_address :: Nat = 0,
+                   ~kind: kind :: CHINodeKind = CHINodeKind.SNF):
+
+  property flit: config.flit
+  property size_bytes: config.size_bytes
+  property max_outstanding: config.max_outstanding
+
+  property transfers: config.transfers
+  property node:
+    CHINodeParams(
+      name,
+      node_id,
+      kind,
+      ~emits: CHIChannelCapabilities(
+        ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+        ~dat: [CHIDatOpcode.CompData]
+      ),
+      ~supports: CHIChannelCapabilities(
+        ~req: [CHIReqOpcode.ReadNoSnp,
+               CHIReqOpcode.WriteNoSnpFull,
+               CHIReqOpcode.WriteNoSnpPtl],
+        ~dat: [CHIDatOpcode.NonCopyBackWriteData]
+      ),
+      ~max_outstanding: max_outstanding
+    )
+  property icn_port: node.icn_peer()
+  property service:
+    CHISubordinateServiceParams(
+      icn_port,
+      [AddressSet(base_address, size_bytes - 1)],
+      config.requests
+    )
+
+  constructor (name :: NonemptyString,
+               node_id :: Nat,
+               config :: CHIRamConfig,
+               ~base_address: base_address :: Nat = 0,
+               ~kind: kind :: CHINodeKind = CHINodeKind.SNF):
+    unless [CHINodeKind.SNF, CHINodeKind.SNI].contains(kind)
+    | error(~who: #'CHIRamParams,
+            "kind must be SN-F or SN-I")
+    unless base_address mod config.size_bytes == 0
+    | error(~who: #'CHIRamParams,
+            "base address must be aligned to the RAM size")
+    unless bits.length((base_address + config.size_bytes) - 1) <= config.flit.request_address_width
+    | error(~who: #'CHIRamParams,
+            "memory region must fit in the request address width")
+    unless bits.length(node_id) <= config.flit.node_id_width
+    | error(~who: #'CHIRamParams,
+            "NodeID must fit in the physical NodeID width")
+    super(name,
+          node_id,
+          config,
+          ~base_address: base_address,
+          ~kind: kind)
+
+fun monitor_chi_ram_request(config :: CHIRamConfig,
+                            base_address :: Bits(config.flit.request_address_width),
+                            valid :: Bool,
+                            request :: CHIReqFlit(config.flit)):
+  def p = config.flit
+  def request_opcode = request.opcode
+  def size = request.size_or_num_req[0..3]
+  def max_size = alignment_bits(config.max_transfer_bytes)
+  def alignment_cases = for List (encoded_size in 0..(max_size + 1)):
+    [encoded_size, request.address.is_aligned(1 << encoded_size)]
+  def address_aligned = mux_lookup(
+    size,
+    ~default: Bool(#false),
+    alignment_cases
+  )
+  def transfer_bytes = bits(1, p.request_address_width) << size
+  def region_end = base_address + bits(config.size_bytes, p.request_address_width)
+  def transfer_end = request.address + transfer_bytes
+  def address_supported = (request.address >= base_address) & (
+    transfer_end >= request.address
+  ) & (transfer_end <= region_end)
+  when (valid & (request.opcode =/= CHIReqOpcode.ReqLCrdReturn)):
+    assert(request_opcode.supports_initial_transaction(),
+           "chi_ram_request_opcode_supported")
+    assert(size <= bits(max_size, 3),
+           "chi_ram_request_size_supported")
+    assert(address_aligned, "chi_ram_request_address_aligned")
+    assert(address_supported, "chi_ram_request_address_supported")
+
+fun monitor_chi_ram_write_data(p :: CHIFlitParams,
+                               valid :: Bool,
+                               data :: CHIDatFlit(p),
+                               request :: CHIReqFlit(p)):
+  def expected_mask = transfer_byte_mask(
+    request.address,
+    request.size_or_num_req[0..3],
+    p.data_bytes
+  )
+  def multi_packet = chi_data_beats_minus_one(chi_req_size(p, request), p) =/= bits(0, 2)
+  def packet_mask = mux(multi_packet,
+                        Mask(p.data_bytes)((1 << p.data_bytes) - 1),
+                        expected_mask)
+  def supplied_mask = data.byte_enable.into(Mask(p.data_bytes))
+  def partial = request.opcode === CHIReqOpcode.WriteNoSnpPtl
+  def mask_supported = mux(
+    partial,
+    (supplied_mask & packet_mask) === supplied_mask,
+    supplied_mask === packet_mask
+  )
+  when valid:
+    assert(mask_supported, "chi_ram_write_data_mask_supported")
+    if p.poison_width > 0
+    | assert(!data.poison.or_reduce(), "chi_ram_write_data_not_poisoned")
+    | #void
+
+circuit CHIRamCompletionRouter(p :: CHIFlitParams,
+                               slot_width :: PosInt):
+  input node_id: Bits(p.node_id_width)
+  interface ingress(Irrevocable(CHIRamMemoryCompletion(p, slot_width)),
+                    ~role: consumer)
+  interface read_response(Irrevocable(CHIDatFlit(p)), ~role: producer)
+  interface write_response(Irrevocable(CHIRspFlit(p)), ~role: producer)
+  interface completed(Valid(Bits(slot_width)), ~role: producer)
+
+  def completion = ingress.bits
+  def operation = completion.memory_operation
+  def write = operation.write
+  ingress.ready <== mux(write,
+                        !operation.last ||| write_response.ready,
+                        read_response.ready)
+  read_response.valid <== ingress.valid & !write
+  read_response.bits <== chi_sn_read_completion(p,
+                                                node_id,
+                                                operation.request,
+                                                operation.data_id,
+                                                completion.data)
+  write_response.valid <== ingress.valid & write & operation.last
+  write_response.bits <== chi_sn_write_completion(p,
+                                                  node_id,
+                                                  operation.request,
+                                                  operation.slot)
+  completed.valid <== ingress.fire() & operation.last
+  completed.bits <== operation.slot
+
+// Builds transaction machinery in the caller's module. The backend factory
+// instantiates local storage and returns a binder for Valid issue/completion
+// endpoints. Each issue must complete once, in order, retaining its operation;
+// CompletionQueue reserves response capacity before issuing nonstallable work.
+fun build_chi_ram_controller(config :: CHIRamConfig,
+                             identity :: CHIRamIdentity(config.flit),
+                             port :: Endpoint.of(CHISNChannels(config.flit)),
+                             backend :: Function.of_arity(0)):
+  def p = config.flit
+  def limit = config.max_outstanding
+  def slot_width = index_width(limit)
+  def MemoryOperation = CHIRamMemoryOperation(p, slot_width)
+  def MemoryCompletion = CHIRamMemoryCompletion(p, slot_width)
+
+  inst dbid_responses(Queue(CHIRspFlit(p), limit, ~pipe: #true))
+  inst read_operations(Queue(MemoryOperation, limit, ~pipe: #true))
+  inst write_operations(Queue(MemoryOperation, limit, ~pipe: #true))
+  inst operation_arbiter(RRArbiter(MemoryOperation, 2))
+  inst memory_operations(CompletionQueue(MemoryOperation,
+                                         MemoryCompletion,
+                                         limit))
+  def connect_backend :: Function.of_arity(2) = backend()
+  inst completion_router(CHIRamCompletionRouter(p, slot_width))
+  completion_router.node_id <== identity.node_id
+  inst response_arbiter(RRArbiter(CHIRspFlit(p), 2))
+  inst transaction_slots(CHISNTransactionSlots(p, limit))
+
+  def supported_requests = port.req |> filter_flow(request):
+    def request_opcode :: CHIReqOpcode = request.opcode
+    request_opcode.supports_initial_transaction()
+  transaction_slots.allocation <=> (
+    supported_requests |> map_flow(request):
+      def request_opcode :: CHIReqOpcode = request.opcode
+      CHISNTransactionAllocation(p):
+        write: request_opcode.is_initial_write()
+        request: request
+  )
+
+  def allocated_request_paths = transaction_slots.allocated |> demux_flow(2, allocated):
+    allocated.write.as_bits()
+  def allocated_reads :: Endpoint = allocated_request_paths[0]
+  def allocated_writes :: Endpoint = allocated_request_paths[1]
+  reg read_active(~init: Bool(#false))
+  reg read_allocation(CHISNAllocatedTransaction(p, slot_width))
+  reg pending_read_data_ids(~init: bits(0, 4))
+  allocated_reads.ready <== !read_active
+  def selected_read_data_id = priority_encoder(pending_read_data_ids.as_vec(Bool))
+  def selected_read_data_id_mask = one_hot(selected_read_data_id).as_bits()
+  def final_read_data = pending_read_data_ids === selected_read_data_id_mask
+  read_operations.ingress.valid <== read_active
+  read_operations.ingress.bits <== CHIRamMemoryOperation(p, slot_width):
+    write: Bool(#false)
+    slot: read_allocation.slot
+    request: read_allocation.request
+    data_id: selected_read_data_id
+    last: final_read_data
+    data: bits(0, p.data_width)
+    mask: Mask(p.data_bytes)(0)
+  def allocated_read_fire = allocated_reads.fire()
+  def read_operation_fire = read_operations.ingress.fire()
+  when allocated_read_fire:
+    read_active <== Bool(#true)
+    read_allocation <== allocated_reads.bits
+    pending_read_data_ids <== chi_transfer_data_ids(
+      allocated_reads.bits.request.address,
+      chi_req_size(p, allocated_reads.bits.request),
+      p
+    )
+  elsewhen read_operation_fire:
+    read_active <== !final_read_data
+    pending_read_data_ids <== pending_read_data_ids & !selected_read_data_id_mask
+  dbid_responses.ingress <=> (
+    allocated_writes |> map_flow(allocated):
+      chi_sn_dbid_response(p,
+                           identity.node_id,
+                           allocated.request,
+                           allocated.slot)
+  )
+
+  port.dat.request <=> transaction_slots.write_data
+  write_operations.ingress <=> (
+    transaction_slots.matched_write |> map_flow(matched):
+      CHIRamMemoryOperation(p, slot_width):
+        write: Bool(#true)
+        slot: matched.slot
+        request: matched.request
+        data_id: matched.data.data_id
+        last: matched.last
+        data: matched.data.data
+        mask: matched.data.byte_enable.into(Mask(p.data_bytes))
+  )
+
+  read_operations.egress <=> operation_arbiter.ingress[0]
+  write_operations.egress <=> operation_arbiter.ingress[1]
+  operation_arbiter.egress <=> memory_operations.request
+  connect_backend(memory_operations.issue, memory_operations.completion)
+
+  memory_operations.response <=> completion_router.ingress
+  def dbid_response_paths = dbid_responses.egress |> atomic_fork(2)
+  dbid_response_paths[0] <=> response_arbiter.ingress[0]
+  transaction_slots.dbid_sent <=> (
+    dbid_response_paths[1] |> to_valid() |> map_valid(response):
+      response.dbid_or_group_id[0..slot_width]
+  )
+  completion_router.write_response <=> response_arbiter.ingress[1]
+  response_arbiter.egress <=> port.rsp
+  completion_router.read_response <=> port.dat.response
+  completion_router.completed <=> transaction_slots.completed
+
+  monitor_chi_ram_request(config, identity.base_address, port.req.valid, port.req.bits)
+  monitor_chi_ram_write_data(p,
+                             transaction_slots.matched_write.valid,
+                             transaction_slots.matched_write.bits.data,
+                             transaction_slots.matched_write.bits.request)
+
+export:
+  CHIRamMemoryOperation
+  CHIRamMemoryCompletion
+  CHIRamConfig
+  CHIRamParams
+  CHIRamIdentity
+  build_chi_ram_controller

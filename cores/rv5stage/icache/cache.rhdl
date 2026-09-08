@@ -13,9 +13,9 @@ import:
   lib("rhodium/std/read-write.rhdl") open
   lib("rhodium/std/sync-ram.rhdl") open
   lib("flow/main.rhdl") open
-  lib("chi/flits.rhdl") open
-  lib("chi/coherence.rhdl").CHIResponseState
-  lib("chi/channels.rhdl").CHIRNChannels
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/coherence.rhdl").CHIResponseState
+  lib("chi/protocol/channels.rhdl").CHIRNChannels
 
 fun check_l1i_geometry(width :: PosInt, cache :: RV5StageCacheConfig):
   unless width > (alignment_bits(RV5StageCacheLineBytes) + cache.set_width)

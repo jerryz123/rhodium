@@ -4,8 +4,8 @@
 import:
   rhombus.bits.(<<) as <<
   "../main.rhdl" as chi
-  "../memory-controller.rhdl" as memory
-  "../ram.rhdl" as ram
+  "../subordinate/memory-controller.rhdl" as memory
+  "../subordinate/ram.rhdl" as ram
 
 def flit = chi.CHIFlitParams()
 def config = chi.CHIRamConfig(flit, 64, ~max_outstanding: 2, ~max_transfer_bytes: 64)

@@ -4,9 +4,9 @@
 import:
   "../../rhodium/core/main.rhm".verify_design
   "../../rhodium/std/interconnect.rhdl".AddressSet
-  "../../chi/params.rhdl".CHIFlitParams
-  "../../chi/flits.rhdl".CHIReqOpcode
-  "../../chi/link.rhdl".CHINodeKind
+  "../../chi/protocol/params.rhdl".CHIFlitParams
+  "../../chi/protocol/flits.rhdl".CHIReqOpcode
+  "../../chi/protocol/link.rhdl".CHINodeKind
   "../plic.rhdl" as plic
   "plic-fixture.rhdl" as fixture
 

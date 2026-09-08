@@ -4,9 +4,9 @@
 import:
   lib("cores/rv5stage/chi/foundation.rhdl") open
   lib("rhodium/std/interconnect.rhdl").AddressSet
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/link.rhdl").CHINodeKind
-  lib("chi/fabric.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/link.rhdl").CHINodeKind
+  lib("chi/protocol/fabric.rhdl") open
   lib("riscv/rtl/pma.rhdl") open
 
 def test_rv5stage_flit = CHIFlitParams()

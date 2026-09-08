@@ -5,13 +5,13 @@ import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/interconnect.rhdl") open
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl") open
-  lib("chi/link.rhdl") open
-  lib("chi/channels.rhdl").CHISNChannels
-  lib("chi/fabric.rhdl") open
-  lib("chi/address-projector.rhdl").CHIAddressProjectorConfig
-  lib("chi/inclusive-home.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  lib("chi/protocol/fabric.rhdl") open
+  lib("chi/adapters/address-projector.rhdl").CHIAddressProjectorConfig
+  lib("chi/home/inclusive-home.rhdl") open
   lib("cores/rv5stage/profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   "single-core-system.rhdl" open

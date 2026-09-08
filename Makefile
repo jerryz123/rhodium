@@ -63,6 +63,7 @@ check-boundaries:
 	bash noc/check-boundaries.sh
 	bash riscv/check-boundaries.sh
 	bash chi/check-boundaries.sh
+	bash chi/tests/check-boundaries.sh
 	bash hardfloat/check-boundaries.sh
 	bash cores/check-boundaries.sh
 	bash socs/check-boundaries.sh

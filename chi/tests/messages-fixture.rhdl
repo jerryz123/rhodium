@@ -2,10 +2,10 @@
 // Exercises stateless CHI responses and Home transforms across DAT widths and optional metadata.
 
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl") open
-  lib("chi/messages.rhdl") open
-  lib("chi/protocol.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/messages.rhdl") open
+  lib("chi/protocol/protocol.rhdl") open
 
 def w128 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 128)
 def o128 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 128, ~dat_rsvdc_width: 32, ~data_check: #true, ~poison: #true)

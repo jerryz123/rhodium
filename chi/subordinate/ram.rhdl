@@ -1,0 +1,57 @@
+#lang rhodium
+// Backs the shared native-CHI memory controller with a fixed-latency lane-masked SRAM.
+
+import:
+  lib("rhodium/std/bits.rhdl").alignment_bits
+  lib("rhodium/std/read-write.rhdl") open
+  lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
+  lib("flow/main.rhdl") open
+  lib("chi/subordinate/memory-controller.rhdl") open
+  lib("chi/protocol/protocol.rhdl").chi_data_address
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+
+sync_circuit CHIRam(config :: CHIRamConfig):
+  def p = config.flit
+  def limit = config.max_outstanding
+  def slot_width = index_width(limit)
+  def depth = config.size_bytes / p.data_bytes
+  def word_address_width = index_width(depth)
+  def low_width = alignment_bits(p.data_bytes)
+  def Data = Vec(p.data_bytes, Bits(8))
+
+  input identity: CHIRamIdentity(p)
+  interface port(CHISNChannels(p), ~role: node)
+
+  fun backend():
+    inst storage(SyncRam1RW(depth, Bits(8), p.data_bytes))
+    fun connect(issue :: Endpoint, completion :: Endpoint):
+      (
+        issue |> map_valid(operation):
+          def relative_address :: Bits(p.request_address_width) = chi_data_address(operation.request.address, operation.data_id, p) - identity.base_address
+          def word_address = relative_address[low_width..(low_width + word_address_width)]
+          ReadWriteRequest(word_address_width, Bits(8), p.data_bytes):
+            address: word_address
+            write: operation.write
+            data: operation.data.into(Data)
+            mask: operation.mask
+      ) <=> storage.port.request
+      (
+        issue |> valid_pipe(1) |> map_valid(operation):
+          CHIRamMemoryCompletion(p, slot_width):
+            memory_operation: operation
+            data: mux(operation.write,
+                      bits(0, p.data_width),
+                      storage.port.response.bits.as_bits())
+      ) <=> completion
+    connect
+
+  build_chi_ram_controller(config, identity, port, backend)
+
+export:
+  CHIRamMemoryOperation
+  CHIRamMemoryCompletion
+  CHIRamConfig
+  CHIRamParams
+  CHIRamIdentity
+  build_chi_ram_controller
+  CHIRam

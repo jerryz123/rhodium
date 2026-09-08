@@ -700,6 +700,8 @@ direct_fixture_specs=(
   'chi-noc-adapter|chi_noc_adapter_tb'
   'chi-router-composition|'
   'chi-transfer-fragmenter|chi_transfer_fragmenter_tb'
+  'chi-fragmenter-metadata|chi_fragmenter_metadata_tb'
+  'rv5stage-chi-requests|rv5stage_chi_requests_tb'
   'load-store|load_store_tb'
   'riscv-cmo|riscv_cmo_tb'
   'load-store-rv32-word|load_store_rv32_word_tb'

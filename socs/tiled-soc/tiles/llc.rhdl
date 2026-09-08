@@ -2,10 +2,10 @@
 // Attaches both sides of one inclusive LLC slice to the shared CHI fabric.
 
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/noc-router.rhdl") open
-  lib("chi/home-common.rhdl").CHIHNFIdentity
-  lib("chi/inclusive-home.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/noc/noc-router.rhdl") open
+  lib("chi/home/home-common.rhdl").CHIHNFIdentity
+  lib("chi/home/inclusive-home.rhdl") open
 
 class LLCTileParams(home :: CHIInclusiveHNFConfig,
                     router :: CHIRouterParams):

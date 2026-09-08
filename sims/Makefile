@@ -2,7 +2,7 @@
 REPO_DIR := $(abspath ..)
 FESVR_DIR := $(CURDIR)/fesvr
 VERILATOR_DIR := $(CURDIR)/verilator
-CHI_DPI_DIR := $(REPO_DIR)/chi/dpi
+CHI_DPI_DIR := $(REPO_DIR)/chi/subordinate/dpi
 UART_DPI_DIR := $(REPO_DIR)/devices/dpi
 FESVR_REVISION := e1fa113cfb6d55d878a3c1ea3befa8d9c13ce154
 FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(FESVR_REVISION)

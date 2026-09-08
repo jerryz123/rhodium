@@ -1,0 +1,688 @@
+#lang rhodium
+// Lowers pure CHI channel compilations into ready-valid NoC endpoint adapters.
+
+import:
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+  lib("flow/queue.rhdl").queue
+  lib("flow/ready-valid-support.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHISnoopDispatch
+  lib("chi/noc/noc-authoring.rhm") open
+  lib("noc/authoring/main.rhm") open
+  lib("noc/plan/router-family-plan.rhm").RouterFamilyPlan
+  lib("noc/rtl/router.rhdl").RoutedBeat
+  lib("noc/rtl/route-adapter.rhdl") open
+
+export:
+  CHINoCInjectionConfig
+  CHINoCEjectionConfig
+  CHINoCFamilyInjectionRow
+  CHINoCFamilyEjectionRow
+  CHINoCFamilyInjectionConfig
+  CHINoCFamilyEjectionConfig
+  compile_chi_noc_family_injection_config
+  compile_chi_noc_family_ejection_config
+  CHIChannelAdapterPlan
+  CHIChannelAdapterPlans
+  compile_chi_channel_adapter_plan
+  compile_chi_channel_family_adapter_plan
+  compile_chi_channel_adapter_plans
+  CHINoCPlane
+  CHINoCPorts
+  connect_chi_rni_node
+  connect_chi_rnf_node
+  connect_chi_hn_requesters
+  connect_chi_hn_subordinate
+  connect_chi_sn_node
+  connect_chi_rni
+  chi_req_noc_inject
+  chi_req_noc_eject
+  chi_rsp_noc_inject
+  chi_rsp_noc_eject
+  chi_snp_noc_inject
+  chi_snp_noc_eject
+  chi_dat_noc_inject
+  chi_dat_noc_eject
+  chi_req_noc_family_inject
+  chi_req_noc_family_eject
+  chi_rsp_noc_family_inject
+  chi_rsp_noc_family_eject
+  chi_snp_noc_family_inject
+  chi_snp_noc_family_eject
+  chi_dat_noc_family_inject
+  chi_dat_noc_family_eject
+
+bundle CHINoCRouteDecision(route_width :: PosInt):
+  valid: Bool
+  route_key: Bits(route_width)
+
+bundle CHINoCFamilyRouteKey(site_width :: PosInt, node_id_width :: PosInt):
+  site_key: Bits(site_width)
+  target_id: Bits(node_id_width)
+
+bundle CHINoCFamilyEjectionDecision(node_id_width :: PosInt):
+  valid: Bool
+  node_id: Bits(node_id_width)
+
+class CHINoCInjectionConfig(site :: CHIInjectionSite,
+                            p :: CHIFlitParams,
+                            route_width :: PosInt,
+                            decoder :: DecodeGen,
+                            input_index :: Nat):
+  implements StableCircuitParam
+
+class CHINoCEjectionConfig(site :: CHIEjectionSite,
+                           p :: CHIFlitParams,
+                           route_width :: PosInt,
+                           target_index :: Nat):
+  implements StableCircuitParam
+
+class CHINoCFamilyInjectionRow(site_key :: Nat,
+                               config :: CHINoCInjectionConfig):
+  implements StableCircuitParam
+
+class CHINoCFamilyEjectionRow(site_key :: Nat,
+                              config :: CHINoCEjectionConfig):
+  implements StableCircuitParam
+
+class CHINoCFamilyInjectionConfig(p :: CHIFlitParams,
+                                  route_width :: PosInt,
+                                  site_width :: PosInt,
+                                  input_index :: Nat,
+                                  site_keys :: NonemptyList.of(Nat),
+                                  decoder :: DecodeGen):
+  implements StableCircuitParam
+
+  method lookup(site_key :: Bits(site_width),
+                target_id :: Bits(p.node_id_width)) :: Hardware.packable:
+    decoder(
+      CHINoCFamilyRouteKey(site_width, p.node_id_width):
+        site_key: site_key
+        target_id: target_id
+    )
+
+class CHINoCFamilyEjectionConfig(p :: CHIFlitParams,
+                                 route_width :: PosInt,
+                                 site_width :: PosInt,
+                                 target_index :: Nat,
+                                 site_keys :: NonemptyList.of(Nat),
+                                 decoder :: DecodeGen):
+  implements StableCircuitParam
+
+  method lookup(site_key :: Bits(site_width)) :: Hardware.packable:
+    decoder(site_key)
+
+// Collects only the endpoint adapter configurations derived for one channel;
+// routers and physical links remain independently owned by system integration.
+class CHIChannelAdapterPlan(compilation :: CHIChannelCompilation,
+                            injections :: NonemptyList.of(CHINoCInjectionConfig),
+                            ejections :: NonemptyList.of(CHINoCEjectionConfig)):
+  method injection(ref :: InjectionRef) :: CHINoCInjectionConfig:
+    def found = injections.find(
+      fun (config): injection_ref_equal(config.site.terminal, ref)
+    )
+    unless found
+    | error(~who: #'CHIChannelAdapterPlan,
+            "CHI channel has no injection adapter")
+    found
+
+  method ejection(ref :: EjectionRef) :: CHINoCEjectionConfig:
+    def found = ejections.find(
+      fun (config): ejection_ref_equal(config.site.terminal, ref)
+    )
+    unless found
+    | error(~who: #'CHIChannelAdapterPlan,
+            "CHI channel has no ejection adapter")
+    found
+
+class CHIChannelAdapterPlans(req :: CHIChannelAdapterPlan,
+                             rsp :: CHIChannelAdapterPlan,
+                             snp :: False || CHIChannelAdapterPlan,
+                             dat :: CHIChannelAdapterPlan)
+
+fun compile_chi_noc_family_injection_config(
+      plan :: CHIChannelAdapterPlan,
+      site_width :: PosInt,
+      rows :: NonemptyList.of(CHINoCFamilyInjectionRow)) :: CHINoCFamilyInjectionConfig:
+  def first = rows[0].config
+  def mutable cases = []
+  for (row in rows):
+    unless row.config.input_index == first.input_index
+    | error(~who: #'compile_chi_noc_family_injection_config,
+            "one local endpoint ordinal must use one family injection slot")
+    for (route in plan.compilation.routes_from(row.config.site.terminal)):
+      cases := cases ++ [
+        DecodeCase(
+          (pattern(CHINoCFamilyRouteKey(site_width, first.p.node_id_width)):
+             site_key: bits(row.site_key, site_width)
+             target_id: bits(route.destination.node_id, first.p.node_id_width)),
+          (pattern(CHINoCRouteDecision(first.route_width)):
+             valid: Bool(#true)
+             route_key: bits(route.route_key, first.route_width))
+        )
+      ]
+  def decoder = DecodeGen(
+    cases,
+    ~default: (pattern(CHINoCRouteDecision(first.route_width)):
+                 valid: Bool(#false)
+                 route_key: bits(0, first.route_width))
+  )
+  CHINoCFamilyInjectionConfig(first.p,
+                              first.route_width,
+                              site_width,
+                              first.input_index,
+                              rows.map(fun (row): row.site_key),
+                              decoder)
+
+fun compile_chi_noc_family_ejection_config(
+      site_width :: PosInt,
+      rows :: NonemptyList.of(CHINoCFamilyEjectionRow)) :: CHINoCFamilyEjectionConfig:
+  def first = rows[0].config
+  for (row in rows):
+    unless row.config.target_index == first.target_index
+    | error(~who: #'compile_chi_noc_family_ejection_config,
+            "one local endpoint ordinal must use one family ejection slot")
+  def decoder = DecodeGen(
+    for List (row in rows):
+      DecodeCase(
+        as_pattern(bits(row.site_key, site_width)),
+        (pattern(CHINoCFamilyEjectionDecision(first.p.node_id_width)):
+           valid: Bool(#true)
+           node_id: bits(row.config.site.node_id, first.p.node_id_width))
+      ),
+    ~default: (pattern(CHINoCFamilyEjectionDecision(first.p.node_id_width)):
+                 valid: Bool(#false)
+                 node_id: bits(0, first.p.node_id_width))
+  )
+  CHINoCFamilyEjectionConfig(first.p,
+                             first.route_width,
+                             site_width,
+                             first.target_index,
+                             rows.map(fun (row): row.site_key),
+                             decoder)
+
+fun compile_chi_noc_injection_config(
+      compilation :: CHIChannelCompilation,
+      site :: CHIInjectionSite,
+      p :: CHIFlitParams,
+      route_width :: PosInt,
+      input_index :: Nat) :: CHINoCInjectionConfig:
+  def routes = compilation.routes_from(site.terminal)
+  unless routes.length() > 0
+  | error(~who: #'compile_chi_channel_adapter_plan,
+          "CHI injection must have at least one destination")
+  def cases = routes.map(
+    fun (route):
+      unless bits.length(route.destination.node_id) <= p.node_id_width
+      | error(~who: #'compile_chi_channel_adapter_plan,
+              "CHI destination NodeID does not fit the flit")
+      DecodeCase(
+        as_pattern(bits(route.destination.node_id, p.node_id_width)),
+        pattern(CHINoCRouteDecision(route_width)):
+          valid: Bool(#true)
+          route_key: bits(route.route_key, route_width)
+      )
+  )
+  def decoder = DecodeGen(
+    cases,
+    ~default: (pattern(CHINoCRouteDecision(route_width)):
+                 valid: Bool(#false)
+                 route_key: bits(0, route_width))
+  )
+  CHINoCInjectionConfig(
+    site,
+    p,
+    route_width,
+    decoder,
+    input_index
+  )
+
+fun compile_chi_noc_ejection_config(
+      compilation :: CHIChannelCompilation,
+      site :: CHIEjectionSite,
+      p :: CHIFlitParams,
+      route_width :: PosInt,
+      target_index :: Nat) :: CHINoCEjectionConfig:
+  unless bits.length(site.node_id) <= p.node_id_width
+  | error(~who: #'compile_chi_channel_adapter_plan,
+          "CHI ejection NodeID does not fit the flit")
+  CHINoCEjectionConfig(
+    site,
+    p,
+    route_width,
+    target_index
+  )
+
+fun compile_chi_channel_adapter_plan_with_indices(
+      compilation :: CHIChannelCompilation,
+      p :: CHIFlitParams,
+      input_index :: Function.of_arity(1),
+      target_index :: Function.of_arity(1)) :: CHIChannelAdapterPlan:
+  def route_width = index_width(
+    compilation.network.validated_routing.route_classes.length()
+  )
+  def injections:
+    for List (site in compilation.injections):
+      compile_chi_noc_injection_config(
+        compilation,
+        site,
+        p,
+        route_width,
+        input_index(site)
+      )
+  def ejections:
+    for List (site in compilation.ejections):
+      compile_chi_noc_ejection_config(
+        compilation,
+        site,
+        p,
+        route_width,
+        target_index(site)
+      )
+  CHIChannelAdapterPlan(compilation, injections, ejections)
+
+fun compile_chi_channel_adapter_plan(
+      compilation :: CHIChannelCompilation,
+      p :: CHIFlitParams) :: CHIChannelAdapterPlan:
+  compile_chi_channel_adapter_plan_with_indices(
+    compilation,
+    p,
+    fun (site): compilation.injection_port(site.terminal).input_index,
+    fun (site): compilation.ejection_port(site.terminal).target_index
+  )
+
+// Resolves endpoint adapter indices through the uniform family layout while
+// preserving the channel compilation's route-key decoder.
+fun compile_chi_channel_family_adapter_plan(
+      compilation :: CHIChannelCompilation,
+      family :: RouterFamilyPlan,
+      p :: CHIFlitParams) :: CHIChannelAdapterPlan:
+  unless family.derives_from(compilation.network.network_plan)
+  | error(~who: #'compile_chi_channel_family_adapter_plan,
+          "router family must derive from the CHI channel network plan")
+  compile_chi_channel_adapter_plan_with_indices(
+    compilation,
+    p,
+    fun (site):
+      def terminal = compilation.network.injection_terminal(site.terminal)
+      family.injection_port(terminal.id).input_index,
+    fun (site):
+      def terminal = compilation.network.ejection_terminal(site.terminal)
+      family.ejection_port(terminal.id).target_index
+  )
+
+fun compile_chi_channel_adapter_plans(
+      compilations :: CHIChannelCompilations,
+      p :: CHIFlitParams) :: CHIChannelAdapterPlans:
+  CHIChannelAdapterPlans(
+    compile_chi_channel_adapter_plan(compilations.req, p),
+    compile_chi_channel_adapter_plan(compilations.rsp, p),
+    if !compilations.snp
+    | #false
+    | compile_chi_channel_adapter_plan(compilations.snp, p),
+    compile_chi_channel_adapter_plan(compilations.dat, p)
+  )
+
+// References one existing router plane and preserves CHI's one-entry ejection queue policy.
+class CHINoCPlane(ingress :: Array, targets :: Array):
+  method inject(source :: Endpoint, index :: Nat, adapter :: Function.of_arity(1)):
+    (source |> adapter) <=> ingress[index]
+
+  method eject(sink :: Endpoint, index :: Nat, adapter :: Function.of_arity(1)):
+    def target :: Endpoint = targets[index]
+    (target.egress |> queue(1) |> adapter) <=> sink
+    target.available <== target.egress.ready
+
+// Groups module-local endpoint arrays only; it creates no ports, routers, or hierarchy.
+class CHINoCPorts(req :: CHINoCPlane,
+                  rsp :: CHINoCPlane,
+                  dat :: CHINoCPlane,
+                  ~snp: snp :: False || CHINoCPlane = #false)
+
+// Attaches one RN-I endpoint to the requester-side NoC planes. The Home's
+// aggregate requester port is connected independently and exactly once.
+fun connect_chi_rni_node(node_port :: Endpoint,
+                         ~node: node_site :: CHIRNSite,
+                         ~ports: ports :: CHINoCPorts,
+                         ~adapters: adapters :: CHIChannelAdapterPlans):
+  def node_req :: Endpoint = node_port.field("req")
+  def node_rsp :: Endpoint = node_port.field("rsp")
+  def node_dat :: Endpoint = node_port.field("dat")
+
+  def node_req_config = adapters.req.injection(node_site.req.terminal)
+  ports.req.inject(node_req, node_req_config.input_index, chi_req_noc_inject(node_req_config))
+
+  def node_rsp_requester_config = adapters.rsp.injection(node_site.rsp_requester.terminal)
+  def node_rsp_response_config = adapters.rsp.ejection(node_site.rsp_response.terminal)
+  ports.rsp.inject(node_rsp.field("requester"), node_rsp_requester_config.input_index, chi_rsp_noc_inject(node_rsp_requester_config))
+  ports.rsp.eject(node_rsp.field("response"), node_rsp_response_config.target_index, chi_rsp_noc_eject(node_rsp_response_config))
+
+  def node_dat_request_config = adapters.dat.injection(node_site.dat_request.terminal)
+  def node_dat_response_config = adapters.dat.ejection(node_site.dat_response.terminal)
+  ports.dat.inject(node_dat.field("request"), node_dat_request_config.input_index, chi_dat_noc_inject(node_dat_request_config))
+  ports.dat.eject(node_dat.field("response"), node_dat_response_config.target_index, chi_dat_noc_eject(node_dat_response_config))
+
+// Attaches one RN-F endpoint, including its independently routed SNP input.
+fun connect_chi_rnf_node(node_port :: Endpoint,
+                         ~node: node_site :: CHIRNSite,
+                         ~ports: ports :: CHINoCPorts,
+                         ~adapters: adapters :: CHIChannelAdapterPlans):
+  def node_req_config = adapters.req.injection(node_site.req.terminal)
+  ports.req.inject(node_port.field("requests"), node_req_config.input_index, chi_req_noc_inject(node_req_config))
+
+  def node_rsp_requester_config = adapters.rsp.injection(node_site.rsp_requester.terminal)
+  def node_rsp_response_config = adapters.rsp.ejection(node_site.rsp_response.terminal)
+  ports.rsp.inject(node_port.field("requester_responses"), node_rsp_requester_config.input_index, chi_rsp_noc_inject(node_rsp_requester_config))
+  ports.rsp.eject(node_port.field("responses"), node_rsp_response_config.target_index, chi_rsp_noc_eject(node_rsp_response_config))
+
+  def snp_adapters :: CHIChannelAdapterPlan = adapters.snp
+  def snp_ports :: CHINoCPlane = ports.snp
+  def node_snp_config = snp_adapters.ejection(node_site.snp.terminal)
+  snp_ports.eject(node_port.field("snoops"), node_snp_config.target_index, chi_snp_noc_eject(node_snp_config))
+
+  def node_dat_request_config = adapters.dat.injection(node_site.dat_request.terminal)
+  def node_dat_response_config = adapters.dat.ejection(node_site.dat_response.terminal)
+  ports.dat.inject(node_port.field("request_data"), node_dat_request_config.input_index, chi_dat_noc_inject(node_dat_request_config))
+  ports.dat.eject(node_port.field("response_data"), node_dat_response_config.target_index, chi_dat_noc_eject(node_dat_response_config))
+
+// Attaches the HN's aggregate requester side to all four requester-side NoC
+// planes. This shared endpoint must not be repeated once per requester.
+fun connect_chi_hn_requesters(home_port :: Endpoint,
+                              ~home: home_site :: CHIRNICNSite,
+                              ~ports: ports :: CHINoCPorts,
+                              ~adapters: adapters :: CHIChannelAdapterPlans):
+  def home_req_config = adapters.req.ejection(home_site.req.terminal)
+  ports.req.eject(home_port.field("requests"), home_req_config.target_index, chi_req_noc_eject(home_req_config))
+
+  def home_rsp_requester_config = adapters.rsp.ejection(home_site.rsp_requester.terminal)
+  def home_rsp_response_config = adapters.rsp.injection(home_site.rsp_response.terminal)
+  ports.rsp.eject(home_port.field("requester_responses"), home_rsp_requester_config.target_index, chi_rsp_noc_eject(home_rsp_requester_config))
+  ports.rsp.inject(home_port.field("responses"), home_rsp_response_config.input_index, chi_rsp_noc_inject(home_rsp_response_config))
+
+  def snp_adapters :: CHIChannelAdapterPlan = adapters.snp
+  def snp_ports :: CHINoCPlane = ports.snp
+  def home_snp_config = snp_adapters.injection(home_site.snp.terminal)
+  snp_ports.inject(home_port.field("snoops"), home_snp_config.input_index, chi_snp_noc_inject(home_snp_config))
+
+  def home_dat_request_config = adapters.dat.ejection(home_site.dat_request.terminal)
+  def home_dat_response_config = adapters.dat.injection(home_site.dat_response.terminal)
+  ports.dat.eject(home_port.field("request_data"), home_dat_request_config.target_index, chi_dat_noc_eject(home_dat_request_config))
+  ports.dat.inject(home_port.field("response_data"), home_dat_response_config.input_index, chi_dat_noc_inject(home_dat_response_config))
+
+// Attaches the HN's subordinate-facing channels to the SN-side NoC planes.
+// One shared HN attachment can route requests and data to multiple SN nodes.
+fun connect_chi_hn_subordinate(home_port :: Endpoint,
+                               ~home: home_site :: CHISNICNSite,
+                               ~ports: ports :: CHINoCPorts,
+                               ~adapters: adapters :: CHIChannelAdapterPlans):
+  def home_dat :: Endpoint = home_port.field("dat")
+
+  def home_req_config = adapters.req.injection(home_site.req.terminal)
+  ports.req.inject(home_port.field("req"), home_req_config.input_index, chi_req_noc_inject(home_req_config))
+
+  def home_rsp_config = adapters.rsp.ejection(home_site.rsp_response.terminal)
+  ports.rsp.eject(home_port.field("rsp"), home_rsp_config.target_index, chi_rsp_noc_eject(home_rsp_config))
+
+  def home_dat_request_config = adapters.dat.injection(home_site.dat_request.terminal)
+  def home_dat_response_config = adapters.dat.ejection(home_site.dat_response.terminal)
+  ports.dat.inject(home_dat.field("request"), home_dat_request_config.input_index, chi_dat_noc_inject(home_dat_request_config))
+  ports.dat.eject(home_dat.field("response"), home_dat_response_config.target_index, chi_dat_noc_eject(home_dat_response_config))
+
+// Attaches one SN-I or SN-F device to the subordinate-side NoC planes.
+fun connect_chi_sn_node(node_port :: Endpoint,
+                        ~node: node_site :: CHISNSite,
+                        ~ports: ports :: CHINoCPorts,
+                        ~adapters: adapters :: CHIChannelAdapterPlans):
+  def node_dat :: Endpoint = node_port.field("dat")
+
+  def node_req_config = adapters.req.ejection(node_site.req.terminal)
+  ports.req.eject(node_port.field("req"), node_req_config.target_index, chi_req_noc_eject(node_req_config))
+
+  def node_rsp_config = adapters.rsp.injection(node_site.rsp_response.terminal)
+  ports.rsp.inject(node_port.field("rsp"), node_rsp_config.input_index, chi_rsp_noc_inject(node_rsp_config))
+
+  def node_dat_request_config = adapters.dat.ejection(node_site.dat_request.terminal)
+  def node_dat_response_config = adapters.dat.injection(node_site.dat_response.terminal)
+  ports.dat.eject(node_dat.field("request"), node_dat_request_config.target_index, chi_dat_noc_eject(node_dat_request_config))
+  ports.dat.inject(node_dat.field("response"), node_dat_response_config.input_index, chi_dat_noc_inject(node_dat_response_config))
+
+// Convenience composition for the point-to-point RN-I/HN-I case.
+fun connect_chi_rni(node_port :: Endpoint,
+                    icn_port :: Endpoint,
+                    ~node: node_site :: CHIRNSite,
+                    ~icn: icn_site :: CHIRNICNSite,
+                    ~ports: ports :: CHINoCPorts,
+                    ~adapters: adapters :: CHIChannelAdapterPlans):
+  connect_chi_rni_node(node_port,
+                       ~node: node_site,
+                       ~ports: ports,
+                       ~adapters: adapters)
+  def icn_req :: Endpoint = icn_port.field("req")
+  def icn_rsp :: Endpoint = icn_port.field("rsp")
+  def icn_dat :: Endpoint = icn_port.field("dat")
+  def icn_req_config = adapters.req.ejection(icn_site.req.terminal)
+  ports.req.eject(icn_req, icn_req_config.target_index, chi_req_noc_eject(icn_req_config))
+  def icn_rsp_requester_config = adapters.rsp.ejection(icn_site.rsp_requester.terminal)
+  def icn_rsp_response_config = adapters.rsp.injection(icn_site.rsp_response.terminal)
+  ports.rsp.eject(icn_rsp.field("requester"), icn_rsp_requester_config.target_index, chi_rsp_noc_eject(icn_rsp_requester_config))
+  ports.rsp.inject(icn_rsp.field("response"), icn_rsp_response_config.input_index, chi_rsp_noc_inject(icn_rsp_response_config))
+  def icn_dat_request_config = adapters.dat.ejection(icn_site.dat_request.terminal)
+  def icn_dat_response_config = adapters.dat.injection(icn_site.dat_response.terminal)
+  ports.dat.eject(icn_dat.field("request"), icn_dat_request_config.target_index, chi_dat_noc_eject(icn_dat_request_config))
+  ports.dat.inject(icn_dat.field("response"), icn_dat_response_config.input_index, chi_dat_noc_inject(icn_dat_response_config))
+
+// Shares CHI injection wiring and its route-legality assertion; lookup policy stays with the caller.
+fun bind_chi_noc_injection(Input :: DataType,
+                           Payload :: DataType,
+                           route_width :: PosInt,
+                           ingress :: Endpoint,
+                           egress :: Endpoint,
+                           decision :: CHINoCRouteDecision(route_width),
+                           payload :: Hardware.of(Payload),
+                           assertion_label :: String):
+  inst routed(RoutedFlowInjector(Input, Payload, route_width))
+  ingress <=> routed.ingress
+  routed.route_valid <== decision.valid
+  routed.route_key <== decision.route_key
+  routed.payload <== payload
+  routed.egress <=> egress
+  assert(!ingress.valid ||| decision.valid, assertion_label)
+
+sync_circuit CHIReqNoCInjector(config :: CHINoCInjectionConfig):
+  interface ingress(Decoupled(CHIReqFlit(config.p)), ~role: consumer)
+  interface egress(Decoupled(RoutedBeat(CHIReqFlit(config.p), config.route_width)), ~role: producer)
+  def decision = config.decoder(ingress.bits.tgt_id)
+  bind_chi_noc_injection(CHIReqFlit(config.p), CHIReqFlit(config.p), config.route_width,
+                         ingress, egress, decision, ingress.bits, "chi_req_noc_target_has_route")
+
+sync_circuit CHIRspNoCInjector(config :: CHINoCInjectionConfig):
+  interface ingress(Decoupled(CHIRspFlit(config.p)), ~role: consumer)
+  interface egress(Decoupled(RoutedBeat(CHIRspFlit(config.p), config.route_width)), ~role: producer)
+  def decision = config.decoder(ingress.bits.tgt_id)
+  bind_chi_noc_injection(CHIRspFlit(config.p), CHIRspFlit(config.p), config.route_width,
+                         ingress, egress, decision, ingress.bits, "chi_rsp_noc_target_has_route")
+
+sync_circuit CHISnpNoCInjector(config :: CHINoCInjectionConfig):
+  interface ingress(Decoupled(CHISnoopDispatch(config.p)), ~role: consumer)
+  interface egress(Decoupled(RoutedBeat(CHISnpFlit(config.p), config.route_width)), ~role: producer)
+  def decision = config.decoder(ingress.bits.target_id)
+  bind_chi_noc_injection(CHISnoopDispatch(config.p), CHISnpFlit(config.p), config.route_width,
+                         ingress, egress, decision, ingress.bits.flit, "chi_snp_noc_target_has_route")
+
+sync_circuit CHIDatNoCInjector(config :: CHINoCInjectionConfig):
+  interface ingress(Decoupled(CHIDatFlit(config.p)), ~role: consumer)
+  interface egress(Decoupled(RoutedBeat(CHIDatFlit(config.p), config.route_width)), ~role: producer)
+  def decision = config.decoder(ingress.bits.tgt_id)
+  bind_chi_noc_injection(CHIDatFlit(config.p), CHIDatFlit(config.p), config.route_width,
+                         ingress, egress, decision, ingress.bits, "chi_dat_noc_target_has_route")
+
+sync_circuit CHIReqNoCEjector(config :: CHINoCEjectionConfig):
+  interface ingress(Decoupled(RoutedBeat(CHIReqFlit(config.p), config.route_width)), ~role: consumer)
+  interface egress(Decoupled(CHIReqFlit(config.p)), ~role: producer)
+  bind_routed_flow_ejector(CHIReqFlit(config.p), config.route_width, ingress, egress)
+  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === bits(config.site.node_id, config.p.node_id_width)),
+         "chi_req_noc_ejection_target")
+
+sync_circuit CHIRspNoCEjector(config :: CHINoCEjectionConfig):
+  interface ingress(Decoupled(RoutedBeat(CHIRspFlit(config.p), config.route_width)), ~role: consumer)
+  interface egress(Decoupled(CHIRspFlit(config.p)), ~role: producer)
+  bind_routed_flow_ejector(CHIRspFlit(config.p), config.route_width, ingress, egress)
+  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === bits(config.site.node_id, config.p.node_id_width)),
+         "chi_rsp_noc_ejection_target")
+
+sync_circuit CHISnpNoCEjector(config :: CHINoCEjectionConfig):
+  interface ingress(Decoupled(RoutedBeat(CHISnpFlit(config.p), config.route_width)), ~role: consumer)
+  interface egress(Decoupled(CHISnpFlit(config.p)), ~role: producer)
+  bind_routed_flow_ejector(CHISnpFlit(config.p), config.route_width, ingress, egress)
+
+sync_circuit CHIDatNoCEjector(config :: CHINoCEjectionConfig):
+  interface ingress(Decoupled(RoutedBeat(CHIDatFlit(config.p), config.route_width)), ~role: consumer)
+  interface egress(Decoupled(CHIDatFlit(config.p)), ~role: producer)
+  bind_routed_flow_ejector(CHIDatFlit(config.p), config.route_width, ingress, egress)
+  assert(!ingress.valid ||| (ingress.bits.payload.tgt_id === bits(config.site.node_id, config.p.node_id_width)),
+         "chi_dat_noc_ejection_target")
+
+sync_circuit CHIReqNoCFamilyInjector(config :: CHINoCFamilyInjectionConfig):
+  input site_key: Bits(config.site_width)
+  interface ingress(Decoupled(CHIReqFlit(config.p)), ~role: consumer)
+  interface egress(Decoupled(RoutedBeat(CHIReqFlit(config.p), config.route_width)), ~role: producer)
+  def decision :: CHINoCRouteDecision(config.route_width) = config.lookup(site_key, ingress.bits.tgt_id)
+  bind_chi_noc_injection(CHIReqFlit(config.p), CHIReqFlit(config.p), config.route_width,
+                         ingress, egress, decision, ingress.bits, "chi_req_noc_family_target_has_route")
+
+sync_circuit CHIRspNoCFamilyInjector(config :: CHINoCFamilyInjectionConfig):
+  input site_key: Bits(config.site_width)
+  interface ingress(Decoupled(CHIRspFlit(config.p)), ~role: consumer)
+  interface egress(Decoupled(RoutedBeat(CHIRspFlit(config.p), config.route_width)), ~role: producer)
+  def decision :: CHINoCRouteDecision(config.route_width) = config.lookup(site_key, ingress.bits.tgt_id)
+  bind_chi_noc_injection(CHIRspFlit(config.p), CHIRspFlit(config.p), config.route_width,
+                         ingress, egress, decision, ingress.bits, "chi_rsp_noc_family_target_has_route")
+
+sync_circuit CHISnpNoCFamilyInjector(config :: CHINoCFamilyInjectionConfig):
+  input site_key: Bits(config.site_width)
+  interface ingress(Decoupled(CHISnoopDispatch(config.p)), ~role: consumer)
+  interface egress(Decoupled(RoutedBeat(CHISnpFlit(config.p), config.route_width)), ~role: producer)
+  def decision :: CHINoCRouteDecision(config.route_width) = config.lookup(site_key, ingress.bits.target_id)
+  bind_chi_noc_injection(CHISnoopDispatch(config.p), CHISnpFlit(config.p), config.route_width,
+                         ingress, egress, decision, ingress.bits.flit, "chi_snp_noc_family_target_has_route")
+
+sync_circuit CHIDatNoCFamilyInjector(config :: CHINoCFamilyInjectionConfig):
+  input site_key: Bits(config.site_width)
+  interface ingress(Decoupled(CHIDatFlit(config.p)), ~role: consumer)
+  interface egress(Decoupled(RoutedBeat(CHIDatFlit(config.p), config.route_width)), ~role: producer)
+  def decision :: CHINoCRouteDecision(config.route_width) = config.lookup(site_key, ingress.bits.tgt_id)
+  bind_chi_noc_injection(CHIDatFlit(config.p), CHIDatFlit(config.p), config.route_width,
+                         ingress, egress, decision, ingress.bits, "chi_dat_noc_family_target_has_route")
+
+sync_circuit CHIReqNoCFamilyEjector(config :: CHINoCFamilyEjectionConfig):
+  input site_key: Bits(config.site_width)
+  interface ingress(Decoupled(RoutedBeat(CHIReqFlit(config.p), config.route_width)), ~role: consumer)
+  interface egress(Decoupled(CHIReqFlit(config.p)), ~role: producer)
+  bind_routed_flow_ejector(CHIReqFlit(config.p), config.route_width, ingress, egress)
+  def expected :: CHINoCFamilyEjectionDecision(config.p.node_id_width) = config.lookup(site_key)
+  assert(!ingress.valid ||| (expected.valid & (ingress.bits.payload.tgt_id === expected.node_id)),
+         "chi_req_noc_family_ejection_target")
+
+sync_circuit CHIRspNoCFamilyEjector(config :: CHINoCFamilyEjectionConfig):
+  input site_key: Bits(config.site_width)
+  interface ingress(Decoupled(RoutedBeat(CHIRspFlit(config.p), config.route_width)), ~role: consumer)
+  interface egress(Decoupled(CHIRspFlit(config.p)), ~role: producer)
+  bind_routed_flow_ejector(CHIRspFlit(config.p), config.route_width, ingress, egress)
+  def expected :: CHINoCFamilyEjectionDecision(config.p.node_id_width) = config.lookup(site_key)
+  assert(!ingress.valid ||| (expected.valid & (ingress.bits.payload.tgt_id === expected.node_id)),
+         "chi_rsp_noc_family_ejection_target")
+
+sync_circuit CHISnpNoCFamilyEjector(config :: CHINoCFamilyEjectionConfig):
+  input site_key: Bits(config.site_width)
+  interface ingress(Decoupled(RoutedBeat(CHISnpFlit(config.p), config.route_width)), ~role: consumer)
+  interface egress(Decoupled(CHISnpFlit(config.p)), ~role: producer)
+  bind_routed_flow_ejector(CHISnpFlit(config.p), config.route_width, ingress, egress)
+  def expected :: CHINoCFamilyEjectionDecision(config.p.node_id_width) = config.lookup(site_key)
+  assert(!ingress.valid ||| expected.valid,
+         "chi_snp_noc_family_ejection_site")
+
+sync_circuit CHIDatNoCFamilyEjector(config :: CHINoCFamilyEjectionConfig):
+  input site_key: Bits(config.site_width)
+  interface ingress(Decoupled(RoutedBeat(CHIDatFlit(config.p), config.route_width)), ~role: consumer)
+  interface egress(Decoupled(CHIDatFlit(config.p)), ~role: producer)
+  bind_routed_flow_ejector(CHIDatFlit(config.p), config.route_width, ingress, egress)
+  def expected :: CHINoCFamilyEjectionDecision(config.p.node_id_width) = config.lookup(site_key)
+  assert(!ingress.valid ||| (expected.valid & (ingress.bits.payload.tgt_id === expected.node_id)),
+         "chi_dat_noc_family_ejection_target")
+
+// Keeps typed circuit factories separate from fixed-site flow metadata bookkeeping.
+fun chi_noc_transform(make_module :: Function.of_arity(0),
+                      kind :: String,
+                      properties :: Map):
+  fun (source) :~ InterfaceTransformResult(source, Endpoint):
+    flow_protocol_type(source)
+    inst stage(make_module())
+    finish_interface_transform(source, describe_interface_transform(InterfaceHandle(stage.ingress, stage.egress), kind, properties, stage))
+
+// Family stages have an explicit site input and intentionally omit fixed NodeID metadata.
+fun chi_noc_family_transform(make_module :: Function.of_arity(0),
+                             site_key :: Bits,
+                             kind :: String):
+  fun (source) :~ InterfaceTransformResult(source, Endpoint):
+    flow_protocol_type(source)
+    inst stage(make_module())
+    stage.site_key <== site_key
+    finish_interface_transform(source, describe_interface_transform(InterfaceHandle(stage.ingress, stage.egress), kind, {}, stage))
+
+fun chi_req_noc_inject(config :: CHINoCInjectionConfig):
+  chi_noc_transform(fun (): CHIReqNoCInjector(config), "chi-req-noc-inject", {"node-id": config.site.node_id})
+
+fun chi_req_noc_eject(config :: CHINoCEjectionConfig):
+  chi_noc_transform(fun (): CHIReqNoCEjector(config), "chi-req-noc-eject", {"node-id": config.site.node_id})
+
+fun chi_rsp_noc_inject(config :: CHINoCInjectionConfig):
+  chi_noc_transform(fun (): CHIRspNoCInjector(config), "chi-rsp-noc-inject", {"node-id": config.site.node_id})
+
+fun chi_rsp_noc_eject(config :: CHINoCEjectionConfig):
+  chi_noc_transform(fun (): CHIRspNoCEjector(config), "chi-rsp-noc-eject", {"node-id": config.site.node_id})
+
+fun chi_snp_noc_inject(config :: CHINoCInjectionConfig):
+  chi_noc_transform(fun (): CHISnpNoCInjector(config), "chi-snp-noc-inject", {"node-id": config.site.node_id})
+
+fun chi_snp_noc_eject(config :: CHINoCEjectionConfig):
+  chi_noc_transform(fun (): CHISnpNoCEjector(config), "chi-snp-noc-eject", {"node-id": config.site.node_id})
+
+fun chi_dat_noc_inject(config :: CHINoCInjectionConfig):
+  chi_noc_transform(fun (): CHIDatNoCInjector(config), "chi-dat-noc-inject", {"node-id": config.site.node_id})
+
+fun chi_dat_noc_eject(config :: CHINoCEjectionConfig):
+  chi_noc_transform(fun (): CHIDatNoCEjector(config), "chi-dat-noc-eject", {"node-id": config.site.node_id})
+
+fun chi_req_noc_family_inject(config :: CHINoCFamilyInjectionConfig,
+                              site_key :: Bits(config.site_width)):
+  chi_noc_family_transform(fun (): CHIReqNoCFamilyInjector(config), site_key, "chi-req-noc-family-inject")
+
+fun chi_req_noc_family_eject(config :: CHINoCFamilyEjectionConfig,
+                             site_key :: Bits(config.site_width)):
+  chi_noc_family_transform(fun (): CHIReqNoCFamilyEjector(config), site_key, "chi-req-noc-family-eject")
+
+fun chi_rsp_noc_family_inject(config :: CHINoCFamilyInjectionConfig,
+                              site_key :: Bits(config.site_width)):
+  chi_noc_family_transform(fun (): CHIRspNoCFamilyInjector(config), site_key, "chi-rsp-noc-family-inject")
+
+fun chi_rsp_noc_family_eject(config :: CHINoCFamilyEjectionConfig,
+                             site_key :: Bits(config.site_width)):
+  chi_noc_family_transform(fun (): CHIRspNoCFamilyEjector(config), site_key, "chi-rsp-noc-family-eject")
+
+fun chi_snp_noc_family_inject(config :: CHINoCFamilyInjectionConfig,
+                              site_key :: Bits(config.site_width)):
+  chi_noc_family_transform(fun (): CHISnpNoCFamilyInjector(config), site_key, "chi-snp-noc-family-inject")
+
+fun chi_snp_noc_family_eject(config :: CHINoCFamilyEjectionConfig,
+                             site_key :: Bits(config.site_width)):
+  chi_noc_family_transform(fun (): CHISnpNoCFamilyEjector(config), site_key, "chi-snp-noc-family-eject")
+
+fun chi_dat_noc_family_inject(config :: CHINoCFamilyInjectionConfig,
+                              site_key :: Bits(config.site_width)):
+  chi_noc_family_transform(fun (): CHIDatNoCFamilyInjector(config), site_key, "chi-dat-noc-family-inject")
+
+fun chi_dat_noc_family_eject(config :: CHINoCFamilyEjectionConfig,
+                             site_key :: Bits(config.site_width)):
+  chi_noc_family_transform(fun (): CHIDatNoCFamilyEjector(config), site_key, "chi-dat-noc-family-eject")

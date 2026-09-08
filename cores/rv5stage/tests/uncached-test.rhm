@@ -3,8 +3,8 @@
 
 import:
   "../../../rhodium/std/interconnect.rhdl".AddressSet
-  "../../../chi/flits.rhdl".CHIReqOpcode
-  "../../../chi/link.rhdl".CHINodeKind
+  "../../../chi/protocol/flits.rhdl".CHIReqOpcode
+  "../../../chi/protocol/link.rhdl".CHINodeKind
   "../../../riscv/rtl/pma.rhdl" as pma
   "../chi/foundation.rhdl" as rvchi
   "params.rhdl" as params

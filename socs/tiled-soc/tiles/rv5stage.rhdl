@@ -5,8 +5,8 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/state.rhdl").StateReplica
   lib("rhodium/std/flit.rhdl").FramedFixedFlit
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/noc-router.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/noc/noc-router.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl") open
   lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
   lib("cores/rv5stage/profile.rhm").RVCoreProfile

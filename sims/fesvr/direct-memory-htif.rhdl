@@ -4,14 +4,14 @@
 import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl") open
-  lib("chi/protocol.rhdl").chi_line_data_id
-  lib("chi/coherence.rhdl") open
-  lib("chi/link.rhdl") open
-  lib("chi/channels.rhdl").CHIRNChannels
-  lib("chi/fabric.rhdl") open
-  lib("chi/messages.rhdl").chi_rn_write_data
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl").chi_line_data_id
+  lib("chi/protocol/coherence.rhdl") open
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHIRNChannels
+  lib("chi/protocol/fabric.rhdl") open
+  lib("chi/protocol/messages.rhdl").chi_rn_write_data
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/rtl/pma.rhdl") open
 
@@ -108,50 +108,26 @@ fun fesvr_chi_request(p :: CHIFlitParams,
                       device :: Bool,
                       node_id :: Nat,
                       home_node_id :: Bits(p.node_id_width)):
-  wire request: CHIReqFlit(p)
-  if p.req_rsvdc_width > 0
-  | request.rsvdc <== bits(0, p.req_rsvdc_width)
-  | #void
-  if p.sec_sid_width > 0
-  | request.sec_sid1 <== bits(0, p.sec_sid_width)
-  | #void
-  if p.request_security_width > 0
-  | request.mecid_or_stream_id <== bits(0, p.request_security_width)
-  | #void
-  if p.pbha_width > 0
-  | request.pbha <== bits(0, p.pbha_width)
-  | #void
-  if p.mpam_width > 0
-  | request.mpam <== bits(0, p.mpam_width)
-  | #void
-  request.trace_tag <== Bool(#false)
-  request.tag_op <== CHITagOp.Invalid
-  request.exp_comp_ack <== Bool(#false)
-  request.excl_snoop_me_cah <== Bool(#false)
-  request.group_id_or_lpid <== bits(0, 8)
-  request.snp_attr_or_do_dwt <== cacheable
-  request.mem_attr <== CHIMemAttr():
+  // Preserve FESVR's inactive-field defaults and its cacheability/opcode policy.
+  def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
+  def attributes = CHIMemAttr():
     allocate: Bool(#false)
     cacheable: cacheable
     device: device
     early_write_acknowledge: Bool(#false)
-  request.pcrd_type <== bits(0, 4)
-  request.order <== CHIOrder.NoOrder
-  request.allow_retry <== Bool(#false)
-  request.likely_shared <== Bool(#false)
-  request.pas <== CHIPAS.Secure
-  request.address <== address
-  request.size_or_num_req <== size.zext(6)
-  request.multi_req <== Bool(#false)
-  request.opcode <== mux(cacheable, mux(write, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadClean), mux(write, CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp))
-  request.return_txn_id_or_stash_lpid <== bits(0, 12)
-  request.stash_nid_valid_endian_deep_prefetch_tgt_hint <== Bool(#false)
-  request.return_nid_or_stash_nid_or_data_target <== bits(node_id, p.node_id_width)
-  request.txn_id <== bits(0, 12)
-  request.src_id <== bits(node_id, p.node_id_width)
-  request.tgt_id <== home_node_id
-  request.qos <== bits(0, 4)
-  request
+  inactive.updated(
+    ~tag_op: CHITagOp.Invalid,
+    ~snp_attr_or_do_dwt: cacheable,
+    ~mem_attr: attributes,
+    ~order: CHIOrder.NoOrder,
+    ~pas: CHIPAS.Secure,
+    ~address: address,
+    ~size_or_num_req: size.zext(6),
+    ~opcode: mux(cacheable, mux(write, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadClean), mux(write, CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp)),
+    ~return_nid_or_stash_nid_or_data_target: bits(node_id, p.node_id_width),
+    ~src_id: bits(node_id, p.node_id_width),
+    ~tgt_id: home_node_id
+  )
 
 fun fesvr_chi_snoop_response(p :: CHIFlitParams,
                              node_id :: Nat,

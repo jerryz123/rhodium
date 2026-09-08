@@ -5,8 +5,8 @@ import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/core/types.rhm".Bits
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../chi/cache-maintenance.rhdl" open
-  "../../chi/params.rhdl".CHIFlitParams
+  "../../chi/transactions/cache-maintenance.rhdl" open
+  "../../chi/protocol/params.rhdl".CHIFlitParams
 
 def design = embedded.run_elaboration(fun (): CHICacheMaintenance(CHIFlitParams(), Bits(8)))
 print(emit_circt(design))

@@ -8,7 +8,7 @@ import:
   "../uncached-protocol.rhdl".RV5StagePhysicalInstructionAccess
   "params.rhdl".test_rv5stage_uncached_config
   lib("riscv/isa/xlen.rhm").XLen
-  lib("chi/channels.rhdl").CHIRNIChannels
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
 sync_circuit RV5StageIOMSHRFixture():
   def config = test_rv5stage_uncached_config

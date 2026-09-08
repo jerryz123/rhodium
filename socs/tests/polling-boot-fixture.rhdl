@@ -2,7 +2,7 @@
 // Composes the generated platform polling ROM and a complete core for CHI boot execution tests.
 
 import:
-  lib("chi/channels.rhdl") open
+  lib("chi/protocol/channels.rhdl") open
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   lib("cores/rv5stage/profile.rhm").RVCoreProfile
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity

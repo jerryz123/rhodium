@@ -2,7 +2,7 @@
 // Implements a service-row CHI router tile with no locally attached endpoint.
 
 import:
-  lib("chi/noc-router.rhdl") open
+  lib("chi/noc/noc-router.rhdl") open
 
 class TransitTileParams(router :: CHIRouterParams):
   implements StableCircuitParam

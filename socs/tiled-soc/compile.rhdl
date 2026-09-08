@@ -2,19 +2,19 @@
 // Privately compiles one TiledSoC configuration into boot, placement, fabric, and tile parameters.
 
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl").CHIReqOpcode
-  lib("chi/flits.rhdl").CHIRspOpcode
-  lib("chi/flits.rhdl").CHIDatOpcode
-  lib("chi/link.rhdl") open
-  lib("chi/noc-authoring.rhm") open
-  lib("chi/noc-adapter.rhdl") open
-  lib("chi/noc-router.rhdl") open
-  lib("chi/fabric.rhdl") open
-  lib("chi/address-projector.rhdl") open
-  lib("chi/home.rhdl").CHIHNIParams
-  lib("chi/home-common.rhdl") open
-  lib("chi/inclusive-home.rhdl").CHIInclusiveHNFConfig
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl").CHIReqOpcode
+  lib("chi/protocol/flits.rhdl").CHIRspOpcode
+  lib("chi/protocol/flits.rhdl").CHIDatOpcode
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/noc/noc-authoring.rhm") open
+  lib("chi/noc/noc-adapter.rhdl") open
+  lib("chi/noc/noc-router.rhdl") open
+  lib("chi/protocol/fabric.rhdl") open
+  lib("chi/adapters/address-projector.rhdl") open
+  lib("chi/home/home.rhdl").CHIHNIParams
+  lib("chi/home/home-common.rhdl") open
+  lib("chi/home/inclusive-home.rhdl").CHIInclusiveHNFConfig
   lib("noc/authoring/main.rhm") open
   lib("noc/plan/main.rhm") open
   lib("noc/std/topology/main.rhm") open

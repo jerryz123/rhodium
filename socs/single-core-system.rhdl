@@ -7,16 +7,16 @@ import:
   lib("rhodium/std/counter.rhdl").Counter
   lib("rhodium/frontend/kernel.rhm").CircuitDefinition
   lib("rhodium/std/interconnect.rhdl").AddressSet
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl") open
-  lib("chi/link.rhdl").CHINodeParams
-  lib("chi/channels.rhdl").CHISNChannels
-  lib("chi/noc-authoring.rhm") open
-  lib("chi/noc-adapter.rhdl") open
-  lib("chi/fabric.rhdl") open
-  lib("chi/home.rhdl").CHIHNI
-  lib("chi/home-common.rhdl") open
-  lib("chi/coherent-home.rhdl").CHIHNF
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/link.rhdl").CHINodeParams
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  lib("chi/noc/noc-authoring.rhm") open
+  lib("chi/noc/noc-adapter.rhdl") open
+  lib("chi/protocol/fabric.rhdl") open
+  lib("chi/home/home.rhdl").CHIHNI
+  lib("chi/home/home-common.rhdl") open
+  lib("chi/home/coherent-home.rhdl").CHIHNF
   lib("noc/authoring/main.rhm") open
   lib("noc/language/main.rhm").topology
   lib("noc/rtl/router.rhdl") open

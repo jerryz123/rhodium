@@ -77,24 +77,28 @@ import:
 ```
 
 For a component that needs only part of CHI, import its defining modules instead.
+Modules are grouped under `protocol/`, `transactions/`, `home/`,
+`subordinate/`, `adapters/`, and `noc/`. The root facade keeps its existing
+exports; direct imports use these owning paths, with no old-path forwarding
+modules or per-directory aggregate imports.
 For example, a shared requester interface needs only:
 
 ```rhombus
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/channels.rhdl").CHIRNChannels
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/channels.rhdl").CHIRNChannels
 ```
 
 Import monitoring, NoC adapters, concrete Homes, and SRAM or DPI memory engines
 explicitly when using them. Shared memory configuration comes from
-`memory-controller.rhdl`, not through the SRAM implementation. Generic
+`subordinate/memory-controller.rhdl`, not through the SRAM implementation. Generic
 `AddressSet` and `TransferSizes` come from `rhodium/std/interconnect.rhdl`;
 their existing CHI facade exports remain compatible. The
 [implementation map](DEVELOPING.md#implementation-map) identifies the public
 owner modules. Narrow imports reduce dependency and source-loading scope;
 they do not by themselves change the generated RTL or instantiate hardware.
 
-For stateless subordinate responses, import `lib("chi/messages.rhdl")` directly
+For stateless subordinate responses, import `lib("chi/protocol/messages.rhdl")` directly
 or use the facade. `chi_sn_dbid_response` and `chi_sn_write_completion` correlate
 responses with the request's source and TxnID and the supplied DBID;
 `chi_sn_read_completion` uses its return-node/return-TxnID fields, derives byte
@@ -112,7 +116,7 @@ overloaded-field choices explicit. Inactive and optional fields are zero;
 this is not a general constructor for every CHI DAT profile. Callers retain
 address normalization, lane placement, masks, and cacheability policy.
 
-`messages.rhdl` also provides Home response construction and immutable
+`protocol/messages.rhdl` also provides Home response construction and immutable
 downstream-request, snoop-write-data, and upstream-read-data transforms.
 These preserve untouched packet metadata, including optional fields. Callers
 supply routing identities and policy decisions; the helpers neither allocate
@@ -132,12 +136,12 @@ ICN contract is intentionally different from the node's exact peer.
 `subordinate_endpoint` from that service and validates it against the Home
 configuration.
 
-Import `lib("chi/home-common.rhdl")` for shared `CHIHNFConfig`,
+Import `lib("chi/home/home-common.rhdl")` for shared `CHIHNFConfig`,
 `CHIHNFParams`, `CHIHNFIdentity`, and Home request/message policy helpers.
 It does not instantiate a Home engine. These types remain available through
 `chi/main.rhdl` and their existing coherent-Home exports.
 
-`CHIHomeSnoopTargets(config)` in [`home-snoop-targets.rhdl`](home-snoop-targets.rhdl)
+`CHIHomeSnoopTargets(config)` in [`home/home-snoop-targets.rhdl`](home/home-snoop-targets.rhdl)
 tracks pending snoops in configured endpoint order. Its `load` valid-only input
 replaces the target mask; its `target` ready-valid output offers the lowest-index
 pending NodeID. An accepted target clears that bit and updates `expected_node`,
@@ -180,7 +184,7 @@ The package boundary follows the protocol layering:
 
 ### Wire and protocol foundation
 
-[`params.rhdl`](params.rhdl) defines the shared `CHIFlitParams`. Its principal
+[`protocol/params.rhdl`](protocol/params.rhdl) defines the shared `CHIFlitParams`. Its principal
 physical choices are:
 
 | Parameter | Accepted values |
@@ -196,7 +200,7 @@ physical choices are:
 | DataCheck and Poison | Independently enabled or disabled |
 
 The defaults produce 137-bit REQ, 71-bit RSP, 94-bit SNP, and 240-bit DAT
-flits. [`flits.rhdl`](flits.rhdl) defines every non-reserved REQ, RSP, SNP, and
+flits. [`protocol/flits.rhdl`](protocol/flits.rhdl) defines every non-reserved REQ, RSP, SNP, and
 DAT opcode from Issue H Tables B13.12 through B13.16 and constructs
 `CHIReqFlit`, `CHIRspFlit`, `CHISnpFlit`, and `CHIDatFlit`. Fields are declared
 most-significant first so the specification's first field, QoS, occupies packed
@@ -212,7 +216,7 @@ field rather than allocating duplicate storage. For example,
 location likewise has typed `chi_req_size` and full-width `chi_req_num_req`
 views.
 
-[`protocol.rhdl`](protocol.rhdl) owns Size validation and derives physical DAT
+[`protocol/protocol.rhdl`](protocol/protocol.rhdl) owns Size validation and derives physical DAT
 packet counts, DataIDs, and transfer-beat positions from Size, address, and
 `Data_Width`. Opcode enums own intrinsic family classifiers such as atomic,
 non-snoopable, DBID-allocating, data-direction, and snoop-response queries.
@@ -235,7 +239,7 @@ it instead of adding a DataID-derived offset to the request address again.
 The former checker-owned `coherent_read_data_ids` is replaced by the shared
 address-aware `chi_transfer_data_ids` API.
 
-[`coherence.rhdl`](coherence.rhdl) adds `CHICacheState`,
+[`protocol/coherence.rhdl`](protocol/coherence.rhdl) adds `CHICacheState`,
 `CHIResponseState`, and the packed `CHICoherentResponse` view. Because the RSP
 and DAT `Resp` bits are opcode-dependent, coherent code explicitly converts
 them to this view before reading `state` or `pass_dirty`. The module also owns
@@ -244,7 +248,7 @@ state vocabulary and classifiers, not a cache-state machine.
 
 ### Endpoint links and engine channels
 
-[`link.rhdl`](link.rhdl) models the Issue H B13.6 physical channel sets from a
+[`protocol/link.rhdl`](protocol/link.rhdl) models the Issue H B13.6 physical channel sets from a
 node's point of view:
 
 | Interface | Node kinds | Node transmits | Node receives |
@@ -294,7 +298,7 @@ Protocol Credits are CHI transaction messages used for retry and are not
 represented by `Credited`. Link activation remains outside the generic
 transport interface.
 
-[`channels.rhdl`](channels.rhdl) is the separate ready-valid boundary used by
+[`protocol/channels.rhdl`](protocol/channels.rhdl) is the separate ready-valid boundary used by
 transaction engines and the internal NoC. It groups independent flows into
 `CHIRNIChannels`, `CHIRNChannels`, `CHISNChannels`, `CHIHNIChannels`, and
 `CHIHNChannels`. There is no implicit conversion between these channels and a
@@ -304,7 +308,7 @@ SNP flit until endpoint ejection.
 
 ### Services and System Address Maps
 
-[`fabric.rhdl`](fabric.rhdl) keeps routed service metadata separate from
+[`protocol/fabric.rhdl`](protocol/fabric.rhdl) keeps routed service metadata separate from
 physical link identity:
 
 - `CHIRequestSupport` pairs one REQ opcode with accepted `TransferSizes`.
@@ -314,6 +318,12 @@ physical link identity:
 - `CHIHomeServiceParams` assigns operations and address regions to a Home.
 - `CHIFabricPortParams` pairs an RN or SN ICN endpoint with the role-correct
   physical link parameters.
+
+`CHIRequestSupport.matches(opcode, size)` builds a hardware `Bool` matching
+one support entry's opcode and inclusive transfer-size range. Its `size` is
+the encoded `CHITransferSize`, not a host byte count; service `.supports(opcode,
+bytes)` remains a host query. Use wire-representable service metadata. Matching
+does not check addresses, alignment, other flit fields, or transaction state.
 
 The two executable maps represent different routing decisions.
 `CHIHomeMap.lookup` selects the Home NodeID for an RN request;
@@ -329,7 +339,7 @@ subordinate may retain multiple disjoint service profiles.
 
 ### Monitoring and transaction control
 
-[`monitor.rhdl`](monitor.rhdl) instruments one explicitly selected physical
+[`transactions/monitor.rhdl`](transactions/monitor.rhdl) instruments one explicitly selected physical
 endpoint through `monitor_chi_rn`, `monitor_chi_rni`, or `monitor_chi_sn`.
 Link-local checks cover:
 
@@ -346,9 +356,9 @@ Transaction checking defaults to enabled. An attachment whose advertised
 capabilities exceed the delivered checker coverage fails at elaboration;
 it never silently omits the transaction checker. Explicitly pass
 `~transaction_checks: #false` for field/link checks only.
-[`transaction.rhdl`](transaction.rhdl) tracks the non-coherent TxnID,
+[`transactions/transaction.rhdl`](transactions/transaction.rhdl) tracks the non-coherent TxnID,
 DBID, phase, and complete expected DataID set from both requester and
-subordinate viewpoints. [`coherent-transaction.rhdl`](coherent-transaction.rhdl)
+subordinate viewpoints. [`transactions/coherent-transaction.rhdl`](transactions/coherent-transaction.rhdl)
 separately tracks coherent read lifetimes, CompAck, ordinary and paired-DVM
 snoops, and forward-snoop completion. The profile-specific guarantees and
 limits are listed once under [Delivered profile and limits](#delivered-profile-and-limits).
@@ -373,7 +383,7 @@ No metadata wires are added, and unmonitored channel wiring remains a flit-shape
 contract only. The same `~transaction_checks` and `~label_prefix` options apply.
 Checker state remains independent of endpoint implementation state.
 
-[`retryable-transaction.rhdl`](retryable-transaction.rhdl) is a reusable
+[`transactions/retryable-transaction.rhdl`](transactions/retryable-transaction.rhdl) is a reusable
 requester-side mechanism rather than a complete transaction datapath. A
 `CHIResponseProfile` maps accepted RSP opcodes to named completion milestones;
 one opcode may complete several milestones and several opcodes may complete the
@@ -386,7 +396,7 @@ and the final completion condition remain endpoint-owned.
 
 ### NoC compilation and transport
 
-[`noc-authoring.rhm`](noc-authoring.rhm) describes RN, HN-side, and SN sites as
+[`noc/noc-authoring.rhm`](noc/noc-authoring.rhm) describes RN, HN-side, and SN sites as
 CHI NodeIDs attached to symbolic NoC terminals. `CHIRNIConnection`,
 `CHIRNFConnection`, and `CHISNConnection` expand logical endpoint relationships
 into independent REQ, RSP, SNP, and DAT route specifications. RN-I paths omit
@@ -394,7 +404,7 @@ SNP; RN-F paths include it. `compile_chi_connections` hands each channel family
 to the pure NoC compiler and returns validated route keys and terminal
 provenance.
 
-[`noc-adapter.rhdl`](noc-adapter.rhdl) turns those host-compiled results into
+[`noc/noc-adapter.rhdl`](noc/noc-adapter.rhdl) turns those host-compiled results into
 destination selection and typed ready-valid injection/ejection stages. Family
 adapter plans compile every `(site key, target NodeID)` relation before RTL
 elaboration and provide complete attachments for RN-I, RN-F, HN requester, HN
@@ -422,7 +432,7 @@ family attachments share `CHINoCPlane.inject(source, index, adapter)` and
 the router. The compiled plan selects the slot and the typed adapter determines
 channel routing and identity checks.
 
-[`noc-router.rhdl`](noc-router.rhdl) composes three independent generic router
+[`noc/noc-router.rhdl`](noc/noc-router.rhdl) composes three independent generic router
 families for RN-I/HN-I/SN-only fabrics or four when coherent requester traffic
 requires SNP. A shared `RouterFamilyPhysicalPlan` proves that all present
 families use the same ordered physical-link shape. Tile or system code owns the
@@ -460,11 +470,16 @@ flowchart LR
 
 | Component | Use it for | Principal contract |
 | --- | --- | --- |
-| [`CHIHNI`](home.rhdl) | Non-coherent RN-I or RN-F Home traffic reaching one or more SN-I services | Bounded Home-owned slots and translation of requester TxnIDs, ReturnTxnIDs, data targets, and subordinate DBIDs |
-| [`CHIHNF`](coherent-home.rhdl) | Mixed RN-I/RN-F traffic without an LLC | One globally active transaction; broadcast coherence and dirty intervention before non-snoopable subordinate traffic |
-| [`CHIInclusiveHNF`](inclusive-home.rhdl) | Mixed RN-I/RN-F traffic with a blocking inclusive LLC | Set-associative `SyncRam1RW` tag/data arrays, hit service, victim invalidation, dirty intervention/writeback, and one active transaction |
-| [`CHIRam`](ram.rhdl) | Synthesizable non-coherent memory | SN-F by default or SN-I by selection; configurable 128/256/512-bit DAT and native transfers from one beat through 64 bytes |
-| [`CHIDPIMemory`](dpi-memory.rhdl) | Sparse simulation memory | The same native `CHISNChannels` transaction contract as `CHIRam`, backed by a 64-byte-block C++ DPI store and fixed 512-bit ABI |
+| [`CHIHNI`](home/home.rhdl) | Non-coherent RN-I or RN-F Home traffic reaching one or more SN-I services | Bounded Home-owned slots and translation of requester TxnIDs, ReturnTxnIDs, data targets, and subordinate DBIDs |
+| [`CHIHNF`](home/coherent-home.rhdl) | Mixed RN-I/RN-F traffic without an LLC | One globally active transaction; broadcast coherence and dirty intervention before non-snoopable subordinate traffic |
+| [`CHIInclusiveHNF`](home/inclusive-home.rhdl) | Mixed RN-I/RN-F traffic with a blocking inclusive LLC | Set-associative `SyncRam1RW` tag/data arrays, hit service, victim invalidation, dirty intervention/writeback, and one active transaction |
+| [`CHIRam`](subordinate/ram.rhdl) | Synthesizable non-coherent memory | SN-F by default or SN-I by selection; configurable 128/256/512-bit DAT and native transfers from one beat through 64 bytes |
+| [`CHIDPIMemory`](subordinate/dpi-memory.rhdl) | Sparse simulation memory | The same native `CHISNChannels` transaction contract as `CHIRam`, backed by a 64-byte-block C++ DPI store and fixed 512-bit ABI |
+
+`CHIHNIParams` validates node roles, NodeID widths/collisions, endpoint
+capabilities, and service opcode coverage when constructed, before circuit
+elaboration. Constructing an invalid parameter object raises an error even if
+no Home circuit is instantiated.
 
 `CHIHNI` accepts a shared requester channel that retains source NodeID and a
 `CHISubordinateMap` that may select multiple SN-Is. It allocates a Home-owned
@@ -490,20 +505,20 @@ only non-snoopable subordinate requests. `CHIDPIMemory` uses the endpoint
 NodeID as its model identity, isolating each sparse DPI store.
 
 Both implementations use the same transaction controller from
-[`memory-controller.rhdl`](memory-controller.rhdl), including configuration,
+[`subordinate/memory-controller.rhdl`](subordinate/memory-controller.rhdl), including configuration,
 identity, DBID handling, multibeat sequencing, and runtime checks. Their external
 ports remain native `CHISNChannels`. Existing imports of `CHIRamConfig`,
-`CHIRamParams`, and `CHIRamIdentity` through `main.rhdl` or `ram.rhdl` continue
+`CHIRamParams`, and `CHIRamIdentity` through `main.rhdl` or `subordinate/ram.rhdl` continue
 to work; the controller module also provides them directly.
 
-[`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl) widens an intentionally
+[`adapters/transfer-fragmenter.rhdl`](adapters/transfer-fragmenter.rhdl) widens an intentionally
 narrow subordinate service. The serialized adapter emits one child request per
 physical DAT beat, offsets child addresses, restores the parent read DataIDs,
 and translates the parent write DBID and completion. Parent write packets may
 arrive in any legal DataID order and are buffered before serialized child
 writes. A line-capable RAM or external memory connects directly without it.
 
-[`address-projector.rhdl`](address-projector.rhdl) composes above the
+[`adapters/address-projector.rhdl`](adapters/address-projector.rhdl) composes above the
 fragmenter for cache-line-striped Homes. Service metadata fixes the bank-select
 bits; the hardware removes those bits from each REQ address so downstream
 components see a dense local space. RSP and DAT pass through unchanged. The

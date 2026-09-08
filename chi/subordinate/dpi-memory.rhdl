@@ -1,0 +1,65 @@
+#lang rhodium
+// Implements a native CHI subordinate memory backed by a simulator DPI model.
+
+import:
+  lib("flow/main.rhdl") open
+  lib("chi/subordinate/memory-controller.rhdl") open
+  lib("chi/protocol/protocol.rhdl").chi_data_address
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+
+// A fixed-width DPI boundary covers every CHI data width supported by
+// CHIFlitParams while keeping one stable C ABI for simulator models.
+dpi_import function rhodium_chi_memory_access(
+  model_id: Bits(32),
+  beat_bytes: Bits(8),
+  write: Bool,
+  address: Bits(64),
+  write_data: Bits(512),
+  write_mask: Bits(64)
+) -> (
+  out read_data: Bits(512),
+  return status: Bits(8)
+)
+
+sync_circuit CHIDPIMemory(config :: CHIRamConfig):
+  def p = config.flit
+  def slot_width = index_width(config.max_outstanding)
+
+  input identity: CHIRamIdentity(p)
+  interface port(CHISNChannels(p), ~role: node)
+
+  fun backend():
+    fun connect(issue :: Endpoint, completion :: Endpoint):
+      def operation = issue.bits
+      def relative_address = chi_data_address(operation.request.address, operation.data_id, p) - identity.base_address
+      def access_enable = issue.valid & !reset_active().into(Bool)
+      def write_data = if p.data_width == 512 | operation.data | operation.data.zext(512)
+      def raw_write_mask = operation.mask.as_bits()
+      def write_mask = if p.data_bytes == 64 | raw_write_mask | raw_write_mask.zext(64)
+      dpi_reg (read_data, status) = rhodium_chi_memory_access(
+        identity.node_id.zext(32),
+        bits(p.data_bytes, 8),
+        operation.write,
+        relative_address.zext(64),
+        write_data,
+        write_mask,
+        ~enable: access_enable
+      )
+
+      def completed_operation :: Endpoint = issue |> valid_pipe(1)
+      when (completed_operation.valid):
+        assert(status === bits(0, 8), "chi_dpi_memory_access_succeeded")
+      (
+        completed_operation |> map_valid(completed):
+          CHIRamMemoryCompletion(p, slot_width):
+            memory_operation: completed
+            data: mux(completed.write,
+                      bits(0, p.data_width),
+                      read_data[0..p.data_width])
+      ) <=> completion
+    connect
+
+  build_chi_ram_controller(config, identity, port, backend)
+
+export:
+  CHIDPIMemory

@@ -25,7 +25,7 @@ depending on the package that first needed it.
 Otherwise, keep the rule with its semantic owner. For example, power-of-two
 integers belong with the bit utilities in
 [`rhodium/std/bits.rhdl`](../rhodium/std/bits.rhdl), while CHI field-width rules
-belong in [`chi/params.rhdl`](../chi/params.rhdl). Use built-in annotations such
+belong in [`chi/protocol/params.rhdl`](../chi/protocol/params.rhdl). Use built-in annotations such
 as `NonemptyList.of(T)`, `Nat`, and `PosInt` directly instead of adding aliases
 here. Relationships among values, uniqueness, ownership, reserved names,
 protocol legality, and IR validity remain explicit checks in the package that

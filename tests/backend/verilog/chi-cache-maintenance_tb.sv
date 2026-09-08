@@ -1,4 +1,4 @@
-// Exercises dataless request identity, retry/credit ordering, errors, and completion backpressure.
+// Checks complete maintenance REQs, retained identity/PAS, retries, errors, and backpressure.
 module chi_cache_maintenance_tb #(parameter bit WRONG_SOURCE = 0, BAD_ADDRESS = 0);
   logic clock = 0, reset = 1;
   logic [6:0] node_id = 3;
@@ -32,7 +32,23 @@ module chi_cache_maintenance_tb #(parameter bit WRONG_SOURCE = 0, BAD_ADDRESS = 
     tick(); responses_in = '0;
   endtask
   task automatic attempt(input bit retry_attempt);
+    CHIReqFlit expected_request;
+    expected_request = '0;
+    expected_request.opcode = 7'(8 + operation);
+    expected_request.address = BAD_ADDRESS ? 44'h80000041 : 44'h80000040;
+    expected_request.excl_snoop_me_cah = 1;
+    expected_request.snp_attr_or_do_dwt = 1;
+    expected_request.mem_attr.cacheable = 1;
+    expected_request.size_or_num_req = 6;
+    expected_request.src_id = 3;
+    expected_request.tgt_id = 5;
+    expected_request.return_nid_or_stash_nid_or_data_target = 3;
+    expected_request.txn_id = 12'h42;
+    expected_request.allow_retry = !retry_attempt;
+    expected_request.pcrd_type = retry_attempt ? 4'd11 : 4'd0;
+    expected_request.pas = 3'(operation);
     #1;
+    assert(requests_out.bits === expected_request) else $fatal(1, "complete maintenance request mismatch");
     assert(requests_out.valid) else $fatal(1, "missing maintenance request");
     assert(requests_out.bits.opcode == 7'(8 + operation) && requests_out.bits.address == 44'h80000040 &&
            requests_out.bits.excl_snoop_me_cah && !requests_out.bits.exp_comp_ack && requests_out.bits.size_or_num_req == 6 &&
@@ -56,6 +72,7 @@ module chi_cache_maintenance_tb #(parameter bit WRONG_SOURCE = 0, BAD_ADDRESS = 
       command_in.bits.address = BAD_ADDRESS ? 44'h80000041 : 44'h80000040;
       command_in.bits.opcode = 7'(8 + operation);
       command_in.bits.snoop_me = 1;
+      command_in.bits.pas = 3'(operation);
       command_in.bits.home_id = 5;
       command_in.bits.context_0 = 8'(operation + 17);
       #1; assert(command_out.ready) else $fatal(1, "idle command rejected");

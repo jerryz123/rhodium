@@ -1,0 +1,104 @@
+#lang rhodium
+// Issues one retryable dataless cache-maintenance transaction independently of snoop service.
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/params.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/coherence.rhdl") open
+  lib("chi/transactions/retryable-transaction.rhdl") open
+
+def CHICacheMaintenanceResponses = response_profile("chi_cache_maintenance"):
+  retryable
+  milestone completion
+  response [CHIRspOpcode.Comp]:
+    completes [completion]
+
+bundle CHICacheMaintenanceCommand(p :: CHIFlitParams, Context :: DataType):
+  address: Bits(p.request_address_width)
+  opcode: CHIReqOpcode
+  snoop_me: Bool
+  home_id: Bits(p.node_id_width)
+  pas: CHIPAS
+  context: Context
+
+bundle CHICacheMaintenanceResult(Context :: DataType):
+  context: Context
+  error: CHIRespErr
+
+fun chi_cache_maintenance_request(p :: CHIFlitParams, Context :: DataType,
+                                  node_id :: Bits(p.node_id_width),
+                                  txn_id :: Bits(12),
+                                  command :: CHICacheMaintenanceCommand(p, Context),
+                                  attempt :: CHIRequestAttempt()) :~ CHIReqFlit(p):
+  // Optional fields remain inactive; command and retry policy stay local.
+  def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
+  def attributes = CHIMemAttr():
+    allocate: Bool(#false)
+    cacheable: Bool(#true)
+    device: Bool(#false)
+    early_write_acknowledge: Bool(#false)
+  inactive.updated(
+    ~tag_op: CHITagOp.Invalid,
+    ~excl_snoop_me_cah: command.snoop_me,
+    ~snp_attr_or_do_dwt: Bool(#true),
+    ~mem_attr: attributes,
+    ~pcrd_type: attempt.pcrd_type,
+    ~order: CHIOrder.NoOrder,
+    ~allow_retry: attempt.allow_retry,
+    ~pas: command.pas,
+    ~address: command.address,
+    ~size_or_num_req: bits(6, 6),
+    ~opcode: command.opcode,
+    ~return_nid_or_stash_nid_or_data_target: node_id,
+    ~txn_id: txn_id,
+    ~src_id: node_id,
+    ~tgt_id: command.home_id
+  )
+
+sync_circuit CHICacheMaintenance(p :: CHIFlitParams, Context :: DataType):
+  input node_id: Bits(p.node_id_width)
+  input txn_id: Bits(12)
+  interface command(Decoupled(CHICacheMaintenanceCommand(p, Context)), ~role: consumer)
+  interface completion(Irrevocable(CHICacheMaintenanceResult(Context)), ~role: producer)
+  interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
+  interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
+
+  inst control(CHIRetryableTransactionControl(p, CHICacheMaintenanceResponses))
+  reg saved(CHICacheMaintenanceCommand(p, Context))
+  reg saved_node(Bits(p.node_id_width))
+  reg saved_txn(Bits(12))
+  reg response_error(~init: CHIRespErr.OK)
+  command.ready <== !control.active
+  def command_fire = command.fire()
+  control.start <== command_fire
+  control.external_progress <== Bool(#false)
+  control.attempt |> map_flow(attempt => chi_cache_maintenance_request(p, Context, saved_node, saved_txn, saved, attempt)) |> requests
+  responses |> control.response
+  completion.valid <== control.active & chi_response_milestone(CHICacheMaintenanceResponses, control.received, "completion")
+  completion.bits <== CHICacheMaintenanceResult(Context):
+    context: saved.context
+    error: response_error
+  control.finish <== completion.fire()
+  when command_fire:
+    assert(chi_cache_maintenance(command.bits.opcode), "chi_maintenance_opcode")
+    assert(command.bits.address.is_aligned(64), "chi_maintenance_aligned")
+    saved <== command.bits
+    saved_node <== node_id
+    saved_txn <== txn_id
+    response_error <== CHIRespErr.OK
+  elsewhen (control.event.valid):
+    def response = control.event.bits.flit
+    assert(response.src_id === saved.home_id, "chi_maintenance_response_source")
+    assert(response.tgt_id === saved_node, "chi_maintenance_response_target")
+    when (!control.event.bits.protocol_credit):
+      assert(response.txn_id === saved_txn, "chi_maintenance_response_txn")
+    when (response.opcode === CHIRspOpcode.Comp):
+      response_error <== response.resp_err
+
+export:
+  CHICacheMaintenanceResponses
+  CHICacheMaintenanceCommand
+  CHICacheMaintenanceResult
+  CHICacheMaintenance

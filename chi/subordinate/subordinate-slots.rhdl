@@ -1,0 +1,125 @@
+#lang rhodium
+// Tracks bounded subordinate transactions and associates write data with DBIDs.
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/scoreboard.rhdl").Scoreboard
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl") open
+
+bundle CHISNTransactionAllocation(p :: CHIFlitParams):
+  write: Bool
+  request: CHIReqFlit(p)
+
+bundle CHISNAllocatedTransaction(p :: CHIFlitParams, slot_width :: PosInt):
+  slot: Bits(slot_width)
+  write: Bool
+  request: CHIReqFlit(p)
+
+bundle CHISNMatchedWrite(p :: CHIFlitParams, slot_width :: PosInt):
+  slot: Bits(slot_width)
+  request: CHIReqFlit(p)
+  data: CHIDatFlit(p)
+  last: Bool
+
+sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
+  def slot_width = index_width(limit)
+
+  // Allocation and matched DAT can wait for acceptance. The two notifications
+  // report transfers that have already occurred and therefore cannot stall.
+  interface allocation(Decoupled(CHISNTransactionAllocation(p)), ~role: consumer)
+  interface allocated(Decoupled(CHISNAllocatedTransaction(p, slot_width)), ~role: producer)
+  interface dbid_sent(Valid(Bits(slot_width)), ~role: consumer)
+  interface write_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
+  interface matched_write(Decoupled(CHISNMatchedWrite(p, slot_width)), ~role: producer)
+  interface completed(Valid(Bits(slot_width)), ~role: consumer)
+
+  inst occupancy(Scoreboard(limit))
+  inst awaiting_write_data(Scoreboard(limit))
+  def occupied = occupancy.busy.into(Vec(limit, Bool))
+  def awaiting_write_data_slots = awaiting_write_data.busy.into(Vec(limit, Bool))
+  reg received_write_data_ids(~init: vec(for List (_index in 0..limit): bits(0, 4)))
+  mem write_requests(limit, CHIReqFlit(p))
+
+  def free_slots = vec(for List (index in 0..limit): !occupied[index])
+  def allocation_available = free_slots.or_reduce()
+  def selected_allocation_slot = priority_encoder(free_slots)
+  (
+    allocation
+      |> gate_flow(allocation_available)
+      |> map_flow(input => CHISNAllocatedTransaction(p, slot_width)):
+          slot: selected_allocation_slot
+          write: input.write
+          request: input.request
+  ) |> allocated
+
+  def incoming_data = write_data.bits
+  def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
+  def data_slot = incoming_data.txn_id[0..slot_width]
+  def data_slot_valid = incoming_data.txn_id < bits(limit, 12)
+  def selected_request = write_requests[data_slot]
+  def incoming_data_id = one_hot(incoming_data.data_id).as_bits()
+  def expected_data_ids = chi_transfer_data_ids(selected_request.address, chi_req_size(p, selected_request), p)
+  def received_data_ids = received_write_data_ids[data_slot]
+  def data_id_expected = or_reduce(expected_data_ids & incoming_data_id)
+  def data_id_new = !or_reduce(received_data_ids & incoming_data_id)
+  def next_received_data_ids = received_data_ids ||| incoming_data_id
+  def final_data = next_received_data_ids === expected_data_ids
+  def data_match = data_slot_valid & occupied[data_slot] & (
+    awaiting_write_data_slots[data_slot]
+  ) & (incoming_data.src_id === selected_request.src_id) & data_id_expected & data_id_new
+
+  (
+    write_data
+      |> filter_flow(_data => ordinary_data & data_match)
+      |> map_flow(data => CHISNMatchedWrite(p, slot_width)):
+          slot: data_slot
+          request: selected_request
+          data: data
+          last: final_data
+  ) |> matched_write
+  when (write_data.valid & ordinary_data):
+    assert(data_match,
+           "chi_sn_transaction_slot_write_data_has_transaction")
+
+  def allocate = allocated.fire()
+  def accept_write_data = matched_write.fire()
+
+  occupancy.set.valid <== allocate
+  occupancy.set.bits <== allocated.bits.slot
+  occupancy.clear <=> completed
+
+  awaiting_write_data.set <=> dbid_sent
+  awaiting_write_data.clear.valid <== accept_write_data & matched_write.bits.last
+  awaiting_write_data.clear.bits <== data_slot
+
+  def next_received_write_data_ids = vec(
+    for List (index in 0..limit):
+      block:
+        def index_bits = bits(index, slot_width)
+        def allocate_here = allocate & allocated.bits.write & (allocated.bits.slot === index_bits)
+        def data_here = accept_write_data & (data_slot === index_bits)
+        mux(allocate_here,
+            bits(0, 4),
+            mux(data_here,
+                next_received_data_ids,
+                received_write_data_ids[index]))
+  )
+  when (allocate ||| accept_write_data):
+    received_write_data_ids <== next_received_write_data_ids
+
+  write_requests.write(allocated.bits.slot,
+                       allocated.bits.request,
+                       ~enable: allocate & allocated.bits.write)
+
+  for (index in 0..limit):
+    when (awaiting_write_data_slots[index]):
+      assert(occupied[index], "chi_sn_transaction_slot_write_is_occupied")
+
+export:
+  CHISNTransactionAllocation
+  CHISNAllocatedTransaction
+  CHISNMatchedWrite
+  CHISNTransactionSlots

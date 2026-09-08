@@ -2,10 +2,10 @@
 // Checks one-step TiledSoC compilation into boot, placement, routing, device, and tile parameters.
 
 import:
-  "../../chi/flits.rhdl".CHIReqOpcode
-  "../../chi/coherence.rhdl".chi_rnf_snoop_opcodes
-  "../../chi/link.rhdl".CHINodeKind
-  "../../chi/noc-authoring.rhm".CHISNConnection
+  "../../chi/protocol/flits.rhdl".CHIReqOpcode
+  "../../chi/protocol/coherence.rhdl".chi_rnf_snoop_opcodes
+  "../../chi/protocol/link.rhdl".CHINodeKind
+  "../../chi/noc/noc-authoring.rhm".CHISNConnection
   "../../cores/rv5stage/profile.rhm" as profile
   "../../riscv/isa/xlen.rhm".XLen
   "../tiled-soc/main.rhdl" as tiled

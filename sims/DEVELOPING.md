@@ -16,7 +16,7 @@ their owning packages. Keep DPI and target-loader behavior out of SoCs.
 
 Import the CHI owners used by each simulator component directly. FESVR consumes
 wire, channel, service, and message contracts; the SimpleSoC harness explicitly
-imports `chi/memory-controller.rhdl` and `chi/dpi-memory.rhdl`. Neither needs the
+imports `chi/subordinate/memory-controller.rhdl` and `chi/subordinate/dpi-memory.rhdl`. Neither needs the
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
@@ -39,7 +39,7 @@ systems cannot reuse another system's generated RTL.
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
 | Upstream ISA/benchmark builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
-| CHI simulation memory | [`../chi/dpi-memory.rhdl`](../chi/dpi-memory.rhdl) and [`../chi/dpi/`](../chi/dpi/) |
+| CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
 ## Add or change a harness
 
@@ -251,9 +251,14 @@ make -C sims uart-pty-test SOC=tiled
 ```
 
 FESVR's write-data wrapper retains lane placement, masks, and packet-position
-policy while using [`chi/messages.rhdl`](../chi/messages.rhdl) for immutable
+policy while using [`chi/protocol/messages.rhdl`](../chi/protocol/messages.rhdl) for immutable
 `NonCopyBackWriteData` construction. Preserve its explicit DataID, CCID, and
 DBID/MECID choices independently of the core requester profile.
+
+FESVR REQ construction is also immutable, with the same inactive-field zeros.
+Keep opcode selection, cacheable/device attributes, address/size, and NodeID
+conversion in this requester rather than sharing core policy. The `fesvr-mmio`
+bench compares complete emitted requests and holds them through backpressure.
 
 The transport checks require the pinned FESVR library; DPI checks also require
 Verilator. Lowering requires the pinned CIRCT tool or an explicit `CIRCT_OPT`,

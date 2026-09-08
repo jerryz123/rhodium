@@ -3,8 +3,8 @@
 
 import:
   lib("chi/main.rhdl") open
-  lib("chi/noc-adapter.rhdl") as adapter
-  lib("chi/noc-authoring.rhm") as chi_authoring
+  lib("chi/noc/noc-adapter.rhdl") as adapter
+  lib("chi/noc/noc-authoring.rhm") as chi_authoring
   lib("noc/authoring/main.rhm") open
   lib("noc/language/main.rhm").topology
   lib("noc/plan/main.rhm") open

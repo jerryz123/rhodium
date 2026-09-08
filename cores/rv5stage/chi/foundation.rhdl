@@ -4,15 +4,15 @@
 import:
   "../cache.rhdl".RV5StageCacheLineBytes
   lib("rhodium/std/bits.rhdl") open
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl") open
-  lib("chi/protocol.rhdl").chi_line_data_id
-  lib("chi/coherence.rhdl").chi_rnf_snoop_opcodes
-  lib("chi/retryable-transaction.rhdl") open
-  lib("chi/cache-maintenance.rhdl").CHICacheMaintenanceResponses
-  lib("chi/link.rhdl") open
-  lib("chi/fabric.rhdl") open
-  lib("chi/messages.rhdl").chi_rn_write_data
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl").chi_line_data_id
+  lib("chi/protocol/coherence.rhdl").chi_rnf_snoop_opcodes
+  lib("chi/transactions/retryable-transaction.rhdl") open
+  lib("chi/transactions/cache-maintenance.rhdl").CHICacheMaintenanceResponses
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/protocol/fabric.rhdl") open
+  lib("chi/protocol/messages.rhdl").chi_rn_write_data
   "../../../riscv/rtl/pma.rhdl" open
 
 def RV5StageRefillResponses = response_profile("rv5stage_refill"):
@@ -219,53 +219,32 @@ fun rv5stage_chi_request(p :: CHIFlitParams,
                          ~cacheable: cacheable :: Bool = Bool(#true),
                          ~device: device :: Bool = Bool(#false),
                          ~early_write_acknowledge: early_write_acknowledge :: Bool = Bool(#true)) :~ CHIReqFlit(p):
-  wire request: CHIReqFlit(p)
-  if p.req_rsvdc_width > 0
-  | request.rsvdc <== bits(0, p.req_rsvdc_width)
-  | #void
-  if p.sec_sid_width > 0
-  | request.sec_sid1 <== bits(0, p.sec_sid_width)
-  | #void
-  if p.request_security_width > 0
-  | request.mecid_or_stream_id <== bits(0, p.request_security_width)
-  | #void
-  if p.pbha_width > 0
-  | request.pbha <== bits(0, p.pbha_width)
-  | #void
-  if p.mpam_width > 0
-  | request.mpam <== bits(0, p.mpam_width)
-  | #void
-  request.trace_tag <== Bool(#false)
-  request.tag_op <== CHITagOp.Invalid
-  request.exp_comp_ack <== expect_comp_ack
-  request.excl_snoop_me_cah <== Bool(#false)
-  request.group_id_or_lpid <== bits(0, 8)
-  // On WriteNoSnp this shared bit means DoDWT, not SnpAttr. These engines
-  // route write data through the Home and never request direct transfer.
-  request.snp_attr_or_do_dwt <== !opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
-  request.mem_attr <== CHIMemAttr():
+  // This requester profile leaves inactive and optional fields zero.
+  def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
+  def attributes = CHIMemAttr():
     allocate: allocate_hint
     cacheable: cacheable
     device: device
     early_write_acknowledge: early_write_acknowledge
-  request.pcrd_type <== protocol_credit_type
-  request.order <== CHIOrder.NoOrder
-  request.allow_retry <== allow_retry
-  request.likely_shared <== Bool(#false)
-  request.pas <== CHIPAS.Secure
-  request.address <== rv5stage_chi_address(raw_address, p)
-  request.size_or_num_req <== size.as_bits().zext(6)
-  request.multi_req <== Bool(#false)
-  request.opcode <== opcode
-  // ReturnTxnID is inapplicable on Requester-to-Home traffic.
-  request.return_txn_id_or_stash_lpid <== bits(0, 12)
-  request.stash_nid_valid_endian_deep_prefetch_tgt_hint <== Bool(#false)
-  request.return_nid_or_stash_nid_or_data_target <== node_id
-  request.txn_id <== txn_id
-  request.src_id <== node_id
-  request.tgt_id <== home_node_id
-  request.qos <== bits(0, 4)
-  request
+  // On WriteNoSnp the shared bit means DoDWT; these engines route DAT through
+  // the Home. ReturnTxnID is inapplicable on Requester-to-Home traffic.
+  inactive.updated(
+    ~tag_op: CHITagOp.Invalid,
+    ~exp_comp_ack: expect_comp_ack,
+    ~snp_attr_or_do_dwt: !opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl),
+    ~mem_attr: attributes,
+    ~pcrd_type: protocol_credit_type,
+    ~order: CHIOrder.NoOrder,
+    ~allow_retry: allow_retry,
+    ~pas: CHIPAS.Secure,
+    ~address: rv5stage_chi_address(raw_address, p),
+    ~size_or_num_req: size.as_bits().zext(6),
+    ~opcode: opcode,
+    ~return_nid_or_stash_nid_or_data_target: node_id,
+    ~txn_id: txn_id,
+    ~src_id: node_id,
+    ~tgt_id: home_node_id
+  )
 
 fun rv5stage_chi_response(p :: CHIFlitParams,
                           node_id :: Bits(p.node_id_width),

@@ -3,7 +3,7 @@
 
 import:
   "../main.rhdl" open
-  "../transaction.rhdl".chi_initial_requester_capabilities
+  "../transactions/transaction.rhdl".chi_initial_requester_capabilities
 
 def endpoint = CHIICNPortParams(
   "mixed-host", 1, CHINodeKind.RNF,

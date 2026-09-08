@@ -1,4 +1,4 @@
-// Simulates inclusive LLC fills, hits, sparse byte merges, and dirty eviction.
+// Checks complete cached/victim DAT packets alongside inclusive fills, byte merges, and eviction.
 module chi_inclusive_home_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
@@ -75,6 +75,10 @@ module chi_inclusive_home_tb;
   hnf_in_t port_in;
   hnf_out_t port_out;
   logic [127:0] expected_line [4];
+  CHIReqFlit active_request;
+  always @(posedge clock)
+    if (!reset && requester_requests_in.valid && port_out.requester.requests.ready)
+      active_request <= requester_requests_in.bits;
 
   assign port_in.requester.requests = requester_requests_in;
   assign port_in.requester.requester_responses = requester_responses_in;
@@ -112,6 +116,9 @@ module chi_inclusive_home_tb;
       requester_requests_in.bits.address = address;
       requester_requests_in.bits.size_or_num_req = request_size;
       requester_requests_in.bits.return_nid_or_stash_nid_or_data_target = HTIF_ID;
+      requester_requests_in.bits.return_txn_id_or_stash_lpid = 12'h654;
+      requester_requests_in.bits.trace_tag = 1;
+      requester_requests_in.bits.qos = 4'ha;
       requester_requests_in.valid = 1'b1;
       #1;
       assert (port_out.requester.requests.ready)
@@ -157,9 +164,25 @@ module chi_inclusive_home_tb;
 
   task automatic accept_cached_packet(input logic [1:0] packet_id,
                                       input logic [127:0] payload);
+    CHIDatFlit expected_packet;
     begin
+      expected_packet = '0;
+      expected_packet.data = payload;
+      for (int b = 0; b < 16; b++)
+        expected_packet.byte_enable[b] = active_request.size_or_num_req >= 4 ||
+          (b >= int'(active_request.address[3:0]) && b < int'(active_request.address[3:0]) + (1 << active_request.size_or_num_req));
+      expected_packet.data_id = packet_id;
+      expected_packet.trace_tag = active_request.trace_tag;
+      expected_packet.qos = active_request.qos;
+      expected_packet.opcode = COMP_DATA;
+      expected_packet.home_nid_or_pbha_or_mismatched_mecid = HOME_ID;
+      expected_packet.src_id = HOME_ID;
+      expected_packet.tgt_id = active_request.return_nid_or_stash_nid_or_data_target;
+      expected_packet.txn_id = active_request.return_txn_id_or_stash_lpid;
+      if (active_request.src_id != HTIF_ID) expected_packet.resp = active_request.opcode == 7'h07 ? 3'd2 : 3'd1;
       response_data_ready_in.ready = 1'b1;
       #1;
+      assert(port_out.requester.response_data.bits === expected_packet) else $fatal(1, "complete cached DAT mismatch");
       assert (port_out.requester.response_data.valid &&
               port_out.requester.response_data.bits.data_id == packet_id &&
               port_out.requester.response_data.bits.data == payload)
@@ -259,9 +282,23 @@ module chi_inclusive_home_tb;
 
   task automatic accept_victim_packet(input logic [1:0] packet_id,
                                       input logic [127:0] payload);
+    CHIDatFlit expected_packet;
     begin
+      expected_packet = '0;
+      expected_packet.data = payload;
+      expected_packet.byte_enable = '1;
+      expected_packet.data_id = packet_id;
+      expected_packet.trace_tag = active_request.trace_tag;
+      expected_packet.qos = active_request.qos;
+      expected_packet.opcode = NON_COPY_BACK_WRITE_DATA;
+      expected_packet.dbid_or_mecid = {4'b0, MEMORY_DBID};
+      expected_packet.home_nid_or_pbha_or_mismatched_mecid = HOME_ID;
+      expected_packet.src_id = HOME_ID;
+      expected_packet.tgt_id = MEMORY_ID;
+      expected_packet.txn_id = MEMORY_DBID;
       subordinate_data_ready_in.ready = 1'b1;
       #1;
+      assert(port_out.subordinate.dat.request.bits === expected_packet) else $fatal(1, "complete victim DAT mismatch");
       assert (port_out.subordinate.dat.request.valid &&
               port_out.subordinate.dat.request.bits.opcode == NON_COPY_BACK_WRITE_DATA &&
               port_out.subordinate.dat.request.bits.txn_id == MEMORY_DBID &&

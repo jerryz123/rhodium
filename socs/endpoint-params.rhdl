@@ -3,10 +3,10 @@
 
 import:
   lib("rhodium/std/interconnect.rhdl").AddressSet
-  lib("chi/flits.rhdl") open
-  lib("chi/coherence.rhdl").chi_rnf_snoop_opcodes
-  lib("chi/link.rhdl") open
-  lib("chi/fabric.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/coherence.rhdl").chi_rnf_snoop_opcodes
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/protocol/fabric.rhdl") open
 
 fun soc_host_node(node_id :: Nat) :: CHINodeParams:
   CHINodeParams(

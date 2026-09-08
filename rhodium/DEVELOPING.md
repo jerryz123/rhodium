@@ -101,7 +101,7 @@ internal module implementing its shared frontend forms is called the
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and configured topology stages | Public `#lang rhodium`; focused `std/` modules; other flow modules |
 | [`backend/`](backend/README.md) | Consume verified public IR; currently lower it through CIRCT | Core only |
 | [`formal/`](formal/README.md) | Optional Rosette-backed behavioral equivalence, output reachability, and combinational output properties over verified public IR | Core only; Rosette through one Racket interoperability module |
-| [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, shared memory control, single-beat subordinate transactions, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries and root-level `flow/`, including `std/ready-valid.rhdl` for Home snoop-target tracking and the single-beat subordinate engine, `std/bits.rhdl` and `flow/main.rhdl` for shared memory control and maintenance, and `std/read-write.rhdl` and `std/sync-ram.rhdl` only for the concrete RAM backend within the memory stack |
+| [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, shared memory control, single-beat subordinate transactions, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries and root-level `flow/`, including `std/ready-valid.rhdl` for Home snoop-target tracking and the single-beat subordinate engine, `std/bits.rhdl` and `flow/main.rhdl` for service matching, shared memory control, and maintenance, and `std/read-write.rhdl` and `std/sync-ram.rhdl` only for the concrete RAM backend within the memory stack |
 | [`../socs/`](../socs/README.md) | Concrete system composition and end-to-end integration | Public domain-library and core surfaces only |
 | [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, CHI, flow, device (`devices/uart-dpi.rhdl`), and Rhodium surfaces; backend emission; optional event instrumentation and RHEG export; external C++ libraries |
 | [`../sram/`](../sram/README.md) | Technology-independent post-CIRCT memory-site selection, macro-interface adaptation, tiling, and manifests | CIRCT/MLIR libraries; technology catalogs beneath `sram/` |
@@ -118,6 +118,11 @@ defining CHI modules and on `std/interconnect.rhdl` for generic address/transfer
 types. The compatibility facade is not a production dependency boundary; the
 [CHI import guide](../chi/README.md#package-boundary-and-import) and its
 developer implementation map identify the owners.
+CHI's `protocol/`, `transactions/`, `home/`, `subordinate/`, `adapters/`, and
+`noc/` directories refine that source ownership without changing package
+dependency direction. The CHI boundary checker audits nested production files;
+the pure `chi/noc/noc-authoring.rhm` bridge still imports only host NoC/support
+modules, not Rhodium or CIRCT.
 
 HardFloat is representative of an external domain library over the public
 language: Rhodium implementation packages do not depend on it, while its tests

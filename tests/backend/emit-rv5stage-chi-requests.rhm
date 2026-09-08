@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the complete-packet RV5Stage requester construction regression.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../cores/rv5stage/tests/chi-request-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

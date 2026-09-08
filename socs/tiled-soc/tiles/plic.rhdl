@@ -2,8 +2,8 @@
 // Attaches the SoC PLIC SN-I and external-interrupt update source to a dedicated CHI router tile.
 
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/noc-router.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/noc/noc-router.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/state.rhdl") open
   lib("devices/plic.rhdl") open

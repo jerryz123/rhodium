@@ -1,0 +1,93 @@
+#lang rhodium
+// Compares complete RV5Stage REQ construction across physical widths and optional fields.
+
+import:
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_request
+
+def params_w128 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 128)
+def params_o128 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 128, ~mpam_width: 15, ~req_rsvdc_width: 32, ~pbha_width: 4, ~stream_id_width: 16, ~sec_sid_width: 1)
+def params_w256 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 256)
+def params_o256 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 256, ~mpam_width: 15, ~req_rsvdc_width: 32, ~pbha_width: 4, ~stream_id_width: 16, ~sec_sid_width: 1)
+def params_w512 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 512)
+def params_o512 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 512, ~mpam_width: 15, ~req_rsvdc_width: 32, ~pbha_width: 4, ~stream_id_width: 16, ~sec_sid_width: 1)
+
+circuit RV5StageCHIRequestFixture():
+  input address: Bits(64)
+  input opcode: CHIReqOpcode
+  input size: CHITransferSize
+  input txn: Bits(12)
+  input flags: Bits(6)
+  input pcrd: Bits(4)
+  def expect_comp_ack = flags[0].into(Bool)
+  def allocate_hint = flags[1].into(Bool)
+  def allow_retry = flags[2].into(Bool)
+  def cacheable = flags[3].into(Bool)
+  def device = flags[4].into(Bool)
+  def early_ack = flags[5].into(Bool)
+  output w128: CHIReqFlit(params_w128)
+  w128 <== rv5stage_chi_request(
+    params_w128, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
+  )
+  output other_w128: CHIReqFlit(params_w128)
+  other_w128 <== rv5stage_chi_request(
+    params_w128, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
+  )
+  output o128: CHIReqFlit(params_o128)
+  o128 <== rv5stage_chi_request(
+    params_o128, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
+  )
+  output other_o128: CHIReqFlit(params_o128)
+  other_o128 <== rv5stage_chi_request(
+    params_o128, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
+  )
+  output w256: CHIReqFlit(params_w256)
+  w256 <== rv5stage_chi_request(
+    params_w256, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
+  )
+  output other_w256: CHIReqFlit(params_w256)
+  other_w256 <== rv5stage_chi_request(
+    params_w256, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
+  )
+  output o256: CHIReqFlit(params_o256)
+  o256 <== rv5stage_chi_request(
+    params_o256, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
+  )
+  output other_o256: CHIReqFlit(params_o256)
+  other_o256 <== rv5stage_chi_request(
+    params_o256, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
+  )
+  output w512: CHIReqFlit(params_w512)
+  w512 <== rv5stage_chi_request(
+    params_w512, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
+  )
+  output other_w512: CHIReqFlit(params_w512)
+  other_w512 <== rv5stage_chi_request(
+    params_w512, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
+  )
+  output o512: CHIReqFlit(params_o512)
+  o512 <== rv5stage_chi_request(
+    params_o512, bits(0x1234, 16), bits(0x4321, 16), address, size, opcode, txn, expect_comp_ack, allocate_hint, allow_retry, pcrd,
+    ~cacheable: cacheable, ~device: device, ~early_write_acknowledge: early_ack
+  )
+  output other_o512: CHIReqFlit(params_o512)
+  other_o512 <== rv5stage_chi_request(
+    params_o512, bits(0x1234, 16), bits(0x4321, 16), !address, size, opcode, !txn, !expect_comp_ack, !allocate_hint, !allow_retry, pcrd,
+    ~cacheable: !cacheable, ~device: !device, ~early_write_acknowledge: !early_ack
+  )
+
+def design = elaborate(RV5StageCHIRequestFixture())
+
+export:
+  design

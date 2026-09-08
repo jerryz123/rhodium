@@ -1,4 +1,4 @@
-// Checks exact host MMIO widths, RAM fragmentation, CHI backpressure, and failures.
+// Checks complete FESVR REQ packets, exact MMIO widths, fragmentation, stalls, and failures.
 module fesvr_mmio_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
@@ -39,11 +39,22 @@ module fesvr_mmio_tb;
     requests_in.valid = 0;
   endtask
   task automatic expect_request(bit wr, bit coherent, bit device, logic [63:0] address, int size);
-    CHIReqFlit saved;
+    CHIReqFlit saved, expected_request;
+    expected_request = '0;
+    expected_request.address = address[43:0];
+    expected_request.size_or_num_req = 6'(size);
+    expected_request.tgt_id = coherent ? 7'd5 : 7'd6;
+    expected_request.src_id = 7'd1;
+    expected_request.return_nid_or_stash_nid_or_data_target = 7'd1;
+    expected_request.opcode = coherent ? (wr ? 7'h18 : 7'h02) : (wr ? 7'h1c : 7'h04);
+    expected_request.mem_attr.cacheable = coherent;
+    expected_request.mem_attr.device = device;
+    expected_request.snp_attr_or_do_dwt = coherent;
     saved = port_out.requests.bits;
     repeat (3) begin
       assert(port_out.requests.valid && port_out.requests.bits == saved)
         else $fatal(1, "request not stable under backpressure");
+      assert(saved === expected_request) else $fatal(1, "complete FESVR request mismatch");
       assert(saved.address == address[43:0] && saved.size_or_num_req == 6'(size));
       assert(saved.tgt_id == (coherent ? 5 : 6) && saved.src_id == 1);
       assert(saved.opcode == (coherent ? (wr ? 7'h18 : 7'h02) : (wr ? 7'h1c : 7'h04)))

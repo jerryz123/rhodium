@@ -26,9 +26,16 @@ The [CHI import guide](../../../chi/README.md#package-boundary-and-import) owns
 the supported import contract.
 
 Requester write-data packet construction is shared through
-[`chi/messages.rhdl`](../../../chi/messages.rhdl). The foundation wrapper
+[`chi/protocol/messages.rhdl`](../../../chi/protocol/messages.rhdl). The foundation wrapper
 retains address normalization and its DataID, CCID, and DBID-field choices;
 the shared builder does not depend on core geometry or physical-memory policy.
+
+REQ construction stays in the foundation and returns an immutable value with
+the existing inactive/optional fields zero. Address normalization, SnpAttr versus
+DoDWT, memory attributes, CompAck, and retry decisions remain explicit here.
+`rv5stage-chi-requests` compares complete packets at all DAT widths with REQ
+options on/off, independently repeated calls, and varying constructor controls.
+Keep the uncached, I-cache, and D-cache fixtures as engine-level coverage.
 
 ## Implementation map
 

@@ -8,7 +8,7 @@ import:
   "../../load-store.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("chi/flits.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
 
 bundle RV5StageLineWritebackCommand(Context :: DataType,
                                     address_width :: PosInt):

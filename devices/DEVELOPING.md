@@ -21,7 +21,7 @@ Device configuration uses generic address and transfer types from
 Home engines, or either backing-memory implementation.
 
 Boot-address, ACLINT, PLIC, and UART16550 delegate their single-beat CHI
-transaction lifetime to [`CHISingleBeatSubordinate`](../chi/single-beat-subordinate.rhdl).
+transaction lifetime to [`CHISingleBeatSubordinate`](../chi/subordinate/single-beat-subordinate.rhdl).
 Devices retain decode, read snapshots, request-acceptance side effects, and
 DAT-acceptance writes. PLIC claims and UART FIFO/read-to-clear effects must not
 move to response acceptance. UART TX space drives the engine's write readiness;

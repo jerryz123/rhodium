@@ -5,8 +5,8 @@ import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/interconnect.rhdl").AddressSet
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/fabric.rhdl").CHIHomeParams
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/fabric.rhdl").CHIHomeParams
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
   lib("riscv/rtl/pma.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen

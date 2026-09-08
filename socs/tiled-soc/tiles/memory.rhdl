@@ -2,8 +2,8 @@
 // Exposes one external CHI SN-F memory channel from its dedicated fabric router.
 
 import:
-  lib("chi/channels.rhdl").CHISNChannels
-  lib("chi/noc-router.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  lib("chi/noc/noc-router.rhdl") open
 
 sync_circuit MemoryTile(router_params :: CHIRouterParams):
   def p = router_params.flit

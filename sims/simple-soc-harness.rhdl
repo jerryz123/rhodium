@@ -3,8 +3,8 @@
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("chi/memory-controller.rhdl") open
-  lib("chi/dpi-memory.rhdl").CHIDPIMemory
+  lib("chi/subordinate/memory-controller.rhdl") open
+  lib("chi/subordinate/dpi-memory.rhdl").CHIDPIMemory
   lib("socs/simple-soc.rhdl") as simple
   lib("devices/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester

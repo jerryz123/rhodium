@@ -372,7 +372,7 @@ classify_path() {
     devicetree/*)
       host_models=true
       ;;
-    chi/memory-controller.rhdl|chi/dpi-memory.rhdl|chi/dpi/*|chi/tests/dpi-memory-*|chi/tests/chi_dpi_memory_*)
+    chi/subordinate/memory-controller.rhdl|chi/subordinate/dpi-memory.rhdl|chi/subordinate/dpi/*|chi/tests/dpi-memory-*|chi/tests/chi_dpi_memory_*)
       host_protocols=true
       host_socs=true
       circt_protocols=true

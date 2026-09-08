@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits all width/option fragmenter variants for native-channel packet-preservation tests.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../chi/tests/fragmenter-metadata-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

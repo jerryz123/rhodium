@@ -2,9 +2,9 @@
 // Exercises CHI address projection with every optional REQ field present.
 
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl") open
-  lib("chi/address-projector.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/adapters/address-projector.rhdl") open
 
 def p = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52,
                       ~mpam_width: 15, ~req_rsvdc_width: 32, ~pbha_width: 4,

@@ -2,8 +2,8 @@
 // Attaches the SoC UART SN-I and its serial pins to a dedicated CHI router tile.
 
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/noc-router.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/noc/noc-router.rhdl") open
   lib("devices/uart16550.rhdl") open
   lib("socs/peripherals.rhdl").SoCUartInterface
 

@@ -2,11 +2,11 @@
 // Exposes fixed and family CHI adapters independently for payload, routing, and rejection tests.
 
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/flits.rhdl") open
-  lib("chi/channels.rhdl").CHISnoopDispatch
-  lib("chi/noc-adapter.rhdl") open
-  lib("chi/noc-authoring.rhm") as authoring
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHISnoopDispatch
+  lib("chi/noc/noc-adapter.rhdl") open
+  lib("chi/noc/noc-authoring.rhm") as authoring
   lib("noc/authoring/main.rhm") open
   lib("noc/language/main.rhm").topology
   lib("noc/rtl/router.rhdl").RoutedBeat

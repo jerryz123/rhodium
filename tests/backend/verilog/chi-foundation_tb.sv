@@ -1,4 +1,4 @@
-// Simulates AMBA CHI flit pass-through and protocol classification.
+// Checks CHI flit pass-through, protocol classification, and opcode/Size service matching.
 module chi_foundation_tb;
   logic [136:0] req;
   logic [70:0] rsp;
@@ -29,10 +29,24 @@ module chi_foundation_tb;
   logic size_valid;
   logic [1:0] data_beats_minus_one;
   logic data_id_valid;
+  logic match_byte, match_line, match_middle, match_large;
 
   CHIFoundationFixture dut (.*);
 
   initial begin
+    // Every opcode and encoded Size, including the reserved Size encoding.
+    for (int op = 0; op < 128; op++) begin
+      for (int sz = 0; sz < 8; sz++) begin
+        req_opcode = 7'(op);
+        size = 3'(sz);
+        #1;
+        assert(match_byte == (op == 4 && sz == 0) &&
+               match_line == (op == 4 && sz <= 6) &&
+               match_middle == (op == 4 && sz >= 2 && sz <= 4) &&
+               match_large == (op == 4 && sz >= 5 && sz <= 6))
+          else $fatal(1, "hardware request support mismatch");
+      end
+    end
     req = 137'h123456789abcdef;
     rsp = 71'h123456789ab;
     snp = 94'h123456789abcdef;

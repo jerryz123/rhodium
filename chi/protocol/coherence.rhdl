@@ -1,0 +1,100 @@
+#lang rhodium
+// Defines CHI coherent cache states and protocol-family classifiers.
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+
+hardware_enum CHICacheState(~width: 3):
+  Invalid = 0
+  SharedClean = 1
+  UniqueClean = 2
+  SharedDirty = 3
+  UniqueDirty = 4
+  UniqueCleanEmpty = 5
+  UniqueDirtyPartial = 6
+
+  method is_valid(state) :: Bool:
+    state =/= CHICacheState.Invalid
+
+  method is_dirty(state) :: Bool:
+    state.is_one_of(CHICacheState.SharedDirty,
+                    CHICacheState.UniqueDirty,
+                    CHICacheState.UniqueDirtyPartial)
+
+  method is_shared(state) :: Bool:
+    state.is_one_of(CHICacheState.SharedClean, CHICacheState.SharedDirty)
+
+  method is_unique(state) :: Bool:
+    state.is_one_of(CHICacheState.UniqueClean,
+                    CHICacheState.UniqueDirty,
+                    CHICacheState.UniqueCleanEmpty,
+                    CHICacheState.UniqueDirtyPartial)
+
+hardware_enum CHIResponseState(~width: 2):
+  Invalid = 0
+  SharedClean = 1
+  Unique = 2
+  SharedDirty = 3
+
+// Resp is opcode-dependent on the wire. Coherent response contexts explicitly
+// reinterpret its packed bits through this view instead of adding CHI methods
+// to the generic Bits type.
+bundle CHICoherentResponse():
+  pass_dirty: Bool
+  state: CHIResponseState
+
+// Every ordinary SNP opcode is mandatory at an RN-F endpoint. Link Credit
+// Return remains an activation-control flit and is accepted independently.
+def chi_rnf_snoop_opcodes = [
+  CHISnpOpcode.SnpShared,
+  CHISnpOpcode.SnpClean,
+  CHISnpOpcode.SnpOnce,
+  CHISnpOpcode.SnpNotSharedDirty,
+  CHISnpOpcode.SnpUniqueStash,
+  CHISnpOpcode.SnpMakeInvalidStash,
+  CHISnpOpcode.SnpUnique,
+  CHISnpOpcode.SnpCleanShared,
+  CHISnpOpcode.SnpCleanInvalid,
+  CHISnpOpcode.SnpMakeInvalid,
+  CHISnpOpcode.SnpStashUnique,
+  CHISnpOpcode.SnpStashShared,
+  CHISnpOpcode.SnpDVMOp,
+  CHISnpOpcode.SnpQuery,
+  CHISnpOpcode.SnpSharedFwd,
+  CHISnpOpcode.SnpCleanFwd,
+  CHISnpOpcode.SnpOnceFwd,
+  CHISnpOpcode.SnpNotSharedDirtyFwd,
+  CHISnpOpcode.SnpPreferUnique,
+  CHISnpOpcode.SnpPreferUniqueFwd,
+  CHISnpOpcode.SnpUniqueFwd
+]
+
+export:
+  CHICacheState
+  CHIResponseState
+  CHICoherentResponse
+  chi_rnf_snoop_opcodes
+  chi_cache_maintenance
+  chi_home_snoop_opcode
+  chi_snoop_discards_dirty
+  chi_snoop_response_state_valid
+
+// Maintenance is independent of requester kind and never implies a read fill.
+fun chi_cache_maintenance(opcode :: CHIReqOpcode) :~ Bool:
+  opcode.is_one_of(CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid)
+
+fun chi_home_snoop_opcode(opcode :: CHIReqOpcode) :~ CHISnpOpcode:
+  mux_lookup(opcode, ~default: CHISnpOpcode.SnpCleanInvalid):
+    CHIReqOpcode.ReadClean: CHISnpOpcode.SnpCleanShared
+    CHIReqOpcode.CleanShared: CHISnpOpcode.SnpCleanShared
+    CHIReqOpcode.ReadUnique: CHISnpOpcode.SnpUnique
+    CHIReqOpcode.MakeInvalid: CHISnpOpcode.SnpMakeInvalid
+
+fun chi_snoop_discards_dirty(opcode :: CHISnpOpcode) :~ Bool:
+  opcode.is_one_of(CHISnpOpcode.SnpMakeInvalid, CHISnpOpcode.SnpMakeInvalidStash)
+
+fun chi_snoop_response_state_valid(opcode :: CHISnpOpcode, response :: CHICoherentResponse()) :~ Bool:
+  mux(opcode === CHISnpOpcode.SnpCleanShared,
+      response.state =/= CHIResponseState.SharedDirty,
+      response.state === CHIResponseState.Invalid)

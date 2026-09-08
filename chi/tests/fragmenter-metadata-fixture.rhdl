@@ -1,0 +1,51 @@
+#lang rhodium
+// Exposes native fragmenter channels at all DAT widths with optional fields on and off.
+
+import:
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  lib("chi/adapters/transfer-fragmenter.rhdl") open
+
+def w128 = CHIFlitParams(~data_width: 128)
+def o128 = CHIFlitParams(~data_width: 128, ~dat_rsvdc_width: 32, ~data_check: #true, ~poison: #true)
+def w256 = CHIFlitParams(~data_width: 256)
+def o256 = CHIFlitParams(~data_width: 256, ~dat_rsvdc_width: 32, ~data_check: #true, ~poison: #true)
+def w512 = CHIFlitParams(~data_width: 512)
+def o512 = CHIFlitParams(~data_width: 512, ~dat_rsvdc_width: 32, ~data_check: #true, ~poison: #true)
+
+sync_circuit CHIFragmenterMetadataFixture():
+  interface upstream_w128(CHISNChannels(w128), ~role: node)
+  interface downstream_w128(CHISNChannels(w128), ~role: icn)
+  inst fragmenter_w128(CHITransferFragmenter(CHITransferFragmenterConfig(w128, ~max_transfer_bytes: 64)))
+  upstream_w128 <=> fragmenter_w128.upstream
+  downstream_w128 <=> fragmenter_w128.downstream
+  interface upstream_o128(CHISNChannels(o128), ~role: node)
+  interface downstream_o128(CHISNChannels(o128), ~role: icn)
+  inst fragmenter_o128(CHITransferFragmenter(CHITransferFragmenterConfig(o128, ~max_transfer_bytes: 64)))
+  upstream_o128 <=> fragmenter_o128.upstream
+  downstream_o128 <=> fragmenter_o128.downstream
+  interface upstream_w256(CHISNChannels(w256), ~role: node)
+  interface downstream_w256(CHISNChannels(w256), ~role: icn)
+  inst fragmenter_w256(CHITransferFragmenter(CHITransferFragmenterConfig(w256, ~max_transfer_bytes: 64)))
+  upstream_w256 <=> fragmenter_w256.upstream
+  downstream_w256 <=> fragmenter_w256.downstream
+  interface upstream_o256(CHISNChannels(o256), ~role: node)
+  interface downstream_o256(CHISNChannels(o256), ~role: icn)
+  inst fragmenter_o256(CHITransferFragmenter(CHITransferFragmenterConfig(o256, ~max_transfer_bytes: 64)))
+  upstream_o256 <=> fragmenter_o256.upstream
+  downstream_o256 <=> fragmenter_o256.downstream
+  interface upstream_w512(CHISNChannels(w512), ~role: node)
+  interface downstream_w512(CHISNChannels(w512), ~role: icn)
+  inst fragmenter_w512(CHITransferFragmenter(CHITransferFragmenterConfig(w512, ~max_transfer_bytes: 64)))
+  upstream_w512 <=> fragmenter_w512.upstream
+  downstream_w512 <=> fragmenter_w512.downstream
+  interface upstream_o512(CHISNChannels(o512), ~role: node)
+  interface downstream_o512(CHISNChannels(o512), ~role: icn)
+  inst fragmenter_o512(CHITransferFragmenter(CHITransferFragmenterConfig(o512, ~max_transfer_bytes: 64)))
+  upstream_o512 <=> fragmenter_o512.upstream
+  downstream_o512 <=> fragmenter_o512.downstream
+
+def design = elaborate(CHIFragmenterMetadataFixture())
+
+export:
+  design

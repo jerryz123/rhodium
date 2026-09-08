@@ -2,9 +2,9 @@
 // Attaches both HN-I sides and exposes colocated subordinate endpoints on one CHI router.
 
 import:
-  lib("chi/channels.rhdl").CHISNChannels
-  lib("chi/noc-router.rhdl") open
-  lib("chi/home.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  lib("chi/noc/noc-router.rhdl") open
+  lib("chi/home/home.rhdl") open
 
 class DeviceHomeTileParams(home :: CHIHNIParams,
                            router :: CHIRouterParams):

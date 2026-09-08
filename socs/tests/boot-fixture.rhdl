@@ -2,9 +2,9 @@
 // Builds shared SoC BootROM metadata and its finalized four-hart image.
 
 import:
-  lib("chi/params.rhdl").CHIFlitParams
-  lib("chi/link.rhdl").CHINodeKind
-  lib("chi/fabric.rhdl").CHIHomeParams
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/link.rhdl").CHINodeKind
+  lib("chi/protocol/fabric.rhdl").CHIHomeParams
   lib("cores/rv5stage/profile.rhm").RVCoreProfile
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("riscv/isa/xlen.rhm").XLen

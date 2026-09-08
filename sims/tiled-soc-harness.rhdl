@@ -3,9 +3,9 @@
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("chi/memory-controller.rhdl") open
-  lib("chi/dpi-memory.rhdl").CHIDPIMemory
-  lib("chi/flits.rhdl").CHIReqOpcode
+  lib("chi/subordinate/memory-controller.rhdl") open
+  lib("chi/subordinate/dpi-memory.rhdl").CHIDPIMemory
+  lib("chi/protocol/flits.rhdl").CHIReqOpcode
   lib("rhodium/std/ready-valid.rhdl") open
   lib("socs/tiled-soc/main.rhdl") as tiled
   lib("socs/tiled-soc/compile.rhdl") as compiler

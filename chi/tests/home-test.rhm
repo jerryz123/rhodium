@@ -2,7 +2,6 @@
 // Checks initial HN-I host maps, parameters, and invalid configurations.
 
 import:
-  "../../rhodium/frontend/kernel.rhm" as embedded
   "../main.rhdl" as chi
   "../../examples/chi/home.rhdl" as fixture
 
@@ -24,84 +23,44 @@ def heterogeneous_map = chi.CHISubordinateMap(
   fixture.home_flit,
   [read_only_service, fixture.subordinate_service]
 )
+def partial_service = chi.CHISubordinateServiceParams(fixture.subordinate_endpoint, fixture.subordinate_service.address_sets, [fixture.subordinate_service.requests[0]])
+def snf_endpoint = chi.CHIICNPortParams(
+  "full-subordinate", 11, chi.CHINodeKind.SNF,
+  ~emits: fixture.subordinate_endpoint.emits,
+  ~supports: fixture.subordinate_endpoint.supports,
+  ~max_outstanding: 2
+)
+def snf_service = chi.CHISubordinateServiceParams(snf_endpoint, [chi.AddressSet(0xa0000000, 0x0fffffff)], fixture.subordinate_service.requests)
+
 check:
   fixture.home_params.flit === fixture.home_flit ~is #true
   fixture.home_params.home.kind ~is chi.CHINodeKind.HNI
   fixture.home_params.requester_endpoints[0].kind ~is chi.CHINodeKind.RNI
-  fixture.home_params.subordinate_map.services ~is (
-    [fixture.subordinate_service, fixture.second_subordinate_service]
-  )
+  fixture.home_params.subordinate_map.services ~is [fixture.subordinate_service, fixture.second_subordinate_service]
   heterogeneous_map.entry(0x70000000).service === read_only_service ~is #true
-  embedded.run_elaboration(
-    fun ():
-      chi.CHIHNI(
-        chi.CHIHNIParams(
-          chi.CHIHomeParams("bad-kind", 5, chi.CHINodeKind.HNF, ~max_outstanding: 2),
-          [fixture.requester_endpoint],
-          fixture.subordinate_map
-        )
-      )
+  // Cross-field errors must be rejected without constructing or elaborating CHIHNI.
+  chi.CHIHNIParams(
+    chi.CHIHomeParams("bad-kind", 5, chi.CHINodeKind.HNF, ~max_outstanding: 2),
+    [fixture.requester_endpoint], fixture.subordinate_map
   ) ~throws "home kind must be HN-I"
-  embedded.run_elaboration(
-    fun ():
-      chi.CHIHNI(
-        chi.CHIHNIParams(
-          fixture.home,
-          [fixture.requester_endpoint, fixture.requester_endpoint],
-          fixture.subordinate_map
-        )
-      )
+  chi.CHIHNIParams(
+    fixture.home, [fixture.requester_endpoint, fixture.requester_endpoint], fixture.subordinate_map
   ) ~throws "requester NodeIDs must be unique"
-  embedded.run_elaboration(
-    fun ():
-      chi.CHIHNI(
-        chi.CHIHNIParams(
-          chi.CHIHomeParams(
-            "colliding-home",
-            fixture.subordinate_endpoint.node_id,
-            chi.CHINodeKind.HNI,
-            ~max_outstanding: 2
-          ),
-          [fixture.requester_endpoint],
-          fixture.subordinate_map
-        )
-      )
+  chi.CHIHNIParams(
+    chi.CHIHomeParams("colliding-home", fixture.subordinate_endpoint.node_id, chi.CHINodeKind.HNI, ~max_outstanding: 2),
+    [fixture.requester_endpoint], fixture.subordinate_map
   ) ~throws "subordinate and Home NodeIDs must be distinct"
-  embedded.run_elaboration(
-    fun ():
-      def partial_service = chi.CHISubordinateServiceParams(
-        fixture.subordinate_endpoint,
-        fixture.subordinate_service.address_sets,
-        [fixture.subordinate_service.requests[0]]
-      )
-      chi.CHIHNI(
-        chi.CHIHNIParams(
-          fixture.home,
-          [fixture.requester_endpoint],
-          chi.CHISubordinateMap(fixture.home_flit, [partial_service])
-        )
-      )
+  chi.CHIHNIParams(
+    fixture.home, [fixture.requester_endpoint], chi.CHISubordinateMap(fixture.home_flit, [partial_service])
   ) ~throws "requester opcode must be supported by at least one subordinate service"
-  embedded.run_elaboration(
-    fun ():
-      def snf_endpoint = chi.CHIICNPortParams(
-        "full-subordinate",
-        11,
-        chi.CHINodeKind.SNF,
-        ~emits: fixture.subordinate_endpoint.emits,
-        ~supports: fixture.subordinate_endpoint.supports,
-        ~max_outstanding: 2
-      )
-      def snf_service = chi.CHISubordinateServiceParams(
-        snf_endpoint,
-        [chi.AddressSet(0xa0000000, 0x0fffffff)],
-        fixture.subordinate_service.requests
-      )
-      chi.CHIHNI(
-        chi.CHIHNIParams(
-          fixture.home,
-          [fixture.requester_endpoint],
-          chi.CHISubordinateMap(fixture.home_flit, [snf_service])
-        )
-      )
+  chi.CHIHNIParams(
+    fixture.home, [fixture.requester_endpoint], chi.CHISubordinateMap(fixture.home_flit, [snf_service])
   ) ~throws "subordinate endpoints must describe SN-Is"
+  chi.CHIHNIParams(
+    chi.CHIHomeParams("wide-home", 128, chi.CHINodeKind.HNI, ~max_outstanding: 2),
+    [fixture.requester_endpoint], fixture.subordinate_map
+  ) ~throws "Home NodeID must fit"
+  chi.CHIHNIParams(
+    chi.CHIHomeParams("requester-collision", fixture.requester_endpoint.node_id, chi.CHINodeKind.HNI, ~max_outstanding: 2),
+    [fixture.requester_endpoint], fixture.subordinate_map
+  ) ~throws "requester and Home NodeIDs must be distinct"

@@ -1,0 +1,232 @@
+#lang rhodium
+// Constructs stateless requester/subordinate messages and Home transforms without engine policy.
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl") open
+
+fun chi_sn_dbid_response(p :: CHIFlitParams,
+                         node_id :: Bits(p.node_id_width),
+                         request :: CHIReqFlit(p),
+                         dbid :: Bits) :~ CHIRspFlit(p):
+  CHIRspFlit(p):
+    cache_line_id: bits(0, 6)
+    trace_tag: Bool(#false)
+    tag_op: CHITagOp.Invalid
+    pcrd_type: bits(0, 4)
+    dbid_or_group_id: dbid.zext(12)
+    c_busy: bits(0, 3)
+    fwd_state_or_data_pull: bits(0, 3)
+    resp: bits(0, 3)
+    resp_err: CHIRespErr.OK
+    opcode: CHIRspOpcode.DBIDResp
+    txn_id: request.txn_id
+    src_id: node_id
+    tgt_id: request.src_id
+    qos: request.qos
+
+fun chi_sn_write_completion(p :: CHIFlitParams,
+                            node_id :: Bits(p.node_id_width),
+                            request :: CHIReqFlit(p),
+                            dbid :: Bits) :~ CHIRspFlit(p):
+  chi_sn_dbid_response(p, node_id, request, dbid).updated(~opcode: CHIRspOpcode.Comp)
+
+fun chi_sn_read_completion(p :: CHIFlitParams,
+                           node_id :: Bits(p.node_id_width),
+                           request :: CHIReqFlit(p),
+                           data_id :: Bits(2),
+                           data :: Bits(p.data_width)) :~ CHIDatFlit(p):
+  def multi_packet = chi_data_beats_minus_one(chi_req_size(p, request), p) =/= bits(0, 2)
+  // Zero is the existing inactive-field policy for this successful subordinate
+  // response, including optional DAT fields; it is not a generic CHI default.
+  def inactive :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
+  inactive.updated(
+    ~data: data,
+    ~byte_enable: mux(multi_packet, bits((1 << p.data_bytes) - 1, p.data_bytes), transfer_byte_mask(request.address, request.size_or_num_req[0..3], p.data_bytes).into(Bits(p.data_bytes))),
+    ~tag_op: CHITagOp.Invalid,
+    ~data_id: data_id,
+    ~resp_err: CHIRespErr.OK,
+    ~opcode: CHIDatOpcode.CompData,
+    ~home_nid_or_pbha_or_mismatched_mecid: node_id,
+    ~txn_id: request.return_txn_id_or_stash_lpid,
+    ~src_id: node_id,
+    ~tgt_id: request.return_nid_or_stash_nid_or_data_target,
+    ~qos: request.qos
+  )
+
+fun chi_rn_write_data(p :: CHIFlitParams,
+                      node_id :: Bits(p.node_id_width),
+                      home_node_id :: Bits(p.node_id_width),
+                      dbid :: Bits(12),
+                      data :: Bits(p.data_width),
+                      byte_enable :: Bits(p.byte_enable_width),
+                      ~data_id: data_id :: Bits(2),
+                      ~ccid: ccid :: Bits(2),
+                      ~dbid_or_mecid: dbid_or_mecid :: Bits(16)) :~ CHIDatFlit(p):
+  // This requester profile leaves inactive and optional fields zero. Packet
+  // position and the overloaded DBID/MECID field remain caller decisions.
+  def inactive :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
+  inactive.updated(
+    ~data: data,
+    ~byte_enable: byte_enable,
+    ~tag_op: CHITagOp.Invalid,
+    ~data_id: data_id,
+    ~ccid: ccid,
+    ~dbid_or_mecid: dbid_or_mecid,
+    ~resp_err: CHIRespErr.OK,
+    ~opcode: CHIDatOpcode.NonCopyBackWriteData,
+    ~home_nid_or_pbha_or_mismatched_mecid: home_node_id,
+    ~txn_id: dbid,
+    ~src_id: node_id,
+    ~tgt_id: home_node_id
+  )
+
+fun chi_hnf_response(p :: CHIFlitParams,
+                     home_node_id :: Bits(p.node_id_width),
+                     request :: CHIReqFlit(p),
+                     opcode :: CHIRspOpcode,
+                     ~error: error :: CHIRespErr = CHIRespErr.OK) :~ CHIRspFlit(p):
+  CHIRspFlit(p):
+    cache_line_id: bits(0, 6)
+    trace_tag: Bool(#false)
+    tag_op: CHITagOp.Invalid
+    pcrd_type: bits(0, 4)
+    dbid_or_group_id: bits(0, 12)
+    c_busy: bits(0, 3)
+    fwd_state_or_data_pull: bits(0, 3)
+    resp: bits(0, 3)
+    resp_err: error
+    opcode: opcode
+    txn_id: request.txn_id
+    src_id: home_node_id
+    tgt_id: request.src_id
+    qos: request.qos
+
+fun chi_home_downstream_request(p :: CHIFlitParams,
+                                home_node_id :: Bits(p.node_id_width),
+                                subordinate_node_id :: Bits(p.node_id_width),
+                                request :: CHIReqFlit(p),
+                                address :: Bits(p.request_address_width),
+                                size :: Bits(6),
+                                opcode :: CHIReqOpcode,
+                                txn_id :: Bits(12),
+                                early_write_acknowledge :: Bool) :~ CHIReqFlit(p):
+  request.updated(
+    ~exp_comp_ack: Bool(#false),
+    ~excl_snoop_me_cah: Bool(#false),
+    ~snp_attr_or_do_dwt: Bool(#false),
+    ~mem_attr: request.mem_attr.updated(~early_write_acknowledge: early_write_acknowledge),
+    ~pcrd_type: bits(0, 4),
+    ~order: CHIOrder.NoOrder,
+    ~allow_retry: Bool(#false),
+    ~address: address,
+    ~size_or_num_req: size,
+    ~multi_req: Bool(#false),
+    ~opcode: opcode,
+    ~return_txn_id_or_stash_lpid: bits(0, 12),
+    ~stash_nid_valid_endian_deep_prefetch_tgt_hint: Bool(#false),
+    ~return_nid_or_stash_nid_or_data_target: home_node_id,
+    ~txn_id: txn_id,
+    ~src_id: home_node_id,
+    ~tgt_id: subordinate_node_id
+  )
+
+fun chi_hnf_snoop_write_data(p :: CHIFlitParams,
+                             home_node_id :: Bits(p.node_id_width),
+                             subordinate_node_id :: Bits(p.node_id_width),
+                             subordinate_dbid :: Bits(12),
+                             data :: CHIDatFlit(p)) :~ CHIDatFlit(p):
+  data.updated(
+    ~replicate: Bool(#false),
+    ~num_dat: bits(0, 2),
+    ~cah: Bool(#false),
+    ~dbid_or_mecid: subordinate_dbid.zext(16),
+    ~c_busy: bits(0, 3),
+    ~data_pull: Bool(#false),
+    ~data_source_or_fwd_state: bits(0, 8),
+    ~resp: bits(0, 3),
+    ~opcode: CHIDatOpcode.NonCopyBackWriteData,
+    ~home_nid_or_pbha_or_mismatched_mecid: home_node_id,
+    ~txn_id: subordinate_dbid,
+    ~src_id: home_node_id,
+    ~tgt_id: subordinate_node_id
+  )
+
+fun chi_home_upstream_read_data(p :: CHIFlitParams,
+                                home_node_id :: Bits(p.node_id_width),
+                                request :: CHIReqFlit(p),
+                                response :: Bits(3),
+                                data :: CHIDatFlit(p)) :~ CHIDatFlit(p):
+  data.updated(
+    ~dbid_or_mecid: bits(0, 16),
+    ~data_pull: Bool(#false),
+    ~data_source_or_fwd_state: bits(0, 8),
+    ~resp: response,
+    ~opcode: CHIDatOpcode.CompData,
+    ~home_nid_or_pbha_or_mismatched_mecid: home_node_id,
+    ~txn_id: request.return_txn_id_or_stash_lpid,
+    ~src_id: home_node_id,
+    ~tgt_id: request.return_nid_or_stash_nid_or_data_target,
+    ~qos: request.qos
+  )
+
+// Non-forward snoops leave inactive optional fields zero; Home policy supplies
+// the opcode, target address, and transaction identity explicitly.
+fun chi_home_snoop(p :: CHIFlitParams,
+                   home_node_id :: Bits(p.node_id_width),
+                   request :: CHIReqFlit(p),
+                   address :: Bits(p.request_address_width),
+                   opcode :: CHISnpOpcode,
+                   txn_id :: Bits(12)) :~ CHISnpFlit(p):
+  def inactive :: CHISnpFlit(p) = literal(CHISnpFlit(p), 0)
+  inactive.updated(
+    ~trace_tag: request.trace_tag,
+    ~pas: request.pas,
+    ~address: address[3..(3 + p.snoop_address_width)],
+    ~opcode: opcode,
+    ~txn_id: txn_id,
+    ~src_id: home_node_id,
+    ~qos: request.qos
+  )
+
+// Materializes a full-packet backing write for accepted intervention data.
+// The Home retains acknowledgement policy and transaction allocation.
+fun chi_home_snoop_write_request(p :: CHIFlitParams,
+                                 home_node_id :: Bits(p.node_id_width),
+                                 subordinate_node_id :: Bits(p.node_id_width),
+                                 request :: CHIReqFlit(p),
+                                 data :: CHIDatFlit(p),
+                                 txn_id :: Bits(12),
+                                 early_write_acknowledge :: Bool) :~ CHIReqFlit(p):
+  def line_address = request.address[6..p.request_address_width] ++ bits(0, 6)
+  def packet_offset = (data.data_id ++ bits(0, 4)).zext(p.request_address_width)
+  def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
+  inactive.updated(
+    ~trace_tag: data.trace_tag,
+    ~tag_op: CHITagOp.Invalid,
+    ~mem_attr: request.mem_attr.updated(~early_write_acknowledge: early_write_acknowledge),
+    ~order: CHIOrder.NoOrder,
+    ~pas: request.pas,
+    ~address: line_address + packet_offset,
+    ~size_or_num_req: bits(alignment_bits(p.data_bytes), 6),
+    ~opcode: CHIReqOpcode.WriteNoSnpFull,
+    ~return_nid_or_stash_nid_or_data_target: home_node_id,
+    ~txn_id: txn_id,
+    ~src_id: home_node_id,
+    ~tgt_id: subordinate_node_id,
+    ~qos: request.qos
+  )
+
+export:
+  chi_home_snoop
+  chi_home_snoop_write_request
+  chi_rn_write_data
+  chi_hnf_response
+  chi_home_downstream_request
+  chi_hnf_snoop_write_data
+  chi_home_upstream_read_data
+  chi_sn_dbid_response
+  chi_sn_write_completion
+  chi_sn_read_completion

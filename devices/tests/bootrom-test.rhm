@@ -4,9 +4,9 @@
 import:
   rhombus.bits.(<<) as <<
   "../../rhodium/std/interconnect.rhdl".AddressSet
-  "../../chi/params.rhdl".CHIFlitParams
-  "../../chi/flits.rhdl" open
-  "../../chi/link.rhdl".CHINodeKind
+  "../../chi/protocol/params.rhdl".CHIFlitParams
+  "../../chi/protocol/flits.rhdl" open
+  "../../chi/protocol/link.rhdl".CHINodeKind
   "../../riscv/model/main.rhm" open
   "../../riscv/isa/integer-common.rhm" open
   "../../riscv/isa/rv64i.rhm".LD
