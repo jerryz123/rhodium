@@ -78,11 +78,17 @@ def sail_config(default, udb, origin, size):
     ram["base"], ram["size"] = bits(origin), bits(size)
     attrs = ram["attributes"]
     attrs.update(atomic_support="AMOArithmetic", misaligned_atomicity_granule_size_exp=0,
-                 vector_misaligned_atomicity_granule_size_exp=0, supports_cbo_zero=False)
+                 vector_misaligned_atomicity_granule_size_exp=0, supports_cbo_zero="Zicboz" in extensions)
+    if extensions.keys() & {"Zicbom", "Zicbop", "Zicboz"}:
+        block_size = params["CACHE_BLOCK_SIZE"]
+        if type(block_size) is not int or block_size <= 0 or block_size & (block_size - 1):
+            raise ValueError("CACHE_BLOCK_SIZE must be a positive power of two")
+        default["platform"]["cache_block_size_exp"] = block_size.bit_length() - 1
     # ACT requires Sail's CLINT and synthetic interrupt device even for I-only
     # signature builds. Keep their reference-only IO region; these do not claim
     # that the DUT exposes the synthetic devices. Missing DUT hooks fail at runtime.
     io = next(region for region in memory["regions"] if not region["attributes"]["cacheable"])
+    io["attributes"]["supports_cbo_zero"] = False
     memory["regions"] = [io, ram]
     memory["dtb_address"] = bits(origin)
     default["platform"]["reservation"]["require_exact_reservation_addr"] = params["LRSC_FAIL_ON_NON_EXACT_LRSC"]

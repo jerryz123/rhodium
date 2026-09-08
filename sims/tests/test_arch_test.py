@@ -1,5 +1,6 @@
 # Checks UDB-to-Sail projection, privileged-inclusive generation, and ACT completion.
 import importlib.util
+from itertools import product
 import os
 from pathlib import Path
 import runpy
@@ -26,8 +27,12 @@ class ArchTestConfigTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("act_configure", RUNNER.with_name("configure.py"))
         configure = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(configure)
-        for width, version, svade in ((0, "= 1.12.0", True), (7, "1.12", False), (16, "1.11", False)):
-            with self.subTest(asid_width=width, privileged_version=version, svade=svade):
+        architectures = ((0, "= 1.12.0", True), (7, "1.12", False), (16, "1.11", False))
+        cache_blocks = ((None, None), ("Zicboz", 32), ("Zicboz", 64), ("Zicbom", 128), ("Zicbop", 16),
+                        ("Zicboz", 0), ("Zicboz", -64), ("Zicboz", 48), ("Zicboz", True))
+        for (width, version, svade), (cache_extension, block_size) in product(architectures, cache_blocks):
+            with self.subTest(asid_width=width, privileged_version=version, svade=svade,
+                              cache_extension=cache_extension, block_size=block_size):
                 params = dict(MXLEN=64, NUM_PMP_ENTRIES=0, MISALIGNED_LDST=False,
                               MISALIGNED_LDST_EXCEPTION_PRIORITY="high", M_MODE_ENDIANNESS="little",
                               HPM_COUNTER_EN=[False] * 32, MCOUNTENABLE_EN=[False] * 32,
@@ -42,21 +47,34 @@ class ArchTestConfigTest(unittest.TestCase):
                     params[parameter] = True
                 default = {
                     "extensions": {"Svade": {"supported": not svade}, "V": {},
+                                   "Zicboz": {"supported": False}, "Zicbom": {"supported": False}, "Zicbop": {"supported": False},
                                    "Stateen": {"Smstateen": {}, "Ssstateen": {}}},
                     "base": {"mtvec": {"direct": {}, "vectored": {}},
                              "stvec": {"direct": {}, "vectored": {}}, "mstatus": {}, "xtval_nonzero": {},
                              "medeleg": {"delegatable_bits": {"len": 64, "value": "0xfc_b7ff"}}},
                     "memory": {"asidlen": 16, "pmp": {}, "misaligned": {"exceptions": {}}, "regions": [
-                        {"attributes": {"mem_type": "MainMemory", "cacheable": True}},
-                        {"attributes": {"mem_type": "IO", "cacheable": False}},
+                        {"attributes": {"mem_type": "MainMemory", "cacheable": True, "supports_cbo_zero": False}},
+                        {"attributes": {"mem_type": "IO", "cacheable": False, "supports_cbo_zero": True}},
                     ]},
-                    "platform": {"reservation": {}},
+                    "platform": {"reservation": {}, "cache_block_size_exp": 9},
                 }
                 extensions = [{"name": "Sm", "version": version}]
                 if svade:
                     extensions.append({"name": "Svade", "version": "= 1.0.0"})
+                if cache_extension:
+                    extensions.append({"name": cache_extension, "version": "= 1.0.0"})
+                    params["CACHE_BLOCK_SIZE"] = block_size
                 udb = {"params": params, "implemented_extensions": extensions}
+                if cache_extension and (type(block_size) is not int or block_size <= 0 or block_size & (block_size - 1)):
+                    with self.assertRaisesRegex(ValueError, "CACHE_BLOCK_SIZE"):
+                        configure.sail_config(default, udb, 0x80000000, 0x40000000)
+                    continue
                 config = configure.sail_config(default, udb, 0x80000000, 0x40000000)
+                io, ram = config["memory"]["regions"]
+                self.assertIs(ram["attributes"]["supports_cbo_zero"], cache_extension == "Zicboz")
+                self.assertIs(io["attributes"]["supports_cbo_zero"], False)
+                self.assertEqual(config["platform"]["cache_block_size_exp"],
+                                 block_size.bit_length() - 1 if cache_extension else 9)
                 self.assertEqual(config["memory"]["asidlen"], width)
                 self.assertEqual(config["base"]["privileged_isa_version"],
                                  "Privileged_ISA_1_11" if version == "1.11" else "Privileged_ISA_1_12")
