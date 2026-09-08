@@ -2,12 +2,49 @@
 
 # Event graphs
 
-Annotate meaningful transfers, infer their possible nearest dependencies, and
-optionally instrument a separate design to report exact runtime lineage through
-DPI. Only annotations become visible event nodes; intermediate flow components
-carry lineage without emitting synthetic events. The independent
-[RHEG library](../../rheg/README.md) collects callbacks and exports snapshots or
-streaming Perfetto traces.
+A microarchitectural event graph records **what happened and which
+transfers contributed to it**. Each node is one occurrence at an annotated
+checkpoint, identified by site and sequence within a reset epoch, with a cycle
+and optional captured fields. Directed edges connect its nearest contributing
+parent occurrences—not every earlier event or every electrically connected signal.
+
+Authors select checkpoints; the compiler derives dependencies from the declared
+semantics of [flow](../../flow/README.md). Queues preserve transaction order,
+arbiters select a granted input, forks replicate lineage, and joins combine it.
+Static analysis identifies possible parent sites. Compiler-inserted metadata
+follows the actual transfers and emits DPI callbacks, letting
+[RHEG](../../rheg/README.md) build the concrete occurrence graph for Perfetto.
+
+```mermaid
+flowchart TB
+  subgraph Hardware["Annotated flow: functional hardware"]
+    direction LR
+    A["A: accepted"] --> Q["queue: FIFO order"]
+    Q --> Arb["arbiter: actual grant"]
+    B["B: accepted"] --> Arb
+    Arb --> C["C: issued"]
+  end
+  subgraph Static["Static site graph: possible nearest parents"]
+    direction LR
+    SA["A"] --> SC["C"]
+    SB["B"] --> SC
+  end
+  subgraph Dynamic["Runtime occurrence graph: actual parents"]
+    direction LR
+    A7["A #7, cycle 10"] --> C3["C #3, cycle 14"]
+    B2["B #2, cycle 15"] --> C4["C #4, cycle 15"]
+  end
+  Hardware -->|"infer from typed flow contracts"| Static
+  Hardware -->|"carry lineage with transfers; emit DPI"| Dynamic
+  Static -.->|"constrain allowed site pairs"| Dynamic
+```
+
+Here, `C #3` inherits `A #7` through the queue; the later grant to B produces
+`B #2 -> C #4` on the same cycle. The two possible static parents do not become
+two actual parents of every C occurrence. Only annotations emit nodes: the queue
+and arbiter carry lineage without creating synthetic events. Unsupported flow
+semantics are rejected rather than guessed. Ordinary, uninstrumented elaboration
+is unchanged; tracing builds a separate design.
 
 ## Annotate events
 

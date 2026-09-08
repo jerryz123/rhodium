@@ -2,8 +2,14 @@
 
 # RHEG: Rhodium Hardware Event Graph
 
-RHEG is the independent C++ runtime and export library for hardware event
-graphs. Its namespace is `rheg`, and DPI symbols use the `rheg_` prefix.
+RHEG represents microarchitectural activity as a graph of event occurrences:
+nodes record annotated transfers, and edges identify their nearest contributing
+parents. The compiler derives possible dependencies from typed flow semantics
+and instruments actual transfers; see the
+[graph-model overview and diagram](../rhodium/event/README.md#event-graphs).
+
+This package is the independent C++ collector and export library for that graph.
+Its namespace is `rheg`, and DPI symbols use the `rheg_` prefix.
 It does not depend on `flow` or compiler implementation modules; the
 [compiler event pass](../rhodium/event/README.md) generates its descriptor and DPI calls.
 
