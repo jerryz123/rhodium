@@ -1,0 +1,7 @@
+#lang rhombus
+// Emits the integrated fetch/MMU/router/L1I warm-hit throughput regression.
+import:
+  "../../cores/rv5stage/tests/fetch-throughput-fixture.rhdl".RV5StageFetchThroughput
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/frontend/kernel.rhm" as embedded
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageFetchThroughput())))

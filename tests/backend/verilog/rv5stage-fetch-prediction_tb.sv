@@ -1,4 +1,4 @@
-// Checks bubbleless predicted streams, compressed cuts, stalls, immutable predictions, and repair.
+// Checks predicted streams, two-word ring wraparound, compressed cuts, stalls, and repair.
 module rv5stage_fetch_prediction_tb;
   typedef struct packed { logic [63:0] address; } request_bits_t;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;
@@ -143,10 +143,12 @@ module rv5stage_fetch_prediction_tb;
     initialize(2);
     train('h302, 'h402, 0);
     train('h402, 'h302, 1);
-    expected_requests = '{'h300, 'h304, 'h400, 'h300, 'h304, 'h400};
+    // Repeated three-word loops put a straddling branch at every ring position,
+    // including a two-word release spanning the last slot and slot zero.
+    repeat (10) begin expected_requests.push_back('h300); expected_requests.push_back('h304); expected_requests.push_back('h400); end
     start('h302);
-    repeat (2) begin expect_pc('h302, 'h402); expect_pc('h402, 'h302); end
-    assert (request_checks == 6 && local_flushes == 0);
+    repeat (10) begin expect_pc('h302, 'h402); expect_pc('h402, 'h302); end
+    assert (request_checks == 30 && local_flushes == 0);
 
     initialize(3);
     train('h502, 'h600, 1); // Stale prediction in the middle of ADDI.

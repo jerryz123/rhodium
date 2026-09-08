@@ -327,11 +327,13 @@ ordinary WB result uses the other write port. WAW gating prevents both ports
 from targeting the same register in one cycle, and a WB-aligned cache hit can
 set and clear a destination without an extra busy cycle.
 
-[`fetch.rhdl`](fetch.rhdl) keeps a four-entry reserved word ring and a five-entry
+[`fetch.rhdl`](fetch.rhdl) keeps a five-entry reserved word ring and a five-entry
 flow-through queue of assembled instructions. The registered request PC follows
 the predicted stream on request acceptance; the assembly PC follows the captured
 prediction or advances by two or four bytes on instruction enqueue. Neither word consumption nor Decode readiness
 selects the live request address, and returned buffer credit is registered.
+With a ready consumer, the fifth word slot sustains one instruction per cycle on warm L1I hits even
+when 32-bit instructions start at halfword offsets and span two fetched words.
 The MMU admits S0 virtual reads into a two-entry non-flow-through request queue.
 S1 translates its registered head while L1I resolves the preceding SRAM read;
 S2 registers the selected word or refill context. A blocked S1 request remains

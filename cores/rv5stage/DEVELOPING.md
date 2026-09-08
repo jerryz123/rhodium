@@ -30,7 +30,7 @@ each other; share external transaction machinery through the CHI package.
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`btb.rhdl`](btb.rhdl) | Associative word lookup, local direction counters, training, and prediction metadata |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
-| [`fetch.rhdl`](fetch.rhdl) | Independent request/assembly PCs, four-word reservation ring, compressed expansion, instruction queue, and redirect flushing |
+| [`fetch.rhdl`](fetch.rhdl) | Independent request/assembly PCs, five-word reservation ring, compressed expansion, instruction queue, and redirect flushing |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
@@ -87,12 +87,20 @@ and IO-boot fixtures when changing this boundary.
 The assembled-instruction buffer uses a five-entry flow-through `ShiftQueue`
 with full-queue pipelining disabled. Decode readiness may control its shifts,
 but must not reach word-request admission or address generation combinationally.
-The four-word `reserved` count includes both outstanding requests and returned
+The five-word `reserved` count includes both outstanding requests and returned
 words; return credit only when assembly releases a word at the clock edge.
 Do not count in-flight requests a second time or borrow same-cycle dequeue
 credit. The `rv5stage-fetch-admission` structural fixture guards this timing
 contract using hierarchical port-leaf dependencies; run it in `--verify-only`
 mode alongside the behavioral fetch and I-cache fixtures.
+
+Wrap request, response, continuation, and release pointers explicitly modulo five.
+A taken straddling branch can release two words across the end of the ring.
+The fifth slot covers the extra word retained by straddling assembly without
+borrowing combinational dequeue credit. `rv5stage-fetch-throughput` composes
+Fetch, MMU, physical routing, and L1I; it warms the cache and requires consecutive
+aligned and halfword-offset 32-bit instructions with no measured refills. Keep
+the regression at this integrated boundary so real hit latency is included.
 
 The request ring follows predicted control flow, not globally contiguous
 addresses. Only instruction continuations require adjacent word addresses.

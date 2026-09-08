@@ -1,0 +1,76 @@
+#lang rhodium
+// Composes Fetch, MMU, physical routing, and L1I for warm-hit throughput regression.
+import:
+  lib("cores/rv5stage/fetch.rhdl") open
+  lib("cores/rv5stage/btb.rhdl") open
+  lib("cores/rv5stage/mmu/mmu.rhdl") open
+  lib("cores/rv5stage/csr.rhdl").PrivilegeMode
+  lib("cores/rv5stage/profile.rhm").RV5StageMmuMode
+  lib("cores/rv5stage/instruction-memory-router.rhdl") open
+  lib("cores/rv5stage/icache/cache.rhdl") open
+  lib("cores/rv5stage/icache/protocol.rhdl") open
+  lib("cores/rv5stage/dcache/protocol.rhdl") open
+  lib("cores/rv5stage/cache.rhdl") open
+  lib("cores/rv5stage/tests/params.rhdl") open
+  lib("cores/rv5stage/decode/core-ctrl.rhdl").rv5stage_instructions
+  lib("cores/cache-prefetch.rhdl") open
+  lib("riscv/isa/c.rhm").CCompressedExtensions
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("chi/main.rhdl") open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageFetchThroughput():
+  input(active, restart, sink_ready): Bool
+  input start_pc: Bits(64)
+  output(valid, fault): Bool
+  output pc: Bits(64)
+  output instruction: Bits(32)
+  interface chi(CHIRNChannels(test_rv5stage_flit), ~role: node)
+  def names = rv5stage_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.None).map(fun (instruction): instruction.name)
+  inst fetch(RV5StageInstructionFetch(XLen.X64, FloatingPointProfile.D, ~compressed: CCompressedExtensions, ~supported_instructions: names))
+  inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
+  inst router(RV5StageInstructionMemoryRouter(XLen.X64))
+  inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
+  fetch.active <== active
+  fetch.flush <== Bool(#false)
+  fetch.restart_valid <== restart
+  fetch.restart_pc <== start_pc
+  fetch.invalidate_all <== Bool(#false)
+  fetch.predictor_flush <== Bool(#false)
+  fetch.branch_update.valid <== Bool(#false)
+  fetch.branch_update.bits <== literal(RV5StageBranchUpdate(XLen.X64), 0)
+  fetch.fetched.ready <== sink_ready
+  valid <== fetch.fetched.valid
+  pc <== fetch.fetched.bits.pc
+  instruction <== fetch.fetched.bits.instruction
+  fault <== fetch.fetched.bits.instruction_page_fault ||| fetch.fetched.bits.instruction_access_fault ||| fetch.fetched.bits.compressed_illegal
+  fetch.memory |> mmu.instruction
+  mmu.instruction_lookup |> cache.virtual_lookup
+  mmu.instruction_memory |> router.core
+  router.cache |> cache.core
+  router.uncached.request.ready <== Bool(#true)
+  router.uncached.response.valid <== Bool(#false)
+  router.uncached.response.bits <== literal(RV5StageInstructionResp(), 0)
+  mmu.privilege <== PrivilegeMode.Machine
+  mmu.mstatus <== bits(0, 64)
+  mmu.satp <== bits(0, 64)
+  mmu.invalidate_all <== Bool(#false)
+  mmu.prefetch.valid <== Bool(#false)
+  mmu.prefetch.bits <== literal(CachePrefetchReq(64), 0)
+  mmu.data.request.valid <== Bool(#false)
+  mmu.data.request.bits <== literal(RV5StageDataReq(XLen.X64), 0)
+  mmu.data_memory.request.ready <== Bool(#true)
+  mmu.data_memory.request_fault <== Bool(#false)
+  mmu.data_memory.request_access_fault <== Bool(#false)
+  mmu.data_memory.response.valid <== Bool(#false)
+  mmu.data_memory.response.bits <== literal(RV5StageDataResp(XLen.X64), 0)
+  mmu.data_memory.drained <== Bool(#true)
+  mmu.data_memory.reservation_valid <== Bool(#false)
+  cache.node_id <== bits(2, 7)
+  cache.prefetch.valid <== Bool(#false)
+  cache.prefetch.bits <== literal(CachePrefetchReq(64), 0)
+  cache.chi <=> chi
+
+export:
+  RV5StageFetchThroughput
