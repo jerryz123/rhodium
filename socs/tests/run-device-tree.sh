@@ -87,7 +87,7 @@ done
 [[ "$(fdtget "$fixture_dir/tiled.dtb" / model)" == "Rhodium TiledSoC" ]]
 [[ "$(fdtget -t x "$fixture_dir/simple.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
 [[ "$(fdtget -t x "$fixture_dir/mini.dtb" /memory@80000000 reg)" == "0 80000000 0 10000" ]]
-[[ "$(fdtget -t x "$fixture_dir/tiled.dtb" /memory@80000000 reg)" == "0 80000000 0 8000" ]]
+[[ "$(fdtget -t x "$fixture_dir/tiled.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
 [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus timebase-frequency)" == "100000000" ]]
 [[ "$(fdtget "$fixture_dir/tiled.dtb" /cpus timebase-frequency)" == "1000000" ]]
 [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-base)" == "rv64i" ]]

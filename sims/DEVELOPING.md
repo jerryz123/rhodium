@@ -270,6 +270,14 @@ and PTY; no test-only DPI transport bypasses that path. Simulation CI runs it
 on all three SoCs. Keep the UART C++ source/header in both ordinary and mapped
 simulator link prerequisites when changing this shared harness dependency.
 
+`make -C sims tiled-memory-test` builds a separate TiledSoC harness specialization
+with independent REQ, RSP, write-DAT, and read-DAT stalls. Its target payload
+dirty-evicts and refills a 64 KiB footprint across every LLC slice, checks the
+last architectural memory line, and exits through FESVR. Harness assertions
+require actual backpressure on all four flows and reads/writebacks from every
+Home at the one external channel. Keep its build root separate from ordinary
+simulators and never reuse an unstalled prebuilt binary for this target.
+
 `transport-test` exercises the pinned FESVR `memif_t` path, exact-width and zero
 writes, backpressure, and target errors. The backend `fesvr-mmio` fixture tests
 the DPI-independent `FesvrCHIAccess` engine with coherent RAM fragmentation,

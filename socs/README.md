@@ -33,7 +33,7 @@ these claims do not apply to BootROM or device regions.
 | --- | ---: | --- | --- | --- | --- |
 | `SimpleSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router | RV64IMAFDC plus B, Zicond, and Zicbop; full C composition | Primary single-core coherent system and external-memory integration |
 | `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only with Zicbop; compressed instructions disabled | Compact RTL and physical-design experiments |
-| `TiledSoC` | 8 in the default 5x4 layout | Four internal 8 KiB `CHIRam` banks | Four inclusive LLC slices plus BootROM and routed device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
+| `TiledSoC` | 8 in the default 5x4 layout | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
 
 All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
 non-caching RN-F port for coherent RAM and non-snooping MMIO access.
@@ -61,16 +61,15 @@ timebase frequencies, architectural memory regions, BootROM layout, ACLINT,
 an optional PLIC, and an optional UART. The PLIC description identifies every
 source and orders machine and supervisor contexts for each hart. Address regions retain their originating `AddressSet`,
 so later PMA, CHI, and device-tree projections can share exact address values;
-striped implementation banks can remain hidden behind one architectural memory
-region.
+LLC ownership stripes remain distinct from architectural memory regions.
 
 Construction rejects inconsistent frequency ratios, non-contiguous or
 overlapping architectural regions, duplicate harts and compatible strings,
 reset vectors outside the BootROM, and payload addresses outside memory.
 `SimpleSoCParams`, `MiniSoCParams`, and `TiledSoCConfig` each expose a
 `.description` projection. The projection reuses the CHI subordinate service
-address sets; TiledSoC alone deliberately combines its striped banks into one
-contiguous architectural memory region.
+address sets; TiledSoC describes its single external memory channel as one
+contiguous architectural region, independently of LLC ownership stripes.
 
 Calling `.description.to_device_tree()` produces a deterministic generic
 `DeviceTree`. It describes the root identity, architectural memory, clock and
@@ -266,7 +265,7 @@ compact runs of like tiles:
 
 ```rhm
 def layout = tile_grid:
-  row [llc(4), transit]
+  row [llc(4), memory]
   row [host, device_home, aclint, plic, uart]
   row [rv5stage(4), transit]
   row [rv5stage(4), transit]
@@ -282,7 +281,10 @@ parameters in one pass. There is no public intermediate TiledSoC plan or
 second compiled configuration for authors to manage. The default
 `default_tiled_soc_config` defines the repository's 5x4 system; other
 rectangular layouts use the same entrypoint when they satisfy the tile-count
-invariants.
+invariants. Exactly one `memory` tile owns the external memory channel.
+`StripedMemory(~base: ..., ~size_bytes: ..., ~stripe_bytes: ...)` specifies
+total architectural capacity independently of the number of LLC slices;
+striping selects the owning LLC, not separate physical memory banks.
 
 The package lives under [`tiled-soc/`](tiled-soc/): `main.rhdl` is the public
 entrypoint, `layout.rhm` owns the immutable configuration and macro-phase
@@ -291,28 +293,29 @@ the rotating platform-time stream, and `tiles/` owns the concrete tile
 implementations.
 
 The default layout places eight `RV5StageTile`s in the lower two rows, five
-service routers in the middle row, and four `LLCTile`s in the upper row, with
-three transit tiles completing the rectangular mesh.
+service routers in the middle row, and four `LLCTile`s plus one `MemoryTile`
+in the upper row, with two transit tiles completing the rectangular mesh.
 The middle row contains the external host RN-F, a `DeviceHomeTile` with both
 sides of the shared HN-I, an `AclintTile`, a `PlicTile`, and a `UartTile`. The HN subordinate
 side reaches all five device SN-Is through the same CHI mesh rather than direct
 wires. The system allocates 16 RN-F NodeIDs for the eight L1I/L1D pairs, eight
 RN-I NodeIDs for
-uncached device traffic, one host RN-F, four HN-Fs, one HN-I, four SN-Fs, one
+uncached device traffic, one host RN-F, four HN-Fs, one HN-I, one external SN-F, one
 boot-address SN-I, one BootROM SN-I, one ACLINT SN-I, one PLIC SN-I, and one UART SN-I. The BootROM and boot-address register (default NodeID 56) are colocated with
 the device Home and use that router's composable local SN attachments.
 
-Four 8 KiB banks cover `0x80000000` through `0x80007fff` with 64-byte
-cache-line striping. Each LLC tile contains a 16-set, four-way cache, giving
-4 KiB per bank and 16 KiB of aggregate inclusive LLC capacity. One shared
+One 1 GiB memory channel covers `0x80000000` through `0xbfffffff`, with
+64-byte cache-line striping across the LLCs. Each LLC tile contains a 16-set,
+four-way cache, giving 4 KiB per slice and 16 KiB of aggregate inclusive LLC capacity. One shared
 physical-region table maps successive lines to successive HN-Fs and derives
-the CHI Home map. Each LLC indexes its sets with the dense per-bank projected
+the CHI Home map. Each LLC indexes its sets with the dense per-slice projected
 address while retaining the complete global line address as its tag. Its
-subordinate projector then maps sparse global bank addresses into the dense
-local backing RAM before fragmentation. The 16 coherent requester endpoints
+subordinate port rejoins the same CHI mesh and sends unchanged global addresses
+to the single memory SN-F (default NodeID 48). There is no backing RAM or
+address-compacting adapter inside an LLC tile. The 16 coherent requester endpoints
 plus the host RN-F connect to all four HN-Fs, while the eight uncached
 requester endpoints and host RN-F connect to the device HN-I and its subordinate side
-connects to all five SN-Is. Together they compile 82 REQ, 159 RSP, 68 SNP, and 164
+connects to all five SN-Is. Together they compile 86 REQ, 163 RSP, 68 SNP, and 172
 DAT routes before any hardware elaborates.
 
 Each tile owns one `CHIRouter`, containing independent REQ/RSP/SNP/DAT
@@ -322,12 +325,19 @@ service row adds one `DeviceHomeTile`, one `AclintTile`, one `PlicTile`, one `Ua
 one `HostTile` specialization. Their implementations and parameter contracts
 live under [`tiled-soc/tiles/`](tiled-soc/tiles/). The parent drives one constant
 identity bundle per occurrence containing its router site, hart ID, endpoint
-NodeIDs, striped service base, and local RAM base; tiles contain no system-wide
+NodeIDs and striped service base; tiles contain no system-wide
 identity table or runtime routing-mode selector. A `RV5StageTile` attaches one
 RV5Stage's two RN-F ports and its RN-I device port. A
-`LLCTile` attaches one blocking `CHIInclusiveHNF` and keeps its address
-projector, transfer fragmenter, and `CHIRam` on the HN's direct subordinate
-side. The device HN-I is reachable only through the uncached RN-I routes. The
+`LLCTile` attaches both sides of one blocking `CHIInclusiveHNF`. The `MemoryTile`
+exports `TiledSoC.memory`, a single `CHISNChannels` port in the `icn` role.
+Its external SN-F must support one-byte through 64-byte `ReadNoSnp`,
+`WriteNoSnpFull`, and `WriteNoSnpPtl` transfers, with DBID-associated write data
+and responses routed to the originating Home. Arbitration and return routing
+use the existing CHI fabric; LLC-local TxnIDs need not be globally unique.
+This is a memory-controller-facing protocol boundary, not a DDR controller or PHY.
+The simulation harness supplies one sparse `CHIDPIMemory`; a hardware integrator
+supplies the off-chip memory controller. The device HN-I is reachable through
+the uncached RN-I and host routes. The
 ACLINT computes the MSIP and MTIP vectors centrally, and a standard
 `StateChangeSource` emits only changed `(hart, interrupt-state)` entries. Its
 shared `mtime` value enters a separate narrow ready-valid stream. The default

@@ -18,6 +18,7 @@ import:
 export:
   RV5StageTileSpec
   LLCTileSpec
+  MemoryTileSpec
   HostTileSpec
   DeviceHomeTileSpec
   AclintTileSpec
@@ -33,6 +34,7 @@ export:
   TiledSoCConfig
   rv5stage_tile
   llc_tile
+  memory_tile
   host_tile
   device_home_tile
   aclint_tile
@@ -44,6 +46,7 @@ export:
 
 class RV5StageTileSpec()
 class LLCTileSpec()
+class MemoryTileSpec()
 class HostTileSpec()
 class DeviceHomeTileSpec()
 class AclintTileSpec()
@@ -52,10 +55,11 @@ class UartTileSpec()
 class TransitTileSpec()
 
 annot.macro 'TiledTileSpec':
-  'RV5StageTileSpec || LLCTileSpec || HostTileSpec || DeviceHomeTileSpec || AclintTileSpec || PlicTileSpec || UartTileSpec || TransitTileSpec'
+  'RV5StageTileSpec || LLCTileSpec || MemoryTileSpec || HostTileSpec || DeviceHomeTileSpec || AclintTileSpec || PlicTileSpec || UartTileSpec || TransitTileSpec'
 
 def rv5stage_tile = RV5StageTileSpec()
 def llc_tile = LLCTileSpec()
+def memory_tile = MemoryTileSpec()
 def host_tile = HostTileSpec()
 def device_home_tile = DeviceHomeTileSpec()
 def aclint_tile = AclintTileSpec()
@@ -89,6 +93,8 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     cells.filter(~keep: fun (cell): cell.tile is_a RV5StageTileSpec)
   property llcs:
     cells.filter(~keep: fun (cell): cell.tile is_a LLCTileSpec)
+  property memories:
+    cells.filter(~keep: fun (cell): cell.tile is_a MemoryTileSpec)
   property hosts:
     cells.filter(~keep: fun (cell): cell.tile is_a HostTileSpec)
   property device_homes:
@@ -132,6 +138,8 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     | error(~who: #'TileGrid, "tile grid requires exactly one PLIC tile")
     unless uart_count == 1
     | error(~who: #'TileGrid, "tile grid requires exactly one UART tile")
+    unless cells.filter(~keep: fun (cell): cell.tile is_a MemoryTileSpec).length() == 1
+    | error(~who: #'TileGrid, "tile grid requires exactly one memory-channel tile")
     super(rows)
 
   method tile_at(x :: Nat, y :: Nat) :: TiledTileSpec:
@@ -144,7 +152,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                    host :: Nat,
                    llc_home_base :: Nat,
                    device_home :: Nat,
-                   backing_memory_base :: Nat,
+                   memory :: Nat,
                    bootrom_subordinate :: Nat,
                    aclint_subordinate :: Nat,
                    plic_subordinate :: Nat,
@@ -155,7 +163,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                ~host: host :: Nat,
                ~llc_home_base: llc_home_base :: Nat,
                ~device_home: device_home :: Nat,
-               ~backing_memory_base: backing_memory_base :: Nat,
+               ~memory: memory :: Nat,
                ~bootrom_subordinate: bootrom_subordinate :: Nat,
                ~aclint_subordinate: aclint_subordinate :: Nat,
                ~plic_subordinate: plic_subordinate :: Nat,
@@ -166,7 +174,7 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
           host,
           llc_home_base,
           device_home,
-          backing_memory_base,
+          memory,
           bootrom_subordinate,
           aclint_subordinate,
           plic_subordinate,
@@ -174,12 +182,12 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
           boot_address_subordinate)
 
 class StripedMemory(base :: Nat,
-                    bank_bytes :: Pow2Int,
+                    size_bytes :: Pow2Int,
                     stripe_bytes :: Pow2Int):
   constructor (~base: base :: Nat,
-               ~bank_bytes: bank_bytes :: Pow2Int,
+               ~size_bytes: size_bytes :: Pow2Int,
                ~stripe_bytes: stripe_bytes :: Pow2Int):
-    super(base, bank_bytes, stripe_bytes)
+    super(base, size_bytes, stripe_bytes)
 
 fun tiled_power_of_two(value :: PosInt) :: Boolean:
   value == 1 || (value mod 2 == 0 && tiled_power_of_two(value / 2))
@@ -206,7 +214,7 @@ class TiledSoCConfig(layout :: TileGrid,
   implements StableCircuitParam
 
   property hart_count: layout.rv5stages.length()
-  property memory_bytes: memory.bank_bytes * layout.llcs.length()
+  property memory_bytes: memory.size_bytes
   property device_home:
     CHIHomeParams("tiled-device-home",
                   node_ids.device_home,
@@ -248,15 +256,16 @@ class TiledSoCConfig(layout :: TileGrid,
     unless memory.stripe_bytes >= 64
     | error(~who: #'TiledSoCConfig,
             "striped-memory stripes must contain a complete LLC line")
-    unless llc.capacity_bytes <= memory.bank_bytes
-    | error(~who: #'TiledSoCConfig,
-            "each LLC must fit within its backing-memory bank")
     unless tiled_power_of_two(layout.llcs.length())
     | error(~who: #'TiledSoCConfig,
             "LLC count must be a power of two for striped memory")
+    unless memory.size_bytes >= memory.stripe_bytes * layout.llcs.length()
+    | error(~who: #'TiledSoCConfig, "memory must contain at least one stripe per LLC")
+    unless llc.capacity_bytes <= memory.size_bytes / layout.llcs.length()
+    | error(~who: #'TiledSoCConfig, "each LLC must fit within its share of memory")
     unless core_profile.xlen.width == 64
     | error(~who: #'TiledSoCConfig, "TiledSoC requires an RV64 core profile")
-    AddressSet(memory.base, (memory.bank_bytes * layout.llcs.length()) - 1)
+    AddressSet(memory.base, memory.size_bytes - 1)
     super(layout, node_ids, memory, llc, core_profile, clocks, flit, boot)
 
 meta:
@@ -266,6 +275,7 @@ meta:
     | 'rv5stage($count)': 'repeat_tiled_tile(rv5stage_tile, $count)'
     | 'llc': '[llc_tile]'
     | 'llc($count)': 'repeat_tiled_tile(llc_tile, $count)'
+    | 'memory': '[memory_tile]'
     | 'host': '[host_tile]'
     | 'host($count)': 'repeat_tiled_tile(host_tile, $count)'
     | 'device_home': '[device_home_tile]'
@@ -280,7 +290,7 @@ meta:
     | 'transit($count)': 'repeat_tiled_tile(transit_tile, $count)'
     | ~else:
         syntax_meta.error(
-          "expected rv5stage, llc, host, device_home, aclint, plic, uart, or transit tile",
+          "expected rv5stage, llc, memory, host, device_home, aclint, plic, uart, or transit tile",
           entry
         )
 

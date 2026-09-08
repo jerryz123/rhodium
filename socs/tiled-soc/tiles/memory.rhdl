@@ -1,0 +1,25 @@
+#lang rhodium
+// Exposes one external CHI SN-F memory channel from its dedicated fabric router.
+
+import:
+  lib("chi/channels.rhdl").CHISNChannels
+  lib("chi/noc-router.rhdl") open
+
+sync_circuit MemoryTile(router_params :: CHIRouterParams):
+  def p = router_params.flit
+  def site_width = router_params.routers.req.route_decoder.site_width
+  def Link = chi_noc_link_type(router_params)
+
+  input site_key: Bits(site_width)
+  interface memory(CHISNChannels(p), ~role: icn)
+  interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
+  interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
+
+  inst router(CHIRouter(router_params))
+  router.site_key <== site_key
+  memory <=> router.sn_local[0]
+  router.incoming_links <=> incoming_links
+  router.outgoing_links <=> outgoing_links
+
+export:
+  MemoryTile

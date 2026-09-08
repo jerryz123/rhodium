@@ -4,8 +4,7 @@
 import:
   lib("chi/params.rhdl").CHIFlitParams
   lib("chi/noc-router.rhdl") open
-  lib("chi/memory-controller.rhdl").CHIRamIdentity
-  lib("chi/address-projector.rhdl").CHIAddressProjectorIdentity
+  lib("chi/channels.rhdl").CHISNChannels
   lib("chi/home-common.rhdl").CHIHNFIdentity
   lib("rhodium/std/counter.rhdl").Counter
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity
@@ -25,7 +24,7 @@ import:
   "../core-profiles.rhm" open
 
 def default_tiled_soc_layout = tile_grid:
-  row [llc(4), transit]
+  row [llc(4), memory]
   row [host, device_home, aclint, plic, uart]
   row [rv5stage(4), transit]
   row [rv5stage(4), transit]
@@ -43,7 +42,7 @@ def default_tiled_soc_config = TiledSoCConfig(
     ~host: 24,
     ~llc_home_base: 32,
     ~device_home: 36,
-    ~backing_memory_base: 48,
+    ~memory: 48,
     ~bootrom_subordinate: 54,
     ~aclint_subordinate: 52,
     ~plic_subordinate: 55,
@@ -52,7 +51,7 @@ def default_tiled_soc_config = TiledSoCConfig(
   ),
   ~memory: StripedMemory(
     ~base: 0x80000000,
-    ~bank_bytes: 0x2000,
+    ~size_bytes: 0x40000000,
     ~stripe_bytes: 64
   ),
   ~llc: LLCGeometry(
@@ -69,6 +68,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
   def p = implementation.flit
   def site_width = implementation.router_configs.req.route_decoder.site_width
   interface host(SoCHostInterface(p), ~role: soc)
+  interface memory(CHISNChannels(p), ~role: icn)
   interface uart(SoCUartInterface(), ~role: soc)
 
   def rv5stages = for InstanceArray (entry in implementation.rv5stages):
@@ -78,6 +78,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
   def transits = for InstanceArray (entry in implementation.transits):
     inst transit(TransitTile(entry.tile_params))
   inst host_tile(HostTile(implementation.host.tile_params))
+  inst memory_tile(MemoryTile(implementation.memory.router_params))
   inst device_home(DeviceHomeTile(implementation.device_home.tile_params))
   inst bootrom(CHIBootROM(implementation.platform.bootrom.rom_config(config.description)))
   inst boot_address(CHIBootAddressRegister(implementation.platform.boot_address_config))
@@ -109,19 +110,15 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
       home: (CHIHNFIdentity(p):
                home_node_id: bits(entry.home_params.home.node_id, p.node_id_width)
                subordinate_node_id: bits(entry.home_params.subordinate_endpoint.node_id, p.node_id_width)
-               service_base: bits(entry.projector_params.global_address_set.base, p.request_address_width))
-      projector: (CHIAddressProjectorIdentity(p):
-                    global_service_base: bits(entry.projector_params.global_address_set.base, p.request_address_width)
-                    local_base: bits(entry.projector_params.local_address_set.base, p.request_address_width))
-      ram: (CHIRamIdentity(p):
-              node_id: bits(entry.ram_params.node_id, p.node_id_width)
-              base_address: bits(entry.ram_params.base_address, p.request_address_width))
+               service_base: bits(entry.address_set.base, p.request_address_width))
 
   for (index in 0..implementation.transits.length()):
     def entry = implementation.transits[index]
     transits[index].site_key <== bits(implementation.site_key(entry.placement.router), site_width)
   host_tile.site_key <== bits(implementation.site_key(implementation.host.placement.router), site_width)
   host.memory <=> host_tile.host
+  memory_tile.site_key <== bits(implementation.site_key(implementation.memory.placement.router), site_width)
+  memory <=> memory_tile.memory
   device_home.site_key <== bits(implementation.site_key(implementation.device_home.placement.router), site_width)
   bootrom.identity <== CHIBootROMIdentity(p):
     node_id: bits(implementation.bootrom.device.node_id, p.node_id_width)
@@ -165,6 +162,9 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
                          transits[index].incoming_links,
                          transits[index].outgoing_links)
   ) ++ [
+    CHIRouterEndpoints(implementation.site_key(implementation.memory.placement.router),
+                       memory_tile.incoming_links,
+                       memory_tile.outgoing_links),
     CHIRouterEndpoints(implementation.site_key(implementation.host.placement.router),
                        host_tile.incoming_links,
                        host_tile.outgoing_links),
@@ -191,6 +191,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
 export:
   RV5StageTileSpec
   LLCTileSpec
+  MemoryTileSpec
   HostTileSpec
   DeviceHomeTileSpec
   AclintTileSpec
@@ -206,6 +207,7 @@ export:
   TiledSoCConfig
   rv5stage_tile
   llc_tile
+  memory_tile
   host_tile
   device_home_tile
   aclint_tile

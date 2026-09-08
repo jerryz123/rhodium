@@ -5,7 +5,7 @@ import:
   "../tiled-soc/layout.rhm" open
 
 def layout = tile_grid:
-  row [llc(4), transit]
+  row [llc(4), memory]
   row [host, device_home, aclint, plic, uart]
   row [rv5stage(4), transit]
   row [rv5stage(4), transit]
@@ -20,7 +20,9 @@ check:
   layout.aclints.length() ~is 1
   layout.plics.length() ~is 1
   layout.uarts.length() ~is 1
-  layout.transits.length() ~is 3
+  layout.transits.length() ~is 2
+  layout.memories.length() ~is 1
+  layout.tile_at(4, 3) is_a MemoryTileSpec ~is #true
   layout.tile_at(0, 0) is_a RV5StageTileSpec ~is #true
   layout.tile_at(3, 1) is_a RV5StageTileSpec ~is #true
   layout.tile_at(0, 2) is_a HostTileSpec ~is #true
@@ -63,3 +65,15 @@ check:
     [host_tile, device_home_tile, uart_tile],
     [aclint_tile, rv5stage_tile, transit_tile]
   ]) ~throws "exactly one PLIC"
+
+check:
+  TileGrid([
+    [llc_tile, transit_tile, transit_tile, transit_tile, transit_tile],
+    [host_tile, device_home_tile, aclint_tile, plic_tile, uart_tile],
+    [rv5stage_tile, transit_tile, transit_tile, transit_tile, transit_tile]
+  ]) ~throws "exactly one memory-channel"
+  TileGrid([
+    [llc_tile, memory_tile, memory_tile, transit_tile, transit_tile],
+    [host_tile, device_home_tile, aclint_tile, plic_tile, uart_tile],
+    [rv5stage_tile, transit_tile, transit_tile, transit_tile, transit_tile]
+  ]) ~throws "exactly one memory-channel"

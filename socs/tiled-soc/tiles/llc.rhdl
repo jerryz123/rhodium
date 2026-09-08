@@ -1,28 +1,19 @@
 #lang rhodium
-// Implements one inclusive LLC slice with its CHI router and backing-memory bank.
+// Attaches both sides of one inclusive LLC slice to the shared CHI fabric.
 
 import:
   lib("chi/params.rhdl").CHIFlitParams
   lib("chi/noc-router.rhdl") open
-  lib("chi/memory-controller.rhdl") open
-  lib("chi/ram.rhdl").CHIRam
-  lib("chi/transfer-fragmenter.rhdl") open
-  lib("chi/address-projector.rhdl") open
   lib("chi/home-common.rhdl").CHIHNFIdentity
   lib("chi/inclusive-home.rhdl") open
 
 class LLCTileParams(home :: CHIInclusiveHNFConfig,
-                    projector :: CHIAddressProjectorConfig,
-                    fragmenter :: CHITransferFragmenterConfig,
-                    ram :: CHIRamConfig,
                     router :: CHIRouterParams):
   implements StableCircuitParam
 
 bundle LLCTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   site_key: Bits(site_width)
   home: CHIHNFIdentity(p)
-  projector: CHIAddressProjectorIdentity(p)
-  ram: CHIRamIdentity(p)
 
 sync_circuit LLCTile(params :: LLCTileParams):
   def router_params = params.router
@@ -35,20 +26,13 @@ sync_circuit LLCTile(params :: LLCTileParams):
   interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
 
   inst home(CHIInclusiveHNF(params.home))
-  inst projector(CHIAddressProjector(params.projector))
-  inst fragmenter(CHITransferFragmenter(params.fragmenter))
-  inst ram(CHIRam(params.ram))
   inst router(CHIRouter(router_params))
 
   home.identity <== identity.home
-  projector.identity <== identity.projector
-  ram.identity <== identity.ram
   router.site_key <== identity.site_key
   def home_channels :: Endpoint = router.hnf_requester_local[0]
   home.port.requester <=> home_channels
-  home.port.subordinate <=> projector.upstream
-  projector.downstream <=> fragmenter.upstream
-  fragmenter.downstream <=> ram.port
+  home.port.subordinate <=> router.hn_subordinate_local[0]
   router.incoming_links <=> incoming_links
   router.outgoing_links <=> outgoing_links
 

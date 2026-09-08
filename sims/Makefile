@@ -25,8 +25,10 @@ HARNESS_SOURCE_tiled := sims/tiled-soc-harness.rhdl
 HARNESS_SOURCE := $(HARNESS_SOURCE_$(SOC))
 HARNESS_EMITTER := $(REPO_DIR)/sims/emit-soc-harness.rhm
 SOC_DPI_SOURCE_simple := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc
+SOC_DPI_SOURCE_tiled := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc
 SOC_DPI_SOURCE := $(SOC_DPI_SOURCE_$(SOC)) $(UART_DPI_DIR)/uart_dpi.cc
 SOC_DPI_HEADER_simple := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h
+SOC_DPI_HEADER_tiled := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h
 SOC_DPI_HEADER := $(SOC_DPI_HEADER_$(SOC)) $(UART_DPI_DIR)/uart_dpi.h
 
 CPPFLAGS += -I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR)
@@ -58,6 +60,7 @@ SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
 SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(SOC_OBJECT_DIR)/VTestDriver)
 SMOKE_BINARY := $(SOC_BUILD_DIR)/rv5stage_smoke.elf
 UART_PTY_BINARY := $(SOC_BUILD_DIR)/rv5stage_uart_pty.elf
+TILED_MEMORY_BINARY := $(SOC_BUILD_DIR)/rv5stage_tiled_memory.elf
 BOOT_BINARIES := $(SOC_BUILD_DIR)/rv5stage_boot_2000.elf $(SOC_BUILD_DIR)/rv5stage_boot_3000.elf
 HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/rv5stage_host_mmio.elf
 HOST_MMIO_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_host_mmio.signature
@@ -99,6 +102,14 @@ smoke: $(SMOKE_BINARY)
 
 uart-pty-test: $(UART_PTY_BINARY) simulator
 	$(PYTHON) tests/uart_pty_test.py "$(SIMULATOR_BINARY)" "$(UART_PTY_BINARY)"
+
+.PHONY: tiled-memory-test
+tiled-memory-test:
+	$(MAKE) "$(BUILD_ROOT)/tiled-memory-test/tiled/rv5stage_tiled_memory.elf" run SOC=tiled TRACE=0 PREBUILT_SIMULATOR= \
+	  BUILD_ROOT="$(BUILD_ROOT)/tiled-memory-test" \
+	  HARNESS_SOURCE=sims/tests/tiled-memory-harness.rhdl \
+	  BINARY="$(BUILD_ROOT)/tiled-memory-test/tiled/rv5stage_tiled_memory.elf" \
+	  HTIF_ARGS=+max-cycles=50000000
 
 trace-smoke:
 	@test -n "$(TRACE_PROCESSOR)" || (echo "TRACE_PROCESSOR must name the native Perfetto importer" >&2; exit 2)
@@ -231,6 +242,10 @@ $(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
 
 $(UART_PTY_BINARY): tests/programs/rv5stage_uart_pty.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
+	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+
+$(TILED_MEMORY_BINARY): tests/programs/rv5stage_tiled_memory.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
 

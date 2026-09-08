@@ -67,6 +67,7 @@ imports of named SoCs from shared components.
 | Private tiled configuration compiler | [`tiled-soc/compile.rhdl`](tiled-soc/compile.rhdl) |
 | Tiled time, ACLINT, and PLIC interrupt distribution overlay | [`tiled-soc/distribution.rhdl`](tiled-soc/distribution.rhdl) |
 | Concrete tile implementations | [`tiled-soc/tiles/`](tiled-soc/tiles/) |
+| Single external memory-channel router attachment | [`tiled-soc/tiles/memory.rhdl`](tiled-soc/tiles/memory.rhdl) |
 | Focused tests | [`tests/`](tests/) and [`Makefile`](Makefile) |
 
 ## Change a composition
@@ -94,6 +95,13 @@ imports of named SoCs from shared components.
    maps, topology, or supported systems change.
 
 ## Focused validation
+
+Tiled LLC subordinate ports share the existing CHI fabric with requester and
+device traffic. Compile one `CHISNConnection` from each Home to the single
+memory site, preserving global addresses and Home source IDs. The address
+projector remains only the LLC indexing/ownership description, not a downstream
+RTL adapter. The external service owns transfer support; the simulator derives
+its DPI memory configuration from that service and the architectural capacity.
 
 Run SoC configuration and topology-compilation tests from the repository root:
 

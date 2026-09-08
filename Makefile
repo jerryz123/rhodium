@@ -48,7 +48,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   socs/tests/write-device-trees.rhm \
   tools/write-riscv-udb-config.rhm \
   $(wildcard tests/backend/emit-*.rhm) \
-  $(wildcard sims/tests/*.rhm) \
+  $(wildcard sims/tests/*.rhm sims/tests/*.rhdl) \
   $(wildcard sims/emit-*.rhm) \
   $(wildcard sims/program-test/*.rhm) \
   tests/backend/load-example.rkt tests/support/run-negative.rkt \

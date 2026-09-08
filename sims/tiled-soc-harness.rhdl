@@ -1,26 +1,71 @@
 #lang rhodium
-// Wraps bootable TiledSoC with FESVR and a serial-pin PTY UART model.
+// Wraps TiledSoC with FESVR, one external memory model, and a serial-pin PTY UART.
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
+  lib("chi/memory-controller.rhdl") open
+  lib("chi/dpi-memory.rhdl").CHIDPIMemory
+  lib("chi/flits.rhdl").CHIReqOpcode
+  lib("rhodium/std/ready-valid.rhdl") open
   lib("socs/tiled-soc/main.rhdl") as tiled
   lib("socs/tiled-soc/compile.rhdl") as compiler
   lib("devices/uart-dpi.rhdl").UartDPI
+  lib("flow/gate.rhdl").gate_flow
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
 
 sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = tiled.default_tiled_soc_config,
-                        uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
+                        uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1,
+                        ~memory_stalls: memory_stalls :: Boolean = #false):
   def implementation = compiler.compile_tiled_soc(soc_config)
   output exit: Bits(32)
 
   inst requester(FesvrRequester(XLen.X64, implementation.flit, implementation.host.node, implementation.home_map, implementation.rv5stage_config.physical_map, implementation.host_services, soc_config.boot.boot_address_register))
   inst soc(tiled.TiledSoC(soc_config))
+  inst memory(CHIDPIMemory(CHIRamConfig(implementation.flit, soc_config.memory.size_bytes, ~max_outstanding: implementation.memory.node.max_outstanding, ~max_transfer_bytes: 64)))
   inst uart(UartDPI(0, uart_oversample_divisor))
 
   requester.port <=> soc.host.memory
+  if memory_stalls
+  | block:
+      // A test specialization independently stalls every external-memory flow.
+      reg phase(~init: bits(0, 8))
+      phase <== phase + bits(1, 8)
+      // Let the coverage assertions sample completion before the driver exits.
+      reg checked_exit(~init: bits(0, 32))
+      checked_exit <== requester.exit
+      exit <== checked_exit
+      soc.memory.req |> gate_flow(!(phase[0..3] === bits(0, 3))) |> memory.port.req
+      memory.port.rsp |> gate_flow(phase[0..4] < bits(3, 4)) |> soc.memory.rsp
+      soc.memory.dat.request |> gate_flow(phase[0..5] < bits(5, 5)) |> memory.port.dat.request
+      memory.port.dat.response |> gate_flow(phase[0..7] < bits(8, 7)) |> soc.memory.dat.response
+
+      def memory_flows = [soc.memory.req, memory.port.rsp, soc.memory.dat.request, memory.port.dat.response]
+      reg blocked(~init: vec(for List (_index in 0..4): Bool(#false)))
+      for (index in 0..4):
+        def channel :: Endpoint = memory_flows[index]
+        when (channel.valid & !channel.ready):
+          blocked[index] <== Bool(#true)
+        when (!(requester.exit === bits(0, 32))):
+          assert(blocked[index], "tiled_memory_flow_exercised_backpressure")
+      reg read_seen(~init: vec(for List (_entry in implementation.llcs): Bool(#false)))
+      reg write_seen(~init: vec(for List (_entry in implementation.llcs): Bool(#false)))
+      for (index in 0..implementation.llcs.length()):
+        def entry = implementation.llcs[index]
+        when (memory.port.req.fire() & (memory.port.req.bits.src_id === bits(entry.home_params.home.node_id, implementation.flit.node_id_width))):
+          read_seen[index] <== read_seen[index] ||| (memory.port.req.bits.opcode === CHIReqOpcode.ReadNoSnp)
+          write_seen[index] <== write_seen[index] ||| memory.port.req.bits.opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
+        when (!(requester.exit === bits(0, 32))):
+          assert(read_seen[index] & write_seen[index], "tiled_memory_each_slice_read_and_writeback")
+      #void
+  | block:
+      soc.memory <=> memory.port
+      exit <== requester.exit
+      #void
+  memory.identity <== CHIRamIdentity(implementation.flit):
+    node_id: bits(implementation.memory.node.node_id, implementation.flit.node_id_width)
+    base_address: bits(soc_config.memory.base, implementation.flit.request_address_width)
   uart.uart_tx <== soc.uart.tx
   soc.uart.rx <== uart.uart_rx
-  exit <== requester.exit
 
 def design = elaborate(SoCHarness())
 

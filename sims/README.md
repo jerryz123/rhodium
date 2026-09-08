@@ -17,7 +17,7 @@ Contributors changing a harness, binding, or build rule should read
 | --- | --- | --- | --- |
 | `simple` | `SimpleSoC` | `CHIDPIMemory` behind the SoC's external SN-F boundary | RV64IMAFDC plus B and Zicond; C composes Zca and Zcd |
 | `mini` | `MiniSoC` | None; the SoC contains its own 64 KiB `CHIRam` | Integer-only, compressed instructions disabled |
-| `tiled` | Default 4x4 `TiledSoC` | None; each LLC tile contains its backing `CHIRam` bank | Integer-only; C specializes to Zca |
+| `tiled` | Default 5x4 `TiledSoC` | One `CHIDPIMemory` behind the shared external channel | Integer-only; C specializes to Zca |
 
 `SOC` defaults to `simple`. Read the [SoC comparison](../socs/README.md#choose-a-system)
 for the hardware differences, then use this guide to build or run the matching
@@ -34,7 +34,7 @@ flowchart LR
   subgraph Harness["Generated SoCHarness top - sims ownership"]
     FESVR["FesvrRequester<br/>RAM + MMIO host RN-F"]
     SoC["Selected SoC instance<br/>BootROM + hardware owned by socs/"]
-    DPIMemory["CHIDPIMemory<br/>SimpleSoC only"]
+    DPIMemory["CHIDPIMemory<br/>SimpleSoC and TiledSoC"]
     UART["UartDPI<br/>serial pins ↔ PTY"]
 
     FESVR <--> SoC
@@ -53,8 +53,8 @@ that instantiates the FESVR requester and connects it to that SoC's common
 `SoCHostInterface`. Each harness connects its SoC's UART TX and RX pins to
 the device-owned `UartDPI` PTY model. The UART interrupt remains connected to
 the SoC's PLIC. The
-SimpleSoC harness additionally instantiates `CHIDPIMemory`, because only that
-SoC exposes an external normal-memory boundary. No SoC contains DPI calls or
+SimpleSoC and TiledSoC harnesses each instantiate one `CHIDPIMemory` on their
+external normal-memory boundary. No SoC contains DPI calls or
 simulator dependencies.
 
 The directory owns:
@@ -78,7 +78,7 @@ make -C sims simulator SOC=tiled
 ```
 
 `SOC` accepts `simple`, `mini`, or `tiled` and defaults to `simple`. The
-SimpleSoC harness attaches `CHIDPIMemory` to the SoC's exposed ready-valid SN-F
+SimpleSoC and TiledSoC harnesses attach `CHIDPIMemory` to their exposed ready-valid SN-F
 channels as a simulation-only external memory model. MiniSoC instead contains
 its own synthesizable `CHIRam`. Each harness has an independent artifact at
 `/tmp/rhodium-sims/<soc>/obj/VTestDriver`, so
@@ -376,6 +376,10 @@ make -C sims boot-test SOC=simple
 make -C sims boot-test SOC=mini
 make -C sims boot-test SOC=tiled
 ```
+
+`make -C sims tiled-memory-test` uses a separate stalled-memory build to check
+writebacks and refills across all LLC slices through the single external
+channel. The ordinary `SOC=tiled` harness leaves memory channels unstalled.
 
 The smoke starts with `tohost` cleared, executes RV64I instructions on
 RV5Stage, stores the passing value into a dirty L1D line, and succeeds only

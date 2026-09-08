@@ -282,6 +282,8 @@ jobs:
           make -C sims uart-pty-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
           make -C sims uart-pty-test SOC=mini
           make -C sims uart-pty-test SOC=tiled
+      - name: Stress the single TiledSoC memory channel under backpressure
+        run: make -C sims tiled-memory-test
       - name: Verify translated NTL cache policy through FESVR on all three SoCs
         run: |
           make -C sims zihintntl-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"

@@ -1,0 +1,10 @@
+#lang rhodium
+// Specializes the production TiledSoC harness with independently stalled memory channels.
+
+import:
+  "../tiled-soc-harness.rhdl".SoCHarness
+
+def design = elaborate(SoCHarness(~memory_stalls: #true))
+
+export:
+  design

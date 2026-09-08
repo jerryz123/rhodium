@@ -3,13 +3,14 @@
 
 import:
   lib("chi/params.rhdl").CHIFlitParams
+  lib("chi/flits.rhdl").CHIReqOpcode
+  lib("chi/flits.rhdl").CHIRspOpcode
+  lib("chi/flits.rhdl").CHIDatOpcode
   lib("chi/link.rhdl") open
   lib("chi/noc-authoring.rhm") open
   lib("chi/noc-adapter.rhdl") open
   lib("chi/noc-router.rhdl") open
   lib("chi/fabric.rhdl") open
-  lib("chi/memory-controller.rhdl") open
-  lib("chi/transfer-fragmenter.rhdl") open
   lib("chi/address-projector.rhdl") open
   lib("chi/home.rhdl").CHIHNIParams
   lib("chi/home-common.rhdl") open
@@ -51,10 +52,13 @@ class TiledLLCPlacement(index :: Nat,
                         coordinate :: MeshCoordinate,
                         router :: NodeRef,
                         home_node_id :: Nat,
-                        subordinate_node_id :: Nat,
-                        bank_index :: Nat,
-                        bank_bytes :: PosInt,
-                        home_site :: CHIRNICNSite)
+                        slice_index :: Nat,
+                        home_site :: CHIRNICNSite,
+                        subordinate_site :: CHISNICNSite)
+
+class TiledMemoryPlacement(coordinate :: MeshCoordinate,
+                           router :: NodeRef,
+                           site :: CHISNSite)
 
 class TiledDeviceHomePlacement(coordinate :: MeshCoordinate,
                                router :: NodeRef,
@@ -98,10 +102,13 @@ class RV5StageTileInstance(placement :: TiledRV5StagePlacement,
 class LLCTileInstance(placement :: TiledLLCPlacement,
                       home_params :: CHIHNFParams,
                       llc_config :: CHIInclusiveHNFConfig,
-                      projector_params :: CHIAddressProjectorParams,
-                      fragmenter_params :: CHITransferFragmenterParams,
-                      ram_params :: CHIRamParams,
+                      address_set :: AddressSet,
                       tile_params :: LLCTileParams)
+
+class MemoryTileInstance(placement :: TiledMemoryPlacement,
+                         node :: CHINodeParams,
+                         service :: CHISubordinateServiceParams,
+                         router_params :: CHIRouterParams)
 
 class HostTileInstance(placement :: TiledHostPlacement,
                        node :: CHINodeParams,
@@ -145,12 +152,11 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
                              projector_config :: CHIAddressProjectorConfig,
                              hnf_config :: CHIHNFConfig,
                              llc_config :: CHIInclusiveHNFConfig,
-                             ram_config :: CHIRamConfig,
-                             fragmenter_config :: CHITransferFragmenterConfig,
                              platform :: SoCPlatformParams,
                              router_configs :: CHIRouterFamilyConfigs,
                              rv5stages :: NonemptyList.of(RV5StageTileInstance),
                              llcs :: NonemptyList.of(LLCTileInstance),
+                             memory :: MemoryTileInstance,
                              host :: HostTileInstance,
                              device_home :: DeviceHomeTileInstance,
                              bootrom :: BootROMInstance,
@@ -162,7 +168,7 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
 
   property host_services:
     (for List (entry in home_map.entries.filter(~keep: fun (entry): entry.home.kind == CHINodeKind.HNF)):
-       soc_host_memory_service(entry.home, [entry.address_set], ram_config.requests)) ++ platform.host_services
+       soc_host_memory_service(entry.home, [entry.address_set], memory.service.requests)) ++ platform.host_services
   property width :: PosInt: config.layout.width
   property height :: PosInt: config.layout.height
   property snp_compilation :: CHIChannelCompilation: compilations.snp
@@ -220,17 +226,19 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       def coordinate = cell.coordinate
       def router = mesh.node_at(coordinate.x, coordinate.y)
       def home_node_id = ids.llc_home_base + index
-      def subordinate_node_id = ids.backing_memory_base + index
       TiledLLCPlacement(
         index,
         coordinate,
         router,
         home_node_id,
-        subordinate_node_id,
         index,
-        memory.bank_bytes,
-        CHIRNICNSite(NamePath(["llc", to_string(index), "home"]), home_node_id, router)
+        CHIRNICNSite(NamePath(["llc", to_string(index), "home"]), home_node_id, router),
+        CHISNICNSite(NamePath(["llc", to_string(index), "subordinate"]), home_node_id, router)
       )
+
+  def memory_cell = layout.memories[0]
+  def memory_router = mesh.node_at(memory_cell.coordinate.x, memory_cell.coordinate.y)
+  def memory_placement = TiledMemoryPlacement(memory_cell.coordinate, memory_router, CHISNSite(NamePath(["memory"]), ids.memory, memory_router))
 
   def host_cell = layout.hosts[0]
   def host_router = mesh.node_at(host_cell.coordinate.x, host_cell.coordinate.y)
@@ -310,6 +318,8 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   for (requester in rnf_sites):
     for (llc_placement in llc_placements):
       connections := connections ++ [CHIRNFConnection(requester, llc_placement.home_site)]
+  for (placement in llc_placements):
+    connections := connections ++ [CHISNConnection(placement.subordinate_site, memory_placement.site)]
   for (requester in [host_placement.site] ++ uncached_sites):
     connections := connections ++ [CHIRNIConnection(requester, device_home_placement.requester_site)]
   connections := connections ++ [
@@ -349,9 +359,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     fun (placement): placement.uncached_node_id
   ) ++ llc_placements.map(
     fun (placement): placement.home_node_id
-  ) ++ llc_placements.map(
-    fun (placement): placement.subordinate_node_id
-  ) ++ [host_placement.node_id,
+  ) ++ [ids.memory, host_placement.node_id,
         device_home_placement.node_id,
         bootrom_placement.node_id,
         ids.boot_address_subordinate,
@@ -366,7 +374,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
 
   def projector_config = CHIAddressProjectorConfig(
     flit,
-    memory.bank_bytes,
+    memory.size_bytes / llc_placements.length(),
     memory.stripe_bytes,
     llc_placements.length()
   )
@@ -387,14 +395,14 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                home in homes):
        RV5StageCHIRegion(
          RiscvPhysicalMemoryRegion(
-           projector_config.address_set(memory.base, placement.bank_index),
+           projector_config.address_set(memory.base, placement.slice_index),
            memory_attributes
          ),
          home
        )) ++ platform.regions
   )
   unless for any (placement in llc_placements):
-    projector_config.address_set(memory.base, placement.bank_index).contains(config.boot.payload_address)
+    projector_config.address_set(memory.base, placement.slice_index).contains(config.boot.payload_address)
   | error(~who: #'compile_tiled_soc, "BootROM payload address must lie in normal memory")
 
   def rv5stage_chi_params:
@@ -415,39 +423,26 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
 
   def device_home_params = platform.home_params(uncached_ports ++ [soc_host_home_port(host_node, ~coherent: #false)])
 
-  def ram_config = CHIRamConfig(flit,
-                                memory.bank_bytes,
-                                ~max_outstanding: 2)
-  def ram_params:
-    for List (placement in llc_placements):
-      CHIRamParams("tiled-ram-" ++ to_string(placement.index),
-                   placement.subordinate_node_id,
-                   ram_config,
-                   ~base_address: 0,
-                   ~kind: CHINodeKind.SNF)
-  def fragmenter_config = CHITransferFragmenterConfig(flit, ~max_transfer_bytes: 64)
-  def fragmenter_params:
-    for List (ram in ram_params):
-      CHITransferFragmenterParams(fragmenter_config, ram.service)
-  def projector_params:
-    for List (placement in llc_placements,
-              fragmenter in fragmenter_params):
-      CHIAddressProjectorParams(projector_config,
-                                fragmenter.upstream_service,
-                                memory.base,
-                                placement.bank_index)
+  def memory_node = CHINodeParams(
+    "tiled-memory", ids.memory, CHINodeKind.SNF,
+    ~emits: CHIChannelCapabilities(~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp], ~dat: [CHIDatOpcode.CompData]),
+    ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl], ~dat: [CHIDatOpcode.NonCopyBackWriteData]),
+    ~max_outstanding: 4)
+  def memory_service = CHISubordinateServiceParams(
+    memory_node.icn_peer(),
+    [AddressSet(memory.base, memory.size_bytes - 1)],
+    for List (opcode in [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl]):
+      CHIRequestSupport(opcode, TransferSizes(1, 64)))
 
   def hnf_config = CHIHNFConfig(
     flit,
     requester_ports,
     projector_config.global_mask,
-    fragmenter_config.upstream_requests(ram_config.requests)
+    memory_service.requests
   )
   def hnf_params:
-    for List (home in homes,
-              ram in ram_params,
-              projector in projector_params):
-      CHIHNFParams(home, hnf_config, projector.upstream_service)
+    for List (home in homes, placement in llc_placements):
+      CHIHNFParams(home, hnf_config, CHISubordinateServiceParams(memory_service.endpoint, [projector_config.address_set(memory.base, placement.slice_index)], memory_service.requests))
   def llc_config = CHIInclusiveHNFConfig(
     hnf_config,
     projector_config,
@@ -499,10 +494,13 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       adapter_plans,
       CHIRouterAttachments(
         ~hnf_requester_sites: (for List (placement in llc_placements):
-                                [placement.home_site])
+                                [placement.home_site]),
+        ~hn_subordinate_sites: (for List (placement in llc_placements):
+                                 [placement.subordinate_site])
       )
     )
   )
+  def memory_router_params = CHIRouterParams(flit, router_configs, compile_chi_router_attachment_plan(router_configs, adapter_plans, CHIRouterAttachments(~sn_sites: [[memory_placement.site]])))
   def device_home_router_params = CHIRouterParams(
     flit,
     router_configs,
@@ -567,9 +565,6 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
                                                 rv5stage_placements.length(),
                                                 config.core_profile)
   def llc_tile_params = LLCTileParams(llc_config,
-                                      projector_config,
-                                      fragmenter_config,
-                                      ram_config,
                                       llc_router_params)
   def device_home_tile_params = DeviceHomeTileParams(device_home_params, device_home_router_params)
   def aclint_tile_params = AclintTileParams(platform.aclint_config, aclint_router_params)
@@ -586,17 +581,13 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       RV5StageTileInstance(placement, params, rv5stage_tile_params)
   def llcs:
     for List (placement in llc_placements,
-              home in hnf_params,
-              projector in projector_params,
-              fragmenter in fragmenter_params,
-              ram in ram_params):
+              home in hnf_params):
       LLCTileInstance(placement,
                       home,
                       llc_config,
-                      projector,
-                      fragmenter,
-                      ram,
+                      projector_config.address_set(memory.base, placement.slice_index),
                       llc_tile_params)
+  def memory_instance = MemoryTileInstance(memory_placement, memory_node, memory_service, memory_router_params)
   def host = HostTileInstance(host_placement, host_node, host_port, host_tile_params)
   def device_home_instance = DeviceHomeTileInstance(device_home_placement, device_home, device_home_params, device_home_tile_params)
   def bootrom = BootROMInstance(bootrom_placement, platform.bootrom.rom_params)
@@ -622,12 +613,11 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     projector_config,
     hnf_config,
     llc_config,
-    ram_config,
-    fragmenter_config,
     platform,
     router_configs,
     rv5stages,
     llcs,
+    memory_instance,
     host,
     device_home_instance,
     bootrom,
@@ -641,6 +631,7 @@ export:
   TiledRV5StagePlacement
   TiledHostPlacement
   TiledLLCPlacement
+  TiledMemoryPlacement
   TiledDeviceHomePlacement
   TiledBootROMPlacement
   TiledAclintPlacement
@@ -650,6 +641,7 @@ export:
   TiledChannelFamilyPlans
   RV5StageTileInstance
   LLCTileInstance
+  MemoryTileInstance
   HostTileInstance
   DeviceHomeTileInstance
   BootROMInstance
