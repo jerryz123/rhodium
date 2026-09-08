@@ -33,6 +33,11 @@ for name in simple mini tiled; do
   dtc -I dts -O dtb -o "$fixture_dir/$name-from-dts.dtb" "$fixture_dir/$name.dts"
   fdtdump "$fixture_dir/$name.dtb" > "$fixture_dir/$name.dump" 2>&1
   cmp "$fixture_dir/$name.dtb" "$fixture_dir/$name-from-dts.dtb"
+  # The public ISA advertisement must follow the default hardware profile.
+  case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+    *" zihintntl "*) ;;
+    *) echo "$name DTB does not advertise Zihintntl" >&2; exit 1 ;;
+  esac
 done
 
 [[ "$(fdtget "$fixture_dir/simple.dtb" / model)" == "Rhodium SimpleSoC" ]]

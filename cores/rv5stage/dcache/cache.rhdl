@@ -31,6 +31,7 @@ bundle RV5StageL1DTransactionContext(xlen :: XLen,
   request: RV5StageDataReq(xlen)
   way: Bits(way_width)
   allocation: Bool
+  install: Bool
   prefetch: Bool
   prefetch_write: Bool
 
@@ -266,7 +267,10 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def prefetch_needs_refill = lookup_ready & lookup_prefetch & (!line_hit ||| (lookup_prefetch_write & !lookup_state.is_unique()))
   def prefetch_dirty_victim = prefetch_needs_refill & !line_hit & victim_valid & victim_state.is_dirty()
   def lookup_needs_refill = lookup_load & !line_hit ||| lookup_mutation & !mutation_has_ownership ||| (prefetch_needs_refill & !prefetch_dirty_victim)
-  def dirty_victim = lookup_needs_refill & !lookup_prefetch & !line_hit & victim_valid & victim_state.is_dirty()
+  // Every NTL selector discourages L1 retention. Keep that policy separate
+  // from architectural intent; LR, mutations, and prefetches still allocate.
+  def bypass_refill = !lookup_prefetch & !line_hit & (lookup_access === MemoryOperation.Load) & (lookup_request.locality =/= RV5StageMemoryLocality.Default)
+  def dirty_victim = lookup_needs_refill & !bypass_refill & !lookup_prefetch & !line_hit & victim_valid & victim_state.is_dirty()
   def cached_word = resolved.egress.bits.word
   def gather_idle = gather_state === RV5StageDataGatherState.Idle
   def gather_read = gather_state.is_one_of(RV5StageDataGatherState.EvictionRead,
@@ -283,11 +287,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   hit_path.ready <== Bool(#true)
   fun transaction_context(lookup_request :: RV5StageL1DLookup(xlen),
                           way :: Bits(way_width),
-                          allocation :: Bool) :~ RV5StageL1DTransactionContext(xlen, way_width):
+                          allocation :: Bool,
+                          install :: Bool) :~ RV5StageL1DTransactionContext(xlen, way_width):
     RV5StageL1DTransactionContext(xlen, way_width):
       request: lookup_request.request
       way: way
       allocation: allocation
+      install: install
       prefetch: lookup_request.prefetch
       prefetch_write: lookup_request.prefetch_write
   def direct_refill_commands = (
@@ -297,11 +303,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         opcode: mux(request.prefetch_write ||| request.request.access.into(MemoryOperation).needs_unique(),
                     CHIReqOpcode.ReadUnique,
                     CHIReqOpcode.ReadClean)
-        context: transaction_context(request, transaction_way, !line_hit)
+        context: transaction_context(request, transaction_way, !line_hit & !bypass_refill, !bypass_refill)
   )
   direct_refill_commands |> refill_commands.ingress[0]
   def victim_address = resolved.egress.bits.victim_address
-  def victim_context = transaction_context(eviction_path.bits.into(RV5StageL1DLookup(xlen)), transaction_way, Bool(#true))
+  def victim_context = transaction_context(eviction_path.bits.into(RV5StageL1DLookup(xlen)), transaction_way, Bool(#true), Bool(#true))
   eviction_path.ready <== gather_idle & !refill_installing
   def eviction_gather_start = eviction_path.fire()
   writeback.command.valid <== gather_state === RV5StageDataGatherState.EvictionReady
@@ -324,14 +330,19 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   // A snoop waiting before installation wins the SRAM. Once installation
   // starts, the refill owns the port until every XLEN word has been written.
-  def refill_install_start = refill.completion.valid & !snoop_pending & gather_idle & !refill_installing & !pending_mutation_valid
+  def completion_context = refill.completion.bits.context
+  def refill_can_complete = !snoop_pending & gather_idle & !refill_installing & !pending_mutation_valid
+  def refill_install_start = refill.completion.valid & completion_context.install & refill_can_complete
   def refill_install_final = refill_install_index === bits(words_per_line - 1, word_index_width)
   def refill_install_word = refill_installing
-  refill.completion.ready <== refill_installing & refill_install_final
-  def install_refill = refill.completion.fire()
-  when install_refill:
+  // ReadClean returns a clean copy, which CHI permits us to silently discard.
+  // A bypass consumes the acknowledged transaction buffer without touching
+  // arrays, replacement state, or any resident line's reservation.
+  refill.completion.ready <== mux(completion_context.install, refill_installing & refill_install_final, refill_can_complete)
+  def complete_refill = refill.completion.fire()
+  def install_refill = complete_refill & completion_context.install
+  when complete_refill:
     assert(!refill.completion.bits.pass_dirty, "l1d_refill_not_dirty")
-  def completion_context = refill.completion.bits.context
   def completion_request = completion_context.request
   def completion_prefetch = completion_context.prefetch
   def completion_way = completion_context.way
@@ -491,11 +502,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
   def produces_load_hit = lookup_load & line_hit
   def produces_failed_sc = lookup_sc & !reservation_matches
-  def produces_response = maintenance_complete ||| produces_load_hit ||| local_mutation_complete ||| produces_failed_sc ||| (install_refill & !completion_prefetch)
+  def produces_response = maintenance_complete ||| produces_load_hit ||| local_mutation_complete ||| produces_failed_sc ||| (complete_refill & !completion_prefetch)
   def response_request :: RV5StageDataReq(xlen) = mux(
     maintenance_complete,
     maintenance.completion.bits.context,
-    mux(install_refill, completion_request, mux(local_mutation_commit, pending_mutation_request, lookup_request))
+    mux(complete_refill, completion_request, mux(local_mutation_commit, pending_mutation_request, lookup_request))
   )
   def response_access :: MemoryOperation = response_request.access
   def response_address = response_request.address
@@ -654,7 +665,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def snoop_reservation_clear = snoop.update.valid & snoop.update.bits.invalidate & (
     align_down(snoop.update.bits.address, RV5StageCacheLineBytes) === reservation_line_address
   )
-  def replacement_reservation_clear = resolved_path.fire() & lookup_needs_refill & !line_hit & victim_valid & (
+  def replacement_reservation_clear = resolved_path.fire() & lookup_needs_refill & !bypass_refill & !line_hit & victim_valid & (
     victim_address === reservation_line_address
   )
   when completing_lr:

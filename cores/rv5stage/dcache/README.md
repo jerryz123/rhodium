@@ -37,8 +37,9 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 Requests carry `locality: RV5StageMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). Lookup, retained mutation, dirty-victim eviction, and refill
 context retain the complete request. This is architectural intent, independent
-of cache policy; all selectors currently use the existing allocation and
-replacement rules. Prefetch requests use `Default`.
+of cache policy. Non-default selectors bypass L1 allocation on ordinary integer
+and FP load misses; all hits and other operations keep their existing behavior.
+Prefetch requests use `Default`.
 
 [`protocol.rhdl`](protocol.rhdl) defines `RV5StageDataAccess(xlen)`:
 
@@ -122,7 +123,8 @@ flowchart LR
   Gather --> Writeback["8 serialized 64-bit<br/>WriteUniquePtl transactions"]
   Writeback --> Refill["ReadClean or ReadUnique<br/>retry-aware refill"]
   Victim -->|no| Refill
-  Refill --> Install["Install one XLEN word/cycle<br/>publish metadata last"]
+  Refill -->|retained copy| Install["Install one XLEN word/cycle<br/>publish metadata last"]
+  Refill -->|non-allocating load| Load
   Install --> Arrays
   Install --> Response
 
@@ -182,7 +184,8 @@ victim is dirty, avoiding nonbinding writeback traffic.
 
 | Lookup outcome | Action | Installed or resulting state |
 |---|---|---|
-| Load or LR miss | Issue `ReadClean` | SharedClean or UniqueClean from the CHI response |
+| Default-locality load or any LR miss | Issue `ReadClean` | SharedClean or UniqueClean from the CHI response |
+| Ordinary load miss with non-default locality | Issue `ReadClean`, consume the transaction buffer without installation | No resident-line or replacement-state change |
 | Store/AMO miss | Allocate a way and issue `ReadUnique` | Merge the mutation while installing; UniqueDirty |
 | Store/AMO hit in SharedClean | Retain the current way and issue `ReadUnique` | Merge the mutation while installing; UniqueDirty |
 | Successful SC without Unique ownership | Use the same `ReadUnique` acquisition path | UniqueDirty |
@@ -197,6 +200,23 @@ repository's default 128-bit DAT width, four packets form a line. Installation
 writes one XLEN word per cycle—eight writes for RV64 or sixteen for RV32—and
 publishes the tag, coherence state, and valid bit only on the final word. A
 mutating refill merges its selected bytes before that word is written.
+
+For a non-default-locality ordinary load miss, the retained transaction context
+instead selects completion without installation. The complete clean line is
+consumed after `CompAck`, using normal load lane extraction and destination
+metadata. [CHI permits silent eviction of a clean copy](https://documentation-service.arm.com/static/5f914ecbf86e16515cdc2b4d)
+(section 4.6): no data, tag, valid, or state array is written, no victim is
+drained, and replacement pointers and
+resident LR reservations are untouched. Younger requests remain ordered behind
+the blocking transaction and reread their retained lookups afterward. Snoops
+continue to service resident lines while the read is outstanding.
+
+All four NTL selectors currently choose this same L1 policy. A hinted hit still
+reads the resident line, including authoritative dirty data. Stores, LR/SC,
+AMOs, block operations, and prefetches keep normal allocation and ownership
+behavior. This uses coherent `ReadClean`, not uncached `ReadNoSnp` or `ReadOnce`;
+Home still obtains current data from dirty peers. It may clean those peers and
+allocate in outer caches. No outer-cache allocation policy is claimed.
 
 For a dirty allocation victim, L1D first gathers all XLEN words into a line
 buffer. The shared [writeback engine](../chi/README.md#writes-and-dirty-writeback) captures that buffer

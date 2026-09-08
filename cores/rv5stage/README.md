@@ -46,9 +46,10 @@ deliberately rejected.
 ## Non-temporal locality hints
 
 `RV5StageExtensions(~zihintntl: #true)` enables the four NTL hints and their
-aliases when compressed instructions are selected. It is disabled by default;
-SoC profiles are unchanged. NTL retires without draining or serializing the
-pipeline. Ordered WB retains its locality selector for exactly the next
+aliases when compressed instructions are selected. The generic extension option
+defaults off; SimpleSoC, MiniSoC, and TiledSoC explicitly enable it. NTL retires
+without draining or serializing the pipeline. Ordered WB retains its locality
+selector for exactly the next
 instruction: retirement consumes it even for a non-memory instruction, and
 another retiring NTL replaces it. Rejected dispatch/replay preserves the hint
 for the same target. Trap/interrupt entry clears it; speculative flushes do not.
@@ -57,7 +58,11 @@ Ordinary integer and FP loads/stores carry the selector in their accepted data
 request. Other operations currently ignore it. MMU/PMA routing, lookup, and
 retained L1D miss/refill context preserve the selector without changing
 translation, permissions, ordering, or coherence. It expresses architectural
-intent, not a cache policy: allocation and replacement remain unchanged.
+intent, not a cache policy. L1D currently interprets every non-default selector
+as non-allocating on ordinary load misses, using its coherent transaction buffer;
+hits and stores retain their existing behavior. See the
+[L1D policy](dcache/README.md#miss-acquisition-and-replacement-flow) for ordering,
+resident-line preservation, and outer-cache limits.
 
 ## Pipeline event tracing
 

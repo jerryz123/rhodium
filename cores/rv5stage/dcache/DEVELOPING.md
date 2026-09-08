@@ -53,7 +53,11 @@ importing the instruction-cache package.
    both stages in drain and maintenance ordering, but let snoops pass a retained
    S1 request once its outstanding read and S2 have drained.
 3. Publish refill metadata only after the last word, and invalidate a dirty
-   victim before reusing its way.
+   victim before reusing its way. Capture the cache's install disposition in
+   transaction context separately from architectural locality and new-way
+   allocation. A non-allocating load must complete from the acknowledged clean
+   transaction buffer without SRAM writes, victim handling, replacement-pointer
+   movement, or reservation invalidation.
 4. Preserve explicit SRAM ownership and priority among core lookup, line
    gather, refill installation, and snoop service.
 5. Keep LR/SC reservation invalidation aligned with local mutation,

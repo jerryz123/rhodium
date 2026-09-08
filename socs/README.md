@@ -17,8 +17,9 @@ Contributors changing a composition should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
 All three default core profiles enable
-[Zawrs reservation waiting](../cores/rv5stage/README.md#reservation-waiting)
-and the [Zihintpause hint](../cores/rv5stage/README.md#pause-hint).
+[Zawrs reservation waiting](../cores/rv5stage/README.md#reservation-waiting),
+the [Zihintpause hint](../cores/rv5stage/README.md#pause-hint), and
+[Zihintntl locality hints](../cores/rv5stage/README.md#non-temporal-locality-hints).
 Their device-tree ISA extension lists and UDB configurations derive this claim
 from the same profile that selects the hardware decoder and wait controller.
 

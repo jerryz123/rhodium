@@ -157,8 +157,10 @@ For NTL WB association and request propagation, select `rv5stage-ntl`,
 The core bench checks all four selectors, non-memory consumption, replacement,
 integer/FP memory, rejected request replay, branch squash, synchronous traps,
 interrupt entry, and absence of an older-load drain. Adapter benches check
-locality preservation and walker isolation; cache scenarios retain their
-existing data/coherence expectations with non-default hints.
+locality preservation and walker isolation. The `rv5stage-dcache` and
+`rv5stage-dcache-rv32` benches check coherent non-allocating load misses,
+resident-line preservation, destination/lane handling, and unchanged default
+allocation; the RV64 bench also checks retry, CompAck backpressure, and LR state.
 `memory.rhdl` owns the locality vocabulary, independently of decode selectors
 and cache policy. Keep the entire request in lookup/transaction context rather
 than reconstructing metadata at refill completion.

@@ -15,7 +15,7 @@ def simple_soc_core_profile = RVCoreProfile(
     ~floating_point: FloatingPointProfile.D,
     ~zicbop: #true,
     ~zicboz: #true,
-    ~zawrs: #true, ~zihintpause: #true,
+    ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true,
     ~compressed: CCompressedExtensions
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
@@ -23,7 +23,7 @@ def simple_soc_core_profile = RVCoreProfile(
 
 def mini_soc_core_profile = RVCoreProfile(
   ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(~zicbop: #true, ~zicboz: #true, ~zawrs: #true, ~zihintpause: #true),
+  ~extensions: RV5StageExtensions(~zicbop: #true, ~zicboz: #true, ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true),
   ~mmu_mode: RV5StageMmuMode.Sv39,
   ~cache_geometry: RV5StageCacheGeometry(
     ~instruction: RV5StageCacheConfig(32, 1),
@@ -33,7 +33,7 @@ def mini_soc_core_profile = RVCoreProfile(
 
 def tiled_soc_core_profile = RVCoreProfile(
   ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(~zicbop: #true, ~zicboz: #true, ~zawrs: #true, ~zihintpause: #true, ~compressed: CCompressedExtensions),
+  ~extensions: RV5StageExtensions(~zicbop: #true, ~zicboz: #true, ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true, ~compressed: CCompressedExtensions),
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
 

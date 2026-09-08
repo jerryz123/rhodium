@@ -1,4 +1,4 @@
-// Checks RV32 staged block-zero lookup, younger-load replay, and all sixteen SRAM words.
+// Checks RV32 block-zero SRAM sequencing and non-allocating NTL load normalization.
 module rv5stage_dcache_rv32_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
@@ -27,12 +27,14 @@ module rv5stage_dcache_rv32_tb;
   integer requests = 0;
   integer responses = 0;
   integer acknowledgements = 0;
+  logic [6:0] expected_opcode = 7'h07;
+  logic [43:0] expected_address = 44'h1000;
   RV5StageL1DCache dut (.*);
 
   task automatic tick;
     if (!reset) begin
       if (chi_out.requests.valid && chi_in.requests.ready) begin
-        assert (chi_out.requests.bits.opcode == 7'h07 && chi_out.requests.bits.address == 44'h1000)
+        assert (chi_out.requests.bits.opcode == expected_opcode && chi_out.requests.bits.address == expected_address)
           else $fatal(1, "RV32 zero did not acquire the aligned block");
         requests++;
       end
@@ -44,13 +46,18 @@ module rv5stage_dcache_rv32_tb;
     #4;
   endtask
 
-  task automatic send_request(input logic [31:0] address, input logic [3:0] access);
+  task automatic send_request(input logic [31:0] address, input logic [3:0] access,
+                              input logic [2:0] locality = 0,
+                              input logic [1:0] size = 2,
+                              input logic unsigned_load = 0);
     for (int cycle = 0; cycle < 100 && !core_out.request.ready; cycle++) tick();
     assert (core_out.request.ready) else $fatal(1, "RV32 request timeout");
     core_in.request.bits = '0;
     core_in.request.bits.address = address;
     core_in.request.bits.access = access;
-    core_in.request.bits.width = 2'd2;
+    core_in.request.bits.width = size;
+    core_in.request.bits.unsigned_0 = unsigned_load;
+    core_in.request.bits.locality = locality;
     core_in.request.bits.destination = access == 4'd1 ? 2'd1 : 2'd0;
     core_in.request.valid = 1;
     tick();
@@ -108,6 +115,30 @@ module rv5stage_dcache_rv32_tb;
       assert (requests == 1) else $fatal(1, "owned RV32 zero issued new traffic");
     end
     assert (core_out.drained) else $fatal(1, "RV32 zero failed to drain");
+    // Colliding hinted misses must not evict the dirty zeroed line. Repeat
+    // the same request with all selectors, signed/unsigned byte and half loads.
+    expected_opcode = 7'h02;
+    expected_address = 44'h2000;
+    for (int hint = 1; hint <= 4; hint++) begin
+      send_request(32'h203c, 4'd1, 3'(hint), hint <= 2 ? 2'd0 : 2'd1, !hint[0]);
+      for (int cycle = 0; cycle < 100 && requests != hint + 1; cycle++) tick();
+      assert (requests == hint + 1) else $fatal(1, "RV32 hinted miss unexpectedly allocated");
+      for (int packet = 3; packet >= 0; packet--) begin
+        for (int cycle = 0; cycle < 100 && !chi_out.response_data.ready; cycle++) tick();
+        assert (chi_out.response_data.ready) else $fatal(1, "RV32 NTL refill timeout");
+        chi_in.response_data.bits.data = '1;
+        chi_in.response_data.bits.data_id = 2'(packet);
+        chi_in.response_data.bits.resp = 3'b001;
+        chi_in.response_data.valid = 1;
+        tick();
+        chi_in.response_data.valid = 0;
+      end
+      expect_response(hint[0] ? 32'hffff_ffff : hint == 2 ? 32'hff : 32'hffff);
+      send_request(32'h103c, 4'd1, 3'(hint));
+      expect_response(0);
+      assert (requests == hint + 1 && acknowledgements == hint + 1)
+        else $fatal(1, "RV32 NTL disturbed a dirty resident or lost CompAck");
+    end
     $display("RV32 block-zero SRAM sequencing passed");
     $finish;
   end

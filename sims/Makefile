@@ -61,12 +61,14 @@ HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/rv5stage_host_mmio.elf
 HOST_MMIO_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_host_mmio.signature
 ZICBOZ_BINARY := $(SOC_BUILD_DIR)/rv5stage_zicboz.elf
 ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zicboz.signature
+ZIHINTNTL_BINARY := $(SOC_BUILD_DIR)/rv5stage_zihintntl.elf
+ZIHINTNTL_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zihintntl.signature
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
 # Failed elaboration or lowering must not leave a reusable partial artifact.
 .DELETE_ON_ERROR:
 
-.PHONY: all setup simulator run smoke trace-smoke boot-test host-mmio-test zicboz-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
+.PHONY: all setup simulator run smoke trace-smoke boot-test host-mmio-test zicboz-test zihintntl-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
 
 all: simulator
 
@@ -113,6 +115,12 @@ zicboz-test: $(ZICBOZ_BINARY) simulator
 	$(SIMULATOR_BINARY) +signature=$(ZICBOZ_SIGNATURE) +signature-granularity=16 $(ZICBOZ_BINARY)
 	awk '{ expected = (NR > 4 && NR <= 8) ? "00000000000000000000000000000000" : "ffffffffffffffffffffffffffffffff"; if ($$0 != expected) exit 1 } END { if (NR != 12) exit 1 }' $(ZICBOZ_SIGNATURE)
 	@echo "Zicboz offset, neighbor, and coherent signature checks passed"
+
+zihintntl-test: $(ZIHINTNTL_BINARY) simulator
+	$(SIMULATOR_BINARY) +signature=$(ZIHINTNTL_SIGNATURE) +signature-granularity=8 $(ZIHINTNTL_BINARY)
+	awk -v variants="$(if $(filter mini,$(SOC)),0000000000000004,0000000000000008)" -v fp="$(if $(filter simple,$(SOC)),0000000000000001,0000000000000000)" \
+	  'NR == 1 && $$0 != "123456789abcdef0" { exit 1 } NR == 2 && $$0 != variants { exit 1 } NR == 8 && $$0 != fp { exit 1 } END { if (NR != 8) exit 1 }' $(ZIHINTNTL_SIGNATURE)
+	@echo "Zihintntl translated non-allocation, resident preservation, and coherent signature checks passed on $(SOC)"
 
 dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	@test -n "$(VERILATOR_ROOT)" || \
@@ -227,3 +235,7 @@ $(SOC_BUILD_DIR)/rv5stage_boot_%.elf: tests/programs/rv5stage_smoke.S tests/prog
 $(ZICBOZ_BINARY): tests/programs/rv5stage_zicboz.S tests/programs/rv5stage_zicboz.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64im_zicsr -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_zicboz.ld $< -o $@
+
+$(ZIHINTNTL_BINARY): tests/programs/rv5stage_zihintntl.S tests/programs/rv5stage_zihintntl.ld | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=rv64im_zicsr_zicntr -mabi=lp64 -nostdlib -nostartfiles \
+	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_zihintntl.ld $< -o $@

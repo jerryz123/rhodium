@@ -1,4 +1,4 @@
-// Verifies staged VIPT L1D lookup, retained-request rereads, mutations, and coherence.
+// Verifies staged L1D lookup, coherent non-allocating NTL loads, mutations, and snoops.
 module rv5stage_dcache_tb;
   typedef struct packed {
     logic [63:0] address;
@@ -185,7 +185,9 @@ module rv5stage_dcache_tb;
     input logic [3:0] access,
     input logic [3:0] atomic,
     input logic [63:0] data,
-    input logic [4:0] rd
+    input logic [4:0] rd,
+    input logic [2:0] locality = 3'd0,
+    input logic [1:0] destination = 2'b11
   );
     integer cycles;
     begin
@@ -202,9 +204,9 @@ module rv5stage_dcache_tb;
                                width: 2'd3,
                                unsigned_load: 1'b0,
                                data: data,
-                               destination: (access == MEMORY_STORE || access == MEMORY_ZERO || access >= 7) ? DATA_DESTINATION_NONE : DATA_DESTINATION_INTEGER,
+                               destination: destination != 2'b11 ? destination : ((access == MEMORY_STORE || access == MEMORY_ZERO || access >= 7) ? DATA_DESTINATION_NONE : DATA_DESTINATION_INTEGER),
                                rd: rd,
-                               floating_point_precision: 2'b01, locality: 3'(1 + int'(rd) % 4)};
+                               floating_point_precision: 2'b01, locality: locality};
       core_in.request.valid = 1'b1;
       tick();
       core_in.request.valid = 1'b0;
@@ -636,6 +638,55 @@ module rv5stage_dcache_tb;
     expect_core_response(64'd0, DATA_DESTINATION_INTEGER, 5'd16);
     send_core_request(ADDRESS + 64'h28, MEMORY_LR, ATOMIC_SWAP, 64'd0, 5'd19);
     expect_core_response(STORE_DATA, DATA_DESTINATION_INTEGER, 5'd19);
+    // Both colliding ways are resident, one dirty and reserved. Every NTL
+    // selector reads the third line coherently without replacing either way.
+    // Repeating that miss proves the transient copy was never installed.
+    // An odd number of misses also detects accidental movement of the two-way
+    // replacement pointer when the later default miss chooses its victim.
+    for (int attempt = 0; attempt < 5; attempt++) begin
+      automatic logic [2:0] locality = 3'(1 + attempt % 4);
+      send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 5'd23, 3'(locality), 2'd2);
+      if (attempt == 0)
+        send_core_request(EVICT_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 5'd26);
+      accept_request(READ_CLEAN, THIRD_ADDRESS, 0, 6, 1, 0);
+      if (attempt == 0) begin
+        send_response(RETRY_ACK, 0, 0, 4'd6);
+        send_response(PCRD_GRANT, 0, 0, 4'd6);
+        accept_request(READ_CLEAN, THIRD_ADDRESS, 0, 6, 0, 4'd6);
+        // Snoop service must remain live while the transaction owns a retained
+        // younger lookup, and the bypass address is not a resident copy.
+        send_snoop(THIRD_ADDRESS, 12'h07c);
+        for (int cycle = 0; !tx_rsp_pending && cycle < 100; cycle++) tick();
+        assert (tx_rsp_pending && captured_rsp.opcode == 1 && captured_rsp.resp == 0 && captured_rsp.txn_id == 12'h07c)
+          else $fatal(1, "NTL refill blocked snoop service or exposed a cached copy");
+        tx_rsp_pending = 0;
+      end
+      chi_in.requester_responses.ready = 0;
+      return_line(THIRD_ADDRESS, THIRD_LINE, locality[0] ? 3'b001 : 3'b010);
+      repeat (5) begin
+        assert (!core_out.response.valid && !core_out.drained && !tx_dat_pending)
+          else $fatal(1, "NTL load completed before CompAck or wrote back a victim");
+        tick();
+      end
+      assert (chi_out.requester_responses.valid && chi_out.requester_responses.bits.opcode == COMP_ACK)
+        else $fatal(1, "NTL CompAck not retained under backpressure");
+      grant_rsp_credit();
+      tick();
+      accept_comp_ack();
+      expect_core_response(64'habcdef01_23456789, 2'd2, 5'd23);
+      if (attempt == 0)
+        expect_core_response(64'h37363534_33323130, DATA_DESTINATION_INTEGER, 5'd26);
+      assert (core_out.reservation_valid)
+        else $fatal(1, "non-allocating miss cleared resident reservation");
+      // Hinted dirty hits must read the local authoritative value, not memory.
+      send_core_request(ADDRESS + 64'h28, MEMORY_LOAD, ATOMIC_SWAP, 0, 5'd24, 3'(locality));
+      expect_core_response(STORE_DATA, DATA_DESTINATION_INTEGER, 5'd24);
+      send_core_request(EVICT_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 5'd25);
+      expect_core_response(64'h37363534_33323130, DATA_DESTINATION_INTEGER, 5'd25);
+      assert (!tx_req_pending && !tx_dat_pending)
+        else $fatal(1, "NTL miss changed a resident line");
+    end
+    // Default policy still chooses the original dirty round-robin victim.
     send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd17);
     for (beat = 0; beat < 8; beat = beat + 1) begin
       accept_request(WRITE_UNIQUE_PTL,
@@ -788,7 +839,8 @@ module rv5stage_dcache_tb;
     for (int operation = 7; operation <= 9; operation++) begin
       reset = 1; tick(); tick(); reset = 0;
       tx_req_pending = 0; tx_rsp_pending = 0; tx_dat_pending = 0;
-      send_core_request(ADDRESS, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA, 0);
+      // NTL stores still acquire and install a dirty copy.
+      send_core_request(ADDRESS, MEMORY_STORE, ATOMIC_SWAP, STORE_DATA, 0, 3'd4);
       accept_request(READ_UNIQUE, ADDRESS, 0, 6, 1, 0);
       return_line(ADDRESS, LINE, 3'b010);
       accept_comp_ack();
