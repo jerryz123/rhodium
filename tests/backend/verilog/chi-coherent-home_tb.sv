@@ -329,6 +329,24 @@ module chi_coherent_home_tb;
     assert (port_out.requester.requests.ready)
       else $fatal(1, "HN-F did not retire the coherent read");
 
+    // An RN-I snapshot must consult both coherent owners without receiving ownership.
+    send_request(HTIF_ID, 7'h03, 6'd6, 1'b0);
+    accept_snoop(INSTRUCTION_ID, 5'h03);
+    requester_responses_in.bits = '0;
+    requester_responses_in.bits.opcode = SNP_RESP;
+    requester_responses_in.bits.src_id = INSTRUCTION_ID;
+    requester_responses_in.bits.tgt_id = HOME_ID;
+    requester_responses_in.bits.resp = 3'b010; // A clean owner may remain Unique.
+    requester_responses_in.valid = 1;
+    tick();
+    requester_responses_in = '0;
+    accept_snoop(DATA_ID, 5'h03);
+    for (int packet = 0; packet < 4; packet++) service_dirty_snoop_packet(2'(packet));
+    tick();
+    accept_subordinate_request(READ_NO_SNP);
+    for (int packet = 0; packet < 4; packet++) return_read_packet(2'(packet), HTIF_ID, 3'b000);
+    assert (port_out.requester.requests.ready) else $fatal(1, "ReadOnce did not retire");
+
     send_request(HTIF_ID, READ_NO_SNP, 6'd2, 1'b0);
     accept_subordinate_request(READ_NO_SNP);
     return_read_packet(2'd0, HTIF_ID, 3'b000);

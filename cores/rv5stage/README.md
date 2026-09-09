@@ -28,7 +28,7 @@ Contributors changing the core should read
 | Floating point | Disabled by default; RV32F or RV64D, with optional Zfhmin, Zfh, or Zfa |
 | Address translation | Bare for RV32; Bare or Sv39 for RV64 |
 | Private caches | Separate configurable L1I and blocking write-back L1D; fixed 64-byte lines; demand-priority Zicbop admission |
-| External memory | Separate instruction and data CHI RN-F channels plus a shared uncached RN-I channel |
+| External memory | Instruction RN-I snapshot reads, data RN-F coherence, and a separate shared uncached RN-I channel |
 
 The integer decode includes RV32I/RV64I, A, B, M, Zicond, Zimop, Zicsr, Zifencei, and
 the supported privileged instructions. Optional Zicbop decode turns its
@@ -175,6 +175,9 @@ not an entire transaction or cache occupancy interval:
 | `txrsp` | Outgoing response, including CompAck and snoop responses |
 | `txdat` | Outgoing data beat, including writeback and dirty snoop data |
 | `rxsnp` | Incoming snoop |
+
+The instruction endpoint has no snoop channel; `rxsnp` is data-cache-only.
+Instruction snapshots emit `ReadOnce` requests and `CompAck`, with no outgoing data.
 
 Individual slices use the observed flit's CHI opcode name, such as `ReadClean`,
 `CompData`, or `CompAck`; track names stay `icache.*` and `dcache.*`.
@@ -516,7 +519,7 @@ flowchart LR
     ROUTER -->|"non-cacheable"| IOMSHR["Data IO-MSHR<br/>retain through completion"]
     IOMSHR --> UNCACHED
 
-    L1I <--> IMEM["imem<br/>CHI RN-F"]
+    L1I <--> IMEM["imem<br/>CHI RN-I ReadOnce"]
     L1D <--> DMEM["dmem<br/>CHI RN-F"]
     UNCACHED <--> UMEM["umem<br/>CHI RN-I"]
 
@@ -604,11 +607,11 @@ and Sail configuration, and the execution command remain simulation-owned.
 
 | Port | Contract |
 |---|---|
-| `chi_identity` | Placement-specific instruction RN-F, data RN-F, and uncached RN-I NodeIDs |
+| `chi_identity` | Placement-specific instruction RN-I, data RN-F, and uncached RN-I NodeIDs |
 | `interrupts` | Controller-independent supervisor and machine software, timer, and external interrupt levels |
 | `hart_id` | Platform hart identity exposed through `mhartid` |
 | `time_counter` | Platform 64-bit time source exposed through `time` and RV32 `timeh` |
-| `imem` | Instruction-cache CHI RN-F channels |
+| `imem` | Instruction-cache CHI RN-I coherent snapshot reads |
 | `dmem` | Data-cache CHI RN-F channels |
 | `umem` | Shared instruction/data uncached CHI RN-I channels |
 
@@ -649,7 +652,7 @@ replay mechanism refetches the memory instruction until the lookup completes.
 See the
 [`MMU contract`](mmu/README.md) for translation, permission, and fault ownership.
 
-L1I is a clean-only, one-hit-per-cycle instruction cache with flushable lookup
+L1I is a nonsnooping, software-synchronized, one-hit-per-cycle instruction cache with flushable lookup
 and response state. Executable non-cacheable regions bypass it as aligned
 four-byte `ReadNoSnp` requests and never allocate a line. Such regions must be
 read-idempotent; a typical BootROM PMA is readable, executable, non-cacheable,
@@ -704,7 +707,7 @@ The parent core owns only integration-level ordering. Array organization,
 replacement, refill, dirty writeback, snoop behavior, DVM handling, and CHI
 response stability are specified by the subsystem documents:
 
-- [`icache/README.md`](icache/README.md) — instruction protocol and clean L1I
+- [`icache/README.md`](icache/README.md) — instruction protocol and nonsnooping L1I
 - [`dcache/README.md`](dcache/README.md) — data protocol and write-back L1D
 - [`mmu/README.md`](mmu/README.md) — Sv39 translation and L1D walker arbitration
 - [`chi/README.md`](chi/README.md) — shared CHI configuration, cache transaction

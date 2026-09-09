@@ -38,10 +38,10 @@ class CHIHNFConfig(flit :: CHIFlitParams,
               "requester NodeIDs must fit the physical NodeID width")
       def allowed_requests:
         if endpoint.kind == CHINodeKind.RNI
-        | [CHIReqOpcode.ReadNoSnp,
+        | [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp,
            CHIReqOpcode.WriteNoSnpFull,
            CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
-        | [CHIReqOpcode.ReadClean,
+        | [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadClean,
            CHIReqOpcode.ReadUnique,
            CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
       unless endpoint.supports.req.length() > 0 && for all (opcode in endpoint.supports.req):
@@ -127,6 +127,7 @@ fun chi_hnf_subordinate_opcode(opcode :: CHIReqOpcode) :~ CHIReqOpcode:
     CHIReqOpcode.CleanShared: CHIReqOpcode.CleanShared
     CHIReqOpcode.CleanInvalid: CHIReqOpcode.CleanInvalid
     CHIReqOpcode.MakeInvalid: CHIReqOpcode.MakeInvalid
+    CHIReqOpcode.ReadOnce: CHIReqOpcode.ReadNoSnp
     CHIReqOpcode.ReadClean: CHIReqOpcode.ReadNoSnp
     CHIReqOpcode.ReadUnique: CHIReqOpcode.ReadNoSnp
     CHIReqOpcode.ReadNoSnp: CHIReqOpcode.ReadNoSnp

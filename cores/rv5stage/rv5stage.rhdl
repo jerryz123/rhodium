@@ -21,8 +21,10 @@ import:
 // Observe accepted flits at the private-cache boundary. CHI transaction state
 // and the outer fabric are opaque to lineage inference, so each channel starts
 // and ends its own observation; transaction IDs are captures, not parent IDs.
-fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String):
-  def requests = cache.field("requests") |> trace_event(label ++ ".txreq", ~root: #true, ~terminal: #true, ~fields: flit):
+fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String, ~snoopable: snoopable :: Boolean = #true):
+  def request_source = if snoopable | cache.field("requests") | cache.field("req")
+  def request_sink = if snoopable | outer.field("requests") | outer.field("req")
+  def requests = request_source |> trace_event(label ++ ".txreq", ~root: #true, ~terminal: #true, ~fields: flit):
     address: flit.address
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
@@ -31,11 +33,13 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     size_or_num_req(~format: "unsigned"): flit.size_or_num_req
     allow_retry: flit.allow_retry
     exp_comp_ack: flit.exp_comp_ack
-  requests |> outer.field("requests")
+  requests |> request_sink
 
   for (channel in ["requester_responses", "responses"], suffix in ["txrsp", "rxrsp"], outgoing in [#true, #false]):
-    def source = if outgoing | cache.field(channel) | outer.field(channel)
-    def sink = if outgoing | outer.field(channel) | cache.field(channel)
+    def local = if snoopable | cache.field(channel) | cache.field("rsp").field(if outgoing | "requester" | "response")
+    def remote = if snoopable | outer.field(channel) | outer.field("rsp").field(if outgoing | "requester" | "response")
+    def source = if outgoing | local | remote
+    def sink = if outgoing | remote | local
     def responses = source |> trace_event(label ++ "." ++ suffix, ~root: #true, ~terminal: #true, ~fields: flit):
       opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
@@ -48,8 +52,10 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     responses |> sink
 
   for (channel in ["request_data", "response_data"], suffix in ["txdat", "rxdat"], outgoing in [#true, #false]):
-    def source = if outgoing | cache.field(channel) | outer.field(channel)
-    def sink = if outgoing | outer.field(channel) | cache.field(channel)
+    def local = if snoopable | cache.field(channel) | cache.field("dat").field(if outgoing | "request" | "response")
+    def remote = if snoopable | outer.field(channel) | outer.field("dat").field(if outgoing | "request" | "response")
+    def source = if outgoing | local | remote
+    def sink = if outgoing | remote | local
     def data = source |> trace_event(label ++ "." ++ suffix, ~root: #true, ~terminal: #true, ~fields: flit):
       opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
@@ -62,13 +68,16 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
       byte_enable: flit.byte_enable
     data |> sink
 
-  def snoops = outer.field("snoops") |> trace_event(label ++ ".rxsnp", ~root: #true, ~terminal: #true, ~fields: flit):
-    address: flit.address ++ bits(0, 3)
-    opcode(~format: "enum", ~label: #true): flit.opcode
-    txn_id(~format: "unsigned"): flit.txn_id
-    src_id(~format: "unsigned"): flit.src_id
-    ret_to_src: flit.ret_to_src
-  snoops |> cache.field("snoops")
+  if snoopable
+  | block:
+      def snoops = outer.field("snoops") |> trace_event(label ++ ".rxsnp", ~root: #true, ~terminal: #true, ~fields: flit):
+        address: flit.address ++ bits(0, 3)
+        opcode(~format: "enum", ~label: #true): flit.opcode
+        txn_id(~format: "unsigned"): flit.txn_id
+        src_id(~format: "unsigned"): flit.src_id
+        ret_to_src: flit.ret_to_src
+      snoops |> cache.field("snoops")
+  | #void
 
 sync_circuit RV5Stage(profile :: RVCoreProfile,
                       ~reset_address: reset_address :: Nat,
@@ -91,7 +100,7 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   input interrupts: RV5StageInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
-  interface imem(CHIRNChannels(p), ~role: node)
+  interface imem(CHIRNIChannels(p), ~role: node)
   interface dmem(CHIRNChannels(p), ~role: node)
   interface umem(CHIRNIChannels(p), ~role: node)
 
@@ -132,7 +141,7 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   mmu.mstatus <== core.mstatus
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
-  connect_traced_cache_chi(l1i.chi, imem, "icache")
+  connect_traced_cache_chi(l1i.chi, imem, "icache", ~snoopable: #false)
   connect_traced_cache_chi(l1d.chi, dmem, "dcache")
   uncached.chi <=> umem
 

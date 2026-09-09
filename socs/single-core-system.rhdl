@@ -135,7 +135,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
   property connections: [
     CHIRNFConnection(host_site, home_requester_site),
     CHIRNIConnection(host_site, device_home_requester_site),
-    CHIRNFConnection(instruction_site, home_requester_site),
+    CHIRNIConnection(instruction_site, home_requester_site),
     CHIRNFConnection(data_site, home_requester_site),
     CHIRNIConnection(uncached_site,
                      device_home_requester_site),
@@ -221,7 +221,7 @@ fun populate_single_core(params :: SingleCoreSystemParams,
     ~snp: CHINoCPlane(snp_router.ingress, snp_router.target)
   )
   connect_chi_rnf_node(host.memory, ~node: params.host_site, ~ports: router_ports, ~adapters: params.adapter_plans)
-  connect_chi_rnf_node(rv5stage.imem, ~node: params.instruction_site, ~ports: router_ports, ~adapters: params.adapter_plans)
+  connect_chi_rni_node(rv5stage.imem, ~node: params.instruction_site, ~ports: router_ports, ~adapters: params.adapter_plans)
   connect_chi_rnf_node(rv5stage.dmem, ~node: params.data_site, ~ports: router_ports, ~adapters: params.adapter_plans)
   connect_chi_rni(rv5stage.umem, device_home.port.requester, ~node: params.uncached_site, ~icn: params.device_home_requester_site, ~ports: router_ports, ~adapters: params.adapter_plans)
   connect_chi_hn_requesters(home.port.requester, ~home: params.home_requester_site, ~ports: router_ports, ~adapters: params.adapter_plans)

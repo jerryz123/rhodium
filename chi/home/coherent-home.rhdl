@@ -44,7 +44,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
 
   reg phase(~init: CHIHNFPhase.Idle)
   reg request(CHIReqFlit(p))
-  reg requester_is_rnf(~init: Bool(#false))
+  reg requester_allocates(~init: Bool(#false))
   reg write_data(Vec(4, CHIDatFlit(p)))
   reg snoop_data(CHIDatFlit(p))
   reg subordinate_dbid(~init: bits(0, 12))
@@ -59,7 +59,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   def incoming_request = requester.requests.bits
   def incoming_subordinate_opcode = chi_hnf_subordinate_opcode(incoming_request.opcode)
   def incoming_write = incoming_subordinate_opcode.is_initial_write()
-  def incoming_coherent = chi_hnf_source_is_rnf(p, checked, incoming_request)
+  def incoming_coherent = chi_request_snoops_caches(incoming_request.opcode)
   requester.requests.ready <== idle
   def request_fire = requester.requests.fire()
   when (requester.requests.valid & idle):
@@ -244,8 +244,8 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
           p,
           home_id,
           request,
-          requester_is_rnf,
-          data
+          requester_allocates,
+          data.updated(~resp_err: mux(completion_error === CHIRespErr.OK, data.resp_err, completion_error))
         ))
   ) |> requester.response_data
   def read_data_fire = subordinate.dat.response.fire()
@@ -276,7 +276,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
   )
   when request_fire:
     request <== incoming_request
-    requester_is_rnf <== chi_hnf_source_is_rnf(p, checked, incoming_request)
+    requester_allocates <== chi_request_allocates_coherent(incoming_request.opcode)
     received_data_ids <== bits(0, 4)
     received_snoop_data_ids <== bits(0, 4)
     phase <== mux(incoming_write,
@@ -340,7 +340,7 @@ sync_circuit CHIHNF(config :: CHIHNFConfig):
 
   when request_fire:
     completion_error <== CHIRespErr.OK
-  elsewhen maintenance:
+  elsewhen (maintenance ||| (request.opcode === CHIReqOpcode.ReadOnce)):
     when (subordinate_response_fire & (incoming_subordinate_response.resp_err =/= CHIRespErr.OK)):
       completion_error <== incoming_subordinate_response.resp_err
     elsewhen (snoop_data_fire & (requester.request_data.bits.resp_err =/= CHIRespErr.OK)):

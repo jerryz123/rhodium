@@ -26,7 +26,7 @@ sync_circuit RV5StageFetchThroughput():
   output(valid, fault): Bool
   output pc: Bits(64)
   output instruction: Bits(32)
-  interface chi(CHIRNChannels(test_rv5stage_flit), ~role: node)
+  interface chi(CHIRNIChannels(test_rv5stage_flit), ~role: node)
   def names = rv5stage_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.None).map(fun (instruction): instruction.name)
   inst fetch(RV5StageInstructionFetch(XLen.X64, FloatingPointProfile.D, ~compressed: CCompressedExtensions, ~supported_instructions: names))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))

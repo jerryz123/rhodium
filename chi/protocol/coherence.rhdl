@@ -77,6 +77,8 @@ export:
   chi_rnf_snoop_opcodes
   chi_cache_maintenance
   chi_home_snoop_opcode
+  chi_request_snoops_caches
+  chi_request_allocates_coherent
   chi_snoop_discards_dirty
   chi_snoop_response_state_valid
 
@@ -86,6 +88,7 @@ fun chi_cache_maintenance(opcode :: CHIReqOpcode) :~ Bool:
 
 fun chi_home_snoop_opcode(opcode :: CHIReqOpcode) :~ CHISnpOpcode:
   mux_lookup(opcode, ~default: CHISnpOpcode.SnpCleanInvalid):
+    CHIReqOpcode.ReadOnce: CHISnpOpcode.SnpOnce
     CHIReqOpcode.ReadClean: CHISnpOpcode.SnpCleanShared
     CHIReqOpcode.CleanShared: CHISnpOpcode.SnpCleanShared
     CHIReqOpcode.ReadUnique: CHISnpOpcode.SnpUnique
@@ -94,7 +97,14 @@ fun chi_home_snoop_opcode(opcode :: CHIReqOpcode) :~ CHISnpOpcode:
 fun chi_snoop_discards_dirty(opcode :: CHISnpOpcode) :~ Bool:
   opcode.is_one_of(CHISnpOpcode.SnpMakeInvalid, CHISnpOpcode.SnpMakeInvalidStash)
 
+// ReadOnce participates in coherence without acquiring a snoopable copy.
+fun chi_request_snoops_caches(opcode :: CHIReqOpcode) :~ Bool:
+  chi_request_allocates_coherent(opcode) ||| (opcode === CHIReqOpcode.ReadOnce) ||| chi_cache_maintenance(opcode)
+
+fun chi_request_allocates_coherent(opcode :: CHIReqOpcode) :~ Bool:
+  opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique, CHIReqOpcode.WriteUniquePtl)
+
 fun chi_snoop_response_state_valid(opcode :: CHISnpOpcode, response :: CHICoherentResponse()) :~ Bool:
-  mux(opcode === CHISnpOpcode.SnpCleanShared,
+  mux(opcode.is_one_of(CHISnpOpcode.SnpCleanShared, CHISnpOpcode.SnpOnce),
       response.state =/= CHIResponseState.SharedDirty,
       response.state === CHIResponseState.Invalid)

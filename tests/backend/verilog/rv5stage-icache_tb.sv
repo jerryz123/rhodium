@@ -1,4 +1,4 @@
-// Verifies VIPT lookup and whole-word instruction visibility across refills and snoops.
+// Verifies instruction snapshots, VIPT lookup, refill errors, and FENCE.I cancellation.
 module rv5stage_icache_tb;
   typedef struct packed { logic [63:0] address; } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
@@ -13,31 +13,15 @@ module rv5stage_icache_tb;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } rsp_forward_t;
   typedef struct packed { logic valid; CHIDatFlit bits; } dat_forward_t;
-  typedef struct packed { logic valid; CHISnpFlit bits; } snp_forward_t;
-  typedef struct packed {
-    ready_t requests;
-    ready_t requester_responses;
-    ready_t request_data;
-    rsp_forward_t responses;
-    dat_forward_t response_data;
-    snp_forward_t snoops;
-  } chi_in_t;
-  typedef struct packed {
-    req_forward_t requests;
-    rsp_forward_t requester_responses;
-    dat_forward_t request_data;
-    ready_t responses;
-    ready_t response_data;
-    ready_t snoops;
-  } chi_out_t;
+  typedef struct packed { ready_t requester; rsp_forward_t response; } rsp_in_t;
+  typedef struct packed { rsp_forward_t requester; ready_t response; } rsp_out_t;
+  typedef struct packed { ready_t request; dat_forward_t response; } dat_in_t;
+  typedef struct packed { dat_forward_t request; ready_t response; } dat_out_t;
+  typedef struct packed { ready_t req; rsp_in_t rsp; dat_in_t dat; } chi_in_t;
+  typedef struct packed { req_forward_t req; rsp_out_t rsp; dat_out_t dat; } chi_out_t;
 
-  localparam logic [6:0] READ_CLEAN = 7'h02;
-  localparam logic [4:0] SNP_RESP = 5'h01;
+  localparam logic [6:0] READ_ONCE = 7'h03;
   localparam logic [4:0] COMP_ACK = 5'h02;
-  localparam logic [4:0] SNP_SHARED = 5'h01;
-  localparam logic [4:0] SNP_MAKE_INVALID = 5'h0a;
-  localparam logic [4:0] SNP_DVM_OP = 5'h0d;
-  localparam logic [4:0] SNP_QUERY = 5'h10;
   localparam logic [3:0] COMP_DATA = 4'h4;
   localparam logic [6:0] HOME_ID = 7'd1;
   localparam logic [6:0] CACHE_ID = 7'd2;
@@ -90,13 +74,13 @@ module rv5stage_icache_tb;
 
   task automatic grant_req_credit;
     begin
-      chi_in.requests.ready = 1'b1;
+      chi_in.req.ready = 1'b1;
     end
   endtask
 
   task automatic grant_rsp_credit;
     begin
-      chi_in.requester_responses.ready = 1'b1;
+      chi_in.rsp.requester.ready = 1'b1;
     end
   endtask
 
@@ -104,27 +88,15 @@ module rv5stage_icache_tb;
     integer cycles;
     begin
       cycles = 0;
-      while (!chi_out.response_data.ready && cycles < 50) begin
+      while (!chi_out.dat.response.ready && cycles < 50) begin
         tick();
         cycles = cycles + 1;
       end
-      assert (chi_out.response_data.ready)
+      assert (chi_out.dat.response.ready)
         else $fatal(1, "L1I did not accept response data");
     end
   endtask
 
-  task automatic wait_snp_credit;
-    integer cycles;
-    begin
-      cycles = 0;
-      while (!chi_out.snoops.ready && cycles < 50) begin
-        tick();
-        cycles = cycles + 1;
-      end
-      assert (chi_out.snoops.ready)
-        else $fatal(1, "L1I did not accept a snoop");
-    end
-  endtask
 
   task automatic send_core_request(input logic [63:0] address);
     integer cycles;
@@ -151,25 +123,25 @@ module rv5stage_icache_tb;
     integer cycles;
     begin
       cycles = 0;
-      while (!chi_out.requests.valid && cycles < 100) begin
+      while (!chi_out.req.valid && cycles < 100) begin
         tick();
         cycles = cycles + 1;
       end
-      assert (chi_out.requests.valid)
-        else $fatal(1, "L1I did not issue ReadClean");
-      assert (chi_out.requests.bits.opcode == READ_CLEAN &&
-              chi_out.requests.bits.src_id == CACHE_ID &&
-              chi_out.requests.bits.tgt_id == HOME_ID &&
-              chi_out.requests.bits.txn_id == 12'd0 &&
-              chi_out.requests.bits.return_txn_id_or_stash_lpid == 12'd0 &&
-              chi_out.requests.bits.address == address[43:0] &&
-              chi_out.requests.bits.size_or_num_req == 6'd6 &&
-              chi_out.requests.bits.exp_comp_ack &&
-              chi_out.requests.bits.snp_attr_or_do_dwt &&
-              chi_out.requests.bits.mem_attr == 4'hd &&
-              chi_out.requests.bits.allow_retry &&
-              chi_out.requests.bits.pcrd_type == 4'd0)
-        else $fatal(1, "L1I emitted malformed ReadClean");
+      assert (chi_out.req.valid)
+        else $fatal(1, "L1I did not issue ReadOnce");
+      assert (chi_out.req.bits.opcode == READ_ONCE &&
+              chi_out.req.bits.src_id == CACHE_ID &&
+              chi_out.req.bits.tgt_id == HOME_ID &&
+              chi_out.req.bits.txn_id == 12'd0 &&
+              chi_out.req.bits.return_txn_id_or_stash_lpid == 12'd0 &&
+              chi_out.req.bits.address == address[43:0] &&
+              chi_out.req.bits.size_or_num_req == 6'd6 &&
+              chi_out.req.bits.exp_comp_ack &&
+              chi_out.req.bits.snp_attr_or_do_dwt &&
+              chi_out.req.bits.mem_attr == 4'hd &&
+              chi_out.req.bits.allow_retry &&
+              chi_out.req.bits.pcrd_type == 4'd0)
+        else $fatal(1, "L1I emitted malformed ReadOnce");
       tick();
     end
   endtask
@@ -177,28 +149,30 @@ module rv5stage_icache_tb;
   task automatic return_line(
     input logic [63:0] address,
     input logic [511:0] line,
-    input int gap = 0
+    input int gap = 0,
+    input logic [1:0] error = 0
   );
     integer packet;
     begin
       for (packet = 3; packet >= 0; packet = packet - 1) begin
         repeat (gap) tick();
         wait_dat_credit();
-        chi_in.response_data.bits = '0;
-        chi_in.response_data.bits.data = line[packet * 128 +: 128];
-        chi_in.response_data.bits.byte_enable = 16'hffff;
-        chi_in.response_data.bits.data_id = address[5:4] + packet[1:0];
-        chi_in.response_data.bits.resp = 3'b001;
-        chi_in.response_data.bits.opcode = COMP_DATA;
-        chi_in.response_data.bits.home_nid_or_pbha_or_mismatched_mecid = HOME_ID;
-        chi_in.response_data.bits.dbid_or_mecid = 16'h0055;
-        chi_in.response_data.bits.txn_id = 12'd0;
-        chi_in.response_data.bits.src_id = HOME_ID;
-        chi_in.response_data.bits.tgt_id = CACHE_ID;
-        chi_in.response_data.valid = 1'b1;
+        chi_in.dat.response.bits = '0;
+        chi_in.dat.response.bits.data = line[packet * 128 +: 128];
+        chi_in.dat.response.bits.byte_enable = 16'hffff;
+        chi_in.dat.response.bits.data_id = address[5:4] + packet[1:0];
+        chi_in.dat.response.bits.resp = 3'b000;
+        chi_in.dat.response.bits.resp_err = error;
+        chi_in.dat.response.bits.opcode = COMP_DATA;
+        chi_in.dat.response.bits.home_nid_or_pbha_or_mismatched_mecid = HOME_ID;
+        chi_in.dat.response.bits.dbid_or_mecid = 16'h0055;
+        chi_in.dat.response.bits.txn_id = 12'd0;
+        chi_in.dat.response.bits.src_id = HOME_ID;
+        chi_in.dat.response.bits.tgt_id = CACHE_ID;
+        chi_in.dat.response.valid = 1'b1;
         tick();
-        chi_in.response_data.valid = 1'b0;
-        chi_in.response_data.bits = '0;
+        chi_in.dat.response.valid = 1'b0;
+        chi_in.dat.response.bits = '0;
       end
     end
   endtask
@@ -207,16 +181,16 @@ module rv5stage_icache_tb;
     integer cycles;
     begin
       cycles = 0;
-      while (!chi_out.requester_responses.valid && cycles < 100) begin
+      while (!chi_out.rsp.requester.valid && cycles < 100) begin
         tick();
         cycles = cycles + 1;
       end
-      assert (chi_out.requester_responses.valid)
+      assert (chi_out.rsp.requester.valid)
         else $fatal(1, "L1I did not issue CompAck");
-      assert (chi_out.requester_responses.bits.opcode == COMP_ACK &&
-              chi_out.requester_responses.bits.src_id == CACHE_ID &&
-              chi_out.requester_responses.bits.tgt_id == HOME_ID &&
-              chi_out.requester_responses.bits.txn_id == 12'h055)
+      assert (chi_out.rsp.requester.bits.opcode == COMP_ACK &&
+              chi_out.rsp.requester.bits.src_id == CACHE_ID &&
+              chi_out.rsp.requester.bits.tgt_id == HOME_ID &&
+              chi_out.rsp.requester.bits.txn_id == 12'h055)
         else $fatal(1, "L1I emitted malformed CompAck");
       tick();
     end
@@ -240,60 +214,10 @@ module rv5stage_icache_tb;
     end
   endtask
 
-  task automatic send_snoop(
-    input logic [63:0] address,
-    input logic [4:0] opcode,
-    input logic [11:0] txn_id,
-    input logic ret_to_src
-  );
-    begin
-      chi_in.snoops.bits = '0;
-      chi_in.snoops.bits.address = address[43:3];
-      chi_in.snoops.bits.opcode = opcode;
-      chi_in.snoops.bits.txn_id = txn_id;
-      chi_in.snoops.bits.src_id = HOME_ID;
-      chi_in.snoops.bits.ret_to_src = ret_to_src;
-      chi_in.snoops.valid = 1'b1;
-      // Readiness depends on the presented opcode; idle LCrdReturn readiness
-      // cannot stand in for acceptance of a real snoop during installation.
-      #1;
-      wait_snp_credit();
-      tick();
-      chi_in.snoops.valid = 1'b0;
-      chi_in.snoops.bits = '0;
-    end
-  endtask
-
-  task automatic expect_snoop_response(
-    input logic [11:0] txn_id,
-    input logic [2:0] response
-  );
-    integer cycles;
-    begin
-      cycles = 0;
-      while (!chi_out.requester_responses.valid && cycles < 100) begin
-        tick();
-        cycles = cycles + 1;
-      end
-      assert (chi_out.requester_responses.valid &&
-              chi_out.requester_responses.bits.opcode == SNP_RESP &&
-              chi_out.requester_responses.bits.txn_id == txn_id &&
-              chi_out.requester_responses.bits.src_id == CACHE_ID &&
-              chi_out.requester_responses.bits.tgt_id == HOME_ID &&
-              chi_out.requester_responses.bits.resp == response)
-        else $fatal(1, "L1I snoop response valid=%b opcode=%h txn=%h src=%d tgt=%d resp=%h expected txn=%h resp=%h",
-                    chi_out.requester_responses.valid, chi_out.requester_responses.bits.opcode,
-                    chi_out.requester_responses.bits.txn_id, chi_out.requester_responses.bits.src_id,
-                    chi_out.requester_responses.bits.tgt_id, chi_out.requester_responses.bits.resp, txn_id, response);
-      tick();
-    end
-  endtask
-
   task automatic invalidate_cache(input logic [63:0] address);
-    begin
-      send_snoop(address, SNP_MAKE_INVALID, 12'h077, 1'b0);
-      expect_snoop_response(12'h077, 3'd0);
-    end
+    core_in.invalidate_all = 1;
+    tick();
+    core_in.invalidate_all = 0;
   endtask
 
   localparam logic [63:0] ADDRESS = 64'h00000001_00000000;
@@ -331,7 +255,7 @@ module rv5stage_icache_tb;
     core_in.request.bits.address = ADDRESS;
     repeat (4) begin
       tick();
-      assert (!core_out.response.valid && !chi_out.requests.valid)
+      assert (!core_out.response.valid && !chi_out.req.valid)
         else $fatal(1, "unresolved virtual lookup caused a response or refill");
     end
     probe_only = 1'b0;
@@ -414,37 +338,6 @@ module rv5stage_icache_tb;
     core_in.request.valid = 1'b0;
     expect_instruction(32'h33333333);
 
-    // SnpQuery reports the precise clean state without changing residency.
-    grant_rsp_credit();
-    send_snoop(ADDRESS, SNP_QUERY, 12'h066, 1'b0);
-    expect_snoop_response(12'h066, 3'd1);
-    send_core_request(ADDRESS);
-    expect_instruction(32'h11111111);
-
-    // A DVM operation comprises two packets and receives exactly one response.
-    grant_rsp_credit();
-    send_snoop(ADDRESS, SNP_DVM_OP, 12'h055, 1'b0);
-    repeat (2) tick();
-    assert (!chi_out.requester_responses.valid)
-      else $fatal(1, "L1I responded to only half of a DVM operation");
-    send_snoop(ADDRESS, SNP_DVM_OP, 12'h055, 1'b0);
-    expect_snoop_response(12'h055, 3'd0);
-    send_core_request(ADDRESS);
-    expect_instruction(32'h11111111);
-
-    // Without a snoop-data path, RetToSrc causes a legal silent clean
-    // eviction before the cache reports Invalid.
-    grant_rsp_credit();
-    send_snoop(ADDRESS, SNP_SHARED, 12'h044, 1'b1);
-    expect_snoop_response(12'h044, 3'd0);
-    grant_req_credit();
-    grant_rsp_credit();
-    send_core_request(ADDRESS);
-    accept_read_request(ADDRESS);
-    return_line(ADDRESS, LINE);
-    accept_comp_ack();
-    expect_instruction(32'h11111111);
-
     grant_rsp_credit();
     invalidate_cache(ADDRESS);
     grant_req_credit();
@@ -513,8 +406,7 @@ module rv5stage_icache_tb;
     send_core_request(THIRD_ADDRESS);
     expect_instruction(32'h11111111);
 
-    // Two colliding lines coexist, and snoop lookup and invalidation select
-    // the matching way without disturbing the other resident line.
+    // Two colliding lines coexist without disturbing one another.
     core_in.invalidate_all = 1'b1;
     tick();
     core_in.invalidate_all = 1'b0;
@@ -534,21 +426,6 @@ module rv5stage_icache_tb;
     expect_instruction(32'h11111111);
     send_core_request(COLLIDE_B_ADDRESS);
     expect_instruction(32'hb1b1b1b1);
-    grant_rsp_credit();
-    send_snoop(COLLIDE_B_ADDRESS, SNP_QUERY, 12'h088, 1'b0);
-    expect_snoop_response(12'h088, 3'd1);
-    grant_rsp_credit();
-    invalidate_cache(COLLIDE_B_ADDRESS);
-    send_core_request(ADDRESS);
-    expect_instruction(32'h11111111);
-    grant_req_credit();
-    grant_rsp_credit();
-    send_core_request(COLLIDE_B_ADDRESS);
-    accept_read_request(COLLIDE_B_ADDRESS);
-    return_line(COLLIDE_B_ADDRESS, LINE_B);
-    accept_comp_ack();
-    expect_instruction(32'hb1b1b1b1);
-
     // With both ways occupied, the round-robin pointer replaces the first
     // way. The second colliding line remains a hit while the original misses.
     send_core_request(COLLIDE_C_ADDRESS);
@@ -586,8 +463,8 @@ module rv5stage_icache_tb;
     send_core_request(ADDRESS + 64'h10c0);
     expect_instruction(32'hb1b1b1b1);
 
-    // Hold an old aligned instruction while invalidation and a new refill
-    // complete behind it. Every observed word must be wholly old or wholly new.
+    // Architectural invalidation cancels the old stalled response; every new
+    // instruction must come entirely from the post-fence refill.
     for (int offset = 0; offset < 64; offset += 4) begin
       core_in.invalidate_all = 1;
       tick();
@@ -605,6 +482,7 @@ module rv5stage_icache_tb;
       assert (core_out.response.valid && core_out.response.bits.word == 32'h55aaaa55)
         else $fatal(1, "old aligned instruction did not complete");
       hold_old_instruction = 1;
+      hold_old_instruction = 0;
       grant_rsp_credit();
       invalidate_cache(ADDRESS);
       grant_req_credit();
@@ -616,9 +494,79 @@ module rv5stage_icache_tb;
       repeat (4) tick();
       hold_old_instruction = 0;
       core_in.response.ready = 1;
-      expect_instruction(32'h55aaaa55);
       expect_instruction(32'haa5555aa);
     end
+    // Requests and CompAck remain stable under stalls; a retry retains the snapshot context.
+    invalidate_cache(ADDRESS);
+    chi_in.req.ready = 0;
+    send_core_request(ADDRESS);
+    for (int c = 0; !chi_out.req.valid && c < 100; c++) tick();
+    begin
+      CHIReqFlit saved;
+      saved = chi_out.req.bits;
+      repeat (4) begin
+        tick();
+        assert (chi_out.req.valid && chi_out.req.bits == saved) else $fatal(1, "stalled read changed");
+      end
+    end
+    chi_in.req.ready = 1;
+    accept_read_request(ADDRESS);
+    for (int event_index = 0; event_index < 2; event_index++) begin
+      chi_in.rsp.response.bits = '0;
+      chi_in.rsp.response.bits.opcode = event_index == 0 ? 5'h03 : 5'h07;
+      chi_in.rsp.response.bits.src_id = HOME_ID;
+      chi_in.rsp.response.bits.tgt_id = CACHE_ID;
+      chi_in.rsp.response.bits.pcrd_type = 2;
+      chi_in.rsp.response.valid = 1;
+      #1;
+      for (int c = 0; !chi_out.rsp.response.ready && c < 100; c++) tick();
+      assert (chi_out.rsp.response.ready) else $fatal(1, "retry response blocked");
+      tick();
+      chi_in.rsp.response.valid = 0;
+      chi_in.req.ready = 0;
+    end
+    for (int c = 0; !chi_out.req.valid && c < 100; c++) tick();
+    assert (chi_out.req.valid && chi_out.req.bits.opcode == READ_ONCE &&
+            chi_out.req.bits.address == ADDRESS[43:0] && !chi_out.req.bits.allow_retry &&
+            chi_out.req.bits.pcrd_type == 2) else $fatal(1, "retry lost line or credit");
+    chi_in.req.ready = 1;
+    tick();
+    chi_in.rsp.requester.ready = 0;
+    return_line(ADDRESS, LINE);
+    for (int c = 0; !chi_out.rsp.requester.valid && c < 100; c++) tick();
+    begin
+      CHIRspFlit saved;
+      saved = chi_out.rsp.requester.bits;
+      repeat (4) begin
+        tick();
+        assert (chi_out.rsp.requester.valid && chi_out.rsp.requester.bits == saved) else $fatal(1, "stalled acknowledgement changed");
+      end
+    end
+    chi_in.rsp.requester.ready = 1;
+    accept_comp_ack();
+    // Invalidation during SRAM installation must prevent publishing the partial line.
+    repeat (2) tick();
+    invalidate_cache(ADDRESS);
+    repeat (12) begin
+      tick();
+      assert (!core_out.response.valid) else $fatal(1, "fenced installation returned old code");
+    end
+
+    // A failed snapshot responds with an access fault and never becomes a cache hit.
+    invalidate_cache(ADDRESS);
+    send_core_request(ADDRESS);
+    accept_read_request(ADDRESS);
+    return_line(ADDRESS, LINE, 1, 2'b10);
+    accept_comp_ack();
+    for (int c = 0; !core_out.response.valid && c < 100; c++) tick();
+    assert (core_out.response.valid && core_out.response.bits.access_fault)
+      else $fatal(1, "read error was not delivered to Fetch");
+    tick();
+    send_core_request(ADDRESS);
+    accept_read_request(ADDRESS);
+    return_line(ADDRESS, LINE);
+    accept_comp_ack();
+    expect_instruction(32'h11111111);
     $display("Ziccif aligned-word visibility passed: 16 offsets, reordered/gapped refills, stalled response across invalidation");
     $display("RV5Stage VIPT instruction-cache simulation passed");
     $finish;

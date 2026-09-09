@@ -148,10 +148,10 @@ check:
   compiled.rv5stages.map(fun (rv5stage): rv5stage.chi.uncached_node_id) ~is [16, 17, 18, 19, 20, 21, 22, 23]
   compiled.rv5stages[0].tile_params.router.routers.req.router_family_plan.ingress_count ~is 4
   compiled.rv5stages[0].tile_params.router.routers.req.router_family_plan.egress_count ~is 4
-  compiled.rv5stages[0].tile_params.router.attachment.rnf_locals.length() ~is 2
-  compiled.rv5stages[0].tile_params.router.attachment.rni_locals.length() ~is 1
+  compiled.rv5stages[0].tile_params.router.attachment.rnf_locals.length() ~is 1
+  compiled.rv5stages[0].tile_params.router.attachment.rni_locals.length() ~is 2
   compiled.rv5stages[0].tile_params.router.attachment.rnf_locals[0].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
-  compiled.rv5stages[0].tile_params.router.attachment.rnf_locals[1].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
+  compiled.rv5stages[0].tile_params.router.attachment.rni_locals[1].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
   compiled.rv5stages[0].tile_params.router.attachment.rni_locals[0].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
   compiled.rv5stages[0].tile_params.router.attachment.rnf_locals[0].req.decoder.table.cases.length() ~is 32
   compiled.llcs[0].tile_params.router.attachment.hnf_requester_locals.length() ~is 1
@@ -238,7 +238,7 @@ check:
 check:
   compiled.compilations.req.routes.length() ~is 86
   compiled.compilations.rsp.routes.length() ~is 163
-  compiled.snp_compilation.routes.length() ~is 68
+  compiled.snp_compilation.routes.length() ~is 36
   compiled.compilations.dat.routes.length() ~is 172
   compiled.families.req.members.length() ~is 20
   compiled.families.rsp.members.length() ~is 20

@@ -1,0 +1,176 @@
+#lang rhodium
+// Implements RV5Stage's retry-aware packet-complete coherent snapshot reads without requester cache ownership.
+
+import:
+  "../cache.rhdl" open
+  "foundation.rhdl" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl") open
+  lib("chi/transactions/retryable-transaction.rhdl").CHIRetryableTransactionControl
+
+bundle RV5StageLineReadCommand(Context :: DataType, address_width :: PosInt):
+  line_address: Bits(address_width)
+  context: Context
+
+bundle RV5StageLineReadResult(Context :: DataType, address_width :: PosInt):
+  line_address: Bits(address_width)
+  context: Context
+  line: Vec(RV5StageCacheLineBytes / 8, Bits(64))
+  access_fault: Bool
+
+sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, config :: RV5StageCHIConfig):
+  def p = config.flit
+  unless RV5StageCacheLineBytes >= p.data_bytes
+  | error(~who: #'RV5StageLineRead,
+          "cache line must span at least one complete CHI data packet")
+  unless address_width >= alignment_bits(RV5StageCacheLineBytes)
+  | error(~who: #'RV5StageLineRead,
+          "address width must cover the line offset")
+  def packet_count = RV5StageCacheLineBytes / p.data_bytes
+  def packet_index_width = index_width(packet_count)
+
+  input node_id: Bits(p.node_id_width)
+  interface command(Decoupled(RV5StageLineReadCommand(Context, address_width)),
+                    ~role: consumer)
+  interface completion(Irrevocable(RV5StageLineReadResult(Context, address_width)), ~role: producer)
+  interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
+  interface acknowledgements(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface response_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
+
+  inst control(CHIRetryableTransactionControl(p, RV5StageRefillResponses))
+  reg received_packets(~init: vec(
+    for List (_index in 0..packet_count): Bool(#false)
+  ))
+  reg acknowledgement_sent(~init: Bool(#false))
+  reg line_address(~init: bits(0, address_width))
+  reg context(Context)
+  reg line(~init: bits(0, RV5StageCacheLineBytes * 8))
+  reg home_id(~init: bits(0, p.node_id_width))
+  reg dbid(~init: bits(0, 12))
+  reg access_fault(~init: Bool(#false))
+
+  command.ready <== !control.active
+  def command_fire = command.fire()
+  def command_home = config.home_map.lookup(rv5stage_chi_address(command.bits.line_address, p))
+  when command_fire:
+    // The integrated core's physical map makes these address checks internal
+    // invariants; direct cache users still receive a precise assertion.
+    assert(command.bits.line_address.is_aligned(RV5StageCacheLineBytes),
+           "line_read_address_aligned")
+    assert(rv5stage_chi_address_fits(command.bits.line_address, p),
+           "line_read_address_fits_chi")
+    assert(command_home.valid, "line_read_address_has_home")
+
+  control.attempt
+    |> map_flow(attempt => rv5stage_chi_request(
+      p,
+      node_id,
+      home_id,
+      line_address,
+      CHITransferSize.Bytes64,
+      CHIReqOpcode.ReadOnce,
+      bits(0, 12),
+      Bool(#true),
+      Bool(#true),
+      attempt.allow_retry,
+      attempt.pcrd_type
+    ))
+    |> requests
+
+  responses |> control.response
+  def response_event = control.event
+  def incoming_response = response_event.bits.flit
+  def retry_response_fire = response_event.valid
+  def retry_ack_fire = retry_response_fire & response_event.bits.retry_ack
+  when retry_response_fire:
+    assert(incoming_response.tgt_id === node_id,
+           "line_read_retry_response_target")
+    assert(incoming_response.src_id === home_id,
+           "line_read_retry_response_home")
+  when retry_ack_fire:
+    assert(incoming_response.txn_id === bits(0, 12),
+           "line_read_retry_txn_id")
+
+  def incoming_data = response_data.bits
+  def poisoned = if p.poison_width > 0 | incoming_data.poison.or_reduce() | Bool(#false)
+  def all_data_received = received_packets.and_reduce()
+  def first_data_packet = !received_packets.or_reduce()
+  def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
+  def packet_was_received = received_packets[packet_index]
+  def next_received_packets = received_packets.updated(packet_index, Bool(#true))
+  def next_line = line.as_vec(Bits(p.data_width)).updated(
+    packet_index,
+    incoming_data.data
+  )
+  response_data.ready <== control.active & control.attempt_outstanding & !all_data_received
+  def data_fire = response_data.fire()
+  when data_fire:
+    assert(incoming_data.opcode === CHIDatOpcode.CompData,
+           "line_read_response_is_comp_data")
+    assert(incoming_data.txn_id === bits(0, 12),
+           "line_read_response_txn_id")
+    assert(incoming_data.tgt_id === node_id,
+           "line_read_response_target")
+    assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === home_id,
+           "line_read_response_home")
+    assert(chi_data_id_valid(incoming_data.data_id, p),
+           "line_read_response_data_id")
+    assert(!packet_was_received,
+           "line_read_response_data_id_unique")
+    assert(incoming_data.num_dat === bits(0, 2),
+           "line_read_response_num_dat_zero")
+    assert(!incoming_data.replicate,
+           "line_read_response_not_replicated")
+    assert(incoming_data.resp === bits(0, 3), "line_read_response_has_no_ownership")
+  when (data_fire & !first_data_packet):
+    assert(incoming_data.dbid_or_mecid[0..12] === dbid,
+           "line_read_response_dbid_consistent")
+
+  acknowledgements.valid <== control.active & all_data_received & !acknowledgement_sent
+  acknowledgements.bits <== rv5stage_chi_response(
+    p,
+    node_id,
+    home_id,
+    dbid,
+    CHIRspOpcode.CompAck
+  )
+  def acknowledgement_fire = acknowledgements.fire()
+
+  completion.valid <== control.active & acknowledgement_sent
+  completion.bits <== RV5StageLineReadResult(Context, address_width):
+    line_address: line_address
+    context: context
+    line: line.as_vec(Bits(64))
+    access_fault: access_fault
+  def completion_fire = completion.fire()
+
+  control.start <== command_fire
+  control.finish <== completion_fire
+  control.external_progress <== data_fire
+
+  when command_fire:
+    received_packets <== vec(
+      for List (_index in 0..packet_count): Bool(#false)
+    )
+    acknowledgement_sent <== Bool(#false)
+    line_address <== command.bits.line_address
+    context <== command.bits.context
+    line <== bits(0, RV5StageCacheLineBytes * 8)
+    home_id <== command_home.node_id
+    dbid <== bits(0, 12)
+    access_fault <== Bool(#false)
+  elsewhen data_fire:
+    received_packets <== next_received_packets
+    line <== next_line.as_bits()
+    dbid <== mux(first_data_packet, incoming_data.dbid_or_mecid[0..12], dbid)
+    access_fault <== access_fault ||| poisoned ||| (incoming_data.resp_err =/= CHIRespErr.OK)
+  elsewhen acknowledgement_fire:
+    acknowledgement_sent <== Bool(#true)
+
+export:
+  RV5StageLineReadCommand
+  RV5StageLineReadResult
+  RV5StageLineRead

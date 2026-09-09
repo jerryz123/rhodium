@@ -1,0 +1,7 @@
+#lang rhombus
+// Emits instruction-snapshot coherence with a real D-cache and inclusive Home.
+import:
+  "../../cores/rv5stage/tests/icache-coherence-fixture.rhdl".RV5StageInstructionCoherence
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/frontend/kernel.rhm" as embedded
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageInstructionCoherence(#true))))

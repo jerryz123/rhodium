@@ -100,14 +100,13 @@ class RV5StageCHIParams(config :: RV5StageCHIConfig,
     CHINodeParams(
       "rv5stage-l1i",
       instruction_node_id,
-      CHINodeKind.RNF,
+      CHINodeKind.RNI,
       ~emits: CHIChannelCapabilities(
-        ~req: [CHIReqOpcode.ReadClean],
-        ~rsp: [CHIRspOpcode.CompAck, CHIRspOpcode.SnpResp]
+        ~req: [CHIReqOpcode.ReadOnce],
+        ~rsp: [CHIRspOpcode.CompAck]
       ),
       ~supports: CHIChannelCapabilities(
         ~rsp: RV5StageRefillResponses.response_opcodes,
-        ~snp: chi_rnf_snoop_opcodes,
         ~dat: [CHIDatOpcode.CompData]
       ),
       ~max_outstanding: 2

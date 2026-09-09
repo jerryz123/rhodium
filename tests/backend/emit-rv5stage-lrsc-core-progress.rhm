@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits the complete-core constrained-loop progress integration.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../cores/rv5stage/tests/lrsc-core-progress-fixture.rhdl".RV5StageLRSCCoreProgress
+
+def design = embedded.run_elaboration(fun (): RV5StageLRSCCoreProgress())
+print(emit_circt(design))

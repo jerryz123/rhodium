@@ -58,9 +58,9 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams, ~reset_address: reset_ad
   interrupt_update <=> interrupt_replica.ingress
   external_interrupt_update <=> external_interrupt_replica.ingress
   router.site_key <== identity.site_key
-  def instruction_channels :: Endpoint = router.rnf_local[0]
-  def data_channels :: Endpoint = router.rnf_local[1]
-  def device_channels :: Endpoint = router.rni_local[0]
+  def instruction_channels :: Endpoint = router.rni_local[0]
+  def data_channels :: Endpoint = router.rnf_local[0]
+  def device_channels :: Endpoint = router.rni_local[1]
   rv5stage.imem <=> instruction_channels
   rv5stage.dmem <=> data_channels
   rv5stage.umem <=> device_channels

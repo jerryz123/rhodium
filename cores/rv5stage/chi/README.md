@@ -16,11 +16,20 @@ uncached regions require HN-I Homes. Executable regions must permit idempotent
 reads, atomic regions must be readable and writable, and cacheable regions must
 contain complete 64-byte cache lines.
 
-`RV5StageCHIParams` describes host-side instruction RN-F, data RN-F, and
+`RV5StageCHIParams` describes host-side instruction RN-I, data RN-F, and
 optional uncached RN-I nodes. It checks NodeID widths and requires every RN and
 Home NodeID to be distinct. `RV5StageCHIIdentity` carries the placement-specific
 NodeIDs into hardware so one specialized core can be instantiated at multiple
 locations.
+
+## Instruction snapshot read
+
+`RV5StageLineRead` issues retryable 64-byte `ReadOnce` requests through RN-I
+channels. It obtains coherent data but no snoopable ownership or dirty
+responsibility. It retains context and collects the complete packet set before
+acknowledging Home and exposing line data plus an access-fault flag. A consumer
+flush cannot abandon an accepted transaction. L1I decides whether a completed
+snapshot may install or respond; the engine only owns CHI lifetime.
 
 ## Cache-line refill
 

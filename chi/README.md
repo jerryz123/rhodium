@@ -619,10 +619,18 @@ responses.
 
 Both Home implementations require at least one RN-F and accept one transaction
 at a time; `CHIHNFParams` correspondingly requires a Home capacity of exactly
-one. RN-I requesters may use `ReadNoSnp`, `WriteNoSnpFull`, and
-`WriteNoSnpPtl`; RN-F requesters may use `ReadClean`, `ReadUnique`, and
+one. RN-I requesters may use `ReadOnce`, `ReadNoSnp`, `WriteNoSnpFull`, and
+`WriteNoSnpPtl`; RN-F requesters may use `ReadOnce`, `ReadClean`, `ReadUnique`, and
 `WriteUniquePtl`. Both requester kinds may additionally advertise
 `CleanShared`, `CleanInvalid`, and `MakeInvalid` for aligned 64-byte blocks.
+
+Both coherent Homes service `ReadOnce` by snooping RN-F owners with `SnpOnce`.
+The requester receives a snapshot with Invalid response state and no dirty
+responsibility; it is not added as a coherent sharer. Dirty intervention transfers
+responsibility to Home (or backing memory in the noncaching Home). A clean owner
+can retain its copy. RN-I requesters never become snoop targets. Snapshot reads
+may allocate in the inclusive LLC, whose replacement policy is independent of
+software-synchronized instruction-cache residency.
 
 `CHIHNF` broadcasts `SnpCleanShared` before `ReadClean` and
 `SnpUnique` before `ReadUnique` and `SnpCleanInvalid` before `WriteUniquePtl`, excluding the

@@ -144,10 +144,12 @@ module chi_inclusive_home_tb;
   endtask
 
   task automatic return_fill_packet(input logic [1:0] packet_id,
-                                    input logic [7:0] payload);
+                                    input logic [7:0] payload,
+                                    input logic [1:0] error = 0);
     begin
       subordinate_data_in.bits = '0;
       subordinate_data_in.bits.opcode = COMP_DATA;
+      subordinate_data_in.bits.resp_err = error;
       subordinate_data_in.bits.src_id = MEMORY_ID;
       subordinate_data_in.bits.tgt_id = HOME_ID;
       subordinate_data_in.bits.data_id = packet_id;
@@ -163,11 +165,13 @@ module chi_inclusive_home_tb;
   endtask
 
   task automatic accept_cached_packet(input logic [1:0] packet_id,
-                                      input logic [127:0] payload);
+                                      input logic [127:0] payload,
+                                      input logic [1:0] error = 0);
     CHIDatFlit expected_packet;
     begin
       expected_packet = '0;
       expected_packet.data = payload;
+      expected_packet.resp_err = error;
       for (int b = 0; b < 16; b++)
         expected_packet.byte_enable[b] = active_request.size_or_num_req >= 4 ||
           (b >= int'(active_request.address[3:0]) && b < int'(active_request.address[3:0]) + (1 << active_request.size_or_num_req));
@@ -185,7 +189,8 @@ module chi_inclusive_home_tb;
       assert(port_out.requester.response_data.bits === expected_packet) else $fatal(1, "complete cached DAT mismatch");
       assert (port_out.requester.response_data.valid &&
               port_out.requester.response_data.bits.data_id == packet_id &&
-              port_out.requester.response_data.bits.data == payload)
+              port_out.requester.response_data.bits.data == payload &&
+              port_out.requester.response_data.bits.resp_err == error)
         else $fatal(1, "inclusive Home returned incorrect cached data");
       tick();
       response_data_ready_in = '0;
@@ -484,6 +489,19 @@ module chi_inclusive_home_tb;
     accept_cached_packet(2'd1, 128'h41);
     accept_cached_packet(2'd2, 128'h42);
     accept_cached_packet(2'd3, 128'h43);
+
+    // ReadOnce must preserve an early-beat error and must not cache a failed fill.
+    reset = 1; tick(); reset = 0;
+    send_request(LINE0, 7'h03);
+    tick();
+    accept_memory_request(LINE0, READ_NO_SNP);
+    for (int packet = 0; packet < 4; packet++)
+      return_fill_packet(2'(packet), 8'(packet), packet == 0 ? 2'b10 : 2'b00);
+    for (int packet = 0; packet < 4; packet++)
+      accept_cached_packet(2'(packet), 128'(packet), 2'b10);
+    send_request(LINE0, 7'h03);
+    tick();
+    fill_and_return(LINE0, 8'h50);
 
     $display("CHI inclusive Home simulation passed");
     $finish;

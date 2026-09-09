@@ -160,7 +160,7 @@ replication outputs, including a dropping branch.
 
 Keep private-cache outer-channel observations in `rv5stage.rhdl` at the
 L1I/L1D-to-CHI composition boundary. The local connection helper preserves all
-six ready-valid channel directions and captures only named scalar metadata.
+available ready-valid channel directions and captures only named scalar metadata.
 Select each channel's enum opcode with `~format: "enum", ~label: #true`; do not
 hand-maintain REQ/RSP/DAT/SNP decoding tables in the exporter. Check decoded slice
 names independently of numeric opcode captures in the trace smoke.
@@ -168,7 +168,8 @@ Do not infer CHI transaction lineage by matching TxnID/DBID values or by routing
 topology. These explicit root/terminal sites are separate from the scalar
 pipeline graph. After changing them, run the SimpleSoC trace smoke; its
 `check-cache-events.sql` checks schemas, real miss/refill traffic, endpoint IDs,
-and the lack of fabricated parent edges. Use a cache-heavy benchmark to inspect
+and the lack of fabricated parent edges. Instruction RN-I has no SNP channel;
+only the data cache contributes snoop events. Use a cache-heavy benchmark to inspect
 additional writeback/snoop activity; an idle channel need not emit an event.
 
 ## Maintain the UDB projection
@@ -226,12 +227,46 @@ not a dependency on its request payload or whole `drained` output bundle.
 Include `rv5stage-fp-pipeline`, `rv5stage-core-rv32f`, and `rv5stage-core-rv64d`
 for FP-hit writeback or shared payload changes.
 
+### Ziccrse progress gate
+
+`rv5stage-lrsc-core-progress` is the full-core regression for the still
+unadvertised LR/SC eventuality guarantee:
+
+```sh
+FIXTURE=rv5stage-lrsc-core-progress bash tests/backend/run-circt.sh --simulate-only
+```
+
+It executes sixteen-instruction constrained LR.D/SC.D loops through RV5Stage,
+its MMU and 32-set direct-mapped L1s, a two-set/two-way inclusive Home, and
+CHI SRAM. The three instruction placements are `0x1fc0`, `0x1fe0`, and
+`0x1ffe`; Bare and supervisor Sv39 runs cover both ordinary and halfword-offset
+fetch/page crossings. Sv39 uses separate 4-KiB leaves. The pressure cases
+disable prediction and take six forward branches over NOPs while another
+requester issues read-only LLC conflicts. All program loading and signatures
+use coherent requests. Initial fetch is stalled during loading, but the
+caches remain alive to service broadcast snoops.
+
+The nonsnooping instruction cache passes ten of twelve cases, up from seven
+with snoopable instruction residency. Bare `0x1fe0`/`0x1ffe` and Sv39 `0x1fe0`
+now finish under continuous read pressure. Both Sv39 `0x1fc0` cases still fail,
+including without pressure: their speculative ITLB walk repeatedly takes the
+data port from WB's SC, then gets canceled by SC replay. Implicit PTE allocation
+can also evict the reservation. The bench reports every failed case and then
+fails overall; recovery is diagnostic evidence, never a passing result.
+Before the progress cases, the same bench executes a self-modifying-code
+program: warm an instruction line, modify it through the core's dirty data
+cache, execute `FENCE.I`, and call the updated code. That case passes.
+Do not enable profile, device-tree, or UDB advertisement from the cache-only
+progress results. Resolve these full-core failures first. In particular,
+extending the reservation timer alone does not establish progress across
+translation arbitration and replay.
+
 For Ziccif/Ziccamoa validation, select `rv5stage-fetch`, `rv5stage-icache`,
 `rv5stage-dcache`, `rv5stage-dcache-rv32`, `rv5stage-memory-router`,
-`chi-coherent-home`, and `chi-inclusive-home`. The L1I regression holds an old
-aligned instruction response through snoop invalidation and a subsequent
-replacement refill at all sixteen word offsets, with reversed/gapped data
-packets. Fetch assembly separately covers aligned words and compressed parcels.
+`chi-coherent-home`, and `chi-inclusive-home`. The L1I regression cancels an old stalled instruction response on architectural
+invalidation and checks fresh words at all sixteen offsets, with reversed/gapped
+data packets. The instruction-coherence fixtures additionally check dirty-owner
+intervention and residency independent of outer-cache replacement. Fetch assembly separately covers aligned words and compressed parcels.
 The L1D regressions check all nine AMOs at RV32 word and RV64 word/doubleword
 widths, old-value returns, signedness, overflow, byte-lane preservation,
 ownership-delayed miss completion, and a snoop contending with an accepted RMW.

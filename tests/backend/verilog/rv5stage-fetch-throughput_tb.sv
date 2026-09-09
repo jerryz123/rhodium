@@ -4,9 +4,12 @@ module rv5stage_fetch_throughput_tb;
   typedef struct packed {logic valid; CHIReqFlit bits;} req_t;
   typedef struct packed {logic valid; CHIRspFlit bits;} rsp_t;
   typedef struct packed {logic valid; CHIDatFlit bits;} dat_t;
-  typedef struct packed {logic valid; CHISnpFlit bits;} snp_t;
-  typedef struct packed {ready_t requests, requester_responses, request_data; rsp_t responses; dat_t response_data; snp_t snoops;} chi_in_t;
-  typedef struct packed {req_t requests; rsp_t requester_responses; dat_t request_data; ready_t responses, response_data, snoops;} chi_out_t;
+  typedef struct packed { ready_t requester; rsp_t response; } rsp_in_t;
+  typedef struct packed { rsp_t requester; ready_t response; } rsp_out_t;
+  typedef struct packed { ready_t request; dat_t response; } dat_in_t;
+  typedef struct packed { dat_t request; ready_t response; } dat_out_t;
+  typedef struct packed { ready_t req; rsp_in_t rsp; dat_in_t dat; } chi_in_t;
+  typedef struct packed { req_t req; rsp_out_t rsp; dat_out_t dat; } chi_out_t;
   logic clock=0, reset=1, active=0, restart=0, sink_ready=1;
   logic [63:0] start_pc=0, pc;
   logic valid, fault;
@@ -33,32 +36,32 @@ module rv5stage_fetch_throughput_tb;
   endfunction
   always_comb begin
     chi_in='0;
-    chi_in.requests.ready=1;
-    chi_in.requester_responses.ready=1;
-    chi_in.request_data.ready=1;
-    chi_in.response_data.valid=pending;
-    chi_in.response_data.bits.opcode=4'h4;
-    chi_in.response_data.bits.resp=3'b001;
-    chi_in.response_data.bits.byte_enable=16'hffff;
-    chi_in.response_data.bits.data_id=2'(beat);
-    chi_in.response_data.bits.home_nid_or_pbha_or_mismatched_mecid=7'd1;
-    chi_in.response_data.bits.dbid_or_mecid=16'h55;
-    chi_in.response_data.bits.txn_id=transaction;
-    chi_in.response_data.bits.src_id=7'd1;
-    chi_in.response_data.bits.tgt_id=7'd2;
-    for(int b=0;b<16;b++) chi_in.response_data.bits.data[b*8+:8]=byte_at(line_address+64'(16*beat+b));
+    chi_in.req.ready=1;
+    chi_in.rsp.requester.ready=1;
+    chi_in.dat.request.ready=1;
+    chi_in.dat.response.valid=pending;
+    chi_in.dat.response.bits.opcode=4'h4;
+    chi_in.dat.response.bits.resp=3'b000;
+    chi_in.dat.response.bits.byte_enable=16'hffff;
+    chi_in.dat.response.bits.data_id=2'(beat);
+    chi_in.dat.response.bits.home_nid_or_pbha_or_mismatched_mecid=7'd1;
+    chi_in.dat.response.bits.dbid_or_mecid=16'h55;
+    chi_in.dat.response.bits.txn_id=transaction;
+    chi_in.dat.response.bits.src_id=7'd1;
+    chi_in.dat.response.bits.tgt_id=7'd2;
+    for(int b=0;b<16;b++) chi_in.dat.response.bits.data[b*8+:8]=byte_at(line_address+64'(16*beat+b));
   end
   always @(posedge clock) begin
     cycle<=cycle+1;
     if(reset) begin pending<=0; beat<=0; requests<=0; end
     else begin
-      if(chi_out.requests.valid && chi_in.requests.ready) begin
-        assert(!pending && chi_out.requests.bits.opcode==7'h02) else $fatal(1,"unexpected refill request");
-        line_address<=64'(chi_out.requests.bits.address);
-        transaction<=chi_out.requests.bits.txn_id;
+      if(chi_out.req.valid && chi_in.req.ready) begin
+        assert(!pending && chi_out.req.bits.opcode==7'h03) else $fatal(1,"unexpected refill request");
+        line_address<=64'(chi_out.req.bits.address);
+        transaction<=chi_out.req.bits.txn_id;
         pending<=1; beat<=0; requests<=requests+1;
       end
-      if(pending && chi_out.response_data.ready) begin
+      if(pending && chi_out.dat.response.ready) begin
         if(beat==3) pending<=0;
         else beat<=beat+1;
       end

@@ -16,7 +16,7 @@ sync_circuit RV5StagePollingBoot():
   def p = config.flit
   def image = riscv_bootrom_image(0xc000, 0xc100, ~device_tree_address: 0xc180, ~boot_address_register: 0x8000)
   input hart_id: Bits(64)
-  interface imem(CHIRNChannels(p), ~role: node)
+  interface imem(CHIRNIChannels(p), ~role: node)
   interface dmem(CHIRNChannels(p), ~role: node)
   interface umem(CHIRNIChannels(p), ~role: node)
   output boot_words: Vec(image.size_bytes / 4, Bits(32))

@@ -1,10 +1,9 @@
-<!-- Specifies RV5Stage's instruction-cache protocol and clean-only L1I contract. -->
+<!-- Specifies RV5Stage's instruction-cache protocol and software-synchronized snapshot contract. -->
 
 # RV5Stage instruction cache
 
 This directory owns the core-facing instruction-access protocol and the private
-L1I's arrays, refill, replacement, response buffering, flush, invalidation, and
-snoop contracts. The [parent core guide](../README.md#memory-hierarchy) owns
+L1I's arrays, refill, replacement, response buffering, flush and architectural invalidation contracts. The [parent core guide](../README.md#memory-hierarchy) owns
 address translation, Fetch correlation, and `FENCE.I` ordering; the
 [CHI guide](../../../chi/README.md) owns protocol vocabulary and fabric-wide
 rules.
@@ -16,14 +15,14 @@ Contributors changing the L1I implementation should read
 
 | Property | Current contract |
 |---|---|
-| Organization | Non-aliasing VIPT, set-associative, read-only and clean-only |
+| Organization | Non-aliasing VIPT, set-associative, read-only, nonsnooping instruction snapshots |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
 | Core throughput | Consecutive hits can enter and return one 32-bit instruction per cycle |
 | Core protocol | Ordered `Decoupled` requests and backpressurable `Irrevocable` responses |
-| Miss policy | One blocking, retry-aware `ReadClean` line acquisition |
+| Miss policy | One blocking, retry-aware `ReadOnce` line acquisition |
 | Response capacity | At most two accepted requests, backed by a two-entry queue |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
-| Prefetch | Demand-priority Valid event; a miss launches ordinary `ReadClean` refill without a response |
+| Prefetch | Demand-priority Valid event; a miss launches ordinary `ReadOnce` refill without a response |
 
 `RV5StageL1ICache(xlen, cache, ~chi: config)` accepts physical resolutions only
 for fetches whose PMA is cacheable; early virtual reads may precede that decision.
@@ -31,7 +30,7 @@ The parent hierarchy routes executable non-cacheable fetches through
 its non-allocating RN-I path. The cache accepts `XLen.X32` or
 `XLen.X64`. The cache configuration supplies set/way geometry; the required
 CHI configuration supplies flit geometry and the Home map. A separate
-`node_id` input supplies the occurrence's RN-F identity. Core addresses use
+`node_id` input supplies the occurrence's RN-I identity. Core addresses use
 XLEN, while emitted CHI requests use the configured CHI request-address width
 and assert that the original physical address fits. Geometry validation also
 requires XLEN to leave at least one tag bit above the line offset and set index.
@@ -66,7 +65,7 @@ Physical prefetches use the same SRAM port and lose to a live virtual demand.
 
 ## Data path and arrays
 
-[`cache.rhdl`](cache.rhdl) pipelines SRAM hits while keeping refill and snoop
+[`cache.rhdl`](cache.rhdl) pipelines SRAM hits while keeping refill
 transactions outside the core response path:
 
 ```mermaid
@@ -75,19 +74,16 @@ flowchart LR
   Fetch["S1 permitted physical request<br/>registered MMU address"] --> Lookup
   Lookup --> Resolved["S2 registered hit word<br/>or miss context"]
   Resolved -->|hit| Merge["Hit / refill response arbiter"]
-  Resolved -->|miss| Refill["64-byte ReadClean<br/>retry-aware refill"]
+  Resolved -->|miss| Refill["64-byte ReadOnce<br/>retry-aware refill"]
   Refill --> Install["Install one XLEN word/cycle<br/>publish metadata last"]
-  Install --> Arrays["Tag, clean state,<br/>and data arrays"]
+  Install --> Arrays["Tag, valid bits,<br/>and data arrays"]
   Install --> Merge
   Merge --> Queue["Two-entry response queue"]
   Queue --> FetchResponse["Fetch response<br/>Irrevocable"]
 
-  Snoop["Clean snoop engine"] -->|"lookup / update"| Arrays
-  Arrays -->|"tag + state result"| Snoop
-  Snoop --> CHI["CHI SnpResp<br/>no snoop DAT path"]
 ```
 
-The tag and CHI response-state arrays hold one entry per way and set. The
+The tag array and valid bits hold one entry per way and set. There is no CHI ownership-state array. The
 byte-masked data array has `sets * (64 / (XLEN / 8))` rows, each containing one
 XLEN word per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. RV32 returns the selected SRAM word directly. RV64 uses
@@ -113,14 +109,15 @@ as a demand miss.
 
 ## Refill and replacement
 
-Every miss issues one 64-byte `ReadClean`. The shared
-[refill engine](../chi/README.md#cache-line-refill) retains the aligned line address and selected
-way across retry, accepts unique `CompData` packets, sends `CompAck`, and exposes
-the complete clean line only afterward. `PassDirty` is rejected. With the
-repository's default 128-bit DAT width, four packets form a line.
+Every miss issues one 64-byte `ReadOnce`. The [snapshot engine](../chi/README.md#instruction-snapshot-read)
+retains its line address and context through retry, collects every `CompData`
+packet, and sends `CompAck` before exposing the result. The response grants no
+coherent ownership or dirty responsibility. With 128-bit DAT, four packets form
+a line. A read error returns an instruction access fault without allocation;
+prefetch errors are discarded without an architectural response.
 
 Installation writes one XLEN word per cycle—eight writes for RV64 or sixteen
-for RV32—and publishes the tag, clean CHI state, and valid bit only on the final
+for RV32—and publishes the tag and valid bit only on the final
 word. Allocation selects the lowest invalid way before using the set's
 round-robin pointer; a successful installation advances that pointer.
 
@@ -132,34 +129,26 @@ The two controls deliberately have different residency effects:
 |---|---|---|---|
 | `flush` | Kill the active lookup, clear buffered responses and outstanding accounting | Drain and install the line, but suppress its wrong-path response | Preserve |
 | `invalidate_all` | Apply all flush behavior | Drain without installing or returning the pre-invalidation line | Invalidate all ways and reset replacement pointers |
-| Reset | Clear lookup, response, refill-tracking, installation, and snoop state | Reset transaction state | Invalidate all ways and reset replacement pointers |
+| Reset | Clear lookup, response, refill-tracking, and installation state | Reset transaction state | Invalidate all ways and reset replacement pointers |
 
 The parent core implements `FENCE.I` by first waiting for L1D quiescence, then
 asserting this local `invalidate_all` control and redirecting Fetch. A
 speculative redirect uses `flush` instead, so wrong-path activity does not
 silently become architectural invalidation.
 
-## Clean snoop behavior
+## Coherence and synchronization
 
-The shared [clean-snoop engine](../chi/README.md#snoop-handling) owns each request's lifetime,
-DVM pairing, lookup-result capture, and stable response. A pending snoop blocks
-new core lookups and waits for an active lookup or refill installation to
-release the SRAM ports. It may inspect the resident cache while a captured
-refill is otherwise waiting on CHI; a refill completion waits until the snoop
-finishes before installation begins.
+L1I is an RN-I requester, not a coherent sharer. The Home services `ReadOnce`
+through coherent D-cache intervention when needed, but does not track the
+instruction snapshot. Outer-cache replacement cannot invalidate it. Local
+replacement, reset, and `FENCE.I` can discard it.
 
-| Request outcome | Response | Local transition |
-|---|---|---|
-| Miss | `SnpResp` reporting Invalid | None |
-| Clean hit, retained | `SnpResp` reporting the stored clean state | None |
-| Clean hit, sharing request | `SnpResp` reporting SharedClean | Downgrade to SharedClean |
-| Clean hit, invalidating request | `SnpResp` reporting Invalid | Invalidate |
-| Forwarding request or any `RetToSrc` hit | `SnpResp` reporting Invalid | Silently invalidate so Home can source data elsewhere |
-| `SnpQuery` | `SnpResp` reporting the precise stored state | None |
-| Two-packet `SnpDVMOp` | One `SnpResp` after the matching second packet | No array access |
-
-L1I has no snoop-data path and never emits DAT. Coherent agents may invalidate
-it independently of the core's local invalidate-all operation.
+`FENCE.I` first orders older accesses, invalidates the instruction cache and
+fetch pipeline, and prevents all pre-fence refills from installing or returning
+instructions. Accepted CHI requests drain normally; cancellation never abandons
+a transaction. Post-fence refills consult dirty D-cache owners, so synchronization
+does not require writing the whole D-cache back to RAM. Other harts synchronize
+their own instruction streams separately.
 
 ## Deliberate limits
 
@@ -167,9 +156,7 @@ it independently of the core's local invalidate-all operation.
   demand once an admitted miss has launched its blocking refill.
 - The cache has no hit-under-miss or autonomous prefetcher.
 - Core-initiated invalidation is whole-cache only; there is no selective form.
-- L1I never stores dirty state and cannot return clean data to a snoop source;
-  forwarding and `RetToSrc` requests therefore evict a matching line.
-- L1I and L1D have no direct coherence connection. The parent core owns the
-  `FENCE.I` sequence, while CHI snoops independently maintain coherent state.
-- The cache does not generate translation, alignment, or access faults; those
-  belong to the parent fetch and memory hierarchy.
+- L1I and L1D have no direct connection. Coherent snapshot reads go through Home;
+  instruction synchronization is owned by the parent core.
+- Translation and alignment faults belong to the parent fetch/MMU path.
+  The cache reports read-completion errors as instruction access faults.

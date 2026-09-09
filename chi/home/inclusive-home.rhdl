@@ -131,7 +131,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   reg phase(~init: CHIInclusiveHNFPhase.Idle)
   reg request(CHIReqFlit(p))
-  reg requester_is_rnf(~init: Bool(#false))
+  reg requester_allocates(~init: Bool(#false))
   reg requester_write_data(Vec(line_packets, CHIDatFlit(p)))
   reg requester_write_line_valids(~init: bits(0, line_packets))
   reg received_requester_data_ids(~init: bits(0, 4))
@@ -167,7 +167,6 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def idle = phase === CHIInclusiveHNFPhase.Idle
   def incoming_request = requester.requests.bits
   def incoming_write = chi_hnf_subordinate_opcode(incoming_request.opcode).is_initial_write()
-  def incoming_coherent = chi_hnf_source_is_rnf(p, home_config, incoming_request)
   requester.requests.ready <== idle
   def request_fire = requester.requests.fire()
   when (requester.requests.valid & idle):
@@ -379,10 +378,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     p,
     home_id,
     request,
-    requester_is_rnf,
+    requester_allocates,
     selected_response_data_id,
     selected_line[response_line_packet]
-  )
+  ).updated(~resp_err: completion_error)
   def cached_data_fire = requester.response_data.fire()
 
   def requester_write_valids = requester_write_line_valids.as_vec(Bool)
@@ -400,7 +399,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       mux(maintenance,
           (request.src_id =/= bits(endpoint.node_id, p.node_id_width)) ||| request.excl_snoop_me_cah,
           mux(lookup_selection.valid,
-              requester_is_rnf & (request.src_id =/= bits(endpoint.node_id, p.node_id_width)),
+              chi_request_snoops_caches(request.opcode) & (request.src_id =/= bits(endpoint.node_id, p.node_id_width)),
               Bool(#true)))
   )
   def after_snoops = phase === CHIInclusiveHNFPhase.AfterSnoops
@@ -417,7 +416,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def fill_line_packet = chi_transfer_beat(subordinate.dat.response.bits.data_id, p)[0..packet_index_width]
   def final_fill_line = selected_line.updated(fill_line_packet, subordinate.dat.response.bits.data)
   def write_line_after_snoops = after_snoops & !snoop_victim & (!maintenance ||| (maintenance_hit & !maintenance_discard))
-  def write_filled_line = fill_data_fire & final_fill_data
+  def fill_successful = (completion_error === CHIRespErr.OK) & (subordinate.dat.response.bits.resp_err === CHIRespErr.OK)
+  def write_filled_line = fill_data_fire & final_fill_data & fill_successful
   def write_merged_line = merge_requester_data
   def write_line = write_line_after_snoops ||| write_filled_line ||| write_merged_line
   def lookup_start = (request_fire & !incoming_write) ||| (
@@ -446,7 +446,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   when request_fire:
     request <== incoming_request
-    requester_is_rnf <== incoming_coherent
+    requester_allocates <== chi_request_allocates_coherent(incoming_request.opcode)
     received_requester_data_ids <== bits(0, 4)
     requester_write_line_valids <== bits(0, line_packets)
     phase <== mux(incoming_write,
@@ -549,7 +549,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     when final_fill_data:
       valid_lines <== valid_lines.updated(
         selected_set,
-        valid_lines[selected_set].updated(selected_way, Bool(#true))
+        valid_lines[selected_set].updated(selected_way, fill_successful)
       )
       dirty_lines <== dirty_lines.updated(
         selected_set,
@@ -587,8 +587,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   when request_fire:
     completion_error <== CHIRespErr.OK
-  elsewhen maintenance:
-    when (subordinate_response_fire & (subordinate.rsp.bits.resp_err =/= CHIRespErr.OK)):
+  elsewhen (maintenance ||| (request.opcode === CHIReqOpcode.ReadOnce)):
+    when (fill_data_fire & (subordinate.dat.response.bits.resp_err =/= CHIRespErr.OK)):
+      completion_error <== subordinate.dat.response.bits.resp_err
+    elsewhen (subordinate_response_fire & (subordinate.rsp.bits.resp_err =/= CHIRespErr.OK)):
       completion_error <== subordinate.rsp.bits.resp_err
     elsewhen (snoop_data_fire & (requester.request_data.bits.resp_err =/= CHIRespErr.OK)):
       completion_error <== requester.request_data.bits.resp_err

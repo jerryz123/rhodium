@@ -174,7 +174,7 @@ system:
 ```mermaid
 flowchart LR
   Host["External host RN-F<br/>NodeID 1"]
-  Core["RV5Stage<br/>L1I RN-F 2<br/>L1D RN-F 3<br/>Device RN-I 4"]
+  Core["RV5Stage<br/>L1I RN-I 2<br/>L1D RN-F 3<br/>Device RN-I 4"]
   Fabric["SimpleRouter x 4<br/>REQ / RSP / SNP / DAT"]
   MemoryHome["Inclusive HN-F<br/>NodeID 5"]
   ExternalMemory["External SN-F<br/>NodeID 9"]

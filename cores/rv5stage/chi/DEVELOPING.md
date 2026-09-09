@@ -14,7 +14,7 @@ Rhodium libraries. Transaction engines must not import either cache
 implementation. `uncached.rhdl` may import the I-cache and D-cache protocol
 types that form its core-facing boundary.
 
-`foundation.rhdl` is the dependency root. Refill, write-unique, snoop, and
+`foundation.rhdl` is the dependency root. Snapshot-read, refill, write-unique, snoop, and
 uncached engines depend on it; writeback additionally composes write-unique.
 The I-cache and D-cache instantiate the shared engines, while `rv5stage.rhdl`
 owns external channel composition.
@@ -32,10 +32,9 @@ the shared builder does not depend on core geometry or physical-memory policy.
 
 The response wrapper uses `chi_response` from the same CHI message owner;
 RV5Stage retains its zero DBID/QoS, successful status, and caller-supplied
-coherent response bits. Both snoop engines use `rv5stage_chi_snoop_address`
-in the foundation to restore the three omitted address bits and truncate or
-zero-extend to the core address width. Keep their lookup and transaction
-state machines separate. `rv5stage-chi-requests` compares complete responses
+coherent response bits. The data-cache snoop engine uses
+`rv5stage_chi_snoop_address` in the foundation to restore the three omitted
+address bits and truncate or zero-extend to the core address width. `rv5stage-chi-requests` compares complete responses
 and narrow/equal/wide snoop addresses as well as requests.
 
 REQ construction stays in the foundation and returns an immutable value with
@@ -50,10 +49,11 @@ Keep the uncached, I-cache, and D-cache fixtures as engine-level coverage.
 | File | Ownership |
 |---|---|
 | [`foundation.rhdl`](foundation.rhdl) | Response profiles, physical-region/Home configuration, RN parameters and identities, and common flit constructors |
+| [`line-read.rhdl`](line-read.rhdl) | Retry-aware coherent instruction snapshots, without cache ownership |
 | [`refill.rhdl`](refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
 | [`write-unique.rhdl`](write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
 | [`writeback.rhdl`](writeback.rhdl) | Serialized dirty-line drain through write-unique transactions |
-| [`snoop.rhdl`](snoop.rhdl) | Clean/data snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
+| [`snoop.rhdl`](snoop.rhdl) | Data-cache snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
 | [`uncached.rhdl`](uncached.rhdl) | Shared one-outstanding instruction/data RN-I implementation |
 
 The core-facing uncached protocol remains in

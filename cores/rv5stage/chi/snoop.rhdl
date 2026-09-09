@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's clean/data RN-F snoop lifetimes, completion events, and paired DVM.
+// Implements RV5Stage's data-cache RN-F snoop lifetime, completion events, and paired DVM.
 
 import:
   "../cache.rhdl" open
@@ -10,15 +10,6 @@ import:
   lib("chi/protocol/protocol.rhdl").chi_transfer_data_id
   lib("chi/protocol/coherence.rhdl") open
 
-bundle RV5StageCleanSnoopLookupResult():
-  hit: Bool
-  state: CHIResponseState
-
-bundle RV5StageCleanSnoopUpdate(address_width :: PosInt):
-  address: Bits(address_width)
-  invalidate: Bool
-  state: CHIResponseState
-
 bundle RV5StageDataSnoopLookupResult():
   hit: Bool
   state: CHICacheState
@@ -28,105 +19,6 @@ bundle RV5StageDataSnoopUpdate(address_width :: PosInt):
   address: Bits(address_width)
   invalidate: Bool
   state: CHICacheState
-
-sync_circuit RV5StageCleanSnoop(address_width :: PosInt,
-                                config :: RV5StageCHIConfig):
-  def p = config.flit
-
-  input node_id: Bits(p.node_id_width)
-  input cache_ready: Bool
-  output pending: Bool
-  output address: Bits(address_width)
-  interface snoops(Decoupled(CHISnpFlit(p)), ~role: consumer)
-  interface responses(Decoupled(CHIRspFlit(p)), ~role: producer)
-  interface lookup(Valid(Bits(address_width)), ~role: producer)
-  interface lookup_result(Valid(RV5StageCleanSnoopLookupResult()), ~role: consumer)
-  interface update(Valid(RV5StageCleanSnoopUpdate(address_width)), ~role: producer)
-
-  reg active_state(~init: Bool(#false))
-  reg uses_lookup(~init: Bool(#false))
-  reg request(CHISnpFlit(p))
-  reg lookup_complete(~init: Bool(#false))
-  reg line_hit(~init: Bool(#false))
-  reg line_state(~init: CHIResponseState.Invalid)
-  reg dvm_first_pending(~init: Bool(#false))
-  reg dvm_source_id(~init: bits(0, p.node_id_width))
-  reg dvm_txn_id(~init: bits(0, 12))
-
-  def incoming_snoop = snoops.bits
-  def ordinary_snoop = incoming_snoop.opcode =/= CHISnpOpcode.SnpLCrdReturn
-  def incoming_dvm = incoming_snoop.opcode === CHISnpOpcode.SnpDVMOp
-  def can_start = !active_state & cache_ready & (!dvm_first_pending ||| incoming_dvm)
-  snoops.ready <== !ordinary_snoop ||| can_start
-  def snoop_fire = snoops.fire() & ordinary_snoop
-  def lookup_start = snoop_fire & !incoming_dvm
-  def dvm_first_fire = snoop_fire & incoming_dvm & !dvm_first_pending
-  def dvm_second_fire = snoop_fire & incoming_dvm & dvm_first_pending
-  when dvm_second_fire:
-    assert(incoming_snoop.src_id === dvm_source_id,
-           "clean_snoop_dvm_source_consistent")
-    assert(incoming_snoop.txn_id === dvm_txn_id,
-           "clean_snoop_dvm_txn_id_consistent")
-
-  address <== mux(lookup_start,
-                  rv5stage_chi_snoop_address(p, address_width, incoming_snoop.address),
-                  rv5stage_chi_snoop_address(p, address_width, request.address))
-  lookup.valid <== lookup_start
-  lookup.bits <== address
-  def lookup_result_fire = active_state & uses_lookup & !lookup_complete & lookup_result.valid
-
-  def shares_state = rv5stage_snoop_shares_cache_state(request.opcode)
-  def invalidates_state = rv5stage_snoop_invalidates_cache_state(request.opcode)
-  // RV5Stage has no snoop-data path, so RetToSrc and forwarding requests evict
-  // a clean hit and report Invalid for Home to source elsewhere.
-  def discards_line = invalidates_state ||| request.ret_to_src
-  def response_state = mux(
-    uses_lookup & line_hit,
-    mux(discards_line,
-        CHIResponseState.Invalid,
-        mux(shares_state, CHIResponseState.SharedClean, line_state)),
-    CHIResponseState.Invalid
-  )
-  responses.valid <== active_state & (!uses_lookup ||| lookup_complete)
-  responses.bits <== rv5stage_chi_response(
-    p,
-    node_id,
-    request.src_id,
-    request.txn_id,
-    CHIRspOpcode.SnpResp,
-    ~resp: response_state.as_bits().zext(3)
-  )
-  def response_fire = responses.fire()
-
-  update.valid <== response_fire & uses_lookup & line_hit & (discards_line ||| shares_state)
-  update.bits <== RV5StageCleanSnoopUpdate(address_width):
-    address: rv5stage_chi_snoop_address(p, address_width, request.address)
-    invalidate: discards_line
-    state: CHIResponseState.SharedClean
-  pending <== (snoops.valid & ordinary_snoop) ||| active_state ||| dvm_first_pending
-
-  when (lookup_start ||| dvm_second_fire):
-    active_state <== Bool(#true)
-    uses_lookup <== lookup_start
-    request <== incoming_snoop
-    lookup_complete <== Bool(#false)
-    line_hit <== Bool(#false)
-    line_state <== CHIResponseState.Invalid
-  elsewhen lookup_result_fire:
-    lookup_complete <== Bool(#true)
-    line_hit <== lookup_result.bits.hit
-    line_state <== lookup_result.bits.state
-  elsewhen response_fire:
-    active_state <== Bool(#false)
-    uses_lookup <== Bool(#false)
-    lookup_complete <== Bool(#false)
-
-  when dvm_first_fire:
-    dvm_first_pending <== Bool(#true)
-    dvm_source_id <== incoming_snoop.src_id
-    dvm_txn_id <== incoming_snoop.txn_id
-  elsewhen dvm_second_fire:
-    dvm_first_pending <== Bool(#false)
 
 sync_circuit RV5StageDataSnoop(address_width :: PosInt,
                                config :: RV5StageCHIConfig):
@@ -285,9 +177,6 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
     dvm_first_pending <== Bool(#false)
 
 export:
-  RV5StageCleanSnoopLookupResult
-  RV5StageCleanSnoopUpdate
-  RV5StageCleanSnoop
   RV5StageDataSnoopLookupResult
   RV5StageDataSnoopUpdate
   RV5StageDataSnoop

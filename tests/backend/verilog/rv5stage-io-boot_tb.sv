@@ -84,7 +84,7 @@ module rv5stage_io_boot_tb;
       cycle <= cycle + 1;
       if (delay_left != 0) delay_left <= delay_left - 1;
 
-      assert (!dut.imem_out.requests.valid && !dut.dmem_out.requests.valid)
+      assert (!dut.imem_out.req.valid && !dut.dmem_out.requests.valid)
         else $fatal(1, "non-cacheable boot allocated or accessed an L1 cache");
       if (umem_out.req.valid && umem_in.req.ready) begin
         address <= umem_out.req.bits.address;

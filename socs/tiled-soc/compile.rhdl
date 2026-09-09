@@ -311,7 +311,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
 
   def mutable rnf_sites = [host_placement.site]
   for (placement in rv5stage_placements):
-    rnf_sites := rnf_sites ++ [placement.instruction_site, placement.data_site]
+    rnf_sites := rnf_sites ++ [placement.data_site]
   def uncached_sites = rv5stage_placements.map(fun (placement): placement.uncached_site)
 
   def mutable connections = []
@@ -320,6 +320,9 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       connections := connections ++ [CHIRNFConnection(requester, llc_placement.home_site)]
   for (placement in llc_placements):
     connections := connections ++ [CHISNConnection(placement.subordinate_site, memory_placement.site)]
+  for (placement in rv5stage_placements):
+    for (llc_placement in llc_placements):
+      connections := connections ++ [CHIRNIConnection(placement.instruction_site, llc_placement.home_site)]
   for (requester in [host_placement.site] ++ uncached_sites):
     connections := connections ++ [CHIRNIConnection(requester, device_home_placement.requester_site)]
   connections := connections ++ [
@@ -479,9 +482,9 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
       adapter_plans,
       CHIRouterAttachments(
         ~rnf_sites: (for List (placement in rv5stage_placements):
-                      [placement.instruction_site, placement.data_site]),
+                      [placement.data_site]),
         ~rni_sites: (for List (placement in rv5stage_placements):
-                      [placement.uncached_site])
+                      [placement.instruction_site, placement.uncached_site])
       )
     )
   )

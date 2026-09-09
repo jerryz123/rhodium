@@ -1,0 +1,101 @@
+#lang rhodium
+// Executes constrained LR/SC loops through the complete core under inclusive-Home read pressure.
+
+import:
+  "../rv5stage.rhdl".RV5Stage
+  "../profile.rhm" open
+  "../interrupt.rhdl".RV5StageInterrupts
+  "../dcache/cache.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../chi/foundation.rhdl" open
+  "params.rhdl" open
+  lib("cores/cache-prefetch.rhdl").CachePrefetchReq
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/c.rhm").CCompressedExtensions
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/home/home-common.rhdl") open
+  lib("chi/home/inclusive-home.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
+  lib("chi/subordinate/ram.rhdl") open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageLRSCCoreProgress():
+  def p = test_rv5stage_flit
+  def config = test_rv5stage_chi_config
+  def ram_config = CHIRamConfig(p, 65536, ~max_outstanding: 1, ~max_transfer_bytes: 64)
+  def nodes = RV5StageCHIParams(config, 2, 3)
+  def host_node = RV5StageCHIParams(config, 4, 5).data_node
+  def home_config = CHIHNFConfig(p, [nodes.instruction_node.icn_peer(), nodes.data_node.icn_peer(), host_node.icn_peer()], 65535, ram_config.requests)
+  input run: Bool
+  interface host(RV5StageDataAccess(XLen.X64), ~role: responder)
+  output instruction_requests: Bool
+  output data_requests: Bool
+  output eviction_waiting: Bool
+
+  def profile = RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions), ~mmu_mode: RV5StageMmuMode.Sv39, ~cache_geometry: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(32, 1), ~data: RV5StageCacheConfig(32, 1)))
+  inst cpu(RV5Stage(profile, ~chi: config, ~reset_address: 0x1000, ~btb_entries: 0))
+  inst loader(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(2, 1), ~chi: config))
+  inst home_node(CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, StripedAddressLayout(65536, 64, 1), ~sets: 2, ~ways: 2)))
+  inst ram(CHIRam(ram_config))
+  cpu.hart_id <== bits(0, 64)
+  cpu.time_counter <== bits(0, 64)
+  cpu.interrupts <== RV5StageInterrupts():
+    supervisor_software: Bool(#false)
+    machine_software: Bool(#false)
+    supervisor_timer: Bool(#false)
+    machine_timer: Bool(#false)
+    supervisor_external: Bool(#false)
+    machine_external: Bool(#false)
+  cpu.chi_identity <== RV5StageCHIIdentity(p):
+    instruction_node_id: bits(2, p.node_id_width)
+    data_node_id: bits(3, p.node_id_width)
+    uncached_node_id: bits(6, p.node_id_width)
+  cpu.umem.req.ready <== Bool(#false)
+  cpu.umem.dat.request.ready <== Bool(#false)
+  cpu.umem.rsp.requester.ready <== Bool(#false)
+  cpu.umem.rsp.response.valid <== Bool(#false)
+  cpu.umem.rsp.response.bits <== dont_care(CHIRspFlit(p))
+  cpu.umem.dat.response.valid <== Bool(#false)
+  cpu.umem.dat.response.bits <== dont_care(CHIDatFlit(p))
+  assert(!cpu.umem.req.valid, "lrsc_test_remains_in_coherent_memory")
+  home_node.identity <== CHIHNFIdentity(p):
+    home_node_id: bits(1, p.node_id_width)
+    subordinate_node_id: bits(9, p.node_id_width)
+    service_base: bits(0, p.request_address_width)
+  ram.identity <== CHIRamIdentity(p):
+    node_id: bits(9, p.node_id_width)
+    base_address: bits(0, p.request_address_width)
+  home_node.port.subordinate.req |> queue(1) |> ram.port.req
+  home_node.port.subordinate.dat.request |> queue(1) |> ram.port.dat.request
+  ram.port.rsp |> queue(1) |> home_node.port.subordinate.rsp
+  ram.port.dat.response |> queue(1) |> home_node.port.subordinate.dat.response
+  host <=> loader.core
+  loader.node_id <== bits(5, p.node_id_width)
+  loader.virtual_lookup.valid <== host.request.valid
+  loader.virtual_lookup.bits <== host.request.bits.address
+  loader.load_lookup.valid <== Bool(#false)
+  loader.load_lookup.bits <== bits(0, 64)
+  loader.load.request.valid <== Bool(#false)
+  loader.load.request.bits <== literal(RV5StageLoadReq(XLen.X64), 0)
+  loader.prefetch.valid <== Bool(#false)
+  loader.prefetch.bits <== dont_care(CachePrefetchReq(64))
+
+  // Hold the first instruction miss until loading finishes. Caches stay live:
+  // the Home broadcasts victim snoops even to nodes without a resident copy.
+  Array(cpu.imem.req |> gate_flow(run), cpu.dmem.requests, loader.chi.requests) |> parallel(queue(1), queue(1), queue(1)) |> rr_arbiter() |> home_node.port.requester.requests
+  Array(cpu.imem.rsp.requester, cpu.dmem.requester_responses, loader.chi.requester_responses) |> parallel(queue(1), queue(1), queue(1)) |> rr_arbiter() |> home_node.port.requester.requester_responses
+  Array(cpu.imem.dat.request, cpu.dmem.request_data, loader.chi.request_data) |> parallel(queue(1), queue(1), queue(1)) |> rr_arbiter() |> home_node.port.requester.request_data
+  fun target(id :: Bits(p.node_id_width)) :~ Bits(2):
+    mux(id === bits(2, p.node_id_width), bits(0, 2), mux(id === bits(3, p.node_id_width), bits(1, 2), bits(2, 2)))
+  (home_node.port.requester.responses |> queue(1) |> demux_flow(3, response => target(response.tgt_id))) <=> Array(cpu.imem.rsp.response, cpu.dmem.responses, loader.chi.responses)
+  (home_node.port.requester.response_data |> queue(1) |> demux_flow(3, data => target(data.tgt_id))) <=> Array(cpu.imem.dat.response, cpu.dmem.response_data, loader.chi.response_data)
+  (
+    home_node.port.requester.snoops |> queue(1) |> demux_flow(2, dispatch => (dispatch.target_id === bits(5, p.node_id_width)).as_bits())
+      |> parallel(map_flow(dispatch => dispatch.flit), map_flow(dispatch => dispatch.flit))
+  ) <=> Array(cpu.dmem.snoops, loader.chi.snoops)
+  instruction_requests <== cpu.imem.req.valid & cpu.imem.req.ready
+  data_requests <== cpu.dmem.requests.valid & cpu.dmem.requests.ready
+  eviction_waiting <== cpu.dmem.snoops.valid & !cpu.dmem.snoops.ready
+
+export:
+  RV5StageLRSCCoreProgress

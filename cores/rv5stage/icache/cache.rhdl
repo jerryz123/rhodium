@@ -1,21 +1,19 @@
 #lang rhodium
-// Pipelines S0 virtual SRAM reads, S1 physical tag resolution, and S2 instruction outcomes.
+// Caches coherent instruction snapshots until FENCE.I, independently of outer cache residency.
 
 import:
   "../../cache-prefetch.rhdl" open
   "protocol.rhdl" open
   "../cache.rhdl" open
   "../chi/foundation.rhdl" open
-  "../chi/refill.rhdl" open
-  "../chi/snoop.rhdl" open
+  "../chi/line-read.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/read-write.rhdl") open
   lib("rhodium/std/sync-ram.rhdl") open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
-  lib("chi/protocol/coherence.rhdl").CHIResponseState
-  lib("chi/protocol/channels.rhdl").CHIRNChannels
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
 fun check_l1i_geometry(width :: PosInt, cache :: RV5StageCacheConfig):
   unless width > (alignment_bits(RV5StageCacheLineBytes) + cache.set_width)
@@ -62,21 +60,17 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   interface core(RV5StageInstructionAccess(xlen), ~role: responder)
   interface virtual_lookup(Decoupled(Bits(width)), ~role: consumer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
-  interface chi(CHIRNChannels(p), ~role: node)
+  interface chi(CHIRNIChannels(p), ~role: node)
 
   inst tags(SyncRam1RW(sets, Bits(tag_width), ways))
-  inst states(SyncRam1RW(sets, CHIResponseState, ways))
   inst lines(SyncRam1RW(data_depth, Bits(8), data_lanes))
-  inst refill(RV5StageLineRefill(RV5StageL1IRefillContext(width, way_width), width, config))
-  inst snoop(RV5StageCleanSnoop(width, config))
+  inst refill(RV5StageLineRead(RV5StageL1IRefillContext(width, way_width), width, config))
   refill.node_id <== node_id
-  snoop.node_id <== node_id
   inst response_arbiter(Arbiter(RV5StageInstructionResp(), 2))
   def cache_flush = core.flush ||| core.invalidate_all
   inst array_read(ValidPipeAlwaysCapture(RV5StageL1ILookup(width), 1), ~reset_when: cache_flush)
   inst lookup(ValidPipeAlwaysCapture(RV5StageL1IResolved(width, way_width), 1), ~reset_when: cache_flush)
   inst responses(Queue(RV5StageInstructionResp(), 2, ~flow: #true), ~reset_when: cache_flush)
-  inst protocol_responses(Arbiter(CHIRspFlit(p), 2))
 
   reg valid_lines(~init: vec(
     for List (_set in 0..sets): bits(0, ways).as_vec(Bool)
@@ -84,7 +78,6 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   reg replacement_ways(~init: vec(
     for List (_set in 0..sets): bits(0, way_width)
   ))
-  reg snoop_way(~init: bits(0, way_width))
   reg refill_live(~init: Bool(#false))
   reg refill_installable(~init: Bool(#false))
   reg refill_installing(~init: Bool(#false))
@@ -92,52 +85,12 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   reg outstanding(~init: bits(0, outstanding_width))
 
   responses.egress |> gate_flow(!cache_flush) |> core.response
-  def outgoing_requests = chi.requests
-  def outgoing_responses = chi.requester_responses
-  def outgoing_data = chi.request_data
-  def incoming_responses = chi.responses
-  def incoming_data = chi.response_data
-  def incoming_snoops = chi.snoops
-  refill.requests |> outgoing_requests
-  incoming_responses |> refill.responses
-  incoming_data |> refill.response_data
-  refill.acknowledgements |> protocol_responses.ingress[0]
-  snoop.responses |> protocol_responses.ingress[1]
-  protocol_responses.egress |> outgoing_responses
-  outgoing_data.valid <== Bool(#false)
-  outgoing_data.bits <== literal(CHIDatFlit(p), 0)
-
-  incoming_snoops |> snoop.snoops
-  // A queued refill does not make its line resident. Let snoops inspect the
-  // current cache while that transaction waits, and hold installation until
-  // the snoop completes so the shared SRAM ports remain single-owner.
-  snoop.cache_ready <== !array_read.egress.valid & !lookup.egress.valid & !refill_installing & !cache_flush
-  def snoop_lookup_start = snoop.lookup.valid
-  def snoop_address = snoop.address
-  def snoop_set = snoop_address[offset_width..(offset_width + set_width)]
-  def snoop_tag = snoop_address[(offset_width + set_width)..width]
-  def snoop_valids = valid_lines[snoop_set]
-  def snoop_matches = vec(
-    for List (way in 0..ways):
-      snoop_valids[way] & (tags.port.response.bits[way] === snoop_tag)
-  )
-  def snoop_selection = priority_encoder_oh(snoop_matches)
-  def snoop_line_hit = snoop_selection.valid
-  snoop.lookup_result.valid <== tags.port.response.valid & states.port.response.valid
-  snoop.lookup_result.bits <== RV5StageCleanSnoopLookupResult():
-    hit: snoop_line_hit
-    state: snoop_selection.mux(
-      for List (way in 0..ways): states.port.response.bits[way],
-      ~default: CHIResponseState.Invalid
-    )
-  when (snoop.lookup_result.valid & snoop_line_hit):
-    snoop_way <== snoop_selection.index
-  for (left in 0..ways):
-    for (right in (left + 1)..ways):
-      when (snoop.lookup_result.valid):
-        assert(!(snoop_matches[left] & snoop_matches[right]),
-               "l1i_snoop_hit_unique")
-  def snoop_pending = snoop.pending
+  refill.requests |> chi.req
+  chi.rsp.response |> refill.responses
+  chi.dat.response |> refill.response_data
+  refill.acknowledgements |> chi.rsp.requester
+  chi.dat.request.valid <== Bool(#false)
+  chi.dat.request.bits <== literal(CHIDatFlit(p), 0)
   def response_fire = core.response.fire()
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & (prefetch_request.operation === CachePrefetchOperation.Instruction)
@@ -182,8 +135,8 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     if width == 32
     | completed_word
     | mux(completion_address[2].into(Bool), completed_word[32..64], completed_word[0..32])
-  def refill_completion_discard = !refill_installable ||| core.invalidate_all
-  def refill_install_start = refill.completion.valid & !refill_completion_discard & !snoop_pending & !refill_installing
+  def refill_completion_discard = !refill_installable ||| core.invalidate_all ||| refill.completion.bits.access_fault
+  def refill_install_start = refill.completion.valid & !refill_completion_discard & !refill_installing
   def refill_install_final = refill_install_index === bits(words_per_line - 1, word_index_width)
   def refill_install_word = refill_installing & !core.invalidate_all
   def refill_completion_may_finish = refill_completion_discard ||| (refill_installing & refill_install_final)
@@ -194,7 +147,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
 
   // S0 admission has no translation, S1 tag-match, or response-ready dependency.
   // Unresolved reads are discarded; the MMU retains and reissues their requests.
-  def array_accepts_input = !cache_flush & !snoop_pending & refill.command.ready & !refill_installing
+  def array_accepts_input = !cache_flush & refill.command.ready & !refill_installing
   virtual_lookup.ready <== array_accepts_input
   def array_lookup_issue = array_accepts_input & (virtual_lookup.valid ||| lookup_input_prefetch)
   def array_request = RV5StageL1ILookup(width):
@@ -202,7 +155,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     prefetch: lookup_input_prefetch
   inject_flow(Valid(RV5StageL1ILookup(width)), ~valid: array_lookup_issue, ~bits: array_request) |> array_read.ingress
   // S1 pairs the preceding SRAM read with its permitted physical resolution.
-  def lookup_accepts_input = !cache_flush & !snoop_pending & refill.command.ready & !lookup_miss & response_capacity
+  def lookup_accepts_input = !cache_flush & refill.command.ready & !lookup_miss & response_capacity
   core.request.ready <== lookup_accepts_input & array_read.egress.valid & !array_context.prefetch & tags.port.response.valid
   def lookup_issue = lookup_accepts_input & array_read.egress.valid & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)
   def resolved_context = RV5StageL1IRefillContext(width, way_width):
@@ -229,9 +182,8 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   )
   def refill_commands = (
     miss_path
-      |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1IRefillContext(width, way_width), width)):
+      |> map_flow(result => RV5StageLineReadCommand(RV5StageL1IRefillContext(width, way_width), width)):
         line_address: result.context.address.align_down(RV5StageCacheLineBytes)
-        opcode: CHIReqOpcode.ReadClean
         context: result.context
   )
   refill_commands |> refill.command
@@ -248,15 +200,14 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   )
   hit_responses |> response_arbiter.ingress[0]
 
-  def refill_results = RV5StageLineRefillResult(RV5StageL1IRefillContext(width, way_width), width)
   def refill_responses = (
     refill.completion
-      |> gate_flow(refill_completion_may_finish & (refill_installing ||| !snoop_pending))
+      |> gate_flow(refill_completion_may_finish)
       |> filter_flow(result => refill_live & !result.context.prefetch & !cache_flush)
       |> map_flow(result => RV5StageInstructionResp()):
         word: completion_fetch_word
         page_fault: Bool(#false)
-        access_fault: Bool(#false)
+        access_fault: result.access_fault
   )
   refill_responses |> response_arbiter.ingress[1]
   response_arbiter.egress |> responses.ingress
@@ -266,19 +217,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def refill_start = refill.command.fire()
   def refill_complete = refill.completion.fire()
   def install = refill_complete & refill_installing & !refill_completion_discard
-  when refill_complete:
-    assert(refill.completion.bits.state.is_one_of(CHIResponseState.SharedClean,
-                                                  CHIResponseState.Unique),
-           "l1i_refill_state_clean")
-    assert(!refill.completion.bits.pass_dirty,
-           "l1i_refill_not_dirty")
-
   def install_way_mask = rv5stage_cache_way_mask(cache, completion_way)
-  def snoop_update_way_mask = rv5stage_cache_way_mask(cache, snoop_way)
-  def update_snoop_state = snoop.update.valid & !snoop.update.bits.invalidate
-  def state_write_data = mux(update_snoop_state,
-                             snoop.update.bits.state,
-                             refill.completion.bits.state)
   def refill_word_bytes = completion_words[refill_install_index].as_vec(Bits(8))
   def line_write_mask = rv5stage_cache_lane_mask(
     cache,
@@ -291,24 +230,12 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     for (byte in 0..word_bytes):
       line_write_bytes := line_write_bytes ++ [refill_word_bytes[byte]]
 
-  tags.port.request.valid <== array_lookup_issue ||| install ||| snoop_lookup_start
+  tags.port.request.valid <== array_lookup_issue ||| install
   tags.port.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
-    address: mux(install,
-                 completion_set,
-                 mux(snoop_lookup_start,
-                     snoop_set,
-                     request_set_value))
+    address: mux(install, completion_set, request_set_value)
     write: install
     data: vec(for List (_way in 0..ways): completion_tag)
     mask: install_way_mask
-  states.port.request.valid <== install ||| snoop_lookup_start ||| update_snoop_state
-  states.port.request.bits <== ReadWriteRequest(set_width, CHIResponseState, ways):
-    address: mux(install,
-                 completion_set,
-                 snoop_set)
-    write: install ||| update_snoop_state
-    data: vec(for List (_way in 0..ways): state_write_data)
-    mask: mux(update_snoop_state, snoop_update_way_mask, install_way_mask)
   lines.port.request.valid <== array_lookup_issue ||| refill_install_word
   lines.port.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: mux(refill_install_word,
@@ -321,14 +248,6 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   when (core.invalidate_all):
     valid_lines <== vec(
       for List (_set in 0..sets): bits(0, ways).as_vec(Bool)
-    )
-  elsewhen (snoop.update.valid & snoop.update.bits.invalidate):
-    valid_lines <== valid_lines.updated(
-      snoop.update.bits.address[offset_width..(offset_width + set_width)],
-      valid_lines[snoop.update.bits.address[offset_width..(offset_width + set_width)]].updated(
-        snoop_way,
-        Bool(#false)
-      )
     )
   elsewhen install:
     valid_lines <== valid_lines.updated(

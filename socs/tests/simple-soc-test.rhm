@@ -91,17 +91,17 @@ check:
   soc.simple_soc_rsp_router_config.input_count ~is 11
   soc.simple_soc_rsp_router_config.target_count ~is 7
   soc.simple_soc_snp_router_config.input_count ~is 1
-  soc.simple_soc_snp_router_config.target_count ~is 3
+  soc.simple_soc_snp_router_config.target_count ~is 2
   soc.simple_soc_dat_router_config.input_count ~is 12
   soc.simple_soc_dat_router_config.target_count ~is 12
   soc.simple_soc_adapter_plans.req.injections.length() ~is 5
   soc.simple_soc_adapter_plans.rsp.injections.length() ~is 11
   snp_adapters.injections.length() ~is 1
-  snp_adapters.ejections.length() ~is 3
+  snp_adapters.ejections.length() ~is 2
   soc.simple_soc_adapter_plans.dat.injections.length() ~is 12
   soc.simple_soc_host_site.req.terminal.describe() ~is "requesters/host/req"
   soc.simple_soc_host_site.snp.terminal.describe() ~is "requesters/host/snp"
-  soc.simple_soc_instruction_site.snp.terminal.describe() ~is "requesters/rv5stage-l1i/snp"
+  soc.simple_soc_instruction_site.req.terminal.describe() ~is "requesters/rv5stage-l1i/req"
   soc.simple_soc_data_site.snp.terminal.describe() ~is "requesters/rv5stage-l1d/snp"
   soc.simple_soc_uncached_site.req.terminal.describe() ~is "requesters/rv5stage-uncached/req"
   soc.simple_soc_home_requester_site.req.terminal.describe() ~is "home/requesters/req"
