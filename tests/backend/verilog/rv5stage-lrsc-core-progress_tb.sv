@@ -154,6 +154,12 @@ module rv5stage_lrsc_core_progress_tb;
           fetches = 0; demands = 0; blocked_snoops = 0;
           rival_successes = 0;
           run = 1; done = 0;
+          // Rival wins count only after the core participates; cold fetch
+          // must not let the host finish the test before any core data traffic.
+          if (pressure == 3) begin
+            for (int startup = 0; startup < 10000 && demands == 0; startup++) tick();
+            assert (demands > 0) else $fatal(1, "core did not enter LR/SC phase: RV32=%0b predictor=%0b word=%0d Sv39=%0d pc=%h", rv32, predicted, word_access, translated, loop_pc);
+          end
           for (int poll = 0; poll < 512 && !done; poll++) begin
             if (pressure == 1) begin
               // Repeated read-only replacement in the reserved line's LLC
@@ -188,7 +194,7 @@ module rv5stage_lrsc_core_progress_tb;
           end
           access(0, 'h4000);
           assert ((result == 8 || (pressure == 3 && rival_successes >= 8 && result <= 8)) && fetches > 0 && demands > 0)
-            else $fatal(1, "incorrect architectural LR/SC result");
+            else $fatal(1, "incorrect architectural LR/SC result: RV32=%0b predictor=%0b word=%0d Sv39=%0d pc=%h pressure=%0d result=%h rival_successes=%0d fetches=%0d demands=%0d", rv32, predicted, word_access, translated, loop_pc, pressure, result, rival_successes, fetches, demands);
           passed++;
           $display("Constrained LR/SC passed: RV32=%0b predictor=%0b word=%0d Sv39=%0d pc=%h pressure=%0d rival_successes=%0d", rv32, predicted, word_access, translated, loop_pc, pressure, rival_successes);
         end
