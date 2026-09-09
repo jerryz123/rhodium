@@ -141,21 +141,25 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
   )
   def outgoing_data_id = one_hot(tx_dat.data_id).as_bits()
   def incoming_data_id = one_hot(rx_dat.data_id).as_bits()
-  def dbid_match = or_reduce(
+  def write_data_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitData) & (
         entries[index].dbid === tx_dat.txn_id
-      ) & (entries[index].completer_id === tx_dat.tgt_id) & or_reduce(
+      ) & (entries[index].completer_id === tx_dat.tgt_id)
+  )
+  def dbid_match = or_reduce(
+    for List (index in 0..limit):
+      write_data_matches[index] & or_reduce(
         entries[index].expected_data_ids & outgoing_data_id
       ) & !or_reduce(entries[index].received_data_ids & outgoing_data_id)
   )
-  def dbid_response_match = or_reduce(
+  def dbid_response_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitDBID) & (
         entries[index].txn_id === rsp.txn_id
       )
   )
-  def write_completion_match = or_reduce(
+  def write_completion_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitComp) & (
         entries[index].txn_id === rsp.txn_id
@@ -163,7 +167,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
         entries[index].dbid === rsp.dbid_or_group_id
       )
   )
-  def read_completion_match = or_reduce(
+  def read_completion_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.ReadPending) & (
         entries[index].txn_id === rx_dat.txn_id
@@ -189,7 +193,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
     assert(rsp.opcode.is_one_of(CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp),
            label_prefix ++ "_response_opcode_supported")
     when (rsp.opcode === CHIRspOpcode.DBIDResp):
-      assert(dbid_response_match, label_prefix ++ "_dbid_response_has_write")
+      assert(dbid_response_matches.or_reduce(), label_prefix ++ "_dbid_response_has_write")
       assert(rsp.resp === bits(0, 3), label_prefix ++ "_dbid_response_resp_zero")
       assert(rsp.resp_err === CHIRespErr.OK,
              label_prefix ++ "_dbid_response_ok")
@@ -202,7 +206,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
       )
       assert(!duplicate_dbid, label_prefix ++ "_dbid_unique")
     when (rsp.opcode === CHIRspOpcode.Comp):
-      assert(write_completion_match, label_prefix ++ "_completion_has_write_data")
+      assert(write_completion_matches.or_reduce(), label_prefix ++ "_completion_has_write_data")
       assert(rsp.resp === bits(0, 3), label_prefix ++ "_completion_resp_zero")
       assert(rsp.resp_err === CHIRespErr.OK,
              label_prefix ++ "_completion_ok")
@@ -218,7 +222,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
   when rx_dat_event:
     assert(rx_dat.opcode === CHIDatOpcode.CompData,
            label_prefix ++ "_read_data_opcode_supported")
-    assert(read_completion_match, label_prefix ++ "_read_data_has_request")
+    assert(read_completion_matches.or_reduce(), label_prefix ++ "_read_data_has_request")
     assert(rx_dat.resp === bits(0, 3), label_prefix ++ "_read_data_resp_zero")
     assert(rx_dat.resp_err === CHIRespErr.OK,
            label_prefix ++ "_read_data_ok")
@@ -246,52 +250,25 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       block:
         def entry = entries[index]
-        def dbid_response_here = rsp_event & (rsp.opcode === CHIRspOpcode.DBIDResp) & (
-          entry.phase === CHIInitialTransactionPhase.WriteAwaitDBID
-        ) & (entry.txn_id === rsp.txn_id)
-        def write_data_here = tx_dat_event & (
-          tx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData
-        ) & (entry.phase === CHIInitialTransactionPhase.WriteAwaitData) & (
-          entry.dbid === tx_dat.txn_id
-        ) & (entry.completer_id === tx_dat.tgt_id)
-        def write_completion_here = rsp_event & (rsp.opcode === CHIRspOpcode.Comp) & (
-          entry.phase === CHIInitialTransactionPhase.WriteAwaitComp
-        ) & (entry.txn_id === rsp.txn_id) & (entry.completer_id === rsp.src_id) & (
-          entry.dbid === rsp.dbid_or_group_id
-        )
-        def read_completion_here = rx_dat_event & (rx_dat.opcode === CHIDatOpcode.CompData) & (
-          entry.phase === CHIInitialTransactionPhase.ReadPending
-        ) & (entry.txn_id === rx_dat.txn_id) & or_reduce(
-          entry.expected_data_ids & incoming_data_id
-        ) & !or_reduce(entry.received_data_ids & incoming_data_id)
+        def dbid_response_here = rsp_event & (rsp.opcode === CHIRspOpcode.DBIDResp) & dbid_response_matches[index]
+        def write_data_here = tx_dat_event & (tx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData) & write_data_matches[index]
+        def write_completion_here = rsp_event & (rsp.opcode === CHIRspOpcode.Comp) & write_completion_matches[index]
+        def read_completion_here = rx_dat_event & (rx_dat.opcode === CHIDatOpcode.CompData) & read_completion_matches[index]
         def next_write_data_ids = entry.received_data_ids ||| outgoing_data_id
         def next_read_data_ids = entry.received_data_ids ||| incoming_data_id
-        def after_dbid:
-          CHIRequesterTransaction(p):
-            phase: CHIInitialTransactionPhase.WriteAwaitData
-            txn_id: entry.txn_id
-            completer_id: rsp.src_id
-            dbid: rsp.dbid_or_group_id
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: entry.received_data_ids
-        def after_write_data:
-          CHIRequesterTransaction(p):
-            phase: mux(next_write_data_ids === entry.expected_data_ids,
-                       CHIInitialTransactionPhase.WriteAwaitComp,
-                       CHIInitialTransactionPhase.WriteAwaitData)
-            txn_id: entry.txn_id
-            completer_id: entry.completer_id
-            dbid: entry.dbid
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: next_write_data_ids
-        def after_read_data:
-          CHIRequesterTransaction(p):
-            phase: CHIInitialTransactionPhase.ReadPending
-            txn_id: entry.txn_id
-            completer_id: entry.completer_id
-            dbid: entry.dbid
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: next_read_data_ids
+        def after_dbid = entry.updated(
+          ~phase: CHIInitialTransactionPhase.WriteAwaitData,
+          ~completer_id: rsp.src_id,
+          ~dbid: rsp.dbid_or_group_id
+        )
+        def after_write_data = entry.updated(
+          ~phase: mux(next_write_data_ids === entry.expected_data_ids, CHIInitialTransactionPhase.WriteAwaitComp, CHIInitialTransactionPhase.WriteAwaitData),
+          ~received_data_ids: next_write_data_ids
+        )
+        def after_read_data = entry.updated(
+          ~phase: CHIInitialTransactionPhase.ReadPending,
+          ~received_data_ids: next_read_data_ids
+        )
         def progressed = mux(dbid_response_here,
                              after_dbid,
                              mux(write_data_here,
@@ -342,13 +319,13 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
   )
   def incoming_write_data_id = one_hot(rx_dat.data_id).as_bits()
   def outgoing_read_data_id = one_hot(tx_dat.data_id).as_bits()
-  def dbid_response_match = or_reduce(
+  def dbid_response_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitDBID) & (
         entries[index].txn_id === rsp.txn_id
       ) & (entries[index].requester_id === rsp.tgt_id)
   )
-  def write_data_match = or_reduce(
+  def write_data_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitData) & (
         entries[index].dbid === rx_dat.txn_id
@@ -356,7 +333,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
         entries[index].expected_data_ids & incoming_write_data_id
       ) & !or_reduce(entries[index].received_data_ids & incoming_write_data_id)
   )
-  def write_completion_match = or_reduce(
+  def write_completion_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.WriteAwaitComp) & (
         entries[index].txn_id === rsp.txn_id
@@ -364,7 +341,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
         entries[index].dbid === rsp.dbid_or_group_id
       )
   )
-  def read_completion_match = or_reduce(
+  def read_completion_matches = vec(
     for List (index in 0..limit):
       (entries[index].phase === CHIInitialTransactionPhase.ReadPending) & (
         entries[index].return_txn_id === tx_dat.txn_id
@@ -392,7 +369,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
     assert(rsp.opcode.is_one_of(CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp),
            label_prefix ++ "_response_opcode_supported")
     when (rsp.opcode === CHIRspOpcode.DBIDResp):
-      assert(dbid_response_match, label_prefix ++ "_dbid_response_has_write")
+      assert(dbid_response_matches.or_reduce(), label_prefix ++ "_dbid_response_has_write")
       assert(rsp.resp === bits(0, 3), label_prefix ++ "_dbid_response_resp_zero")
       assert(rsp.resp_err === CHIRespErr.OK,
              label_prefix ++ "_dbid_response_ok")
@@ -405,14 +382,14 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
       )
       assert(!duplicate_dbid, label_prefix ++ "_dbid_unique")
     when (rsp.opcode === CHIRspOpcode.Comp):
-      assert(write_completion_match, label_prefix ++ "_completion_has_write_data")
+      assert(write_completion_matches.or_reduce(), label_prefix ++ "_completion_has_write_data")
       assert(rsp.resp === bits(0, 3), label_prefix ++ "_completion_resp_zero")
       assert(rsp.resp_err === CHIRespErr.OK,
              label_prefix ++ "_completion_ok")
   when rx_dat_event:
     assert(rx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData,
            label_prefix ++ "_write_data_opcode_supported")
-    assert(write_data_match, label_prefix ++ "_write_data_has_dbid")
+    assert(write_data_matches.or_reduce(), label_prefix ++ "_write_data_has_dbid")
     chi_initial_data_fields(rx_dat.data_id,
                             rx_dat.num_dat,
                             rx_dat.replicate,
@@ -421,7 +398,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
   when tx_dat_event:
     assert(tx_dat.opcode === CHIDatOpcode.CompData,
            label_prefix ++ "_read_data_opcode_supported")
-    assert(read_completion_match, label_prefix ++ "_read_data_has_request")
+    assert(read_completion_matches.or_reduce(), label_prefix ++ "_read_data_has_request")
     assert(tx_dat.resp === bits(0, 3), label_prefix ++ "_read_data_resp_zero")
     assert(tx_dat.resp_err === CHIRespErr.OK,
            label_prefix ++ "_read_data_ok")
@@ -451,62 +428,24 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       block:
         def entry = entries[index]
-        def dbid_response_here = rsp_event & (rsp.opcode === CHIRspOpcode.DBIDResp) & (
-          entry.phase === CHIInitialTransactionPhase.WriteAwaitDBID
-        ) & (entry.txn_id === rsp.txn_id) & (entry.requester_id === rsp.tgt_id)
-        def write_data_here = rx_dat_event & (
-          rx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData
-        ) & (entry.phase === CHIInitialTransactionPhase.WriteAwaitData) & (
-          entry.dbid === rx_dat.txn_id
-        ) & (entry.requester_id === rx_dat.src_id) & or_reduce(
-          entry.expected_data_ids & incoming_write_data_id
-        ) & !or_reduce(entry.received_data_ids & incoming_write_data_id)
-        def write_completion_here = rsp_event & (rsp.opcode === CHIRspOpcode.Comp) & (
-          entry.phase === CHIInitialTransactionPhase.WriteAwaitComp
-        ) & (entry.txn_id === rsp.txn_id) & (entry.requester_id === rsp.tgt_id) & (
-          entry.dbid === rsp.dbid_or_group_id
-        )
-        def read_completion_here = tx_dat_event & (tx_dat.opcode === CHIDatOpcode.CompData) & (
-          entry.phase === CHIInitialTransactionPhase.ReadPending
-        ) & (entry.return_txn_id === tx_dat.txn_id) & (
-          entry.return_node_id === tx_dat.tgt_id
-        ) & or_reduce(entry.expected_data_ids & outgoing_read_data_id) & (
-          !or_reduce(entry.received_data_ids & outgoing_read_data_id)
-        )
+        def dbid_response_here = rsp_event & (rsp.opcode === CHIRspOpcode.DBIDResp) & dbid_response_matches[index]
+        def write_data_here = rx_dat_event & (rx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData) & write_data_matches[index]
+        def write_completion_here = rsp_event & (rsp.opcode === CHIRspOpcode.Comp) & write_completion_matches[index]
+        def read_completion_here = tx_dat_event & (tx_dat.opcode === CHIDatOpcode.CompData) & read_completion_matches[index]
         def next_write_data_ids = entry.received_data_ids ||| incoming_write_data_id
         def next_read_data_ids = entry.received_data_ids ||| outgoing_read_data_id
-        def after_dbid:
-          CHISubordinateTransaction(p):
-            phase: CHIInitialTransactionPhase.WriteAwaitData
-            txn_id: entry.txn_id
-            requester_id: entry.requester_id
-            return_txn_id: entry.return_txn_id
-            return_node_id: entry.return_node_id
-            dbid: rsp.dbid_or_group_id
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: entry.received_data_ids
-        def after_write_data:
-          CHISubordinateTransaction(p):
-            phase: mux(next_write_data_ids === entry.expected_data_ids,
-                       CHIInitialTransactionPhase.WriteAwaitComp,
-                       CHIInitialTransactionPhase.WriteAwaitData)
-            txn_id: entry.txn_id
-            requester_id: entry.requester_id
-            return_txn_id: entry.return_txn_id
-            return_node_id: entry.return_node_id
-            dbid: entry.dbid
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: next_write_data_ids
-        def after_read_data:
-          CHISubordinateTransaction(p):
-            phase: CHIInitialTransactionPhase.ReadPending
-            txn_id: entry.txn_id
-            requester_id: entry.requester_id
-            return_txn_id: entry.return_txn_id
-            return_node_id: entry.return_node_id
-            dbid: entry.dbid
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: next_read_data_ids
+        def after_dbid = entry.updated(
+          ~phase: CHIInitialTransactionPhase.WriteAwaitData,
+          ~dbid: rsp.dbid_or_group_id
+        )
+        def after_write_data = entry.updated(
+          ~phase: mux(next_write_data_ids === entry.expected_data_ids, CHIInitialTransactionPhase.WriteAwaitComp, CHIInitialTransactionPhase.WriteAwaitData),
+          ~received_data_ids: next_write_data_ids
+        )
+        def after_read_data = entry.updated(
+          ~phase: CHIInitialTransactionPhase.ReadPending,
+          ~received_data_ids: next_read_data_ids
+        )
         def progressed = mux(dbid_response_here,
                              after_dbid,
                              mux(write_data_here,
@@ -743,46 +682,20 @@ fun home_transaction_monitor(p :: CHIFlitParams,
             subordinate_dbid: bits(0, 12)
             expected_data_ids: chi_transfer_data_ids(upstream_request.address, chi_req_size(p, upstream_request), p)
             received_data_ids: bits(0, 4)
-        def after_dbid:
-          CHIHomeTransaction(p):
-            phase: CHIInitialTransactionPhase.WriteAwaitData
-            requester_id: entry.requester_id
-            requester_txn_id: entry.requester_txn_id
-            requester_return_txn_id: entry.requester_return_txn_id
-            requester_data_target: entry.requester_data_target
-            requester_qos: entry.requester_qos
-            subordinate_id: entry.subordinate_id
-            subordinate_dbid: downstream_response.dbid_or_group_id
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: entry.received_data_ids
+        def after_dbid = entry.updated(
+          ~phase: CHIInitialTransactionPhase.WriteAwaitData,
+          ~subordinate_dbid: downstream_response.dbid_or_group_id
+        )
         def next_write_data_ids = entry.received_data_ids ||| write_data_id
         def next_read_data_ids = entry.received_data_ids ||| read_data_id
-        def after_write_data:
-          CHIHomeTransaction(p):
-            phase: mux(next_write_data_ids === entry.expected_data_ids,
-                       CHIInitialTransactionPhase.WriteAwaitComp,
-                       CHIInitialTransactionPhase.WriteAwaitData)
-            requester_id: entry.requester_id
-            requester_txn_id: entry.requester_txn_id
-            requester_return_txn_id: entry.requester_return_txn_id
-            requester_data_target: entry.requester_data_target
-            requester_qos: entry.requester_qos
-            subordinate_id: entry.subordinate_id
-            subordinate_dbid: entry.subordinate_dbid
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: next_write_data_ids
-        def after_read_data:
-          CHIHomeTransaction(p):
-            phase: CHIInitialTransactionPhase.ReadPending
-            requester_id: entry.requester_id
-            requester_txn_id: entry.requester_txn_id
-            requester_return_txn_id: entry.requester_return_txn_id
-            requester_data_target: entry.requester_data_target
-            requester_qos: entry.requester_qos
-            subordinate_id: entry.subordinate_id
-            subordinate_dbid: entry.subordinate_dbid
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: next_read_data_ids
+        def after_write_data = entry.updated(
+          ~phase: mux(next_write_data_ids === entry.expected_data_ids, CHIInitialTransactionPhase.WriteAwaitComp, CHIInitialTransactionPhase.WriteAwaitData),
+          ~received_data_ids: next_write_data_ids
+        )
+        def after_read_data = entry.updated(
+          ~phase: CHIInitialTransactionPhase.ReadPending,
+          ~received_data_ids: next_read_data_ids
+        )
         def progressed = mux(dbid_here,
                              after_dbid,
                              mux(write_data_here,

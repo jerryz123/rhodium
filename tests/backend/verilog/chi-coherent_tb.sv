@@ -1,4 +1,4 @@
-// Simulates legal multibeat RN-F coherent reads and snoop transactions.
+// Checks multibeat coherent reads and forwarded snoops with reordered and simultaneous completion events.
 module chi_coherent_tb;
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
@@ -191,6 +191,91 @@ module chi_coherent_tb;
     tx_dat_bits.txn_id = 12'h404;
     tick();
     clear_flits();
+
+    // Reuse identities after retirement; acknowledge before, with, and after
+    // the last data beat. The first beat establishes HomeID and CompAck ID.
+    for (int order = 0; order < 3; order++) begin
+      port_in.tx_req.credit = 1;
+      port_in.tx_rsp.credit = 1;
+      rx_dat_credit = 1;
+      tick();
+      port_in.tx_req.credit = 0;
+      port_in.tx_rsp.credit = 0;
+      tick(); // Supply the second receive credit.
+      rx_dat_credit = 0;
+      tx_req_valid = 1;
+      tx_req_bits.opcode = 7'h01;
+      tx_req_bits.src_id = 5;
+      tx_req_bits.tgt_id = 9;
+      tx_req_bits.txn_id = 12'h101;
+      tx_req_bits.size_or_num_req = 5;
+      tx_req_bits.exp_comp_ack = 1;
+      tx_req_bits.allow_retry = 1;
+      tick();
+      clear_flits();
+      port_in.rx_dat.valid = 1;
+      port_in.rx_dat.bits.opcode = 4;
+      port_in.rx_dat.bits.src_id = 9;
+      port_in.rx_dat.bits.tgt_id = 5;
+      port_in.rx_dat.bits.txn_id = 12'h101;
+      port_in.rx_dat.bits.home_nid_or_pbha_or_mismatched_mecid = 9;
+      port_in.rx_dat.bits.dbid_or_mecid = 16'h0060 + 16'(order);
+      port_in.rx_dat.bits.data_id = 1;
+      tick();
+      port_in.rx_dat.valid = 0;
+      tx_rsp_bits.opcode = 2;
+      tx_rsp_bits.src_id = 5;
+      tx_rsp_bits.tgt_id = 9;
+      tx_rsp_bits.txn_id = 12'h060 + 12'(order);
+      if (order == 0) begin
+        tx_rsp_valid = 1;
+        tick();
+        tx_rsp_valid = 0;
+      end
+      port_in.rx_dat.valid = 1;
+      port_in.rx_dat.bits.data_id = 0;
+      tx_rsp_valid = (order == 1);
+      tick();
+      port_in.rx_dat.valid = 0;
+      tx_rsp_valid = (order == 2);
+      tick();
+      clear_flits();
+    end
+
+    // The forwarded response and forwarded DAT are independent obligations.
+    // Reusing this snoop identity also checks that allocation clears receipt bits.
+    for (int order = 0; order < 3; order++) begin
+      rx_snp_credit = 1;
+      port_in.tx_rsp.credit = 1;
+      port_in.tx_dat.credit = 1;
+      tick();
+      rx_snp_credit = 0;
+      port_in.tx_rsp.credit = 0;
+      port_in.tx_dat.credit = 0;
+      port_in.rx_snp.valid = 1;
+      port_in.rx_snp.bits.opcode = 5'h11;
+      port_in.rx_snp.bits.src_id = 9;
+      port_in.rx_snp.bits.txn_id = 12'h303;
+      port_in.rx_snp.bits.fwd_nid_or_pbha = 7;
+      port_in.rx_snp.bits.fwd_txn_id_or_stash_lpid_or_vmid_ext = 12'h410 + 12'(order);
+      tick();
+      clear_flits();
+      tx_rsp_bits.opcode = 9;
+      tx_rsp_bits.src_id = 5;
+      tx_rsp_bits.tgt_id = 9;
+      tx_rsp_bits.txn_id = 12'h303;
+      tx_dat_bits.opcode = 4;
+      tx_dat_bits.src_id = 5;
+      tx_dat_bits.tgt_id = 7;
+      tx_dat_bits.txn_id = 12'h410 + 12'(order);
+      tx_rsp_valid = (order != 2);
+      tx_dat_valid = (order != 0);
+      tick();
+      tx_rsp_valid = (order == 2);
+      tx_dat_valid = (order == 0);
+      tick();
+      clear_flits();
+    end
 
     tx_link_active_request = 1'b0;
     port_in.rx_link_active_request = 1'b0;

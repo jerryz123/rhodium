@@ -102,7 +102,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         reads[index].txn_id === req.txn_id
       )
   )
-  def read_data_match = or_reduce(
+  def read_data_matches = vec(
     for List (index in 0..limit):
       (reads[index].phase === CHICoherentReadPhase.AwaitData) & (
         reads[index].txn_id === rx_dat.txn_id
@@ -110,21 +110,15 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   )
   def read_data_expected = or_reduce(
     for List (index in 0..limit):
-      (reads[index].phase === CHICoherentReadPhase.AwaitData) & (
-        reads[index].txn_id === rx_dat.txn_id
-      ) & or_reduce(reads[index].expected_data_ids & read_data_id)
+      read_data_matches[index] & or_reduce(reads[index].expected_data_ids & read_data_id)
   )
   def read_data_duplicate = or_reduce(
     for List (index in 0..limit):
-      (reads[index].phase === CHICoherentReadPhase.AwaitData) & (
-        reads[index].txn_id === rx_dat.txn_id
-      ) & or_reduce(reads[index].received_data_ids & read_data_id)
+      read_data_matches[index] & or_reduce(reads[index].received_data_ids & read_data_id)
   )
   def read_data_metadata_consistent = or_reduce(
     for List (index in 0..limit):
-      (reads[index].phase === CHICoherentReadPhase.AwaitData) & (
-        reads[index].txn_id === rx_dat.txn_id
-      ) & (
+      read_data_matches[index] & (
         !reads[index].received_data_ids.or_reduce() ||| (
           reads[index].home_id === rx_dat.home_nid_or_pbha_or_mismatched_mecid
         ) & (
@@ -132,7 +126,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         )
       )
   )
-  def comp_ack_match = or_reduce(
+  def comp_ack_matches = vec(
     for List (index in 0..limit):
       (reads[index].phase =/= CHICoherentReadPhase.Free) & (
         reads[index].received_data_ids.or_reduce()
@@ -153,7 +147,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     assert(duplicate_read_txn ||| read_allocation_available,
            label_prefix ++ "_read_within_outstanding_limit")
   when read_data_event:
-    assert(read_data_match, label_prefix ++ "_read_data_has_request")
+    assert(read_data_matches.or_reduce(), label_prefix ++ "_read_data_has_request")
     assert(read_data_expected, label_prefix ++ "_read_data_id_expected")
     assert(!read_data_duplicate, label_prefix ++ "_read_data_id_unique")
     assert(read_data_metadata_consistent,
@@ -164,7 +158,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
                                   rx_dat.replicate,
                                   label_prefix ++ "_read_data")
   when comp_ack_event:
-    assert(comp_ack_match, label_prefix ++ "_comp_ack_has_read_data")
+    assert(comp_ack_matches.or_reduce(), label_prefix ++ "_comp_ack_has_read_data")
 
   def allocate_read = req_event & !duplicate_read_txn & read_allocation_available
   def allocated_read:
@@ -184,16 +178,8 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       block:
         def entry = reads[index]
-        def read_data_here = read_data_event & (
-          entry.phase === CHICoherentReadPhase.AwaitData
-        ) & (entry.txn_id === rx_dat.txn_id)
-        def comp_ack_here = comp_ack_event & (
-          entry.phase =/= CHICoherentReadPhase.Free
-        ) & entry.received_data_ids.or_reduce() & (
-          entry.comp_ack_txn_id === tx_rsp.txn_id
-        ) & (
-          entry.home_id === tx_rsp.tgt_id
-        )
+        def read_data_here = read_data_event & read_data_matches[index]
+        def comp_ack_here = comp_ack_event & comp_ack_matches[index]
         def next_received_data_ids = mux(
           read_data_here,
           entry.received_data_ids ||| read_data_id,
@@ -203,21 +189,13 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         def next_comp_ack_seen = entry.comp_ack_seen ||| comp_ack_here
         def data_complete = next_received_data_ids === entry.expected_data_ids
         def completed = data_complete & next_comp_ack_seen
-        def progressed_read:
-          CHICoherentReadTransaction(p):
-            phase: mux(data_complete,
-                       CHICoherentReadPhase.AwaitCompAck,
-                       CHICoherentReadPhase.AwaitData)
-            txn_id: entry.txn_id
-            home_id: mux(read_data_here & first_data,
-                         rx_dat.home_nid_or_pbha_or_mismatched_mecid,
-                         entry.home_id)
-            comp_ack_txn_id: mux(read_data_here & first_data,
-                                 rx_dat.dbid_or_mecid[0..12],
-                                 entry.comp_ack_txn_id)
-            expected_data_ids: entry.expected_data_ids
-            received_data_ids: next_received_data_ids
-            comp_ack_seen: next_comp_ack_seen
+        def progressed_read = entry.updated(
+          ~phase: mux(data_complete, CHICoherentReadPhase.AwaitCompAck, CHICoherentReadPhase.AwaitData),
+          ~home_id: mux(read_data_here & first_data, rx_dat.home_nid_or_pbha_or_mismatched_mecid, entry.home_id),
+          ~comp_ack_txn_id: mux(read_data_here & first_data, rx_dat.dbid_or_mecid[0..12], entry.comp_ack_txn_id),
+          ~received_data_ids: next_received_data_ids,
+          ~comp_ack_seen: next_comp_ack_seen
+        )
         def updated_read = mux(completed, empty_read, progressed_read)
         def progressed = mux(read_data_here ||| comp_ack_here,
                              updated_read,
@@ -238,21 +216,21 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
         snoops[index].home_id === rx_snp.src_id
       )
   )
-  def rsp_snoop_match = or_reduce(
+  def rsp_snoop_matches = vec(
     for List (index in 0..limit):
-      snoops[index].live & (snoops[index].txn_id === tx_rsp.txn_id) & (
+      (snoops[index].txn_id === tx_rsp.txn_id) & (
         snoops[index].home_id === tx_rsp.tgt_id
       )
   )
-  def dat_snoop_match = or_reduce(
+  def dat_snoop_matches = vec(
     for List (index in 0..limit):
-      snoops[index].live & (snoops[index].txn_id === tx_dat.txn_id) & (
+      (snoops[index].txn_id === tx_dat.txn_id) & (
         snoops[index].home_id === tx_dat.tgt_id
       )
   )
-  def forward_data_match = or_reduce(
+  def forward_data_matches = vec(
     for List (index in 0..limit):
-      snoops[index].live & snoops[index].forward & (
+      snoops[index].forward & (
         snoops[index].forward_txn_id === tx_dat.txn_id
       ) & (snoops[index].forward_id === tx_dat.tgt_id)
   )
@@ -262,15 +240,18 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     assert(snoop_allocation_available,
            label_prefix ++ "_snoop_within_outstanding_limit")
   when snoop_rsp_event:
-    assert(rsp_snoop_match, label_prefix ++ "_snoop_rsp_has_request")
+    assert(or_reduce(for List (index in 0..limit): snoops[index].live & rsp_snoop_matches[index]),
+           label_prefix ++ "_snoop_rsp_has_request")
   when snoop_dat_event:
-    assert(dat_snoop_match, label_prefix ++ "_snoop_data_has_request")
+    assert(or_reduce(for List (index in 0..limit): snoops[index].live & dat_snoop_matches[index]),
+           label_prefix ++ "_snoop_data_has_request")
     coherent_single_data_fields(tx_dat.data_id,
                                 tx_dat.num_dat,
                                 tx_dat.replicate,
                                 label_prefix ++ "_snoop_data")
   when forward_data_event:
-    assert(forward_data_match, label_prefix ++ "_forward_data_has_snoop")
+    assert(or_reduce(for List (index in 0..limit): snoops[index].live & forward_data_matches[index]),
+           label_prefix ++ "_forward_data_has_snoop")
     coherent_single_data_fields(tx_dat.data_id,
                                 tx_dat.num_dat,
                                 tx_dat.replicate,
@@ -296,36 +277,25 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       block:
         def entry = snoops[index]
-        def rsp_here = snoop_rsp_event & (entry.txn_id === tx_rsp.txn_id) & (
-          entry.home_id === tx_rsp.tgt_id
-        )
-        def dat_here = snoop_dat_event & (entry.txn_id === tx_dat.txn_id) & (
-          entry.home_id === tx_dat.tgt_id
-        )
+        def rsp_here = snoop_rsp_event & rsp_snoop_matches[index]
+        def dat_here = snoop_dat_event & dat_snoop_matches[index]
         def response_here = rsp_here ||| dat_here
         def forwarded_response = (
           rsp_here & (tx_rsp.opcode === CHIRspOpcode.SnpRespFwded)
         ) ||| (
           dat_here & (tx_dat.opcode === CHIDatOpcode.SnpRespDataFwded)
         )
-        def forward_data_here = forward_data_event & entry.forward & (
-          entry.forward_txn_id === tx_dat.txn_id
-        ) & (entry.forward_id === tx_dat.tgt_id)
+        def forward_data_here = forward_data_event & forward_data_matches[index]
         def next_response_seen = entry.response_seen ||| forwarded_response
         def next_forward_data_seen = entry.forward_data_seen ||| forward_data_here
         def completes = (response_here & !forwarded_response) ||| (
           entry.forward & next_response_seen & next_forward_data_seen
         )
-        def progressed:
-          CHISnoopTransaction(p):
-            live: entry.live & !completes
-            forward: entry.forward
-            txn_id: entry.txn_id
-            home_id: entry.home_id
-            forward_txn_id: entry.forward_txn_id
-            forward_id: entry.forward_id
-            response_seen: next_response_seen
-            forward_data_seen: next_forward_data_seen
+        def progressed = entry.updated(
+          ~live: entry.live & !completes,
+          ~response_seen: next_response_seen,
+          ~forward_data_seen: next_forward_data_seen
+        )
         def allocate_here = allocate_snoop & (
           snoop_allocation_index === bits(index, index_width(limit))
         )
