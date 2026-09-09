@@ -92,6 +92,11 @@ done
 [[ "$(fdtget "$fixture_dir/tiled.dtb" /cpus timebase-frequency)" == "1000000" ]]
 [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-base)" == "rv64i" ]]
 [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 mmu-type)" == "riscv,sv39" ]]
+for cache in i d; do
+  [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 "$cache-cache-size")" == "16384" ]]
+  [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 "$cache-cache-sets")" == "64" ]]
+  [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 "$cache-cache-block-size")" == "64" ]]
+done
 [[ "$(fdtget -t x "$fixture_dir/simple.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7" ]]
 [[ "$(fdtget -t x "$fixture_dir/tiled.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7 2 3 2 7 3 3 3 7 4 3 4 7 5 3 5 7 6 3 6 7 7 3 7 7 8 3 8 7" ]]
 [[ "$(fdtget -l "$fixture_dir/tiled.dtb" / | grep -c '^memory@')" == "1" ]]

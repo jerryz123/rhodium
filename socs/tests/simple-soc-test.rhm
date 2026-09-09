@@ -15,6 +15,12 @@ def compact_soc_params = soc.SimpleSoCParams(
   ~llc_ways: 2
 )
 def description = soc.simple_soc_params.description
+for (cache in [description.core_profile.cache_geometry.instruction,
+               description.core_profile.cache_geometry.data]):
+  check:
+    cache.sets ~is 64
+    cache.ways ~is 4
+    cache.capacity_bytes ~is 16384
 check:
   soc.simple_soc_core_profile.extensions.zicbop ~is #true
   soc.simple_soc_topology.injections ~is []

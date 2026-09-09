@@ -19,7 +19,11 @@ def simple_soc_core_profile = RVCoreProfile(
     ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true,
     ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcmop)
   ),
-  ~mmu_mode: RV5StageMmuMode.Sv39
+  ~mmu_mode: RV5StageMmuMode.Sv39,
+  ~cache_geometry: RV5StageCacheGeometry(
+    ~instruction: RV5StageCacheConfig(64, 4),
+    ~data: RV5StageCacheConfig(64, 4)
+  )
 )
 
 def mini_soc_core_profile = RVCoreProfile(

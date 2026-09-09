@@ -225,7 +225,9 @@ Home; the SoC derives the `CHIHomeMap` from those entries. Requests outside the
 table therefore trap in RV5Stage instead of entering CHI without a Home.
 
 `SimpleSoCParams` couples the shared `SingleCoreSystemParams` contract to the inclusive LLC
-geometry. The default selects a 64-set, four-way blocking LLC and exports
+geometry. Its default core profile selects separate 16 KiB, four-way
+set-associative instruction and data caches, each with 64 sets and 64-byte
+lines. The default also selects a 64-set, four-way blocking LLC and exports
 line-capable `CHISNChannels` for SN-F NodeID 9 over the 1 GiB range
 `0x80000000..0xbfffffff`. The SoC contains no RAM, fragmenter, or simulator
 binding; an external subordinate owns memory contents and response timing.
@@ -237,8 +239,8 @@ self-contained system used for compact RTL and physical-design experiments. It
 uses a 64 KiB range, replaces the inclusive LLC with the forwarding `CHIHNF`,
 and terminates the native memory boundary directly in an on-chip, line-capable
 `CHIRam`. Its RV64 instruction and data caches are each explicitly 32-set,
-one-way direct-mapped caches with 2 KiB of line storage; `SimpleSoC` retains
-RV5Stage's default 64-set cache geometry.
+one-way direct-mapped caches with 2 KiB of line storage; SimpleSoC's larger
+L1 defaults are described [above](#simplesoc).
 
 `MiniSoCParams` owns its `CHIRamParams`; `SimpleSoCParams` instead consumes an
 external `CHISubordinateServiceParams` through its shared system parameters.
