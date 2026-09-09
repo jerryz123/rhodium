@@ -33,6 +33,10 @@ def pack_module = pack_design.modules[0]
 def mask_design = embedded.run_elaboration(fun (): fixture.MaskExpansionFixture())
 
 check:
+  embedded.run_elaboration(fun (): fixture.InvalidRuntimeAlignmentBoundFixture(-1)) ~throws "Nat"
+  embedded.run_elaboration(fun (): fixture.InvalidRuntimeAlignmentBoundFixture(9)) ~throws "maximum alignment must fit the Bits width"
+  embedded.run_elaboration(fun (): fixture.NonBitsRuntimeAlignmentFixture()) ~throws "Bits"
+  embedded.run_elaboration(fun (): fixture.NonBitsAlignmentExponentFixture()) ~throws "Bits"
   mask_design.modules[0].outputs.map(fun (port): port.type) ~is [Bits(8), Bits(24), Bits(64), Bits(1), Bits(7), Bits(20)]
   embedded.run_elaboration(fun (): fixture.InvalidMaskLaneWidthFixture(0)) ~throws "PosInt"
   embedded.run_elaboration(fun (): fixture.InvalidMaskLaneWidthFixture(-1)) ~throws "PosInt"

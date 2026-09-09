@@ -46,39 +46,6 @@ bundle CHIHomeTransaction(p :: CHIFlitParams):
   expected_data_ids: Bits(4)
   received_data_ids: Bits(4)
 
-fun empty_chi_requester_transaction(p :: CHIFlitParams):
-  CHIRequesterTransaction(p):
-    phase: CHIInitialTransactionPhase.Free
-    txn_id: bits(0, 12)
-    completer_id: bits(0, p.node_id_width)
-    dbid: bits(0, 12)
-    expected_data_ids: bits(0, 4)
-    received_data_ids: bits(0, 4)
-
-fun empty_chi_subordinate_transaction(p :: CHIFlitParams):
-  CHISubordinateTransaction(p):
-    phase: CHIInitialTransactionPhase.Free
-    txn_id: bits(0, 12)
-    requester_id: bits(0, p.node_id_width)
-    return_txn_id: bits(0, 12)
-    return_node_id: bits(0, p.node_id_width)
-    dbid: bits(0, 12)
-    expected_data_ids: bits(0, 4)
-    received_data_ids: bits(0, 4)
-
-fun empty_chi_home_transaction(p :: CHIFlitParams):
-  CHIHomeTransaction(p):
-    phase: CHIInitialTransactionPhase.Free
-    requester_id: bits(0, p.node_id_width)
-    requester_txn_id: bits(0, 12)
-    requester_return_txn_id: bits(0, 12)
-    requester_data_target: bits(0, p.node_id_width)
-    requester_qos: bits(0, 4)
-    subordinate_id: bits(0, p.node_id_width)
-    subordinate_dbid: bits(0, 12)
-    expected_data_ids: bits(0, 4)
-    received_data_ids: bits(0, 4)
-
 fun chi_initial_single_flit_size(size :: CHITransferSize,
                                  p :: CHIFlitParams):
   size.as_bits() <= bits(alignment_bits(p.data_bytes), 3)
@@ -118,7 +85,7 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
                                   tx_dat :: CHIDatFlit(p),
                                   rx_dat_valid :: Bool,
                                   rx_dat :: CHIDatFlit(p)):
-  def empty = empty_chi_requester_transaction(p)
+  def empty = literal(CHIRequesterTransaction(p), 0)
   def initial = vec(for List (_index in 0..limit): empty)
   reg entries(~init: initial)
   def req_opcode = req.opcode
@@ -296,7 +263,7 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
                                     rx_dat :: CHIDatFlit(p),
                                     tx_dat_valid :: Bool,
                                     tx_dat :: CHIDatFlit(p)):
-  def empty = empty_chi_subordinate_transaction(p)
+  def empty = literal(CHISubordinateTransaction(p), 0)
   def initial = vec(for List (_index in 0..limit): empty)
   reg entries(~init: initial)
   def req_opcode = req.opcode
@@ -484,7 +451,7 @@ fun home_transaction_monitor(p :: CHIFlitParams,
                              downstream_read_data :: CHIDatFlit(p),
                              upstream_read_data_event :: Bool,
                              upstream_read_data :: CHIDatFlit(p)):
-  def empty = empty_chi_home_transaction(p)
+  def empty = literal(CHIHomeTransaction(p), 0)
   def initial = vec(for List (_index in 0..limit): empty)
   reg entries(~init: initial)
   def upstream_request_opcode = upstream_request.opcode

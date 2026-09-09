@@ -29,7 +29,7 @@ sync_circuit CHIPacketWidthFixture(p :: CHIFlitParams):
   packet_address <== chi_data_address(address, data_id, p)
   reg credit_balance(~init: bits(1, 1))
   // An active link replenishes each consumed credit; the monitor owns balance updates.
-  monitor_chi_dat(p, 1, valid, data.opcode, data.txn_id, data.src_id, data.data_id, valid, credit_balance, Bool(#true), Bool(#true), Bool(#true), [CHIDatOpcode.NonCopyBackWriteData], 3, "_source", "packet_constructor")
+  monitor_chi_dat(p, 1, valid, data, data.src_id, valid, credit_balance, Bool(#true), Bool(#true), Bool(#true), [CHIDatOpcode.NonCopyBackWriteData], 3, "_source", "packet_constructor")
 
 sync_circuit CHIPacketFixture():
   input address: Bits(8)

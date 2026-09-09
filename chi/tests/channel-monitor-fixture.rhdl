@@ -3,6 +3,10 @@
 
 import:
   lib("chi/main.rhdl") open
+  lib("chi/transactions/monitor.rhdl").monitor_chi_req
+  lib("chi/transactions/monitor.rhdl").monitor_chi_rsp
+  lib("chi/transactions/monitor.rhdl").monitor_chi_dat
+  lib("chi/transactions/monitor.rhdl").monitor_chi_snp
   "transaction-fixture.rhdl" open
 
 sync_circuit MonitoredCHIChannels(~node: node :: CHINodeParams = transaction_rni_node,
@@ -57,7 +61,27 @@ def design = elaborate(MonitoredCHIChannels())
 fun channel_monitor_design(node :: CHINodeParams, peer :: CHIICNPortParams, transaction_checks :: Boolean):
   elaborate(MonitoredCHIChannels(~node: node, ~peer: peer, ~transaction_checks: transaction_checks))
 
+// Packet checks reject the wrong nominal channel or specialization even while idle.
+sync_circuit TypedPacketMonitor(channel :: String, Packet :: DataType):
+  def p = transaction_flit
+  input packet: Packet
+  reg balance(~init: bits(0, 1))
+  def idle = Bool(#false)
+  cond
+  | channel == "req":
+      monitor_chi_req(p, 1, idle, packet, bits(0, p.node_id_width), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
+  | channel == "rsp":
+      monitor_chi_rsp(p, 1, idle, packet, bits(0, p.node_id_width), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
+  | channel == "dat":
+      monitor_chi_dat(p, 1, idle, packet, bits(0, p.node_id_width), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
+  | ~else:
+      monitor_chi_snp(p, 1, idle, packet, idle, balance, idle, idle, idle, [], "typed")
+
+fun packet_monitor_design(channel :: String, Packet :: DataType):
+  elaborate(TypedPacketMonitor(channel, Packet))
+
 export:
+  packet_monitor_design
   channel_monitor_design
   design
   MonitoredCHIChannels

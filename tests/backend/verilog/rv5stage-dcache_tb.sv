@@ -105,6 +105,7 @@ module rv5stage_dcache_tb;
   CHIReqFlit captured_req;
   CHIRspFlit captured_rsp;
   CHIDatFlit captured_dat;
+  CHISnpFlit captured_snoop = '0;
 
   RV5StageL1DCache dut (.*);
   always #5 clock = ~clock;
@@ -115,6 +116,8 @@ module rv5stage_dcache_tb;
 
   task automatic tick;
     begin
+      if (!reset && chi_in.snoops.valid && chi_out.snoops.ready)
+        captured_snoop = chi_in.snoops.bits;
       if (forbid_progress_snoop)
         assert (!(chi_in.snoops.valid && chi_out.snoops.ready))
           else $fatal(1, "probe revoked the protected LR/SC ownership window");
@@ -461,6 +464,8 @@ module rv5stage_dcache_tb;
       chi_in.snoops.bits.opcode = opcode;
       chi_in.snoops.bits.txn_id = txn_id;
       chi_in.snoops.bits.src_id = HOME_ID;
+      chi_in.snoops.bits.trace_tag = txn_id[0];
+      chi_in.snoops.bits.qos = txn_id[3:0];
       chi_in.snoops.valid = 1'b1;
       // Present the real opcode while waiting; idle LCrdReturn is always ready.
       #1;
@@ -480,6 +485,7 @@ module rv5stage_dcache_tb;
                                    input logic [511:0] line,
                                    input logic [11:0] txn_id);
     integer cycles;
+    CHIDatFlit expected;
     begin
       chi_in.request_data.ready = 1'b0;
       cycles = 0;
@@ -506,6 +512,24 @@ module rv5stage_dcache_tb;
                     chi_out.request_data.bits.resp,
                     chi_out.request_data.bits.data,
                     line[packet * 128 +: 128]);
+      expected = '0;
+      expected.data = line[packet * 128 +: 128];
+      expected.byte_enable = '1;
+      expected.trace_tag = captured_snoop.trace_tag;
+      expected.data_id = packet[1:0];
+      expected.ccid = packet[1:0];
+      expected.resp = 3'b100;
+      expected.opcode = SNP_RESP_DATA;
+      expected.home_nid_or_pbha_or_mismatched_mecid = HOME_ID;
+      expected.txn_id = txn_id;
+      expected.src_id = CACHE_ID;
+      expected.tgt_id = HOME_ID;
+      expected.qos = captured_snoop.qos;
+      repeat (3) begin
+        assert (chi_out.request_data.valid && chi_out.request_data.bits === expected)
+          else $fatal(1, "complete dirty snoop DAT mismatch under stall: actual=%h expected=%h", chi_out.request_data.bits, expected);
+        tick();
+      end
       chi_in.request_data.ready = 1'b1;
       tick();
       chi_in.request_data.ready = 1'b0;

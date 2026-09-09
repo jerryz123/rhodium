@@ -152,6 +152,13 @@ and bit selection without new IR operations or protocol dependencies. The
 the `expand-mask` backend fixture exhaustively checks bit-to-lane ordering,
 including single-bit and sliced masks and non-byte lane widths.
 
+Runtime log2-alignment also belongs in `bits.rhdl`; it builds a bounded lookup
+of existing static alignment checks without importing a protocol or adding IR.
+Only representable exponent cases are emitted. `runtime-alignment` exhaustively
+checks zero, narrow/non-power-of-two operand widths, bounded/oversized exponents,
+and unit/full-width alignment. Host `std-bits` tests reject invalid bounds and
+operand types. CHI consumers retain their size-validity and range checks.
+
 Striped bank geometry belongs in `interconnect.rhdl`, independently of CHI
 flit parameters. Host projection validates membership; hardware projection
 only removes bank-select bits from a caller-provided relative offset. Host

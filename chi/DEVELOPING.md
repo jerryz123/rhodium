@@ -135,6 +135,14 @@ Ready-valid attachment checks explicit endpoint metadata using the same
 `endpoint_pair_legal` predicate as link compatibility. It does not change
 the channel's wire schema or infer peer metadata from arbitrary wiring.
 
+Packet checkers take the concrete parameterized flit rather than a parallel
+list of its fields. Identity selection remains explicit at each attachment;
+credited calls use valid while ready-valid calls use accepted transfers.
+Do not change activation, credit state, assertion labels, or transaction
+coverage during packet-API cleanup. Internal non-coherent transaction tables
+use typed zero literals for their Free state, matching coherent tables;
+allocation and progression remain explicit record construction/updates.
+
 The `chi-transaction`, `chi-transaction-sn`, and `chi-coherent` fixtures
 mirror credited events through ready-valid attachments. The
 `chi-channel-monitor` fixture checks stalls, reset, and retirement from both

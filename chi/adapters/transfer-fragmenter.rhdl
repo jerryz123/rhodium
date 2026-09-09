@@ -112,12 +112,7 @@ sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
   def incoming_size = chi_req_size(p, incoming_request)
   def incoming_last_child = chi_data_beats_minus_one(incoming_size, p)
   def incoming_write = incoming_opcode.is_initial_write()
-  def incoming_address_aligned = mux_lookup(
-    incoming_size.as_bits(),
-    ~default: Bool(#false),
-    for List (encoded_size in 0..7):
-      [encoded_size, incoming_request.address.is_aligned(1 << encoded_size)]
-  )
+  def incoming_address_aligned = is_aligned_log2(incoming_request.address, incoming_size.as_bits(), ~max_log2: 6)
   upstream.req.ready <== idle
   def upstream_request_fire = upstream.req.fire()
   when (upstream.req.valid & idle):

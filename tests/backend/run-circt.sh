@@ -97,7 +97,7 @@ integration_fixtures=(
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   chi-noc-adapter
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
-  credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask
+  credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask runtime-alignment
   fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
   rv5stage-core rv5stage-branch-prediction rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
 )
@@ -192,7 +192,7 @@ fixture_in_group() {
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join)
       return 0
       ;;
-    std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask)
+    std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment)
       return 0
       ;;
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
@@ -669,6 +669,7 @@ direct_fixture_specs=(
   'one-hot-aggregate|'
   'round-robin-matcher|round_robin_matcher_tb'
   'expand-mask|expand_mask_tb'
+  'runtime-alignment|runtime_alignment_tb'
   'noc-wormhole|noc_wormhole_tb'
   'noc-escape-router|noc_escape_router_tb'
   'formal-differential|formal_differential_tb'

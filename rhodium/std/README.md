@@ -388,6 +388,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 def aligned = is_aligned(address, 8)
+def transfer_aligned = is_aligned_log2(address, size_bits, ~max_log2: 6)
 def base = align_down(address, 8)
 def reversed = reverse_bits(address)
 def leading_zeros = count_leading_zeros(address)
@@ -413,6 +414,13 @@ The alignment is a positive power-of-two host parameter and must fit the
 value's width. `is_aligned` checks that the corresponding low bits are zero;
 `align_down` clears them while preserving the input width. Alignment to one is
 the identity for `align_down` and always true for `is_aligned`.
+`is_aligned_log2(value, exponent, ~max_log2: bound)` takes a hardware `Bits`
+exponent and checks alignment to `2 ** exponent`. The host bound defaults to
+the value's bit width and must be a natural number no larger than that width.
+Exponent zero is always aligned; exponent equal to the value's width requires
+an all-zero value. Encodings above the bound return false, even for zero.
+The exponent's width may differ from the value's width. Protocol-specific
+encoding validity and maximum transfer sizes remain caller policy.
 `alignment_bits(alignment)` exposes the exact host-side base-two width for
 protocols and generators that need to size or remove those low bits.
 

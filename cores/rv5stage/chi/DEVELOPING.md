@@ -44,6 +44,11 @@ DoDWT, memory attributes, CompAck, and retry decisions remain explicit here.
 options on/off, independently repeated calls, and varying constructor controls.
 Keep the uncached, I-cache, and D-cache fixtures as engine-level coverage.
 
+The data-snoop engine builds its DAT immutably from its existing zero-inactive
+policy, overriding only payload, routing, packet IDs, dirty response, and
+request trace/QoS. The D-cache bench compares the complete DAT while stalled,
+including nonzero trace/QoS.
+
 ## Implementation map
 
 | File | Ownership |

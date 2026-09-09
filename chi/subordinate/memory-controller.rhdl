@@ -124,13 +124,7 @@ fun monitor_chi_ram_request(config :: CHIRamConfig,
   def request_opcode = request.opcode
   def size = request.size_or_num_req[0..3]
   def max_size = alignment_bits(config.max_transfer_bytes)
-  def alignment_cases = for List (encoded_size in 0..(max_size + 1)):
-    [encoded_size, request.address.is_aligned(1 << encoded_size)]
-  def address_aligned = mux_lookup(
-    size,
-    ~default: Bool(#false),
-    alignment_cases
-  )
+  def address_aligned = is_aligned_log2(request.address, size, ~max_log2: max_size)
   def transfer_bytes = bits(1, p.request_address_width) << size
   def region_end = base_address + bits(config.size_bytes, p.request_address_width)
   def transfer_end = request.address + transfer_bytes

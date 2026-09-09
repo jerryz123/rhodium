@@ -349,6 +349,13 @@ subordinate may retain multiple disjoint service profiles.
 
 [`transactions/monitor.rhdl`](transactions/monitor.rhdl) instruments one explicitly selected physical
 endpoint through `monitor_chi_rn`, `monitor_chi_rni`, or `monitor_chi_sn`.
+
+The low-level `monitor_chi_req`, `monitor_chi_rsp`, `monitor_chi_dat`, and
+`monitor_chi_snp` helpers take `CHIFlitParams` followed by credit limit, valid,
+and the corresponding concrete flit. REQ/RSP/DAT retain an explicit identity
+value selecting the source or target to check. Credit balance, activation,
+capabilities, and labels remain explicit; a flit from a different channel or
+incompatible specialization is rejected during elaboration.
 Link-local checks cover:
 
 - the four-state activation sequence and the point at which traffic or credit

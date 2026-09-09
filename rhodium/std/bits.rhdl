@@ -89,6 +89,22 @@ fun is_aligned(value :: Bits, alignment :: Pow2Int) :~ Bool:
   | Bool(#true)
   | !or_reduce(value[0..low_width])
 
+// Checks runtime power-of-two alignment within a caller-selected bound.
+// Encodings above max_log2 are unsupported, including for the zero address.
+fun is_aligned_log2(value :: Bits,
+                    log2_alignment :: Bits,
+                    ~max_log2: max_log2 :: Nat = value.type.bit_width()) :~ Bool:
+  unless max_log2 <= value.type.bit_width()
+  | error(~who: #'is_aligned_log2, "maximum alignment must fit the Bits width")
+  def representable_max = (1 << log2_alignment.type.bit_width()) - 1
+  def limit = if max_log2 < representable_max | max_log2 | representable_max
+  mux_lookup(
+    log2_alignment,
+    ~default: Bool(#false),
+    for List (exponent in 0..(limit + 1)):
+      [exponent, is_aligned(value, 1 << exponent)]
+  )
+
 fun align_down(value :: Bits,
                alignment :: Pow2Int) :~ Bits(value.type.bit_width()):
   def (width, _low_width) = checked_alignment_width(
@@ -144,6 +160,7 @@ export:
   pack_fields
   alignment_bits
   is_aligned
+  is_aligned_log2
   align_down
   expand_mask
   masked_merge

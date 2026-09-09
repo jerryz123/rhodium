@@ -39,6 +39,40 @@ circuit BitsAlignmentFixture():
   down_256 <== align_down(value, 256)
   merged <== masked_merge(value, bits(0xa0, 8), bits(0xf0, 8))
 
+circuit RuntimeAlignmentFixture():
+  input value: Bits(8)
+  input exponent: Bits(6)
+  output full: Bool
+  output bounded: Bool
+  output five_bit: Bool
+  output single_bit: Bool
+  output narrow_exponent: Bool
+  output unit: Bool
+  full <== is_aligned_log2(value, exponent)
+  bounded <== is_aligned_log2(value, exponent, ~max_log2: 6)
+  five_bit <== is_aligned_log2(value[0..5], exponent)
+  single_bit <== is_aligned_log2(value[0..1], exponent)
+  narrow_exponent <== is_aligned_log2(value, exponent[0..1])
+  unit <== is_aligned_log2(value, exponent, ~max_log2: 0)
+
+circuit InvalidRuntimeAlignmentBoundFixture(bound :: Int):
+  input value: Bits(8)
+  input exponent: Bits(4)
+  output aligned: Bool
+  aligned <== is_aligned_log2(value, exponent, ~max_log2: bound)
+
+circuit NonBitsRuntimeAlignmentFixture():
+  input value: Bool
+  input exponent: Bits(3)
+  output aligned: Bool
+  aligned <== is_aligned_log2(value, exponent)
+
+circuit NonBitsAlignmentExponentFixture():
+  input value: Bits(8)
+  input exponent: Bool
+  output aligned: Bool
+  aligned <== is_aligned_log2(value, exponent)
+
 circuit MaskExpansionFixture():
   input mask: Bits(8)
   input single: Bits(1)
@@ -139,6 +173,10 @@ circuit TransferBeatTooWideFixture():
 export:
   BitOrderFixture
   BitsAlignmentFixture
+  RuntimeAlignmentFixture
+  InvalidRuntimeAlignmentBoundFixture
+  NonBitsRuntimeAlignmentFixture
+  NonBitsAlignmentExponentFixture
   MaskExpansionFixture
   InvalidMaskLaneWidthFixture
   NonBitsMaskExpansionFixture

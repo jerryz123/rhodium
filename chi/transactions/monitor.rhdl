@@ -12,10 +12,6 @@ import:
   lib("chi/transactions/transaction.rhdl") open
   lib("chi/transactions/coherent-transaction.rhdl") open
 
-fun chi_opcode_supported(opcode :: Hardware,
-                         capabilities :: List.of(HardwareLiteral)):
-  opcode.is_one_of(capabilities)
-
 // Checks one direction's four-state activation sequence against prior state.
 fun monitor_chi_activation(request :: Bool,
                            ack :: Bool,
@@ -69,11 +65,8 @@ fun monitor_chi_identity(node_id_width :: PosInt,
 fun monitor_chi_req(p :: CHIFlitParams,
                     credit_limit :: PosInt,
                     valid :: Bool,
-                    opcode :: CHIReqOpcode,
-                    txn_id :: Bits(12),
+                    flit :: CHIReqFlit(p),
                     identity_value :: Bits(p.node_id_width),
-                    size_or_num_req :: Bits(6),
-                    multi_req :: Bool,
                     credit :: Bool,
                     credit_balance :: Bits(index_width(credit_limit + 1)),
                     request :: Bool,
@@ -83,7 +76,7 @@ fun monitor_chi_req(p :: CHIFlitParams,
                     node_id :: Nat,
                     identity_label :: String,
                     label_prefix :: String):
-  def lcrd_return = opcode === CHIReqOpcode.ReqLCrdReturn
+  def lcrd_return = flit.opcode === CHIReqOpcode.ReqLCrdReturn
   monitor_chi_transport(credit_limit,
                         valid,
                         credit,
@@ -93,20 +86,17 @@ fun monitor_chi_req(p :: CHIFlitParams,
                         previous_request,
                         lcrd_return,
                         label_prefix)
-  monitor_chi_req_fields(p, valid, opcode, txn_id, identity_value, size_or_num_req, multi_req, capabilities, node_id, identity_label, label_prefix)
+  monitor_chi_req_fields(p, valid, flit, identity_value, capabilities, node_id, identity_label, label_prefix)
 
 fun monitor_chi_req_fields(p :: CHIFlitParams,
                            valid :: Bool,
-                           opcode :: CHIReqOpcode,
-                           txn_id :: Bits(12),
+                           flit :: CHIReqFlit(p),
                            identity_value :: Bits(p.node_id_width),
-                           size_or_num_req :: Bits(6),
-                           multi_req :: Bool,
                            capabilities :: List.of(CHIReqOpcode),
                            node_id :: Nat,
                            identity_label :: String,
                            label_prefix :: String):
-  def lcrd_return = opcode === CHIReqOpcode.ReqLCrdReturn
+  def lcrd_return = flit.opcode === CHIReqOpcode.ReqLCrdReturn
   monitor_chi_identity(p.node_id_width,
                        valid,
                        identity_value,
@@ -114,24 +104,22 @@ fun monitor_chi_req_fields(p :: CHIFlitParams,
                        node_id,
                        label_prefix ++ identity_label)
   when valid:
-    assert(enum_valid(opcode), label_prefix ++ "_opcode_valid")
-    assert(lcrd_return ||| chi_opcode_supported(opcode,
-                                                capabilities),
+    assert(enum_valid(flit.opcode), label_prefix ++ "_opcode_valid")
+    assert(lcrd_return ||| flit.opcode.is_one_of(capabilities),
            label_prefix ++ "_opcode_supported")
     when lcrd_return:
-      assert(txn_id === bits(0, 12),
+      assert(flit.txn_id === bits(0, 12),
              label_prefix ++ "_lcrd_txn_id_zero")
-    when (!lcrd_return & !multi_req):
-      assert(!size_or_num_req[3..6].or_reduce(),
+    when (!lcrd_return & !flit.multi_req):
+      assert(!flit.size_or_num_req[3..6].or_reduce(),
              label_prefix ++ "_size_reserved_zero")
-      assert(chi_size_valid(size_or_num_req[0..3].into(CHITransferSize)),
+      assert(chi_size_valid(flit.size_or_num_req[0..3].into(CHITransferSize)),
              label_prefix ++ "_size_valid")
 
 fun monitor_chi_rsp(p :: CHIFlitParams,
                     credit_limit :: PosInt,
                     valid :: Bool,
-                    opcode :: CHIRspOpcode,
-                    txn_id :: Bits(12),
+                    flit :: CHIRspFlit(p),
                     identity_value :: Bits(p.node_id_width),
                     credit :: Bool,
                     credit_balance :: Bits(index_width(credit_limit + 1)),
@@ -142,7 +130,7 @@ fun monitor_chi_rsp(p :: CHIFlitParams,
                     node_id :: Nat,
                     identity_label :: String,
                     label_prefix :: String):
-  def lcrd_return = opcode === CHIRspOpcode.RespLCrdReturn
+  def lcrd_return = flit.opcode === CHIRspOpcode.RespLCrdReturn
   monitor_chi_transport(credit_limit,
                         valid,
                         credit,
@@ -152,18 +140,17 @@ fun monitor_chi_rsp(p :: CHIFlitParams,
                         previous_request,
                         lcrd_return,
                         label_prefix)
-  monitor_chi_rsp_fields(p, valid, opcode, txn_id, identity_value, capabilities, node_id, identity_label, label_prefix)
+  monitor_chi_rsp_fields(p, valid, flit, identity_value, capabilities, node_id, identity_label, label_prefix)
 
 fun monitor_chi_rsp_fields(p :: CHIFlitParams,
                            valid :: Bool,
-                           opcode :: CHIRspOpcode,
-                           txn_id :: Bits(12),
+                           flit :: CHIRspFlit(p),
                            identity_value :: Bits(p.node_id_width),
                            capabilities :: List.of(CHIRspOpcode),
                            node_id :: Nat,
                            identity_label :: String,
                            label_prefix :: String):
-  def lcrd_return = opcode === CHIRspOpcode.RespLCrdReturn
+  def lcrd_return = flit.opcode === CHIRspOpcode.RespLCrdReturn
   monitor_chi_identity(p.node_id_width,
                        valid,
                        identity_value,
@@ -171,18 +158,17 @@ fun monitor_chi_rsp_fields(p :: CHIFlitParams,
                        node_id,
                        label_prefix ++ identity_label)
   when valid:
-    assert(enum_valid(opcode), label_prefix ++ "_opcode_valid")
-    assert(lcrd_return ||| chi_opcode_supported(opcode,
-                                                capabilities),
+    assert(enum_valid(flit.opcode), label_prefix ++ "_opcode_valid")
+    assert(lcrd_return ||| flit.opcode.is_one_of(capabilities),
            label_prefix ++ "_opcode_supported")
     when lcrd_return:
-      assert(txn_id === bits(0, 12),
+      assert(flit.txn_id === bits(0, 12),
              label_prefix ++ "_lcrd_txn_id_zero")
 
-fun monitor_chi_snp(credit_limit :: PosInt,
+fun monitor_chi_snp(p :: CHIFlitParams,
+                    credit_limit :: PosInt,
                     valid :: Bool,
-                    opcode :: CHISnpOpcode,
-                    txn_id :: Bits(12),
+                    flit :: CHISnpFlit(p),
                     credit :: Bool,
                     credit_balance :: Bits(index_width(credit_limit + 1)),
                     request :: Bool,
@@ -190,7 +176,7 @@ fun monitor_chi_snp(credit_limit :: PosInt,
                     previous_request :: Bool,
                     capabilities :: List.of(CHISnpOpcode),
                     label_prefix :: String):
-  def lcrd_return = opcode === CHISnpOpcode.SnpLCrdReturn
+  def lcrd_return = flit.opcode === CHISnpOpcode.SnpLCrdReturn
   monitor_chi_transport(credit_limit,
                         valid,
                         credit,
@@ -200,30 +186,27 @@ fun monitor_chi_snp(credit_limit :: PosInt,
                         previous_request,
                         lcrd_return,
                         label_prefix)
-  monitor_chi_snp_fields(valid, opcode, txn_id, capabilities, label_prefix)
+  monitor_chi_snp_fields(p, valid, flit, capabilities, label_prefix)
 
-fun monitor_chi_snp_fields(valid :: Bool,
-                           opcode :: CHISnpOpcode,
-                           txn_id :: Bits(12),
+fun monitor_chi_snp_fields(p :: CHIFlitParams,
+                           valid :: Bool,
+                           flit :: CHISnpFlit(p),
                            capabilities :: List.of(CHISnpOpcode),
                            label_prefix :: String):
-  def lcrd_return = opcode === CHISnpOpcode.SnpLCrdReturn
+  def lcrd_return = flit.opcode === CHISnpOpcode.SnpLCrdReturn
   when valid:
-    assert(enum_valid(opcode), label_prefix ++ "_opcode_valid")
-    assert(lcrd_return ||| chi_opcode_supported(opcode,
-                                                capabilities),
+    assert(enum_valid(flit.opcode), label_prefix ++ "_opcode_valid")
+    assert(lcrd_return ||| flit.opcode.is_one_of(capabilities),
            label_prefix ++ "_opcode_supported")
     when lcrd_return:
-      assert(txn_id === bits(0, 12),
+      assert(flit.txn_id === bits(0, 12),
              label_prefix ++ "_lcrd_txn_id_zero")
 
 fun monitor_chi_dat(p :: CHIFlitParams,
                     credit_limit :: PosInt,
                     valid :: Bool,
-                    opcode :: CHIDatOpcode,
-                    txn_id :: Bits(12),
+                    flit :: CHIDatFlit(p),
                     identity_value :: Bits(p.node_id_width),
-                    data_id :: Bits(2),
                     credit :: Bool,
                     credit_balance :: Bits(index_width(credit_limit + 1)),
                     request :: Bool,
@@ -233,7 +216,7 @@ fun monitor_chi_dat(p :: CHIFlitParams,
                     node_id :: Nat,
                     identity_label :: String,
                     label_prefix :: String):
-  def lcrd_return = opcode === CHIDatOpcode.DataLCrdReturn
+  def lcrd_return = flit.opcode === CHIDatOpcode.DataLCrdReturn
   monitor_chi_transport(credit_limit,
                         valid,
                         credit,
@@ -243,19 +226,17 @@ fun monitor_chi_dat(p :: CHIFlitParams,
                         previous_request,
                         lcrd_return,
                         label_prefix)
-  monitor_chi_dat_fields(p, valid, opcode, txn_id, identity_value, data_id, capabilities, node_id, identity_label, label_prefix)
+  monitor_chi_dat_fields(p, valid, flit, identity_value, capabilities, node_id, identity_label, label_prefix)
 
 fun monitor_chi_dat_fields(p :: CHIFlitParams,
                            valid :: Bool,
-                           opcode :: CHIDatOpcode,
-                           txn_id :: Bits(12),
+                           flit :: CHIDatFlit(p),
                            identity_value :: Bits(p.node_id_width),
-                           data_id :: Bits(2),
                            capabilities :: List.of(CHIDatOpcode),
                            node_id :: Nat,
                            identity_label :: String,
                            label_prefix :: String):
-  def lcrd_return = opcode === CHIDatOpcode.DataLCrdReturn
+  def lcrd_return = flit.opcode === CHIDatOpcode.DataLCrdReturn
   monitor_chi_identity(p.node_id_width,
                        valid,
                        identity_value,
@@ -263,15 +244,14 @@ fun monitor_chi_dat_fields(p :: CHIFlitParams,
                        node_id,
                        label_prefix ++ identity_label)
   when valid:
-    assert(enum_valid(opcode), label_prefix ++ "_opcode_valid")
-    assert(lcrd_return ||| chi_opcode_supported(opcode,
-                                                capabilities),
+    assert(enum_valid(flit.opcode), label_prefix ++ "_opcode_valid")
+    assert(lcrd_return ||| flit.opcode.is_one_of(capabilities),
            label_prefix ++ "_opcode_supported")
     when lcrd_return:
-      assert(txn_id === bits(0, 12),
+      assert(flit.txn_id === bits(0, 12),
              label_prefix ++ "_lcrd_txn_id_zero")
     when (!lcrd_return):
-      assert(chi_data_id_valid(data_id, p),
+      assert(chi_data_id_valid(flit.data_id, p),
              label_prefix ++ "_data_id_valid")
 
 fun node_emitted_capabilities(endpoint :: CHIEndpointParams):
@@ -346,13 +326,18 @@ fun monitor_chi_rn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                             ~transaction_checks: transaction_checks :: Boolean = #true):
   check_chi_channel_contract(p, node, peer, [CHINodeKind.RNF, CHINodeKind.RND])
   def observed :: Observation = port.observe()
-  monitor_chi_req_fields(p, observed.requests.valid & observed.requests.ready, observed.requests.bits.opcode, observed.requests.bits.txn_id, observed.requests.bits.src_id, observed.requests.bits.size_or_num_req, observed.requests.bits.multi_req, node.emits.req, node.node_id, "_src_id", label_prefix ++ "_tx_req")
+  monitor_chi_req_fields(p, observed.requests.valid & observed.requests.ready, observed.requests.bits, observed.requests.bits.src_id, node.emits.req,
+                         node.node_id, "_src_id", label_prefix ++ "_tx_req")
   monitor_chi_cache_maintenance(p, observed.requests.valid & observed.requests.ready, observed.requests.bits, label_prefix)
-  monitor_chi_rsp_fields(p, observed.requester_responses.valid & observed.requester_responses.ready, observed.requester_responses.bits.opcode, observed.requester_responses.bits.txn_id, observed.requester_responses.bits.src_id, node.emits.rsp, node.node_id, "_src_id", label_prefix ++ "_tx_rsp")
-  monitor_chi_dat_fields(p, observed.request_data.valid & observed.request_data.ready, observed.request_data.bits.opcode, observed.request_data.bits.txn_id, observed.request_data.bits.src_id, observed.request_data.bits.data_id, node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
-  monitor_chi_dat_fields(p, observed.response_data.valid & observed.response_data.ready, observed.response_data.bits.opcode, observed.response_data.bits.txn_id, observed.response_data.bits.tgt_id, observed.response_data.bits.data_id, node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
-  monitor_chi_snp_fields(observed.snoops.valid & observed.snoops.ready, observed.snoops.bits.opcode, observed.snoops.bits.txn_id, node.supports.snp, label_prefix ++ "_rx_snp")
-  monitor_chi_rsp_fields(p, observed.responses.valid & observed.responses.ready, observed.responses.bits.opcode, observed.responses.bits.txn_id, observed.responses.bits.tgt_id, node.supports.rsp, node.node_id, "_tgt_id", label_prefix ++ "_rx_rsp")
+  monitor_chi_rsp_fields(p, observed.requester_responses.valid & observed.requester_responses.ready, observed.requester_responses.bits,
+                         observed.requester_responses.bits.src_id, node.emits.rsp, node.node_id, "_src_id", label_prefix ++ "_tx_rsp")
+  monitor_chi_dat_fields(p, observed.request_data.valid & observed.request_data.ready, observed.request_data.bits, observed.request_data.bits.src_id,
+                         node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
+  monitor_chi_dat_fields(p, observed.response_data.valid & observed.response_data.ready, observed.response_data.bits, observed.response_data.bits.tgt_id,
+                         node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
+  monitor_chi_snp_fields(p, observed.snoops.valid & observed.snoops.ready, observed.snoops.bits, node.supports.snp, label_prefix ++ "_rx_snp")
+  monitor_chi_rsp_fields(p, observed.responses.valid & observed.responses.ready, observed.responses.bits, observed.responses.bits.tgt_id, node.supports.rsp,
+                         node.node_id, "_tgt_id", label_prefix ++ "_rx_rsp")
   if transaction_checks
   | monitor_chi_rn_transactions(p, node, label_prefix, observed.requests.valid & observed.requests.ready, observed.requests.bits, observed.requester_responses.valid & observed.requester_responses.ready, observed.requester_responses.bits, observed.request_data.valid & observed.request_data.ready, observed.request_data.bits, observed.response_data.valid & observed.response_data.ready, observed.response_data.bits, observed.snoops.valid & observed.snoops.ready, observed.snoops.bits)
   | #void
@@ -395,12 +380,17 @@ fun monitor_chi_rni_channels(p :: CHIFlitParams, node :: CHINodeParams,
                              ~transaction_checks: transaction_checks :: Boolean = #true):
   check_chi_channel_contract(p, node, peer, [CHINodeKind.RNI])
   def observed :: Observation = port.observe()
-  monitor_chi_req_fields(p, observed.req.valid & observed.req.ready, observed.req.bits.opcode, observed.req.bits.txn_id, observed.req.bits.src_id, observed.req.bits.size_or_num_req, observed.req.bits.multi_req, node.emits.req, node.node_id, "_src_id", label_prefix ++ "_tx_req")
+  monitor_chi_req_fields(p, observed.req.valid & observed.req.ready, observed.req.bits, observed.req.bits.src_id, node.emits.req, node.node_id, "_src_id",
+                         label_prefix ++ "_tx_req")
   monitor_chi_cache_maintenance(p, observed.req.valid & observed.req.ready, observed.req.bits, label_prefix)
-  monitor_chi_rsp_fields(p, observed.rsp.response.valid & observed.rsp.response.ready, observed.rsp.response.bits.opcode, observed.rsp.response.bits.txn_id, observed.rsp.response.bits.tgt_id, node.supports.rsp, node.node_id, "_tgt_id", label_prefix ++ "_rx_rsp")
-  monitor_chi_dat_fields(p, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits.opcode, observed.dat.request.bits.txn_id, observed.dat.request.bits.src_id, observed.dat.request.bits.data_id, node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
-  monitor_chi_dat_fields(p, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits.opcode, observed.dat.response.bits.txn_id, observed.dat.response.bits.tgt_id, observed.dat.response.bits.data_id, node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
-  monitor_chi_rsp_fields(p, observed.rsp.requester.valid & observed.rsp.requester.ready, observed.rsp.requester.bits.opcode, observed.rsp.requester.bits.txn_id, observed.rsp.requester.bits.src_id, node.emits.rsp, node.node_id, "_src_id", label_prefix ++ "_tx_rsp")
+  monitor_chi_rsp_fields(p, observed.rsp.response.valid & observed.rsp.response.ready, observed.rsp.response.bits, observed.rsp.response.bits.tgt_id,
+                         node.supports.rsp, node.node_id, "_tgt_id", label_prefix ++ "_rx_rsp")
+  monitor_chi_dat_fields(p, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.request.bits.src_id,
+                         node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
+  monitor_chi_dat_fields(p, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits, observed.dat.response.bits.tgt_id,
+                         node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
+  monitor_chi_rsp_fields(p, observed.rsp.requester.valid & observed.rsp.requester.ready, observed.rsp.requester.bits, observed.rsp.requester.bits.src_id,
+                         node.emits.rsp, node.node_id, "_src_id", label_prefix ++ "_tx_rsp")
   if transaction_checks
   | monitor_chi_rni_transactions(p, node, label_prefix, observed.req.valid & observed.req.ready, observed.req.bits, observed.rsp.response.valid & observed.rsp.response.ready, observed.rsp.response.bits, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits)
   | #void
@@ -443,10 +433,14 @@ fun monitor_chi_sn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                             ~transaction_checks: transaction_checks :: Boolean = #true):
   check_chi_channel_contract(p, node, peer, [CHINodeKind.SNF, CHINodeKind.SNI])
   def observed :: Observation = port.observe()
-  monitor_chi_req_fields(p, observed.req.valid & observed.req.ready, observed.req.bits.opcode, observed.req.bits.txn_id, observed.req.bits.tgt_id, observed.req.bits.size_or_num_req, observed.req.bits.multi_req, node.supports.req, node.node_id, "_tgt_id", label_prefix ++ "_rx_req")
-  monitor_chi_rsp_fields(p, observed.rsp.valid & observed.rsp.ready, observed.rsp.bits.opcode, observed.rsp.bits.txn_id, observed.rsp.bits.src_id, node.emits.rsp, node.node_id, "_src_id", label_prefix ++ "_tx_rsp")
-  monitor_chi_dat_fields(p, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits.opcode, observed.dat.request.bits.txn_id, observed.dat.request.bits.tgt_id, observed.dat.request.bits.data_id, node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
-  monitor_chi_dat_fields(p, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits.opcode, observed.dat.response.bits.txn_id, observed.dat.response.bits.src_id, observed.dat.response.bits.data_id, node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
+  monitor_chi_req_fields(p, observed.req.valid & observed.req.ready, observed.req.bits, observed.req.bits.tgt_id, node.supports.req, node.node_id,
+                         "_tgt_id", label_prefix ++ "_rx_req")
+  monitor_chi_rsp_fields(p, observed.rsp.valid & observed.rsp.ready, observed.rsp.bits, observed.rsp.bits.src_id, node.emits.rsp, node.node_id, "_src_id",
+                         label_prefix ++ "_tx_rsp")
+  monitor_chi_dat_fields(p, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.request.bits.tgt_id,
+                         node.supports.dat, node.node_id, "_tgt_id", label_prefix ++ "_rx_dat")
+  monitor_chi_dat_fields(p, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits, observed.dat.response.bits.src_id,
+                         node.emits.dat, node.node_id, "_src_id", label_prefix ++ "_tx_dat")
   if transaction_checks
   | monitor_chi_sn_transactions(p, node, label_prefix, observed.req.valid & observed.req.ready, observed.req.bits, observed.rsp.valid & observed.rsp.ready, observed.rsp.bits, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits)
   | #void
@@ -481,54 +475,23 @@ fun monitor_chi_rn(link :: CHIRNLinkParams,
                          rn_rx_previous_request,
                          rn_rx_previous_ack,
                          label_prefix ++ "_rx_link")
-  monitor_chi_req(link.flit, link.tx_req_credits,
-                  observed.tx_req.valid, observed.tx_req.bits.opcode,
-                  observed.tx_req.bits.txn_id, observed.tx_req.bits.src_id,
-                  observed.tx_req.bits.size_or_num_req, observed.tx_req.bits.multi_req,
-                  observed.tx_req.credit,
-                  rn_tx_req_credit_balance,
-                  observed.tx_link_active_request, observed.tx_link_active_ack,
-                  rn_tx_previous_request, emitted.req,
+  monitor_chi_req(link.flit, link.tx_req_credits, observed.tx_req.valid, observed.tx_req.bits, observed.tx_req.bits.src_id, observed.tx_req.credit,
+                  rn_tx_req_credit_balance, observed.tx_link_active_request, observed.tx_link_active_ack, rn_tx_previous_request, emitted.req,
                   endpoint.node_id, "_source_id", label_prefix ++ "_tx_req")
-  monitor_chi_rsp(link.flit, link.tx_rsp_credits,
-                  observed.tx_rsp.valid, observed.tx_rsp.bits.opcode,
-                  observed.tx_rsp.bits.txn_id, observed.tx_rsp.bits.src_id,
-                  observed.tx_rsp.credit,
-                  rn_tx_rsp_credit_balance,
-                  observed.tx_link_active_request, observed.tx_link_active_ack,
-                  rn_tx_previous_request, emitted.rsp,
+  monitor_chi_rsp(link.flit, link.tx_rsp_credits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.tx_rsp.bits.src_id, observed.tx_rsp.credit,
+                  rn_tx_rsp_credit_balance, observed.tx_link_active_request, observed.tx_link_active_ack, rn_tx_previous_request, emitted.rsp,
                   endpoint.node_id, "_source_id", label_prefix ++ "_tx_rsp")
-  monitor_chi_dat(link.flit, link.tx_dat_credits,
-                  observed.tx_dat.valid, observed.tx_dat.bits.opcode,
-                  observed.tx_dat.bits.txn_id, observed.tx_dat.bits.src_id,
-                  observed.tx_dat.bits.data_id, observed.tx_dat.credit,
-                  rn_tx_dat_credit_balance,
-                  observed.tx_link_active_request, observed.tx_link_active_ack,
-                  rn_tx_previous_request, emitted.dat,
+  monitor_chi_dat(link.flit, link.tx_dat_credits, observed.tx_dat.valid, observed.tx_dat.bits, observed.tx_dat.bits.src_id, observed.tx_dat.credit,
+                  rn_tx_dat_credit_balance, observed.tx_link_active_request, observed.tx_link_active_ack, rn_tx_previous_request, emitted.dat,
                   endpoint.node_id, "_source_id", label_prefix ++ "_tx_dat")
-  monitor_chi_rsp(link.flit, link.rx_rsp_credits,
-                  observed.rx_rsp.valid, observed.rx_rsp.bits.opcode,
-                  observed.rx_rsp.bits.txn_id, observed.rx_rsp.bits.tgt_id,
-                  observed.rx_rsp.credit,
-                  rn_rx_rsp_credit_balance,
-                  observed.rx_link_active_request, observed.rx_link_active_ack,
-                  rn_rx_previous_request, received.rsp,
+  monitor_chi_rsp(link.flit, link.rx_rsp_credits, observed.rx_rsp.valid, observed.rx_rsp.bits, observed.rx_rsp.bits.tgt_id, observed.rx_rsp.credit,
+                  rn_rx_rsp_credit_balance, observed.rx_link_active_request, observed.rx_link_active_ack, rn_rx_previous_request, received.rsp,
                   endpoint.node_id, "_target_id", label_prefix ++ "_rx_rsp")
-  monitor_chi_dat(link.flit, link.rx_dat_credits,
-                  observed.rx_dat.valid, observed.rx_dat.bits.opcode,
-                  observed.rx_dat.bits.txn_id, observed.rx_dat.bits.tgt_id,
-                  observed.rx_dat.bits.data_id, observed.rx_dat.credit,
-                  rn_rx_dat_credit_balance,
-                  observed.rx_link_active_request, observed.rx_link_active_ack,
-                  rn_rx_previous_request, received.dat,
+  monitor_chi_dat(link.flit, link.rx_dat_credits, observed.rx_dat.valid, observed.rx_dat.bits, observed.rx_dat.bits.tgt_id, observed.rx_dat.credit,
+                  rn_rx_dat_credit_balance, observed.rx_link_active_request, observed.rx_link_active_ack, rn_rx_previous_request, received.dat,
                   endpoint.node_id, "_target_id", label_prefix ++ "_rx_dat")
-  monitor_chi_snp(link.rx_snp_credits,
-                  observed.rx_snp.valid, observed.rx_snp.bits.opcode,
-                  observed.rx_snp.bits.txn_id, observed.rx_snp.credit,
-                  rn_rx_snp_credit_balance,
-                  observed.rx_link_active_request, observed.rx_link_active_ack,
-                  rn_rx_previous_request, received.snp,
-                  label_prefix ++ "_rx_snp")
+  monitor_chi_snp(link.flit, link.rx_snp_credits, observed.rx_snp.valid, observed.rx_snp.bits, observed.rx_snp.credit, rn_rx_snp_credit_balance,
+                  observed.rx_link_active_request, observed.rx_link_active_ack, rn_rx_previous_request, received.snp, label_prefix ++ "_rx_snp")
   if transaction_checks
   | monitor_chi_rn_transactions(link.flit, endpoint, label_prefix, observed.tx_req.valid, observed.tx_req.bits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.tx_dat.valid, observed.tx_dat.bits, observed.rx_dat.valid, observed.rx_dat.bits, observed.rx_snp.valid, observed.rx_snp.bits)
   | #void
@@ -567,46 +530,20 @@ fun monitor_chi_rni(link :: CHIRNILinkParams,
                          rni_rx_previous_request,
                          rni_rx_previous_ack,
                          label_prefix ++ "_rx_link")
-  monitor_chi_req(link.flit, link.tx_req_credits,
-                  observed.tx_req.valid, observed.tx_req.bits.opcode,
-                  observed.tx_req.bits.txn_id, observed.tx_req.bits.src_id,
-                  observed.tx_req.bits.size_or_num_req, observed.tx_req.bits.multi_req,
-                  observed.tx_req.credit,
-                  rni_tx_req_credit_balance,
-                  observed.tx_link_active_request, observed.tx_link_active_ack,
-                  rni_tx_previous_request, emitted.req,
+  monitor_chi_req(link.flit, link.tx_req_credits, observed.tx_req.valid, observed.tx_req.bits, observed.tx_req.bits.src_id, observed.tx_req.credit,
+                  rni_tx_req_credit_balance, observed.tx_link_active_request, observed.tx_link_active_ack, rni_tx_previous_request, emitted.req,
                   endpoint.node_id, "_source_id", label_prefix ++ "_tx_req")
-  monitor_chi_rsp(link.flit, link.tx_rsp_credits,
-                  observed.tx_rsp.valid, observed.tx_rsp.bits.opcode,
-                  observed.tx_rsp.bits.txn_id, observed.tx_rsp.bits.src_id,
-                  observed.tx_rsp.credit,
-                  rni_tx_rsp_credit_balance,
-                  observed.tx_link_active_request, observed.tx_link_active_ack,
-                  rni_tx_previous_request, emitted.rsp,
+  monitor_chi_rsp(link.flit, link.tx_rsp_credits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.tx_rsp.bits.src_id, observed.tx_rsp.credit,
+                  rni_tx_rsp_credit_balance, observed.tx_link_active_request, observed.tx_link_active_ack, rni_tx_previous_request, emitted.rsp,
                   endpoint.node_id, "_source_id", label_prefix ++ "_tx_rsp")
-  monitor_chi_dat(link.flit, link.tx_dat_credits,
-                  observed.tx_dat.valid, observed.tx_dat.bits.opcode,
-                  observed.tx_dat.bits.txn_id, observed.tx_dat.bits.src_id,
-                  observed.tx_dat.bits.data_id, observed.tx_dat.credit,
-                  rni_tx_dat_credit_balance,
-                  observed.tx_link_active_request, observed.tx_link_active_ack,
-                  rni_tx_previous_request, emitted.dat,
+  monitor_chi_dat(link.flit, link.tx_dat_credits, observed.tx_dat.valid, observed.tx_dat.bits, observed.tx_dat.bits.src_id, observed.tx_dat.credit,
+                  rni_tx_dat_credit_balance, observed.tx_link_active_request, observed.tx_link_active_ack, rni_tx_previous_request, emitted.dat,
                   endpoint.node_id, "_source_id", label_prefix ++ "_tx_dat")
-  monitor_chi_rsp(link.flit, link.rx_rsp_credits,
-                  observed.rx_rsp.valid, observed.rx_rsp.bits.opcode,
-                  observed.rx_rsp.bits.txn_id, observed.rx_rsp.bits.tgt_id,
-                  observed.rx_rsp.credit,
-                  rni_rx_rsp_credit_balance,
-                  observed.rx_link_active_request, observed.rx_link_active_ack,
-                  rni_rx_previous_request, received.rsp,
+  monitor_chi_rsp(link.flit, link.rx_rsp_credits, observed.rx_rsp.valid, observed.rx_rsp.bits, observed.rx_rsp.bits.tgt_id, observed.rx_rsp.credit,
+                  rni_rx_rsp_credit_balance, observed.rx_link_active_request, observed.rx_link_active_ack, rni_rx_previous_request, received.rsp,
                   endpoint.node_id, "_target_id", label_prefix ++ "_rx_rsp")
-  monitor_chi_dat(link.flit, link.rx_dat_credits,
-                  observed.rx_dat.valid, observed.rx_dat.bits.opcode,
-                  observed.rx_dat.bits.txn_id, observed.rx_dat.bits.tgt_id,
-                  observed.rx_dat.bits.data_id, observed.rx_dat.credit,
-                  rni_rx_dat_credit_balance,
-                  observed.rx_link_active_request, observed.rx_link_active_ack,
-                  rni_rx_previous_request, received.dat,
+  monitor_chi_dat(link.flit, link.rx_dat_credits, observed.rx_dat.valid, observed.rx_dat.bits, observed.rx_dat.bits.tgt_id, observed.rx_dat.credit,
+                  rni_rx_dat_credit_balance, observed.rx_link_active_request, observed.rx_link_active_ack, rni_rx_previous_request, received.dat,
                   endpoint.node_id, "_target_id", label_prefix ++ "_rx_dat")
   if transaction_checks
   | monitor_chi_rni_transactions(link.flit, endpoint, label_prefix, observed.tx_req.valid, observed.tx_req.bits, observed.rx_rsp.valid, observed.rx_rsp.bits, observed.tx_dat.valid, observed.tx_dat.bits, observed.rx_dat.valid, observed.rx_dat.bits)
@@ -644,38 +581,17 @@ fun monitor_chi_sn(link :: CHISNLinkParams,
                          sn_rx_previous_request,
                          sn_rx_previous_ack,
                          label_prefix ++ "_rx_link")
-  monitor_chi_rsp(link.flit, link.tx_rsp_credits,
-                  observed.tx_rsp.valid, observed.tx_rsp.bits.opcode,
-                  observed.tx_rsp.bits.txn_id, observed.tx_rsp.bits.src_id,
-                  observed.tx_rsp.credit,
-                  sn_tx_rsp_credit_balance,
-                  observed.tx_link_active_request, observed.tx_link_active_ack,
-                  sn_tx_previous_request, emitted.rsp,
+  monitor_chi_rsp(link.flit, link.tx_rsp_credits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.tx_rsp.bits.src_id, observed.tx_rsp.credit,
+                  sn_tx_rsp_credit_balance, observed.tx_link_active_request, observed.tx_link_active_ack, sn_tx_previous_request, emitted.rsp,
                   endpoint.node_id, "_source_id", label_prefix ++ "_tx_rsp")
-  monitor_chi_dat(link.flit, link.tx_dat_credits,
-                  observed.tx_dat.valid, observed.tx_dat.bits.opcode,
-                  observed.tx_dat.bits.txn_id, observed.tx_dat.bits.src_id,
-                  observed.tx_dat.bits.data_id, observed.tx_dat.credit,
-                  sn_tx_dat_credit_balance,
-                  observed.tx_link_active_request, observed.tx_link_active_ack,
-                  sn_tx_previous_request, emitted.dat,
+  monitor_chi_dat(link.flit, link.tx_dat_credits, observed.tx_dat.valid, observed.tx_dat.bits, observed.tx_dat.bits.src_id, observed.tx_dat.credit,
+                  sn_tx_dat_credit_balance, observed.tx_link_active_request, observed.tx_link_active_ack, sn_tx_previous_request, emitted.dat,
                   endpoint.node_id, "_source_id", label_prefix ++ "_tx_dat")
-  monitor_chi_req(link.flit, link.rx_req_credits,
-                  observed.rx_req.valid, observed.rx_req.bits.opcode,
-                  observed.rx_req.bits.txn_id, observed.rx_req.bits.tgt_id,
-                  observed.rx_req.bits.size_or_num_req, observed.rx_req.bits.multi_req,
-                  observed.rx_req.credit,
-                  sn_rx_req_credit_balance,
-                  observed.rx_link_active_request, observed.rx_link_active_ack,
-                  sn_rx_previous_request, received.req,
+  monitor_chi_req(link.flit, link.rx_req_credits, observed.rx_req.valid, observed.rx_req.bits, observed.rx_req.bits.tgt_id, observed.rx_req.credit,
+                  sn_rx_req_credit_balance, observed.rx_link_active_request, observed.rx_link_active_ack, sn_rx_previous_request, received.req,
                   endpoint.node_id, "_target_id", label_prefix ++ "_rx_req")
-  monitor_chi_dat(link.flit, link.rx_dat_credits,
-                  observed.rx_dat.valid, observed.rx_dat.bits.opcode,
-                  observed.rx_dat.bits.txn_id, observed.rx_dat.bits.tgt_id,
-                  observed.rx_dat.bits.data_id, observed.rx_dat.credit,
-                  sn_rx_dat_credit_balance,
-                  observed.rx_link_active_request, observed.rx_link_active_ack,
-                  sn_rx_previous_request, received.dat,
+  monitor_chi_dat(link.flit, link.rx_dat_credits, observed.rx_dat.valid, observed.rx_dat.bits, observed.rx_dat.bits.tgt_id, observed.rx_dat.credit,
+                  sn_rx_dat_credit_balance, observed.rx_link_active_request, observed.rx_link_active_ack, sn_rx_previous_request, received.dat,
                   endpoint.node_id, "_target_id", label_prefix ++ "_rx_dat")
   if transaction_checks
   | monitor_chi_sn_transactions(link.flit, endpoint, label_prefix, observed.rx_req.valid, observed.rx_req.bits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.rx_dat.valid, observed.rx_dat.bits, observed.tx_dat.valid, observed.tx_dat.bits)

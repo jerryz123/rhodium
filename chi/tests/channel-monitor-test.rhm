@@ -50,6 +50,11 @@ for (endpoint in [node, node.icn_peer(), transactions.transaction_sn_node, trans
   check:
     chi.check_chi_transaction_coverage(endpoint) ~is #void
 check:
+  fixture.packet_monitor_design("req", chi.CHIRspFlit(p)) ~throws "CHIReqFlit"
+  fixture.packet_monitor_design("rsp", chi.CHIReqFlit(p)) ~throws "CHIRspFlit"
+  fixture.packet_monitor_design("dat", chi.CHIRspFlit(p)) ~throws "CHIDatFlit"
+  fixture.packet_monitor_design("snp", chi.CHIReqFlit(p)) ~throws "CHISnpFlit"
+  fixture.packet_monitor_design("dat", chi.CHIDatFlit(chi.CHIFlitParams(~data_width: 512))) ~throws "CHIDatFlit"
   chi.check_chi_transaction_coverage(links.rni_node) ~throws "requested transaction coverage is unsupported"
   chi.check_chi_transaction_coverage(broad_rnf) ~throws "requested transaction coverage is unsupported"
   chi.check_chi_transaction_coverage(retry_rnf) ~throws "requested transaction coverage is unsupported"

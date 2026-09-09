@@ -97,44 +97,27 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
   def packet_data = line.as_bits().as_vec(Bits(p.data_width))[packet_index]
   def packet_beat = if packet_index_width == 2 | packet_index | packet_index.zext(2)
   def packet_data_id = chi_transfer_data_id(packet_beat, p)
-  wire snoop_data: CHIDatFlit(p)
-  if p.poison_width > 0
-  | snoop_data.poison <== bits(0, p.poison_width)
-  | #void
-  if p.data_check_width > 0
-  | snoop_data.data_check <== bits(0, p.data_check_width)
-  | #void
-  snoop_data.data <== packet_data
-  snoop_data.byte_enable <== !bits(0, p.byte_enable_width)
-  if p.dat_rsvdc_width > 0
-  | snoop_data.rsvdc <== bits(0, p.dat_rsvdc_width)
-  | #void
-  snoop_data.replicate <== Bool(#false)
-  snoop_data.num_dat <== bits(0, 2)
-  snoop_data.cah <== Bool(#false)
-  snoop_data.trace_tag <== request.trace_tag
-  snoop_data.tag_update <== bits(0, p.tag_update_width)
-  snoop_data.tag <== bits(0, p.tag_width)
-  snoop_data.tag_op <== CHITagOp.Invalid
-  snoop_data.cache_line_id <== bits(0, 6)
-  snoop_data.data_id <== packet_data_id
-  snoop_data.ccid <== packet_data_id
-  snoop_data.dbid_or_mecid <== bits(0, 16)
-  snoop_data.c_busy <== bits(0, 3)
-  snoop_data.data_pull <== Bool(#false)
-  snoop_data.data_source_or_fwd_state <== bits(0, 8)
   def dirty_response:
     CHICoherentResponse():
       pass_dirty: Bool(#true)
       state: CHIResponseState.Invalid
-  snoop_data.resp <== dirty_response.as_bits()
-  snoop_data.resp_err <== CHIRespErr.OK
-  snoop_data.opcode <== CHIDatOpcode.SnpRespData
-  snoop_data.home_nid_or_pbha_or_mismatched_mecid <== request.src_id
-  snoop_data.txn_id <== request.txn_id
-  snoop_data.src_id <== node_id
-  snoop_data.tgt_id <== request.src_id
-  snoop_data.qos <== request.qos
+  def inactive_data :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
+  def snoop_data = inactive_data.updated(
+    ~data: packet_data,
+    ~byte_enable: !bits(0, p.byte_enable_width),
+    ~trace_tag: request.trace_tag,
+    ~tag_op: CHITagOp.Invalid,
+    ~data_id: packet_data_id,
+    ~ccid: packet_data_id,
+    ~resp: dirty_response.as_bits(),
+    ~resp_err: CHIRespErr.OK,
+    ~opcode: CHIDatOpcode.SnpRespData,
+    ~home_nid_or_pbha_or_mismatched_mecid: request.src_id,
+    ~txn_id: request.txn_id,
+    ~src_id: node_id,
+    ~tgt_id: request.src_id,
+    ~qos: request.qos
+  )
   data.valid <== active_state & lookup_complete & dirty_hit
   data.bits <== snoop_data
   def data_fire = data.fire()
