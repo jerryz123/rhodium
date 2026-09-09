@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's speculative load-hit and authorized data-transaction protocols.
+// Defines pipelined load/store decisions, WB store authorization, and blocking transactions.
 
 import:
   "../memory.rhdl" open
@@ -13,23 +13,50 @@ hardware_enum RV5StageDataDestination:
   Integer
   FloatingPoint
 
-bundle RV5StageLoadReq(xlen :: XLen):
+hardware_enum RV5StagePipelineOutcome:
+  Slow
+  LoadHit
+  StoreHit
+  Replay
+  PageFault
+  AccessFault
+
+hardware_enum RV5StagePipelineReason:
+  None
+  ArrayPort
+  StoreDependency
+  StoreCapacity
+  Probe
+  Miss
+  Translation
+  Ordered
+
+bundle RV5StagePipelineReq(xlen :: XLen):
   address: Bits(xlen.width)
+  access: MemoryOperation
   width: MemoryWidth
   unsigned: Bool
+  data: Bits(xlen.width)
 
-// The core launches in EX and consumes a hit at the end of MEM. Absence of a
-// response means retry through the authorized transaction path, never success.
-interface RV5StageLoadAccess(xlen :: XLen):
+bundle RV5StagePipelineResult(xlen :: XLen):
+  outcome: RV5StagePipelineOutcome
+  reason: RV5StagePipelineReason
+  data: Bits(xlen.width)
+
+// EX reads, MEM decides, and WB alone may authorize the matching store candidate.
+// Replay must repeat lookup; only Slow uses the authorized transaction service.
+interface RV5StagePipelineAccess(xlen :: XLen):
   role requester
   role responder
   provider requester
 
   requester -> responder:
-    request: Valid(RV5StageLoadReq(xlen))
+    request: Valid(RV5StagePipelineReq(xlen))
+    commit: Bool
 
   responder -> requester:
-    response: Valid(Bits(xlen.width))
+    response: Valid(RV5StagePipelineResult(xlen))
+    commit_ready: Bool
 
 bundle RV5StageDataReq(xlen :: XLen):
   address: Bits(xlen.width)
@@ -68,8 +95,11 @@ interface RV5StageDataAccess(xlen :: XLen):
     reservation_valid: Bool
 
 export:
-  RV5StageLoadReq
-  RV5StageLoadAccess
+  RV5StagePipelineReq
+  RV5StagePipelineResult
+  RV5StagePipelineAccess
+  RV5StagePipelineOutcome
+  RV5StagePipelineReason
   RV5StageDataDestination
   RV5StageDataReq
   RV5StageDataResp

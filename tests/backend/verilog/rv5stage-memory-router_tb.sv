@@ -49,6 +49,7 @@ module rv5stage_memory_router_tb;
   requester_t cache_out;
   uncached_requester_t uncached_out;
 
+  logic ordered_busy;
   RV5StageMemoryRouter dut (.*);
 
   task automatic tick;

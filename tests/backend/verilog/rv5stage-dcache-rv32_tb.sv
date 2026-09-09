@@ -1,4 +1,4 @@
-// Checks RV32 AMOs, byte blocks, delayed LR/SC, reservation bounds, and NTL loads.
+// Checks RV32 buffered-store lanes, AMOs, byte blocks, delayed LR/SC, and reservation bounds.
 module rv5stage_dcache_rv32_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed { logic ready; } ready_t;
@@ -30,7 +30,12 @@ module rv5stage_dcache_rv32_tb;
   integer acknowledgements = 0;
   logic [6:0] expected_opcode = 7'h07;
   logic [43:0] expected_address = 44'h1000;
-  RV5StageL1DCache dut (.load_in('0), .load_out(), .load_lookup_in('0), .*);
+  typedef struct packed {logic valid; RV5StagePipelineReq bits;} pipeline_request_t;
+  typedef struct packed {logic valid; RV5StagePipelineResult bits;} pipeline_response_t;
+  pipeline_request_t pipeline_lookup_in='0;
+  struct packed {pipeline_request_t request; logic commit;} pipeline_in='0;
+  struct packed {pipeline_response_t response; logic commit_ready;} pipeline_out;
+  RV5StageL1DCache dut (.*);
 
   task automatic tick;
     if (!reset) begin
@@ -219,6 +224,28 @@ module rv5stage_dcache_rv32_tb;
     assert (requests == 6) else $fatal(1, "RV32 delayed SC attempted ownership acquisition");
     send_request(32'h103c, 4'd3);
     expect_response(32'h5678);
+    begin
+      logic [31:0] expected=32'h5678;
+      int old_responses;
+      for(int lane=0;lane<4;lane++) begin
+        old_responses=responses;
+        pipeline_lookup_in='{valid:1,bits:'{address:32'h4000103c+32'(lane),access:4'd2,width:2'd0,unsigned_0:0,data:32'ha0+32'(lane)}};
+        tick(); pipeline_lookup_in='0;
+        pipeline_in.request='{valid:1,bits:'{address:32'h103c+32'(lane),access:4'd2,width:2'd0,unsigned_0:0,data:32'ha0+32'(lane)}};
+        #1;
+        assert(pipeline_out.response.valid && pipeline_out.response.bits.outcome==2) else $fatal(1,"RV32 store lookup");
+        tick(); pipeline_in.request.valid=0; pipeline_in.commit=1;
+        #1;
+        assert(pipeline_out.commit_ready && !core_out.drained) else $fatal(1,"RV32 store authorization");
+        tick(); pipeline_in='0;
+        assert(!core_out.reservation_valid) else $fatal(1,"buffered store retained reservation");
+        repeat(2) tick();
+        assert(core_out.drained && responses==old_responses && requests==6) else $fatal(1,"RV32 internal drain produced a transaction or completion");
+        expected[lane*8+:8]=8'ha0+8'(lane);
+        send_request(32'h103c,4'd1); expect_response(expected);
+      end
+    end
+    $display("RV32 committed stores passed: all four byte lanes, no duplicate completion, reservation invalidation");
     reset = 1;
     tick();
     assert (!core_out.reservation_valid) else $fatal(1, "RV32 reset retained reservation");

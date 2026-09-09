@@ -73,10 +73,11 @@ sync_circuit RV5StageLRSCCoreProgress():
   loader.node_id <== bits(5, p.node_id_width)
   loader.virtual_lookup.valid <== host.request.valid
   loader.virtual_lookup.bits <== host.request.bits.address
-  loader.load_lookup.valid <== Bool(#false)
-  loader.load_lookup.bits <== bits(0, 64)
-  loader.load.request.valid <== Bool(#false)
-  loader.load.request.bits <== literal(RV5StageLoadReq(XLen.X64), 0)
+  loader.pipeline_lookup.valid <== Bool(#false)
+  loader.pipeline_lookup.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  loader.pipeline.request.valid <== Bool(#false)
+  loader.pipeline.request.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  loader.pipeline.commit <== Bool(#false)
   loader.prefetch.valid <== Bool(#false)
   loader.prefetch.bits <== dont_care(CachePrefetchReq(64))
 

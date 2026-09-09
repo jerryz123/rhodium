@@ -1,9 +1,11 @@
 #lang rhodium
-// Implements VIPT MEM-stage load hits, authorized transactions, and independent LR/SC probe protection.
+// Implements shared load/store lookup, committed-store draining, and blocking coherent miss service.
 
 import:
   "../../cache-prefetch.rhdl" open
   "protocol.rhdl" open
+  "arrays.rhdl" open
+  "pending-stores.rhdl" open
   "../fp/types.rhdl" open
   "../memory.rhdl" open
   "../cache.rhdl" open
@@ -15,7 +17,6 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/read-write.rhdl") open
-  lib("rhodium/std/sync-ram.rhdl") open
   lib("flow/main.rhdl") open
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
@@ -82,14 +83,16 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   input node_id: Bits(p.node_id_width)
   interface core(RV5StageDataAccess(xlen), ~role: responder)
   interface virtual_lookup(Valid(Bits(width)), ~role: consumer)
-  interface load_lookup(Valid(Bits(width)), ~role: consumer)
-  interface load(RV5StageLoadAccess(xlen), ~role: responder)
+  interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: consumer)
+  interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface chi(CHIRNChannels(p), ~role: node)
 
-  inst tags(SyncRam1RW(sets, Bits(tag_width), ways))
-  inst states(SyncRam1RW(sets, CHICacheState, ways))
-  inst lines(SyncRam1RW(data_depth, Bits(8), data_lanes))
+  inst arrays(RV5StageDCacheArrays(xlen, cache))
+  inst stores(RV5StagePendingStores(xlen, way_width))
+  def PendingStore = RV5StagePendingStore(xlen, way_width, word_bytes)
+  inst store_candidate(ValidPipeAlwaysCapture(PendingStore, 1))
+  inst pipeline_store_gen(StoreGen(xlen, word_bytes))
   inst load_gen(LoadGen(xlen, word_bytes))
   inst pipeline_load_gen(LoadGen(xlen, word_bytes))
   reg load_read_pending(~init: Bool(#false))
@@ -206,7 +209,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def management_address = rv5stage_chi_address(management_requests.bits.address.align_down(RV5StageCacheLineBytes), p)
   def management_home = config.home_map.lookup(management_address)
   (
-    management_requests |> gate_flow(refill.command.ready & writeback.command.ready & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !refill_installing & (gather_state === RV5StageDataGatherState.Idle))
+    management_requests |> gate_flow(stores.empty & !store_candidate.egress.valid & refill.command.ready & writeback.command.ready & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !refill_installing & (gather_state === RV5StageDataGatherState.Idle))
       |> map_flow(request => CHICacheMaintenanceCommand(p, RV5StageDataReq(xlen))):
          address: management_address
          opcode: mux_lookup(
@@ -224,7 +227,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
   def queued_request = core_requests.count.or_reduce()
-  def issue_prefetch = prefetch_valid & !virtual_lookup.valid & !queued_request & !reservation_count.or_reduce() & !load_lookup.valid
+  def issue_prefetch = prefetch_valid & !virtual_lookup.valid & !queued_request & !reservation_count.or_reduce() & !pipeline_lookup.valid & !pipeline.request.valid & !store_candidate.egress.valid & stores.empty
   def issue_request :: RV5StageDataReq(xlen) = mux(
     issue_prefetch,
     RV5StageDataReq(xlen):
@@ -251,15 +254,15 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def array_valids = valid_lines[array_set]
   def array_matches = vec(
     for List (way in 0..ways):
-      array_valids[way] & (tags.port.response.bits[way] === array_tag)
+      array_valids[way] & (arrays.tags.response.bits[way] === array_tag)
   )
   def array_selection = priority_encoder_oh(array_matches)
   def array_state = array_selection.mux(
-    for List (way in 0..ways): states.port.response.bits[way],
+    for List (way in 0..ways): arrays.states.response.bits[way],
     ~default: CHICacheState.Invalid
   ).into(CHICacheState)
   def array_allocation_way = rv5stage_cache_replacement_way(cache, array_valids, replacement_ways[array_set])
-  def array_words = lines.port.response.bits.as_bits().as_vec(Bits(width))
+  def array_words = arrays.data.response.bits.as_bits().as_vec(Bits(width))
   def array_word = array_selection.mux(
     for List (way in 0..ways): array_words[way],
     ~default: bits(0, width)
@@ -436,7 +439,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // Active backing transactions have already captured their cache context and
   // do not occupy the SRAM ports. Serving snoops here prevents a Home waiting
   // on this RN-F from deadlocking behind this RN-F's queued request.
-  snoop.cache_ready <== !lookup_read_pending & !resolved.egress.valid & !pending_mutation_valid & gather_idle & !refill_installing
+  stores.probe_address <== snoop.address
+  snoop.cache_ready <== !lookup_read_pending & !resolved.egress.valid & !pending_mutation_valid & gather_idle & !refill_installing & !stores.line_hazard
   def snoop_lookup_start = snoop.lookup.valid
   def snoop_address = snoop.address
   def snoop_set = snoop_address[offset_width..(offset_width + set_width)]
@@ -444,15 +448,15 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def snoop_valids = valid_lines[snoop_set]
   def snoop_matches = vec(
     for List (way in 0..ways):
-      snoop_valids[way] & (tags.port.response.bits[way] === snoop_tag)
+      snoop_valids[way] & (arrays.tags.response.bits[way] === snoop_tag)
   )
   def snoop_selection = priority_encoder_oh(snoop_matches)
   def snoop_line_hit = snoop_selection.valid
   def snoop_lookup_state = snoop_selection.mux(
-    for List (way in 0..ways): states.port.response.bits[way],
+    for List (way in 0..ways): arrays.states.response.bits[way],
     ~default: CHICacheState.Invalid
   ).into(CHICacheState)
-  def snoop_metadata_valid = snoop_metadata_pending & tags.port.response.valid & states.port.response.valid
+  def snoop_metadata_valid = snoop_metadata_pending & arrays.tags.response.valid & arrays.states.response.valid
   when (snoop_metadata_valid & snoop_line_hit):
     snoop_way <== snoop_selection.index
   for (left in 0..ways):
@@ -489,8 +493,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         word: array_word
         allocation_way: array_allocation_way
         victim_valid: array_valids[array_allocation_way]
-        victim_state: states.port.response.bits[array_allocation_way]
-        victim_address: concat(tags.port.response.bits[array_allocation_way], array_set, bits(0, offset_width))
+        victim_state: arrays.states.response.bits[array_allocation_way]
+        victim_address: concat(arrays.tags.response.bits[array_allocation_way], array_set, bits(0, offset_width))
   ) |> resolved.ingress
   when (resolved.egress.valid):
     assert(resolved_path.ready, "l1d_s2_capacity_reserved")
@@ -501,14 +505,25 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def lookup_retry = lookup.egress.valid & !lookup_read_pending & lookup_can_advance
   // The EX read never takes an SRAM port from older authorized work or snoops.
   // It reserves no transaction and cannot allocate, mutate, or establish LR.
-  def load_issue = load_lookup.valid & lookup_can_advance & !management_waiting & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !virtual_lookup.valid
+  // One blocking miss owner remains. Pending committed stores are deliberately
+  // absent here: only an actual SRAM write or overlapping bytes block a load.
+  def pipeline_engines_idle = !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !lookup_needs_refill & !local_mutation
+  def pipeline_service_idle = pipeline_engines_idle & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !virtual_lookup.valid
+  def pipeline_store = pipeline.request.bits.access === MemoryOperation.Store
+  def store_drain_available = pipeline_engines_idle & !lookup_read_pending & !resolved.egress.valid & !snoop_metadata_pending & !snoop_lookup_start & !snoop.update.valid
+  def force_store_drain = stores.urgent ||| !stores.enqueue.ready ||| core_requests.egress.valid ||| management_waiting ||| (snoop_pending & stores.line_hazard) ||| (pipeline.request.valid & !pipeline_store & stores.word_hazard)
+  def pipeline_read_load = pipeline_lookup.valid & (pipeline_lookup.bits.access === MemoryOperation.Load)
+  stores.drain.ready <== store_drain_available & (force_store_drain ||| !pipeline_read_load)
+  def store_drain = stores.drain.fire()
+  def store_state_write = store_drain & stores.drain.bits.mark_dirty
+  def load_issue = pipeline_lookup.valid & pipeline_service_idle & !snoop_lookup_start & !snoop_metadata_pending & !snoop.update.valid & !store_state_write & !(store_drain & pipeline_read_load)
   load_read_pending <== load_issue
   when load_issue:
-    load_read_address <== load_lookup.bits
-  def array_address = mux(load_issue, load_lookup.bits, mux(lookup_retry, lookup.egress.bits.request.address, issue_index_address))
+    load_read_address <== pipeline_lookup.bits.address
+  def array_address = mux(load_issue, pipeline_lookup.bits.address, mux(lookup_retry, lookup.egress.bits.request.address, issue_index_address))
   def issue_set = array_address[offset_width..(offset_width + set_width)]
   def issue_data_address = array_address[word_offset_width..(offset_width + set_width)]
-  def lookup_accepts_input = !management_waiting & lookup_can_advance & !lookup_retry
+  def lookup_accepts_input = !management_waiting & lookup_can_advance & !lookup_retry & stores.empty & !store_candidate.egress.valid
   core.request |> core_requests.ingress
   ordinary_requests.ready <== lookup_accepts_input & lookup.ingress.ready
   lookup.ingress.valid <== lookup_accepts_input & (ordinary_requests.valid ||| issue_prefetch)
@@ -521,7 +536,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def array_lookup_issue = load_issue ||| lookup_retry ||| (lookup_accepts_input & lookup.ingress.ready & (queued_request ||| virtual_lookup.valid ||| issue_prefetch))
   lookup_read_pending <== lookup_issue ||| lookup_retry
   when (lookup.egress.fire()):
-    assert(tags.port.response.valid & states.port.response.valid & lines.port.response.valid, "l1d_s1_array_response_valid")
+    assert(arrays.tags.response.valid & arrays.states.response.valid & arrays.data.response.valid, "l1d_s1_array_response_valid")
   when request_accept:
     assert(virtual_lookup.valid, "l1d_physical_request_has_virtual_lookup")
     assert(virtual_lookup.bits[0..12] === core.request.bits.address[0..12], "l1d_vipt_page_offset_matches")
@@ -531,20 +546,67 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // In MEM, SRAM outputs and the independently translated physical tag meet.
   // Return combinational hit data for the core's MEM/WB register: no second
   // cache result/response register is inserted on this ordinary load path.
-  def load_set = load.request.bits.address[offset_width..(offset_width + set_width)]
-  def load_tag = load.request.bits.address[(offset_width + set_width)..width]
-  def load_matches = vec(for List (way in 0..ways): valid_lines[load_set][way] & (tags.port.response.bits[way] === load_tag))
+  def load_set = pipeline.request.bits.address[offset_width..(offset_width + set_width)]
+  def load_tag = pipeline.request.bits.address[(offset_width + set_width)..width]
+  def load_matches = vec(for List (way in 0..ways): valid_lines[load_set][way] & (arrays.tags.response.bits[way] === load_tag))
   def load_selection = priority_encoder_oh(load_matches)
   pipeline_load_gen.data <== load_selection.mux(for List (way in 0..ways): array_words[way], ~default: bits(0, width))
-  pipeline_load_gen.address <== load.request.bits.address
-  pipeline_load_gen.width <== load.request.bits.width
-  pipeline_load_gen.unsigned_load <== load.request.bits.unsigned
-  load.response.valid <== load.request.valid & load_read_pending & lookup_can_advance & tags.port.response.valid & states.port.response.valid & lines.port.response.valid & load_selection.valid & (load_read_address[0..12] === load.request.bits.address[0..12])
-  load.response.bits <== pipeline_load_gen.value
+  pipeline_load_gen.address <== pipeline.request.bits.address
+  pipeline_load_gen.width <== pipeline.request.bits.width
+  pipeline_load_gen.unsigned_load <== pipeline.request.bits.unsigned
+  def pipeline_state = load_selection.mux(for List (way in 0..ways): arrays.states.response.bits[way], ~default: CHICacheState.Invalid).into(CHICacheState)
+  pipeline_store_gen.address <== pipeline.request.bits.address
+  pipeline_store_gen.width <== pipeline.request.bits.width
+  pipeline_store_gen.value <== pipeline.request.bits.data
+  stores.query_address <== pipeline.request.bits.address
+  stores.query_mask <== pipeline_store_gen.mask.as_bits()
+  def pipeline_probe_conflict = snoop_pending & (snoop.address[6..width] === pipeline.request.bits.address[6..width])
+  def pipeline_read_matches = load_read_pending & arrays.tags.response.valid & arrays.states.response.valid & (pipeline_store ||| arrays.data.response.valid) & (load_read_address[0..12] === pipeline.request.bits.address[0..12])
+  wire pipeline_outcome: RV5StagePipelineOutcome
+  wire pipeline_reason: RV5StagePipelineReason
+  when (!pipeline_service_idle):
+    pipeline_outcome <== RV5StagePipelineOutcome.Replay
+    pipeline_reason <== mux(snoop_pending, RV5StagePipelineReason.Probe, RV5StagePipelineReason.Miss)
+  elsewhen pipeline_probe_conflict:
+    pipeline_outcome <== RV5StagePipelineOutcome.Replay
+    pipeline_reason <== RV5StagePipelineReason.Probe
+  elsewhen (!pipeline_read_matches):
+    pipeline_outcome <== RV5StagePipelineOutcome.Replay
+    pipeline_reason <== RV5StagePipelineReason.ArrayPort
+  elsewhen (!load_selection.valid ||| (pipeline_store & !pipeline_state.is_unique())):
+    pipeline_outcome <== RV5StagePipelineOutcome.Slow
+    pipeline_reason <== RV5StagePipelineReason.Miss
+  elsewhen (!pipeline_store & stores.word_hazard):
+    pipeline_outcome <== RV5StagePipelineOutcome.Replay
+    pipeline_reason <== RV5StagePipelineReason.StoreDependency
+  elsewhen (pipeline_store & !stores.enqueue.ready):
+    pipeline_outcome <== RV5StagePipelineOutcome.Replay
+    pipeline_reason <== RV5StagePipelineReason.StoreCapacity
+  otherwise:
+    pipeline_outcome <== mux(pipeline_store, RV5StagePipelineOutcome.StoreHit, RV5StagePipelineOutcome.LoadHit)
+    pipeline_reason <== RV5StagePipelineReason.None
+  pipeline.response.valid <== pipeline.request.valid
+  pipeline.response.bits <== RV5StagePipelineResult(xlen):
+    outcome: pipeline_outcome
+    reason: pipeline_reason
+    data: pipeline_load_gen.value
+  store_candidate.ingress.valid <== pipeline.request.valid & (pipeline_outcome === RV5StagePipelineOutcome.StoreHit)
+  store_candidate.ingress.bits <== RV5StagePendingStore(xlen, way_width, word_bytes):
+    address: pipeline.request.bits.address
+    way: load_selection.index
+    data: pipeline_store_gen.data
+    mask: pipeline_store_gen.mask.as_bits()
+    mark_dirty: !pipeline_state.is_dirty()
+  // A matching probe invalidates the one-cycle ownership proof. Unrelated
+  // probes cannot revoke this way and must not reject WB store authorization.
+  def store_probe_conflict = snoop_pending & (snoop.address[6..width] === store_candidate.egress.bits.address[6..width])
+  pipeline.commit_ready <== store_candidate.egress.valid & stores.enqueue.ready & pipeline_service_idle & !store_probe_conflict
+  stores.enqueue.valid <== pipeline.commit & pipeline.commit_ready
+  stores.enqueue.bits <== store_candidate.egress.bits
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
-  core.drained <== !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
+  core.drained <== stores.empty & !stores.enqueue.fire() & !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
   def produces_load_hit = lookup_load & line_hit & (!lookup_lr ||| lookup_state.is_unique())
   def produces_failed_sc = lookup_sc & !sc_authorized
   def produces_response = maintenance_complete ||| produces_load_hit ||| local_mutation_complete ||| produces_failed_sc ||| (complete_refill & !completion_prefetch)
@@ -575,14 +637,16 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def full_byte_mask = (!bits(0, word_bytes)).into(Mask(word_bytes))
   def refill_lane_mask = rv5stage_cache_lane_mask(cache, completion_way, word_bytes, full_byte_mask)
   def local_mutation_lane_mask = rv5stage_cache_lane_mask(cache, pending_mutation_way, word_bytes, mux(pending_zero, full_byte_mask, local_store_gen.mask))
-  def line_write_bytes = mux(local_mutation_commit, local_store_word_data, refill_install_data)
+  def line_write_bytes = mux(store_drain, stores.drain.bits.data.as_vec(Bits(8)), mux(local_mutation_commit, local_store_word_data, refill_install_data))
+  def store_way_mask = rv5stage_cache_way_mask(cache, stores.drain.bits.way)
+  def store_lane_mask = rv5stage_cache_lane_mask(cache, stores.drain.bits.way, word_bytes, stores.drain.bits.mask.into(Mask(word_bytes)))
   def mutable repeated_line_write_bytes = []
   for (_way in 0..ways):
     for (byte in 0..word_bytes):
       repeated_line_write_bytes := repeated_line_write_bytes ++ [line_write_bytes[byte]]
 
-  tags.port.request.valid <== array_lookup_issue ||| install_refill ||| snoop_lookup_start
-  tags.port.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
+  arrays.tags.request.valid <== array_lookup_issue ||| install_refill ||| snoop_lookup_start
+  arrays.tags.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
     address: mux(install_refill,
                  completion_set,
                  mux(snoop_lookup_start,
@@ -592,7 +656,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     data: vec(for List (_way in 0..ways): completion_tag)
     mask: install_way_mask
   def update_snoop_state = snoop.update.valid & !snoop.update.bits.invalidate
-  states.port.request.valid <== array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state
+  arrays.states.request.valid <== array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state ||| store_state_write
   def refill_cache_state = mux(refill.completion.bits.state === CHIResponseState.Unique,
                                CHICacheState.UniqueClean,
                                CHICacheState.SharedClean)
@@ -601,30 +665,33 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def state_write_data = mux(install_refill & completion_access.needs_unique(), CHICacheState.UniqueDirty, mutation_or_refill_state)
   def mutation_or_snoop_mask = mux(local_mutation_commit, local_mutation_way_mask, snoop_update_way_mask)
   def state_write_mask = mux(install_refill, install_way_mask, mutation_or_snoop_mask)
-  states.port.request.bits <== ReadWriteRequest(set_width, CHICacheState, ways):
-    address: mux(install_refill,
-                 completion_set,
-                 mux(local_mutation_commit,
-                     pending_mutation_request.address[offset_width..(offset_width + set_width)],
-                     mux(snoop_lookup_start,
-                         snoop_set,
-                         mux(update_snoop_state,
-                             snoop.update.bits.address[offset_width..(offset_width + set_width)],
-                             issue_set))))
-    write: install_refill ||| local_mutation_commit ||| update_snoop_state
-    data: vec(for List (_way in 0..ways): state_write_data)
-    mask: state_write_mask
+  arrays.states.request.bits <== ReadWriteRequest(set_width, CHICacheState, ways):
+    address: mux(
+      store_state_write, stores.drain.bits.address[offset_width..(offset_width + set_width)],
+      mux(install_refill, completion_set,
+          mux(local_mutation_commit, pending_mutation_request.address[offset_width..(offset_width + set_width)],
+              mux(snoop_lookup_start, snoop_set,
+                  mux(update_snoop_state, snoop.update.bits.address[offset_width..(offset_width + set_width)], issue_set))))
+    )
+    write: install_refill ||| local_mutation_commit ||| update_snoop_state ||| store_state_write
+    data: vec(for List (_way in 0..ways): mux(store_state_write, CHICacheState.UniqueDirty, state_write_data))
+    mask: mux(store_state_write, store_way_mask, state_write_mask)
   def local_mutation_address = mux(pending_zero, pending_mutation_request.address[offset_width..(offset_width + set_width)] ++ pending_zero_index, pending_mutation_request.address[word_offset_width..(offset_width + set_width)])
   def refill_install_address = (completion_set ++ refill_install_index)
   def gather_address = (gather_set ++ gather_issue_index)
-  lines.port.request.valid <== array_lookup_issue ||| cache_write ||| gather_issue
-  lines.port.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
-    address: mux(cache_write,
-                 mux(local_mutation_commit, local_mutation_address, refill_install_address),
-                 mux(gather_issue, gather_address, issue_data_address))
-    write: cache_write
+  def array_data_read = (load_issue & pipeline_read_load) ||| lookup_retry ||| (array_lookup_issue & !load_issue)
+  arrays.data.request.valid <== array_data_read ||| cache_write ||| gather_issue ||| store_drain
+  arrays.data.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
+    address: mux(
+      store_drain, stores.drain.bits.address[word_offset_width..(offset_width + set_width)],
+      mux(cache_write, mux(local_mutation_commit, local_mutation_address, refill_install_address), mux(gather_issue, gather_address, issue_data_address))
+    )
+    write: cache_write ||| store_drain
     data: vec(repeated_line_write_bytes)
-    mask: mux(local_mutation_commit, local_mutation_lane_mask, refill_lane_mask)
+    mask: mux(store_drain, store_lane_mask, mux(local_mutation_commit, local_mutation_lane_mask, refill_lane_mask))
+
+  assert(!(store_drain & (array_data_read ||| cache_write ||| gather_issue)), "l1d_store_drain_data_port_exclusive")
+  assert(!(store_state_write & (array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state)), "l1d_store_drain_state_port_exclusive")
 
   assert(!(local_mutation_commit & (array_lookup_issue ||| install_refill ||| snoop_lookup_start ||| update_snoop_state ||| gather_issue)),
          "l1d_local_mutation_port_exclusive")
@@ -652,7 +719,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     refill_install_index <== refill_install_index + bits(1, word_index_width)
 
   def gathered_words = gathered_line.as_vec(Bits(width))
-  def gathered_response_words = lines.port.response.bits.as_bits().as_vec(Bits(width))
+  def gathered_response_words = arrays.data.response.bits.as_bits().as_vec(Bits(width))
   def gathered_response_word = gathered_response_words[gather_way]
   def next_gathered_line = gathered_words.updated(
     gather_response_index,
@@ -684,7 +751,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
       gather_issue_index <== mux(gather_issue_final, gather_issue_index, gather_issue_index + bits(1, word_index_width))
       gather_last_issued <== gather_issue_final
     when gather_response_pending:
-      assert(lines.port.response.valid, "l1d_gather_read_response_valid")
+      assert(arrays.data.response.valid, "l1d_gather_read_response_valid")
       gathered_line <== next_gathered_line
       when gather_response_final:
         gather_state <== mux(gather_state === RV5StageDataGatherState.EvictionRead, RV5StageDataGatherState.EvictionReady, RV5StageDataGatherState.SnoopReady)
@@ -713,7 +780,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def replacement_reservation_clear = resolved_path.fire() & lookup_needs_refill & !bypass_refill & !line_hit & victim_valid & (
     victim_address === reservation_line_address
   )
-  def reservation_clear = lookup_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear
+  def buffered_store_reservation_clear = stores.enqueue.fire() & (stores.enqueue.bits.address.align_down(RV5StageCacheLineBytes) === reservation_line_address)
+  def reservation_clear = lookup_reservation_clear ||| mutation_reservation_clear ||| snoop_reservation_clear ||| replacement_reservation_clear ||| buffered_store_reservation_clear
   // Reservation lifetime follows accesses and coherence, not the fairness timer.
   // A slow SC may still succeed after probes have been allowed to proceed.
   when completing_lr:

@@ -83,11 +83,10 @@ module rv5stage_dcache_tb;
   prefetch_t prefetch_in;
   typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;
   lookup_t virtual_lookup_in;
-  lookup_t load_lookup_in='0;
-  typedef struct packed {logic [63:0] address; logic [1:0] width; logic unsigned_0;} load_bits_t;
-  typedef struct packed {logic valid; load_bits_t bits;} load_request_t;
-  struct packed {load_request_t request;} load_in='0;
-  struct packed {lookup_t response;} load_out;
+  `include "tests/backend/verilog/rv5stage-pipeline-types.svh"
+  pipeline_request_t pipeline_lookup_in='0;
+  pipeline_in_t pipeline_in='0;
+  pipeline_out_t pipeline_out;
   logic probe_only = 1'b0;
   logic [63:0] virtual_page_xor = 64'h4000_0000;
   assign virtual_lookup_in = {core_in.request.valid | probe_only,
@@ -148,20 +147,54 @@ module rv5stage_dcache_tb;
     end
   endtask
 
+  task automatic stage_pipeline_store(input logic [63:0] address, value, input logic [1:0] size=3);
+    pipeline_in='0;
+    pipeline_lookup_in='{valid:1,bits:'{address:address ^ virtual_page_xor,access:MEMORY_STORE,width:size,unsigned_0:0,data:value}};
+    tick();
+    pipeline_lookup_in='0;
+    pipeline_in.request='{valid:1,bits:'{address:address,access:MEMORY_STORE,width:size,unsigned_0:0,data:value}};
+    #1;
+    assert(pipeline_out.response.valid && pipeline_out.response.bits.outcome==PIPE_STORE_HIT)
+      else $fatal(1,"owned store did not resolve in MEM: %0d",pipeline_out.response.bits.outcome);
+  endtask
+
+  // Exercise a younger read at the WB enqueue boundary. Keep an EX read
+  // presented so the buffer cannot disappear into an otherwise idle slot.
+  task automatic store_then_load(input logic [63:0] store_address, value, load_address,
+                                input logic [1:0] store_size, load_size,
+                                input bit overlap,
+                                input logic [63:0] expected);
+    stage_pipeline_store(store_address,value,store_size);
+    pipeline_lookup_in='{valid:1,bits:'{address:load_address ^ virtual_page_xor,access:MEMORY_LOAD,width:load_size,unsigned_0:1,data:0}};
+    tick();
+    pipeline_in.request='{valid:1,bits:'{address:load_address,access:MEMORY_LOAD,width:load_size,unsigned_0:1,data:0}};
+    pipeline_in.commit=1;
+    #1;
+    assert(pipeline_out.commit_ready && !core_out.drained) else $fatal(1,"WB store authorization/drain boundary");
+    assert(pipeline_out.response.bits.outcome==(overlap ? PIPE_REPLAY : PIPE_LOAD_HIT))
+      else $fatal(1,"same-cycle physical-byte hazard mismatch: %0d",pipeline_out.response.bits.outcome);
+    if(!overlap) assert(pipeline_out.response.bits.data==expected) else $fatal(1,"independent load data");
+    tick();
+    pipeline_in='0;
+    pipeline_lookup_in='0;
+    repeat(3) tick();
+    assert(core_out.drained && !core_out.response.valid && !tx_req_pending) else $fatal(1,"committed store duplicated a response or transaction");
+  endtask
+
   task automatic check_pipeline_load(input logic [63:0] address,
                                       input bit permitted, expected_hit,
                                       input logic [63:0] value=0);
-    load_lookup_in='{valid:1'b1,bits:address ^ virtual_page_xor};
+    pipeline_lookup_in='{valid:1'b1,bits:'{address:address ^ virtual_page_xor,access:MEMORY_LOAD,width:2'd3,unsigned_0:1'b0,data:'0}};
     tick();
-    load_lookup_in='0;
-    load_in.request='{valid:permitted,bits:'{address:address,width:2'd3,unsigned_0:1'b0}};
+    pipeline_lookup_in='0;
+    pipeline_in.request='{valid:permitted,bits:'{address:address,access:MEMORY_LOAD,width:2'd3,unsigned_0:1'b0,data:'0}};
     #1;
-    assert(load_out.response.valid==expected_hit)
+    assert((pipeline_out.response.valid && pipeline_out.response.bits.outcome==PIPE_LOAD_HIT)==expected_hit)
       else $fatal(1,"speculative MEM hit mismatch at %h",address);
-    if(expected_hit) assert(load_out.response.bits==value)
+    if(expected_hit) assert(pipeline_out.response.bits.data==value)
       else $fatal(1,"speculative MEM result mismatch");
     tick();
-    load_in='0;
+    pipeline_in='0;
     tick();
     assert(!core_out.response.valid && !tx_req_pending)
       else $fatal(1,"speculative lookup created an authorized response or transaction");
@@ -1228,6 +1261,71 @@ module rv5stage_dcache_tb;
     expect_core_response(0, DATA_DESTINATION_INTEGER, 2);
     chi_in.snoops = '0;
     $display("LR admission under continuous unrelated probes passed");
+
+    reset=1; chi_in.snoops='0; repeat(2) tick(); reset=0;
+    tx_req_pending=0; tx_rsp_pending=0; tx_dat_pending=0;
+    tick();
+    send_core_request(ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,1);
+    accept_request(READ_CLEAN,ADDRESS,0,6,1,0);
+    return_line(ADDRESS,LINE,3'b010); accept_comp_ack();
+    expect_core_response(LINE[63:0],DATA_DESTINATION_INTEGER,1);
+    // A squashed store candidate has no architectural or array effect.
+    stage_pipeline_store(ADDRESS,STORE_DATA);
+    tick(); pipeline_in='0; repeat(3) tick();
+    check_pipeline_load(ADDRESS,1,1,LINE[63:0]);
+    // Same word / disjoint bytes, different word, and actual byte overlap.
+    store_then_load(ADDRESS,64'hbeef,ADDRESS+2,2'd1,2'd1,0,64'h4433);
+    check_pipeline_load(ADDRESS,1,1,64'h887766554433beef);
+    store_then_load(ADDRESS,64'h1234,ADDRESS+8,2'd1,2'd3,0,LINE[127:64]);
+    store_then_load(ADDRESS,64'h5678,ADDRESS,2'd1,2'd1,1,0);
+    check_pipeline_load(ADDRESS,1,1,64'h8877665544335678);
+    // Same page-offset, different physical tag is not a dependency.
+    send_core_request(EVICT_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,1);
+    accept_request(READ_CLEAN,EVICT_ADDRESS,0,6,1,0);
+    return_line(EVICT_ADDRESS,EVICT_LINE,3'b010); accept_comp_ack();
+    expect_core_response(EVICT_LINE[63:0],DATA_DESTINATION_INTEGER,1);
+    store_then_load(ADDRESS,64'habcd,EVICT_ADDRESS,2'd1,2'd3,0,EVICT_LINE[63:0]);
+    stage_pipeline_store(ADDRESS,STORE_DATA);
+    tick(); pipeline_in.request.valid=0; pipeline_in.commit=1;
+    chi_in.snoops.bits='0;
+    chi_in.snoops.bits.address=THIRD_ADDRESS[43:3];
+    chi_in.snoops.bits.opcode=SNP_CLEAN_INVALID;
+    chi_in.snoops.bits.txn_id=12'h077;
+    chi_in.snoops.bits.src_id=HOME_ID;
+    chi_in.snoops.valid=1;
+    #1;
+    assert(pipeline_out.commit_ready) else $fatal(1,"unrelated snoop rejected a store");
+    tick(); pipeline_in='0; chi_in.snoops='0;
+    repeat(8) tick(); tx_rsp_pending=0;
+    check_pipeline_load(ADDRESS,1,1,STORE_DATA);
+    // A matching snoop must see the committed bytes, even when it arrives
+    // immediately after enqueue and before an ordinary idle drain slot.
+    stage_pipeline_store(ADDRESS,STORE_DATA);
+    tick(); pipeline_in.request.valid=0; pipeline_in.commit=1;
+    #1; assert(pipeline_out.commit_ready) else $fatal(1,"store commit before snoop");
+    tick(); pipeline_in='0;
+    send_snoop(ADDRESS,12'h079);
+    dirty_line=LINE; dirty_line[63:0]=STORE_DATA;
+    for(beat=0;beat<4;beat++) accept_snoop_data(beat,dirty_line,12'h079);
+    check_pipeline_load(ADDRESS,1,0);
+    assert(core_out.drained) else $fatal(1,"snooped store did not drain");
+    // A probe between MEM proof and WB authorization rejects the candidate.
+    stage_pipeline_store(EVICT_ADDRESS,STORE_DATA);
+    tick(); pipeline_in.request.valid=0; pipeline_in.commit=1;
+    chi_in.snoops.bits='0;
+    chi_in.snoops.bits.address=EVICT_ADDRESS[43:3];
+    chi_in.snoops.bits.opcode=SNP_CLEAN_INVALID;
+    chi_in.snoops.bits.txn_id=12'h078;
+    chi_in.snoops.bits.src_id=HOME_ID;
+    chi_in.snoops.valid=1;
+    #1;
+    assert(!pipeline_out.commit_ready) else $fatal(1,"stale store proof survived a probe");
+    tick(); pipeline_in='0; chi_in.snoops='0;
+    repeat(8) tick();
+    assert(tx_rsp_pending && captured_rsp.opcode==1 && captured_rsp.txn_id==12'h078 && !tx_dat_pending)
+      else $fatal(1,"rejected store dirtied the probed line");
+    tx_rsp_pending=0;
+    $display("WB stores: squash, byte hazards, physical tags, independent hits, and coherent draining passed");
     $display("RV5Stage VIPT write-back data-cache and self-snooped maintenance simulation passed");
     $finish;
   end

@@ -49,9 +49,11 @@ each other; share external transaction machinery through the CHI package.
    or top-level composition.
 2. Preserve single-issue ordered scalar commit while tracking every deferred
    register-producing operation through its scoreboard and completion path.
-   Ordinary loads launch their virtual SRAM read in EX. MEM performs DTLB,
+   Ordinary loads and stores launch their virtual SRAM read in EX. MEM performs DTLB,
    physical-tag, permission, and lane selection; a permitted cache hit becomes
-   the normal MEM/WB result. WB remains the authorization boundary for miss
+   the normal MEM/WB result, or retains an owned store candidate for WB enqueue.
+   Replay resource conflicts through the same pipeline, independently of slow
+   miss service and faults. WB remains the authorization boundary for miss
    transactions, device reads, mutations, FP compute, hints, and reservations.
    A speculative lookup must never allocate, mutate, reserve a destination, or
    start device IO. Rejection replays before transaction acceptance; accepted

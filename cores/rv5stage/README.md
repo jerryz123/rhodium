@@ -150,12 +150,15 @@ at the scalar writeback stage. Inferred edges follow the real elastic IF/ID
 controls and one-cycle always-capture registers. Repeated PCs have separate
 occurrence identities; squashed tokens may have no later-stage descendant.
 
-Each checkpoint captures only named `pc` and `instruction` fields (XLEN + 32
+Each checkpoint captures named `pc` and `instruction` fields (XLEN + 32
 bits), not the complete stage bundle. Perfetto exposes `pc` as hexadecimal and
 `instruction` as host-disassembled RISC-V text, using the core profile's ISA.
 Raw instruction bits remain in the graph. These are already decompressed
 pipeline instructions, so compressed instructions display their expanded form,
 not the original `c.*` mnemonic.
+MEM additionally captures the three-bit `cache_outcome` and `cache_reason`
+enums, distinguishing hits, slow service, faults, and replay causes without
+changing instruction labels or pipeline ancestry.
 WB is not retirement: replay, traps, maintenance/WRS holding, and deferred
 load/multiply/divide/FP completion remain outside this first pipeline trace.
 No dependency is inferred between the memory-boundary graph and fetch through
@@ -638,9 +641,12 @@ not consumed by smaller geometries. MiniSoC's 32-set, one-way caches remain 2 Ki
 RV64 supports Bare and Sv39 translation; RV32 remains Bare. Early virtual
 lookups reach the SRAMs independently of translation and physical-region checks.
 A permitted physical request is paired with the read at the clock edge; only
-that resolved token can initiate an authorized transaction. For ordinary loads,
-EX's `load_access` launches the virtual read and MEM supplies the translated
-tag; a permitted hit returns directly to MEM/WB. `RV5Stage` connects this path
+that resolved token can initiate an authorized transaction. For ordinary loads/stores,
+EX's `pipeline_access` launches the virtual read and MEM supplies the translated
+tag. Load hits return directly to MEM/WB; owned store hits retain a candidate
+that WB alone can enqueue into the two-entry committed-store buffer.
+Blocked lookups explicitly replay, while independent pending stores do not
+block a load hit. `RV5Stage` connects this path
 through the MMU to L1D alongside the authorized `data_access` transaction port.
 Unresolved or rejected reads have no completion or cache-state effect. Separate eight-entry fully
 associative ITLB and DTLB instances retain PTE permissions and recheck current

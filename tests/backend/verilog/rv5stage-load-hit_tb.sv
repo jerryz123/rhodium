@@ -1,4 +1,4 @@
-// Checks real EX/MEM/WB hit latency, dependent forwarding, signed lanes, and precise squash.
+// Checks the real eight-instruction load/store loop, hit timing, lanes, and precise squash.
 module rv5stage_load_hit_tb;
   typedef struct packed {logic ready;} ready_t;
   typedef struct packed {logic [63:0] address;} ireq_bits_t;
@@ -68,15 +68,6 @@ module rv5stage_load_hit_tb;
   function automatic logic [31:0] instruction_at(input logic [63:0] address);
     int n;
     n=int'(address/4);
-    if(n>=16 && n<96) begin
-      case((n-16)%5)
-        0: return load_insn(5,8,16,2);
-        1: return load_insn(6,8,20,2);
-        2: return 32'h00448493; // addi x9,x9,4
-        3: return 32'h00450513; // addi x10,x10,4
-        4: return add_insn(7,5,6,1);
-      endcase
-    end
     case(n)
       0: return 32'h00001437; // lui x8,1
       1: return load_insn(5,8,0,3); // cold line fill
@@ -87,6 +78,25 @@ module rv5stage_load_hit_tb;
       10: return add_insn(7,6,0);
       11: return store_insn(7,0);
       12: return 32'h0ff0000f; // fence
+      13: return 32'h10040493; // x9 = input1 at 0x1100
+      14: return 32'h20040513; // x10 = input2 at 0x1200
+      15: return 32'h30040593; // x11 = output at 0x1300
+      16: return 32'h04048613; // x12 = input1 end
+      17: return load_insn(5,9,0,2); // warm both input lines
+      18: return load_insn(6,10,0,2);
+      19: return store_insn(0,0,11); // acquire the output line
+      20: return 32'h0ff0000f;
+      24: return load_insn(5,9,0,2);
+      25: return load_insn(6,10,0,2);
+      26: return 32'h00448493; // addi x9,x9,4
+      27: return 32'h00450513; // addi x10,x10,4
+      28: return add_insn(7,5,6,1);
+      29: return 32'h0075a023; // sw x7,0(x11)
+      30: return 32'h00458593; // addi x11,x11,4
+      31: return 32'hfec492e3; // bne x9,x12,-28
+      32: return 32'h0ff0000f;
+      33: return load_insn(7,11,-64,2); // observe buffered output stores
+      34: return load_insn(7,11,-4,2);
       96: return store_insn(7,8);
       97: return 32'h0ff0000f;
       100: return load_insn(5,8,24,0); // lb -1
@@ -138,6 +148,8 @@ module rv5stage_load_hit_tb;
     endcase
   endfunction
   function automatic logic [63:0] data_at(input logic [63:0] address);
+    if(address>=64'h1100 && address<64'h1140) return 64'hfffffff9fffffff9;
+    if(address>=64'h1200 && address<64'h1240) return 64'h0000000900000009;
     case(address)
       64'h1000: return 64'h1008;
       64'h1008: return 64'd7;
@@ -195,9 +207,9 @@ module rv5stage_load_hit_tb;
       if(load_issue && load_address==64'h1008 && signatures==0) begin
         assert(cycle-chase_cycle==2) else $fatal(1,"dependent load needs more than one bubble: %0d",cycle-chase_cycle);
       end
-      if(load_issue && signatures==1 && (load_address==64'h1010 || load_address==64'h1014)) begin
-        if(measured!=0) assert(cycle-previous_issue==(measured[0] ? 1 : 4))
-          else $fatal(1,"vvadd-style warm hit bubble: issue=%0d gap=%0d",measured,cycle-previous_issue);
+      if(load_issue && signatures==1 && refills>=4 && load_address>=64'h1100 && load_address<64'h1240) begin
+        if(measured>=8) assert(cycle-previous_issue==(measured[0] ? 1 : 7))
+          else $fatal(1,"eight-instruction vvadd loop bubble: issue=%0d gap=%0d",measured,cycle-previous_issue);
         measured<=measured+1;
         previous_issue<=cycle;
       end
@@ -215,7 +227,7 @@ module rv5stage_load_hit_tb;
         end
       end
       if(chi_out.requests.valid && chi_in.requests.ready) begin
-        assert(!refill_pending && chi_out.requests.bits.opcode==7'h02) else $fatal(1,"unexpected CHI transaction");
+        assert(!refill_pending && (chi_out.requests.bits.opcode==7'h02 || chi_out.requests.bits.opcode==7'h07)) else $fatal(1,"unexpected CHI transaction");
         line_address<=64'(chi_out.requests.bits.address);
         transaction_id<=chi_out.requests.bits.txn_id;
         refill_pending<=1; beat<=0; refills<=refills+1;
@@ -230,7 +242,7 @@ module rv5stage_load_hit_tb;
         uncached_response<='{access_fault:1'b0,data:64'hfeedface,destination:uncached_out.request.bits.request.destination,rd:uncached_out.request.bits.request.rd,floating_point_precision:uncached_out.request.bits.request.floating_point_precision};
         if(uncached_out.request.bits.request.access==4'd1) device_reads<=device_reads+1;
       end
-      if(transaction_fire && transaction.access==4'd2 && transaction.address<64'h8000) begin
+      if(transaction_fire && transaction.access==4'd2 && transaction.address<64'h8000 && !(transaction.address>=64'h1300 && transaction.address<64'h1340)) begin
         assert(transaction.address==64'h1020 && transaction.data==66) else $fatal(1,"unexpected cache mutation");
         ram_stores<=ram_stores+1;
       end
@@ -239,9 +251,9 @@ module rv5stage_load_hit_tb;
         case(signatures)
           0: assert(transaction.data==7) else $fatal(1,"dependent hit forwarded wrong value");
           1: begin
-            assert(transaction.data==2 && measured==32 && refills==1)
+            assert(transaction.data==2 && measured==32 && refills==4)
               else $fatal(1,"warm loop result=%h loads=%0d refills=%0d",transaction.data,measured,refills);
-            $display("warm vvadd-style stream: 80 instructions, 32 hits, no load-use bubbles");
+            $display("warm eight-instruction vvadd loop: 16 iterations, one iteration per eight cycles");
           end
           2: assert(transaction.data==254) else $fatal(1,"byte extension");
           3: assert(transaction.data==510) else $fatal(1,"halfword extension");

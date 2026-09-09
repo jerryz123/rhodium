@@ -41,10 +41,11 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   icache.prefetch.bits <== dont_care(CachePrefetchReq(64))
   dcache.virtual_lookup.valid <== host.request.valid
   dcache.virtual_lookup.bits <== host.request.bits.address
-  dcache.load_lookup.valid <== Bool(#false)
-  dcache.load_lookup.bits <== bits(0, 64)
-  dcache.load.request.valid <== Bool(#false)
-  dcache.load.request.bits <== literal(RV5StageLoadReq(XLen.X64), 0)
+  dcache.pipeline_lookup.valid <== Bool(#false)
+  dcache.pipeline_lookup.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  dcache.pipeline.request.valid <== Bool(#false)
+  dcache.pipeline.request.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)
+  dcache.pipeline.commit <== Bool(#false)
   dcache.prefetch.valid <== Bool(#false)
   dcache.prefetch.bits <== dont_care(CachePrefetchReq(64))
   home.identity <== CHIHNFIdentity(p):

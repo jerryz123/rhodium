@@ -60,9 +60,11 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
   def dvm_first_fire = snoop_fire & incoming_dvm & !dvm_first_pending
   def dvm_second_fire = snoop_fire & incoming_dvm & dvm_first_pending
 
-  address <== mux(lookup_start,
-                  rv5stage_chi_snoop_address(p, address_width, incoming_snoop.address),
-                  rv5stage_chi_snoop_address(p, address_width, request.address))
+  // Expose the prospective address before readiness so the cache can drain
+  // matching committed stores without a ready/address combinational cycle.
+  address <== mux(active_state,
+                  rv5stage_chi_snoop_address(p, address_width, request.address),
+                  rv5stage_chi_snoop_address(p, address_width, incoming_snoop.address))
   lookup.valid <== lookup_start
   lookup.bits <== address
   def lookup_result_fire = active_state & uses_lookup & !lookup_complete & lookup_result.valid

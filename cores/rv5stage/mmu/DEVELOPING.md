@@ -51,10 +51,14 @@ routed response arrives while it is waiting.
    virtual SRAM reads are permitted, but cannot create a successful cache token
    without the paired physical request. Wire lookup paths directly in the parent
    composition so translation/PMA cannot feed their indices or validity.
-   The ordinary `load` path registers EX context before sharing the demand DTLB
-   in MEM. WB requests win contention; walks, older data work, permission/PMA
-   rejection, and uncached ranges force fallback. Never use the prefetch probe's
-   relaxed A/D permissions for a demand load or start a speculative data walk.
+   The ordinary `pipeline` path registers EX load/store context before sharing
+   the demand DTLB in MEM. WB requests win contention. Distinguish contention
+   replay from miss/uncached slow service and precise faults. Do not gate this
+   path on `data_memory.drained`: buffered stores are resolved by physical-byte
+   checks in L1D. `ordered_busy` separately blocks younger work behind IO.
+   Forward WB authorization and readiness unchanged; WB owns squash and
+   serialization. Do not reconnect drain-derived flush to store authorization.
+   Never use relaxed prefetch A/D permissions or start a speculative data walk.
 4. Preserve exclusive walker ownership from miss acceptance through completion,
    including the two-observation data-path drain and the single response-owner
    bit.

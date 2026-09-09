@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises scalar load timing through the real core, DTLB, physical router, and L1D.
+// Exercises load/store pipeline timing and WB authorization through the core, MMU, and L1D.
 import:
   "../core.rhdl" open
   "../profile.rhm" open
@@ -7,6 +7,7 @@ import:
   "../memory-router.rhdl" open
   "../dcache/cache.rhdl" open
   "../dcache/protocol.rhdl" open
+  "../memory.rhdl" open
   "../icache/protocol.rhdl" open
   "../uncached-protocol.rhdl" open
   "../interrupt.rhdl" open
@@ -34,9 +35,9 @@ sync_circuit RV5StageLoadHit():
   core.time_counter <== bits(0, 64)
   core.instruction_access |> instruction
   core.data_access |> mmu.data
-  core.load_access |> mmu.load
-  mmu.load_lookup |> cache.load_lookup
-  mmu.load_memory |> cache.load
+  core.pipeline_access |> mmu.pipeline
+  mmu.pipeline_lookup |> cache.pipeline_lookup
+  mmu.pipeline_memory |> cache.pipeline
   mmu.data_lookup |> cache.virtual_lookup
   mmu.data_memory |> router.core
   router.cache |> cache.core
@@ -45,6 +46,7 @@ sync_circuit RV5StageLoadHit():
   mmu.mstatus <== core.mstatus
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
+  mmu.ordered_busy <== router.ordered_busy
   core.prefetch |> mmu.prefetch
   mmu.physical_prefetch |> cache.prefetch
   mmu.instruction.request.valid <== Bool(#false)
@@ -58,11 +60,11 @@ sync_circuit RV5StageLoadHit():
   mmu.instruction_memory.response.bits <== literal(RV5StageInstructionResp(), 0)
   cache.node_id <== bits(3, 7)
   cache.chi <=> chi
-  load_issue <== core.load_access.request.valid
-  load_address <== core.load_access.request.bits.address
-  load_hit <== core.load_access.response.valid
-  transaction_valid <== core.data_access.request.valid
-  transaction_fire <== core.data_access.request.fire()
+  load_issue <== core.pipeline_access.request.valid & (core.pipeline_access.request.bits.access === MemoryOperation.Load)
+  load_address <== core.pipeline_access.request.bits.address
+  load_hit <== core.pipeline_access.response.valid & (core.pipeline_access.response.bits.outcome === RV5StagePipelineOutcome.LoadHit)
+  transaction_valid <== core.data_access.request.valid ||| core.pipeline_access.commit
+  transaction_fire <== core.data_access.request.fire() ||| (core.pipeline_access.commit & core.pipeline_access.commit_ready)
   transaction <== core.data_access.request.bits
 
 export:

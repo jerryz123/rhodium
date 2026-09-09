@@ -19,6 +19,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   interface core(RV5StageDataAccess(xlen), ~role: responder)
   interface cache(RV5StageDataAccess(xlen), ~role: requester)
   interface uncached(RV5StageUncachedDataAccess(xlen), ~role: requester)
+  output ordered_busy: Bool
   inst uncached_management(ValidPipe(RV5StageDataResp(xlen), 1))
 
   inst io_mshr(RV5StageIOMSHR(xlen))
@@ -51,6 +52,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   // Readiness reports registered slot availability. Unlike drained it does
   // not include a same-cycle acceptance, avoiding a cross-path ready loop.
   def cache_available = io_mshr.core.request.ready & !uncached_management.egress.valid
+  ordered_busy <== !cache_available
   def uncached_available = cache.drained & !uncached_management.egress.valid
   def Array(cache_requests, uncached_requests, management_requests) = (
     core.request

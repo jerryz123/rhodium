@@ -92,13 +92,11 @@ module rv5stage_mmu_replay_tb;
   lookup_t instruction_lookup_out;
   ready_t instruction_lookup_in = '{ready: 1'b1};
   lookup_t data_lookup_out;
-  typedef struct packed {logic [63:0] address; logic [1:0] width; logic unsigned_0;} load_bits_t;
-  typedef struct packed {logic valid; load_bits_t bits;} load_request_t;
-  typedef struct packed {load_request_t request;} load_in_t;
-  typedef struct packed {lookup_t response;} load_out_t;
-  load_in_t load_in='0, load_memory_out;
-  load_out_t load_out, load_memory_in;
-  lookup_t load_lookup_out;
+  `include "tests/backend/verilog/rv5stage-pipeline-types.svh"
+  pipeline_in_t pipeline_in='0, pipeline_memory_out;
+  pipeline_out_t pipeline_out, pipeline_memory_in;
+  pipeline_request_t pipeline_lookup_out;
+  logic ordered_busy=0;
   instruction_memory_in_t instruction_memory_in;
   data_memory_in_t data_memory_in;
   prefetch_t prefetch_in;
@@ -140,8 +138,9 @@ module rv5stage_mmu_replay_tb;
   always #5 clock = ~clock;
 
   always_comb begin
-    load_memory_in.response.valid=load_memory_out.request.valid;
-    load_memory_in.response.bits=64'h123456789abcdef0;
+    pipeline_memory_in.response.valid=pipeline_memory_out.request.valid;
+    pipeline_memory_in.response.bits='{outcome:PIPE_LOAD_HIT,reason:3'd0,data:64'h123456789abcdef0};
+    pipeline_memory_in.commit_ready=1;
     instruction_in = '0;
     instruction_in.flush = instruction_flush;
     instruction_in.request.valid = instruction_request_valid;
@@ -290,24 +289,28 @@ module rv5stage_mmu_replay_tb;
 
   task automatic check_load_pipeline(input logic [63:0] address,
                                      input bit expected_hit,
-                                     input logic [63:0] physical_address=0);
+                                     input logic [63:0] physical_address=0,
+                                     input logic [2:0] expected_outcome=PIPE_LOAD_HIT,
+                                     input logic [3:0] operation=MEMORY_LOAD);
     @(negedge clock);
-    load_in.request='{valid:1'b1,bits:'{address:address,width:2'd3,unsigned_0:1'b0}};
+    pipeline_in.request='{valid:1'b1,bits:'{address:address,access:operation,width:2'd3,unsigned_0:1'b0,data:'0}};
     #1;
-    assert(load_lookup_out.valid && load_lookup_out.bits==address && !load_memory_out.request.valid)
+    assert(pipeline_lookup_out.valid && pipeline_lookup_out.bits.address==address && !pipeline_memory_out.request.valid)
       else $fatal(1,"EX index did not precede registered translation");
     tick();
-    assert(load_memory_out.request.valid==expected_hit && load_out.response.valid==expected_hit)
+    assert(pipeline_memory_out.request.valid==expected_hit && pipeline_out.response.valid && (pipeline_out.response.bits.outcome==PIPE_LOAD_HIT)==expected_hit)
       else $fatal(1,"MEM translation permission/drain mismatch for %h",address);
-    if(expected_hit) assert(load_memory_out.request.bits.address==physical_address && load_out.response.bits==64'h123456789abcdef0)
+    assert(pipeline_out.response.bits.outcome==expected_outcome)
+      else $fatal(1,"MEM outcome=%0d expected=%0d",pipeline_out.response.bits.outcome,expected_outcome);
+    if(expected_hit) assert(pipeline_memory_out.request.bits.address==physical_address && pipeline_out.response.bits.data==64'h123456789abcdef0)
       else $fatal(1,"MEM hit used the wrong translation");
     @(negedge clock);
-    load_in='0;
+    pipeline_in='0;
     #1;
-    if(expected_hit) assert(load_memory_out.request.bits.address==physical_address)
+    if(expected_hit) assert(pipeline_memory_out.request.bits.address==physical_address)
       else $fatal(1,"MEM translation depended on the live EX address");
     tick();
-    assert(!load_memory_out.request.valid && !data_memory_out.request.valid)
+    assert(!pipeline_memory_out.request.valid && !data_memory_out.request.valid)
       else $fatal(1,"speculative load launched a transaction or walk");
   endtask
 
@@ -441,13 +444,17 @@ module rv5stage_mmu_replay_tb;
 
     check_load_pipeline(VIRTUAL_ADDRESS,1,PHYSICAL_ADDRESS);
     check_load_pipeline(VIRTUAL_ADDRESS+8,1,PHYSICAL_ADDRESS+8);
-    check_load_pipeline(VIRTUAL_ADDRESS+64'h1000,0); // miss must wait for WB
+    check_load_pipeline(VIRTUAL_ADDRESS+64'h1000,0,0,PIPE_SLOW); // miss must wait for WB
     memory_idle=0;
-    check_load_pipeline(VIRTUAL_ADDRESS,0); // older transaction blocks a hit
+    check_load_pipeline(VIRTUAL_ADDRESS,1,PHYSICAL_ADDRESS); // pending cache stores do not block translation
+    ordered_busy=1;
+    check_load_pipeline(VIRTUAL_ADDRESS,0,0,PIPE_REPLAY); // ordered IO does block a younger hit
+    ordered_busy=0;
     memory_idle=1;
     privilege=2'd0;
-    check_load_pipeline(VIRTUAL_ADDRESS,0); // supervisor leaf denied to U
+    check_load_pipeline(VIRTUAL_ADDRESS,0,0,PIPE_PAGE_FAULT); // supervisor leaf denied to U
     privilege=PRIVILEGE_S;
+    check_load_pipeline(VIRTUAL_ADDRESS,0,0,PIPE_PAGE_FAULT,4'd2); // store requires the dirty PTE bit
 
     // A writable but non-dirty leaf may serve loads, but CBO.ZERO must fault
     // under the core's fault-on-A/D policy, even on a nonaligned TLB hit.

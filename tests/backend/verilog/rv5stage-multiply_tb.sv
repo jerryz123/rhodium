@@ -64,7 +64,7 @@ module rv5stage_multiply_tb;
   logic [2:0] stores_seen;
   localparam logic [3:0] MEMORY_STORE = 4'd2;
 
-  RV5StageCore dut (.load_access_in('0), .load_access_out(), .prefetch_out(), .*);
+  RV5StageCore dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

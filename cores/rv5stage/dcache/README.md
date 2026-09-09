@@ -17,8 +17,8 @@ Contributors changing the L1D implementation should read
 |---|---|
 | Organization | Non-aliasing VIPT, set-associative, blocking, write-back, write-allocate |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
-| Core throughput | One load hit per cycle; two-entry structural fallback buffer when the lookup port is busy |
-| Core protocol | Ordered `Decoupled` requests and non-backpressurable `Valid` responses |
+| Core throughput | One uncontended load hit per cycle; owned store hits retire into two committed entries |
+| Core protocol | EX/MEM lookup and WB store authorization; ordered `Decoupled` slow transactions with `Valid` responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
 | CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
@@ -34,18 +34,45 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 
 ## Core-facing protocol
 
-`RV5StageLoadAccess(xlen)` provides the ordinary pipeline hit path separately
-from authorized transactions. The MMU launches `load_lookup` with the EX
-virtual address, then supplies `load.request` with its permitted physical
-address in MEM. Matching synchronous tag/data outputs produce `load.response`
-combinationally in MEM; the core's MEM/WB register captures the normalized
-value. Back-to-back uncontended hits need no cache-side result/response register.
+`RV5StagePipelineAccess(xlen)` carries ordinary loads and stores. The MMU
+launches `pipeline_lookup` with EX's virtual request, then supplies
+`pipeline.request` with MEM's translated physical address and controls.
+Loads read synchronous tag/state/data arrays; stores need only tag/state reads.
+The MEM result explicitly distinguishes `LoadHit`, `StoreHit`, `Replay`, `Slow`,
+`PageFault`, and `AccessFault`. Loads return normalized data directly to MEM/WB.
+`Replay` repeats the ordinary pipeline; SRAM contention or a byte hazard never
+turns an otherwise warm hit into a slow transaction. Only misses, ownership
+acquisition, translation misses, and non-cacheable operations use slow service.
 
-This lookup has no allocation, mutation, LR reservation, or completion side
-effect. Older transactions and snoops own the SRAM ports first. Missing or
-blocked reads return no hit and are retried through the authorized protocol at
-WB. The parent admits only cacheable, readable, idempotent, non-device ranges
-with successful translation, and cancels architectural use of squashed results.
+Lookup cannot allocate or mutate anything. An owned store retains a one-cycle
+physical address/way/data/mask candidate. WB asserts `commit` only for the live,
+in-order instruction; `commit_ready` authorizes its insertion into the committed
+buffer. A rejected or squashed candidate has no effect and cannot survive to
+authorize a later instruction. Successful enqueue is architectural completion:
+the internal drain produces no second response. The parent checks translation,
+read/write permissions, alignment, and non-device cacheability before admission.
+
+### Committed stores and SRAM arbitration
+
+Two FIFO entries retain positioned data, byte mask, physical address, selected
+way, and whether the coherence state needs marking dirty. Loads compare all
+older entries, including a same-cycle WB enqueue, by physical word and byte
+overlap. Different words, different physical tags, and disjoint bytes do not
+cause a dependency replay. There is no store merging or forwarding yet.
+
+The head drains in an idle data-read slot, including metadata-only store lookup
+cycles when no state write is needed. Capacity pressure, a byte dependency,
+a matching probe, waiting slow work, or eight cycles of head age force draining
+when the arrays are available. A forced write may replay a competing read;
+single-port SRAM contention is distinct from a data dependency.
+
+Slow allocation/replacement and maintenance wait for committed stores to drain.
+A matching snoop also waits before reading metadata or gathering dirty data;
+unrelated probes are not delayed merely by buffer occupancy. A matching pending probe
+prevents new store authorization, so no stale ownership proof can enqueue after
+coherence service starts. Fences, traps, and ordered IO observe buffer occupancy
+through `drained`, including same-cycle enqueue. The cache remains blocking:
+this is not hit-under-miss or a multi-MSHR cache.
 
 Requests carry `locality: RV5StageMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). Lookup, retained mutation, dirty-victim eviction, and refill
@@ -68,7 +95,7 @@ Prefetch requests use `Default`.
 The authorized request is `Decoupled`; an unaccepted WB attempt may be withdrawn
 and replayed. Responses cannot be backpressured. Loads and atomics
 return normalized XLEN values; an RV64 word AMO result is sign extended.
-Successful SC returns zero and failed SC returns one. Ordinary stores also
+Successful SC returns zero and failed SC returns one. Slow-path stores also
 produce an ordered completion response, but its data and destination metadata
 are not architectural results.
 
@@ -83,7 +110,7 @@ without waiting for that speculative read. PTW requests are already physical
 and supply their physical address on both paths.
 
 `drained` is true only when no request is accepted that cycle and no queued
-request, core lookup, registered mutation, acquisition/refill, dirty-line drain,
+request, committed store, core lookup, registered mutation, acquisition/refill, dirty-line drain,
 gather, refill installation, maintenance transaction, or response remains active.
 It does not include an independently serviced snoop; the parent serialization
 logic separately waits for older deferred completions. It is an observation,
@@ -119,10 +146,12 @@ into shared engines:
 
 ```mermaid
 flowchart LR
-  EX["EX virtual load index"] --> SRAM["Synchronous tag/state/data read"]
-  SRAM --> MEM["MEM physical tag + LoadGen"]
+  EX["EX virtual load/store index"] --> SRAM["Synchronous tag/state/data read"]
+  SRAM --> MEM["MEM physical tag + permissions + byte hazards"]
   TRANSLATE["Parallel DTLB + PMA permission"] --> MEM
   MEM -->|"permitted hit"| WB["Core MEM/WB register"]
+  WB -->|"authorize owned store"| Stores["Two committed stores"]
+  Stores -->|"scheduled byte write"| Arrays
   Core["Core request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
   Core -->|"empty buffer + available SRAM"| Lookup
   Virtual["Early virtual index"] --> Lookup
@@ -177,7 +206,7 @@ that younger request, discards its array result, and rereads after the older
 operation completes. Pending snoops may use the arrays while the retained
 request waits; replay then observes updated tags, coherence state, and data.
 Only requests with reserved downstream capacity enter S2, which never stalls.
-A store, SC, or AMO that already has Unique ownership first captures its request,
+A slow-service store, SC, or AMO that already has Unique ownership first captures its request,
 selected way, and old value in a one-entry mutation register. On the following
 edge it updates the selected byte lanes and sets UniqueDirty without emitting
 REQ or DAT traffic; an AMO returns the captured value from before that update.

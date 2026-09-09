@@ -1,0 +1,63 @@
+#lang rhodium
+// Retains two committed owned-line stores and checks physical byte and snoop hazards.
+
+import:
+  "../../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+bundle RV5StagePendingStore(xlen :: XLen, way_width :: PosInt, word_bytes :: PosInt):
+  address: Bits(xlen.width)
+  way: Bits(way_width)
+  data: Bits(xlen.width)
+  mask: Bits(word_bytes)
+  mark_dirty: Bool
+
+sync_circuit RV5StagePendingStores(xlen :: XLen, way_width :: PosInt):
+  def T = RV5StagePendingStore(xlen, way_width, xlen.width / 8)
+  def word_offset = alignment_bits(xlen.width / 8)
+  interface enqueue(Decoupled(T), ~role: consumer)
+  interface drain(Irrevocable(T), ~role: producer)
+  input query_address: Bits(xlen.width)
+  input query_mask: Bits(xlen.width / 8)
+  input probe_address: Bits(xlen.width)
+  output(word_hazard, line_hazard, empty, urgent): Bool
+  output count: Bits(2)
+  reg entries(Vec(2, T))
+  reg occupied(~init: bits(0, 2).as_vec(Bool))
+  reg head(~init: bits(0, 1))
+  reg tail(~init: bits(0, 1))
+  reg age(~init: bits(0, 4))
+
+  enqueue.ready <== !occupied[tail]
+  drain.valid <== occupied[head]
+  drain.bits <== entries[head]
+  empty <== !occupied.as_bits().or_reduce()
+  count <== occupied[0].as_bits().zext(2) + occupied[1].as_bits().zext(2)
+  urgent <== age >= bits(8, 4)
+  when (empty ||| drain.fire()):
+    age <== bits(0, 4)
+  elsewhen (age < bits(8, 4)):
+    age <== age + bits(1, 4)
+
+  fun overlaps(store :: RV5StagePendingStore(xlen, way_width, xlen.width / 8)):
+    (store.address[word_offset..xlen.width] === query_address[word_offset..xlen.width]) & (store.mask & query_mask).or_reduce()
+  fun same_line(store :: RV5StagePendingStore(xlen, way_width, xlen.width / 8)):
+    store.address[6..xlen.width] === probe_address[6..xlen.width]
+  word_hazard <== vec(for List (i in 0..2): occupied[i] & overlaps(entries[i])).as_bits().or_reduce() ||| (enqueue.fire() & overlaps(enqueue.bits))
+  line_hazard <== vec(for List (i in 0..2): occupied[i] & same_line(entries[i])).as_bits().or_reduce() ||| (enqueue.fire() & same_line(enqueue.bits))
+
+  for (i in 0..2):
+    when (enqueue.fire() & (tail === bits(i, 1))):
+      entries[i] <== enqueue.bits
+      occupied[i] <== Bool(#true)
+    elsewhen (drain.fire() & (head === bits(i, 1))):
+      occupied[i] <== Bool(#false)
+  when (enqueue.fire()):
+    tail <== tail ^ bits(1, 1)
+  when (drain.fire()):
+    head <== head ^ bits(1, 1)
+
+export:
+  RV5StagePendingStore
+  RV5StagePendingStores

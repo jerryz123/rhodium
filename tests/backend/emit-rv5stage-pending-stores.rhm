@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits the committed-store buffer for bounded FIFO, physical-byte, and snoop tests.
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm" open
+  "../../cores/rv5stage/dcache/pending-stores.rhdl" open
+
+def design = embedded.run_elaboration(fun (): RV5StagePendingStores(XLen.X64, 1))
+print(emit_circt(design))

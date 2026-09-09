@@ -1,5 +1,5 @@
 #lang rhodium
-// Aligns instruction and EX-issued load lookups with translation and authorized miss service.
+// Aligns EX load/store reads with MEM translation and keeps ordered slow service separate.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -27,9 +27,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def width = xlen.width
   interface instruction(RV5StageInstructionAccess(xlen), ~role: responder)
   interface data(RV5StageDataAccess(xlen), ~role: responder)
-  interface load(RV5StageLoadAccess(xlen), ~role: responder)
-  interface load_memory(RV5StageLoadAccess(xlen), ~role: requester)
-  interface load_lookup(Valid(Bits(width)), ~role: producer)
+  interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
+  interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
+  interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
   interface data_memory(RV5StageDataAccess(xlen), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(width)), ~role: producer)
@@ -40,6 +40,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   input mstatus: Bits(width)
   input satp: Bits(width)
   input invalidate_all: Bool
+  input ordered_busy: Bool
 
   inst itlb(RV5StageTlb(tlb_entries))
   inst dtlb(RV5StageTlb(tlb_entries))
@@ -48,9 +49,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst instruction_requests(Queue(RV5StageInstructionReq(xlen), 2), ~reset_when: instruction.flush)
   inst instruction_read(ValidPipeAlwaysCapture(Bits(width), 1), ~reset_when: instruction.flush)
   reg instruction_retry(~init: Bool(#false))
-  inst load_request(ValidPipeAlwaysCapture(RV5StageLoadReq(xlen), 1))
-  load.request |> load_request.ingress
-  load.request |> map_valid(request => request.address) |> load_lookup
+  inst load_request(ValidPipeAlwaysCapture(RV5StagePipelineReq(xlen), 1))
+  pipeline.request |> load_request.ingress
+  pipeline.request |> pipeline_lookup
 
   def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | satp[60..64] === bits(8, 4)
   def root_ppn = if xlen == XLen.X32 | bits(0, 44) | satp[0..44]
@@ -95,7 +96,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // fall back instead of observing a translation belonging to another token.
   def load_virtual_address = if xlen == XLen.X32 | load_request.egress.bits.address.zext(64) | load_request.egress.bits.address
   dtlb.virtual_address <== mux(data.request.valid, data_virtual_address, load_virtual_address)
-  dtlb.access <== mux(data.request.valid, data_access_kind, Sv39Access.Load)
+  def pipeline_is_store = load_request.egress.bits.access === MemoryOperation.Store
+  dtlb.access <== mux(data.request.valid, data_access_kind, mux(pipeline_is_store, Sv39Access.Store, Sv39Access.Load))
   dtlb.privilege <== data_privilege
   dtlb.sum <== sum
   dtlb.mxr <== mxr
@@ -168,11 +170,37 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(data_translation_enabled, dtlb.physical_address.zext(64), load_request.egress.bits.address)
   def load_last_offset = mux_lookup(load_request.egress.bits.width, ~default: bits(7, width), [[MemoryWidth.Byte, bits(0, width)], [MemoryWidth.Half, bits(1, width)], [MemoryWidth.Word, bits(3, width)]])
   def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
-  // SRAM reads have no effects. Only an idempotent cacheable RAM hit may
-  // finish early; faults, walks, devices and older transactions use WB retry.
-  load_memory.request.valid <== load_request.egress.valid & !data.request.valid & !walk_active & !invalidate_all & data_quiet & dtlb.hit & !dtlb.fault & load_physical.mapped & load_physical.readable & load_physical.cacheable & load_physical.read_idempotent & !load_physical.device
-  load_memory.request.bits <== load_request.egress.bits.updated(~address: load_address)
-  load_memory.response |> load.response
+  // Translation contention and ordered IO replay without entering miss service.
+  // Pending committed cache stores do not make this translation port busy.
+  def pipeline_blocked = data.request.valid ||| walk_active ||| invalidate_all ||| ordered_busy
+  def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable)
+  def pipeline_cacheable = load_physical.cacheable & !load_physical.device & (pipeline_is_store ||| load_physical.read_idempotent)
+  pipeline_memory.request.valid <== load_request.egress.valid & !pipeline_blocked & dtlb.hit & !dtlb.fault & pipeline_permitted & pipeline_cacheable
+  pipeline_memory.request.bits <== load_request.egress.bits.updated(~address: load_address)
+  // WB owns squash and serialization. Rechecking its derived flush here would
+  // feed fence/trap drain back into the very store authorization being drained.
+  pipeline_memory.commit <== pipeline.commit
+  pipeline.commit_ready <== pipeline_memory.commit_ready
+  pipeline.response.valid <== load_request.egress.valid
+  wire pipeline_outcome: RV5StagePipelineOutcome
+  when pipeline_blocked:
+    pipeline_outcome <== RV5StagePipelineOutcome.Replay
+  elsewhen (!dtlb.hit):
+    pipeline_outcome <== RV5StagePipelineOutcome.Slow
+  elsewhen (dtlb.fault):
+    pipeline_outcome <== RV5StagePipelineOutcome.PageFault
+  elsewhen (!pipeline_permitted):
+    pipeline_outcome <== RV5StagePipelineOutcome.AccessFault
+  elsewhen (!pipeline_cacheable):
+    pipeline_outcome <== RV5StagePipelineOutcome.Slow
+  elsewhen (pipeline_memory.response.valid):
+    pipeline_outcome <== pipeline_memory.response.bits.outcome
+  otherwise:
+    pipeline_outcome <== RV5StagePipelineOutcome.Replay
+  pipeline.response.bits <== RV5StagePipelineResult(xlen):
+    outcome: pipeline_outcome
+    reason: mux(pipeline_blocked, mux(ordered_busy, RV5StagePipelineReason.Ordered, RV5StagePipelineReason.Translation), mux(!dtlb.hit, RV5StagePipelineReason.Translation, mux(!pipeline_cacheable, RV5StagePipelineReason.Ordered, pipeline_memory.response.bits.reason)))
+    data: pipeline_memory.response.bits.data
   def can_start_walk = !walk_active & !fault_valid
   def instruction_miss = instruction_head.valid & !instruction.flush & instruction_translation_enabled & !itlb.hit
   def data_miss = data.request.valid & data_translation_enabled & !dtlb.hit

@@ -25,7 +25,9 @@ importing the instruction-cache package.
 |---|---|
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
 | One-entry uncached data admission, retained request, and completion lifetime | [`io-mshr.rhdl`](io-mshr.rhdl) |
-| Demand-priority lookup, best-effort prefetch admission, arrays, hit mutation, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
+| Synchronous tag/state and byte-masked data storage | [`arrays.rhdl`](arrays.rhdl) |
+| Two committed entries, physical-byte/probe comparisons, FIFO order, and bounded age | [`pending-stores.rhdl`](pending-stores.rhdl) |
+| Shared pipeline decisions, SRAM scheduling, prefetch admission, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
 | Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
 | Ownership acquisition and partial writes | [`../chi/write-unique.rhdl`](../chi/write-unique.rhdl) |
@@ -45,13 +47,19 @@ importing the instruction-cache package.
    Geometry rejection belongs to `../profile.rhm`.
 2. Keep the one-request-per-cycle load-hit path separate from blocking miss,
    acquisition, gather, writeback, and installation state.
-   The speculative `load_lookup` read uses only EX's virtual page offset.
-   `load.request` supplies the MEM physical tag and load controls; return its
+   The speculative `pipeline_lookup` read uses only EX's virtual page offset.
+   `pipeline.request` supplies the MEM physical tag and operation controls; return its
    matching SRAM value directly to the core MEM/WB register. Do not insert the
    authorized transaction path's S2/response registers into that hit path.
    Registered read ownership and page-offset matching prevent consuming another
-   request's SRAM response. Reject the hit when older work or snoops intervene.
-   This path must not initiate any cache transaction or update architectural state.
+   request's SRAM response. Return an explicit replay for blocked reads, not a
+   slow-service request. Store lookup retains only a one-cycle candidate; WB
+   authorization alone enqueues it. Compare all committed bytes, including the
+   current enqueue, without using global drain as a hit-readiness condition.
+   Only enqueue may clear a matching reservation for a buffered ordinary store.
+   Keep SRAM arbitration independent of logical word/byte conflicts, and keep
+   same-line snoop draining independent of unrelated probes. Do not allow a
+   committed entry's way to be replaced or downgraded before its drain.
    For authorized transactions,
    S1 owns array reads, tag comparison, and word/state selection; its result
    crosses `ValidPipeAlwaysCapture` before S2 checks permissions and launches
@@ -99,7 +107,7 @@ tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
 Test cache, transaction, and atomic behavior through compiled fixtures:
 
 ```sh
-FIXTURES='rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' \
+FIXTURES='rv5stage-pending-stores rv5stage-load-hit rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' \
   bash tests/backend/run-circt.sh --simulate-only
 ```
 

@@ -1,0 +1,27 @@
+#lang rhodium
+// Owns the independent synchronous metadata and byte-masked data SRAM ports of L1D.
+
+import:
+  "../profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("chi/protocol/coherence.rhdl").CHICacheState
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/read-write.rhdl") open
+  lib("rhodium/std/sync-ram.rhdl") open
+
+sync_circuit RV5StageDCacheArrays(xlen :: XLen, cache :: RV5StageCacheConfig):
+  def word_bytes = xlen.width / 8
+  def depth = cache.sets * (RV5StageCacheLineBytes / word_bytes)
+  def tag_width = xlen.width - alignment_bits(RV5StageCacheLineBytes) - cache.set_width
+  interface tags(ReadWritePort(cache.set_width, Bits(tag_width), cache.ways), ~role: responder)
+  interface states(ReadWritePort(cache.set_width, CHICacheState, cache.ways), ~role: responder)
+  interface data(ReadWritePort(index_width(depth), Bits(8), cache.ways * word_bytes), ~role: responder)
+  inst tag_storage(SyncRam1RW(cache.sets, Bits(tag_width), cache.ways))
+  inst state_storage(SyncRam1RW(cache.sets, CHICacheState, cache.ways))
+  inst data_storage(SyncRam1RW(depth, Bits(8), cache.ways * word_bytes))
+  tags |> tag_storage.port
+  states |> state_storage.port
+  data |> data_storage.port
+
+export:
+  RV5StageDCacheArrays

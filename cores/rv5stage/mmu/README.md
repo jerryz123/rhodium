@@ -40,18 +40,21 @@ request unaccepted; the core retains its hint across replay.
 
 ## Request flow
 
-Ordinary loads also have a pipeline-aligned `load` interface. EX launches
-`load_lookup` directly into L1D and registers the load address/width/signedness.
+Ordinary loads and stores have a pipeline-aligned `pipeline` interface. EX launches
+`pipeline_lookup` directly into L1D and registers the address and operation controls.
 In MEM the DTLB resolves that captured request in parallel with SRAM outputs.
-The MMU forwards only a permitted cacheable, read-idempotent, non-device physical
-load to `load_memory`; its hit data returns in MEM for the core's WB register.
-This path never starts a walk or device transaction. Misses and rejected hits
-fall back to the authorized WB path described below.
+The MMU forwards only permitted cacheable, non-device physical requests to
+`pipeline_memory`; loads must also be read-idempotent. MEM reports an explicit
+load hit, store candidate, replay, slow-service need, or page/access fault.
+WB store authorization passes through to the matching cache candidate.
+This path never starts a speculative walk or device transaction.
 
-Authorized WB accesses have priority on DTLB contention. An active walk or
-older physical transaction suppresses a speculative hit, preserving ordering
-and preventing load-completion port collisions. Permission checks include the
-ordinary demand-load A-bit check, unlike the best-effort prefetch probe.
+Authorized WB accesses win DTLB contention. Walks, invalidation, and the router's
+`ordered_busy` observation replay younger pipeline requests. Pending committed
+cache stores do not block translation: L1D checks physical-byte hazards and
+actual SRAM availability. The core arbitrates FP hit/deferred-result collisions
+at WB. Demand permission checks include A and, for stores, D; the relaxed
+prefetch probe cannot authorize either operation.
 
 [`RV5StageMmu`](mmu.rhdl) is composed between the core and physical hierarchy
 in [`rv5stage.rhdl`](../rv5stage.rhdl). The data-side output first reaches the
@@ -80,8 +83,8 @@ structural admission and buffering.
 ```mermaid
 flowchart LR
   FETCH["Core Fetch<br/>S0 virtual request"] --> IREQ["Registered S1 request queue"] --> ILOOKUP["ITLB lookup"]
-  LSU["Core WB fallback / mutation<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
-  EXLOAD["Core EX load"] --> LREQ["Registered MEM load context"] --> DLOOKUP
+  LSU["Core WB slow service<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
+  EXLOAD["Core EX load/store"] --> LREQ["Registered MEM operation context"] --> DLOOKUP
   EXLOAD -->|"virtual index"| L1D
   DLOOKUP -->|"permitted speculative hit"| MEMLOAD["L1D tag/data → core MEM/WB"]
   FETCH -->|"early virtual SRAM index"| L1I

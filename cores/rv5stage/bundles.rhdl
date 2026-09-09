@@ -122,6 +122,7 @@ bundle MemoryWriteback(xlen :: XLen):
   instruction: Bits(32)
   replay: Bool
   load_hit: Bool
+  cache_outcome: RV5StagePipelineOutcome
   data_request_valid: Bool
   data_request: RV5StageDataReq(xlen)
   fp_compute: Bool

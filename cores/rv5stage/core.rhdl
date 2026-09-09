@@ -74,7 +74,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   input time_counter: Bits(64)
   interface instruction_access(RV5StageInstructionAccess(xlen), ~role: requester)
   interface data_access(RV5StageDataAccess(xlen), ~role: requester)
-  interface load_access(RV5StageLoadAccess(xlen), ~role: requester)
+  interface pipeline_access(RV5StagePipelineAccess(xlen), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
@@ -136,7 +136,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // stage order while still observing downstream occupancy and results.
   def id_ex = id_ex_pipe.egress
   def memory = ex_mem_pipe.egress
-  def memory_load_hit = load_access.response.valid & memory.bits.data_request_valid & (memory.bits.data_request.access === MemoryOperation.Load)
+  def memory_cache_outcome = mux(pipeline_access.response.valid & memory.bits.data_request_valid, pipeline_access.response.bits.outcome, RV5StagePipelineOutcome.Slow)
+  def memory_load_hit = memory_cache_outcome === RV5StagePipelineOutcome.LoadHit
+  def memory_cache_replay = memory_cache_outcome === RV5StagePipelineOutcome.Replay
   // Accepted maintenance retains retirement context outside the feed-forward
   // pipeline. Only its completion can retire it; it is never reissued.
   reg maintenance_pending(~init: Bool(#false))
@@ -637,13 +639,15 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     floating_point_precision: fp_execution_control.destination_precision
     locality: RV5StageMemoryLocality.Default
 
-  // Ordinary loads read speculatively in EX. Only a permitted MEM hit
-  // becomes normal WB data; misses and side-effecting accesses still need WB.
-  load_access.request.valid <== execute_transfer & !execute_exception.valid & (execute_memory_operation === MemoryOperation.Load)
-  load_access.request.bits <== RV5StageLoadReq(xlen):
+  // Both ordinary operations use EX/MEM lookup. Only WB authorizes a store;
+  // lookup itself cannot change the cache or initiate an external transaction.
+  pipeline_access.request.valid <== execute_transfer & !execute_exception.valid & execute_memory_operation.is_one_of(MemoryOperation.Load, MemoryOperation.Store)
+  pipeline_access.request.bits <== RV5StagePipelineReq(xlen):
     address: alu.result
+    access: execute_memory_operation
     width: id_ex.bits.memory_width
     unsigned: id_ex.bits.memory_unsigned
+    data: execute_data_request.data
 
   def execute_payload = ExecuteMemory(xlen):
     pc: id_ex.bits.pc
@@ -690,18 +694,21 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def live_memory = memory |> filter_valid(_operation => memory_stage_valid) |> trace_valid_event("core.s4.memory", ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+    cache_outcome(~format: "enum"): memory_cache_outcome
+    cache_reason(~format: "enum"): mux(pipeline_access.response.valid, pipeline_access.response.bits.reason, RV5StagePipelineReason.None)
   def Array(memory_writeback_path, memory_exception_path, memory_replay_path) = live_memory |> fork_valid(3)
   memory_exception_path |> filter_valid(operation => operation.exception_valid)
     |> map_valid(operation => operation.pc) |> memory_exception_link.left
-  memory_replay_path |> filter_valid(operation => operation.replay)
+  memory_replay_path |> filter_valid(operation => operation.replay ||| memory_cache_replay)
     |> map_valid(operation => operation.pc) |> memory_replay_link.left
   def memory_writeback = memory_writeback_path |> map_valid(operation => MemoryWriteback(xlen)):
     pc: operation.pc
     resume_pc: operation.resume_pc
     instruction: operation.instruction
-    replay: operation.replay
+    replay: operation.replay ||| memory_cache_replay
     load_hit: memory_load_hit
-    data_request_valid: operation.data_request_valid & !memory_load_hit
+    cache_outcome: memory_cache_outcome
+    data_request_valid: operation.data_request_valid & (memory_cache_outcome === RV5StagePipelineOutcome.Slow)
     data_request: operation.data_request
     fp_compute: operation.fp_compute
     fp_issue: operation.fp_issue
@@ -709,7 +716,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     writeback_source: mux(memory_load_hit, WritebackSelect.Alu, operation.writeback_source)
     write_enable: operation.writeback_enable & !operation.exception_valid & !operation.replay
     rd: operation.rd
-    value: mux(memory_load_hit, load_access.response.bits, operation.result)
+    value: mux(memory_load_hit, pipeline_access.response.bits.data, operation.result)
     multiply_issue: operation.multiply_issue
     divide_issue: operation.divide_issue
     system: operation.system
@@ -743,6 +750,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     pending_locality <== retiring_locality
   def wb_attempt = pipeline_wb.valid & !maintenance_pending & !reservation_wait_pending & !reservation_wait_accept & !pending_exception_valid & !wb_bits.replay & !wb_bits.exception_valid
   def wb_memory_attempt = wb_attempt & wb_bits.data_request_valid
+  def wb_store_attempt = wb_attempt & (wb_bits.cache_outcome === RV5StagePipelineOutcome.StoreHit)
+  pipeline_access.commit <== wb_store_attempt
   def wb_fp_load = wb_bits.data_request.destination === RV5StageDataDestination.FloatingPoint
   // Use registered destination availability for request admission. The FP
   // reservation's same-cycle completion bypass must not feed LSU request valid.
@@ -755,8 +764,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   pipeline_wb |> filter_valid(_operation => wb_attempt & wb_bits.fp_compute)
     |> map_valid(operation => operation.fp_issue)
     |> eject_flow(~valid: fp.issue.valid, ~bits: fp.issue.bits)
-  def wb_page_fault = data_access.request.valid & data_access.request_fault
-  def wb_access_fault = (data_access.request.valid & !wb_page_fault & data_access.request_access_fault) ||| (maintenance_done & data_access.response.bits.access_fault)
+  def wb_page_fault = (wb_attempt & (wb_bits.cache_outcome === RV5StagePipelineOutcome.PageFault)) ||| (data_access.request.valid & data_access.request_fault)
+  def wb_access_fault = (wb_attempt & (wb_bits.cache_outcome === RV5StagePipelineOutcome.AccessFault)) ||| (data_access.request.valid & !wb_page_fault & data_access.request_access_fault) ||| (maintenance_done & data_access.response.bits.access_fault)
   def wb_data_fault = wb_page_fault ||| wb_access_fault
   def wb_memory_accepted = data_access.request.fire() & !wb_data_fault
   maintenance_accepted <== wb_memory_accepted & wb_bits.data_request.access.into(MemoryOperation).is_cache_management()
@@ -767,7 +776,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     maintenance_pending <== Bool(#false)
   def wb_memory_replay = wb_memory_attempt & (!wb_fp_load_ready ||| (!wb_data_fault & !data_access.request.ready))
   def wb_fp_replay = fp.issue.valid & !fp.issue.ready
-  def wb_replay = wb_bits.replay ||| wb_memory_replay ||| wb_fp_replay
+  def deferred_fp_load_completion = data_access.response.valid & (data_access.response.bits.destination === RV5StageDataDestination.FloatingPoint)
+  def wb_hit_fp_replay = wb_attempt & wb_bits.load_hit & wb_fp_load & (!wb_fp_load_ready ||| deferred_fp_load_completion)
+  def wb_store_replay = wb_store_attempt & !pipeline_access.commit_ready
+  def wb_replay = wb_bits.replay ||| wb_memory_replay ||| wb_fp_replay ||| wb_hit_fp_replay ||| wb_store_replay
   wire wb_exception: RV5StageException(xlen)
   when (wb_bits.exception_valid):
     wb_exception <== RV5StageException(xlen):
@@ -803,7 +815,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
            rd: operation.data_request.rd
   fp_load_reservation |> to_decoupled() |> fp.load_reserve
   (
-    wb |> filter_valid(operation => wb_attempt & operation.load_hit & wb_fp_load)
+    wb |> filter_valid(operation => wb_attempt & operation.load_hit & wb_fp_load & !wb_hit_fp_replay)
       |> map_valid(operation => RV5StageFpLoadCompletion(Bits(width))):
            context: operation.pc
            precision: operation.data_request.floating_point_precision
