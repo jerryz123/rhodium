@@ -12,7 +12,7 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/home/home-common.rhdl") open
   lib("chi/home/inclusive-home.rhdl") open
-  lib("chi/adapters/address-projector.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
   lib("chi/subordinate/ram.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -28,7 +28,7 @@ sync_circuit RV5StageLRSCProgress():
 
   inst left(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(4, 2), ~chi: config))
   inst right(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(4, 2), ~chi: config))
-  inst home(CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, CHIAddressProjectorConfig(p, 4096, 64, 1), ~sets: 2, ~ways: 1)))
+  inst home(CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, StripedAddressLayout(4096, 64, 1), ~sets: 2, ~ways: 1)))
   inst ram(CHIRam(ram_config))
   home.identity <== CHIHNFIdentity(p):
     home_node_id: bits(1, p.node_id_width)
