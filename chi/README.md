@@ -496,7 +496,7 @@ flowchart LR
 | [`CHIHNF`](home/coherent-home.rhdl) | Mixed RN-I/RN-F traffic without an LLC | One globally active transaction; broadcast coherence and dirty intervention before non-snoopable subordinate traffic |
 | [`CHIInclusiveHNF`](home/inclusive-home.rhdl) | Mixed RN-I/RN-F traffic with a blocking inclusive LLC | Set-associative `SyncRam1RW` tag/data arrays, hit service, victim invalidation, dirty intervention/writeback, and one active transaction |
 | [`CHIRam`](subordinate/ram.rhdl) | Synthesizable non-coherent memory | SN-F by default or SN-I by selection; configurable 128/256/512-bit DAT and native transfers from one beat through 64 bytes |
-| [`CHIDPIMemory`](subordinate/dpi-memory.rhdl) | Sparse simulation memory | The same native `CHISNChannels` transaction contract as `CHIRam`, backed by a 64-byte-block C++ DPI store and fixed 512-bit ABI |
+| [`CHIDPIMemory`](subordinate/dpi-memory.rhdl) | Sparse simulation memory | The same native `CHISNChannels` transaction contract as `CHIRam`, backed by a bounded sparse C++ byte store and fixed 512-bit data ABI |
 
 `CHIHNIParams` validates node roles, NodeID widths/collisions, endpoint
 capabilities, and service opcode coverage when constructed, before circuit
@@ -530,8 +530,14 @@ DAT beats. `max_transfer_bytes` selects native support from one DAT beat through
 transaction slots, slot-index DBIDs held through completion, byte enables for
 partial writes, and complete DataID sets for multi-beat traffic. Selecting
 SN-F does not make the RAM coherent: an upstream HN-F owns coherence and sends
-only non-snoopable subordinate requests. `CHIDPIMemory` uses the endpoint
-NodeID as its model identity, isolating each sparse DPI store.
+only non-snoopable subordinate requests. `CHIDPIMemory` uses an
+explicit host `model_id` parameter as its model identity, independent of NodeID.
+Each sparse DPI store has a fixed capacity from `CHIRamConfig`. During clocked
+reset the instance registers that capacity and its physical base with its native
+backing model. Duplicate IDs across instances, overlapping physical windows,
+and changes to a registered identity fail. Native simulation adapters can
+consume the registry for initial-image loading after all reset callbacks have
+settled. Repeated reset initialization preserves memory contents.
 
 Both implementations use the same transaction controller from
 [`subordinate/memory-controller.rhdl`](subordinate/memory-controller.rhdl), including configuration,

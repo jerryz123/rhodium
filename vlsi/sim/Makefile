@@ -139,6 +139,7 @@ $(FESVR_LIBRARY):
 	@exit 1
 
 $(SIMULATOR_BINARY): $(SOC_VERILOG) $(MAPPING_STAMP) $(SIMS_DIR)/TestDriver.v \
+		$(VERILATOR_DIR)/image_memory_map.cc $(FESVR_DIR)/image_memory.h \
 		$(FESVR_DIR)/direct_mem_htif.cc $(FESVR_DIR)/direct_mem_htif.h \
 		$(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
 		$(VERILATOR_DIR)/direct_mem_htif_dpi.h $(FESVR_LIBRARY) \
@@ -147,7 +148,7 @@ $(SIMULATOR_BINARY): $(SOC_VERILOG) $(MAPPING_STAMP) $(SIMS_DIR)/TestDriver.v \
 		--top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 		$(SOC_VERILOG) $(MEMORY_WRAPPERS) $(FUNCTIONAL_MODELS) \
 		$(SIMS_DIR)/TestDriver.v $(FESVR_DIR)/direct_mem_htif.cc \
-		$(VERILATOR_DIR)/direct_mem_htif_dpi.cc $(UART_DPI_DIR)/uart_dpi.cc \
+		$(VERILATOR_DIR)/direct_mem_htif_dpi.cc $(UART_DPI_DIR)/uart_dpi.cc $(VERILATOR_DIR)/image_memory_map.cc \
 		-CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -std=c++20" \
 		-LDFLAGS "$(FESVR_LIBRARY) -pthread"
 

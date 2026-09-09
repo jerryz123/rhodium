@@ -18,7 +18,7 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
   inst requester(FesvrRequester(XLen.X64, fabric_params.flit, fabric_params.host_node, fabric_params.home_map, fabric_params.rv5stage_config.physical_map, fabric_params.host_services, fabric_params.boot.boot_address_register))
   inst soc(simple.SimpleSoC(params))
   inst uart(UartDPI(0, uart_oversample_divisor))
-  inst memory(CHIDPIMemory(CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64)))
+  inst memory(CHIDPIMemory(CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64), 0))
 
   requester.port <=> soc.host.memory
   uart.uart_tx <== soc.uart.tx

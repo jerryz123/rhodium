@@ -21,7 +21,7 @@ sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = tiled.default_tiled
 
   inst requester(FesvrRequester(XLen.X64, implementation.flit, implementation.host.node, implementation.home_map, implementation.rv5stage_config.physical_map, implementation.host_services, soc_config.boot.boot_address_register))
   inst soc(tiled.TiledSoC(soc_config))
-  inst memory(CHIDPIMemory(CHIRamConfig(implementation.flit, soc_config.memory.size_bytes, ~max_outstanding: implementation.memory.node.max_outstanding, ~max_transfer_bytes: 64)))
+  inst memory(CHIDPIMemory(CHIRamConfig(implementation.flit, soc_config.memory.size_bytes, ~max_outstanding: implementation.memory.node.max_outstanding, ~max_transfer_bytes: 64), 0))
   inst uart(UartDPI(0, uart_oversample_divisor))
 
   requester.port <=> soc.host.memory

@@ -1,4 +1,4 @@
-// Loads exact FESVR byte ranges and publishes the entry through the ordinary memory transport.
+// Loads images through registered native memory or exact target transactions, then uses coherent HTIF.
 #include "direct_mem_htif.h"
 
 #include <stdexcept>
@@ -32,12 +32,17 @@ void require_transfer(addr_t address, std::size_t length) {
     throw std::runtime_error("direct-memory HTIF requires a non-wrapping one-to-eight-byte chunk");
 }
 
+void require_range(addr_t address, std::size_t length) {
+  if (length != 0 && address > std::numeric_limits<addr_t>::max() - (length - 1))
+    throw std::runtime_error("direct-memory HTIF range wraps the address space");
+}
+
 }  // namespace
 
 DirectMemoryHtif::DirectMemoryHtif(int argc, char** argv, int expected_xlen,
-                                 std::uint64_t boot_address_register)
+                                 std::uint64_t boot_address_register, ImageMemoryMap image_memories)
     : htif_t(argc, argv), target_xlen_(expected_xlen),
-      boot_address_register_(boot_address_register) {
+      boot_address_register_(boot_address_register), image_memories_(std::move(image_memories)) {
   if (expected_xlen != 32 && expected_xlen != 64) {
     throw std::invalid_argument("direct-memory HTIF target XLEN must be 32 or 64");
   }
@@ -45,6 +50,7 @@ DirectMemoryHtif::DirectMemoryHtif(int argc, char** argv, int expected_xlen,
     throw std::invalid_argument("boot-address register must be eight-byte aligned");
   }
   set_expected_xlen(expected_xlen);
+  image_memories_.freeze();
   target_context_ = context_t::current();
   host_context_.init(host_thread_main, this);
 }
@@ -115,25 +121,51 @@ void DirectMemoryHtif::reset() {
 void DirectMemoryHtif::read_chunk(addr_t address,
                                   std::size_t length,
                                   void* destination) {
-  require_transfer(address, length);
-  store_little_endian(transact(false, address, 0, length), destination, length);
+  require_range(address, length);
+  auto bytes = std::span(static_cast<std::uint8_t*>(destination), length);
+  while (!bytes.empty()) {
+    auto segment = loading_ ? image_memories_.segment(address, bytes.size())
+                            : ImageMemoryMap::Segment{nullptr, 0, bytes.size()};
+    if (segment.region) segment.region->read(segment.offset, bytes.first(segment.length));
+    else {
+      segment.length = std::min(segment.length, kMaxBytes);
+      store_little_endian(transact(false, address, 0, segment.length), bytes.data(), segment.length);
+    }
+    bytes = bytes.subspan(segment.length);
+    if (!bytes.empty()) address += segment.length;
+  }
 }
 
 void DirectMemoryHtif::write_chunk(addr_t address,
                                    std::size_t length,
                                    const void* source) {
-  require_transfer(address, length);
-  transact(true, address, load_little_endian(source, length), length);
+  require_loading_write(address, length);
+  auto bytes = std::span(static_cast<const std::uint8_t*>(source), length);
+  while (!bytes.empty()) {
+    auto segment = loading_ ? image_memories_.segment(address, bytes.size())
+                            : ImageMemoryMap::Segment{nullptr, 0, bytes.size()};
+    if (segment.region) segment.region->write(segment.offset, bytes.first(segment.length));
+    else {
+      segment.length = std::min(segment.length, kMaxBytes);
+      transact(true, address, load_little_endian(bytes.data(), segment.length), segment.length);
+    }
+    bytes = bytes.subspan(segment.length);
+    if (!bytes.empty()) address += segment.length;
+  }
 }
 
 void DirectMemoryHtif::clear_chunk(addr_t address, std::size_t length) {
-  if (length != 0 && address > std::numeric_limits<addr_t>::max() - (length - 1))
-    throw std::runtime_error("direct-memory HTIF clear range wraps the address space");
+  require_loading_write(address, length);
   while (length != 0) {
-    const auto count = std::min(length, kMaxBytes);
-    transact(true, address, 0, count);
-    address += count;
-    length -= count;
+    auto segment = loading_ ? image_memories_.segment(address, length)
+                            : ImageMemoryMap::Segment{nullptr, 0, length};
+    if (segment.region) segment.region->zero(segment.offset, segment.length);
+    else {
+      segment.length = std::min(segment.length, kMaxBytes);
+      transact(true, address, 0, segment.length);
+    }
+    length -= segment.length;
+    if (length != 0) address += segment.length;
   }
 }
 
@@ -143,7 +175,14 @@ std::size_t DirectMemoryHtif::chunk_align() {
 }
 
 std::size_t DirectMemoryHtif::chunk_max_size() {
-  return kMaxBytes;
+  return loading_ && !image_memories_.empty() ? 64 * 1024 : kMaxBytes;
+}
+
+void DirectMemoryHtif::require_loading_write(addr_t address, std::size_t length) const {
+  require_range(address, length);
+  if (loading_ && length != 0 && address <= boot_address_register_ + kMaxBytes - 1 &&
+      address + length - 1 >= boot_address_register_)
+    throw std::runtime_error("loading write overlaps the reserved boot-address register");
 }
 
 void DirectMemoryHtif::idle() {

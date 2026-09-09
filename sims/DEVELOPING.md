@@ -43,6 +43,25 @@ systems cannot reuse another system's generated RTL.
 
 ## Add or change a harness
 
+Each `CHIDPIMemory` registers its C++ backing store on clocked reset edges,
+using its own model ID, configured capacity, and physical identity input.
+There is no separate harness descriptor or generated registration header.
+The DPI scope identifies the owning instance: repeated reset registration is
+idempotent, while duplicate IDs, changed windows, and overlapping ranges fail.
+
+`fesvr/image_memory.h` owns protocol-independent range splitting and callbacks.
+`verilator/chi_image_memory.h` consumes the CHI-owned native registry without
+making CHI depend on FESVR. `image_memory_map.cc` selects the native backends
+linked by the simulator build; systems without native RAM have an empty map.
+The first non-reset HTIF tick freezes the registry before loading. All RAMs
+must receive clocked reset before that edge; the shared driver supplies three
+reset edges and deasserts on a falling edge. This avoids dependence on callback
+ordering within an edge. Initialization errors remain fatal to loading, and new
+registrations after the freeze fail. Register only RAM that is safe to mutate during
+cold loading. Callback failures are fatal, never retried through CHI. Runtime
+accesses bypass the registration map after FESVR's startup reset callback.
+Validate both ordinary and `+load-through-chi` execution when changing loading.
+
 1. Keep the SoC instance and its hardware parameters in `socs/`; add only the
    parameterless execution wrapper and simulation-owned models here.
 2. Preserve `SoCHarness` as the common generated top so `TestDriver.v` remains

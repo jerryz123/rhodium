@@ -29,6 +29,15 @@ incomplete transaction.
 `chi/subordinate/ram.rhdl` owns only the `SyncRam1RW` backend and re-exports the shared bindings
 for existing importers. `chi/subordinate/dpi-memory.rhdl` imports the controller directly and
 owns the DPI ABI, access enable/reset policy, and model-status assertion.
+`dpi/chi_memory.{h,cc}` owns the bounded sparse byte store shared by DPI and
+native simulation adapters. Its process-local model ID is independent of the
+hardware NodeID. The reset-only initialization DPI supplies physical base and
+capacity and identifies the instance through its DPI scope. Repeated reset
+registration must preserve identity, range, and bytes. Invalid registrations
+poison the registry so a host consumer cannot silently fall back after a failure.
+The native registry freezes before image loading; access requires successful
+initialization. Reset suppresses transactions without erasing memory.
+The store and registry have no FESVR dependency.
 The facade imports shared configuration from its owner, not through SRAM.
 
 Keep the controller as an elaboration helper, not a wrapper circuit or a new

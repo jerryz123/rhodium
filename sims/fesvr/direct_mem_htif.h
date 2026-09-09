@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "image_memory.h"
 
 #include <fesvr/context.h>
 #include <fesvr/htif.h>
@@ -18,7 +19,8 @@ struct DirectMemoryRequest {
 
 class DirectMemoryHtif : public htif_t {
  public:
-  DirectMemoryHtif(int argc, char** argv, int expected_xlen, std::uint64_t boot_address_register);
+  DirectMemoryHtif(int argc, char** argv, int expected_xlen, std::uint64_t boot_address_register,
+                   ImageMemoryMap image_memories = {});
   ~DirectMemoryHtif() override = default;
 
   void tick(bool request_ready,
@@ -46,6 +48,7 @@ class DirectMemoryHtif : public htif_t {
 
   std::uint64_t transact(bool write, addr_t address, std::uint64_t data, std::size_t length);
   void switch_to_target();
+  void require_loading_write(addr_t address, std::size_t length) const;
 
   context_t host_context_;
   context_t* target_context_ = nullptr;
@@ -61,6 +64,7 @@ class DirectMemoryHtif : public htif_t {
   const int target_xlen_;
   const std::uint64_t boot_address_register_;
   bool loading_ = true;
+  ImageMemoryMap image_memories_;
 };
 
 }  // namespace rhodium::fesvr

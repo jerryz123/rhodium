@@ -9,8 +9,15 @@ import:
 
 // A fixed-width DPI boundary covers every CHI data width supported by
 // CHIFlitParams while keeping one stable C ABI for simulator models.
+dpi_import function rhodium_chi_memory_init(
+  model_id: Bits(32),
+  capacity: Bits(64),
+  base_address: Bits(64)
+) -> (return status: Bits(8))
+
 dpi_import function rhodium_chi_memory_access(
   model_id: Bits(32),
+  capacity: Bits(64),
   beat_bytes: Bits(8),
   write: Bool,
   address: Bits(64),
@@ -21,12 +28,19 @@ dpi_import function rhodium_chi_memory_access(
   return status: Bits(8)
 )
 
-sync_circuit CHIDPIMemory(config :: CHIRamConfig):
+sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
+  unless model_id < (1 << 32) && config.size_bytes < (1 << 64)
+  | error(~who: #'CHIDPIMemory, "model identity and capacity must fit the DPI ABI")
   def p = config.flit
   def slot_width = index_width(config.max_outstanding)
 
   input identity: CHIRamIdentity(p)
   interface port(CHISNChannels(p), ~role: node)
+
+  // Every reset edge initializes the native instance; no memory transaction is needed.
+  dpi_reg init_status = rhodium_chi_memory_init(bits(model_id, 32), bits(config.size_bytes, 64), identity.base_address.zext(64), ~enable: reset_active().into(Bool))
+  when (!reset_active().into(Bool)):
+    assert(init_status === bits(0, 8), "chi_dpi_memory_initialized")
 
   fun backend():
     fun connect(issue :: Endpoint, completion :: Endpoint):
@@ -37,7 +51,8 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig):
       def raw_write_mask = operation.mask.as_bits()
       def write_mask = if p.data_bytes == 64 | raw_write_mask | raw_write_mask.zext(64)
       dpi_reg (read_data, status) = rhodium_chi_memory_access(
-        identity.node_id.zext(32),
+        bits(model_id, 32),
+        bits(config.size_bytes, 64),
         bits(p.data_bytes, 8),
         operation.write,
         relative_address.zext(64),

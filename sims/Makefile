@@ -24,12 +24,15 @@ HARNESS_SOURCE_mini := sims/mini-soc-harness.rhdl
 HARNESS_SOURCE_tiled := sims/tiled-soc-harness.rhdl
 HARNESS_SOURCE := $(HARNESS_SOURCE_$(SOC))
 HARNESS_EMITTER := $(REPO_DIR)/sims/emit-soc-harness.rhm
-SOC_DPI_SOURCE_simple := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc
-SOC_DPI_SOURCE_tiled := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc
+SOC_DPI_SOURCE_simple := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc $(CHI_DPI_DIR)/chi_memory.cc
+SOC_DPI_SOURCE_tiled := $(SOC_DPI_SOURCE_simple)
 SOC_DPI_SOURCE := $(SOC_DPI_SOURCE_$(SOC)) $(UART_DPI_DIR)/uart_dpi.cc
-SOC_DPI_HEADER_simple := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h
-SOC_DPI_HEADER_tiled := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h
+SOC_DPI_HEADER_simple := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h $(CHI_DPI_DIR)/chi_memory.h $(VERILATOR_DIR)/chi_image_memory.h
+SOC_DPI_HEADER_tiled := $(SOC_DPI_HEADER_simple)
 SOC_DPI_HEADER := $(SOC_DPI_HEADER_$(SOC)) $(UART_DPI_DIR)/uart_dpi.h
+SOC_DPI_CFLAGS_simple := -DRHODIUM_CHI_MEMORY
+SOC_DPI_CFLAGS_tiled := -DRHODIUM_CHI_MEMORY
+SOC_DPI_CFLAGS := $(SOC_DPI_CFLAGS_$(SOC))
 
 CPPFLAGS += -I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR)
 CXXFLAGS += -std=c++20 -Wall -Wextra -Werror
@@ -151,7 +154,7 @@ chi-dpi-memory-test: | $(DPI_BUILD_DIR)
 	@test -n "$(VERILATOR_ROOT)" || \
 	  (echo "set VERILATOR_ROOT to the Verilator share directory" >&2; exit 1)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(VERILATOR_ROOT)/include/vltstd \
-	  $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc \
+	  $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc $(CHI_DPI_DIR)/chi_memory.cc \
 	  $(REPO_DIR)/chi/tests/chi_dpi_memory_dpi_test.cc \
 	  -o $(DPI_BUILD_DIR)/chi_dpi_memory_dpi_test
 	$(DPI_BUILD_DIR)/chi_dpi_memory_dpi_test
@@ -213,6 +216,7 @@ $(SOC_VERILOG): $(SOC_MLIR)
 
 ifeq ($(PREBUILT_SIMULATOR),)
 $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
+                     $(VERILATOR_DIR)/image_memory_map.cc $(FESVR_DIR)/image_memory.h \
                      $(VERILATOR_DIR)/relink.mk \
                      $(FESVR_DIR)/direct_mem_htif.cc \
                      $(FESVR_DIR)/direct_mem_htif.h \
@@ -228,8 +232,8 @@ $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
 	  --top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 	  $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
 	  $(FESVR_DIR)/direct_mem_htif.cc $(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
-	  $(SOC_DPI_SOURCE) $(TRACE_SOURCES) \
-	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -std=c++20 $(TRACE_CFLAGS)" \
+	  $(SOC_DPI_SOURCE) $(TRACE_SOURCES) $(VERILATOR_DIR)/image_memory_map.cc \
+	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR) -std=c++20 $(SOC_DPI_CFLAGS) $(TRACE_CFLAGS)" \
 	  -LDFLAGS "$(FESVR_LIBRARY) -pthread $(TRACE_LDFLAGS)"
 else
 $(SIMULATOR_BINARY):

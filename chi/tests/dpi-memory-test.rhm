@@ -12,21 +12,26 @@ def memory_import = design.dpi_imports.find(
   fun (dpi): dpi.name == "rhodium_chi_memory_access"
 )
 def memory_register = top.operations.find(
-  fun (operation): operation.opcode == "sim.dpi_register"
+  fun (operation): operation.opcode == "sim.dpi_register" && operation.results.length() == 2
 )
+def init_import = design.dpi_imports.find(fun (dpi): dpi.name == "rhodium_chi_memory_init")
 def assertion_labels = top.operations.filter(
   ~keep: fun (operation): operation.opcode == "verif.assert"
 ).map(fun (operation): operation.attribute("label"))
 
 check:
+  init_import.input_names ~is ["model_id", "capacity", "base_address"]
+  init_import.results.map(fun (result): result.name) ~is ["status"]
+  assertion_labels.contains("chi_dpi_memory_initialized") ~is #true
   top.inputs.map(fun (input): input.name) ~is ["clock", "reset", "identity", "port_in"]
   top.outputs.map(fun (output): output.name) ~is ["port_out"]
   memory_import.input_names ~is [
-    "model_id", "beat_bytes", "write", "address", "write_data", "write_mask"
+    "model_id", "capacity", "beat_bytes", "write", "address", "write_data", "write_mask"
   ]
   memory_import.results.map(fun (result): result.name) ~is ["read_data", "status"]
-  type_equal(memory_import.input_types[4], Bits(512)) ~is #true
-  type_equal(memory_import.input_types[5], Bits(64)) ~is #true
+  type_equal(memory_import.input_types[1], Bits(64)) ~is #true
+  type_equal(memory_import.input_types[5], Bits(512)) ~is #true
+  type_equal(memory_import.input_types[6], Bits(64)) ~is #true
   type_equal(memory_import.results[0].type, Bits(512)) ~is #true
   memory_register.results.length() ~is 2
   fixture.chi_dpi_memory_config.max_transfer_bytes ~is 64

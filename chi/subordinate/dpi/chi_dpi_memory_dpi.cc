@@ -1,21 +1,16 @@
-// Stores native CHI memory beats in sparse fixed-size memory blocks.
+// Translates clocked CHI beats to the shared bounded native byte store.
 #include "chi_dpi_memory_dpi.h"
+#include "chi_memory.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <unordered_map>
+#include <exception>
+#include <cstdio>
 
 namespace {
 
 constexpr std::size_t kDpiDataWords = 512 / 32;
-constexpr std::size_t kMemoryBlockBytes = 64;
-
-using MemoryBlock = std::array<std::uint8_t, kMemoryBlockBytes>;
-using SparseMemory = std::unordered_map<std::uint64_t, MemoryBlock>;
-
-std::unordered_map<std::uint32_t, SparseMemory> memories;
-
 bool supported_beat_bytes(std::uint8_t beat_bytes) {
   return beat_bytes == 16 || beat_bytes == 32 || beat_bytes == 64;
 }
@@ -36,7 +31,22 @@ void set_packed_byte(svBitVecVal* value,
 
 }  // namespace
 
+unsigned char rhodium_chi_memory_init(int model_id, long long capacity, long long base_address) {
+  try {
+    const auto scope = svGetScope();
+    const char* owner = scope ? svGetNameFromScope(scope) : nullptr;
+    rhodium::chi::register_memory(static_cast<std::uint32_t>(model_id),
+                                  static_cast<std::uint64_t>(base_address),
+                                  static_cast<std::uint64_t>(capacity), owner ? owner : "");
+    return 0;
+  } catch (const std::exception& error) {
+    std::fprintf(stderr, "CHI memory initialization failed: %s\n", error.what());
+    return 3;
+  }
+}
+
 unsigned char rhodium_chi_memory_access(int model_id,
+                                        long long capacity,
                                         unsigned char beat_bytes,
                                         unsigned char write,
                                         long long address,
@@ -57,26 +67,25 @@ unsigned char rhodium_chi_memory_access(int model_id,
   const auto unsigned_address = static_cast<std::uint64_t>(address);
   const auto beat_address = unsigned_address &
       ~(static_cast<std::uint64_t>(unsigned_beat_bytes) - 1);
-  const auto block_address = beat_address &
-      ~(static_cast<std::uint64_t>(kMemoryBlockBytes) - 1);
-  const auto block_offset = static_cast<std::size_t>(beat_address - block_address);
   const auto enabled_bytes = static_cast<std::uint64_t>(write_mask);
-  auto& memory = memories[static_cast<std::uint32_t>(model_id)];
-
-  if (write != 0) {
-    auto& block = memory[block_address];
-    for (std::size_t lane = 0; lane < unsigned_beat_bytes; ++lane) {
-      if (((enabled_bytes >> lane) & 1U) != 0) {
-        block[block_offset + lane] = packed_byte(write_data, lane);
-      }
-    }
-  } else {
-    const auto found = memory.find(block_address);
-    if (found != memory.end()) {
+  try {
+    auto& memory = rhodium::chi::initialized_memory(static_cast<std::uint32_t>(model_id),
+                                       static_cast<std::uint64_t>(capacity));
+    std::array<std::uint8_t, 64> bytes{};
+    auto beat = std::span(bytes).first(unsigned_beat_bytes);
+    // Read first so partial writes preserve disabled bytes and validate the full beat.
+    memory.read(beat_address, beat);
+    if (write != 0) {
       for (std::size_t lane = 0; lane < unsigned_beat_bytes; ++lane) {
-        set_packed_byte(read_data, lane, found->second[block_offset + lane]);
+        if (((enabled_bytes >> lane) & 1U) != 0) bytes[lane] = packed_byte(write_data, lane);
       }
+      memory.write(beat_address, beat);
+    } else {
+      for (std::size_t lane = 0; lane < unsigned_beat_bytes; ++lane)
+        set_packed_byte(read_data, lane, bytes[lane]);
     }
+  } catch (const std::exception&) {
+    return 3;
   }
   return 0;
 }

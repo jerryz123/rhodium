@@ -191,8 +191,24 @@ make -C sims run SOC=tiled BINARY=/absolute/path/to/program.elf
 argument vector through VPI to `DirectMemoryHtif`. FESVR owns ELF parsing,
 segment loading, entry-point discovery, `tohost`/`fromhost` polling, and exit
 status; the Makefile and RTL do not implement a separate binary loader.
-The Verilator binding removes only the driver-owned `+rheg-trace=` and
-`+max-cycles=` options before passing arguments to FESVR.
+The Verilator binding removes the simulator-owned `+rheg-trace=`,
+`+max-cycles=`, and `+load-through-chi` options before passing arguments to FESVR.
+
+SimpleSoC and TiledSoC DPI RAMs register their native backing stores during
+clocked reset, before FESVR starts. Each instance's existing hardware identity
+and configuration supply its physical window; no separate memory-map declaration
+is needed. FESVR reads,
+writes, and clears in that physical window access the same native byte store
+as CHI, in chunks up to 64 KiB. Other ranges, including MMIO, retain normal
+target transactions; accesses crossing a registration boundary are split.
+Use `HTIF_ARGS=+load-through-chi` to load entirely through the target transport.
+MiniSoC has no registered native RAM and uses target transactions.
+
+This is a cold-boot optimization, not a coherent runtime debug interface.
+The cores must remain in the boot ROM without accessing registered RAM until
+the entry is published. Fast access closes before publication; runtime HTIF,
+including signatures and mailboxes in dirty cache lines, always uses CHI.
+Warm reloads and concurrent native memory access are not supported by this path.
 
 After ELF loading completes, the C++ transport writes the reported entry point
 to the SoC's configured 64-bit boot-address register through the ordinary memory
@@ -206,7 +222,7 @@ Secondary harts park in the ROM. Changing binaries does not require rebuilding
 RTL. Zero entries and ELF loading writes overlapping the boot register are
 rejected, preventing premature publication. Startup errors report a nonzero exit.
 
-`DirectMemoryHtif` presents FESVR's abstract memory chunks as one-outstanding,
+Outside registered initial-image ranges, `DirectMemoryHtif` presents FESVR's abstract memory chunks as one-outstanding,
 one-to-eight-byte transactions with 64-bit addresses and data. It never widens
 device reads or synthesizes read-modify-write for narrow writes. Target XLEN
 may be 32 or 64. `FesvrRequester` uses the SoC's physical map and Home service
@@ -217,7 +233,7 @@ fragmented into aligned transfers; MMIO must be an exact, aligned, supported
 device traffic is issued. Target and protocol errors stop FESVR with failure.
 
 The requester retains no cache lines and reports Invalid for every snoop.
-ELF loading and `tohost`/`fromhost` polling still observe dirty RV5Stage cache
+Runtime `tohost`/`fromhost` polling and signature reads observe dirty RV5Stage cache
 lines without reserving a special mailbox address range. The same endpoint
 can access platform devices, including the boot-address register and UART.
 

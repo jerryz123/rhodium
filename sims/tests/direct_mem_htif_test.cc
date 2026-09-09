@@ -14,6 +14,94 @@
 using rhodium::fesvr::DirectMemoryHtif;
 using rhodium::fesvr::DirectMemoryRequest;
 
+class ImageHtif final : public DirectMemoryHtif {
+ public:
+  ImageHtif(int argc, char** argv, rhodium::fesvr::ImageMemoryMap map)
+      : DirectMemoryHtif(argc, argv, 64, 0x3000, std::move(map)) {}
+ protected:
+  std::map<std::string, std::uint64_t> load_payload(const std::string&, reg_t* entry, reg_t) override {
+    *entry = 0x80000000;
+    std::vector<std::uint8_t> bytes(70000, 0xa5), read(bytes.size());
+    memif().write(0x80000000, bytes.size(), bytes.data());
+    memif().read(0x80000000, read.size(), read.data());
+    assert(read == bytes);
+    clear_chunk(0x80000003, 69990);
+    memif().read(0x80000000, read.size(), read.data());
+    for (std::size_t i = 0; i < read.size(); ++i)
+      assert(read[i] == (i >= 3 && i < 69993 ? 0 : 0xa5));
+    std::array<std::uint8_t, 8> edge = {1, 2, 3, 4, 5, 6, 7, 8};
+    memif().write(0x7ffffffc, edge.size(), edge.data());
+    memif().write(0x80000000 + 69996, edge.size(), edge.data());
+    return {{"tohost", 0x80001000}, {"fromhost", 0x80001008}};
+  }
+  void reset() override {
+    DirectMemoryHtif::reset();
+    std::uint8_t byte = 0;
+    memif().read(0x80000000, 1, &byte);
+    assert(byte == 0x77);
+    memif().write(0x80000000, 1, &byte);
+    htif_exit(1);
+  }
+};
+
+void check_image_loading(bool fail = false) {
+  std::vector<std::uint8_t> storage(70016);
+  std::size_t largest = 0;
+  rhodium::fesvr::ImageMemoryMap map;
+  rhodium::fesvr::ImageMemoryRegion region{
+    "ram", 0x80000000, 70000, storage.size(), 8,
+    [&](auto offset, auto bytes) { std::copy_n(storage.begin() + offset, bytes.size(), bytes.begin()); },
+    [&](auto offset, auto bytes) {
+      if (fail) throw std::runtime_error("image backend failure");
+      largest = std::max(largest, bytes.size());
+      std::copy(bytes.begin(), bytes.end(), storage.begin() + offset);
+    },
+    [&](auto offset, auto length) { std::fill_n(storage.begin() + offset, length, 0); }
+  };
+  for (int invalid = 0; invalid < 4; ++invalid) {
+    auto bad = region;
+    if (invalid == 0) bad.size = 0;
+    if (invalid == 1) bad.base = UINT64_MAX;
+    if (invalid == 2) bad.offset = bad.storage_size;
+    if (invalid == 3) bad.write = {};
+    bool rejected = false;
+    try { map.add(bad); } catch (const std::invalid_argument&) { rejected = true; }
+    assert(rejected);
+  }
+  map.add(region);
+  bool rejected = false;
+  try { map.add(region); } catch (const std::invalid_argument&) { rejected = true; }
+  assert(rejected);
+  map.freeze();
+  rejected = false;
+  try { map.add(region); } catch (const std::logic_error&) { rejected = true; }
+  assert(rejected);
+  char executable[] = "image-test", program[] = "scripted";
+  char* argv[] = {executable, program};
+  ImageHtif transport(2, argv, map);
+  const std::vector<DirectMemoryRequest> expected = {
+    {true, 0x7ffffffc, 0x04030201, 4},
+    {true, 0x80000000 + 70000, 0x08070605, 4},
+    {true, 0x3000, 0x80000000, 8},
+    {false, 0x80000000, 0, 1},
+    {true, 0x80000000, 0x77, 1}
+  };
+  std::size_t index = 0;
+  for (int cycle = 0; cycle < 1000 && transport.exit_word() == 0; ++cycle) {
+    bool ready = transport.request_valid(), response = transport.response_ready();
+    if (ready) {
+      assert(index < expected.size());
+      auto actual = transport.request(), want = expected[index];
+      assert(actual.write == want.write && actual.address == want.address && actual.data == want.data && actual.length == want.length);
+    }
+    if (response) ++index;
+    transport.tick(ready, response, 0x77, 0);
+  }
+  assert(transport.exit_word() == (fail ? 3U : 1U));
+  assert(index == (fail ? 0 : expected.size()));
+  if (!fail) assert(largest == 65536 && storage[8] == 5 && storage[7] == 0 && storage.back() == 0);
+}
+
 class ScriptedHtif final : public DirectMemoryHtif {
  public:
   ScriptedHtif(int argc, char** argv) : DirectMemoryHtif(argc, argv, 64, 0x3000) {}
@@ -51,8 +139,9 @@ class ScriptedHtif final : public DirectMemoryHtif {
 class BootHtif final : public DirectMemoryHtif {
  public:
   BootHtif(int argc, char** argv, int xlen, std::uint64_t boot_register,
-           std::uint64_t entry, int overlap = 99, bool clear = false)
-      : DirectMemoryHtif(argc, argv, xlen, boot_register), boot_register_(boot_register),
+           std::uint64_t entry, int overlap = 99, bool clear = false,
+           rhodium::fesvr::ImageMemoryMap map = {})
+      : DirectMemoryHtif(argc, argv, xlen, boot_register, std::move(map)), boot_register_(boot_register),
         entry_(entry), overlap_(overlap), clear_(clear) {}
   bool boot_returned = false;
  protected:
@@ -89,7 +178,14 @@ void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
   char executable[] = "boot-test";
   char program[] = "scripted";
   char* argv[] = {executable, program};
-  BootHtif transport(2, argv, xlen, boot_register, entry, overlap, clear);
+  rhodium::fesvr::ImageMemoryMap map;
+  if (overlap != 99) {
+    map.add({"reserved", boot_register, 8, 8, 0,
+      [](auto, auto) { assert(false); },
+      [](auto, auto) { assert(false); },
+      [](auto, auto) { assert(false); }});
+  }
+  BootHtif transport(2, argv, xlen, boot_register, entry, overlap, clear, std::move(map));
   const bool invalid_entry = entry == 0 || (xlen == 32 && entry > UINT32_MAX);
   std::vector<DirectMemoryRequest> expected;
   if (overlap == 99) {
@@ -191,6 +287,8 @@ void isolated(Test test) {
 }
 
 int main() {
+  isolated([] { check_image_loading(); });
+  isolated([] { check_image_loading(true); });
   const auto run_boot = [](int xlen, std::uint64_t address, std::uint64_t entry,
                            int fail = -1, int overlap = 99, bool clear = false) {
     isolated([=] { check_boot(xlen, address, entry, fail, overlap, clear); });
