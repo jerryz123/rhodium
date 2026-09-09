@@ -4,21 +4,19 @@
 
 > All the code and text in this repository was written by a LLM. The only text not produced by a LLM is this disclaimer. I worked with a coding agent to implement everything here to my personal preferences.
 
-Rhodium is an experimental hardware description language hosted by
-[Rhombus](https://docs.racket-lang.org/rhombus/). Ordinary Rhombus computation
-generates hardware through concise, typed notation; elaboration produces one
-public, backend-independent hardware IR and verifies it before any downstream
-tool consumes it.
+Rhodium is an experimental hardware description language built for explicit
+hardware and extensible abstractions. Hosted by
+[Rhombus](https://docs.racket-lang.org/rhombus/), it combines programmable
+hardware generation with typed connections and composable language layers.
+Domain-specific types, library operators, and user-defined notation can feel
+like native language features while remaining inspectable down to the hardware
+they describe.
 
-Normal designs use `#lang rhodium`. Authors who want to assemble a smaller
-language can start from `#lang rhodium/base` and import only the frontend layers
-they need. Both profiles create exactly the same core hardware model.
-
-This page is the user and integrator entry point. Contributors changing Rhodium
-itself should start with [`DEVELOPING.md`](DEVELOPING.md).
-
-Rhodium does not emit SystemVerilog itself. Its optional backend lowers verified
-IR through CIRCT, which owns RTL generation.
+Every layer builds the same small, verified hardware IR. Connectivity and
+priority are explicit, without last-connect semantics or competing drivers.
+That shared foundation supports protocol-aware flow composition, transaction
+tracing, clock-crossing checks, and validated network generation. For RTL
+generation, Rhodium lowers through CIRCT to SystemVerilog.
 
 ## Core principles that set Rhodium apart
 
@@ -35,6 +33,19 @@ what drives a signal does not require replaying procedural assignment order.
 This gives readers, verification, analysis, and backends the same unambiguous
 dataflow graph. See the [IR contract](rhodium/core/README.md).
 
+### Language-oriented programming
+
+Useful abstractions should feel first-class whether they come from the language,
+a standard library, or a user's own API. Rhodium builds its authoring surface
+from composable Rhombus language layers: syntax, types, and operations can grow
+together without introducing a separate hardware model. Authors can inspect
+the layers beneath a construct and the core IR it produces, following an
+abstraction down to explicit hardware rather than treating it as compiler magic.
+This deliberately blurs the author-facing boundary between language features
+and libraries while keeping their hardware semantics explicit. The
+[layered authoring examples](examples/lop/) express the same circuit through
+the public core, kernel, selected layers, and standard language.
+
 ### Extend the language with hardware types
 
 Equal bit widths do not make two hardware values interchangeable. Extensible
@@ -48,6 +59,8 @@ The normal language and an explicitly extended `#lang rhodium/base` still
 converge on the same small hardware IR. See the
 [type extension surface](rhodium/frontend/layers/README.md#shared-extension-surface).
 
+## What layers and libraries make possible
+
 ### Declarative decoding
 
 Specify the behavior that matters and leave synthesis free to optimize what
@@ -59,8 +72,6 @@ non-overlapping relation in the IR. The CIRCT backend lowers it to sparse
 `casez` logic with don't-care outputs, preserving optimization freedom for
 downstream tools. See [decode generation](rhodium/std/README.md) and the
 [lowering contract](rhodium/backend/README.md#selection-and-relations).
-
-## What layers and libraries make possible
 
 ### Domain-specific hardware vocabulary
 
