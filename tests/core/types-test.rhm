@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the canonical HardwareType abstraction and Bits-specific predicates.
+// Checks scalar capabilities, canonical packed widths, and aggregate type boundaries.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -16,7 +16,6 @@ class ExtensionBits(name):
   override method describe(): "extension-bits<" ++ name ++ ">"
   override method type_equal(other):
     other is_a ExtensionBits && name == other.name
-  override method bit_width(): 1
   override method packed_width(): 1
 
 class InvalidExtensionBits(width):
@@ -24,7 +23,20 @@ class InvalidExtensionBits(width):
   override method describe(): "invalid-extension-bits"
   override method type_equal(other):
     other is_a InvalidExtensionBits && width == other.width
-  override method bit_width(): width
+  override method packed_width(): width
+
+class ExtensionScalar(name, width):
+  implements ScalarDataType
+  override method describe(): "extension-scalar<" ++ name ++ ">"
+  override method type_equal(other):
+    other is_a ExtensionScalar && name == other.name && width == other.width
+  override method packed_width(): width
+
+class PackedExtension(width):
+  implements DataType
+  override method describe(): "packed-extension"
+  override method type_equal(other):
+    other is_a PackedExtension && width == other.width
   override method packed_width(): width
 
 def bits8 = Bits(8)
@@ -39,6 +51,51 @@ def zero_width_extension = InvalidExtensionBits(0)
 def negative_width_extension = InvalidExtensionBits(-1)
 def noninteger_width_extension = InvalidExtensionBits("wide")
 
+// Width alone confers neither scalar identity nor arithmetic/bitwise operations.
+def scalar = ExtensionScalar("token", 8)
+check:
+  scalar_data_type(scalar) ~is #true
+  scalar_width(scalar) ~is 8
+  scalar.packed_width() ~is 8
+  bitwise_type(scalar) ~is #false
+  arithmetic_type(scalar) ~is #false
+  arithmetic_type(extension_bits) ~is #false
+  type_equal(scalar, ExtensionScalar("token", 8)) ~is #true
+  type_equal(scalar, ExtensionScalar("other", 8)) ~is #false
+  type_equal(scalar, Bits(8)) ~is #false
+  cast_compatible(scalar, Bits(8)) ~is #true
+  packable_type(PackedExtension(8)) ~is #true
+  scalar_width(PackedExtension(8)) ~is #false
+  scalar_width(Clock) ~is #false
+  scalar_width(Reset) ~is #false
+  scalar_width(extension) ~is #false
+  packable_type(extension) ~is #false
+  cast_compatible(extension, extension) ~is #false
+
+for (width in [0, -1, "wide", 1/2, #true, #false]):
+  def invalid = ExtensionScalar("invalid", width)
+  def record = RecordType([RecordField("value", invalid)])
+  def vector = VectorType(2, invalid)
+  for (type in [invalid, InvalidExtensionBits(width), record, vector]):
+    check:
+      scalar_width(type) ~is #false
+      type_well_formed(type) ~is #false
+      packable_type(type) ~is #false
+      cast_compatible(type, type) ~is #false
+      cast_compatible(type, Bits(1)) ~is #false
+      cast_compatible(Bits(1), type) ~is #false
+  check:
+    record.packed_width() ~is #false
+    vector.packed_width() ~is #false
+  // Opaque DataType is valid, but all non-false malformed widths are rejected.
+  def packed = PackedExtension(width)
+  check:
+    type_well_formed(packed) ~is (width == #false)
+    packable_type(packed) ~is #false
+    cast_compatible(packed, packed) ~is #false
+    RecordType([RecordField("value", packed)]).packed_width() ~is #false
+    VectorType(2, packed).packed_width() ~is #false
+
 check:
   bits8 is_a HardwareType ~is #true
   hardware_type(bits8) ~is #true
@@ -48,19 +105,19 @@ check:
   type_equal(Bits(1), Bits(1)) ~is #true
   clock_type(Clock) ~is #true
   reset_type(Reset) ~is #true
-  flat_data_type(bits8) ~is #true
+  scalar_data_type(bits8) ~is #true
   bitwise_type(bits8) ~is #true
   arithmetic_type(bits8) ~is #true
   signed_arithmetic_type(bits8) ~is #false
   data_type(Clock) ~is #false
   data_type(Reset) ~is #false
   data_type(extension_bits) ~is #true
-  flat_data_type(extension_bits) ~is #true
+  scalar_data_type(extension_bits) ~is #true
   bitwise_type(extension_bits) ~is #true
-  data_width(extension_bits) ~is 1
-  data_width(zero_width_extension) ~is #false
-  data_width(negative_width_extension) ~is #false
-  data_width(noninteger_width_extension) ~is #false
+  scalar_width(extension_bits) ~is 1
+  scalar_width(zero_width_extension) ~is #false
+  scalar_width(negative_width_extension) ~is #false
+  scalar_width(noninteger_width_extension) ~is #false
   type_well_formed(zero_width_extension) ~is #false
   type_well_formed(negative_width_extension) ~is #false
   type_well_formed(noninteger_width_extension) ~is #false
@@ -123,7 +180,11 @@ def nested_vector = VectorType(2, pair8)
 check:
   record_type(pair8) ~is #true
   data_type(pair8) ~is #true
-  flat_data_type(pair8) ~is #false
+  scalar_data_type(pair8) ~is #false
+  scalar_width(pair8) ~is #false
+  scalar_width(vector4x8) ~is #false
+  scalar_width(RecordType([RecordField("bit", Bits(1))])) ~is #false
+  scalar_width(VectorType(1, Bits(1))) ~is #false
   bitwise_type(pair8) ~is #false
   bits8.packed_width() ~is 8
   pair8.packed_width() ~is 16
@@ -132,6 +193,8 @@ check:
   Reset.packed_width() ~is 1
   extension.packed_width() ~is #false
   opaque_record.packed_width() ~is #false
+  type_well_formed(opaque_record) ~is #true
+  type_well_formed(VectorType(2, extension)) ~is #true
   packable_type(pair8) ~is #true
   cast_compatible(pair8, Bits(16)) ~is #true
   cast_compatible(pair8, Bits(15)) ~is #false
@@ -160,10 +223,27 @@ block:
   def design = Design()
   def builder = Builder(design)
   def module_def = builder.module("InvalidExtensionWidths")
+  for (width in [0, -1, "wide", 1/2, #true]):
+    check:
+      builder.input(module_def, "invalid", PackedExtension(width)) ~throws "well-formed HardwareType"
   check:
     builder.input(module_def, "zero", zero_width_extension) ~throws "well-formed HardwareType"
     builder.input(module_def, "negative", negative_width_extension) ~throws "well-formed HardwareType"
     builder.input(module_def, "noninteger", noninteger_width_extension) ~throws "well-formed HardwareType"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ScalarCapabilities")
+  def value = builder.input(module_def, "value", scalar)
+  def converted = builder.cast(module_def, value, Bits(8))
+  check:
+    type_equal(converted.type, Bits(8)) ~is #true
+    builder.add(module_def, value, value) ~throws "same arithmetic type and width"
+    builder.bit_and(module_def, value, value) ~throws "bitwise"
+    builder.cast(module_def, value, ExtensionScalar("invalid", 0)) ~throws "cast"
+  builder.finish(module_def)
+  verify_design(design)
 
 block:
   def design = Design()

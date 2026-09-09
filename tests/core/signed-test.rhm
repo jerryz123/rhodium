@@ -13,9 +13,6 @@ class TestSigned(width):
   override method type_equal(other):
     other is_a TestSigned && width == other.width
 
-  override method bit_width():
-    width
-
   override method packed_width():
     width
 

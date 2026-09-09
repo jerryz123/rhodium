@@ -99,7 +99,7 @@ block:
     builder.dpi_import("rhodium_step", ["value"], [Bits(4)], "result", Bits(8)) ~throws "conflicting signatures"
     builder.dpi_register(module_def, "wrong", dpi, [wrong_value], clock, enable) ~throws "wrong hardware type"
     builder.dpi_register(module_def, "clock", dpi, [value], enable, enable) ~throws "clock must be Clock"
-    builder.dpi_register(module_def, "enable", dpi, [value], clock, wide_enable) ~throws "one-bit FlatDataType"
+    builder.dpi_register(module_def, "enable", dpi, [value], clock, wide_enable) ~throws "one-bit ScalarDataType"
     builder.dpi_call(module_def, dpi, [value], clock, enable) ~throws "must be instantiated with dpi_register"
     builder.dpi_register(module_def, "procedure", procedure, [value], clock, enable) ~throws "exactly one result"
 

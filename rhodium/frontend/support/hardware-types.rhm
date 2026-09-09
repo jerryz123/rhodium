@@ -4,6 +4,7 @@
 import:
   rhombus/meta open
   "../../core/types.rhm".HardwareType
+  "../../core/types.rhm".ScalarDataType
   "fields.rhm".HardwareFields
   "generator-parameters.rhm".GeneratorParameter
 
@@ -52,7 +53,7 @@ defn.macro 'hardware_type $(name :: Identifier)($(parameter :: GeneratorParamete
           item
         )
   unless implemented_type
-  | syntax_meta.error("hardware_type requires an implements clause", name)
+  | implemented_type := 'ScalarDataType'
   unless width
   | syntax_meta.error("hardware_type requires a width clause", name)
   unless description
@@ -66,8 +67,6 @@ defn.macro 'hardware_type $(name :: Identifier)($(parameter :: GeneratorParamete
          $description
        override method type_equal(other :: HardwareType):
          other is_a $hidden_type && hardware_type_equality_key == other.hardware_type_equality_key
-       override method bit_width():
-         $width
        override method packed_width():
          $width
      fun $constructor_name($parameter, ...) :: HardwareType:

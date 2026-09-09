@@ -38,14 +38,12 @@ namespace ~extend FloatFormat:
 // HardFloat's recoded representation and retain the exact format in connection
 // checking. Both lower as ordinary scalar integers through the core IR.
 hardware_type IEEEFloat(format :: FloatFormat):
-  implements FlatDataType
   width: format.ieee_width
   type_key: [format.exponent_width, format.significand_width]
   describe:
     "ieee-float<" ++ to_string(format.exponent_width) ++ "," ++ to_string(format.significand_width) ++ ">"
 
 hardware_type RecFloat(format :: FloatFormat):
-  implements FlatDataType
   width: format.recoded_width
   type_key: [format.exponent_width, format.significand_width]
   describe:

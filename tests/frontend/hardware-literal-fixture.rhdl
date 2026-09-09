@@ -1,12 +1,28 @@
 #lang rhodium
 // Exercises static literal shadows, aggregate packing, and extension-defined literals.
 
+import:
+  "../../rhodium/core/types.rhm".BitwiseType
+
 // This type and its semantic literal class model an independently authored
 // frontend extension using only the public HardwareLiteral protocol.
 hardware_type Nibble():
-  implements FlatDataType
   width: 4
   describe: "nibble"
+
+hardware_type ExplicitScalar():
+  implements ScalarDataType
+  width: 4
+  describe: "explicit-scalar"
+
+hardware_type BitwiseNibble():
+  implements BitwiseType
+  width: 4
+  describe: "bitwise-nibble"
+
+hardware_type CustomWidth(width):
+  width: width
+  describe: "custom-width"
 
 class NibbleLiteral(value):
   implements HardwareLiteral
@@ -106,6 +122,9 @@ def design = elaborate(
 )
 
 export:
+  ExplicitScalar
+  BitwiseNibble
+  CustomWidth
   Nibble
   NibbleLiteral
   Mode

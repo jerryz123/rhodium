@@ -22,6 +22,23 @@ def aggregate_constant = module_def.find_operation(
 )
 
 check:
+  scalar_data_type(fixture.Nibble()) ~is #true
+  scalar_width(fixture.Nibble()) ~is 4
+  bitwise_type(fixture.Nibble()) ~is #false
+  arithmetic_type(fixture.Nibble()) ~is #false
+  scalar_data_type(fixture.ExplicitScalar()) ~is #true
+  bitwise_type(fixture.ExplicitScalar()) ~is #false
+  bitwise_type(fixture.BitwiseNibble()) ~is #true
+  arithmetic_type(fixture.BitwiseNibble()) ~is #false
+  type_equal(fixture.Nibble(), fixture.Nibble()) ~is #true
+  type_equal(fixture.Nibble(), fixture.ExplicitScalar()) ~is #false
+  type_equal(fixture.CustomWidth(4), fixture.CustomWidth(4)) ~is #true
+  type_equal(fixture.CustomWidth(4), fixture.CustomWidth(5)) ~is #false
+  scalar_width(fixture.CustomWidth(4)) ~is 4
+  type_well_formed(fixture.CustomWidth(0)) ~is #false
+  type_well_formed(fixture.CustomWidth("wide")) ~is #false
+  type_well_formed(fixture.CustomWidth(#false)) ~is #false
+
   fixture.bits_initial is_a HardwareLiteral ~is #true
   fixture.bool_initial is_a HardwareLiteral ~is #true
   fixture.mode_initial is_a HardwareLiteral ~is #true

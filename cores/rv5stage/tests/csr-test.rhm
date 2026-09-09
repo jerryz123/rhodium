@@ -24,7 +24,7 @@ check:
     "frm", "fp_enabled", "cbo_zero_enabled", "cbo_permission", "translation_flush",
     "pointer_masking", "pointer_masking_changed"
   ]
-  rv64.find_input("interrupts").type.field("machine_timer").type.bit_width() ~is 1
+  rv64.find_input("interrupts").type.field("machine_timer").type.packed_width() ~is 1
   rv64.find_input("commit_in").type.field("bits").type.field("pc").type.width ~is 64
   rv32.find_input("commit_in").type.field("bits").type.field("pc").type.width ~is 32
   rv64.find_output("writeback_value").type.width ~is 64

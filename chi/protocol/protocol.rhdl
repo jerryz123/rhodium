@@ -83,7 +83,7 @@ fun chi_line_data_id(address :: Bits,
 // DataID already includes the packet's position within the request's line.
 fun chi_data_address(address :: Bits, data_id :: Bits(2), p :: CHIFlitParams) :~ Bits:
   def packet_id = chi_transfer_data_id(chi_transfer_beat(data_id, p), p)
-  address[6..address.type.bit_width()] ++ packet_id ++ bits(0, 4)
+  address[6..address.type.packed_width()] ++ packet_id ++ bits(0, 4)
 
 export:
   chi_req_size

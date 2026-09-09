@@ -200,7 +200,7 @@ bundle RV5StageCHIIdentity(p :: CHIFlitParams):
 
 fun rv5stage_chi_address(address :: Bits,
                          p :: CHIFlitParams) :~ Bits(p.request_address_width):
-  def width = hardware_value_type(address).bit_width()
+  def width = hardware_value_type(address).packed_width()
   cond
   | width < p.request_address_width: address.zext(p.request_address_width)
   | width == p.request_address_width: address
@@ -208,7 +208,7 @@ fun rv5stage_chi_address(address :: Bits,
 
 fun rv5stage_chi_address_fits(address :: Bits,
                               p :: CHIFlitParams) :~ Bool:
-  def width = hardware_value_type(address).bit_width()
+  def width = hardware_value_type(address).packed_width()
   if width <= p.request_address_width
   | Bool(#true)
   | !address[p.request_address_width..width].or_reduce()

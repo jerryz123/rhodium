@@ -29,9 +29,6 @@ class _SIntType(width :: PosInt):
   override method type_equal(other :: HardwareType):
     sint_type(other) && width == other.width
 
-  override method bit_width():
-    width
-
   override method packed_width():
     width
 
@@ -87,7 +84,7 @@ fun strunc(entity :: HardwareEntity,
            name :: False || AsciiIdentifier = #false,
            location :: Location = Location()) :~ HardwareFields:
   def value = require_signed_value(entity, #'strunc, location)
-  unless target_width < data_width(value.type)
+  unless target_width < scalar_width(value.type)
   | error(~who: #'strunc, "target width must be smaller than the source width")
   def source_bits = hardware_as_bits(value, #'strunc, "strunc operand", #false, location)
   def result_bits = kernel.trunc(source_bits, target_width, #false, location)

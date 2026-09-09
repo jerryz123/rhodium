@@ -26,7 +26,7 @@ check:
     "clock", "reset", "set_in", "clear_in"
   ]
   module_def.outputs.map(fun (port): port.name) ~is ["busy"]
-  module_def.find_input("set_in").type.field("valid").type.bit_width() ~is 1
+  module_def.find_input("set_in").type.field("valid").type.packed_width() ~is 1
   module_def.find_input("set_in").type.field("bits").type.width ~is 3
   module_def.find_input("clear_in").type.field("bits").type.width ~is 3
   bool.mask_type(module_def.find_output("busy").type) ~is #true

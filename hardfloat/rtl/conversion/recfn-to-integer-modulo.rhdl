@@ -10,7 +10,7 @@ import:
   "recfn-to-integer.rhdl" open
 
 fun modulo_unsigned_at_least_host(value :: Bits, constant :: Nat) :~ Bool:
-  def width = value.type.bit_width()
+  def width = value.type.packed_width()
   if constant >= (1 << width) | Bool(#false) | value >= bits(constant, width)
 
 circuit RecFNToIntegerModulo(format :: FloatFormat, integer_width :: PosInt):
@@ -36,7 +36,7 @@ circuit RecFNToIntegerModulo(format :: FloatFormat, integer_width :: PosInt):
   def aligned_high = shifted_significand[(format.significand_width - 2)..shifted_width]
   def aligned_significand = aligned_high ++ shifted_significand[0..=(format.significand_width - 3)].or_reduce()
   def aligned_for_integer:
-    if aligned_significand.type.bit_width() < integer_width + 2 | aligned_significand.zext(integer_width + 2) | aligned_significand
+    if aligned_significand.type.packed_width() < integer_width + 2 | aligned_significand.zext(integer_width + 2) | aligned_significand
   def exponent_forces_zero = magnitude_at_least_one & positive_exponent.modulo_unsigned_at_least_host(integer_width + format.significand_width - 1)
   def unrounded_integer = mux(exponent_forces_zero, bits(0, integer_width), aligned_for_integer[2..=(integer_width + 1)])
   def retained_lsb = magnitude_at_least_one & !exponent_forces_zero & aligned_significand[2].into(Bool)

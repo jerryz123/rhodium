@@ -30,10 +30,10 @@ fun formal_subject_top(subject :: DesignElaboration || Module || Design):
 
 fun type_snapshot(type :: HardwareType):
   cond
-  | flat_data_type(type):
+  | scalar_data_type(type):
       rkt.hash("kind", "flat",
                "text", type.describe(),
-               "width", data_width(type))
+               "width", scalar_width(type))
   | record_type(type):
       rkt.hash(
         "kind", "record",

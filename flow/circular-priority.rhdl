@@ -18,7 +18,7 @@ fun circular_priority_onehot(requests :: Hardware.packable,
           "requests must be a nonempty Vec of Bool")
   def n = request_type.length
   def width = index_width(n)
-  unless hardware_value_type(start).bit_width() == width
+  unless hardware_value_type(start).packed_width() == width
   | error(~who: #'circular_priority_onehot,
           "start width must equal the request index width")
   def eligible = vec(

@@ -53,7 +53,7 @@ fun mul_expanding(left :: HardwareEntity,
   unless unsigned_operands || signed_operands
   | error(~who: #'mul_expanding,
           "expanding multiplication operands must both be Bits or signed arithmetic values")
-  def result_width = data_width(left_value.type) + data_width(right_value.type)
+  def result_width = scalar_width(left_value.type) + scalar_width(right_value.type)
   def (wide_left, wide_right):
     if unsigned_operands
     | block:

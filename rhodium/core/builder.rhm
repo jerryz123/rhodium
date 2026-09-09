@@ -97,8 +97,8 @@ fun check_dpi_operands(design :: Design,
   unless clock_type(clock.type)
   | fail(who, "DPI clock must be Clock")
   ensure_value_in(module_def, enable, who)
-  unless flat_data_type(enable.type) && data_width(enable.type) == 1
-  | fail(who, "DPI enable must be a one-bit FlatDataType")
+  unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
+  | fail(who, "DPI enable must be a one-bit ScalarDataType")
   [clock, enable] ++ inputs
 
 fun root_place(place :: Place):
@@ -403,9 +403,9 @@ class Builder(design :: Design):
   // descriptors can be called from any circuit in one elaborated design.
   method dpi_import(name :: AsciiIdentifier,
                     input_names :: NonemptyList.of(AsciiIdentifier),
-                    input_types :: NonemptyList.of(FlatDataType),
+                    input_types :: NonemptyList.of(ScalarDataType),
                     result_name :: False || AsciiIdentifier = #false,
-                    result_type :: False || FlatDataType = #false,
+                    result_type :: False || ScalarDataType = #false,
                     location :: Location = Location()):
     unless (!result_name && !result_type) || (result_name && result_type)
     | fail(#'dpi_import, "DPI result name and type must be supplied together")
@@ -421,7 +421,7 @@ class Builder(design :: Design):
 
   method dpi_import_results(name :: AsciiIdentifier,
                             input_names :: NonemptyList.of(AsciiIdentifier),
-                            input_types :: NonemptyList.of(FlatDataType),
+                            input_types :: NonemptyList.of(ScalarDataType),
                             results :: List.of(DpiResult),
                             location :: Location = Location()):
     ensure_hardware_name(name, #'dpi_import)
@@ -434,12 +434,12 @@ class Builder(design :: Design):
       ).length() != 1
       | fail(#'dpi_import, "DPI input names must be unique")
     for (input_type in input_types):
-      unless flat_data_type(input_type) && type_well_formed(input_type)
-      | fail(#'dpi_import, "DPI inputs must have well-formed FlatDataType types")
+      unless scalar_data_type(input_type) && type_well_formed(input_type)
+      | fail(#'dpi_import, "DPI inputs must have well-formed ScalarDataType types")
     for (result in results):
       ensure_hardware_name(result.name, #'dpi_import)
-      unless flat_data_type(result.type) && type_well_formed(result.type)
-      | fail(#'dpi_import, "DPI results must have well-formed FlatDataType types")
+      unless scalar_data_type(result.type) && type_well_formed(result.type)
+      | fail(#'dpi_import, "DPI results must have well-formed ScalarDataType types")
       unless result.direction == "out" || result.direction == "return"
       | fail(#'dpi_import, "DPI result direction must be out or return")
     def result_names = results.map(fun (result): result.name)
@@ -494,14 +494,14 @@ class Builder(design :: Design):
     ensure_open(module_def, #'assert)
     for (operand in [condition, clock, reset, guard]):
       ensure_value_in(module_def, operand, #'assert)
-    unless flat_data_type(condition.type) && data_width(condition.type) == 1
-    | fail(#'assert, "assert condition must be a one-bit FlatDataType")
+    unless scalar_data_type(condition.type) && scalar_width(condition.type) == 1
+    | fail(#'assert, "assert condition must be a one-bit ScalarDataType")
     unless clock_type(clock.type)
     | fail(#'assert, "assert clock must be Clock")
     unless reset_type(reset.type)
     | fail(#'assert, "assert reset must be Reset")
-    unless flat_data_type(guard.type) && data_width(guard.type) == 1
-    | fail(#'assert, "assert guard must be a one-bit FlatDataType")
+    unless scalar_data_type(guard.type) && scalar_width(guard.type) == 1
+    | fail(#'assert, "assert guard must be a one-bit ScalarDataType")
     when label
     | ensure_hardware_name(label, #'assert)
     def operation_id = design.fresh_id()
@@ -1169,10 +1169,10 @@ class Builder(design :: Design):
     ensure_value_in(module_def, value, #'sext)
     unless signed_arithmetic_type(value.type)
     | fail(#'sext, "sext operand must have a SignedArithmeticType")
-    unless target_width > data_width(value.type)
+    unless target_width > scalar_width(value.type)
     | fail(#'sext, "sext target width must be larger than the source width")
     def result_type = value.type.with_bit_width(target_width)
-    unless signed_arithmetic_type(result_type) && data_width(result_type) == target_width
+    unless signed_arithmetic_type(result_type) && scalar_width(result_type) == target_width
     | fail(#'sext, "sext operand type must preserve its signed arithmetic type when widened")
     build_value_operation(design,
                           module_def,
@@ -1609,8 +1609,8 @@ class Builder(design :: Design):
     | fail(#'memory_write, "memory write data has the wrong DataType")
     unless clock_type(clock.type)
     | fail(#'memory_write, "memory write clock must be Clock")
-    unless flat_data_type(enable.type) && data_width(enable.type) == 1
-    | fail(#'memory_write, "memory write enable must be a one-bit FlatDataType")
+    unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
+    | fail(#'memory_write, "memory write enable must be a one-bit ScalarDataType")
     def existing_write = module_def.operations.find(
       fun (operation):
         operation.opcode == "rtl.memory_write" && operation.attribute("memory", #false) === memory

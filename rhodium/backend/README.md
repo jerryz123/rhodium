@@ -40,7 +40,7 @@ add pseudo-CIRCT operations to avoid an explicit lowering decision.
 
 | Rhodium type | CIRCT representation |
 |---|---|
-| `FlatDataType` | Signless integer with the type's physical width |
+| `ScalarDataType` | Signless integer with the type's physical width |
 | `Clock`, `Reset` | `i1` in clock and reset positions |
 | Anonymous `RecordType` | Recursive packed `hw.struct`, preserving field names and order |
 | Named record shape | `hw.typedecl` plus `hw.typealias` in `@rhodium_types` |

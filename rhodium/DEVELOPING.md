@@ -89,7 +89,7 @@ internal module implementing its shared frontend forms is called the
 | [`analysis/`](analysis/README.md) | Optional certification, provenance, and diagnostic passes over completed public IR | Core and other analysis modules |
 | [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration and deferred frontend hardware values over the public core | Core |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
-| [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned flat-data membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
+| [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |
 | [`frontend/standard.rhm`](frontend/standard.rhm) | Aggregation only; defines no feature behavior | Foundation and all standard layers |
 | [`language.rhm`](language.rhm), [`base/language.rhm`](base/language.rhm) | Compose ordinary Rhombus host control with one public Rhodium profile | Standard or foundation |
@@ -269,14 +269,15 @@ language profiles:
 <summary>Show shared support-module responsibilities</summary>
 
 - `hardware-types.rhm` generates an extension-defined scalar descriptor and
-  exact hardware-value annotation from one declaration.
+  exact hardware-value annotation from one declaration, using core's
+  `HardwareType` contract and default `ScalarDataType` capability.
 - `hardware-literal.rhm` validates reusable packed host images, exposes their
   hardware type and packed width to ordinary libraries, and materializes them
   as a `Bits` constant followed by an explicit equal-width cast.
 - `hardware-methods.rhm` attaches exact receiver-owned method declarations and
   anchors their dispatch ahead of conservative value surfaces.
 - `fields.rhm` owns `Bool`, the shared implementation behind exact and generic
-  hardware method providers, receiver-owned flat-data membership and width extension,
+  hardware method providers, receiver-owned scalar membership and width extension,
   extension-method resolution, exact hardware annotations, public
   hardware-value type discovery, shared canonical packing, and readable and
   driveable field static information.

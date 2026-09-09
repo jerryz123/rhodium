@@ -10,13 +10,13 @@ import:
   "../round.rhdl" open
 
 fun unsigned_equal_host(value :: Bits, constant :: Nat) :~ Bool:
-  def width = value.type.bit_width()
+  def width = value.type.packed_width()
   if constant >= (1 << width)
   | Bool(#false)
   | value === bits(constant, width)
 
 fun unsigned_at_least_host(value :: Bits, constant :: Nat) :~ Bool:
-  def width = value.type.bit_width()
+  def width = value.type.packed_width()
   if constant >= (1 << width)
   | Bool(#false)
   | value >= bits(constant, width)
@@ -55,7 +55,7 @@ circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
       ++ shifted_significand[0..=(format.significand_width - 3)].or_reduce()
   )
   def aligned_for_integer:
-    if aligned_significand.type.bit_width() < integer_width + 2
+    if aligned_significand.type.packed_width() < integer_width + 2
     | aligned_significand.zext(integer_width + 2)
     | aligned_significand
   def unrounded_integer = aligned_for_integer[2..=(integer_width + 1)]

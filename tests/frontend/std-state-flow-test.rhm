@@ -24,7 +24,7 @@ fun operations(module_def, opcode):
 check:
   top.name ~is "StateFlowExample"
   change_source.find_input("current").type.packed_width() ~is 12
-  change_source.find_output("egress_out").type.field("bits").type.field("index").type.bit_width() ~is 2
+  change_source.find_output("egress_out").type.field("bits").type.field("index").type.packed_width() ~is 2
   change_source.find_output("egress_out").type.field("bits").type.field("value").type.packed_width() ~is 4
   operations(change_source, "verif.assert").map(
     fun (operation): operation.attribute("label")

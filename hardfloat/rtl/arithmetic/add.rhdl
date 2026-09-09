@@ -79,7 +79,7 @@ circuit AddRawFN(format :: FloatFormat):
   def close_reduced_sum = close_reduced_groups.as_bits()
   def close_normalization_reduced = close_reduced_sum.count_leading_zeros()
   def close_normalization_distance:
-    if close_normalization_reduced.type.bit_width() == align_distance_width
+    if close_normalization_reduced.type.packed_width() == align_distance_width
     | close_normalization_reduced << 1
     | close_normalization_reduced.zext(align_distance_width) << 1
   def close_significand = (

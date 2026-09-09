@@ -241,7 +241,7 @@ fun fesvr_service_support(services :: NonemptyList.of(CHIHomeServiceParams),
       (opcode === support.opcode) & (size >= bits(alignment_bits(support.sizes.min_bytes), 3)) & (size <= bits(alignment_bits(support.sizes.max_bytes), 3))
     def regions = for List (region in service.address_sets):
       region.matches(address) & region.matches(last_address)
-    (home_id === bits(service.home.node_id, home_id.type.bit_width())) & or_reduce(vec(regions)) & or_reduce(vec(sizes))
+    (home_id === bits(service.home.node_id, home_id.type.packed_width())) & or_reduce(vec(regions)) & or_reduce(vec(sizes))
   or_reduce(vec(matches))
 
 sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,

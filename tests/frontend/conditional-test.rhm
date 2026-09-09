@@ -165,7 +165,7 @@ check:
   verify_design(conditional_ports_design) ~is #void
   verify_design(shift_design) ~is #void
   embedded.run_elaboration(fun (): fixture.HostCondition()) ~throws "must be a hardware value"
-  embedded.run_elaboration(fun (): fixture.WideCondition()) ~throws "one-bit FlatDataType"
+  embedded.run_elaboration(fun (): fixture.WideCondition()) ~throws "one-bit ScalarDataType"
   embedded.run_elaboration(fun (): fixture.MissingOtherwise()) ~throws "requires otherwise"
   embedded.run_elaboration(fun (): fixture.DuplicateBranch()) ~throws "more than once"
   embedded.run_elaboration(fun (): fixture.MissingBranch()) ~throws "does not assign"

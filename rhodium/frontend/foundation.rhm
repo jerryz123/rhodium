@@ -39,7 +39,7 @@ export:
   StableCircuitParam
   HardwareType
   DataType
-  FlatDataType
+  ScalarDataType
   Bits
   Bool
   bool_type

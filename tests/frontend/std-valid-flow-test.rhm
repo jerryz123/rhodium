@@ -43,7 +43,7 @@ check:
   valid_example.accepted_design.modules.map(fun (module_def): module_def.name) ~is [
     "AcceptedFilteredValid"
   ]
-  accepted_top.find_output("ingress_out").type.field("ready").type.bit_width() ~is 1
+  accepted_top.find_output("ingress_out").type.field("ready").type.packed_width() ~is 1
   accepted_top.find_output("egress_out").type.field("bits").type.width ~is 8
   operations(accepted_top, "rtl.instance").length() ~is 0
   operations(accepted_top, "rtl.and").length() ~is 1
@@ -60,7 +60,7 @@ check:
   fixture.generic_boundary_design.modules.map(
     fun (module_def): module_def.name
   ) ~is ["GenericFlowBoundary"]
-  generic_boundary_top.find_output("source_ready").type.bit_width() ~is 1
+  generic_boundary_top.find_output("source_ready").type.packed_width() ~is 1
   generic_boundary_top.find_output("sink_bits").type.width ~is 8
   generic_boundary_top.find_output("sink_tag").type.width ~is 2
   operations(generic_boundary_top, "rtl.instance").length() ~is 0
@@ -69,8 +69,8 @@ check:
   fixture.control_boundary_design.modules.map(
     fun (module_def): module_def.name
   ) ~is ["ControlFlowBoundary"]
-  control_boundary_top.find_output("source_ready").type.bit_width() ~is 1
-  control_boundary_top.find_output("sink_valid").type.bit_width() ~is 1
+  control_boundary_top.find_output("source_ready").type.packed_width() ~is 1
+  control_boundary_top.find_output("sink_valid").type.packed_width() ~is 1
   operations(control_boundary_top, "rtl.instance").length() ~is 0
   verify_design(fixture.control_boundary_design) ~is #void
 
@@ -85,7 +85,7 @@ check:
   fixture.detached_boundary_design.modules.map(
     fun (module_def): module_def.name
   ) ~is ["DetachedFlowBoundary", "Pipe"]
-  detached_boundary_top.find_output("source_ready").type.bit_width() ~is 1
+  detached_boundary_top.find_output("source_ready").type.packed_width() ~is 1
   detached_boundary_top.find_output("sink_bits").type.width ~is 8
   operations(detached_boundary_top, "rtl.instance").length() ~is 1
   verify_design(fixture.detached_boundary_design) ~is #void
@@ -93,7 +93,7 @@ check:
   fixture.nested_boundary_design.modules.map(
     fun (module_def): module_def.name
   ) ~is ["NestedFlowBoundary"]
-  nested_boundary_top.find_output("source_acknowledge").type.bit_width() ~is 1
+  nested_boundary_top.find_output("source_acknowledge").type.packed_width() ~is 1
   nested_boundary_top.find_output("sink_data").type.width ~is 8
   operations(nested_boundary_top, "rtl.instance").length() ~is 0
   verify_design(fixture.nested_boundary_design) ~is #void

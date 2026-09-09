@@ -125,14 +125,14 @@ class.together:
   // Keeps ABI-relevant result direction distinct from ordinary hardware type:
   // output arguments and the C return are separate DPI declaration forms even
   // though both become clocked SSA results at a call site.
-  class DpiResult(name :: String, type :: FlatDataType, direction :: String)
+  class DpiResult(name :: String, type :: ScalarDataType, direction :: String)
 
   // DPI imports are design-owned simulation declarations. Calls reference them
   // from modules, but the declarations themselves are not module operations.
   class DpiImport(id :: Nat,
                   name :: String,
                   input_names :: List.of(String),
-                  input_types :: List.of(FlatDataType),
+                  input_types :: List.of(ScalarDataType),
                   results :: List.of(DpiResult),
                   design :: Design,
                   location :: Location = Location()):

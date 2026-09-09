@@ -61,9 +61,6 @@ class _MaskType(width :: PosInt):
   override method type_equal(other :: HardwareType):
     mask_type(other) && width == other.width
 
-  override method bit_width():
-    width
-
   override method packed_width():
     width
 
@@ -146,7 +143,7 @@ expr.macro 'Mask($(width :: expr_meta.Parsed))':
 // one asserted bit. The refinement is intentionally distinct from OneHot:
 // MaybeOneHot cannot directly satisfy a partial one-hot mux precondition.
 class _MaybeOneHotType(width :: PosInt):
-  implements FlatDataType
+  implements ScalarDataType
   implements Callable
   implements one_hot_selection.MaybeOneHotSelectorType
 
@@ -155,9 +152,6 @@ class _MaybeOneHotType(width :: PosInt):
 
   override method type_equal(other :: HardwareType):
     maybe_one_hot_type(other) && width == other.width
-
-  override method bit_width():
-    width
 
   override method packed_width():
     width
@@ -298,9 +292,9 @@ fun equality_bits(left :: HardwareEntity,
                   location :: Location):
   def left_value = kernel.read(left, location)
   def right_value = kernel.read(right, location)
-  unless flat_data_type(left_value.type) && flat_data_type(right_value.type) && type_equal(left_value.type, right_value.type)
+  unless scalar_data_type(left_value.type) && scalar_data_type(right_value.type) && type_equal(left_value.type, right_value.type)
   | error(~who: who,
-          location.describe() ++ ": " ++ spelling ++ " operands must have exactly the same FlatDataType")
+          location.describe() ++ ": " ++ spelling ++ " operands must have exactly the same ScalarDataType")
   def left_bits = hardware_as_bits(left_value, who, spelling ++ " operand", #false, location)
   def right_bits = hardware_as_bits(right_value, who, spelling ++ " operand", #false, location)
   kernel.hw_eq(left_bits, right_bits, #false, location)

@@ -463,9 +463,9 @@ fun sync_memory(name :: AsciiIdentifier,
 
 fun dpi_import(name :: AsciiIdentifier,
                input_names :: NonemptyList.of(AsciiIdentifier),
-               input_types :: NonemptyList.of(FlatDataType),
+               input_types :: NonemptyList.of(ScalarDataType),
                result_name :: False || AsciiIdentifier = #false,
-               result_type :: False || FlatDataType = #false,
+               result_type :: False || ScalarDataType = #false,
                location :: Location = Location()):
   def context = require_context(location)
   context.builder.dpi_import(name,
@@ -477,7 +477,7 @@ fun dpi_import(name :: AsciiIdentifier,
 
 fun dpi_import_results(name :: AsciiIdentifier,
                        input_names :: NonemptyList.of(AsciiIdentifier),
-                       input_types :: NonemptyList.of(FlatDataType),
+                       input_types :: NonemptyList.of(ScalarDataType),
                        results :: List.of(DpiResult),
                        location :: Location = Location()):
   def context = require_context(location)
@@ -1340,8 +1340,8 @@ fun validate_conditional_value(condition :~ HardwareEntity,
   unless condition is_a HardwareEntity
   | frontend_fail("hardware condition must be a hardware value", location)
   def value = read(condition, location)
-  unless flat_data_type(value.type) && data_width(value.type) == 1
-  | frontend_fail("hardware condition must have a one-bit FlatDataType", location)
+  unless scalar_data_type(value.type) && scalar_width(value.type) == 1
+  | frontend_fail("hardware condition must have a one-bit ScalarDataType", location)
   value
 
 fun collect_conditional_branch(body :: Function.of_arity(0),
@@ -1671,7 +1671,7 @@ fun switch_chain(selector :: HardwareEntity,
   def selector_value = read(selector, location)
   unless bits_type(selector_value.type)
   | frontend_fail("switch selector must lower to Bits", location)
-  def width = data_width(selector_value.type)
+  def width = scalar_width(selector_value.type)
   def mutable keys = []
   for (case in cases):
     unless case.length() == 2 && case[0] is_a Nat

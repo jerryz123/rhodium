@@ -13,15 +13,15 @@ annot.macro 'Pow2Int':
 fun unsigned_value_count(width :: Nat):
   1 << width
 
-fun reverse_bits(value :: Bits) :~ Bits(value.type.bit_width()):
-  def width = value.type.bit_width()
+fun reverse_bits(value :: Bits) :~ Bits(value.type.packed_width()):
+  def width = value.type.packed_width()
   if width == 1
   | value
   | concat(for List (index in 0..width): value[index])
 
 // The leading sentinel makes the result total: an all-zero input selects the
 // sentinel at index width and therefore returns the operand width.
-fun count_leading_zeros(value :: Bits) :~ Bits(index_width(value.type.bit_width() + 1)):
+fun count_leading_zeros(value :: Bits) :~ Bits(index_width(value.type.packed_width() + 1)):
   priority_encoder((Bool(#true) ++ reverse_bits(value)))
 
 fun normalized_pack_field(field :: List):
@@ -30,7 +30,7 @@ fun normalized_pack_field(field :: List):
           "fields must be [offset, packable hardware value] pairs")
   def value :: Hardware.packable = field[1]
   def packed = value.as_bits()
-  [field[0], packed, hardware_value_type(packed).bit_width()]
+  [field[0], packed, hardware_value_type(packed).packed_width()]
 
 // Packs host-positioned hardware values into one Bits value, filling every
 // unspecified bit with zero. Layout errors remain host elaboration errors.
@@ -73,7 +73,7 @@ fun alignment_bits(alignment :: Pow2Int):
 fun checked_alignment_width(value :: Bits,
                             alignment :: Pow2Int,
                             who :: Symbol):
-  def width = hardware_value_type(value).bit_width()
+  def width = hardware_value_type(value).packed_width()
   def low_width = unchecked_alignment_bits(alignment)
   unless low_width <= width
   | error(~who: who, "alignment must fit the Bits width")
@@ -93,10 +93,10 @@ fun is_aligned(value :: Bits, alignment :: Pow2Int) :~ Bool:
 // Encodings above max_log2 are unsupported, including for the zero address.
 fun is_aligned_log2(value :: Bits,
                     log2_alignment :: Bits,
-                    ~max_log2: max_log2 :: Nat = value.type.bit_width()) :~ Bool:
-  unless max_log2 <= value.type.bit_width()
+                    ~max_log2: max_log2 :: Nat = value.type.packed_width()) :~ Bool:
+  unless max_log2 <= value.type.packed_width()
   | error(~who: #'is_aligned_log2, "maximum alignment must fit the Bits width")
-  def representable_max = (1 << log2_alignment.type.bit_width()) - 1
+  def representable_max = (1 << log2_alignment.type.packed_width()) - 1
   def limit = if max_log2 < representable_max | max_log2 | representable_max
   mux_lookup(
     log2_alignment,
@@ -106,7 +106,7 @@ fun is_aligned_log2(value :: Bits,
   )
 
 fun align_down(value :: Bits,
-               alignment :: Pow2Int) :~ Bits(value.type.bit_width()):
+               alignment :: Pow2Int) :~ Bits(value.type.packed_width()):
   def (width, _low_width) = checked_alignment_width(
     value,
     alignment,
@@ -117,15 +117,15 @@ fun align_down(value :: Bits,
   | value & bits((1 << width) - alignment, width)
 
 // Input bit i controls the consecutive output lane starting at i * lane_width.
-fun expand_mask(mask :: Bits, lane_width :: PosInt) :~ Bits(mask.type.bit_width() * lane_width):
+fun expand_mask(mask :: Bits, lane_width :: PosInt) :~ Bits(mask.type.packed_width() * lane_width):
   vec(
-    for List (index in 0..mask.type.bit_width()):
+    for List (index in 0..mask.type.packed_width()):
       mux(mask[index].into(Bool), bits((1 << lane_width) - 1, lane_width), bits(0, lane_width))
   ).as_bits()
 
 fun masked_merge(original :: Bits,
-                 replacement :: Bits(original.type.bit_width()),
-                 mask :: Bits(original.type.bit_width())) :~ Bits(original.type.bit_width()):
+                 replacement :: Bits(original.type.packed_width()),
+                 mask :: Bits(original.type.packed_width())) :~ Bits(original.type.packed_width()):
   (original & !mask) ||| (replacement & mask)
 
 // Produces one enable bit per byte of a power-of-two beat. Size is the

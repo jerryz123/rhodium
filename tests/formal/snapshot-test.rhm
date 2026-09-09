@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the immutable formal snapshot boundary on a verified combinational module.
+// Checks immutable formal snapshots, scalar representations, aggregates, and operation metadata.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -34,6 +34,7 @@ check:
   modules.length() ~is 1
   rkt.#{hash-ref}(module_snapshot, "name") ~is "SnapshotAdder"
   rkt.#{hash-ref}(inputs[0], "name") ~is "a"
+  rkt.#{hash-ref}(rkt.#{hash-ref}(inputs[0], "type"), "kind") ~is "flat"
   rkt.#{hash-ref}(rkt.#{hash-ref}(inputs[0], "type"), "width") ~is 8
   rkt.#{hash-ref}(outputs[0], "name") ~is "sum"
   rkt.#{hash-ref}(outputs[0], "driver") is_a Int ~is #true
@@ -41,6 +42,28 @@ check:
   rkt.#{hash-ref}(add_operation, "origin") ~is "test: snapshot metadata"
   rkt.#{equal?}(snapshot, formal_snapshot(finished_adder)) ~is #true
   formal_snapshot(design) ~throws "must identify an explicit top module"
+
+class Token():
+  implements ScalarDataType
+  override method describe(): "token"
+  override method type_equal(other): other is_a Token
+  override method packed_width(): 7
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ScalarSnapshot")
+  def source = builder.input(module_def, "source", Token())
+  def result = builder.output(module_def, "result", Bits(7))
+  builder.drive(result, builder.cast(module_def, source, Bits(7)))
+  def snapshot = formal_snapshot(builder.finish(module_def))
+  def module_data = rkt.#{hash-ref}(snapshot, "modules")[0]
+  def input_data = rkt.#{hash-ref}(module_data, "inputs")[0]
+  def type_data = rkt.#{hash-ref}(input_data, "type")
+  check:
+    rkt.#{hash-ref}(type_data, "kind") ~is "flat"
+    rkt.#{hash-ref}(type_data, "text") ~is "token"
+    rkt.#{hash-ref}(type_data, "width") ~is 7
 
 block:
   def design = Design()

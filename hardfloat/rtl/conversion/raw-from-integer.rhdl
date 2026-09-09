@@ -9,8 +9,8 @@ import:
   lib("rhodium/std/bits.rhdl").count_leading_zeros
 
 fun raw_float_from_integer(signed_input :: Bool,
-                           input :: Bits) :~ RawFloat(index_width(input.type.bit_width()) + 1, input.type.bit_width()):
-  def integer_width = input.type.bit_width()
+                           input :: Bits) :~ RawFloat(index_width(input.type.packed_width()) + 1, input.type.packed_width()):
+  def integer_width = input.type.packed_width()
   unless integer_width >= 2
   | error(~who: #'raw_float_from_integer, "integer width must be at least two")
   def exponent_width = index_width(integer_width) + 1

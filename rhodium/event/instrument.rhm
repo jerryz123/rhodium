@@ -142,7 +142,7 @@ fun instrument_events(logical :: DesignElaboration,
   fun imported_controls(occurrence :: Occurrence):
     controls.filter(~keep: fun (control): !path_within(control.path, occurrence.path) && control.consumers.find(fun (path): path_within(path, occurrence.path)) != #false)
   fun control_name(control :: TraceControl): "__event_control_" ++ to_string(control.index)
-  fun control_type(control :: TraceControl): Bits(data_width(control.value.type))
+  fun control_type(control :: TraceControl): Bits(scalar_width(control.value.type))
 
   // Trace clocks are supplied from the selected root, never guessed from a
   // port name in a descendant. Check functional domains before introducing them.

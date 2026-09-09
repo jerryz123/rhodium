@@ -25,8 +25,8 @@ check:
   hardfloat.FloatFormat(3, 6) ~throws "significand width exceeds the HardFloat format limit"
   hardfloat.RoundingMode.packed_width() ~is 3
   hardfloat.TininessMode.packed_width() ~is 1
-  ieee_type.bit_width() ~is 16
-  recoded_type.bit_width() ~is 17
+  ieee_type.packed_width() ~is 16
+  recoded_type.packed_width() ~is 17
   type_equal(ieee_type, hardfloat.IEEEFloat(hardfloat.FloatFormat(5, 11))) ~is #true
   type_equal(recoded_type, hardfloat.RecFloat(hardfloat.FloatFormat(5, 11))) ~is #true
   type_equal(ieee_type, hardfloat.IEEEFloat(hardfloat.FloatFormat.BF16)) ~is #false

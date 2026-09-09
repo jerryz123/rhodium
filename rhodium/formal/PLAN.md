@@ -185,7 +185,7 @@ ignored.
 The interpreter represents each packable Rhodium value as one Rosette bitvector
 of its canonical packed width.
 
-- A `FlatDataType` uses its declared bit width.
+- A `ScalarDataType` uses its declared bit width.
 - Record fields retain declaration order, with the first field occupying the
   most-significant packed bits.
 - Vector element zero occupies the least-significant element-width bits.

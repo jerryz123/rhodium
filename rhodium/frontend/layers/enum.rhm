@@ -256,7 +256,7 @@ meta:
          dot.macro '$member_dot $('$')left $('$')dot $('$')right':
            if [$member_name, ...].contains(right.to_source_string())
            | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $name'
-           | if ["name", "identity", "members", "width", "bit_width",
+           | if ["name", "identity", "members", "width",
                  "packed_width", "enum_encodings", "member", "describe"].contains(
                   right.to_source_string()
                 )
@@ -277,7 +277,7 @@ meta:
          dot.macro '$member_dot $('$')left $('$')dot $('$')right':
            if [$member_name, ...].contains(right.to_source_string())
            | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $name'
-           | if ["name", "identity", "members", "width", "bit_width",
+           | if ["name", "identity", "members", "width",
                  "packed_width", "enum_encodings", "member", "describe"].contains(
                   right.to_source_string()
                 )

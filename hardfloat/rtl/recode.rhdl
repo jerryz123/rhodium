@@ -117,7 +117,7 @@ fun to_ieee(value :: RecFloat) :~ IEEEFloat(value.type.format):
   concat(raw.sign, exponent, fraction).into(IEEEFloat(format))
 
 fun is_signaling_nan(raw :: Hardware.packable) :~ Bool:
-  def significand_width = raw.significand.type.bit_width() - 1
+  def significand_width = raw.significand.type.packed_width() - 1
   raw.is_nan & !raw.significand[significand_width - 2].into(Bool)
 
 fun canonical_recoded_nan(format :: FloatFormat) :~ RecFloat(format):

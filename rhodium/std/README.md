@@ -139,7 +139,7 @@ for partially cared scalar fields and extension libraries. A care bit of one
 makes the corresponding value bit significant; zero makes it a don't-care.
 `value` and `care` must have exactly equal hardware types, not merely equal
 packed widths. Any `HardwareLiteral` type works, including `Bits`, `Bool`,
-enums, `OneHot`, extension-defined flat data, and recursively nested records
+enums, `OneHot`, extension-defined scalar data, and recursively nested records
 and vectors. The generic `literal(T, packed_value)` form remains a low-level
 escape hatch for arbitrary typed packed images; canonical aggregate examples
 use named fields instead.
@@ -510,7 +510,7 @@ response, and response bits are meaningful only while valid is asserted.
 Addresses are word indices. A one-lane RAM uses `n = 1`; asserting its sole
 mask bit writes the complete `T` value.
 
-The wrapper maps each lane to a raw-memory mask granularity of `T.bit_width()`.
+The wrapper maps each lane to a raw-memory mask granularity of `T.packed_width()`.
 It neither initializes storage nor changes the raw primitive's behavior for
 dynamically out-of-range addresses. A separate 1R1W wrapper remains deferred
 until its read-during-write collision policy is explicit.

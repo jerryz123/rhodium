@@ -391,6 +391,26 @@ check:
   nested_interface_circt.contains("!hw.struct<command: !hw.struct<ready: i1>, response: !hw.struct<valid: i1, bits: i8>, status: i8>") ~is #true
   nested_interface_circt.contains("hw.output %egress_in, %ingress_in") ~is #true
 
+class ScalarToken():
+  implements ScalarDataType
+  override method describe(): "scalar-token"
+  override method type_equal(other): other is_a ScalarToken
+  override method packed_width(): 7
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ScalarTokenCast")
+  def source = builder.input(module_def, "source", ScalarToken())
+  def target = builder.output(module_def, "target", Bits(7))
+  builder.drive(target, builder.cast(module_def, source, Bits(7)))
+  builder.finish(module_def)
+  def circt = emit_circt(design)
+  check:
+    circt.contains("in %source : i7") ~is #true
+    circt.contains("out target : i7") ~is #true
+    circt.contains("hw.output %source : i7") ~is #true
+
 class OpaqueData(name):
   implements DataType
   override method describe(): "opaque<" ++ name ++ ">"

@@ -7,7 +7,7 @@ import:
 export:
   HardwareType
   DataType
-  FlatDataType
+  ScalarDataType
   BitwiseType
   ArithmeticType
   SignedArithmeticType
@@ -19,11 +19,11 @@ export:
   VectorType
   hardware_type
   data_type
-  flat_data_type
+  scalar_data_type
   bitwise_type
   arithmetic_type
   signed_arithmetic_type
-  data_width
+  scalar_width
   packable_type
   cast_compatible
   type_well_formed
@@ -46,12 +46,11 @@ interface HardwareType:
 interface DataType:
   extends HardwareType
 
-interface FlatDataType:
+interface ScalarDataType:
   extends DataType
-  method bit_width()
 
 interface BitwiseType:
-  extends FlatDataType
+  extends ScalarDataType
 
 // Marks fixed-width integer-like values whose modular arithmetic preserves
 // their nominal type. Width-changing operations use with_bit_width so core
@@ -71,9 +70,6 @@ class Bits(width :: PosInt):
 
   override method type_equal(other :: HardwareType):
     bits_type(other) && width == other.width
-
-  override method bit_width():
-    width
 
   override method with_bit_width(new_width :: PosInt):
     Bits(new_width)
@@ -137,7 +133,7 @@ class RecordType(fields :: NonemptyList.of(RecordField),
     def mutable width = 0
     def mutable packable = #true
     for (field in fields):
-      def field_width = field.type.packed_width()
+      def field_width = checked_packed_width(field.type)
       if !field_width
       | packable := #false
       | width := width + field_width
@@ -155,7 +151,7 @@ class VectorType(length :: PosInt, element_type :: DataType):
     vector_type(other) && length == other.length && element_type.type_equal(other.element_type) && other.element_type.type_equal(element_type)
 
   override method packed_width():
-    def element_width = element_type.packed_width()
+    def element_width = checked_packed_width(element_type)
     if !element_width | #false | length * element_width
 
 fun hardware_type(type :~ matching(_)):
@@ -164,8 +160,8 @@ fun hardware_type(type :~ matching(_)):
 fun data_type(type :~ matching(_)):
   type is_a DataType
 
-fun flat_data_type(type :~ matching(_)):
-  type is_a FlatDataType
+fun scalar_data_type(type :~ matching(_)):
+  type is_a ScalarDataType
 
 fun bitwise_type(type :~ matching(_)):
   type is_a BitwiseType
@@ -176,22 +172,25 @@ fun arithmetic_type(type :~ matching(_)):
 fun signed_arithmetic_type(type :~ matching(_)):
   type is_a SignedArithmeticType
 
-fun data_width(type :~ matching(_)):
-  if flat_data_type(type)
+// Normalize extension widths before using them in arithmetic or cast checks.
+// A false width denotes an opaque representation, never a zero-width scalar.
+fun checked_packed_width(type :~ matching(_)):
+  if hardware_type(type)
   | block:
-      def width = type.bit_width()
+      def width = type.packed_width()
       if width is_a PosInt | width | #false
   | #false
 
+fun scalar_width(type :~ matching(_)):
+  if scalar_data_type(type) | checked_packed_width(type) | #false
+
 fun packable_type(type :~ matching(_)):
-  hardware_type(type) && type.packed_width() != #false
+  checked_packed_width(type) != #false
 
 fun cast_compatible(source_type :~ matching(_),
                     target_type :~ matching(_)):
-  def source_width:
-    if hardware_type(source_type) | source_type.packed_width() | #false
-  def target_width:
-    if hardware_type(target_type) | target_type.packed_width() | #false
+  def source_width = checked_packed_width(source_type)
+  def target_width = checked_packed_width(target_type)
   source_width != #false && target_width != #false && source_width == target_width
 
 fun bits_type(type :~ matching(_)):
@@ -231,11 +230,12 @@ fun record_fields_well_formed(fields :: NonemptyList.of(RecordField)):
 fun type_well_formed(type :~ matching(_)):
   cond
   | !hardware_type(type): #false
-  | flat_data_type(type): data_width(type) != #false
+  | scalar_data_type(type): scalar_width(type) != #false
   | record_type(type): record_fields_well_formed(type.fields)
   | vector_type(type):
       type_well_formed(type.element_type)
-  | ~else: #true
+  | ~else:
+      type.packed_width() == #false || checked_packed_width(type) != #false
 
 fun type_equal(left :~ matching(_), right :~ matching(_)):
   hardware_type(left) && hardware_type(right) && left.type_equal(right) && right.type_equal(left)

@@ -241,7 +241,6 @@ class _BoolType():
   implements Callable
   override method describe(): "bool"
   override method type_equal(other :: HardwareType): bool_type(other)
-  override method bit_width(): 1
   override method packed_width(): 1
   override method call(value :: Boolean) :~ HardwareFields:
     packed_literal(this, if value | 1 | 0)
@@ -508,9 +507,9 @@ fun build_membership_predicate(value :: HardwareEntity,
                                supplied :: List.of(HardwareEntity || List.of(HardwareEntity)),
                                location :: Location = Location()) :~ HardwareFields:
   def value_read = kernel.read(value, location)
-  unless flat_data_type(value_read.type)
+  unless scalar_data_type(value_read.type)
   | error(~who: #'is_one_of,
-          location.describe() ++ ": .is_one_of subject must have a FlatDataType")
+          location.describe() ++ ": .is_one_of subject must have a ScalarDataType")
   def candidates:
     if supplied.length() == 1 && supplied[0] is_a List
     | supplied[0]
@@ -524,9 +523,9 @@ fun build_membership_predicate(value :: HardwareEntity,
       def comparisons = candidates.map(
         fun (alternative):
           def alternative_read = kernel.read(alternative, location)
-          unless flat_data_type(alternative_read.type) && type_equal(value_read.type, alternative_read.type)
+          unless scalar_data_type(alternative_read.type) && type_equal(value_read.type, alternative_read.type)
           | error(~who: #'is_one_of,
-                  location.describe() ++ ": .is_one_of operands must have exactly the same FlatDataType")
+                  location.describe() ++ ": .is_one_of operands must have exactly the same ScalarDataType")
           kernel.hw_eq(hardware_as_bits(value_read,
                                         #'is_one_of,
                                         ".is_one_of operand",

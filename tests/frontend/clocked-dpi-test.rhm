@@ -41,7 +41,7 @@ check:
   call.operands[1] === module_def.find_input("enable").value ~is #true
   register.operands[0] === module_def.find_input("clock").value ~is #true
   register.operands[1] === module_def.find_input("enable").value ~is #true
-  register.operands[1].type.bit_width() ~is 1
+  register.operands[1].type.packed_width() ~is 1
   register.operands[2] === module_def.find_input("value").value ~is #true
   register.results.length() ~is 2
   register.results[0].name ~is "dpi_doubled"

@@ -189,8 +189,8 @@ The core type capabilities are open interfaces:
 |---|---|
 | `HardwareType` | Any hardware type with well-formedness and equality behavior |
 | `DataType` | Ordinary combinational, mux, port, and register data |
-| `FlatDataType` | Data with a statically known physical bit width |
-| `BitwiseType` | Flat data supporting same-type bitwise operations |
+| `ScalarDataType` | Scalar data with a positive, statically known packed width |
+| `BitwiseType` | Scalar data supporting same-type bitwise operations |
 | `ArithmeticType` | Bitwise data supporting same-type modular arithmetic and width reconstruction |
 | `SignedArithmeticType` | Arithmetic data supporting signed comparison, right shift, and extension |
 
@@ -199,6 +199,18 @@ Core supplies `Bits(width)`, `Clock`, `Reset`, `RecordType(fields)`, and
 and `Reset` are nominal control types rather than `DataType`s. Frontend-defined
 types such as `Bool`, enums, and one-hot values implement the open capabilities
 without core special cases.
+
+`packed_width()` is the single representation-width accessor. Scalars return
+a positive host integer; records and vectors derive their widths recursively.
+An opaque custom `DataType` may return `#false` and remain well-formed but
+unpackable. Other width results are invalid. `scalar_width(type)` returns the
+validated width only for `ScalarDataType`, and `#false` for aggregates, control
+types, opaque types, or malformed scalar widths. `packable_type` and
+`cast_compatible` also validate widths before accepting a representation.
+
+Scalar representation does not imply bitwise or arithmetic support. Nominal
+type equality is independent of width; `with_bit_width(width)` reconstructs
+an arithmetic type for width-changing operations rather than querying its size.
 
 Equal-width representations cross types only through explicit `rtl.cast`.
 Clock selection is never an ordinary data mux.

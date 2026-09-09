@@ -208,10 +208,10 @@ fun check_operation_types(module_def :: Module,
       unless signed_arithmetic_type(operand.type) && signed_arithmetic_type(result.type)
       | fail_operation(operation,
                        "rtl.sext operand and result must be SignedArithmeticType values")
-      unless target_width is_a PosInt && target_width > data_width(operand.type)
+      unless target_width is_a PosInt && target_width > scalar_width(operand.type)
       | fail_operation(operation,
                        "rtl.sext target width must be larger than the source width")
-      unless data_width(result.type) == target_width && type_equal(result.type, operand.type.with_bit_width(target_width))
+      unless scalar_width(result.type) == target_width && type_equal(result.type, operand.type.with_bit_width(target_width))
       | fail_operation(operation,
                        "rtl.sext result must preserve the signed arithmetic type at the target width")
   | "data_mux_lookup":
@@ -436,8 +436,8 @@ fun check_operation_types(module_def :: Module,
       | fail_operation(operation, "memory write data has the wrong DataType")
       unless clock_type(clock.type)
       | fail_operation(operation, "memory write clock must be Clock")
-      unless flat_data_type(enable.type) && data_width(enable.type) == 1
-      | fail_operation(operation, "memory write enable must be a one-bit FlatDataType")
+      unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
+      | fail_operation(operation, "memory write enable must be a one-bit ScalarDataType")
       unless module_def.memory_write_clock_consistent(memory)
       | fail_operation(operation, "memory write ports must use the same clock")
   | "sync_memory":
@@ -487,7 +487,7 @@ fun check_operation_types(module_def :: Module,
         def data = operation.results[result_index]
         unless bits_type(address.type) && address.type.width == address_width
         | fail_operation(operation, "synchronous memory read address has the wrong width")
-        unless flat_data_type(enable.type) && data_width(enable.type) == 1
+        unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
         | fail_operation(operation, "synchronous memory read enable must be one bit")
         unless type_equal(data.type, element_type)
         | fail_operation(operation, "synchronous memory read data has the wrong type")
@@ -501,7 +501,7 @@ fun check_operation_types(module_def :: Module,
         | fail_operation(operation, "synchronous memory write address has the wrong width")
         unless type_equal(data.type, element_type)
         | fail_operation(operation, "synchronous memory write data has the wrong type")
-        unless flat_data_type(enable.type) && data_width(enable.type) == 1
+        unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
         | fail_operation(operation, "synchronous memory write enable must be one bit")
         when has_mask
         | def mask = operation.places[place_index + 3]
@@ -519,10 +519,10 @@ fun check_operation_types(module_def :: Module,
         unless bits_type(address.type) && address.type.width == address_width
         | fail_operation(operation,
                          "synchronous memory read-write address has the wrong width")
-        unless flat_data_type(enable.type) && data_width(enable.type) == 1
+        unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
         | fail_operation(operation,
                          "synchronous memory read-write enable must be one bit")
-        unless flat_data_type(write.type) && data_width(write.type) == 1
+        unless scalar_data_type(write.type) && scalar_width(write.type) == 1
         | fail_operation(operation,
                          "synchronous memory read-write selector must be one bit")
         unless type_equal(write_data.type, element_type)
@@ -543,16 +543,16 @@ fun check_operation_types(module_def :: Module,
       def reset = operation.operands[2]
       def guard = operation.operands[3]
       def label = operation.attribute("label", #false)
-      unless flat_data_type(condition.type) && data_width(condition.type) == 1
+      unless scalar_data_type(condition.type) && scalar_width(condition.type) == 1
       | fail_operation(operation,
-                       "assert condition must be a one-bit FlatDataType")
+                       "assert condition must be a one-bit ScalarDataType")
       unless clock_type(clock.type)
       | fail_operation(operation, "assert clock must be Clock")
       unless reset_type(reset.type)
       | fail_operation(operation, "assert reset must be Reset")
-      unless flat_data_type(guard.type) && data_width(guard.type) == 1
+      unless scalar_data_type(guard.type) && scalar_width(guard.type) == 1
       | fail_operation(operation,
-                       "assert guard must be a one-bit FlatDataType")
+                       "assert guard must be a one-bit ScalarDataType")
       unless !label || (label is_a String && assertion_label_identifier.is_match(label))
       | fail_operation(operation,
                        "assert label must be an ASCII identifier")
@@ -567,8 +567,8 @@ fun check_operation_types(module_def :: Module,
       def inputs = operation.operands.drop(2)
       unless clock_type(clock.type)
       | fail_operation(operation, "DPI operation clock must be Clock")
-      unless flat_data_type(enable.type) && data_width(enable.type) == 1
-      | fail_operation(operation, "DPI operation enable must be a one-bit FlatDataType")
+      unless scalar_data_type(enable.type) && scalar_width(enable.type) == 1
+      | fail_operation(operation, "DPI operation enable must be a one-bit ScalarDataType")
       unless dpi_import is_a DpiImport && inputs.length() == dpi_import.input_types.length()
       | fail_operation(operation, "DPI operation input count does not match its import")
       when dpi_import is_a DpiImport
@@ -809,14 +809,14 @@ fun verify_design(design :: Design):
     | fail("DPI import " ++ import_label ++ " has malformed results")
     def input_names_seen = MutableSet{}
     for (input_name in dpi_import.input_names, input_type in dpi_import.input_types):
-      unless input_name is_a String && flat_data_type(input_type) && type_well_formed(input_type)
+      unless input_name is_a String && scalar_data_type(input_type) && type_well_formed(input_type)
       | fail("DPI import " ++ import_label ++ " has a malformed input")
       when input_name in input_names_seen
       | fail("DPI import " ++ import_label ++ " has duplicate input names")
       input_names_seen.add(input_name)
     def result_names_seen = MutableSet{}
     for (result in dpi_import.results):
-      unless result is_a DpiResult && result.name is_a String && flat_data_type(result.type) && type_well_formed(result.type) && (result.direction == "out" || result.direction == "return")
+      unless result is_a DpiResult && result.name is_a String && scalar_data_type(result.type) && type_well_formed(result.type) && (result.direction == "out" || result.direction == "return")
       | fail("DPI import " ++ import_label ++ " has a malformed result")
       when result.name in result_names_seen
       | fail("DPI import " ++ import_label ++ " has duplicate result names")

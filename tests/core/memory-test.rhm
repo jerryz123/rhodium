@@ -80,7 +80,7 @@ block:
     builder.memory_read_async(module_def, storage, bad_address) ~throws "Bits(2)"
     builder.memory_write(module_def, storage, address, bad_data, clock, enable) ~throws "wrong DataType"
     builder.memory_write(module_def, storage, address, data, enable, enable) ~throws "clock must be Clock"
-    builder.memory_write(module_def, storage, address, data, clock, bad_enable) ~throws "one-bit FlatDataType"
+    builder.memory_write(module_def, storage, address, data, clock, bad_enable) ~throws "one-bit ScalarDataType"
   def valid_write = builder.memory_write(module_def, storage, address, data, clock, enable)
   check:
     valid_write.opcode ~is "rtl.memory_write"

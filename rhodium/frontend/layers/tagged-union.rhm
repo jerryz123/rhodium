@@ -27,7 +27,7 @@ interface TaggedUnionVariant:
 class TaggedUnionType(schema :: VariantSchema,
                       tag_type :: EnumType || OneHotEnumType,
                       payload_width :: Nat):
-  implements FlatDataType
+  implements ScalarDataType
   implements HardwareVariantType
 
   property variants:
@@ -36,7 +36,6 @@ class TaggedUnionType(schema :: VariantSchema,
   override method describe(): "tagged-union<" ++ schema.name ++ ">"
   override method type_equal(other :: HardwareType):
     tagged_union_type(other) && variant_schema_equal(schema, other.schema)
-  override method bit_width(): schema.width + payload_width
   override method packed_width(): schema.width + payload_width
   override method hardware_variant_tag(entity :: HardwareEntity,
                                        location :: Location):
@@ -197,7 +196,7 @@ fun packed_union_tag_bits(value :: Value,
   if value.type.payload_width == 0
   | packed
   | kernel.extract(packed,
-                   value.type.bit_width() - 1,
+                   value.type.packed_width() - 1,
                    value.type.payload_width,
                    #false,
                    location)
@@ -266,7 +265,7 @@ annot.macro 'TaggedUnionMembers':
   )
 
 dot.macro 'tagged_union_member_dot $left $dot $right':
-  if ["schema", "variants", "tag_type", "payload_width", "bit_width",
+  if ["schema", "variants", "tag_type", "payload_width",
       "packed_width", "describe", "type_equal"].contains(
        right.to_source_string()
      )

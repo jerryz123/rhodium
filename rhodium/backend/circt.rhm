@@ -18,8 +18,8 @@ Parameter.def current_circt_sync_register_ids = []
 // record shapes before any source-level bundle names are attached.
 fun circt_shape_type(type :: HardwareType):
   cond
-  | flat_data_type(type):
-      "i" ++ to_string(data_width(type))
+  | scalar_data_type(type):
+      "i" ++ to_string(scalar_width(type))
   | record_type(type):
       "!hw.struct<" ++ String.join(
         type.fields.map(fun (field): field.name ++ ": " ++ circt_shape_type(field.type)),
@@ -46,8 +46,8 @@ fun circt_record_underlying_type(type :: RecordType):
 
 fun circt_type(type :: HardwareType):
   cond
-  | flat_data_type(type):
-      "i" ++ to_string(data_width(type))
+  | scalar_data_type(type):
+      "i" ++ to_string(scalar_width(type))
   | record_type(type):
       def underlying = circt_record_underlying_type(type)
       def alias = record_alias(type)
@@ -63,7 +63,7 @@ fun circt_type(type :: HardwareType):
             "CIRCT lowering does not support hardware type " ++ type.describe())
 
 fun circt_width(type :: HardwareType):
-  if flat_data_type(type) | data_width(type) | 1
+  if scalar_data_type(type) | scalar_width(type) | 1
 
 fun collect_circt_record_aliases(design :: Design):
   def mutable aliases = []
@@ -191,11 +191,11 @@ fun emit_decode(operation :: Operation):
   def output_width = result.type.packed_width()
   def operation_prefix = "%__rhodium_decode_" ++ to_string(operation_local_index(operation))
   def selector_ref:
-    if flat_data_type(selector.type)
+    if scalar_data_type(selector.type)
     | value_ref(selector)
     | operation_prefix ++ "_selector"
   def mutable lines:
-    if flat_data_type(selector.type)
+    if scalar_data_type(selector.type)
     | []
     | [String.append("    ", selector_ref, " = hw.bitcast ", value_ref(selector),
                      " : (", circt_type(selector.type), ") -> i",
@@ -277,13 +277,13 @@ fun emit_decode(operation :: Operation):
                      "      }",
                      "    }"]
   def packed_result_ref:
-    if flat_data_type(result.type)
+    if scalar_data_type(result.type)
     | value_ref(result)
     | operation_prefix ++ "_packed_result"
   lines := lines ++ [String.append("    ", packed_result_ref, " = sv.read_inout ",
                                    result_variable, " : !hw.inout<i",
                                    to_string(output_width), ">")]
-  unless flat_data_type(result.type)
+  unless scalar_data_type(result.type)
   | lines := lines ++ [String.append("    ", value_ref(result), " = hw.bitcast ",
                                      packed_result_ref, " : (i", to_string(output_width),
                                      ") -> ", circt_type(result.type))]
@@ -299,12 +299,12 @@ fun emit_binary(operation :: Operation, circt_opcode :: String):
 // Builds a sign extension from primitive Comb extraction and concatenation so
 // the public signed semantic operation does not depend on a backend type flag.
 fun emit_sign_extension(source_ref :: String,
-                        source_type :: FlatDataType,
+                        source_type :: ScalarDataType,
                         result_ref :: String,
-                        result_type :: FlatDataType,
+                        result_type :: ScalarDataType,
                         prefix :: String):
-  def source_width = data_width(source_type)
-  def result_width = data_width(result_type)
+  def source_width = scalar_width(source_type)
+  def result_width = scalar_width(result_type)
   def extension_width = result_width - source_width
   def sign_ref = prefix ++ "_sign"
   def sign_operands:
@@ -329,8 +329,8 @@ fun emit_shift(operation :: Operation,
   def value = operation.operands[0]
   def amount = operation.operands[1]
   def result = operation.results[0]
-  def value_width = data_width(value.type)
-  def amount_width = data_width(amount.type)
+  def value_width = scalar_width(value.type)
+  def amount_width = scalar_width(amount.type)
   if value_width == amount_width
   | emit_binary(operation, circt_opcode)
   | if amount_width < value_width
@@ -448,7 +448,7 @@ fun emit_onehot_mux(operation :: Operation):
   def width = result.type.packed_width()
   def prefix = "%__rhodium_onehot_" ++ to_string(operation.id)
   def packed_result_ref:
-    if flat_data_type(result.type)
+    if scalar_data_type(result.type)
     | value_ref(result)
     | prefix ++ "_result"
   def mutable lines = []
@@ -465,10 +465,10 @@ fun emit_onehot_mux(operation :: Operation):
         " from ", suffix, " : (", circt_type(selector.type), ") -> i1"
       )]
     def packed_choice_ref:
-      if flat_data_type(choice.type)
+      if scalar_data_type(choice.type)
       | value_ref(choice)
       | prefix ++ "_choice_" ++ suffix
-    unless flat_data_type(choice.type)
+    unless scalar_data_type(choice.type)
     | lines := lines ++ [String.append(
         "    ", packed_choice_ref, " = hw.bitcast ", value_ref(choice),
         " : (", circt_type(choice.type), ") -> i", to_string(width)
@@ -514,7 +514,7 @@ fun emit_onehot_mux(operation :: Operation):
     | next := next ++ [remaining[0]]
     current := next
     level := level + 1
-  unless flat_data_type(result.type)
+  unless scalar_data_type(result.type)
   | lines := lines ++ [String.append(
       "    ", value_ref(result), " = hw.bitcast ", packed_result_ref,
       " : (i", to_string(width), ") -> ", circt_type(result.type)
@@ -720,7 +720,7 @@ fun emit_vector_write_set(operation :: Operation):
       def compare_ref = prefix ++ "_compare_" ++ suffix ++ "_" ++ port_suffix
       def hit_ref = prefix ++ "_hit_" ++ suffix ++ "_" ++ port_suffix
       def packed_data_ref:
-        if flat_data_type(vector.type.element_type)
+        if scalar_data_type(vector.type.element_type)
         | data_refs[port_index]
         | prefix ++ "_packed_data_" ++ suffix ++ "_" ++ port_suffix
       lines := lines ++ [String.append(
@@ -730,7 +730,7 @@ fun emit_vector_write_set(operation :: Operation):
         "    ", hit_ref, " = comb.and ", enable_refs[port_index], ", ",
         compare_ref, " : i1"
       )]
-      unless flat_data_type(vector.type.element_type)
+      unless scalar_data_type(vector.type.element_type)
       | lines := lines ++ [String.append(
           "    ", packed_data_ref, " = hw.bitcast ", data_refs[port_index],
           " : (", circt_type(vector.type.element_type), ") -> i",
@@ -764,16 +764,16 @@ fun emit_vector_write_set(operation :: Operation):
                                     element_width,
                                     prefix ++ "_merged_data_" ++ suffix)
     def packed_old_ref:
-      if flat_data_type(vector.type.element_type)
+      if scalar_data_type(vector.type.element_type)
       | old_ref
       | prefix ++ "_packed_old_" ++ suffix
-    unless flat_data_type(vector.type.element_type)
+    unless scalar_data_type(vector.type.element_type)
     | lines := lines ++ [String.append(
         "    ", packed_old_ref, " = hw.bitcast ", old_ref, " : (",
         circt_type(vector.type.element_type), ") -> i", to_string(element_width)
       )]
     def element_ref:
-      if flat_data_type(vector.type.element_type)
+      if scalar_data_type(vector.type.element_type)
       | prefix ++ "_result_element_" ++ suffix
       | prefix ++ "_packed_result_element_" ++ suffix
     lines := lines ++ [String.append(
@@ -781,10 +781,10 @@ fun emit_vector_write_set(operation :: Operation):
       merged_data_ref, ", ", packed_old_ref, " : i", to_string(element_width)
     )]
     def result_element_ref:
-      if flat_data_type(vector.type.element_type)
+      if scalar_data_type(vector.type.element_type)
       | element_ref
       | prefix ++ "_result_element_" ++ suffix
-    unless flat_data_type(vector.type.element_type)
+    unless scalar_data_type(vector.type.element_type)
     | lines := lines ++ [String.append(
         "    ", result_element_ref, " = hw.bitcast ", element_ref, " : (i",
         to_string(element_width), ") -> ", circt_type(vector.type.element_type)
@@ -876,7 +876,7 @@ fun emit_sync_memory(operation :: Operation):
   def memory_type = sync_memory_type(operation)
   def element_type = operation.attribute("element_type")
   def packed_type = "i" ++ to_string(element_type.packed_width())
-  def flat_element = flat_data_type(element_type)
+  def flat_element = scalar_data_type(element_type)
   def mask_granularity = operation.attribute("mask_granularity", #false)
   def mask_width:
     if !mask_granularity

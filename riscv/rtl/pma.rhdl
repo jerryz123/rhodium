@@ -64,8 +64,8 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
 
   method lookup(raw_address :: Bits,
                 raw_last_address :: Bits = raw_address) :~ RiscvPhysicalMemoryLookup():
-    def raw_width = raw_address.type.bit_width()
-    def raw_last_width = raw_last_address.type.bit_width()
+    def raw_width = raw_address.type.packed_width()
+    def raw_last_width = raw_last_address.type.packed_width()
     def address:
       cond
       | raw_width < address_width: raw_address.zext(address_width)

@@ -31,18 +31,18 @@ check:
   associative_cache.capacity_bytes ~is 1024
   instruction_request_member.type.name ~is "Decoupled"
   instruction_response_member.type.name ~is "Decoupled"
-  data_width(instruction_cache.find_input("core_in").type.field("flush").type) ~is 1
-  data_width(instruction_cache.find_input("core_in").type.field("invalidate_all").type) ~is 1
+  scalar_width(instruction_cache.find_input("core_in").type.field("flush").type) ~is 1
+  scalar_width(instruction_cache.find_input("core_in").type.field("invalidate_all").type) ~is 1
   instruction_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 64
   instruction_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64
   instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 64
-  data_width(instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
+  scalar_width(instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
   instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("word").type.width ~is 32
   instruction_cache.find_output("chi_out").type.field("req").type.field("bits").type.field("address").type.width ~is 44
   rv32_instruction_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 32
-  data_width(rv32_instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
+  scalar_width(rv32_instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
   rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("word").type.width ~is 32
   embedded.run_elaboration(
     fun (): RV5StageCacheConfig(3, 1)

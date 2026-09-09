@@ -58,7 +58,6 @@ with one declaration:
 
 ```rhombus
 hardware_type Token(width :: PosInt):
-  implements FlatDataType
   width: width
   describe: "token<" ++ to_string(width) ++ ">"
 
@@ -73,6 +72,12 @@ circuit TokenPass():
   output result: Token(8)
   result <== source.pass_any_width()
 ```
+
+The generated descriptor implements `ScalarDataType` by default and defines
+`packed_width()` from the required `width:` clause. The width must be a positive
+host integer. An optional single `implements` clause selects an explicit
+capability (for example an imported `BitwiseType`); width alone never enables operators.
+`describe:` is also required.
 
 The generated descriptor is nominal by declaration. Its parameters form the
 default equality key; `type_key:` can instead provide a canonical host value
@@ -335,7 +340,7 @@ hardware_enum Opcode(~width: 4):
   Load = 8
 ```
 
-Hardware enums are nominal `FlatDataType`s without arithmetic or bitwise
+Hardware enums are nominal `ScalarDataType`s without arithmetic or bitwise
 capability. Automatic encodings use declaration order and the minimum positive
 width. Explicit encodings require a stable width, unique names and values, and
 all-or-none explicit values.
@@ -442,7 +447,7 @@ and [`../../../examples/rtl/nested-tagged-union.rhdl`](../../../examples/rtl/nes
 
 ### One-hot values
 
-`OneHot(n)` is a structurally sized `FlatDataType`. Calling the type with a
+`OneHot(n)` is a structurally sized `ScalarDataType`. Calling the type with a
 host index produces the corresponding power-of-two literal. A one-hot encoded
 hardware enum provides the same selector contract while retaining named,
 nominal members:
@@ -682,7 +687,7 @@ sync_circuit CheckedQueue():
     assert(invariant, "request_invariant")
 ```
 
-An assertion samples a readable one-bit `FlatDataType` on each rising clock
+An assertion samples a readable one-bit `ScalarDataType` on each rising clock
 edge. It is disabled while the active-high reset is asserted. `sync_circuit`
 supplies the ambient clock and reset and rejects explicit controls. An ordinary
 circuit must supply both `~clock` and `~reset`; supplying only one is an error.
@@ -725,7 +730,7 @@ rejects `~clock`, while ordinary circuits pass it explicitly. `dpi_reg` accepts
 
 ### Conditional assignment and effects
 
-`when` accepts only a readable one-bit `FlatDataType`. Host values are rejected:
+`when` accepts only a readable one-bit `ScalarDataType`. Host values are rejected:
 
 ```rhombus
 when load:
@@ -1188,7 +1193,7 @@ controls and their owner without treating variable latency as fixed latency.
 An in-order asynchronous-read queue calls
 `describe_interface_queue_storage(depth, enqueue, dequeue, read_address, write_address, stored_valid, bypass)`
 once inside its implementation. The positive depth fixes metadata capacity;
-addresses are local flat data of width `index_width(depth)`, and the remaining
+addresses are local scalar data of width `index_width(depth)`, and the remaining
 controls are local one-bit data. `enqueue` and `dequeue` describe actual storage
 operations, excluding empty flow-through transfers. Addresses identify the
 pre-edge storage slots; a simultaneous read and write observes the old item.

@@ -12,7 +12,7 @@ import:
   "../round.rhdl".RoundRawFNToRecFN
 
 fun fma_extend(value :: Bits, width :: PosInt) :~ Bits(width):
-  if value.type.bit_width() == width
+  if value.type.packed_width() == width
   | value
   | value.zext(width)
 
@@ -102,7 +102,7 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
           c_extra_mask_top,
           c_extra_mask_bottom
         )
-        or_reduce(reduced_c_extra & fma_extend(mask, reduced_c_extra.type.bit_width()))
+        or_reduce(reduced_c_extra & fma_extend(mask, reduced_c_extra.type.packed_width()))
   def aligned_c_tail = main_aligned_c.as_bits()[0..=2]
   def aligned_c_sticky = mux(
     subtract_magnitudes,
@@ -200,10 +200,10 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
     if c_dominant_mask_width == 0
     | Bool(#false)
     | block:
-        def alignment_width = intermediate.c_alignment_distance.type.bit_width()
+        def alignment_width = intermediate.c_alignment_distance.type.packed_width()
         def alignment_quarters = intermediate.c_alignment_distance[2..alignment_width]
         def mask = low_mask(alignment_quarters, 0, c_dominant_mask_width)
-        or_reduce(c_dominant_reduced & fma_extend(mask, c_dominant_reduced.type.bit_width()))
+        or_reduce(c_dominant_reduced & fma_extend(mask, c_dominant_reduced.type.packed_width()))
   def c_dominant_significand = (
     c_dominant_main[3..=(significand_width + 4)]
       ++ (c_dominant_main[0..=2].or_reduce() ||| c_dominant_reduced_extra ||| c_dominant_extra)
@@ -220,7 +220,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   def non_dominant_reduced_groups = non_dominant_groups.map(fun (group): group =/= bits(0, 2))
   def non_dominant_reduced = non_dominant_reduced_groups.as_bits()
   def non_dominant_normalization_reduced = non_dominant_reduced.count_leading_zeros()
-  def non_dominant_normalization_width = non_dominant_normalization_reduced.type.bit_width() + 1
+  def non_dominant_normalization_width = non_dominant_normalization_reduced.type.packed_width() + 1
   def non_dominant_normalization_distance = non_dominant_normalization_reduced.zext(non_dominant_normalization_width) << 1
   def non_dominant_exponent_adjustment = non_dominant_normalization_distance.zext(exponent_width + 2).into(SInt(exponent_width + 2))
   def non_dominant_exponent = intermediate.exponent_sum - non_dominant_exponent_adjustment
@@ -231,7 +231,7 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
     ]
   def non_dominant_reduced_slice = non_dominant_reduced[0..=(significand_width div 2)]
   def non_dominant_reduced_shift = (significand_width div 2) mod 2
-  def non_dominant_reduced_again_width = non_dominant_reduced_slice.type.bit_width() + non_dominant_reduced_shift + 1
+  def non_dominant_reduced_again_width = non_dominant_reduced_slice.type.packed_width() + non_dominant_reduced_shift + 1
   def non_dominant_reduced_again_source = fma_extend(
     non_dominant_reduced_slice,
     non_dominant_reduced_again_width
@@ -239,12 +239,12 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   def non_dominant_groups_again = non_dominant_reduced_again_source.as_vec(Bits(2))
   def non_dominant_reduced_groups_again = non_dominant_groups_again.map(fun (group): group =/= bits(0, 2))
   def non_dominant_reduced_again = non_dominant_reduced_groups_again.as_bits()
-  def normalization_width = non_dominant_normalization_reduced.type.bit_width()
+  def normalization_width = non_dominant_normalization_reduced.type.packed_width()
   def normalization_halves = non_dominant_normalization_reduced[1..normalization_width]
   def non_dominant_mask_width = (significand_width + 2) div 4
   def non_dominant_mask = low_mask(normalization_halves, 0, non_dominant_mask_width)
   def non_dominant_reduced_extra = or_reduce(
-    non_dominant_reduced_again & fma_extend(non_dominant_mask, non_dominant_reduced_again.type.bit_width())
+    non_dominant_reduced_again & fma_extend(non_dominant_mask, non_dominant_reduced_again.type.packed_width())
   )
   def non_dominant_significand = (
     non_dominant_main[3..=(significand_width + 4)]

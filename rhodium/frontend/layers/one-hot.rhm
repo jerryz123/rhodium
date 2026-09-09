@@ -22,7 +22,7 @@ fun one_hot_encoding(index :: Nat):
   1 << index
 
 class _OneHotType(width :: PosInt):
-  implements FlatDataType
+  implements ScalarDataType
   implements Callable
   implements mux_support.OneHotSelectorType
 
@@ -31,9 +31,6 @@ class _OneHotType(width :: PosInt):
 
   override method type_equal(other :: HardwareType):
     one_hot_type(other) && width == other.width
-
-  override method bit_width():
-    width
 
   override method packed_width():
     width

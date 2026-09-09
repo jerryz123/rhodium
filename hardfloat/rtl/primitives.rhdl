@@ -13,7 +13,7 @@ fun low_mask(value :: Bits,
              bottom_bound :: Nat) :~ Bits(if top_bound > bottom_bound | top_bound - bottom_bound | bottom_bound - top_bound):
   unless top_bound != bottom_bound
   | error(~who: #'low_mask, "bounds must be distinct")
-  def input_width = value.type.bit_width()
+  def input_width = value.type.packed_width()
   def input_values = 1 << input_width
   unless top_bound <= input_values && bottom_bound <= input_values
   | error(~who: #'low_mask, "bounds must fit the input value range")

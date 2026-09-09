@@ -70,7 +70,7 @@ class AddressSet(base :: Nat, mask :: Nat):
 
   // Matches a hardware address against this elaboration-time set.
   method matches(address :: Bits):
-    def width = address.type.bit_width()
+    def width = address.type.packed_width()
     (address & !bits(mask, width)) === bits(base, width)
 
 // Matches a hardware address against any set, with false for an empty list.
@@ -116,8 +116,8 @@ class StripedAddressLayout(local_bytes :: Pow2Int,
 
   // Removes the bank-select bits from a relative hardware address. Membership
   // and base translation remain caller-owned; this operation is combinational.
-  method project_offset(relative :: Bits) :~ Bits(relative.type.bit_width()):
-    def width = relative.type.bit_width()
+  method project_offset(relative :: Bits) :~ Bits(relative.type.packed_width()):
+    def width = relative.type.packed_width()
     unless fits_unsigned_width(width)
     | error(~who: #'StripedAddressLayout, "striped memory size must fit the address width")
     def bank_width = alignment_bits(bank_count)
@@ -127,8 +127,8 @@ class StripedAddressLayout(local_bytes :: Pow2Int,
 
 // Tests a nonempty transfer against a nonwrapping window. Widen the exclusive
 // ends so a transfer ending exactly at the address-space limit is representable.
-fun transfer_in_range(address :: Bits, transfer_bytes :: Bits(address.type.bit_width()), base_address :: Bits(address.type.bit_width()), window_bytes :: PosInt) :~ Bool:
-  def width = address.type.bit_width()
+fun transfer_in_range(address :: Bits, transfer_bytes :: Bits(address.type.packed_width()), base_address :: Bits(address.type.packed_width()), window_bytes :: PosInt) :~ Bool:
+  def width = address.type.packed_width()
   unless window_bytes <= (1 << width)
   | error(~who: #'transfer_in_range, "window must fit in the address space")
   def extended_address = address.zext(width + 1)

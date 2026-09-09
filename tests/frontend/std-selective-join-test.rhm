@@ -35,7 +35,7 @@ check:
   direct_module.outputs.map(fun (port): port.name) ~is [
     "selection_out", "ingress_0_out", "ingress_1_out", "ingress_2_out", "egress_out"
   ]
-  result_type.field("selection").type.bit_width() ~is 3
+  result_type.field("selection").type.packed_width() ~is 3
   result_type.field("values").type.length ~is 3
   result_type.field("values").type.element_type.width ~is 8
   operations(direct_module, "rtl.register").length() ~is 0

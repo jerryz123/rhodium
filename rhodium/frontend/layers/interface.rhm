@@ -509,7 +509,7 @@ fun event_field(name :: String, value :: HardwareEntity,
                 ~label: label :: Boolean = #false,
                 ~location: location :: Location = Location()) :: InterfaceEventField:
   def captured = kernel.read(value, location)
-  unless name is_a AsciiIdentifier && flat_data_type(captured.type)
+  unless name is_a AsciiIdentifier && scalar_data_type(captured.type)
   | error(~who: #'event_field, "capture requires an ASCII identifier name and scalar DataType")
   when name in ["cycle", "sequence"]
   | error(~who: #'event_field, "reserved capture field name: " ++ name)
@@ -1672,7 +1672,7 @@ fun interface_trace_passthrough():
 // guard is the original filter predicate, not a reconstructed selection policy.
 fun interface_trace_combinational(~guard: guard :: False || HardwareEntity = #false):
   def value = if guard | kernel.read(guard) | #false
-  when value && (!(value.module_def === kernel.active_module()) || !flat_data_type(value.type) || data_width(value.type) != 1)
+  when value && (!(value.module_def === kernel.active_module()) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
   | error(~who: #'interface_trace_combinational, "trace guard must be local one-bit data")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceCombinational(value))
 
@@ -1692,7 +1692,7 @@ fun describe_interface_elastic_stages(advances :: NonemptyList.of(HardwareEntity
   | error(~who: #'describe_interface_elastic_stages, "elastic stage controls already declared")
   fun signal(entity :: HardwareEntity):
     def value = kernel.read(entity)
-    unless value.module_def === module_def && flat_data_type(value.type) && data_width(value.type) == 1
+    unless value.module_def === module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
     | error(~who: #'describe_interface_elastic_stages, "elastic stage controls must be local one-bit data")
     value
   def stages = for List (advance in advances, valid in valids):
@@ -1719,7 +1719,7 @@ fun describe_interface_queue_storage(depth :: PosInt,
   | error(~who: #'describe_interface_queue_storage, "queue storage controls already declared")
   fun signal(entity :: HardwareEntity, width :: PosInt):
     def value = kernel.read(entity)
-    unless value.module_def === module_def && flat_data_type(value.type) && data_width(value.type) == width
+    unless value.module_def === module_def && scalar_data_type(value.type) && scalar_width(value.type) == width
     | error(~who: #'describe_interface_queue_storage, "queue controls must be local flat data with the required width")
     value
   def address_width = memory_address_width(depth)
@@ -1744,7 +1744,7 @@ fun describe_interface_selection(grants :: NonemptyList.of(HardwareEntity)):
   | error(~who: #'describe_interface_selection, "selection controls already declared")
   def grant_values = for List (grant in grants):
     def value = kernel.read(grant)
-    unless value.module_def === module_def && flat_data_type(value.type) && data_width(value.type) == 1
+    unless value.module_def === module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
     | error(~who: #'describe_interface_selection, "selection grants must be local one-bit data")
     value
   module_def.add_metadata(interface_selection_namespace, InterfaceSelection(module_def, grant_values))
@@ -1764,7 +1764,7 @@ fun interface_trace_selection(instance :: Instance):
 fun interface_trace_routing(predicates :: NonemptyList.of(HardwareEntity)):
   def predicate_values = for List (predicate in predicates):
     def value = kernel.read(predicate)
-    unless value.module_def === kernel.active_module() && flat_data_type(value.type) && data_width(value.type) == 1
+    unless value.module_def === kernel.active_module() && scalar_data_type(value.type) && scalar_width(value.type) == 1
     | error(~who: #'interface_trace_routing, "routing predicates must be local one-bit data")
     value
   InterfaceTraceModel(for List (index in 0..predicate_values.length()): InterfaceTraceRoute(0, index),
@@ -1786,7 +1786,7 @@ fun describe_interface_broadcast_storage(accept :: HardwareEntity, pending :: No
   | error(~who: #'describe_interface_broadcast_storage, "broadcast storage controls already declared")
   fun signal(entity :: HardwareEntity):
     def value = kernel.read(entity)
-    unless value.module_def === module_def && flat_data_type(value.type) && data_width(value.type) == 1
+    unless value.module_def === module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
     | error(~who: #'describe_interface_broadcast_storage, "broadcast controls must be local one-bit data")
     value
   module_def.add_metadata(interface_broadcast_storage_namespace, InterfaceBroadcastStorage(module_def, signal(accept), pending.map(signal)))
@@ -1836,7 +1836,7 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
       | unless input_count == 1 && output_count == trace_model.routing_predicates().length() && trace_model.routes.length() == output_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..output_count): [0, index])
         | error(~who: #'describe_interface_transform, "routing trace requires one predicate and route per output and exactly one input")
         for (value in trace_model.routing_predicates()):
-          unless value.module_def === kernel.active_module() && flat_data_type(value.type) && data_width(value.type) == 1
+          unless value.module_def === kernel.active_module() && scalar_data_type(value.type) && scalar_width(value.type) == 1
           | error(~who: #'describe_interface_transform, "routing predicates must be local one-bit data")
       | if trace_model.atomic_fork_outputs()
         | unless input_count == 1 && output_count == trace_model.atomic_fork_outputs() && trace_model.routes.length() == output_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..output_count): [0, index])
@@ -1847,7 +1847,7 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
           | unless input_count == 1 && output_count == 1 && trace_model.routes.length() == 1 && trace_model.routes[0].input_index == 0 && trace_model.routes[0].output_index == 0
             | error(~who: #'describe_interface_transform, "dynamic trace semantics require exactly one input and output")
     def guard = if trace_model.dynamic is_a InterfaceTraceCombinational | trace_model.dynamic.guard | #false
-    when guard && (!(guard.module_def === kernel.active_module()) || !flat_data_type(guard.type) || data_width(guard.type) != 1)
+    when guard && (!(guard.module_def === kernel.active_module()) || !scalar_data_type(guard.type) || scalar_width(guard.type) != 1)
     | error(~who: #'describe_interface_transform, "trace guard must be local one-bit data")
   for (route in trace_model.routes):
     unless route.input_index < input_count
@@ -1875,27 +1875,27 @@ fun describe_interface_transform(handle :: Handle,
     | unless implementation && trace_model.selection_instance() === implementation
       | error(~who: #'describe_interface_transform, "selection trace model must match the transform implementation")
       for (value in trace_model.selection_grants()):
-        unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == 1
+        unless value.module_def === implementation.module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
         | error(~who: #'describe_interface_transform, "selection grants must belong to the implementation and be one-bit data")
     when trace_model.elastic_instance()
     | unless implementation && trace_model.elastic_instance() === implementation
       | error(~who: #'describe_interface_transform, "elastic trace model must match the transform implementation")
       for (stage in trace_model.elastic_stages()):
         for (value in [stage.advance, stage.valid]):
-          unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == 1
+          unless value.module_def === implementation.module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
           | error(~who: #'describe_interface_transform, "elastic trace controls must belong to the implementation and be one-bit data")
     when trace_model.queue_instance()
     | unless implementation && trace_model.queue_instance() === implementation
       | error(~who: #'describe_interface_transform, "queue trace model must match the transform implementation")
       def storage = trace_model.queue_storage()
       for (value in storage.controls(), width in [1, 1, memory_address_width(storage.depth), memory_address_width(storage.depth), 1, 1]):
-        unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == width
+        unless value.module_def === implementation.module_def && scalar_data_type(value.type) && scalar_width(value.type) == width
         | error(~who: #'describe_interface_transform, "queue trace controls must belong to the implementation with the required width")
     when trace_model.broadcast_instance()
     | unless implementation && trace_model.broadcast_instance() === implementation
       | error(~who: #'describe_interface_transform, "broadcast trace model must match the transform implementation")
       for (value in trace_model.broadcast_storage().controls()):
-        unless value.module_def === implementation.module_def && flat_data_type(value.type) && data_width(value.type) == 1
+        unless value.module_def === implementation.module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
         | error(~who: #'describe_interface_transform, "broadcast trace controls must belong to the implementation and be one-bit data")
   module_def.add_metadata(
     interface_transform_group_namespace,
@@ -1975,7 +1975,7 @@ fun describe_interface_event(handle :: Handle,
   def site_index = existing.length()
   fun transfer_value(signal :: False || HardwareEntity):
     def value = if signal | kernel.read(signal, location) | #false
-    when value && (!(value.module_def === module_def) || !flat_data_type(value.type) || data_width(value.type) != 1)
+    when value && (!(value.module_def === module_def) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
     | error(~who: #'describe_interface_event, "event transfer controls must be local one-bit data")
     value
   when ready && !valid

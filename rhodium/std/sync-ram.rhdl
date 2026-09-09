@@ -10,7 +10,7 @@ sync_circuit SyncRam1RW(depth :: PosInt, T :: DataType, n :: PosInt):
   def address_width = index_width(depth)
   def Data = Vec(n, T)
   interface port(ReadWritePort(address_width, T, n), ~role: responder)
-  sync_mem storage(depth, Data, ~mask_granularity: T.bit_width()):
+  sync_mem storage(depth, Data, ~mask_granularity: T.packed_width()):
     read_write
   reg response_valid(~init: Bool(#false))
 
