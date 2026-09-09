@@ -4,7 +4,9 @@
 import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm".Bool
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/pointer-masking.rhdl".PointerMaskControl
   "../csr.rhdl" as csr
   "../profile.rhm".RVCoreProfile
 
@@ -19,10 +21,15 @@ check:
   rv64.outputs.map(fun (port): port.name) ~is [
     "redirect_out", "interrupt_request", "wfi_retired", "wfi_wake",
     "writeback_valid", "writeback_value", "privilege", "mstatus", "satp",
-    "frm", "fp_enabled", "cbo_zero_enabled", "cbo_permission", "translation_flush"
+    "frm", "fp_enabled", "cbo_zero_enabled", "cbo_permission", "translation_flush",
+    "pointer_masking", "pointer_masking_changed"
   ]
   rv64.find_input("interrupts").type.field("machine_timer").type.bit_width() ~is 1
   rv64.find_input("commit_in").type.field("bits").type.field("pc").type.width ~is 64
   rv32.find_input("commit_in").type.field("bits").type.field("pc").type.width ~is 32
   rv64.find_output("writeback_value").type.width ~is 64
   rv32.find_output("satp").type.width ~is 32
+  rv64.find_output("pointer_masking").type.type_equal(PointerMaskControl()) ~is #true
+  rv32.find_output("pointer_masking").type.type_equal(PointerMaskControl()) ~is #true
+  rv64.find_output("pointer_masking_changed").type.type_equal(Bool) ~is #true
+  rv32.find_output("pointer_masking_changed").type.type_equal(Bool) ~is #true
