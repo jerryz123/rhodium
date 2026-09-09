@@ -10,6 +10,12 @@ def rnf = chi.CHIRNLink(fixture.rnf_link, fixture.rnf_node)
 def sn = chi.CHISNLink(fixture.sn_link, fixture.sn_node)
 def tx_req = rni.members.find(fun (member): member.name == "tx_req")
 def rx_rsp = rni.members.find(fun (member): member.name == "rx_rsp")
+
+check:
+  chi.CHIChannelCapabilities().is_dvm_snoop_only() ~is #true
+  chi.CHIChannelCapabilities(~snp: [chi.CHISnpOpcode.SnpDVMOp]).is_dvm_snoop_only() ~is #true
+  chi.CHIChannelCapabilities(~snp: [chi.CHISnpOpcode.SnpDVMOp, chi.CHISnpOpcode.SnpShared]).is_dvm_snoop_only() ~is #false
+
 // Construct each side independently: equality must include the nested flit
 // parameters and every credit field, not object identity or selected fields.
 fun rnf_with_mismatch(changed :: Int):

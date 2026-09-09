@@ -167,6 +167,13 @@ layouts. The `chi-request-update` behavioral fixture covers single-bank,
 byte-stripe, and whole-bank-stripe projection plus metadata-transparent CHI
 adaptation. CHI adapters and LLCs consume this same geometry.
 
+Transfer containment also belongs in `interconnect.rhdl`. Keep both exclusive
+ends widened, and reject empty transfers and wrapping windows. The
+`transfer-range` fixture exhaustively compares all four-bit addresses, lengths,
+bases, and window sizes against integer arithmetic; host tests reject invalid
+widths and window sizes. RAM and BootROM retain their independent alignment,
+size, and address-acceptance policies.
+
 ## Focused validation
 
 Run Racket and Rhombus through the repository wrapper, which creates the

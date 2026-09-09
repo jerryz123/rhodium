@@ -3,6 +3,8 @@
 
 import:
   lib("chi/main.rhdl") open
+  lib("rhodium/core/main.rhm") as core
+  "response-profile-fixture.rhdl" as fixture
 
 def write_profile = response_profile("test_write"):
   retryable
@@ -16,10 +18,20 @@ def write_profile = response_profile("test_write"):
     completes [dbid, completion]
 
 check:
+  fixture.invalid_effects_design(core.Bits(1)) ~throws "Bits"
+  fixture.invalid_effects_design(core.VectorType(2, core.Bits(1))) ~throws "Bits"
   write_profile.effect_width ~is 2
   write_profile.full_effect_mask ~is 3
   write_profile.milestone_index("dbid") ~is 0
   write_profile.milestone_index("completion") ~is 1
+  write_profile.milestone_mask("dbid") ~is 1
+  write_profile.rule_effect_mask(CHIResponseRule([CHIRspOpcode.CompDBIDResp], ["dbid", "completion"])) ~is 3
+  write_profile.rule_effect_mask(CHIResponseRule([CHIRspOpcode.DBIDResp], ["dbid", "dbid"])) ~is 1
+  write_profile.milestone_index("missing") ~throws "no such milestone"
+  CHIResponseProfile("bad", [""], [], ~retryable: #true) ~throws "NonemptyString"
+  CHIResponseRule([CHIRspOpcode.Comp], [""]) ~throws "NonemptyString"
+  CHIResponseProfile("retry_only", [], [], ~retryable: #true).effect_width ~is 1
+  CHIResponseProfile("retry_only", [], [], ~retryable: #true).full_effect_mask ~is 0
   write_profile.progress_opcodes ~is [
     CHIRspOpcode.DBIDResp,
     CHIRspOpcode.DBIDRespOrd,

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines protocol-neutral interconnect sets, striped address geometry, and hardware address matching.
+// Defines protocol-neutral sets, stripe geometry, and overflow-safe hardware transfer matching.
 
 import:
   lib("rhodium/std/bits.rhdl") open
@@ -125,6 +125,18 @@ class StripedAddressLayout(local_bytes :: Pow2Int,
     // Keep the byte-within-stripe bits and shift the row down over the bank.
     ((relative >> bank_width) & !stripe_mask) ||| (relative & stripe_mask)
 
+// Tests a nonempty transfer against a nonwrapping window. Widen the exclusive
+// ends so a transfer ending exactly at the address-space limit is representable.
+fun transfer_in_range(address :: Bits, transfer_bytes :: Bits(address.type.bit_width()), base_address :: Bits(address.type.bit_width()), window_bytes :: PosInt) :~ Bool:
+  def width = address.type.bit_width()
+  unless window_bytes <= (1 << width)
+  | error(~who: #'transfer_in_range, "window must fit in the address space")
+  def extended_address = address.zext(width + 1)
+  def extended_base = base_address.zext(width + 1)
+  def transfer_end = extended_address + transfer_bytes.zext(width + 1)
+  def window_end = extended_base + bits(window_bytes, width + 1)
+  (transfer_bytes =/= bits(0, width)) & (extended_address >= extended_base) & (transfer_end <= window_end) & (window_end <= bits(1 << width, width + 1))
+
 class TransferSizes(min_bytes :: Pow2Int, max_bytes :: Pow2Int):
   constructor (min_bytes :: Pow2Int, max_bytes :: Pow2Int):
     unless min_bytes <= max_bytes
@@ -145,4 +157,5 @@ export:
   allocate_id_ranges
   AddressSet
   address_sets_match
+  transfer_in_range
   TransferSizes

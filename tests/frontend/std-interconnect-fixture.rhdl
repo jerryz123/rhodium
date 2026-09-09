@@ -1,5 +1,5 @@
 #lang rhodium
-// Supplies generic address matching and parameterized stripe-projection validation fixtures.
+// Supplies address matching, transfer containment, and stripe-projection validation fixtures.
 
 import:
   lib("rhodium/std/interconnect.rhdl") open
@@ -26,7 +26,25 @@ circuit StripedProjectionFixture(layout :: StripedAddressLayout, width :: PosInt
 fun projection_design(layout :: StripedAddressLayout, width :: PosInt):
   elaborate(StripedProjectionFixture(layout, width))
 
+circuit TransferRangeFixture():
+  input address: Bits(4)
+  input length: Bits(4)
+  input base: Bits(4)
+  output contained: Vec(16, Bool)
+  contained <== vec(for List (size in 1..=16): transfer_in_range(address, length, base, size))
+
+circuit TransferRangeTypeFixture(T :: DataType, window :: PosInt):
+  input address: Bits(4)
+  input length: T
+  output matches: Bool
+  matches <== transfer_in_range(address, length, bits(0, 4), window)
+
+fun transfer_range_design(T :: DataType, window :: PosInt):
+  elaborate(TransferRangeTypeFixture(T, window))
+
 export:
+  TransferRangeFixture
+  transfer_range_design
   projection_design
   AddressSetMatchFixture
   design

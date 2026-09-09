@@ -1,0 +1,44 @@
+#lang rhodium
+// Exercises profile methods and compatibility calls with combined and retry-only response effects.
+
+import:
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/transactions/retryable-transaction.rhdl") open
+
+def profile = response_profile("profile_decode"):
+  retryable
+  milestone dbid
+  milestone completion
+  response [CHIRspOpcode.DBIDResp, CHIRspOpcode.DBIDRespOrd]:
+    completes [dbid]
+  response [CHIRspOpcode.Comp]:
+    completes [completion]
+  response [CHIRspOpcode.CompDBIDResp]:
+    completes [dbid, completion]
+
+circuit CHIResponseProfileFixture():
+  input opcode: CHIRspOpcode
+  output effects: Bits(2)
+  output legacy_effects: Bits(2)
+  output dbid: Bool
+  output completion: Bool
+  output legacy_dbid: Bool
+  output retry_only: Bits(1)
+  effects <== profile.effects(opcode)
+  legacy_effects <== chi_response_effects(profile, opcode)
+  dbid <== profile.milestone(effects, "dbid")
+  completion <== profile.milestone(effects, "completion")
+  legacy_dbid <== chi_response_milestone(profile, effects, "dbid")
+  retry_only <== CHIResponseProfile("retry_only", [], [], ~retryable: #true).effects(opcode)
+
+circuit InvalidResponseEffects(T :: DataType):
+  input effects: T
+  output result: Bool
+  result <== profile.milestone(effects, "dbid")
+
+fun invalid_effects_design(T :: DataType):
+  elaborate(InvalidResponseEffects(T))
+
+export:
+  CHIResponseProfileFixture
+  invalid_effects_design

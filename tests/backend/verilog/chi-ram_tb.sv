@@ -1,4 +1,4 @@
-// Simulates CHIRam reads, writes, masks, backpressure, and concurrent DBIDs.
+// Simulates CHIRam reads, writes, masks, stalls, concurrent DBIDs, and address-space-end access.
 module chi_ram_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
@@ -267,6 +267,11 @@ module chi_ram_tb;
     issue_request(READ_NO_SNP, 12'h204, 44'h080000020, 6'd5, 12'h504);
     accept_read(12'h504, 2'd2, 16'hffff, 128'haaaaaaaabbbbbbbbccccccccdddddddd);
     accept_read(12'h504, 2'd3, 16'hffff, 128'h33333333333333333333333333333333);
+
+    // Move the idle 64-byte window to the top of the physical address space.
+    identity.base_address = 44'hfffffffffc0;
+    issue_request(READ_NO_SNP, 12'h205, 44'hffffffffff0, 6'd4, 12'h505);
+    accept_read(12'h505, 2'd3, 16'hffff, 128'h33333333333333333333333333333333);
 
     $display("CHI decoupled RAM simulation passed");
     $finish;

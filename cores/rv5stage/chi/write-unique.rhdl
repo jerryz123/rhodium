@@ -75,26 +75,10 @@ sync_circuit RV5StageWriteUnique(Context :: DataType,
   def incoming_response = response_event.bits.flit
   def response_fire = response_event.valid
   def response_protocol_credit = response_event.bits.protocol_credit
-  def dbid_fire = response_fire & chi_response_milestone(
-    RV5StageWriteUniqueResponses,
-    response_event.bits.effects,
-    "dbid"
-  )
-  def response_completion_fire = response_fire & chi_response_milestone(
-    RV5StageWriteUniqueResponses,
-    response_event.bits.effects,
-    "completion"
-  )
-  def dbid_received = chi_response_milestone(
-    RV5StageWriteUniqueResponses,
-    control.received,
-    "dbid"
-  )
-  def completion_received = chi_response_milestone(
-    RV5StageWriteUniqueResponses,
-    control.received,
-    "completion"
-  )
+  def dbid_fire = response_fire & RV5StageWriteUniqueResponses.milestone(response_event.bits.effects, "dbid")
+  def response_completion_fire = response_fire & RV5StageWriteUniqueResponses.milestone(response_event.bits.effects, "completion")
+  def dbid_received = RV5StageWriteUniqueResponses.milestone(control.received, "dbid")
+  def completion_received = RV5StageWriteUniqueResponses.milestone(control.received, "completion")
   def transaction_id_response_fire = dbid_fire ||| response_completion_fire
   def transaction_id_already_received = dbid_received ||| completion_received
   when response_fire:

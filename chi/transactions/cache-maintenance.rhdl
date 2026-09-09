@@ -76,7 +76,7 @@ sync_circuit CHICacheMaintenance(p :: CHIFlitParams, Context :: DataType):
   control.external_progress <== Bool(#false)
   control.attempt |> map_flow(attempt => chi_cache_maintenance_request(p, Context, saved_node, saved_txn, saved, attempt)) |> requests
   responses |> control.response
-  completion.valid <== control.active & chi_response_milestone(CHICacheMaintenanceResponses, control.received, "completion")
+  completion.valid <== control.active & CHICacheMaintenanceResponses.milestone(control.received, "completion")
   completion.bits <== CHICacheMaintenanceResult(Context):
     context: saved.context
     error: response_error

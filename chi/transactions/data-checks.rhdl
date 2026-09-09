@@ -1,0 +1,13 @@
+#lang rhodium
+// Shares unelided DAT field assertions without coupling transaction lifetimes.
+
+import:
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl").CHIDatFlit
+
+fun monitor_chi_unelided_data(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
+  assert(data.num_dat === bits(0, 2), label_prefix ++ "_num_dat_zero")
+  assert(!data.replicate, label_prefix ++ "_not_replicated")
+
+export:
+  monitor_chi_unelided_data

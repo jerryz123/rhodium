@@ -9,11 +9,11 @@ import:
   lib("chi/protocol/flits.rhdl") open
 
 class CHIResponseRule(opcodes :: NonemptyList.of(CHIRspOpcode),
-                      milestones :: NonemptyList.of(String)):
+                      milestones :: NonemptyList.of(NonemptyString)):
   implements StableCircuitParam
 
 class CHIResponseProfile(name :: NonemptyString,
-                         milestones :: List.of(String),
+                         milestones :: List.of(NonemptyString),
                          rules :: List.of(CHIResponseRule),
                          retryable :: Boolean):
   implements StableCircuitParam
@@ -25,11 +25,8 @@ class CHIResponseProfile(name :: NonemptyString,
     (1 << milestones.length()) - 1
 
   property progress_opcodes:
-    block:
-      def mutable result = []
-      for (rule in rules):
-        result := result ++ rule.opcodes
-      result
+    for values(result = []) (rule in rules):
+      result ++ rule.opcodes
 
   property response_opcodes:
     if retryable
@@ -37,19 +34,11 @@ class CHIResponseProfile(name :: NonemptyString,
     | progress_opcodes
 
   constructor (name :: NonemptyString,
-               milestones :: List.of(String),
+               milestones :: List.of(NonemptyString),
                rules :: List.of(CHIResponseRule),
                ~retryable: retryable :: Boolean = #false):
-    for (milestone in milestones):
-      unless milestone.length() > 0
-      | error(~who: #'response_profile,
-              "milestone names must not be empty")
-    for (left in 0..milestones.length()):
-      for (right in (left + 1)..milestones.length()):
-        if milestones[left] == milestones[right]
-        | error(~who: #'response_profile,
-                "milestone names must be unique")
-        | #void
+    unless (for Set (milestone in milestones): milestone).length() == milestones.length()
+    | error(~who: #'response_profile, "milestone names must be unique")
     def mutable seen_opcodes = []
     for (rule in rules):
       for (milestone in rule.milestones):
@@ -73,25 +62,32 @@ class CHIResponseProfile(name :: NonemptyString,
             "a response profile must accept at least one response")
     super(name, milestones, rules, retryable)
 
-  method milestone_index(milestone :: String) :: Nat:
-    def mutable result = #false
-    for (candidate in milestones, index in 0..milestones.length()):
-      if candidate == milestone
-      | result := index
-      | #void
+  method milestone_index(milestone :: NonemptyString) :: Nat:
+    def result = milestones.find_index(fun (candidate :: NonemptyString): candidate == milestone)
     unless result is_a Nat
-    | error(~who: #'CHIResponseProfile.milestone_index,
+    | error(~who: #'CHIResponseProfile,
             "profile has no such milestone")
     result
 
-  method milestone_mask(milestone :: String) :: Nat:
+  method milestone_mask(milestone :: NonemptyString) :: Nat:
     1 << milestone_index(milestone)
 
   method rule_effect_mask(rule :: CHIResponseRule) :: Nat:
-    def mutable result = 0
-    for (milestone in rule.milestones):
-      result := result bits.or milestone_mask(milestone)
-    result
+    for values(result = 0) (milestone in rule.milestones):
+      result bits.or milestone_mask(milestone)
+
+  method effects(opcode :: CHIRspOpcode) :~ Bits(effect_width):
+    def cases:
+      for List:
+        each rule in rules
+        each rule_opcode in rule.opcodes
+        [rule_opcode, bits(rule_effect_mask(rule), effect_width)]
+    if cases.length() == 0
+    | bits(0, effect_width)
+    | mux_lookup(opcode, ~default: bits(0, effect_width), cases)
+
+  method milestone(effects :: Bits(effect_width), milestone :: NonemptyString) :~ Bool:
+    effects[milestone_index(milestone)].into(Bool)
 
 expr.macro 'response_profile($name): $clause; ...':
   def mutable retryable = #false
@@ -135,32 +131,20 @@ expr.macro 'response_profile($name): $clause; ...':
 fun chi_response_profile_opcodes(
     profiles :: NonemptyList.of(CHIResponseProfile)
 ) :: List.of(CHIRspOpcode):
-  def mutable result = []
-  for (profile in profiles):
-    for (opcode in profile.response_opcodes):
-      if result.contains(opcode)
-      | #void
-      | result := result ++ [opcode]
-  result
+  for values(result = []) (profile in profiles):
+    for values(opcodes = result) (opcode in profile.response_opcodes):
+      if opcodes.contains(opcode) | opcodes | opcodes ++ [opcode]
 
+// Compatibility entry points delegate to the profile-owned operations.
 fun chi_response_effects(profile :: CHIResponseProfile,
                          opcode :: CHIRspOpcode)
   :~ Bits(profile.effect_width):
-  def mutable cases = []
-  for (rule in profile.rules):
-    for (rule_opcode in rule.opcodes):
-      cases := cases ++ [
-        [rule_opcode,
-         bits(profile.rule_effect_mask(rule), profile.effect_width)]
-      ]
-  if cases.length() == 0
-  | bits(0, profile.effect_width)
-  | mux_lookup(opcode, ~default: bits(0, profile.effect_width), cases)
+  profile.effects(opcode)
 
 fun chi_response_milestone(profile :: CHIResponseProfile,
                            effects :: Bits(profile.effect_width),
                            milestone :: String) :~ Bool:
-  effects[profile.milestone_index(milestone)].into(Bool)
+  profile.milestone(effects, milestone)
 
 bundle CHIRequestAttempt():
   allow_retry: Bool
@@ -208,7 +192,7 @@ sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIRe
   def response_ordinary = incoming_response.opcode =/= CHIRspOpcode.RespLCrdReturn
   def response_retry = incoming_response.opcode === CHIRspOpcode.RetryAck
   def response_protocol_credit = incoming_response.opcode === CHIRspOpcode.PCrdGrant
-  def response_effects = chi_response_effects(profile, incoming_response.opcode)
+  def response_effects = profile.effects(incoming_response.opcode)
   def response_progress = response_effects.or_reduce()
   def progress_expected = active_state & attempt_sent & response_progress & !or_reduce(
     response_effects & received_state

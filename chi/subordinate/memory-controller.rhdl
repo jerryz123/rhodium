@@ -4,6 +4,7 @@
 import:
   lib("support/annotations.rhm") open
   lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").transfer_in_range
   lib("flow/main.rhdl") open
   lib("chi/protocol/params.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -98,7 +99,7 @@ class CHIRamParams(name :: NonemptyString,
                config :: CHIRamConfig,
                ~base_address: base_address :: Nat = 0,
                ~kind: kind :: CHINodeKind = CHINodeKind.SNF):
-    unless [CHINodeKind.SNF, CHINodeKind.SNI].contains(kind)
+    unless CHINodeKind.is_subordinate(kind)
     | error(~who: #'CHIRamParams,
             "kind must be SN-F or SN-I")
     unless base_address mod config.size_bytes == 0
@@ -126,11 +127,7 @@ fun monitor_chi_ram_request(config :: CHIRamConfig,
   def max_size = alignment_bits(config.max_transfer_bytes)
   def address_aligned = is_aligned_log2(request.address, size, ~max_log2: max_size)
   def transfer_bytes = bits(1, p.request_address_width) << size
-  def region_end = base_address + bits(config.size_bytes, p.request_address_width)
-  def transfer_end = request.address + transfer_bytes
-  def address_supported = (request.address >= base_address) & (
-    transfer_end >= request.address
-  ) & (transfer_end <= region_end)
+  def address_supported = transfer_in_range(request.address, transfer_bytes, base_address, config.size_bytes)
   when (valid & (request.opcode =/= CHIReqOpcode.ReqLCrdReturn)):
     assert(request_opcode.supports_initial_transaction(),
            "chi_ram_request_opcode_supported")

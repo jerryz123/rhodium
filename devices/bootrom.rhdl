@@ -106,11 +106,7 @@ sync_circuit CHIBootROM(config :: CHIBootROMConfig):
   def ordinary_request = incoming_opcode =/= CHIReqOpcode.ReqLCrdReturn
   def incoming_size = chi_req_size(p, incoming)
   def incoming_transfer_bytes = bits(1, p.request_address_width) << incoming_size.as_bits()
-  def window_end = identity.base_address + bits(window_bytes, p.request_address_width)
-  def transfer_end = incoming.address + incoming_transfer_bytes
-  def incoming_address_supported = (incoming.address >= identity.base_address) & (
-    transfer_end >= incoming.address
-  ) & (transfer_end <= window_end)
+  def incoming_address_supported = transfer_in_range(incoming.address, incoming_transfer_bytes, identity.base_address, window_bytes)
   def incoming_supported = (incoming_opcode === CHIReqOpcode.ReadNoSnp) & (
     incoming.size_or_num_req[3..6] === bits(0, 3)
   ) & chi_size_valid(incoming_size) & (

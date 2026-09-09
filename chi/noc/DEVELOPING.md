@@ -4,7 +4,7 @@
 
 Read [README.md](README.md) and the parent
 [CHI developer guide](../DEVELOPING.md) before changing this area.
-The parent's implementation map and focused validation sections are authoritative.
+The parent owns package-wide boundaries; this guide owns component extension and validation.
 
 Keep noc-authoring.rhm independent of Rhodium and CIRCT. Generic topology, routing analysis, and router hardware remain in the root noc/ package.
 
@@ -14,3 +14,31 @@ For source moves, update direct consumers, package documentation, and build/CI
 paths together. Run `make check-boundaries` and the affected host and behavioral
 checks with a fresh isolated compiled root. Directory boundaries do not add RTL
 hierarchy or per-directory facade modules.
+
+## Extension and focused validation
+
+NoC adapters share injection wiring and flow-stage bookkeeping in
+`chi/noc/noc-adapter.rhdl`, and reuse generic envelope-removal binding from
+`noc/rtl/route-adapter.rhdl`. Keep the typed channel circuits and fixed
+versus family-site factories explicit. REQ/RSP/DAT select `tgt_id`; SNP selects
+`CHISnoopDispatch.target_id` and transports only its flit. Ejection checks remain
+channel-owned because SNP has no target field. These helpers add no hierarchy,
+buffering, or route policy beyond the existing `noc/rtl` injector/ejector.
+The `chi-noc-adapter` backend fixture covers all sixteen variants, complete
+payloads, stalls, and invalid routes, targets, and family sites. Its host test
+checks the transform kinds, fixed NodeID properties, and implementation
+associations consumed by diagram/event tooling. Run the SNP, subordinate,
+family NoC, and router-composition integration fixtures alongside it.
+
+Endpoint attachment policy lives in `CHINoCPlane` in `chi/noc/noc-adapter.rhdl`.
+Both fixed connection helpers and `CHIRouter`'s family attachments use its
+injection and queued-ejection methods; keep the RN/HN/SN field mappings and
+fixed versus family adapter choices explicit at their callers. The one-entry
+queue precedes the ejection adapter, and router availability tracks its input
+readiness, not the final sink. `CHINoCPorts` groups existing plane endpoints for
+fixed-router callers without introducing circuit parameters, ports, or hierarchy.
+Generic physical-link binding remains in `noc/rtl`, outside this CHI queue policy.
+The SN fixture exercises fixed attachments in both directions under stalls;
+the family fixture fills, stalls, and drains an asymmetric three-router path
+with complete-packet ordering checks. Validate MiniSoC and SimpleSoC for fixed
+RN-F/HN attachments and TiledSoC for coherent family attachments.

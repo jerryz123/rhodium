@@ -1,4 +1,4 @@
-// Verifies immutable CHI BootROM cache-line reads, byte lanes, and response backpressure.
+// Verifies CHI BootROM reads, byte lanes, backpressure, and top-of-address-space containment.
 module bootrom_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
@@ -121,6 +121,21 @@ module bootrom_tb;
 
     assert (!port_out.rsp.response.valid)
       else $fatal(1, "read-only BootROM unexpectedly emitted a response flit");
+    // The 64-byte window and final transfer end exactly at 2^44, without wrapping.
+    identity.base_address = 44'hfffffffffc0;
+    issue_read(12'h104, 44'hffffffffff0, 6'd4, 12'h504);
+    port_in.dat.response.ready = 1'b1;
+    check_response(2'd3, 12'h504, 16'hffff, 128'b0);
+    port_in.dat.response.ready = 1'b0;
+    port_in.req.bits.opcode = READ_NO_SNP;
+    port_in.req.bits.tgt_id = BOOTROM_ID;
+    port_in.req.bits.size_or_num_req = 6'd4;
+    port_in.req.bits.address = 44'hfffffffffb0;
+    port_in.req.valid = 1'b1;
+    // Inspect the combinational refusal without clocking a protocol violation.
+    #1;
+    assert (!port_out.req.ready) else $fatal(1, "accepted read below top window");
+    port_in.req = '0;
     $display("CHI BootROM read and backpressure behavior passed");
     $finish;
   end

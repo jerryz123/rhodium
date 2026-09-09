@@ -27,7 +27,7 @@ DAT-acceptance writes. PLIC claims and UART FIFO/read-to-clear effects must not
 move to response acceptance. UART TX space drives the engine's write readiness;
 mask policies retain their original gating versus assertion-only behavior.
 BootROM remains a separate read-only multibeat endpoint. See the
-[CHI developer guide](../chi/DEVELOPING.md) for the engine boundary and tests.
+[CHI subordinate developer guide](../chi/subordinate/DEVELOPING.md) for the engine boundary and tests.
 
 Use `expand_mask` from [`rhodium/std/bits.rhdl`](../rhodium/std/bits.rhdl) for
 lane-enable expansion instead of device-specific byte-mask builders. ACLINT

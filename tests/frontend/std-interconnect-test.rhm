@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks generic host sets and hardware address-set matching behavior.
+// Checks generic host sets, stripe geometry, and transfer-containment argument contracts.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -18,6 +18,12 @@ def allocated = interconnect.allocate_id_ranges([
   interconnect.IdRange(0, 2)
 ])
 def match_module = fixture.design.modules[0]
+
+check:
+  fixture.transfer_range_design(Bits(3), 8) ~throws "Bits"
+  fixture.transfer_range_design(VectorType(4, Bits(1)), 8) ~throws "Bits"
+  fixture.transfer_range_design(Bits(4), 17) ~throws "window must fit"
+  fixture.transfer_range_design(Bits(4), 0) ~throws "PosInt"
 
 // Compare striped ownership and dense projection against byte arithmetic.
 for (banks in [1, 2, 4, 8]):

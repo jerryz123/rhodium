@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits complete opcode decoding for CHI response-profile methods and compatibility entry points.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../chi/tests/response-profile-fixture.rhdl" as fixture
+
+print(emit_circt(embedded.run_elaboration(fun (): fixture.CHIResponseProfileFixture())))

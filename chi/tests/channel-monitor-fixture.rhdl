@@ -2,6 +2,7 @@
 // Exercises requester and subordinate monitor attachments on the same accepted ready-valid transfers.
 
 import:
+  lib("chi/transactions/data-checks.rhdl").monitor_chi_unelided_data
   lib("chi/main.rhdl") open
   lib("chi/transactions/monitor.rhdl").monitor_chi_req
   lib("chi/transactions/monitor.rhdl").monitor_chi_rsp
@@ -74,6 +75,9 @@ sync_circuit TypedPacketMonitor(channel :: String, Packet :: DataType):
       monitor_chi_rsp(p, 1, idle, packet, bits(0, p.node_id_width), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
   | channel == "dat":
       monitor_chi_dat(p, 1, idle, packet, bits(0, p.node_id_width), idle, balance, idle, idle, idle, [], 0, "_source", "typed")
+  | channel == "unelided":
+      when idle:
+        monitor_chi_unelided_data(p, packet, "typed")
   | ~else:
       monitor_chi_snp(p, 1, idle, packet, idle, balance, idle, idle, idle, [], "typed")
 

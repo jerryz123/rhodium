@@ -55,6 +55,8 @@ check:
   fixture.packet_monitor_design("dat", chi.CHIRspFlit(p)) ~throws "CHIDatFlit"
   fixture.packet_monitor_design("snp", chi.CHIReqFlit(p)) ~throws "CHISnpFlit"
   fixture.packet_monitor_design("dat", chi.CHIDatFlit(chi.CHIFlitParams(~data_width: 512))) ~throws "CHIDatFlit"
+  fixture.packet_monitor_design("unelided", chi.CHIRspFlit(p)) ~throws "CHIDatFlit"
+  fixture.packet_monitor_design("unelided", chi.CHIDatFlit(chi.CHIFlitParams(~data_width: 512))) ~throws "CHIDatFlit"
   chi.check_chi_transaction_coverage(links.rni_node) ~throws "requested transaction coverage is unsupported"
   chi.check_chi_transaction_coverage(broad_rnf) ~throws "requested transaction coverage is unsupported"
   chi.check_chi_transaction_coverage(retry_rnf) ~throws "requested transaction coverage is unsupported"

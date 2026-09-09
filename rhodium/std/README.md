@@ -363,6 +363,15 @@ sets and returns false for an empty list. `allocate_id_ranges` assigns exact con
 global ranges to a nonempty list of local ranges and returns reversible
 `IdRangeMap` records without requiring the local ranges to begin at zero.
 
+`transfer_in_range(address, transfer_bytes, base_address, window_bytes)` tests
+whether a nonempty byte transfer fits wholly within a contiguous, nonwrapping
+window. The first three arguments are unsigned `Bits` of the same width;
+`window_bytes` is a positive host integer at most the address-space size.
+Zero-length transfers and runtime windows extending beyond the address space
+return false. Exclusive ends are calculated with an extra bit, so ending
+exactly at the address-space limit is valid. Alignment and allowed transfer
+sizes remain caller policy. This combinational helper adds no state or assertions.
+
 `StripedAddressLayout(local_bytes, stripe_bytes, bank_count)` describes equal
 power-of-two banks interleaved at a power-of-two byte granularity. Stripes must
 fit within a bank. Its `total_bytes`, `bank_mask`, and `global_mask` properties

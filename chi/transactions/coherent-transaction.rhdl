@@ -8,6 +8,7 @@ import:
   lib("chi/protocol/protocol.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
   lib("chi/protocol/link.rhdl").chi_initial_coherent_requester_capabilities
+  "data-checks.rhdl" open
 
 hardware_enum CHICoherentReadPhase(~width: 2):
   Free = 0
@@ -33,25 +34,15 @@ bundle CHISnoopTransaction(p :: CHIFlitParams):
   response_seen: Bool
   forward_data_seen: Bool
 
-fun coherent_single_data_fields(data_id :: Bits(2),
-                                num_dat :: Bits(2),
-                                replicate :: Bool,
-                                label_prefix :: String):
-  assert(data_id === bits(0, 2), label_prefix ++ "_data_id_zero")
-  assert(num_dat === bits(0, 2), label_prefix ++ "_num_dat_zero")
-  assert(!replicate, label_prefix ++ "_not_replicated")
+fun coherent_single_data_fields(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
+  assert(data.data_id === bits(0, 2), label_prefix ++ "_data_id_zero")
+  monitor_chi_unelided_data(p, data, label_prefix)
 
 fun monitor_chi_cache_maintenance(p :: CHIFlitParams, valid :: Bool, request :: CHIReqFlit(p), label_prefix :: String):
   when (valid & chi_cache_maintenance(request.opcode)):
     assert(!request.multi_req & (request.size_or_num_req === bits(6, 6)), label_prefix ++ "_maintenance_line_size")
     assert(request.address[0..6] === bits(0, 6), label_prefix ++ "_maintenance_aligned")
     assert(!request.exp_comp_ack, label_prefix ++ "_maintenance_no_comp_ack")
-
-fun coherent_unelided_data_fields(num_dat :: Bits(2),
-                                  replicate :: Bool,
-                                  label_prefix :: String):
-  assert(num_dat === bits(0, 2), label_prefix ++ "_num_dat_zero")
-  assert(!replicate, label_prefix ++ "_not_replicated")
 
 fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
                                            limit :: PosInt,
@@ -154,9 +145,7 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
            label_prefix ++ "_read_data_metadata_consistent")
     assert(rx_dat.resp_err === CHIRespErr.OK,
            label_prefix ++ "_read_data_ok")
-    coherent_unelided_data_fields(rx_dat.num_dat,
-                                  rx_dat.replicate,
-                                  label_prefix ++ "_read_data")
+    monitor_chi_unelided_data(p, rx_dat, label_prefix ++ "_read_data")
   when comp_ack_event:
     assert(comp_ack_matches.or_reduce(), label_prefix ++ "_comp_ack_has_read_data")
 
@@ -245,17 +234,11 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
   when snoop_dat_event:
     assert(or_reduce(for List (index in 0..limit): snoops[index].live & dat_snoop_matches[index]),
            label_prefix ++ "_snoop_data_has_request")
-    coherent_single_data_fields(tx_dat.data_id,
-                                tx_dat.num_dat,
-                                tx_dat.replicate,
-                                label_prefix ++ "_snoop_data")
+    coherent_single_data_fields(p, tx_dat, label_prefix ++ "_snoop_data")
   when forward_data_event:
     assert(or_reduce(for List (index in 0..limit): snoops[index].live & forward_data_matches[index]),
            label_prefix ++ "_forward_data_has_snoop")
-    coherent_single_data_fields(tx_dat.data_id,
-                                tx_dat.num_dat,
-                                tx_dat.replicate,
-                                label_prefix ++ "_forward_data")
+    coherent_single_data_fields(p, tx_dat, label_prefix ++ "_forward_data")
 
   when dvm_second_event:
     assert(rx_snp.src_id === coherent_dvm_source_id,

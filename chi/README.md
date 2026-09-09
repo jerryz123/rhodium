@@ -409,6 +409,13 @@ cleared. `external_progress` prevents retry after another channel has advanced
 the transaction. Addresses, TxnIDs, DBIDs, payload storage, response metadata,
 and the final completion condition remain endpoint-owned.
 
+Profiles expose `effects(opcode)` to decode an RSP into milestone bits and
+`milestone(effects, name)` to test one named bit. Milestone names must be
+nonempty and declared by the profile. Unknown opcodes decode to zero; a
+retry-only profile has a one-bit zero effect vector. The existing
+`chi_response_effects` and `chi_response_milestone` functions remain compatible
+entry points delegating to these methods.
+
 ### NoC compilation and transport
 
 [`noc/noc-authoring.rhm`](noc/noc-authoring.rhm) describes RN, HN-side, and SN sites as
