@@ -59,6 +59,8 @@ struct Description {
   Manifest manifest;
   std::string top;
   std::vector<Site> sites;
+  std::vector<std::uint32_t> track_sites;
+  std::vector<bool> shared_tracks;
 };
 Description describe(const Json& json) {
   format(json, "rhodium-event-graph");
@@ -103,10 +105,18 @@ Description describe(const Json& json) {
     }
   }
   validate_capture_schema(result.manifest);
-  for (const auto& site : result.sites) if (site.kind == "stall") {
-    auto observed = ids.find(site.observation_of);
-    require(observed != ids.end() && result.sites[observed->second].kind == "transfer",
-            "stall must observe a transfer site");
+  result.shared_tracks.resize(result.sites.size(), false);
+  for (std::size_t i = 0; i < result.sites.size(); ++i) {
+    const auto& site = result.sites[i];
+    auto track = static_cast<std::uint32_t>(i);
+    if (site.kind == "stall") {
+      auto observed = ids.find(site.observation_of);
+      require(observed != ids.end() && result.sites[observed->second].kind == "transfer",
+              "stall must observe a transfer site");
+      track = observed->second;
+      result.shared_tracks[track] = true;
+    }
+    result.track_sites.push_back(track);
   }
   require(json.at("dependencies").is_array(), "dependencies must be an array");
   for (const auto& edge : json.at("dependencies")) {
@@ -290,6 +300,12 @@ struct GzipEncoder {
 }
 
 struct PerfettoWriter::Impl {
+  struct StallRun {
+    Ref last;
+    Node node;
+    std::set<Ref> parents;
+  };
+  std::map<std::uint32_t, StallRun> stalls; // Track site -> open visual interval.
   std::ostream& output;
   Description description;
   TraceTiming timing;
@@ -333,11 +349,8 @@ struct PerfettoWriter::Impl {
     integer(descriptor, 11, 1); // TrackDescriptor.child_ordering = LEXICOGRAPHIC.
     integer(descriptor, 15, 2); // SIBLING_MERGE_BEHAVIOR_NONE.
     bytes(p, 60, descriptor); packet(stream, p);
-    for (std::size_t i = 0; i < description.sites.size(); ++i) {
-      std::string track, pkt;
-      integer(track, 1, i + 1); integer(track, 5, description.sites.size() + 1);
-      bytes(track, 2, description.sites[i].label); integer(track, 15, 2);
-      Json site = {{"site_id", description.sites[i].id},
+    const auto site_description = [&](std::size_t i) {
+      Json site = {{"site", i}, {"site_id", description.sites[i].id},
                    {"source_location", description.sites[i].source},
                    {"payload_width", description.manifest.payload_widths[i]}};
       site["kind"] = description.sites[i].kind;
@@ -356,6 +369,20 @@ struct PerfettoWriter::Impl {
           if (field.label) capture["label"] = true;
           site["fields"].push_back(std::move(capture));
         }
+      }
+      return site;
+    };
+    for (std::size_t i = 0; i < description.sites.size(); ++i) {
+      if (description.track_sites[i] != i) continue;
+      std::string track, pkt;
+      integer(track, 1, i + 1); integer(track, 5, description.sites.size() + 1);
+      bytes(track, 2, description.sites[i].label); integer(track, 15, 2);
+      auto site = site_description(i);
+      if (description.shared_tracks[i]) {
+        site["observations"] = Json::array();
+        for (std::size_t j = 0; j < description.sites.size(); ++j)
+          if (j != i && description.track_sites[j] == i)
+            site["observations"].push_back(site_description(j));
       }
       bytes(track, 14, site.dump(2)); // TrackDescriptor has description, not arbitrary annotations.
       bytes(pkt, 60, track); packet(stream, pkt);
@@ -376,6 +403,11 @@ struct PerfettoWriter::Impl {
     require(!failed, "Perfetto output previously failed");
     if (finished) return;
     try {
+      PendingInterns interns(strings);
+      std::string stream;
+      close_stalls(stream, interns, stalls, [](const StallRun&) { return true; });
+      flush(stream);
+      interns.commit();
       if (gzip) gzip->finish(output);
       output.flush();
       require(bool(output), "Perfetto output write failed");
@@ -388,7 +420,7 @@ struct PerfettoWriter::Impl {
     return static_cast<std::uint64_t>(ns);
   }
   void event(std::string& stream, PendingInterns& interns, Ref ref, __uint128_t cycle, std::string fields) const {
-    integer(fields, 11, std::uint64_t(ref.site) + 1);
+    integer(fields, 11, std::uint64_t(description.track_sites[ref.site]) + 1);
     std::string pkt;
     integer(pkt, 8, timestamp(cycle)); integer(pkt, 58, 6); // Synthetic BOOTTIME ns.
     integer(pkt, 10, 1); integer(pkt, 13, 2); // Needs incremental state on sequence 1.
@@ -402,14 +434,32 @@ struct PerfettoWriter::Impl {
     integer(legacy, 2, phase); integer(legacy, 6, id); integer(legacy, 12, 1);
     bytes(fields, 6, legacy); event(stream, interns, ref, cycle, fields);
   }
+  template<class Predicate>
+  void close_stalls(std::string& stream, PendingInterns& interns,
+                    std::map<std::uint32_t, StallRun>& runs, Predicate should_close) const {
+    std::set<std::pair<std::uint64_t, std::uint32_t>> endings;
+    for (const auto& [track, run] : runs)
+      if (should_close(run)) endings.emplace(run.node.cycle, track);
+    for (const auto& [cycle, track] : endings) {
+      const auto& run = runs.at(track);
+      std::string fields;
+      integer(fields, 9, 2);
+      event(stream, interns, run.last, static_cast<__uint128_t>(cycle) + 1, fields);
+      runs.erase(track);
+    }
+  }
   void write(const CycleBatch& batch) {
     require(!failed, "Perfetto output previously failed");
     require(!finished, "Perfetto writer already finished");
     require(!watermark || batch.cycle > *watermark, "cycle watermark must increase");
     std::map<Ref, std::set<Ref>> parents, children;
     std::map<Ref, std::size_t> indegree;
+    std::set<std::pair<std::uint32_t, std::uint64_t>> occupied;
     for (const auto& [ref, node] : batch.nodes) {
       require(!known.count(ref) && ref.site < description.sites.size(), "duplicate or unknown event node");
+      const auto track = description.track_sites[ref.site];
+      require(!description.shared_tracks[track] || occupied.emplace(track, node.cycle).second,
+              "multiple occurrences on a shared track in one cycle");
       require(node.cycle <= batch.cycle && (!watermark || node.cycle > *watermark), "node outside unfinished cycle interval");
       require(node.present && node.width == description.manifest.payload_widths[ref.site], "incomplete node or payload width mismatch");
       require(node.words.size() == (std::uint64_t(node.width) + 31) / 32, "incomplete payload");
@@ -438,11 +488,37 @@ struct PerfettoWriter::Impl {
     std::map<Ref, std::pair<std::uint64_t, std::uint64_t>> additions;
     PendingInterns interns(strings);
     std::string stream;
+    auto next_stalls = stalls; // Commit interval state only after successful I/O.
+    std::optional<std::uint64_t> group_cycle;
     for (auto ref : order) {
       const auto& node = batch.nodes.at(ref);
+      if (!group_cycle || *group_cycle != node.cycle) {
+        group_cycle = node.cycle;
+        // Decide continuations for the whole cycle before emitting any begins.
+        // This preserves packet/intern order across live and snapshot batches.
+        close_stalls(stream, interns, next_stalls, [&](const StallRun& run) {
+          if (run.last.sequence == UINT64_MAX) return true;
+          const auto next = batch.nodes.find({run.last.site, run.last.sequence + 1});
+          return next == batch.nodes.end() ||
+                 next->second.cycle != node.cycle ||
+                 static_cast<__uint128_t>(run.node.cycle) + 1 != node.cycle ||
+                 next->second.words != run.node.words ||
+                 !std::equal(parents[next->first].begin(), parents[next->first].end(),
+                             run.parents.begin(), run.parents.end(), [](Ref a, Ref b) {
+                               return a.site == b.site && a.sequence == b.sequence;
+                             });
+        });
+      }
       require(known.size() < UINT64_MAX - additions.size(), "flow identity exhaustion");
       const auto id = known.size() + additions.size() + 1;
       additions.emplace(ref, std::make_pair(id, node.cycle));
+      const auto track = description.track_sites[ref.site];
+      const bool stall = description.sites[ref.site].kind == "stall";
+      if (stall && next_stalls.count(track)) {
+        auto& run = next_stalls.at(track);
+        run.last = ref; run.node.cycle = node.cycle;
+        continue;
+      }
       std::string fields;
       integer(fields, 9, 1);
       std::string mnemonic;
@@ -475,8 +551,9 @@ struct PerfettoWriter::Impl {
         for (auto word : node.words) words.push_back(word.second);
         annotation(fields, interns, "payload_words_lsw_first", Json(words).dump());
       }
-      // Explicit enum labels override instruction naming; tracks retain site labels.
+      // Stalls retain captures but never use instruction/transaction slice names.
       interns.reference(fields, 10, 23, InternedStrings::Name,
+                        description.sites[ref.site].kind == "stall" ? "stall" :
                         !selected_label.empty() ? selected_label :
                         instruction_count == 1 ? mnemonic : description.sites[ref.site].label);
       event(stream, interns, ref, node.cycle, fields);
@@ -485,11 +562,16 @@ struct PerfettoWriter::Impl {
         flow(stream, interns, ref, node.cycle, 'f', identity);
       }
       if (can_parent[ref.site]) flow(stream, interns, ref, node.cycle, 's', id);
-      fields.clear(); integer(fields, 9, 2);
-      event(stream, interns, ref, static_cast<__uint128_t>(node.cycle) + 1, fields);
+      if (stall) next_stalls.emplace(track, StallRun{ref, node, parents[ref]});
+      else {
+        fields.clear(); integer(fields, 9, 2);
+        event(stream, interns, ref, static_cast<__uint128_t>(node.cycle) + 1, fields);
+      }
     }
+    close_stalls(stream, interns, next_stalls, [&](const StallRun& run) { return run.node.cycle < batch.cycle; });
     flush(stream);
     interns.commit();
+    stalls.swap(next_stalls);
     known.merge(additions); // Transfer already allocated nodes after successful I/O.
     watermark = batch.cycle;
   }

@@ -1,4 +1,4 @@
--- Checks private-cache CHI schemas, instruction snapshots, and explicit lineage boundaries.
+-- Checks private-cache CHI transfers/stalls, instruction snapshots, and isolated lineage.
 -- Materialize shared views so per-field checks also scale to full benchmark traces.
 WITH expected(suffix, fields) AS (
   VALUES
@@ -9,7 +9,9 @@ WITH expected(suffix, fields) AS (
     ('rxdat','opcode,txn_id,src_id,tgt_id,dbid_or_mecid,data_id,resp,resp_err,byte_enable'),
     ('rxsnp','address,opcode,txn_id,src_id,ret_to_src')
 ), cache_tracks AS MATERIALIZED (
-  SELECT t.id, t.name, a.string_value AS schema
+  SELECT t.id, t.name, a.string_value AS schema,
+         json_extract(a.string_value,'$.kind') AS kind,
+         t.name AS channel
   FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id
   WHERE t.name GLOB '[id]cache.*' AND a.key='description'
 ), captures AS MATERIALIZED (
@@ -24,27 +26,34 @@ WITH expected(suffix, fields) AS (
          json_extract(s.value,'$.name') AS name
   FROM captures c, json_each(c.symbols) s WHERE c.label=1
 ), events AS MATERIALIZED (
-  SELECT s.id, s.arg_set_id, s.track_id, t.name AS channel, s.ts, s.name
+  SELECT s.id, s.arg_set_id, s.track_id, t.channel,
+         CASE s.name WHEN 'stall' THEN 'stall' ELSE 'transfer' END AS kind,
+         s.ts, s.name
   FROM slice s JOIN cache_tracks t ON t.id=s.track_id
 )
 SELECT
-  -- The importer materializes tracks only when a channel transfers a flit.
-  (SELECT count(*) BETWEEN 4 AND 12 AND count(DISTINCT name)=count(*) FROM cache_tracks) AND
-  (SELECT count(*)=(SELECT count(*) FROM cache_tracks) FROM cache_tracks t JOIN expected e ON substr(t.name,8)=e.suffix
+  -- An idle channel need not materialize a track in the importer.
+  (SELECT count(*) BETWEEN 4 AND 11 AND count(DISTINCT name)=count(*) FROM cache_tracks) AND
+  (SELECT count(*)=(SELECT count(*) FROM cache_tracks) FROM cache_tracks t JOIN expected e ON substr(t.channel,8)=e.suffix
    WHERE json_extract(t.schema,'$.site_id') GLOB 'SoCHarness/soc/rv5stage/event:*'
      AND length(json_extract(t.schema,'$.source_location'))>0
+     AND t.kind='transfer'
+     AND json_array_length(t.schema,'$.observations')=1
+     AND json_extract(t.schema,'$.observations[0].kind')='stall'
+     AND json_extract(t.schema,'$.observations[0].observation_of')=json_extract(t.schema,'$.site_id')
+     AND json_extract(t.schema,'$.observations[0].fields')=json_extract(t.schema,'$.fields')
      AND (SELECT group_concat(json_extract(f.value,'$.name')) FROM json_each(t.schema,'$.fields') f)=e.fields) AND
-  (SELECT count(*)>0 FROM events WHERE channel='icache.txreq') AND
-  (SELECT count(*)>0 FROM events WHERE channel='icache.rxdat') AND
-  (SELECT count(*)>0 FROM events WHERE channel='dcache.txreq') AND
-  (SELECT count(*)>0 FROM events WHERE channel='dcache.rxdat') AND
+  (SELECT count(*)>0 FROM events WHERE channel='icache.txreq' AND kind='transfer') AND
+  (SELECT count(*)>0 FROM events WHERE channel='icache.rxdat' AND kind='transfer') AND
+  (SELECT count(*)>0 FROM events WHERE channel='dcache.txreq' AND kind='transfer') AND
+  (SELECT count(*)>0 FROM events WHERE channel='dcache.rxdat' AND kind='transfer') AND
   (SELECT count(*)=(SELECT count(*) FROM cache_tracks) FROM captures
    WHERE name='opcode' AND encoding='enum' AND label=1 AND json_array_length(symbols)>0) AND
   (SELECT count(*)=0 FROM captures WHERE label=1 AND name!='opcode') AND
   (SELECT count(*)=0 FROM events e JOIN captures c ON c.track_id=e.track_id AND c.label=1
    LEFT JOIN enum_names n ON n.track_id=e.track_id AND n.opcode=EXTRACT_ARG(e.arg_set_id,'debug.opcode')
-   WHERE e.name!=COALESCE(n.name,printf('0x%0*x',(c.width+3)/4,EXTRACT_ARG(e.arg_set_id,'debug.opcode')))) AND
-  (SELECT count(*)>0 FROM events WHERE channel='icache.txreq' AND name='ReadOnce' AND EXTRACT_ARG(arg_set_id,'debug.opcode')=3) AND
+   WHERE e.name!=CASE e.kind WHEN 'stall' THEN 'stall' ELSE COALESCE(n.name,printf('0x%0*x',(c.width+3)/4,EXTRACT_ARG(e.arg_set_id,'debug.opcode'))) END) AND
+  (SELECT count(*)>0 FROM events WHERE channel='icache.txreq' AND kind='transfer' AND name='ReadOnce' AND EXTRACT_ARG(arg_set_id,'debug.opcode')=3) AND
   (SELECT count(*)>0 FROM events WHERE channel='icache.rxdat' AND name='CompData' AND EXTRACT_ARG(arg_set_id,'debug.opcode')=4) AND
   (SELECT count(*)=0 FROM events e JOIN captures c ON c.track_id=e.track_id
    WHERE EXTRACT_ARG(e.arg_set_id,'debug.'||c.name) IS NULL) AND

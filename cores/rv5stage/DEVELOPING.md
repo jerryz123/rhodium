@@ -150,7 +150,11 @@ token validity, preserving the feed-forward datapath and cancellation timing.
 
 Fetch is an explicit root because cache/MMU/fetch assembly is outside the traced
 lineage. Later checkpoints must not become independent roots to hide an
-unsupported path. Decode fires only after hazard gating. Keep WB arrival distinct
+unsupported path. Decode transfers fire only when the hazard gate admits them,
+but its checkpoint must precede `gate_flow` and follow the squash filter so
+stall observations see valid instructions while issue is blocked. Keep the
+captured Boolean reason terms aligned with `pipeline_hazard`; do not impose
+priority on simultaneous reasons. Keep WB arrival distinct
 from architectural retirement and deferred completion.
 
 After edits, run `rv5stage-core` for forwarding, stalls, replay, redirects, and
@@ -168,11 +172,15 @@ hand-maintain REQ/RSP/DAT/SNP decoding tables in the exporter. Check decoded sli
 names independently of numeric opcode captures in the trace smoke.
 Do not infer CHI transaction lineage by matching TxnID/DBID values or by routing
 topology. These explicit root/terminal sites are separate from the scalar
-pipeline graph. After changing them, run the SimpleSoC trace smoke; its
+pipeline graph. Enable stall companions at the same channel boundaries, without
+introducing inferred transaction parents or requiring activity on idle channels.
+After changing them, run the SimpleSoC trace smoke; its
 `check-cache-events.sql` checks schemas, real miss/refill traffic, endpoint IDs,
 and the lack of fabricated parent edges. Instruction RN-I has no SNP channel;
 only the data cache contributes snoop events. Use a cache-heavy benchmark to inspect
 additional writeback/snoop activity; an idle channel need not emit an event.
+`check-stall-events.sql` separately validates fetch/decode stalls, reason flags,
+and fetch-to-stall ancestry without letting observers count as transfer fanout.
 
 ## Maintain the UDB projection
 

@@ -36,10 +36,22 @@ assert_query() {
     exit 1
   fi
 }
-assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=5 AND sum(dur=10 AND ts=10*CAST(EXTRACT_ARG(arg_set_id,'debug.cycle') AS INT))=5 AS ok FROM slice"
-assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=3 AND sum(a.name='accepted')=3 AND sum(b.name='issued.stall')=2 AND sum(b.name='issued')=1 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
-assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=3 AND sum(json_extract(a.string_value,'$.kind')='transfer')=2 AND sum(json_extract(a.string_value,'$.kind')='stall' AND json_extract(a.string_value,'$.observation_of')='issued')=1 AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE a.key='description'"
+assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=4 AND sum(dur)=50 AND sum(dur=20 AND name='stall')=1 AND sum(ts=10*CAST(EXTRACT_ARG(arg_set_id,'debug.cycle') AS INT))=4 AS ok FROM slice"
+assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=2 AND sum(a.name='accepted')=2 AND sum(b.name='stall')=1 AND sum(b.name='issued')=1 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
+assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=2 AND sum(json_extract(a.string_value,'$.kind')='transfer')=2 AND sum(json_extract(a.string_value,'$.observations[0].kind')='stall' AND json_extract(a.string_value,'$.observations[0].observation_of')='issued' AND json_extract(a.string_value,'$.observations[0].site')=2)=1 AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE a.key='description'"
+assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=3 AND sum(s.name='stall')=2 AND sum(s.dur)=40 AND max(s.depth)=0 AS ok FROM slice s JOIN track t ON t.id=s.track_id WHERE t.name='issued'"
 assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
+assert_query "$stream_test_dir/build/named-stalls.pftrace" "SELECT count(*)=1 AND min(t.name)='decode' AND min(s.name)='stall' AND min(EXTRACT_ARG(s.arg_set_id,'debug.pc'))='0x0000000000001000' AND min(EXTRACT_ARG(s.arg_set_id,'debug.instruction'))='li a0, 5' AND min(EXTRACT_ARG(s.arg_set_id,'debug.reason'))=1 AND min(json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.site'))=1 AND min(json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.observations[0].payload_width'))=99 AND min(json_array_length(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.observations[0].fields'))=5 AND min(EXTRACT_ARG(s.arg_set_id,'debug.rheg'))=1 AND min(EXTRACT_ARG(s.arg_set_id,'debug.rheg_site'))=1 AS ok FROM slice s JOIN track t ON t.id=s.track_id"
+assert_query "$stream_test_dir/build/stall-runs.pftrace" "WITH expected(track,first,last) AS (VALUES('issue',1,2),('issue',3,3),('issue',4,4),('issue',5,6),('issue',8,8),('issue',10,10),('issue',11,12),('other',1,3)) SELECT count(*)=8 AND sum(s.dur=(last-first+1)*10)=8 AND max(s.depth)=0 AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN expected e ON t.name=e.track AND s.ts=e.first*10 WHERE s.name='stall'"
+assert_query "$stream_test_dir/build/stall-runs.pftrace" "SELECT count(*)=12 AND sum(dur)=170 AND sum(name='stall')=8 AND (SELECT count(*) FROM flow)=6 AS ok FROM slice"
+assert_query "$stream_test_dir/build/stall-runs.pftrace" "SELECT count(*)=6 AND sum(a.name='source')=5 AND sum(a.name='other')=1 AND sum(b.name='stall')=5 AND sum(b.name='issue')=1 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
+assert_query "$stream_test_dir/build/stall-runs.pftrace.prefix2" "SELECT count(*)=4 AND sum(name='stall' AND dur=-1)=2 AS ok FROM slice"
+assert_query "$stream_test_dir/build/stall-runs.pftrace.prefix7" "SELECT count(*)=8 AND min(dur)=10 AND sum(dur)=120 AS ok FROM slice"
+assert_query "$stream_test_dir/build/stall-runs.pftrace.maximum" "SELECT count(*)=1 AND min(name)='stall' AND min(ts)=999999999 AND min(dur)=1 AND min(EXTRACT_ARG(arg_set_id,'debug.sequence'))='18446744073709551614' AS ok FROM slice"
+assert_query "$stream_test_dir/build/named-stalls.pftrace" "SELECT count(*)=7 AND sum(a.key IN ('debug.cycle','debug.sequence','debug.pc','debug.instruction','debug.reason','debug.rheg','debug.rheg_site'))=7 AS ok FROM slice s JOIN args a USING(arg_set_id)"
+for suffix in '' .prefix2 .prefix7 .maximum; do
+  assert_query "$stream_test_dir/build/stall-runs.pftrace$suffix" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
+done
 for index in 0 1 2; do
   file="$stream_test_dir/live.pftrace.prefix$index"
   bytes=$(wc -c < "$file")

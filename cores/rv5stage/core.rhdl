@@ -259,7 +259,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   fetch.branch_update.valid <== memory_stage_valid & !memory_exception_event & !memory_replay_event
   fetch.branch_update.bits <== memory.bits.branch_update
   fetch.memory <=> instruction_access
-  def fetched = fetch.fetched |> trace_event("core.s1.fetch", ~root: #true, ~fields: operation):
+  def fetched = fetch.fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~root: #true, ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   fetched |> if_id_pipe.ingress
@@ -448,12 +448,23 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def traced_decode:
     if_id_pipe.egress
       |> filter_flow(_fetched => !squash)
-      |> gate_flow(!pipeline_hazard)
-      |> trace_event("core.s2.decode", ~fields: operation):
+      |> trace_event("core.s2.decode", ~stalls: #true, ~fields: operation):
            pc: operation.pc
            instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+           deferred_dependency: deferred_dependency_hazard
+           raw_hazard: scoreboard_raw_hazard
+           waw_hazard: scoreboard_waw_hazard
+           fp_source_hazard: fp_source_hazard
+           fp_destination_hazard: fp_destination_hazard
+           resource_hazard: local_resource_hazard
+           pause: pause_in_flight ||| pause_active
+           serialization: serializing_in_flight ||| serializing_waits_for_older
+           wfi: waiting_for_interrupt
+           interrupt: csrs.interrupt_request
+           exception: exception_in_flight
   def decoded_operation:
-    traced_decode |> map_flow(fetched => DecodeExecute(xlen)):
+    // Observe the live offer before the gate hides valid; only admission advances ID/EX.
+    traced_decode |> gate_flow(!pipeline_hazard) |> map_flow(fetched => DecodeExecute(xlen)):
           pc: fetched.pc
           instruction: fetched.instruction
           raw_instruction: fetched.raw_instruction

@@ -61,14 +61,29 @@ Encode the documented field subset of the Perfetto v58.2 native schema. Run
 timing and epoch go once into ChromeEventBundle metadata before descriptors or
 occurrences. Site identity, source location, and capture layout go in the JSON
 TrackDescriptor description; v58.2 has no arbitrary track annotation field.
-Occurrence arguments contain only exact cycle, sequence, and captured values.
+Occurrence arguments contain exact cycle, sequence, and captured values.
+Keep exact graph identities and interval bookkeeping internal to the exporter;
+Perfetto is a visualization projection, not a second graph serialization.
 
 Keep transfer/stall classification and `observation_of` in static site JSON
 and track descriptions, not the DPI ABI or occurrence arguments. Missing kind
 means transfer for legacy manifests. Validate that a stall observes a transfer
-site and has no outgoing dependency. The existing one-cycle encoder and
-non-closing parent-flow ends also represent repeated, possibly unlinked stalls;
-do not coalesce them or replace the original transfer source with an observer.
+site and has no outgoing dependency. Resolve observation-to-transfer track IDs
+after reading every site, independently of manifest order. Emit descriptors only
+for transfers, with complete companion schemas in an `observations` array.
+Reject same-cycle collisions on
+shared tracks before writing output or advancing writer state. Stall names are
+always `stall`, regardless of instruction or enum captures. Coalesce only in the
+exporter: retain one open run per track, with captured words, exact parent set,
+and the last reference. Extend only consecutive cycles and sequence numbers
+at the same observation site with equal words and parents. Close on a mismatch,
+settled absence, transfer, or finalization. Emit one incoming arrow per parent
+per run; never replace the original transfer source with an observer.
+Emit begins immediately and close with a timestamped end, without range
+annotations. A raw prefix may contain open stalls. Preflight the complete input
+batch, stage run-state changes, and commit only after successful output. Decide
+run closures for each entire cycle before its begins, in end-cycle/track order,
+so packet and intern ordering do not depend on batch partitioning.
 
 Intern categories, event names, annotation names, and captured string values in
 separate sequence-local IID tables. Define each string in the first packet that
@@ -93,7 +108,7 @@ explicit label, only a site with exactly one `riscv` field gets mnemonic slice n
 Use the full formatted field as the argument and its first token as the name;
 unknown hex and ambiguous multi-instruction sites follow the README fallback.
 
-Legacy `s`/`f` flow records sit inside each occurrence slice. Give each source
+Legacy `s`/`f` flow records sit inside each transfer or stall-run slice. Give each source
 identity one flow start if its site has any outgoing static dependency, and each
 child a non-closing end per parent. Omit starts only for statically terminal
 sites; retain them for possible sources even when no child is currently known,
@@ -114,8 +129,8 @@ Optional gzip belongs exclusively to the exporter, using system zlib behind the
 private implementation. Keep one deflate dictionary across batches, feed bounded
 input chunks, and drain output into fixed scratch storage. Do not sync-flush each
 cycle: the native reader requires a final gzip footer anyway. `finish()` writes
-that footer, flushes and checks output, and is idempotent; a write after finishing
-is invalid. Destructors release zlib state without hiding finalization failures.
+pending stall ends and that footer, flushes and checks output, and is idempotent;
+a write after finishing is invalid. Destructors release zlib state without hiding finalization failures.
 Constructor, batch-write, and finalization failures must release resources, and
 any compression/I/O failure poisons the writer. Raw mode retains importable
 per-batch prefixes; gzip mode requires explicit finalization before native import.
@@ -165,6 +180,7 @@ No Python package, launcher, or RPC server participates in these tests.
 | Snapshots and timing | Binding order, missing/invalid timing, exact 64-bit JSON values, immutable copies, initial/held/empty reset epochs and exhaustion |
 | Streaming and replay | Byte-identical output, watermarks, every flushed prefix, delayed fanout and same-cycle joins with reversed site ordering; interning across batches and capacity fallback; terminal-start omission and possible-source retention |
 | Native display | One-cycle durations, fractional periods, N+1 overflow, track hierarchy/order, repeated labels without thread association, flow attachment, metadata even in empty traces and no parser errors |
+| Stall intervals | Stable-run coalescing across batch partitions; capture, parent-set, sequence, gap, transfer and finalization boundaries; open prefixes, exact durations and UINT64_MAX; graph preservation and collapsed parent arrows |
 | Disassembly | RV32/RV64, compressed/FP/CSR instructions, PC-relative targets and wraparound, `auipc`, unknown fallbacks, explicit aliases, ordinary fields named instruction, multi-instruction fallback and live/replay parity |
 | Failure handling | Strict JSON rejection, invalid batches, poisoned output streams, nonzero converter errors and empty/malformed inputs |
 | Compression | Gzip round-trip equality, live/replay import, multi-buffer incremental output, empty traces/batches, finalization and poisoned write/footer failures |

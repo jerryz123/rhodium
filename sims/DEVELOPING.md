@@ -89,9 +89,13 @@ make -C sims trace-smoke TRACE_FILE=/tmp/simple-soc.pftrace \
 
 `tests/check-event-trace.sh` requires request traffic and checks the two allowed
 same-cycle edge families, paired payload/sequence equality, exact configured
-timestamps, one-cycle slice widths, readable track labels, and importer errors.
+timestamps, one-cycle transfers, continuous stall ranges, readable track labels,
+and importer errors.
 It checks run timing once in the metadata table and site/capture context in
-track descriptions, with no redundant run/site arguments on occurrences.
+track descriptions, with no redundant run metadata on occurrences. SimpleSoC
+instruction and CHI transfer names cannot equal `stall`, so these checks use
+that slice name to separate stalls on shared tracks. Do not require exact graph
+identity reconstruction from the Perfetto visualization.
 This optional test requires native Perfetto
 and does not require RSP activity: the smoke's reads return data on DAT.
 It is separate from ordinary simulation CI. `tests/check-event-driver.sh`
@@ -108,6 +112,13 @@ Select stages through track names, not mnemonic slice names, and check full
 disassembly separately from the mnemonic. Generic display/schema rules belong
 to [RHEG](../rheg/DEVELOPING.md#perfetto-encoding), not this adapter.
 Memory pairs explicitly retain raw capture for their payload-equality checks.
+Restrict those pipeline checks to transfer sites. `tests/check-stall-events.sql`
+requires real fetch/decode backpressure, matching capture layouts, the exact
+Boolean hazard fields, and accepted-fetch parents for decode stalls. It checks
+that surviving issue follows the end of its stalls while still inheriting the fetch parent,
+and rejects outgoing edges from any stall observation. Keep these checks separate
+from transfer fanout and fixed-latency rules. Check durations, non-overlap, and
+captured reasons on each coalesced stall slice.
 
 `tests/check-cache-events.sql` checks observed private-cache CHI descriptors
 (the importer omits idle channels from its track table),
@@ -117,6 +128,11 @@ response status, byte-addressed snoops, and isolated event
 lineage at these opaque transaction boundaries. Keep scalar and external-memory
 checks scoped to their own tracks when adding cache channels. See the
 [RV5Stage annotation owner](../cores/rv5stage/DEVELOPING.md#pipeline-event-annotations).
+Validate cache stall slices on the original channel tracks, always named `stall`,
+with the same per-channel captures and opcode tables as transfers; never require
+a quiet channel to stall. RN-I
+instruction requests use nonsnooping `ReadOnce` snapshots; preserve that
+transaction distinction when checking expected traffic.
 
 ### Other simulation contracts
 

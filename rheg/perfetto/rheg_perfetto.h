@@ -17,7 +17,8 @@ public:
   PerfettoWriter(const PerfettoWriter&) = delete;
   PerfettoWriter& operator=(const PerfettoWriter&) = delete;
   void write(const CycleBatch& batch);
-  // Finish gzip framing and flush output. Idempotent; rejects subsequent writes.
+  // Close pending stall slices, finish gzip framing, and flush output.
+  // Idempotent; rejects subsequent writes.
   // Call explicitly to observe errors; destruction only releases resources.
   void finish();
 private:

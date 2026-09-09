@@ -144,11 +144,31 @@ includes these sites automatically. Stage-number prefixes keep their names in
 pipeline order when sorted lexicographically.
 
 Fetch records acceptance from the fetch queue into IF/ID and starts a new
-lineage. Decode records issue after hazard and squash gating, not every stalled
-cycle. Execute and Memory record surviving stage transfers; WB records arrival
+lineage. Decode records issue only when hazard and squash gating permit it.
+Execute and Memory record surviving stage transfers; WB records arrival
 at the scalar writeback stage. Inferred edges follow the real elastic IF/ID
 controls and one-cycle always-capture registers. Repeated PCs have separate
 occurrence identities; squashed tokens may have no later-stage descendant.
+
+Fetch and Decode also emit `.stall` companions on each `valid & !ready` cycle.
+Fetch stalls mean an assembled instruction cannot enter IF/ID, not that fetch
+is waiting for memory. Decode observes the live instruction after squash
+filtering but before hazard gating, so it can expose a blocked offer without
+changing issue timing. Its stall nodes retain the accepted fetch parent through
+IF/ID; fetch stalls are independent root observations. Perfetto displays them
+on the corresponding Fetch/Decode track as slices named `stall`, merging
+consecutive observations with unchanged captures and parents. They never become
+parents of subsequent pipeline transfers.
+
+Decode captures eleven non-exclusive Boolean reasons on transfers and stalls:
+`deferred_dependency`, `raw_hazard`, `waw_hazard`, `fp_source_hazard`,
+`fp_destination_hazard`, `resource_hazard`, `pause`, `serialization`, `wfi`,
+`interrupt`, and `exception`. These are the existing issue-gate terms, not
+inferred root causes; every issued instruction has all flags clear, while each
+decode stall has at least one asserted flag. A blocked instruction can still
+be squashed. EX/MEM/WB are feed-forward `Valid` stages and have no ready-valid
+stall companions. Memory-response waits and rejected WB dispatch/replay require
+separate observations, not synthetic ready signals.
 
 Each checkpoint captures named `pc` and `instruction` fields (XLEN + 32
 bits), not the complete stage bundle. Perfetto exposes `pc` as hexadecimal and
@@ -168,7 +188,9 @@ the cache/MMU, or across a replay's subsequent refetch.
 
 The RV5Stage composition also annotates the L1I and L1D CHI interfaces, with
 `icache.*` and `dcache.*` tracks. Each event is one accepted flit (`valid & ready`),
-not an entire transaction or cache occupancy interval:
+not an entire transaction or cache occupancy interval. Each channel also enables
+a `.stall` companion for `valid & !ready`, with the same opcode and named fields.
+These show blocked offers, not elapsed transaction latency or missing responses:
 
 | Suffix | Transfer relative to the cache |
 |---|---|

@@ -131,11 +131,12 @@ strings; names and values must be unique and values must fit the field's width
 (1–64 bits). The compiler supplies these tables from hardware enum declarations.
 `Field::symbols` carries the matching numeric/string pairs in the C++ descriptor.
 
-An explicit `label: true` selects one enum field per site as the Perfetto slice
-name. Known values use the member name; unknown values use fixed-width hex.
+An explicit `label: true` selects one enum field per site as the Perfetto
+transfer slice name. Known values use the member name; unknown values use fixed-width hex.
 Track names and numeric field arguments are unchanged. Enum labels take precedence
 over instruction mnemonics; without selection, existing naming behavior remains.
-Symbol tables live in static track descriptions, not repeated event arguments.
+Stall slices are always named `stall`. Symbol tables live in static track
+descriptions, not repeated event arguments.
 RHEG contains no CHI-specific opcode table and does not correlate transactions.
 
 ## Instruction disassembly
@@ -156,7 +157,7 @@ bits, available through the normal field accessors. Live and standalone exports
 use the same formatter.
 
 Without an explicit enum label, a site with exactly one `riscv` field names each
-Perfetto slice with its disassembled mnemonic (including aliases such as `li`
+transfer's Perfetto slice with its disassembled mnemonic (including aliases such as `li`
 and `j`), or raw hex for
 an unknown encoding. The full assembly remains in the field argument. Track
 names retain the site labels, such as `core.s1.fetch`; queries selecting stages
@@ -316,39 +317,68 @@ supply the instrumentation's event-cycle count, not an unrelated harness tick.
 
 ## Perfetto display and queries
 
-Each occurrence becomes a one-cycle slice spanning `[N, N+1)` on a track named
-with its annotated event label, without a synthetic thread-ID suffix. Each site
-retains a separate track even when labels repeat. These are non-thread tracks
+Each transfer becomes a one-cycle slice spanning `[N, N+1)` on a track named
+with its annotated transfer label, without a synthetic thread-ID suffix. Each
+transfer site retains a separate track even when labels repeat; its stall
+observations share that track. These are non-thread tracks
 grouped under a custom track named for the top-level design. This group requests
 lexicographic child ordering, independent of site IDs or callback order; viewers
 may override this display hint. Occurrence arguments contain only exact
 cycle, sequence, and captured values (legacy snapshots retain their raw words).
 Slice names normally match their site labels; a single tagged instruction uses
 its [disassembled mnemonic](#instruction-disassembly) instead. An explicitly
-selected [enum label](#enum-labels) takes precedence over both.
+selected [enum label](#enum-labels) takes precedence over both. Stall slices are
+always named `stall`, retaining disassembly, opcode, and other captures as arguments.
 Frequency and epoch are emitted once before occurrences as trace metadata,
 available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and
 `cr-rheg.epoch_id`, with exact decimal `str_value` values. Even an empty trace
 or the first flushed prefix contains these values.
 
-Each track's description is JSON containing `site_id`, `source_location`,
-`payload_width`, `kind` (`transfer` or `stall`), and, for named captures, the
-ordered `fields` layout. Stall tracks additionally carry `observation_of`, the
-string ID of the associated transfer site. Legacy manifests without `kind`
-default to `transfer`. Stall occurrences use the same one-cycle encoding and
-capture display as transfers, but cannot be sources of downstream lineage.
+Each track's description is JSON containing numeric `site`, `site_id`,
+`source_location`, `payload_width`, `kind`, and, for named captures, the ordered
+`fields` layout of its transfer site. A shared track also has an `observations`
+array containing each companion's full site description, including `kind: "stall"`
+and `observation_of`, the string ID of the associated transfer site.
+Legacy manifests without `kind` default to `transfer`.
+Stall occurrences use the same capture display as transfers, but cannot be
+sources of downstream lineage.
 See the [compiler stall contract](../rhodium/event/README.md#stall-observations).
 The UI's
 track description exposes this context without repeating it on every event.
 SQL can read it through `EXTRACT_ARG(track.source_arg_set_id, 'description')`
-and `json_extract`. Numeric site identity is
-`EXTRACT_ARG(track.source_arg_set_id, 'trace_id') - 1`; sequence then identifies
-the occurrence within that site and epoch.
+and `json_extract`. Perfetto is a visualization projection, not a reversible
+graph serialization: shared-track slices do not export their numeric occurrence
+site IDs. Use the graph/snapshot for exact identities. In designs where transfer
+names cannot equal `stall`, queries can select stalls by that display name.
+The exporter rejects multiple occurrences on a shared track in the same cycle
+before emitting the batch.
+
+Consecutive stall observations become one continuous `stall` slice when their
+site, captured bits, and complete parent-reference sets match. Cycle and sequence
+numbers must both be consecutive. A gap, transfer, changed capture (including
+hazard flags), changed parent, or different observer starts a new interval.
+Identical unlinked offers may share a visual interval; this does not establish
+transaction identity or eventual acceptance for a `Decoupled` offer.
+
+The graph and snapshots retain every per-cycle observation and edge. In Perfetto,
+`cycle` and `sequence` describe the first observation. Slice timing displays
+the interval through the last observed cycle plus one; no range-end bookkeeping
+is exported. Each unchanged parent gets one arrow to the interval, representing
+its edges to all observations in that range. Transfers remain separate and stalls
+never supply lineage.
+
+Streaming emits the begin immediately and retains one open interval per active
+stall track. A later settled cycle closes or extends it; `finish()` closes any
+remaining interval at its last observed cycle plus one. An unfinished raw prefix
+is importable but can contain open stall slices (`dur = -1`). Use `finish()`
+for a complete display, including in uncompressed mode.
+
 Both boundaries use `floor(cycle * 1000000000 / frequency)` with integer
 arithmetic and reject signed-64-bit nanosecond overflow before writing a batch.
 Fractional nanoseconds are quantized independently without cumulative drift;
 sub-nanosecond cycles can quantize to zero duration. This one-cycle display width
-does not infer occupancy or time stalled between checkpoints.
+does not infer occupancy or time stalled between checkpoints; stall durations
+cover only explicitly observed consecutive blocked cycles.
 
 Dependency arrows connect exact parent and child occurrences, including delayed
 fanout and joins. Events within a batch are ordered by cycle and dependency;

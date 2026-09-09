@@ -250,6 +250,11 @@ void stall_trace(const std::string& path) {
                       {0, 0, 0}, {{0, 1}, {0, 2}}};
   Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
   std::ostringstream live; PerfettoWriter writer(live, descriptor, {100000000});
+  auto conflict = batch(0, {1, 0});
+  conflict.nodes.emplace(Ref{2, 0}, Node{true, 0, 0, {}});
+  const auto prefix = live.str();
+  rejects([&] { writer.write(conflict); }, "multiple occurrences on a shared track");
+  check(live.str() == prefix, "rejected shared-track collision wrote output");
   graph.record_node({0, 0}, 0, 0); writer.write(graph.finish_cycle(0));
   for (std::uint64_t cycle = 1; cycle <= 2; ++cycle) {
     graph.record_node({2, cycle - 1}, cycle, 0);
@@ -263,7 +268,10 @@ void stall_trace(const std::string& path) {
   std::istringstream saved(graph.snapshot().json());
   std::ostringstream replay; write_perfetto(replay, read_event_trace(saved));
   check(live.str() == replay.str(), "stall live/replay bytes differ");
-  check(flow_counts(live.str()) == std::make_pair(1U, 3U), "stalls must not become flow sources");
+  std::ostringstream compressed;
+  write_perfetto(compressed, graph.snapshot(), PerfettoCompression::Gzip);
+  check(inflate_trace(compressed.str()) == live.str(), "stall gzip/replay bytes differ");
+  check(flow_counts(live.str()) == std::make_pair(1U, 2U), "stall runs must share parent arrows without becoming sources");
   std::ofstream file(path, std::ios::binary); file << live.str(); file.close(); check(bool(file));
   auto invalid = [&](const std::string& from, const std::string& to, const std::string& diagnostic) {
     auto bad = descriptor;
@@ -280,10 +288,106 @@ void stall_trace(const std::string& path) {
   invalid("\"kind\":\"stall\"", "\"kind\":\"transfer\"", "transfer must not observe");
   invalid("\"parent\":\"accepted\"", "\"parent\":\"issued/stall\"", "stall cannot supply downstream lineage");
 }
+void named_stall_trace(const std::string& path) {
+  // The observer precedes its transfer, has a different capture schema, and is
+  // the only active site. Neither disassembly nor an enum may rename its slice.
+  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"NamedStalls","sites":[
+    {"id":"cpu/stall","label":"decode.stall","kind":"stall","observation_of":"cpu","payload_width":99,"fields":[
+      {"name":"pc","width":64,"offset":35,"encoding":"hex"},
+      {"name":"instruction","width":32,"offset":3,"encoding":"riscv","isa":"rv64i","pc":"pc"},
+      {"name":"reason","width":1,"offset":2,"encoding":"enum","symbols":[{"value":"1","name":"Blocked"}],"label":true},
+      {"name":"rheg","width":1,"offset":1,"encoding":"bool"},
+      {"name":"rheg_site","width":1,"offset":0,"encoding":"bool"}]},
+    {"id":"cpu","label":"decode","payload_width":0,"fields":[]}],"dependencies":[]})",
+    {99,0}, {}, {{{"pc",64,35,"hex"},{"instruction",32,3,"riscv","rv64i","pc"},
+                 {"reason",1,2,"enum","","",{{1,"Blocked"}},true},
+                 {"rheg",1,1,"bool"},{"rheg_site",1,0,"bool"}}, {}}};
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000});
+  graph.record_node({0,0}, 0, 99);
+  const __uint128_t payload = (__uint128_t(0x1000) << 35) | (std::uint64_t(0x00500513) << 3) | 7;
+  for (unsigned i = 0; i < 4; ++i) graph.record_payload({0,0}, i, static_cast<std::uint32_t>(payload >> (i*32)));
+  std::ofstream file(path, std::ios::binary); write_perfetto(file, graph.snapshot()); file.close(); check(bool(file));
+}
+void stall_runs(const std::string& path) {
+  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Runs","sites":[
+    {"id":"source","payload_width":8},{"id":"issue","payload_width":8},
+    {"id":"blocked","kind":"stall","observation_of":"issue","payload_width":8},
+    {"id":"other","payload_width":8},
+    {"id":"other-blocked","kind":"stall","observation_of":"other","payload_width":8}],
+    "dependencies":[{"parent":"source","child":"issue"},{"parent":"source","child":"blocked"},{"parent":"other","child":"blocked"}]})",
+    {8,8,8,8,8}, {{0,1},{0,2},{3,2}}};
+  std::vector<CycleBatch> cycles;
+  for (unsigned c = 0; c < 13; ++c) cycles.push_back({c, {}, {}});
+  auto put = [&](unsigned cycle, Ref ref, unsigned value, std::initializer_list<Ref> parents = {}) {
+    cycles[cycle].nodes.emplace(ref, Node{true, cycle, 8, {{0,value}}});
+    for (auto parent : parents) cycles[cycle].edges.insert({parent,ref});
+  };
+  put(0,{0,0},42); put(0,{3,0},42);
+  put(1,{2,0},42,{{0,0}}); put(2,{2,1},42,{{0,0}});
+  for (unsigned c = 1; c <= 3; ++c) put(c,{4,c-1},42);
+  put(3,{2,2},43,{{0,0}}); // Captures changed, even though the parent did not.
+  put(4,{0,1},42); put(4,{2,3},43,{{0,1}}); // New parent with identical payload.
+  put(5,{2,4},43,{{0,1},{3,0}}); put(6,{2,5},43,{{3,0},{0,1}}); // Parent set, not order.
+  put(8,{2,6},43); // A gap and withdrawn ancestry.
+  put(9,{1,0},43,{{0,1}}); // Transfer closes the observation.
+  put(10,{2,7},43); put(11,{2,9},43); put(12,{2,10},43); // Sequence gap splits the run.
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
+  std::ostringstream live, zipped;
+  PerfettoWriter writer(live, descriptor, {100000000});
+  PerfettoWriter gzip(zipped, descriptor, {100000000}, PerfettoCompression::Gzip);
+  for (const auto& cycle : cycles) {
+    if (cycle.cycle == 2) {
+      const auto before = live.str();
+      auto bad = cycle; bad.nodes.begin()->second.width = 7;
+      rejects([&] { writer.write(bad); }, "width mismatch");
+      check(live.str() == before, "invalid batch mutated an open stall run");
+    }
+    for (const auto& [ref,node] : cycle.nodes) {
+      graph.record_node(ref,node.cycle,node.width);
+      for (const auto& [index,word] : node.words) graph.record_payload(ref,index,word);
+    }
+    for (const auto& [parent,child] : cycle.edges) graph.record_edge(parent,child);
+    auto settled = graph.finish_cycle(cycle.cycle);
+    writer.write(settled); gzip.write(settled);
+    if (cycle.cycle == 2 || cycle.cycle == 7) {
+      std::ofstream prefix(path + ".prefix" + std::to_string(cycle.cycle), std::ios::binary);
+      prefix << live.str(); prefix.close(); check(bool(prefix));
+    }
+  }
+  writer.finish(); gzip.finish(); graph.end_stream();
+  const auto snapshot = graph.snapshot();
+  check(snapshot.nodes().size() == 17 && snapshot.edges().size() == 9, "coalescing changed the graph");
+  std::istringstream saved(snapshot.json()); std::ostringstream replay;
+  write_perfetto(replay,read_event_trace(saved));
+  check(replay.str() == live.str() && inflate_trace(zipped.str()) == live.str(), "coalesced live/replay/gzip differ");
+  for (unsigned size : {2,5,13}) {
+    std::ostringstream output; PerfettoWriter grouped(output,descriptor,{100000000});
+    CycleBatch pending{};
+    for (const auto& c : cycles) {
+      pending.cycle = c.cycle; pending.nodes.insert(c.nodes.begin(),c.nodes.end()); pending.edges.insert(c.edges.begin(),c.edges.end());
+      if ((c.cycle+1)%size == 0 || c.cycle == 12) { grouped.write(pending); pending = {}; }
+    }
+    grouped.finish(); check(output.str() == live.str(), "coalescing depends on batch boundaries");
+  }
+  check(flow_counts(live.str()) == std::make_pair(3U,6U));
+  std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
+  for (auto mode : {PerfettoCompression::None,PerfettoCompression::Gzip}) {
+    std::ostringstream output; PerfettoWriter broken(output,descriptor,{100000000},mode);
+    broken.write(batch(0,{2,0},8)); output.setstate(std::ios::badbit);
+    rejects([&] { broken.finish(); }, "write failed"); output.clear();
+    rejects([&] { broken.finish(); }, "previously failed");
+  }
+  std::ostringstream maximum; PerfettoWriter terminal(maximum,descriptor,{UINT64_MAX});
+  terminal.write(batch(UINT64_MAX-1,{2,UINT64_MAX-1},8));
+  terminal.write(batch(UINT64_MAX,{2,UINT64_MAX},8)); terminal.finish();
+  std::ofstream last(path+".maximum",std::ios::binary); last << maximum.str(); last.close(); check(bool(last));
+}
 }
 int main(int argc, char** argv) {
   check(argc == 2);
   stall_trace(std::string(argv[1]) + "/stalls.pftrace");
+  named_stall_trace(std::string(argv[1]) + "/named-stalls.pftrace");
+  stall_runs(std::string(argv[1]) + "/stall-runs.pftrace");
   compression_contract(std::string(argv[1]) + "/compressed.pftrace.gz");
   enum_trace(std::string(argv[1]) + "/enums.pftrace");
   interning_trace(std::string(argv[1]) + "/interning.pftrace");

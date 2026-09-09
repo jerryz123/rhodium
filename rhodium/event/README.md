@@ -89,10 +89,13 @@ def observed = stage |> trace_event("s3.execute", ~stalls: #true, ~fields: paylo
 The original site still fires only on `valid & ready`. Its companion
 `s3.execute.stall` fires on `valid & !ready`, with the same selected captures
 sampled from that cycle's offer. Neither fires during reset or when invalid.
-Each occurrence occupies `[cycle, cycle + 1)` in Perfetto; consecutive stalls
-are not coalesced. Track names distinguish stalls while instruction/enum slice
-naming works as usual. This traces local backpressure, not an inferred stall
-reason or proof that the instruction will eventually commit.
+The graph retains one observation per blocked cycle. Perfetto coalesces consecutive
+stalls with unchanged captures and parent identities into a continuous slice;
+see the [display contract](../../rheg/README.md#perfetto-display-and-queries).
+Stalls share the original event's track and are always named
+`stall`; instruction/enum captures remain available as arguments. This traces
+local backpressure, not an inferred stall reason or proof that the instruction
+will eventually commit.
 
 Stalls are leaf observations: they never advance token metadata, cut ancestry,
 or become parents of a later transfer. The compiler reuses the observed
