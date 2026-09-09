@@ -174,6 +174,22 @@ string values to preserve full-width encodings. Preserve table order and explici
 label selection through analysis and JSON/C++ generation. This is display metadata:
 it adds neither payload bits nor lineage state and requires no CIRCT support.
 
+## Stall observation lowering
+
+Expand companion sites after transfer-site analysis so transfer IDs and
+`event_by_output` cut points remain unchanged. Only certified linear trace
+projections supply stall dependencies; nonlinear transfer contracts do not
+certify the identity of a blocked offer. Mark observation latency unknown.
+
+Lower each transfer checkpoint's incoming shadow state once, then reuse those
+references for its stall companion. Give companions their own counters and
+`valid & !ready` predicates, but never export them into downstream lineage.
+Exclude observation children from transfer-fanout checks. Parent-presence
+assertions still protect transfers; observations emit an edge only when the
+incoming reference is valid, since a blocked offer may precede any acceptance.
+Do not derive identity from payload equality or add metadata state that drives
+functional signals. Preserve reset suppression and independent sequence epochs.
+
 ## Focused validation
 
 Use a fresh compiled root for each focused batch, following
@@ -206,6 +222,7 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-atomic-fork` | All-or-none transfers, pre/post storage, repeated hierarchy, nested/singleton replication, demux/arbiter composition and uncertified-fanout rejection |
 | `event-broadcast` | Independent recipients, partial-delivery reset, old delivery before replacement, shared parents and duplicate-delivery rejection |
 | `event-join` | Nested joins, differently sized arbiter lineages, pre/post storage, fork/broadcast reconvergence, downstream demux, annotation cut points and distinct sequences at one site |
+| `event-stall` | Per-cycle blocked offers, changing/withdrawn Decoupled values, elastic and bypass/replacement queue ancestry, reset, repeated payloads and differential functional behavior |
 
 The `event-runtime` runner includes the standalone collector test. `event-join`
 binds a descriptor generated from the same instrumented result as its RTL, adding

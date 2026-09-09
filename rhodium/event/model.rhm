@@ -37,7 +37,9 @@ class EventSite(id :: String,
                 terminal :: Boolean,
                 source_location :: String,
                 root :: Boolean = #false,
-                fields :: List.of(EventField) = [])
+                fields :: List.of(EventField) = [],
+                kind :: String = "transfer",
+                observation_of :: False || String = #false)
 
 // Empty controls mean an unconditional one-cycle delay. Elastic controls retain
 // original IR identity plus the concrete occurrence that owns those signals.

@@ -16,7 +16,7 @@ sync_circuit FlowStaticInformation():
 
   def piped = ingress |> pipe(1)
   def piped_bits = piped.bits
-  def observed = piped |> trace_event("piped")
+  def observed = piped |> trace_event("piped", ~stalls: #true)
   def observed_bits = observed.bits
   def forked = observed |> atomic_fork(2)
   def indexed_bits = forked[0].bits

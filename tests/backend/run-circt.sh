@@ -189,7 +189,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join)
+    language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall)
       return 0
       ;;
     std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment)
@@ -430,7 +430,7 @@ verify_fixture() {
   if [[ -f "$test_dpi_source" ]]; then
     dpi_sources+=("$test_dpi_source")
   fi
-  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join ]]; then
+  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -656,6 +656,7 @@ direct_fixture_specs=(
   'event-atomic-fork|event_atomic_fork_tb'
   'event-broadcast|event_broadcast_tb'
   'event-join|event_join_tb'
+  'event-stall|event_stall_tb'
   'aclint|aclint_tb'
   'bootrom|bootrom_tb'
   'fesvr-mmio|fesvr_mmio_tb'

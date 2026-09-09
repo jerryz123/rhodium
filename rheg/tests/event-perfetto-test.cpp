@@ -245,9 +245,45 @@ void interning_trace(const std::string& path) {
   check(flow_counts(encoded) == std::make_pair(0U, 0U));
   std::ofstream file(path, std::ios::binary); file << encoded; file.close(); check(bool(file));
 }
+void stall_trace(const std::string& path) {
+  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Stalls","sites":[{"id":"accepted","label":"accepted","payload_width":0},{"id":"issued","label":"issued","kind":"transfer","payload_width":0},{"id":"issued/stall","label":"issued.stall","kind":"stall","observation_of":"issued","payload_width":0}],"dependencies":[{"parent":"accepted","child":"issued"},{"parent":"accepted","child":"issued/stall"}]})",
+                      {0, 0, 0}, {{0, 1}, {0, 2}}};
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
+  std::ostringstream live; PerfettoWriter writer(live, descriptor, {100000000});
+  graph.record_node({0, 0}, 0, 0); writer.write(graph.finish_cycle(0));
+  for (std::uint64_t cycle = 1; cycle <= 2; ++cycle) {
+    graph.record_node({2, cycle - 1}, cycle, 0);
+    graph.record_edge({0, 0}, {2, cycle - 1});
+    writer.write(graph.finish_cycle(cycle));
+  }
+  graph.record_node({1, 0}, 3, 0); graph.record_edge({0, 0}, {1, 0}); writer.write(graph.finish_cycle(3));
+  // A withdrawn/new offer need not have any accepted ancestor.
+  graph.record_node({2, 2}, 4, 0); writer.write(graph.finish_cycle(4));
+  writer.finish(); graph.end_stream();
+  std::istringstream saved(graph.snapshot().json());
+  std::ostringstream replay; write_perfetto(replay, read_event_trace(saved));
+  check(live.str() == replay.str(), "stall live/replay bytes differ");
+  check(flow_counts(live.str()) == std::make_pair(1U, 3U), "stalls must not become flow sources");
+  std::ofstream file(path, std::ios::binary); file << live.str(); file.close(); check(bool(file));
+  auto invalid = [&](const std::string& from, const std::string& to, const std::string& diagnostic) {
+    auto bad = descriptor;
+    auto pos = bad.json.find(from); check(pos != std::string::npos);
+    bad.json.replace(pos, from.size(), to);
+    std::ostringstream output;
+    rejects([&] { PerfettoWriter rejected(output, bad, {100000000}); }, diagnostic);
+    check(output.str().empty());
+  };
+  invalid("\"kind\":\"stall\"", "\"kind\":\"unknown\"", "unsupported event kind");
+  invalid("\"observation_of\":\"issued\"", "\"observation_of\":\"\"", "stall requires observation_of");
+  invalid("\"observation_of\":\"issued\"", "\"observation_of\":\"missing\"", "stall must observe a transfer");
+  invalid("\"observation_of\":\"issued\"", "\"observation_of\":\"issued/stall\"", "stall must observe a transfer");
+  invalid("\"kind\":\"stall\"", "\"kind\":\"transfer\"", "transfer must not observe");
+  invalid("\"parent\":\"accepted\"", "\"parent\":\"issued/stall\"", "stall cannot supply downstream lineage");
+}
 }
 int main(int argc, char** argv) {
   check(argc == 2);
+  stall_trace(std::string(argv[1]) + "/stalls.pftrace");
   compression_contract(std::string(argv[1]) + "/compressed.pftrace.gz");
   enum_trace(std::string(argv[1]) + "/enums.pftrace");
   interning_trace(std::string(argv[1]) + "/interning.pftrace");

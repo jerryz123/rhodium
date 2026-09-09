@@ -76,6 +76,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def replications = MutableMap{}
   def broadcasts = MutableMap{}
   def roots = MutableSet{}
+  def stalled_sites = MutableSet{}
   def mutable sites = []
 
   fun add_arc(source :: String,
@@ -151,6 +152,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  annotation.root,
                                  captures)
             sites := sites ++ [site]
+            when annotation.stalls | stalled_sites.add(site.id)
             site_inputs[site.id] := input_ports.map(
               fun (port): terminal_id(instance_path, flow_block.id, port.id)
             )
@@ -342,4 +344,20 @@ fun infer_event_manifest(logical :: DesignElaboration,
   when dynamic
   | for (site in sites):
       plans[site.id] := if site.root | EventTraceSource(#false) | trace_plan(site_inputs[site.id][0])
+  // Append observations after transfer sites, preserving existing site numbering.
+  // They never enter event_by_output: a stall cannot cut or advance lineage.
+  for (site in sites):
+    when site.id in stalled_sites
+    | def stall = EventSite(site.id ++ "/stall", site.label ++ ".stall", site.module_name,
+                            site.instance_path, site.local_site, site.protocol, site.payload_type,
+                            site.payload_width, #true, site.source_location, site.root, site.fields,
+                            "stall", site.id)
+      sites := sites ++ [stall]
+      // Only linear transfer contracts currently expose certified pending
+      // references. Selection/routing/replication/join offers need separate contracts.
+      def parents = dependencies.filter(~keep: fun (edge): edge.child == site.id && edge.trace_stages != #false)
+      for (edge in parents):
+        dependencies := dependencies ++ [EventDependency(edge.parent, stall.id, edge.transform_path, #false, edge.trace_stages)]
+      when dynamic
+      | plans[stall.id] := (if parents.length() > 0 | plans[site.id] | EventTraceSource(#false))
   EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]))

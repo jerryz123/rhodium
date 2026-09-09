@@ -9,6 +9,7 @@ import:
 // Preserves a ready-valid transaction while attaching a compiler-visible event
 // site to the identity transform.
 fun trace_event_config(label :: String,
+                       ~stalls: stalls :: Boolean = #false,
                        ~root: root :: Boolean = #false,
                        ~terminal: terminal :: Boolean = #false,
                        ~payload: raw :: Boolean = #false,
@@ -32,6 +33,7 @@ fun trace_event_config(label :: String,
         ~fields: if capture | capture(flow_payload_type(source), input_endpoint.field("bits")) | [],
         ~valid: input_endpoint.field("valid"),
         ~ready: output_endpoint.field("ready"),
+        ~stalls,
         ~root,
         ~terminal
       )

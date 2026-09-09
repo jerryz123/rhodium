@@ -54,7 +54,7 @@ Json parse(const std::string& text) {
 void format(const Json& value, const char* name) {
   require(value.at("format") == name && number(value.at("version")) == 1, "unsupported trace format/version");
 }
-struct Site { std::string id, label, source; };
+struct Site { std::string id, label, source, kind, observation_of; };
 struct Description {
   Manifest manifest;
   std::string top;
@@ -72,7 +72,11 @@ Description describe(const Json& json) {
   for (const auto& site : sites) {
     const auto id = site.at("id").get<std::string>();
     require(!id.empty() && ids.emplace(id, ids.size()).second, "duplicate or empty site identity");
-    result.sites.push_back({id, site.value("label", id), site.value("source_location", std::string("<unknown>"))});
+    result.sites.push_back({id, site.value("label", id), site.value("source_location", std::string("<unknown>")),
+                           site.value("kind", std::string("transfer")), site.value("observation_of", std::string())});
+    const auto& display = result.sites.back();
+    require(display.kind == "transfer" || display.kind == "stall", "unsupported event kind");
+    require((display.kind == "stall") == !display.observation_of.empty(), "stall requires observation_of; transfer must not observe another site");
     const auto& width = site.at("payload_width");
     result.manifest.payload_widths.push_back(width == Json(false) ? 0 : number(width, UINT32_MAX));
     require(site.contains("fields") == named, "inconsistent capture schema presence");
@@ -99,11 +103,17 @@ Description describe(const Json& json) {
     }
   }
   validate_capture_schema(result.manifest);
+  for (const auto& site : result.sites) if (site.kind == "stall") {
+    auto observed = ids.find(site.observation_of);
+    require(observed != ids.end() && result.sites[observed->second].kind == "transfer",
+            "stall must observe a transfer site");
+  }
   require(json.at("dependencies").is_array(), "dependencies must be an array");
   for (const auto& edge : json.at("dependencies")) {
     auto parent = ids.find(edge.at("parent").get<std::string>());
     auto child = ids.find(edge.at("child").get<std::string>());
     require(parent != ids.end() && child != ids.end(), "unknown manifest dependency site");
+    require(result.sites[parent->second].kind != "stall", "stall cannot supply downstream lineage");
     result.manifest.dependencies.emplace(parent->second, child->second);
   }
   return result;
@@ -330,6 +340,8 @@ struct PerfettoWriter::Impl {
       Json site = {{"site_id", description.sites[i].id},
                    {"source_location", description.sites[i].source},
                    {"payload_width", description.manifest.payload_widths[i]}};
+      site["kind"] = description.sites[i].kind;
+      if (description.sites[i].kind == "stall") site["observation_of"] = description.sites[i].observation_of;
       if (!description.manifest.fields.empty()) {
         site["fields"] = Json::array();
         for (const auto& field : description.manifest.fields[i]) {

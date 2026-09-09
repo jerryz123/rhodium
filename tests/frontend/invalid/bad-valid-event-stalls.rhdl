@@ -1,0 +1,11 @@
+#lang rhodium
+// Rejects backpressure observation on a Valid checkpoint without a ready signal.
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit BadValidStalls():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  source |> trace_valid_event("offered", ~stalls: #true) |> sink
+
+elaborate_with_top(BadValidStalls())

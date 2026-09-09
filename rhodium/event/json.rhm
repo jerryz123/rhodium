@@ -47,8 +47,9 @@ fun json_site(site :: EventSite):
     } ++ (if field.encoding == "riscv" | {"isa": field.isa, "pc": field.pc} | {}) ++ (if field.encoding == "enum" | {"symbols": field.symbols} | {}) ++ (if field.label | {"label": #true} | {})),
     "terminal": site.terminal,
     "root": site.root,
+    "kind": site.kind,
     "source_location": site.source_location
-  }
+  } ++ (if site.observation_of | {"observation_of": site.observation_of} | {})
 
 fun json_dependency(dependency :: EventDependency):
   {

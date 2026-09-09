@@ -1,0 +1,79 @@
+#lang rhodium
+// Exercises stall observations across direct, elastic, and bypass/replacement queue paths.
+
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit EventStallLane(mode :: Nat, traced :: Boolean):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  def accepted:
+    if traced
+    | ingress |> trace_event("accepted", ~stalls: #true, ~fields: value):
+        value: value
+    | ingress
+  def held = match mode
+  | 0: accepted
+  | 1: accepted |> pipe(2)
+  | ~else: accepted |> queue(3, ~flow: #true, ~pipe: #true)
+  if traced
+  | def completed = held |> trace_event("completed", ~stalls: #true, ~terminal: #true, ~fields: value):
+      value: value
+    completed |> egress
+  | held |> egress
+
+sync_circuit EventStall():
+  interface sources[3](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[3](Decoupled(Bits(8)), ~role: producer)
+  interface gold_sources[3](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_sinks[3](Decoupled(Bits(8)), ~role: producer)
+  inst direct(EventStallLane(0, #true))
+  inst elastic(EventStallLane(1, #true))
+  inst queued(EventStallLane(2, #true))
+  inst gold_direct(EventStallLane(0, #false))
+  inst gold_elastic(EventStallLane(1, #false))
+  inst gold_queued(EventStallLane(2, #false))
+  sources[0] |> direct.ingress
+  sources[1] |> elastic.ingress
+  sources[2] |> queued.ingress
+  direct.egress |> sinks[0]
+  elastic.egress |> sinks[1]
+  queued.egress |> sinks[2]
+  gold_sources[0] |> gold_direct.ingress
+  gold_sources[1] |> gold_elastic.ingress
+  gold_sources[2] |> gold_queued.ingress
+  gold_direct.egress |> gold_sinks[0]
+  gold_elastic.egress |> gold_sinks[1]
+  gold_queued.egress |> gold_sinks[2]
+
+sync_circuit EventStallSelection():
+  interface sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def left = sources[0] |> trace_event("left") |> pipe(1)
+  def right = sources[1] |> trace_event("right") |> pipe(1)
+  Array(left, right) |> arbiter() |> trace_event("selected", ~stalls: #true) |> sink
+
+sync_circuit EventStallIrrevocable():
+  interface source(Irrevocable(Bits(8)), ~role: consumer)
+  interface sink(Irrevocable(Bits(8)), ~role: producer)
+  source |> trace_event("stable", ~stalls: #true) |> sink
+
+sync_circuit EventStallInvalid(kind :: String):
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  match kind
+  | "missing-ready":
+      def handle = Bits(8) |> trace_event("placeholder")
+      describe_interface_event(handle, "bad", ~stalls: #true, ~valid: Bool(#true))
+  | "collision-before": source |> trace_event("blocked.stall") |> trace_event("blocked", ~stalls: #true) |> sink
+  | ~else: source |> trace_event("blocked", ~stalls: #true) |> trace_event("blocked.stall") |> sink
+
+def stalled = elaborate_with_top(EventStall())
+def selected = elaborate_with_top(EventStallSelection())
+def stable = elaborate_with_top(EventStallIrrevocable())
+fun invalid(kind :: String): elaborate_with_top(EventStallInvalid(kind))
+export:
+  stalled
+  selected
+  stable
+  invalid

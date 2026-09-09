@@ -63,6 +63,13 @@ occurrences. Site identity, source location, and capture layout go in the JSON
 TrackDescriptor description; v58.2 has no arbitrary track annotation field.
 Occurrence arguments contain only exact cycle, sequence, and captured values.
 
+Keep transfer/stall classification and `observation_of` in static site JSON
+and track descriptions, not the DPI ABI or occurrence arguments. Missing kind
+means transfer for legacy manifests. Validate that a stall observes a transfer
+site and has no outgoing dependency. The existing one-cycle encoder and
+non-closing parent-flow ends also represent repeated, possibly unlinked stalls;
+do not coalesce them or replace the original transfer source with an observer.
+
 Intern categories, event names, annotation names, and captured string values in
 separate sequence-local IID tables. Define each string in the first packet that
 references it; clear incremental state once at the start and mark event packets

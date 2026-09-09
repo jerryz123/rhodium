@@ -17,6 +17,14 @@ import:
   "../frontend/event-atomic-fork-fixture.rhdl" as fork_fixture
   "../frontend/event-broadcast-fixture.rhdl" as broadcast_fixture
   "../frontend/event-join-fixture.rhdl" as join_fixture
+  "../frontend/event-stall-fixture.rhdl" as stall_fixture
+
+def stall_before = emit_circt(stall_fixture.stalled.design)
+def stalled = instrument_events(stall_fixture.stalled)
+check:
+  emit_circt(stall_fixture.stalled.design) ~is stall_before
+  stall_before.contains("rheg_node") ~is #false
+  emit_circt(stalled.instrumented.design).contains("sim.func.dpi.call @rheg_edge") ~is #true
 
 def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)

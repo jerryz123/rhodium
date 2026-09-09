@@ -100,7 +100,7 @@ fun instrument_events(logical :: DesignElaboration,
       parent_plans[site.id] := plan
     def children = MutableSet{}
     for (edge in manifest.dependencies):
-      when edge.parent == site.id | children.add(edge.child)
+      when edge.parent == site.id && manifest.site(edge.child).kind != "stall" | children.add(edge.child)
     when children.length() > 1
     | for (left in children):
         for (right in children):
@@ -184,7 +184,7 @@ fun instrument_events(logical :: DesignElaboration,
   for (occurrence in occurrences):
     def local_view = view.module(occurrence.original.name)
     def annotations = local_view.blocks.filter(~keep: fun (candidate): candidate.event_annotation != #false)
-    def visible = manifest.sites.filter(~keep: fun (site): site.instance_path == occurrence.path)
+    def visible = manifest.sites.filter(~keep: fun (site): site.instance_path == occurrence.path && site.kind == "transfer")
     unless annotations.length() == visible.length()
     | error(~who: #'instrument_events, "event annotations are hidden behind a transform implementation: " ++ String.join(occurrence.path, "/"))
   def design = Design([], logical.design.next_id)
@@ -282,9 +282,15 @@ fun instrument_events(logical :: DesignElaboration,
       def annotation = flow_block.event_annotation
       unless annotation.valid
       | error(~who: #'instrument_events, "event requires explicit transfer controls: " ++ site.id)
+      when site.kind == "stall" && !annotation.ready
+      | error(~who: #'instrument_events, "stall event requires explicit ready control: " ++ site.id)
       annotations[site.id] := annotation
       def valid = builder.cast(module_def, copied.values[annotation.valid.id], Bits(1))
-      def transfer = if annotation.ready | builder.bit_and(module_def, valid, builder.cast(module_def, copied.values[annotation.ready.id], Bits(1))) | valid
+      def transfer:
+        if annotation.ready
+        | def ready = builder.cast(module_def, copied.values[annotation.ready.id], Bits(1))
+          builder.bit_and(module_def, valid, if site.kind == "stall" | builder.bit_not(module_def, ready) | ready)
+        | valid
       def fire = builder.bit_and(module_def, active, transfer)
       fires[site.id] := fire
       def sequence = builder.register(module_def, ref_name("__event_sequence_", site), Bits(64), clock, reset, zero)
@@ -302,6 +308,7 @@ fun instrument_events(logical :: DesignElaboration,
         builder.drive(copied.instances[child.instance.id].input(ref_name("__event_in_", site)), references[site.id])
       for (control in imported_controls(child)):
         builder.drive(copied.instances[child.instance.id].input(control_name(control)), observed[control.index])
+    def incoming_references = MutableMap{}
     for (site in local_sites):
       def annotation = annotations[site.id]
       def id = builder.constant(module_def, Bits(32), site_ids[site.id])
@@ -425,9 +432,13 @@ fun instrument_events(logical :: DesignElaboration,
                   reference
             built_plans[plan] := result
           built_plans[plan]
-        def reference = emit_plan(parent_plans[site.id])
+        // A companion shares its checkpoint's shadow state; it only observes
+        // resident ancestry and cannot create a new carried transaction identity.
+        def reference = if site.kind == "stall" | incoming_references[site.observation_of] | emit_plan(parent_plans[site.id])
+        incoming_references[site.id] := reference
         def parent_valid = builder.record_get(module_def, reference, "valid")
-        builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
+        unless site.kind == "stall"
+        | builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
         for (parent in parent_slots(reference)):
           def emit = builder.bit_and(module_def, builder.bit_and(module_def, fire, parent_valid), builder.record_get(module_def, parent, "valid"))
           builder.dpi_call(module_def, edge_dpi, [id, sequence, builder.record_get(module_def, parent, "site"), builder.record_get(module_def, parent, "sequence")], clock, emit)

@@ -546,7 +546,8 @@ class InterfaceEventGroup(module_def :: Module,
                           valid :: False || Value = #false,
                           ready :: False || Value = #false,
                           root :: Boolean = #false,
-                          fields :: List.of(InterfaceEventField) = []):
+                          fields :: List.of(InterfaceEventField) = [],
+                          stalls :: Boolean = #false):
   implements ModuleMetadataPayload
 class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
@@ -1912,6 +1913,7 @@ fun describe_interface_transform(handle :: Handle,
 // retaining a dedicated metadata record for compiler consumers.
 fun describe_interface_event(handle :: Handle,
                              label :: String,
+                             ~stalls: stalls :: Boolean = #false,
                              ~root: root :: Boolean = #false,
                              ~payload: payload :: False || HardwareEntity = #false,
                              ~fields: fields :: List.of(InterfaceEventField) = [],
@@ -1946,7 +1948,8 @@ fun describe_interface_event(handle :: Handle,
       unless pc_field && pc_field.encoding in ["hex", "unsigned"] && pc_field.value.type.packed_width() == (if field.isa.starts_with("rv32") | 32 | 64)
       | error(~who: #'describe_interface_event, "RISC-V capture PC must reference a hex/unsigned field of ISA XLEN width")
   def existing = module_interface_events(module_def)
-  when existing.find(fun (event): event.label == label)
+  def labels = if stalls | [label, label ++ ".stall"] | [label]
+  when existing.find(fun (event): labels.find(fun (name): name == event.label || (event.stalls && name == (event.label ++ ".stall"))))
   | error(~who: #'describe_interface_event,
           "event label must be unique within a module: " ++ label)
   def payload_value:
@@ -1977,6 +1980,8 @@ fun describe_interface_event(handle :: Handle,
     value
   when ready && !valid
   | error(~who: #'describe_interface_event, "event ready requires valid")
+  when stalls && (!valid || !ready)
+  | error(~who: #'describe_interface_event, "stall tracing requires valid and ready controls")
   def event = InterfaceEventGroup(module_def,
                                   site_index,
                                   label,
@@ -1988,7 +1993,8 @@ fun describe_interface_event(handle :: Handle,
                                   transfer_value(valid),
                                   transfer_value(ready),
                                   root,
-                                  if payload | [InterfaceEventField("raw", payload_value, "hex")] | fields)
+                                  if payload | [InterfaceEventField("raw", payload_value, "hex")] | fields,
+                                  stalls)
   module_def.add_metadata(interface_event_group_namespace, event)
   describe_interface_transform(
     handle,

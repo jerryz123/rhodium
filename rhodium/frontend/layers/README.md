@@ -1268,6 +1268,12 @@ or partial consumption. `interface_trace_merge(count)` remains route-only.
 requires `~valid`. Clock/reset selection belongs to the instrumenter, not to
 interface metadata.
 
+`~stalls: #true` additionally requests blocked-offer observations and requires
+both `~valid` and `~ready`. It reserves the companion label `<label>.stall` in
+the same module-local namespace. This remains metadata on a transparent
+checkpoint; [event instrumentation](../../event/README.md#stall-observations)
+owns its runtime meaning.
+
 `describe_interface_event(..., ~root: #true)` declares an intentional lineage
 start. The default is false. See the [event contract](../../event/README.md#annotate-events)
 for dependency-cut semantics; this annotation never certifies opaque hardware.

@@ -1,6 +1,7 @@
 ;; Lists invalid frontend fixtures and the diagnostics each must produce.
 
 (("bad-input-drive.rhdl" "connection target must be a driveable hardware place")
+ ("bad-valid-event-stalls.rhdl" "does not expect an argument with given keyword")
  ("bad-bundle-update-duplicate.rhdl" "duplicate keyword")
  ("bad-bundle-update-drive.rhdl" "connection target must be a driveable hardware place")
  ("bad-instance-combinational-cycle.rhdl" "combinational cycle reaches value u.y")

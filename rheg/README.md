@@ -332,7 +332,13 @@ available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and
 or the first flushed prefix contains these values.
 
 Each track's description is JSON containing `site_id`, `source_location`,
-`payload_width`, and, for named captures, the ordered `fields` layout. The UI's
+`payload_width`, `kind` (`transfer` or `stall`), and, for named captures, the
+ordered `fields` layout. Stall tracks additionally carry `observation_of`, the
+string ID of the associated transfer site. Legacy manifests without `kind`
+default to `transfer`. Stall occurrences use the same one-cycle encoding and
+capture display as transfers, but cannot be sources of downstream lineage.
+See the [compiler stall contract](../rhodium/event/README.md#stall-observations).
+The UI's
 track description exposes this context without repeating it on every event.
 SQL can read it through `EXTRACT_ARG(track.source_arg_set_id, 'description')`
 and `json_extract`. Numeric site identity is

@@ -104,6 +104,12 @@ effects; `rhodium/event` consumes their metadata to infer possible nearest
 dependencies. The [annotation contract](../rhodium/event/README.md#annotate-events)
 owns label rules, root/terminal semantics, and supported tracing behavior.
 
+`trace_event(label, ~stalls: #true)` also requests a `<label>.stall` observation
+on each `valid & !ready` cycle. The default is false; `trace_valid_event` does
+not accept this option because `Valid` has no readiness signal. See
+[stall observations](../rhodium/event/README.md#stall-observations) for ancestry
+and capture semantics.
+
 Bare checkpoints capture identity and timing only. Select named scalar observations
 without changing the forwarded payload:
 

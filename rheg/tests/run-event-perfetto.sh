@@ -36,6 +36,10 @@ assert_query() {
     exit 1
   fi
 }
+assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=5 AND sum(dur=10 AND ts=10*CAST(EXTRACT_ARG(arg_set_id,'debug.cycle') AS INT))=5 AS ok FROM slice"
+assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=3 AND sum(a.name='accepted')=3 AND sum(b.name='issued.stall')=2 AND sum(b.name='issued')=1 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
+assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=3 AND sum(json_extract(a.string_value,'$.kind')='transfer')=2 AND sum(json_extract(a.string_value,'$.kind')='stall' AND json_extract(a.string_value,'$.observation_of')='issued')=1 AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE a.key='description'"
+assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
 for index in 0 1 2; do
   file="$stream_test_dir/live.pftrace.prefix$index"
   bytes=$(wc -c < "$file")

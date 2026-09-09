@@ -76,6 +76,44 @@ reject opaque or uncertified ancestry. The manifest records `sites[].root`.
 static inference does not prune downstream paths, but dynamic instrumentation
 rejects dependencies on terminal ancestors.
 
+### Stall observations
+
+Enable per-cycle backpressure observations on a ready-valid checkpoint:
+
+```rhombus
+def observed = stage |> trace_event("s3.execute", ~stalls: #true, ~fields: payload):
+  pc: payload.pc
+  instruction(~format: "riscv", ~isa: "rv64imafdc_zicsr", ~pc: "pc"): payload.instruction
+```
+
+The original site still fires only on `valid & ready`. Its companion
+`s3.execute.stall` fires on `valid & !ready`, with the same selected captures
+sampled from that cycle's offer. Neither fires during reset or when invalid.
+Each occurrence occupies `[cycle, cycle + 1)` in Perfetto; consecutive stalls
+are not coalesced. Track names distinguish stalls while instruction/enum slice
+naming works as usual. This traces local backpressure, not an inferred stall
+reason or proof that the instruction will eventually commit.
+
+Stalls are leaf observations: they never advance token metadata, cut ancestry,
+or become parents of a later transfer. The compiler reuses the observed
+checkpoint's incoming references along certified linear paths, including pipes
+and queues, and emits edges only for references actually present. A blocked
+offer at an input may have no accepted ancestor. Selection, routing, replication,
+and join paths currently produce unlinked stall observations; their transfer
+events retain their normal inferred dependencies.
+
+`Decoupled` may change or withdraw an unaccepted offer. No identity is inferred
+from repeated PC or payload values, and a stall is not a promise of a future
+transfer. `Irrevocable` retains its existing stability contract. The option is
+false by default and unavailable on `trace_valid_event`, which has no ready
+signal. Enabling it reserves both the label and `<label>.stall` locally.
+
+The manifest marks normal sites with `kind: "transfer"` and companions with
+`kind: "stall"` plus `observation_of` naming the normal site's string ID.
+Companions have independent site/sequence identities and are appended after
+normal sites, preserving normal numeric site IDs. Observation dependencies have
+no fixed latency. Runtime nodes and DPI packing are unchanged.
+
 ### Capture fields
 
 Select observations independently at each checkpoint with a typed binder:
@@ -138,7 +176,7 @@ For an intentional whole-payload dump, use `~payload: #true` to create a single
 `~payload: value` option is an explicit raw capture. The same low-level API
 accepts root and terminal metadata.
 
-All captures sample with their occurrence's transfer predicate. They are local
+All captures sample with their occurrence's transfer or stall predicate. They are local
 observations, not extra values propagated along dependency edges. The manifest's
 ordered `sites[].fields` records names, source types, widths, LSB offsets, and
 encodings, plus ISA/PC or enum symbols/label metadata when requested. Packing is

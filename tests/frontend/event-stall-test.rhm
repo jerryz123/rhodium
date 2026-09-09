@@ -1,0 +1,29 @@
+#lang rhombus
+// Checks companion metadata, reserved labels, and conservative stall ancestry.
+import:
+  "../../rhodium/event/main.rhm" open
+  "event-stall-fixture.rhdl" as fixture
+
+def traced = instrument_events(fixture.stalled)
+def manifest = traced.manifest
+def stalls = manifest.sites.filter(~keep: fun (site): site.kind == "stall")
+def selection = instrument_events(fixture.selected).manifest
+check:
+  manifest.sites.length() ~is 12
+  stalls.length() ~is 6
+  manifest.dependencies.length() ~is 6
+  event_manifest_to_json(manifest).contains("\"kind\":\"stall\"") ~is #true
+  event_manifest_to_cpp(manifest).contains("observation_of") ~is #true
+  selection.dependencies.filter(~keep: fun (edge): selection.site(edge.child).kind == "stall").length() ~is 0
+  instrument_events(fixture.stable).manifest.sites.length() ~is 2
+  fixture.invalid("missing-ready") ~throws "stall tracing requires valid and ready"
+  fixture.invalid("collision-before") ~throws "event label must be unique"
+  fixture.invalid("collision-after") ~throws "event label must be unique"
+for (site in stalls):
+  def transfer = manifest.site(site.observation_of)
+  check:
+    site.label ~is (transfer.label ++ ".stall")
+    site.fields ~is transfer.fields
+    site.terminal ~is #true
+    site.local_site ~is transfer.local_site
+    manifest.dependencies.find(fun (edge): edge.parent == site.id) ~is #false
