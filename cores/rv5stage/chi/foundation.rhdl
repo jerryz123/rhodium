@@ -75,7 +75,10 @@ class RV5StageCHIConfig(flit :: CHIFlitParams,
       unless attributes.cacheable == (region.home.kind == CHINodeKind.HNF)
       | error(~who: #'RV5StageCHIConfig,
               "cacheable RV5Stage regions require HN-F Homes and uncached regions require HN-I Homes")
-      unless (!attributes.cacheable) || (
+      unless (!attributes.cacheable) || attributes.instruction_cacheable
+      | error(~who: #'RV5StageCHIConfig,
+              "RV5Stage coherent regions require instruction cacheability")
+      unless (!(attributes.cacheable || attributes.instruction_cacheable)) || (
         (region.physical.address_set.mask bits.and (RV5StageCacheLineBytes - 1)) == (
           RV5StageCacheLineBytes - 1
         )
@@ -108,7 +111,7 @@ class RV5StageCHIParams(config :: RV5StageCHIConfig,
       instruction_node_id,
       CHINodeKind.RNI,
       ~emits: CHIChannelCapabilities(
-        ~req: [CHIReqOpcode.ReadOnce],
+        ~req: [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp],
         ~rsp: [CHIRspOpcode.CompAck]
       ),
       ~supports: CHIChannelCapabilities(
@@ -117,6 +120,16 @@ class RV5StageCHIParams(config :: RV5StageCHIConfig,
       ),
       ~max_outstanding: 2
     )
+
+  method instruction_home_port(~coherent: coherent :: Boolean):
+    CHIRequesterHomeParams(
+      instruction_node.icn_peer(),
+      ~emits: CHIChannelCapabilities(
+        ~rsp: (if coherent | RV5StageRefillResponses.response_opcodes | []),
+        ~dat: [CHIDatOpcode.CompData]),
+      ~supports: CHIChannelCapabilities(
+        ~req: [if coherent | CHIReqOpcode.ReadOnce | CHIReqOpcode.ReadNoSnp],
+        ~rsp: (if coherent | [CHIRspOpcode.CompAck] | [])))
 
   property data_node:
     CHINodeParams(

@@ -57,6 +57,7 @@ check:
   fixture.params.region.physical.attributes.writable ~is #false
   fixture.params.region.physical.attributes.executable ~is #true
   fixture.params.region.physical.attributes.cacheable ~is #false
+  fixture.params.region.physical.attributes.instruction_cacheable ~is #true
   fixture.params.region.physical.attributes.atomic ~is #false
   fixture.params.region.physical.attributes.device ~is #false
   fixture.params.region.physical.attributes.read_idempotent ~is #true

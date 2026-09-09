@@ -57,6 +57,10 @@ check:
   params.device_home_params.requester_endpoints[1].kind ~is CHINodeKind.RNF
   params.device_home_params.requester_endpoints[1].supports.req ~is [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl]
   params.device_home_params.requester_endpoints[1].emits.snp ~is []
+  params.device_home_params.requester_endpoints[2].node_id ~is 12
+  params.device_home_params.requester_endpoints[2].supports.req ~is [CHIReqOpcode.ReadNoSnp]
+  params.device_home_params.requester_endpoints[2].supports.rsp ~is []
+  params.home_config.requester_endpoints[1].supports.req ~is [CHIReqOpcode.ReadOnce]
   params.home_config.requester_endpoints[0].supports.req ~is [CHIReqOpcode.ReadClean, CHIReqOpcode.WriteUniquePtl]
   params.host_services.length() ~is 6
   params.boot_address_site.node_id ~is 24
@@ -75,7 +79,7 @@ check:
   params.uncached_site.node_id ~is 14
   params.device_home_params.subordinate_map.entry(SoCAclintBase).target_node_id ~is 20
   params.compilations.req.routes.map(fun (route): [route.source.node_id, route.destination.node_id]) ~is (
-    [[16, 20], [16, 24], [16, 21], [16, 23], [16, 22], [11, 16], [11, 15], [13, 15], [12, 15], [14, 16]]
+    [[16, 20], [16, 24], [16, 21], [16, 23], [16, 22], [11, 16], [11, 15], [13, 15], [12, 16], [12, 15], [14, 16]]
   )
   system_params(0x50000000).memory_region ~throws "memory service must cover"
   system_params(0x40000000, 12, 0x50000000).memory_region ~throws "payload address"

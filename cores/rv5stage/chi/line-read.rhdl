@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's retry-aware packet-complete coherent snapshot reads without requester cache ownership.
+// Reads complete instruction lines from coherent RAM or immutable noncoherent ROM without cache ownership.
 
 import:
   "../cache.rhdl" open
@@ -51,10 +51,12 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
   reg home_id(~init: bits(0, p.node_id_width))
   reg dbid(~init: bits(0, 12))
   reg access_fault(~init: Bool(#false))
+  reg coherent(~init: Bool(#true))
 
   command.ready <== !control.active
   def command_fire = command.fire()
   def command_home = config.home_map.lookup(rv5stage_chi_address(command.bits.line_address, p))
+  def command_physical = config.physical_map.lookup(command.bits.line_address, command.bits.line_address +& bits(RV5StageCacheLineBytes - 1, address_width))
   when command_fire:
     // The integrated core's physical map makes these address checks internal
     // invariants; direct cache users still receive a precise assertion.
@@ -63,6 +65,7 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
     assert(rv5stage_chi_address_fits(command.bits.line_address, p),
            "line_read_address_fits_chi")
     assert(command_home.valid, "line_read_address_has_home")
+    assert(command_physical.mapped & command_physical.instruction_cacheable & command_physical.executable & command_physical.read_idempotent, "line_read_region_allows_instruction_caching")
 
   control.attempt
     |> map_flow(attempt => rv5stage_chi_request(
@@ -71,12 +74,14 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
       home_id,
       line_address,
       CHITransferSize.Bytes64,
-      CHIReqOpcode.ReadOnce,
+      mux(coherent, CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp),
       bits(0, 12),
-      Bool(#true),
-      Bool(#true),
-      attempt.allow_retry,
-      attempt.pcrd_type
+      coherent,
+      coherent,
+      coherent & attempt.allow_retry,
+      attempt.pcrd_type,
+      ~cacheable: coherent,
+      ~early_write_acknowledge: coherent
     ))
     |> requests
 
@@ -129,7 +134,7 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
     assert(incoming_data.dbid_or_mecid[0..12] === dbid,
            "line_read_response_dbid_consistent")
 
-  acknowledgements.valid <== control.active & all_data_received & !acknowledgement_sent
+  acknowledgements.valid <== control.active & coherent & all_data_received & !acknowledgement_sent
   acknowledgements.bits <== rv5stage_chi_response(
     p,
     node_id,
@@ -139,7 +144,7 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
   )
   def acknowledgement_fire = acknowledgements.fire()
 
-  completion.valid <== control.active & acknowledgement_sent
+  completion.valid <== control.active & all_data_received & (!coherent ||| acknowledgement_sent)
   completion.bits <== RV5StageLineReadResult(Context, address_width):
     line_address: line_address
     context: context
@@ -162,6 +167,7 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
     home_id <== command_home.node_id
     dbid <== bits(0, 12)
     access_fault <== Bool(#false)
+    coherent <== command_physical.cacheable
   elsewhen data_fire:
     received_packets <== next_received_packets
     line <== next_line.as_bits()

@@ -15,6 +15,11 @@ map and the CHI Home map from that list. Cacheable regions require HN-F Homes;
 uncached regions require HN-I Homes. Executable regions must permit idempotent
 reads, atomic regions must be readable and writable, and cacheable regions must
 contain complete 64-byte cache lines.
+Instruction-only cacheable ROM remains data-uncacheable and uses HN-I;
+its region must also contain complete lines. Its PMA contract is defined in
+the [RISC-V adapter](../../../riscv/rtl/README.md).
+Coherent regions retain instruction cacheability because this core's uncached
+instruction path targets HN-I rather than coherent Homes.
 
 `RV5StageCHIParams` describes host-side instruction RN-I, data RN-F, and
 optional uncached RN-I nodes. It checks NodeID widths and requires every RN and
@@ -30,6 +35,12 @@ responsibility. It retains context and collects the complete packet set before
 acknowledging Home and exposing line data plus an access-fault flag. A consumer
 flush cannot abandon an accepted transaction. L1I decides whether a completed
 snapshot may install or respond; the engine only owns CHI lifetime.
+For instruction-only cacheable ROM, the same engine issues a 64-byte
+`ReadNoSnp` with nonallocating, noncacheable CHI attributes and no retry request
+or `CompAck`. Completion follows the complete packet set. The read mode and
+Home are retained from command acceptance; errors never install a line.
+`instruction_home_port(~coherent: ...)` projects the instruction endpoint's
+capabilities separately for coherent RAM and noncoherent ROM Homes.
 
 ## Cache-line refill
 

@@ -143,7 +143,8 @@ either TLB.
    fetch range against the physical map. A range that is not executable
    produces an instruction access fault. Cacheability is routing metadata, not
    execute permission.
-6. Cacheable fetches enter L1I as before. Non-cacheable executable fetches issue
+6. Instruction-cacheable fetches enter L1I, including immutable ROM that opts
+   in independently of data cacheability. Other executable fetches issue
    aligned four-byte `ReadNoSnp` transactions through the shared RN-I engine and
    do not allocate in L1I. RV5Stage configuration rejects executable regions
    that do not permit idempotent reads, because Fetch may speculatively request

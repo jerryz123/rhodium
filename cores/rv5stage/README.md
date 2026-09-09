@@ -730,10 +730,11 @@ See the
 [`MMU contract`](mmu/README.md) for translation, permission, and fault ownership.
 
 L1I is a nonsnooping, software-synchronized, one-hit-per-cycle instruction cache with flushable lookup
-and response state. Executable non-cacheable regions bypass it as aligned
-four-byte `ReadNoSnp` requests and never allocate a line. Such regions must be
-read-idempotent; a typical BootROM PMA is readable, executable, non-cacheable,
-non-atomic, non-device, and read-idempotent. L1D is a single-miss write-back/
+and response state. PMA `instruction_cacheable` defaults to data cacheability;
+immutable BootROM can opt in independently and fill L1I with 64-byte HN-I
+`ReadNoSnp` reads. Other executable regions bypass L1I as aligned four-byte
+`ReadNoSnp` requests. All executable regions must be read-idempotent. See the
+[instruction-cache contract](icache/README.md). L1D is a single-miss write-back/
 write-allocate cache supporting loads, stores, LR/SC, and AMOs, with independent
 pipeline load hits permitted under ordinary demand misses. All
 non-cacheable instruction and data requests arbitrate onto the same

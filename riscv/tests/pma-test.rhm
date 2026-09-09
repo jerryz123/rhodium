@@ -7,6 +7,7 @@ import:
 
 def normal = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
 def device = RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)
+def rom = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)
 def physical_map = RiscvPhysicalMemoryMap(
   16,
   [RiscvPhysicalMemoryRegion(AddressSet(0x0000, 0x7fff), normal),
@@ -14,6 +15,13 @@ def physical_map = RiscvPhysicalMemoryMap(
 )
 
 check:
+  normal.instruction_cacheable ~is #true
+  device.instruction_cacheable ~is #false
+  rom.instruction_cacheable ~is #true
+  rom.cacheable ~is #false
+  RiscvPhysicalMemoryAttributes(#true, #true, #true, #false, #false, #false, #true, ~instruction_cacheable: #true) ~throws "instruction-only caching requires"
+  RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #true, #true, ~instruction_cacheable: #true) ~throws "instruction-only caching requires"
+  RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #false, ~instruction_cacheable: #true) ~throws "instruction-only caching requires"
   normal.cache_block_zero ~is #true
   device.cache_block_zero ~is #false
   physical_map.address_width ~is 16

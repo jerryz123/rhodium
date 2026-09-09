@@ -26,7 +26,7 @@ separation.
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
 | Demand-priority lookup, best-effort prefetch admission, arrays, buffering, refill installation, replacement, flush, invalidation | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
-| Retry-aware complete-line refill | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
+| Complete-line RAM/ROM reads with retained region mode | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
 | Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
 | CIRCT/Verilator fixture | [`../../../tests/backend/`](../../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
@@ -59,7 +59,8 @@ The `rv5stage-icache-coherence` and `rv5stage-icache-coherence-flat`
 fixtures connect real I/D caches to the inclusive and noncaching Homes. They
 check dirty-code visibility after instruction invalidation and retention under
 outer replacement. The standalone `rv5stage-icache` bench checks retry,
-backpressure, read errors, and cancellation before and during installation.
+backpressure, read errors, and cancellation before and during installation,
+including instruction-only cacheable ROM reads with no CompAck.
 
 Use the host check for geometry and public protocol contracts:
 

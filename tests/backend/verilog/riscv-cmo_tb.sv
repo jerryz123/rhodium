@@ -4,7 +4,7 @@ module riscv_cmo_tb;
   logic user_mode = 0, supervisor_mode = 0, sum = 0, mxr = 0;
   logic [63:0] menvcfg = 0, senvcfg = 0, raw_pte = 0;
   struct packed {
-    logic mapped, readable, writable, executable, cacheable, atomic_0, device, read_idempotent, cache_block_zero;
+    logic mapped, readable, writable, executable, cacheable, atomic_0, device, read_idempotent, cache_block_zero, instruction_cacheable;
   } physical;
   typedef struct packed { logic permitted; logic [1:0] operation; } permission_t;
   permission_t permission64, permission32, disabled;
@@ -69,7 +69,7 @@ module riscv_cmo_tb;
     end
     // Ignore cacheability, device type, atomic support and CBZE capability.
     for (int attrs = 0; attrs < 512; attrs++) begin
-      physical = 9'(attrs);
+      physical = {9'(attrs), 1'b0};
       #1;
       assert (physical_permitted == (physical.mapped && (physical.readable || physical.writable))) else $fatal(1, "CMO physical permission mismatch");
     end

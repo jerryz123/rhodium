@@ -9,6 +9,9 @@ import:
   "../icache/cache.rhdl" as l1i
   "../icache/protocol.rhdl" as protocol
   "params.rhdl" as test_params
+  "../chi/foundation.rhdl" open
+  "../../../riscv/rtl/pma.rhdl" open
+  "../../../rhodium/std/interconnect.rhdl".AddressSet
 
 def config = test_params.test_rv5stage_chi_config
 def direct_cache = RV5StageCacheConfig(8, 1)
@@ -25,6 +28,19 @@ def instruction_response_member = instruction_access_type.members.find(
   fun (member): member.name == "response"
 )
 check:
+  RV5StageCHIConfig(
+    config.flit,
+    [RV5StageCHIRegion(
+       RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~instruction_cacheable: #false)),
+       test_params.test_rv5stage_home)]
+  ) ~throws "coherent regions require instruction cacheability"
+  RV5StageCHIConfig(
+    config.flit,
+    [test_params.test_rv5stage_uncached_config.regions[0],
+     RV5StageCHIRegion(
+       RiscvPhysicalMemoryRegion(AddressSet(0xc000, 31), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)),
+       test_params.test_rv5stage_uncached_home)]
+  ) ~throws "complete cache lines"
   associative_cache.set_width ~is 3
   associative_cache.way_width ~is 1
   associative_cache.line_count ~is 16

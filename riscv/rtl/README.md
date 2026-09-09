@@ -189,6 +189,12 @@ device-memory transaction semantics. `RiscvPhysicalMemoryMap.lookup(first,
 last)` accepts arbitrary-width hardware addresses, rejects high bits outside
 the configured physical width, and reports attributes only when both endpoints
 lie in the same region. A transfer therefore cannot straddle PMA regions.
+The optional `~instruction_cacheable` attribute defaults to `cacheable` and
+independently permits instruction-cache allocation. Opting in while data
+caching is disabled requires readable, executable, read-idempotent, read-only,
+non-atomic, non-device memory. The integration must guarantee that this ROM
+remains immutable; read-only CPU permissions alone do not prevent external
+mutation. This attribute does not change data-access or coherence policy.
 The optional `~cache_block_zero` attribute defaults to false and explicitly
 permits cache-block zero accesses independently of cacheability. Callers must
 also check write permission and pass the complete aligned block range to

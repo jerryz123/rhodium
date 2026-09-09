@@ -1,4 +1,4 @@
-// Verifies instruction snapshots, VIPT lookup, refill errors, and FENCE.I cancellation.
+// Verifies coherent and ROM instruction snapshots, VIPT hits, refill errors, and FENCE.I cancellation.
 module rv5stage_icache_tb;
   typedef struct packed { logic [63:0] address; } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
@@ -45,12 +45,14 @@ module rv5stage_icache_tb;
   chi_out_t chi_out;
   logic forbid_core_response = 1'b0;
   logic hold_old_instruction = 0;
+  bit rom_phase = 0;
 
   RV5StageL1ICache dut (.*);
   always #5 clock = ~clock;
 
   task automatic tick;
     begin
+      if (rom_phase) assert (!chi_out.rsp.requester.valid) else $fatal(1, "ROM read sent CompAck");
       if (hold_old_instruction)
         assert (core_out.response.valid && core_out.response.bits.word == 32'h55aaaa55 && !core_out.response.bits.access_fault)
           else $fatal(1, "stalled instruction tore across coherent replacement");
@@ -164,10 +166,10 @@ module rv5stage_icache_tb;
         chi_in.dat.response.bits.resp = 3'b000;
         chi_in.dat.response.bits.resp_err = error;
         chi_in.dat.response.bits.opcode = COMP_DATA;
-        chi_in.dat.response.bits.home_nid_or_pbha_or_mismatched_mecid = HOME_ID;
+        chi_in.dat.response.bits.home_nid_or_pbha_or_mismatched_mecid = rom_phase ? 7'd4 : HOME_ID;
         chi_in.dat.response.bits.dbid_or_mecid = 16'h0055;
         chi_in.dat.response.bits.txn_id = 12'd0;
-        chi_in.dat.response.bits.src_id = HOME_ID;
+        chi_in.dat.response.bits.src_id = rom_phase ? 7'd4 : HOME_ID;
         chi_in.dat.response.bits.tgt_id = CACHE_ID;
         chi_in.dat.response.valid = 1'b1;
         tick();
@@ -194,6 +196,16 @@ module rv5stage_icache_tb;
         else $fatal(1, "L1I emitted malformed CompAck");
       tick();
     end
+  endtask
+
+  task automatic accept_rom_request(input logic [63:0] address);
+    for (int c = 0; !chi_out.req.valid && c < 100; c++) tick();
+    assert (chi_out.req.valid && chi_out.req.bits.opcode == 7'h04 &&
+            chi_out.req.bits.address == address[43:0] && chi_out.req.bits.size_or_num_req == 6 &&
+            chi_out.req.bits.src_id == CACHE_ID && chi_out.req.bits.tgt_id == 4 &&
+            !chi_out.req.bits.exp_comp_ack && !chi_out.req.bits.allow_retry && chi_out.req.bits.mem_attr == 0)
+      else $fatal(1, "malformed ROM line read");
+    tick();
   endtask
 
   task automatic expect_instruction(input logic [31:0] instruction);
@@ -567,6 +579,88 @@ module rv5stage_icache_tb;
     return_line(ADDRESS, LINE);
     accept_comp_ack();
     expect_instruction(32'h11111111);
+    // ROM lines allocate locally but never acquire coherence ownership or send CompAck.
+    invalidate_cache(ADDRESS);
+    rom_phase = 1;
+    chi_in.rsp.requester.ready = 0;
+    chi_in.req.ready = 0;
+    send_core_request(64'h10000);
+    for (int c = 0; !chi_out.req.valid && c < 100; c++) tick();
+    begin
+      CHIReqFlit saved;
+      saved = chi_out.req.bits;
+      repeat (4) begin
+        tick();
+        assert (chi_out.req.valid && chi_out.req.bits == saved) else $fatal(1, "stalled ROM request changed");
+      end
+    end
+    chi_in.req.ready = 1;
+    accept_rom_request(64'h10000);
+    core_in.response.ready = 0;
+    return_line(64'h10000, LINE, 2);
+    for (int c = 0; !core_out.response.valid && c < 100; c++) tick();
+    repeat (4) begin
+      assert (core_out.response.valid && core_out.response.bits.word == 32'h11111111) else $fatal(1, "stalled ROM response changed");
+      tick();
+    end
+    core_in.response.ready = 1;
+    expect_instruction(32'h11111111);
+    for (int offset = 15; offset >= 0; offset--) begin
+      send_core_request(64'h10000 + 64'(offset * 4));
+      expect_instruction(LINE[offset * 32 +: 32]);
+      assert (!chi_out.req.valid) else $fatal(1, "resident ROM line refetched");
+    end
+    send_core_request(64'h10040);
+    accept_rom_request(64'h10040);
+    return_line(64'h10040, LINE_B, 1, 2'b10);
+    for (int c = 0; !core_out.response.valid && c < 100; c++) tick();
+    assert (core_out.response.valid && core_out.response.bits.access_fault) else $fatal(1, "ROM error lost");
+    tick();
+    send_core_request(64'h10040);
+    accept_rom_request(64'h10040);
+    return_line(64'h10040, LINE_B);
+    expect_instruction(32'hb1b1b1b1);
+    invalidate_cache(64'h10000);
+    send_core_request(64'h10000);
+    accept_rom_request(64'h10000);
+    core_in.invalidate_all = 1;
+    tick();
+    core_in.invalidate_all = 0;
+    return_line(64'h10000, LINE, 1);
+    repeat (15) begin
+      tick();
+      assert (!core_out.response.valid) else $fatal(1, "invalidated ROM refill escaped");
+    end
+    send_core_request(64'h10000);
+    accept_rom_request(64'h10000);
+    return_line(64'h10000, LINE);
+    expect_instruction(32'h11111111);
+    // Ordinary redirect during installation drains and keeps the snapshot,
+    // while architectural invalidation during installation must discard it.
+    for (int architectural = 0; architectural < 2; architectural++) begin
+      invalidate_cache(64'h10000);
+      send_core_request(64'h10000);
+      accept_rom_request(64'h10000);
+      return_line(64'h10000, LINE);
+      repeat (3) tick();
+      if (architectural != 0) core_in.invalidate_all = 1;
+      else core_in.flush = 1;
+      tick();
+      core_in.invalidate_all = 0;
+      core_in.flush = 0;
+      repeat (15) begin
+        tick();
+        assert (!core_out.response.valid) else $fatal(1, "canceled ROM installation returned an instruction");
+      end
+      send_core_request(64'h10000);
+      if (architectural != 0) begin
+        accept_rom_request(64'h10000);
+        return_line(64'h10000, LINE);
+      end
+      expect_instruction(32'h11111111);
+      assert (!chi_out.req.valid) else $fatal(1, "redirect discarded a resident ROM line");
+    end
+    $display("Cached ROM line hits, boundary crossing, backpressure, errors, and invalidation passed");
     $display("Ziccif aligned-word visibility passed: 16 offsets, reordered/gapped refills, stalled response across invalidation");
     $display("RV5Stage VIPT instruction-cache simulation passed");
     $finish;

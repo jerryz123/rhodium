@@ -131,12 +131,14 @@ the device path. Physical maps and Home service descriptions are also exposed
 to external host adapters for permission and transfer-size checks.
 
 [`boot.rhdl`](boot.rhdl) owns the shared reset address, payload address, ROM
-layout and finalized image, and executable non-cacheable PMA entry.
+layout and finalized image, and executable instruction-cacheable PMA entry.
 Every current SoC uses an 8 KiB BootROM at
 `0x00010000..0x00011fff`. Hart zero receives its embedded DTB address in `a1`
 and loads its payload entry from the boot-address register; every secondary hart parks
-in the ROM's `WFI` loop. Instruction fetches reach the ROM as uncached
-four-byte `ReadNoSnp` requests and do not fill L1I.
+in the ROM's `WFI` loop. Instruction misses fetch full 64-byte lines through
+HN-I with `ReadNoSnp` and install them in L1I; resident instructions use the
+ordinary cache-hit path. The ROM is immutable and does not acquire coherent
+ownership. ROM data accesses and boot-address polling remain uncached.
 
 Every SoC maps the 64-bit boot-address register at `0x1000` in the
 `0x1000..0x1fff` device window. Its reset value is zero;
@@ -318,10 +320,9 @@ address while retaining the complete global line address as its tag. Its
 subordinate port rejoins the same CHI mesh and sends unchanged global addresses
 to the single memory SN-F (default NodeID 48). There is no backing RAM or
 address-compacting adapter inside an LLC tile. The 16 coherent requester endpoints
-plus the host RN-F connect to all four HN-Fs, while the eight uncached
-requester endpoints and host RN-F connect to the device HN-I and its subordinate side
-connects to all five SN-Is. Together they compile 86 REQ, 163 RSP, 68 SNP, and 172
-DAT routes before any hardware elaborates.
+plus the host RN-F connect to all four HN-Fs, while the eight instruction
+endpoints, eight uncached requester endpoints, and host RN-F connect to the
+device HN-I. Its subordinate side connects to all five SN-Is.
 
 Each tile owns one `CHIRouter`, containing independent REQ/RSP/SNP/DAT
 `SimpleRouterFamily` instances and site-keyed CHI adapters. Every RV5Stage tile
@@ -332,7 +333,7 @@ live under [`tiled-soc/tiles/`](tiled-soc/tiles/). The parent drives one constan
 identity bundle per occurrence containing its router site, hart ID, endpoint
 NodeIDs and striped service base; tiles contain no system-wide
 identity table or runtime routing-mode selector. A `RV5StageTile` attaches one
-RV5Stage's two RN-F ports and its RN-I device port. A
+RV5Stage's instruction RN-I, data RN-F, and uncached RN-I ports. A
 `LLCTile` attaches both sides of one blocking `CHIInclusiveHNF`. The `MemoryTile`
 exports `TiledSoC.memory`, a single `CHISNChannels` port in the `icn` role.
 Its external SN-F must support one-byte through 64-byte `ReadNoSnp`,
@@ -342,7 +343,7 @@ use the existing CHI fabric; LLC-local TxnIDs need not be globally unique.
 This is a memory-controller-facing protocol boundary, not a DDR controller or PHY.
 The simulation harness supplies one sparse `CHIDPIMemory`; a hardware integrator
 supplies the off-chip memory controller. The device HN-I is reachable through
-the uncached RN-I and host routes. The
+the instruction RN-I, uncached RN-I, and host routes. The
 ACLINT computes the MSIP and MTIP vectors centrally, and a standard
 `StateChangeSource` emits only changed `(hart, interrupt-state)` entries. Its
 shared `mtime` value enters a separate narrow ready-valid stream. The default

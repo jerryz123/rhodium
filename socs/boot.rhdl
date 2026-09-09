@@ -95,7 +95,7 @@ fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMRes
   )
 
 def DefaultSoCBootConfig = riscv_soc_boot_config()
-def soc_bootrom_attributes = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)
+def soc_bootrom_attributes = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)
 
 class SoCBootROMParams(flit :: CHIFlitParams,
                        home :: CHIHomeParams,

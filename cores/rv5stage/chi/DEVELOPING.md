@@ -55,7 +55,7 @@ including nonzero trace/QoS.
 | File | Ownership |
 |---|---|
 | [`foundation.rhdl`](foundation.rhdl) | Response profiles, physical-region/Home configuration, RN parameters and identities, and common flit constructors |
-| [`line-read.rhdl`](line-read.rhdl) | Retry-aware coherent instruction snapshots, without cache ownership |
+| [`line-read.rhdl`](line-read.rhdl) | Coherent RAM snapshots and immutable-ROM line reads, without cache ownership |
 | [`refill.rhdl`](refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
 | [`write-unique.rhdl`](write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
 | [`writeback.rhdl`](writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |

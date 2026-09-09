@@ -262,7 +262,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   instruction_memory.request.valid <== instruction_head.valid & !instruction.flush & instruction_read_matches & instruction_lookup_ready & !instruction_local_fault & instruction_owners.ingress.ready
   instruction_memory.request.bits <== RV5StagePhysicalInstructionReq(xlen):
     address: instruction_physical_address
-    cacheable: instruction_physical.cacheable
+    cacheable: instruction_physical.instruction_cacheable
     device: instruction_physical.device
   instruction_owners.ingress.valid <== instruction_head.fire()
   instruction_owners.ingress.bits <== RV5StageInstructionFault():

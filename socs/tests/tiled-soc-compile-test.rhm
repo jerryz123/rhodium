@@ -49,13 +49,13 @@ check:
   compiled.hnf_config.requester_endpoints.map(fun (port): port.node_id) ~is (
     [24, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
   )
-  compiled.device_home.home_params.requester_endpoints.map(fun (port): port.node_id) ~is [16, 17, 18, 19, 20, 21, 22, 23, 24]
+  compiled.device_home.home_params.requester_endpoints.map(fun (port): port.node_id) ~is [16, 17, 18, 19, 20, 21, 22, 23, 24, 0, 2, 4, 6, 8, 10, 12, 14]
   compiled.device_home.home.node_id ~is 36
   compiled.bootrom.device.node.node_id ~is 54
   compiled.aclint.device.node.node_id ~is 52
   compiled.plic.device.node.node_id ~is 55
   compiled.uart.device.node.node_id ~is 53
-  compiled.device_home.home_params.requester_endpoints.length() ~is 9
+  compiled.device_home.home_params.requester_endpoints.length() ~is 17
   compiled.device_home.home_params.subordinate_map.entry(0x00010000).target_node_id ~is 54
   compiled.device_home.home_params.subordinate_map.entry(0x02000000).target_node_id ~is 52
   compiled.device_home.home_params.subordinate_map.entry(0x0c000000).target_node_id ~is 55
@@ -180,7 +180,7 @@ check:
   compiled.rv5stages.length() ~is 8
   compiled.transits.length() ~is 2
   compiled.llcs.length() ~is 4
-  compiled.connections.length() ~is 86
+  compiled.connections.length() ~is 94
   compiled.connections.filter(
     ~keep: fun (connection): connection is_a CHISNConnection
   ).length() ~is 9
@@ -236,10 +236,10 @@ check:
   compiled.uart.placement.site.router === compiled.uart.placement.router ~is #true
 
 check:
-  compiled.compilations.req.routes.length() ~is 86
-  compiled.compilations.rsp.routes.length() ~is 163
+  compiled.compilations.req.routes.length() ~is 94
+  compiled.compilations.rsp.routes.length() ~is 179
   compiled.snp_compilation.routes.length() ~is 36
-  compiled.compilations.dat.routes.length() ~is 172
+  compiled.compilations.dat.routes.length() ~is 188
   compiled.families.req.members.length() ~is 20
   compiled.families.rsp.members.length() ~is 20
   compiled.families.snp.members.length() ~is 20

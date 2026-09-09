@@ -90,7 +90,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
   property home_config:
     CHIHNFConfig(
       flit,
-      [soc_host_home_port(host_node, ~coherent: #true), instruction_port, data_port],
+      [soc_host_home_port(host_node, ~coherent: #true), rv5stage_params.instruction_home_port(~coherent: #true), data_port],
       memory_bytes - 1,
       memory_requests
     )
@@ -99,7 +99,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
                  home_config,
                  memory_service)
   property device_home_params:
-    platform.home_params([uncached_port, soc_host_home_port(host_node, ~coherent: #false)])
+    platform.home_params([uncached_port, soc_host_home_port(host_node, ~coherent: #false), rv5stage_params.instruction_home_port(~coherent: #false)])
 
   method description(model :: NonemptyString,
                      compatible :: NonemptyList.of(NonemptyString),
@@ -136,6 +136,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
     CHIRNFConnection(host_site, home_requester_site),
     CHIRNIConnection(host_site, device_home_requester_site),
     CHIRNIConnection(instruction_site, home_requester_site),
+    CHIRNIConnection(instruction_site, device_home_requester_site),
     CHIRNFConnection(data_site, home_requester_site),
     CHIRNIConnection(uncached_site,
                      device_home_requester_site),

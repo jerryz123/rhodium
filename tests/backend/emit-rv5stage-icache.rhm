@@ -8,10 +8,18 @@ import:
   "../../cores/rv5stage/cache.rhdl" open
   "../../cores/rv5stage/icache/cache.rhdl" as cache
   "../../cores/rv5stage/tests/params.rhdl" as test_params
+  "../../cores/rv5stage/chi/foundation.rhdl" open
+  "../../riscv/rtl/pma.rhdl" open
+  "../../rhodium/std/interconnect.rhdl".AddressSet
+
+def config = RV5StageCHIConfig(test_params.test_rv5stage_flit, [
+  RV5StageCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x100000000, 0xffffffff), test_params.test_rv5stage_memory_attributes), test_params.test_rv5stage_home),
+  RV5StageCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x10000, 0x1fff), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_params.test_rv5stage_uncached_home)
+])
 
 def design = embedded.run_elaboration(
   fun (): cache.RV5StageL1ICache(XLen.X64,
                                  RV5StageCacheConfig(4, 2),
-                                 ~chi: test_params.test_rv5stage_chi_config)
+                                 ~chi: config)
 )
 print(emit_circt(design))

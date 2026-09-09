@@ -22,7 +22,7 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   def config = test_rv5stage_chi_config
   def ram_config = CHIRamConfig(p, 65536, ~max_outstanding: 1, ~max_transfer_bytes: 64)
   def nodes = RV5StageCHIParams(config, 2, 3)
-  def home_config = CHIHNFConfig(p, [nodes.instruction_node.icn_peer(), nodes.data_node.icn_peer()], 65535, ram_config.requests)
+  def home_config = CHIHNFConfig(p, [nodes.instruction_home_port(~coherent: #true), nodes.data_node.icn_peer()], 65535, ram_config.requests)
   interface fetch(RV5StageInstructionAccess(XLen.X64), ~role: responder)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: consumer)
   interface host(RV5StageDataAccess(XLen.X64), ~role: responder)

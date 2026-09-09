@@ -25,7 +25,7 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   def ram_config = CHIRamConfig(p, 65536, ~max_outstanding: 1, ~max_transfer_bytes: 64)
   def nodes = RV5StageCHIParams(config, 2, 3)
   def host_node = RV5StageCHIParams(config, 4, 5).data_node
-  def home_config = CHIHNFConfig(p, [nodes.instruction_node.icn_peer(), nodes.data_node.icn_peer(), host_node.icn_peer()], 65535, ram_config.requests)
+  def home_config = CHIHNFConfig(p, [nodes.instruction_home_port(~coherent: #true), nodes.data_node.icn_peer(), host_node.icn_peer()], 65535, ram_config.requests)
   input run: Bool
   interface host(RV5StageDataAccess(XLen.X64), ~role: responder)
   output instruction_requests: Bool

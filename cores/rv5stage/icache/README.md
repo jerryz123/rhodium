@@ -19,14 +19,14 @@ Contributors changing the L1I implementation should read
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
 | Core throughput | Consecutive hits can enter and return one 32-bit instruction per cycle |
 | Core protocol | Ordered `Decoupled` requests and backpressurable `Irrevocable` responses |
-| Miss policy | One blocking, retry-aware `ReadOnce` line acquisition |
+| Miss policy | One blocking line acquisition: retry-aware `ReadOnce` for coherent RAM, `ReadNoSnp` for immutable ROM |
 | Response capacity | At most two accepted requests, backed by a two-entry queue |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
 | Prefetch | Demand-priority Valid event; a miss launches ordinary `ReadOnce` refill without a response |
 
 `RV5StageL1ICache(xlen, cache, ~chi: config)` accepts physical resolutions only
-for fetches whose PMA is cacheable; early virtual reads may precede that decision.
-The parent hierarchy routes executable non-cacheable fetches through
+for fetches whose PMA is instruction-cacheable; early virtual reads may precede that decision.
+The parent hierarchy routes other executable fetches through
 its non-allocating RN-I path. The cache accepts `XLen.X32` or
 `XLen.X64`. The cache configuration supplies set/way geometry; the required
 CHI configuration supplies flit geometry and the Home map. A separate
@@ -74,7 +74,7 @@ flowchart LR
   Fetch["S1 permitted physical request<br/>registered MMU address"] --> Lookup
   Lookup --> Resolved["S2 registered hit word<br/>or miss context"]
   Resolved -->|hit| Merge["Hit / refill response arbiter"]
-  Resolved -->|miss| Refill["64-byte ReadOnce<br/>retry-aware refill"]
+  Resolved -->|miss| Refill["64-byte line read<br/>coherent RAM or immutable ROM"]
   Refill --> Install["Install one XLEN word/cycle<br/>publish metadata last"]
   Install --> Arrays["Tag, valid bits,<br/>and data arrays"]
   Install --> Merge
@@ -109,12 +109,15 @@ as a demand miss.
 
 ## Refill and replacement
 
-Every miss issues one 64-byte `ReadOnce`. The [snapshot engine](../chi/README.md#instruction-snapshot-read)
+Every coherent-RAM miss issues one 64-byte `ReadOnce`. The [snapshot engine](../chi/README.md#instruction-snapshot-read)
 retains its line address and context through retry, collects every `CompData`
 packet, and sends `CompAck` before exposing the result. The response grants no
 coherent ownership or dirty responsibility. With 128-bit DAT, four packets form
 a line. A read error returns an instruction access fault without allocation;
 prefetch errors are discarded without an architectural response.
+Immutable ROM uses the same arrays and installation path after a 64-byte
+`ReadNoSnp`, with no coherent ownership or `CompAck`. ROM data reads remain
+uncached. The integrated MMU still restricts instruction prefetch to coherent RAM.
 
 Installation writes one XLEN word per cycle—eight writes for RV64 or sixteen
 for RV32—and publishes the tag and valid bit only on the final

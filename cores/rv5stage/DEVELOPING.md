@@ -454,8 +454,9 @@ exclusion. The composed IO-MSHR fixture covers RV64 retained payloads, fetch
 arbitration and cancellation, backpressure, exactly-once completion, and reset.
 The complete-core boot fixture executes the generated polling ROM with delayed
 entry publication, secondary-hart parking, and fence-ordered signature stores
-at three CHI response latencies;
-neither L1 cache may issue a request. This full-core fixture uses the SoC harness's
+at three CHI response latencies. It requires one L1I line read for the polling
+ROM and one for the payload, allowing additional distinct speculative lines,
+with no D-cache traffic or ROM CompAck. This full-core fixture uses the SoC harness's
 Verilator `UNOPTFLAT` warning setting for packed interfaces; assertions and
 runtime convergence checks remain enabled. Keep simulator entry programming and SoC
 BootROM policy separate from this core-level regression.
