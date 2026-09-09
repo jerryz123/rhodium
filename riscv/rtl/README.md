@@ -49,6 +49,8 @@ Dependency enforcement and extension workflow are documented in
 | [`mop.rhdl`](mop.rhdl) | `resolve_mop_decode_cases` | Compatibility name for the standard decode-overlay operation |
 | [`csr.rhdl`](csr.rhdl) | `CsrBank`, `csr_bits`, `csr_bank` | Convert `CsrId` and define exact-key CSR recognition, reads, and writes |
 | [`cmo.rhdl`](cmo.rhdl) | `CboManagementOperation`, `CboInvalidateMode`, `CboManagementPermission`, and `cbo_*`/`cmo_*` helpers | M/S/U CMO permission, invalidate-to-flush conversion, xenvcfg WARL fields, and physical permission |
+| [`privilege.rhdl`](privilege.rhdl) | `PrivilegeMode`, `effective_data_privilege` | Shared M/S/U values and MPRV/MPP selection for explicit accesses |
+| [`pointer-masking.rhdl`](pointer-masking.rhdl) | `PointerMaskMode`, `PointerMaskControl`, and pointer-mask helpers | RV64 Ssnpm WARL controls and explicit-address normalization |
 | [`counters.rhdl`](counters.rhdl) | `RiscvCounterWrite`, `RiscvBaseCounters` | Reusable 64-bit `mcycle` and `minstret` state for RV32/RV64 |
 | [`trap.rhdl`](trap.rhdl) | `exception_cause_bits` | Convert architectural synchronous causes to width-specialized hardware |
 | [`interrupt.rhdl`](interrupt.rhdl) | `interrupt_cause_bits` | Convert architectural interrupt causes to `xcause` values |
@@ -156,6 +158,24 @@ supplies the precise `retire` event and owns CSR recognition, privilege and
 `counteren` gating, and the platform `time` source.
 
 ## Privilege, memory, and translation values
+
+[`pointer-masking.rhdl`](pointer-masking.rhdl) implements the
+[ratified pointer-masking transformation](https://docs.riscv.org/reference/isa/v20260120/priv/zpm.html).
+`user_pointer_mask_control` selects `senvcfg.PMM` for effective U-mode accesses
+(including MPRV), with MXR suppressing masking even in Bare mode.
+`apply_pointer_mask` replaces the upper 7 or 16 bits with zeros for physical
+addresses or the next bit's sign for virtual addresses; disabled mode and
+RV32 preserve the address. Remaining canonicality and permission checks belong
+to the downstream translation and memory system.
+
+`pointer_mask_envcfg_fields` returns only PMM bits, allowing CSR owners to
+combine it with other `senvcfg` fields. Reserved PMM=01 normalizes to disabled;
+PMM=00/10/11 select PMLEN=0/7/16. The pure definitions live in
+[`../isa/pointer-masking.rhm`](../isa/pointer-masking.rhm).
+Apply masking once to explicit memory effective addresses, including prefetches,
+atomics, FP memory operations, and CMOs. Do not apply it to instruction fetch,
+implicit PTE accesses, branch targets, or software CSR values. Hardware address
+faults must retain the transformed address for `xtval`.
 
 [`trap.rhdl`](trap.rhdl) and [`interrupt.rhdl`](interrupt.rhdl) convert pure
 architectural causes to caller-selected widths. The interrupt form sets the

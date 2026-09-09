@@ -620,6 +620,29 @@ refill contains four, two, or one DAT packet for a supplied 128-, 256-, or
 512-bit CHI data width, respectively; the default `CHIFlitParams()` width is 128
 bits.
 
+### Opt-in user pointer masking
+
+`RV5StageExtensions(~ssnpm: #true)` enables the initial RV64 Ssnpm hardware.
+It defaults off and is rejected for RV32 profiles. `senvcfg.PMM[33:32]` resets
+to zero and accepts PMLEN 0, 7, and 16; the reserved encoding reads back as
+disabled. Its writes preserve the independently implemented CMO fields.
+The existing CSR privilege checks let S-mode manage U-mode policy.
+
+Effective U-mode explicit accesses use this policy, including MPRV accesses,
+integer/FP loads and stores, LR/SC/AMO, CMOs, and all three prefetch hints.
+MXR disables masking, including with Bare translation. S- and M-mode's own
+accesses, instruction fetches, page-table walks, branch targets, and software
+CSR values are unchanged. Hardware address-fault values contain the transformed
+address. Translation, access permissions, alignment, and memory ordering remain
+unchanged; masking does not make all tagged addresses legal.
+
+A committed PMM change restarts younger work and clears queued prefetches without
+invalidating TLB entries or I-cache contents. This implementation is not yet
+enabled in SoC profiles or projected into ISA/UDB advertisement. In particular,
+it does not claim **Supm**, which also requires an execution-environment contract.
+The reusable transformation is documented in the
+[RISC-V adapter](../../riscv/rtl/README.md#privilege-memory-and-translation-values).
+
 ### UDB configuration
 
 [`udb.rhm`](udb.rhm) projects an `RVCoreProfile` into a Unified Database fully

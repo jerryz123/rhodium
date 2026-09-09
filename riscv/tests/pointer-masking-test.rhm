@@ -1,0 +1,14 @@
+#lang rhombus
+// Checks the architectural PMM encodings and corresponding ignored pointer lengths.
+
+import:
+  "../isa/pointer-masking.rhm" open
+
+check:
+  PointerMaskFieldOffset ~is 32
+  pointer_mask_mode_code(PointerMaskMode.Disabled) ~is 0
+  pointer_mask_mode_code(PointerMaskMode.Bits7) ~is 2
+  pointer_mask_mode_code(PointerMaskMode.Bits16) ~is 3
+  pointer_mask_length(PointerMaskMode.Disabled) ~is 0
+  pointer_mask_length(PointerMaskMode.Bits7) ~is 7
+  pointer_mask_length(PointerMaskMode.Bits16) ~is 16

@@ -40,6 +40,13 @@ routed response arrives while it is waiting.
 
 ## Change translation behavior
 
+Effective explicit-access privilege comes from the shared
+`riscv/rtl/privilege.rhdl` helper, also used by the core's pointer-mask policy.
+Keep this selection consistent across data translation and prefetch probes.
+Pointer normalization itself is upstream in EX, not a second MMU transform.
+PMM writes restart fetch and therefore clear pending prefetch stages, but do not
+invalidate translations or cancel accepted page-table response ownership.
+
 1. Decide whether the change is reusable Sv39 representation/policy or
    RV5Stage state and arbitration. Put only the former in `riscv/rtl`.
 2. Preserve address correlation for walk completions and faults. The instruction

@@ -17,13 +17,10 @@ import:
   "../../riscv/rtl/counters.rhdl" open
   "../../riscv/rtl/interrupt.rhdl" open
   "../../riscv/rtl/trap.rhdl" open
+  "../../riscv/rtl/privilege.rhdl" open
+  "../../riscv/rtl/pointer-masking.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-
-hardware_enum PrivilegeMode(~width: 2):
-  User = 0
-  Supervisor = 1
-  Machine = 3
 
 bundle RV5StageCsrCommit(xlen :: XLen):
   pc: Bits(xlen.width)
@@ -311,6 +308,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   input cbo_operation: CboManagementOperation
   output cbo_permission: CboManagementPermission()
   output translation_flush: Bool
+  output pointer_masking: PointerMaskControl()
+  output pointer_masking_changed: Bool
 
   reg privilege_state(PrivilegeMode, ~init: PrivilegeMode.Machine)
   reg state(RV5StageCsrState(xlen), ~init: literal(RV5StageCsrState(xlen), 0))
@@ -362,7 +361,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     csr CsrId.Senvcfg:
       read: state.senvcfg
       write value:
-        state.senvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz)
+        state.senvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz) ||| pointer_mask_envcfg_fields(xlen, value, ~enabled: core_profile.extensions.ssnpm)
     storage CsrId.Sscratch: state.sscratch
     csr CsrId.Sepc:
       read: state.sepc
@@ -511,6 +510,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     ]
   )
   def csr_write = csr_commit & csr_access_legal & write_requested
+  pointer_masking <== user_pointer_mask_control(xlen, privilege_state, mstatus_value, state.satp, state.senvcfg, ~enabled: core_profile.extensions.ssnpm)
+  pointer_masking_changed <== Bool(core_profile.extensions.ssnpm) & csr_write & !trap.valid & (csr === csr_bits(CsrId.Senvcfg)) & (pointer_mask_mode(xlen, csr_replacement) =/= pointer_mask_mode(xlen, state.senvcfg))
   def fp_csr_write = csr_write & fp_csr
   fp_csrs.write.valid <== fp_csr_write
   fp_csrs.write.bits <== RV5StageFpCsrWrite():

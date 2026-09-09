@@ -110,6 +110,8 @@ module rv5stage_csr_tb;
   logic fp_enabled;
   logic cbo_zero_enabled;
   logic translation_flush;
+  logic [2:0] pointer_masking;
+  logic pointer_masking_changed;
 
   RV5StageCsrFile dut (.*);
   always #5 clock = ~clock;
@@ -185,6 +187,15 @@ module rv5stage_csr_tb;
                   address, writeback_value, expected_old);
     assert (!redirect_out.valid && !translation_flush)
       else $fatal(1, "legal CSR access unexpectedly redirected");
+    if (address == 12'h10a) begin
+      automatic logic [63:0] replacement;
+      automatic logic [1:0] old_mode, new_mode;
+      replacement = operation == CSR_WRITE ? source : operation == CSR_SET ? expected_old | source : expected_old & ~source;
+      old_mode = expected_old[33:32] == 1 ? 0 : expected_old[33:32];
+      new_mode = replacement[33:32] == 1 ? 0 : replacement[33:32];
+      assert (pointer_masking_changed == (old_mode != new_mode))
+        else $fatal(1, "PMM change notification does not match the committed WARL mode");
+    end
     @(posedge clock);
     #1;
     clear_commit();
@@ -220,6 +231,7 @@ module rv5stage_csr_tb;
     #1;
     assert (!writeback_valid && redirect_out.valid)
       else $fatal(1, "illegal CSR %03h write intent did not trap", address);
+    assert (!pointer_masking_changed) else $fatal(1, "illegal CSR access changed pointer policy");
     @(posedge clock);
     #1;
     clear_commit();
@@ -328,6 +340,32 @@ module rv5stage_csr_tb;
   endtask
 
   initial begin
+    reset_dut();
+
+    // PMM is independent of CMO fields; read-only accesses and no-op writes do
+    // not restart the pipeline, and PMM changes never flush translation state.
+    assert (pointer_masking == 0 && !pointer_masking_changed) else $fatal(1, "PMM reset");
+    csr_access(CSR_WRITE, 12'h10a, 64'h200000080, 0);
+    csr_access(CSR_SET, 12'h10a, 0, 64'h200000080);
+    csr_access(CSR_SET, 12'h10a, 64'h100000000, 64'h200000080);
+    csr_access(CSR_CLEAR, 12'h10a, 64'h100000000, 64'h300000080);
+    csr_access(CSR_WRITE, CSR_MSTATUS, 64'h20000, RV64_MSTATUS_FIXED);
+    assert (pointer_masking == 3'b100) else $fatal(1, "MPRV U Bare PMM7 policy");
+    csr_access(CSR_SET, CSR_MSTATUS, 64'h80000, RV64_MSTATUS_FIXED | 64'h20000);
+    assert (pointer_masking == 0) else $fatal(1, "MXR must suppress PMM even in Bare");
+    csr_access(CSR_WRITE, 12'h10a, 64'h100000080, 64'h200000080);
+    csr_access(CSR_SET, 12'h10a, 0, 64'h80);
+    reset_dut();
+
+    enter_supervisor(0);
+    csr_access(CSR_WRITE, 12'h10a, 64'h300000000, 0);
+    assert (pointer_masking == 0) else $fatal(1, "Ssnpm must not mask supervisor accesses");
+    csr_access(CSR_WRITE, CSR_SEPC, 'h300, 0);
+    system_action(SYSTEM_SRET, 0, 'h300);
+    assert (privilege == PRIVILEGE_U && pointer_masking == 3'b110) else $fatal(1, "SRET did not select user PMM16 policy");
+    csr_write_intent_traps(CSR_WRITE, 12'h10a, 1);
+    assert (privilege == PRIVILEGE_M && pointer_masking == 0) else $fatal(1, "trap entry retained user pointer policy");
+    csr_access(CSR_SET, 12'h10a, 0, 64'h300000000);
     reset_dut();
 
     // Delegation and global privilege masking affect trap eligibility but not
@@ -514,10 +552,10 @@ module rv5stage_csr_tb;
     csr_access(CSR_WRITE, 12'h30a, ~64'd0, 64'd0);
     csr_access(CSR_SET, 12'h30a, 64'd0, 64'h80);
     csr_access(CSR_WRITE, 12'h10a, ~64'd0, 64'd0);
-    csr_access(CSR_SET, 12'h10a, 64'd0, 64'h80);
+    csr_access(CSR_SET, 12'h10a, 64'd0, 64'h300000080);
     enter_supervisor(64'd0);
     assert (cbo_zero_enabled) else $fatal(1, "M CBZE did not enable S mode");
-    csr_access(CSR_WRITE, 12'h10a, 64'd0, 64'h80);
+    csr_access(CSR_WRITE, 12'h10a, 64'd0, 64'h300000080);
     assert (cbo_zero_enabled) else $fatal(1, "S CBZE must not restrict S mode");
     csr_access(CSR_WRITE, CSR_SEPC, 64'h300, 64'd0);
     system_action(SYSTEM_SRET, 64'd0, 64'h300);

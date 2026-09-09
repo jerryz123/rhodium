@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits an opt-in Ssnpm core for tagged-address, serialization, replay, and fault tests.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm" open
+  "../../cores/rv5stage/core.rhdl" as core
+  "../../cores/rv5stage/profile.rhm" open
+
+def design = embedded.run_elaboration(fun (): core.RV5StageCore(
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true, ~zicbop: #true)),
+  ~reset_address: 0x1000
+))
+print(emit_circt(design))

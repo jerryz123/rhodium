@@ -140,6 +140,31 @@ contexts must not select arithmetic operands. The reusable multiplier captures
 raw operands before its magnitude-preparation cycle; keep that register boundary
 between WB selection and full-width negation.
 
+## Pointer-masking ownership
+
+The opt-in RV64 Ssnpm path uses reusable policy and address helpers from
+`riscv/rtl/pointer-masking.rhdl`. `csr.rhdl` owns PMM state and WARL writes,
+and reexports the shared `PrivilegeMode` for existing core consumers.
+ID captures `PointerMaskControl` in `DecodeExecute`; EX transforms only the
+effective memory address and leaves the integer result and low 48 bits intact.
+The transformed address feeds speculative lookup, registered WB requests,
+explicit prefetches, replay correlation, and address-fault values. Fetch,
+branch targets, implicit PTE requests, and CSR writes never pass through it.
+
+CSR serialization keeps policy stable across younger ID admissions. A committed
+PMM change uses the ordinary serializing restart, killing younger work and
+clearing the MMU's prefetch stages through the fetch-flush path. It does not
+assert `translation_flush`: PMM changes neither PTEs nor translation tags.
+Accepted older memory operations drain before the CSR commits. Ordinary trap
+and return redirects continue to establish the next instruction's context.
+
+Keep the implementation opt-in and unadvertised until platform qualification.
+Run `pointer-masking-test.rhm`, `profile-test.rhm`, `riscv-pointer-masking`,
+`rv5stage-pointer-masking`, and `rv5stage-csr`; include `rv5stage-mmu-replay`
+when modifying the shared effective-data-privilege helper. The core fixture
+checks policy changes, tagged payload preservation, replay, all prefetch kinds,
+and transformed misalignment trap values without relying on internal nets.
+
 ## Pipeline event annotations
 
 `core.rhdl` describes the existing stage instances with public interface trace

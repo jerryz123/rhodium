@@ -5,6 +5,7 @@ import:
   "btb.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/rtl/pointer-masking.rhdl" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../cache-prefetch.rhdl" open
@@ -46,6 +47,7 @@ bundle RV5StageOperand(xlen :: XLen):
   value: Bits(xlen.width)
 
 bundle DecodeExecute(xlen :: XLen):
+  pointer_masking: PointerMaskControl()
   pc: Bits(xlen.width)
   instruction: Bits(32)
   raw_instruction: Bits(32)

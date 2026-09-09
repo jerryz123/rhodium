@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the reusable explicit-address pointer-masking fixture for CIRCT simulation.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../frontend/riscv-pointer-masking-fixture.rhdl".design
+
+print(emit_circt(design))

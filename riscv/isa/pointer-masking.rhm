@@ -1,0 +1,27 @@
+#lang rhombus
+// Defines the architectural PMM encodings and supported RV64 pointer-mask lengths.
+
+enum PointerMaskMode
+| Disabled
+| Bits7
+| Bits16
+
+fun pointer_mask_mode_code(mode :: PointerMaskMode) :: Nat:
+  match mode
+  | PointerMaskMode.Disabled: 0
+  | PointerMaskMode.Bits7: 2
+  | PointerMaskMode.Bits16: 3
+
+fun pointer_mask_length(mode :: PointerMaskMode) :: Nat:
+  match mode
+  | PointerMaskMode.Disabled: 0
+  | PointerMaskMode.Bits7: 7
+  | PointerMaskMode.Bits16: 16
+
+def PointerMaskFieldOffset = 32
+
+export:
+  PointerMaskMode
+  pointer_mask_mode_code
+  pointer_mask_length
+  PointerMaskFieldOffset

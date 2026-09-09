@@ -163,6 +163,11 @@ kind of walk and clears both TLBs and any correlated fault.
 
 ## Follow a data request
 
+Explicit data, pipeline-lookup, and prefetch addresses arrive already normalized
+by the core's pointer-masking policy. The MMU does not mask them again. Its
+translation tags, miss/fault correlation, and PMA checks use that transformed
+address; instruction fetch and walker-generated PTE addresses remain unmasked.
+
 1. The effective data privilege is normally the current privilege. In Machine
    mode with `mstatus.MPRV` set, it instead comes from `mstatus.MPP`.
    Translation is enabled only when that effective privilege is not Machine

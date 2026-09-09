@@ -17,6 +17,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
+  "../../../riscv/rtl/privilege.rhdl".effective_data_privilege
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -57,14 +58,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def root_ppn = if xlen == XLen.X32 | bits(0, 44) | satp[0..44]
   def supervisor_or_user = privilege =/= PrivilegeMode.Machine
   def instruction_translation_enabled = satp_sv39 & supervisor_or_user
-  def mprv = if xlen == XLen.X32 | Bool(#false) | mstatus[17].into(Bool)
-  def mpp = if xlen == XLen.X32 | bits(3, 2) | mstatus[11..13]
-  def mpp_privilege = mux_lookup(
-    mpp,
-    ~default: PrivilegeMode.Machine,
-    [[0, PrivilegeMode.User], [1, PrivilegeMode.Supervisor]]
-  )
-  def data_privilege = mux((privilege === PrivilegeMode.Machine) & mprv, mpp_privilege, privilege)
+  def data_privilege = effective_data_privilege(xlen, privilege, mstatus)
   def data_translation_enabled = satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)
   def sum = if xlen == XLen.X32 | Bool(#false) | mstatus[18].into(Bool)
   def mxr = if xlen == XLen.X32 | Bool(#false) | mstatus[19].into(Bool)

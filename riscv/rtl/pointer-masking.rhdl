@@ -1,0 +1,57 @@
+#lang rhodium
+// Implements Ssnpm WARL controls and explicit-address masking without changing low address bits.
+
+import:
+  "../isa/xlen.rhm" open
+  "../isa/pointer-masking.rhm" as isa
+  "privilege.rhdl" open
+
+hardware_enum PointerMaskMode(~width: 2):
+  Disabled = (isa.pointer_mask_mode_code(isa.PointerMaskMode.Disabled))
+  Bits7 = (isa.pointer_mask_mode_code(isa.PointerMaskMode.Bits7))
+  Bits16 = (isa.pointer_mask_mode_code(isa.PointerMaskMode.Bits16))
+
+bundle PointerMaskControl():
+  mode: PointerMaskMode
+  virtual_address: Bool
+
+fun pointer_mask_mode(xlen :: XLen, envcfg :: Bits(xlen.width)) :~ PointerMaskMode:
+  if xlen == XLen.X32
+  | PointerMaskMode.Disabled
+  | mux_lookup(envcfg[isa.PointerMaskFieldOffset..(isa.PointerMaskFieldOffset + 2)], ~default: PointerMaskMode.Disabled, [[2, PointerMaskMode.Bits7], [3, PointerMaskMode.Bits16]])
+
+fun pointer_mask_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ Bits(xlen.width):
+  if xlen == XLen.X32 || !enabled
+  | bits(0, xlen.width)
+  | pointer_mask_mode(xlen, value).into(Bits(2)).zext(64) << isa.PointerMaskFieldOffset
+
+fun user_pointer_mask_control(xlen :: XLen, privilege :: PrivilegeMode, mstatus :: Bits(xlen.width), satp :: Bits(xlen.width), senvcfg :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ PointerMaskControl():
+  if xlen == XLen.X32 || !enabled
+  | PointerMaskControl():
+      mode: PointerMaskMode.Disabled
+      virtual_address: Bool(#false)
+  | block:
+      def effective = effective_data_privilege(xlen, privilege, mstatus)
+      PointerMaskControl():
+        mode: mux((effective === PrivilegeMode.User) & !mstatus[19].into(Bool), pointer_mask_mode(xlen, senvcfg), PointerMaskMode.Disabled)
+        virtual_address: (effective =/= PrivilegeMode.Machine) & (satp[60..64] =/= bits(0, 4))
+
+fun apply_pointer_mask(xlen :: XLen, address :: Bits(xlen.width), control :: PointerMaskControl()) :~ Bits(xlen.width):
+  if xlen == XLen.X32
+  | address
+  | block:
+      def sign7 = control.virtual_address & address[56].into(Bool)
+      def sign16 = control.virtual_address & address[47].into(Bool)
+      def upper = mux_lookup(control.mode, ~default: address[48..64], [
+        [PointerMaskMode.Bits7, mux(sign7, bits(0x7f, 7), bits(0, 7)) ++ address[48..57]],
+        [PointerMaskMode.Bits16, mux(sign16, bits(0xffff, 16), bits(0, 16))]
+      ])
+      upper ++ address[0..48]
+
+export:
+  PointerMaskMode
+  PointerMaskControl
+  pointer_mask_mode
+  pointer_mask_envcfg_fields
+  user_pointer_mask_control
+  apply_pointer_mask

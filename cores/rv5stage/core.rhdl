@@ -35,6 +35,7 @@ import:
   "../../riscv/isa/trap.rhm" open
   "../../riscv/rtl/trap.rhdl" open
   "../../riscv/rtl/cmo.rhdl" open
+  "../../riscv/rtl/pointer-masking.rhdl" open
   "../../riscv/model/formats.rhm" as riscv_fields
   "../../riscv/rtl/instruction-fields.rhdl" open
   "../../riscv/rtl/floating-point.rhdl" open
@@ -196,17 +197,18 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   scoreboard_clear_link.right |> scoreboard.clear
   def fence_i_commit = commit_valid & !commit_bits.exception_valid & wb_bits.fence.into(FenceControl()).is_instruction_fence()
   translation_flush <== csrs.translation_flush
-  def fence_resume_pc = commit_bits.resume_pc
-  def fence_commit = fence_i_commit ||| csrs.translation_flush
-  def commit_redirect = csrs.redirect.valid ||| fence_commit ||| commit_replay
+  // Restart after a PMM change to discard younger context and queued prefetches,
+  // without conflating pointer policy with translation invalidation.
+  def serializing_resume = fence_i_commit ||| csrs.translation_flush ||| csrs.pointer_masking_changed
+  def commit_redirect = csrs.redirect.valid ||| serializing_resume ||| commit_replay
   def memory_stage_valid = memory.valid & !commit_redirect & !pending_exception_valid & !(commit_valid & commit_bits.exception_valid)
   def memory_exception_event = memory_exception_link.right.valid
   def memory_replay_event = memory_replay_link.right.valid
   def memory_redirect = memory_stage_valid & memory.bits.redirect_valid & !memory_exception_event & !memory_replay_event
-  def fence_redirect = inject_flow(
+  def serializing_redirect = inject_flow(
     Valid(Bits(width)),
-    ~valid: fence_commit,
-    ~bits: fence_resume_pc
+    ~valid: serializing_resume,
+    ~bits: commit_bits.resume_pc
   )
   def commit_replay_redirect = inject_flow(
     Valid(Bits(width)),
@@ -220,7 +222,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   )
   def redirect_sources = Array(
     csrs.redirect,
-    fence_redirect,
+    serializing_redirect,
     commit_replay_redirect,
     memory_redirect_flow
   )
@@ -473,6 +475,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           alu_control: control.alu
           operand_left: control.operand.left
           operand_right: control.operand.right
+          pointer_masking: csrs.pointer_masking
           branch_control: control.branch.resolver
           target_from_rs1: control.branch.target_from_rs1
           memory_operation: decoded_memory_operation
@@ -541,7 +544,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   )
   def redirect_aligned = computed_redirect_target.is_aligned(instruction_alignment)
   def execute_memory_operation = id_ex.bits.memory_operation
-  def memory_aligned = execute_memory_operation.is_cache_block() ||| id_ex.bits.memory_width.is_aligned(alu.result)
+  def execute_memory_address = if extensions.ssnpm | apply_pointer_mask(xlen, alu.result, id_ex.bits.pointer_masking) | alu.result
+  def memory_aligned = execute_memory_operation.is_cache_block() ||| id_ex.bits.memory_width.is_aligned(execute_memory_address)
   def execute_is_memory = execute_memory_operation.is_memory()
   def fp_execution_control = id_ex.bits.floating_point_control.execution
   def execute_is_fp = id_ex.bits.floating_point_valid
@@ -571,7 +575,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
                                     computed_redirect_target)
   elsewhen (execute_is_memory & !memory_aligned):
     execute_exception <== data_exception(execute_memory_operation,
-                                         alu.result,
+                                         execute_memory_address,
                                          ExceptionCause.StoreAddressMisaligned,
                                          ExceptionCause.LoadAddressMisaligned)
   otherwise:
@@ -615,7 +619,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // execution and all architectural effects require WB authorization.
   def execute_transfer = id_ex.valid & !older_pipeline_squash
   def execute_prefetch_request = CachePrefetchReq(width):
-    address: alu.result
+    address: execute_memory_address
     operation: id_ex.bits.prefetch_operation
   def fp_store_response_match = fp.store_response.valid & (
     fp.store_response.bits.context === id_ex.bits.pc
@@ -631,7 +635,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     control: id_ex.bits.branch_control
 
   def execute_data_request = RV5StageDataReq(xlen):
-    address: alu.result
+    address: execute_memory_address
     access: execute_memory_operation
     atomic: id_ex.bits.memory_atomic
     width: id_ex.bits.memory_width
@@ -654,7 +658,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // lookup itself cannot change the cache or initiate an external transaction.
   pipeline_access.request.valid <== execute_transfer & !execute_exception.valid & execute_memory_operation.is_one_of(MemoryOperation.Load, MemoryOperation.Store)
   pipeline_access.request.bits <== RV5StagePipelineReq(xlen):
-    address: alu.result
+    address: execute_memory_address
     access: execute_memory_operation
     width: id_ex.bits.memory_width
     unsigned: id_ex.bits.memory_unsigned

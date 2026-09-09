@@ -42,6 +42,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          ziccif :: Boolean,
                          ziccamoa :: Boolean,
                          ziccrse :: Boolean,
+                         ssnpm :: Boolean,
                          zawrs :: Boolean,
                          zihintpause :: Boolean,
                          zihintntl :: Boolean,
@@ -57,11 +58,12 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~ziccif: ziccif :: Boolean = #false,
                ~ziccamoa: ziccamoa :: Boolean = #false,
                ~ziccrse: ziccrse :: Boolean = #false,
+               ~ssnpm: ssnpm :: Boolean = #false,
                ~zawrs: zawrs :: Boolean = #false,
                ~zihintpause: zihintpause :: Boolean = #false,
                ~zihintntl: zihintntl :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
-    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, zawrs, zihintpause, zihintntl, compressed)
+    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, zawrs, zihintpause, zihintntl, compressed)
 
   method compressed_misa_c(xlen :: XLen) :: Boolean:
     compressed_extensions_report_misa_c(xlen, floating_point, compressed)
@@ -150,6 +152,8 @@ class RVCoreProfile(xlen :: XLen,
       ~zfa: extensions.zfa
     )
     extensions.compressed_misa_c(xlen)
+    when xlen == XLen.X32 && extensions.ssnpm
+    | error(~who: #'RVCoreProfile, "Ssnpm requires RV64")
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RVCoreProfile, "RV32 profiles support only Bare translation")
     super(xlen, extensions, mmu_mode, cache_geometry)

@@ -199,7 +199,7 @@ fixture_in_group() {
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
-    cores:rv32i-*|cores:rv64i-*|cores:load-store|cores:load-store-rv32-word|cores:bit-manip*|cores:iterative-multiplier|cores:iterative-divider|cores:riscv-counters-*|cores:riscv-cmo|cores:riscv-floating-point|cores:riscv-compressed|cores:scoreboard|cores:rv5stage-*)
+    cores:rv32i-*|cores:rv64i-*|cores:load-store|cores:load-store-rv32-word|cores:bit-manip*|cores:iterative-multiplier|cores:iterative-divider|cores:riscv-counters-*|cores:riscv-cmo|cores:riscv-pointer-masking|cores:riscv-floating-point|cores:riscv-compressed|cores:scoreboard|cores:rv5stage-*)
       return 0
       ;;
     *)
@@ -709,6 +709,7 @@ direct_fixture_specs=(
   'rv5stage-chi-requests|rv5stage_chi_requests_tb'
   'load-store|load_store_tb'
   'riscv-cmo|riscv_cmo_tb'
+  'riscv-pointer-masking|riscv_pointer_masking_tb'
   'load-store-rv32-word|load_store_rv32_word_tb'
   'bit-manip|bit_manip_tb'
   'bit-manip-rv32|bit_manip_rv32_tb'
@@ -722,6 +723,7 @@ direct_fixture_specs=(
   'rv5stage-fp-pipeline|rv5stage_fp_pipeline_tb'
   'rv5stage-register-file|rv5stage_register_file_tb'
   'rv5stage-csr|rv5stage_csr_tb'
+  'rv5stage-pointer-masking|rv5stage_pointer_masking_tb'
   'rv5stage-zihpm-rv32|rv5stage_zihpm_rv32_tb'
   'rv5stage-zihpm-rv64|rv5stage_zihpm_rv64_tb'
   'rv5stage-atomic|rv5stage_atomic_tb'

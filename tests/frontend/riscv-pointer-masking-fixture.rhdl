@@ -1,0 +1,34 @@
+#lang rhodium
+// Exposes pointer normalization, policy selection, and WARL specialization for behavioral tests.
+
+import:
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/rtl/privilege.rhdl" open
+  "../../riscv/rtl/pointer-masking.rhdl" open
+
+circuit PointerMaskingFixture():
+  input address: Bits(64)
+  input privilege: PrivilegeMode
+  input mstatus: Bits(64)
+  input satp: Bits(64)
+  input senvcfg: Bits(64)
+  output masked: Bits(64)
+  output policy: PointerMaskControl()
+  output effective: PrivilegeMode
+  output warl: Bits(64)
+  output disabled_warl: Bits(64)
+  output rv32_warl: Bits(32)
+  output rv32_address: Bits(32)
+  output disabled_address: Bits(64)
+  def control = user_pointer_mask_control(XLen.X64, privilege, mstatus, satp, senvcfg, ~enabled: #true)
+  policy <== control
+  effective <== effective_data_privilege(XLen.X64, privilege, mstatus)
+  masked <== apply_pointer_mask(XLen.X64, address, control)
+  warl <== pointer_mask_envcfg_fields(XLen.X64, senvcfg, ~enabled: #true)
+  disabled_warl <== pointer_mask_envcfg_fields(XLen.X64, senvcfg, ~enabled: #false)
+  rv32_warl <== pointer_mask_envcfg_fields(XLen.X32, senvcfg[0..32], ~enabled: #true)
+  rv32_address <== apply_pointer_mask(XLen.X32, address[0..32], user_pointer_mask_control(XLen.X32, privilege, mstatus[0..32], satp[0..32], senvcfg[0..32], ~enabled: #true))
+  disabled_address <== apply_pointer_mask(XLen.X64, address, user_pointer_mask_control(XLen.X64, privilege, mstatus, satp, senvcfg, ~enabled: #false))
+
+def design = elaborate(PointerMaskingFixture())
+export design

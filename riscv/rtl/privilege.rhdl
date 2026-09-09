@@ -1,0 +1,18 @@
+#lang rhodium
+// Defines typed M/S/U privilege values and effective privilege for explicit data accesses.
+
+import:
+  "../isa/xlen.rhm" open
+
+hardware_enum PrivilegeMode(~width: 2):
+  User = 0
+  Supervisor = 1
+  Machine = 3
+
+fun effective_data_privilege(xlen :: XLen, privilege :: PrivilegeMode, mstatus :: Bits(xlen.width)) :~ PrivilegeMode:
+  def mpp = mux_lookup(mstatus[11..13], ~default: PrivilegeMode.Machine, [[0, PrivilegeMode.User], [1, PrivilegeMode.Supervisor]])
+  mux((privilege === PrivilegeMode.Machine) & mstatus[17].into(Bool), mpp, privilege)
+
+export:
+  PrivilegeMode
+  effective_data_privilege

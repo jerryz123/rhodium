@@ -16,6 +16,7 @@ def design = embedded.run_elaboration(
     ~extensions: RV5StageExtensions(
       ~floating_point: FloatingPointProfile.D,
       ~zicboz: #true,
+      ~ssnpm: #true,
       ~compressed: CCompressedExtensions
     )
   ))

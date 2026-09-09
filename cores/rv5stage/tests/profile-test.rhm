@@ -32,6 +32,9 @@ def rv32_half = RVCoreProfile(
 )
 
 check:
+  RV5StageExtensions().ssnpm ~is #false
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)).extensions.ssnpm ~is #true
+  RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~ssnpm: #true)) ~throws "RV64"
   RV5StageExtensions().ziccrse ~is #false
   RV5StageExtensions().zihintntl ~is #false
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_extensions.contains("zihintntl") ~is #true

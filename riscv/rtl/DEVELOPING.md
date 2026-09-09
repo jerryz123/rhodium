@@ -29,6 +29,7 @@ direction.
 | Compressed expansion | [`compressed.rhdl`](compressed.rhdl) |
 | CSR values and bank construction | [`csr.rhdl`](csr.rhdl) |
 | CMO privilege, WARL, and physical permission policy | [`cmo.rhdl`](cmo.rhdl) |
+| Effective explicit-access privilege and pointer masking | [`privilege.rhdl`](privilege.rhdl), [`pointer-masking.rhdl`](pointer-masking.rhdl) |
 | Base architectural counters | [`counters.rhdl`](counters.rhdl) |
 | Trap and interrupt cause conversion | [`trap.rhdl`](trap.rhdl), [`interrupt.rhdl`](interrupt.rhdl) |
 | Physical-memory attributes | [`pma.rhdl`](pma.rhdl) |
@@ -57,6 +58,12 @@ RISC-V policy around public HardFloat types without acquiring arithmetic
 implementation.
 
 ## Focused validation
+
+For pointer masking, run `riscv/tests/pointer-masking-test.rhm` and the
+`riscv-pointer-masking` backend fixture. The latter sweeps PMM, MPRV/MPP,
+MXR, Bare/virtual sign behavior, and disabled/RV32 specialization. Integrating
+cores own policy capture, serialization, replay, and architectural fault tests;
+RV5Stage covers those with `rv5stage-pointer-masking` and `rv5stage-csr`.
 
 For CMO permission changes, select the `riscv-cmo` backend fixture. It sweeps
 M/S/U privilege and both xenvcfg controls, RV32/RV64 WARL images, all Sv39 access
