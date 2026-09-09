@@ -7,25 +7,36 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
 
+// Shared inactive-field policy for the current RN/SN/Home response builders,
+// not a universal default for every RSP opcode (for example PCrdGrant).
+fun chi_response(p :: CHIFlitParams,
+                 node_id :: Bits(p.node_id_width),
+                 target_id :: Bits(p.node_id_width),
+                 txn_id :: Bits(12),
+                 opcode :: CHIRspOpcode,
+                 ~dbid: dbid :: Bits(12),
+                 ~resp: response :: Bits(3),
+                 ~error: error :: CHIRespErr,
+                 ~qos: qos :: Bits(4)) :~ CHIRspFlit(p):
+  def inactive :: CHIRspFlit(p) = literal(CHIRspFlit(p), 0)
+  inactive.updated(
+    ~tag_op: CHITagOp.Invalid,
+    ~dbid_or_group_id: dbid,
+    ~resp: response,
+    ~resp_err: error,
+    ~opcode: opcode,
+    ~txn_id: txn_id,
+    ~src_id: node_id,
+    ~tgt_id: target_id,
+    ~qos: qos
+  )
+
 fun chi_sn_dbid_response(p :: CHIFlitParams,
                          node_id :: Bits(p.node_id_width),
                          request :: CHIReqFlit(p),
                          dbid :: Bits) :~ CHIRspFlit(p):
-  CHIRspFlit(p):
-    cache_line_id: bits(0, 6)
-    trace_tag: Bool(#false)
-    tag_op: CHITagOp.Invalid
-    pcrd_type: bits(0, 4)
-    dbid_or_group_id: dbid.zext(12)
-    c_busy: bits(0, 3)
-    fwd_state_or_data_pull: bits(0, 3)
-    resp: bits(0, 3)
-    resp_err: CHIRespErr.OK
-    opcode: CHIRspOpcode.DBIDResp
-    txn_id: request.txn_id
-    src_id: node_id
-    tgt_id: request.src_id
-    qos: request.qos
+  chi_response(p, node_id, request.src_id, request.txn_id, CHIRspOpcode.DBIDResp,
+               ~dbid: dbid.zext(12), ~resp: bits(0, 3), ~error: CHIRespErr.OK, ~qos: request.qos)
 
 fun chi_sn_write_completion(p :: CHIFlitParams,
                             node_id :: Bits(p.node_id_width),
@@ -88,21 +99,8 @@ fun chi_hnf_response(p :: CHIFlitParams,
                      request :: CHIReqFlit(p),
                      opcode :: CHIRspOpcode,
                      ~error: error :: CHIRespErr = CHIRespErr.OK) :~ CHIRspFlit(p):
-  CHIRspFlit(p):
-    cache_line_id: bits(0, 6)
-    trace_tag: Bool(#false)
-    tag_op: CHITagOp.Invalid
-    pcrd_type: bits(0, 4)
-    dbid_or_group_id: bits(0, 12)
-    c_busy: bits(0, 3)
-    fwd_state_or_data_pull: bits(0, 3)
-    resp: bits(0, 3)
-    resp_err: error
-    opcode: opcode
-    txn_id: request.txn_id
-    src_id: home_node_id
-    tgt_id: request.src_id
-    qos: request.qos
+  chi_response(p, home_node_id, request.src_id, request.txn_id, opcode,
+               ~dbid: bits(0, 12), ~resp: bits(0, 3), ~error: error, ~qos: request.qos)
 
 fun chi_home_downstream_request(p :: CHIFlitParams,
                                 home_node_id :: Bits(p.node_id_width),
@@ -288,6 +286,7 @@ fun chi_hni_upstream_read_data(p :: CHIFlitParams,
   )
 
 export:
+  chi_response
   chi_hni_downstream_request
   chi_hni_upstream_response
   chi_hni_downstream_write_data

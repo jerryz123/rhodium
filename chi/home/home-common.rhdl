@@ -92,7 +92,7 @@ class CHIHNFParams(home :: CHIHomeParams,
     unless home.max_outstanding == 1
     | error(~who: #'CHIHNFParams,
             "the serialized HN-F must allow exactly one outstanding transaction")
-    unless [CHINodeKind.SNF, CHINodeKind.SNI].contains(subordinate_endpoint.kind)
+    unless CHINodeKind.is_subordinate(subordinate_endpoint.kind)
     | error(~who: #'CHIHNFParams,
             "subordinate endpoint must describe an SN-F or SN-I")
     unless subordinate_service.address_sets.length() == 1 && (
@@ -137,29 +137,26 @@ fun chi_hnf_subordinate_opcode(opcode :: CHIReqOpcode) :~ CHIReqOpcode:
 fun chi_hnf_source_known(p :: CHIFlitParams,
                          params :: CHIHNFConfig,
                          request :: CHIReqFlit(p)) :~ Bool:
-  or_reduce(vec(
+  request.src_id.is_one_of(
     for List (endpoint in params.requester_endpoints):
-      request.src_id === bits(endpoint.node_id, p.node_id_width)
-  ))
+      bits(endpoint.node_id, p.node_id_width)
+  )
 
 fun chi_hnf_source_is_rnf(p :: CHIFlitParams,
                           params :: CHIHNFConfig,
                           request :: CHIReqFlit(p)) :~ Bool:
-  or_reduce(vec(
+  request.src_id.is_one_of(
     for List (endpoint in params.snoop_endpoints):
-      request.src_id === bits(endpoint.node_id, p.node_id_width)
-  ))
+      bits(endpoint.node_id, p.node_id_width)
+  )
 
 fun chi_hnf_request_supported(p :: CHIFlitParams,
                               params :: CHIHNFConfig,
                               request :: CHIReqFlit(p)) :~ Bool:
-  or_reduce(vec(
+  or_reduce(
     for List (endpoint in params.requester_endpoints):
-      (request.src_id === bits(endpoint.node_id, p.node_id_width)) & or_reduce(vec(
-        for List (opcode in endpoint.supports.req):
-          request.opcode === opcode
-      ))
-  ))
+      (request.src_id === bits(endpoint.node_id, p.node_id_width)) & request.opcode.is_one_of(endpoint.supports.req)
+  )
 
 fun chi_hnf_service_supported(p :: CHIFlitParams,
                               request :: CHIReqFlit(p),
@@ -168,10 +165,10 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
   def opcode = chi_hnf_subordinate_opcode(request.opcode)
   def size = chi_req_size(p, request)
   def address_supported = (request.address & !bits(config.service_mask, p.request_address_width)) === service_base
-  def ordinary_supported = or_reduce(vec(
+  def ordinary_supported = or_reduce(
     for List (support in config.service_requests):
       support.matches(opcode, size)
-  ))
+  )
   def maintenance_supported = chi_cache_maintenance(request.opcode) & request.address.is_aligned(64) & (
     chi_req_size(p, request) === CHITransferSize.Bytes64
   ) & !request.exp_comp_ack & !request.multi_req

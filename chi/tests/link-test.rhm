@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks CHI node capabilities, credited links, legal adapters, and monitors.
+// Checks CHI endpoint contracts and structural link equality, including every credit-field mismatch.
 
 import:
   "../main.rhdl" as chi
@@ -10,6 +10,55 @@ def rnf = chi.CHIRNLink(fixture.rnf_link, fixture.rnf_node)
 def sn = chi.CHISNLink(fixture.sn_link, fixture.sn_node)
 def tx_req = rni.members.find(fun (member): member.name == "tx_req")
 def rx_rsp = rni.members.find(fun (member): member.name == "rx_rsp")
+// Construct each side independently: equality must include the nested flit
+// parameters and every credit field, not object identity or selected fields.
+fun rnf_with_mismatch(changed :: Int):
+  chi.CHIRNLinkParams(
+    chi.CHIFlitParams(~data_width: if changed == 0 | 256 | 128),
+    ~tx_req_credits: if changed == 1 | 3 | 2,
+    ~tx_rsp_credits: if changed == 2 | 3 | 2,
+    ~tx_dat_credits: if changed == 3 | 3 | 2,
+    ~rx_rsp_credits: if changed == 4 | 3 | 2,
+    ~rx_dat_credits: if changed == 5 | 3 | 2,
+    ~rx_snp_credits: if changed == 6 | 3 | 2
+  )
+
+fun rni_with_mismatch(changed :: Int):
+  chi.CHIRNILinkParams(
+    chi.CHIFlitParams(~data_width: if changed == 0 | 256 | 128),
+    ~tx_req_credits: if changed == 1 | 3 | 2,
+    ~tx_rsp_credits: if changed == 2 | 3 | 2,
+    ~tx_dat_credits: if changed == 3 | 3 | 2,
+    ~rx_rsp_credits: if changed == 4 | 3 | 2,
+    ~rx_dat_credits: if changed == 5 | 3 | 2
+  )
+
+fun sn_with_mismatch(changed :: Int):
+  chi.CHISNLinkParams(
+    chi.CHIFlitParams(~data_width: if changed == 0 | 256 | 128),
+    ~tx_rsp_credits: if changed == 1 | 3 | 2,
+    ~tx_dat_credits: if changed == 2 | 3 | 2,
+    ~rx_req_credits: if changed == 3 | 3 | 2,
+    ~rx_dat_credits: if changed == 4 | 3 | 2
+  )
+
+for (entry in [[rnf, fixture.rnf_node, 7, rnf_with_mismatch],
+               [rni, fixture.rni_node, 6, rni_with_mismatch],
+               [sn, fixture.sn_node, 5, sn_with_mismatch]]):
+  def compatible = entry[0].connection_compatibility.predicate
+  def node = entry[1]
+  def construct = entry[3]
+  def baseline = construct(-1)
+  check:
+    baseline == construct(-1) ~is #true
+    compatible([baseline, node], [construct(-1), node.icn_peer()]) ~is #true
+  for (changed in 0..entry[2]):
+    def different = construct(changed)
+    check:
+      baseline == different ~is #false
+      compatible([baseline, node], [different, node.icn_peer()]) ~is #false
+      compatible([different, node], [baseline, node.icn_peer()]) ~is #false
+
 for (node in [fixture.rni_node, fixture.rnf_node, fixture.sn_node]):
   def peer = node.icn_peer()
   check:

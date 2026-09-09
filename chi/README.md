@@ -109,6 +109,14 @@ implement retry, error, or coherence policy.
 They return immutable values and can be called repeatedly in one circuit
 without allocating named wires or sharing state between calls.
 
+`chi_response` exposes the common inactive-field policy used by the current
+subordinate, Home, and RV5Stage RSP builders. It takes explicit source/target
+NodeIDs, TxnID, and opcode, plus required `~dbid`, `~resp`, `~error`, and `~qos`
+arguments. Other fields are zero, with `tag_op` set to `Invalid`. This is not
+a universal default for all RSP opcodes: callers needing Protocol Credit,
+trace, or other active fields must supply their own construction or updates.
+Existing semantic wrappers retain their routing and response policies.
+
 `chi_rn_write_data` constructs the current requester `NonCopyBackWriteData`
 profile from a payload, byte enables, routing IDs, and DBID. Its required
 `~data_id`, `~ccid`, and `~dbid_or_mecid` arguments keep packet-position and

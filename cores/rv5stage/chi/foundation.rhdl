@@ -12,6 +12,7 @@ import:
   lib("chi/transactions/cache-maintenance.rhdl").CHICacheMaintenanceResponses
   lib("chi/protocol/link.rhdl") open
   lib("chi/protocol/fabric.rhdl") open
+  lib("chi/protocol/messages.rhdl").chi_response
   lib("chi/protocol/messages.rhdl").chi_rn_write_data
   "../../../riscv/rtl/pma.rhdl" open
 
@@ -205,6 +206,14 @@ fun rv5stage_chi_address_fits(address :: Bits,
   | Bool(#true)
   | !address[p.request_address_width..width].or_reduce()
 
+fun rv5stage_chi_snoop_address(p :: CHIFlitParams,
+                               address_width :: PosInt,
+                               snoop_address :: Bits(p.snoop_address_width)) :~ Bits(address_width):
+  def raw_address = snoop_address ++ bits(0, 3)
+  if address_width <= p.request_address_width
+  | raw_address[0..address_width]
+  | raw_address.zext(address_width)
+
 fun rv5stage_chi_request(p :: CHIFlitParams,
                          node_id :: Bits(p.node_id_width),
                          home_node_id :: Bits(p.node_id_width),
@@ -253,21 +262,8 @@ fun rv5stage_chi_response(p :: CHIFlitParams,
                           opcode :: CHIRspOpcode,
                           ~resp: response :: Bits(3) = bits(0, 3))
   :~ CHIRspFlit(p):
-  CHIRspFlit(p):
-    cache_line_id: bits(0, 6)
-    trace_tag: Bool(#false)
-    tag_op: CHITagOp.Invalid
-    pcrd_type: bits(0, 4)
-    dbid_or_group_id: bits(0, 12)
-    c_busy: bits(0, 3)
-    fwd_state_or_data_pull: bits(0, 3)
-    resp: response
-    resp_err: CHIRespErr.OK
-    opcode: opcode
-    txn_id: txn_id
-    src_id: node_id
-    tgt_id: target_id
-    qos: bits(0, 4)
+  chi_response(p, node_id, target_id, txn_id, opcode,
+               ~dbid: bits(0, 12), ~resp: response, ~error: CHIRespErr.OK, ~qos: bits(0, 4))
 
 fun rv5stage_snoop_shares_cache_state(opcode :: CHISnpOpcode) :~ Bool:
   opcode.is_one_of(CHISnpOpcode.SnpShared,
@@ -315,6 +311,7 @@ export:
   RV5StageCHIIdentity
   rv5stage_chi_address
   rv5stage_chi_address_fits
+  rv5stage_chi_snoop_address
   rv5stage_chi_request
   rv5stage_chi_response
   rv5stage_snoop_shares_cache_state

@@ -262,18 +262,7 @@ fun rn_connection_legal(provided :: List, required :: List):
   | block:
       def node_link = provided[0]
       def icn_link = required[0]
-      for all (condition in [
-        node_link.flit == icn_link.flit,
-        endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.RNF, CHINodeKind.RND]),
-        for all (pair in [[node_link.tx_req_credits, icn_link.tx_req_credits],
-                          [node_link.tx_rsp_credits, icn_link.tx_rsp_credits],
-                          [node_link.tx_dat_credits, icn_link.tx_dat_credits],
-                          [node_link.rx_rsp_credits, icn_link.rx_rsp_credits],
-                          [node_link.rx_dat_credits, icn_link.rx_dat_credits],
-                          [node_link.rx_snp_credits, icn_link.rx_snp_credits]]):
-          pair[0] == pair[1]
-      ]):
-        condition
+      node_link == icn_link && endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.RNF, CHINodeKind.RND])
   | #false
 
 fun rni_connection_legal(provided :: List, required :: List):
@@ -281,17 +270,7 @@ fun rni_connection_legal(provided :: List, required :: List):
   | block:
       def node_link = provided[0]
       def icn_link = required[0]
-      for all (condition in [
-        node_link.flit == icn_link.flit,
-        endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.RNI]),
-        for all (pair in [[node_link.tx_req_credits, icn_link.tx_req_credits],
-                          [node_link.tx_rsp_credits, icn_link.tx_rsp_credits],
-                          [node_link.tx_dat_credits, icn_link.tx_dat_credits],
-                          [node_link.rx_rsp_credits, icn_link.rx_rsp_credits],
-                          [node_link.rx_dat_credits, icn_link.rx_dat_credits]]):
-          pair[0] == pair[1]
-      ]):
-        condition
+      node_link == icn_link && endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.RNI])
   | #false
 
 fun sn_connection_legal(provided :: List, required :: List):
@@ -299,16 +278,7 @@ fun sn_connection_legal(provided :: List, required :: List):
   | block:
       def node_link = provided[0]
       def icn_link = required[0]
-      for all (condition in [
-        node_link.flit == icn_link.flit,
-        endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.SNF, CHINodeKind.SNI]),
-        for all (pair in [[node_link.tx_rsp_credits, icn_link.tx_rsp_credits],
-                          [node_link.tx_dat_credits, icn_link.tx_dat_credits],
-                          [node_link.rx_req_credits, icn_link.rx_req_credits],
-                          [node_link.rx_dat_credits, icn_link.rx_dat_credits]]):
-          pair[0] == pair[1]
-      ]):
-        condition
+      node_link == icn_link && endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.SNF, CHINodeKind.SNI])
   | #false
 
 fun checked_rn_endpoint(endpoint :: CHINodeParams || CHIICNPortParams)

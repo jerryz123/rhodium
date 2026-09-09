@@ -167,6 +167,7 @@ export:
   CHISNAllocatedTransaction
   CHISNMatchedWrite
   CHISNTransactionSlots
+  chi_response
   chi_sn_dbid_response
   chi_sn_write_completion
   chi_sn_read_completion

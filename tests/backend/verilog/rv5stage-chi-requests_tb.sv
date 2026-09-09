@@ -1,4 +1,4 @@
-// Checks complete requester packets and independent repeated construction at all physical widths/options.
+// Checks complete requester packets, response defaults, and truncated/equal/extended snoop addresses.
 module rv5stage_chi_requests_tb;
   logic [63:0] address;
   logic [6:0] opcode;
@@ -7,6 +7,7 @@ module rv5stage_chi_requests_tb;
   logic [5:0] flags;
   logic [3:0] pcrd;
   RV5StageCHIRequestFixture dut(.address(address), .opcode(opcode), .size(size), .txn(txn), .flags(flags), .pcrd(pcrd),
+    .response(), .other_response(), .snoop_32(), .snoop_52(), .snoop_64(),
     .w128(), .other_w128(),
     .o128(), .other_o128(),
     .w256(), .other_w256(),
@@ -38,6 +39,7 @@ module rv5stage_chi_requests_tb;
     assert(dut.PORT === expected_packet) else $fatal(1, "REQ construction mismatch: %s", `"PORT`"); \
   end
   initial begin
+    type(dut.response) expected_response;
     for (int op = 0; op < 6; op++) begin
       case (op)
         0: opcode = 7'h02;
@@ -55,6 +57,23 @@ module rv5stage_chi_requests_tb;
           flags = 6'(control);
           size = 3'(sz);
           #1;
+          expected_response = '0;
+          expected_response.opcode = 5'h02;
+          expected_response.txn_id = txn;
+          expected_response.src_id = 16'h1234;
+          expected_response.tgt_id = 16'h4321;
+          expected_response.resp = flags[2:0];
+          assert(dut.response === expected_response) else $fatal(1, "CompAck complete packet");
+          expected_response.opcode = 5'h01;
+          expected_response.txn_id = ~txn;
+          expected_response.src_id = 16'h4321;
+          expected_response.tgt_id = 16'h1234;
+          expected_response.resp = ~flags[2:0];
+          assert(dut.other_response === expected_response) else $fatal(1, "SnpResp complete packet");
+          assert(dut.snoop_32 === {address[31:3], 3'b0} &&
+                 dut.snoop_52 === {address[51:3], 3'b0} &&
+                 dut.snoop_64 === {12'b0, address[51:3], 3'b0})
+            else $fatal(1, "snoop address width conversion");
           `CHECK_REQUEST(w128, address, txn, flags)
           `CHECK_REQUEST(other_w128, ~address, ~txn, ~flags)
           `CHECK_REQUEST(o128, address, txn, flags)
@@ -70,7 +89,7 @@ module rv5stage_chi_requests_tb;
         end
       end
     end
-    $display("RV5Stage complete CHI REQ checks passed (six width/option variants, paired calls)");
+    $display("RV5Stage CHI REQ/RSP and snoop address checks passed (six width/option variants, paired calls)");
     $finish;
   end
 `undef CHECK_REQUEST

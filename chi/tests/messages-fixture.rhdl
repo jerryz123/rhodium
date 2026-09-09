@@ -32,6 +32,7 @@ circuit CHIMessageFixture():
   input other_data: Bits(128)
   output dbid_response: CHIRspFlit(w128)
   output write_response: CHIRspFlit(w128)
+  output home_response: CHIRspFlit(w128)
   output read_w128: CHIDatFlit(w128)
   output read_o128: CHIDatFlit(o128)
   output read_w256: CHIDatFlit(w256)
@@ -44,6 +45,7 @@ circuit CHIMessageFixture():
 
   dbid_response <== chi_sn_dbid_response(w128, node_id, request, dbid)
   write_response <== chi_sn_write_completion(w128, node_id, request, dbid)
+  home_response <== chi_hnf_response(w128, node_id, request, CHIRspOpcode.Comp, ~error: other_data[0..2].into(CHIRespErr))
   other_dbid_response <== chi_sn_dbid_response(w128, other_node_id, other_request, other_dbid)
   other_write_response <== chi_sn_write_completion(w128, other_node_id, other_request, other_dbid)
   other_read_response <== chi_sn_read_completion(w128, other_node_id, other_request, other_data_id, other_data)

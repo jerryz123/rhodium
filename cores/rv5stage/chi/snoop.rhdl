@@ -68,15 +68,9 @@ sync_circuit RV5StageCleanSnoop(address_width :: PosInt,
     assert(incoming_snoop.txn_id === dvm_txn_id,
            "clean_snoop_dvm_txn_id_consistent")
 
-  fun local_address(snoop_address :: Bits(p.snoop_address_width))
-    :~ Bits(address_width):
-    def raw_address = (snoop_address ++ bits(0, 3))
-    if address_width <= p.request_address_width
-    | raw_address[0..address_width]
-    | raw_address.zext(address_width)
   address <== mux(lookup_start,
-                  local_address(incoming_snoop.address),
-                  local_address(request.address))
+                  rv5stage_chi_snoop_address(p, address_width, incoming_snoop.address),
+                  rv5stage_chi_snoop_address(p, address_width, request.address))
   lookup.valid <== lookup_start
   lookup.bits <== address
   def lookup_result_fire = active_state & uses_lookup & !lookup_complete & lookup_result.valid
@@ -106,7 +100,7 @@ sync_circuit RV5StageCleanSnoop(address_width :: PosInt,
 
   update.valid <== response_fire & uses_lookup & line_hit & (discards_line ||| shares_state)
   update.bits <== RV5StageCleanSnoopUpdate(address_width):
-    address: local_address(request.address)
+    address: rv5stage_chi_snoop_address(p, address_width, request.address)
     invalidate: discards_line
     state: CHIResponseState.SharedClean
   pending <== (snoops.valid & ordinary_snoop) ||| active_state ||| dvm_first_pending
@@ -174,14 +168,9 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
   def dvm_first_fire = snoop_fire & incoming_dvm & !dvm_first_pending
   def dvm_second_fire = snoop_fire & incoming_dvm & dvm_first_pending
 
-  fun local_address(snoop_address :: Bits(p.snoop_address_width)) :~ Bits(address_width):
-    def raw_address = (snoop_address ++ bits(0, 3))
-    if address_width <= p.request_address_width
-    | raw_address[0..address_width]
-    | raw_address.zext(address_width)
   address <== mux(lookup_start,
-                  local_address(incoming_snoop.address),
-                  local_address(request.address))
+                  rv5stage_chi_snoop_address(p, address_width, incoming_snoop.address),
+                  rv5stage_chi_snoop_address(p, address_width, request.address))
   lookup.valid <== lookup_start
   lookup.bits <== address
   def lookup_result_fire = active_state & uses_lookup & !lookup_complete & lookup_result.valid
@@ -263,7 +252,7 @@ sync_circuit RV5StageDataSnoop(address_width :: PosInt,
     dirty_hit ||| discards_clean_line ||| shares_state
   )
   update.bits <== RV5StageDataSnoopUpdate(address_width):
-    address: local_address(request.address)
+    address: rv5stage_chi_snoop_address(p, address_width, request.address)
     invalidate: dirty_hit ||| discards_clean_line
     state: CHICacheState.SharedClean
   pending <== (snoops.valid & ordinary_snoop) ||| active_state ||| dvm_first_pending

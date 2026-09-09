@@ -1,10 +1,12 @@
 #lang rhodium
-// Compares complete RV5Stage REQ construction across physical widths and optional fields.
+// Exercises complete RV5Stage REQ/RSP construction and snoop address resizing at width boundaries.
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_request
+  lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_response
+  lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_snoop_address
 
 def params_w128 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 128)
 def params_o128 = CHIFlitParams(~node_id_width: 16, ~request_address_width: 52, ~data_width: 128, ~mpam_width: 15, ~req_rsvdc_width: 32, ~pbha_width: 4, ~stream_id_width: 16, ~sec_sid_width: 1)
@@ -20,6 +22,16 @@ circuit RV5StageCHIRequestFixture():
   input txn: Bits(12)
   input flags: Bits(6)
   input pcrd: Bits(4)
+  output response: CHIRspFlit(params_w128)
+  output other_response: CHIRspFlit(params_o512)
+  output snoop_32: Bits(32)
+  output snoop_52: Bits(52)
+  output snoop_64: Bits(64)
+  response <== rv5stage_chi_response(params_w128, bits(0x1234, 16), bits(0x4321, 16), txn, CHIRspOpcode.CompAck, ~resp: flags[0..3])
+  other_response <== rv5stage_chi_response(params_o512, bits(0x4321, 16), bits(0x1234, 16), !txn, CHIRspOpcode.SnpResp, ~resp: !flags[0..3])
+  snoop_32 <== rv5stage_chi_snoop_address(params_w128, 32, address[3..52])
+  snoop_52 <== rv5stage_chi_snoop_address(params_w128, 52, address[3..52])
+  snoop_64 <== rv5stage_chi_snoop_address(params_w128, 64, address[3..52])
   def expect_comp_ack = flags[0].into(Bool)
   def allocate_hint = flags[1].into(Bool)
   def allow_retry = flags[2].into(Bool)

@@ -30,6 +30,14 @@ Requester write-data packet construction is shared through
 retains address normalization and its DataID, CCID, and DBID-field choices;
 the shared builder does not depend on core geometry or physical-memory policy.
 
+The response wrapper uses `chi_response` from the same CHI message owner;
+RV5Stage retains its zero DBID/QoS, successful status, and caller-supplied
+coherent response bits. Both snoop engines use `rv5stage_chi_snoop_address`
+in the foundation to restore the three omitted address bits and truncate or
+zero-extend to the core address width. Keep their lookup and transaction
+state machines separate. `rv5stage-chi-requests` compares complete responses
+and narrow/equal/wide snoop addresses as well as requests.
+
 REQ construction stays in the foundation and returns an immutable value with
 the existing inactive/optional fields zero. Address normalization, SnpAttr versus
 DoDWT, memory attributes, CompAck, and retry decisions remain explicit here.

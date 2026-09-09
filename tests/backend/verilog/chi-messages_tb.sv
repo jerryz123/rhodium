@@ -34,7 +34,7 @@ module chi_messages_tb;
                         .requester_write_h512(), .snoop_h512(), .intervention_h512(),
                         .other_request(other_request), .other_node_id(other_node_id), .other_dbid(other_dbid),
                         .other_data_id(other_data_id), .other_data(other_data),
-                        .dbid_response(), .write_response(), .other_dbid_response(), .other_write_response(), .other_read_response(),
+                        .dbid_response(), .write_response(), .home_response(), .other_dbid_response(), .other_write_response(), .other_read_response(),
                         .read_w128(), .read_o128(), .read_w256(), .read_o256(), .read_w512(), .read_o512());
 
   function automatic logic [63:0] expected_mask(input int bytes_per_packet, input int address, input int size);
@@ -202,6 +202,7 @@ module chi_messages_tb;
   end
 
   initial begin
+    type(dut.home_response) expected_home_response;
     for (int sz = 0; sz <= 6; sz++) begin
       for (int addr = 0; addr < 256; addr += (1 << sz)) begin
         for (int b = 0; b < $bits(request); b++) request[b] = 1'($urandom);
@@ -223,6 +224,14 @@ module chi_messages_tb;
         for (int b = 0; b < 512; b += 32) home_request_bits[b +: 32] = $urandom;
         for (int b = 0; b < 1024; b += 32) home_data_bits[b +: 32] = $urandom;
         #1;
+        expected_home_response = '0;
+        expected_home_response.opcode = 5'h04;
+        expected_home_response.txn_id = request.txn_id;
+        expected_home_response.src_id = node_id;
+        expected_home_response.tgt_id = request.src_id;
+        expected_home_response.qos = request.qos;
+        expected_home_response.resp_err = other_data[1:0];
+        assert(dut.home_response === expected_home_response) else $fatal(1, "Home RSP complete packet/error");
         `CHECK_HNI(w128, hni_req_w128, hni_rsp_w128, hni_write_w128, hni_read_w128, dut.original_req_w128, dut.original_rsp_w128, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)
         `CHECK_HNI(h128, hni_req_h128, hni_rsp_h128, hni_write_h128, hni_read_h128, dut.original_req_h128, dut.original_rsp_h128, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)
         `CHECK_HNI(w256, hni_req_w256, hni_rsp_w256, hni_write_w256, hni_read_w256, dut.original_req_w256, dut.original_rsp_w256, 16'd37, other_node_id, dbid, other_request.txn_id, other_request.qos, node_id, other_data_id)

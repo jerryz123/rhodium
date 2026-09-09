@@ -168,6 +168,11 @@ subordinate endpoint from the service; retain separate structural configuration
 and runtime identity. Host link and Home tests cover derivation and service
 compatibility, while RAM/device/Home simulations cover connected consumers.
 
+Credited link compatibility compares the complete immutable link parameters
+structurally, then checks endpoint roles, identity, and capability containment
+separately. Keep RN, RN-I, and SN link types distinct. The link host tests
+construct independent equal values and vary every credit field and flit width.
+
 Semantic packet construction belongs in `protocol/messages.rhdl`, below transaction
 engines. Inclusive-Home cached data reuses the subordinate read builder and
 overrides trace tag and coherent response state. Victim DAT reuses the
@@ -177,6 +182,13 @@ immutable construction with their existing inactive-field defaults; command
 PAS/SnoopMe and retry-attempt fields remain maintenance-owned. Run the message,
 inclusive-Home, both maintenance-Home, and cache-maintenance fixtures for these
 builders; consumer benches compare full packets, not only payloads.
+
+The current RN/SN/Home RSP constructors share `chi_response` for inactive-field
+initialization. Keep active routing, opcode, DBID, response-state, error, and QoS
+choices in their semantic wrappers. Its zero policy does not apply to every
+RSP opcode; forwarding transforms must continue preserving untouched metadata.
+Run `chi-messages` and `rv5stage-chi-requests` for complete packet comparisons,
+alongside the Home and cache consumer fixtures.
 
 HN-I forwarding also lives in `protocol/messages.rhdl`: immutable REQ/RSP/DAT
 updates retain all untouched metadata, including optional fields. HN-I keeps
