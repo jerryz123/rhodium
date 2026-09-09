@@ -1,4 +1,4 @@
-// Verifies speculative load hits, coherence, AMOArithmetic, and exclusive LR/SC progress.
+// Verifies set-isolated hits under a miss, committed stores, coherence, and atomics.
 module rv5stage_dcache_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed {
@@ -203,6 +203,58 @@ module rv5stage_dcache_tb;
       else $fatal(1,"speculative lookup created an authorized response or transaction");
   endtask
 
+  task automatic check_under_miss(input logic [63:0] address,
+                                 input logic [2:0] outcome,
+                                 input logic [63:0] value=0,
+                                 input logic [3:0] operation=MEMORY_LOAD);
+    pipeline_lookup_in='{valid:1,bits:'{address:address ^ virtual_page_xor,access:operation,width:3,unsigned_0:0,data:0}};
+    tick();
+    pipeline_lookup_in='0;
+    pipeline_in.request='{valid:1,bits:'{address:address,access:operation,width:3,unsigned_0:0,data:0}};
+    #1;
+    assert(pipeline_out.response.valid && pipeline_out.response.bits.outcome==outcome)
+      else $fatal(1,"hit-under-miss outcome at %h: got %0d expected %0d",address,pipeline_out.response.bits.outcome,outcome);
+    if(outcome==PIPE_LOAD_HIT) assert(pipeline_out.response.bits.data==value)
+      else $fatal(1,"hit-under-miss read stale/wrong data");
+    assert(!core_out.drained && !core_out.response.valid && !tx_req_pending)
+      else $fatal(1,"hit-under-miss altered the outstanding transaction");
+    tick(); pipeline_in='0; tick();
+  endtask
+
+  task automatic stream_under_miss;
+    pipeline_lookup_in='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+    tick();
+    pipeline_in.request='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+    repeat(12) begin
+      #1;
+      assert(pipeline_out.response.valid && pipeline_out.response.bits.outcome==PIPE_LOAD_HIT && pipeline_out.response.bits.data==LINE[63:0])
+        else $fatal(1,"independent streaming loads stalled during CHI wait");
+      assert(!core_out.drained && !core_out.response.valid && !tx_req_pending)
+        else $fatal(1,"streaming hits created another transaction");
+      tick();
+    end
+    pipeline_lookup_in='0; pipeline_in='0;
+  endtask
+
+  task automatic prepare_hit_under_miss;
+    reset=1; core_in='0; pipeline_in='0; pipeline_lookup_in='0; chi_in='0; prefetch_in='0;
+    tx_req_pending=0; tx_rsp_pending=0; tx_dat_pending=0;
+    repeat(2) tick(); reset=0; grant_req_credit(); grant_rsp_credit(); grant_dat_credit();
+    // Two ways in set zero plus an independent warm line in set one.
+    send_core_request(ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,1);
+    accept_request(READ_CLEAN,ADDRESS,0,6,1,0);
+    return_line(ADDRESS,LINE,3'b010); accept_comp_ack();
+    expect_core_response(LINE[63:0],DATA_DESTINATION_INTEGER,1);
+    send_core_request(EVICT_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,1);
+    accept_request(READ_CLEAN,EVICT_ADDRESS,0,6,1,0);
+    return_line(EVICT_ADDRESS,EVICT_LINE,3'b010); accept_comp_ack();
+    expect_core_response(EVICT_LINE[63:0],DATA_DESTINATION_INTEGER,1);
+    send_core_request(PREFETCH_READ_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,1);
+    accept_request(READ_CLEAN,PREFETCH_READ_ADDRESS,0,6,1,0);
+    return_line(PREFETCH_READ_ADDRESS,LINE,3'b010); accept_comp_ack();
+    expect_core_response(LINE[63:0],DATA_DESTINATION_INTEGER,1);
+  endtask
+
   task automatic send_prefetch(input logic [63:0] address,
                                input logic [1:0] operation);
     begin
@@ -331,7 +383,8 @@ module rv5stage_dcache_tb;
   task automatic return_line(
     input logic [63:0] address,
     input logic [511:0] line,
-    input logic [2:0] response_state
+    input logic [2:0] response_state,
+    input bit exercise_hits = 0
   );
     integer packet;
     begin
@@ -352,6 +405,10 @@ module rv5stage_dcache_tb;
         tick();
         chi_in.response_data.valid = 1'b0;
         chi_in.response_data.bits = '0;
+        if(exercise_hits && packet!=0) begin
+          check_under_miss(PREFETCH_READ_ADDRESS,PIPE_LOAD_HIT,LINE[63:0]);
+          check_under_miss(address,PIPE_REPLAY); // No partial line may be observed.
+        end
       end
     end
   endtask
@@ -1350,6 +1407,141 @@ module rv5stage_dcache_tb;
       else $fatal(1,"rejected store dirtied the probed line");
     tx_rsp_pending=0;
     $display("WB stores: squash, byte hazards, physical tags, independent hits, and coherent draining passed");
+
+    // One ordinary miss permits sustained read hits in other sets, including
+    // protocol retry and gapped packets. Neither another miss nor a store can
+    // claim the occupied transaction slot or mutate a reserved way.
+    for(int store_miss=0;store_miss<2;store_miss++) begin
+      int replies, blocked, resumed;
+      prepare_hit_under_miss();
+      send_core_request(THIRD_ADDRESS,store_miss!=0 ? MEMORY_STORE : MEMORY_LOAD,ATOMIC_SWAP,STORE_DATA,2);
+      accept_request(store_miss!=0 ? READ_UNIQUE : READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
+      stream_under_miss();
+      check_under_miss(ADDRESS,PIPE_REPLAY); // Victim still has its old tag.
+      check_under_miss(EVICT_ADDRESS,PIPE_REPLAY); // Other way in the reserved set.
+      check_under_miss(THIRD_ADDRESS,PIPE_REPLAY); // Incoming line.
+      check_under_miss(PREFETCH_WRITE_ADDRESS,PIPE_REPLAY); // Second miss, another set.
+      check_under_miss(PREFETCH_READ_ADDRESS,PIPE_REPLAY,0,MEMORY_STORE);
+      send_response(RETRY_ACK,0,0,3);
+      stream_under_miss();
+      send_response(PCRD_GRANT,0,0,3);
+      accept_request(store_miss!=0 ? READ_UNIQUE : READ_CLEAN,THIRD_ADDRESS,0,6,0,3);
+      chi_in.requester_responses.ready=0;
+      return_line(THIRD_ADDRESS,THIRD_LINE,store_miss!=0 ? 3'b010 : 3'b001,1);
+      stream_under_miss(); // Full line buffered, CompAck backpressured.
+      pipeline_lookup_in='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      tick();
+      pipeline_in.request='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      grant_rsp_credit(); tick(); accept_comp_ack();
+      replies=0; blocked=0; resumed=0;
+      repeat(24) begin
+        #1;
+        if(pipeline_out.response.bits.outcome==PIPE_LOAD_HIT) begin
+          assert(pipeline_out.response.bits.data==LINE[63:0]) else $fatal(1,"installation corrupted an independent hit");
+          resumed++;
+        end else begin
+          assert(pipeline_out.response.bits.outcome==PIPE_REPLAY) else $fatal(1,"installation lookup allocated work");
+          blocked++;
+        end
+        if(core_out.response.valid) begin
+          assert(core_out.response.bits.rd==2 && core_out.response.bits.data==(store_miss!=0 ? 0 : THIRD_LINE[63:0]))
+            else $fatal(1,"miss result mixed with speculative hit");
+          replies++;
+        end
+        tick();
+      end
+      pipeline_lookup_in='0; pipeline_in='0; tick();
+      assert(replies==1 && blocked>=8 && resumed>=8 && core_out.drained && !tx_req_pending)
+        else $fatal(1,"refill progress under streaming hits: replies=%0d blocked=%0d resumed=%0d",replies,blocked,resumed);
+      check_pipeline_load(THIRD_ADDRESS,1,1,store_miss!=0 ? STORE_DATA : THIRD_LINE[63:0]);
+      check_pipeline_load(EVICT_ADDRESS,1,1,EVICT_LINE[63:0]);
+    end
+
+    // Non-allocating refill completion can coincide with an independent hit.
+    begin
+      int simultaneous;
+      prepare_hit_under_miss();
+      send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2,1);
+      accept_request(READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
+      chi_in.requester_responses.ready=0;
+      return_line(THIRD_ADDRESS,THIRD_LINE,3'b001,1);
+      pipeline_lookup_in='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      tick();
+      pipeline_in.request='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      grant_rsp_credit(); tick(); accept_comp_ack(); simultaneous=0;
+      repeat(8) begin
+        #1;
+        assert(pipeline_out.response.bits.outcome==PIPE_LOAD_HIT && pipeline_out.response.bits.data==LINE[63:0])
+          else $fatal(1,"non-allocating completion stalled/corrupted a hit");
+        if(core_out.response.valid) begin
+          assert(core_out.response.bits.data==THIRD_LINE[63:0] && core_out.response.bits.rd==2)
+            else $fatal(1,"non-allocating completion lost its destination/data");
+          simultaneous++;
+        end
+        tick();
+      end
+      pipeline_lookup_in='0; pipeline_in='0; tick();
+      assert(simultaneous==1 && core_out.drained) else $fatal(1,"missing concurrent completion");
+      check_pipeline_load(THIRD_ADDRESS,1,0);
+    end
+
+    // An older queued mutation remains an ordering barrier to speculative hits.
+    prepare_hit_under_miss();
+    send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2);
+    accept_request(READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
+    send_core_request(PREFETCH_READ_ADDRESS,MEMORY_STORE,ATOMIC_SWAP,STORE_DATA,0);
+    check_under_miss(PREFETCH_READ_ADDRESS,PIPE_REPLAY);
+    return_line(THIRD_ADDRESS,THIRD_LINE,3'b001); accept_comp_ack();
+    expect_core_response(THIRD_LINE[63:0],DATA_DESTINATION_INTEGER,2);
+    expect_core_response(0,DATA_DESTINATION_NONE,0);
+    check_pipeline_load(PREFETCH_READ_ADDRESS,1,1,STORE_DATA);
+
+    // Dirty victim transmission no longer monopolizes idle SRAM cycles.
+    prepare_hit_under_miss();
+    send_core_request(ADDRESS,MEMORY_STORE,ATOMIC_SWAP,STORE_DATA,0);
+    expect_core_response(0,DATA_DESTINATION_NONE,0);
+    dirty_line=LINE; dirty_line[63:0]=STORE_DATA;
+    send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2);
+    for(beat=0;beat<8;beat++) begin
+      accept_request(WRITE_UNIQUE_PTL,ADDRESS+64'(beat*8),1,3,1,0);
+      check_under_miss(PREFETCH_READ_ADDRESS,PIPE_LOAD_HIT,LINE[63:0]);
+      check_under_miss(ADDRESS,PIPE_REPLAY);
+      send_response(COMP_DBID_RESP,1,12'h055,0);
+      accept_write_data(dirty_line[beat*64+:64],beat/2,1'(beat%2));
+    end
+    accept_request(READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
+    stream_under_miss();
+    // An invalidating probe wins over the speculative stream, without waiting
+    // for the unrelated refill. Once invalidated, that load must replay.
+    send_snoop(PREFETCH_READ_ADDRESS,12'h07f);
+    for(int cycle=0;!tx_rsp_pending && cycle<32;cycle++) begin
+      pipeline_lookup_in='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      tick();
+    end
+    pipeline_lookup_in='0;
+    assert(tx_rsp_pending && captured_rsp.txn_id==12'h07f && captured_rsp.resp==0)
+      else $fatal(1,"hit-under-miss starved an invalidating probe");
+    tx_rsp_pending=0;
+    check_under_miss(PREFETCH_READ_ADDRESS,PIPE_REPLAY);
+    return_line(THIRD_ADDRESS,THIRD_LINE,3'b001); accept_comp_ack();
+    expect_core_response(THIRD_LINE[63:0],DATA_DESTINATION_INTEGER,2);
+
+    // LR/atomic acquisition is still globally serialized; reset retires the
+    // reservation bookkeeping even with an unanswered ordinary miss.
+    for(int atomic_miss=0;atomic_miss<2;atomic_miss++) begin
+      prepare_hit_under_miss();
+      send_core_request(THIRD_ADDRESS,atomic_miss!=0 ? MEMORY_ATOMIC : MEMORY_LR,ATOMIC_SWAP,STORE_DATA,2);
+      accept_request(READ_UNIQUE,THIRD_ADDRESS,0,6,1,0);
+      check_under_miss(PREFETCH_READ_ADDRESS,PIPE_REPLAY);
+      return_line(THIRD_ADDRESS,THIRD_LINE,3'b010); accept_comp_ack();
+      expect_core_response(THIRD_LINE[63:0],DATA_DESTINATION_INTEGER,2);
+    end
+    prepare_hit_under_miss();
+    send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2);
+    accept_request(READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
+    prepare_hit_under_miss();
+    check_pipeline_load(PREFETCH_READ_ADDRESS,1,1,LINE[63:0]);
+    $display("Load hit-under-miss: streaming hits, reserved sets, retry, installation, concurrent completion, queued stores, writeback, snoops, and reset passed");
     $display("RV5Stage VIPT write-back data-cache and self-snooped maintenance simulation passed");
     $finish;
   end

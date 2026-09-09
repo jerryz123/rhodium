@@ -1,4 +1,4 @@
-<!-- Specifies RV5Stage's data-cache protocol and blocking write-back L1D policy. -->
+<!-- Specifies RV5Stage's write-back L1D, single-miss ownership, and independent load-hit policy. -->
 
 # RV5Stage data cache
 
@@ -15,7 +15,7 @@ Contributors changing the L1D implementation should read
 
 | Property | Current contract |
 |---|---|
-| Organization | Non-aliasing VIPT, set-associative, blocking, write-back, write-allocate |
+| Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; one outstanding miss with load hit-under-miss |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
 | Core throughput | One uncontended load hit per cycle; owned store hits retire into two committed entries |
 | Core protocol | EX/MEM lookup and WB store authorization; ordered `Decoupled` slow transactions with `Valid` responses |
@@ -71,8 +71,29 @@ A matching snoop also waits before reading metadata or gathering dirty data;
 unrelated probes are not delayed merely by buffer occupancy. A matching pending probe
 prevents new store authorization, so no stale ownership proof can enqueue after
 coherence service starts. Fences, traps, and ordered IO observe buffer occupancy
-through `drained`, including same-cycle enqueue. The cache remains blocking:
-this is not hit-under-miss or a multi-MSHR cache.
+through `drained`, including same-cycle enqueue.
+
+### Load hits under a miss
+
+One ordinary demand load or store miss may remain outstanding while speculative
+pipeline loads hit resident lines in other cache sets. Waiting for CHI requests,
+retry credit, response packets, CompAck acceptance, or buffered victim writeback
+does not itself occupy the SRAM ports. Independent load hits retain the normal
+EX/MEM/WB timing and may complete before the older miss. The authorized slow
+request/response path remains ordered and supports only one miss at a time.
+
+The entire miss set is reserved from acquisition/allocation through final
+installation (or non-allocating completion), including the victim and other
+ways. Another miss, a same-set access, or a pipeline store replays during this
+interval. LR/SC, atomic, cache-block, and prefetch transactions do not enable
+hit-under-miss. Queued older requests and retained lookup stages remain ordering
+barriers rather than being bypassed speculatively.
+
+Gather, refill installation, mutation, and snoop array activity retain priority.
+Loads replay on conflicting cycles and never observe partially installed data
+or reuse a read result owned by another request. An outstanding miss still keeps
+`drained` false; fences and ordered IO retain their existing completion rules.
+This is not a multi-MSHR cache, miss merging, or store hit-under-miss.
 
 Requests carry `locality: RV5StageMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). Lookup, retained mutation, dirty-victim eviction, and refill
@@ -256,8 +277,9 @@ metadata. [CHI permits silent eviction of a clean copy](https://documentation-se
 (section 4.6): no data, tag, valid, or state array is written, no victim is
 drained, and replacement pointers are untouched. It does not explicitly clear
 a resident LR reservation, which is still subject to conflicting accesses and coherence events.
-Younger requests remain ordered behind
-the blocking transaction and reread their retained lookups afterward. Snoops
+Younger authorized slow requests remain ordered behind
+the transaction and reread their retained lookups afterward; independent
+pipeline load hits may proceed under the set-exclusion rules above. Snoops
 continue to service resident lines while the read is outstanding.
 
 All four NTL selectors currently choose this same L1 policy. A hinted hit still

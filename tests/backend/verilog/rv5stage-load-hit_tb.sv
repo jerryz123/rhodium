@@ -1,4 +1,4 @@
-// Checks the real eight-instruction load/store loop, hit timing, lanes, and precise squash.
+// Checks real-core hit-under-miss, warm-loop timing, deferred results, lanes, and squash.
 module rv5stage_load_hit_tb;
   typedef struct packed {logic ready;} ready_t;
   typedef struct packed {logic [63:0] address;} ireq_bits_t;
@@ -53,6 +53,7 @@ module rv5stage_load_hit_tb;
   response_bits_t uncached_response;
   integer cycle=0, beat=0, refills=0, signatures=0, hits=0, device_reads=0, ram_stores=0;
   integer measured=0, previous_issue=0, chase_cycle=0;
+  integer refill_delay=0, load_miss_hits=0, store_miss_hits=0;
   logic previous_load=0;
   logic [63:0] previous_address;
 
@@ -135,14 +136,28 @@ module rv5stage_load_hit_tb;
       146: return load_insn(7,8,32,3); // must not bypass the older store
       147: return store_insn(7,72);
       148: return 32'h0ff0000f;
-      152: return 32'h07b00393; // x7=123, must survive the younger squashed lookup
-      153: return 32'h40000293; // x5=0x400
-      154: return 32'h30529073; // csrw mtvec,x5
-      155: return 32'h000102b7; // x5=0x10000, unmapped
-      156: return load_insn(6,5,0,3); // access fault at WB
-      157: return load_insn(7,8,0,3); // younger warm lookup must not commit
-      158: return store_insn(0,80); // wrong path
-      256: return store_insn(7,80); // trap handler: precise preserved value
+      152: return load_insn(5,8,1024,3); // delayed miss at 0x1400
+      153: return load_insn(6,8,16,3); // independent resident hit under the miss
+      154: return add_insn(7,6,0);
+      155: return add_insn(7,7,5); // consume both hit and deferred miss results
+      156: return store_insn(7,80);
+      157: return 32'h0ff0000f;
+      160: return store_insn(6,1088,8); // delayed ownership miss at 0x1440
+      161: return load_insn(7,8,16,3);
+      162: return add_insn(7,7,0);
+      163: return 32'h0ff0000f; // drain the accepted store miss
+      164: return load_insn(6,8,1088,3);
+      165: return add_insn(7,7,6);
+      166: return store_insn(7,88);
+      167: return 32'h0ff0000f;
+      172: return 32'h07b00393; // x7=123, must survive the younger squashed lookup
+      173: return 32'h40000293; // x5=0x400
+      174: return 32'h30529073; // csrw mtvec,x5
+      175: return 32'h000102b7; // x5=0x10000, unmapped
+      176: return load_insn(6,5,0,3); // access fault at WB
+      177: return load_insn(7,8,0,3); // younger warm lookup must not commit
+      178: return store_insn(0,96); // wrong path
+      256: return store_insn(7,96); // trap handler: precise preserved value
       257: return 32'h0000006f;
       default: return 32'h00000013;
     endcase
@@ -176,7 +191,7 @@ module rv5stage_load_hit_tb;
     chi_in.requests.ready=1;
     chi_in.requester_responses.ready=1;
     chi_in.request_data.ready=1;
-    chi_in.response_data.valid=refill_pending;
+    chi_in.response_data.valid=refill_pending && refill_delay==0;
     chi_in.response_data.bits.opcode=4'h4;
     chi_in.response_data.bits.resp=3'b010; // clean unique line permits the later local store
     chi_in.response_data.bits.byte_enable=16'hffff;
@@ -195,6 +210,7 @@ module rv5stage_load_hit_tb;
       refill_pending<=0; uncached_pending<=0;
       refills<=0; beat<=0; signatures<=0; measured<=0; hits<=0;
       previous_load<=0; chase_cycle<=0;
+      refill_delay<=0; load_miss_hits<=0; store_miss_hits<=0;
     end else begin
       previous_load<=load_issue;
       previous_address<=load_address;
@@ -202,6 +218,8 @@ module rv5stage_load_hit_tb;
         assert(previous_load) else $fatal(1,"hit did not follow EX issue by exactly one cycle");
         assert(previous_address<64'h8000) else $fatal(1,"device or unmapped access completed speculatively");
         hits<=hits+1;
+        if(refill_pending && refill_delay>0 && line_address==64'h1400) load_miss_hits<=load_miss_hits+1;
+        if(refill_pending && refill_delay>0 && line_address==64'h1440) store_miss_hits<=store_miss_hits+1;
       end
       if(load_issue && load_address==64'h1000 && refills==1) chase_cycle<=cycle;
       if(load_issue && load_address==64'h1008 && signatures==0) begin
@@ -231,8 +249,10 @@ module rv5stage_load_hit_tb;
         line_address<=64'(chi_out.requests.bits.address);
         transaction_id<=chi_out.requests.bits.txn_id;
         refill_pending<=1; beat<=0; refills<=refills+1;
+        refill_delay<=(chi_out.requests.bits.address==44'h1400 || chi_out.requests.bits.address==44'h1440) ? 32 : 0;
       end
-      if(refill_pending && chi_out.response_data.ready) begin
+      if(refill_delay>0) refill_delay<=refill_delay-1;
+      if(chi_in.response_data.valid && chi_out.response_data.ready) begin
         if(beat==3) refill_pending<=0;
         else beat<=beat+1;
       end
@@ -243,7 +263,7 @@ module rv5stage_load_hit_tb;
         if(uncached_out.request.bits.request.access==4'd1) device_reads<=device_reads+1;
       end
       if(transaction_fire && transaction.access==4'd2 && transaction.address<64'h8000 && !(transaction.address>=64'h1300 && transaction.address<64'h1340)) begin
-        assert(transaction.address==64'h1020 && transaction.data==66) else $fatal(1,"unexpected cache mutation");
+        assert((transaction.address==64'h1020 && transaction.data==66) || (transaction.address==64'h1440 && transaction.data==64'h00000009fffffff9)) else $fatal(1,"unexpected cache mutation");
         ram_stores<=ram_stores+1;
       end
       if(transaction_fire && transaction.access==4'd2 && transaction.address>=64'h8000) begin
@@ -263,9 +283,13 @@ module rv5stage_load_hit_tb;
           7: assert(transaction.data==64'hfedcba98765480ff) else $fatal(1,"FP double load-hit writeback");
           8: assert(transaction.data==64'hfeedface && device_reads==1) else $fatal(1,"device load did not execute exactly once");
           9: assert(transaction.data==66 && ram_stores==1) else $fatal(1,"load bypassed an older store");
-          10: begin
+          10: assert(transaction.data==(64'h1111111111111111+64'h00000009fffffff9) && load_miss_hits>0)
+            else $fatal(1,"independent hit did not overlap load miss or deferred result was lost");
+          11: assert(transaction.data==(64'h00000009fffffff9*2) && store_miss_hits>0 && refills==6)
+            else $fatal(1,"hit-under-store-miss ordering, fence, or mutation failed");
+          12: begin
             assert(transaction.data==123) else $fatal(1,"squashed hit overwrote x7");
-            $display("RV5Stage EX-issued load-hit latency, forwarding, lanes, and squash passed (%0d hits)",hits);
+            $display("RV5Stage EX-issued hit latency, hit-under-load/store-miss, fences, forwarding, lanes, and squash passed (%0d hits)",hits);
             $finish;
           end
           default: $fatal(1,"extra signature");

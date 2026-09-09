@@ -1,4 +1,4 @@
-<!-- Guides contributors through implementing and validating RV5Stage's data cache. -->
+<!-- Guides implementation and validation of RV5Stage's set-isolated hit-under-miss data cache. -->
 
 # Developing the RV5Stage data cache
 
@@ -76,6 +76,15 @@ importing the instruction-cache package.
    movement, or reservation invalidation.
 4. Preserve explicit SRAM ownership and priority among core lookup, line
    gather, refill installation, and snoop service.
+   Keep transaction capacity separate from array availability. `miss_active`,
+   `miss_allows_hits`, and `miss_set` span direct acquisition or victim gather
+   through final refill completion, including CHI retries and writeback.
+   Only ordinary demand load/store contexts enable hit-under-miss. Protect the
+   whole set in EX admission and MEM classification, and replay a second miss
+   rather than exposing it as Slow service. Do not weaken store authorization,
+   ordered-queue barriers, or `drained` when enabling independent load reads.
+   Preserve registered read ownership across an installation or snoop arriving
+   between EX and MEM; never steal an array cycle from older work.
 5. Acquire Unique for LR without treating it as a store for translation,
    faults, dirty state, or refill mutation. SC authorization is a local owned
    hit decision; never retain it in a refill context. Keep probe-protection expiry
@@ -129,3 +138,13 @@ eviction, permits an intervening writer after a stalled LR's protection expires,
 completes two competing LR/SC pairs through exclusive acquisition.
 These tests do not replace constrained instruction-loop testing through a
 complete SoC, including fetch, translation, and network arbitration.
+
+For hit-under-miss changes, `rv5stage-dcache` also checks sustained independent
+hits during delayed/retried refills and dirty writeback, both ways of a reserved
+set, a second miss, blocked stores and atomics, gapped packet assembly,
+installation progress, concurrent non-allocating completion, queued older
+stores, invalidating snoops, and reset. Run `rv5stage-load-hit` at the real
+core/MMU/router/cache boundary for hits during delayed load/store misses,
+deferred-result use, and fence ordering. Include `rv5stage-dcache-rv32` and
+`rv5stage-lrsc-progress` for width and coherence regression coverage, then rerun
+SimpleSoC vvadd with the same ELF and host polling before claiming a speedup.

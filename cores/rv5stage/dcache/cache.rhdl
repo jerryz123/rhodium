@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements shared load/store lookup, committed-store draining, and blocking coherent miss service.
+// Implements coherent L1D with committed stores and set-isolated load hits under one miss.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -156,6 +156,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   reg pending_zero_index(~init: bits(0, word_index_width))
   reg refill_installing(~init: Bool(#false))
   reg refill_install_index(~init: bits(0, word_index_width))
+  // Reserve the whole set across victim gather, writeback, retry, and install.
+  // Only ordinary demand loads/stores permit independent pipeline load hits.
+  reg miss_active(~init: Bool(#false))
+  reg miss_allows_hits(~init: Bool(#false))
+  reg miss_set(Bits(set_width))
   reg gather_state(~init: RV5StageDataGatherState.Idle)
   reg gather_issue_index(~init: bits(0, word_index_width))
   reg gather_response_pending(~init: Bool(#false))
@@ -505,10 +510,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def lookup_retry = lookup.egress.valid & !lookup_read_pending & lookup_can_advance
   // The EX read never takes an SRAM port from older authorized work or snoops.
   // It reserves no transaction and cannot allocate, mutate, or establish LR.
-  // One blocking miss owner remains. Pending committed stores are deliberately
-  // absent here: only an actual SRAM write or overlapping bytes block a load.
-  def pipeline_engines_idle = !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !lookup_needs_refill & !local_mutation
-  def pipeline_service_idle = pipeline_engines_idle & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !virtual_lookup.valid
+  // Transaction capacity and SRAM ownership are separate. Queued older work
+  // still blocks bypass; an active miss has already captured its entire context.
+  def pipeline_arrays_idle = !maintenance_active & gather_idle & !refill_installing & !pending_mutation_valid & !lookup_needs_refill & !local_mutation
+  def pipeline_engines_idle = pipeline_arrays_idle & !miss_active & refill.command.ready & writeback.command.ready
+  def pipeline_order_clear = !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !virtual_lookup.valid
+  def pipeline_service_idle = pipeline_engines_idle & pipeline_order_clear
+  def hit_under_miss = miss_active & miss_allows_hits & pipeline_arrays_idle & pipeline_order_clear & !snoop_pending
   def pipeline_store = pipeline.request.bits.access === MemoryOperation.Store
   def store_drain_available = pipeline_engines_idle & !lookup_read_pending & !resolved.egress.valid & !snoop_metadata_pending & !snoop_lookup_start & !snoop.update.valid
   def force_store_drain = stores.urgent ||| !stores.enqueue.ready ||| core_requests.egress.valid ||| management_waiting ||| (snoop_pending & stores.line_hazard) ||| (pipeline.request.valid & !pipeline_store & stores.word_hazard)
@@ -516,7 +524,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   stores.drain.ready <== store_drain_available & (force_store_drain ||| !pipeline_read_load)
   def store_drain = stores.drain.fire()
   def store_state_write = store_drain & stores.drain.bits.mark_dirty
-  def load_issue = pipeline_lookup.valid & pipeline_service_idle & !snoop_lookup_start & !snoop_metadata_pending & !snoop.update.valid & !store_state_write & !(store_drain & pipeline_read_load)
+  def independent_lookup = pipeline_read_load & (pipeline_lookup.bits.address[offset_width..(offset_width + set_width)] =/= miss_set)
+  def load_issue = pipeline_lookup.valid & (pipeline_service_idle ||| (hit_under_miss & independent_lookup)) & !snoop_lookup_start & !snoop_metadata_pending & !snoop.update.valid & !store_state_write & !(store_drain & pipeline_read_load)
   load_read_pending <== load_issue
   when load_issue:
     load_read_address <== pipeline_lookup.bits.address
@@ -564,7 +573,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def pipeline_read_matches = load_read_pending & arrays.tags.response.valid & arrays.states.response.valid & (pipeline_store ||| arrays.data.response.valid) & (load_read_address[0..12] === pipeline.request.bits.address[0..12])
   wire pipeline_outcome: RV5StagePipelineOutcome
   wire pipeline_reason: RV5StagePipelineReason
-  when (!pipeline_service_idle):
+  def independent_load = (pipeline.request.bits.access === MemoryOperation.Load) & (load_set =/= miss_set)
+  when (!(pipeline_service_idle ||| (hit_under_miss & independent_load))):
     pipeline_outcome <== RV5StagePipelineOutcome.Replay
     pipeline_reason <== mux(snoop_pending, RV5StagePipelineReason.Probe, RV5StagePipelineReason.Miss)
   elsewhen pipeline_probe_conflict:
@@ -574,7 +584,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     pipeline_outcome <== RV5StagePipelineOutcome.Replay
     pipeline_reason <== RV5StagePipelineReason.ArrayPort
   elsewhen (!load_selection.valid ||| (pipeline_store & !pipeline_state.is_unique())):
-    pipeline_outcome <== RV5StagePipelineOutcome.Slow
+    // A second miss cannot allocate or enter the authorized request queue.
+    pipeline_outcome <== mux(miss_active, RV5StagePipelineOutcome.Replay, RV5StagePipelineOutcome.Slow)
     pipeline_reason <== RV5StagePipelineReason.Miss
   elsewhen (!pipeline_store & stores.word_hazard):
     pipeline_outcome <== RV5StagePipelineOutcome.Replay
@@ -590,6 +601,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     outcome: pipeline_outcome
     reason: pipeline_reason
     data: pipeline_load_gen.value
+  when (pipeline.request.valid & miss_active & (pipeline_outcome === RV5StagePipelineOutcome.LoadHit)):
+    assert(miss_allows_hits & independent_load & pipeline_read_matches, "l1d_hit_under_miss_isolated")
   store_candidate.ingress.valid <== pipeline.request.valid & (pipeline_outcome === RV5StagePipelineOutcome.StoreHit)
   store_candidate.ingress.bits <== RV5StagePendingStore(xlen, way_width, word_bytes):
     address: pipeline.request.bits.address
@@ -606,7 +619,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no
   // request can cross the reported quiescent boundary.
-  core.drained <== stores.empty & !stores.enqueue.fire() & !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
+  core.drained <== stores.empty & !stores.enqueue.fire() & !request_accept & !core_requests.egress.valid & !lookup.egress.valid & !resolved.egress.valid & !responses.egress.valid & !pending_mutation_valid & !maintenance_active & !miss_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing
   def produces_load_hit = lookup_load & line_hit & (!lookup_lr ||| lookup_state.is_unique())
   def produces_failed_sc = lookup_sc & !sc_authorized
   def produces_response = maintenance_complete ||| produces_load_hit ||| local_mutation_complete ||| produces_failed_sc ||| (complete_refill & !completion_prefetch)
@@ -708,6 +721,15 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     pending_mutation_valid <== Bool(#false)
   elsewhen local_mutation_commit:
     pending_zero_index <== pending_zero_index + bits(1, word_index_width)
+
+  when (direct_refill_path.fire() ||| eviction_gather_start):
+    assert(!miss_active, "l1d_single_miss_owner")
+    miss_active <== Bool(#true)
+    miss_allows_hits <== !lookup_prefetch & lookup_access.is_one_of(MemoryOperation.Load, MemoryOperation.Store)
+    miss_set <== lookup_set
+  elsewhen complete_refill:
+    miss_active <== Bool(#false)
+    miss_allows_hits <== Bool(#false)
 
   when refill_install_start:
     refill_installing <== Bool(#true)

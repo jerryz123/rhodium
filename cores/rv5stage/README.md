@@ -27,7 +27,7 @@ Contributors changing the core should read
 | Integer widths | RV32 and RV64 selected by `XLen.X32` or `XLen.X64` |
 | Floating point | Disabled by default; RV32F or RV64D, with optional Zfhmin, Zfh, or Zfa |
 | Address translation | Bare for RV32; Bare or Sv39 for RV64 |
-| Private caches | Separate configurable L1I and blocking write-back L1D; fixed 64-byte lines; demand-priority Zicbop admission |
+| Private caches | Separate configurable L1I and single-miss write-back L1D with independent load hit-under-miss; fixed 64-byte lines; demand-priority Zicbop admission |
 | External memory | Instruction RN-I snapshot reads, data RN-F coherence, and a separate shared uncached RN-I channel |
 
 The integer decode includes RV32I/RV64I, A, B, M, Zicond, Zimop, Zicsr, Zifencei, and
@@ -474,8 +474,9 @@ a load through the MMU and cache response path.
 Decode stalls on scoreboard RAW and WAW hazards and on direct conflicts with
 deferred instructions still crossing ID/EX or EX/MEM. Independent younger
 instructions may proceed while a load, multiply, divide, or FP result remains
-outstanding. D-cache responses are ordered, and a blocking miss prevents younger
-memory requests from entering the cache even when non-memory work can pass it.
+outstanding. D-cache slow responses remain ordered. During an ordinary demand
+miss, independent pipeline loads may hit other cache sets; stores, second
+misses, and conflicting accesses replay. See the [hit-under-miss contract](dcache/README.md#load-hits-under-a-miss).
 
 A data request never carries downstream readiness back through EX/MEM. If WB
 cannot dispatch it because of a DTLB miss, walker ownership, cache pressure, or
@@ -684,8 +685,9 @@ L1I is a nonsnooping, software-synchronized, one-hit-per-cycle instruction cache
 and response state. Executable non-cacheable regions bypass it as aligned
 four-byte `ReadNoSnp` requests and never allocate a line. Such regions must be
 read-idempotent; a typical BootROM PMA is readable, executable, non-cacheable,
-non-atomic, non-device, and read-idempotent. L1D is a blocking write-back/
-write-allocate cache supporting loads, stores, LR/SC, and AMOs. All
+non-atomic, non-device, and read-idempotent. L1D is a single-miss write-back/
+write-allocate cache supporting loads, stores, LR/SC, and AMOs, with independent
+pipeline load hits permitted under ordinary demand misses. All
 non-cacheable instruction and data requests arbitrate onto the same
 one-outstanding RN-I engine. Non-cacheable data operations first enter a
 single-entry [IO-MSHR](dcache/README.md#non-cacheable-data-io-mshr), independently
