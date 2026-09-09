@@ -354,9 +354,8 @@ These are microarchitectural progress mechanisms, not a published `Ziccrse`
 claim. Full-system constrained-loop progress still depends on instruction
 fetch, translation, Home/network fairness, and the chosen core timing budget.
 The [full-core progress regression](../DEVELOPING.md#ziccrse-progress-gate)
-currently exposes repeated SC failure for boundary-crossing loops under
-read-only inclusive-cache eviction pressure; the cache-only tests do not
-establish the architectural guarantee.
+owns current evidence for boundary-crossing loops under read-only inclusive-cache
+eviction pressure; the cache-only tests do not establish the architectural guarantee.
 
 ## Replacement and deliberate limits
 

@@ -1,4 +1,4 @@
-// Verifies registered load/instruction translation, drain, retries, permissions, and prefetches.
+// Verifies MMU translation, accepted-walk survival across fetch recovery, faults, and prefetches.
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -133,6 +133,10 @@ module rv5stage_mmu_replay_tb;
   integer instruction_responses_seen = 0;
   logic instruction_translation_phase = 1'b0;
   integer instruction_pte_requests = 0;
+  logic detached_walk_phase = 0;
+  logic manual_pte_valid = 0;
+  logic [63:0] manual_pte_data = 0;
+  integer manual_pte_requests = 0;
 
   RV5StageMmu dut (.*);
   always #5 clock = ~clock;
@@ -164,13 +168,13 @@ module rv5stage_mmu_replay_tb;
     data_memory_in.request.ready = memory_ready;
     data_memory_in.request_fault = 1'b0;
     data_memory_in.request_access_fault = 1'b0;
-    data_memory_in.response.valid = pte_response_valid || ordinary_response_valid;
+    data_memory_in.response.valid = pte_response_valid || ordinary_response_valid || manual_pte_valid;
     data_memory_in.response.bits.access_fault = 0;
-    data_memory_in.response.bits.data = ordinary_response_valid ? 64'hfeedface_12345678 : pte_response_data;
+    data_memory_in.response.bits.data = manual_pte_valid ? manual_pte_data : ordinary_response_valid ? 64'hfeedface_12345678 : pte_response_data;
     data_memory_in.response.bits.destination = ordinary_response_valid ? DATA_DESTINATION_INTEGER : 2'd0;
     data_memory_in.response.bits.rd = ordinary_response_valid ? 5'd7 : 5'd0;
     data_memory_in.response.bits.floating_point_precision = '0;
-    data_memory_in.drained = memory_idle && !pte_response_valid;
+    data_memory_in.drained = memory_idle && !pte_response_valid && !manual_pte_valid;
     data_memory_in.reservation_valid = memory_idle;
   end
 
@@ -185,7 +189,7 @@ module rv5stage_mmu_replay_tb;
       pte_response_valid <= 1'b0;
       assert (data_out.reservation_valid == data_memory_in.reservation_valid)
         else $fatal(1, "MMU did not forward reservation status");
-      if (pte_response_valid)
+      if (pte_response_valid || manual_pte_valid)
         assert (!data_out.response.valid)
           else $fatal(1, "page-table response leaked onto the core data path");
       assert (instruction_phase || !instruction_memory_out.request.valid)
@@ -200,7 +204,11 @@ module rv5stage_mmu_replay_tb;
         if (!data_request_valid)
           assert (data_lookup_out.bits == data_memory_out.request.bits.address)
             else $fatal(1, "PTW read did not supply a physical lookup index");
-        if (instruction_translation_phase) begin
+        if (detached_walk_phase) begin
+          assert (data_memory_out.request.bits.destination == 0)
+            else $fatal(1, "detached walk emitted a core data transaction");
+          manual_pte_requests <= manual_pte_requests + 1;
+        end else if (instruction_translation_phase) begin
           case (instruction_pte_requests)
             0, 4: begin
               assert (data_memory_out.request.bits.address == 64'h1000)
@@ -270,7 +278,8 @@ module rv5stage_mmu_replay_tb;
     instruction_return_valid <= 1'b0;
     if (instruction_phase && !instruction_flush) begin
       if (instruction_memory_out.request.valid && instruction_memory_in.request.ready) begin
-        assert (instruction_requests_seen < (instruction_translation_phase ? 5 : 2) &&
+        assert (detached_walk_phase ? instruction_memory_out.request.bits.address == PHYSICAL_ADDRESS :
+                instruction_requests_seen < (instruction_translation_phase ? 5 : 2) &&
                 instruction_memory_out.request.bits.address ==
                   (instruction_requests_seen == 4 ? 64'ha000 : 64'h8000 + 4 * 64'(instruction_requests_seen % 2)))
           else $fatal(1, "instruction retry lost order or duplicated a physical request");
@@ -316,13 +325,105 @@ module rv5stage_mmu_replay_tb;
 
   initial begin
     wait (!reset);
-    repeat (600) @(posedge clock);
+    repeat (2000) @(posedge clock);
     $fatal(1, "DTLB walk or replay did not complete");
   end
 
   task automatic tick;
     @(posedge clock);
     #1;
+  endtask
+
+  task automatic flush_fetch;
+    @(negedge clock); instruction_flush = 1;
+    tick();
+    @(negedge clock); instruction_flush = 0;
+  endtask
+
+  // Drive PTE timing explicitly, so a replay can land before acceptance,
+  // on acceptance, during a delayed response, or on response/completion.
+  task automatic finish_detached_walk(input int flush_at, input bit fault = 0);
+    int ptes_before, fetches_before, responses_before;
+    ptes_before = manual_pte_requests;
+    fetches_before = instruction_requests_seen;
+    responses_before = instruction_responses_seen;
+    @(negedge clock);
+    invalidate_all = 1;
+    tick();
+    @(negedge clock);
+    invalidate_all = 0;
+    instruction_address = VIRTUAL_ADDRESS;
+    instruction_request_valid = 1;
+    memory_ready = 0;
+    memory_idle = 0;
+    tick();
+    @(negedge clock); instruction_request_valid = 0;
+    tick(); // The retained S1 miss has now been accepted by the walker.
+    if (flush_at == 0) flush_fetch();
+    @(negedge clock); memory_idle = 1;
+    for (int level = 0; level < 3; level++) begin
+      wait (data_memory_out.request.valid);
+      @(negedge clock);
+      assert (data_memory_out.request.bits.address ==
+              (level == 0 ? 64'h1000 : level == 1 ? 64'h2000 : 64'h3020))
+        else $fatal(1, "replay restarted the walk or changed its captured address");
+      if (flush_at == 1 && level == 0) flush_fetch();
+      if (flush_at == 2 && level == 1) instruction_flush = 1;
+      memory_ready = 1;
+      tick();
+      @(negedge clock);
+      memory_ready = 0;
+      memory_idle = 0;
+      instruction_flush = 0;
+      if (flush_at == 3 && level == 1) flush_fetch();
+      repeat (3) begin
+        tick();
+        assert (!data_out.drained && !data_out.response.valid && !data_memory_out.request.valid)
+          else $fatal(1, "fetch recovery released an outstanding PTE transaction");
+      end
+      @(negedge clock);
+      manual_pte_valid = 1;
+      manual_pte_data = level == 0 ? LEVEL_2_POINTER : level == 1 ? LEVEL_1_POINTER : fault ? 64'd0 : 64'h204b;
+      if (flush_at == 4 && level == 2) instruction_flush = 1;
+      tick();
+      @(negedge clock);
+      manual_pte_valid = 0;
+      memory_idle = 1;
+      instruction_flush = 0;
+      if (flush_at == 5 && level == 2) begin
+        instruction_flush = 1;
+        tick();
+        @(negedge clock); instruction_flush = 0;
+      end
+    end
+    wait (data_out.drained);
+    repeat (3) tick();
+    assert (manual_pte_requests == ptes_before + 3 &&
+            instruction_requests_seen == fetches_before && instruction_responses_seen == responses_before)
+      else $fatal(1, "detached walk duplicated PTE traffic or completed a squashed fetch");
+
+    // Success must have warmed the ITLB. A detached fault must instead allow
+    // a fresh walk, not strand the sole fault latch or report a stale fault.
+    @(negedge clock);
+    instruction_address = VIRTUAL_ADDRESS;
+    instruction_request_valid = 1;
+    tick();
+    @(negedge clock); instruction_request_valid = 0;
+    if (fault) begin
+      wait (data_memory_out.request.valid);
+      assert (data_memory_out.request.bits.address == 64'h1000 && !instruction_out.response.valid)
+        else $fatal(1, "detached fault survived into a new fetch");
+      // No PTE has been accepted for this new walk; invalidate it explicitly.
+      instruction_flush = 1;
+      invalidate_all = 1;
+      tick();
+      @(negedge clock); instruction_flush = 0; invalidate_all = 0;
+    end else begin
+      wait (instruction_responses_seen == responses_before + 1);
+      repeat (3) tick();
+      assert (manual_pte_requests == ptes_before + 3 && instruction_requests_seen == fetches_before + 1)
+        else $fatal(1, "refetched instruction failed to reuse the detached ITLB fill");
+    end
   endtask
 
   task automatic check_prefetch(input logic valid, input logic [63:0] address = 0,
@@ -548,7 +649,10 @@ module rv5stage_mmu_replay_tb;
     #1 data_request_valid = 1'b0;
 
     wait (page_fault_pte_seen);
-    repeat (2) @(posedge clock);
+    // Fetch recovery must not discard a data walk's completion or fault.
+    @(negedge clock); instruction_flush = 1;
+    repeat (2) tick();
+    @(negedge clock); instruction_flush = 0;
 
     // The translated entry is supervisor-only. A user-mode lookup therefore
     // faults directly in the DTLB, but must not consume the pending walker
@@ -759,7 +863,11 @@ module rv5stage_mmu_replay_tb;
     repeat (4) tick();
     assert (instruction_pte_requests == 7 && instruction_requests_seen == 5)
       else $fatal(1, "redirect did not release the retained ITLB fault");
-    $display("RV5Stage registered ITLB retry, DTLB demand, faults, and pipelined prefetch translation passed");
+    detached_walk_phase = 1;
+    for (int flush_at = 0; flush_at < 6; flush_at++) finish_detached_walk(flush_at);
+    finish_detached_walk(3, 1); // Fault discovered after an earlier redirect.
+    finish_detached_walk(5, 1); // Redirect coincides with fault completion.
+    $display("RV5Stage registered ITLB retry, detached walks, DTLB demand, faults, and pipelined prefetch translation passed");
     $finish;
   end
 endmodule

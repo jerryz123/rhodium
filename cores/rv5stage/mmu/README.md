@@ -153,9 +153,13 @@ either TLB.
    response or a locally generated zero word with its page/access-fault bit.
    This prevents a later local fault from passing an earlier memory response.
 
-An instruction-path flush clears that owner queue and cancels an active
-instruction walk. It does not cancel a data walk. Architectural invalidation
-cancels either kind of walk and clears both TLBs and any correlated fault.
+An instruction-path flush clears that owner queue and discards the fetch's
+interest in an active instruction walk, but does not cancel the accepted walk.
+The walk retains its PTE-response ownership and may still fill the ITLB, so
+refetch does not repeatedly restart the same translation. A fault from the
+discarded fetch is dropped rather than saved for replay. A flush does not cancel
+a data walk. Architectural invalidation remains distinct: it cancels either
+kind of walk and clears both TLBs and any correlated fault.
 
 ## Follow a data request
 

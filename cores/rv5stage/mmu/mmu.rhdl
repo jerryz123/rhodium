@@ -158,6 +158,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   reg walk_active(~init: Bool(#false))
   reg walk_is_data(~init: Bool(#false))
+  reg walk_instruction_discarded(~init: Bool(#false))
   reg fault_valid(~init: Bool(#false))
   reg fault_is_data(~init: Bool(#false))
   reg fault_is_access(~init: Bool(#false))
@@ -215,8 +216,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     sum: sum
     mxr: mxr
   def walker_request_fire = walker.request.fire()
-  def cancel_instruction_walk = instruction.flush & walk_active & !walk_is_data
-  walker.cancel <== invalidate_all ||| cancel_instruction_walk
+  // Fetch recovery discards the consumer, not an accepted translation. Let
+  // the walk warm the ITLB and retain ownership of every accepted PTE reply.
+  def discard_instruction_walk = instruction.flush & walk_active & !walk_is_data
+  walker.cancel <== invalidate_all
 
   walker.completion.ready <== !fault_valid
   def walker_completion_fire = walker.completion.fire()
@@ -344,12 +347,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   data.drained <== !walk_active & data_memory.drained
   data.reservation_valid <== data_memory.reservation_valid
 
-  def fault_latch_reset = invalidate_all ||| cancel_instruction_walk ||| (instruction.flush & fault_valid & !fault_is_data)
+  def fault_latch_reset = invalidate_all ||| (instruction.flush & fault_valid & !fault_is_data)
   def latched_instruction_fault_accepted = instruction_head.fire() & instruction_translation_enabled & latched_instruction_fault
   def latched_data_fault_accepted = data.request.valid & data_translation_enabled & latched_data_fault
   def latched_fault_accepted = latched_instruction_fault_accepted ||| latched_data_fault_accepted
-  def capture_walker_fault = walker_fault_completion & !fault_latch_reset
-  when fault_latch_reset:
+  def capture_walker_fault = walker_fault_completion & !invalidate_all & (walk_is_data ||| !(walk_instruction_discarded ||| instruction.flush))
+  when invalidate_all:
     walk_active <== Bool(#false)
   elsewhen walker_request_fire:
     walk_active <== Bool(#true)
@@ -370,12 +373,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     fault_address <== walker.completion.bits.virtual_address
 
   when walker_request_fire:
+    walk_instruction_discarded <== Bool(#false)
     walker_data_quiet_previous <== Bool(#false)
     walker_data_quiet_twice <== Bool(#false)
   elsewhen walk_active:
+    when discard_instruction_walk:
+      walk_instruction_discarded <== Bool(#true)
     walker_data_quiet_previous <== data_quiet
     walker_data_quiet_twice <== data_quiet & walker_data_quiet_previous
-  when fault_latch_reset:
+  when invalidate_all:
     walker_memory_outstanding <== Bool(#false)
   elsewhen (walker_memory_request_fire & !walker.memory.request_access_fault):
     walker_memory_outstanding <== Bool(#true)

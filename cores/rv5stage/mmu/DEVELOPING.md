@@ -61,7 +61,11 @@ routed response arrives while it is waiting.
    Never use relaxed prefetch A/D permissions or start a speculative data walk.
 4. Preserve exclusive walker ownership from miss acceptance through completion,
    including the two-observation data-path drain and the single response-owner
-   bit.
+   bit. Ordinary fetch recovery detaches the instruction consumer without
+   resetting either the walker or that ownership bit. Retain successful ITLB
+   fills, but suppress fault capture for the detached consumer, including a
+   flush on the completion edge. Keep this distinct from architectural
+   invalidation and from clearing an already-latched instruction fault.
 5. Recheck current privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit; do
    not cache a prior permission decision.
 6. Keep prefetch probes non-faulting and independent of walker ownership; they
@@ -88,6 +92,10 @@ state snapshots. The Verilator fixture pulses one data request, checks the three
 expected PTE addresses, and requires a later retry to use the filled DTLB while
 preserving request metadata. It also checks two-observation draining, stalled
 walker and core requests, and isolation of PTE responses from ordinary replies.
+Instruction recovery is exercised during the initial drain, stalled PTE request,
+request acceptance, delayed response, response arrival, and completion. Refetch
+must reuse a successful detached fill without additional PTE traffic; detached
+faults must neither escape nor block the next walk.
 It checks prefetch latency and back-to-back
 throughput, TLB selection and rejection, Bare/PMA behavior, and synchronous
 cancellation at either stage on flush, invalidation, context change, and reset.

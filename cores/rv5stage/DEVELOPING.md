@@ -248,18 +248,21 @@ requester issues read-only LLC conflicts. All program loading and signatures
 use coherent requests. Initial fetch is stalled during loading, but the
 caches remain alive to service broadcast snoops.
 
-The nonsnooping instruction cache passes ten of twelve cases, up from seven
-with snoopable instruction residency. Bare `0x1fe0`/`0x1ffe` and Sv39 `0x1fe0`
-now finish under continuous read pressure. Both Sv39 `0x1fc0` cases still fail,
-including without pressure: their speculative ITLB walk repeatedly takes the
-data port from WB's SC, then gets canceled by SC replay. Implicit PTE allocation
-can also evict the reservation. The bench reports every failed case and then
-fails overall; recovery is diagnostic evidence, never a passing result.
+All twelve cases pass with nonsnooping instruction residency and accepted
+instruction walks that survive ordinary fetch recovery. Previously both Sv39
+`0x1fc0` cases repeatedly canceled a younger ITLB walk on SC replay before it
+could fill the TLB. The MMU now detaches the squashed consumer while preserving
+the walk and its PTE-response ownership; successful translation survives for
+refetch. No reservation-timer extension, PTE allocation-policy change, or
+speculative-walk throttle was needed for this regression. The bench reports
+every failed case and then fails overall; recovery is diagnostic evidence,
+never a passing result.
 Before the progress cases, the same bench executes a self-modifying-code
 program: warm an instruction line, modify it through the core's dirty data
 cache, execute `FENCE.I`, and call the updated code. That case passes.
-Do not enable profile, device-tree, or UDB advertisement from the cache-only
-progress results. Resolve these full-core failures first. In particular,
+Ziccrse remains unadvertised. Do not enable profile, device-tree, or UDB
+advertisement from cache-only results or treat this bounded regression as a
+proof for every translation and fabric-fairness scenario. In particular,
 extending the reservation timer alone does not establish progress across
 translation arbitration and replay.
 
