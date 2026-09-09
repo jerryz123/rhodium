@@ -324,21 +324,7 @@ fun compile_chi_router_attachment_plan(
   require_chi_router_adapter_families(routers, adapters)
   require_chi_router_attachments(routers, adapters, attachments)
   def site_width = routers.req.route_decoder.site_width
-  def mutable rni_locals = []
-  def mutable rnf_locals = []
-  def mutable hni_requester_locals = []
-  def mutable hnf_requester_locals = []
-  def mutable hn_subordinate_locals = []
-  def mutable sn_locals = []
-  def mutable req_inputs = []
-  def mutable req_targets = []
-  def mutable rsp_inputs = []
-  def mutable rsp_targets = []
-  def mutable snp_inputs = []
-  def mutable snp_targets = []
-  def mutable dat_inputs = []
-  def mutable dat_targets = []
-  fun add_rni(sites :: NonemptyList):
+  fun build_rni(sites :: NonemptyList) :: CHIRNILocalAttachmentPlan:
     def req = chi_router_family_injection(adapters.req, routers.req.router_family_plan, site_width, sites,
                                           fun (site): site.req.terminal)
     def rsp_requester = chi_router_family_injection(adapters.rsp, routers.rsp.router_family_plan, site_width, sites,
@@ -349,13 +335,8 @@ fun compile_chi_router_attachment_plan(
                                                   fun (site): site.dat_request.terminal)
     def dat_response = chi_router_family_ejection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                   fun (site): site.dat_response.terminal)
-    rni_locals := rni_locals ++ [CHIRNILocalAttachmentPlan(req, rsp_requester, rsp_response, dat_request, dat_response)]
-    req_inputs := req_inputs ++ [req.input_index]
-    rsp_inputs := rsp_inputs ++ [rsp_requester.input_index]
-    rsp_targets := rsp_targets ++ [rsp_response.target_index]
-    dat_inputs := dat_inputs ++ [dat_request.input_index]
-    dat_targets := dat_targets ++ [dat_response.target_index]
-  fun add_rnf(sites :: NonemptyList):
+    CHIRNILocalAttachmentPlan(req, rsp_requester, rsp_response, dat_request, dat_response)
+  fun build_rnf(sites :: NonemptyList) :: CHIRNFLocalAttachmentPlan:
     def snp_adapters :: CHIChannelAdapterPlan = adapters.snp
     def snp_routers :: SimpleRouterFamilyConfig = routers.snp
     def req = chi_router_family_injection(adapters.req, routers.req.router_family_plan, site_width, sites,
@@ -370,14 +351,8 @@ fun compile_chi_router_attachment_plan(
                                                   fun (site): site.dat_request.terminal)
     def dat_response = chi_router_family_ejection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                   fun (site): site.dat_response.terminal)
-    rnf_locals := rnf_locals ++ [CHIRNFLocalAttachmentPlan(req, rsp_requester, rsp_response, snp, dat_request, dat_response)]
-    req_inputs := req_inputs ++ [req.input_index]
-    rsp_inputs := rsp_inputs ++ [rsp_requester.input_index]
-    rsp_targets := rsp_targets ++ [rsp_response.target_index]
-    snp_targets := snp_targets ++ [snp.target_index]
-    dat_inputs := dat_inputs ++ [dat_request.input_index]
-    dat_targets := dat_targets ++ [dat_response.target_index]
-  fun add_hni(sites :: NonemptyList):
+    CHIRNFLocalAttachmentPlan(req, rsp_requester, rsp_response, snp, dat_request, dat_response)
+  fun build_hni(sites :: NonemptyList) :: CHIHNILocalAttachmentPlan:
     def req = chi_router_family_ejection(adapters.req, routers.req.router_family_plan, site_width, sites,
                                          fun (site): site.req.terminal)
     def rsp_requester = chi_router_family_ejection(adapters.rsp, routers.rsp.router_family_plan, site_width, sites,
@@ -388,13 +363,8 @@ fun compile_chi_router_attachment_plan(
                                                  fun (site): site.dat_request.terminal)
     def dat_response = chi_router_family_injection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                    fun (site): site.dat_response.terminal)
-    hni_requester_locals := hni_requester_locals ++ [CHIHNILocalAttachmentPlan(req, rsp_requester, rsp_response, dat_request, dat_response)]
-    req_targets := req_targets ++ [req.target_index]
-    rsp_targets := rsp_targets ++ [rsp_requester.target_index]
-    rsp_inputs := rsp_inputs ++ [rsp_response.input_index]
-    dat_targets := dat_targets ++ [dat_request.target_index]
-    dat_inputs := dat_inputs ++ [dat_response.input_index]
-  fun add_hnf(sites :: NonemptyList):
+    CHIHNILocalAttachmentPlan(req, rsp_requester, rsp_response, dat_request, dat_response)
+  fun build_hnf(sites :: NonemptyList) :: CHIHNFLocalAttachmentPlan:
     def snp_adapters :: CHIChannelAdapterPlan = adapters.snp
     def snp_routers :: SimpleRouterFamilyConfig = routers.snp
     def req = chi_router_family_ejection(adapters.req, routers.req.router_family_plan, site_width, sites,
@@ -409,14 +379,8 @@ fun compile_chi_router_attachment_plan(
                                                  fun (site): site.dat_request.terminal)
     def dat_response = chi_router_family_injection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                    fun (site): site.dat_response.terminal)
-    hnf_requester_locals := hnf_requester_locals ++ [CHIHNFLocalAttachmentPlan(req, rsp_requester, rsp_response, snp, dat_request, dat_response)]
-    req_targets := req_targets ++ [req.target_index]
-    rsp_targets := rsp_targets ++ [rsp_requester.target_index]
-    rsp_inputs := rsp_inputs ++ [rsp_response.input_index]
-    snp_inputs := snp_inputs ++ [snp.input_index]
-    dat_targets := dat_targets ++ [dat_request.target_index]
-    dat_inputs := dat_inputs ++ [dat_response.input_index]
-  fun add_hn_subordinate(sites :: NonemptyList):
+    CHIHNFLocalAttachmentPlan(req, rsp_requester, rsp_response, snp, dat_request, dat_response)
+  fun build_hn_subordinate(sites :: NonemptyList) :: CHIHNSubordinateLocalAttachmentPlan:
     def req = chi_router_family_injection(adapters.req, routers.req.router_family_plan, site_width, sites,
                                           fun (site): site.req.terminal)
     def rsp = chi_router_family_ejection(adapters.rsp, routers.rsp.router_family_plan, site_width, sites,
@@ -425,12 +389,8 @@ fun compile_chi_router_attachment_plan(
                                                   fun (site): site.dat_request.terminal)
     def dat_response = chi_router_family_ejection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                   fun (site): site.dat_response.terminal)
-    hn_subordinate_locals := hn_subordinate_locals ++ [CHIHNSubordinateLocalAttachmentPlan(req, rsp, dat_request, dat_response)]
-    req_inputs := req_inputs ++ [req.input_index]
-    rsp_targets := rsp_targets ++ [rsp.target_index]
-    dat_inputs := dat_inputs ++ [dat_request.input_index]
-    dat_targets := dat_targets ++ [dat_response.target_index]
-  fun add_sn(sites :: NonemptyList):
+    CHIHNSubordinateLocalAttachmentPlan(req, rsp, dat_request, dat_response)
+  fun build_sn(sites :: NonemptyList) :: CHISNLocalAttachmentPlan:
     def req = chi_router_family_ejection(adapters.req, routers.req.router_family_plan, site_width, sites,
                                          fun (site): site.req.terminal)
     def rsp = chi_router_family_injection(adapters.rsp, routers.rsp.router_family_plan, site_width, sites,
@@ -439,20 +399,38 @@ fun compile_chi_router_attachment_plan(
                                                  fun (site): site.dat_request.terminal)
     def dat_response = chi_router_family_injection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                    fun (site): site.dat_response.terminal)
-    sn_locals := sn_locals ++ [CHISNLocalAttachmentPlan(req, rsp, dat_request, dat_response)]
-    req_targets := req_targets ++ [req.target_index]
-    rsp_inputs := rsp_inputs ++ [rsp.input_index]
-    dat_targets := dat_targets ++ [dat_request.target_index]
-    dat_inputs := dat_inputs ++ [dat_response.input_index]
-  fun add_columns(rows :: NonemptyList, add :: Function.of_arity(1)):
-    for (index in 0..rows[0].length()):
-      add(for List (row in rows): row[index])
-  cond | attachments.rni_sites is_a NonemptyList: add_columns(attachments.rni_sites, add_rni) | ~else: #void
-  cond | attachments.rnf_sites is_a NonemptyList: add_columns(attachments.rnf_sites, add_rnf) | ~else: #void
-  cond | attachments.hni_requester_sites is_a NonemptyList: add_columns(attachments.hni_requester_sites, add_hni) | ~else: #void
-  cond | attachments.hnf_requester_sites is_a NonemptyList: add_columns(attachments.hnf_requester_sites, add_hnf) | ~else: #void
-  cond | attachments.hn_subordinate_sites is_a NonemptyList: add_columns(attachments.hn_subordinate_sites, add_hn_subordinate) | ~else: #void
-  cond | attachments.sn_sites is_a NonemptyList: add_columns(attachments.sn_sites, add_sn) | ~else: #void
+    CHISNLocalAttachmentPlan(req, rsp, dat_request, dat_response)
+  fun compile_columns(rows :: List.of(NonemptyList), build :: Function.of_arity(1)) :: List:
+    if rows.length() == 0
+    | []
+    | for List (index in 0..rows[0].length()):
+        build(for List (row in rows): row[index])
+
+  def rni_locals :: List.of(CHIRNILocalAttachmentPlan) = compile_columns(attachments.rni_sites, build_rni)
+  def rnf_locals :: List.of(CHIRNFLocalAttachmentPlan) = compile_columns(attachments.rnf_sites, build_rnf)
+  def hni_requester_locals :: List.of(CHIHNILocalAttachmentPlan) = compile_columns(attachments.hni_requester_sites, build_hni)
+  def hnf_requester_locals :: List.of(CHIHNFLocalAttachmentPlan) = compile_columns(attachments.hnf_requester_sites, build_hnf)
+  def hn_subordinate_locals :: List.of(CHIHNSubordinateLocalAttachmentPlan) = compile_columns(attachments.hn_subordinate_sites, build_hn_subordinate)
+  def sn_locals :: List.of(CHISNLocalAttachmentPlan) = compile_columns(attachments.sn_sites, build_sn)
+
+  // Derive channel closure indices from the completed endpoint plans, retaining
+  // category and column order independently for each channel direction.
+  def request_sources = rni_locals ++ rnf_locals
+  def request_sinks = hni_requester_locals ++ hnf_requester_locals
+  def req_inputs = (request_sources ++ hn_subordinate_locals).map(fun (plan): plan.req.input_index)
+  def req_targets = (request_sinks ++ sn_locals).map(fun (plan): plan.req.target_index)
+  def rsp_inputs = request_sources.map(fun (plan): plan.rsp_requester.input_index) ++ (
+    request_sinks.map(fun (plan): plan.rsp_response.input_index) ++ sn_locals.map(fun (plan): plan.rsp.input_index))
+  def rsp_targets = request_sources.map(fun (plan): plan.rsp_response.target_index) ++ (
+    request_sinks.map(fun (plan): plan.rsp_requester.target_index) ++ hn_subordinate_locals.map(fun (plan): plan.rsp.target_index))
+  def snp_inputs = hnf_requester_locals.map(fun (plan): plan.snp.input_index)
+  def snp_targets = rnf_locals.map(fun (plan): plan.snp.target_index)
+  def dat_inputs = request_sources.map(fun (plan): plan.dat_request.input_index) ++ (
+    request_sinks.map(fun (plan): plan.dat_response.input_index) ++ (
+      hn_subordinate_locals.map(fun (plan): plan.dat_request.input_index) ++ sn_locals.map(fun (plan): plan.dat_response.input_index)))
+  def dat_targets = request_sources.map(fun (plan): plan.dat_response.target_index) ++ (
+    request_sinks.map(fun (plan): plan.dat_request.target_index) ++ (
+      hn_subordinate_locals.map(fun (plan): plan.dat_response.target_index) ++ sn_locals.map(fun (plan): plan.dat_request.target_index)))
   CHIRouterAttachmentPlan(attachments,
                           rni_locals,
                           rnf_locals,

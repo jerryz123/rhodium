@@ -1,7 +1,8 @@
-// Checks CHI flits, opcode/Size service matching, and complete hit/miss results from both address maps.
+// Checks CHI flits, service matching, and singleton/multiregion address maps including NodeID-zero hits.
 module chi_foundation_tb;
   logic [43:0] map_address;
   logic [7:0] home_lookup, subordinate_lookup;
+  logic [7:0] single_home_lookup, single_subordinate_lookup;
   logic [136:0] req;
   logic [70:0] rsp;
   logic [93:0] snp;
@@ -48,6 +49,9 @@ module chi_foundation_tb;
       #1;
       assert(home_lookup == {hit, 7'(target)} && subordinate_lookup == {hit, 7'(target)})
         else $fatal(1, "Home/subordinate map decode mismatch at %h", addr);
+      assert(single_home_lookup == {(addr >= 'h1000 && addr < 'h1100), 7'b0} &&
+             single_subordinate_lookup == single_home_lookup)
+        else $fatal(1, "singleton map decode mismatch at %h", addr);
     end
     // Every opcode and encoded Size, including the reserved Size encoding.
     for (int op = 0; op < 128; op++) begin

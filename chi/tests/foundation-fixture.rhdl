@@ -39,6 +39,8 @@ circuit CHIFoundationFixture():
   input map_address: Bits(params.request_address_width)
   output home_lookup: CHIHomeLookup(params.node_id_width)
   output subordinate_lookup: CHISubordinateLookup(params.node_id_width)
+  output single_home_lookup: CHIHomeLookup(params.node_id_width)
+  output single_subordinate_lookup: CHISubordinateLookup(params.node_id_width)
   def supports = [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 64))]
   def regions = [AddressSet(0x1000, 0xff), AddressSet(0x2000, 0x3f), AddressSet(0x2080, 0x3f)]
   def homes:
@@ -56,6 +58,8 @@ circuit CHIFoundationFixture():
   def subordinate_map = CHISubordinateMap(params, services)
   home_lookup <== home_map.lookup(map_address)
   subordinate_lookup <== subordinate_map.lookup(map_address)
+  single_home_lookup <== CHIHomeMap(params, [CHIHomeMapEntry(regions[0], homes[0])]).lookup(map_address)
+  single_subordinate_lookup <== CHISubordinateMap(params, [services[0]]).lookup(map_address)
   input req: CHIReqFlit(params)
   input rsp: CHIRspFlit(params)
   input snp: CHISnpFlit(params)

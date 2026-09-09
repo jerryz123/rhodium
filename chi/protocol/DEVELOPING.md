@@ -62,7 +62,8 @@ validate capabilities.
 Home and subordinate maps share a private decode helper in
 `chi/protocol/fabric.rhdl`, but retain distinct service validation and nominal
 result types. Preserve zero NodeID on misses, including a valid hit on NodeID
-zero; construction still rejects overlapping regions. `chi-foundation`
+zero; construction rejects overlapping regions, allowing the shared decode to
+use an optional-one-hot selector without priority. `chi-foundation`
 sweeps both hardware maps over region boundaries and sparse holes.
 
 Service opcode/encoded-Size matching belongs to `CHIRequestSupport.matches`
@@ -91,6 +92,7 @@ checks every output bit, including inactive optional fields, across DAT widths;
 `chi-packets`, `rv5stage-uncached`, `rv5stage-dcache`, and `fesvr-mmio` cover the
 packet rules and engine consumers.
 
+The message constructor fixture compares complete transformed packets at every DAT
 width, with optional REQ/DAT metadata enabled and disabled. Run it alongside
 both Home and maintenance fixtures when changing these transforms. Snoop and
 intervention-write packet construction lives in `chi/protocol/messages.rhdl`; its callers

@@ -1,4 +1,4 @@
-// Simulates CHIRam reads, writes, masks, stalls, concurrent DBIDs, and address-space-end access.
+// Simulates CHIRam masks, concurrent allocation/DAT, reset recovery, stalls, and address-space-end access.
 module chi_ram_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
@@ -206,6 +206,11 @@ module chi_ram_tb;
 
   logic [11:0] dbid_a;
   logic [11:0] dbid_b;
+  bit saw_concurrent_allocation_data = 0;
+  always @(posedge clock)
+    if (!reset && requests_in.valid && requests_out.ready &&
+        request_data_in.valid && request_data_out.ready)
+      saw_concurrent_allocation_data <= 1;
 
   initial begin
     identity = '{node_id: RAM_ID, base_address: 44'h080000000};
@@ -267,6 +272,44 @@ module chi_ram_tb;
     issue_request(READ_NO_SNP, 12'h204, 44'h080000020, 6'd5, 12'h504);
     accept_read(12'h504, 2'd2, 16'hffff, 128'haaaaaaaabbbbbbbbccccccccdddddddd);
     accept_read(12'h504, 2'd3, 16'hffff, 128'h33333333333333333333333333333333);
+
+    // Reset one receipt mask while advancing a different live multibeat write.
+    issue_request(WRITE_NO_SNP_FULL, 12'h301, 44'h080000000, 6'd5, 12'b0);
+    accept_dbid(12'h301, dbid_a);
+    fork
+      issue_request(WRITE_NO_SNP_FULL, 12'h302, 44'h080000020, 6'd4, 12'b0);
+      issue_write_data(dbid_a, 2'd1, 16'hffff, 128'h55555555555555555555555555555555);
+    join
+    assert (saw_concurrent_allocation_data)
+      else $fatal(1, "test did not accept allocation and DAT on the same cycle");
+    accept_dbid(12'h302, dbid_b);
+    assert (dbid_a != dbid_b) else $fatal(1, "allocation collided with accepted DAT");
+    issue_write_data(dbid_a, 2'd0, 16'hffff, 128'h44444444444444444444444444444444);
+    accept_comp(12'h301, dbid_a);
+    issue_write_data(dbid_b, 2'd2, 16'hffff, 128'h66666666666666666666666666666666);
+    accept_comp(12'h302, dbid_b);
+    issue_request(READ_NO_SNP, 12'h303, 44'h080000000, 6'd5, 12'h603);
+    accept_read(12'h603, 2'd0, 16'hffff, 128'h44444444444444444444444444444444);
+    accept_read(12'h603, 2'd1, 16'hffff, 128'h55555555555555555555555555555555);
+    issue_request(READ_NO_SNP, 12'h304, 44'h080000020, 6'd4, 12'h604);
+    accept_read(12'h604, 2'd2, 16'hffff, 128'h66666666666666666666666666666666);
+
+    // Abandon a partial transaction on reset, then reuse its slot and DataID.
+    issue_request(WRITE_NO_SNP_FULL, 12'h305, 44'h080000000, 6'd5, 12'b0);
+    accept_dbid(12'h305, dbid_a);
+    issue_write_data(dbid_a, 2'd1, 16'hffff, 128'h7777);
+    reset = 1'b1;
+    tick();
+    reset = 1'b0;
+    tick();
+    assert (!responses_out.valid && !response_data_out.valid)
+      else $fatal(1, "reset retained an abandoned transaction response");
+    issue_request(WRITE_NO_SNP_FULL, 12'h306, 44'h080000010, 6'd4, 12'b0);
+    accept_dbid(12'h306, dbid_b);
+    issue_write_data(dbid_b, 2'd1, 16'hffff, 128'h8888);
+    accept_comp(12'h306, dbid_b);
+    issue_request(READ_NO_SNP, 12'h307, 44'h080000010, 6'd4, 12'h607);
+    accept_read(12'h607, 2'd1, 16'hffff, 128'h8888);
 
     // Move the idle 64-byte window to the top of the physical address space.
     identity.base_address = 44'hfffffffffc0;

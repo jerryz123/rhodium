@@ -17,6 +17,14 @@ hierarchy or per-directory facade modules.
 
 ## Extension and focused validation
 
+Attachment compilation builds typed local endpoint plans before deriving the
+channel closure indices from them. Preserve category order and each category's
+column order; those indices determine which physical router slots are attached.
+The mixed-role `chi/tests/router-attachment-plan-test.rhm` covers all six roles,
+nonlexical column ordering, and empty attachments. Family adapter lookup methods
+return their concrete route/ejection decision bundles, so consumers need no
+repeated result annotation.
+
 NoC adapters share injection wiring and flow-stage bookkeeping in
 `chi/noc/noc-adapter.rhdl`, and reuse generic envelope-removal binding from
 `noc/rtl/route-adapter.rhdl`. Keep the typed channel circuits and fixed

@@ -96,7 +96,7 @@ class CHINoCFamilyInjectionConfig(p :: CHIFlitParams,
   implements StableCircuitParam
 
   method lookup(site_key :: Bits(site_width),
-                target_id :: Bits(p.node_id_width)) :: Hardware.packable:
+                target_id :: Bits(p.node_id_width)) :~ CHINoCRouteDecision(route_width):
     decoder(
       CHINoCFamilyRouteKey(site_width, p.node_id_width):
         site_key: site_key
@@ -111,7 +111,7 @@ class CHINoCFamilyEjectionConfig(p :: CHIFlitParams,
                                  decoder :: DecodeGen):
   implements StableCircuitParam
 
-  method lookup(site_key :: Bits(site_width)) :: Hardware.packable:
+  method lookup(site_key :: Bits(site_width)) :~ CHINoCFamilyEjectionDecision(p.node_id_width):
     decoder(site_key)
 
 // Collects only the endpoint adapter configurations derived for one channel;
@@ -548,7 +548,7 @@ sync_circuit CHIReqNoCFamilyInjector(config :: CHINoCFamilyInjectionConfig):
   input site_key: Bits(config.site_width)
   interface ingress(Decoupled(CHIReqFlit(config.p)), ~role: consumer)
   interface egress(Decoupled(RoutedBeat(CHIReqFlit(config.p), config.route_width)), ~role: producer)
-  def decision :: CHINoCRouteDecision(config.route_width) = config.lookup(site_key, ingress.bits.tgt_id)
+  def decision = config.lookup(site_key, ingress.bits.tgt_id)
   bind_chi_noc_injection(CHIReqFlit(config.p), CHIReqFlit(config.p), config.route_width,
                          ingress, egress, decision, ingress.bits, "chi_req_noc_family_target_has_route")
 
@@ -556,7 +556,7 @@ sync_circuit CHIRspNoCFamilyInjector(config :: CHINoCFamilyInjectionConfig):
   input site_key: Bits(config.site_width)
   interface ingress(Decoupled(CHIRspFlit(config.p)), ~role: consumer)
   interface egress(Decoupled(RoutedBeat(CHIRspFlit(config.p), config.route_width)), ~role: producer)
-  def decision :: CHINoCRouteDecision(config.route_width) = config.lookup(site_key, ingress.bits.tgt_id)
+  def decision = config.lookup(site_key, ingress.bits.tgt_id)
   bind_chi_noc_injection(CHIRspFlit(config.p), CHIRspFlit(config.p), config.route_width,
                          ingress, egress, decision, ingress.bits, "chi_rsp_noc_family_target_has_route")
 
@@ -564,7 +564,7 @@ sync_circuit CHISnpNoCFamilyInjector(config :: CHINoCFamilyInjectionConfig):
   input site_key: Bits(config.site_width)
   interface ingress(Decoupled(CHISnoopDispatch(config.p)), ~role: consumer)
   interface egress(Decoupled(RoutedBeat(CHISnpFlit(config.p), config.route_width)), ~role: producer)
-  def decision :: CHINoCRouteDecision(config.route_width) = config.lookup(site_key, ingress.bits.target_id)
+  def decision = config.lookup(site_key, ingress.bits.target_id)
   bind_chi_noc_injection(CHISnoopDispatch(config.p), CHISnpFlit(config.p), config.route_width,
                          ingress, egress, decision, ingress.bits.flit, "chi_snp_noc_family_target_has_route")
 
@@ -572,7 +572,7 @@ sync_circuit CHIDatNoCFamilyInjector(config :: CHINoCFamilyInjectionConfig):
   input site_key: Bits(config.site_width)
   interface ingress(Decoupled(CHIDatFlit(config.p)), ~role: consumer)
   interface egress(Decoupled(RoutedBeat(CHIDatFlit(config.p), config.route_width)), ~role: producer)
-  def decision :: CHINoCRouteDecision(config.route_width) = config.lookup(site_key, ingress.bits.tgt_id)
+  def decision = config.lookup(site_key, ingress.bits.tgt_id)
   bind_chi_noc_injection(CHIDatFlit(config.p), CHIDatFlit(config.p), config.route_width,
                          ingress, egress, decision, ingress.bits, "chi_dat_noc_family_target_has_route")
 
@@ -581,7 +581,7 @@ sync_circuit CHIReqNoCFamilyEjector(config :: CHINoCFamilyEjectionConfig):
   interface ingress(Decoupled(RoutedBeat(CHIReqFlit(config.p), config.route_width)), ~role: consumer)
   interface egress(Decoupled(CHIReqFlit(config.p)), ~role: producer)
   bind_routed_flow_ejector(CHIReqFlit(config.p), config.route_width, ingress, egress)
-  def expected :: CHINoCFamilyEjectionDecision(config.p.node_id_width) = config.lookup(site_key)
+  def expected = config.lookup(site_key)
   assert(!ingress.valid ||| (expected.valid & (ingress.bits.payload.tgt_id === expected.node_id)),
          "chi_req_noc_family_ejection_target")
 
@@ -590,7 +590,7 @@ sync_circuit CHIRspNoCFamilyEjector(config :: CHINoCFamilyEjectionConfig):
   interface ingress(Decoupled(RoutedBeat(CHIRspFlit(config.p), config.route_width)), ~role: consumer)
   interface egress(Decoupled(CHIRspFlit(config.p)), ~role: producer)
   bind_routed_flow_ejector(CHIRspFlit(config.p), config.route_width, ingress, egress)
-  def expected :: CHINoCFamilyEjectionDecision(config.p.node_id_width) = config.lookup(site_key)
+  def expected = config.lookup(site_key)
   assert(!ingress.valid ||| (expected.valid & (ingress.bits.payload.tgt_id === expected.node_id)),
          "chi_rsp_noc_family_ejection_target")
 
@@ -599,7 +599,7 @@ sync_circuit CHISnpNoCFamilyEjector(config :: CHINoCFamilyEjectionConfig):
   interface ingress(Decoupled(RoutedBeat(CHISnpFlit(config.p), config.route_width)), ~role: consumer)
   interface egress(Decoupled(CHISnpFlit(config.p)), ~role: producer)
   bind_routed_flow_ejector(CHISnpFlit(config.p), config.route_width, ingress, egress)
-  def expected :: CHINoCFamilyEjectionDecision(config.p.node_id_width) = config.lookup(site_key)
+  def expected = config.lookup(site_key)
   assert(!ingress.valid ||| expected.valid,
          "chi_snp_noc_family_ejection_site")
 
@@ -608,7 +608,7 @@ sync_circuit CHIDatNoCFamilyEjector(config :: CHINoCFamilyEjectionConfig):
   interface ingress(Decoupled(RoutedBeat(CHIDatFlit(config.p), config.route_width)), ~role: consumer)
   interface egress(Decoupled(CHIDatFlit(config.p)), ~role: producer)
   bind_routed_flow_ejector(CHIDatFlit(config.p), config.route_width, ingress, egress)
-  def expected :: CHINoCFamilyEjectionDecision(config.p.node_id_width) = config.lookup(site_key)
+  def expected = config.lookup(site_key)
   assert(!ingress.valid ||| (expected.valid & (ingress.bits.payload.tgt_id === expected.node_id)),
          "chi_dat_noc_family_ejection_target")
 

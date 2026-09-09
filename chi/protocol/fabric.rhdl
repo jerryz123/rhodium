@@ -123,13 +123,10 @@ class CHISubordinateMapEntry(address_set :: AddressSet,
 // Shared decode mechanism; callers retain their nominal result and service contracts.
 // Map construction has already checked disjointness and NodeID/address widths.
 fun chi_map_lookup(address :: Bits, address_sets :: NonemptyList.of(AddressSet), node_ids :: NonemptyList.of(Nat), node_id_width :: PosInt):
-  def mutable valid = Bool(#false)
-  def mutable node_id = bits(0, node_id_width)
-  for (address_set in address_sets, target_node_id in node_ids):
-    def matches = address_set.matches(address)
-    valid := valid ||| matches
-    node_id := mux(matches, bits(target_node_id, node_id_width), node_id)
-  [valid, node_id]
+  def matches = vec(for List (address_set in address_sets): address_set.matches(address))
+  def selection = matches.as_bits().into(MaybeOneHot(address_sets.length()))
+  def node_id = selection.mux(for List (target in node_ids): bits(target, node_id_width), ~default: bits(0, node_id_width))
+  [selection.valid, node_id]
 
 bundle CHISubordinateLookup(node_id_width :: PosInt):
   valid: Bool

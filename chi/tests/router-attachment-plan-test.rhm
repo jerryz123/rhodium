@@ -1,0 +1,75 @@
+#lang rhombus
+// Checks ordered channel closure indices derived from mixed CHI endpoint attachment plans.
+
+import:
+  "../protocol/params.rhdl".CHIFlitParams
+  "../noc/noc-authoring.rhm" open
+  "../noc/noc-adapter.rhdl" open
+  "../noc/noc-router.rhdl" open
+  "../../noc/authoring/main.rhm" open
+  "../../noc/language/main.rhm".topology
+  "../../noc/plan/main.rhm" open
+  "../../noc/rtl/router.rhdl".compile_simple_router_family
+
+def physical = topology:
+  node local
+def router = physical.node("local")
+def rni = CHIRNSite(NamePath(["rni"]), 1, router)
+def rnf_a = CHIRNSite(NamePath(["rnf-a"]), 2, router)
+def rnf_b = CHIRNSite(NamePath(["rnf-b"]), 3, router)
+def hni = CHIRNICNSite(NamePath(["hni"]), 4, router)
+def hnf = CHIRNICNSite(NamePath(["hnf"]), 5, router)
+def hn = CHISNICNSite(NamePath(["hn"]), 6, router)
+def sn_a = CHISNSite(NamePath(["sn-a"]), 7, router)
+def sn_b = CHISNSite(NamePath(["sn-b"]), 8, router)
+def compilations = compile_chi_connections(
+  physical,
+  [CHIRNIConnection(rni, hni),
+   CHIRNFConnection(rnf_a, hnf),
+   CHIRNFConnection(rnf_b, hnf),
+   CHISNConnection(hn, sn_a),
+   CHISNConnection(hn, sn_b)],
+  uniform_chi_routing(deny_all)
+)
+def p = CHIFlitParams()
+def req = RouterFamilyPlan(compilations.req.network.network_plan)
+def rsp = RouterFamilyPlan(compilations.rsp.network.network_plan)
+def snp = RouterFamilyPlan(compilations.snp.network.network_plan)
+def dat = RouterFamilyPlan(compilations.dat.network.network_plan)
+def adapters = CHIChannelAdapterPlans(
+  compile_chi_channel_family_adapter_plan(compilations.req, req, p),
+  compile_chi_channel_family_adapter_plan(compilations.rsp, rsp, p),
+  compile_chi_channel_family_adapter_plan(compilations.snp, snp, p),
+  compile_chi_channel_family_adapter_plan(compilations.dat, dat, p)
+)
+def routers = CHIRouterFamilyConfigs(
+  compile_simple_router_family(req), compile_simple_router_family(rsp),
+  compile_simple_router_family(snp), compile_simple_router_family(dat),
+  RouterFamilyPhysicalPlan(req)
+)
+// Column order deliberately differs from lexical terminal order.
+def attachment = compile_chi_router_attachment_plan(
+  routers, adapters,
+  CHIRouterAttachments(~rni_sites: [[rni]], ~rnf_sites: [[rnf_b, rnf_a]],
+                       ~hni_requester_sites: [[hni]], ~hnf_requester_sites: [[hnf]],
+                       ~hn_subordinate_sites: [[hn]], ~sn_sites: [[sn_b, sn_a]])
+)
+fun inputs(plan :: CHIChannelAdapterPlan, sites :: List.of(CHIInjectionSite)):
+  sites.map(fun (site): plan.injection(site.terminal).input_index)
+fun targets(plan :: CHIChannelAdapterPlan, sites :: List.of(CHIEjectionSite)):
+  sites.map(fun (site): plan.ejection(site.terminal).target_index)
+
+check:
+  attachment.req_inputs ~is inputs(adapters.req, [rni.req, rnf_b.req, rnf_a.req, hn.req])
+  attachment.req_targets ~is targets(adapters.req, [hni.req, hnf.req, sn_b.req, sn_a.req])
+  attachment.rsp_inputs ~is inputs(adapters.rsp, [rni.rsp_requester, rnf_b.rsp_requester, rnf_a.rsp_requester, hni.rsp_response, hnf.rsp_response, sn_b.rsp_response, sn_a.rsp_response])
+  attachment.rsp_targets ~is targets(adapters.rsp, [rni.rsp_response, rnf_b.rsp_response, rnf_a.rsp_response, hni.rsp_requester, hnf.rsp_requester, hn.rsp_response])
+  attachment.snp_inputs ~is inputs(adapters.snp, [hnf.snp])
+  attachment.snp_targets ~is targets(adapters.snp, [rnf_b.snp, rnf_a.snp])
+  attachment.dat_inputs ~is inputs(adapters.dat, [rni.dat_request, rnf_b.dat_request, rnf_a.dat_request, hni.dat_response, hnf.dat_response, hn.dat_request, sn_b.dat_response, sn_a.dat_response])
+  attachment.dat_targets ~is targets(adapters.dat, [rni.dat_response, rnf_b.dat_response, rnf_a.dat_response, hni.dat_request, hnf.dat_request, hn.dat_response, sn_b.dat_request, sn_a.dat_request])
+
+def empty = compile_chi_router_attachment_plan(routers, adapters, CHIRouterAttachments())
+check:
+  [empty.req_inputs, empty.req_targets, empty.rsp_inputs, empty.rsp_targets,
+   empty.snp_inputs, empty.snp_targets, empty.dat_inputs, empty.dat_targets] ~is [[], [], [], [], [], [], [], []]

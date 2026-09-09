@@ -95,20 +95,12 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   awaiting_write_data.clear.valid <== accept_write_data & matched_write.bits.last
   awaiting_write_data.clear.bits <== data_slot
 
-  def next_received_write_data_ids = vec(
-    for List (index in 0..limit):
-      block:
-        def index_bits = bits(index, slot_width)
-        def allocate_here = allocate & allocated.bits.write & (allocated.bits.slot === index_bits)
-        def data_here = accept_write_data & (data_slot === index_bits)
-        mux(allocate_here,
-            bits(0, 4),
-            mux(data_here,
-                next_received_data_ids,
-                received_write_data_ids[index]))
-  )
-  when (allocate ||| accept_write_data):
-    received_write_data_ids <== next_received_write_data_ids
+  // Allocation selects a currently free slot; accepted DAT selects an occupied
+  // slot. These independent writes cannot collide, even on simultaneous events.
+  when (allocate & allocated.bits.write):
+    received_write_data_ids[allocated.bits.slot] <== bits(0, 4)
+  when accept_write_data:
+    received_write_data_ids[data_slot] <== next_received_data_ids
 
   write_requests.write(allocated.bits.slot,
                        allocated.bits.request,

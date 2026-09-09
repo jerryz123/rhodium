@@ -17,6 +17,13 @@ hierarchy or per-directory facade modules.
 
 ## Extension and focused validation
 
+`CHISNTransactionSlots` updates receipt masks with independent indexed register
+writes. Allocation selects a free slot in current occupancy; accepted DAT
+selects an occupied slot, so the writes cannot collide. Do not introduce
+same-cycle occupancy bypass without revisiting that invariant. The `chi-ram`
+bench covers simultaneous allocation/DAT, receipt-mask reuse, and reset of an
+incomplete transaction.
+
 `chi/subordinate/memory-controller.rhdl` owns the common `CHIRamConfig`, `CHIRamParams`,
 `CHIRamIdentity`, operation/completion payloads, and `build_chi_ram_controller`.
 `chi/subordinate/ram.rhdl` owns only the `SyncRam1RW` backend and re-exports the shared bindings
