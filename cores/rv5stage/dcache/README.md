@@ -167,17 +167,17 @@ into shared engines:
 
 ```mermaid
 flowchart LR
-  EX["EX virtual load/store index"] --> SRAM["Synchronous tag/state/data read"]
-  SRAM --> MEM["MEM physical tag + permissions + byte hazards"]
+  EX["S0 / EX virtual load/store index"] --> SRAM["Synchronous tag/state/data read"]
+  SRAM --> MEM["S1 / MEM physical tag + permissions + byte hazards"]
   TRANSLATE["Parallel DTLB + PMA permission"] --> MEM
-  MEM -->|"permitted hit"| WB["Core MEM/WB register"]
+  MEM -->|"permitted hit"| WB["S2 / WB<br/>Core MEM/WB register"]
   WB -->|"authorize owned store"| Stores["Two committed stores"]
   Stores -->|"scheduled byte write"| Arrays
-  Core["Core request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
+  Core["S2 authorized request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
   Core -->|"empty buffer + available SRAM"| Lookup
   Virtual["Early virtual index"] --> Lookup
-  Queue --> Lookup["S1 lookup Pipe<br/>tag + state + XLEN word SRAMs"]
-  Lookup --> Resolved["Registered S2 result<br/>word + hit + coherence + victim"]
+  Queue --> Lookup["S3 lookup Pipe<br/>tag + state + XLEN word SRAMs"]
+  Lookup --> Resolved["Registered S4 result<br/>word + hit + coherence + victim"]
   Resolved -->|load hit| Load["LoadGen"]
   Resolved -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
   Pending --> Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
@@ -214,19 +214,24 @@ reads the arrays in parallel with translation and PMA checks. Its permitted
 physical request bypasses the queue into the lookup pipeline at the read edge.
 Otherwise, accepted physical requests enter the queue and later index using
 their unchanged page-offset bits. Queued requests always precede fresh demands.
-A one-stage `Pipe` retains S1 request context alongside the synchronous SRAM
-lookup. Tag comparison and word/state selection feed an always-captured S2
-result register. S2 checks access ownership and LR/SC reservation, chooses
+A one-stage `Pipe` retains S3 request context alongside the synchronous SRAM
+lookup. Tag comparison and word/state selection feed an always-captured S4
+result register. S4 checks access ownership and LR/SC reservation, chooses
 eviction or refill, and produces hit responses. Consecutive load hits still
 advance every cycle; an uncontended hit responds two edges after its array-read
-edge, through S2 and the transaction response `ValidPipe`. Ordinary pipeline
+edge, through S4 and the transaction response `ValidPipe`. Ordinary pipeline
 hits bypass these transaction registers as described above.
 
-An older S2 miss or mutation stops younger S1 advancement. The cache retains
+S0/S1/S2 align with EX/MEM/WB; S3 and S4 extend the cache's authorized
+processing path, not the CPU pipeline. Queueing and rereads can delay these
+stages, so they are not fixed cycles after WB. A reread returns to S2 admission
+without repeating architectural authorization.
+
+An older S4 miss or mutation stops younger S3 advancement. The cache retains
 that younger request, discards its array result, and rereads after the older
 operation completes. Pending snoops may use the arrays while the retained
 request waits; replay then observes updated tags, coherence state, and data.
-Only requests with reserved downstream capacity enter S2, which never stalls.
+Only requests with reserved downstream capacity enter S4, which never stalls.
 A slow-service store, SC, or AMO that already has Unique ownership first captures its request,
 selected way, and old value in a one-entry mutation register. On the following
 edge it updates the selected byte lanes and sets UniqueDirty without emitting

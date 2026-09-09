@@ -39,6 +39,41 @@ importing the instruction-cache package.
 
 ## Change the cache
 
+### Internal naming and organization
+
+In `cache.rhdl`, `s0_` names the core-aligned EX admission/read launch,
+`s1_` names MEM's synchronous SRAM result and physical-tag/hit decision, and
+`s2_` names WB's retained store candidate, authorization, and slow-request
+admission. Name a pipeline register for the stage consuming its current value,
+not the stage supplying its next value. The fast hit path stays contiguous
+near the top of the circuit.
+
+Authorized requests extend the cache pipeline beyond WB: `s3_` names the
+retained SRAM lookup, and `s4_` names captured resolution, permission checks,
+and transaction launch. Queueing or rereads can stall this path, so S3 and S4
+are cache processing stages, not fixed cycles after the core's WB. Retries
+reenter the `s2_` read-admission logic without repeating core authorization.
+Keep transaction-spanning state under its engine name, such as `miss_*`,
+`refill_*`, `snoop_*`, or `reservation_*`.
+
+Use flow chains for channel arbitration, Valid payload transformation, and
+engine-generated offers. Preserve fixed-priority input order and unconditional
+payload capture at `ValidPipeAlwaysCapture` boundaries. Shared scheduler grants
+are combinational wires, not additional pipeline stages. Keep SRAM owner
+priorities, store authorization, and engine state transitions explicit; do not
+replace non-backpressurable completion selection with a dropping Valid arbiter.
+
+S4 hit/refill/eviction branches carry the complete resolved bundle; build
+transaction commands and capture mutation/gather state from the consuming
+branch's payload. Terminate accepted work as same-cycle Valid events where
+the FSM cannot backpressure it further. S2 maps demands and hints into lookup
+flows with demand-first arbitration. Drop hints unless they can win and enter
+S3 immediately, before `to_decoupled()` checks acceptance; never buffer them.
+Keep early virtual SRAM indexing independent of that token arbitration and
+keep request-queue ingress readiness structural.
+
+### Behavioral invariants
+
 1. Preserve ordered Decoupled requests and non-backpressurable Valid responses,
    including completion metadata for stores, atomics, and deferred writeback.
    Keep readiness structural even when an empty request buffer is bypassed by
@@ -50,7 +85,7 @@ importing the instruction-cache package.
    The speculative `pipeline_lookup` read uses only EX's virtual page offset.
    `pipeline.request` supplies the MEM physical tag and operation controls; return its
    matching SRAM value directly to the core MEM/WB register. Do not insert the
-   authorized transaction path's S2/response registers into that hit path.
+   authorized transaction path's S4/response registers into that hit path.
    Registered read ownership and page-offset matching prevent consuming another
    request's SRAM response. Return an explicit replay for blocked reads, not a
    slow-service request. Store lookup retains only a one-cycle candidate; WB
@@ -61,13 +96,13 @@ importing the instruction-cache package.
    same-line snoop draining independent of unrelated probes. Do not allow a
    committed entry's way to be replaced or downgraded before its drain.
    For authorized transactions,
-   S1 owns array reads, tag comparison, and word/state selection; its result
-   crosses `ValidPipeAlwaysCapture` before S2 checks permissions and launches
-   transactions. Reserve S2 capacity before advancing S1. Retain and reread
-   younger S1 requests blocked by older S2 work or snoops; never retain their
+   S3 owns array reads, tag comparison, and word/state selection; its result
+   crosses `ValidPipeAlwaysCapture` before S4 checks permissions and launches
+   transactions. Reserve S4 capacity before advancing S3. Retain and reread
+   younger S3 requests blocked by older S4 work or snoops; never retain their
    stale array results across mutation, refill, or coherence service. Include
    both stages in drain and maintenance ordering, but let snoops pass a retained
-   S1 request once its outstanding read and S2 have drained.
+   S3 request once its outstanding read and S4 have drained.
 3. Publish refill metadata only after the last word, and invalidate a dirty
    victim before reusing its way. Capture the cache's install disposition in
    transaction context separately from architectural locality and new-way
@@ -148,3 +183,7 @@ core/MMU/router/cache boundary for hits during delayed load/store misses,
 deferred-result use, and fence ordering. Include `rv5stage-dcache-rv32` and
 `rv5stage-lrsc-progress` for width and coherence regression coverage, then rerun
 SimpleSoC vvadd with the same ELF and host polling before claiming a speedup.
+
+For internal flow changes, the RV64 cache bench also checks same-cycle demand
+priority over a hint, hint drops during miss service, and retained younger
+demand completion without a delayed hint transaction or duplicate response.

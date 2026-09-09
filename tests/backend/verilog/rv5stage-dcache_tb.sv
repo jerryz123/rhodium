@@ -1,4 +1,4 @@
-// Verifies set-isolated hits under a miss, committed stores, coherence, and atomics.
+// Verifies flow admission, set-isolated hits under a miss, stores, coherence, and atomics.
 module rv5stage_dcache_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed {
@@ -663,7 +663,7 @@ module rv5stage_dcache_tb;
     send_core_request(PREFETCH_READ_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd2);
     send_core_request(PREFETCH_READ_ADDRESS + 64'd8, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd3);
     assert (!core_out.response.valid)
-      else $fatal(1, "load response bypassed the registered S2 lookup result");
+      else $fatal(1, "load response bypassed the registered S4 lookup result");
     tick();
     assert (core_out.response.valid)
       else $fatal(1, "VIPT load hit did not bypass the empty structural buffer");
@@ -698,7 +698,7 @@ module rv5stage_dcache_tb;
     // not feed back into request acceptance while structural capacity remains.
     assert (core_out.request.ready)
       else $fatal(1, "data cache request readiness depended on a lookup miss");
-    // This younger lookup is already in S1 when the older S2 miss blocks it.
+    // This younger lookup is already in S3 when the older S4 miss blocks it.
     // It must reread the installed line instead of launching a duplicate miss.
     send_core_request(ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd4);
     send_core_request(ADDRESS + 64'd8, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd5);
@@ -1542,6 +1542,41 @@ module rv5stage_dcache_tb;
     prepare_hit_under_miss();
     check_pipeline_load(PREFETCH_READ_ADDRESS,1,1,LINE[63:0]);
     $display("Load hit-under-miss: streaming hits, reserved sets, retry, installation, concurrent completion, queued stores, writeback, snoops, and reset passed");
+
+    // A simultaneous demand wins over a one-cycle hint. The hint is dropped,
+    // not saved for later admission when the demand has completed.
+    prefetch_in = '{valid:1, bits:'{address:PREFETCH_WRITE_ADDRESS, operation:2'd2}};
+    send_core_request(PREFETCH_READ_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,6);
+    prefetch_in = '0;
+    expect_core_response(LINE[63:0],DATA_DESTINATION_INTEGER,6);
+    repeat(12) begin
+      tick();
+      assert(!tx_req_pending && !core_out.response.valid && core_out.drained)
+        else $fatal(1,"simultaneous prefetch displaced a demand or survived rejection");
+    end
+
+    // Hints offered while miss service blocks S3 must disappear. A younger
+    // authorized demand remains retained and completes after the miss instead.
+    send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2);
+    accept_request(READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
+    send_prefetch(PREFETCH_WRITE_ADDRESS,2'd3);
+    prefetch_in = '{valid:1, bits:'{address:PREFETCH_WRITE_ADDRESS, operation:2'd2}};
+    send_core_request(PREFETCH_READ_ADDRESS+8,MEMORY_LOAD,ATOMIC_SWAP,0,7);
+    prefetch_in = '0;
+    repeat(4) begin
+      tick();
+      assert(!tx_req_pending && !core_out.response.valid)
+        else $fatal(1,"blocked prefetch bypassed miss ownership");
+    end
+    return_line(THIRD_ADDRESS,THIRD_LINE,3'b001); accept_comp_ack();
+    expect_core_response(THIRD_LINE[63:0],DATA_DESTINATION_INTEGER,2);
+    expect_core_response(LINE[127:64],DATA_DESTINATION_INTEGER,7);
+    repeat(12) begin
+      tick();
+      assert(!tx_req_pending && !core_out.response.valid && core_out.drained)
+        else $fatal(1,"blocked prefetch was retained or queued demand was duplicated");
+    end
+    $display("Flow admission: demand priority, blocked hint drops, and retained demand completion passed");
     $display("RV5Stage VIPT write-back data-cache and self-snooped maintenance simulation passed");
     $finish;
   end
