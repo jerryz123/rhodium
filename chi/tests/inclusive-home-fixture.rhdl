@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates a small inclusive HN-F with partial requester-write and snoop-data capabilities.
+// Elaborates a small inclusive HN-F with two caching peers and partial dirty data.
 
 import:
   lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
@@ -17,10 +17,10 @@ def inclusive_home_base_config = CHIHNFConfig(
     CHIICNPortParams(endpoint.name, endpoint.node_id, endpoint.kind,
                      ~emits: endpoint.emits,
                      ~supports: CHIChannelCapabilities(
-                       ~req: endpoint.supports.req ++ (if endpoint.kind == CHINodeKind.RNI | [CHIReqOpcode.WriteNoSnpPtl] | []),
+                       ~req: endpoint.supports.req ++ (if endpoint.kind == CHINodeKind.RNI | [CHIReqOpcode.WriteNoSnpPtl] | (if endpoint.supports.req.contains(CHIReqOpcode.ReadUnique) | [] | [CHIReqOpcode.ReadUnique])),
                        ~rsp: endpoint.supports.rsp,
                        ~snp: endpoint.supports.snp,
-                       ~dat: endpoint.supports.dat ++ (if endpoint.supports.dat.contains(CHIDatOpcode.SnpRespData) | [CHIDatOpcode.SnpRespDataPtl] | [])
+                       ~dat: endpoint.supports.dat ++ (if endpoint.kind == CHINodeKind.RNI | [] | (if endpoint.supports.dat.contains(CHIDatOpcode.SnpRespData) | [CHIDatOpcode.SnpRespDataPtl] | [CHIDatOpcode.SnpRespData, CHIDatOpcode.SnpRespDataPtl]))
                      ),
                      ~max_outstanding: endpoint.max_outstanding),
   inclusive_home_addressing.global_mask,

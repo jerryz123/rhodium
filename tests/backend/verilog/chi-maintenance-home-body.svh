@@ -1,4 +1,4 @@
-// Checks both Homes against independent caches/RAM, snoop ordering, stalls, and reset recovery.
+// Checks maintenance against independent caches with real inclusive grants, stalls, and reset.
 typedef struct packed { logic ready; } ready_t;
 typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
 typedef struct packed { logic valid; CHIRspFlit bits; } rsp_t;
@@ -106,8 +106,8 @@ always @(posedge clock) begin
       assert(!port_out.requester.snoops.valid) else $fatal(1, "Home issued another snoop before retiring its responder");
     if (issue.valid && port_out.requester.requests.ready) begin
       maintenance_active <= issue.bits.opcode inside {7'd8, 7'd9, 7'd10};
-      expected_snoops <= {issue.bits.src_id != 7'd3 || issue.bits.excl_snoop_me_cah,
-                         issue.bits.src_id != 7'd2 || issue.bits.excl_snoop_me_cah};
+      expected_snoops <= {(issue.bits.src_id != 7'd3 || issue.bits.excl_snoop_me_cah) && (!INCLUSIVE || (cached[3] && cache_address[3] == issue.bits.address)),
+                         (issue.bits.src_id != 7'd2 || issue.bits.excl_snoop_me_cah) && (!INCLUSIVE || (cached[2] && cache_address[2] == issue.bits.address))};
     end
     if (maintenance_active && port_out.requester.snoops.valid && port_in.requester.snoops.ready) begin
       assert((|expected_snoops) && port_out.requester.snoops.bits.target_id == (expected_snoops[0] ? 7'd2 : 7'd3))
@@ -201,6 +201,11 @@ task automatic finish(input logic [1:0] error_code);
   tick();
 endtask
 task automatic install(input int target, input logic [43:0] address, input bit is_dirty, input logic [7:0] value);
+  if (INCLUSIVE) begin
+    observed_count = 0;
+    send(target, is_dirty ? 7'h07 : 7'h02, address, 0);
+    while (observed_count < 4) tick();
+  end
   cached[target] = 1; dirty[target] = is_dirty; cache_address[target] = address;
   for (int p = 0; p < 4; p++) cache_data[target][p] = {16{value}};
 endtask
@@ -236,6 +241,9 @@ initial begin
   // Abort both an unaccepted dispatch and one with a remembered responder and
   // another target pending. Neither may leak into the next transaction.
   for (int accept_first = 0; accept_first < 2; accept_first++) begin
+    if (INCLUSIVE) begin
+      install(2, A, 0, 8'h11); install(3, A, 0, 8'h11);
+    end
     hold_snoops = 1;
     send(1, 8, A, 0);
     while (!port_out.requester.snoops.valid) tick();
@@ -249,19 +257,24 @@ initial begin
     end
     reset = 1; tick();
     snp_active = 0; snp_data = 0;
+    for (int i = 0; i < 4; i++) begin cached[i] = 0; dirty[i] = 0; end
     hold_snoops = 0; reset = 0; tick();
     assert(port_out.requester.requests.ready && !port_out.requester.snoops.valid)
       else $fatal(1, "Home did not clear snoop scheduling on reset");
   end
-  // Requester dirty copy participates only with SnpMe. Clean sharers stay clean.
-  install(3, A, 1, 8'h22); install(2, A, 0, 8'h22);
+  // A dirty requester participates with SnpMe; absent peers need no probe.
+  install(3, A, 1, 8'h22);
   send(3, 8, A, 1); finish(0); check_ram(A, 8'h22);
-  assert(cached[2] && cached[3] && !dirty[3]) else $fatal(1, "clean changed cache state incorrectly");
-  // SnpMe=0 relies on the caller's already-clean copy; remote dirty data still wins.
-  install(2, A, 1, 8'h33); install(3, A, 0, 8'h33);
+  assert(cached[3] && !dirty[3]) else $fatal(1, "clean changed cache state incorrectly");
+  // Multiple clean sharers retain copies through maintenance.
+  install(2, A, 0, 8'h22);
+  send(1, 8, A, 0); finish(0);
+  assert(cached[2] && cached[3]) else $fatal(1, "clean discarded a shared copy");
+  // SnpMe=0 excludes the caller while remote dirty data still reaches RAM.
+  install(2, A, 1, 8'h33);
   send(3, 8, A, 0); finish(0); check_ram(A, 8'h33);
-  // Flush preserves dirty data, then invalidates every copy, even on an LLC miss.
-  install(2, A, 0, 8'h44); install(3, A, 1, 8'h44);
+  // Flush preserves dirty data, then invalidates every retained copy.
+  install(2, A, 0, 8'h33); install(3, A, 1, 8'h44);
   send(1, 9, A, 0); finish(0); check_ram(A, 8'h44);
   assert(!cached[2] && !cached[3]) else $fatal(1, "flush left a cache copy");
   // Discard must not write dirty bytes back over a noncoherent agent's RAM value.

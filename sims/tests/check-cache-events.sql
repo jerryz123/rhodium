@@ -1,4 +1,4 @@
--- Checks the private-cache CHI channel schema, transferred flits, and explicit lineage boundary.
+-- Checks private-cache CHI schemas, instruction snapshots, and explicit lineage boundaries.
 -- Materialize shared views so per-field checks also scale to full benchmark traces.
 WITH expected(suffix, fields) AS (
   VALUES
@@ -44,7 +44,7 @@ SELECT
   (SELECT count(*)=0 FROM events e JOIN captures c ON c.track_id=e.track_id AND c.label=1
    LEFT JOIN enum_names n ON n.track_id=e.track_id AND n.opcode=EXTRACT_ARG(e.arg_set_id,'debug.opcode')
    WHERE e.name!=COALESCE(n.name,printf('0x%0*x',(c.width+3)/4,EXTRACT_ARG(e.arg_set_id,'debug.opcode')))) AND
-  (SELECT count(*)>0 FROM events WHERE channel='icache.txreq' AND name='ReadClean' AND EXTRACT_ARG(arg_set_id,'debug.opcode')=2) AND
+  (SELECT count(*)>0 FROM events WHERE channel='icache.txreq' AND name='ReadOnce' AND EXTRACT_ARG(arg_set_id,'debug.opcode')=3) AND
   (SELECT count(*)>0 FROM events WHERE channel='icache.rxdat' AND name='CompData' AND EXTRACT_ARG(arg_set_id,'debug.opcode')=4) AND
   (SELECT count(*)=0 FROM events e JOIN captures c ON c.track_id=e.track_id
    WHERE EXTRACT_ARG(e.arg_set_id,'debug.'||c.name) IS NULL) AND

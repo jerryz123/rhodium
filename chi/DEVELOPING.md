@@ -273,6 +273,27 @@ in both callers. Run both Home fixtures and both maintenance fixtures when
 changing this bookkeeping; the shared maintenance bench checks target order,
 stalled dispatch stability, and reset before and after a dispatch.
 
+`CHIInclusiveHNF` owns `resident_lines`, indexed by LLC set/way and configured
+RN-F order. Keep the absence invariant separate from LLC dirty state and from
+`chi_request_allocates_coherent`, whose opcode family includes non-allocating
+`WriteUniquePtl`. A successful final read-data transfer publishes a possible
+cached copy before the serialized Home can accept another request; CompAck
+still owns transaction completion when requested. Only complete successful
+snoop responses may remove a responder. Track retained/error state across all
+dirty packets, and keep a failed victim invalidation from replacing its entry.
+Successful line installation starts with an empty directory. Never attach the
+old victim's bits to the new tag. Coordinated reset clears LLC and requester
+state; independent requester state surviving a Home reset is not supported.
+
+Use `chi-inclusive-home` for residency, shared/unique grants, snapshot reads,
+silent-eviction cleanup, stalled dispatch, delayed CompAck, partial dirty packets,
+and response-error behavior. The maintenance bench establishes inclusive L1
+copies through actual read grants, not test-only injection behind the directory.
+Run `chi-maintenance-inclusive`, the I-cache coherence fixtures, and cache-level
+LR/SC progress after changing target selection. Rerun SimpleSoC vvadd with
+unchanged host polling and inspect `tohost` snoops and pipeline replay counts;
+keep correctness and reduced traffic distinct from a cycle-count prediction.
+
 The message constructor fixture compares complete transformed packets at every DAT
 width, with optional REQ/DAT metadata enabled and disabled. Run it alongside
 both Home and maintenance fixtures when changing these transforms. Snoop and

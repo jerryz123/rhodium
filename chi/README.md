@@ -648,16 +648,27 @@ continues. Reads become `ReadNoSnp`; their upstream state is SharedClean for
 `ReadClean` and Unique for `ReadUnique`, and the Home waits for CompAck.
 
 `CHIInclusiveHNF` adds blocking set-associative storage, serves hits without a
-subordinate request, broadcasts before replacing a resident victim, absorbs
+subordinate request, snoops tracked residents before replacing a victim, absorbs
 dirty snoop data, and writes back dirty victims before refill. Sets are a
 power-of-two count of at least two, ways are positive, and the complete cache
 must fit the projected dense local range. It requires 64-byte subordinate
 `ReadNoSnp` and `WriteNoSnpFull` support.
 
-Neither coherent Home has a sharer directory or concurrent transaction
-pipeline. Broadcast invalidation is conservative. General ordering, broader
-retry use, parallel Home operation, a precise directory, and broader coherent
-request families remain outside the contract.
+The inclusive Home tracks a conservative per-line bit for every configured
+RN-F. Zero proves absence; one means a copy may remain. Successful `ReadClean`
+and `ReadUnique` grants record their requester. `ReadOnce`, RN-I reads, and
+`WriteUniquePtl` do not create residency. Silent clean evictions may leave stale
+bits; a complete successful snoop reporting Invalid clears its responder's bit.
+Retained copies and errored or incomplete responses remain conservatively tracked.
+Snoop selection intersects this mask with the operation's requester-exclusion
+rules. Thus coherent reads of an LLC-only line need no L1 snoops. Replacement
+cannot reuse the entry until tracked copies have been invalidated and dirty
+data obligations completed; failed snoop invalidation grants no new copy.
+
+The noncaching Home remains broadcast-based. Both Homes still accept only one
+transaction at a time. General ordering, broader retry use, parallel Home
+operation, exact silent-eviction notifications, and broader coherent request
+families remain outside the contract.
 
 ### Cache maintenance
 
@@ -673,8 +684,10 @@ same-line transactions before issuing the command, and prevent conflicting
 local accesses until completion. An RN-F may use `snoop_me` to include its own
 cache; otherwise it must satisfy the local-cache maintenance preconditions.
 
-Both Homes broadcast maintenance to RN-Fs, including the originating RN-F
-when SnpMe is set. `CleanShared` removes dirty responsibility;
+Maintenance targets RN-Fs, including the originating RN-F when SnpMe is set;
+the inclusive Home filters these targets by its residency directory. Its
+maintenance miss has no coherent L1 residents under the inclusion invariant.
+`CleanShared` removes dirty responsibility;
 `CleanInvalid` preserves dirty data and invalidates; `MakeInvalid` invalidates
 without writing discarded data. Dirty interventions for clean/flush reach the
 uncached backing subordinate before `Comp`. Maintenance writes disable early

@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements a serialized inclusive HN-F with a blocking set-associative LLC.
+// Implements a blocking inclusive LLC with conservative per-requester residency.
 
 import:
   lib("rhodium/std/bits.rhdl") open
@@ -121,6 +121,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def line_packets = 64 / p.data_bytes
   def packet_index_width = index_width(line_packets)
   def Line = Vec(line_packets, Bits(p.data_width))
+  def residents = home_config.snoop_endpoints
+  def resident_count = residents.length()
 
   input identity: CHIHNFIdentity(p)
   interface port(CHIHNChannels(p), ~role: home)
@@ -143,6 +145,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   inst snoop_targets(CHIHomeSnoopTargets(home_config))
   def expected_snoop_node = snoop_targets.expected_node
   reg received_snoop_data_ids(~init: bits(0, 4))
+  reg snoop_retains_copy(~init: Bool(#false))
   reg received_fill_data_ids(~init: bits(0, 4))
   reg remaining_response_data_ids(~init: bits(0, 4))
   reg subordinate_dbid(~init: bits(0, 12))
@@ -157,6 +160,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   ))
   reg dirty_lines(~init: vec(
     for List (_set in 0..sets): bits(0, ways).as_vec(Bool)
+  ))
+  // A zero bit proves absence; silent clean eviction may leave a stale one.
+  // These bits describe coherent RN-F copies, not LLC data or RN-I snapshots.
+  reg resident_lines(~init: vec(
+    for List (_set in 0..sets): vec(for List (_way in 0..ways): bits(0, resident_count))
   ))
   reg replacement_ways(~init: vec(
     for List (_set in 0..sets): bits(0, way_width)
@@ -224,10 +232,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def next_snoop_data_ids = received_snoop_data_ids ||| snoop_data_id_mask
   def expected_snoop_data_ids = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
   def final_snoop_data = next_snoop_data_ids === expected_snoop_data_ids
+  def snoop_opcode = mux(snoop_victim, CHISnpOpcode.SnpCleanInvalid, chi_home_snoop_opcode(request.opcode))
   when (requester.request_data.valid & awaiting_snoop):
+    assert(chi_snoop_response_state_valid(snoop_opcode, requester.request_data.bits.resp.into(CHICoherentResponse())), "chi_inclusive_hnf_snoop_data_state")
     when maintenance:
       assert(requester.request_data.bits.byte_enable === !bits(0, p.data_bytes), "chi_inclusive_hnf_maintenance_full_dirty_packet")
-      assert(chi_snoop_response_state_valid(chi_home_snoop_opcode(request.opcode), requester.request_data.bits.resp.into(CHICoherentResponse())), "chi_inclusive_hnf_maintenance_data_state")
     assert(!maintenance_discard, "chi_inclusive_hnf_discard_has_no_data")
     assert(requester.request_data.bits.txn_id === bits(0, 12), "chi_inclusive_hnf_snoop_data_txn")
     assert(or_reduce(expected_snoop_data_ids & snoop_data_id_mask), "chi_inclusive_hnf_snoop_data_id_expected")
@@ -247,11 +256,6 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def send_snoop = phase === CHIInclusiveHNFPhase.SendSnoop
   snoop_targets.target.ready <== send_snoop & requester.snoops.ready
   def snoop_address = mux(snoop_victim, victim_address, request.address)
-  def snoop_opcode = mux(
-    snoop_victim,
-    CHISnpOpcode.SnpCleanInvalid,
-    chi_home_snoop_opcode(request.opcode)
-  )
   requester.snoops.valid <== send_snoop & snoops_remaining
   requester.snoops.bits <== CHISnoopDispatch(p):
     target_id: snoop_targets.target.bits
@@ -374,14 +378,15 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def response_line_packet = chi_transfer_beat(selected_response_data_id, p)[0..packet_index_width]
   def sending_cached_data = phase === CHIInclusiveHNFPhase.SendCachedData
   requester.response_data.valid <== sending_cached_data
-  requester.response_data.bits <== chi_inclusive_cached_data(
+  def cached_response = chi_inclusive_cached_data(
     p,
     home_id,
     request,
     requester_allocates,
     selected_response_data_id,
     selected_line[response_line_packet]
-  ).updated(~resp_err: completion_error)
+  )
+  requester.response_data.bits <== cached_response.updated(~resp_err: completion_error, ~resp: mux(completion_error === CHIRespErr.OK, cached_response.resp, bits(0, 3)))
   def cached_data_fire = requester.response_data.fire()
 
   def requester_write_valids = requester_write_line_valids.as_vec(Bool)
@@ -395,9 +400,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def lookup_phase = phase === CHIInclusiveHNFPhase.Lookup
   snoop_targets.load.valid <== lookup_phase
   snoop_targets.load.bits <== vec(
-    for List (endpoint in home_config.snoop_endpoints):
-      mux(maintenance,
-          (request.src_id =/= bits(endpoint.node_id, p.node_id_width)) ||| request.excl_snoop_me_cah,
+    for List (index in 0..resident_count):
+      block:
+        def endpoint = residents[index]
+        def resident = valid_lines[request_set][lookup_way] & resident_lines[request_set][lookup_way].as_vec(Bool)[index]
+        resident & mux(
+          maintenance,
+          lookup_selection.valid & ((request.src_id =/= bits(endpoint.node_id, p.node_id_width)) ||| request.excl_snoop_me_cah),
           mux(lookup_selection.valid,
               chi_request_snoops_caches(request.opcode) & (request.src_id =/= bits(endpoint.node_id, p.node_id_width)),
               Bool(#true)))
@@ -415,10 +424,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def empty_way_mask = Mask(ways)(0)
   def fill_line_packet = chi_transfer_beat(subordinate.dat.response.bits.data_id, p)[0..packet_index_width]
   def final_fill_line = selected_line.updated(fill_line_packet, subordinate.dat.response.bits.data)
-  def write_line_after_snoops = after_snoops & !snoop_victim & (!maintenance ||| (maintenance_hit & !maintenance_discard))
+  def write_line_after_snoops = after_snoops & ((!snoop_victim & (!maintenance ||| (maintenance_hit & !maintenance_discard))) ||| (snoop_victim & (completion_error =/= CHIRespErr.OK)))
   def fill_successful = (completion_error === CHIRespErr.OK) & (subordinate.dat.response.bits.resp_err === CHIRespErr.OK)
   def write_filled_line = fill_data_fire & final_fill_data & fill_successful
   def write_merged_line = merge_requester_data
+  def victim_write_successful = (completion_error === CHIRespErr.OK) & (subordinate.rsp.bits.resp_err === CHIRespErr.OK)
   def write_line = write_line_after_snoops ||| write_filled_line ||| write_merged_line
   def lookup_start = (request_fire & !incoming_write) ||| (
     requester_write_data_fire & final_requester_data
@@ -480,10 +490,12 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     phase <== CHIInclusiveHNFPhase.AfterSnoops
   elsewhen snoop_fire:
     received_snoop_data_ids <== bits(0, 4)
+    snoop_retains_copy <== Bool(#false)
     phase <== CHIInclusiveHNFPhase.AwaitSnoop
   elsewhen (requester_control_fire & awaiting_snoop):
     phase <== CHIInclusiveHNFPhase.SendSnoop
   elsewhen snoop_data_fire:
+    snoop_retains_copy <== snoop_retains_copy ||| (requester.request_data.bits.resp.into(CHICoherentResponse()).state =/= CHIResponseState.Invalid) ||| (requester.request_data.bits.resp_err =/= CHIRespErr.OK)
     line_buffer <== selected_line.updated(snoop_line_packet, merged_snoop_packet)
     when (!maintenance ||| maintenance_hit):
       dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set].updated(selected_way, Bool(#true)))
@@ -495,14 +507,18 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   elsewhen after_snoops:
     victim_data_beat <== bits(0, 2)
     valid_lines <== mux(
-      snoop_victim & !selected_dirty,
+      snoop_victim & !selected_dirty & (completion_error === CHIRespErr.OK),
       valid_lines.updated(
         selected_set,
         valid_lines[selected_set].updated(selected_way, Bool(#false))
       ),
       valid_lines
     )
-    when maintenance:
+    when (completion_error =/= CHIRespErr.OK):
+      // Failed invalidation cannot authorize replacement or a new cached copy.
+      remaining_response_data_ids <== request_response_data_ids
+      phase <== mux(maintenance ||| request_write, CHIInclusiveHNFPhase.SendRequesterCompletion, CHIInclusiveHNFPhase.SendCachedData)
+    elsewhen maintenance:
       phase <== mux(maintenance_dirty & !maintenance_discard,
                     CHIInclusiveHNFPhase.SendVictimWriteRequest,
                     CHIInclusiveHNFPhase.FinishMaintenance)
@@ -533,10 +549,15 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
                   CHIInclusiveHNFPhase.AwaitVictimCompletion,
                   CHIInclusiveHNFPhase.SendVictimData)
   elsewhen (subordinate_response_fire & await_victim_completion):
-    when (!maintenance):
+    when (!maintenance & victim_write_successful):
       valid_lines <== valid_lines.updated(selected_set, valid_lines[selected_set].updated(selected_way, Bool(#false)))
       dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set].updated(selected_way, Bool(#false)))
-    phase <== mux(maintenance, CHIInclusiveHNFPhase.FinishMaintenance, CHIInclusiveHNFPhase.SendFillRequest)
+    remaining_response_data_ids <== request_response_data_ids
+    phase <== mux(
+      maintenance,
+      CHIInclusiveHNFPhase.FinishMaintenance,
+      mux(victim_write_successful, CHIInclusiveHNFPhase.SendFillRequest,
+          mux(request_write, CHIInclusiveHNFPhase.SendRequesterCompletion, CHIInclusiveHNFPhase.SendCachedData)))
   elsewhen (phase === CHIInclusiveHNFPhase.FinishMaintenance):
     when (maintenance_hit & (completion_error === CHIRespErr.OK)):
       dirty_lines <== dirty_lines.updated(selected_set, dirty_lines[selected_set].updated(selected_way, Bool(#false)))
@@ -587,7 +608,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   when request_fire:
     completion_error <== CHIRespErr.OK
-  elsewhen (maintenance ||| (request.opcode === CHIReqOpcode.ReadOnce)):
+  otherwise:
     when (fill_data_fire & (subordinate.dat.response.bits.resp_err =/= CHIRespErr.OK)):
       completion_error <== subordinate.dat.response.bits.resp_err
     elsewhen (subordinate_response_fire & (subordinate.rsp.bits.resp_err =/= CHIRespErr.OK)):
@@ -596,6 +617,23 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       completion_error <== requester.request_data.bits.resp_err
     elsewhen (requester_control_fire & awaiting_snoop & (requester.requester_responses.bits.resp_err =/= CHIRespErr.OK)):
       completion_error <== requester.requester_responses.bits.resp_err
+
+  // Retire absence only after a complete successful response. A failed or
+  // partially received dirty intervention must leave a conservative positive.
+  def responder_mask = vec(for List (endpoint in residents): expected_snoop_node === bits(endpoint.node_id, p.node_id_width)).as_bits()
+  def requester_mask = vec(for List (endpoint in residents): request.src_id === bits(endpoint.node_id, p.node_id_width)).as_bits()
+  def absent_control = requester_control_fire & awaiting_snoop & (requester.requester_responses.bits.resp_err === CHIRespErr.OK) & (requester.requester_responses.bits.resp.into(CHICoherentResponse()).state === CHIResponseState.Invalid)
+  def absent_data = snoop_data_fire & final_snoop_data & !snoop_retains_copy & (requester.request_data.bits.resp_err === CHIRespErr.OK) & (requester.request_data.bits.resp.into(CHICoherentResponse()).state === CHIResponseState.Invalid)
+  def directory_line_valid = valid_lines[selected_set][selected_way] & (!maintenance ||| maintenance_hit)
+  def invalidate_entry = (after_snoops & snoop_victim & !selected_dirty & (completion_error === CHIRespErr.OK)) ||| (subordinate_response_fire & await_victim_completion & !maintenance & victim_write_successful) ||| ((phase === CHIInclusiveHNFPhase.FinishMaintenance) & maintenance_hit & (completion_error === CHIRespErr.OK) & (request.opcode =/= CHIReqOpcode.CleanShared))
+  def grant_copy = cached_data_fire & final_response_data & (completion_error === CHIRespErr.OK) & request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique)
+  when (write_filled_line ||| invalidate_entry):
+    resident_lines <== resident_lines.updated(selected_set, resident_lines[selected_set].updated(selected_way, bits(0, resident_count)))
+  elsewhen (directory_line_valid & (absent_control ||| absent_data)):
+    resident_lines <== resident_lines.updated(selected_set, resident_lines[selected_set].updated(selected_way, resident_lines[selected_set][selected_way] & !responder_mask))
+  elsewhen grant_copy:
+    assert(valid_lines[selected_set][selected_way], "chi_inclusive_hnf_grant_has_directory_entry")
+    resident_lines <== resident_lines.updated(selected_set, resident_lines[selected_set].updated(selected_way, resident_lines[selected_set][selected_way] ||| requester_mask))
 
 export:
   CHIInclusiveHNFConfig

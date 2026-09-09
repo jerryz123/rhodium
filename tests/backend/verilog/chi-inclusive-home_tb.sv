@@ -1,4 +1,4 @@
-// Checks complete cached/victim DAT packets alongside inclusive fills, byte merges, and eviction.
+// Checks inclusive fills, resident-only eviction, and complete cached/victim packets.
 module chi_inclusive_home_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
@@ -107,17 +107,20 @@ module chi_inclusive_home_tb;
 
   task automatic send_request(input logic [43:0] address,
                               input logic [6:0] opcode,
-                              input logic [5:0] request_size = 6'd6);
+                              input logic [5:0] request_size = 6'd6,
+                              input logic [6:0] source = HTIF_ID,
+                              input bit exp_comp_ack = 0);
     begin
       requester_requests_in.bits = '0;
-      requester_requests_in.bits.src_id = HTIF_ID;
+      requester_requests_in.bits.src_id = source;
       requester_requests_in.bits.tgt_id = HOME_ID;
       requester_requests_in.bits.opcode = opcode;
       requester_requests_in.bits.address = address;
       requester_requests_in.bits.size_or_num_req = request_size;
-      requester_requests_in.bits.return_nid_or_stash_nid_or_data_target = HTIF_ID;
+      requester_requests_in.bits.return_nid_or_stash_nid_or_data_target = source;
       requester_requests_in.bits.return_txn_id_or_stash_lpid = 12'h654;
       requester_requests_in.bits.trace_tag = 1;
+      requester_requests_in.bits.exp_comp_ack = exp_comp_ack;
       requester_requests_in.bits.qos = 4'ha;
       requester_requests_in.valid = 1'b1;
       #1;
@@ -183,7 +186,7 @@ module chi_inclusive_home_tb;
       expected_packet.src_id = HOME_ID;
       expected_packet.tgt_id = active_request.return_nid_or_stash_nid_or_data_target;
       expected_packet.txn_id = active_request.return_txn_id_or_stash_lpid;
-      if (active_request.src_id != HTIF_ID) expected_packet.resp = active_request.opcode == 7'h07 ? 3'd2 : 3'd1;
+      if (error == 0 && (active_request.opcode == 7'h02 || active_request.opcode == 7'h07)) expected_packet.resp = active_request.opcode == 7'h07 ? 3'd2 : 3'd1;
       response_data_ready_in.ready = 1'b1;
       #1;
       assert(port_out.requester.response_data.bits === expected_packet) else $fatal(1, "complete cached DAT mismatch");
@@ -232,13 +235,22 @@ module chi_inclusive_home_tb;
     end
   endtask
 
-  task automatic clean_snoop(input logic [6:0] target);
+  task automatic clean_snoop(input logic [6:0] target,
+                            input logic [4:0] opcode = SNP_CLEAN_INVALID,
+                            input logic [2:0] state = 0,
+                            input logic [1:0] error = 0);
     begin
+      while (!port_out.requester.snoops.valid) tick();
+      repeat (3) begin
+        assert(port_out.requester.snoops.valid && port_out.requester.snoops.bits.target_id == target)
+          else $fatal(1, "resident snoop changed while stalled");
+        tick();
+      end
       snoops_ready_in.ready = 1'b1;
       #1;
       assert (port_out.requester.snoops.valid &&
               port_out.requester.snoops.bits.target_id == target &&
-              port_out.requester.snoops.bits.flit.opcode == SNP_CLEAN_INVALID)
+              port_out.requester.snoops.bits.flit.opcode == opcode)
         else $fatal(1, "inclusive Home did not invalidate the victim sharer");
       tick();
       snoops_ready_in = '0;
@@ -246,6 +258,8 @@ module chi_inclusive_home_tb;
       requester_responses_in.bits.opcode = SNP_RESP;
       requester_responses_in.bits.src_id = target;
       requester_responses_in.bits.tgt_id = HOME_ID;
+      requester_responses_in.bits.resp = state;
+      requester_responses_in.bits.resp_err = error;
       requester_responses_in.valid = 1'b1;
       #1;
       assert (port_out.requester.requester_responses.ready)
@@ -256,13 +270,17 @@ module chi_inclusive_home_tb;
   endtask
 
   task automatic dirty_snoop(input logic [6:0] target,
-                             input logic [7:0] payload_base);
+                             input logic [7:0] payload_base,
+                             input logic [4:0] opcode = SNP_CLEAN_INVALID,
+                             input logic [2:0] state = 3'b100,
+                             input bit early_error = 0);
     begin
+      while (!port_out.requester.snoops.valid) tick();
       snoops_ready_in.ready = 1'b1;
       #1;
       assert (port_out.requester.snoops.valid &&
               port_out.requester.snoops.bits.target_id == target &&
-              port_out.requester.snoops.bits.flit.opcode == SNP_CLEAN_INVALID)
+              port_out.requester.snoops.bits.flit.opcode == opcode)
         else $fatal(1, "inclusive Home did not invalidate the dirty victim sharer");
       tick();
       snoops_ready_in = '0;
@@ -273,7 +291,8 @@ module chi_inclusive_home_tb;
         request_data_in.bits.tgt_id = HOME_ID;
         request_data_in.bits.data_id = packet[1:0];
         request_data_in.bits.byte_enable = SNOOP_MASKS[packet * 16 +: 16];
-        request_data_in.bits.resp = 3'b100;
+        request_data_in.bits.resp = state;
+        request_data_in.bits.resp_err = early_error && packet == 0 ? 2'b10 : 0;
         request_data_in.bits.data = {16{payload_base + packet[7:0]}};
         request_data_in.valid = 1'b1;
         #1;
@@ -281,8 +300,23 @@ module chi_inclusive_home_tb;
           else $fatal(1, "inclusive Home did not accept dirty victim data");
         tick();
         request_data_in = '0;
+        if (packet != 3) repeat (2) begin
+          assert(!port_out.requester.snoops.valid && !port_out.requester.response_data.valid && !port_out.requester.requests.ready)
+            else $fatal(1, "Home retired an incomplete dirty intervention");
+          tick();
+        end
       end
     end
+  endtask
+
+  task automatic finish_cached(input logic [1:0] error = 0);
+    while (!port_out.requester.response_data.valid) begin
+      assert(!port_out.requester.snoops.valid && !port_out.subordinate.req.valid)
+        else $fatal(1, "LLC hit generated an unnecessary snoop or refill");
+      tick();
+    end
+    for (int packet = 0; packet < 4; packet++)
+      accept_cached_packet(2'(packet), expected_line[packet], error);
   endtask
 
   task automatic accept_victim_packet(input logic [1:0] packet_id,
@@ -445,9 +479,14 @@ module chi_inclusive_home_tb;
     tick();
     fill_and_return(LINE2, 8'h30);
 
+    // Establish the dirty responder's ownership through a real grant. The
+    // instruction endpoint never acquired this line and must not be probed.
+    send_request(LINE0, 7'h07, 6'd6, DATA_ID);
+    repeat (3) tick();
+    for (int packet = 0; packet < 4; packet++)
+      accept_cached_packet(packet[1:0], expected_line[packet]);
     send_request(LINE3, READ_NO_SNP);
     tick();
-    clean_snoop(INSTRUCTION_ID);
     dirty_snoop(DATA_ID, 8'ha0);
     // Compare the complete written-back line against an independent byte model.
     for (int packet = 0; packet < 4; packet++)
@@ -503,7 +542,96 @@ module chi_inclusive_home_tb;
     tick();
     fill_and_return(LINE0, 8'h50);
 
-    $display("CHI inclusive Home simulation passed");
+    // Snapshot readers do not acquire residency. Repeated polls stay in LLC.
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h50 + 128'(packet);
+    repeat (4) begin send_request(LINE0, 7'h03); finish_cached(); end
+
+    // A coherent partial write is not a cached-copy grant to its sender.
+    send_request(LINE0, WRITE_UNIQUE_PTL, 6'd4, DATA_ID);
+    requester_responses_ready_in.ready = 1;
+    tick(); requester_responses_ready_in = '0;
+    request_data_in = '0; request_data_in.valid = 1;
+    request_data_in.bits.opcode = NON_COPY_BACK_WRITE_DATA;
+    request_data_in.bits.src_id = DATA_ID; request_data_in.bits.tgt_id = HOME_ID;
+    request_data_in.bits.byte_enable = '1; request_data_in.bits.data = 128'h60;
+    tick(); request_data_in = '0;
+    while (!port_out.requester.responses.valid) begin
+      assert(!port_out.requester.snoops.valid) else $fatal(1, "write probed a nonresident");
+      tick();
+    end
+    requester_responses_ready_in.ready = 1; tick(); requester_responses_ready_in = '0;
+    expected_line[0] = 128'h60;
+    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID); finish_cached();
+
+    // Track both shared copies; retain a responder that reports SharedClean.
+    send_request(LINE0, 7'h02, 6'd6, DATA_ID);
+    clean_snoop(INSTRUCTION_ID, 5'h08, 3'd1); finish_cached();
+    send_request(LINE0, 7'h03);
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1);
+    clean_snoop(DATA_ID, 5'h03, 3'd1); finish_cached();
+
+    // A silent clean eviction leaves one stale positive, then Invalid clears it.
+    send_request(LINE0, 7'h03);
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd0);
+    clean_snoop(DATA_ID, 5'h03, 3'd1); finish_cached();
+    send_request(LINE0, 7'h03);
+    clean_snoop(DATA_ID, 5'h03, 3'd1); finish_cached();
+
+    // Reestablish sharing, then invalidate only the other resident for Unique.
+    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID);
+    clean_snoop(DATA_ID, 5'h08, 3'd1); finish_cached();
+    send_request(LINE0, 7'h07, 6'd6, DATA_ID);
+    clean_snoop(INSTRUCTION_ID, 5'h07, 3'd0); finish_cached();
+    send_request(LINE0, 7'h03);
+    clean_snoop(DATA_ID, 5'h03, 3'd2); finish_cached();
+
+    // A failed Invalid response is not proof of absence and grants no new copy.
+    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID);
+    clean_snoop(DATA_ID, 5'h08, 3'd0, 2'd2); finish_cached(2'd2);
+    send_request(LINE0, 7'h03);
+    clean_snoop(DATA_ID, 5'h03, 3'd2); finish_cached();
+
+    // Preserve the resident through an early errored dirty packet, even when
+    // the final packet reports success/Invalid. No requester is granted a copy.
+    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID);
+    dirty_snoop(DATA_ID, 8'hb0, 5'h08, 3'b100, 1);
+    for (int packet = 0; packet < 4; packet++)
+      for (int b = 0; b < 16; b++)
+        if (SNOOP_MASKS[packet*16+b]) expected_line[packet][b*8+:8] = 8'hb0 + 8'(packet);
+    finish_cached(2'd2);
+    send_request(LINE0, 7'h03);
+    dirty_snoop(DATA_ID, 8'hc0, 5'h03, 3'b100);
+    for (int packet = 0; packet < 4; packet++)
+      for (int b = 0; b < 16; b++)
+        if (SNOOP_MASKS[packet*16+b]) expected_line[packet][b*8+:8] = 8'hc0 + 8'(packet);
+    finish_cached();
+    send_request(LINE0, 7'h03); finish_cached();
+
+    // The complete grant is recorded before a delayed CompAck releases Home.
+    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID, 1);
+    finish_cached();
+    repeat (5) begin
+      assert(!port_out.requester.requests.ready) else $fatal(1, "Home released grant before CompAck");
+      tick();
+    end
+    requester_responses_in = '0; requester_responses_in.valid = 1;
+    requester_responses_in.bits.opcode = 5'h02;
+    requester_responses_in.bits.src_id = INSTRUCTION_ID;
+    requester_responses_in.bits.tgt_id = HOME_ID;
+    tick(); requester_responses_in = '0;
+    send_request(LINE0, 7'h03);
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1); finish_cached();
+
+    // Failed victim invalidation must retain the old tag and residency, not
+    // recycle its way for an unrelated requested line or emit a refill.
+    send_request(LINE2, READ_NO_SNP); tick(); fill_and_return(LINE2, 8'h70);
+    send_request(LINE3, READ_NO_SNP);
+    clean_snoop(INSTRUCTION_ID, SNP_CLEAN_INVALID, 3'd0, 2'd2);
+    finish_cached(2'd2);
+    send_request(LINE0, 7'h03);
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd0); finish_cached();
+
+    $display("CHI inclusive Home residency, response errors, and storage simulation passed");
     $finish;
   end
 endmodule
