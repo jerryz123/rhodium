@@ -22,7 +22,7 @@ EXPECTED_SITES = {
         "instances": 32,
         "bit_utilization": 1.0,
     },
-    "rv5stage/l1d/lines/storage": {
+    "rv5stage/l1d/arrays/data_storage/storage": {
         "decision": "macro",
         "source_suffix": "_256x64",
         "depth": 256,
@@ -33,11 +33,11 @@ EXPECTED_SITES = {
         "instances": 2,
         "bit_utilization": 0.5,
     },
-    "rv5stage/l1d/states/storage": {
+    "rv5stage/l1d/arrays/state_storage/storage": {
         "decision": "infer",
         "source_suffix": "_32x3",
     },
-    "rv5stage/l1d/tags/storage": {
+    "rv5stage/l1d/arrays/tag_storage/storage": {
         "decision": "infer",
         "source_suffix": "_32x53",
     },
@@ -52,19 +52,15 @@ EXPECTED_SITES = {
         "instances": 2,
         "bit_utilization": 0.5,
     },
-    "rv5stage/l1i/states/storage": {
-        "decision": "infer",
-        "source_suffix": "_32x2",
-    },
     "rv5stage/l1i/tags/storage": {
         "decision": "infer",
         "source_suffix": "_32x53",
     },
 }
 EXPECTED_TOTALS = {
-    "memory_sites": 7,
+    "memory_sites": 6,
     "mapped_sites": 3,
-    "inferred_sites": 4,
+    "inferred_sites": 3,
     "macro_instances": 36,
 }
 
@@ -209,7 +205,7 @@ def main() -> None:
 
     print(
         "validated RV64 MiniSoC mapping: "
-        "3 of 7 sites use 36 Sky130 SRAM macros; each 2 KiB L1 uses half-depth"
+        "3 of 6 sites use 36 Sky130 SRAM macros; each 2 KiB L1 uses half-depth"
     )
 
 

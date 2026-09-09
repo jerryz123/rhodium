@@ -5,9 +5,8 @@ top: MiniSoC
 default: infer
 sites:
   ram/storage/storage: sky130_sram_2kbyte_1rw1r_32x512_8
-  rv5stage/l1d/lines/storage: sky130_sram_2kbyte_1rw1r_32x512_8
-  rv5stage/l1d/states/storage: infer
-  rv5stage/l1d/tags/storage: infer
+  rv5stage/l1d/arrays/data_storage/storage: sky130_sram_2kbyte_1rw1r_32x512_8
+  rv5stage/l1d/arrays/state_storage/storage: infer
+  rv5stage/l1d/arrays/tag_storage/storage: infer
   rv5stage/l1i/lines/storage: sky130_sram_2kbyte_1rw1r_32x512_8
-  rv5stage/l1i/states/storage: infer
   rv5stage/l1i/tags/storage: infer
