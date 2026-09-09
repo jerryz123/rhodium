@@ -4,6 +4,7 @@
 import:
   "../main.rhdl" open
   "../transactions/transaction.rhdl".chi_initial_requester_capabilities
+  "coherent-home-fixture.rhdl" as coherent
 
 def endpoint = CHIICNPortParams(
   "mixed-host", 1, CHINodeKind.RNF,
@@ -35,3 +36,9 @@ check:
     [CHIRequesterHomeParams(endpoint, ~emits: io.emits,
                             ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadClean]))],
     0xfff, [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, TransferSizes(1, 64))]) ~throws "snoop capabilities"
+
+check:
+  CHIHNFConfig(CHIFlitParams(), [coherent.data_endpoint], 0xfff,
+               [CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, TransferSizes(1, 32))]) ~throws "copyback requires full cache-line"
+  CHIHNFConfig(CHIFlitParams(), [coherent.data_endpoint], 0xfff,
+               [CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, TransferSizes(1, 64))]).requester_endpoints.length() ~is 1

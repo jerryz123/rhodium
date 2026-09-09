@@ -1,9 +1,20 @@
 #lang rhodium
-// Shares unelided DAT field assertions without coupling transaction lifetimes.
+// Checks unelided packets and full-copyback state/masks without owning receipt state.
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl").CHIDatFlit
+  lib("chi/protocol/flits.rhdl").CHIDatOpcode
+  lib("chi/protocol/flits.rhdl").CHIRespErr
+
+fun monitor_chi_copyback_data(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
+  monitor_chi_unelided_data(p, data, label_prefix)
+  assert(data.opcode === CHIDatOpcode.CopyBackWriteData, label_prefix ++ "_opcode")
+  assert(data.resp_err === CHIRespErr.OK, label_prefix ++ "_data_ok")
+  assert((data.resp === bits(0, 3)) ||| (data.resp === bits(1, 3)) ||| (data.resp === bits(2, 3)) ||| (data.resp === bits(6, 3)) ||| (data.resp === bits(7, 3)), label_prefix ++ "_state")
+  def invalid = data.resp === bits(0, 3)
+  assert(data.byte_enable === mux(invalid, bits(0, p.byte_enable_width), !bits(0, p.byte_enable_width)), label_prefix ++ "_byte_enable")
+  assert(!invalid ||| (data.data === bits(0, p.data_width)), label_prefix ++ "_invalid_zero_data")
 
 fun monitor_chi_unelided_data(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
   assert(data.num_dat === bits(0, 2), label_prefix ++ "_num_dat_zero")
@@ -11,3 +22,4 @@ fun monitor_chi_unelided_data(p :: CHIFlitParams, data :: CHIDatFlit(p), label_p
 
 export:
   monitor_chi_unelided_data
+  monitor_chi_copyback_data

@@ -43,7 +43,7 @@ class CHIHNFConfig(flit :: CHIFlitParams,
            CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
         | [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadClean,
            CHIReqOpcode.ReadUnique,
-           CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
+           CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.WriteBackFull, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
       unless endpoint.supports.req.length() > 0 && for all (opcode in endpoint.supports.req):
                allowed_requests.contains(opcode)
       | error(~who: #'CHIHNFConfig,
@@ -57,6 +57,15 @@ class CHIHNFConfig(flit :: CHIFlitParams,
       )
       unless maintenance_requests.length() == 0 || packet_writes.length() > 0
       | error(~who: #'CHIHNFConfig, "maintenance requires full snoop-packet backing writes")
+      def line_writes = service_requests.filter(
+        ~keep: fun (support): support.opcode == CHIReqOpcode.WriteNoSnpFull && support.sizes.min_bytes <= 64 && support.sizes.max_bytes >= 64
+      )
+      unless (!endpoint.supports.req.contains(CHIReqOpcode.WriteBackFull)) || line_writes.length() > 0
+      | error(~who: #'CHIHNFConfig, "copyback requires full cache-line backing writes")
+      unless (!endpoint.supports.req.contains(CHIReqOpcode.WriteBackFull)) || (
+        endpoint.supports.dat.contains(CHIDatOpcode.CopyBackWriteData) && endpoint.emits.rsp.contains(CHIRspOpcode.CompDBIDResp)
+      )
+      | error(~who: #'CHIHNFConfig, "copyback requires CompDBIDResp and CopyBackWriteData capabilities")
     for (left_index in 0..requester_endpoints.length()):
       for (right_index in (left_index + 1)..requester_endpoints.length()):
         if requester_endpoints[left_index].node_id == requester_endpoints[right_index].node_id
@@ -132,6 +141,7 @@ fun chi_hnf_subordinate_opcode(opcode :: CHIReqOpcode) :~ CHIReqOpcode:
     CHIReqOpcode.ReadUnique: CHIReqOpcode.ReadNoSnp
     CHIReqOpcode.ReadNoSnp: CHIReqOpcode.ReadNoSnp
     CHIReqOpcode.WriteUniquePtl: CHIReqOpcode.WriteNoSnpPtl
+    CHIReqOpcode.WriteBackFull: CHIReqOpcode.WriteNoSnpFull
     CHIReqOpcode.WriteNoSnpPtl: CHIReqOpcode.WriteNoSnpPtl
     CHIReqOpcode.WriteNoSnpFull: CHIReqOpcode.WriteNoSnpFull
 
@@ -173,7 +183,8 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
   def maintenance_supported = chi_cache_maintenance(request.opcode) & request.address.is_aligned(64) & (
     chi_req_size(p, request) === CHITransferSize.Bytes64
   ) & !request.exp_comp_ack & !request.multi_req
-  mux(chi_cache_maintenance(request.opcode), maintenance_supported, ordinary_supported) & address_supported
+  def copyback_supported = ordinary_supported & request.address.is_aligned(64) & (size === CHITransferSize.Bytes64) & !request.exp_comp_ack & !request.multi_req
+  mux(request.opcode === CHIReqOpcode.WriteBackFull, copyback_supported, mux(chi_cache_maintenance(request.opcode), maintenance_supported, ordinary_supported)) & address_supported
 
 fun chi_hnf_snoop(p :: CHIFlitParams,
                   home_node_id :: Bits(p.node_id_width),

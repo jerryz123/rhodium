@@ -1,0 +1,85 @@
+#lang rhodium
+// Exposes full-line copyback at every CHI DAT width through one fixed test shape.
+
+import:
+  "../chi/writeback.rhdl" open
+  "../chi/foundation.rhdl" open
+  "params.rhdl" as test
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/coherence.rhdl").CHICacheState
+
+bundle CopyBackObservation():
+  command_ready: Bool
+  request_valid: Bool
+  opcode: CHIReqOpcode
+  size: Bits(6)
+  address: Bits(44)
+  txn: Bits(12)
+  allow_retry: Bool
+  pcrd: Bits(4)
+  response_ready: Bool
+  granted: Bool
+  data_valid: Bool
+  data: Bits(512)
+  mask: Bits(64)
+  data_id: Bits(2)
+  data_opcode: CHIDatOpcode
+  data_txn: Bits(12)
+  data_resp: Bits(3)
+  done: Bool
+  cookie: Bits(8)
+
+sync_circuit RV5StageCopyBackFixture():
+  input enabled: Vec(3, Bool)
+  input command_valid: Bool
+  input request_ready: Bool
+  input response_valid: Bool
+  input response_opcode: CHIRspOpcode
+  input response_pcrd: Bits(4)
+  input snoop_pending: Bool
+  input state: CHICacheState
+  input data_ready: Bool
+  input completion_ready: Bool
+  input line: Bits(512)
+  output observed: Vec(3, CopyBackObservation())
+  for (data_width in [128, 256, 512], index in 0..3):
+    def p = CHIFlitParams(~data_width: data_width)
+    inst engine(RV5StageLineWriteback(Bits(8), 64, RV5StageCHIConfig(p, test.test_rv5stage_chi_config.regions), 1))
+    engine.node_id <== bits(3, 7)
+    engine.victim_state <== state
+    engine.snoop_pending <== snoop_pending
+    engine.command.valid <== enabled[index] & command_valid
+    engine.command.bits <== RV5StageLineWritebackCommand(Bits(8), 64):
+      line_address: bits(0x80001240, 64)
+      line: line.as_vec(Bits(64))
+      context: bits(0xa5, 8)
+    engine.requests.ready <== request_ready
+    engine.responses.valid <== enabled[index] & response_valid
+    def response :: CHIRspFlit(p) = literal(CHIRspFlit(p), 0)
+    engine.responses.bits <== response.updated(~opcode: response_opcode, ~txn_id: bits(1, 12), ~src_id: bits(1, 7), ~tgt_id: bits(3, 7), ~dbid_or_group_id: bits(0x55, 12), ~pcrd_type: response_pcrd)
+    engine.data.ready <== data_ready
+    engine.completion.ready <== completion_ready
+    observed[index] <== CopyBackObservation():
+      command_ready: engine.command.ready
+      request_valid: engine.requests.valid
+      opcode: engine.requests.bits.opcode
+      size: engine.requests.bits.size_or_num_req
+      address: engine.requests.bits.address
+      txn: engine.requests.bits.txn_id
+      allow_retry: engine.requests.bits.allow_retry
+      pcrd: engine.requests.bits.pcrd_type
+      response_ready: engine.responses.ready
+      granted: engine.granted
+      data_valid: engine.data.valid
+      data: if data_width == 512 | engine.data.bits.data | engine.data.bits.data.zext(512)
+      mask: if data_width == 512 | engine.data.bits.byte_enable | engine.data.bits.byte_enable.zext(64)
+      data_id: engine.data.bits.data_id
+      data_opcode: engine.data.bits.opcode
+      data_txn: engine.data.bits.txn_id
+      data_resp: engine.data.bits.resp
+      done: engine.completion.valid
+      cookie: engine.completion.bits.context
+
+def design = elaborate(RV5StageCopyBackFixture())
+export: design

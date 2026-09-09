@@ -60,16 +60,18 @@ def transaction_rnf_node = CHINodeParams(
   5,
   CHINodeKind.RNF,
   ~emits: CHIChannelCapabilities(
-    ~req: [CHIReqOpcode.ReadShared],
+    ~req: [CHIReqOpcode.ReadShared, CHIReqOpcode.WriteBackFull],
     ~rsp: [CHIRspOpcode.CompAck,
            CHIRspOpcode.SnpResp,
            CHIRspOpcode.SnpRespFwded],
     ~dat: [CHIDatOpcode.SnpRespData,
            CHIDatOpcode.SnpRespDataPtl,
            CHIDatOpcode.SnpRespDataFwded,
+           CHIDatOpcode.CopyBackWriteData,
            CHIDatOpcode.CompData]
   ),
   ~supports: CHIChannelCapabilities(
+    ~rsp: [CHIRspOpcode.CompDBIDResp],
     ~snp: chi_rnf_snoop_opcodes,
     ~dat: [CHIDatOpcode.CompData]
   ),

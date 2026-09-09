@@ -51,7 +51,7 @@ module rv5stage_dcache_tb;
 
   localparam logic [6:0] READ_CLEAN = 7'h02;
   localparam logic [6:0] READ_UNIQUE = 7'h07;
-  localparam logic [6:0] WRITE_UNIQUE_PTL = 7'h18;
+  localparam logic [6:0] WRITE_BACK_FULL = 7'h1b;
   localparam logic [4:0] COMP_ACK = 5'h02;
   localparam logic [4:0] COMP = 5'h04;
   localparam logic [4:0] COMP_DBID_RESP = 5'h05;
@@ -60,7 +60,7 @@ module rv5stage_dcache_tb;
   localparam logic [4:0] PCRD_GRANT = 5'h07;
   localparam logic [4:0] SNP_CLEAN_INVALID = 5'h09;
   localparam logic [3:0] SNP_RESP_DATA = 4'h1;
-  localparam logic [3:0] NON_COPY_BACK_WRITE_DATA = 4'h3;
+  localparam logic [3:0] COPY_BACK_WRITE_DATA = 4'h2;
   localparam logic [3:0] COMP_DATA = 4'h4;
   localparam logic [6:0] HOME_ID = 7'd1;
   localparam logic [6:0] CACHE_ID = 7'd3;
@@ -370,7 +370,7 @@ module rv5stage_dcache_tb;
               captured_req.size_or_num_req == size &&
               captured_req.snp_attr_or_do_dwt == 1'b1 &&
               captured_req.mem_attr == (((opcode == READ_CLEAN) ||
-                                         (opcode == READ_UNIQUE)) ? 4'hd : 4'h5) &&
+                                         (opcode == READ_UNIQUE) || (opcode == WRITE_BACK_FULL)) ? 4'hd : 4'h5) &&
               captured_req.exp_comp_ack == ((opcode == READ_CLEAN) ||
                                              (opcode == READ_UNIQUE)) &&
               captured_req.allow_retry == allow_retry &&
@@ -483,30 +483,29 @@ module rv5stage_dcache_tb;
     end
   endtask
 
-  task automatic accept_write_data(
-    input logic [63:0] data,
-    input integer data_id,
-    input logic high_lane
-  );
+  task automatic accept_copyback_data(input integer packet,
+                                     input logic [511:0] line,
+                                     input logic [2:0] response = 3'b110);
     integer cycles;
+    CHIDatFlit expected;
     begin
       cycles = 0;
       while (!tx_dat_pending && cycles < 100) begin
         tick();
-        cycles = cycles + 1;
+        cycles++;
       end
-      assert (tx_dat_pending)
-        else $fatal(1, "L1D did not issue write data");
-      assert (captured_dat.opcode == NON_COPY_BACK_WRITE_DATA &&
-              captured_dat.src_id == CACHE_ID &&
-              captured_dat.tgt_id == HOME_ID &&
-              captured_dat.txn_id == 12'h055 &&
-              captured_dat.data_id == data_id[1:0] &&
-              captured_dat.ccid == data_id[1:0] &&
-              captured_dat.data[63:0] == (high_lane ? 64'd0 : data) &&
-              captured_dat.data[127:64] == (high_lane ? data : 64'd0) &&
-              captured_dat.byte_enable == (high_lane ? 16'hff00 : 16'h00ff))
-        else $fatal(1, "L1D emitted malformed write data");
+      expected = '0;
+      expected.opcode = COPY_BACK_WRITE_DATA;
+      expected.src_id = CACHE_ID;
+      expected.tgt_id = HOME_ID;
+      expected.txn_id = 12'h055;
+      expected.home_nid_or_pbha_or_mismatched_mecid = HOME_ID;
+      expected.data_id = packet[1:0];
+      expected.resp = response;
+      expected.data = response == 0 ? 128'd0 : line[packet * 128 +: 128];
+      expected.byte_enable = response == 0 ? 16'd0 : 16'hffff;
+      assert (tx_dat_pending && captured_dat == expected)
+        else $fatal(1, "L1D copyback packet %0d mismatch: got=%h expected=%h", packet, captured_dat, expected);
       tx_dat_pending = 1'b0;
     end
   endtask
@@ -852,18 +851,10 @@ module rv5stage_dcache_tb;
     end
     // Default policy still chooses the original dirty round-robin victim.
     send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd17);
-    for (beat = 0; beat < 8; beat = beat + 1) begin
-      accept_request(WRITE_UNIQUE_PTL,
-                     ADDRESS + beat * 8,
-                     12'd1,
-                     6'd3,
-                     1'b1,
-                     4'd0);
-      send_response(COMP_DBID_RESP, 12'd1, 12'h055, 4'd0);
-      accept_write_data(dirty_line[beat * 64 +: 64],
-                        beat / 2,
-                        (beat & 1) != 0);
-    end
+    accept_request(WRITE_BACK_FULL, ADDRESS, 12'd1, 6'd6, 1'b1, 4'd0);
+    send_response(COMP_DBID_RESP, 12'd1, 12'h055, 4'd0);
+    for (beat = 0; beat < 4; beat++)
+      accept_copyback_data(beat, dirty_line);
     accept_request(READ_CLEAN, THIRD_ADDRESS, 12'd0, 6'd6, 1'b1, 4'd0);
     return_line(THIRD_ADDRESS, THIRD_LINE, 3'b001);
     accept_comp_ack();
@@ -943,8 +934,8 @@ module rv5stage_dcache_tb;
       send_core_request(PREFETCH_READ_ADDRESS + 64'(word * 8), MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd1);
       expect_core_response(64'd0, DATA_DESTINATION_INTEGER, 5'd1);
     end
-    // A zero miss must first preserve the dirty victim. Its eight writes
-    // carry the old zeroed line, then the new block acquires Unique ownership.
+    // A zero miss must first preserve the dirty victim. One copyback
+    // carries the old zeroed line, then the new block acquires Unique ownership.
     grant_req_credit();
     grant_dat_credit();
     send_core_request(PREFETCH_WRITE_ADDRESS + 64'h100, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd1);
@@ -954,11 +945,10 @@ module rv5stage_dcache_tb;
     expect_core_response(LINE[63:0], DATA_DESTINATION_INTEGER, 5'd1);
     send_core_request(PREFETCH_WRITE_ADDRESS + 64'h201, MEMORY_ZERO, ATOMIC_SWAP, ~64'd0, 5'd0);
     send_core_request(PREFETCH_WRITE_ADDRESS + 64'h208, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd2);
-    for (beat = 0; beat < 8; beat++) begin
-      accept_request(WRITE_UNIQUE_PTL, PREFETCH_WRITE_ADDRESS + 64'(beat * 8), 12'd1, 6'd3, 1'b1, 4'd0);
-      send_response(COMP_DBID_RESP, 12'd1, 12'h055, 4'd0);
-      accept_write_data(64'd0, beat / 2, (beat & 1) != 0);
-    end
+    accept_request(WRITE_BACK_FULL, PREFETCH_WRITE_ADDRESS, 12'd1, 6'd6, 1'b1, 4'd0);
+    send_response(COMP_DBID_RESP, 12'd1, 12'h055, 4'd0);
+    for (beat = 0; beat < 4; beat++)
+      accept_copyback_data(beat, 512'd0);
     accept_request(READ_UNIQUE, PREFETCH_WRITE_ADDRESS + 64'h200, 12'd0, 6'd6, 1'b1, 4'd0);
     // Home may need a snoop before returning the owned block. Serve it while
     // awaiting refill, rather than reserving SRAM throughout the transaction.
@@ -1502,13 +1492,11 @@ module rv5stage_dcache_tb;
     expect_core_response(0,DATA_DESTINATION_NONE,0);
     dirty_line=LINE; dirty_line[63:0]=STORE_DATA;
     send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2);
-    for(beat=0;beat<8;beat++) begin
-      accept_request(WRITE_UNIQUE_PTL,ADDRESS+64'(beat*8),1,3,1,0);
-      check_under_miss(PREFETCH_READ_ADDRESS,PIPE_LOAD_HIT,LINE[63:0]);
-      check_under_miss(ADDRESS,PIPE_REPLAY);
-      send_response(COMP_DBID_RESP,1,12'h055,0);
-      accept_write_data(dirty_line[beat*64+:64],beat/2,1'(beat%2));
-    end
+    accept_request(WRITE_BACK_FULL,ADDRESS,1,6,1,0);
+    check_under_miss(PREFETCH_READ_ADDRESS,PIPE_LOAD_HIT,LINE[63:0]);
+    check_under_miss(ADDRESS,PIPE_REPLAY);
+    send_response(COMP_DBID_RESP,1,12'h055,0);
+    for(beat=0;beat<4;beat++) accept_copyback_data(beat,dirty_line);
     accept_request(READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
     stream_under_miss();
     // An invalidating probe wins over the speculative stream, without waiting
@@ -1577,7 +1565,32 @@ module rv5stage_dcache_tb;
         else $fatal(1,"blocked prefetch was retained or queued demand was duplicated");
     end
     $display("Flow admission: demand priority, blocked hint drops, and retained demand completion passed");
-    $display("RV5Stage VIPT write-back data-cache and self-snooped maintenance simulation passed");
+    // A competing transaction snoops the victim while WriteBackFull awaits
+    // its grant. Return the authoritative dirty bytes once, then an Invalid
+    // copyback; the saved victim buffer must never resurrect the old version.
+    prepare_hit_under_miss();
+    send_core_request(ADDRESS,MEMORY_STORE,ATOMIC_SWAP,STORE_DATA,0);
+    expect_core_response(0,DATA_DESTINATION_NONE,0);
+    dirty_line=LINE; dirty_line[63:0]=STORE_DATA;
+    send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2);
+    accept_request(WRITE_BACK_FULL,ADDRESS,1,6,1,0);
+    chi_in.request_data.ready=0;
+    send_snoop(ADDRESS,12'h078);
+    for(beat=0;beat<4;beat++) accept_snoop_data(beat,dirty_line,12'h078);
+    // Force a different snoop lookup after the victim gather; eviction identity
+    // must come from the retained address/context, not mutable gather registers.
+    send_snoop(PREFETCH_READ_ADDRESS,12'h079);
+    for(int cycle=0;!tx_rsp_pending && cycle<100;cycle++) tick();
+    assert(tx_rsp_pending) else $fatal(1,"unrelated snoop failed during copyback");
+    tx_rsp_pending=0;
+    grant_dat_credit();
+    send_response(COMP_DBID_RESP,1,12'h055,0);
+    for(beat=0;beat<4;beat++) accept_copyback_data(beat,dirty_line,0);
+    accept_request(READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
+    return_line(THIRD_ADDRESS,THIRD_LINE,3'b001); accept_comp_ack();
+    expect_core_response(THIRD_LINE[63:0],DATA_DESTINATION_INTEGER,2);
+    check_pipeline_load(ADDRESS,1,0);
+    $display("RV5Stage VIPT write-back cache, copyback snoop races, and maintenance passed");
     $finish;
   end
 endmodule

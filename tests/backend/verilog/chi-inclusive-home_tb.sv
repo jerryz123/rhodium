@@ -1,5 +1,5 @@
-// Checks inclusive fills, resident-only eviction, and complete cached/victim packets.
-module chi_inclusive_home_tb;
+// Checks inclusive residency, copyback ownership, races, and complete cache-line packets.
+module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } rsp_t;
@@ -349,6 +349,52 @@ module chi_inclusive_home_tb;
     end
   endtask
 
+  task automatic copyback(input logic [43:0] address, input logic [2:0] state);
+    CHIRspFlit grant;
+    begin
+      send_request(address, 7'h1b, 6'd6, DATA_ID);
+      #1;
+      grant = port_out.requester.responses.bits;
+      repeat (3) begin
+        assert(port_out.requester.responses.valid && grant.opcode == 5'h05 &&
+               grant.tgt_id == DATA_ID && grant.resp == 0 &&
+               port_out.requester.responses.bits == grant &&
+               !port_out.requester.request_data.ready)
+          else $fatal(1, "unstable or premature copyback grant");
+        tick();
+      end
+      requester_responses_ready_in.ready = 1; tick(); requester_responses_ready_in = '0;
+      // Reverse arrival order exercises DataID assembly, not packet counting.
+      for (int packet = 3; packet >= 0; packet--) begin
+        request_data_in = '0; request_data_in.valid = 1;
+        request_data_in.bits.opcode = 4'h2;
+        request_data_in.bits.src_id = DATA_ID;
+        request_data_in.bits.tgt_id = HOME_ID;
+        request_data_in.bits.txn_id = grant.dbid_or_group_id;
+        request_data_in.bits.data_id = 2'(packet);
+        request_data_in.bits.resp = state;
+        request_data_in.bits.byte_enable = state == 0 ? 0 : '1;
+        request_data_in.bits.data = state == 0 ? 0 : 128'hdead0000 + 128'(packet);
+        if (INVALID_CASE == 1) request_data_in.bits.byte_enable = 16'hff;
+        if (INVALID_CASE == 2 && packet == 2) request_data_in.bits.data_id = 3;
+        if (INVALID_CASE == 3 && packet == 2) request_data_in.bits.resp = 3'd7;
+        #1;
+        assert(port_out.requester.request_data.ready) else $fatal(1, "copyback buffer unavailable");
+        tick(); request_data_in = '0;
+        repeat (2) begin
+          assert(!port_out.requester.responses.valid && !port_out.requester.snoops.valid &&
+                 !port_out.subordinate.req.valid) else $fatal(1, "copyback generated extra traffic");
+          tick();
+        end
+      end
+      while (!port_out.requester.requests.ready) begin
+        assert(!port_out.requester.responses.valid && !port_out.requester.snoops.valid &&
+               !port_out.subordinate.req.valid) else $fatal(1, "copyback generated extra traffic");
+        tick();
+      end
+    end
+  endtask
+
   initial begin
     identity = '{home_node_id: HOME_ID,
                  subordinate_node_id: MEMORY_ID,
@@ -631,7 +677,33 @@ module chi_inclusive_home_tb;
     send_request(LINE0, 7'h03);
     clean_snoop(INSTRUCTION_ID, 5'h03, 3'd0); finish_cached();
 
-    $display("CHI inclusive Home residency, response errors, and storage simulation passed");
+    // A dirty copyback updates the resident LLC line and removes the owner.
+    send_request(LINE0, 7'h07, 6'd6, DATA_ID); finish_cached();
+    copyback(LINE0, 3'b110);
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'hdead0000 + 128'(packet);
+    send_request(LINE0, 7'h03); finish_cached();
+
+    // A snoop can have consumed the dirty version before granting copyback.
+    // Clean and Invalid returns must not resurrect their older bytes.
+    for (int state_index = 0; state_index < 3; state_index++) begin
+      copyback(LINE0, state_index == 0 ? 3'd0 : state_index == 1 ? 3'd1 : 3'd2);
+      send_request(LINE0, 7'h03); finish_cached();
+    end
+    // A late Invalid copyback for an absent line neither allocates nor refills.
+    copyback(LINE0 + 44'h10000, 3'd0);
+    send_request(LINE0, 7'h03); finish_cached();
+
+    $display("CHI inclusive Home residency, copyback, response errors, and storage simulation passed");
     $finish;
   end
+endmodule
+
+module chi_copyback_mask_tb;
+  chi_inclusive_home_tb #(.INVALID_CASE(1)) test();
+endmodule
+module chi_copyback_duplicate_tb;
+  chi_inclusive_home_tb #(.INVALID_CASE(2)) test();
+endmodule
+module chi_copyback_state_tb;
+  chi_inclusive_home_tb #(.INVALID_CASE(3)) test();
 endmodule

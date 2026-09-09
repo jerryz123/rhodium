@@ -46,9 +46,16 @@ duplicate TxnIDs, wrong identity, and early DAT. Host
 requested coverage, and explicit opt-out. Keep transport activation tests
 in `chi-monitor`.
 
-`data-checks.rhdl` owns shared unelided-DAT assertions. Callers pass concrete
+`data-checks.rhdl` owns shared unelided-DAT and full-copyback mask/state assertions. Callers pass concrete
 flits and retain event gating, assertion prefixes, and profile-specific DataID
 restrictions. It owns no receipt state or transaction lifetime.
+
+The coherent checker observes accepted RX RSP events as well as REQ/DAT to
+associate copyback grants. Keep capability coverage limited to the delivered
+no-retry copyback lifetime; specialized retry engines remain separate.
+`chi-coherent` mirrors copyback through credited and ready-valid attachments.
+Both Home fixtures test complete and Invalid returns; negative cases cover
+early data, duplicate IDs, inconsistent state, malformed masks, and backing errors.
 
 Response effect decoding and milestone testing belong to `CHIResponseProfile`.
 Keep public free-function compatibility entry points delegating to the methods.

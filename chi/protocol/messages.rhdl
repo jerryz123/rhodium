@@ -94,6 +94,24 @@ fun chi_rn_write_data(p :: CHIFlitParams,
     ~tgt_id: home_node_id
   )
 
+// Full-line copyback carries the latest coherent state. Invalid copies still
+// complete the packet sequence, but cannot write stale bytes into the Home.
+fun chi_rn_copyback_data(p :: CHIFlitParams,
+                         node_id :: Bits(p.node_id_width),
+                         home_node_id :: Bits(p.node_id_width),
+                         dbid :: Bits(12),
+                         data_id :: Bits(2),
+                         data :: Bits(p.data_width),
+                         response :: Bits(3)) :~ CHIDatFlit(p):
+  def valid_copy = response.or_reduce()
+  chi_rn_write_data(p, node_id, home_node_id, dbid,
+                    mux(valid_copy, data, bits(0, p.data_width)),
+                    mux(valid_copy, !bits(0, p.byte_enable_width), bits(0, p.byte_enable_width)),
+                    ~data_id: data_id, ~ccid: bits(0, 2), ~dbid_or_mecid: bits(0, 16)).updated(
+    ~opcode: CHIDatOpcode.CopyBackWriteData,
+    ~resp: response
+  )
+
 fun chi_hnf_response(p :: CHIFlitParams,
                      home_node_id :: Bits(p.node_id_width),
                      request :: CHIReqFlit(p),
@@ -294,6 +312,7 @@ export:
   chi_home_snoop
   chi_home_snoop_write_request
   chi_rn_write_data
+  chi_rn_copyback_data
   chi_hnf_response
   chi_home_downstream_request
   chi_hnf_snoop_write_data

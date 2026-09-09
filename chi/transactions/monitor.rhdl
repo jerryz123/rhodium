@@ -293,8 +293,10 @@ sync_circuit CHIRNTransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointP
   input rx_dat: CHIDatFlit(p)
   input rx_snp_event: Bool
   input rx_snp: CHISnpFlit(p)
+  input rx_rsp_event: Bool
+  input rx_rsp: CHIRspFlit(p)
   check_chi_transaction_coverage(endpoint)
-  coherent_requester_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_coherent", tx_req_event, tx_req, tx_rsp_event, tx_rsp, tx_dat_event, tx_dat, rx_dat_event, rx_dat, rx_snp_event, rx_snp)
+  coherent_requester_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_coherent", tx_req_event, tx_req, tx_rsp_event, tx_rsp, tx_dat_event, tx_dat, rx_dat_event, rx_dat, rx_snp_event, rx_snp, ~rx_rsp_valid: rx_rsp_event, ~rx_rsp: rx_rsp)
 
 fun monitor_chi_rn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String,
                                 tx_req_event :: Bool,
@@ -306,7 +308,9 @@ fun monitor_chi_rn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParam
                                 rx_dat_event :: Bool,
                                 rx_dat :: CHIDatFlit(p),
                                 rx_snp_event :: Bool,
-                                rx_snp :: CHISnpFlit(p)):
+                                rx_snp :: CHISnpFlit(p),
+                                rx_rsp_event :: Bool,
+                                rx_rsp :: CHIRspFlit(p)):
   inst checker(CHIRNTransactionChecks(p, endpoint, label_prefix))
   checker.tx_req_event <== tx_req_event
   checker.tx_req <== tx_req
@@ -318,6 +322,8 @@ fun monitor_chi_rn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParam
   checker.rx_dat <== rx_dat
   checker.rx_snp_event <== rx_snp_event
   checker.rx_snp <== rx_snp
+  checker.rx_rsp_event <== rx_rsp_event
+  checker.rx_rsp <== rx_rsp
 
 fun monitor_chi_rn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                             port :: Endpoint.of(CHIRNChannels(p)),
@@ -339,7 +345,7 @@ fun monitor_chi_rn_channels(p :: CHIFlitParams, node :: CHINodeParams,
   monitor_chi_rsp_fields(p, observed.responses.valid & observed.responses.ready, observed.responses.bits, observed.responses.bits.tgt_id, node.supports.rsp,
                          node.node_id, "_tgt_id", label_prefix ++ "_rx_rsp")
   if transaction_checks
-  | monitor_chi_rn_transactions(p, node, label_prefix, observed.requests.valid & observed.requests.ready, observed.requests.bits, observed.requester_responses.valid & observed.requester_responses.ready, observed.requester_responses.bits, observed.request_data.valid & observed.request_data.ready, observed.request_data.bits, observed.response_data.valid & observed.response_data.ready, observed.response_data.bits, observed.snoops.valid & observed.snoops.ready, observed.snoops.bits)
+  | monitor_chi_rn_transactions(p, node, label_prefix, observed.requests.valid & observed.requests.ready, observed.requests.bits, observed.requester_responses.valid & observed.requester_responses.ready, observed.requester_responses.bits, observed.request_data.valid & observed.request_data.ready, observed.request_data.bits, observed.response_data.valid & observed.response_data.ready, observed.response_data.bits, observed.snoops.valid & observed.snoops.ready, observed.snoops.bits, observed.responses.valid & observed.responses.ready, observed.responses.bits)
   | #void
 
 sync_circuit CHIRNITransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String):
@@ -493,7 +499,7 @@ fun monitor_chi_rn(link :: CHIRNLinkParams,
   monitor_chi_snp(link.flit, link.rx_snp_credits, observed.rx_snp.valid, observed.rx_snp.bits, observed.rx_snp.credit, rn_rx_snp_credit_balance,
                   observed.rx_link_active_request, observed.rx_link_active_ack, rn_rx_previous_request, received.snp, label_prefix ++ "_rx_snp")
   if transaction_checks
-  | monitor_chi_rn_transactions(link.flit, endpoint, label_prefix, observed.tx_req.valid, observed.tx_req.bits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.tx_dat.valid, observed.tx_dat.bits, observed.rx_dat.valid, observed.rx_dat.bits, observed.rx_snp.valid, observed.rx_snp.bits)
+  | monitor_chi_rn_transactions(link.flit, endpoint, label_prefix, observed.tx_req.valid, observed.tx_req.bits, observed.tx_rsp.valid, observed.tx_rsp.bits, observed.tx_dat.valid, observed.tx_dat.bits, observed.rx_dat.valid, observed.rx_dat.bits, observed.rx_snp.valid, observed.rx_snp.bits, observed.rx_rsp.valid, observed.rx_rsp.bits)
   | #void
   rn_tx_previous_request <== observed.tx_link_active_request
   rn_tx_previous_ack <== observed.tx_link_active_ack

@@ -1,5 +1,5 @@
-// Simulates serialized coherent reads, dirty intervention, and invalidation through CHIHNF.
-module chi_coherent_home_tb;
+// Simulates coherent reads, interventions, and one-request full-line copyback through CHIHNF.
+module chi_coherent_home_tb #(parameter bit COPYBACK_ERROR = 0);
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } rsp_t;
@@ -498,7 +498,75 @@ module chi_coherent_home_tb;
     assert (port_out.requester.requests.ready)
       else $fatal(1, "HN-F did not retire the line write");
 
-    $display("CHI serialized HN-F simulation passed");
+    // Copyback completes at CompDBIDResp: retain the buffer until all data
+    // reaches backing memory, without sending a second completion to the RN.
+    for (int state_index = 0; state_index < 5; state_index++) begin
+      logic [2:0] state;
+      state = state_index == 0 ? 3'd6 : state_index == 1 ? 3'd7 : 3'(state_index - 2);
+      requester_responses_ready_in = '0;
+      send_request(DATA_ID, 7'h1b, 6'd6, 0);
+      repeat (3) begin
+        assert(port_out.requester.responses.valid && port_out.requester.responses.bits.opcode == 5'h05 &&
+               !port_out.requester.request_data.ready) else $fatal(1, "copyback grant missing");
+        tick();
+      end
+      requester_responses_ready_in.ready = 1; tick(); requester_responses_ready_in = '0;
+      for (int packet = 3; packet >= 0; packet--) begin
+        request_data_in = '0; request_data_in.valid = 1;
+        request_data_in.bits.opcode = 4'h2;
+        request_data_in.bits.src_id = DATA_ID;
+        request_data_in.bits.tgt_id = HOME_ID;
+        request_data_in.bits.data_id = 2'(packet);
+        request_data_in.bits.resp = state;
+        request_data_in.bits.byte_enable = state == 0 ? 0 : '1;
+        request_data_in.bits.data = state == 0 ? 0 : 128'(packet);
+        #1;
+        assert(port_out.requester.request_data.ready) else $fatal(1, "copyback DAT refused");
+        tick(); request_data_in = '0;
+      end
+      if (state[2]) begin
+        repeat (4) begin
+          assert(!port_out.requester.responses.valid && !port_out.requester.snoops.valid &&
+                 port_out.subordinate.req.valid && port_out.subordinate.req.bits.size_or_num_req == 6)
+            else $fatal(1, "copyback did not reserve full-line backing write");
+          tick();
+        end
+        accept_subordinate_request(WRITE_NO_SNP_FULL);
+        subordinate_responses_in = '0; subordinate_responses_in.valid = 1;
+        subordinate_responses_in.bits.opcode = DBID_RESP;
+        subordinate_responses_in.bits.src_id = MEMORY_ID;
+        subordinate_responses_in.bits.tgt_id = HOME_ID;
+        subordinate_responses_in.bits.dbid_or_group_id = MEMORY_DBID;
+        tick(); subordinate_responses_in = '0;
+        for (int packet = 0; packet < 4; packet++) begin
+          CHIDatFlit held;
+          held = port_out.subordinate.dat.request.bits;
+          repeat (3) begin
+            assert(port_out.subordinate.dat.request.valid && port_out.subordinate.dat.request.bits == held &&
+                   held.resp == 0 && held.byte_enable == '1) else $fatal(1, "unstable downstream copyback");
+            tick();
+          end
+          accept_subordinate_write_packet(2'(packet));
+        end
+        subordinate_responses_in = '0; subordinate_responses_in.valid = 1;
+        subordinate_responses_in.bits.opcode = COMP;
+        subordinate_responses_in.bits.src_id = MEMORY_ID;
+        subordinate_responses_in.bits.tgt_id = HOME_ID;
+        subordinate_responses_in.bits.resp_err = COPYBACK_ERROR ? 2'd2 : 2'd0;
+        tick(); subordinate_responses_in = '0;
+      end
+      repeat (3) begin
+        assert(port_out.requester.requests.ready && !port_out.requester.responses.valid &&
+               !port_out.requester.snoops.valid && !port_out.subordinate.req.valid)
+          else $fatal(1, "copyback did not retire exactly once");
+        tick();
+      end
+    end
+    $display("CHI serialized HN-F copyback simulation passed");
     $finish;
   end
+endmodule
+
+module chi_copyback_backing_error_tb;
+  chi_coherent_home_tb #(.COPYBACK_ERROR(1)) test();
 endmodule

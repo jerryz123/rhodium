@@ -167,6 +167,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   reg gather_set(Bits(set_width))
   reg gather_way(Bits(way_width))
   reg eviction_line_address(Bits(width))
+  reg eviction_state(~init: CHICacheState.Invalid)
   reg eviction_context(RV5StageL1DTransactionContext(xlen, way_width))
   reg gathered_snoop_state(~init: CHICacheState.Invalid)
   reg snoop_metadata_pending(~init: Bool(#false))
@@ -394,6 +395,12 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   wire eviction_command_ready: Bool
   inject_flow(Decoupled(hardware_value_type(eviction_command)), ~valid: eviction_command_valid, ~bits: eviction_command, ~ready: eviction_command_ready) |> writeback.command
   def writeback_command_fire = eviction_command_valid & eviction_command_ready
+  writeback.victim_state <== eviction_state
+  writeback.snoop_pending <== snoop_pending
+  when eviction_gather_start:
+    eviction_state <== eviction_start.bits.victim_state
+  elsewhen (snoop.update.valid & (snoop.update.bits.address.align_down(RV5StageCacheLineBytes) === eviction_line_address)):
+    eviction_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
   def post_eviction_refills = (
     writeback.completion
       |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width)):
@@ -404,6 +411,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         context: result.context
   )
   Array(direct_refill_commands, post_eviction_refills) |> arbiter() |> refill.command
+  def writeback_complete = writeback.completion.fire()
 
   // Finish an already accepted snoop before installation. New probes wait
   // from CompAck through installation and the bounded post-grant window.
@@ -825,19 +833,24 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   elsewhen (core_service_count.or_reduce()):
     core_service_count <== core_service_count - bits(1, 4)
 
-  when (snoop.update.valid & snoop.update.bits.invalidate):
-    valid_lines <== valid_lines.updated(
+  // Snoop retirement and copyback completion may invalidate different ways
+  // together. Keep the victim visible until its entire data handoff finishes.
+  def snoop_invalidates = snoop.update.valid & snoop.update.bits.invalidate
+  def snooped_valid_lines = mux(snoop_invalidates, valid_lines.updated(
       snoop.update.bits.address[offset_width..(offset_width + set_width)],
       valid_lines[snoop.update.bits.address[offset_width..(offset_width + set_width)]].updated(
         snoop_way,
         Bool(#false)
       )
+    ), valid_lines)
+  def eviction_set = eviction_line_address[offset_width..(offset_width + set_width)]
+  when writeback_complete:
+    valid_lines <== snooped_valid_lines.updated(
+      eviction_set,
+      snooped_valid_lines[eviction_set].updated(eviction_context.way, Bool(#false))
     )
-  elsewhen writeback_command_fire:
-    valid_lines <== valid_lines.updated(
-      gather_set,
-      valid_lines[gather_set].updated(gather_way, Bool(#false))
-    )
+  elsewhen snoop_invalidates:
+    valid_lines <== snooped_valid_lines
   elsewhen install_refill:
     valid_lines <== valid_lines.updated(
       refill_set,
@@ -859,7 +872,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // acknowledged grant until SRAM installation; Home may probe after CompAck.
   def protect_refill = refill.acknowledgements.valid ||| refill.completion.valid
   def protect_core = reservation_protected ||| core_service_count.or_reduce()
-  chi.snoops |> gate_flow(!(protect_refill ||| protect_core)) |> snoop.snoops
+  def protect_copyback = writeback.granted & (rv5stage_chi_snoop_address(p, width, chi.snoops.bits.address).align_down(RV5StageCacheLineBytes) === eviction_line_address)
+  chi.snoops |> gate_flow(!(protect_refill ||| protect_core ||| protect_copyback)) |> snoop.snoops
   def writeback_active = !writeback.command.ready
   def Array(refill_response, writeback_response, maintenance_response) = (
     chi.responses |> demux_flow(3, _response => mux(maintenance_active, bits(2, 2), writeback_active.as_bits().zext(2)))

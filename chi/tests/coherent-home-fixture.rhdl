@@ -1,5 +1,5 @@
 #lang rhodium
-// Elaborates a serialized HN-F serving one RN-I, two RN-Fs, and one SN-F.
+// Elaborates a mixed-requester HN-F with line-copyback and maintenance support.
 
 import:
   lib("chi/main.rhdl") open
@@ -39,7 +39,7 @@ def data_endpoint = CHIICNPortParams(
   3,
   CHINodeKind.RNF,
   ~emits: CHIChannelCapabilities(
-    ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+    ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp, CHIRspOpcode.CompDBIDResp],
     ~snp: chi_rnf_snoop_opcodes,
     ~dat: [CHIDatOpcode.CompData]
   ),
@@ -47,9 +47,11 @@ def data_endpoint = CHIICNPortParams(
     ~req: [CHIReqOpcode.ReadClean,
            CHIReqOpcode.ReadUnique,
            CHIReqOpcode.WriteUniquePtl,
+           CHIReqOpcode.WriteBackFull,
            CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid],
     ~rsp: [CHIRspOpcode.CompAck, CHIRspOpcode.SnpResp],
     ~dat: [CHIDatOpcode.SnpRespData,
+           CHIDatOpcode.CopyBackWriteData,
            CHIDatOpcode.NonCopyBackWriteData]
   ),
   ~max_outstanding: 2

@@ -1,5 +1,5 @@
-// Checks multibeat coherent reads and forwarded snoops with reordered and simultaneous completion events.
-module chi_coherent_tb;
+// Checks coherent reads, copyback grants and packets, and forwarded snoop completion.
+module chi_coherent_tb #(parameter bit EARLY_COPYBACK = 0);
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } rsp_forward_t;
@@ -277,6 +277,33 @@ module chi_coherent_tb;
       clear_flits();
     end
 
+    // Reuse the same TxnID and DBID after all four packets, including Invalid
+    // copyback. Credited and ready-valid attachments observe the same events.
+    for (int invalid = 0; invalid < 2; invalid++) begin
+      port_in.tx_req.credit = 1; rx_rsp_credit = 1; tick();
+      port_in.tx_req.credit = 0; rx_rsp_credit = 0;
+      tx_req_valid = 1; tx_req_bits = '0;
+      tx_req_bits.opcode = 7'h1b; tx_req_bits.src_id = 5; tx_req_bits.tgt_id = 9;
+      tx_req_bits.txn_id = 12'h222; tx_req_bits.size_or_num_req = 6;
+      tick(); clear_flits();
+      if (!EARLY_COPYBACK) begin
+        port_in.rx_rsp.valid = 1; port_in.rx_rsp.bits = '0;
+        port_in.rx_rsp.bits.opcode = 5; port_in.rx_rsp.bits.src_id = 9;
+        port_in.rx_rsp.bits.tgt_id = 5; port_in.rx_rsp.bits.txn_id = 12'h222;
+        port_in.rx_rsp.bits.dbid_or_group_id = 12'h055;
+        tick(); clear_flits();
+      end
+      for (int packet = 3; packet >= 0; packet--) begin
+        port_in.tx_dat.credit = 1; tick(); port_in.tx_dat.credit = 0;
+        tx_dat_valid = 1; tx_dat_bits = '0;
+        tx_dat_bits.opcode = 2; tx_dat_bits.src_id = 5; tx_dat_bits.tgt_id = 9;
+        tx_dat_bits.txn_id = 12'h055; tx_dat_bits.data_id = 2'(packet);
+        tx_dat_bits.resp = invalid != 0 ? 0 : 6;
+        tx_dat_bits.byte_enable = invalid != 0 ? 0 : '1;
+        tx_dat_bits.data = invalid != 0 ? 0 : 128'(packet + 1);
+        tick(); clear_flits();
+      end
+    end
     tx_link_active_request = 1'b0;
     port_in.rx_link_active_request = 1'b0;
     tick();
@@ -287,4 +314,8 @@ module chi_coherent_tb;
     $display("CHI coherent RN-F monitor simulation passed");
     $finish;
   end
+endmodule
+
+module chi_copyback_early_data_tb;
+  chi_coherent_tb #(.EARLY_COPYBACK(1)) test();
 endmodule

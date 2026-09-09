@@ -42,8 +42,18 @@ after every packet has arrived and the acknowledgement has been accepted.
 
 `RV5StageWriteUnique` performs one retryable `WriteUniquePtl`, retaining its
 address, data, byte mask, Home, DBID, and completion state until the transaction
-finishes. `RV5StageLineWriteback` serializes one dirty 64-byte line into eight
-such 64-bit writes and completes only after the final beat completes.
+finishes. `RV5StageLineWriteback` instead issues one retryable, aligned
+64-byte `WriteBackFull`. After `CompDBIDResp`, it sends the line as four,
+two, or one `CopyBackWriteData` packets on 128-, 256-, or 512-bit DAT.
+There is no second completion response or CompAck.
+
+The cache retains the victim as snoop-visible until handoff. Pending snoops
+finish before the grant is accepted; the engine then captures the latest victim
+state. If a snoop already invalidated it, all copyback packets report Invalid
+with zero data and byte enables. Otherwise they carry the complete captured
+line and consistent state. Once granted, same-line snoops wait until every
+packet transfers. Command context and data remain retained through completion
+backpressure.
 
 ## Snoop handling
 

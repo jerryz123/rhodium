@@ -620,11 +620,18 @@ The first read attempt must set `AllowRetry`; a repeat uses the same live TxnID
 with `AllowRetry` clear. The checker recognizes that shape but leaves
 `RetryAck`/`PCrdGrant` association to endpoint logic or
 `CHIRetryableTransactionControl`. The capability predicate and whole-endpoint
-attachment reject writes, retry responses, and maintenance when transaction
+attachment reject non-copyback writes, retry responses, and maintenance when transaction
 checking is requested:
 this bounded checker does not cover those complete transaction lifetimes.
 Such endpoints can explicitly select field/link-only checking and attach
 their separately owned specialized transaction checks.
+
+The bounded profile also checks aligned full-line `WriteBackFull`:
+`CompDBIDResp` must name a live request before `CopyBackWriteData` uses its
+Home/DBID. Every expected DataID transfers exactly once with consistent state
+and complete masks (or zero bytes/data for Invalid); the final packet retires
+the transaction without another Comp or CompAck. Copyback retry association
+remains outside this profile; the RV5Stage engine composes retry control.
 
 Every ordinary incoming SNP is tracked by Home Node and TxnID. Non-forward
 snoops finish with a matching snoop RSP or DAT response; forward snoops remain
@@ -641,7 +648,7 @@ Both Home implementations require at least one RN-F and accept one transaction
 at a time; `CHIHNFParams` correspondingly requires a Home capacity of exactly
 one. RN-I requesters may use `ReadOnce`, `ReadNoSnp`, `WriteNoSnpFull`, and
 `WriteNoSnpPtl`; RN-F requesters may use `ReadOnce`, `ReadClean`, `ReadUnique`, and
-`WriteUniquePtl`. Both requester kinds may additionally advertise
+`WriteUniquePtl` and `WriteBackFull`. Both requester kinds may additionally advertise
 `CleanShared`, `CleanInvalid`, and `MakeInvalid` for aligned 64-byte blocks.
 
 Both coherent Homes service `ReadOnce` by snooping RN-F owners with `SnpOnce`.
@@ -666,6 +673,17 @@ dirty snoop data, and writes back dirty victims before refill. Sets are a
 power-of-two count of at least two, ways are positive, and the complete cache
 must fit the projected dense local range. It requires 64-byte subordinate
 `ReadNoSnp` and `WriteNoSnpFull` support.
+
+Both Homes grant full-line copyback with `CompDBIDResp`, reserve the complete
+receive buffer, and accept all `CopyBackWriteData` packets before retirement.
+Copyback never initiates ownership-acquisition snoops. Dirty copyback updates
+the inclusive LLC's existing line and removes the returning requester from its
+residency mask. A dirty copyback without an LLC entry violates inclusion.
+Clean/Invalid late returns never overwrite a newer version or allocate a missing
+entry. The noncaching Home forwards dirty copyback through one 64-byte
+`WriteNoSnpFull`; clean/Invalid returns need no backing write. Backing errors
+after granting copyback are fatal assertions, not successful retirement.
+Advertising copyback requires full-line backing-write service.
 
 The inclusive Home tracks a conservative per-line bit for every configured
 RN-F. Zero proves absence; one means a copy may remain. Successful `ReadClean`

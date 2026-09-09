@@ -1,5 +1,5 @@
 #lang rhodium
-// Checks bounded coherent reads, retry-shaped repeats, paired DVM, and RN-F snoops.
+// Checks bounded coherent reads, full-line copyback handoffs, paired DVM, and RN-F snoops.
 
 import:
   lib("rhodium/std/bits.rhdl") open
@@ -34,6 +34,15 @@ bundle CHISnoopTransaction(p :: CHIFlitParams):
   response_seen: Bool
   forward_data_seen: Bool
 
+bundle CHICopyBackTransaction(p :: CHIFlitParams):
+  live: Bool
+  granted: Bool
+  txn_id: Bits(12)
+  home_id: Bits(p.node_id_width)
+  dbid: Bits(12)
+  received: Bits(4)
+  state: Bits(3)
+
 fun coherent_single_data_fields(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
   assert(data.data_id === bits(0, 2), label_prefix ++ "_data_id_zero")
   monitor_chi_unelided_data(p, data, label_prefix)
@@ -56,13 +65,69 @@ fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
                                            rx_dat_valid :: Bool,
                                            rx_dat :: CHIDatFlit(p),
                                            rx_snp_valid :: Bool,
-                                           rx_snp :: CHISnpFlit(p)):
+                                           rx_snp :: CHISnpFlit(p),
+                                           ~rx_rsp_valid: rx_rsp_valid :: Bool = Bool(#false),
+                                           ~rx_rsp: rx_rsp :: CHIRspFlit(p) = literal(CHIRspFlit(p), 0)):
   def empty_read = literal(CHICoherentReadTransaction(p), 0)
   def initial_reads = vec(for List (_index in 0..limit): empty_read)
   def empty_snoop = literal(CHISnoopTransaction(p), 0)
   def initial_snoops = vec(for List (_index in 0..limit): empty_snoop)
   reg reads(~init: initial_reads)
   reg snoops(~init: initial_snoops)
+  reg copybacks(~init: vec(for List (_index in 0..limit): literal(CHICopyBackTransaction(p), 0)))
+  def copyback_request = tx_req_valid & (req.opcode === CHIReqOpcode.WriteBackFull)
+  def copyback_grant = rx_rsp_valid & (rx_rsp.opcode === CHIRspOpcode.CompDBIDResp)
+  def copyback_data = tx_dat_valid & (tx_dat.opcode === CHIDatOpcode.CopyBackWriteData)
+  def free_copybacks = vec(for List (index in 0..limit): !copybacks[index].live)
+  def copyback_slot = priority_encoder(free_copybacks)
+  def grant_matches = vec(
+    for List (index in 0..limit):
+      copybacks[index].live & !copybacks[index].granted & (copybacks[index].txn_id === rx_rsp.txn_id) & (copybacks[index].home_id === rx_rsp.src_id)
+  )
+  def data_matches = vec(
+    for List (index in 0..limit):
+      copybacks[index].live & copybacks[index].granted & (copybacks[index].dbid === tx_dat.txn_id) & (copybacks[index].home_id === tx_dat.tgt_id)
+  )
+  def copyback_data_id = one_hot(tx_dat.data_id).as_bits()
+  def copyback_expected = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
+  def live_requests = vec(for List (index in 0..limit): reads[index].phase =/= CHICoherentReadPhase.Free).as_bits() ++ vec(for List (index in 0..limit): copybacks[index].live).as_bits()
+  when (copyback_request ||| (tx_req_valid & req.allow_retry & req.opcode.is_one_of(CHIReqOpcode.ReadShared, CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique))):
+    assert(popcount(live_requests) < bits(limit, index_width(2 * limit + 1)), label_prefix ++ "_requests_within_outstanding_limit")
+  when copyback_request:
+    assert(free_copybacks.or_reduce(), label_prefix ++ "_copyback_capacity")
+    assert(req.address.is_aligned(64) & (chi_req_size(p, req) === CHITransferSize.Bytes64) & !req.multi_req & !req.exp_comp_ack, label_prefix ++ "_copyback_request")
+  when tx_req_valid:
+    for (index in 0..limit):
+      assert(!copybacks[index].live ||| (copybacks[index].txn_id =/= req.txn_id), label_prefix ++ "_copyback_txn_unique")
+      when copyback_request:
+        assert((reads[index].phase === CHICoherentReadPhase.Free) ||| (reads[index].txn_id =/= req.txn_id), label_prefix ++ "_copyback_read_txn_unique")
+  when copyback_grant:
+    assert(grant_matches.or_reduce(), label_prefix ++ "_copyback_grant_has_request")
+    assert((rx_rsp.resp_err === CHIRespErr.OK) & (rx_rsp.resp === bits(0, 3)), label_prefix ++ "_copyback_grant_ok")
+    for (index in 0..limit):
+      assert(!(copybacks[index].live & copybacks[index].granted & (copybacks[index].home_id === rx_rsp.src_id) & (copybacks[index].dbid === rx_rsp.dbid_or_group_id)), label_prefix ++ "_copyback_dbid_unique")
+  when copyback_data:
+    assert(data_matches.or_reduce(), label_prefix ++ "_copyback_data_has_grant")
+    monitor_chi_copyback_data(p, tx_dat, label_prefix ++ "_copyback_data")
+    assert((copyback_expected & copyback_data_id).or_reduce(), label_prefix ++ "_copyback_data_id_expected")
+  for (index in 0..limit):
+    def entry = copybacks[index]
+    def received = entry.received ||| copyback_data_id
+    when (copyback_data & data_matches[index]):
+      assert(!(entry.received & copyback_data_id).or_reduce(), label_prefix ++ "_copyback_data_id_unique")
+      assert(!entry.received.or_reduce() ||| (entry.state === tx_dat.resp), label_prefix ++ "_copyback_state_consistent")
+      copybacks[index] <== entry.updated(~live: received =/= copyback_expected, ~received: received, ~state: tx_dat.resp)
+    elsewhen (copyback_grant & grant_matches[index]):
+      copybacks[index] <== entry.updated(~granted: Bool(#true), ~dbid: rx_rsp.dbid_or_group_id)
+    elsewhen (copyback_request & (copyback_slot === bits(index, index_width(limit)))):
+      copybacks[index] <== CHICopyBackTransaction(p):
+        live: Bool(#true)
+        granted: Bool(#false)
+        txn_id: req.txn_id
+        home_id: req.tgt_id
+        dbid: bits(0, 12)
+        received: bits(0, 4)
+        state: bits(0, 3)
   reg coherent_dvm_first_pending(~init: Bool(#false))
   reg coherent_dvm_source_id(~init: bits(0, p.node_id_width))
   reg coherent_dvm_txn_id(~init: bits(0, 12))

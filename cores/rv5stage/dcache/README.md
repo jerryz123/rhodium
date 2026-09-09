@@ -21,7 +21,7 @@ Contributors changing the L1D implementation should read
 | Core protocol | EX/MEM lookup and WB store authorization; ordered `Decoupled` slow transactions with `Valid` responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
-| CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
+| CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteBackFull` with `CopyBackWriteData`, nonallocating `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
 | Prefetch | Demand-priority Valid event; read intent uses `ReadClean`, write intent uses `ReadUnique`, and neither responds or mutates data |
 
 `RV5StageL1DCache(xlen, cache, ~chi: config)` accepts `XLen.X32` or
@@ -187,7 +187,7 @@ flowchart LR
 
   Resolved -->|miss or ownership acquisition| Victim{"Dirty allocated victim?"}
   Victim -->|yes| Gather["Gather 64-byte line"]
-  Gather --> Writeback["8 serialized 64-bit<br/>WriteUniquePtl transactions"]
+  Gather --> Writeback["One 64-byte WriteBackFull<br/>packet-complete copyback"]
   Writeback --> Refill["ReadClean or ReadUnique<br/>retry-aware refill"]
   Victim -->|no| Refill
   Refill -->|retained copy| Install["Install one XLEN word/cycle<br/>publish metadata last"]
@@ -296,8 +296,13 @@ allocate in outer caches. No outer-cache allocation policy is claimed.
 
 For a dirty allocation victim, L1D first gathers all XLEN words into a line
 buffer. The shared [writeback engine](../chi/README.md#writes-and-dirty-writeback) captures that buffer
-and serializes eight retryable, 64-bit `WriteUniquePtl` transactions. The
-replacement refill cannot start until all eight complete.
+and issues one retryable `WriteBackFull`. The victim remains resident and
+snoop-visible while awaiting `CompDBIDResp`; its set remains reserved against
+local accesses. A preceding snoop may consume its dirty data and invalidate
+it, in which case copyback reports Invalid without enabled bytes. The grant
+freezes the response state, and the victim is invalidated locally after all
+copyback DAT packets transfer. Only then can the replacement refill start.
+Unrelated load hits retain the existing hit-under-miss behavior.
 
 ## Cache-block management
 
@@ -394,10 +399,10 @@ advance replacement state.
 
 - Prefetches are not buffered, cannot run under a miss, and may delay a later
   demand once an admitted miss or ownership acquisition has launched.
-- The cache has no hit-under-miss, autonomous prefetcher, or background writeback.
+- The cache has no store hit-under-miss, autonomous prefetcher, or background writeback.
 - L1D and L1I have no direct coherence connection; instruction coherence uses
   the parent core's fence/invalidation sequence and independent CHI snoops.
-- Dirty replacement uses eight supported `WriteUniquePtl` transactions rather
-  than CHI's `WriteBackFull` transaction family.
+- Dirty replacement supports full-line `WriteBackFull`, not partial copyback
+  or other copyback transaction families.
 - The cache does not generate translation, alignment, or PMA faults. It reports
   maintenance completion errors for classification by the parent core.

@@ -15,7 +15,8 @@ implementation. `uncached.rhdl` may import the I-cache and D-cache protocol
 types that form its core-facing boundary.
 
 `foundation.rhdl` is the dependency root. Snapshot-read, refill, write-unique, snoop, and
-uncached engines depend on it; writeback additionally composes write-unique.
+uncached engines depend on it. Writeback directly composes CHI retry control
+and the shared copyback packet constructor, not the scalar write-unique engine.
 The I-cache and D-cache instantiate the shared engines, while `rv5stage.rhdl`
 owns external channel composition.
 
@@ -57,7 +58,7 @@ including nonzero trace/QoS.
 | [`line-read.rhdl`](line-read.rhdl) | Retry-aware coherent instruction snapshots, without cache ownership |
 | [`refill.rhdl`](refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
 | [`write-unique.rhdl`](write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
-| [`writeback.rhdl`](writeback.rhdl) | Serialized dirty-line drain through write-unique transactions |
+| [`writeback.rhdl`](writeback.rhdl) | One retryable full-line copyback, latest victim state at grant, and packet handoff |
 | [`snoop.rhdl`](snoop.rhdl) | Data-cache snoop lifetime, DVM pairing, cache lookup/update, and response traffic |
 | [`uncached.rhdl`](uncached.rhdl) | Shared one-outstanding instruction/data RN-I implementation |
 
@@ -82,6 +83,11 @@ packages and these transaction engines consume it.
    or engine path changes.
 
 ## Focused validation
+
+`rv5stage-copyback` covers all DAT widths, retry/credit ordering, stalled
+REQ/grant/DAT/completion, and state freezing at grant. `rv5stage-dcache`
+also exercises a dirty intervention before the copyback grant and confirms
+that an unrelated snoop cannot change the retained eviction identity.
 
 Run host-side configuration and public-shape checks together:
 

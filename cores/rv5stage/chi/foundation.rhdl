@@ -30,6 +30,12 @@ def RV5StageWriteUniqueResponses = response_profile("rv5stage_write_unique"):
   response [CHIRspOpcode.CompDBIDResp]:
     completes [dbid, completion]
 
+def RV5StageCopyBackResponses = response_profile("rv5stage_copyback"):
+  retryable
+  milestone grant
+  response [CHIRspOpcode.CompDBIDResp]:
+    completes [grant]
+
 class RV5StageCHIRegion(physical :: RiscvPhysicalMemoryRegion,
                         home :: CHIHomeParams):
   implements StableCircuitParam
@@ -121,11 +127,13 @@ class RV5StageCHIParams(config :: RV5StageCHIConfig,
         ~req: [CHIReqOpcode.ReadClean,
                CHIReqOpcode.ReadUnique,
                CHIReqOpcode.WriteUniquePtl,
+               CHIReqOpcode.WriteBackFull,
                CHIReqOpcode.CleanShared,
                CHIReqOpcode.CleanInvalid,
                CHIReqOpcode.MakeInvalid],
         ~rsp: [CHIRspOpcode.CompAck, CHIRspOpcode.SnpResp],
         ~dat: [CHIDatOpcode.SnpRespData,
+               CHIDatOpcode.CopyBackWriteData,
                CHIDatOpcode.NonCopyBackWriteData]
       ),
       ~supports: CHIChannelCapabilities(
@@ -304,6 +312,7 @@ fun rv5stage_chi_write_data(p :: CHIFlitParams,
 export:
   RV5StageRefillResponses
   RV5StageWriteUniqueResponses
+  RV5StageCopyBackResponses
   RV5StageCHIRegion
   RV5StageCHIConfig
   RV5StageCHIParams

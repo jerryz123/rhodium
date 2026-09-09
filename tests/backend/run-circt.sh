@@ -707,6 +707,7 @@ direct_fixture_specs=(
   'chi-transfer-fragmenter|chi_transfer_fragmenter_tb'
   'chi-fragmenter-metadata|chi_fragmenter_metadata_tb'
   'rv5stage-chi-requests|rv5stage_chi_requests_tb'
+  'rv5stage-copyback|rv5stage_copyback_tb'
   'load-store|load_store_tb'
   'riscv-cmo|riscv_cmo_tb'
   'riscv-pointer-masking|riscv_pointer_masking_tb'
@@ -930,6 +931,16 @@ run_expected_assertion_failure chi-coherent \
   chi_coherent_early_comp_ack_tb \
   tests/backend/verilog/chi-coherent-early-comp-ack_tb.sv \
   chi_coherent_comp_ack_has_read_data
+run_expected_assertion_failure chi-inclusive-home chi_copyback_mask_tb \
+  tests/backend/verilog/chi-inclusive-home_tb.sv chi_inclusive_hnf_copyback_byte_enable
+run_expected_assertion_failure chi-coherent chi_copyback_early_data_tb \
+  tests/backend/verilog/chi-coherent_tb.sv chi_coherent_copyback_data_has_grant
+run_expected_assertion_failure chi-inclusive-home chi_copyback_duplicate_tb \
+  tests/backend/verilog/chi-inclusive-home_tb.sv chi_inclusive_hnf_requester_write_data_id_unique
+run_expected_assertion_failure chi-inclusive-home chi_copyback_state_tb \
+  tests/backend/verilog/chi-inclusive-home_tb.sv chi_inclusive_hnf_copyback_state_consistent
+run_expected_assertion_failure chi-coherent-home chi_copyback_backing_error_tb \
+  tests/backend/verilog/chi-coherent-home_tb.sv chi_hnf_copyback_backing_response_ok
 run_expected_assertion_failure chi-cache-maintenance \
   chi_cache_maintenance_wrong_source_tb \
   tests/backend/verilog/chi-cache-maintenance_tb.sv \

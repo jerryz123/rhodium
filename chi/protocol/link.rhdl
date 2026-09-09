@@ -70,7 +70,7 @@ fun chi_initial_subordinate_capabilities(emitted :: CHIChannelCapabilities,
                                          received :: CHIChannelCapabilities):
   chi_initial_requester_capabilities(received, emitted)
 
-// Classifies the bounded coherent-read/snoop capability subset shared by
+// Classifies the bounded coherent-read/copyback/snoop capability subset shared by
 // endpoint validation and opt-in transaction coverage. This emits no monitor.
 fun chi_initial_coherent_requester_capabilities(
     emitted :: CHIChannelCapabilities,
@@ -78,18 +78,21 @@ fun chi_initial_coherent_requester_capabilities(
   def allowed_emitted = CHIChannelCapabilities(
     ~req: [CHIReqOpcode.ReadShared,
            CHIReqOpcode.ReadClean,
-           CHIReqOpcode.ReadUnique],
+           CHIReqOpcode.ReadUnique,
+           CHIReqOpcode.WriteBackFull],
     ~rsp: [CHIRspOpcode.CompAck,
            CHIRspOpcode.SnpResp,
            CHIRspOpcode.SnpRespFwded],
     ~dat: [CHIDatOpcode.SnpRespData,
            CHIDatOpcode.SnpRespDataPtl,
            CHIDatOpcode.SnpRespDataFwded,
+           CHIDatOpcode.CopyBackWriteData,
            CHIDatOpcode.CompData]
   )
   // CompData is optional, while every ordinary RN-F snoop operation is
   // required below.
   def allowed_received = CHIChannelCapabilities(
+    ~rsp: [CHIRspOpcode.CompDBIDResp],
     ~snp: chi_rnf_snoop_opcodes,
     ~dat: [CHIDatOpcode.CompData]
   )

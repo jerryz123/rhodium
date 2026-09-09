@@ -47,11 +47,19 @@ RN-F order. Keep the absence invariant separate from LLC dirty state and from
 `WriteUniquePtl`. A successful final read-data transfer publishes a possible
 cached copy before the serialized Home can accept another request; CompAck
 still owns transaction completion when requested. Only complete successful
-snoop responses may remove a responder. Track retained/error state across all
+snoop responses or complete copyback may remove a responder. Track retained/error state across all
 dirty packets, and keep a failed victim invalidation from replacing its entry.
 Successful line installation starts with an empty directory. Never attach the
 old victim's bits to the new tag. Coordinated reset clears LLC and requester
 state; independent requester state surviving a Home reset is not supported.
+
+Copyback bypasses snoop-target loading and ordinary allocation. Its saved
+response state is consistent across every expected DAT packet; install dirty
+data only after the complete receipt mask. Clean/Invalid late returns must
+leave LLC data and replacement state untouched. The noncaching Home reserves
+its single transaction until its full-line backing write completes. Once
+`CompDBIDResp` transfers, it cannot report a second requester completion to
+recover from a backing error; such failures are fatal in this profile.
 
 Use `chi-inclusive-home` for residency, shared/unique grants, snapshot reads,
 silent-eviction cleanup, stalled dispatch, delayed CompAck, partial dirty packets,

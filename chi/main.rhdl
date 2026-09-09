@@ -173,6 +173,7 @@ export:
   chi_sn_read_completion
   CHISingleBeatSubordinate
   chi_rn_write_data
+  chi_rn_copyback_data
   chi_home_downstream_request
   chi_home_snoop
   chi_home_snoop_write_request

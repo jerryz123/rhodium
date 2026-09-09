@@ -6,6 +6,12 @@ import:
   "../chi/foundation.rhdl" as core_chi
 
 check:
+  core_chi.RV5StageCopyBackResponses.milestones ~is ["grant"]
+  core_chi.RV5StageCopyBackResponses.response_opcodes ~is [
+    CHIRspOpcode.RetryAck,
+    CHIRspOpcode.PCrdGrant,
+    CHIRspOpcode.CompDBIDResp
+  ]
   core_chi.RV5StageRefillResponses.milestones ~is []
   core_chi.RV5StageRefillResponses.response_opcodes ~is [
     CHIRspOpcode.RetryAck,
