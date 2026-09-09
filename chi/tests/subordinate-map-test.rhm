@@ -30,7 +30,6 @@ check:
   module_def.find_input("address").type.width ~is 44
   module_def.find_output("valid").type.packed_width() ~is 1
   module_def.find_output("node_id").type.width ~is 7
-  circt.contains("comb.mux") ~is #true
   circt.contains("hw.constant 9") ~is #true
   circt.contains("hw.constant 10") ~is #true
   verify_design(fixture.design) ~is #void

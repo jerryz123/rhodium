@@ -333,7 +333,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential cmake zlib1g-dev
+          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
       - uses: ./.github/actions/setup-riscv-toolchain
       - uses: ./.github/actions/setup-verilator
       - name: Cache FESVR
