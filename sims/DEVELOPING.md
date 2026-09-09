@@ -204,6 +204,44 @@ and exercise a small `+max-cycles` timeout. See the
 [operator guide](README.md#architectural-certification-tests) for setup and
 current coverage limits.
 
+### LR/SC system qualification
+
+`make -C sims lrsc-test SOC=simple`, `SOC=mini`, and `SOC=tiled` complement the
+[full-core progress matrix](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate).
+`tests/programs/rv5stage_lrsc.S` runs six constrained-loop placements, covering
+LR.W/SC.W and LR.D/SC.D at aligned, cross-line/page, and page-boundary starts. Each
+loop contains sixteen contiguous instructions including its retry branch.
+Setup, barriers, function returns, signatures, and HTIF exit are outside the
+constrained loop. The linker keeps code, shared counters, and page tables
+separate. Bare and supervisor Sv39 executables use the same identity-mapped
+RAM, with independent 4-KiB leaf mappings and preset A/D bits. MiniSoC places
+its page tables inside its 64-KiB RAM and uses word-aligned boundary starts;
+the compressed-enabled systems use halfword starts. The payload checks `misa.C`
+against the selected alignment, and the linker rejects out-of-RAM placement.
+
+SimpleSoC and MiniSoC use their ordinary harnesses. `tests/lrsc-tiled-harness.rhdl` changes
+only the production ROM's secondary-hart filter to a NOP. Every hart still
+waits for the normal FESVR post-loading entry publication. Do not replace the
+cores, Home slices, routers, translation, cache geometry, or FESVR transport
+with fixture components. The eight-hart test contract is checked against the
+default topology before elaboration.
+
+All participating harts perform eight successful increments per placement.
+Finite winners leave each loop, so the all-hart completion check does not
+require starvation freedom against an indefinitely active winner. Shared
+counters occupy consecutive cache lines across the tiled Home stripes.
+Separate per-hart barrier lines keep setup stores outside the tested
+reservation lines. Hart zero checks totals and writes six signature values;
+FESVR reads those values coherently after normal HTIF completion.
+
+Keep these builds isolated under `BUILD_ROOT/lrsc-test/`; the tiled boot ROM
+differs from the ordinary simulator. Both Bare and Sv39 executions must be
+attempted, with a nonzero overall status if either fails. Preserve failed
+results and do not count timeout, post-pressure recovery, or partial
+signatures as qualification success. This finite regression is evidence for
+the concrete configurations, not an advertisement switch or a proof for
+arbitrary external fabric fairness.
+
 ### Software suite and artifact maintenance
 
 `program-test/isa.mk` includes upstream build rules and selects their physical

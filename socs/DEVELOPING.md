@@ -127,12 +127,17 @@ Keep this entrypoint in the root Makefile's compilation manifest.
 `bash socs/tests/check-boundaries.sh` exercises import rejection and ensures
 enumeration/search errors cannot silently pass the boundary audit.
 
-`tests/main-memory-test.rhm` checks Ziccif/Ziccamoa memory-map preconditions in
+`tests/main-memory-test.rhm` checks Ziccif/Ziccamoa/Ziccrse memory-map preconditions in
 MiniSoC, SimpleSoC, and TiledSoC. Cacheable regions must be coherent HN-F RAM
 with execute, read, write, and atomic permissions and idempotent reads. The
 disjoint sparse bank sets must cover all described RAM without gaps; do not
 infer coverage from only the first and last address. BootROM and device HN-I
 regions are outside these cacheable/coherent main-memory requirements.
+MiniSoC, SimpleSoC, and TiledSoC enable Ziccrse. The core profile and UDB tests
+check this selection, and `run-device-tree.sh` checks every hart's advertised
+extension list. Static PMA checks do not prove eventuality; retain the
+[complete-system qualification](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate)
+when changing a qualified system's memory hierarchy or scheduling.
 The [RV5Stage validation guide](../cores/rv5stage/DEVELOPING.md#focused-validation)
 owns the fetch, AMO, and coherence datapath checks and their coverage limits.
 

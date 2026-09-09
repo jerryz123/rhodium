@@ -71,6 +71,11 @@ ZICBOZ_BINARY := $(SOC_BUILD_DIR)/rv5stage_zicboz.elf
 ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zicboz.signature
 ZIHINTNTL_BINARY := $(SOC_BUILD_DIR)/rv5stage_zihintntl.elf
 ZIHINTNTL_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zihintntl.signature
+LRSC_BINARIES := $(SOC_BUILD_DIR)/rv5stage_lrsc_0.elf $(SOC_BUILD_DIR)/rv5stage_lrsc_1.elf
+LRSC_HARTS := $(if $(filter tiled,$(SOC)),8,1)
+LRSC_IALIGN := $(if $(filter mini,$(SOC)),4,2)
+LRSC_PAGE_TABLE_BASE := $(if $(filter mini,$(SOC)),0x8000b000,0x80010000)
+LRSC_MEMORY_LIMIT := $(if $(filter mini,$(SOC)),0x80010000,0xc0000000)
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
 # Failed elaboration or lowering must not leave a reusable partial artifact.
@@ -105,6 +110,23 @@ smoke: $(SMOKE_BINARY)
 
 uart-pty-test: $(UART_PTY_BINARY) simulator
 	$(PYTHON) tests/uart_pty_test.py "$(SIMULATOR_BINARY)" "$(UART_PTY_BINARY)"
+
+.PHONY: lrsc-test lrsc-run
+lrsc-test:
+	@test "$(SOC)" = simple -o "$(SOC)" = mini -o "$(SOC)" = tiled
+	$(MAKE) lrsc-run SOC=$(SOC) TRACE=0 PREBUILT_SIMULATOR= \
+	  BUILD_ROOT="$(BUILD_ROOT)/lrsc-test" \
+	  HARNESS_SOURCE=$(if $(filter tiled,$(SOC)),sims/tests/lrsc-tiled-harness.rhdl,$(HARNESS_SOURCE_$(SOC)))
+
+lrsc-run: $(LRSC_BINARIES) simulator
+	@status=0; for mode in 0 1; do \
+	  echo "LR/SC qualification: SOC=$(SOC) Sv39=$$mode harts=$(LRSC_HARTS)"; \
+	  signature="$(SOC_BUILD_DIR)/lrsc_$$mode.signature"; \
+	  if $(SIMULATOR_BINARY) +max-cycles=20000000 +signature="$$signature" +signature-granularity=8 "$(SOC_BUILD_DIR)/rv5stage_lrsc_$$mode.elf" && \
+	    awk -v expected="$(if $(filter tiled,$(SOC)),0000000000000040,0000000000000008)" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
+	    echo "LR/SC qualification passed: SOC=$(SOC) Sv39=$$mode (6 placements)"; \
+	  else echo "LR/SC qualification FAILED: SOC=$(SOC) Sv39=$$mode"; status=1; fi; \
+	done; exit $$status
 
 .PHONY: tiled-memory-test
 tiled-memory-test:
@@ -252,6 +274,13 @@ $(UART_PTY_BINARY): tests/programs/rv5stage_uart_pty.S tests/programs/rv5stage_s
 $(TILED_MEMORY_BINARY): tests/programs/rv5stage_tiled_memory.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+
+$(SOC_BUILD_DIR)/rv5stage_lrsc_%.elf: tests/programs/rv5stage_lrsc.S tests/programs/rv5stage_lrsc.ld | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=rv64ia_zicsr_zifencei -mabi=lp64 -nostdlib -nostartfiles \
+	  -DLRSC_HARTS=$(LRSC_HARTS) -DLRSC_TRANSLATED=$* \
+	  -DLRSC_IALIGN=$(LRSC_IALIGN) -DLRSC_PAGE_TABLE_BASE=$(LRSC_PAGE_TABLE_BASE) \
+	  -Wl,--defsym,lrsc_page_tables=$(LRSC_PAGE_TABLE_BASE),--defsym,lrsc_memory_limit=$(LRSC_MEMORY_LIMIT) \
+	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_lrsc.ld $< -o $@
 
 $(HOST_MMIO_BINARY): tests/programs/rv5stage_host_mmio.S tests/programs/rv5stage_host_mmio.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \

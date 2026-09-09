@@ -95,6 +95,8 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
     | error(~who: #'RV5Stage, "Ziccif requires executable cacheable coherent memory")
     unless (!attributes.cacheable) || (!extensions.ziccamoa) || attributes.atomic
     | error(~who: #'RV5Stage, "Ziccamoa requires AMOArithmetic in cacheable coherent memory")
+    unless (!attributes.cacheable) || (!extensions.ziccrse) || (attributes.readable && attributes.writable && attributes.atomic && attributes.read_idempotent)
+    | error(~who: #'RV5Stage, "Ziccrse requires readable, writable, atomic-capable, read-idempotent cacheable coherent memory")
 
   input chi_identity: RV5StageCHIIdentity(p)
   input interrupts: RV5StageInterrupts()

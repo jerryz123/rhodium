@@ -239,24 +239,30 @@ for FP-hit writeback or shared payload changes.
 
 ### Ziccrse progress gate
 
-`rv5stage-lrsc-core-progress` is the full-core regression for the still
-unadvertised LR/SC eventuality guarantee:
+The full-core qualification matrix for the [Ziccrse integration
+guarantee](README.md#lrsc-eventuality-ziccrse) is:
 
 ```sh
-FIXTURE=rv5stage-lrsc-core-progress bash tests/backend/run-circt.sh --simulate-only
+FIXTURES='rv5stage-lrsc-core-progress rv5stage-lrsc-core-progress-predicted rv5stage-lrsc-core-progress-rv32' \
+  bash tests/backend/run-circt.sh --simulate-only
 ```
 
-It executes sixteen-instruction constrained LR.D/SC.D loops through RV5Stage,
+It executes sixteen-instruction constrained LR.W/SC.W and RV64 LR.D/SC.D loops through RV5Stage,
 its MMU and 32-set direct-mapped L1s, a two-set/two-way inclusive Home, and
 CHI SRAM. The three instruction placements are `0x1fc0`, `0x1fe0`, and
 `0x1ffe`; Bare and supervisor Sv39 runs cover both ordinary and halfword-offset
-fetch/page crossings. Sv39 uses separate 4-KiB leaves. The pressure cases
-disable prediction and take six forward branches over NOPs while another
-requester issues read-only LLC conflicts. All program loading and signatures
+fetch/page crossings. Sv39 uses separate 4-KiB leaves; RV32 uses Bare mode.
+The original fixture disables prediction, while `-predicted` and `-rv32` use
+the production 16-entry predictor. Each placement runs without extra traffic,
+with read-only LLC conflicts, with competing LRs, and with competing LR/SCs.
+Pressure cases take six forward branches over NOPs. Competing LRs must permit
+core progress; competing SCs check system progress rather than per-hart
+starvation freedom. There are 48 cases per RV64 fixture and 12 RV32 cases.
+All program loading and signatures
 use coherent requests. Initial fetch is stalled during loading, but the
 caches remain alive to service broadcast snoops.
 
-All twelve cases pass with nonsnooping instruction residency and accepted
+The original twelve cases passed with nonsnooping instruction residency and accepted
 instruction walks that survive ordinary fetch recovery. Previously both Sv39
 `0x1fc0` cases repeatedly canceled a younger ITLB walk on SC replay before it
 could fill the TLB. The MMU now detaches the squashed consumer while preserving
@@ -267,10 +273,25 @@ every failed case and then fails overall; recovery is diagnostic evidence,
 never a passing result.
 Before the progress cases, the same bench executes a self-modifying-code
 program: warm an instruction line, modify it through the core's dirty data
-cache, execute `FENCE.I`, and call the updated code. That case passes.
-Ziccrse remains unadvertised. Do not enable profile, device-tree, or UDB
-advertisement from cache-only results or treat this bounded regression as a
-proof for every translation and fabric-fairness scenario. In particular,
+cache, execute `FENCE.I`, and call the updated code.
+The [SoC qualification](../../sims/DEVELOPING.md#lrsc-system-qualification)
+adds real MiniSoC, SimpleSoC, and eight-hart TiledSoC memory paths through normal FESVR.
+The expanded qualification passed on 2026-09-08 against `d78ce435` production
+RTL: 108/108 core cases, all three FENCE.I checks, 12/12 SimpleSoC placements,
+12/12 eight-hart TiledSoC placements, and 81/81 concrete memory-map checks.
+MiniSoC subsequently passed 12/12 placements on the same date through its
+ordinary harness and forwarding HN-F/internal CHI RAM. Its compressed-disabled
+profile uses word-aligned page-boundary starts and page tables inside its
+64-KiB RAM; the six placements still cover LR.W/SC.W and LR.D/SC.D in both
+Bare and Sv39. The adapted shared payload also passed all 24 SimpleSoC/TiledSoC
+placements on their previously qualified simulators.
+Only qualification fixtures, payloads, build targets, and documentation
+changed; no further production RTL fix was required for this matrix.
+MiniSoC, SimpleSoC, and TiledSoC now enable the explicit `ziccrse` profile claim;
+generic profiles remain opt-out. Preserve the matrix as a regression
+gate when changing fetch, translation, reservations, or coherence arbitration.
+Do not enable another integration from cache-only results or treat this bounded
+regression as a proof for every translation and fabric-fairness scenario. In particular,
 extending the reservation timer alone does not establish progress across
 translation arbitration and replay.
 
@@ -295,7 +316,7 @@ SoC PMAs. The test checks every cacheable HN-F region, including sparse tiled
 bank masks, for executable, readable, writable, idempotent, non-device,
 atomic-capable RAM and exact coverage of described memory. Generic
 `RV5StageCHIConfig` still allows restricted cacheable maps. The top-level
-`RV5Stage` elaboration checks them against the selected `ziccif`/`ziccamoa`
+`RV5Stage` elaboration checks them against the selected `ziccif`/`ziccamoa`/`ziccrse`
 profile claims before instantiating hardware. Keep the default SoC profiles,
 profile/UDB projection tests, and per-hart DTB checks aligned when changing
 these claims. Run `profile-test.rhm`, `udb-test.rhm`, and `rv5stage-test.rhm`

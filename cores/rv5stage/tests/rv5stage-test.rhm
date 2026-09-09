@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage's public boundary, Zicbom composition at both widths, and configuration rejection.
+// Checks RV5Stage's public boundary, CMO and main-memory guarantees, and configuration rejection.
 
 import:
   "../../../rhodium/frontend/kernel.rhm" as embedded
@@ -14,12 +14,12 @@ import:
 
 def config = test_params.test_rv5stage_chi_config
 def params = test_params.test_rv5stage_chi_params
-def extensions = core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true)
+def extensions = core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true)
 def rv64_design = embedded.run_elaboration(
   fun (): rv5stage.RV5Stage(
     core_profile.RVCoreProfile(
       ~xlen: XLen.X64,
-      ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)),
+      ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)),
       ~mmu_mode: core_profile.RV5StageMmuMode.Sv39
     ),
     ~chi: config,
@@ -45,6 +45,22 @@ for ([attributes, diagnostic] in [
     embedded.run_elaboration(
       fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X64, ~extensions: extensions), ~chi: restricted, ~reset_address: 0)
     ) ~throws diagnostic
+
+// Ziccrse is independent of fetch/AMO advertisements, but still needs LR/SC
+// permission and ordinary idempotent memory. Generic CHI maps allow these PMAs.
+for (attributes in [
+  RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #false, #false, #true),
+  RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #true, #false, #false)
+]):
+  def region = config.regions[0]
+  def restricted = chi.RV5StageCHIConfig(config.flit, [chi.RV5StageCHIRegion(
+    RiscvPhysicalMemoryRegion(region.physical.address_set, attributes), region.home
+  )])
+  for (xlen in [XLen.X32, XLen.X64]):
+    check:
+      embedded.run_elaboration(
+        fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: xlen, ~extensions: core_profile.RV5StageExtensions(~ziccrse: #true)), ~chi: restricted, ~reset_address: 0)
+      ) ~throws "Ziccrse"
 
 check:
   params.config === config ~is #true

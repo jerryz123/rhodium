@@ -403,6 +403,25 @@ make -C sims boot-test SOC=tiled
 writebacks and refills across all LLC slices through the single external
 channel. The ordinary `SOC=tiled` harness leaves memory channels unstalled.
 
+Run the LR/SC progress qualification through normal FESVR loading and coherent
+signature collection with:
+
+```sh
+make -C sims lrsc-test SOC=simple
+make -C sims lrsc-test SOC=mini
+make -C sims lrsc-test SOC=tiled
+```
+
+All three targets exercise word/doubleword constrained loops in Bare and Sv39
+modes, including cache-line and page crossings. MiniSoC uses word-aligned
+instruction placements and page tables within its 64 KiB RAM; the other systems
+also exercise halfword instruction starts. TiledSoC uses
+a test-only boot ROM that releases all eight harts to contend on shared
+counters; its core and memory system are unchanged. Builds and six-value
+signatures stay under `BUILD_ROOT/lrsc-test/<soc>/`. Each execution has a
+20-million-cycle limit. See the [qualification scope](DEVELOPING.md#lrsc-system-qualification);
+Ziccrse advertisement is owned by the qualified SoC profiles, not this test target.
+
 The smoke starts with `tohost` cleared, executes RV64I instructions on
 RV5Stage, stores the passing value into a dirty L1D line, and succeeds only
 after the coherent FESVR requester observes that write. It uses the same `run`

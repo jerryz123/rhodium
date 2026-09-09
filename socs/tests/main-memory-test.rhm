@@ -1,5 +1,5 @@
 #lang rhombus
-// Audits Ziccif/Ziccamoa PMAs and complete coherent-memory coverage in concrete SoCs.
+// Audits Ziccif/Ziccamoa/Ziccrse PMA prerequisites and complete coherent-memory coverage in concrete SoCs.
 
 import:
   "../../chi/main.rhdl" open

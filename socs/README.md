@@ -26,6 +26,9 @@ from the same profile that selects the hardware decoder and wait controller.
 All three also advertise the [Ziccif and Ziccamoa main-memory guarantees](../cores/rv5stage/README.md#coherent-main-memory-guarantees).
 Their coherent RAM maps support instruction fetch and all A-extension AMOs;
 these claims do not apply to BootROM or device regions.
+All three additionally advertise [Ziccrse LR/SC
+eventuality](../cores/rv5stage/README.md#lrsc-eventuality-ziccrse) for their
+cacheable coherent RAM.
 
 ## Choose a system
 

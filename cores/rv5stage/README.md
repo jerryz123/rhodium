@@ -86,10 +86,35 @@ its CHI configuration already requires coherent HN-F Homes and complete cache li
 BootROM and device HN-I regions are outside these requirements.
 
 These claims do not provide Ziccrse forward progress, misaligned access support,
-or automatic instruction-cache synchronization; self-modifying code still needs
+or automatic instruction-cache synchronization; select Ziccrse separately below.
+Self-modifying code still needs
 the architectural instruction-synchronization sequence. Integrators remain
 responsible for the external Home/memory coherence contract. See the
 [focused validation and its limits](DEVELOPING.md#focused-validation).
+
+### LR/SC eventuality (Ziccrse)
+
+`RV5StageExtensions(~ziccrse: #true)` advertises **Ziccrse 1.0.0** through the
+profile's ISA extension list, device tree, and UDB configuration. It adds no
+instructions, CSRs, or `misa` bit and does not change the datapath. The switch
+defaults to false for custom integrations; the qualified MiniSoC, SimpleSoC,
+and TiledSoC profiles enable it.
+
+All cacheable coherent main-memory regions provide **RsrvEventual**: the
+architectural eventual-success guarantee for constrained LR/SC loops. This
+includes LR.W/SC.W on RV32 and RV64 and LR.D/SC.D on RV64. With competing
+SCs, the guarantee is system progress, not starvation freedom for every hart.
+It does not promise a fixed cycle bound or success for unconstrained loops.
+BootROM, MMIO, and other uncached regions are outside this claim.
+
+Elaboration requires cacheable regions to permit reads, writes, atomics, and
+idempotent reads; the CHI configuration also enforces HN-F routing and complete
+cache lines. These static checks cannot establish external fabric liveness.
+Integrators enabling the claim must provide fair request/coherence service and
+eventual memory responses, and qualify their complete fetch, translation,
+cache, and fabric configuration. The [progress gate](DEVELOPING.md#ziccrse-progress-gate)
+records the concrete evidence and repeatable regression suite. Reservation
+size remains the independent [Za64rs contract](#cache-block-and-reservation-bounds).
 
 ## Data-independent timing (Zkt)
 

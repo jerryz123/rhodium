@@ -1,5 +1,5 @@
 #lang rhodium
-// Executes constrained LR/SC loops through the complete core under inclusive-Home read pressure.
+// Qualifies XLEN and predictor specializations under inclusive-Home and competing LR/SC traffic.
 
 import:
   "../rv5stage.rhdl".RV5Stage
@@ -19,7 +19,7 @@ import:
   lib("chi/subordinate/ram.rhdl") open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageLRSCCoreProgress():
+sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Nat = 0):
   def p = test_rv5stage_flit
   def config = test_rv5stage_chi_config
   def ram_config = CHIRamConfig(p, 65536, ~max_outstanding: 1, ~max_transfer_bytes: 64)
@@ -31,13 +31,17 @@ sync_circuit RV5StageLRSCCoreProgress():
   output instruction_requests: Bool
   output data_requests: Bool
   output eviction_waiting: Bool
+  output rv32: Bool
+  output predicted: Bool
+  rv32 <== Bool(xlen == XLen.X32)
+  predicted <== Bool(btb_entries > 0)
 
-  def profile = RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions), ~mmu_mode: RV5StageMmuMode.Sv39, ~cache_geometry: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(32, 1), ~data: RV5StageCacheConfig(32, 1)))
-  inst cpu(RV5Stage(profile, ~chi: config, ~reset_address: 0x1000, ~btb_entries: 0))
+  def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions), ~mmu_mode: (if xlen == XLen.X32 | RV5StageMmuMode.Bare | RV5StageMmuMode.Sv39), ~cache_geometry: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(32, 1), ~data: RV5StageCacheConfig(32, 1)))
+  inst cpu(RV5Stage(profile, ~chi: config, ~reset_address: 0x1000, ~btb_entries: btb_entries))
   inst loader(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(2, 1), ~chi: config))
   inst home_node(CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, StripedAddressLayout(65536, 64, 1), ~sets: 2, ~ways: 2)))
   inst ram(CHIRam(ram_config))
-  cpu.hart_id <== bits(0, 64)
+  cpu.hart_id <== bits(0, xlen.width)
   cpu.time_counter <== bits(0, 64)
   cpu.interrupts <== RV5StageInterrupts():
     supervisor_software: Bool(#false)

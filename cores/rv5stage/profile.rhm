@@ -41,6 +41,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          zicbom :: Boolean,
                          ziccif :: Boolean,
                          ziccamoa :: Boolean,
+                         ziccrse :: Boolean,
                          zawrs :: Boolean,
                          zihintpause :: Boolean,
                          zihintntl :: Boolean,
@@ -55,11 +56,12 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~zicbom: zicbom :: Boolean = #false,
                ~ziccif: ziccif :: Boolean = #false,
                ~ziccamoa: ziccamoa :: Boolean = #false,
+               ~ziccrse: ziccrse :: Boolean = #false,
                ~zawrs: zawrs :: Boolean = #false,
                ~zihintpause: zihintpause :: Boolean = #false,
                ~zihintntl: zihintntl :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
-    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, zawrs, zihintpause, zihintntl, compressed)
+    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, zawrs, zihintpause, zihintntl, compressed)
 
   method compressed_misa_c(xlen :: XLen) :: Boolean:
     compressed_extensions_report_misa_c(xlen, floating_point, compressed)
@@ -97,7 +99,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
         multi_letter := multi_letter ++ ["zfhmin"]
     | ~else: #void
     def cache_block = ["zic64b"] ++ (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | [])
-    def main_memory = (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | [])
+    def main_memory = (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ (if ziccrse | ["ziccrse"] | [])
     single_letter ++ multi_letter ++ cache_block ++ main_memory ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"]
 
 class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,

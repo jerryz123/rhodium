@@ -32,6 +32,7 @@ def rv32_half = RVCoreProfile(
 )
 
 check:
+  RV5StageExtensions().ziccrse ~is #false
   RV5StageExtensions().zihintntl ~is #false
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_extensions.contains("zihintntl") ~is #true
   RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_extensions.contains("zihintntl") ~is #true
@@ -66,11 +67,13 @@ check:
 for (xlen in [XLen.X32, XLen.X64]):
   for (fetch in [#false, #true]):
     for (atomic in [#false, #true]):
-      def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~ziccif: fetch, ~ziccamoa: atomic))
-      check:
-        profile.isa_extensions.contains("ziccif") ~is fetch
-        profile.isa_extensions.contains("ziccamoa") ~is atomic
-        profile.misa_value ~is RVCoreProfile(~xlen: xlen).misa_value
+      for (eventual in [#false, #true]):
+        def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~ziccif: fetch, ~ziccamoa: atomic, ~ziccrse: eventual))
+        check:
+          profile.isa_extensions.contains("ziccif") ~is fetch
+          profile.isa_extensions.contains("ziccamoa") ~is atomic
+          profile.isa_extensions.contains("ziccrse") ~is eventual
+          profile.misa_value ~is RVCoreProfile(~xlen: xlen).misa_value
 
 check:
   RV5StageCacheLineBytes ~is 64

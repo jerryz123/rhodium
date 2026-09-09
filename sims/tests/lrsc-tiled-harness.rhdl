@@ -1,0 +1,31 @@
+#lang rhodium
+// Releases all eight production TiledSoC harts through the existing FESVR polling boot path.
+
+import:
+  "../tiled-soc-harness.rhdl".SoCHarness
+  lib("socs/tiled-soc/main.rhdl") open
+  lib("socs/boot.rhdl").SoCBootConfig
+  lib("devices/bootrom-image.rhm").BootROMImage
+
+def base = default_tiled_soc_config
+unless base.hart_count == 8
+| error(~who: #'lrsc_qualification, "update the eight-hart payload and harness together")
+def boot = base.boot
+// Replace only the hart-zero filter (the second instruction) with ADDI x0,x0,0.
+// Every hart still waits for FESVR's post-loading entry publication.
+def program = BootROMImage(for List (index in 0..boot.program.bytes.length()):
+                            if index == 4 | 0x13 | (if index > 4 && index < 8 | 0 | boot.program.bytes[index]))
+def config = TiledSoCConfig(
+  ~layout: base.layout, ~node_ids: base.node_ids,
+  ~memory: base.memory, ~llc: base.llc,
+  ~core_profile: base.core_profile, ~clocks: base.clocks, ~flit: base.flit,
+  ~boot: SoCBootConfig(
+    ~reset_address: boot.reset_address, ~payload_address: boot.payload_address,
+    ~window_bytes: boot.window_bytes, ~device_tree_offset: boot.device_tree_offset,
+    ~boot_address_register: boot.boot_address_register, ~program: program
+  )
+)
+def design = elaborate(SoCHarness(config))
+
+export:
+  design

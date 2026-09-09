@@ -1,0 +1,11 @@
+#lang rhombus
+// Emits predictor-enabled X64 constrained-loop qualification.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm".XLen
+  "../../cores/rv5stage/tests/lrsc-core-progress-fixture.rhdl".RV5StageLRSCCoreProgress
+
+def design = embedded.run_elaboration(fun (): RV5StageLRSCCoreProgress(XLen.X64, 16))
+print(emit_circt(design))

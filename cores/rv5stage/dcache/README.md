@@ -372,12 +372,13 @@ probe traffic can monopolize lookup admission. Already accepted snoops finish
 normally; these windows do not freeze transaction engines or promise bounded
 external memory latency.
 
-These are microarchitectural progress mechanisms, not a published `Ziccrse`
-claim. Full-system constrained-loop progress still depends on instruction
-fetch, translation, Home/network fairness, and the chosen core timing budget.
-The [full-core progress regression](../DEVELOPING.md#ziccrse-progress-gate)
-owns current evidence for boundary-crossing loops under read-only inclusive-cache
-eviction pressure; the cache-only tests do not establish the architectural guarantee.
+These mechanisms support the core's optional [Ziccrse integration
+guarantee](../README.md#lrsc-eventuality-ziccrse); a standalone L1D is not enough
+to establish it. Full-system constrained-loop progress also depends on
+instruction fetch, translation, and Home/network fairness.
+The [qualification matrix](../DEVELOPING.md#ziccrse-progress-gate) owns evidence
+for boundary-crossing loops, prediction, translation, read-only eviction
+pressure, and competing LR/SC requesters on complete systems.
 
 ## Replacement and deliberate limits
 
