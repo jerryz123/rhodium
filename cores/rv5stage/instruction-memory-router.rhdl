@@ -1,5 +1,5 @@
 #lang rhodium
-// Routes physical instruction fetches between the allocating L1I and ordered uncached path.
+// Selects fixed-latency cache outcomes and retains one ordered uncached fetch.
 
 import:
   "icache/protocol.rhdl" open
@@ -8,38 +8,54 @@ import:
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
-  interface core(RV5StagePhysicalInstructionAccess(xlen), ~role: responder)
-  interface cache(RV5StageInstructionAccess(xlen), ~role: requester)
+  interface core(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: responder)
+  interface cache(RV5StageInstructionLookup(RV5StageInstructionReq(xlen)), ~role: requester)
   interface uncached(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
 
-  inst owners(Queue(Bool, 2), ~reset_when: core.flush)
-  def request = core.request.bits
-  def request_uncached = !request.cacheable
-  def Array(cache_requests, uncached_requests) = (
-    core.request |> gate_flow(!core.flush & owners.ingress.ready)
-      |> demux_flow(2, request => (!request.cacheable).as_bits())
-  )
+  inst s2(ValidPipeAlwaysCapture(RV5StagePhysicalInstructionReq(xlen), 1), ~reset_when: core.flush)
+  core.request |> filter_valid(_request => !core.s1_kill & !core.flush) |> s2.ingress
   cache.flush <== core.flush
   cache.invalidate_all <== core.invalidate_all
-  (cache_requests |> map_flow(request => RV5StageInstructionReq(xlen)):
-    address: request.address
+  cache.s1_kill <== core.s1_kill
+  (core.request |> filter_valid(request => request.cacheable & !core.s1_kill & !core.flush)
+    |> map_valid(request => RV5StageInstructionReq(xlen)):
+      address: request.address
   ) |> cache.request
+
+  // This state belongs only to the non-pipelined IO operation, not cache hits.
+  // Redirect detaches its result; the uncached engine drains accepted traffic.
+  reg pending(~init: Bool(#false))
+  reg completed(~init: Bool(#false))
+  reg address(Bits(xlen.width))
+  reg response(RV5StageInstructionResp())
+  def uncached_attempt = s2.egress.valid & !s2.egress.bits.cacheable & !core.flush
+  def completed_match = completed & (address === s2.egress.bits.address)
   uncached.flush <== core.flush
   uncached.invalidate_all <== core.invalidate_all
-  uncached_requests |> uncached.request
-  owners.ingress.valid <== core.request.fire()
-  owners.ingress.bits <== request_uncached
-
-  def owner_valid = owners.egress.valid
-  def owner_uncached = owners.egress.bits
-  // Keep the ordered response boundary explicit: generic gated arbitration
-  // exposes Decoupled, while the physical instruction interface is Irrevocable.
-  def selected_valid = mux(owner_uncached, uncached.response.valid, cache.response.valid)
-  core.response.valid <== owner_valid & selected_valid & !core.flush
-  core.response.bits <== mux(owner_uncached, uncached.response.bits, cache.response.bits)
-  cache.response.ready <== owner_valid & !owner_uncached & core.response.ready & !core.flush
-  uncached.response.ready <== owner_valid & owner_uncached & core.response.ready & !core.flush
-  owners.egress.ready <== core.response.fire()
+  uncached.request.valid <== uncached_attempt & !pending & !completed
+  uncached.request.bits <== s2.egress.bits
+  uncached.response.ready <== pending & !core.flush
+  core.response.valid <== s2.egress.valid & !core.flush
+  def unavailable = RV5StageFetchResult():
+    response: literal(RV5StageInstructionResp(), 0)
+    replay: Bool(#true)
+  def uncached_result = RV5StageFetchResult():
+    response: response
+    replay: !completed_match
+  core.response.bits <== mux(s2.egress.bits.cacheable, mux(cache.response.valid, cache.response.bits, unavailable), uncached_result)
+  when (core.flush):
+    pending <== Bool(#false)
+    completed <== Bool(#false)
+  otherwise:
+    when (uncached.request.fire()):
+      pending <== Bool(#true)
+      address <== s2.egress.bits.address
+    elsewhen (uncached.response.fire()):
+      pending <== Bool(#false)
+      completed <== Bool(#true)
+      response <== uncached.response.bits
+    elsewhen (uncached_attempt & completed_match):
+      completed <== Bool(#false)
 
 export:
   RV5StageInstructionMemoryRouter

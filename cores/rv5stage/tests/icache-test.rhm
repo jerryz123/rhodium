@@ -20,7 +20,7 @@ def instruction_design = embedded.run_elaboration(fun (): l1i.RV5StageL1ICache(X
 def instruction_cache = instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageL1ICache")
 def rv32_instruction_design = embedded.run_elaboration(fun (): l1i.RV5StageL1ICache(XLen.X32, direct_cache, ~chi: config))
 def rv32_instruction_cache = rv32_instruction_design.modules.find(fun (module_def): module_def.name == "RV5StageL1ICache")
-def instruction_access_type = protocol.RV5StageInstructionAccess(XLen.X64)
+def instruction_access_type = protocol.RV5StageInstructionLookup(protocol.RV5StageInstructionReq(XLen.X64))
 def instruction_request_member = instruction_access_type.members.find(
   fun (member): member.name == "request"
 )
@@ -45,21 +45,21 @@ check:
   associative_cache.way_width ~is 1
   associative_cache.line_count ~is 16
   associative_cache.capacity_bytes ~is 1024
-  instruction_request_member.type.name ~is "Decoupled"
-  instruction_response_member.type.name ~is "Decoupled"
+  instruction_request_member.type.name ~is "Valid"
+  instruction_response_member.type.name ~is "Valid"
   scalar_width(instruction_cache.find_input("core_in").type.field("flush").type) ~is 1
   scalar_width(instruction_cache.find_input("core_in").type.field("invalidate_all").type) ~is 1
   instruction_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 64
   instruction_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64
   instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 64
   scalar_width(instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
-  instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("word").type.width ~is 32
+  instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("response").type.field("word").type.width ~is 32
   instruction_cache.find_output("chi_out").type.field("req").type.field("bits").type.field("address").type.width ~is 44
   rv32_instruction_cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 32
   rv32_instruction_cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 32
   scalar_width(rv32_instruction_cache.find_output("virtual_lookup_out").type.field("ready").type) ~is 1
-  rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("word").type.width ~is 32
+  rv32_instruction_cache.find_output("core_out").type.field("response").type.field("bits").type.field("response").type.field("word").type.width ~is 32
   embedded.run_elaboration(
     fun (): RV5StageCacheConfig(3, 1)
   ) ~throws "Pow2Int"

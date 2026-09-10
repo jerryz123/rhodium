@@ -24,7 +24,7 @@ module rv5stage_zicbom_tb;
   logic [31:0] instruction_response_bits;
   integer scenario, attempts, accepted, pending_cycles, stores;
   logic done;
-  RV5StageCore dut (.pipeline_access_in('0), .pipeline_access_out(), .*);
+  RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] cbo_instruction();

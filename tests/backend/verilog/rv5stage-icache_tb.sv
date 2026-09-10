@@ -6,9 +6,10 @@ module rv5stage_icache_tb;
   typedef struct packed { logic valid; prefetch_bits_t bits; } prefetch_t;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [31:0] word; logic page_fault; logic access_fault; } instruction_bits_t;
-  typedef struct packed { logic valid; instruction_bits_t bits; } instruction_resp_t;
-  typedef struct packed { logic flush; logic invalidate_all; core_req_t request; ready_t response; } core_in_t;
-  typedef struct packed { ready_t request; instruction_resp_t response; } core_out_t;
+  typedef struct packed { instruction_bits_t response; logic replay; } result_bits_t;
+  typedef struct packed { logic valid; result_bits_t bits; } instruction_resp_t;
+  typedef struct packed { logic flush; logic invalidate_all; logic s1_kill; core_req_t request; } core_in_t;
+  typedef struct packed { instruction_resp_t response; } core_out_t;
 
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } rsp_forward_t;
@@ -44,7 +45,6 @@ module rv5stage_icache_tb;
   chi_in_t chi_in;
   chi_out_t chi_out;
   logic forbid_core_response = 1'b0;
-  logic hold_old_instruction = 0;
   bit rom_phase = 0;
 
   RV5StageL1ICache dut (.*);
@@ -53,9 +53,6 @@ module rv5stage_icache_tb;
   task automatic tick;
     begin
       if (rom_phase) assert (!chi_out.rsp.requester.valid) else $fatal(1, "ROM read sent CompAck");
-      if (hold_old_instruction)
-        assert (core_out.response.valid && core_out.response.bits.word == 32'h55aaaa55 && !core_out.response.bits.access_fault)
-          else $fatal(1, "stalled instruction tore across coherent replacement");
       if (forbid_core_response)
         assert (!core_out.response.valid)
           else $fatal(1, "L1I produced a response for a prefetch");
@@ -106,16 +103,16 @@ module rv5stage_icache_tb;
       cycles = 0;
       core_in.request.bits.address = address;
       probe_only = 1'b1;
-      // Launch S0 before expecting S1 physical acceptance; retry a blocked read.
+      // Each retry is a new S0/S1/S2 attempt, not an eventual cache response.
+      #1;
+      while (!virtual_lookup_out.ready && cycles < 200) begin
+        tick();
+        cycles++;
+      end
+      assert (virtual_lookup_out.ready) else $fatal(1, "L1I virtual admission timed out");
       tick();
       probe_only = 1'b0;
       core_in.request.valid = 1'b1;
-      while (!core_out.request.ready && cycles < 100) begin
-        tick();
-        cycles = cycles + 1;
-      end
-      assert (core_out.request.ready)
-        else $fatal(1, "L1I did not accept a core request");
       tick();
       core_in.request.valid = 1'b0;
     end
@@ -208,20 +205,27 @@ module rv5stage_icache_tb;
     tick();
   endtask
 
+  task automatic wait_result;
+    int attempts;
+    attempts=0;
+    while ((!core_out.response.valid || core_out.response.bits.replay) && attempts<100) begin
+      send_core_request(core_in.request.bits.address);
+      attempts++;
+    end
+    assert(core_out.response.valid && !core_out.response.bits.replay)
+      else $fatal(1,"fetch replay did not resolve");
+  endtask
+
   task automatic expect_instruction(input logic [31:0] instruction);
     integer cycles;
     begin
-      cycles = 0;
-      while (!core_out.response.valid && cycles < 100) begin
-        tick();
-        cycles = cycles + 1;
-      end
+      wait_result();
       assert (core_out.response.valid &&
-              !core_out.response.bits.page_fault &&
-              !core_out.response.bits.access_fault &&
-              core_out.response.bits.word == instruction)
+              !core_out.response.bits.response.page_fault &&
+              !core_out.response.bits.response.access_fault &&
+              core_out.response.bits.response.word == instruction)
         else $fatal(1, "instruction %h, expected %h",
-                    core_out.response.bits.word, instruction);
+                    core_out.response.bits.response.word, instruction);
       tick();
     end
   endtask
@@ -256,7 +260,6 @@ module rv5stage_icache_tb;
     core_in = '0;
     prefetch_in = '0;
     chi_in = '0;
-    core_in.response.ready = 1'b1;
     repeat (2) tick();
     reset = 1'b0;
     grant_req_credit();
@@ -309,46 +312,32 @@ module rv5stage_icache_tb;
     core_in.request = '{valid: 1'b1, bits: '{address: ADDRESS}};
     staged_lookup.bits = (ADDRESS + 64'd4) ^ virtual_page_xor;
     #1;
-    assert (core_out.request.ready && virtual_lookup_out.ready);
+    assert (virtual_lookup_out.ready);
     tick();
-    assert (core_out.response.valid && core_out.response.bits.word == 32'h11111111)
+    assert (core_out.response.valid && core_out.response.bits.response.word == 32'h11111111)
       else $fatal(1, "S2 did not retain the first pipelined hit");
     core_in.request.bits.address = ADDRESS + 64'd4;
     staged_lookup.valid = 1'b0;
     #1;
-    assert (core_out.request.ready);
     tick();
     core_in.request.valid = 1'b0;
-    assert (core_out.response.valid && core_out.response.bits.word == 32'h22222222)
+    assert (core_out.response.valid && core_out.response.bits.response.word == 32'h22222222)
       else $fatal(1, "S0/S1 address overlap corrupted a consecutive hit");
     tick();
     lookup_override = 1'b0;
 
-    // Fill both reserved response slots, then prove that releasing one does
-    // not create a combinational response-ready-to-request-ready path.
-    core_in.response.ready = 1'b0;
-    send_core_request(ADDRESS);
-    send_core_request(ADDRESS + 64'd4);
-    repeat (4) tick();
-    assert (core_out.response.valid && core_out.response.bits.word == 32'h11111111)
-      else $fatal(1, "L1I did not preserve the first stalled response");
-    core_in.request.bits.address = ADDRESS + 64'd8;
-    core_in.request.valid = 1'b1;
-    #1;
-    assert (!core_out.request.ready)
-      else $fatal(1, "L1I admitted a request without response capacity");
-    core_in.response.ready = 1'b1;
-    #1;
-    assert (!core_out.request.ready)
-      else $fatal(1, "L1I request ready depends combinationally on response ready");
+    // Response buffering belongs to the frontend. S1 kill must instead discard
+    // a younger lookup without altering a preceding completed S2 result.
+    probe_only = 1;
+    core_in.request.bits.address = ADDRESS;
     tick();
-    assert (core_out.response.valid && core_out.response.bits.word == 32'h22222222)
-      else $fatal(1, "L1I did not preserve the second stalled response");
-    assert (core_out.request.ready)
-      else $fatal(1, "L1I did not expose released response capacity");
+    probe_only = 0;
+    core_in.request.valid = 1;
+    core_in.s1_kill = 1;
     tick();
-    core_in.request.valid = 1'b0;
-    expect_instruction(32'h33333333);
+    core_in.request.valid = 0;
+    core_in.s1_kill = 0;
+    assert(!core_out.response.valid) else $fatal(1,"killed S1 lookup escaped");
 
     grant_rsp_credit();
     invalidate_cache(ADDRESS);
@@ -475,13 +464,12 @@ module rv5stage_icache_tb;
     send_core_request(ADDRESS + 64'h10c0);
     expect_instruction(32'hb1b1b1b1);
 
-    // Architectural invalidation cancels the old stalled response; every new
+    // Architectural invalidation discards resident code; every new
     // instruction must come entirely from the post-fence refill.
     for (int offset = 0; offset < 64; offset += 4) begin
       core_in.invalidate_all = 1;
       tick();
       core_in.invalidate_all = 0;
-      core_in.response.ready = 0;
       grant_req_credit();
       grant_rsp_credit();
       send_core_request(ADDRESS + 64'(offset));
@@ -490,11 +478,9 @@ module rv5stage_icache_tb;
       return_line(ADDRESS, {16{32'h55aaaa55}}, offset % 3);
       forbid_core_response = 0;
       accept_comp_ack();
-      for (int cycles = 0; !core_out.response.valid && cycles < 100; cycles++) tick();
-      assert (core_out.response.valid && core_out.response.bits.word == 32'h55aaaa55)
+      wait_result();
+      assert (core_out.response.valid && core_out.response.bits.response.word == 32'h55aaaa55)
         else $fatal(1, "old aligned instruction did not complete");
-      hold_old_instruction = 1;
-      hold_old_instruction = 0;
       grant_rsp_credit();
       invalidate_cache(ADDRESS);
       grant_req_credit();
@@ -504,8 +490,6 @@ module rv5stage_icache_tb;
       return_line(ADDRESS, {16{32'haa5555aa}}, offset % 3);
       accept_comp_ack();
       repeat (4) tick();
-      hold_old_instruction = 0;
-      core_in.response.ready = 1;
       expect_instruction(32'haa5555aa);
     end
     // Requests and CompAck remain stable under stalls; a retry retains the snapshot context.
@@ -570,8 +554,8 @@ module rv5stage_icache_tb;
     accept_read_request(ADDRESS);
     return_line(ADDRESS, LINE, 1, 2'b10);
     accept_comp_ack();
-    for (int c = 0; !core_out.response.valid && c < 100; c++) tick();
-    assert (core_out.response.valid && core_out.response.bits.access_fault)
+    wait_result();
+    assert (core_out.response.valid && core_out.response.bits.response.access_fault)
       else $fatal(1, "read error was not delivered to Fetch");
     tick();
     send_core_request(ADDRESS);
@@ -596,14 +580,8 @@ module rv5stage_icache_tb;
     end
     chi_in.req.ready = 1;
     accept_rom_request(64'h10000);
-    core_in.response.ready = 0;
     return_line(64'h10000, LINE, 2);
-    for (int c = 0; !core_out.response.valid && c < 100; c++) tick();
-    repeat (4) begin
-      assert (core_out.response.valid && core_out.response.bits.word == 32'h11111111) else $fatal(1, "stalled ROM response changed");
-      tick();
-    end
-    core_in.response.ready = 1;
+    wait_result();
     expect_instruction(32'h11111111);
     for (int offset = 15; offset >= 0; offset--) begin
       send_core_request(64'h10000 + 64'(offset * 4));
@@ -613,8 +591,8 @@ module rv5stage_icache_tb;
     send_core_request(64'h10040);
     accept_rom_request(64'h10040);
     return_line(64'h10040, LINE_B, 1, 2'b10);
-    for (int c = 0; !core_out.response.valid && c < 100; c++) tick();
-    assert (core_out.response.valid && core_out.response.bits.access_fault) else $fatal(1, "ROM error lost");
+    wait_result();
+    assert (core_out.response.valid && core_out.response.bits.response.access_fault) else $fatal(1, "ROM error lost");
     tick();
     send_core_request(64'h10040);
     accept_rom_request(64'h10040);
@@ -660,8 +638,8 @@ module rv5stage_icache_tb;
       expect_instruction(32'h11111111);
       assert (!chi_out.req.valid) else $fatal(1, "redirect discarded a resident ROM line");
     end
-    $display("Cached ROM line hits, boundary crossing, backpressure, errors, and invalidation passed");
-    $display("Ziccif aligned-word visibility passed: 16 offsets, reordered/gapped refills, stalled response across invalidation");
+    $display("Cached ROM line hits, boundary crossing, replay, errors, and invalidation passed");
+    $display("Ziccif aligned-word visibility passed: 16 offsets, reordered/gapped refills, replay across invalidation");
     $display("RV5Stage VIPT instruction-cache simulation passed");
     $finish;
   end

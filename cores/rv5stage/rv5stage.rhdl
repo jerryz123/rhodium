@@ -4,6 +4,7 @@
 import:
   "../cache-prefetch.rhdl" open
   "core.rhdl" open
+  "frontend.rhdl" open
   "interrupt.rhdl" open
   "chi/foundation.rhdl" open
   "profile.rhm" open
@@ -106,7 +107,8 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   interface dmem(CHIRNChannels(p), ~role: node)
   interface umem(CHIRNIChannels(p), ~role: node)
 
-  inst core(RV5StageCore(profile, ~reset_address: reset_address, ~btb_entries: btb_entries))
+  inst core(RV5StageCore(profile, ~reset_address: reset_address))
+  inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries))
   inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map))
   inst l1i(RV5StageL1ICache(xlen, profile.cache_geometry.instruction, ~chi: config))
   inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config))
@@ -119,7 +121,9 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   core.interrupts <== interrupts
   core.hart_id <== hart_id
   core.time_counter <== time_counter
-  core.instruction_access |> mmu.instruction
+  core.frontend_control |> frontend.control
+  frontend.fetched |> core.fetched
+  frontend.memory |> mmu.instruction
   core.data_access |> mmu.data
   core.pipeline_access |> mmu.pipeline
   mmu.pipeline_lookup |> l1d.pipeline_lookup

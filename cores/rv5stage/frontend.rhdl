@@ -1,8 +1,11 @@
 #lang rhodium
-// Fetches a BTB-predicted stream through a five-word ring independent of instruction assembly.
+// Owns S0/S1/S2 fetch replay, completed words, prediction, and compressed instruction assembly.
 
 import:
   "btb.rhdl" open
+  "frontend-control.rhdl" open
+  "profile.rhm".RVCoreProfile
+  "decode/core-ctrl.rhdl".rv5stage_instructions
   "bundles.rhdl" open
   "icache/protocol.rhdl" open
   "../../riscv/isa/c.rhm" open
@@ -12,34 +15,29 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-hardware_enum RV5StageFetchWordState:
-  Empty
-  Requested
-  Valid
-
 bundle RV5StageFetchWord(xlen :: XLen):
-  state: RV5StageFetchWordState
   base: Bits(xlen.width)
   word: Bits(32)
   page_fault: Bool
   access_fault: Bool
   prediction: RV5StagePrediction(xlen)
 
-sync_circuit RV5StageInstructionFetch(xlen :: XLen,
-                                      profile :: FloatingPointProfile = DefaultFloatingPointProfile,
-                                      ~compressed: compressed_extensions :: List.of(CompressedExtension) = DefaultCompressedExtensions,
-                                      ~supported_instructions: supported_instruction_names :: List.of(String),
-                                      ~btb_entries: btb_entries :: Nat = 16):
+bundle RV5StageFetchAttempt(xlen :: XLen):
+  pc: Bits(xlen.width)
+  continuation: Bool
+  continuation_target: Bits(xlen.width)
+  prediction: RV5StagePrediction(xlen)
+
+sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_entries :: Nat = 16):
+  def xlen = core_profile.xlen
+  def extensions = core_profile.extensions
+  def profile = extensions.floating_point
+  def compressed_extensions = extensions.compressed
+  def supported_instruction_names = rv5stage_instructions(xlen, profile, extensions.half_precision, ~zfa: extensions.zfa, ~zicbop: extensions.zicbop, ~zicboz: extensions.zicboz, ~zicbom: extensions.zicbom, ~zawrs: extensions.zawrs, ~zihintpause: extensions.zihintpause, ~zihintntl: extensions.zihintntl).map(fun (instruction): instruction.name)
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
-  input active: Bool
-  input flush: Bool
-  input restart_valid: Bool
-  input restart_pc: Bits(width)
-  input invalidate_all: Bool
-  input predictor_flush: Bool
-  interface branch_update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
-  interface memory(RV5StageInstructionAccess(xlen), ~role: requester)
+  interface control(RV5StageFrontendControl(xlen), ~role: frontend)
+  interface memory(RV5StageFetchAccess(xlen), ~role: requester)
   interface fetched(Decoupled(FetchDecode(xlen)), ~role: producer)
 
   reg pc(~init: bits(0, width))
@@ -50,39 +48,39 @@ sync_circuit RV5StageInstructionFetch(xlen :: XLen,
   reg repair_pc(Bits(width))
   reg repair_entry(Bits(width))
   inst btb(RV5StageBtb(xlen, btb_entries))
-  btb.cursor <== request_pc
-  btb.invalidate_all <== predictor_flush
-  branch_update |> btb.update
+  reg s1_valid(~init: Bool(#false))
+  reg s2_valid(~init: Bool(#false))
+  reg s1(RV5StageFetchAttempt(xlen))
+  reg s2(RV5StageFetchAttempt(xlen))
+  def s2_replay = s2_valid & memory.response.valid & memory.response.bits.replay
+  def s0_pc = mux(s2_replay, s2.pc, request_pc)
+  def s0_continuation = mux(s2_replay, s2.continuation, continuation)
+  def s0_continuation_target = mux(s2_replay, s2.continuation_target, continuation_target)
+  btb.cursor <== s0_pc
+  btb.invalidate_all <== control.predictor_flush
+  control.branch_update |> btb.update
   btb.invalidate.valid <== repair_pending
   btb.invalidate.bits <== repair_entry
-  def prediction = mux(continuation, literal(RV5StagePrediction(xlen), 0), btb.prediction)
+  def prediction = mux(s0_continuation, literal(RV5StagePrediction(xlen), 0), btb.prediction)
   def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
   def empty_word = RV5StageFetchWord(xlen):
-    state: RV5StageFetchWordState.Empty
     base: bits(0, width)
     word: bits(0, 32)
     page_fault: Bool(#false)
     access_fault: Bool(#false)
     prediction: literal(RV5StagePrediction(xlen), 0)
-  // The fifth slot hides registered credit return when assembly needs two words.
-  fun next_word(pointer :: Bits(3)):
-    mux(pointer === bits(4, 3), bits(0, 3), pointer + bits(1, 3))
+  // Only completed words occupy this queue. In-flight stages reserve its space
+  // from registered occupancy; consuming an instruction cannot admit S0 early.
   reg words(~init: vec(for List (_index in 0..5): empty_word))
-  reg read_pointer(~init: bits(0, 3))
-  reg response_pointer(~init: bits(0, 3))
-  reg request_pointer(~init: bits(0, 3))
-  reg reserved(~init: bits(0, 3))
-  def slot0 = words[read_pointer]
-  def next_read_pointer = next_word(read_pointer)
-  def slot1 = words[next_read_pointer]
-
-  def recovery = flush ||| restart_valid
+  reg count(~init: bits(0, 3))
+  def slot0 = words[0]
+  def slot1 = words[1]
+  def recovery = control.flush ||| control.restart_valid ||| control.invalidate_all
   def command = recovery ||| repair_pending
-  inst instructions(ShiftQueue(FetchDecode(xlen), 5, ~flow: #true), ~reset_when: recovery)
-  def slot0_valid = slot0.state === RV5StageFetchWordState.Valid
-  def slot1_valid = slot1.state === RV5StageFetchWordState.Valid
+  def slot0_valid = count =/= bits(0, 3)
+  def slot1_valid = count > bits(1, 3)
   def slot0_fault = slot0.page_fault ||| slot0.access_fault
-  assert(reserved <= bits(5, 3), "fetch_word_reservations_in_range")
+  assert(count.zext(4) + s1_valid.as_bits().zext(4) + s2_valid.as_bits().zext(4) <= bits(5, 4), "fetch_word_reservations_in_range")
   def upper_half = pc[1].into(Bool)
   def selected_halfword = mux(upper_half, slot0.word[16..32], slot0.word[0..16])
   def selected_is_compressed = if compressed_enabled | selected_halfword[0..2] =/= bits(3, 2) | Bool(#false)
@@ -118,7 +116,7 @@ sync_circuit RV5StageInstructionFetch(xlen :: XLen,
   def continuation_cut = needs_following_word & slot1_valid & slot1.prediction.valid & !slot1.prediction.pc[1].into(Bool)
   def broken_continuation = needs_following_word & slot1_valid & (slot1.base =/= (slot0.base + bits(4, width)))
   def stale_prediction = wrong_length ||| interior_cut ||| continuation_cut ||| broken_continuation ||| (output_available & predicted_here & !control_flow_opcode)
-  def repair = active & !command & slot0_valid & !slot0_fault & stale_prediction
+  def repair = control.active & !command & slot0_valid & !slot0_fault & stale_prediction
   def predicted_taken = predicted_here & !instruction_page_fault & !instruction_access_fault & !(instruction_is_compressed & !compressed_legal)
   def predicted_next_pc = mux(predicted_taken, slot0.prediction.target, sequential_pc)
   when recovery:
@@ -129,8 +127,8 @@ sync_circuit RV5StageInstructionFetch(xlen :: XLen,
       repair_pc <== pc
       repair_entry <== mux(continuation_cut, slot1.prediction.pc, slot0.prediction.pc)
 
-  instructions.ingress.valid <== active & !command & !repair & output_available
-  instructions.ingress.bits <== FetchDecode(xlen):
+  fetched.valid <== control.active & !command & !repair & output_available
+  fetched.bits <== FetchDecode(xlen):
     pc: pc
     instruction: expanded_instruction
     raw_instruction: raw_instruction
@@ -140,65 +138,69 @@ sync_circuit RV5StageInstructionFetch(xlen :: XLen,
     instruction_page_fault: instruction_page_fault
     instruction_access_fault: instruction_access_fault
     instruction_fault_address: instruction_fault_address
-  instructions.egress |> gate_flow(active & !recovery) |> fetched
 
-  def instruction_enqueue = instructions.ingress.fire()
+  def instruction_enqueue = fetched.fire()
   def retain_lower_word = instruction_is_compressed & !upper_half & !predicted_taken
   def released = mux(instruction_enqueue, mux(retain_lower_word, bits(0, 3), mux(predicted_taken & needs_following_word, bits(2, 3), bits(1, 3))), bits(0, 3))
-  memory.response.ready <== !command & (words[response_pointer].state === RV5StageFetchWordState.Requested)
-  def response_fire = memory.response.fire()
-
   memory.flush <== command
-  memory.invalidate_all <== invalidate_all
-  // A dequeue only returns credit at the edge; it cannot select this cycle's address.
-  memory.request.valid <== active & !command & (reserved < bits(5, 3))
+  memory.invalidate_all <== control.invalidate_all
+  memory.s1_kill <== command ||| s2_replay
+  // The only result-to-launch feedback is the registered S2 replay outcome.
+  // There is no S1 translation/tag-match or current dequeue credit in S0.
+  def occupied = count.zext(4) + s1_valid.as_bits().zext(4) + s2_valid.as_bits().zext(4)
+  memory.request.valid <== control.active & !command & (occupied < bits(5, 4))
   memory.request.bits <== RV5StageInstructionReq(xlen):
-    address: request_pc.align_down(4)
-
+    address: s0_pc.align_down(4)
   def request_fire = memory.request.fire()
+  def completed = s2_valid & memory.response.valid & !memory.response.bits.replay & !command
+  def remaining = count - released
+  when (s2_valid & !command):
+    assert(memory.response.valid, "fetch_s2_has_outcome")
   when command:
-    pc <== mux(recovery, mux(restart_valid, restart_pc, pc), repair_pc)
-    request_pc <== mux(recovery, mux(restart_valid, restart_pc, pc), repair_pc)
+    s1_valid <== Bool(#false)
+    s2_valid <== Bool(#false)
+    pc <== mux(recovery, mux(control.restart_valid, control.restart_pc, pc), repair_pc)
+    request_pc <== mux(recovery, mux(control.restart_valid, control.restart_pc, pc), repair_pc)
     continuation <== Bool(#false)
-    read_pointer <== bits(0, 3)
-    response_pointer <== bits(0, 3)
-    request_pointer <== bits(0, 3)
-    reserved <== bits(0, 3)
+    count <== bits(0, 3)
   otherwise:
-    when instruction_enqueue:
-      pc <== predicted_next_pc
-    read_pointer <== mux(released === bits(2, 3), next_word(next_read_pointer), mux(released === bits(1, 3), next_read_pointer, read_pointer))
-    when response_fire:
-      response_pointer <== next_word(response_pointer)
+    s1_valid <== request_fire
+    s2_valid <== s1_valid & !s2_replay
+    when s1_valid:
+      s2 <== s1
     when request_fire:
-      request_pointer <== next_word(request_pointer)
-      request_pc <== mux(continuation, continuation_target, mux(prediction.valid & !predicted_straddle, prediction.target, request_pc.align_down(4) + bits(4, width)))
+      s1 <== RV5StageFetchAttempt(xlen):
+        pc: s0_pc
+        continuation: s0_continuation
+        continuation_target: s0_continuation_target
+        prediction: prediction
+      request_pc <== mux(s0_continuation, s0_continuation_target, mux(prediction.valid & !predicted_straddle, prediction.target, s0_pc.align_down(4) + bits(4, width)))
       continuation <== predicted_straddle
       continuation_target <== prediction.target
-    reserved <== reserved + request_fire.as_bits().zext(3) - released
+    elsewhen s2_replay:
+      request_pc <== s2.pc
+      continuation <== s2.continuation
+      continuation_target <== s2.continuation_target
+    when instruction_enqueue:
+      pc <== predicted_next_pc
+    count <== remaining + completed.as_bits().zext(3)
+
   for (index in 0..5):
+    def shifted_once = if index + 1 < 5 | words[index + 1] | empty_word
+    def shifted_twice = if index + 2 < 5 | words[index + 2] | empty_word
     when command:
       words[index] <== empty_word
-    elsewhen (((released =/= bits(0, 3)) & (read_pointer === bits(index, 3))) ||| ((released === bits(2, 3)) & (next_read_pointer === bits(index, 3)))):
-      words[index] <== empty_word
-    elsewhen (response_fire & (response_pointer === bits(index, 3))):
+    elsewhen (completed & (remaining === bits(index, 3))):
       words[index] <== RV5StageFetchWord(xlen):
-        state: RV5StageFetchWordState.Valid
-        base: words[index].base
-        word: memory.response.bits.word
-        page_fault: memory.response.bits.page_fault
-        access_fault: memory.response.bits.access_fault
-        prediction: words[index].prediction
-    elsewhen (request_fire & (request_pointer === bits(index, 3))):
-      words[index] <== RV5StageFetchWord(xlen):
-        state: RV5StageFetchWordState.Requested
-        base: request_pc.align_down(4)
-        word: bits(0, 32)
-        page_fault: Bool(#false)
-        access_fault: Bool(#false)
-        prediction: prediction
+        base: s2.pc.align_down(4)
+        word: memory.response.bits.response.word
+        page_fault: memory.response.bits.response.page_fault
+        access_fault: memory.response.bits.response.access_fault
+        prediction: s2.prediction
+    elsewhen (released =/= bits(0, 3)):
+      words[index] <== mux(released === bits(2, 3), shifted_twice, shifted_once)
 
 export:
-  RV5StageFetchWordState
+  RV5StageFetchAttempt
   RV5StageFetchWord
-  RV5StageInstructionFetch
+  RV5StageFrontend

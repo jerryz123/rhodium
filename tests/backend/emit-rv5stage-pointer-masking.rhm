@@ -5,10 +5,10 @@ import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../riscv/isa/xlen.rhm" open
-  "../../cores/rv5stage/core.rhdl" as core
+  "../../cores/rv5stage/tests/core-fixture.rhdl" as core
   "../../cores/rv5stage/profile.rhm" open
 
-def design = embedded.run_elaboration(fun (): core.RV5StageCore(
+def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true, ~zicbop: #true)),
   ~reset_address: 0x1000
 ))

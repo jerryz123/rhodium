@@ -4,13 +4,13 @@
 import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../cores/rv5stage/core.rhdl" open
+  "../../cores/rv5stage/tests/core-fixture.rhdl" open
   "../../cores/rv5stage/profile.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
 
 def design = embedded.run_elaboration(
-  fun (): RV5StageCore(RVCoreProfile(
+  fun (): RV5StageCoreFixture(RVCoreProfile(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~zicbop: #true)
   ), ~reset_address: 0x100)

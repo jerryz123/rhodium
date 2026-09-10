@@ -39,11 +39,11 @@ check:
   scalar_width(mmu_module.find_input("instruction_lookup_in").type.field("ready").type) ~is 1
   mmu_module.find_output("data_lookup_out").type.field("bits").type.width ~is 64
   type_equal(
-    mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("page_fault").type,
+    mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("response").type.field("page_fault").type,
     bool.Bool
   ) ~is #true
   type_equal(
-    mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("access_fault").type,
+    mmu_module.find_output("instruction_out").type.field("response").type.field("bits").type.field("response").type.field("access_fault").type,
     bool.Bool
   ) ~is #true
   mmu_module.find_output("instruction_memory_out").type.field("request").type.field("bits").type.field("address").type.width ~is 64

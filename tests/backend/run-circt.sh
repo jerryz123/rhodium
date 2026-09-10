@@ -442,9 +442,10 @@ verify_fixture() {
     if [[ "$fixture" == event-runtime ]]; then
       bash "$repo_dir/rheg/tests/run-event-collector.sh"
     fi
-    # Match the SoC harness setting for the complete core's packed-interface
-    # scheduling loops. Keep assertions and runtime convergence checks enabled.
-    if [[ "$fixture" == rv5stage-io-boot || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-lrsc-core-progress* || "$fixture" == rv5stage-zkt-* ]]; then
+    # Registered S2 replay feeds S0 through independent packed-interface leaves.
+    # fetch-admission checks the actual leaf dependencies; match the SoC setting
+    # without disabling assertions or runtime convergence checks.
+    if grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then

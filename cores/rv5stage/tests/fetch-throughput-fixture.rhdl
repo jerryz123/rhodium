@@ -1,18 +1,17 @@
 #lang rhodium
-// Composes Fetch, MMU, physical routing, and L1I for warm-hit throughput regression.
+// Exercises cold-refill recovery and steady-state frontend/MMU/L1I throughput.
 import:
-  lib("cores/rv5stage/fetch.rhdl") open
+  lib("cores/rv5stage/frontend.rhdl") open
+  lib("cores/rv5stage/profile.rhm") open
   lib("cores/rv5stage/btb.rhdl") open
   lib("cores/rv5stage/mmu/mmu.rhdl") open
   lib("cores/rv5stage/csr.rhdl").PrivilegeMode
-  lib("cores/rv5stage/profile.rhm").RV5StageMmuMode
   lib("cores/rv5stage/instruction-memory-router.rhdl") open
   lib("cores/rv5stage/icache/cache.rhdl") open
   lib("cores/rv5stage/icache/protocol.rhdl") open
   lib("cores/rv5stage/dcache/protocol.rhdl") open
   lib("cores/rv5stage/cache.rhdl") open
   lib("cores/rv5stage/tests/params.rhdl") open
-  lib("cores/rv5stage/decode/core-ctrl.rhdl").rv5stage_instructions
   lib("cores/cache-prefetch.rhdl") open
   lib("riscv/isa/c.rhm").CCompressedExtensions
   lib("riscv/isa/fp-profile.rhm") open
@@ -27,19 +26,18 @@ sync_circuit RV5StageFetchThroughput():
   output pc: Bits(64)
   output instruction: Bits(32)
   interface chi(CHIRNIChannels(test_rv5stage_flit), ~role: node)
-  def names = rv5stage_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.None).map(fun (instruction): instruction.name)
-  inst fetch(RV5StageInstructionFetch(XLen.X64, FloatingPointProfile.D, ~compressed: CCompressedExtensions, ~supported_instructions: names))
+  inst fetch(RV5StageFrontend(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
   inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
-  fetch.active <== active
-  fetch.flush <== Bool(#false)
-  fetch.restart_valid <== restart
-  fetch.restart_pc <== start_pc
-  fetch.invalidate_all <== Bool(#false)
-  fetch.predictor_flush <== Bool(#false)
-  fetch.branch_update.valid <== Bool(#false)
-  fetch.branch_update.bits <== literal(RV5StageBranchUpdate(XLen.X64), 0)
+  fetch.control.active <== active
+  fetch.control.flush <== Bool(#false)
+  fetch.control.restart_valid <== restart
+  fetch.control.restart_pc <== start_pc
+  fetch.control.invalidate_all <== Bool(#false)
+  fetch.control.predictor_flush <== Bool(#false)
+  fetch.control.branch_update.valid <== Bool(#false)
+  fetch.control.branch_update.bits <== literal(RV5StageBranchUpdate(XLen.X64), 0)
   fetch.fetched.ready <== sink_ready
   valid <== fetch.fetched.valid
   pc <== fetch.fetched.bits.pc

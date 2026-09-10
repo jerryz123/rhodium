@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's ordered core-facing instruction-cache access protocol.
+// Defines instruction words, fixed-latency fetch attempts, and ordered slow transactions.
 
 import:
   "../../../riscv/isa/xlen.rhm" open
@@ -13,7 +13,13 @@ bundle RV5StageInstructionResp():
   page_fault: Bool
   access_fault: Bool
 
-interface RV5StageInstructionAccess(xlen :: XLen):
+bundle RV5StageFetchResult():
+  response: RV5StageInstructionResp()
+  replay: Bool
+
+// S0 acceptance has exactly one S2 result unless flush or s1_kill cancels it.
+// Replay is an outcome, not a promise of a later response for this attempt.
+interface RV5StageFetchAccess(xlen :: XLen):
   role requester
   role responder
   provider requester
@@ -21,12 +27,32 @@ interface RV5StageInstructionAccess(xlen :: XLen):
   requester -> responder:
     flush: Bool
     invalidate_all: Bool
+    s1_kill: Bool
     request: Decoupled(RV5StageInstructionReq(xlen))
 
   responder -> requester:
-    response: Decoupled(RV5StageInstructionResp())
+    response: Valid(RV5StageFetchResult())
+
+// Physical S1 resolution produces a registered S2 outcome. Long-lived work
+// survives local replay; flush detaches its consumer, not accepted bus traffic.
+interface RV5StageInstructionLookup(RequestType :: HardwareType):
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    flush: Bool
+    invalidate_all: Bool
+    s1_kill: Bool
+    request: Valid(RequestType)
+
+  responder -> requester:
+    response: Valid(RV5StageFetchResult())
+
 
 export:
+  RV5StageFetchResult
+  RV5StageFetchAccess
+  RV5StageInstructionLookup
   RV5StageInstructionReq
   RV5StageInstructionResp
-  RV5StageInstructionAccess

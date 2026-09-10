@@ -69,7 +69,7 @@ module rv5stage_interrupt_tb;
   logic [8:0] cycles;
   integer store_completion_delay;
 
-  RV5StageCore dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
+  RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

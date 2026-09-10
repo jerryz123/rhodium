@@ -1,0 +1,119 @@
+#lang rhodium
+// Couples execution and the real frontend to a latency-tolerant word-memory test model.
+
+import:
+  "../core.rhdl" open
+  "../frontend.rhdl" open
+  "../profile.rhm" open
+  "../icache/protocol.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../interrupt.rhdl" open
+  "../csr.rhdl".PrivilegeMode
+  "../../cache-prefetch.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+interface RV5StageTestInstructionAccess(xlen :: XLen):
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    flush: Bool
+    invalidate_all: Bool
+    request: Decoupled(RV5StageInstructionReq(xlen))
+
+  responder -> requester:
+    response: Decoupled(RV5StageInstructionResp())
+
+// Architectural core benches supply an ordered word memory, not SRAM timing.
+// Throughput and miss recovery are tested separately with the real MMU/L1I.
+sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
+  interface frontend(RV5StageFetchAccess(xlen), ~role: responder)
+  interface memory(RV5StageTestInstructionAccess(xlen), ~role: requester)
+  reg s1_valid(~init: Bool(#false))
+  reg s2_valid(~init: Bool(#false))
+  reg s1_cached(~init: Bool(#false))
+  reg s1_response(RV5StageInstructionResp())
+  reg s2_result(RV5StageFetchResult())
+  reg pending(~init: Bool(#false))
+  reg slow(~init: Bool(#false))
+  reg completed(~init: Bool(#false))
+  reg address(Bits(xlen.width))
+  reg response(RV5StageInstructionResp())
+  def can_issue = !pending ||| (memory.response.valid & !slow)
+  def completed_match = completed & (address === frontend.request.bits.address)
+  frontend.request.ready <== !frontend.flush & mux(completed, completed_match, can_issue & memory.request.ready)
+  memory.flush <== frontend.flush
+  memory.invalidate_all <== frontend.invalidate_all
+  memory.request.valid <== frontend.request.valid & !frontend.flush & !completed & can_issue
+  memory.request.bits <== frontend.request.bits
+  memory.response.ready <== pending & !frontend.flush
+  def response_fire = memory.response.fire()
+  def request_fire = memory.request.fire()
+  frontend.response.valid <== s2_valid & !frontend.flush
+  frontend.response.bits <== s2_result
+  when (frontend.flush):
+    s1_valid <== Bool(#false)
+    s2_valid <== Bool(#false)
+    pending <== Bool(#false)
+    slow <== Bool(#false)
+    completed <== Bool(#false)
+  otherwise:
+    s1_valid <== frontend.request.fire()
+    s2_valid <== s1_valid & !frontend.s1_kill
+    when (frontend.request.fire()):
+      s1_cached <== completed
+      s1_response <== response
+    s2_result <== RV5StageFetchResult():
+      response: mux(s1_cached, s1_response, memory.response.bits)
+      replay: !s1_cached & !(response_fire & !slow)
+    pending <== request_fire ||| (pending & !response_fire)
+    when request_fire:
+      address <== memory.request.bits.address
+      slow <== Bool(#false)
+    elsewhen response_fire:
+      slow <== Bool(#false)
+    elsewhen pending:
+      slow <== Bool(#true)
+    when (response_fire & slow):
+      completed <== Bool(#true)
+      response <== memory.response.bits
+    elsewhen (frontend.request.fire() & completed_match):
+      completed <== Bool(#false)
+
+sync_circuit RV5StageCoreFixture(profile :: RVCoreProfile, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 16):
+  def xlen = profile.xlen
+  input interrupts: RV5StageInterrupts()
+  input hart_id: Bits(xlen.width)
+  input time_counter: Bits(64)
+  interface instruction_access(RV5StageTestInstructionAccess(xlen), ~role: requester)
+  interface data_access(RV5StageDataAccess(xlen), ~role: requester)
+  interface pipeline_access(RV5StagePipelineAccess(xlen), ~role: requester)
+  interface prefetch(Valid(CachePrefetchReq(xlen.width)), ~role: producer)
+  output privilege: PrivilegeMode
+  output mstatus: Bits(xlen.width)
+  output satp: Bits(xlen.width)
+  output translation_flush: Bool
+  inst core(RV5StageCore(profile, ~reset_address: reset_address))
+  inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries))
+  inst memory(RV5StageTestInstructionMemory(xlen))
+  core.frontend_control |> frontend.control
+  frontend.fetched |> core.fetched
+  frontend.memory |> memory.frontend
+  memory.memory |> instruction_access
+  core.data_access |> data_access
+  core.pipeline_access |> pipeline_access
+  core.prefetch |> prefetch
+  core.interrupts <== interrupts
+  core.hart_id <== hart_id
+  core.time_counter <== time_counter
+  privilege <== core.privilege
+  mstatus <== core.mstatus
+  satp <== core.satp
+  translation_flush <== core.translation_flush
+
+export:
+  RV5StageTestInstructionAccess
+  RV5StageTestInstructionMemory
+  RV5StageCoreFixture

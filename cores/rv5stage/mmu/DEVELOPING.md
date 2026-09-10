@@ -9,8 +9,7 @@ placement, change workflow, and focused validation.
 ## Architecture and ownership
 
 The MMU sits between virtual core requests and the physical memory hierarchy.
-It owns TLB lookup/refill, serialized walking, fault correlation, fetch-result
-ordering, and temporary ownership of the shared physical data port. The parent
+It owns TLB lookup/refill, serialized walking, fault correlation, fixed-latency fetch outcomes, and temporary ownership of the shared physical data port. The parent
 core owns CSR sequencing, trap priority, alignment, PMA routing, cache behavior,
 and final exception causes.
 
@@ -32,7 +31,7 @@ routed response arrives while it is waiting.
 | [`protocol.rhdl`](protocol.rhdl) | Translation request/result bundles, fetch-fault metadata, and walker memory interface |
 | [`tlb.rhdl`](tlb.rhdl) | Fully associative demand/probe matching, permission recheck, physical-address construction, refill, and invalidation |
 | [`walker.rhdl`](walker.rhdl) | Serialized three-level PTE fetch, structural and permission checks, cancellation, and completion |
-| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, fetch ordering, registered virtual/physical prefetch stages and cancellation, physical checks, and shared data-port ownership |
+| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, physical checks, and shared data-port ownership |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |
 | [`../tests/mmu-test.rhm`](../tests/mmu-test.rhm) | Public translation types, widths, and composition boundary |
@@ -50,9 +49,10 @@ invalidate translations or cancel accepted page-table response ownership.
 1. Decide whether the change is reusable Sv39 representation/policy or
    RV5Stage state and arbitration. Put only the former in `riscv/rtl`.
 2. Preserve address correlation for walk completions and faults. The instruction
-   request is retained in the MMU's registered queue after S0 admission; the
-   core may change its payload immediately after acceptance. A blocked S1
-   locally reissues its virtual read and must never duplicate a physical fire.
+   attempt is captured into S1 after S0 admission; the frontend may change its
+   payload immediately. An unresolved attempt produces S2 replay, never a
+   retained request or local reread. Gate S1 walk initiation and physical
+   resolution with the frontend's younger-attempt kill.
 3. Keep page faults distinct from physical PTE access faults and suppress every
    rejected physical resolution before it reaches a cache or device. Early
    virtual SRAM reads are permitted, but cannot create a successful cache token

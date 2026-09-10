@@ -1,0 +1,24 @@
+#lang rhodium
+// Carries architectural fetch control from execution to the instruction frontend.
+
+import:
+  "btb.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/ready-valid.rhdl") open
+
+interface RV5StageFrontendControl(xlen :: XLen):
+  role core
+  role frontend
+  provider core
+
+  core -> frontend:
+    active: Bool
+    flush: Bool
+    restart_valid: Bool
+    restart_pc: Bits(xlen.width)
+    invalidate_all: Bool
+    predictor_flush: Bool
+    branch_update: Valid(RV5StageBranchUpdate(xlen))
+
+export:
+  RV5StageFrontendControl

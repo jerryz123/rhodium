@@ -1,7 +1,7 @@
 #lang rhodium
 // Exercises load/store pipeline timing and WB authorization through the core, MMU, and L1D.
 import:
-  "../core.rhdl" open
+  "core-fixture.rhdl" open
   "../profile.rhm" open
   "../mmu/mmu.rhdl" open
   "../memory-router.rhdl" open
@@ -20,13 +20,13 @@ import:
   lib("cores/cache-prefetch.rhdl") open
 
 sync_circuit RV5StageLoadHit():
-  interface instruction(RV5StageInstructionAccess(XLen.X64), ~role: requester)
+  interface instruction(RV5StageTestInstructionAccess(XLen.X64), ~role: requester)
   interface uncached(RV5StageUncachedDataAccess(XLen.X64), ~role: requester)
   interface chi(CHIRNChannels(test_rv5stage_flit), ~role: node)
   output(load_issue, load_hit, transaction_valid, transaction_fire): Bool
   output load_address: Bits(64)
   output transaction: RV5StageDataReq(XLen.X64)
-  inst core(RV5StageCore(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D)), ~reset_address: 0))
+  inst core(RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D)), ~reset_address: 0))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_uncached_config.physical_map))
   inst router(RV5StageMemoryRouter(XLen.X64, test_rv5stage_uncached_config.physical_map))
   inst cache(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(32, 2), ~chi: test_rv5stage_uncached_config))
@@ -51,13 +51,12 @@ sync_circuit RV5StageLoadHit():
   mmu.physical_prefetch |> cache.prefetch
   mmu.instruction.request.valid <== Bool(#false)
   mmu.instruction.request.bits <== literal(RV5StageInstructionReq(XLen.X64), 0)
-  mmu.instruction.response.ready <== Bool(#true)
+  mmu.instruction.s1_kill <== Bool(#false)
   mmu.instruction.flush <== instruction.flush
   mmu.instruction.invalidate_all <== instruction.invalidate_all
   mmu.instruction_lookup.ready <== Bool(#true)
-  mmu.instruction_memory.request.ready <== Bool(#false)
   mmu.instruction_memory.response.valid <== Bool(#false)
-  mmu.instruction_memory.response.bits <== literal(RV5StageInstructionResp(), 0)
+  mmu.instruction_memory.response.bits <== literal(RV5StageFetchResult(), 0)
   cache.node_id <== bits(3, 7)
   cache.chi <=> chi
   load_issue <== core.pipeline_access.request.valid & (core.pipeline_access.request.bits.access === MemoryOperation.Load)

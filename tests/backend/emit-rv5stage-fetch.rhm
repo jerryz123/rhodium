@@ -2,19 +2,15 @@
 // Emits CIRCT IR for RV5Stage compressed instruction fetch assembly.
 
 import:
+  "../../cores/rv5stage/profile.rhm" open
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
-  "../../cores/rv5stage/fetch.rhdl" open
-  "../../cores/rv5stage/decode/core-ctrl.rhdl".rv5stage_instructions
-
-def supported_instruction_names = rv5stage_instructions(
-  XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.None
-).map(fun (instruction): instruction.name)
+  "../../cores/rv5stage/frontend.rhdl" open
 
 def design = embedded.run_elaboration(
-  fun (): RV5StageInstructionFetch(XLen.X64, FloatingPointProfile.D, ~compressed: CCompressedExtensions, ~supported_instructions: supported_instruction_names)
+  fun (): RV5StageFrontend(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)))
 )
 print(emit_circt(design))

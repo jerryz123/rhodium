@@ -1,5 +1,5 @@
 #lang rhodium
-// Aligns EX load/store reads with MEM translation and keeps ordered slow service separate.
+// Resolves registered fetch/load attempts and retains only translation and shared-walker ownership.
 
 import:
   "../../cache-prefetch.rhdl" open
@@ -26,12 +26,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
                          physical_map :: RiscvPhysicalMemoryMap,
                          tlb_entries :: Pow2Int = 8):
   def width = xlen.width
-  interface instruction(RV5StageInstructionAccess(xlen), ~role: responder)
+  interface instruction(RV5StageFetchAccess(xlen), ~role: responder)
   interface data(RV5StageDataAccess(xlen), ~role: responder)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
   interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
-  interface instruction_memory(RV5StagePhysicalInstructionAccess(xlen), ~role: requester)
+  interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
   interface data_memory(RV5StageDataAccess(xlen), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(width)), ~role: producer)
   interface data_lookup(Valid(Bits(width)), ~role: producer)
@@ -46,10 +46,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst itlb(RV5StageTlb(tlb_entries))
   inst dtlb(RV5StageTlb(tlb_entries))
   inst walker(RV5StagePageTableWalker())
-  inst instruction_owners(Queue(RV5StageInstructionFault(), 2), ~reset_when: instruction.flush)
-  inst instruction_requests(Queue(RV5StageInstructionReq(xlen), 2), ~reset_when: instruction.flush)
-  inst instruction_read(ValidPipeAlwaysCapture(Bits(width), 1), ~reset_when: instruction.flush)
-  reg instruction_retry(~init: Bool(#false))
+  inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1), ~reset_when: instruction.flush)
+  inst instruction_s2(ValidPipeAlwaysCapture(RV5StageFetchResult(), 1), ~reset_when: instruction.flush)
   inst load_request(ValidPipeAlwaysCapture(RV5StagePipelineReq(xlen), 1))
   pipeline.request |> load_request.ingress
   pipeline.request |> pipeline_lookup
@@ -62,18 +60,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_translation_enabled = satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)
   def sum = if xlen == XLen.X32 | Bool(#false) | mstatus[18].into(Bool)
   def mxr = if xlen == XLen.X32 | Bool(#false) | mstatus[19].into(Bool)
-  def instruction_head = instruction_requests.egress
+  def instruction_head = instruction_s1.egress
   def instruction_address = instruction_head.bits.address
   def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address
-  // S0 reserves the registered request and the virtual SRAM read atomically.
-  // A blocked S1 retries from its retained address, never from live core control.
-  instruction.request.ready <== !instruction.flush & !instruction_retry & instruction_requests.ingress.ready & instruction_lookup.ready
-  instruction_requests.ingress.valid <== instruction.request.valid & !instruction.flush & !instruction_retry & instruction_lookup.ready
-  instruction_requests.ingress.bits <== instruction.request.bits
-  instruction_lookup.valid <== !instruction.flush & mux(instruction_retry, instruction_head.valid, instruction.request.valid & instruction_requests.ingress.ready)
-  instruction_lookup.bits <== mux(instruction_retry, instruction_address, instruction.request.bits.address)
-  inject_flow(Valid(Bits(width)), ~valid: instruction_lookup.fire(), ~bits: instruction_lookup.bits) |> instruction_read.ingress
-  def instruction_read_matches = instruction_read.egress.valid & (instruction_read.egress.bits === instruction_address)
+  // S0 launches the virtual arrays and captures context, with no local retry.
+  instruction.request.ready <== !instruction.flush & instruction_lookup.ready
+  instruction_lookup.valid <== !instruction.flush & instruction.request.valid
+  instruction_lookup.bits <== instruction.request.bits.address
+  inject_flow(Valid(RV5StageInstructionReq(xlen)), ~valid: instruction.request.fire(), ~bits: instruction.request.bits) |> instruction_s1.ingress
+  def instruction_s1_valid = instruction_head.valid & !instruction.flush & !instruction.s1_kill
   def data_request :: RV5StageDataReq(xlen) = data.request.bits
   def data_memory_operation = data_request.access
   def data_virtual_address = if xlen == XLen.X32 | data_request.address.zext(64) | data_request.address
@@ -197,7 +192,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     reason: mux(pipeline_blocked, mux(ordered_busy, RV5StagePipelineReason.Ordered, RV5StagePipelineReason.Translation), mux(!dtlb.hit, RV5StagePipelineReason.Translation, mux(!pipeline_cacheable, RV5StagePipelineReason.Ordered, pipeline_memory.response.bits.reason)))
     data: pipeline_memory.response.bits.data
   def can_start_walk = !walk_active & !fault_valid
-  def instruction_miss = instruction_head.valid & !instruction.flush & instruction_translation_enabled & !itlb.hit
+  def instruction_miss = instruction_s1_valid & instruction_translation_enabled & !itlb.hit
   def data_miss = data.request.valid & data_translation_enabled & !dtlb.hit
   def start_instruction_walk = can_start_walk & instruction_miss
   def start_data_walk = can_start_walk & !instruction_miss & data_miss
@@ -251,45 +246,31 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   )
   def instruction_local_fault = instruction_page_fault ||| instruction_access_fault
 
-  // Every accepted fetch records whether its response comes from the physical
-  // instruction hierarchy or is a locally generated architectural fault.
-  def instruction_ready_source = mux(
-    instruction_local_fault,
-    Bool(#true),
-    instruction_memory.request.ready
-  )
-  instruction_head.ready <== !instruction.flush & instruction_read_matches & instruction_lookup_ready & instruction_owners.ingress.ready & instruction_ready_source
-  instruction_memory.request.valid <== instruction_head.valid & !instruction.flush & instruction_read_matches & instruction_lookup_ready & !instruction_local_fault & instruction_owners.ingress.ready
+  // Local S1 translation/PMA decisions are registered beside physical lookup.
+  // An ITLB miss starts at most one walk; the frontend regenerates the attempt.
+  instruction_memory.request.valid <== instruction_s1_valid & instruction_lookup_ready & !instruction_local_fault
   instruction_memory.request.bits <== RV5StagePhysicalInstructionReq(xlen):
     address: instruction_physical_address
     cacheable: instruction_physical.instruction_cacheable
     device: instruction_physical.device
-  instruction_owners.ingress.valid <== instruction_head.fire()
-  instruction_owners.ingress.bits <== RV5StageInstructionFault():
-    page: instruction_page_fault
-    access: instruction_access_fault
   instruction_memory.flush <== instruction.flush
   instruction_memory.invalidate_all <== instruction.invalidate_all
-  when (instruction.flush):
-    instruction_retry <== Bool(#false)
-  otherwise:
-    instruction_retry <== instruction_head.valid & !instruction_head.ready
-
-  def oldest_instruction_fault = instruction_owners.egress.bits
-  def oldest_instruction_local_fault = oldest_instruction_fault.page ||| oldest_instruction_fault.access
-  instruction.response.valid <== instruction_owners.egress.valid & (
-    oldest_instruction_local_fault ||| instruction_memory.response.valid
-  )
-  instruction.response.bits <== mux(
-    oldest_instruction_local_fault,
-    RV5StageInstructionResp():
-      word: bits(0, 32)
-      page_fault: oldest_instruction_fault.page
-      access_fault: oldest_instruction_fault.access,
-    instruction_memory.response.bits
-  )
-  instruction_owners.egress.ready <== instruction.response.ready & instruction.response.valid
-  instruction_memory.response.ready <== instruction.response.ready & instruction_owners.egress.valid & !oldest_instruction_local_fault
+  instruction_memory.s1_kill <== instruction.s1_kill
+  instruction_s2.ingress.valid <== instruction_s1_valid
+  def local_response = RV5StageInstructionResp():
+    word: bits(0, 32)
+    page_fault: instruction_page_fault
+    access_fault: instruction_access_fault
+  instruction_s2.ingress.bits <== RV5StageFetchResult():
+    response: local_response
+    replay: !instruction_lookup_ready
+  def s2_local = instruction_s2.egress.bits
+  def s2_local_result = s2_local.replay ||| s2_local.response.page_fault ||| s2_local.response.access_fault
+  instruction.response.valid <== instruction_s2.egress.valid & !instruction.flush
+  def unavailable = RV5StageFetchResult():
+    response: literal(RV5StageInstructionResp(), 0)
+    replay: Bool(#true)
+  instruction.response.bits <== mux(s2_local_result, s2_local, mux(instruction_memory.response.valid, instruction_memory.response.bits, unavailable))
 
   // The walker owns L1D exclusively. Its PTE request waits for two quiescent
   // observations, which drain the cache's nonbackpressured response stage.
@@ -342,7 +323,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   data.reservation_valid <== data_memory.reservation_valid
 
   def fault_latch_reset = invalidate_all ||| (instruction.flush & fault_valid & !fault_is_data)
-  def latched_instruction_fault_accepted = instruction_head.fire() & instruction_translation_enabled & latched_instruction_fault
+  def latched_instruction_fault_accepted = instruction_s1_valid & instruction_translation_enabled & latched_instruction_fault
   def latched_data_fault_accepted = data.request.valid & data_translation_enabled & latched_data_fault
   def latched_fault_accepted = latched_instruction_fault_accepted ||| latched_data_fault_accepted
   def capture_walker_fault = walker_fault_completion & !invalidate_all & (walk_is_data ||| !(walk_instruction_discarded ||| instruction.flush))

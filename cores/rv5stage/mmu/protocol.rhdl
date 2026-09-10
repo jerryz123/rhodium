@@ -29,10 +29,6 @@ bundle RV5StageTranslationResult():
   fault: Bool
   access_fault: Bool
 
-bundle RV5StageInstructionFault():
-  page: Bool
-  access: Bool
-
 interface RV5StagePageTableMemory():
   role requester
   role responder
@@ -48,5 +44,4 @@ interface RV5StagePageTableMemory():
 export:
   RV5StageTranslationRequest
   RV5StageTranslationResult
-  RV5StageInstructionFault
   RV5StagePageTableMemory

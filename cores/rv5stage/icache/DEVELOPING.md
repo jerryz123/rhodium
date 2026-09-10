@@ -9,7 +9,7 @@ guide owns implementation placement and contributor validation.
 ## Architecture and ownership
 
 The L1I package owns the instruction-access protocol, synchronous arrays,
-lookup pipeline, response buffering, clean-line replacement, local flush and
+lookup pipeline, replay outcomes, clean-line replacement, local flush and
 invalidation behavior. The parent core owns virtual
 translation, Fetch correlation, `FENCE.I` serialization, physical-region
 checks, and the external CHI boundary.
@@ -24,7 +24,7 @@ separation.
 | Concern | Owner |
 |---|---|
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
-| Demand-priority lookup, best-effort prefetch admission, arrays, buffering, refill installation, replacement, flush, invalidation | [`cache.rhdl`](cache.rhdl) |
+| Demand-priority lookup, best-effort prefetch admission, arrays, S2 outcomes, refill installation, replacement, flush, invalidation | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
 | Complete-line RAM/ROM reads with retained region mode | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
@@ -33,15 +33,15 @@ separation.
 
 ## Change the cache
 
-1. Preserve the ordered Decoupled-to-Irrevocable protocol and reserve response
-   capacity before accepting a request.
-   Keep S0 virtual SRAM admission independent of S1 physical resolution. Pair
-   only an accepted physical request with the preceding read; unresolved reads
-   create no lookup-result token. Geometry rejection belongs to `../profile.rhm`.
+1. Preserve fixed-latency S1-to-S2 Valid outcomes. Response storage and replay
+   belong to the frontend, not the cache. Keep S0 virtual SRAM admission
+   independent of S1 physical resolution. Pair a surviving physical request
+   with the preceding read; kill younger S1 reads on frontend replay.
+   Geometry rejection belongs to `../profile.rhm`.
 2. S1 compares the returned tags with the translated address; S2 always captures
    the selected word, hit decision, and refill context. Keep these fixed-latency
-   stages distinct from MMU retry and the blocking refill path. A late miss may
-   discard a speculative younger read, but cannot backpressure SRAM output.
+   stages distinct from frontend replay and the blocking refill path. A miss returns replay while accepted refill work continues independently;
+   retain a demand read error until a matching retry consumes one access fault.
 3. Publish tag and validity only after the final installation word so a
    partial line cannot hit or satisfy a snoop.
 4. Keep speculative `flush` separate from architectural `invalidate_all`,

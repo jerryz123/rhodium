@@ -58,7 +58,7 @@ module rv5stage_zawrs_tb;
   logic reservation;
   integer scenario, cycles, wait_cycles, stores;
   logic saw_wrs, done;
-  RV5StageCore dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
+  RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

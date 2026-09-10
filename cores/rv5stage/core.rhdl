@@ -24,10 +24,9 @@ import:
   "divide.rhdl" open
   "fp/pipeline.rhdl" open
   "fp/bundles.rhdl" open
-  "fetch.rhdl" open
+  "frontend-control.rhdl" open
   "decode/fp-ctrl.rhdl" open
   "register-file.rhdl" open
-  "icache/protocol.rhdl" open
   "dcache/protocol.rhdl" open
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/xlen.rhm" open
@@ -43,7 +42,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
-sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 16):
+sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_address :: Nat):
   def xlen = core_profile.xlen
   def extensions = core_profile.extensions
   def profile = extensions.floating_point
@@ -61,7 +60,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
-  def supported_instruction_names = rv5stage_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled).map(fun (instruction): instruction.name)
 
   def instruction_alignment = if compressed_enabled | 2 | 4
   unless reset_address < (1 << width)
@@ -73,7 +71,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   input interrupts: RV5StageInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
-  interface instruction_access(RV5StageInstructionAccess(xlen), ~role: requester)
+  interface frontend_control(RV5StageFrontendControl(xlen), ~role: core)
+  interface fetched(Decoupled(FetchDecode(xlen)), ~role: consumer)
   interface data_access(RV5StageDataAccess(xlen), ~role: requester)
   interface pipeline_access(RV5StagePipelineAccess(xlen), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
@@ -127,7 +126,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def FpModule = if floating_point_supports_f(profile) | RV5StageFpPipeline(xlen, effective_fp_profile, Bits(width), ~half_precision: half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst fp(FpModule)
   inst csrs(RV5StageCsrFile(core_profile))
-  inst fetch(RV5StageInstructionFetch(xlen, profile, ~compressed: compressed_extensions, ~supported_instructions: supported_instruction_names, ~btb_entries: btb_entries))
   csrs.interrupts <== interrupts
   csrs.hart_id <== hart_id
   csrs.time_counter <== time_counter
@@ -252,19 +250,18 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // Seed fetch once after reset; software in the reset image owns boot waiting.
   def reset_start = !started
   def fetch_valid = started & !pause_active & !pause_commit & !squash & !csrs.interrupt_request & !waiting_for_interrupt & !reservation_wait_pending & !reservation_wait_accept
-  fetch.active <== fetch_valid
-  fetch.flush <== memory_exception_event ||| memory_replay_event
-  fetch.restart_valid <== redirect_link.right.valid ||| reset_start
-  fetch.restart_pc <== mux(redirect_link.right.valid, redirect_link.right.bits, reset_pc)
-  fetch.invalidate_all <== fence_i_commit
-  fetch.predictor_flush <== fence_i_commit ||| csrs.translation_flush ||| csrs.redirect.valid
-  fetch.branch_update.valid <== memory_stage_valid & !memory_exception_event & !memory_replay_event
-  fetch.branch_update.bits <== memory.bits.branch_update
-  fetch.memory <=> instruction_access
-  def fetched = fetch.fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~root: #true, ~fields: operation):
+  frontend_control.active <== fetch_valid
+  frontend_control.flush <== memory_exception_event ||| memory_replay_event
+  frontend_control.restart_valid <== redirect_link.right.valid ||| reset_start
+  frontend_control.restart_pc <== mux(redirect_link.right.valid, redirect_link.right.bits, reset_pc)
+  frontend_control.invalidate_all <== fence_i_commit
+  frontend_control.predictor_flush <== fence_i_commit ||| csrs.translation_flush ||| csrs.redirect.valid
+  frontend_control.branch_update.valid <== memory_stage_valid & !memory_exception_event & !memory_replay_event
+  frontend_control.branch_update.bits <== memory.bits.branch_update
+  def fetch_stream = fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~root: #true, ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
-  fetched |> if_id_pipe.ingress
+  fetch_stream |> if_id_pipe.ingress
   started <== Bool(#true)
   when (csrs.redirect.valid):
     architectural_pc <== csrs.redirect.bits

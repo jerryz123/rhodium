@@ -1,146 +1,110 @@
-// Verifies instruction routing, owner capacity, request/response stalls, and flush cancellation.
+// Checks S1/S2 routing, explicit replay, exactly-once uncached work, and cancellation.
 module rv5stage_instruction_memory_router_tb;
+  typedef struct packed { logic ready; } ready_t;
+  typedef struct packed { logic valid; RV5StageFetchResult bits; } result_t;
   typedef struct packed {
-    logic flush;
-    logic invalidate_all;
+    logic flush, invalidate_all, s1_kill;
     struct packed { logic valid; RV5StagePhysicalInstructionReq bits; } request;
-    struct packed { logic ready; } response;
   } core_in_t;
+  typedef struct packed { result_t response; } pipeline_out_t;
   typedef struct packed {
-    struct packed { logic ready; } request;
-    struct packed { logic valid; RV5StageInstructionResp bits; } response;
-  } memory_in_t;
-  typedef struct packed {
-    struct packed { logic ready; } request;
-    struct packed { logic valid; RV5StageInstructionResp bits; } response;
-  } core_out_t;
-  typedef struct packed {
-    logic flush;
-    logic invalidate_all;
+    logic flush, invalidate_all, s1_kill;
     struct packed { logic valid; RV5StageInstructionReq bits; } request;
-    struct packed { logic ready; } response;
   } cache_out_t;
   typedef struct packed {
-    logic flush;
-    logic invalidate_all;
+    ready_t request;
+    struct packed { logic valid; RV5StageInstructionResp bits; } response;
+  } uncached_in_t;
+  typedef struct packed {
+    logic flush, invalidate_all;
     struct packed { logic valid; RV5StagePhysicalInstructionReq bits; } request;
-    struct packed { logic ready; } response;
+    ready_t response;
   } uncached_out_t;
-
-  logic clock = 1'b0;
-  logic reset = 1'b1;
-  core_in_t core_in;
-  memory_in_t cache_in;
-  memory_in_t uncached_in;
-  core_out_t core_out;
+  logic clock=0, reset=1;
+  core_in_t core_in='0;
+  pipeline_out_t core_out, cache_in='0;
   cache_out_t cache_out;
+  uncached_in_t uncached_in='0;
   uncached_out_t uncached_out;
-
-  RV5StageInstructionMemoryRouter dut (.*);
-
+  bit cache_replay=0;
+  int transactions=0;
+  RV5StageInstructionMemoryRouter dut(.*);
+  always #5 clock=~clock;
+  always @(posedge clock) begin
+    if(reset || cache_out.flush) cache_in.response <= '0;
+    else begin
+      cache_in.response.valid <= cache_out.request.valid;
+      cache_in.response.bits <= '{response:'{word:cache_out.request.bits.address[31:0],page_fault:0,access_fault:0},replay:cache_replay};
+    end
+    if(!reset && uncached_out.request.valid && uncached_in.request.ready) transactions++;
+  end
   task automatic tick;
-    #5 clock = 1'b1;
-    #1 clock = 1'b0;
-    #4;
+    @(posedge clock); #1;
   endtask
-
+  task automatic attempt(input logic [63:0] address, input bit cached, replay, input logic [31:0] word=0);
+    core_in.request='{valid:1,bits:'{address:address,cacheable:cached,device:0}};
+    tick();
+    core_in.request.valid=0;
+    assert(core_out.response.valid && core_out.response.bits.replay==replay)
+      else $fatal(1,"incorrect S2 outcome at %h",address);
+    if(!replay) assert(core_out.response.bits.response.word==word)
+      else $fatal(1,"wrong word for S2 attempt");
+    tick();
+  endtask
   initial begin
-    core_in = '0;
-    cache_in = '0;
-    uncached_in = '0;
-    tick();
-    reset = 1'b0;
-    cache_in.request.ready = 1'b1;
-    uncached_in.request.ready = 1'b1;
-    core_in.response.ready = 1'b1;
+    repeat(2) tick(); reset=0;
+    uncached_in.request.ready=1;
 
-    core_in.request.valid = 1'b1;
-    core_in.request.bits.address = 64'h1000;
-    core_in.request.bits.cacheable = 1'b1;
-    cache_in.request.ready = 1'b0;
-    repeat (3) begin
-      #1;
-      assert (!core_out.request.ready && cache_out.request.valid && !uncached_out.request.valid &&
-              cache_out.request.bits.address == 64'h1000)
-        else $fatal(1, "cached request did not retain routing under backpressure");
-      tick();
-    end
-    cache_in.request.ready = 1'b1;
-    #1;
-    assert (core_out.request.ready && cache_out.request.valid &&
-            !uncached_out.request.valid && cache_out.request.bits.address == 64'h1000)
-      else $fatal(1, "cacheable instruction request did not route to L1I");
+    // Back-to-back cached words have no response ownership queue.
+    core_in.request='{valid:1,bits:'{address:64'h1000,cacheable:1,device:0}};
     tick();
+    assert(core_out.response.valid && !core_out.response.bits.replay && core_out.response.bits.response.word=='h1000);
+    core_in.request.bits.address='h1004;
+    tick();
+    assert(core_out.response.valid && !core_out.response.bits.replay && core_out.response.bits.response.word=='h1004);
+    core_in.request.valid=0; tick();
+    cache_replay=1;
+    attempt('h2000,1,1);
+    cache_replay=0;
+    attempt('h2000,1,0,'h2000);
 
-    core_in.request.bits.address = 64'hc000;
-    core_in.request.bits.cacheable = 1'b0;
-    core_in.request.bits.device = 1'b0;
-    #1;
-    assert (core_out.request.ready && !cache_out.request.valid &&
-            uncached_out.request.valid &&
-            uncached_out.request.bits.address == 64'hc000 &&
-            !uncached_out.request.bits.cacheable && !uncached_out.request.bits.device)
-      else $fatal(1, "non-cacheable instruction request did not route to RN-I");
-    tick();
+    attempt('hc000,0,1);
+    repeat(4) attempt('hc000,0,1);
+    assert(transactions==1) else $fatal(1,"local replay duplicated an uncached read");
+    uncached_in.response='{valid:1,bits:'{word:32'h12345678,page_fault:0,access_fault:0}};
+    tick(); uncached_in.response.valid=0;
+    attempt('hc000,0,0,32'h12345678);
+    assert(transactions==1);
 
-    // Both owner slots are occupied; a third fetch cannot reach either path.
-    core_in.request.bits.address = 64'hd000;
-    #1;
-    assert (!core_out.request.ready && !cache_out.request.valid && !uncached_out.request.valid)
-      else $fatal(1, "request escaped without a free response-owner slot");
+    // Killing S1 must not issue IO or suppress the preceding cached S2 word.
+    core_in.request='{valid:1,bits:'{address:64'h1008,cacheable:1,device:0}};
     tick();
-    core_in.request.valid = 1'b0;
+    core_in.request.bits='{address:64'hd000,cacheable:0,device:1};
+    core_in.s1_kill=1;
+    #1;
+    assert(core_out.response.valid && core_out.response.bits.response.word=='h1008);
+    tick();
+    core_in.request.valid=0; core_in.s1_kill=0;
+    assert(!core_out.response.valid && !uncached_out.request.valid);
+    assert(transactions==1);
 
-    // The second response cannot pass the first even if it arrives first.
-    uncached_in.response.valid = 1'b1;
-    uncached_in.response.bits.word = 32'h2222_2222;
+    // A stalled uncached request may be retried, but only acceptance owns work.
+    uncached_in.request.ready=0;
+    repeat(3) attempt('hd000,0,1);
+    assert(transactions==1);
+    uncached_in.request.ready=1;
+    attempt('hd000,0,1);
+    assert(transactions==2);
+    core_in.flush=1; core_in.invalidate_all=1;
     #1;
-    assert (!core_out.response.valid && !uncached_out.response.ready)
-      else $fatal(1, "uncached response bypassed an older cached response");
-    cache_in.response.valid = 1'b1;
-    cache_in.response.bits.word = 32'h1111_1111;
-    core_in.response.ready = 1'b0;
-    repeat (3) begin
-      #1;
-      assert (core_out.response.valid && core_out.response.bits.word == 32'h1111_1111 &&
-              !cache_out.response.ready && !uncached_out.response.ready)
-        else $fatal(1, "stalled response lost its owner or advanced another path");
-      tick();
-    end
-    core_in.response.ready = 1'b1;
-    #1;
-    assert (core_out.response.valid && core_out.response.bits.word == 32'h1111_1111 &&
-            cache_out.response.ready && !uncached_out.response.ready)
-      else $fatal(1, "oldest cached response was not selected");
+    assert(cache_out.flush && cache_out.invalidate_all && uncached_out.flush && uncached_out.invalidate_all);
+    assert(!core_out.response.valid && !uncached_out.request.valid && !uncached_out.response.ready);
     tick();
-    cache_in.response.valid = 1'b0;
-    #1;
-    assert (core_out.response.valid && core_out.response.bits.word == 32'h2222_2222 &&
-            uncached_out.response.ready)
-      else $fatal(1, "uncached response was not selected after its predecessor");
-    tick();
-    uncached_in.response.valid = 1'b0;
-
-    core_in.request.valid = 1'b1;
-    core_in.request.bits.cacheable = 1'b1;
-    tick();
-    cache_in.response.valid = 1'b1;
-    core_in.flush = 1'b1;
-    core_in.request.valid = 1'b1;
-    #1;
-    assert (!core_out.request.ready && !cache_out.request.valid &&
-            !uncached_out.request.valid && !core_out.response.valid &&
-            !cache_out.response.ready && !uncached_out.response.ready && cache_out.flush && uncached_out.flush)
-      else $fatal(1, "instruction flush did not suppress and propagate correctly");
-    tick();
-    core_in.flush = 1'b0;
-    core_in.request.valid = 1'b0;
-    cache_in.response.valid = 1'b0;
-    #1;
-    assert (!core_out.response.valid)
-      else $fatal(1, "flushed response owner survived cancellation");
-
-    $display("RV5Stage instruction memory routing passed");
+    core_in.flush=0; core_in.invalidate_all=0;
+    attempt('h1010,1,0,'h1010);
+    assert(transactions==2);
+    $display("RV5Stage fixed-latency instruction routing and uncached replay passed");
     $finish;
   end
+  initial begin #100000; $fatal(1,"instruction router timeout"); end
 endmodule

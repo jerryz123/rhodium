@@ -3,7 +3,7 @@
 
 import:
   "zkt-program.rhm" open
-  "../core.rhdl" open
+  "core-fixture.rhdl" open
   "../profile.rhm" open
   "../interrupt.rhdl" open
   "../multiply.rhdl" open
@@ -16,7 +16,7 @@ import:
 
 sync_circuit RV5StageZkt(profile :: RVCoreProfile):
   def width = profile.xlen.width
-  interface instruction_access(RV5StageInstructionAccess(profile.xlen), ~role: requester)
+  interface instruction_access(RV5StageTestInstructionAccess(profile.xlen), ~role: requester)
   interface data_access(RV5StageDataAccess(profile.xlen), ~role: requester)
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
@@ -63,7 +63,7 @@ sync_circuit RV5StageZkt(profile :: RVCoreProfile):
   completion_valid <== completions.egress.valid
   completion_value <== completions.egress.bits.data
   completion_chosen <== completions.chosen
-  inst core(RV5StageCore(profile, ~reset_address: 0x10000))
+  inst core(RV5StageCoreFixture(profile, ~reset_address: 0x10000))
   core.interrupts <== bits(0, 6).into(RV5StageInterrupts())
   core.hart_id <== bits(0, width)
   core.time_counter <== bits(0, 64)

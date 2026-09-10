@@ -3,7 +3,7 @@
 # RV5Stage instruction cache
 
 This directory owns the core-facing instruction-access protocol and the private
-L1I's arrays, refill, replacement, response buffering, flush and architectural invalidation contracts. The [parent core guide](../README.md#memory-hierarchy) owns
+L1I's arrays, refill, replacement, fixed-latency outcomes, flush and architectural invalidation contracts. The [parent core guide](../README.md#memory-hierarchy) owns
 address translation, Fetch correlation, and `FENCE.I` ordering; the
 [CHI guide](../../../chi/README.md) owns protocol vocabulary and fabric-wide
 rules.
@@ -18,9 +18,9 @@ Contributors changing the L1I implementation should read
 | Organization | Non-aliasing VIPT, set-associative, read-only, nonsnooping instruction snapshots |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
 | Core throughput | Consecutive hits can enter and return one 32-bit instruction per cycle |
-| Core protocol | Ordered `Decoupled` requests and backpressurable `Irrevocable` responses |
+| Core protocol | S1 `Valid` physical resolutions and S2 `Valid` word/fault/replay outcomes |
 | Miss policy | One blocking line acquisition: retry-aware `ReadOnce` for coherent RAM, `ReadNoSnp` for immutable ROM |
-| Response capacity | At most two accepted requests, backed by a two-entry queue |
+| Response storage | Completed-word storage and replay belong to the frontend |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
 | Prefetch | Demand-priority Valid event; a miss launches ordinary `ReadOnce` refill without a response |
 
@@ -37,51 +37,36 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 
 ## Core-facing protocol
 
-[`protocol.rhdl`](protocol.rhdl) defines `RV5StageInstructionAccess(xlen)`:
+[`protocol.rhdl`](protocol.rhdl) defines the cache's
+`RV5StageInstructionLookup(RV5StageInstructionReq(xlen))` interface:
 
 | Direction | Member | Meaning |
 |---|---|---|
-| Fetch → cache | `request: Decoupled(RV5StageInstructionReq)` | XLEN-wide physical byte address |
-| MMU → cache | `virtual_lookup: Decoupled(Bits(XLEN))` | S0 virtual read with structural SRAM-port admission; physical resolution follows in S1 |
-| MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical `PREFETCH.I`; no acceptance or response |
-| Fetch → cache | `flush` | Discard speculative lookup and buffered-response state |
-| Fetch → cache | `invalidate_all` | Perform the flush behavior and invalidate every resident line |
-| Cache → Fetch | `response: Decoupled(RV5StageInstructionResp)` | Ordered 32-bit instruction plus page- and access-fault flags; a flush may withdraw a stalled response |
+| MMU → cache | `request: Valid(RV5StageInstructionReq)` | S1 permitted physical word address |
+| Frontend → cache | `s1_kill` | Cancel the younger S1 lookup, without canceling S2 or accepted refill work |
+| Frontend → cache | `flush` | Kill speculative lookups and detach the refill's fault consumer |
+| Frontend → cache | `invalidate_all` | Also invalidate resident lines and prevent old refill installation |
+| Cache → frontend | `response: Valid(RV5StageFetchResult)` | Registered S2 word, access fault, or replay; never backpressured |
 
-The cache itself returns both fault flags false; the MMU and parent fetch path
-own translation and access faults. Fetch supplies aligned word addresses. The
-cache selects the addressed 32-bit instruction from its XLEN-wide SRAM word.
-The line size is a fixed RV5Stage constant rather than a cache parameter.
+The separate `virtual_lookup: Decoupled(Bits(XLEN))` port launches S0 SRAM
+reads without waiting for ITLB/PMA resolution. A surviving S1 physical request
+must match its preceding read's page offset; assertions enforce pairing and
+unique physical-tag hits. Translation rejection, uncached selection, or
+`s1_kill` discards an unresolved read without allocation.
 
-`virtual_lookup` is a separate cache port, not a member of the core/Fetch
-instruction-access interface. It supplies the SRAM index without waiting for
-ITLB/PMA resolution. A physical request accepted in S1 must have a preceding
-accepted virtual lookup with identical bits `[11:0]`; assertions enforce both
-conditions. The translated physical tag is compared with that SRAM result, and
-the selected word/hit decision/refill context are registered into S2. A virtual
-read without an accepted physical request is discarded, including on a TLB
-miss, fault, uncached selection, or flush. Such reads cannot respond or allocate.
-Physical prefetches use the same SRAM port and lose to a live virtual demand.
+The separate `prefetch: Valid(CachePrefetchReq)` port accepts best-effort
+physical instruction prefetches, lower priority than live virtual demand.
+Prefetches never return an architectural result.
 
 ## Data path and arrays
 
-[`cache.rhdl`](cache.rhdl) pipelines SRAM hits while keeping refill
-transactions outside the core response path:
-
-```mermaid
-flowchart LR
-  Virtual["S0 virtual index"] --> Lookup["S1 SRAM result + physical tag compare"]
-  Fetch["S1 permitted physical request<br/>registered MMU address"] --> Lookup
-  Lookup --> Resolved["S2 registered hit word<br/>or miss context"]
-  Resolved -->|hit| Merge["Hit / refill response arbiter"]
-  Resolved -->|miss| Refill["64-byte line read<br/>coherent RAM or immutable ROM"]
-  Refill --> Install["Install one XLEN word/cycle<br/>publish metadata last"]
-  Install --> Arrays["Tag, valid bits,<br/>and data arrays"]
-  Install --> Merge
-  Merge --> Queue["Two-entry response queue"]
-  Queue --> FetchResponse["Fetch response<br/>Irrevocable"]
-
-```
+S0 reads the virtual index, S1 compares translated tags, and S2 registers the
+word, hit decision, or miss context. Each surviving lookup produces one S2
+outcome. A miss returns replay immediately and may launch one blocking
+line refill. A refill does not produce an eventual response for that attempt:
+after installation, a frontend retry obtains the word through the hit path.
+Response storage belongs to the frontend, so Decode readiness has no path to
+SRAM admission.
 
 The tag array and valid bits hold one entry per way and set. There is no CHI ownership-state array. The
 byte-masked data array has `sets * (64 / (XLEN / 8))` rows, each containing one
@@ -89,23 +74,9 @@ XLEN word per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. RV32 returns the selected SRAM word directly. RV64 uses
 address bit 2 to select its low or high 32-bit instruction.
 
-An always-captured S1 token carries the virtual address and demand/prefetch tag
-alongside the synchronous lookup. A second always-captured stage registers the
-resolved hit word or miss context. S0 port admission does not wait for S1
-translation or tag comparison. A blocked or unmatched physical resolution drops
-that read; the MMU owns local retry. A hit can admit the next request immediately.
-Hit and live-refill results merge before
-a two-entry flow-through queue, which preserves ordered `Irrevocable` responses
-under Fetch backpressure. Outstanding-request accounting reserves response
-capacity and never exceeds two. A released slot becomes available to request
-admission on the following cycle, keeping downstream response readiness out of
-the request-ready timing path. A miss transfers its address into the refill
-engine and blocks new requests until that transaction completes.
-
-A prefetch lookup or refill never reserves response capacity and never reaches
-the response queue. Demand wins a simultaneous lookup opportunity. Once an
-admitted miss launches, it uses the same blocking refill and installation path
-as a demand miss.
+S0 admission depends on registered refill/installation state, not S1 tag
+comparison. Installation and SRAM lookup are mutually exclusive.
+A prefetch reuses the blocking refill path without producing a response.
 
 ## Refill and replacement
 
@@ -113,7 +84,8 @@ Every coherent-RAM miss issues one 64-byte `ReadOnce`. The [snapshot engine](../
 retains its line address and context through retry, collects every `CompData`
 packet, and sends `CompAck` before exposing the result. The response grants no
 coherent ownership or dirty responsibility. With 128-bit DAT, four packets form
-a line. A read error returns an instruction access fault without allocation;
+a line. A demand read error is retained until a matching replay receives one instruction
+access fault, without allocation;
 prefetch errors are discarded without an architectural response.
 Immutable ROM uses the same arrays and installation path after a 64-byte
 `ReadNoSnp`, with no coherent ownership or `CompAck`. ROM data reads remain
@@ -130,9 +102,10 @@ The two controls deliberately have different residency effects:
 
 | Event | Lookup and response state | Active refill | Resident lines |
 |---|---|---|---|
-| `flush` | Kill the active lookup, clear buffered responses and outstanding accounting | Drain and install the line, but suppress its wrong-path response | Preserve |
+| `s1_kill` | Kill only the younger S1 lookup | Preserve ownership and fault consumer | Preserve |
+| `flush` | Kill lookup stages and retained fault | Drain and install, but discard a detached consumer's error | Preserve |
 | `invalidate_all` | Apply all flush behavior | Drain without installing or returning the pre-invalidation line | Invalidate all ways and reset replacement pointers |
-| Reset | Clear lookup, response, refill-tracking, and installation state | Reset transaction state | Invalidate all ways and reset replacement pointers |
+| Reset | Clear lookup, fault, refill-tracking, and installation state | Reset transaction state | Invalidate all ways and reset replacement pointers |
 
 The parent core implements `FENCE.I` by first waiting for L1D quiescence, then
 asserting this local `invalidate_all` control and redirecting Fetch. A

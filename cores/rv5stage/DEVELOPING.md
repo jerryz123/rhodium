@@ -30,7 +30,7 @@ each other; share external transaction machinery through the CHI package.
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`btb.rhdl`](btb.rhdl) | Associative word lookup, local direction counters, training, and prediction metadata |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
-| [`fetch.rhdl`](fetch.rhdl) | Independent request/assembly PCs, five-word reservation ring, compressed expansion, instruction queue, and redirect flushing |
+| [`frontend.rhdl`](frontend.rhdl), [`frontend-control.rhdl`](frontend-control.rhdl) | Frontend-owned S0/S1/S2 attempts and replay, completed words, compressed assembly, and execution control |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
@@ -86,39 +86,35 @@ each other; share external transaction machinery through the CHI package.
    Update [README.md](README.md) when public profiles, ports, ordering, timing,
    or deliberate limits change.
 
-Keep frontend stage ownership explicit: Fetch owns aligned request generation
-and assembly, MMU owns registered S1 address/translation and local read retry,
-and L1I owns S0 SRAM admission and always-captured S2 resolution. Do not fold
-same-cycle word consumption into the request address or move ITLB lookup back
-onto a live core request. Use the fetch, MMU-replay, I-cache, instruction-router,
-and IO-boot fixtures when changing this boundary.
+Keep frontend stage ownership explicit: execution owns architectural redirects,
+invalidation, training, and instruction consumption. The separate frontend owns
+PC selection, S0/S1/S2 attempt contexts, replay, completed words, and assembly.
+MMU owns S1 translation/PMA and accepted walks; L1I owns SRAM lookup and accepted
+refills. Neither retains an ordinary fetch request for later response.
 
-The assembled-instruction buffer uses a five-entry flow-through `ShiftQueue`
-with full-queue pipelining disabled. Decode readiness may control its shifts,
-but must not reach word-request admission or address generation combinationally.
-The five-word `reserved` count includes both outstanding requests and returned
-words; return credit only when assembly releases a word at the clock edge.
-Do not count in-flight requests a second time or borrow same-cycle dequeue
-credit. The `rv5stage-fetch-admission` structural fixture guards this timing
-contract using hierarchical port-leaf dependencies; run it in `--verify-only`
-mode alongside the behavioral fetch and I-cache fixtures.
+S0 reserves space from registered completed-word occupancy plus S1/S2 validity.
+Never borrow same-cycle dequeue credit or feed Decode readiness into S0.
+The only outcome-to-PC feedback is registered S2 replay selecting the oldest
+failed attempt's PC and continuation context. It kills younger S1 work without
+clearing older completed words or the assembly PC. Architectural recovery and
+registered prediction repair instead clear speculative words and both stages.
+The `rv5stage-fetch-admission` fixture guards these timing boundaries using
+hierarchical port-leaf dependencies; run it in `--verify-only` mode.
 
-Wrap request, response, continuation, and release pointers explicitly modulo five.
-A taken straddling branch can release two words across the end of the ring.
-The fifth slot covers the extra word retained by straddling assembly without
-borrowing combinational dequeue credit. `rv5stage-fetch-throughput` composes
-Fetch, MMU, physical routing, and L1I; it warms the cache and requires consecutive
-aligned and halfword-offset 32-bit instructions with no measured refills. Keep
-the regression at this integrated boundary so real hit latency is included.
+The five-entry completed-word queue exposes its first two words to compressed
+assembly. Consumption releases zero, one, or two entries; compaction and
+append happen at the same edge. There are no Requested/Empty entries or
+request/response ring pointers. Capture prediction per attempt occurrence,
+including continuation context; never reconstruct it from the live BTB.
+Correct predictions do not flush the memory path. Malformed cuts use a
+registered local repair; architectural recovery has priority.
 
-The request ring follows predicted control flow, not globally contiguous
-addresses. Only instruction continuations require adjacent word addresses.
-Capture the BTB response on request acceptance; never reconstruct a buffered
-prediction from the live table. A straddling taken branch releases two words,
-so reservation accounting adds accepted requests and subtracts the released
-word count. Correct predictions do not assert memory flush or reset either queue.
-Malformed cuts use a registered local repair command that preserves older
-assembled instructions. Architectural recovery overrides local repair.
+`rv5stage-fetch-throughput` uses the real frontend/MMU/router/L1I path. It
+requires consecutive aligned, straddling, and compressed instructions in each
+cold-refilled line's interior, without a warming restart, and separately checks
+warm throughput. Architectural core programs use `tests/core-fixture.rhdl`:
+a test-only ordered word-memory model drives explicit replay, not cache timing.
+Do not use that model to claim frontend throughput or LR/SC progress.
 
 Keep predictor updates in MEM behind older-WB cancellation, faults, and replay.
 Update by current PC match rather than a stale entry index; invalidation wins
@@ -322,7 +318,7 @@ translation arbitration and replay.
 
 For Ziccif/Ziccamoa validation, select `rv5stage-fetch`, `rv5stage-icache`,
 `rv5stage-dcache`, `rv5stage-dcache-rv32`, `rv5stage-memory-router`,
-`chi-coherent-home`, and `chi-inclusive-home`. The L1I regression cancels an old stalled instruction response on architectural
+`chi-coherent-home`, and `chi-inclusive-home`. The L1I regression cancels lookup and refill installation on architectural
 invalidation and checks fresh words at all sixteen offsets, with reversed/gapped
 data packets. The instruction-coherence fixtures additionally check dirty-owner
 intervention and residency independent of outer-cache replacement. Fetch assembly separately covers aligned words and compressed parcels.
@@ -462,8 +458,8 @@ runtime convergence checks remain enabled. Keep simulator entry programming and 
 BootROM policy separate from this core-level regression.
 
 For instruction-router flow changes, select `rv5stage-instruction-memory-router`
-and `rv5stage-io-boot`. The router bench covers owner-queue capacity, request and
-response stalls, cached/uncached response ordering, and flush cancellation.
+and `rv5stage-io-boot`. The router bench covers registered cached outcomes, S1 kill, explicit replay,
+exactly-once uncached acceptance, stalled IO, and flush cancellation.
 
 For Zicbom, use the composed decode test and the WB, MMU, physical-router,
 and self-snooped cache fixtures:

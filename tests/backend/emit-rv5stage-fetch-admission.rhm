@@ -8,10 +8,9 @@ import:
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
-  "../../cores/rv5stage/fetch.rhdl".RV5StageInstructionFetch
-  "../../cores/rv5stage/decode/core-ctrl.rhdl".rv5stage_instructions
+  "../../cores/rv5stage/frontend.rhdl".RV5StageFrontend
   "../../cores/rv5stage/mmu/mmu.rhdl".RV5StageMmu
-  "../../cores/rv5stage/profile.rhm".RV5StageMmuMode
+  "../../cores/rv5stage/profile.rhm" open
   "../../cores/rv5stage/icache/cache.rhdl".RV5StageL1ICache
   "../../cores/rv5stage/cache.rhdl".RV5StageCacheConfig
   "../../cores/rv5stage/tests/params.rhdl" as test_params
@@ -73,21 +72,24 @@ fun check_dependency(top, output_name, output_path, input_name, input_path, expe
   unless found == expected
   | error(~who: #'fetch_admission, "unexpected combinational dependency: " ++ input_name ++ " -> " ++ output_name)
 
-def names = rv5stage_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.None).map(fun (instruction): instruction.name)
-def fetch = embedded.run_elaboration_with_top(fun (): RV5StageInstructionFetch(XLen.X64, FloatingPointProfile.D, ~compressed: CCompressedExtensions, ~supported_instructions: names))
-for (path in [["request", "valid"], ["request", "bits", "address"], ["response", "ready"]]):
+def fetch = embedded.run_elaboration_with_top(fun (): RV5StageFrontend(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
+for (path in [["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(fetch.top, "memory_out", path, "fetched_in", ["ready"])
-check_dependency(fetch.top, "memory_out", ["request", "valid"], "active", [], #true)
+check_dependency(fetch.top, "memory_out", ["request", "valid"], "control_in", ["active"], #true)
 
 def mmu = embedded.run_elaboration_with_top(fun (): RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_params.test_rv5stage_chi_config.physical_map))
 for (path in [["valid"], ["bits"]]):
-  check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_in", ["response", "ready"])
-  check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_memory_in", ["request", "ready"])
-check_dependency(mmu.top, "instruction_out", ["request", "ready"], "instruction_in", ["response", "ready"])
+  check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_in", ["s1_kill"])
+  check_dependency(mmu.top, "instruction_lookup_out", path, "instruction_memory_in", ["response", "bits", "replay"])
+check_dependency(mmu.top, "instruction_out", ["request", "ready"], "instruction_memory_in", ["response", "bits", "replay"])
 
 def cache = embedded.run_elaboration_with_top(fun (): RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(4, 2), ~chi: test_params.test_rv5stage_chi_config))
-for (path in [["response", "ready"], ["request", "valid"], ["request", "bits", "address"]]):
+for (path in [["s1_kill"], ["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", path)
 check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", ["flush"], #true)
 
+// Physical S1 data must cross a register before affecting the S2 result.
+for (path in [["response", "valid"], ["response", "bits", "replay"], ["response", "bits", "response", "word"]]):
+  for (input_path in [["request", "valid"], ["request", "bits", "address"], ["s1_kill"]]):
+    check_dependency(cache.top, "core_out", path, "core_in", input_path)
 print(emit_circt(fetch.design))

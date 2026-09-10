@@ -8,9 +8,10 @@ module rv5stage_icache_coherence_tb;
   typedef struct packed { ready_t request; logic request_fault, request_access_fault; host_resp_t response; logic drained, reservation_valid; } host_out_t;
   typedef struct packed { logic valid; logic [63:0] bits; } fetch_req_t;
   typedef struct packed { logic [31:0] word; logic page_fault, access_fault; } instruction_t;
-  typedef struct packed { logic valid; instruction_t bits; } fetch_resp_t;
-  typedef struct packed { logic flush, invalidate_all; fetch_req_t request; ready_t response; } fetch_in_t;
-  typedef struct packed { ready_t request; fetch_resp_t response; } fetch_out_t;
+  typedef struct packed { instruction_t response; logic replay; } result_t;
+  typedef struct packed { logic valid; result_t bits; } fetch_resp_t;
+  typedef struct packed { logic flush, invalidate_all, s1_kill; fetch_req_t request; } fetch_in_t;
+  typedef struct packed { fetch_resp_t response; } fetch_out_t;
   logic clock = 0, reset = 1;
   host_in_t host_in;
   host_out_t host_out;
@@ -53,20 +54,24 @@ module rv5stage_icache_coherence_tb;
     assert (completions == previous + 1) else $fatal(1, "data completion timeout");
   endtask
   task automatic fetch_word(input int address, input logic [31:0] expected);
-    fetch_in.request.bits = 64'(address);
-    virtual_lookup_in = '{valid: 1, bits: 64'(address)};
-    tick();
-    fetch_in.request.valid = 1;
-    #1;
-    for (int c = 0; !fetch_out.request.ready && c < 10000; c++) tick();
-    assert (fetch_out.request.ready) else $fatal(1, "fetch admission timeout");
-    tick();
-    fetch_in.request.valid = 0;
-    virtual_lookup_in.valid = 0;
-    for (int c = 0; !fetch_out.response.valid && c < 10000; c++) tick();
-    assert (fetch_out.response.valid && !fetch_out.response.bits.page_fault &&
-            !fetch_out.response.bits.access_fault && fetch_out.response.bits.word == expected)
-      else $fatal(1, "instruction %h, expected %h", fetch_out.response.bits.word, expected);
+    bit done;
+    done=0;
+    for(int attempt=0; !done && attempt<1000; attempt++) begin
+      fetch_in.request.bits=64'(address);
+      virtual_lookup_in='{valid:1, bits:64'(address)};
+      #1;
+      for(int c=0; !virtual_lookup_out.ready && c<10000; c++) tick();
+      assert(virtual_lookup_out.ready) else $fatal(1,"virtual fetch admission timeout");
+      tick();
+      virtual_lookup_in.valid=0;
+      fetch_in.request.valid=1;
+      tick();
+      fetch_in.request.valid=0;
+      done=fetch_out.response.valid && !fetch_out.response.bits.replay;
+    end
+    assert (fetch_out.response.valid && !fetch_out.response.bits.response.page_fault &&
+            !fetch_out.response.bits.response.access_fault && fetch_out.response.bits.response.word == expected)
+      else $fatal(1, "instruction %h, expected %h", fetch_out.response.bits.response.word, expected);
     tick();
   endtask
   task automatic fence_i;
@@ -78,7 +83,6 @@ module rv5stage_icache_coherence_tb;
   endtask
   initial begin
     host_in = '0; fetch_in = '0; virtual_lookup_in = '0;
-    fetch_in.response.ready = 1;
     repeat (2) tick(); reset = 0;
     // Backing RAM still contains its old value: the instruction read must intervene on L1D.
     access(1, 'h4000, 64'h00000013_00100293);

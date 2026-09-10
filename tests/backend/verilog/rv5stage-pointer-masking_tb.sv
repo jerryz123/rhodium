@@ -40,7 +40,7 @@ module rv5stage_pointer_masking_tb;
   bit rejected;
   localparam logic [63:0] LOAD_VALUE = 64'h123456789abcdef0;
 
-  RV5StageCore dut (.pipeline_access_in('0), .pipeline_access_out(), .*);
+  RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] addi(input int rd, rs1, imm);

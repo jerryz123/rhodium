@@ -34,6 +34,7 @@ bundle RV5StageL1IResolved(address_width :: PosInt, way_width :: PosInt):
   context: RV5StageL1IRefillContext(address_width, way_width)
   hit: Bool
   word: Bits(32)
+  access_fault: Bool
 
 sync_circuit RV5StageL1ICache(xlen :: XLen,
                               cache :: RV5StageCacheConfig,
@@ -54,10 +55,9 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def tag_width = width - offset_width - set_width
   def word_index_width = index_width(words_per_line)
   def data_address_width = index_width(data_depth)
-  def outstanding_width = index_width(3)
 
   input node_id: Bits(p.node_id_width)
-  interface core(RV5StageInstructionAccess(xlen), ~role: responder)
+  interface core(RV5StageInstructionLookup(RV5StageInstructionReq(xlen)), ~role: responder)
   interface virtual_lookup(Decoupled(Bits(width)), ~role: consumer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface chi(CHIRNIChannels(p), ~role: node)
@@ -66,11 +66,9 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   inst lines(SyncRam1RW(data_depth, Bits(8), data_lanes))
   inst refill(RV5StageLineRead(RV5StageL1IRefillContext(width, way_width), width, config))
   refill.node_id <== node_id
-  inst response_arbiter(Arbiter(RV5StageInstructionResp(), 2))
   def cache_flush = core.flush ||| core.invalidate_all
   inst array_read(ValidPipeAlwaysCapture(RV5StageL1ILookup(width), 1), ~reset_when: cache_flush)
   inst lookup(ValidPipeAlwaysCapture(RV5StageL1IResolved(width, way_width), 1), ~reset_when: cache_flush)
-  inst responses(Queue(RV5StageInstructionResp(), 2, ~flow: #true), ~reset_when: cache_flush)
 
   reg valid_lines(~init: vec(
     for List (_set in 0..sets): bits(0, ways).as_vec(Bool)
@@ -82,16 +80,15 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   reg refill_installable(~init: Bool(#false))
   reg refill_installing(~init: Bool(#false))
   reg refill_install_index(~init: bits(0, word_index_width))
-  reg outstanding(~init: bits(0, outstanding_width))
+  reg refill_error_valid(~init: Bool(#false))
+  reg refill_error_address(Bits(width))
 
-  responses.egress |> gate_flow(!cache_flush) |> core.response
   refill.requests |> chi.req
   chi.rsp.response |> refill.responses
   chi.dat.response |> refill.response_data
   refill.acknowledgements |> chi.rsp.requester
   chi.dat.request.valid <== Bool(#false)
   chi.dat.request.bits <== literal(CHIDatFlit(p), 0)
-  def response_fire = core.response.fire()
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & (prefetch_request.operation === CachePrefetchOperation.Instruction)
   def lookup_input_prefetch = !virtual_lookup.valid & prefetch_valid
@@ -109,7 +106,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   )
   def lookup_selection = priority_encoder_oh(lookup_matches)
   def line_hit = lookup_selection.valid
-  def lookup_miss = lookup.egress.valid & !lookup.egress.bits.hit
+  def lookup_miss = lookup.egress.valid & !lookup.egress.bits.hit & !lookup.egress.bits.access_fault
   def cached_words = lines.port.response.bits.as_bits().as_vec(Bits(width))
   def cached_word = lookup_selection.mux(
     for List (way in 0..ways): cached_words[way],
@@ -128,25 +125,14 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def completion_way = refill.completion.bits.context.way
   def completion_set = completion_address[offset_width..(offset_width + set_width)]
   def completion_tag = completion_address[(offset_width + set_width)..width]
-  def completion_word_index = completion_address[word_offset_width..offset_width]
   def completion_words = refill.completion.bits.line.as_bits().as_vec(Bits(width))
-  def completed_word = completion_words[completion_word_index]
-  def completion_fetch_word:
-    if width == 32
-    | completed_word
-    | mux(completion_address[2].into(Bool), completed_word[32..64], completed_word[0..32])
   def refill_completion_discard = !refill_installable ||| core.invalidate_all ||| refill.completion.bits.access_fault
   def refill_install_start = refill.completion.valid & !refill_completion_discard & !refill_installing
   def refill_install_final = refill_install_index === bits(words_per_line - 1, word_index_width)
   def refill_install_word = refill_installing & !core.invalidate_all
   def refill_completion_may_finish = refill_completion_discard ||| (refill_installing & refill_install_final)
-  def response_capacity = outstanding < bits(2, outstanding_width)
-  assert(outstanding <= bits(2, outstanding_width), "l1i_outstanding_in_range")
-  when response_fire:
-    assert(outstanding.or_reduce(), "l1i_response_has_request")
-
-  // S0 admission has no translation, S1 tag-match, or response-ready dependency.
-  // Unresolved reads are discarded; the MMU retains and reissues their requests.
+  // S0 admission depends only on transaction/installation state, not S1 tags,
+  // translation, or the consuming instruction pipeline.
   def array_accepts_input = !cache_flush & refill.command.ready & !refill_installing
   virtual_lookup.ready <== array_accepts_input
   def array_lookup_issue = array_accepts_input & (virtual_lookup.valid ||| lookup_input_prefetch)
@@ -154,10 +140,9 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     address: lookup_index_address
     prefetch: lookup_input_prefetch
   inject_flow(Valid(RV5StageL1ILookup(width)), ~valid: array_lookup_issue, ~bits: array_request) |> array_read.ingress
-  // S1 pairs the preceding SRAM read with its permitted physical resolution.
-  def lookup_accepts_input = !cache_flush & refill.command.ready & !lookup_miss & response_capacity
-  core.request.ready <== lookup_accepts_input & array_read.egress.valid & !array_context.prefetch & tags.port.response.valid
-  def lookup_issue = lookup_accepts_input & array_read.egress.valid & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)
+  // S1 captures a physical lookup; local replay kills younger SRAM results.
+  def lookup_issue = !cache_flush & !core.s1_kill & array_read.egress.valid & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)
+  def retained_error = refill_error_valid & !array_context.prefetch & (refill_error_address.align_down(RV5StageCacheLineBytes) === lookup_address.align_down(RV5StageCacheLineBytes))
   def resolved_context = RV5StageL1IRefillContext(width, way_width):
     address: lookup_address
     way: rv5stage_cache_replacement_way(cache, lookup_valids, replacement_ways[lookup_set])
@@ -166,53 +151,30 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     context: resolved_context
     hit: line_hit
     word: cached_fetch_word
+    access_fault: retained_error
   inject_flow(Valid(RV5StageL1IResolved(width, way_width)), ~valid: lookup_issue, ~bits: resolved_lookup) |> lookup.ingress
-  def request_fire = core.request.fire()
+  def request_fire = core.request.valid & !core.s1_kill & !cache_flush
   when request_fire:
     assert(array_read.egress.valid & !array_context.prefetch, "l1i_physical_request_has_virtual_lookup")
     assert(array_context.address[0..12] === core.request.bits.address[0..12], "l1i_vipt_page_offset_matches")
   when lookup_issue:
     assert(tags.port.response.valid & lines.port.response.valid, "l1i_resolution_has_array_read")
 
-  def Array(miss_path, hit_path) = (
-    lookup.egress
-      |> filter_valid(_result => !cache_flush)
-      |> to_decoupled()
-      |> demux_flow(2, result => result.hit.as_bits())
-  )
-  def refill_commands = (
-    miss_path
-      |> map_flow(result => RV5StageLineReadCommand(RV5StageL1IRefillContext(width, way_width), width)):
-        line_address: result.context.address.align_down(RV5StageCacheLineBytes)
-        context: result.context
-  )
-  refill_commands |> refill.command
-  assert(!lookup_miss ||| cache_flush ||| refill.command.ready,
-         "l1i_refill_command_accepted")
-
-  def hit_responses = (
-    hit_path
-      |> filter_flow(result => !result.context.prefetch)
-      |> map_flow(result => RV5StageInstructionResp()):
-        word: result.word
-        page_fault: Bool(#false)
-        access_fault: Bool(#false)
-  )
-  hit_responses |> response_arbiter.ingress[0]
-
-  def refill_responses = (
-    refill.completion
-      |> gate_flow(refill_completion_may_finish)
-      |> filter_flow(result => refill_live & !result.context.prefetch & !cache_flush)
-      |> map_flow(result => RV5StageInstructionResp()):
-        word: completion_fetch_word
-        page_fault: Bool(#false)
-        access_fault: result.access_fault
-  )
-  refill_responses |> response_arbiter.ingress[1]
-  response_arbiter.egress |> responses.ingress
-  when (response_arbiter.egress.valid):
-    assert(response_arbiter.egress.ready, "l1i_response_slot_reserved")
+  // S2 misses return replay immediately. The refill engine alone owns the
+  // accepted CHI transaction; successful installation is observed by a retry.
+  refill.command.valid <== lookup_miss & !cache_flush
+  refill.command.bits <== RV5StageLineReadCommand(RV5StageL1IRefillContext(width, way_width), width):
+    line_address: lookup.egress.bits.context.address.align_down(RV5StageCacheLineBytes)
+    context: lookup.egress.bits.context
+  core.response.valid <== lookup.egress.valid & !lookup.egress.bits.context.prefetch & !cache_flush
+  def s2_response = RV5StageInstructionResp():
+    word: lookup.egress.bits.word
+    page_fault: Bool(#false)
+    access_fault: lookup.egress.bits.access_fault
+  core.response.bits <== RV5StageFetchResult():
+    response: s2_response
+    replay: !lookup.egress.bits.hit & !lookup.egress.bits.access_fault
+  refill.completion.ready <== refill_completion_may_finish
 
   def refill_start = refill.command.fire()
   def refill_complete = refill.completion.fire()
@@ -277,25 +239,19 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   elsewhen (refill_install_word & !refill_install_final):
     refill_install_index <== refill_install_index + bits(1, word_index_width)
 
-  def next_outstanding = mux(
-    request_fire,
-    outstanding + bits(1, outstanding_width),
-    outstanding - bits(1, outstanding_width)
-  )
-  def refill_state_event = refill_start ||| refill_complete
-  def accounting_event = request_fire ^ response_fire
-  def cache_state_event = refill_state_event ||| accounting_event
-  def next_refill_live = mux(
-    refill_start,
-    !refill.command.bits.context.prefetch,
-    mux(refill_complete, Bool(#false), refill_live)
-  )
   when cache_flush:
     refill_live <== Bool(#false)
-    outstanding <== bits(0, outstanding_width)
-  elsewhen cache_state_event:
-    refill_live <== next_refill_live
-    outstanding <== mux(accounting_event, next_outstanding, outstanding)
+    refill_error_valid <== Bool(#false)
+  otherwise:
+    when refill_start:
+      refill_live <== !refill.command.bits.context.prefetch
+    elsewhen refill_complete:
+      refill_live <== Bool(#false)
+    when (refill_complete & refill_live & refill.completion.bits.access_fault):
+      refill_error_valid <== Bool(#true)
+      refill_error_address <== completion_address
+    elsewhen (core.response.valid & lookup.egress.bits.access_fault):
+      refill_error_valid <== Bool(#false)
 
   when (core.invalidate_all):
     refill_installable <== Bool(#false)

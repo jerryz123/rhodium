@@ -4,12 +4,13 @@ module rv5stage_mmu_replay_tb;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
   typedef struct packed { logic valid; instruction_req_bits_t bits; } instruction_req_t;
   typedef struct packed { logic [31:0] word; logic page_fault; logic access_fault; } instruction_resp_bits_t;
-  typedef struct packed { logic valid; instruction_resp_bits_t bits; } instruction_resp_t;
+  typedef struct packed { instruction_resp_bits_t response; logic replay; } instruction_result_t;
+  typedef struct packed { logic valid; instruction_result_t bits; } instruction_resp_t;
   typedef struct packed {
     logic flush;
     logic invalidate_all;
+    logic s1_kill;
     instruction_req_t request;
-    ready_t response;
   } instruction_in_t;
   typedef struct packed { ready_t request; instruction_resp_t response; } instruction_out_t;
   typedef struct packed {
@@ -53,14 +54,13 @@ module rv5stage_mmu_replay_tb;
     logic drained; logic reservation_valid;
   } data_out_t;
   typedef struct packed {
-    ready_t request;
     instruction_resp_t response;
   } instruction_memory_in_t;
   typedef struct packed {
     logic flush;
     logic invalidate_all;
+    logic s1_kill;
     physical_instruction_req_t request;
-    ready_t response;
   } instruction_memory_out_t;
   typedef struct packed {
     ready_t request;
@@ -128,6 +128,7 @@ module rv5stage_mmu_replay_tb;
   logic instruction_phase = 1'b0;
   logic instruction_blocked = 1'b0;
   logic instruction_return_valid = 1'b0;
+  logic instruction_return_replay = 1'b0;
   logic [31:0] instruction_return_word;
   integer instruction_requests_seen = 0;
   integer instruction_responses_seen = 0;
@@ -149,7 +150,6 @@ module rv5stage_mmu_replay_tb;
     instruction_in.flush = instruction_flush;
     instruction_in.request.valid = instruction_request_valid;
     instruction_in.request.bits.address = instruction_address;
-    instruction_in.response.ready = 1'b1;
     data_in.request.valid = data_request_valid;
     data_in.request.bits.address = (page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS) + (zero_request || management_operation != 0 ? 64'd63 : 64'd0);
     data_in.request.bits.access = management_operation != 0 ? management_operation : zero_request ? 4'd6 : 4'(MEMORY_LOAD);
@@ -162,9 +162,8 @@ module rv5stage_mmu_replay_tb;
     data_in.request.bits.floating_point_precision = '0;
     data_in.request.bits.locality = 3'd3;
     instruction_memory_in = '0;
-    instruction_memory_in.request.ready = !instruction_blocked;
     instruction_memory_in.response.valid = instruction_return_valid;
-    instruction_memory_in.response.bits = '{word: instruction_return_word, page_fault: 1'b0, access_fault: 1'b0};
+    instruction_memory_in.response.bits = '{response: '{word: instruction_return_word, page_fault: 1'b0, access_fault: 1'b0}, replay: instruction_return_replay};
     data_memory_in.request.ready = memory_ready;
     data_memory_in.request_fault = 1'b0;
     data_memory_in.request_access_fault = 1'b0;
@@ -275,9 +274,10 @@ module rv5stage_mmu_replay_tb;
   end
 
   always_ff @(posedge clock) begin
-    instruction_return_valid <= 1'b0;
+    instruction_return_valid <= instruction_memory_out.request.valid && !instruction_flush;
+    instruction_return_replay <= instruction_blocked;
     if (instruction_phase && !instruction_flush) begin
-      if (instruction_memory_out.request.valid && instruction_memory_in.request.ready) begin
+      if (instruction_memory_out.request.valid && !instruction_blocked) begin
         assert (detached_walk_phase ? instruction_memory_out.request.bits.address == PHYSICAL_ADDRESS :
                 instruction_requests_seen < (instruction_translation_phase ? 5 : 2) &&
                 instruction_memory_out.request.bits.address ==
@@ -287,9 +287,9 @@ module rv5stage_mmu_replay_tb;
         instruction_return_word <= 32'h100 + 32'(instruction_requests_seen);
         instruction_requests_seen <= instruction_requests_seen + 1;
       end
-      if (instruction_out.response.valid) begin
-        assert (instruction_out.response.bits.word == 32'h100 + 32'(instruction_responses_seen) &&
-                !instruction_out.response.bits.page_fault && !instruction_out.response.bits.access_fault)
+      if (instruction_out.response.valid && !instruction_out.response.bits.replay) begin
+        assert (instruction_out.response.bits.response.word == 32'h100 + 32'(instruction_responses_seen) &&
+                !instruction_out.response.bits.response.page_fault && !instruction_out.response.bits.response.access_fault)
           else $fatal(1, "registered instruction response lost its owner");
         instruction_responses_seen <= instruction_responses_seen + 1;
       end
@@ -334,6 +334,26 @@ module rv5stage_mmu_replay_tb;
     #1;
   endtask
 
+  // Model frontend-owned replay explicitly. The MMU never reissues S0 itself.
+  task automatic fetch_word(input logic [63:0] address);
+    bit complete;
+    complete=0;
+    for(int attempts=0; !complete && attempts<1000; attempts++) begin
+      @(negedge clock);
+      instruction_address=address;
+      instruction_request_valid=1;
+      #1;
+      assert(instruction_out.request.ready) else $fatal(1,"unexpected S0 stall");
+      tick();
+      instruction_request_valid=0;
+      tick();
+      assert(instruction_out.response.valid) else $fatal(1,"missing fixed-latency S2 result");
+      complete=!instruction_out.response.bits.replay;
+      tick();
+    end
+    assert(complete) else $fatal(1,"frontend replay failed to resolve");
+  endtask
+
   task automatic flush_fetch;
     @(negedge clock); instruction_flush = 1;
     tick();
@@ -358,7 +378,7 @@ module rv5stage_mmu_replay_tb;
     memory_idle = 0;
     tick();
     @(negedge clock); instruction_request_valid = 0;
-    tick(); // The retained S1 miss has now been accepted by the walker.
+    tick(); // The S1 miss has now been accepted by the walker.
     if (flush_at == 0) flush_fetch();
     @(negedge clock); memory_idle = 1;
     for (int level = 0; level < 3; level++) begin
@@ -766,12 +786,12 @@ module rv5stage_mmu_replay_tb;
     // the live S0 payload, and publish the fault through S2 ownership.
     instruction_address = 64'h80000000;
     tick();
-    assert (instruction_out.response.valid && instruction_out.response.bits.access_fault)
+    assert (instruction_out.response.valid && instruction_out.response.bits.response.access_fault)
       else $fatal(1, "PMA-denied early fetch lost its architectural fault");
     tick();
 
-    // Admit consecutive S0 words while S1 is blocked, then alter the live
-    // request payload. Local rereads must resolve each original word once.
+    // Consecutive S0 attempts retain their own S1 addresses and return replay
+    // when physical service is blocked. The frontend explicitly retries them.
     @(negedge clock);
     instruction_phase = 1;
     instruction_blocked = 1;
@@ -790,10 +810,9 @@ module rv5stage_mmu_replay_tb;
     instruction_request_valid = 0;
     instruction_address = 64'hdead0000;
     repeat (4) tick();
-    assert (instruction_lookup_out.valid && instruction_lookup_out.bits == 64'h8000)
-      else $fatal(1, "blocked instruction did not retry its retained virtual address");
     instruction_blocked = 0;
-    wait (instruction_responses_seen == 2);
+    fetch_word(64'h8000);
+    fetch_word(64'h8004);
     repeat (3) tick();
     assert (instruction_requests_seen == 2 && !instruction_memory_out.request.valid)
       else $fatal(1, "instruction retry duplicated completion");
@@ -812,8 +831,8 @@ module rv5stage_mmu_replay_tb;
     assert (instruction_requests_seen == 2 && !instruction_lookup_out.valid)
       else $fatal(1, "flushed S1 instruction escaped to physical memory");
 
-    // A real ITLB miss keeps two admitted PCs across the entire walk. The
-    // second word must reuse the fill, with no duplicate physical acceptance.
+    // A real ITLB miss returns replay while one walk owns its PTE traffic.
+    // Explicit retries of both words must reuse the resulting translation.
     @(negedge clock);
     instruction_translation_phase = 1;
     satp = SATP_SV39_ROOT_1;
@@ -832,11 +851,13 @@ module rv5stage_mmu_replay_tb;
     tick();
     instruction_request_valid = 0;
     instruction_address = 64'hdead0000;
-    wait (instruction_responses_seen == 4);
+    wait (instruction_pte_requests == 3 && data_out.drained);
+    fetch_word(VIRTUAL_ADDRESS);
+    fetch_word(VIRTUAL_ADDRESS + 4);
     repeat (4) tick();
     assert (instruction_pte_requests == 3 && instruction_requests_seen == 4 &&
             !instruction_lookup_out.valid && !instruction_memory_out.request.valid)
-      else $fatal(1, "ITLB local replay did not finish exactly once per admitted word");
+      else $fatal(1, "ITLB fill was not reused by frontend retries");
 
     // Retain a walker fault while the reread port is unavailable, then redirect.
     // The canceled fault must not strand the walker for a subsequent ITLB miss.
@@ -854,12 +875,7 @@ module rv5stage_mmu_replay_tb;
     tick();
     instruction_flush = 0;
     instruction_lookup_in.ready = 1;
-    instruction_address = 64'h5000;
-    instruction_request_valid = 1;
-    tick();
-    instruction_request_valid = 0;
-    instruction_address = 64'hdead0000;
-    wait (instruction_responses_seen == 5);
+    fetch_word(64'h5000);
     repeat (4) tick();
     assert (instruction_pte_requests == 7 && instruction_requests_seen == 5)
       else $fatal(1, "redirect did not release the retained ITLB fault");
@@ -867,7 +883,7 @@ module rv5stage_mmu_replay_tb;
     for (int flush_at = 0; flush_at < 6; flush_at++) finish_detached_walk(flush_at);
     finish_detached_walk(3, 1); // Fault discovered after an earlier redirect.
     finish_detached_walk(5, 1); // Redirect coincides with fault completion.
-    $display("RV5Stage registered ITLB retry, detached walks, DTLB demand, faults, and pipelined prefetch translation passed");
+    $display("RV5Stage frontend-owned ITLB replay, detached walks, DTLB demand, faults, and pipelined prefetch translation passed");
     $finish;
   end
 endmodule

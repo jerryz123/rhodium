@@ -1,12 +1,14 @@
-// Checks independent word-request generation, assembly, reserved run-ahead, restart, and faults.
+// Checks fixed-latency fetch assembly, completed-word capacity, restart, and faults.
 module rv5stage_fetch_tb;
   typedef struct packed { logic [63:0] address; } request_bits_t;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;
   typedef struct packed { logic [31:0] word; logic page_fault; logic access_fault; } response_bits_t;
   typedef struct packed { logic valid; response_bits_t bits; } response_t;
   typedef struct packed { logic ready; } ready_t;
-  typedef struct packed { ready_t request; response_t response; } memory_in_t;
-  typedef struct packed { logic flush; logic invalidate_all; request_t request; ready_t response; } memory_out_t;
+  typedef struct packed { response_bits_t response; logic replay; } result_bits_t;
+  typedef struct packed { logic valid; result_bits_t bits; } result_t;
+  typedef struct packed { ready_t request; result_t response; } memory_in_t;
+  typedef struct packed { logic flush; logic invalidate_all; logic s1_kill; request_t request; } memory_out_t;
   typedef struct packed {
     logic [63:0] pc;
     logic [31:0] instruction;
@@ -34,12 +36,13 @@ module rv5stage_fetch_tb;
   memory_out_t memory_out;
   fetched_out_t fetched_out;
   logic response_valid;
+  response_t s2_response;
   response_bits_t response_bits;
   logic fetched_ready = 1'b1;
   integer stalled_requests;
   logic [63:0] held_request_address;
 
-  RV5StageInstructionFetch dut (.*);
+  RV5StageFrontend dut (.control_in({active, flush, restart_valid, restart_pc, invalidate_all, predictor_flush, branch_update_in}), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] word_at(input logic [63:0] address);
@@ -57,18 +60,19 @@ module rv5stage_fetch_tb;
 
   always_comb begin
     memory_in.request.ready = 1'b1;
-    memory_in.response.valid = response_valid;
-    memory_in.response.bits = response_bits;
+    memory_in.response.valid = s2_response.valid;
+    memory_in.response.bits = '{s2_response.bits, 1'b0};
     fetched_in.ready = fetched_ready;
   end
 
   always_ff @(posedge clock) begin
     if (reset || memory_out.flush) begin
       response_valid <= 1'b0;
+      s2_response <= '0;
       response_bits <= '0;
     end else begin
-      if (response_valid && memory_out.response.ready)
-        response_valid <= 1'b0;
+      s2_response <= memory_out.s1_kill ? '0 : '{response_valid, response_bits};
+      response_valid <= 1'b0;
       if (memory_out.request.valid && memory_in.request.ready) begin
         response_valid <= 1'b1;
         response_bits.word <= word_at(memory_out.request.bits.address);
@@ -148,16 +152,16 @@ module rv5stage_fetch_tb;
     #1 restart_valid = 1'b0;
     repeat (24) begin
       @(posedge clock);
-      #1;
       if (memory_out.request.valid && memory_in.request.ready)
         stalled_requests = stalled_requests + 1;
+      #1;
       if (fetched_out.valid)
         assert (fetched_out.bits.pc == 64'h200 &&
                 fetched_out.bits.instruction == 32'h00000013)
           else $fatal(1, "fetch queue head changed under backpressure pc=%h",
                       fetched_out.bits.pc);
     end
-    assert (stalled_requests >= 5)
+    assert (stalled_requests == 5)
       else $fatal(1, "fetch did not run ahead while Decode was stalled requests=%0d",
                   stalled_requests);
     assert (fetched_out.valid && fetched_out.bits.pc == 64'h200)

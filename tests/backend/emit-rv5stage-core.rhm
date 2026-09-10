@@ -6,14 +6,14 @@ import:
   "../../rhodium/core/dependencies.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../riscv/isa/xlen.rhm" open
-  "../../cores/rv5stage/core.rhdl" as core
+  "../../cores/rv5stage/tests/core-fixture.rhdl" as core
   "../../cores/rv5stage/profile.rhm".RVCoreProfile
 
-def design = embedded.run_elaboration(fun (): core.RV5StageCore(RVCoreProfile(~xlen: XLen.X64), ~reset_address: 0x100000000))
+def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64), ~reset_address: 0x100000000))
 
 // This timing contract stops at the three always-captured pipeline payloads.
 // In particular, retirement arbitration must not become an EX operand source.
-def top = design.modules[0]
+def top = design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
 def alu = top.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == "alu")
 unless alu
 | error(~who: #'ex_forwarding, "missing ALU timing boundary")

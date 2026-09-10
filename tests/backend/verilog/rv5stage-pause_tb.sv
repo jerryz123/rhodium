@@ -57,7 +57,7 @@ module rv5stage_pause_tb;
   logic [31:0] response_word;
   integer scenario, cycles, stores, baseline_cycles, single_cycles, load_age;
   logic done, load_pending;
-  RV5StageCore dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
+  RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] instruction_at(input logic [63:0] address);

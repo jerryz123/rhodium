@@ -2,8 +2,8 @@
 
 # RV5Stage MMU
 
-This directory owns the translation boundary between `RV5StageCore`'s virtual
-instruction/data ports and RV5Stage's physical memory hierarchy. It contains
+This directory owns the translation boundary between the frontend's virtual fetch attempts, the execution core's data
+ports, and RV5Stage's physical memory hierarchy. It contains
 separate instruction and data TLBs, one shared Sv39 page-table walker, and the
 composition logic that correlates faults and arbitrates page-table reads onto
 the physical data path.
@@ -64,15 +64,14 @@ arbitration point is the shared physical data port immediately before that
 router; a cacheable PTE read follows the ordinary L1D path.
 
 `instruction_lookup: Decoupled(Bits(XLEN))` launches S0 virtual reads directly
-into L1I, bypassing physical routing. Core request acceptance atomically reserves
-that read and a two-entry, non-flow-through request queue. ITLB lookup and PMA
-checks use only the registered queue head in S1, not the live S0 address.
-Physical acceptance requires a matching preceding virtual read. If translation,
-physical routing, or response capacity blocks S1, a registered retry decision
-reissues the retained head's virtual read; speculative younger reads are simply
-discarded. The queued request leaves only when its physical request or local
-fault is accepted, preserving exactly-once ordered responses. Flush clears the
-request/read/retry state along with response ownership.
+into L1I. Acceptance captures one S1 address; ITLB and PMA use that registered
+address rather than the live S0 payload. The surviving S1 attempt either
+resolves physically or captures a local fault/replay. S2 reports exactly one
+nonbackpressured outcome. The frontend reserves result capacity and reissues
+the oldest failed PC; the MMU has no instruction request, retry, or owner FIFO.
+`s1_kill` cancels younger resolution and walk initiation without canceling an
+older S2 outcome or an accepted walk. `flush` also detaches speculative fault
+ownership.
 
 For authorized fallback transactions, `data_lookup` remains a Valid early index paired with data resolution at the same
 edge; walker ownership selects the physical PTE address on both data paths.
@@ -82,7 +81,7 @@ structural admission and buffering.
 
 ```mermaid
 flowchart LR
-  FETCH["Core Fetch<br/>S0 virtual request"] --> IREQ["Registered S1 request queue"] --> ILOOKUP["ITLB lookup"]
+  FETCH["Frontend<br/>S0 virtual attempt"] --> IREQ["Registered S1 context"] --> ILOOKUP["ITLB lookup"]
   LSU["Core WB slow service<br/>virtual request"] --> DLOOKUP["DTLB lookup"]
   EXLOAD["Core EX load/store"] --> LREQ["Registered MEM operation context"] --> DLOOKUP
   EXLOAD -->|"virtual index"| L1D
@@ -93,7 +92,7 @@ flowchart LR
   ILOOKUP -->|"hit / Bare"| ICHECK["Physical fetch-region check"]
   ICHECK -->|"executable + cacheable"| L1I["L1I"]
   ICHECK -->|"executable + non-cacheable"| UNCACHED_I["Shared uncached RN-I"]
-  ICHECK -->|"local fault"| IORDER["Two-entry fetch-owner queue"]
+  ICHECK -->|"local fault"| IORDER["Registered S2 outcome<br/>word, fault, or replay"]
   L1I --> IORDER
   UNCACHED_I --> IORDER
   IORDER --> FETCH
@@ -132,10 +131,9 @@ either TLB.
 2. A translated request performs a combinational ITLB lookup. A noncanonical
    virtual address cannot hit and therefore enters the miss path.
 3. If no walk or unconsumed fault is active, an instruction miss claims the
-   shared walker. A simultaneous data miss waits. The Fetch request itself is
-   not accepted yet, so the requester must continue to hold the `Decoupled`
-   request and address stable.
-4. A successful walk fills the ITLB. The still-present request retries through
+   shared walker. A simultaneous data miss waits. The already accepted fetch
+   attempt returns S2 replay; the frontend retains its PC and retries.
+4. A successful walk fills the ITLB. A later frontend attempt retries through
    the ordinary hit path. A page-table or PTE-permission failure is latched by
    original virtual address; a rejected PTE memory request is latched separately
    as an access fault.
@@ -149,12 +147,11 @@ either TLB.
    do not allocate in L1I. RV5Stage configuration rejects executable regions
    that do not permit idempotent reads, because Fetch may speculatively request
    an instruction word more than once.
-7. Every accepted fetch, including a local fault, reserves an entry in a
-   two-entry owner queue. The oldest entry selects the ordered physical-memory
-   response or a locally generated zero word with its page/access-fault bit.
-   This prevents a later local fault from passing an earlier memory response.
+7. S2 selects its registered local fault/replay or the paired physical outcome.
+   The frontend kills younger S1 attempts when an older S2 attempt replays,
+   preserving program order without an MMU response-owner queue.
 
-An instruction-path flush clears that owner queue and discards the fetch's
+An instruction-path flush clears the attempt stages and discards the fetch's
 interest in an active instruction walk, but does not cancel the accepted walk.
 The walk retains its PTE-response ownership and may still fill the ITLB, so
 refetch does not repeatedly restart the same translation. A fault from the

@@ -3,7 +3,7 @@
 # RV5Stage
 
 RV5Stage is a single-issue, in-order, five-stage RISC-V processor implemented
-as one authoritative Rhodium RTL circuit. A required `xlen :: XLen` host
+with a frontend and an execution core in ordinary Rhodium RTL. A required `xlen :: XLen` host
 parameter selects RV32 or RV64 without admitting arbitrary integer widths.
 Optional floating-point, half-precision, and compressed-instruction parameters
 specialize the same scalar pipeline with a parallel FP execution engine and
@@ -273,10 +273,15 @@ This does not add PMP, hypervisor support, or dynamic PMA reconfiguration.
 
 ## Microarchitecture
 
-The five logical stages are regions of one [`RV5StageCore`](core.rhdl) circuit,
-not module boundaries. Scalar tokens issue and reach WB in order, while
+[`RV5StageFrontend`](frontend.rhdl) owns Fetch; [`RV5StageCore`](core.rhdl)
+owns Decode through Writeback. Scalar tokens issue and reach WB in order, while
 selected register-producing operations may complete later through explicit
 scoreboards and a completion arbiter.
+
+The execution core consumes `fetched: Decoupled(FetchDecode(xlen))` and supplies
+`frontend_control` for activity, redirects, invalidation, and predictor training.
+`RV5Stage` connects those ports to the frontend; the frontend's `memory` port
+connects to the MMU's fixed-latency fetch-attempt interface.
 
 ```mermaid
 flowchart LR
@@ -284,7 +289,7 @@ flowchart LR
 
     subgraph scalar["Scalar pipeline — single issue, in-order commit"]
         IF["Fetch (IF)<br/>PC, correlation, redirects"]
-        FQ["Fetch queue<br/>5 entries, non-pipe"]
+        FQ["Completed words + assembly<br/>5 entries"]
         IFID["IF/ID<br/>elastic Pipe"]
         ID["Decode (ID)<br/>decode and hazards"]
         IDEX["ID/EX<br/>ValidPipeAlwaysCapture"]
@@ -336,7 +341,7 @@ flowchart LR
 
 | Region | Output boundary | May hold? | Primary responsibility |
 |---|---|---:|---|
-| Fetch | Five-entry `Queue`, then IF/ID `Pipe` | Yes | Producer-owned PC generation, L1I request correlation, and redirect flushing |
+| Fetch | Five completed words and assembler, then IF/ID `Pipe` | Yes | Frontend-owned attempts, replay, prediction, and redirect flushing |
 | Decode | ID/EX `ValidPipeAlwaysCapture` | No | Structured decode, operand capture and bypass selection, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
 | Execute | EX/MEM `ValidPipeAlwaysCapture` | No | Registered-source forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP operand preparation, and structural replay |
 | Memory | MEM/WB `ValidPipeAlwaysCapture` | No | Parallel DTLB/cache lookup, hit-result capture, branch recovery, early fault/replay squash, and bypass |
@@ -348,14 +353,12 @@ decisions remain explicit: in particular, an L1D request that is not ready
 becomes a replay, so its request boundary must not turn readiness into EX/MEM
 backpressure.
 
-Fetch reserves up to four ordered, aligned instruction words in a flushable
-ring, with separate request, response, and assembly pointers, so the physical
-instruction hierarchy can preserve response order while
-the pipelined L1I accepts and returns one hit per cycle. Redirects clear that
-window and flush the MMU, instruction-router, L1I lookup, and buffered-response
-state. A wrong-path refill may finish internally but cannot return an
-instruction to Fetch; an in-flight uncached read is drained without publishing
-its response.
+Fetch reserves five word slots across its completed queue and two in-flight
+attempt stages. S0 launches a virtual SRAM read; S1 resolves translation and
+the physical tag; S2 returns a word, fault, or replay. A local replay retries
+the oldest failed PC and kills younger attempts while preserving older words.
+A redirect clears speculative frontend state and detaches slow consumers;
+accepted refills and uncached reads still drain.
 
 Decode holds an instruction in IF/ID until its operands and locally reserved
 execution resources are available. Once admitted, its ID/EX token advances on
@@ -426,18 +429,15 @@ ordinary WB result uses the other write port. WAW gating prevents both ports
 from targeting the same register in one cycle, and a WB-aligned cache hit can
 set and clear a destination without an extra busy cycle.
 
-[`fetch.rhdl`](fetch.rhdl) keeps a five-entry reserved word ring and a five-entry
-flow-through queue of assembled instructions. The registered request PC follows
-the predicted stream on request acceptance; the assembly PC follows the captured
-prediction or advances by two or four bytes on instruction enqueue. Neither word consumption nor Decode readiness
-selects the live request address, and returned buffer credit is registered.
-With a ready consumer, the fifth word slot sustains one instruction per cycle on warm L1I hits even
-when 32-bit instructions start at halfword offsets and span two fetched words.
-The MMU admits S0 virtual reads into a two-entry non-flow-through request queue.
-S1 translates its registered head while L1I resolves the preceding SRAM read;
-S2 registers the selected word or refill context. A blocked S1 request remains
-queued and locally reissues its virtual read, without core replay or duplicate
-accepted physical requests. See the [MMU guide](mmu/README.md#request-flow).
+[`frontend.rhdl`](frontend.rhdl) captures prediction and continuation context
+for every S0/S1/S2 attempt. Only completed words enter its five-entry queue.
+The assembly PC advances when an instruction transfers to execution; it can
+consume zero, one, or two words. Decode readiness and same-cycle returned
+credit never select the live request address. Registered S2 replay may select
+S0 directly, without an S1 translation/tag-match feedback path.
+The MMU and L1I do not queue ordinary requests or promise eventual responses:
+the frontend retries after an ITLB miss, refill, or resource conflict.
+See the [MMU guide](mmu/README.md#request-flow).
 With C enabled Fetch can reuse either halfword, assemble a
 32-bit instruction that straddles adjacent words, and expand legal compressed
 instructions before the ordinary decoder. It retains the original 16-bit word
@@ -446,7 +446,7 @@ flushes retained, queued, or outstanding wrong-path data on redirects.
 
 ### Branch prediction
 
-`RV5Stage` and `RV5StageCore` accept `~btb_entries` (default 16, zero disables
+`RV5Stage` and `RV5StageFrontend` accept `~btb_entries` (default 16, zero disables
 prediction). The fully associative BTB stores full instruction-PC tags, targets,
 instruction lengths, and conditional/unconditional classification. Each entry
 has a two-bit saturating counter; conditional branches predict taken in the upper
@@ -456,7 +456,7 @@ global history, or separate direction table is present.
 
 Lookup runs alongside the current word request and chooses the earliest
 predicted-taken branch at or after the request's starting halfword. An accepted
-request captures its prediction in the word ring and selects the next request
+request captures its prediction in its attempt context and selects the next request
 PC. The target can be requested on the following cycle without a flush or
 prediction-induced bubble. A 32-bit branch starting in the upper halfword first
 requests its required continuation word, then the target. Cache/translation
@@ -546,7 +546,7 @@ flush and architectural cache invalidation remain distinct operations.
 
 ## System-facing composition
 
-[`rv5stage.rhdl`](rv5stage.rhdl) wraps `RV5StageCore` with address translation,
+[`rv5stage.rhdl`](rv5stage.rhdl) combines `RV5StageCore` and `RV5StageFrontend` with address translation,
 physical-region routing, private caches, and CHI transaction boundaries:
 
 ```mermaid
@@ -556,7 +556,9 @@ flowchart LR
     IDENTITY --> L1D
     IDENTITY --> UNCACHED
 
-    CORE -->|"virtual instruction access"| MMU["MMU<br/>ITLB, DTLB, Sv39 walker"]
+    CORE -->|"architectural fetch control"| FRONTEND["RV5StageFrontend"]
+    FRONTEND -->|"assembled instructions"| CORE
+    FRONTEND -->|"virtual fetch attempts"| MMU["MMU<br/>ITLB, DTLB, Sv39 walker"]
     CORE -->|"virtual data access"| MMU
     CORE -->|"privilege, mstatus, satp,<br/>translation flush"| MMU
     MMU -->|"early virtual index"| L1I

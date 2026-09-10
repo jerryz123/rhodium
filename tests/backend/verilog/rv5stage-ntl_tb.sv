@@ -18,7 +18,7 @@ module rv5stage_ntl_tb;
   iout_t instruction_access_out;
   din_t data_access_in;
   dout_t data_access_out;
-  RV5StageCore dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
+  RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
   integer scenario, cycles, attempts, accepted, irq_age, load_delay;
   logic done, hint_fetched, i_valid, d_valid;

@@ -44,7 +44,7 @@ logic [31:0] instruction_word;
 integer scenario, attempts, accepted, stores, response_delay, prefetches;
 logic done;
 dresp_bits_t pending_response;
-RV5StageCore dut (.pipeline_access_in('0), .pipeline_access_out(), .*);
+RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .*);
 always #5 clock = ~clock;
 
 function automatic logic [31:0] addi(input int rd, rs, imm);

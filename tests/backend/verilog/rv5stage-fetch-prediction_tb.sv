@@ -1,12 +1,14 @@
-// Checks predicted streams, two-word ring wraparound, compressed cuts, stalls, and repair.
+// Checks predicted streams, completed-word compaction, compressed cuts, stalls, and repair.
 module rv5stage_fetch_prediction_tb;
   typedef struct packed { logic [63:0] address; } request_bits_t;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;
   typedef struct packed { logic [31:0] word; logic page_fault, access_fault; } response_bits_t;
   typedef struct packed { logic valid; response_bits_t bits; } response_t;
   typedef struct packed { logic ready; } ready_t;
-  typedef struct packed { ready_t request; response_t response; } memory_in_t;
-  typedef struct packed { logic flush, invalidate_all; request_t request; ready_t response; } memory_out_t;
+  typedef struct packed { response_bits_t response; logic replay; } result_bits_t;
+  typedef struct packed { logic valid; result_bits_t bits; } result_t;
+  typedef struct packed { ready_t request; result_t response; } memory_in_t;
+  typedef struct packed { logic flush, invalidate_all, s1_kill; request_t request; } memory_out_t;
   typedef struct packed {
     logic [63:0] pc;
     logic [31:0] instruction, raw_instruction;
@@ -25,13 +27,13 @@ module rv5stage_fetch_prediction_tb;
   memory_out_t memory_out;
   ready_t fetched_in;
   fetched_out_t fetched_out;
-  response_t response = '0;
+  response_t response = '0, s2_response = '0;
   bit request_ready = 1, output_ready = 1, fault_continuation = 0;
   int mode = 0, cycle = 0, previous_request = -1, previous_output = -1;
   int request_checks = 0, output_checks = 0, local_flushes = 0;
   bit continuous_requests = 0, continuous_outputs = 0;
   logic [63:0] expected_requests[$];
-  RV5StageInstructionFetch dut (.*);
+  RV5StageFrontend dut (.control_in({active, flush, restart_valid, restart_pc, invalidate_all, predictor_flush, branch_update_in}), .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] word_at(input logic [63:0] address);
@@ -52,15 +54,16 @@ module rv5stage_fetch_prediction_tb;
     endcase
   endfunction
   always_comb begin
-    memory_in.request.ready = request_ready && (!response.valid || memory_out.response.ready);
-    memory_in.response = response;
+    memory_in.request.ready = request_ready;
+    memory_in.response = '{s2_response.valid, '{s2_response.bits, 1'b0}};
     fetched_in.ready = output_ready;
   end
   always @(posedge clock) begin
     cycle = cycle + 1;
-    if (reset || memory_out.flush) response <= '0;
+    if (reset || memory_out.flush) begin response <= '0; s2_response <= '0; end
     else begin
-      if (memory_out.response.ready) response.valid <= 0;
+      s2_response <= memory_out.s1_kill ? '0 : response;
+      response.valid <= 0;
       if (memory_out.request.valid && memory_in.request.ready)
         response <= '{1'b1, '{word_at(memory_out.request.bits.address), fault_continuation && memory_out.request.bits.address == 'h304, 1'b0}};
     end
@@ -143,8 +146,8 @@ module rv5stage_fetch_prediction_tb;
     initialize(2);
     train('h302, 'h402, 0);
     train('h402, 'h302, 1);
-    // Repeated three-word loops put a straddling branch at every ring position,
-    // including a two-word release spanning the last slot and slot zero.
+    // Repeated three-word loops exercise two-word compaction while subsequent
+    // occurrences retain their own prediction and continuation metadata.
     repeat (10) begin expected_requests.push_back('h300); expected_requests.push_back('h304); expected_requests.push_back('h400); end
     start('h302);
     repeat (10) begin expect_pc('h302, 'h402); expect_pc('h402, 'h302); end
@@ -155,11 +158,12 @@ module rv5stage_fetch_prediction_tb;
     output_ready = 0;
     start('h4fc);
     repeat (15) @(negedge clock);
-    assert (local_flushes == 1) else $fatal(1, "stale cut did not repair exactly once");
-    output_ready = 1;
-    // Check the held older head before its first transfer.
+    // Assembly stops at the held older word. Repair the younger cut when it
+    // reaches the head, without discarding or changing that older instruction.
     assert (fetched_out.valid && fetched_out.bits.pc == 'h4fc) else $fatal(1, "repair discarded older queued instruction");
+    output_ready = 1;
     expect_pc('h500, 'h504);
+    assert (local_flushes == 1) else $fatal(1, "stale cut did not repair exactly once");
     expect_pc('h504, 'h508);
 
     initialize(2);
