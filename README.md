@@ -22,106 +22,73 @@ generation, Rhodium lowers through CIRCT to SystemVerilog.
 
 ### Explicit hardware, simple IR
 
-Hardware connectivity should be explicit, not something readers and tools must
-recover by mentally executing a sequence of assignments. Rhodium rejects
-last-connect and competing-driver semantics: every place has one effective
-driver, and priority is represented in the hardware graph itself. Author-level
-`when` and `switch` forms become explicit selection, guarded effects, and final
-drives; the IR has no conditional-connect operations or general control-flow
-regions. Registers and memories still model state over time, but understanding
-what drives a signal does not require replaying procedural assignment order.
-This gives readers, verification, analysis, and backends the same unambiguous
-dataflow graph. See the [IR contract](rhodium/core/README.md).
+Rhodium rejects last-connect and competing-driver semantics: every place has
+one effective driver, with priority represented directly in the hardware graph.
+`when` and `switch` lower to explicit selection and guarded drives, giving
+authors, verification, analysis, and backends the same dataflow graph. See the
+[IR contract](rhodium/core/README.md).
 
 ### Language-oriented programming
 
-Useful abstractions should feel first-class whether they come from the language,
-a standard library, or a user's own API. Rhodium builds its authoring surface
-from composable Rhombus language layers: syntax, types, and operations can grow
-together without introducing a separate hardware model. Authors can inspect
-the layers beneath a construct and the core IR it produces, following an
-abstraction down to explicit hardware rather than treating it as compiler magic.
-This deliberately blurs the author-facing boundary between language features
-and libraries while keeping their hardware semantics explicit. The
-[layered authoring examples](examples/lop/) express the same circuit through
-the public core, kernel, selected layers, and standard language.
+Rhodium builds its authoring surface from composable Rhombus layers, so syntax,
+types, and operations can grow together without a separate hardware model.
+Authors can follow an abstraction down to the public core IR; the
+[layered authoring examples](examples/lop/) show the same circuit at several
+language layers.
 
 ### Extend the language with hardware types
 
-Equal bit widths do not make two hardware values interchangeable. Extensible
-types let libraries enforce domain distinctions in user-level connections and
-operations, catching incompatible uses during elaboration instead of relying
-on naming conventions. The supplied layers already build a rich vocabulary:
-`OneHot`, `MaybeOneHot`, multi-hot lane sets through `Mask`, nominal enums, and
-tagged unions. Libraries can add their own types, methods, and notation using
-the same mechanisms without adding a core primitive for every abstraction.
-The normal language and an explicitly extended `#lang rhodium/base` still
-converge on the same small hardware IR. See the
-[type extension surface](rhodium/frontend/layers/README.md#shared-extension-surface).
+Equal widths do not imply semantic compatibility. Extensible hardware types let
+libraries enforce domain distinctions during elaboration, from `OneHot` and
+`Mask` values to nominal enums and tagged unions, while still lowering to the
+same core IR. See the [type extension surface](rhodium/frontend/layers/README.md#shared-extension-surface).
 
 ## What layers and libraries make possible
 
 ### Declarative decoding
 
-Specify the behavior that matters and leave synthesis free to optimize what
-does not. Typed decode tables express input patterns and partially specified
-outputs: an output bit marked don't-care gives synthesis freedom to choose
-whichever value simplifies the circuit, instead of preserving an unnecessary
-designer-supplied constant. Rhodium retains that intent as an unordered,
-non-overlapping relation in the IR. The CIRCT backend lowers it to sparse
-`casez` logic with don't-care outputs, preserving optimization freedom for
-downstream tools. See [decode generation](rhodium/std/README.md) and the
+Typed decode tables preserve partially specified outputs, so synthesis can
+choose don't-care bits that simplify the circuit. Rhodium keeps the table as a
+non-overlapping relation and CIRCT lowers it to sparse `casez` logic. See
+[decode generation](rhodium/std/README.md) and the
 [lowering contract](rhodium/backend/README.md#selection-and-relations).
 
 ### Domain-specific hardware vocabulary
 
-The libraries put that extensibility to work: CHI defines types such as
-`CHIReqOpcode`, `CHITransferSize`, and `CHIMemAttr()`, while the RISC-V adapter
-defines `Sv39Access` and `Sv39Pte()`. Protocol encodings and page-table fields
-become typed values with domain operations, built using ordinary public
-Rhodium declarations. See the [CHI types](chi/protocol/flits.rhdl) and
+The libraries use that extensibility for domain vocabulary: CHI protocol fields
+and RISC-V page-table values become typed values with domain operations, not
+unstructured bit fields. See the [CHI types](chi/protocol/flits.rhdl) and
 [RISC-V translation types](riscv/rtl/sv39.rhdl).
 
 ### Protocol-aware flow composition
 
 The [flow library](flow/README.md) composes buffers, arbitration, routing,
 joins, and splits with `|>`. Connections check payload, direction, and protocol
-compatibility, including the distinction between `Valid`, `Decoupled`, and
-`Irrevocable`. Joins consume inputs atomically; atomic forks transfer to all
-selected recipients together, while buffered broadcasts allow independent,
-exactly-once acceptance. Adapters preserve or explicitly weaken protocol
-guarantees rather than silently promising stability under backpressure.
+compatibility across `Valid`, `Decoupled`, and `Irrevocable`, while composition
+keeps atomicity and backpressure guarantees explicit.
 
 ### Transaction-aware Perfetto traces
 
 Annotate flow checkpoints and the [event compiler](rhodium/event/README.md)
-derives transaction ancestry through supported queues, arbitration, routing,
-forks, and joins. Instrumented simulations track the actual contributing
-transfers; RHEG collects and exports their event graph to Perfetto. Optional
-stall observations and typed captures, including instruction disassembly,
-connect timing to what the hardware was doing. Unsupported ancestry is rejected
-rather than guessed, and tracing leaves the original synthesis design unchanged.
+derives transaction ancestry from actual transfers through supported flow
+components, then exports the event graph to Perfetto. Unsupported ancestry is
+rejected rather than guessed, and tracing leaves synthesis unchanged.
 
 ### Validated NoC generation
 
-The [NoC library](noc/README.md) starts with symbolic topology and routing
-descriptions, checks reachability and routing deadlock under documented VC
-acquisition assumptions, and produces validated plans for
-[hardware generation](noc/rtl/README.md). Routing analysis happens before RTL
-construction, with failure witnesses tied back to the authored network.
-These routing guarantees do not imply fairness or whole-protocol correctness.
+The [NoC library](noc/README.md) analyzes symbolic topology and routing before
+RTL construction, checking reachability and deadlock under documented VC
+assumptions and retaining failure witnesses for the authored network. These
+guarantees do not imply fairness or whole-protocol correctness; validated plans
+feed [hardware generation](noc/rtl/README.md).
 
 ### Clock-crossing safety from signal provenance
 
-Clock-domain safety should follow where a signal comes from, not its name or
-the module boundary it passes through. Rhodium's
-[clock-crossing checker](rhodium/analysis/README.md#review-or-enforce-cdc-violations)
-traces clock provenance through logic and hierarchy, down to individual record
-and vector fields. Opt-in `elaborate_with_cdc` rejects unsafe or unknown-timing
-sampling unless recognized, structurally verified crossing evidence permits it.
-The current evidence supports stable one-bit synchronizers; it is not a blanket
-guarantee for buses, handshakes, or reset-domain crossings, and the checker does
-not silently insert synchronization hardware.
+Rhodium's [clock-crossing checker](rhodium/analysis/README.md#review-or-enforce-cdc-violations)
+traces signal provenance through logic, hierarchy, records, and vectors.
+Opt-in `elaborate_with_cdc` rejects unsafe or unknown-timing sampling unless
+verified crossing evidence permits it; it does not insert synchronizers or
+claim blanket safety for buses, handshakes, or reset crossings.
 
 ## Quick start
 
