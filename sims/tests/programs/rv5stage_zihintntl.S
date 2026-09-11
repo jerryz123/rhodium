@@ -69,6 +69,9 @@ calibrate:
   add s5, s3, s4
   srli s5, s5, 1
   sd s5, 32(s7)
+  la t2, hit_stream
+  li t0, 0x40000000
+  sub s3, t2, t0
 
   la s6, hint_functions
   li s10, 4
@@ -81,6 +84,24 @@ calibrate:
   li s11, 16
 hint_loop:
   ld a3, 0(s6)
+  // Establish a same-operation hit baseline on a separate cache set. An NTL
+  // miss may be faster than an allocating ordinary miss because it skips line
+  // installation, so compare it with its own hit without disturbing trials.
+  prime_conflict_set
+  mv a0, s3
+  ld t0, 0(a0)
+  li t4, -1
+  li s8, 12
+hint_hit_calibrate:
+  mv a0, s3
+  jalr a3
+  li t0, 0x8877665544332211
+  bne a2, t0, fail
+  bgeu a1, t4, 6f
+  mv t4, a1
+6:
+  addi s8, s8, -1
+  bnez s8, hint_hit_calibrate
   li s8, 12
   li s9, -1
   li s4, -1
@@ -111,7 +132,8 @@ trial:
   bnez s8, trial
   sd s9, 40(s7)
   sd s4, 48(s7)
-  bgeu s5, s9, fail
+  addi t0, t4, 8
+  bgeu t0, s9, fail
   bgeu s4, s5, fail
   addi s6, s6, 8
   addi s11, s11, 1
@@ -204,6 +226,9 @@ resident:
   .dword 0
 .section .stream,"aw",@progbits
 stream:
+  .dword 0x8877665544332211
+.balign 64
+hit_stream:
   .dword 0x8877665544332211
 .section .conflict,"aw",@progbits
 .balign 4096
