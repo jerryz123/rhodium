@@ -249,6 +249,7 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-elastic` | Independently stalled repeated instances, simultaneous transfers, full reset, exact ready/valid/payload equivalence |
 | `event-queue` | All flow/pipe modes at depths one/three, depth-five hierarchical composition, empty bypass, full replacement, pointer wraparound |
 | `event-arbiter` | Fixed/round-robin and nested selection, independent input/output buffers, changing offers under stall |
+| `event-crossbar` | Direct/configured grant routing and selection, queued input ancestry, simultaneous outputs, zero grants, changed stalled winners, full replacement, and pending reset |
 | `event-demux` | Invalid selectors, changing selection, independent branch buffers, simultaneous completions, nested routing and reconvergence |
 | `event-atomic-fork` | All-or-none transfers, pre/post storage, repeated hierarchy, nested/singleton replication, demux/arbiter composition and uncertified-fanout rejection |
 | `event-broadcast` | Independent recipients, partial-delivery reset, old delivery before replacement, shared parents and duplicate-delivery rejection |

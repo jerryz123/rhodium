@@ -77,6 +77,10 @@ pending reset, and parentless detached traffic selected beside traced traffic.
 Its scoped relation ends at an opaque child's attempt output before a normal
 Flow mapper. Host coverage also preserves a downstream checkpoint, permits an
 unrelated traced lane, and rejects summaries overlapping existing Flow.
+`event-crossbar` links RHEG and checks direct/configured grant-controlled
+crossbars with flow-through input queues. Its independent FIFO/transfer model
+checks exact parent occurrence IDs for equal payloads, all routes, simultaneous
+outputs, zero grants, changing stalled selections, full replacement, and reset.
 
 An emitter may additionally export `event_manifest_cpp`, generated from the
 same instrumented elaboration it prints. `load-example.rkt` writes this string

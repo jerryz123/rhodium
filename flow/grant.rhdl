@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines optional-one-hot grant routing and merging for ready-valid flows.
+// Defines optional-one-hot grant routing and merging with intrinsic event lineage.
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
@@ -24,6 +24,7 @@ circuit GrantDemux(T :: DataType, output_count :: PosInt):
     def selected = grants[output_index]
     egress[output_index].valid <== ingress.valid & selected
     egress[output_index].bits <== ingress.bits
+  describe_interface_contract(ingress, egress, "data", ~kind: "grant-demux", ~trace_model: interface_trace_routing(for List (index in 0..output_count): grants[index]))
 
 // A zero grant produces no offer; a one-hot grant selects the corresponding
 // input. At most one grant bit may be asserted. Readiness is returned only to
@@ -47,3 +48,5 @@ circuit GrantMerge(T :: DataType, input_count :: PosInt):
     for List (input_index in 0..input_count): ingress[input_index].bits,
     ~default: ingress[0].bits
   )
+  describe_interface_selection(for List (index in 0..input_count): grants[index])
+  describe_interface_contract(ingress, egress, "data", ~kind: "grant-merge", ~trace_model: interface_trace_selection())

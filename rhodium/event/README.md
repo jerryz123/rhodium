@@ -252,6 +252,7 @@ remain visible; it does not summarize the whole containing module. See the
 | `trace_detach` | Explicitly cut ancestry without a visible event; selected transactions remain valid but parentless |
 | `queue` | Preserve FIFO order for all `~pipe`/`~flow` combinations, including bypass and simultaneous replacement |
 | `arbiter`, `rr_arbiter` | Select the actual granted input's lineage, including any multiple-parent lineage |
+| `GrantDemux`, `GrantMerge`, `GrantCrossbar`, `grant_crossbar` | Live grant-selected lineage through composed routing/selection; zero grants block transfer |
 | `demux_flow` | Route to the selected output; no selection blocks transfer |
 | `atomic_fork`, `fork_valid` | Replicate lineage on synchronous acceptance; downstream buffers may complete independently |
 | `broadcast` | Preserve one accepted lineage until each recipient consumes its copy; replacement cannot change old deliveries |

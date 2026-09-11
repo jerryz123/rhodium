@@ -1,0 +1,43 @@
+#lang rhodium
+// Exercises direct/configured crossbar ancestry through independent input queues.
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit EventCrossbarLane(direct :: Boolean, partial :: Boolean = #false):
+  interface ingress[3](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  input grants: Vec(3, Vec(2, Bool))
+  def inputs = for Array (index in 0..3):
+    def observed = if partial && index == 2 | ingress[index] | ingress[index] |> trace_event("input" ++ to_string(index), ~payload: #true)
+    observed |> queue(2, ~pipe: #true, ~flow: #true)
+  def outputs:
+    if direct
+    | block:
+        inst crossbar(GrantCrossbar(Bits(8), 3, 2))
+        crossbar.grants <== grants
+        inputs <=> crossbar.ingress
+        crossbar.egress
+    | inputs |> grant_crossbar(2, ~grants: grants)
+  for (index in 0..2):
+    outputs[index] |> trace_event("output" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
+
+sync_circuit EventCrossbar():
+  interface sources[6](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[4](Decoupled(Bits(8)), ~role: producer)
+  input grants: Vec(3, Vec(2, Bool))
+  inst direct(EventCrossbarLane(#true))
+  inst configured(EventCrossbarLane(#false))
+  direct.grants <== grants
+  configured.grants <== grants
+  for (index in 0..3):
+    sources[index] |> direct.ingress[index]
+    sources[index + 3] |> configured.ingress[index]
+  for (index in 0..2):
+    direct.egress[index] |> sinks[index]
+    configured.egress[index] |> sinks[index + 2]
+
+def crossed = elaborate_with_top(EventCrossbar())
+fun partial(): elaborate_with_top(EventCrossbarLane(#true, #true))
+export:
+  crossed
+  partial

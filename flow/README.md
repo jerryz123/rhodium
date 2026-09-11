@@ -492,6 +492,14 @@ count from its input array and returns an output endpoint array:
 ) <=> egress
 ```
 
+Both grant primitives declare event trace contracts using their live grant bits.
+Direct and configured crossbars inherit these contracts through their internal
+demux/merge structure. Each accepted output retains only its selected input's
+ancestry, including through upstream queues; zero grants transfer nothing.
+Changing grants during a stall changes the offered ancestry, not a remembered
+winner. All possible input paths must have supported ancestry (or an explicit
+`trace_detach()` boundary).
+
 ## Joining and branching topologies
 
 `zip_flow` publishes an atomic all-input consumption contract for event tracing.

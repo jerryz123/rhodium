@@ -190,7 +190,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained)
+    language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
     std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment|std:transfer-range)
@@ -431,7 +431,7 @@ verify_fixture() {
   if [[ -f "$test_dpi_source" ]]; then
     dpi_sources+=("$test_dpi_source")
   fi
-  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == rv5stage-load-hit ]]; then
+  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -654,6 +654,7 @@ direct_fixture_specs=(
   'event-elastic|event_elastic_tb'
   'event-queue|event_queue_tb'
   'event-arbiter|event_arbiter_tb'
+  'event-crossbar|event_crossbar_tb'
   'event-demux|event_demux_tb'
   'event-atomic-fork|event_atomic_fork_tb'
   'event-broadcast|event_broadcast_tb'

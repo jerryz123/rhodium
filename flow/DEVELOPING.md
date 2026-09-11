@@ -91,6 +91,13 @@ and traversal through presentation wrappers. Keep those behavioral checks when
 changing how contracts are attached; elaboration alone does not establish
 reset, simultaneous-transfer, or backpressure correctness.
 
+`GrantDemux` and `GrantMerge` own routing and selection contracts sampled from
+their functional grants. `GrantCrossbar` and its configured adapter delegate
+through these children; do not add a competing whole-crossbar model.
+`event-crossbar` checks direct/configured traversal through input queues,
+simultaneous outputs, changing grants under stalls, and reset with pending work
+against a public-transfer occurrence scoreboard.
+
 Keep protocol declarations separate from components that implement them.
 Ready-valid transforms must preserve or deliberately weaken the nominal
 contract documented in the README. A transform that observes live ambient

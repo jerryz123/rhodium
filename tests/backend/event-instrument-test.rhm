@@ -13,6 +13,7 @@ import:
   "../frontend/event-elastic-fixture.rhdl" as elastic_fixture
   "../frontend/event-queue-fixture.rhdl" as queue_fixture
   "../frontend/event-arbiter-fixture.rhdl" as arbiter_fixture
+  "../frontend/event-crossbar-fixture.rhdl" as crossbar_fixture
   "../frontend/event-demux-fixture.rhdl" as demux_fixture
   "../frontend/event-atomic-fork-fixture.rhdl" as fork_fixture
   "../frontend/event-broadcast-fixture.rhdl" as broadcast_fixture
@@ -237,6 +238,16 @@ check:
   arbiter_fixture.mismatched_instance() ~throws "must match the transform implementation"
   arbiter_fixture.bad_shape() ~throws "one grant and route per input"
   instrument_events(arbiter_fixture.partial()) ~throws "annotated ancestor on every input path"
+
+def crossbar_before = emit_circt(crossbar_fixture.crossed.design)
+def crossed = instrument_events(crossbar_fixture.crossed)
+def crossbar_outputs = crossed.manifest.sites.filter(~keep: fun (site): site.label.starts_with("output"))
+check:
+  crossed.manifest.sites.length() ~is 10
+  crossed.manifest.dependencies.length() ~is 12
+  crossbar_outputs.map(fun (site): crossed.manifest.trace_plans[site.id] is_a EventTraceSelection) ~is [#true, #true, #true, #true]
+  emit_circt(crossbar_fixture.crossed.design) ~is crossbar_before
+  instrument_events(crossbar_fixture.partial()) ~throws "annotated ancestor on every input path"
 
 def demux_before = emit_circt(demux_fixture.routed.design)
 def routed = instrument_events(demux_fixture.routed)
