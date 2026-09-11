@@ -161,7 +161,7 @@ ifeq ($(SOC),simple)
 zihintntl-test: $(ZIHINTNTL_BINARY) simulator
 	$(SIMULATOR_BINARY) +signature=$(ZIHINTNTL_SIGNATURE) +signature-granularity=8 $(ZIHINTNTL_BINARY)
 	awk 'NR == 1 && $$0 != "123456789abcdef0" { exit 1 } NR == 2 && $$0 != "0000000000000008" { exit 1 } NR == 8 && $$0 != "0000000000000001" { exit 1 } END { if (NR != 8) exit 1 }' $(ZIHINTNTL_SIGNATURE)
-	@echo "Zihintntl translated non-allocation, resident preservation, and coherent signature checks passed on $(SOC)"
+	@echo "Zihintntl translated non-allocation, dirty-data preservation, and coherent signature checks passed on $(SOC)"
 else
 zihintntl-test:
 	@echo "zihintntl-test supports only the checked-in SimpleSoC configuration (SOC=simple)" >&2

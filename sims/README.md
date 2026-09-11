@@ -442,8 +442,11 @@ make -C sims zihintntl-test SOC=simple
 The payload uses Sv39-translated data accesses, checks all four hints and
 compressed aliases when C is available, and tests a hinted FP load when D is
 available. Relative hit/miss timing checks distinguish repeated non-allocating
-loads from ignored hints and verify that a conflicting dirty resident stays
-cached. FESVR reads the final dirty signature coherently. Its conflict pattern
+loads from ignored hints, while the resident probe verifies that dirty data
+remains authoritative after the coherent transaction. The inclusive outer
+cache may invalidate that L1 copy while allocating the hinted line, so the
+SoC test does not claim that the resident remains cached. FESVR reads the final
+dirty signature coherently. Its conflict pattern
 is tied to SimpleSoC's checked-in four-way L1D, so this is not an assertion about
 other SoC cache geometries, an ISA-mandated timing test, or a claim of locality
 control in outer caches.

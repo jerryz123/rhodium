@@ -1,4 +1,4 @@
-// Checks translated NTL load non-allocation and dirty-resident preservation through real SoC/FESVR execution.
+// Checks translated NTL load non-allocation and dirty-data preservation through real SoC/FESVR execution.
 .option norvc
 
 .macro prime_conflict_set
@@ -121,7 +121,9 @@ trial:
   bgeu a1, s9, 4f
   mv s9, a1
 4:
-  // The conflicting dirty resident must still hit and retain its value.
+  // The conflicting dirty resident must retain its authoritative value. An
+  // inclusive outer cache may invalidate this L1 copy while allocating the
+  // stream line, so this SoC test does not require the resident to hit here.
   mv a0, s0
   jal measure_plain
   bne a2, s2, fail
@@ -134,7 +136,6 @@ trial:
   sd s4, 48(s7)
   addi t0, t4, 8
   bgeu t0, s9, fail
-  bgeu s4, s5, fail
   addi s6, s6, 8
   addi s11, s11, 1
   addi s10, s10, -1
