@@ -58,9 +58,25 @@ also have dedicated negative benches. Those checks pass only when simulation
 fails and reports the expected assertion label, so an expected failure is not
 treated as an unchecked crash.
 
-The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, `event-join`, and `event-stall` direct fixtures
+The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, `event-join`, `event-stall`, and `event-offer` direct fixtures
 additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
+Pipeline, elastic, queue, arbiter, and broadcast coverage includes direct
+self-described modules and configured adapters, with independent transaction
+scoreboards and uninstrumented reference lanes. `event-instrument-test.rhm`
+also checks named local regions, module/inline ownership equivalence, wrapper
+delegation through checkpoints, and conflicting/foreign-control rejection.
+The `rv5stage-load-hit` fixture also links RHEG and exports a matching descriptor;
+its scoreboard checks D-cache S1/MEM and S2/WB alignment, public core/cache
+admission, and retained S2-to-S3-to-S4 ancestry including direct-refill fields.
+The existing bench checks functional load timing and architectural results.
+Every refill receives RetryAck and PCrdGrant before retransmission, with request
+backpressure; both attempts must retain the same S4 occurrence.
+`event-retained` independently covers repeated output, release/replacement,
+pending reset, and parentless detached traffic selected beside traced traffic.
+Its scoped relation ends at an opaque child's attempt output before a normal
+Flow mapper. Host coverage also preserves a downstream checkpoint, permits an
+unrelated traced lane, and rejects summaries overlapping existing Flow.
 
 An emitter may additionally export `event_manifest_cpp`, generated from the
 same instrumented elaboration it prints. `load-example.rkt` writes this string

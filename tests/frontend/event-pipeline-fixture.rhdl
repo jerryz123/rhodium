@@ -18,6 +18,8 @@ sync_circuit EventPipeline():
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sink(Valid(Bits(8)), ~role: producer)
   inst child(EventPipelineChild())
+  // A presentation wrapper must delegate through, not bypass, the middle site.
+  describe_interface_transform(InterfaceHandle(child.ingress, child.egress), "pipeline-wrapper", {}, child)
   source
     |> trace_valid_event("accepted", ~payload: #true)
     |> filter_valid(payload => !(payload === bits(0, 8)))
@@ -40,6 +42,74 @@ sync_circuit EventValidConversion():
 
 def valid_conversion = elaborate_with_top(EventValidConversion())
 
+interface EventNestedBus():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(Bits(8))
+    auxiliary: Decoupled(Bits(8))
+  responder -> requester:
+    response: Valid(Bits(8))
+
+interface EventNestedEnvelope():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    traffic: EventNestedBus()
+
+sync_circuit EventNestedRequester():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  interface bus(EventNestedEnvelope(), ~role: requester)
+  source |> trace_valid_event("request") |> to_decoupled() |> bus.traffic.request
+  bus.traffic.auxiliary.valid <== Bool(#false)
+  bus.traffic.auxiliary.bits <== bits(0, 8)
+  bus.traffic.response |> trace_valid_event("completed", ~terminal: #true) |> sink
+
+sync_circuit EventNestedResponder():
+  interface bus(EventNestedEnvelope(), ~role: responder)
+  bus.traffic.auxiliary.ready <== Bool(#true)
+  bus.traffic.request |> to_valid() |> valid_pipe(1) |> trace_valid_event("response") |> bus.traffic.response
+
+sync_circuit EventNestedChannels():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  inst requester(EventNestedRequester())
+  inst responder(EventNestedResponder())
+  source |> requester.source
+  requester.sink |> sink
+  requester.bus |> interface_link(EventNestedEnvelope(), "first") |> interface_link(EventNestedEnvelope(), "second") |> responder.bus
+
+def nested_channels = elaborate_with_top(EventNestedChannels())
+
+sync_circuit EventPrivateResetChild():
+  output value: Bits(8)
+  reg count(~init: bits(0, 8))
+  count <== count + bits(1, 8)
+  value <== count
+
+sync_circuit EventPrivateReset():
+  input clear: Bool
+  output heartbeat: Bits(8)
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  inst unrelated(EventPrivateResetChild(), ~reset_when: clear)
+  heartbeat <== unrelated.value
+  source |> trace_valid_event("before") |> valid_pipe(1) |> trace_valid_event("after") |> sink
+
+sync_circuit EventTracedPrivateReset():
+  input clear: Bool
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  inst storage(ValidPipe(Bits(8), 1), ~reset_when: clear)
+  source |> trace_valid_event("before") |> storage.ingress
+  storage.egress |> trace_valid_event("after") |> sink
+
+fun private_reset(traced_reset :: Boolean):
+  if traced_reset | elaborate_with_top(EventTracedPrivateReset()) | elaborate_with_top(EventPrivateReset())
+
 // Invalid use of the supported fixed-latency contract: a route cannot
 // describe two inputs as a one-to-one pipeline.
 sync_circuit EventBadLatencyShape():
@@ -51,8 +121,107 @@ sync_circuit EventBadLatencyShape():
 fun bad_latency_shape(): elaborate_with_top(EventBadLatencyShape())
 fun bad_latency_count(): interface_trace_fixed_latency(0)
 
+// The same local controls can belong to a primitive boundary or inline adapter.
+// Two independent regions ensure declarations are named, not module singletons.
+sync_circuit EventNamedStorage(intrinsic :: Boolean, invalid :: String = ""):
+  interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  reg occupied(~init: vec([Bool(#false), Bool(#false)]))
+  reg payload(Vec(2, Bits(8)))
+  fun storage(input_endpoint, output_endpoint, name, index):
+    def advance = !occupied[index] ||| output_endpoint.field("ready")
+    input_endpoint.field("ready") <== advance
+    output_endpoint.field("valid") <== occupied[index]
+    output_endpoint.field("bits") <== payload[index]
+    when (advance):
+      occupied[index] <== input_endpoint.field("valid")
+      when (input_endpoint.field("valid")):
+        payload[index] <== input_endpoint.field("bits")
+    describe_interface_elastic_stages([advance], [input_endpoint.field("valid")], ~name: name)
+    interface_trace_elastic(~name: name)
+  for (index in 0..2):
+    def name = "lane" ++ to_string(index)
+    if intrinsic
+    | def model = storage(ingress[index], egress[index], name, index)
+      describe_interface_contract(ingress[index], egress[index], name, ~trace_model: model)
+    | def input_link = interface_link(Decoupled(Bits(8)), "input" ++ name)
+      def output_link = interface_link(Decoupled(Bits(8)), "output" ++ name)
+      def model = storage(input_link.right, output_link.left, name, index)
+      def handle = interface_transform(input_link, output_link)
+      describe_interface_transform(handle, "local-storage", ~trace_model: model)
+      ingress[index] |> handle |> egress[index]
+      if invalid == "duplicate-inline"
+      | describe_interface_transform(handle, "duplicate", ~trace_model: model)
+      | #void
+  if invalid == "duplicate-boundary"
+  | describe_interface_contract(ingress[0], egress[0], "duplicate", ~trace_model: interface_trace_elastic(~name: "lane0"))
+  | #void
+  if invalid == "missing-name"
+  | interface_trace_elastic(~name: "absent")
+  | #void
+
+sync_circuit EventNamedContracts(intrinsic :: Boolean, wrapped :: Boolean):
+  interface sources[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Decoupled(Bits(8)), ~role: producer)
+  inst storage(EventNamedStorage(intrinsic))
+  if wrapped
+  | describe_interface_transform(InterfaceHandle(storage.ingress, storage.egress), "named-wrapper", {}, storage)
+  | #void
+  for (index in 0..2):
+    sources[index] |> trace_event("before" ++ to_string(index)) |> storage.ingress[index]
+    storage.egress[index] |> trace_event("after" ++ to_string(index)) |> sinks[index]
+
+sync_circuit EventConflictingContract(mode :: String):
+  interface ingress(Valid(Bits(8)), ~role: consumer)
+  interface egress(Valid(Bits(8)), ~role: producer)
+  inst storage(ValidPipe(Bits(8), 1))
+  ingress |> storage.ingress
+  storage.egress |> egress
+  if mode == "override"
+  | describe_interface_transform(InterfaceHandle(storage.ingress, storage.egress), "override", {}, storage, ~trace_model: interface_trace_fixed_latency(1))
+  | describe_interface_contract(ingress, egress, "summary", ~trace_model: interface_trace_fixed_latency(1))
+
+// Third-party primitives may leave certification to the connection adapter.
+sync_circuit EventUndescribedDelay():
+  interface ingress(Valid(Bits(8)), ~role: consumer)
+  interface egress(Valid(Bits(8)), ~role: producer)
+  reg present(~init: Bool(#false))
+  reg payload(Bits(8))
+  present <== ingress.valid
+  payload <== ingress.bits
+  egress.valid <== present
+  egress.bits <== payload
+
+sync_circuit EventAdapterContract():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  inst storage(EventUndescribedDelay())
+  describe_interface_transform(InterfaceHandle(storage.ingress, storage.egress), "external-delay", {}, storage, ~trace_model: interface_trace_fixed_latency(1))
+  source |> trace_valid_event("before") |> storage.ingress
+  storage.egress |> trace_valid_event("after") |> sink
+
+sync_circuit EventForeignContract():
+  inst storage(Pipe(Bits(8), 1))
+  def bound = interface_trace_elastic(storage)
+  def foreign = InterfaceTraceModel(bound.routes, InterfaceTraceElastic(#false, bound.elastic_stages()))
+  describe_interface_transform(InterfaceHandle(storage.ingress, storage.egress), "foreign", ~trace_model: foreign)
+
+fun adapter_contract(): elaborate_with_top(EventAdapterContract())
+fun named_contracts(intrinsic, wrapped): elaborate_with_top(EventNamedContracts(intrinsic, wrapped))
+fun invalid_contract(mode):
+  cond
+  | mode == "foreign": elaborate_with_top(EventForeignContract())
+  | mode == "duplicate-boundary": elaborate_with_top(EventNamedStorage(#true, mode))
+  | mode in ["duplicate-inline", "missing-name"]: elaborate_with_top(EventNamedStorage(#false, mode))
+  | ~else: elaborate_with_top(EventConflictingContract(mode))
+
 export:
   pipeline
   valid_conversion
+  nested_channels
+  private_reset
   bad_latency_shape
   bad_latency_count
+  named_contracts
+  adapter_contract
+  invalid_contract

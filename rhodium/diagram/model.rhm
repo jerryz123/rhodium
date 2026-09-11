@@ -28,7 +28,9 @@ class DiagramBlock(id :: String,
                    child_module :: False || String = #false,
                    behavior :: String = "combinational",
                    trace_model :: False || InterfaceTraceModel = #false,
-                   event_annotation :: False || InterfaceEventGroup = #false)
+                   event_annotation :: False || InterfaceEventGroup = #false,
+                   implementation_name :: False || String = #false,
+                   delegate_ports :: False || Map = #false)
 
 class DiagramChannel(id :: String,
                      source_block :: String,

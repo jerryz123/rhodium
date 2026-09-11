@@ -4,7 +4,7 @@
 import:
   lib("flow/main.rhdl") open
 
-sync_circuit EventArbiterNetwork(mode :: Nat):
+sync_circuit EventArbiterNetwork(mode :: Nat, direct :: Boolean = #false):
   interface ingress[3](Decoupled(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)
   output take0: Bool
@@ -23,7 +23,13 @@ sync_circuit EventArbiterNetwork(mode :: Nat):
         result
     | block:
         join_fire <== Bool(#false)
-        if mode == 0 | Array(a, b, c) |> arbiter() | Array(a, b, c) |> rr_arbiter()
+        if direct
+        | block:
+            inst selector(if mode == 0 | Arbiter(Bits(8), 3) | RRArbiter(Bits(8), 3))
+            for (endpoint in [a, b, c], index in 0..3):
+              endpoint |> selector.ingress[index]
+            selector.egress
+        | (if mode == 0 | Array(a, b, c) |> arbiter() | Array(a, b, c) |> rr_arbiter())
   if mode >= 2
   | selected |> queue(3, ~pipe: #true, ~flow: #true) |> pipe(1) |> egress
   | selected |> egress
@@ -38,7 +44,7 @@ sync_circuit EventArbiterLane(mode :: Nat, traced :: Boolean):
   output take1: Bool
   output take2: Bool
   output join_fire: Bool
-  inst network(EventArbiterNetwork(mode))
+  inst network(EventArbiterNetwork(mode, traced))
   for (index in 0..3):
     if traced
     | ingress[index] |> trace_event("input" ++ to_string(index), ~payload: #true) |> network.ingress[index]

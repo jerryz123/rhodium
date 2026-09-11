@@ -18,7 +18,8 @@ class DiagramTerminal(block_id :: String,
                       protocol :: String,
                       backpressured :: Boolean,
                       compound :: Boolean,
-                      entities :: List.of(Value || Place))
+                      entities :: List.of(Value || Place),
+                      binding_names :: List.of(String) = [])
 
 fun endpoint_elements(shape :: InterfaceEndpoint || Array):
   cond
@@ -162,7 +163,8 @@ fun endpoint_ports(block_id :: String,
                           protocol,
                           backpressured,
                           #true,
-                          endpoint_entities(endpoint))
+                          endpoint_entities(endpoint),
+                          endpoint.bindings.map(fun (binding): binding.port_name))
         ]
   [ports, terminals]
 
@@ -311,10 +313,15 @@ fun entity_originates_from(entity :: Value || Place,
 fun terminal_contains_endpoint(terminal :: DiagramTerminal,
                                endpoint :: InterfaceEndpoint):
   def entities = endpoint_entities(endpoint)
-  for all (entity in entities):
-    terminal.entities.find(
-      fun (candidate): entity_originates_from(entity, candidate)
-    ) != #false
+  // Nested endpoints may lack a materialized record_get in this module.
+  // Keep their logical binding paths distinct even when projection falls back
+  // to the same enclosing aggregate value (e.g. two equal-width requests).
+  terminal.binding_names == endpoint.bindings.map(fun (binding): binding.port_name) && (
+    for all (entity in entities):
+      terminal.entities.find(
+        fun (candidate): entity_originates_from(entity, candidate)
+      ) != #false
+  )
 
 fun same_endpoint(left :: InterfaceEndpoint, right :: InterfaceEndpoint):
   left === right
@@ -396,14 +403,119 @@ fun module_behavior(module_def :: Module):
 fun transform_has_combo_input(kind :: String):
   kind in ["map", "map-valid", "filter", "filter-valid", "gate", "demux"]
 
-fun diagram_module(module_def :: Module):
+fun interface_channel_wiring(module_def :: Module):
+  // Whole composite interfaces connect their nested protocol channels too.
+  // Project both ends together and preserve reverse-channel provider direction;
+  // do not reinterpret scalar data dependencies as transaction connections.
+  def projected = MutableMap.by(===){}
+  fun nested(endpoint :: InterfaceEndpoint, member :: InterfaceMember):
+    unless projected.get(endpoint, #false) | projected[endpoint] := MutableMap{}
+    def members = projected[endpoint]
+    unless members.get(member.name, #false)
+    | members[member.name] := diagram_nested_endpoint(endpoint, member)
+    members[member.name]
+  fun channel_pairs(left :: InterfaceEndpoint, right :: InterfaceEndpoint):
+    def members = left.type.members.filter(~keep: fun (member): member.type is_a InterfaceType)
+    if members.length() == 0
+    | [[left, right]]
+    | block:
+        def mutable pairs = []
+        for (member in members):
+          def peer = right.type.members.find(fun (candidate): candidate.name == member.name)
+          pairs := pairs ++ channel_pairs(nested(left, member), nested(right, peer))
+        pairs
+  def mutable connections = []
+  for (connection in module_interface_connections(module_def)):
+    for (pair in channel_pairs(connection.source, connection.destination)):
+      def forward = pair[0].represented_role == pair[0].type.provider_role
+      connections := connections ++ [InterfaceConnectionGroup(module_def, if forward | pair[0] | pair[1], if forward | pair[1] | pair[0])]
+  def mutable links = []
+  for (link in module_interface_links(module_def)):
+    for (pair in channel_pairs(link.left, link.right)):
+      def forward = pair[1].represented_role == pair[1].type.provider_role
+      links := links ++ [InterfaceLinkGroup(module_def, link.name, if forward | pair[0] | pair[1], if forward | pair[1] | pair[0])]
+  [connections, links]
+
+// A named relation fills an unmodeled region; it cannot claim a consumer or
+// producer already owned through wiring by another transform/checkpoint. Walk
+// only interface connections, transparent links, and hierarchy forwarding:
+// never treat arbitrary payload dependencies as transaction semantics.
+fun contract_frontiers(module_def :: Module, cache :: MutableMap):
+  def cached = cache.get(module_def, #false)
+  if cached
+  | cached
+  | block:
+      validate_interface_contracts(module_def)
+      def mutable vertices = []
+      def mutable wires = []
+      def mutable claims = []
+      fun vertex(terminal :: DiagramTerminal):
+        def existing = vertices.find_index(fun (candidate): candidate.binding_names == terminal.binding_names && candidate.entities.length() == terminal.entities.length() && for all (a in candidate.entities, b in terminal.entities): a === b)
+        if existing is_a Nat
+        | existing
+        | block:
+            def index = vertices.length()
+            vertices := vertices ++ [terminal]
+            index
+      fun endpoints(shape :: InterfaceEndpoint || Array): endpoint_ports("", "", shape)[1].filter(~keep: fun (terminal): terminal.compound)
+      let [connections, links] = interface_channel_wiring(module_def)
+      for (pair in connections.map(fun (connection): [connection.source, connection.destination]) ++ links.map(fun (link): [link.left, link.right])):
+        for (source in endpoints(pair[0]), destination in endpoints(pair[1])):
+          wires := wires ++ [[vertex(source), vertex(destination)]]
+      for (transform in module_interface_transforms(module_def)):
+        // Presentation wrappers delegate to their child instead of owning it.
+        unless transform.implementation && !transform.trace_model
+        | for (terminal in endpoints(transform.input)):
+            claims := claims ++ [[vertex(terminal), "input", transform]]
+          for (terminal in endpoints(transform.output)):
+            claims := claims ++ [[vertex(terminal), "output", transform]]
+      for (operation in module_def.operations):
+        when operation.opcode == "rtl.instance"
+        | def child = operation.attribute("module")
+          def exposed = contract_frontiers(child, cache)
+          for (group in module_interface_groups(child)):
+            for (terminal in endpoint_ports("", group.name, instance_endpoint(operation, group))[1]):
+              for (claim in exposed):
+                when terminal.port_id == claim[0]
+                | claims := claims ++ [[vertex(terminal), claim[1], #false]]
+      fun reachable(start :: Nat, reverse :: Boolean):
+        def visited = MutableSet{}
+        def mutable pending = [start]
+        while pending.length() > 0:
+          def current = pending[0]
+          pending := pending.drop(1)
+          unless current in visited
+          | visited.add(current)
+            for (wire in wires):
+              when wire[if reverse | 1 | 0] == current
+              | pending := [wire[if reverse | 0 | 1]] ++ pending
+        visited
+      for (claim in claims):
+        def owner = claim[2]
+        when owner && owner.contract_name
+        | def reached = reachable(claim[0], claim[1] == "output")
+          when claims.find(fun (other): !(other[2] === owner) && other[1] == claim[1] && other[0] in reached)
+          | error(~who: #'diagram, "interface contract " ++ owner.contract_name ++ " overlaps internal trace topology at its " ++ claim[1] ++ " in " ++ module_def.name)
+      def mutable exposed = []
+      for (group in module_interface_groups(module_def)):
+        for (terminal in endpoint_ports("", group.name, interface_boundary_endpoint(group))[1]):
+          when terminal.compound
+          | def direction = (if terminal.direction == "output" | "input" | "output")
+            def reached = reachable(vertex(terminal), direction == "output")
+            when claims.find(fun (claim): claim[1] == direction && claim[0] in reached)
+            | exposed := exposed ++ [[terminal.port_id, direction]]
+      cache[module_def] := exposed
+      exposed
+
+fun diagram_module(module_def :: Module,
+                   ~contract_cache: contract_cache :: MutableMap = MutableMap.by(===){}):
   def sync_metadata = module_sync_circuit_metadata(module_def)
   def groups = module_interface_groups(module_def)
   def array_groups = module_interface_array_groups(module_def)
   def transforms = module_interface_transforms(module_def)
   def events = module_interface_events(module_def)
-  def connections = module_interface_connections(module_def)
-  def links = module_interface_links(module_def)
+  contract_frontiers(module_def, contract_cache)
+  let [connections, links] = interface_channel_wiring(module_def)
   def grouped_names = grouped_port_names(groups)
   def mutable blocks = []
   def mutable terminals = []
@@ -500,7 +612,7 @@ fun diagram_module(module_def :: Module):
     | implementation_ids := implementation_ids ++ [transform.implementation.operation.id]
 
   for (transform in transforms, index in 0..transforms.length()):
-    def block_id = "transform:" ++ to_string(index)
+    def block_id = if transform.contract_name | "contract:" ++ transform.contract_name | "transform:" ++ to_string(index)
     def input_built = endpoint_ports(block_id, "in", transform.input)
     def output_built = endpoint_ports(block_id, "out", transform.output)
     def combo_ports:
@@ -512,12 +624,36 @@ fun diagram_module(module_def :: Module):
       | transform.implementation.module_def.name
       | #false
     def behavior:
-      if transform.implementation
-      | module_behavior(transform.implementation.module_def)
-      | "combinational"
+      cond
+      | transform.contract_name: module_behavior(module_def)
+      | transform.implementation: module_behavior(transform.implementation.module_def)
+      | ~else: "combinational"
     def event_annotation = events.find(
       fun (event): event.input === transform.input && event.output === transform.output
     )
+    def delegate_ports:
+      if transform.implementation && !transform.trace_model && !event_annotation
+      | block:
+          def bindings = MutableMap{}
+          def child = transform.implementation.module_def
+          def child_arrays = module_interface_array_groups(child)
+          def mutable child_terminals = []
+          for (group in module_interface_groups(child)):
+            unless group_in_arrays(group, child_arrays)
+            | child_terminals := child_terminals ++ endpoint_ports("child", group.name, instance_endpoint(transform.implementation.operation, group))[1]
+          for (array_group in child_arrays):
+            for (group in array_group.groups, index in 0..array_group.groups.length()):
+              child_terminals := child_terminals ++ endpoint_ports("child", array_group.name ++ "[" ++ to_string(index) ++ "]", instance_endpoint(transform.implementation.operation, group))[1]
+          for (terminal in input_built[1] ++ output_built[1]):
+            def matched = child_terminals.find(
+              fun (peer):
+                peer.binding_names == terminal.binding_names && peer.entities.length() == terminal.entities.length() && for all (a in peer.entities, b in terminal.entities): entity_originates_from(a, b)
+            )
+            unless matched
+            | error(~who: #'diagram, "delegating transform must expose the implementation endpoints: " ++ transform.kind)
+            bindings[terminal.port_id] := matched.port_id
+          for Map (key in bindings.keys()): values(key, bindings[key])
+      | #false
     blocks := blocks ++ [
       DiagramBlock(block_id,
                    transform.kind,
@@ -527,7 +663,9 @@ fun diagram_module(module_def :: Module):
                    child_module,
                    behavior,
                    transform.trace_model,
-                   event_annotation)
+                   event_annotation,
+                   if transform.implementation | transform.implementation.operation.attribute("name") | #false,
+                   delegate_ports)
     ]
     terminals := terminals ++ input_built[1] ++ output_built[1]
 
@@ -694,7 +832,8 @@ fun diagram_module(module_def :: Module):
 
 fun diagram(logical :: DesignElaboration):
   verify_design(logical.design)
+  def contract_cache = MutableMap.by(===){}
   DiagramDesign(
     logical,
-    reachable_modules(logical.top).map(diagram_module)
+    reachable_modules(logical.top).map(fun (module_def): diagram_module(module_def, ~contract_cache: contract_cache))
   )

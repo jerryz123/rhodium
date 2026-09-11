@@ -316,8 +316,18 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     ~default: bits(0, width)
   )
   // s4 / resolution: permissions and transaction selection from captured results.
-  def s4_path = s4_result.egress |> to_decoupled()
   def s4_context = s4_result.egress.bits.lookup.into(RV5StageL1DLookup(xlen))
+  wire s4_refill_accepted: Bool
+  wire s4_refill_opcode: CHIReqOpcode
+  wire s4_refill_address: Bits(width)
+  def s4_observed = s4_result.egress |> trace_valid_event("dcache.s4.resolve", ~fields: result):
+    address: s4_context.request.address
+    prefetch: s4_context.prefetch
+    hit: result.hit
+    refill_accepted: s4_refill_accepted
+    refill_opcode(~format: "enum"): s4_refill_opcode
+    refill_address: s4_refill_address
+  def s4_path = s4_observed |> to_decoupled()
   def s4_request :: RV5StageDataReq(xlen) = s4_context.request
   def s4_prefetch = s4_context.prefetch
   def s4_prefetch_write = s4_context.prefetch_write
@@ -410,7 +420,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
                     CHIReqOpcode.ReadClean)
         context: result.context
   )
-  Array(direct_refill_commands, post_eviction_refills) |> arbiter() |> refill.command
+  // Direct launch is an S4 decision, not another pipeline stage. The command
+  // fields are meaningful when accepted; the refill contract retains ancestry.
+  s4_refill_accepted <== direct_refill_commands.fire()
+  s4_refill_opcode <== direct_refill_commands.bits.opcode
+  s4_refill_address <== direct_refill_commands.bits.line_address
+  // Gather/writeback ownership is not yet modeled; never borrow a live S4 token.
+  Array(direct_refill_commands, post_eviction_refills |> trace_detach()) |> arbiter() |> refill.command
   def writeback_complete = writeback.completion.fire()
 
   // Finish an already accepted snoop before installation. New probes wait
@@ -537,8 +553,12 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s3_can_advance = !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !s4_needs_refill & !local_mutation
   // Gating retains blocked requests; only admitted reads become Valid events.
   // Payload mapping remains unconditional at the always-captured S4 boundary.
+  def s3_observed = s3_lookup.egress |> trace_event("dcache.s3.lookup", ~stalls: #true, ~fields: lookup):
+    address: lookup.request.address
+    prefetch: lookup.prefetch
+    access(~format: "enum"): lookup.request.access
   (
-    s3_lookup.egress
+    s3_observed
       |> gate_flow(s3_can_advance & s3_read_valid)
       |> to_valid()
       |> map_valid(request => RV5StageL1DResolved(xlen, way_width)):
@@ -603,7 +623,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
           request: request
           prefetch: Bool(#true)
           prefetch_write: hint.operation === CachePrefetchOperation.Write
-  ) |> to_decoupled()
+  ) |> to_decoupled() |> trace_event("dcache.prefetch", ~root: #true)
   Array(s2_demand, s2_hint) |> arbiter() |> gate_flow(s2_admit) |> s3_lookup.ingress
   def service_request_accept = core.request.fire()
   def s2_issue = s3_lookup.ingress.fire()
@@ -864,7 +884,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     )
 
   // CHI transport: array order is the existing fixed-priority policy.
-  Array(refill.requests, writeback.requests, maintenance.requests) |> arbiter() |> chi.requests
+  Array(refill.requests, writeback.requests |> trace_detach(), maintenance.requests |> trace_detach()) |> arbiter() |> chi.requests
   Array(refill.acknowledgements, snoop.responses) |> arbiter() |> chi.requester_responses
   Array(writeback.data, snoop.data) |> arbiter() |> chi.request_data
   chi.response_data |> refill.response_data

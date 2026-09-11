@@ -5,6 +5,7 @@ import:
   lib("json/main.rkt").#{string->jsexpr} as parse_json
   "../../rhodium/event/main.rhm" open
   "event-graph-fixture.rhdl" as fixture
+  "event-offer-fixture.rhdl" as offer
 
 fun dependency_labels(manifest :: EventManifest):
   manifest.dependencies.map(
@@ -31,6 +32,10 @@ def unusual = EventManifest(linear.logical, [
 ], [])
 
 check:
+  offer.invalid("protocol") ~throws "Valid-flow chaining requires a Valid endpoint"
+  offer.invalid("stronger") ~throws "provider interface does not support the peer interface contract"
+  offer.invalid("qualification") ~throws "argument does not satisfy annotation"
+  dependency_labels(infer_event_manifest(offer.offered)) ~is ["attempt->admitted", "attempt->admitted.stall"]
   enum_captures.sites[0].payload_width ~is 14
   enum_captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding, field.label]) ~is [
     ["operation", 7, 7, "enum", #true], ["observed", 7, 0, "enum", #false]

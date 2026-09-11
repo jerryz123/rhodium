@@ -32,6 +32,7 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
   )
   chosen <== choice.index
   describe_interface_selection(for List (index in 0..n): grant[index])
+  describe_interface_contract(ingress, egress, "data", ~kind: "rr-arbiter", ~trace_model: interface_trace_selection())
 
   when (choice.valid & egress.ready):
     next_priority <== mux(
@@ -101,8 +102,7 @@ fun rr_arbiter(n :: False || PosInt = #false)
         InterfaceHandle(arbiter_stage.ingress, arbiter_stage.egress),
         "rr-arbiter",
         {"inputs": input_count},
-        arbiter_stage,
-        ~trace_model: interface_trace_selection(arbiter_stage)
+        arbiter_stage
       )
     )
 

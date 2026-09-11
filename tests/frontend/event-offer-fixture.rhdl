@@ -1,0 +1,35 @@
+#lang rhodium
+// Traces qualified best-effort offers without changing their public handshake.
+
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit EventOffer():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  input qualify: Bool
+  output offer_ready: Bool
+  def attempted = source |> trace_valid_event("attempt", ~root: #true, ~payload: #true)
+  def offered = attempted |> offer_decoupled()
+  offer_ready <== offered.ready
+  def admitted = offered
+    |> trace_event("admitted", ~when: qualify, ~stalls: #true, ~terminal: #true, ~fields: payload):
+         value: payload
+  admitted |> sink
+
+sync_circuit InvalidEventOffer(kind :: String):
+  input bad_qualification: Bits(2)
+  def Source = if kind == "protocol" | Decoupled(Bits(8)) | Valid(Bits(8))
+  def Sink = if kind == "stronger" | Irrevocable(Bits(8)) | Decoupled(Bits(8))
+  interface source(Source, ~role: consumer)
+  interface sink(Sink, ~role: producer)
+  def offered = source |> offer_decoupled()
+  if kind == "qualification"
+  | offered |> trace_event("bad", ~when: bad_qualification) |> sink
+  | offered |> sink
+
+def offered = elaborate_with_top(EventOffer())
+fun invalid(kind :: String): elaborate_with_top(InvalidEventOffer(kind))
+export:
+  offered
+  invalid

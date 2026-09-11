@@ -163,8 +163,9 @@ and transformed misalignment trap values without relying on internal nets.
 
 ## Pipeline event annotations
 
-`core.rhdl` describes the existing stage instances with public interface trace
-contracts. Keep storage certification bound to those instances; do not replace
+The Flow stage modules own their public interface trace contracts; `core.rhdl`
+does not redeclare them on instances. Keep storage certification local to its
+implementation; do not replace
 always-capture payload registers or derive controls from generated signal names.
 EX's payload is still computed unconditionally; its flow filter qualifies only
 token validity, preserving the feed-forward datapath and cancellation timing.
@@ -177,6 +178,27 @@ stall observations see valid instructions while issue is blocked. Keep the
 captured Boolean reason terms aligned with `pipeline_hazard`; do not impose
 priority on simultaneous reasons. Keep WB arrival distinct
 from architectural retirement and deferred completion.
+
+Fork the live MEM observation for `dcache.s1.access` and filter WB memory
+operations for `dcache.s2.resp`. Select by access kind, not the slow-request
+valid bit, so fast hits and replays remain visible. These observations retain
+their core-stage parents; do not add registers or override intrinsic storage
+contracts to manufacture a direct S1-to-S2 edge. WB uses `offer_decoupled()`
+after S2 for the Valid-to-Decoupled slow request. Record nonfaulting admission
+in S2 without feeding readiness/fault status into functional request validity.
+The cache's named queue, S3 elastic pipe, and S4 always-capture register carry
+their own trace models. Observe S3 before its advance gate (including stalls)
+and S4 before its hit/transaction demux. Capture direct refill acceptance and
+command fields on S4, before arbitration with post-eviction commands; do not
+certify the gather FSM as a pipe.
+Walker and admitted prefetch sources are explicit independent roots.
+`rv5stage-load-hit` instruments the actual core/MMU/router/cache composition;
+its DPI scoreboard checks S1/MEM and S2/WB alignment, one-cycle S1/S2
+correspondence, public admission against S2 fields, FIFO ancestry through
+S3/S4, exact miss PCs and direct refill addresses, and S4 ownership across
+backpressured CHI attempts, RetryAck, and PCrdGrant. Refill owns the scoped
+command-to-attempt contract before its Flow request mapper; unrelated engine branches explicitly detach before
+request arbitration.
 
 After edits, run `rv5stage-core` for forwarding, stalls, replay, redirects, and
 deferred completion, then the SimpleSoC trace smoke. Its native Perfetto checks

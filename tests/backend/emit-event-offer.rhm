@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits best-effort offer instrumentation with the descriptor used by its scoreboard.
+import:
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/event/main.rhm" open
+  "../frontend/event-offer-fixture.rhdl" as fixture
+def traced = instrument_events(fixture.offered)
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

@@ -95,6 +95,8 @@ sync_circuit Queue(T :: DataType,
       describe_interface_queue_storage(depth, enqueue, dequeue, read_pointer.value, write_pointer.value, !empty, if flow | empty | Bool(#false))
       #void
 
+  describe_interface_contract(ingress, egress, "data", ~kind: "queue", ~trace_model: interface_trace_queue())
+
 // Tokens are indistinguishable, so the control-only queue needs occupancy
 // state but no payload memory or read/write pointers.
 sync_circuit CtrlQueue(depth :: PosInt,
@@ -173,8 +175,7 @@ fun queue(depth :: PosInt,
         InterfaceHandle(queue_stage.ingress, queue_stage.egress),
         "queue",
         {"depth": depth, "pipe": pipe_enabled, "flow": flow_enabled},
-        queue_stage,
-        ~trace_model: interface_trace_queue(queue_stage)
+        queue_stage
       )
     )
 

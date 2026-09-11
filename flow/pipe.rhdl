@@ -43,6 +43,7 @@ sync_circuit Pipe(T :: DataType, stages :: PosInt):
         stage_bits[index] <== bits_sources[index]
 
   describe_interface_elastic_stages(ready.take(stages), valid_sources)
+  describe_interface_contract(ingress, egress, "data", ~kind: "pipe", ~trace_model: interface_trace_elastic())
 
 // Valid has no backpressure: every stage advances on every clock, and each
 // asserted input cycle emerges after exactly `stages` cycles.
@@ -68,6 +69,8 @@ sync_circuit ValidPipe(T :: DataType, stages :: PosInt):
     when (valid_sources[index]):
       stage_bits[index] <== bits_sources[index]
 
+  describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe", ~trace_model: interface_trace_fixed_latency(stages))
+
 // Payload advances even through invalid cycles, keeping late validity and
 // cancellation logic off every payload register's write-enable path.
 sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt):
@@ -79,6 +82,8 @@ sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt):
 
   egress.valid <== stage_valid[stages - 1]
   egress.bits <== stage_bits[stages - 1]
+
+  describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe-always-capture", ~trace_model: interface_trace_fixed_latency(stages))
 
 // The control-only specialization stores just the validity of each token.
 // Its output is irrevocable because an occupied stage cannot withdraw while
@@ -123,8 +128,7 @@ fun pipe(stages :: PosInt)
         InterfaceHandle(pipe_stage.ingress, pipe_stage.egress),
         "pipe",
         {"stages": stages},
-        pipe_stage,
-        ~trace_model: interface_trace_elastic(pipe_stage)
+        pipe_stage
       )
     )
 
@@ -140,8 +144,7 @@ fun valid_pipe(stages :: PosInt)
         InterfaceHandle(valid_pipe_stage.ingress, valid_pipe_stage.egress),
         "valid-pipe",
         {"stages": stages},
-        valid_pipe_stage,
-        ~trace_model: interface_trace_fixed_latency(stages)
+        valid_pipe_stage
       )
     )
 
@@ -156,8 +159,7 @@ fun valid_pipe_always_capture(stages :: PosInt)
         InterfaceHandle(valid_pipe_always_capture_stage.ingress, valid_pipe_always_capture_stage.egress),
         "valid-pipe-always-capture",
         {"stages": stages},
-        valid_pipe_always_capture_stage,
-        ~trace_model: interface_trace_fixed_latency(stages)
+        valid_pipe_always_capture_stage
       )
     )
 

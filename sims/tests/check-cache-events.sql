@@ -1,4 +1,4 @@
--- Checks private-cache CHI transfers/stalls, instruction snapshots, and isolated lineage.
+-- Checks private-cache CHI transfers/stalls and direct-refill request lineage.
 -- Materialize shared views so per-field checks also scale to full benchmark traces.
 WITH expected(suffix, fields) AS (
   VALUES
@@ -13,7 +13,7 @@ WITH expected(suffix, fields) AS (
          json_extract(a.string_value,'$.kind') AS kind,
          t.name AS channel
   FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id
-  WHERE t.name GLOB '[id]cache.*' AND a.key='description'
+  WHERE t.name GLOB '[id]cache.*' AND substr(t.name,8) IN (SELECT suffix FROM expected) AND a.key='description'
 ), captures AS MATERIALIZED (
   SELECT t.id AS track_id, json_extract(f.value,'$.name') AS name,
          json_extract(f.value,'$.encoding') AS encoding,
@@ -72,4 +72,4 @@ SELECT
   (SELECT count(*)=0 FROM events WHERE channel GLOB '*.rxsnp'
    AND substr(EXTRACT_ARG(arg_set_id,'debug.address'),-1) NOT IN ('0','8')) AND
   (SELECT count(*)=0 FROM flow
-   WHERE slice_out IN (SELECT id FROM events) OR slice_in IN (SELECT id FROM events)) AS ok
+   WHERE slice_out IN (SELECT id FROM events) OR slice_in IN (SELECT id FROM events WHERE channel!='dcache.txreq')) AS ok

@@ -4,10 +4,16 @@
 import:
   lib("flow/main.rhdl") open
 
-sync_circuit EventQueueStorage(depth :: PosInt, piped :: Boolean, flowed :: Boolean, composed :: Boolean):
+sync_circuit EventQueueStorage(depth :: PosInt, piped :: Boolean, flowed :: Boolean, composed :: Boolean, direct :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)
-  def buffered = ingress |> queue(depth, ~pipe: piped, ~flow: flowed)
+  def buffered:
+    if direct
+    | block:
+        inst queue_stage(Queue(Bits(8), depth, ~pipe: piped, ~flow: flowed))
+        ingress |> queue_stage.ingress
+        queue_stage.egress
+    | ingress |> queue(depth, ~pipe: piped, ~flow: flowed)
   if composed
   | buffered |> pipe(1) |> queue(1, ~pipe: #true, ~flow: #true) |> egress
   | buffered |> egress
@@ -15,7 +21,7 @@ sync_circuit EventQueueStorage(depth :: PosInt, piped :: Boolean, flowed :: Bool
 sync_circuit EventQueueLane(depth :: PosInt, piped :: Boolean, flowed :: Boolean, composed :: Boolean, traced :: Boolean):
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   interface egress(Decoupled(Bits(8)), ~role: producer)
-  inst storage(EventQueueStorage(depth, piped, flowed, composed))
+  inst storage(EventQueueStorage(depth, piped, flowed, composed, traced))
   def accepted = if traced | ingress |> trace_event("accepted", ~payload: #true) | ingress
   if composed
   | accepted |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> storage.ingress

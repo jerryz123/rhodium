@@ -131,6 +131,13 @@ Select stages through track names, not mnemonic slice names, and check full
 disassembly separately from the mnemonic. Generic display/schema rules belong
 to [RHEG](../rheg/DEVELOPING.md#perfetto-encoding), not this adapter.
 Memory pairs explicitly retain raw capture for their payload-equality checks.
+The D-cache stage checks in `tests/check-demand-events.sql` pair S1 and S2
+through their MEM/WB parents and require one-cycle correspondence. They check
+admitted S2 ancestry into S3, one-cycle S3-to-S4 advancement, and S4 refill
+acceptance fields. Keep effective S1/S2 addresses separate from physical S3/S4
+addresses; translation need not preserve their numeric value. Direct S4 refill
+acceptance must reach TXREQ with matching opcode/line address; retries may
+produce multiple children. Explicitly detached traffic may have no S4 parent.
 Restrict those pipeline checks to transfer sites. `tests/check-stall-events.sql`
 requires real fetch/decode backpressure, matching capture layouts, the exact
 Boolean hazard fields, and accepted-fetch parents for decode stalls. It checks

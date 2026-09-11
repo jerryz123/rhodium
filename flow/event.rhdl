@@ -9,6 +9,7 @@ import:
 // Preserves a ready-valid transaction while attaching a compiler-visible event
 // site to the identity transform.
 fun trace_event_config(label :: String,
+                       ~when: qualification :: Bool = Bool(#true),
                        ~stalls: stalls :: Boolean = #false,
                        ~root: root :: Boolean = #false,
                        ~terminal: terminal :: Boolean = #false,
@@ -31,7 +32,7 @@ fun trace_event_config(label :: String,
         label,
         ~payload: if raw | input_endpoint.field("bits") | #false,
         ~fields: if capture | capture(flow_payload_type(source), input_endpoint.field("bits")) | [],
-        ~valid: input_endpoint.field("valid"),
+        ~valid: input_endpoint.field("valid") & qualification,
         ~ready: output_endpoint.field("ready"),
         ~stalls,
         ~root,
@@ -99,3 +100,15 @@ expr.macro 'capture_fields($(payload :: Identifier)): $field; ...':
 export:
   trace_event
   trace_valid_event
+  trace_detach
+
+// Deliberately forget ancestry without adding a visible event or changing RTL.
+fun trace_detach() :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
+  fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
+    def protocol = flow_protocol_type(source)
+    def input_link = interface_link(protocol, "detach_input")
+    def output_link = interface_link(protocol, "detach_output")
+    output_link.left.field("valid") <== input_link.right.field("valid")
+    output_link.left.field("bits") <== input_link.right.field("bits")
+    input_link.right.field("ready") <== output_link.left.field("ready")
+    finish_interface_transform(source, describe_interface_transform(interface_transform(input_link, output_link), "trace-detach", ~trace_model: interface_trace_detached()))

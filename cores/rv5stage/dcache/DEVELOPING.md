@@ -72,6 +72,20 @@ S3 immediately, before `to_decoupled()` checks acceptance; never buffer them.
 Keep early virtual SRAM indexing independent of that token arbitration and
 keep request-queue ingress readiness structural.
 
+Event lineage follows the intrinsic queue/elastic/fixed-latency contracts of
+the named service queue, S3 pipe, and S4 result register; callers do not restate
+them. S3 observes lookup advancement before its gate, with a stall companion;
+S4 observes all admitted demand or prefetch resolutions one cycle later.
+Direct refill acceptance and command fields are captured on S4, before
+arbitration with post-eviction work, not on a separate numbered stage.
+S1/MEM and S2/WB observations belong to the core, where fast responses and
+instruction identity are retained. The refill engine declares retained ownership
+from command acceptance through completion; its request attempts carry S4
+ancestry through the final arbiter. Explicitly detach post-eviction commands,
+writeback requests, and maintenance requests until those owners are modeled.
+Do not infer gather-FSM ancestry from an address or transaction ID. See the
+parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
+
 ### Behavioral invariants
 
 1. Preserve ordered Decoupled requests and non-backpressurable Valid responses,

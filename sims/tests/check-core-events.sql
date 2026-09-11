@@ -22,7 +22,9 @@ SELECT
   (SELECT count(DISTINCT src||'->'||dst)=4 FROM edges) AND
   (SELECT count(*)=0 FROM edges WHERE
     (src||'->'||dst) NOT IN ('core.s1.fetch->core.s2.decode','core.s2.decode->core.s3.execute','core.s3.execute->core.s4.memory','core.s4.memory->core.s5.wb') OR
-    parent_pc!=child_pc OR parent_instruction!=child_instruction OR delay<10 OR (src!='core.s1.fetch' AND delay!=10)) AND
+    parent_pc!=child_pc OR parent_instruction!=child_instruction OR
+    (src='core.s1.fetch' AND delay<10) OR
+    (src!='core.s1.fetch' AND delay!=10)) AND
   (SELECT count(*)=0 FROM pcs c WHERE name!='core.s1.fetch' AND (SELECT count(*) FROM edges WHERE child=c.id)!=1) AND
   (SELECT count(*)=0 FROM flow JOIN pcs c ON c.id=flow.slice_in WHERE c.name='core.s1.fetch') AND
   (SELECT count(*)=0 FROM (SELECT parent FROM edges GROUP BY parent HAVING count(*)>1)) AND

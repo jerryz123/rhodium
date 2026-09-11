@@ -101,6 +101,18 @@ chain across those links and emits one interface channel between the surrounding
 rendered terminals; the link does not become a wiring block. Duplicate logical
 connections and connections internal to one block are suppressed.
 
+Whole connections and transparent links between composite interfaces preserve
+each nested protocol channel independently, including reverse-direction response
+channels. Scalar sidebands remain data dependencies, not event routes.
+Flow blocks also retain their `implementation_name` in the in-memory model so
+compiler consumers can identify the exact instance hidden by a transform; this
+IR-backed context is not a new JSON presentation field.
+Module-owned endpoint contracts appear as named `contract:<name>` flow blocks.
+Configured stages without their own model retain an in-memory `delegate_ports`
+map from wrapper port IDs to implementation boundary names. This lets compiler
+consumers traverse the child and its checkpoints regardless of display grouping;
+the map is not serialized in the visualization JSON.
+
 Interface metadata says which flattened wires belong to one protocol and which
 implementation represents a named transform. It is not a second netlist.
 Ordinary data channels always come from the verified IR, and interface channels

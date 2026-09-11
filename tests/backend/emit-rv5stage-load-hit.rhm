@@ -1,7 +1,17 @@
 #lang rhombus
-// Emits the integrated EX/MEM/WB load-hit latency and forwarding regression.
+// Emits the integrated load-hit regression with instruction-to-refill lineage and its descriptor.
 import:
   "../../cores/rv5stage/tests/load-hit-fixture.rhdl".RV5StageLoadHit
   "../../rhodium/backend/circt.rhm".emit_circt
   "../../rhodium/frontend/kernel.rhm" as embedded
-print(emit_circt(embedded.run_elaboration(fun (): RV5StageLoadHit())))
+  "../../rhodium/event/main.rhm" open
+def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageLoadHit()))
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace demand_sites {\n" ++ String.join(
+  for List (label in ["core.s4.memory", "core.s5.wb", "dcache.s1.access", "dcache.s2.resp", "dcache.s3.lookup", "dcache.s4.resolve", "dcache.txreq"], name in ["mem", "wb", "access", "response", "lookup", "resolve", "txreq"]):
+    def indices = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
+    unless indices.length() == 1 | error("expected one demand trace site: " ++ label)
+    "constexpr unsigned " ++ name ++ " = " ++ to_string(indices[0]) ++ ";\n",
+  ""
+) ++ "}\n"
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

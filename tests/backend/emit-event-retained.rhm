@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits retained-owner RTL and its exact collector descriptor.
+import:
+  "../frontend/event-retained-fixture.rhdl".retained
+  "../../rhodium/event/main.rhm" open
+  "../../rhodium/backend/circt.rhm".emit_circt
+def traced = instrument_events(retained())
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

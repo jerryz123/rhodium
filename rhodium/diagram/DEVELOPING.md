@@ -54,10 +54,30 @@ array order and map keys, opaque reference IDs, compound interface identity,
 and the distinction between protocol channels and data dependencies. Add a
 schema-version field before making an incompatible JSON change.
 
+Project whole composite connections and transparent links into matching nested
+channel pairs using one cached endpoint projection per extraction. Reverse
+channels follow their own provider direction. Keep scalar sidebands out of this
+route expansion and retain transform implementation occurrence names for clock
+and reset validation by compiler consumers.
+
 Keep DOT diagnostic and derived from the model. Presentation changes must not
 alter extraction or become the only representation of a fact. New metadata
 must have one authoring owner, remain non-semantic to core and backends, and be
 validated against an IR-backed object before extraction uses it.
+
+Normalize named endpoint contracts as `contract:<name>` flow blocks using the
+same typed model as inline transforms. Attachment views provide metadata-only
+connectivity, never new hardware wiring. `contract_frontiers` checks completed
+producer/consumer ownership through projected interface connections, transparent
+links, and child boundary forwarding. Cache exposed frontiers by module within
+one extraction, not globally across mutable elaborations. Do not traverse a
+transform's semantic route when finding its frontier: upstream producers and
+downstream consumers compose; competing consumers or producers overlap. This
+allows contracts inside composites without hiding checkpoints or child storage.
+Presentation transforms without a model retain `delegate_ports`: derive these
+from exact implementation endpoint bindings, not labels or payload dataflow.
+Compiler consumers traverse the actual child using this map even when the
+diagram groups it into a single configured-stage block.
 
 Update the public README whenever model fields, JSON, DOT behavior, extraction
 rules, or deliberate limits change. Update [`PLAN.md`](PLAN.md) only for

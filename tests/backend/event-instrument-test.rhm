@@ -18,6 +18,47 @@ import:
   "../frontend/event-broadcast-fixture.rhdl" as broadcast_fixture
   "../frontend/event-join-fixture.rhdl" as join_fixture
   "../frontend/event-stall-fixture.rhdl" as stall_fixture
+  "../frontend/event-retained-fixture.rhdl" as retained_fixture
+
+for (intrinsic in [#true, #false]):
+  def logical = retained_fixture.retained(intrinsic, ~region: "")
+  def original = emit_circt(logical.design)
+  def retained = instrument_events(logical)
+  check:
+    emit_circt(logical.design) ~is original
+    retained.manifest.dependencies.length() ~is 1
+    retained.manifest.dependencies[0].latency_cycles ~is #false
+    verify_design(retained.instrumented.design) ~is #void
+fun retained_stage_count(plan):
+  cond
+  | plan is_a EventTracePipeline:
+      plan.stages.filter(~keep: fun (stage): stage is_a EventTraceRetained).length() + retained_stage_count(plan.input)
+  | plan is_a EventTraceSelection:
+      for values(count = 0) (input in plan.inputs): count + retained_stage_count(input)
+  | ~else: 0
+for (region in ["region", "internal", "checkpoint", "disjoint"]):
+  def logical = retained_fixture.retained(~region: region)
+  def original = emit_circt(logical.design)
+  def traced = instrument_events(logical)
+  def edges = traced.manifest.dependencies
+  def labels = edges.map(fun (edge): [traced.manifest.site(edge.parent).label, traced.manifest.site(edge.child).label]).sort(fun (a, b): a[0] < b[0])
+  check:
+    emit_circt(logical.design) ~is original
+    labels ~is (if region == "checkpoint" | [["accepted", "mapped"], ["mapped", "attempt"]] | [["accepted", "attempt"]])
+    (for any (edge in edges): edge.transform_path.find(fun (path): path.ends_with(":map")) != #false) ~is #true
+    (for values(count = 0) (site in traced.manifest.sites): count + retained_stage_count(traced.manifest.trace_plans[site.id])) ~is 1
+    verify_design(traced.instrumented.design) ~is #void
+def linked_contracts = instrument_events(retained_fixture.contract_links())
+check:
+  linked_contracts.manifest.dependencies.length() ~is 1
+  linked_contracts.manifest.dependencies[0].latency_cycles ~is 0
+  linked_contracts.manifest.dependencies[0].transform_path.filter(~keep: fun (path): path.contains("/contract:")).length() ~is 2
+  infer_event_manifest(retained_fixture.retained(~region: "summary")) ~throws "overlaps internal trace topology"
+  instrument_events(retained_fixture.detached()).manifest.dependencies.length() ~is 0
+  retained_fixture.invalid("missing") ~throws "requires declared storage controls"
+  retained_fixture.invalid("width") ~throws "local one-bit"
+  retained_fixture.invalid("duplicate") ~throws "already declared"
+  instrument_events(retained_fixture.retained(#true, #false)) ~throws "annotated ancestor on every input"
 
 def stall_before = emit_circt(stall_fixture.stalled.design)
 def stalled = instrument_events(stall_fixture.stalled)
@@ -33,7 +74,30 @@ def emitted = emit_circt(result.instrumented.design)
 def rooted = instrument_events(fixture.root_boundary(#true))
 def cut = instrument_events(fixture.root_cut)
 def converted = instrument_events(pipeline_fixture.valid_conversion)
+def nested_channels = instrument_events(pipeline_fixture.nested_channels)
+def private_reset = instrument_events(pipeline_fixture.private_reset(#false))
+def adapter_contract = instrument_events(pipeline_fixture.adapter_contract())
+for (intrinsic in [#true, #false]):
+  for (wrapped in [#true, #false]):
+    def named = instrument_events(pipeline_fixture.named_contracts(intrinsic, wrapped))
+    def edges = named.manifest.dependencies
+    check:
+      edges.map(fun (edge): [named.manifest.site(edge.parent).label, named.manifest.site(edge.child).label]) ~is [["before0", "after0"], ["before1", "after1"]]
+      edges.map(fun (edge): edge.trace_stages.length()) ~is [1, 1]
+      edges.map(fun (edge): edge.trace_stages[0].instance_path) ~is [["EventNamedContracts", "storage"], ["EventNamedContracts", "storage"]]
+      edges[0].trace_stages[0].advance === edges[1].trace_stages[0].advance ~is #false
 check:
+  adapter_contract.manifest.dependencies[0].latency_cycles ~is 1
+  adapter_contract.manifest.dependencies[0].trace_stages[0].instance_path ~is ["EventAdapterContract", "storage"]
+  pipeline_fixture.invalid_contract("foreign") ~throws "trace controls must belong to their owner"
+  pipeline_fixture.invalid_contract("duplicate-boundary") ~throws "competing interface contracts"
+  pipeline_fixture.invalid_contract("duplicate-inline") ~throws "competing interface transforms"
+  pipeline_fixture.invalid_contract("missing-name") ~throws "requires declared stage controls"
+  pipeline_fixture.invalid_contract("override") ~throws "competing trace contract"
+  infer_event_manifest(pipeline_fixture.invalid_contract("summary")) ~throws "overlaps internal trace topology"
+  private_reset.manifest.dependencies.length() ~is 1
+  instrument_events(pipeline_fixture.private_reset(#true)) ~throws "generated or opaque clock/reset"
+  nested_channels.manifest.dependencies.map(fun (edge): [nested_channels.manifest.site(edge.parent).label, nested_channels.manifest.site(edge.child).label, edge.latency_cycles]).sort(fun (a, b): a[0] < b[0]) ~is [["request", "response", 1], ["response", "completed", 0]]
   converted.manifest.dependencies.length() ~is 2
   converted.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [1, 1]
   emit_circt(converted.instrumented.design).contains("sim.func.dpi.call @rheg_edge") ~is #true

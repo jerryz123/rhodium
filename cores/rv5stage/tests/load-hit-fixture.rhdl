@@ -20,12 +20,15 @@ import:
   lib("cores/cache-prefetch.rhdl") open
 
 sync_circuit RV5StageLoadHit():
+  input permit_demand: Bool
   interface instruction(RV5StageTestInstructionAccess(XLen.X64), ~role: requester)
   interface uncached(RV5StageUncachedDataAccess(XLen.X64), ~role: requester)
   interface chi(CHIRNChannels(test_rv5stage_flit), ~role: node)
   output(load_issue, load_hit, transaction_valid, transaction_fire): Bool
   output load_address: Bits(64)
   output transaction: RV5StageDataReq(XLen.X64)
+  output(demand_attempt, demand_fire, cache_fire): Bool
+  output cache_address: Bits(64)
   inst core(RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D)), ~reset_address: 0))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_uncached_config.physical_map))
   inst router(RV5StageMemoryRouter(XLen.X64, test_rv5stage_uncached_config.physical_map))
@@ -34,7 +37,13 @@ sync_circuit RV5StageLoadHit():
   core.hart_id <== bits(0, 64)
   core.time_counter <== bits(0, 64)
   core.instruction_access |> instruction
-  core.data_access |> mmu.data
+  // The bench rejects the first WB offer to exercise replay without admission.
+  core.data_access.request |> gate_flow(permit_demand) |> mmu.data.request
+  mmu.data.response |> core.data_access.response
+  core.data_access.request_fault <== mmu.data.request_fault
+  core.data_access.request_access_fault <== mmu.data.request_access_fault
+  core.data_access.drained <== mmu.data.drained
+  core.data_access.reservation_valid <== mmu.data.reservation_valid
   core.pipeline_access |> mmu.pipeline
   mmu.pipeline_lookup |> cache.pipeline_lookup
   mmu.pipeline_memory |> cache.pipeline
@@ -58,13 +67,26 @@ sync_circuit RV5StageLoadHit():
   mmu.instruction_memory.response.valid <== Bool(#false)
   mmu.instruction_memory.response.bits <== literal(RV5StageFetchResult(), 0)
   cache.node_id <== bits(3, 7)
-  cache.chi <=> chi
+  def traced_requests = cache.chi.requests |> trace_event("dcache.txreq", ~terminal: #true, ~fields: request):
+    address: request.address
+    opcode(~format: "enum"): request.opcode
+    allow_retry: request.allow_retry
+  traced_requests |> chi.requests
+  cache.chi.requester_responses |> chi.requester_responses
+  cache.chi.request_data |> chi.request_data
+  chi.responses |> cache.chi.responses
+  chi.response_data |> cache.chi.response_data
+  chi.snoops |> cache.chi.snoops
   load_issue <== core.pipeline_access.request.valid & (core.pipeline_access.request.bits.access === MemoryOperation.Load)
   load_address <== core.pipeline_access.request.bits.address
   load_hit <== core.pipeline_access.response.valid & (core.pipeline_access.response.bits.outcome === RV5StagePipelineOutcome.LoadHit)
   transaction_valid <== core.data_access.request.valid ||| core.pipeline_access.commit
   transaction_fire <== core.data_access.request.fire() ||| (core.pipeline_access.commit & core.pipeline_access.commit_ready)
   transaction <== core.data_access.request.bits
+  demand_attempt <== core.data_access.request.valid
+  demand_fire <== core.data_access.request.fire() & !core.data_access.request_fault & !core.data_access.request_access_fault
+  cache_fire <== cache.core.request.fire()
+  cache_address <== cache.core.request.bits.address
 
 export:
   RV5StageLoadHit

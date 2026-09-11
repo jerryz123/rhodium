@@ -14,12 +14,12 @@ class FlowArc(source :: String,
               destination :: String,
               transform :: False || String = #false,
               latency_cycles :: False || Nat = 0,
-              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue) = [])
+              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained) = [])
 
 class EventCandidate(site :: EventSite,
                      transform_path :: List.of(String),
                      latency_cycles :: False || Nat,
-                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue))
+                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained))
 class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String))
 class FlowRouting(instance_path :: List.of(String), routing_id :: String, predicates :: List,
                   input :: String, output_index :: Nat)
@@ -51,7 +51,7 @@ fun boundary_external_name(block :: DiagramBlock, port :: DiagramPort):
   cond
   | block.kind == "boundary" || block.kind == "boundary-array":
       def suffix = port.name.replace("interface.", "").replace("interface", "")
-      if block.ports.length() == 1
+      if suffix == ""
       | block.label
       | if suffix.starts_with("[")
         | block.label ++ suffix
@@ -76,6 +76,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def replications = MutableMap{}
   def broadcasts = MutableMap{}
   def roots = MutableSet{}
+  def detached = MutableSet{}
   def stalled_sites = MutableSet{}
   def mutable sites = []
 
@@ -83,7 +84,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               destination :: String,
               transform :: False || String = #false,
               latency_cycles :: False || Nat = 0,
-              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue) = []):
+              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained) = []):
     incoming[destination] := incoming.get(destination, []) ++ [
       FlowArc(source, destination, transform, latency_cycles, trace_stages)
     ]
@@ -105,7 +106,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
         )
 
     for (flow_block in module_diagram.blocks):
-      when flow_block.kind == "flow"
+      when flow_block.kind == "flow" && !flow_block.delegate_ports
       | def trace_model = flow_block.trace_model
         def input_count = flow_block.ports.filter(
           ~keep: fun (port): port.compound && (
@@ -166,22 +167,26 @@ fun infer_event_manifest(logical :: DesignElaboration,
               | trace_model.routing_predicates(): #false
               | trace_model.atomic_fork_outputs(): #false
               | trace_model.broadcast_storage(): #false
+              | trace_model.retained_storage():
+                  def storage = trace_model.retained_storage()
+                  [EventTraceRetained(instance_path ++ trace_model.owner_path(), storage.capture, storage.release, storage.active)]
               | trace_model.queue_storage():
                   def storage = trace_model.queue_storage()
-                  def owner_path = instance_path ++ [trace_model.queue_instance().operation.attribute("name")]
+                  def owner_path = instance_path ++ trace_model.owner_path()
                   [EventTraceQueue(owner_path, storage.depth, storage.enqueue, storage.dequeue,
                                    storage.read_address, storage.write_address, storage.stored_valid, storage.bypass)]
               | trace_model.elastic_stages():
-                  def owner_path = instance_path ++ [trace_model.elastic_instance().operation.attribute("name")]
+                  def owner_path = instance_path ++ trace_model.owner_path()
                   trace_model.elastic_stages().map(fun (stage): EventTraceStage(owner_path, stage.advance, stage.valid))
               | trace_model.latency_cycles():
-                  for List (_ in 0..trace_model.latency_cycles()): EventTraceStage()
+                  def owner_path = if flow_block.implementation_name | instance_path ++ [flow_block.implementation_name] | instance_path
+                  for List (_ in 0..trace_model.latency_cycles()): EventTraceStage(owner_path)
               | ~else: #false
             when trace_model.atomic_join_inputs()
             | def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
               joins[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := inputs
             when trace_model.selection_grants()
-            | def owner_path = instance_path ++ [trace_model.selection_instance().operation.attribute("name")]
+            | def owner_path = instance_path ++ trace_model.owner_path()
               def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
               selections[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := FlowSelection(owner_path, trace_model.selection_grants(), inputs)
             when trace_model.routing_predicates()
@@ -198,7 +203,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                 replications[terminal_id(instance_path, flow_block.id, port.id)] := replication
             when trace_model.broadcast_storage()
             | def storage = trace_model.broadcast_storage()
-              def owner_path = instance_path ++ [trace_model.broadcast_instance().operation.attribute("name")]
+              def owner_path = instance_path ++ trace_model.owner_path()
               def broadcast_id = occurrence_prefix(instance_path) ++ "/" ++ flow_block.id
               def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
               for (port in output_ports, index in 0..output_count):
@@ -207,7 +212,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
             for (route in trace_model.routes):
               def input_port = input_ports[route.input_index]
               def output_port = output_ports[route.output_index]
-              add_arc(
+              if trace_model.detached()
+              | detached.add(terminal_id(instance_path, flow_block.id, output_port.id))
+              | add_arc(
                 terminal_id(instance_path, flow_block.id, input_port.id),
                 terminal_id(instance_path, flow_block.id, output_port.id),
                 occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label,
@@ -220,12 +227,12 @@ fun infer_event_manifest(logical :: DesignElaboration,
               ] := occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label
 
     for (instance_block in module_diagram.blocks):
-      when instance_block.kind == "instance" && instance_block.child_module
+      when (instance_block.kind == "instance" || instance_block.delegate_ports) && instance_block.child_module
       | def child = view.module(instance_block.child_module)
         unless child
         | error(~who: #'infer_event_manifest,
                 "event analysis cannot find child module " ++ instance_block.child_module)
-        def child_path = instance_path ++ [instance_block.label]
+        def child_path = instance_path ++ [if instance_block.implementation_name | instance_block.implementation_name | instance_block.label]
         expand(child, child_path)
         def mutable child_boundary_ports = []
         for (child_block in child.blocks):
@@ -237,7 +244,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               ]
         for (parent_port in instance_block.ports):
           def matched = child_boundary_ports.find(
-            fun (entry): entry[0] == parent_port.name
+            fun (entry): entry[0] == (if instance_block.delegate_ports | instance_block.delegate_ports.get(parent_port.id, #false) | parent_port.name)
           )
           when matched
           | def parent_terminal = terminal_id(instance_path, instance_block.id, parent_port.id)
@@ -256,11 +263,12 @@ fun infer_event_manifest(logical :: DesignElaboration,
                      visiting :: List.of(String) = [],
                      reverse_transform_path :: List.of(String) = [],
                      latency_cycles :: False || Nat = 0,
-                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue) = []):
+                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained) = []):
     def event = event_by_output.get(vertex, #false)
-    if event
-    | [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
-    | block:
+    cond
+    | event: [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
+    | vertex in detached: []
+    | ~else:
         def unsupported = unsupported_by_output.get(vertex, #false)
         when unsupported
         | error(~who: #'infer_event_manifest,
@@ -319,6 +327,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
       def plan:
         cond
         | event: EventTraceSource(event.id)
+        | vertex in detached: EventTraceSource(#false, #true)
         | join: EventTraceJoin(join.map(fun (input): trace_plan(input, visiting ++ [vertex])))
         | broadcast:
             EventTraceBroadcast(trace_plan(broadcast.input, visiting ++ [vertex]), broadcast.instance_path,

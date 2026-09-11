@@ -168,6 +168,8 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
   control.start <== command_fire
   control.finish <== completion_fire
   control.external_progress <== data_fire
+  describe_interface_retained_storage(command_fire, completion_fire, control.active)
+  describe_interface_contract(command, control.attempt, "transaction-attempts", ~trace_model: interface_trace_retained())
 
   when command_fire:
     received_packets <== vec(

@@ -1,0 +1,111 @@
+#lang rhodium
+// Exercises retained transaction ownership, replacement, and explicit untraced arbitration.
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit RetainedCell(intrinsic :: Boolean):
+  interface command(Decoupled(Bits(8)), ~role: consumer)
+  interface attempt(Decoupled(Bits(8)), ~role: producer)
+  input(emit, finish_owner): Bool
+  output active: Bool
+  reg occupied(~init: Bool(#false))
+  reg payload(Bits(8))
+  command.ready <== !occupied ||| finish_owner
+  attempt.valid <== occupied & emit
+  attempt.bits <== payload
+  active <== occupied
+  when (command.fire()):
+    occupied <== Bool(#true)
+    payload <== command.bits
+  elsewhen finish_owner:
+    occupied <== Bool(#false)
+  describe_interface_retained_storage(command.fire(), finish_owner & occupied, occupied)
+  if intrinsic
+  | describe_interface_contract(command, attempt, "attempts", ~trace_model: interface_trace_retained())
+  | #void
+
+// Local retained ownership composes with a child endpoint and a payload mapper.
+// The optional checkpoint must remain visible rather than being summarized.
+sync_circuit RetainedRegion(mode :: String):
+  interface command(Decoupled(Bits(8)), ~role: consumer)
+  interface attempt(Decoupled(Bits(8)), ~role: producer)
+  input(emit, finish_owner): Bool
+  inst storage(RetainedCell(#false))
+  storage.emit <== emit
+  storage.finish_owner <== finish_owner
+  command |> storage.command
+  describe_interface_retained_storage(command.fire(), finish_owner & storage.active, storage.active)
+  def mapped :: Endpoint = storage.attempt |> map_flow(value => value + bits(1, 8))
+  if mode == "checkpoint"
+  | mapped |> trace_event("mapped") |> attempt
+  | mapped |> attempt
+  describe_interface_contract(if mode == "internal" | storage.command | command,
+                              if mode == "summary" | attempt | storage.attempt,
+                              "attempts", ~trace_model: interface_trace_retained())
+  if mode == "disjoint"
+  | def source = interface_link(Decoupled(Bits(8)), "independent")
+    source.left.field("valid") <== Bool(#false)
+    source.left.field("bits") <== bits(0, 8)
+    def output :: Endpoint = source.right |> pipe(1) |> trace_event("independent", ~root: #true, ~terminal: #true)
+    output.ready <== Bool(#true)
+  | #void
+
+sync_circuit EventRetained(intrinsic :: Boolean = #true, detach :: Boolean = #true, region :: String = "region"):
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface unrelated(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  input(emit, finish_owner): Bool
+  def implementation = if region == "" | RetainedCell(intrinsic) | RetainedRegion(region)
+  inst owner(implementation)
+  owner.emit <== emit
+  owner.finish_owner <== finish_owner
+  if (!intrinsic) && region == ""
+  | describe_interface_transform(InterfaceHandle(owner.command, owner.attempt), "attempts", {}, owner, ~trace_model: interface_trace_retained(owner))
+  | #void
+  source |> trace_event("accepted", ~root: #true, ~payload: #true) |> owner.command
+  def untraced :: Endpoint:
+    if detach
+    | unrelated |> trace_detach()
+    | unrelated
+  Array(owner.attempt, untraced) |> arbiter() |> trace_event("attempt", ~terminal: #true, ~payload: #true) |> sink
+
+sync_circuit InvalidRetained(kind :: String):
+  input bad: Bits(2)
+  cond
+  | kind == "missing": interface_trace_retained()
+  | kind == "width": describe_interface_retained_storage(bad, Bool(#false), Bool(#false))
+  | ~else:
+      describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
+      describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
+
+fun retained(intrinsic :: Boolean = #true, detach :: Boolean = #true, ~region: region :: String = "region"): elaborate_with_top(EventRetained(intrinsic, detach, region))
+fun invalid(kind :: String): elaborate_with_top(InvalidRetained(kind))
+
+sync_circuit EventDetached():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  source |> trace_event("before", ~root: #true, ~terminal: #true) |> trace_detach() |> trace_event("after", ~terminal: #true) |> sink
+
+fun detached(): elaborate_with_top(EventDetached())
+
+// Adjacent named relations attach to opposite views of a shared local link.
+sync_circuit EventContractLinks():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  def input = interface_link(Decoupled(Bits(8)), "first")
+  def middle = interface_link(Decoupled(Bits(8)), "middle")
+  def output = interface_link(Decoupled(Bits(8)), "last")
+  for (pair in [[input, middle], [middle, output]], name in ["first", "second"]):
+    pair[1].left.field("valid") <== pair[0].right.field("valid")
+    pair[1].left.field("bits") <== pair[0].right.field("bits") + bits(1, 8)
+    pair[0].right.field("ready") <== pair[1].left.field("ready")
+    describe_interface_contract(pair[0].right, pair[1].left, name, ~trace_model: interface_trace_combinational())
+  source |> trace_event("before", ~root: #true) |> input
+  output.right |> trace_event("after", ~terminal: #true) |> sink
+
+fun contract_links(): elaborate_with_top(EventContractLinks())
+export:
+  retained
+  invalid
+  detached
+  contract_links

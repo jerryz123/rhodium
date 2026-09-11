@@ -49,7 +49,7 @@ fun instrument_events(logical :: DesignElaboration,
   def parent_plans = MutableMap{}
   fun sources(plan :: EventTracePlan):
     cond
-    | plan is_a EventTraceSource: [plan.site]
+    | plan is_a EventTraceSource: (if plan.detached | [] | [plan.site])
     | plan is_a EventTracePipeline: sources(plan.input)
     | plan is_a EventTraceRouting: sources(plan.input)
     | plan is_a EventTraceReplication: sources(plan.input)
@@ -146,7 +146,7 @@ fun instrument_events(logical :: DesignElaboration,
 
   // Trace clocks are supplied from the selected root, never guessed from a
   // port name in a descendant. Check functional domains before introducing them.
-  fun control_root(value :: Value, occurrence :: Occurrence):
+  fun control_root(value :: Value, occurrence :: Occurrence, consumer :: String):
     def op = occurrence.original.find_operation(value.defining_op_id)
     cond
     | op.opcode == "rtl.input_port":
@@ -157,27 +157,36 @@ fun instrument_events(logical :: DesignElaboration,
             for (port in occurrence.original.inputs, place in occurrence.instance.places):
               when port.value === value | binding := place.driver
             unless binding | error(~who: #'instrument_events, "unbound clock/reset in traced hierarchy")
-            control_root(binding, occurrences[occurrence.parent])
-    | op.opcode == "rtl.wire": control_root(op.places[0].driver, occurrence)
-    | op.opcode == "rtl.cast": control_root(op.operands[0], occurrence)
-    | ~else: error(~who: #'instrument_events, "generated or opaque clock/reset in " ++ String.join(occurrence.path, "/"))
+            control_root(binding, occurrences[occurrence.parent], consumer)
+    | op.opcode == "rtl.wire": control_root(op.places[0].driver, occurrence, consumer)
+    | op.opcode == "rtl.cast": control_root(op.operands[0], occurrence, consumer)
+    | ~else: error(~who: #'instrument_events, "generated or opaque clock/reset in " ++ String.join(occurrence.path, "/") ++ " (" ++ op.opcode ++ ", consumed by " ++ consumer ++ ")")
+  // Fixed delays have no sampled controls, but their functional storage must
+  // share the epoch too. Include their implementation subtrees conservatively.
+  def mutable fixed_domains = []
+  for (site in manifest.sites):
+    for (stage in (if parent_plans.has_key(site.id) | plan_controls(parent_plans[site.id]) | [])):
+      when stage is_a EventTraceStage && !stage.advance && stage.instance_path.length() > 0
+      | fixed_domains := fixed_domains ++ [stage.instance_path]
   for (occurrence in occurrences):
-    def traced_domain = manifest.sites.find(fun (site): site.instance_path == occurrence.path) != #false || controls.find(fun (control): control.path == occurrence.path) != #false
+    def traced_domain = manifest.sites.find(fun (site): site.instance_path == occurrence.path) != #false || controls.find(fun (control): control.path == occurrence.path) != #false || fixed_domains.find(fun (path): occurrence.path.length() >= path.length() && occurrence.path.take(path.length()) == path) != #false
     for (value in occurrence.original.values):
       when value.name.starts_with("__event_")
       | error(~who: #'instrument_events, "reserved instrumentation name: " ++ value.name)
-      when traced_domain && (clock_type(value.type) || reset_type(value.type))
+      when traced_domain && occurrence.original.find_operation(value.defining_op_id).opcode == "rtl.input_port" && (clock_type(value.type) || reset_type(value.type))
       | def expected = (if clock_type(value.type) | top_clock.value | top_reset.value)
-        unless control_root(value, occurrence) === expected
+        unless control_root(value, occurrence, String.join(occurrence.path, "/") ++ ":input") === expected
         | error(~who: #'instrument_events, "tracing requires one clock and reset epoch: " ++ String.join(occurrence.path, "/"))
     for (place in occurrence.original.places):
       when place.name.starts_with("__event_")
       | error(~who: #'instrument_events, "reserved instrumentation name: " ++ place.name)
     for (op in occurrence.original.operations):
       for (operand in op.operands):
-        when traced_domain && (clock_type(operand.type) || reset_type(operand.type))
+        // Merely constructing a reset for an unrelated child is not a local
+        // state clock/reset use. Traced children validate their own bindings.
+        when traced_domain && !(op.opcode in ["rtl.cast", "rtl.wire", "rtl.drive", "rtl.instance"]) && (clock_type(operand.type) || reset_type(operand.type))
         | def expected = (if clock_type(operand.type) | top_clock.value | top_reset.value)
-          unless control_root(operand, occurrence) === expected
+          unless control_root(operand, occurrence, String.join(occurrence.path, "/") ++ ":" ++ op.opcode) === expected
           | error(~who: #'instrument_events, "tracing requires one clock and reset epoch: " ++ String.join(occurrence.path, "/"))
 
   def view = diagram(logical)
@@ -355,21 +364,33 @@ fun instrument_events(logical :: DesignElaboration,
           def name = ref_name("__event_parent_", site) ++ "_" ++ to_string(next_stage)
           next_stage := next_stage + 1
           name
-        fun emit_stage(stage :: EventTraceStage || EventTraceQueue, reference :: Value):
+        fun emit_stage(stage :: EventTraceStage || EventTraceQueue || EventTraceRetained, reference :: Value):
             def name = stage_name()
             def empty = empty_lineage(reference.type.field("parents").type.length)
             fun observe(value :: Value): observed[control_ids[[stage.instance_path, value.id]]]
-            if stage is_a EventTraceQueue
-            | def storage = builder.memory(module_def, name, stage.depth, reference.type)
-              def stored = builder.memory_read_async(module_def, storage, observe(stage.read_address))
-              def enqueue = builder.bit_and(module_def, active, observe(stage.enqueue))
-              builder.memory_write(module_def, storage, observe(stage.write_address), reference, clock, enqueue)
-              // Functional occupancy hides stale memory after reset or dequeue;
-              // no shadow pointers, occupancy counter, or payload are needed.
-              def resident = builder.mux_lookup(module_def, observe(stage.stored_valid), empty, [[1, stored]])
-              builder.assert(module_def, builder.record_get(module_def, resident, "valid"), clock, reset, observe(stage.dequeue), name ++ "_dequeue_present")
-              builder.mux_lookup(module_def, observe(stage.bypass), resident, [[1, reference]])
-            | block:
+            cond
+            | stage is_a EventTraceRetained:
+                def resident = builder.register(module_def, name, reference.type, clock, reset, empty)
+                def capture = observe(stage.capture)
+                def release = observe(stage.release)
+                def occupied = observe(stage.active)
+                def released = builder.mux_lookup(module_def, release, resident.current, [[1, empty]])
+                builder.drive(resident.next, builder.mux_lookup(module_def, capture, released, [[1, reference]]))
+                builder.assert(module_def, builder.record_get(module_def, reference, "valid"), clock, reset, capture, name ++ "_capture_present")
+                builder.assert(module_def, builder.bit_or(module_def, builder.bit_not(module_def, occupied), release), clock, reset, capture, name ++ "_no_overwrite")
+                builder.assert(module_def, occupied, clock, reset, release, name ++ "_release_active")
+                builder.mux_lookup(module_def, occupied, empty, [[1, resident.current]])
+            | stage is_a EventTraceQueue:
+                def storage = builder.memory(module_def, name, stage.depth, reference.type)
+                def stored = builder.memory_read_async(module_def, storage, observe(stage.read_address))
+                def enqueue = builder.bit_and(module_def, active, observe(stage.enqueue))
+                builder.memory_write(module_def, storage, observe(stage.write_address), reference, clock, enqueue)
+                // Functional occupancy hides stale memory after reset or dequeue;
+                // no shadow pointers, occupancy counter, or payload are needed.
+                def resident = builder.mux_lookup(module_def, observe(stage.stored_valid), empty, [[1, stored]])
+                builder.assert(module_def, builder.record_get(module_def, resident, "valid"), clock, reset, observe(stage.dequeue), name ++ "_dequeue_present")
+                builder.mux_lookup(module_def, observe(stage.bypass), resident, [[1, reference]])
+            | ~else:
                 def delayed = builder.register(module_def, name, reference.type, clock, reset, empty)
                 if stage.advance
                 | def incoming = builder.mux_lookup(module_def, observe(stage.valid), empty, [[1, reference]])
@@ -381,8 +402,11 @@ fun instrument_events(logical :: DesignElaboration,
           | def result:
               cond
               | plan is_a EventTraceSource:
-                  def reference = references[plan.site]
-                  lineage(builder.record_get(module_def, reference, "valid"), [reference])
+                  if plan.detached
+                  | lineage(yes, [empty_reference])
+                  | block:
+                      def reference = references[plan.site]
+                      lineage(builder.record_get(module_def, reference, "valid"), [reference])
               | plan is_a EventTraceJoin:
                   def mutable valid = yes
                   def mutable parents = []

@@ -39,6 +39,12 @@ flowchart TD
 - `event.rhdl` owns transparent checkpoint adapters and publishes public
   metadata. Analysis and runtime instrumentation stay in `rhodium/event`; flow
   must not import that package.
+  Its `trace_detach` adapter explicitly marks an ancestry cut without an event;
+  keep it distinct from opaque-boundary inference failure.
+- `offer-decoupled.rhdl` owns best-effort Valid-to-Decoupled wiring;
+  `to-decoupled.rhdl` retains the checked same-cycle acceptance contract.
+  Keep fault/replay policy downstream. Event qualification in `event.rhdl`
+  changes only the observed valid predicate, never functional protocol wiring.
 
 The exact direct-import inventory lives in
 [`rhodium/DEVELOPING.md`](../rhodium/DEVELOPING.md#flow-library-dependencies).
@@ -69,6 +75,21 @@ shifted storage. Its event-lineage model remains an explicit unsupported boundar
    protocol compatibility, or meaningful invalid uses.
 
 ## Protocol preservation
+
+Keep trace semantics with the implementation. Primitive modules declare
+`describe_interface_contract` using local controls; configured adapters describe
+their child for presentation without supplying a second model. Inline adapters
+use `describe_interface_transform(..., ~trace_model: ...)`. These share one
+frontend contract model and occurrence-aware event analysis. Name control
+declarations when a module contains multiple independent regions. Do not
+summarize composite modules across internal checkpoints or contracted children.
+See the [interface API](../rhodium/frontend/layers/README.md) for validation rules.
+
+The event pipeline, elastic, queue, arbiter, and broadcast fixtures exercise
+direct instances against configured reference lanes, actual control sampling,
+and traversal through presentation wrappers. Keep those behavioral checks when
+changing how contracts are attached; elaboration alone does not establish
+reset, simultaneous-transfer, or backpressure correctness.
 
 Keep protocol declarations separate from components that implement them.
 Ready-valid transforms must preserve or deliberately weaken the nominal
@@ -144,6 +165,9 @@ The [backend guide](../tests/backend/README.md) owns fixture selection and
 toolchain requirements. Credited, flit, control-only, valid-only, and event
 fixtures provide additional coverage when those contracts change.
 Use `make ci-circt-std-test` for the complete shared library backend group.
+Use `FIXTURE=event-offer bash tests/backend/run-circt.sh` for best-effort offer
+conversion and qualified transfer/stall lineage; its scoreboard checks exact
+current-attempt parents, rejected/replayed offers, reset, and unchanged wiring.
 Preserve example-owned Verilog references unless generated hardware changes
 intentionally; a path migration should not require new references.
 

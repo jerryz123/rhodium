@@ -134,6 +134,18 @@ never let it execute unguarded.
 
 ## Implementation map
 
+Interface trace contracts use one `InterfaceTransformGroup` representation for
+inline adapters and named local endpoint relations. Declarations normalize
+endpoint polarity with metadata-only connections; never emit functional
+drives as part of certification. Stateful control sets are named within their
+declaring module, and models retain local or immediate-child ownership.
+`validate_interface_contracts` checks whole-instance adapter ownership. Diagram
+extraction checks named relations against completed endpoint frontiers, catching
+competing producers/consumers through wiring and hierarchy without banning
+unrelated internal Flow. These are inspection invariants, not new core hardware
+semantics. Diagram extraction and event occurrence expansion own hierarchy resolution;
+the interface layer must not import either consumer.
+
 | Public area | Owning layer | Shared machinery | Representative tests |
 |---|---|---|---|
 | Packed expressions and selection | [`comb.rhm`](comb.rhm), [`bool.rhm`](bool.rhm), [`signed.rhm`](signed.rhm), [`expanding-arithmetic.rhm`](expanding-arithmetic.rhm) | fields, literals, mux lookup, masks, one-hot selection | [`../../../tests/frontend/comparison-test.rhm`](../../../tests/frontend/comparison-test.rhm), [`../../../tests/frontend/concat-test.rhm`](../../../tests/frontend/concat-test.rhm), [`../../../tests/frontend/signed-test.rhm`](../../../tests/frontend/signed-test.rhm), [`../../../tests/frontend/expanding-arithmetic-test.rhm`](../../../tests/frontend/expanding-arithmetic-test.rhm) |

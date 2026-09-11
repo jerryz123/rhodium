@@ -68,6 +68,18 @@ or DPI calls. Bare checkpoints capture identity and timing, not payload fields.
 Labels must be nonempty and unique within one module definition. Each concrete
 instance of a reused definition has distinct event-site identities.
 
+`trace_event(..., ~when: predicate)` optionally qualifies observation with a
+hardware `Bool` (default true). Transfers fire on `valid & ready & predicate`;
+with `~stalls: #true`, stalls fire on `valid & !ready & predicate`. This does
+not gate functional valid/ready, change payloads, buffer, or drop hardware
+transactions. It is useful for observing nonfaulting admission after
+[`offer_decoupled()`](../../flow/README.md#mapping-and-protocol-conversion).
+Qualification still creates an ancestry cut point: a suppressed event does not
+forward its parent's identity. Any downstream traced transaction must have a
+recorded parent, for example because faulting transactions never reach it or
+because its observation is qualified consistently. Missing-parent assertions
+remain enabled; qualification is not a generic trace-sampling mechanism.
+
 `~root: #true` explicitly starts new lineage, including at an opaque component
 output. It cuts off earlier ancestry without certifying the component or
 relaxing clock/reset checks. The default is false: ordinary checkpoints still
@@ -221,13 +233,23 @@ structured manifest, not JSON; see the [plan representation](DEVELOPING.md#dynam
 Static traversal requires explicit `InterfaceTraceModel` routes. Dynamic
 instrumentation additionally requires a typed behavioral contract; neither
 transform labels nor apparent signal connectivity establish causality.
+Contracts may describe a module-local endpoint relation or an inline adapter. A configured
+adapter that wraps a self-described module delegates through that module,
+including internal checkpoints; direct instances need no extra annotations.
+Both forms resolve to the same occurrence-qualified lineage plans. A local
+relation can fill an opaque stateful gap while surrounding Flow and checkpoints
+remain visible; it does not summarize the whole containing module. See the
+[interface API](../frontend/layers/README.md) for declaration and conflict rules.
 
 | Supported path | Runtime lineage behavior |
 |---|---|
-| Connections, hierarchy, `map_flow`, `map_valid`, `to_valid` | Preserve the transferred lineage |
+| Connections, hierarchy, `map_flow`, `map_valid`, `to_valid`, checked `to_decoupled` | Preserve the transferred lineage |
+| `offer_decoupled` | Use the same-cycle Valid occurrence for accepted offers; no retained parent for rejected offers |
 | `filter_flow`, `filter_valid`, `gate_flow` | Preserve surviving transfers only |
 | `valid_pipe`, `valid_pipe_always_capture` | Delay lineage by the certified fixed cycle count |
 | Ready-valid `pipe` | Advance, bubble, and stall with the functional stages |
+| Retained-owner contract | Capture one lineage, reuse it on every attempt, and release it only on completion; replacement exposes the old owner until the edge |
+| `trace_detach` | Explicitly cut ancestry without a visible event; selected transactions remain valid but parentless |
 | `queue` | Preserve FIFO order for all `~pipe`/`~flow` combinations, including bypass and simultaneous replacement |
 | `arbiter`, `rr_arbiter` | Select the actual granted input's lineage, including any multiple-parent lineage |
 | `demux_flow` | Route to the selected output; no selection blocks transfer |
@@ -276,7 +298,8 @@ fail rather than inventing lineage or silently wrapping identities.
   required traversal. An explicit root can start observation beyond a boundary;
   failure to infer ancestry never implicitly grants root intent.
 - If any selectable or joined input has annotated ancestry, all such inputs must
-  have it. Fully unannotated, otherwise supported ancestry establishes a root.
+  have it or explicitly detach it. Missing or unsupported branches still fail.
+  Fully unannotated, otherwise supported ancestry establishes a root.
 - Multiple child sites require every pair of possible paths to diverge through
   distinct outputs of a common certified routing or replication occurrence.
   Unexplained fanout remains an error; buffered branches may complete concurrently.

@@ -40,6 +40,20 @@ DPI ABI, not compiler sources. The authoritative package inventory is
 
 ## Dynamic lineage plans
 
+`InterfaceTraceModel` is shared by module-local endpoint contracts and inline
+transforms. `owner_path()` resolves sampled controls relative to the declaring
+module or an explicitly bound immediate child; occurrence expansion prefixes
+the actual hierarchy path. Fixed-latency contracts also retain their storage
+occurrence for reset validation, even without sampled controls.
+
+Diagram `delegate_ports` maps presentation-wrapper terminals onto child
+boundary ports. Expand those children exactly as ordinary instances and do not
+also construct a trace stage for the wrapper. Never infer behavior from a
+display label, skip a child checkpoint, or count child storage twice. Frontend
+and diagram contract validation reject competing declarations and overlapping
+endpoint ownership before inference. Named relations may coexist with internal
+Flow; preserve upstream/downstream transforms and checkpoints in the plan.
+
 Keep static `EventDependency` paths for possible-parent reporting. Dynamic
 `trace_plans` are memoized expressions at flow vertices, not independently
 delayed static edges. Storage before selection belongs to its input branch;
@@ -48,8 +62,8 @@ the linear compatibility projection and becomes false across nonlinear plans.
 
 | Plan | Information retained for lowering |
 |---|---|
-| `EventTraceSource` | Nearest annotation or supported unannotated root |
-| `EventTracePipeline` | Input plan and ordered fixed, elastic, or queue stages |
+| `EventTraceSource` | Nearest annotation, supported unannotated root, or explicit ancestry cut |
+| `EventTracePipeline` | Input plan and ordered fixed, elastic, queue, or retained-owner stages |
 | `EventTraceSelection` | Ordered input plans and occurrence-qualified grants |
 | `EventTraceRouting` | Input, concrete router ID, original predicates, output index |
 | `EventTraceReplication` | Input, concrete atomic-fork ID, output index |
@@ -91,6 +105,12 @@ analysis remains occurrence-aware. Validate clock/reset ancestry for event and
 observed-control owners through their ancestor bindings. Untouched opaque
 subtrees may retain private domains.
 
+Fixed-delay stages retain their implementation occurrence even without sampled
+controls. Validate those storage subtrees against the root epoch too. Validate
+domain inputs and local clocked uses, not casts that merely construct a private
+reset for an unrelated child. Such children remain untraced; a separately reset
+pipeline carrying lineage must still fail validation.
+
 Route original control values through passive observation ports, deduplicated
 by occurrence path and value ID, preserving widths. Never reconstruct controls
 by signal name or drive functional RTL from trace state. Lower recursively at
@@ -117,6 +137,17 @@ plan. Observation-port pruning is a separate optimization.
   hold; reset invalidates it. Gate each recipient with its actual pending bit.
   Never bypass with the incoming reference: simultaneous last delivery and
   replacement must expose the old resident identity. Add no shadow pending logic.
+- **Retained owner:** `EventTraceRetained` samples capture, release, and active
+  from the declared owner. Capture takes priority over release in next-state
+  metadata; emission reads the old resident reference and never consumes it.
+  Assert capture completeness, no live overwrite without release, and no idle
+  release. Gate reads with functional active state and reset metadata to invalid.
+  This is repeatable transaction ownership, not elastic/FIFO removal semantics.
+
+Detached routes stop both static and dynamic backward traversal.
+`EventTraceSource(#false, #true)` lowers to a valid transaction with invalid
+parent slots; ordinary unannotated sources remain distinguishable and cannot
+silently satisfy mixed annotated ancestry. Never emit a synthetic node for a cut.
 
 ### Selection and replication lowering
 
@@ -223,6 +254,8 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-broadcast` | Independent recipients, partial-delivery reset, old delivery before replacement, shared parents and duplicate-delivery rejection |
 | `event-join` | Nested joins, differently sized arbiter lineages, pre/post storage, fork/broadcast reconvergence, downstream demux, annotation cut points and distinct sequences at one site |
 | `event-stall` | Per-cycle blocked offers, changing/withdrawn Decoupled values, elastic and bypass/replacement queue ancestry, reset, repeated payloads and differential functional behavior |
+| `event-offer` | Best-effort Valid offers, qualified transfer/stall suppression, exact replay ancestry, reset, and unchanged public wiring |
+| `event-retained` | Scoped command-to-child-attempt ownership followed by payload mapping, repeated emissions, equal payloads, same-cycle release/replacement, pending reset, arbitration with explicitly detached traffic, and independent public-state checks |
 
 The `event-runtime` runner includes the standalone collector test. `event-join`
 binds a descriptor generated from the same instrumented result as its RTL, adding

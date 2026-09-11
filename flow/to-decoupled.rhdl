@@ -23,7 +23,11 @@ fun to_decoupled()
     assert(!input_endpoint.field("valid") ||| output_endpoint.field("ready"))
     finish_interface_transform(
       source,
-      interface_transform(input_link, output_link)
+      describe_interface_transform(
+        interface_transform(input_link, output_link),
+        "to-decoupled",
+        ~trace_model: interface_trace_combinational()
+      )
     )
 
 export:

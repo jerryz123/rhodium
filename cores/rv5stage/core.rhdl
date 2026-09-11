@@ -109,12 +109,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen), 1))
 
-  // Describe the existing stage storage without replacing its functional RTL.
-  describe_interface_transform(InterfaceHandle(if_id_pipe.ingress, if_id_pipe.egress), "if-id", {}, if_id_pipe, ~trace_model: interface_trace_elastic(if_id_pipe))
-  describe_interface_transform(InterfaceHandle(id_ex_pipe.ingress, id_ex_pipe.egress), "id-ex", {}, id_ex_pipe, ~trace_model: interface_trace_fixed_latency(1))
-  describe_interface_transform(InterfaceHandle(ex_mem_pipe.ingress, ex_mem_pipe.egress), "ex-mem", {}, ex_mem_pipe, ~trace_model: interface_trace_fixed_latency(1))
-  describe_interface_transform(InterfaceHandle(mem_wb_pipe.ingress, mem_wb_pipe.egress), "mem-wb", {}, mem_wb_pipe, ~trace_model: interface_trace_fixed_latency(1))
-
   inst decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled))
   inst registers(RV5StageRegisterFile(xlen))
   inst alu(ALU(xlen))
@@ -143,7 +137,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   reg maintenance_pending(~init: Bool(#false))
   reg maintenance_instruction(MemoryWriteback(xlen))
   wire maintenance_accepted: Bool
-  def pipeline_wb = mem_wb_pipe.egress |> trace_valid_event("core.s5.wb", ~terminal: #true, ~fields: operation):
+  def pipeline_wb = mem_wb_pipe.egress |> trace_valid_event("core.s5.wb", ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   // WRS owns its retirement context outside the feed-forward pipeline. Wake
@@ -708,7 +702,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
     cache_outcome(~format: "enum"): memory_cache_outcome
     cache_reason(~format: "enum"): mux(pipeline_access.response.valid, pipeline_access.response.bits.reason, RV5StagePipelineReason.None)
-  def Array(memory_writeback_path, memory_exception_path, memory_replay_path) = live_memory |> fork_valid(3)
+  def Array(memory_writeback_path, memory_exception_path, memory_replay_path, memory_access_path) = live_memory |> fork_valid(4)
+  memory_access_path |> filter_valid(operation => operation.data_request.access.into(MemoryOperation).is_memory())
+    |> trace_valid_event("dcache.s1.access", ~fields: operation):
+         pc: operation.pc
+         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+         address: operation.data_request.address
+         access(~format: "enum"): operation.data_request.access
   memory_exception_path |> filter_valid(operation => operation.exception_valid)
     |> map_valid(operation => operation.pc) |> memory_exception_link.left
   memory_replay_path |> filter_valid(operation => operation.replay ||| memory_cache_replay)
@@ -768,29 +768,46 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // Use registered destination availability for request admission. The FP
   // reservation's same-cycle completion bypass must not feed LSU request valid.
   def wb_fp_load_ready = !wb_fp_load ||| !scoreboard_busy(register_count, fp.busy, wb_bits.data_request.rd)
-  pipeline_wb |> filter_valid(_operation => wb_memory_attempt & wb_fp_load_ready)
+  wire wb_data_fault: Bool
+  wire wb_memory_accepted: Bool
+  wire wb_memory_replay: Bool
+  wire memory_response_replay: Bool
+  // Observe the MEM result at its real WB capture, including hits and replay.
+  // Admission qualifies continuation, not whether the S2 response is recorded.
+  def memory_response = pipeline_wb |> filter_valid(operation => operation.data_request.access.into(MemoryOperation).is_memory())
+    |> trace_valid_event("dcache.s2.resp", ~fields: operation):
+         pc: operation.pc
+         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+         address: operation.data_request.address
+         outcome(~format: "enum"): operation.cache_outcome
+         fault: operation.exception_valid ||| operation.cache_outcome.is_one_of(RV5StagePipelineOutcome.PageFault, RV5StagePipelineOutcome.AccessFault) ||| (wb_memory_attempt & wb_data_fault)
+         replay: operation.replay ||| memory_response_replay
+         admitted: wb_memory_accepted
+  def memory_offer = memory_response |> filter_valid(_operation => wb_memory_attempt & wb_fp_load_ready)
     |> map_valid(operation => operation.data_request.updated(
          ~locality: mux(operation.data_request.access.into(MemoryOperation).is_one_of(MemoryOperation.Load, MemoryOperation.Store), pending_locality, RV5StageMemoryLocality.Default)
        ))
-    |> eject_flow(~valid: data_access.request.valid, ~bits: data_access.request.bits)
+  // Request validity must not depend on admission or fault-status feedback.
+  memory_offer |> offer_decoupled() |> data_access.request
   pipeline_wb |> filter_valid(_operation => wb_attempt & wb_bits.fp_compute)
     |> map_valid(operation => operation.fp_issue)
     |> eject_flow(~valid: fp.issue.valid, ~bits: fp.issue.bits)
   def wb_page_fault = (wb_attempt & (wb_bits.cache_outcome === RV5StagePipelineOutcome.PageFault)) ||| (data_access.request.valid & data_access.request_fault)
   def wb_access_fault = (wb_attempt & (wb_bits.cache_outcome === RV5StagePipelineOutcome.AccessFault)) ||| (data_access.request.valid & !wb_page_fault & data_access.request_access_fault) ||| (maintenance_done & data_access.response.bits.access_fault)
-  def wb_data_fault = wb_page_fault ||| wb_access_fault
-  def wb_memory_accepted = data_access.request.fire() & !wb_data_fault
+  wb_data_fault <== wb_page_fault ||| wb_access_fault
+  wb_memory_accepted <== data_access.request.fire() & !wb_data_fault
   maintenance_accepted <== wb_memory_accepted & wb_bits.data_request.access.into(MemoryOperation).is_cache_management()
   when maintenance_accepted:
     maintenance_pending <== Bool(#true)
     maintenance_instruction <== wb_bits
   elsewhen maintenance_done:
     maintenance_pending <== Bool(#false)
-  def wb_memory_replay = wb_memory_attempt & (!wb_fp_load_ready ||| (!wb_data_fault & !data_access.request.ready))
+  wb_memory_replay <== wb_memory_attempt & (!wb_fp_load_ready ||| (!wb_data_fault & !data_access.request.ready))
   def wb_fp_replay = fp.issue.valid & !fp.issue.ready
   def deferred_fp_load_completion = data_access.response.valid & (data_access.response.bits.destination === RV5StageDataDestination.FloatingPoint)
   def wb_hit_fp_replay = wb_attempt & wb_bits.load_hit & wb_fp_load & (!wb_fp_load_ready ||| deferred_fp_load_completion)
   def wb_store_replay = wb_store_attempt & !pipeline_access.commit_ready
+  memory_response_replay <== wb_memory_replay ||| wb_hit_fp_replay ||| wb_store_replay
   def wb_replay = wb_bits.replay ||| wb_memory_replay ||| wb_fp_replay ||| wb_hit_fp_replay ||| wb_store_replay
   wire wb_exception: RV5StageException(xlen)
   when (wb_bits.exception_valid):

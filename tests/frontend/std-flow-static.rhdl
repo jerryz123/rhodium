@@ -73,6 +73,22 @@ sync_circuit FlowStaticInformation():
   def detached_valid = Valid(Bits(8)) |> capture_stage
   def detached_valid_bits = detached_valid.right.bits
 
+  def offer_stage = offer_decoupled()
+  interface offer_source(Valid(Bits(8)), ~role: consumer)
+  def offer = offer_source |> offer_stage
+  def offer_bits = offer.bits
+  def offer_ready = offer.ready
+  def detached_offer = Bits(8) |> offer_stage
+  def detached_offer_valid = detached_offer.left.valid
+  def detached_offer_bits = detached_offer.right.bits
+  def protocol_offer = Valid(Bits(8)) |> offer_stage
+  def protocol_offer_ready = protocol_offer.right.ready
+  def extended_offer = (Valid(Bits(8)) |> valid_pipe(1)) |> offer_stage
+  def extended_offer_bits = extended_offer.right.bits
+  def observed_offer = offer |> trace_event("offer", ~when: Bool(#true), ~fields: payload):
+    value: payload
+  def observed_offer_bits = observed_offer.bits
+
   inst captured_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1))
   def captured_nibble = captured_payload.egress.bits.low_nibble()
   def named_capture = captured_payload.egress |> trace_valid_event("named", ~fields: payload):

@@ -5,6 +5,16 @@ import:
   lib("json/main.rkt").#{string->jsexpr} as parse_json
   "../../rhodium/diagram/main.rhm" open
   "diagram-fixture.rhdl" as fixture
+  "event-pipeline-fixture.rhdl" as event_fixture
+
+def nested_top = diagram(event_fixture.nested_channels).module("EventNestedChannels")
+def nested_routes = nested_top.channels.filter(~keep: fun (channel): channel.kind == "interface" && channel.source_block.starts_with("instance:") && channel.destination_block.starts_with("instance:"))
+check:
+  nested_routes.map(fun (channel): channel.source_block ++ ":" ++ channel.source_port ++ "->" ++ channel.destination_block ++ ":" ++ channel.destination_port).sort() ~is [
+    "instance:requester:bus.traffic.auxiliary->instance:responder:bus.traffic.auxiliary",
+    "instance:requester:bus.traffic.request->instance:responder:bus.traffic.request",
+    "instance:responder:bus.traffic.response->instance:requester:bus.traffic.response"
+  ]
 
 def view = diagram(fixture.logical)
 def top = view.module("DiagramFlow")
@@ -82,6 +92,10 @@ check:
   flow_behaviors ~is ["combinational", "combinational", "sequential", "combinational"]
   boundary_behaviors ~is ["boundary", "boundary"]
   flow_blocks[2].properties["stages"] ~is 1
+  flow_blocks[2].delegate_ports ~is {"in": "ingress", "out": "egress"}
+  flow_blocks[2].trace_model ~is #false
+  pipe_module.blocks.find(fun (block): block.id == "contract:data").behavior ~is "sequential"
+  pipe_module.blocks.find(fun (block): block.id == "contract:data").trace_model.elastic_stages().length() ~is 1
   flow_blocks[3].properties["outputs"] ~is 2
   flow_blocks[0].ports.find(fun (port): port.id == "combo") != #false ~is #true
   flow_blocks[1].ports.find(fun (port): port.id == "combo") != #false ~is #true

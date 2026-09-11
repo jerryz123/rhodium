@@ -1152,6 +1152,53 @@ checkpoint. These records are nonsemantic module metadata: they do not modify
 hardware, verification, or backend lowering. A compiler analysis must reject an
 unmodeled transform instead of inferring routes from its label.
 
+The same model can be owned by a module or by an inline connection adapter:
+
+```rhombus
+// Inside the module that implements the storage:
+describe_interface_elastic_stages(advances, valids, ~name: "data")
+describe_interface_contract(ingress, egress, "data", ~trace_model: interface_trace_elastic(~name: "data"))
+
+// Inside an adapter that implements its own wiring/storage:
+describe_interface_transform(handle, "my-stage", ~trace_model: model)
+
+// A configured adapter around an already-described child delegates:
+describe_interface_transform(InterfaceHandle(stage.ingress, stage.egress), "my-stage", {}, stage)
+```
+
+`describe_interface_contract` binds a nonempty, module-local name to a relation
+between input and output endpoints (or endpoint arrays). Endpoints may be module
+ports, immediate-child ports, or local link endpoints. It adds metadata-only
+attachment views, not functional connections or storage. Optional `~kind`
+selects a display label, not semantics. Contracts describe only the missing
+relationship between their endpoints, not the containing module.
+Control declarations and their model builders accept `~name` (default `"data"`)
+so independent storage/selection regions can coexist. Omit the model builder's
+instance argument for local controls; pass an immediate child instance only
+when an adapter owns the contract for an otherwise undescribed implementation.
+
+A transform with an implementation and no model delegates through that child's
+actual topology, including internal checkpoints. It must expose the child's
+interface endpoints. Direct instances use the same contracts automatically.
+There is no override precedence: duplicate regions, competing implementation
+descriptions, and summaries over already-contracted children are errors.
+Contracts compose with upstream/downstream Flow and unrelated traced regions.
+Extraction rejects a contract whose input is already consumed or whose output
+is already produced by another transform/checkpoint through interface wiring
+and hierarchy forwarding. Adjacent contracts may share an output-to-input
+attachment; two contracts cannot claim the same input or output ownership.
+Opaque state still needs explicit semantics; arbitrary payload dataflow is not
+evidence of a transaction relationship.
+
+For example, a retrying engine can declare only its retained relationship and
+leave request construction visible to normal Flow traversal:
+
+```rhombus
+describe_interface_retained_storage(command.fire(), completion.fire(), control.active)
+describe_interface_contract(command, control.attempt, "transaction-attempts", ~trace_model: interface_trace_retained())
+control.attempt |> map_flow(attempt => make_request(attempt)) |> requests
+```
+
 Event observations use `~fields: [event_field("pc", value), ...]` with unique
 ASCII names and local scalar values; `cycle` and `sequence` are reserved for
 built-in event arguments. `event_field` infers Bool/SInt/bitvector
@@ -1180,40 +1227,56 @@ The trace model's
 for fixed latency, or false for elastic, queue, or uncertified route-only models.
 
 An elastic implementation calls
-`describe_interface_elastic_stages(advances, valids)` once in its module, with
+`describe_interface_elastic_stages(advances, valids)` for each named region, with
 equally sized nonempty lists of its actual local one-bit stage-load and
 input-valid signals in input-to-output order. The contract promises stage
-holding when disabled and synchronous reset flushing. A flow wrapper binds
-these controls with `interface_trace_elastic(instance)` and supplies that same
-instance as its transform implementation. `InterfaceTraceElastic` never
+holding when disabled and synchronous reset flushing. Bind local controls with
+`interface_trace_elastic()`, or use `interface_trace_elastic(instance)` for an
+adapter-owned contract with that same implementation. `InterfaceTraceElastic` never
 infers enables from a stage count or signal name. Its `elastic_stages()` and
 `elastic_instance()` model accessors let compiler consumers recover the typed
 controls and their owner without treating variable latency as fixed latency.
 
+For a retained transaction owner instead of a consuming FIFO, declare
+`describe_interface_retained_storage(capture, release, active, ~name: "data")`
+and bind `interface_trace_retained(~name: "data")`, or its optional immediate-child
+instance argument. Controls must be local one-bit values. Capture accepts a new
+input owner; any number of output transfers may refer to it while active.
+Release ends ownership, not an output transfer. Reset flushes ownership.
+Simultaneous release/capture replaces the owner after the edge; same-cycle
+outputs still refer to the old owner. There is no input-to-output bypass.
+Capture while active requires release, and release requires active ownership.
+The model exposes `retained_storage()` and `retained_instance()`; latency is unknown.
+
+`interface_trace_detached()` deliberately cuts incoming ancestry on one
+input/output route without adding a visible event or changing functional wires.
+Downstream selection may mix these explicitly parentless transactions with
+annotated ones. It does not make any other unsupported branch traceable.
+
 An in-order asynchronous-read queue calls
 `describe_interface_queue_storage(depth, enqueue, dequeue, read_address, write_address, stored_valid, bypass)`
-once inside its implementation. The positive depth fixes metadata capacity;
+for each named region inside its implementation. The positive depth fixes metadata capacity;
 addresses are local scalar data of width `index_width(depth)`, and the remaining
 controls are local one-bit data. `enqueue` and `dequeue` describe actual storage
 operations, excluding empty flow-through transfers. Addresses identify the
 pre-edge storage slots; a simultaneous read and write observes the old item.
 `stored_valid` means a resident head exists, while `bypass` selects the live
 input instead. The contract promises in-order, non-inventing transfers and
-synchronous reset flushing of occupancy. A wrapper uses
-`interface_trace_queue(instance)` and supplies that same instance as its
-transform implementation. The `InterfaceTraceQueue` model exposes
+synchronous reset flushing of occupancy. `interface_trace_queue()` binds local
+controls; its optional instance argument binds an adapter-owned implementation.
+The `InterfaceTraceQueue` model exposes
 `queue_storage()` and `queue_instance()` accessors. Duplicate declarations,
 wrong control widths/ownership, missing declarations, and mismatched instances
 are rejected. Consumers observe existing pointers and policy rather than
 reconstructing them from names or configuration properties.
 Other stateful transforms keep route-only models.
 
-A zero-storage selector calls `describe_interface_selection(grants)` once with
+A zero-storage selector calls `describe_interface_selection(grants)` per region with
 a nonempty ordered list of actual local one-bit input grants. The contract
 promises at most one grant, no output offer when no grant is asserted, and
 that the output transfer consumes only the selected input. It does not promise
-stable selection while stalled. The wrapper binds the same implementation via
-`interface_trace_selection(instance)`, producing `InterfaceTraceSelection`
+stable selection while stalled. `interface_trace_selection()` binds local
+controls, with an optional instance for an adapter-owned implementation, producing `InterfaceTraceSelection`
 with one input-to-output route per grant. Grant count must match the flattened
 input count, with exactly one output. Its `selection_grants()` and
 `selection_instance()` accessors expose controls and ownership to consumers.
@@ -1248,8 +1311,8 @@ functional transfer controls.
 
 `describe_interface_broadcast_storage(accept, pending)` declares a one-slot
 buffer's actual input-acceptance signal and ordered per-recipient pending bits.
-`interface_trace_buffered_broadcast(instance)` binds that declaration to a local
-implementation as `InterfaceTraceBufferedBroadcast`. The model validates one
+`interface_trace_buffered_broadcast()` binds local controls; its optional
+instance binds an adapter-owned implementation as `InterfaceTraceBufferedBroadcast`. The model validates one
 input, one ordered route and pending bit per output, local one-bit controls,
 and exact implementation binding. `broadcast_storage()` and
 `broadcast_instance()` expose the declaration and owner; latency is unknown.

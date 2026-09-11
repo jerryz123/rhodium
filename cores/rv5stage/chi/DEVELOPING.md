@@ -70,6 +70,14 @@ packages and these transaction engines consume it.
 
 ## Change workflow
 
+The refill engine composes a retained transaction relation with ordinary Flow.
+Its named contract covers only `command` to `control.attempt`, sampling command
+acceptance, completion acceptance, and controller active state. The compiler
+holds the parent across retry/credit waiting and every attempt, then traverses
+the existing `map_flow` request constructor. Do not summarize the whole engine
+or replace Flow wiring to accommodate tracing. Existing address, opcode, and
+context registers remain functional state, not trace bookkeeping.
+
 1. Put configuration, capability descriptions, and flit construction shared by
    several engines in `foundation.rhdl`.
 2. Keep each retained transaction lifetime in its owning engine; do not move

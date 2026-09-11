@@ -11,6 +11,7 @@ export:
   EventDependency
   EventTraceStage
   EventTraceQueue
+  EventTraceRetained
   EventTracePlan
   EventTraceSource
   EventTracePipeline
@@ -55,9 +56,12 @@ class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
 
 interface EventTracePlan
-class EventTraceSource(site :: False || String):
+class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):
+  method controls(): [capture, release, active]
+
+class EventTraceSource(site :: False || String, detached :: Boolean = #false):
   implements EventTracePlan
-class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue)):
+class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue || EventTraceRetained)):
   implements EventTracePlan
 class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan)):
   implements EventTracePlan
@@ -104,7 +108,7 @@ class EventDependency(parent :: String,
                       child :: String,
                       transform_path :: List.of(String),
                       latency_cycles :: False || Nat = #false,
-                      trace_stages :: False || List.of(EventTraceStage || EventTraceQueue) = #false)
+                      trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained) = #false)
 
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),

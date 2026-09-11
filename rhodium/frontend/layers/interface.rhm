@@ -36,6 +36,8 @@ export:
   InterfaceTraceCombinational
   InterfaceTraceFixedLatency
   InterfaceTraceElastic
+  InterfaceTraceRetained
+  InterfaceTraceDetached
   InterfaceTraceQueue
   InterfaceTraceSelection
   InterfaceTraceRouting
@@ -60,6 +62,9 @@ export:
   interface_trace_fixed_latency
   describe_interface_elastic_stages
   interface_trace_elastic
+  describe_interface_retained_storage
+  interface_trace_retained
+  interface_trace_detached
   describe_interface_queue_storage
   interface_trace_queue
   describe_interface_selection
@@ -73,6 +78,8 @@ export:
   interface_trace_merge
   interface_trace_crossbar
   describe_interface_transform
+  describe_interface_contract
+  validate_interface_contracts
   describe_interface_event
   interface_type_supports
   interface_link
@@ -430,34 +437,42 @@ class InterfaceTraceCombinational(guard :: False || Value = #false)
 class InterfaceTraceFixedLatency(cycles :: PosInt)
 
 class InterfaceElasticStage(advance :: Value, valid :: Value)
-class InterfaceElasticStages(module_def :: Module, stages :: NonemptyList.of(InterfaceElasticStage)):
+class InterfaceElasticStages(module_def :: Module, stages :: NonemptyList.of(InterfaceElasticStage), name :: String = "data"):
   implements ModuleMetadataPayload
-class InterfaceTraceElastic(instance :: Instance, stages :: NonemptyList.of(InterfaceElasticStage))
+class InterfaceTraceElastic(instance :: False || Instance, stages :: NonemptyList.of(InterfaceElasticStage))
+
+// One transaction owner may emit repeatedly until release; outputs do not pop it.
+class InterfaceRetainedStorage(module_def :: Module, capture :: Value, release :: Value, active :: Value, name :: String):
+  implements ModuleMetadataPayload
+  method controls(): [capture, release, active]
+class InterfaceTraceRetained(instance :: False || Instance, storage :: InterfaceRetainedStorage)
+// An intentional ancestry cut, distinct from an unsupported or missing route.
+class InterfaceTraceDetached()
 
 // Certifies an in-order, async-read queue using its functional storage controls.
 class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
                             enqueue :: Value, dequeue :: Value,
                             read_address :: Value, write_address :: Value,
-                            stored_valid :: Value, bypass :: Value):
+                            stored_valid :: Value, bypass :: Value, name :: String = "data"):
   implements ModuleMetadataPayload
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
-class InterfaceTraceQueue(instance :: Instance, storage :: InterfaceQueueStorage)
-class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value)):
+class InterfaceTraceQueue(instance :: False || Instance, storage :: InterfaceQueueStorage)
+class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
-class InterfaceTraceSelection(instance :: Instance, grants :: NonemptyList.of(Value))
+class InterfaceTraceSelection(instance :: False || Instance, grants :: NonemptyList.of(Value))
 class InterfaceTraceRouting(predicates :: NonemptyList.of(Value))
 // Zero-storage replication: every output transfers exactly when the input does.
 class InterfaceTraceAtomicFork(output_count :: PosInt)
 // Zero-storage rendezvous: every input transfers exactly when the output does.
 class InterfaceTraceAtomicJoin(input_count :: PosInt)
 // One resident item, captured on acceptance, retained for independent recipients.
-class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :: NonemptyList.of(Value)):
+class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
   method controls(): [accept] ++ pending
-class InterfaceTraceBufferedBroadcast(instance :: Instance, storage :: InterfaceBroadcastStorage)
+class InterfaceTraceBufferedBroadcast(instance :: False || Instance, storage :: InterfaceBroadcastStorage)
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceRetained || InterfaceTraceDetached || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
@@ -471,6 +486,11 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceElastic | dynamic.stages | #false
   method elastic_instance():
     if dynamic is_a InterfaceTraceElastic | dynamic.instance | #false
+  method retained_storage():
+    if dynamic is_a InterfaceTraceRetained | dynamic.storage | #false
+  method retained_instance():
+    if dynamic is_a InterfaceTraceRetained | dynamic.instance | #false
+  method detached(): dynamic is_a InterfaceTraceDetached
   method queue_storage():
     if dynamic is_a InterfaceTraceQueue | dynamic.storage | #false
   method queue_instance():
@@ -490,13 +510,20 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
   method broadcast_instance():
     if dynamic is_a InterfaceTraceBufferedBroadcast | dynamic.instance | #false
 
+  // Controls are relative to the declaring module, or an explicitly bound
+  // immediate child. Occurrence expansion resolves this once for all models.
+  method owner_path():
+    def instance = this.elastic_instance() || this.retained_instance() || this.queue_instance() || this.selection_instance() || this.broadcast_instance()
+    if instance | [instance.operation.attribute("name")] | []
+
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
                               input :: InterfaceEndpoint || Array,
                               output :: InterfaceEndpoint || Array,
                               properties :: Map,
                               implementation :: False || Instance,
-                              trace_model :: False || InterfaceTraceModel = #false):
+                              trace_model :: False || InterfaceTraceModel = #false,
+                              contract_name :: False || String = #false):
   implements ModuleMetadataPayload
 class InterfaceEventField(name :: String, value :: Value, encoding :: String,
                           isa :: String = "", pc :: String = "",
@@ -566,6 +593,7 @@ def interface_event_group_namespace = "rhodium.interface.event"
 def interface_connection_group_namespace = "rhodium.interface.connection"
 def interface_link_group_namespace = "rhodium.interface.link"
 def interface_elastic_stages_namespace = "rhodium.interface.elastic-stages"
+def interface_retained_storage_namespace = "rhodium.interface.retained-storage"
 def interface_queue_storage_namespace = "rhodium.interface.queue-storage"
 def interface_broadcast_storage_namespace = "rhodium.interface.broadcast-storage"
 def interface_selection_namespace = "rhodium.interface.selection"
@@ -1681,14 +1709,37 @@ fun interface_trace_combinational(~guard: guard :: False || HardwareEntity = #fa
 fun interface_trace_fixed_latency(cycles :: PosInt):
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceFixedLatency(cycles))
 
+fun describe_interface_retained_storage(capture :: HardwareEntity, release :: HardwareEntity, active :: HardwareEntity, ~name: name :: String = "data"):
+  def module_def = kernel.active_module()
+  unless name != "" && !module_def.metadata_for(interface_retained_storage_namespace).find(fun (declaration): declaration.name == name)
+  | error(~who: #'describe_interface_retained_storage, "retained storage controls already declared or empty name")
+  fun signal(entity :: HardwareEntity):
+    def value = kernel.read(entity)
+    unless value.module_def === module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
+    | error(~who: #'describe_interface_retained_storage, "retained controls must be local one-bit data")
+    value
+  module_def.add_metadata(interface_retained_storage_namespace, InterfaceRetainedStorage(module_def, signal(capture), signal(release), signal(active), name))
+
+fun interface_trace_retained(instance :: False || Instance = #false, ~name: name :: String = "data"):
+  unless !instance || instance.operation.module_def === kernel.active_module()
+  | error(~who: #'interface_trace_retained, "retained implementation must be a local instance")
+  def owner = if instance | instance.module_def | kernel.active_module()
+  def declarations = owner.metadata_for(interface_retained_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
+  unless declarations.length() == 1
+  | error(~who: #'interface_trace_retained, "retained implementation requires declared storage controls")
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceRetained(instance, declarations[0]))
+
+fun interface_trace_detached():
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceDetached())
+
 // A pipeline publishes its actual stage load and input-valid signals. This
 // contract describes one ordered pipeline, with synchronous reset flushing.
 fun describe_interface_elastic_stages(advances :: NonemptyList.of(HardwareEntity),
-                                      valids :: NonemptyList.of(HardwareEntity)):
+                                      valids :: NonemptyList.of(HardwareEntity), ~name: name :: String = "data"):
   def module_def = kernel.active_module()
   unless advances.length() == valids.length()
   | error(~who: #'describe_interface_elastic_stages, "elastic stage controls must have matching lengths")
-  unless module_def.metadata_for(interface_elastic_stages_namespace).length() == 0
+  unless name != "" && !module_def.metadata_for(interface_elastic_stages_namespace).find(fun (declaration): declaration.name == name)
   | error(~who: #'describe_interface_elastic_stages, "elastic stage controls already declared")
   fun signal(entity :: HardwareEntity):
     def value = kernel.read(entity)
@@ -1697,12 +1748,13 @@ fun describe_interface_elastic_stages(advances :: NonemptyList.of(HardwareEntity
     value
   def stages = for List (advance in advances, valid in valids):
     InterfaceElasticStage(signal(advance), signal(valid))
-  module_def.add_metadata(interface_elastic_stages_namespace, InterfaceElasticStages(module_def, stages))
+  module_def.add_metadata(interface_elastic_stages_namespace, InterfaceElasticStages(module_def, stages, name))
 
-fun interface_trace_elastic(instance :: Instance):
-  unless instance.operation.module_def === kernel.active_module()
+fun interface_trace_elastic(instance :: False || Instance = #false, ~name: name :: String = "data"):
+  unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_elastic, "elastic trace implementation must be a local instance")
-  def declarations = instance.module_def.metadata_for(interface_elastic_stages_namespace)
+  def owner = if instance | instance.module_def | kernel.active_module()
+  def declarations = owner.metadata_for(interface_elastic_stages_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_elastic, "elastic trace implementation requires declared stage controls")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceElastic(instance, declarations[0].stages))
@@ -1713,9 +1765,9 @@ fun interface_trace_elastic(instance :: Instance):
 fun describe_interface_queue_storage(depth :: PosInt,
                                      enqueue :: HardwareEntity, dequeue :: HardwareEntity,
                                      read_address :: HardwareEntity, write_address :: HardwareEntity,
-                                     stored_valid :: HardwareEntity, bypass :: HardwareEntity):
+                                     stored_valid :: HardwareEntity, bypass :: HardwareEntity, ~name: name :: String = "data"):
   def module_def = kernel.active_module()
-  unless module_def.metadata_for(interface_queue_storage_namespace).length() == 0
+  unless name != "" && !module_def.metadata_for(interface_queue_storage_namespace).find(fun (declaration): declaration.name == name)
   | error(~who: #'describe_interface_queue_storage, "queue storage controls already declared")
   fun signal(entity :: HardwareEntity, width :: PosInt):
     def value = kernel.read(entity)
@@ -1726,33 +1778,35 @@ fun describe_interface_queue_storage(depth :: PosInt,
   module_def.add_metadata(interface_queue_storage_namespace,
                           InterfaceQueueStorage(module_def, depth, signal(enqueue, 1), signal(dequeue, 1),
                                                 signal(read_address, address_width), signal(write_address, address_width),
-                                                signal(stored_valid, 1), signal(bypass, 1)))
+                                                signal(stored_valid, 1), signal(bypass, 1), name))
 
-fun interface_trace_queue(instance :: Instance):
-  unless instance.operation.module_def === kernel.active_module()
+fun interface_trace_queue(instance :: False || Instance = #false, ~name: name :: String = "data"):
+  unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_queue, "queue trace implementation must be a local instance")
-  def declarations = instance.module_def.metadata_for(interface_queue_storage_namespace)
+  def owner = if instance | instance.module_def | kernel.active_module()
+  def declarations = owner.metadata_for(interface_queue_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_queue, "queue trace implementation requires declared storage controls")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceQueue(instance, declarations[0]))
 
 // Grants select the live output offer, not a remembered winner or inferred
 // priority. At most one grant is asserted, and no grant means no output offer.
-fun describe_interface_selection(grants :: NonemptyList.of(HardwareEntity)):
+fun describe_interface_selection(grants :: NonemptyList.of(HardwareEntity), ~name: name :: String = "data"):
   def module_def = kernel.active_module()
-  unless module_def.metadata_for(interface_selection_namespace).length() == 0
+  unless name != "" && !module_def.metadata_for(interface_selection_namespace).find(fun (declaration): declaration.name == name)
   | error(~who: #'describe_interface_selection, "selection controls already declared")
   def grant_values = for List (grant in grants):
     def value = kernel.read(grant)
     unless value.module_def === module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
     | error(~who: #'describe_interface_selection, "selection grants must be local one-bit data")
     value
-  module_def.add_metadata(interface_selection_namespace, InterfaceSelection(module_def, grant_values))
+  module_def.add_metadata(interface_selection_namespace, InterfaceSelection(module_def, grant_values, name))
 
-fun interface_trace_selection(instance :: Instance):
-  unless instance.operation.module_def === kernel.active_module()
+fun interface_trace_selection(instance :: False || Instance = #false, ~name: name :: String = "data"):
+  unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_selection, "selection trace implementation must be a local instance")
-  def declarations = instance.module_def.metadata_for(interface_selection_namespace)
+  def owner = if instance | instance.module_def | kernel.active_module()
+  def declarations = owner.metadata_for(interface_selection_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_selection, "selection trace implementation requires declared grants")
   def grants = declarations[0].grants
@@ -1780,21 +1834,22 @@ fun interface_trace_atomic_join(input_count :: PosInt):
 
 // Outputs observe the old resident item on an edge that accepts a replacement.
 // Pending bits are the functional per-recipient ownership state; reset flushes it.
-fun describe_interface_broadcast_storage(accept :: HardwareEntity, pending :: NonemptyList.of(HardwareEntity)):
+fun describe_interface_broadcast_storage(accept :: HardwareEntity, pending :: NonemptyList.of(HardwareEntity), ~name: name :: String = "data"):
   def module_def = kernel.active_module()
-  unless module_def.metadata_for(interface_broadcast_storage_namespace).length() == 0
+  unless name != "" && !module_def.metadata_for(interface_broadcast_storage_namespace).find(fun (declaration): declaration.name == name)
   | error(~who: #'describe_interface_broadcast_storage, "broadcast storage controls already declared")
   fun signal(entity :: HardwareEntity):
     def value = kernel.read(entity)
     unless value.module_def === module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
     | error(~who: #'describe_interface_broadcast_storage, "broadcast controls must be local one-bit data")
     value
-  module_def.add_metadata(interface_broadcast_storage_namespace, InterfaceBroadcastStorage(module_def, signal(accept), pending.map(signal)))
+  module_def.add_metadata(interface_broadcast_storage_namespace, InterfaceBroadcastStorage(module_def, signal(accept), pending.map(signal), name))
 
-fun interface_trace_buffered_broadcast(instance :: Instance):
-  unless instance.operation.module_def === kernel.active_module()
+fun interface_trace_buffered_broadcast(instance :: False || Instance = #false, ~name: name :: String = "data"):
+  unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_buffered_broadcast, "broadcast trace implementation must be a local instance")
-  def declarations = instance.module_def.metadata_for(interface_broadcast_storage_namespace)
+  def owner = if instance | instance.module_def | kernel.active_module()
+  def declarations = owner.metadata_for(interface_broadcast_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_buffered_broadcast, "broadcast trace implementation requires declared storage controls")
   def storage = declarations[0]
@@ -1860,43 +1915,73 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
 
 // Gives an interface transform a persistent authoring-level identity for
 // inspection tools while leaving its ordinary flattened hardware unchanged.
+fun module_has_interface_trace(module_def :: Module):
+  module_interface_events(module_def).length() > 0 || module_interface_transforms(module_def).find(fun (transform): transform.trace_model != #false) || module_def.operations.find(fun (operation): operation.opcode == "rtl.instance" && module_has_interface_trace(operation.attribute("module")))
+
+// Whole-instance adapters claim their implementation. Named endpoint contracts
+// claim only their attachment points; diagram extraction checks that frontier.
+fun validate_interface_contracts(module_def :: Module):
+  def transforms = module_interface_transforms(module_def)
+  for (transform in transforms):
+    when transform.trace_model && transform.implementation && module_has_interface_trace(transform.implementation.module_def)
+    | error(~who: #'validate_interface_contracts, "competing trace contract for implementation " ++ transform.implementation.operation.attribute("name"))
+  #void
+
+fun interface_shapes_overlap(left :: InterfaceEndpoint || Array, right :: InterfaceEndpoint || Array):
+  fun elements(shape :: InterfaceEndpoint || Array):
+    if shape is_a Array
+    | for List (endpoint in shape): endpoint
+    | [shape]
+  for any (a in elements(left)):
+    for any (b in elements(right)):
+      a.bindings.length() == b.bindings.length() && for all (x in a.bindings, y in b.bindings): x.entity === y.entity && x.port_name == y.port_name
+
 fun describe_interface_transform(handle :: Handle,
                                  kind :: String,
                                  properties :: Map = {},
                                  implementation :: False || Instance = #false,
-                                 ~trace_model: trace_model :: False || InterfaceTraceModel = #false) :: Handle:
+                                 ~trace_model: trace_model :: False || InterfaceTraceModel = #false,
+                                 ~contract_name: contract_name :: False || String = #false) :: Handle:
   def module_def = kernel.active_module()
   when implementation && !(implementation.operation.module_def === module_def)
   | error(~who: #'describe_interface_transform,
           "interface transform implementation must be a local instance")
+  for (existing in module_interface_transforms(module_def)):
+    when (implementation && existing.implementation === implementation) || (trace_model && existing.trace_model && (interface_shapes_overlap(handle.left, existing.input) || interface_shapes_overlap(handle.right, existing.output)))
+    | error(~who: #'describe_interface_transform, "competing interface transforms: " ++ existing.kind ++ " and " ++ kind)
   when trace_model
   | validate_interface_trace_model(trace_model, handle.left, handle.right)
-    when trace_model.selection_instance()
-    | unless implementation && trace_model.selection_instance() === implementation
-      | error(~who: #'describe_interface_transform, "selection trace model must match the transform implementation")
-      for (value in trace_model.selection_grants()):
-        unless value.module_def === implementation.module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
-        | error(~who: #'describe_interface_transform, "selection grants must belong to the implementation and be one-bit data")
-    when trace_model.elastic_instance()
-    | unless implementation && trace_model.elastic_instance() === implementation
-      | error(~who: #'describe_interface_transform, "elastic trace model must match the transform implementation")
-      for (stage in trace_model.elastic_stages()):
-        for (value in [stage.advance, stage.valid]):
-          unless value.module_def === implementation.module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
-          | error(~who: #'describe_interface_transform, "elastic trace controls must belong to the implementation and be one-bit data")
-    when trace_model.queue_instance()
-    | unless implementation && trace_model.queue_instance() === implementation
-      | error(~who: #'describe_interface_transform, "queue trace model must match the transform implementation")
-      def storage = trace_model.queue_storage()
-      for (value in storage.controls(), width in [1, 1, memory_address_width(storage.depth), memory_address_width(storage.depth), 1, 1]):
-        unless value.module_def === implementation.module_def && scalar_data_type(value.type) && scalar_width(value.type) == width
-        | error(~who: #'describe_interface_transform, "queue trace controls must belong to the implementation with the required width")
-    when trace_model.broadcast_instance()
-    | unless implementation && trace_model.broadcast_instance() === implementation
-      | error(~who: #'describe_interface_transform, "broadcast trace model must match the transform implementation")
-      for (value in trace_model.broadcast_storage().controls()):
-        unless value.module_def === implementation.module_def && scalar_data_type(value.type) && scalar_width(value.type) == 1
-        | error(~who: #'describe_interface_transform, "broadcast trace controls must belong to the implementation and be one-bit data")
+    def control_instance = trace_model.elastic_instance() || trace_model.retained_instance() || trace_model.queue_instance() || trace_model.selection_instance() || trace_model.broadcast_instance()
+    when control_instance
+    | unless implementation && control_instance === implementation
+      | error(~who: #'describe_interface_transform, "trace model must match the transform implementation")
+    def owner = if control_instance | control_instance.module_def | module_def
+    def mutable controls = []
+    def mutable widths = []
+    cond
+    | trace_model.retained_storage():
+        controls := trace_model.retained_storage().controls()
+        widths := [1, 1, 1]
+    | trace_model.elastic_stages():
+        for (stage in trace_model.elastic_stages()):
+          controls := controls ++ [stage.advance, stage.valid]
+          widths := widths ++ [1, 1]
+    | trace_model.queue_storage():
+        def storage = trace_model.queue_storage()
+        controls := storage.controls()
+        widths := [1, 1, memory_address_width(storage.depth), memory_address_width(storage.depth), 1, 1]
+    | trace_model.selection_grants():
+        controls := trace_model.selection_grants()
+        widths := controls.map(fun (_): 1)
+    | trace_model.broadcast_storage():
+        controls := trace_model.broadcast_storage().controls()
+        widths := controls.map(fun (_): 1)
+    | ~else: #void
+    for (value in controls, width in widths):
+      unless value.module_def === owner && scalar_data_type(value.type) && scalar_width(value.type) == width
+      | error(~who: #'describe_interface_transform, "trace controls must belong to their owner with the required width")
+    when implementation && module_has_interface_trace(implementation.module_def)
+    | error(~who: #'describe_interface_transform, "competing trace contract for implementation " ++ implementation.operation.attribute("name") ++ "; delegate to its declared contracts instead")
   module_def.add_metadata(
     interface_transform_group_namespace,
     InterfaceTransformGroup(module_def,
@@ -1905,9 +1990,44 @@ fun describe_interface_transform(handle :: Handle,
                             handle.right,
                             properties,
                             implementation,
-                            trace_model)
+                            trace_model,
+                            contract_name)
   )
   handle
+
+// Declares a named local relation, including cuts at internal endpoints.
+// Normalize attachment polarity with metadata-only views, never RTL wiring.
+fun describe_interface_contract(input :: InterfaceEndpoint || Array,
+                                output :: InterfaceEndpoint || Array,
+                                name :: String,
+                                ~kind: kind :: String = "contract",
+                                ~trace_model: trace_model :: InterfaceTraceModel):
+  def module_def = kernel.active_module()
+  unless name != ""
+  | error(~who: #'describe_interface_contract, "contract name must not be empty")
+  for (existing in module_interface_transforms(module_def)):
+    when existing.contract_name
+    | when existing.contract_name == name || interface_shapes_overlap(input, existing.input) || interface_shapes_overlap(output, existing.output)
+      | error(~who: #'describe_interface_contract, "competing interface contracts: " ++ existing.contract_name ++ " and " ++ name)
+  fun attach(shape :: InterfaceEndpoint || Array, provider :: Boolean):
+    if shape is_a Array
+    | Array(& (for List (endpoint in shape): attach(endpoint, provider)))
+    | block:
+        unless for all (binding in shape.bindings): binding.entity.module_def === module_def
+        | error(~who: #'describe_interface_contract, "contract endpoints must belong to the local module")
+        def already_oriented = (shape.represented_role == shape.type.provider_role) == provider
+        when endpoint_view_has_origin(shape, "boundary") && already_oriented
+        | error(~who: #'describe_interface_contract, if provider | "contract output must be a produced boundary" | "contract input must be a consumed boundary")
+        if already_oriented
+        | shape
+        | block:
+            def endpoint = InterfaceEndpoint(shape.type, shape.role, shape.type.complementary_role(shape.represented_role), shape.bindings, "contract")
+            record_interface_connection(shape, endpoint)
+            endpoint
+  def inputs = attach(input, #false)
+  def outputs = attach(output, #true)
+  describe_interface_transform(InterfaceHandle(inputs, outputs), kind, ~trace_model: trace_model, ~contract_name: name)
+  #void
 
 // Marks a transparent one-to-one transform as a user-visible event site while
 // retaining a dedicated metadata record for compiler consumers.

@@ -43,6 +43,7 @@ circuit Arbiter(T :: DataType, n :: PosInt):
   )
   chosen <== grant.index
   describe_interface_selection(for List (index in 0..n): grant[index])
+  describe_interface_contract(ingress, egress, "data", ~kind: "arbiter", ~trace_model: interface_trace_selection())
 
 // Lower indices have higher priority among payloadless token offers.
 circuit CtrlArbiter(n :: PosInt):
@@ -91,8 +92,7 @@ fun arbiter(n :: False || PosInt = #false)
       source,
       describe_interface_transform(
         InterfaceHandle(arbiter_stage.ingress, arbiter_stage.egress),
-        "arbiter", {"inputs": input_count}, arbiter_stage,
-        ~trace_model: interface_trace_selection(arbiter_stage)
+        "arbiter", {"inputs": input_count}, arbiter_stage
       )
     )
 

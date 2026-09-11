@@ -33,6 +33,7 @@ sync_circuit Broadcast(T :: DataType, n :: PosInt):
   def accept_input = ingress.valid & input_ready
   ingress.ready <== input_ready
   describe_interface_broadcast_storage(accept_input, for List (index in 0..n): pending[index])
+  describe_interface_contract(ingress, egress, "data", ~kind: "broadcast", ~trace_model: interface_trace_buffered_broadcast())
 
   when (accept_input):
     payload <== ingress.bits
@@ -82,8 +83,7 @@ fun broadcast(n :: PosInt)
       source,
       describe_interface_transform(
         InterfaceHandle(broadcast_stage.ingress, broadcast_stage.egress),
-        "broadcast", {"outputs": n}, broadcast_stage,
-        ~trace_model: interface_trace_buffered_broadcast(broadcast_stage)
+        "broadcast", {"outputs": n}, broadcast_stage
       )
     )
 

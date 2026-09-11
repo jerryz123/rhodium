@@ -34,6 +34,7 @@ import:
   lib("flow/filter-valid.rhdl") open
   lib("flow/to-valid.rhdl") open
   lib("flow/to-decoupled.rhdl") open
+  lib("flow/offer-decoupled.rhdl") open
   lib("flow/boundary.rhdl") open
   lib("flow/filter.rhdl") open
   lib("flow/gate.rhdl") open
@@ -138,6 +139,7 @@ export:
   filter_valid
   to_valid
   to_decoupled
+  offer_decoupled
   flow_fields
   inject_flow
   eject_flow
@@ -146,3 +148,4 @@ export:
   parallel
   trace_event
   trace_valid_event
+  trace_detach

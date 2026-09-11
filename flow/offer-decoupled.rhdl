@@ -1,0 +1,27 @@
+#lang rhodium
+// Presents nonbackpressured Valid occurrences as best-effort Decoupled offers.
+
+import:
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/ready-valid-support.rhdl") open
+
+// An unaccepted occurrence is discarded; persistence and retry belong to the
+// caller. Unlike to_decoupled, this boundary does not require same-cycle acceptance.
+fun offer_decoupled()
+  :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
+  fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
+    def input_link = interface_link(valid_flow_protocol_type(source), "offer_decoupled_input")
+    def output_link = interface_link(Decoupled(valid_flow_payload_type(source)), "offer_decoupled_output")
+    output_link.left.field("valid") <== input_link.right.field("valid")
+    output_link.left.field("bits") <== input_link.right.field("bits")
+    finish_interface_transform(
+      source,
+      describe_interface_transform(
+        interface_transform(input_link, output_link),
+        "offer-decoupled",
+        ~trace_model: interface_trace_combinational()
+      )
+    )
+
+export:
+  offer_decoupled

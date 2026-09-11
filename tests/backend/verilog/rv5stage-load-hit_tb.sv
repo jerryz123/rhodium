@@ -1,4 +1,4 @@
-// Checks real-core hit-under-miss, warm-loop timing, deferred results, lanes, and squash.
+// Checks real-core load timing, authorization, and exact demand-to-refill event ancestry.
 module rv5stage_load_hit_tb;
   typedef struct packed {logic ready;} ready_t;
   typedef struct packed {logic [63:0] address;} ireq_bits_t;
@@ -41,10 +41,21 @@ module rv5stage_load_hit_tb;
   logic load_issue, load_hit, transaction_valid, transaction_fire;
   logic [63:0] load_address;
   request_bits_t transaction;
+  logic demand_attempt, demand_fire, cache_fire, done=0;
+  logic permit_demand=0;
+  logic [63:0] cache_address;
+  import "DPI-C" function void demand_init();
+  import "DPI-C" function void demand_sample(input int reset, attempt, accepted, cached, input longint unsigned address, input int txfire);
+  import "DPI-C" function void demand_check(input int done);
   RV5StageLoadHit dut(.*);
   always #5 clock=~clock;
+  always @(posedge clock) demand_sample(int'(reset), int'(demand_attempt), int'(demand_fire), int'(cache_fire), cache_address, int'(chi_out.requests.valid && chi_in.requests.ready));
+  always @(negedge clock) begin
+    demand_check(int'(done));
+    if(done) $finish;
+  end
 
-  logic refill_pending=0, uncached_pending=0;
+  logic refill_pending=0, refill_active=0, uncached_pending=0;
   logic [31:0] instruction_words[8];
   logic [2:0] instruction_head=0, instruction_tail=0;
   logic [3:0] instruction_count=0;
@@ -54,6 +65,7 @@ module rv5stage_load_hit_tb;
   integer cycle=0, beat=0, refills=0, signatures=0, hits=0, device_reads=0, ram_stores=0;
   integer measured=0, previous_issue=0, chase_cycle=0;
   integer refill_delay=0, load_miss_hits=0, store_miss_hits=0;
+  integer retry_phase=0;
   logic previous_load=0;
   logic [63:0] previous_address;
 
@@ -188,7 +200,13 @@ module rv5stage_load_hit_tb;
   end
   always_comb begin
     chi_in='0;
-    chi_in.requests.ready=1;
+    chi_in.requests.ready=cycle%4!=0;
+    chi_in.responses.valid=retry_phase!=0;
+    chi_in.responses.bits.opcode=retry_phase==1 ? 5'h03 : 5'h07;
+    chi_in.responses.bits.src_id=7'd1;
+    chi_in.responses.bits.tgt_id=7'd3;
+    chi_in.responses.bits.txn_id=transaction_id;
+    chi_in.responses.bits.pcrd_type=4'd2;
     chi_in.requester_responses.ready=1;
     chi_in.request_data.ready=1;
     chi_in.response_data.valid=refill_pending && refill_delay==0;
@@ -206,20 +224,24 @@ module rv5stage_load_hit_tb;
   always @(posedge clock) begin
     cycle<=cycle+1;
     if(reset) begin
+      permit_demand<=0;
       instruction_count<=0; instruction_head<=0; instruction_tail<=0;
-      refill_pending<=0; uncached_pending<=0;
+      refill_pending<=0; refill_active<=0; uncached_pending<=0;
       refills<=0; beat<=0; signatures<=0; measured<=0; hits<=0;
       previous_load<=0; chase_cycle<=0;
       refill_delay<=0; load_miss_hits<=0; store_miss_hits<=0;
+      retry_phase<=0;
     end else begin
+      if(demand_attempt && !demand_fire) permit_demand<=1;
       previous_load<=load_issue;
       previous_address<=load_address;
       if(load_hit) begin
         assert(previous_load) else $fatal(1,"hit did not follow EX issue by exactly one cycle");
         assert(previous_address<64'h8000) else $fatal(1,"device or unmapped access completed speculatively");
         hits<=hits+1;
-        if(refill_pending && refill_delay>0 && line_address==64'h1400) load_miss_hits<=load_miss_hits+1;
-        if(refill_pending && refill_delay>0 && line_address==64'h1440) store_miss_hits<=store_miss_hits+1;
+        // A miss remains outstanding during RetryAck/PCrdGrant, not just DAT delay.
+        if(refill_active && line_address==64'h1400) load_miss_hits<=load_miss_hits+1;
+        if(refill_active && line_address==64'h1440) store_miss_hits<=store_miss_hits+1;
       end
       if(load_issue && load_address==64'h1000 && refills==1) chase_cycle<=cycle;
       if(load_issue && load_address==64'h1008 && signatures==0) begin
@@ -248,12 +270,18 @@ module rv5stage_load_hit_tb;
         assert(!refill_pending && (chi_out.requests.bits.opcode==7'h02 || chi_out.requests.bits.opcode==7'h07)) else $fatal(1,"unexpected CHI transaction");
         line_address<=64'(chi_out.requests.bits.address);
         transaction_id<=chi_out.requests.bits.txn_id;
-        refill_pending<=1; beat<=0; refills<=refills+1;
-        refill_delay<=(chi_out.requests.bits.address==44'h1400 || chi_out.requests.bits.address==44'h1440) ? 32 : 0;
+        refill_active<=1;
+        if(chi_out.requests.bits.allow_retry) retry_phase<=1;
+        else begin
+          assert(chi_out.requests.bits.pcrd_type==2) else $fatal(1,"retry lost credit type");
+          refill_pending<=1; beat<=0; refills<=refills+1;
+          refill_delay<=(chi_out.requests.bits.address==44'h1400 || chi_out.requests.bits.address==44'h1440) ? 32 : 0;
+        end
       end
+      if(chi_in.responses.valid && chi_out.responses.ready) retry_phase<=retry_phase==1 ? 2 : 0;
       if(refill_delay>0) refill_delay<=refill_delay-1;
       if(chi_in.response_data.valid && chi_out.response_data.ready) begin
-        if(beat==3) refill_pending<=0;
+        if(beat==3) begin refill_pending<=0; refill_active<=0; end
         else beat<=beat+1;
       end
       uncached_pending<=0;
@@ -290,7 +318,7 @@ module rv5stage_load_hit_tb;
           12: begin
             assert(transaction.data==123) else $fatal(1,"squashed hit overwrote x7");
             $display("RV5Stage EX-issued hit latency, hit-under-load/store-miss, fences, forwarding, lanes, and squash passed (%0d hits)",hits);
-            $finish;
+            done<=1;
           end
           default: $fatal(1,"extra signature");
         endcase
@@ -300,6 +328,7 @@ module rv5stage_load_hit_tb;
     end
   end
   initial begin
+    demand_init();
     repeat(4) @(negedge clock);
     reset=0;
   end

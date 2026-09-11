@@ -97,6 +97,10 @@ through Rhombus `|>`. This makes every stage an ordinary unary host function:
 ingress |> queue(4, ~pipe: #true) |> pipe(2) |> egress
 ```
 
+`trace_detach()` is a transparent ready-valid adapter that deliberately clears
+ancestry without emitting an event. Use it at a known untraced boundary before
+merging with traced traffic; it is not an automatic fallback for missing contracts.
+
 `trace_event(label)` inserts a transparent compiler-visible checkpoint on a
 `Decoupled` or `Irrevocable` payload flow. `trace_valid_event(label)` provides
 the same annotation for `Valid`. These helpers do not add state or runtime
@@ -125,6 +129,11 @@ The event compiler owns the [supported-transform table](../rhodium/event/README.
 and [instrumentation limits](../rhodium/event/README.md#deliberate-limits).
 Flow components publish typed contracts using their actual functional controls;
 they do not implement compiler lineage propagation or depend on the compiler.
+`Pipe`, `ValidPipe`, `ValidPipeAlwaysCapture`, `Queue`, `Arbiter`, `RRArbiter`,
+and `Broadcast` own their boundary contracts. Both explicit instances and their
+configured adapters are traceable without caller-side redeclarations. Inline
+adapters own their contracts where they implement the transformation; see the
+[interface contract API](../rhodium/frontend/layers/README.md).
 
 Packet arbitration takes an inline predicate that identifies the final beat.
 The selected input remains the sole owner across stalls and bubbles until that
@@ -343,6 +352,24 @@ in the same cycle, making the otherwise unsafe boundary explicit:
 ```rhombus
 valid_source |> to_decoupled() |> arbiter_input
 ```
+
+`offer_decoupled()` instead presents each `Valid(T)` occurrence as a best-effort
+`Decoupled(T)` offer. It forwards validity and payload unchanged, with no storage,
+latency, or acceptance assertion. If the receiver is not ready that cycle, the
+occurrence is lost at this boundary; the caller owns any retry or replay. Neither
+payload stability nor persistence while stalled is promised. Use `to_decoupled()`
+when every occurrence must be accepted immediately, or explicit storage when
+the producer's protocol provides a way to avoid overflow.
+
+```rhombus
+valid_attempts |> offer_decoupled() |> request_sink
+```
+
+The adapter uses the existing same-cycle combinational event-lineage contract.
+Rejected offers retain no pending identity; a replay is a new upstream occurrence.
+Admission/fault policy belongs to the consumer, not the adapter. A qualified
+[`trace_event`](../rhodium/event/README.md) can observe successful
+admission without changing the functional offer.
 
 ## Circuit boundaries
 

@@ -204,10 +204,44 @@ not the original `c.*` mnemonic.
 MEM additionally captures the three-bit `cache_outcome` and `cache_reason`
 enums, distinguishing hits, slow service, faults, and replay causes without
 changing instruction labels or pipeline ancestry.
-WB is not retirement: replay, traps, maintenance/WRS holding, and deferred
-load/multiply/divide/FP completion remain outside this first pipeline trace.
+WB is not retirement: traps, maintenance/WRS holding, and deferred
+load/multiply/divide/FP completion remain outside the pipeline trace.
 No dependency is inferred between the memory-boundary graph and fetch through
 the cache/MMU, or across a replay's subsequent refetch.
+
+### D-cache stages
+
+Each numbered D-cache stage has one transfer event:
+
+| Track | Observation |
+| --- | --- |
+| `dcache.s1.access` | Memory instruction at core MEM; captures PC, instruction, effective address, and access kind. |
+| `dcache.s2.resp` | Captured result at core WB, one cycle after S1; captures PC, instruction, effective address, outcome, fault, replay, and slow-path `admitted`. |
+| `dcache.s3.lookup` | Retained slow-path lookup advances; captures physical address, access kind, and prefetch status. |
+| `dcache.s4.resolve` | Lookup result one cycle after S3; captures physical address, prefetch, hit, and direct-refill command acceptance. |
+
+S1 and S2 are same-cycle children of their corresponding core MEM and WB
+occurrences. Their correspondence follows the core MEM-to-WB edge, rather
+than an invented direct S1-to-S2 dependency. Hits, faults, and replays remain
+visible at S2; only admitted cacheable slow requests continue from S2 through
+MMU translation, physical routing, the service queue, and S3 into S4.
+Queueing and rereads make S2-to-S3 latency variable. S3 stalls share its track
+as continuous slices named `stall`; the feed-forward stages have no synthetic
+ready signal.
+
+Admission is an S2 field, not a later pipeline stage. Likewise, S4's
+`refill_accepted` records direct refill-command acceptance in that cycle;
+`refill_opcode` and `refill_address` are meaningful only when it is true.
+There is no separate same-cycle demand or refill stage.
+
+Prefetch admission (`dcache.prefetch`) and page-table requests (`mmu.pte.request`)
+start explicit independent roots rather than borrowing a scalar instruction's
+identity. Direct refill commands retain their S4 parent through the refill
+engine, including retry/credit waiting, and every accepted request attempt on
+`dcache.txreq` points back to that same S4 occurrence. No extra stage event is
+inserted. Dirty-victim gathering, post-writeback refills, and maintenance requests
+remain explicitly detached. Response beats and completion do not yet inherit
+transaction ancestry; other outer CHI flit observations remain independent.
 
 ### Private-cache outer traffic
 
@@ -240,7 +274,8 @@ source/transaction IDs, opcode, and return-to-source control. Opcode names come
 from the channel's hardware enum declaration, not a separate host table. Unknown
 encodings use hex slice names and retain their numeric opcode argument.
 
-Each channel is an explicit root and terminal observation. These events do not
+Each channel is terminal. Except for the direct-refill parents on `dcache.txreq`,
+channels start independent observations. These events do not
 infer request-to-response ancestry through CHI transaction state, NoC/Home/LLC
 logic, or the cache-to-pipeline path. Transaction IDs can be reused and have
 channel-specific meaning; equality alone is not an event dependency. Uncached
