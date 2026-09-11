@@ -431,22 +431,22 @@ path as an external target binary.
 `0x80003000` through one compiled simulator and ROM per SoC. It verifies the
 runtime register value, primary hart ID, and embedded DTB pointer and magic.
 
-All default SoC profiles enable Zihintntl. Run its end-to-end cache-policy test
-through the normal ELF loader and coherent HTIF path with:
+All default SoC profiles enable Zihintntl. The checked-in end-to-end cache-policy
+test is currently defined only for the SimpleSoC profile; run it through the
+normal ELF loader and coherent HTIF path with:
 
 ```sh
 make -C sims zihintntl-test SOC=simple
-make -C sims zihintntl-test SOC=mini
-make -C sims zihintntl-test SOC=tiled
 ```
 
 The payload uses Sv39-translated data accesses, checks all four hints and
 compressed aliases when C is available, and tests a hinted FP load when D is
 available. Relative hit/miss timing checks distinguish repeated non-allocating
 loads from ignored hints and verify that a conflicting dirty resident stays
-cached. FESVR reads the final dirty signature coherently. This is a regression
-for the default SoCs' direct-mapped L1D policy, not an ISA-mandated timing test
-or a claim of locality control in outer caches.
+cached. FESVR reads the final dirty signature coherently. Its conflict pattern
+is tied to SimpleSoC's checked-in four-way L1D, so this is not an assertion about
+other SoC cache geometries, an ISA-mandated timing test, or a claim of locality
+control in outer caches.
 
 Contributor binding, structural, and lowering checks are documented in
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).

@@ -1,4 +1,4 @@
-/* Separates NTL timing code, Sv39 root, conflicting L1D lines, signature, and HTIF in every default SoC's RAM. */
+/* Separates NTL timing code, Sv39 root, SimpleSoC's conflict bank, signature, and HTIF in the checked-in test RAM layout. */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 SECTIONS
@@ -12,8 +12,10 @@ SECTIONS
   .resident : { *(.resident) }
   . = 0x80005000;
   .stream : { *(.stream) }
-  . = 0x80006040;
+  . = 0x80006000;
+  .conflict : { *(.conflict) }
+  . = 0x80009040;
   .tohost : { *(.tohost) }
-  . = 0x80006100;
+  . = 0x80009100;
   .signature : { *(.signature) }
 }

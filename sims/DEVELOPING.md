@@ -396,14 +396,17 @@ line coherently after the program exits:
 make -C sims zicboz-test SOC=simple
 ```
 
-`zihintntl-test` runs `tests/programs/rv5stage_zihintntl.S` through each ordinary
-SoC harness. Keep its direct-mapped collision addresses consistent with the
-default profiles. It calibrates warm and cold accesses on the running system,
-then compares minima over repeated trials to tolerate unrelated HTIF snoops.
-The second hinted read must remain a miss, while an intervening conflicting
-dirty line must remain a hit. Do not weaken this to data-only checks: ignoring
-NTL preserves architectural values and would otherwise pass. The payload
-selects S-mode Sv39 data translation through MPRV while executing in M-mode;
-test addresses are virtual aliases outside the physical RAM window, so bypassing
-translation cannot pass. It needs no supervisor runtime. Compressed and FP
-subcases are selected from `misa`. CI runs this target for simple, mini, and tiled.
+`zihintntl-test` runs `tests/programs/rv5stage_zihintntl.S` through the
+checked-in SimpleSoC harness only. The payload's conflict bank is intentionally
+matched to SimpleSoC's 64-set, four-way L1D profile; changing that profile
+requires revisiting this test rather than silently reusing it for another SoC.
+It calibrates warm and cold accesses on the running system, then compares minima
+over repeated trials to tolerate unrelated HTIF snoops. The second hinted read
+must remain a miss, while an intervening conflicting dirty line must remain a
+hit. Do not weaken this to data-only checks: ignoring NTL preserves architectural
+values and would otherwise pass. The payload selects S-mode Sv39 data
+translation through MPRV while executing in M-mode; test addresses are virtual
+aliases outside the physical RAM window, so bypassing translation cannot pass.
+It needs no supervisor runtime. Compressed and FP subcases are selected from
+`misa`. MiniSoC and TiledSoC may enable Zihintntl but are not covered by this
+geometry-specific end-to-end target.

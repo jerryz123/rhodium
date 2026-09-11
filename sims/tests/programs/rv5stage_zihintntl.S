@@ -1,5 +1,20 @@
 // Checks translated NTL load non-allocation and dirty-resident preservation through real SoC/FESVR execution.
 .option norvc
+
+.macro prime_conflict_set
+  // The checked-in SimpleSoC data cache is 64-set, four-way. The resident
+  // plus three same-set lines fill it without allocating the stream line.
+  ld t0, 0(s0)
+  li t2, 0x1000
+  mv t1, t3
+  ld t0, 0(t1)
+  add t1, t1, t2
+  ld t0, 0(t1)
+  add t1, t1, t2
+  ld t0, 0(t1)
+  fence rw, rw
+.endm
+
 .section .text
 .globl _start
 _start:
@@ -20,20 +35,22 @@ _start:
   csrs mstatus, t0
   la s0, resident
   la s1, stream
+  la t3, conflict0
   li t0, 0x40000000
   sub s0, s0, t0
   sub s1, s1, t0
+  sub t3, t3, t0
   li s2, 0x123456789abcdef0
   la s7, begin_signature
 
   // Calibrate this concrete SoC's hit/miss gap instead of assuming absolute
-  // cycle counts. Both addresses collide in the default direct-mapped L1Ds.
+  // cycle counts. prime_conflict_set fills the active set while leaving the
+  // stream line absent, so the first stream read misses and the second hits.
   li s3, -1
   li s4, -1
   li s8, 12
 calibrate:
-  mv a0, s0
-  jal measure_plain
+  prime_conflict_set
   mv a0, s1
   jal measure_plain
   bgeu a1, s4, 1f
@@ -71,6 +88,7 @@ trial:
   // Reestablish an authoritative dirty resident before every trial.
   sd s2, 0(s0)
   fence rw, rw
+  prime_conflict_set
   mv a0, s1
   jalr a3
   li t0, 0x8877665544332211
@@ -187,6 +205,16 @@ resident:
 .section .stream,"aw",@progbits
 stream:
   .dword 0x8877665544332211
+.section .conflict,"aw",@progbits
+.balign 4096
+conflict0:
+  .dword 0x0101010101010101
+.balign 4096
+conflict1:
+  .dword 0x0202020202020202
+.balign 4096
+conflict2:
+  .dword 0x0303030303030303
 .section .signature,"aw",@progbits
 .globl begin_signature, end_signature
 begin_signature:

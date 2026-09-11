@@ -157,11 +157,16 @@ zicboz-test: $(ZICBOZ_BINARY) simulator
 	awk '{ expected = (NR > 4 && NR <= 8) ? "00000000000000000000000000000000" : "ffffffffffffffffffffffffffffffff"; if ($$0 != expected) exit 1 } END { if (NR != 12) exit 1 }' $(ZICBOZ_SIGNATURE)
 	@echo "Zicboz offset, neighbor, and coherent signature checks passed"
 
+ifeq ($(SOC),simple)
 zihintntl-test: $(ZIHINTNTL_BINARY) simulator
 	$(SIMULATOR_BINARY) +signature=$(ZIHINTNTL_SIGNATURE) +signature-granularity=8 $(ZIHINTNTL_BINARY)
-	awk -v variants="$(if $(filter mini,$(SOC)),0000000000000004,0000000000000008)" -v fp="$(if $(filter simple,$(SOC)),0000000000000001,0000000000000000)" \
-	  'NR == 1 && $$0 != "123456789abcdef0" { exit 1 } NR == 2 && $$0 != variants { exit 1 } NR == 8 && $$0 != fp { exit 1 } END { if (NR != 8) exit 1 }' $(ZIHINTNTL_SIGNATURE)
+	awk 'NR == 1 && $$0 != "123456789abcdef0" { exit 1 } NR == 2 && $$0 != "0000000000000008" { exit 1 } NR == 8 && $$0 != "0000000000000001" { exit 1 } END { if (NR != 8) exit 1 }' $(ZIHINTNTL_SIGNATURE)
 	@echo "Zihintntl translated non-allocation, resident preservation, and coherent signature checks passed on $(SOC)"
+else
+zihintntl-test:
+	@echo "zihintntl-test supports only the checked-in SimpleSoC configuration (SOC=simple)" >&2
+	@exit 2
+endif
 
 dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	@test -n "$(VERILATOR_ROOT)" || \
