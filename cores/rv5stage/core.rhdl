@@ -98,9 +98,17 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
                  exception_cause_bits(store_cause, width),
                  exception_cause_bits(load_cause, width))
       value: address
+
+  fun hazard_any(reasons :: RV5StageHazardReasons()) :~ Bool:
+    reasons.deferred_dependency ||| reasons.scoreboard_raw ||| reasons.scoreboard_waw ||| reasons.fp_source ||| reasons.fp_destination ||| reasons.resource ||| reasons.pause ||| reasons.serialization ||| reasons.wfi ||| reasons.interrupt_pending ||| reasons.exception
+
+  // Control-plane state is declared before the stage bodies because redirects,
+  // hazards, and retirement decisions travel backward through the pipeline.
+  // The stage sections below remain the readable forward datapath order.
   reg pending_exception_valid(~init: Bool(#false))
   reg pending_exception(MemoryWriteback(xlen))
 
+  // Pipeline storage and reusable execution units.
   // IF/ID is elastic so Decode can hold hazards. Every boundary after Decode
   // advances feed-forward; rejected WB dispatch refetches the instruction
   // without authorizing effects or introducing downstream backpressure.
@@ -125,8 +133,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   csrs.time_counter <== time_counter
   fp.state_update |> csrs.fp_update
 
-  // Name the pipeline boundaries once so later sections can be presented in
-  // stage order while still observing downstream occupancy and results.
+  // Stage boundary aliases and retained retirement contexts. These aliases
+  // keep the stage bodies below independent of Flow implementation details.
   def id_ex = id_ex_pipe.egress
   def memory = ex_mem_pipe.egress
   def memory_cache_outcome = mux(pipeline_access.response.valid & memory.bits.data_request_valid, pipeline_access.response.bits.outcome, RV5StagePipelineOutcome.Slow)
@@ -178,8 +186,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   satp <== csrs.satp
 
   // Backward-traveling observations use local Valid interface links. Their
-  // producers remain in their pipeline stages below, despite earlier stages
-  // consuming their values.
+  // producers remain in the forward stage sections below, despite earlier
+  // stages consuming their values.
   def redirect_link :: Handle = interface_link(Valid(Bits(width)))
   def memory_exception_link :: Handle = interface_link(Valid(Bits(width)))
   def memory_replay_link :: Handle = interface_link(Valid(Bits(width)))
@@ -220,8 +228,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   )
   redirect_sources |> valid_arbiter() |> redirect_link.left
 
-  // Fetch (IF) assembles variable-length instructions from aligned cache words.
-  // Redirects and faults discard both partially assembled and outstanding data.
+  // Stage 1: Fetch (IF) assembles variable-length instructions from aligned
+  // cache words. Redirects and faults discard partial and outstanding data.
   def exception_in_flight = pending_exception_valid ||| memory_exception_event ||| (
     commit_valid & commit_bits.exception_valid
   )
@@ -270,7 +278,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def decode_valid = if_id_pipe.egress.valid & !squash
   def decode_bits = if_id_pipe.egress.bits
 
-  // Decode (ID) is ordinary combinational logic between IF/ID and ID/EX.
+  // Stage 2: Decode (ID) is ordinary combinational logic between IF/ID and
+  // ID/EX.
   // Filtering consumes squashed tokens; gating holds a token that depends on
   // deferred work which has not yet reached the WB commit point.
   def instruction = decode_bits.instruction
@@ -428,9 +437,19 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def decoded_fp_store = decoded_fp_memory & decoded_fp_execution_control.memory_write
   def fp_store_resource_hazard = decoded_fp_store & !decoded_fault & wb.valid & wb_bits.fp_compute
   def local_resource_hazard = multiply_resource_hazard ||| divide_resource_hazard ||| fp_store_resource_hazard
-  def pipeline_hazard = deferred_dependency_hazard ||| scoreboard_raw_hazard ||| (
-    scoreboard_waw_hazard ||| fp_source_hazard ||| fp_destination_hazard
-  ) ||| local_resource_hazard ||| pause_in_flight ||| pause_active ||| serializing_in_flight ||| serializing_waits_for_older ||| waiting_for_interrupt ||| csrs.interrupt_request ||| exception_in_flight
+  def hazard_reasons = RV5StageHazardReasons():
+    deferred_dependency: deferred_dependency_hazard
+    scoreboard_raw: scoreboard_raw_hazard
+    scoreboard_waw: scoreboard_waw_hazard
+    fp_source: fp_source_hazard
+    fp_destination: fp_destination_hazard
+    resource: local_resource_hazard
+    pause: pause_in_flight ||| pause_active
+    serialization: serializing_in_flight ||| serializing_waits_for_older
+    wfi: waiting_for_interrupt
+    interrupt_pending: csrs.interrupt_request
+    exception: exception_in_flight
+  def pipeline_hazard = hazard_any(hazard_reasons)
   // Operand probes are read-only and may repeat while ID waits. Keeping them
   // independent of transfer/replay avoids feeding WB readiness into FP reads.
   fp.store_request.valid <== if_id_pipe.egress.valid & decoded_fp_store
@@ -444,17 +463,17 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       |> trace_event("core.s2.decode", ~stalls: #true, ~fields: operation):
            pc: operation.pc
            instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
-           deferred_dependency: deferred_dependency_hazard
-           raw_hazard: scoreboard_raw_hazard
-           waw_hazard: scoreboard_waw_hazard
-           fp_source_hazard: fp_source_hazard
-           fp_destination_hazard: fp_destination_hazard
-           resource_hazard: local_resource_hazard
-           pause: pause_in_flight ||| pause_active
-           serialization: serializing_in_flight ||| serializing_waits_for_older
-           wfi: waiting_for_interrupt
-           interrupt: csrs.interrupt_request
-           exception: exception_in_flight
+           deferred_dependency: hazard_reasons.deferred_dependency
+           raw_hazard: hazard_reasons.scoreboard_raw
+           waw_hazard: hazard_reasons.scoreboard_waw
+           fp_source_hazard: hazard_reasons.fp_source
+           fp_destination_hazard: hazard_reasons.fp_destination
+           resource_hazard: hazard_reasons.resource
+           pause: hazard_reasons.pause
+           serialization: hazard_reasons.serialization
+           wfi: hazard_reasons.wfi
+           interrupt: hazard_reasons.interrupt_pending
+           exception: hazard_reasons.exception
   def decoded_operation:
     // Observe the live offer before the gate hides valid; only admission advances ID/EX.
     traced_decode |> gate_flow(!pipeline_hazard) |> map_flow(fetched => DecodeExecute(xlen)):
@@ -498,7 +517,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           frs3: frs3
   decoded_operation |> to_valid() |> id_ex_pipe.ingress
 
-  // EX uses only registered selectors and data. A killed producer's younger
+  // Stage 3: EX uses only registered selectors and data. A killed producer's younger
   // consumer is canceled independently; it does not select an older operand.
   // The WB selector names the normal pipeline token, not retained retirement context.
   fun forwarded_register_value(operand :: RV5StageOperand(xlen)):
@@ -695,7 +714,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
          instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   traced_execute |> map_valid(_operation => execute_payload) |> ex_mem_pipe.ingress
 
-  // MEM resolves the parallel DTLB/tag/data lookup. Capture successful load
+  // Stage 4: MEM resolves the parallel DTLB/tag/data lookup. Capture successful load
   // data at the ordinary MEM/WB boundary, alongside pure integer results.
   def live_memory = memory |> filter_valid(_operation => memory_stage_valid) |> trace_valid_event("core.s4.memory", ~fields: operation):
     pc: operation.pc
@@ -741,7 +760,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     exception_value: operation.exception_value
   memory_writeback |> mem_wb_pipe.ingress
 
-  // WB authorizes transactions that did not complete as speculative hits.
+  // Stage 5: WB authorizes transactions that did not complete as speculative hits.
   // An attempted request
   // either faults, transfers irrevocably, or replays without any side effect.
   // Device reads, misses, and mutations cannot acquire effects speculatively.
@@ -857,7 +876,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   assert(!(wb_memory_accepted & wb_replay), "rv5stage_wb_memory_accept_does_not_replay")
   assert(!(fp.issue.fire() & wb_replay), "rv5stage_wb_fp_accept_does_not_replay")
 
-  // Older authorized work must finish before entering a precise trap. Younger
+  // Retirement and architectural side effects. Older authorized work must
+  // finish before entering a precise trap. Younger
   // speculative pipeline occupancy is not outstanding architectural work.
   def current_exception_wait = commit_valid & commit_bits.exception_valid & (deferred_results_pending ||| !data_access.drained)
   def architectural_commit = mux(pending_exception_valid, pending_exception, commit_bits)
@@ -932,10 +952,15 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   ) & fp.issue.bits.frd.or_reduce()
   fp_integer_scoreboard.set.bits <== fp.issue.bits.frd
 
-  // Deferred loads and arithmetic complete outside the ordered pipeline. The
-  // fixed-priority arbiter lets nonbackpressured L1D responses win while the
-  // arithmetic units hold their irrevocable results.
-  inst deferred_completion_arbiter(Arbiter(RegisterFileWrite(xlen), 4))
+  // Deferred completion. Loads and arithmetic complete outside the ordered
+  // pipeline. Each candidate carries its semantic source, so routing does not
+  // depend on the arbiter's structural input index.
+  inst deferred_completion_arbiter(Arbiter(RV5StageDeferredCompletion(xlen), 4))
+  fun tag_completion(source :: RV5StageCompletionSource):
+    map_flow(~stable: #true, completion):
+      RV5StageDeferredCompletion(xlen):
+        write: completion
+        source: source
   def integer_load_completion = (
     data_access.response
       |> filter_valid(response => (
@@ -945,19 +970,19 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           address: response.rd
           data: response.data
   )
-  integer_load_completion |> to_decoupled() |> deferred_completion_arbiter.ingress[0]
+  integer_load_completion |> to_decoupled() |> tag_completion(RV5StageCompletionSource.IntegerLoad) |> deferred_completion_arbiter.ingress[0]
   (
     multiplier.completion
       |> map_flow(~stable: #true, completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.value
-  ) |> deferred_completion_arbiter.ingress[1]
+  ) |> tag_completion(RV5StageCompletionSource.Multiply) |> deferred_completion_arbiter.ingress[1]
   (
     divider.completion
       |> map_flow(~stable: #true, completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.value
-  ) |> deferred_completion_arbiter.ingress[2]
+  ) |> tag_completion(RV5StageCompletionSource.Divide) |> deferred_completion_arbiter.ingress[2]
   (
     fp.completion
       |> filter_flow(completion => (
@@ -966,22 +991,22 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       |> map_flow(completion => RegisterFileWrite(xlen)):
           address: completion.rd
           data: completion.integer_value
-  ) |> deferred_completion_arbiter.ingress[3]
+  ) |> tag_completion(RV5StageCompletionSource.FpInteger) |> deferred_completion_arbiter.ingress[3]
   def Array(
     completed_register_write,
     completed_integer_scoreboard_clear,
     completed_fp_integer_scoreboard_clear
   ) = deferred_completion_arbiter.egress |> to_valid() |> fork_valid(3)
-  completed_register_write |> deferred_completion_write
+  completed_register_write |> map_valid(completion => completion.write) |> deferred_completion_write
   (
     completed_integer_scoreboard_clear
-      |> filter_valid(_write => deferred_completion_arbiter.chosen =/= bits(3, 2))
-      |> map_valid(write => write.address)
+      |> filter_valid(completion => completion.source =/= RV5StageCompletionSource.FpInteger)
+      |> map_valid(completion => completion.write.address)
   ) |> scoreboard_clear_link.left
   (
     completed_fp_integer_scoreboard_clear
-      |> filter_valid(_write => deferred_completion_arbiter.chosen === bits(3, 2))
-      |> map_valid(write => write.address)
+      |> filter_valid(completion => completion.source === RV5StageCompletionSource.FpInteger)
+      |> map_valid(completion => completion.write.address)
   ) |> fp_integer_scoreboard.clear
 
   (

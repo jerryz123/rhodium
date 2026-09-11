@@ -21,6 +21,7 @@ import:
   "decode/hint-ctrl.rhdl" open
   "decode/fp-ctrl.rhdl" open
   "dcache/protocol.rhdl" open
+  "register-file.rhdl" open
   "multiply.rhdl" open
   "divide.rhdl" open
   "fp/bundles.rhdl" open
@@ -41,6 +42,33 @@ hardware_enum RV5StageBypassStage(~encoding: one_hot):
   RegisterFile
   Memory
   Writeback
+
+// Identifies the producer of a deferred completion. Keeping this nominal on
+// the payload avoids coupling scoreboard routing to an arbiter index.
+hardware_enum RV5StageCompletionSource:
+  IntegerLoad
+  Multiply
+  Divide
+  FpInteger
+
+bundle RV5StageDeferredCompletion(xlen :: XLen):
+  write: RegisterFileWrite(xlen)
+  source: RV5StageCompletionSource
+
+// Captures the independent reasons that can hold Decode. These are retained as
+// separate fields for traceability; the core combines them only at admission.
+bundle RV5StageHazardReasons():
+  deferred_dependency: Bool
+  scoreboard_raw: Bool
+  scoreboard_waw: Bool
+  fp_source: Bool
+  fp_destination: Bool
+  resource: Bool
+  pause: Bool
+  serialization: Bool
+  wfi: Bool
+  interrupt_pending: Bool
+  exception: Bool
 
 bundle RV5StageOperand(xlen :: XLen):
   stage_sel: RV5StageBypassStage
@@ -148,6 +176,9 @@ bundle MemoryWriteback(xlen :: XLen):
 export:
   FetchDecode
   RV5StageBypassStage
+  RV5StageCompletionSource
+  RV5StageDeferredCompletion
+  RV5StageHazardReasons
   RV5StageOperand
   DecodeExecute
   RV5StageException
