@@ -14,7 +14,7 @@ def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RVCorePro
 // This timing contract stops at the three always-captured pipeline payloads.
 // In particular, retirement arbitration must not become an EX operand source.
 def top = design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
-def alu = top.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == "alu")
+def alu = top.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == "ex_alu")
 unless alu
 | error(~who: #'ex_forwarding, "missing ALU timing boundary")
 for (operand_name in ["left", "right"]):

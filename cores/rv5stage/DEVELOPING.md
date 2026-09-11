@@ -72,8 +72,8 @@ each other; share external transaction machinery through the CHI package.
    Do not qualify forwarding with live MEM fault/replay/kill results;
    those cancel younger token validity, independently of payload capture.
    Use `ValidPipeAlwaysCapture` for these stage boundaries.
-   EX's WB bypass reads `pipeline_wb.bits.value`, not the retirement-context
-   mux `wb_bits.value`. The `rv5stage-core` emitter guards ALU operand roots
+   EX's WB bypass reads `wb_input.bits.value`, not the retirement-context
+   mux `wb_offer_bits.value`. The `rv5stage-core` emitter guards ALU operand roots
    against live control or retained contexts, including a positive check for
    the normal WB value source on both operands.
    A MEM load hit may select the normal WB bypass for the following EX cycle;
