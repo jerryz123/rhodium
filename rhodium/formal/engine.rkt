@@ -73,7 +73,8 @@
        "rtl.record_create"
        "rtl.record_get"
        "rtl.vector_create"
-       "rtl.vector_get"))
+       "rtl.vector_get"
+       "rtl.vector_write_set"))
 
 (define (engine_result_status result)
   (formal-engine-result-status result))
@@ -207,6 +208,7 @@
     ["rtl.vector_get"
      (arity 1 1 0)
      (required attributes "index" "vector projection attributes")]
+    ["rtl.vector_write_set" (arity 4 1 0)]
     [(or "rtl.and" "rtl.or" "rtl.xor" "rtl.add" "rtl.mul" "rtl.sub"
          "rtl.shl" "rtl.shru" "rtl.shrs" "rtl.eq" "rtl.ult" "rtl.slt")
      (arity 2 1 0)]
@@ -562,6 +564,40 @@
          (record-field-range record-type (operation-attribute operation "field")))
        (extract high low (first operands))]
       ["rtl.vector_create" (pack-concat (reverse operands))]
+      ["rtl.vector_write_set"
+       (define operand-ids (required operation "operands" "vector write set"))
+       (define vector-type (required (module-value module (first operand-ids)) "type" "vector"))
+       (define index-type (required (module-value module (third operand-ids)) "type" "indices"))
+       (define count (required vector-type "length" "vector type"))
+       (define ports (required index-type "length" "index vector type"))
+       (define element-width (type-width (required vector-type "element_type" "vector type")))
+       (define index-width (type-width (required index-type "element_type" "index vector type")))
+       (define (lane value index width)
+         (extract (sub1 (* (add1 index) width)) (* index width) value))
+       (define enables
+         (for/list ([p (in-range ports)]) (bveq (lane (second operands) p 1) (bv 1 1))))
+       (define indices
+         (for/list ([p (in-range ports)]) (lane (third operands) p index-width)))
+       (define validity
+         (&& (for/and ([enabled (in-list enables)] [index (in-list indices)])
+               (|| (! enabled)
+                   (if (= count (expt 2 index-width)) #t (bvult index (bv count index-width)))))
+             (for*/and ([p (in-range ports)] [q (in-range (add1 p) ports)])
+               (|| (! (list-ref enables p)) (! (list-ref enables q))
+                   (! (bveq (list-ref indices p) (list-ref indices q)))))))
+       (when obligations
+         (set-box! obligations (cons (validity-obligation validity module operation path)
+                                     (unbox obligations))))
+       (when (and (not obligations) (concrete? validity) (! validity))
+         (error 'rhodium-formal "concrete vector write set has an invalid enabled index or collision"))
+       (pack-concat
+        (reverse
+         (for/list ([i (in-range count)])
+           (for/fold ([selected (lane (first operands) i element-width)])
+                     ([p (in-range ports)])
+             (if (&& (list-ref enables p) (bveq (list-ref indices p) (bv i index-width)))
+                 (lane (fourth operands) p element-width)
+                 selected)))))]
       ["rtl.vector_get"
        (define operand-id (first (required operation "operands" "vector get")))
        (define vector-type (required (module-value module operand-id) "type" "vector value"))
@@ -574,7 +610,7 @@
   (when obligations
     (for ([operation (in-list operations)])
       (match (required operation "opcode" "operation")
-        ["rtl.onehot_mux"
+        [(or "rtl.onehot_mux" "rtl.vector_write_set")
          (eval-value (first (required operation "results" "one-hot mux")))]
         ["rtl.instance" (ensure-instance operation)]
         [_ (void)])))
@@ -742,7 +778,10 @@
          [(unsat? proof) (check-validity (rest remaining))]
          [(sat? proof)
           (define message
-            "formal assumptions do not prove rtl.onehot_mux selector is exactly one-hot")
+            (if (equal? (required (validity-obligation-operation obligation) "opcode" "operation")
+                        "rtl.vector_write_set")
+                "formal assumptions do not prove enabled vector writes have in-range distinct indices"
+                "formal assumptions do not prove rtl.onehot_mux selector is exactly one-hot"))
           (make-result
            "unsupported" message '() #f
            (diagnostic (validity-obligation-module obligation)
@@ -751,7 +790,10 @@
                        (validity-obligation-path obligation)))]
          [else
           (unknown-result
-           "Rosette solver returned an unknown result while proving one-hot validity"
+           (if (equal? (required (validity-obligation-operation obligation) "opcode" "operation")
+                       "rtl.vector_write_set")
+               "Rosette solver returned an unknown result while proving vector write validity"
+               "Rosette solver returned an unknown result while proving one-hot validity")
            obligation)])]))
   (if (null? assumptions)
       (check-validity obligations)

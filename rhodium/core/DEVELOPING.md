@@ -32,6 +32,11 @@ that need a completed module or the whole design. `dependencies.rhm` owns
 leaf-sensitive combinational reasoning, including hierarchy. `printer.rhm`
 provides deterministic inspection; backend syntax does not belong there.
 
+`ModuleSpecialization` in `ir.rhm` retains an opaque declaration identity and
+argument list under `rhodium.specialization`. It records provenance; downstream
+adapters explicitly authorize any behavioral replacement. Keep frontend identity
+construction and simulator policy outside core.
+
 ## Making a semantic change
 
 ### Add or change a hardware type

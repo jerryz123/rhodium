@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises receiver membership across generic and specialized flat-data surfaces.
+// Exercises flat-data membership surfaces and duplicate constant alternatives.
 
 def Mask3 = Mask(3)
 def Exact3 = OneHot(3)
@@ -37,7 +37,7 @@ circuit MembershipSurfaces():
   union_member <== union_value.is_one_of(MembershipUnion.Empty,
                                          MembershipUnion.Value(bits(1, 2)))
   generic_member <== generic_membership(generic_bits,
-                                        [bits(3, 4), bits(12, 4)])
+                                        [bits(3, 4), bits(12, 4), bits(3, 4)])
 
 def design = elaborate(MembershipSurfaces())
 

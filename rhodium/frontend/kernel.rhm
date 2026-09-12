@@ -158,7 +158,8 @@ class FrontendContext(design :: Design,
                       mutable active :: Boolean = #true,
                       mutable active_circuits :: List.of(ActiveCircuit) = [],
                       specializations_by_circuit :: MutableMap = MutableMap.by(===){},
-                      mutable allocated_symbols :: List.of(String) = []):
+                      mutable allocated_symbols :: List.of(String) = [],
+                      mutable conditional_group_id :: Nat = 0):
   method allocate_symbol(circuit_name :: String):
     def base = circuit_name
     def count = allocated_symbols.filter(
@@ -341,6 +342,7 @@ fun build_circuit(identity :: CircuitIdentity,
       def active_circuit = ActiveCircuit(identity, name)
       context.active_circuits := context.active_circuits ++ [active_circuit]
       def module_def = context.builder.module(context.allocate_symbol(name))
+      module_def.add_metadata("rhodium.specialization", ModuleSpecialization(identity, arguments))
       parameterize { current_module: module_def }:
         implementation()
         // Direct kernel clients get a fallback flush. Frontend circuit wrappers
@@ -1050,24 +1052,32 @@ fun vector_updated(entity :: HardwareEntity,
   unless type_equal(replacement_value.type, vector_value.type.element_type)
   | frontend_fail("vector update replacement must have the vector element type",
                   location)
-  def elements:
-    for List (element_index in 0..vector_value.type.length):
-      def existing = vector_get(vector_value,
-                                element_index,
-                                #false,
-                                location)
-      def key = literal(selector_value.type,
-                        element_index,
-                        #false,
-                        location)
-      def selected = hw_eq(selector_value, key, #false, location)
-      hw_mux_lookup(selected,
-                    existing,
-                    [[1, replacement_value]],
-                    #false,
-                    location,
-                    Origin("embedded vector update", to_string(element_index)))
-  vector_create(vector_value.type, elements, name, location)
+  def length = vector_value.type.length
+  def index_width = count_index_width(length)
+  unless selector_value.type.width >= index_width
+  | frontend_fail("vector update selector cannot encode every element", location)
+  // Guard the full selector before truncating it: disabled out-of-range writes
+  // preserve the source, including selectors wider than the vector index.
+  def enabled:
+    if bits.length(length) > selector_value.type.width
+    | literal(Bits(1), 1, #false, location)
+    | hw_ult(selector_value,
+             literal(selector_value.type, length, #false, location),
+             #false, location)
+  def index_value:
+    if selector_value.type.width == index_width
+    | selector_value
+    | trunc(selector_value, index_width, #false, location)
+  require_context(location).builder.vector_write_set(
+    require_module(location),
+    vector_value,
+    vector_create(VectorType(1, Bits(1)), [enabled], #false, location),
+    vector_create(VectorType(1, index_value.type), [index_value], #false, location),
+    vector_create(VectorType(1, replacement_value.type), [replacement_value], #false, location),
+    name,
+    location,
+    Origin("embedded vector update", name || "")
+  )
 
 // Carries a dynamically selected element of a direct vector register. Reads
 // remain ordinary mux selection; writes become one whole next-state update.
@@ -1614,6 +1624,9 @@ fun resolve_conditional_branches(
 fun conditional_chain(branches :: NonemptyList.of(List),
                       otherwise_body :: False || Function.of_arity(0) = #false,
                       location :: Location = Location()):
+  def group_context = require_context(location)
+  def group_id = group_context.conditional_group_id
+  group_context.conditional_group_id := group_id + 1
   def conditions:
     for List (branch in branches):
       validate_conditional_value(branch[0](), location)
@@ -1637,7 +1650,7 @@ fun conditional_chain(branches :: NonemptyList.of(List),
           [[1, branch_value]],
           #false,
           location,
-          origin
+          Origin("conditional-group", to_string(group_id), [origin])
         )
     selected
   fun build_assertion_guards(needs_otherwise :: Boolean):
@@ -1668,6 +1681,9 @@ fun switch_chain(selector :: HardwareEntity,
                  cases :: NonemptyList.of(List),
                  otherwise_body :: False || Function.of_arity(0) = #false,
                  location :: Location = Location()):
+  def group_context = require_context(location)
+  def group_id = group_context.conditional_group_id
+  group_context.conditional_group_id := group_id + 1
   def selector_value = read(selector, location)
   unless bits_type(selector_value.type)
   | frontend_fail("switch selector must lower to Bits", location)
@@ -1704,7 +1720,7 @@ fun switch_chain(selector :: HardwareEntity,
                     selected_cases,
                     #false,
                     location,
-                    origin)
+                    Origin("conditional-group", to_string(group_id), [origin]))
   fun build_assertion_guards(needs_otherwise :: Boolean):
     def branch_guards:
       for List (key in keys):

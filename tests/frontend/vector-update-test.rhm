@@ -3,6 +3,7 @@
 
 import:
   "../../rhodium/core/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as kernel
   "../../examples/rtl/vector-update.rhdl" as fixture
 
 def module_def = fixture.design.modules[0]
@@ -15,11 +16,13 @@ fun operation_count(opcode):
 
 check:
   module_def.name ~is "VectorUpdate"
-  operation_count("rtl.vector_get") ~is 3
-  operation_count("rtl.constant") ~is 3
-  operation_count("rtl.eq") ~is 3
-  operation_count("rtl.mux_lookup") ~is 3
-  operation_count("rtl.vector_create") ~is 1
+  operation_count("rtl.vector_get") ~is 0
+  operation_count("rtl.constant") ~is 1
+  operation_count("rtl.eq") ~is 0
+  operation_count("rtl.mux_lookup") ~is 0
+  operation_count("rtl.vector_create") ~is 3
+  operation_count("rtl.ult") ~is 1
+  operation_count("rtl.vector_write_set") ~is 1
   type_equal(module_def.find_output("result").type,
              VectorType(3, Bits(4))) ~is #true
   verify_design(fixture.design) ~is #void
@@ -38,3 +41,25 @@ check:
   type_equal(register_module.find_output("result").type,
              VectorType(3, Bits(4))) ~is #true
   verify_design(fixture.register_design) ~is #void
+
+// Size-independent construction, full-width range guards, and index rejection.
+def update_identity = kernel.new_circuit_identity("CompactUpdate")
+fun compact_update(length, selector_width):
+  kernel.run_elaboration_with_top(
+    fun ():
+      kernel.build_circuit(update_identity, "CompactUpdate", [length, selector_width],
+                           fun ():
+                             def source = kernel.input("source", VectorType(length, Bits(1)))
+                             def selector = kernel.input("selector", Bits(selector_width))
+                             def replacement = kernel.input("replacement", Bits(1))
+                             kernel.connect(kernel.output("result", source.type),
+                                            kernel.vector_updated(source, selector, replacement)))
+  )
+
+for (parameters in [[1, 1], [3, 2], [32, 5], [32, 64], [1024, 10]]):
+  def top = compact_update(parameters[0], parameters[1]).top
+  check:
+    top.operations.filter(~keep: fun (op): op.opcode == "rtl.vector_write_set").length() ~is 1
+    top.operations.length() < 15 ~is #true
+check:
+  compact_update(3, 1) ~throws "cannot encode every element"
