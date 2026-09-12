@@ -1,0 +1,57 @@
+#lang rhombus
+// Checks byte/work-limited snapshot replication on shared control and native FIFO queries.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/sim/main.rhm" open
+  lib("racket/base.rkt") as rkt
+  "../../sims/native/shared-query-harness.rhdl" as shared
+  "../../sims/native/library.rhm".standard_native_models
+
+def directory = rkt.getenv("RDS_TEST_DIR")
+def d = Design()
+def b = Builder(d)
+def m = b.module("SharedControl")
+def clk = b.input(m, "clk", Clock)
+def reset = b.input(m, "reset", Reset)
+def amount = b.input(m, "amount", Bits(32))
+def mask = b.input(m, "mask", Bits(32))
+def common = b.bit_xor(m, amount, mask)
+for (i in 0..8):
+  def name = "state" ++ to_string(i)
+  def initial = b.constant(m, Bits(32), i)
+  def reg = b.register(m, name ++ "_reg", Bits(32), clk, reset, initial)
+  b.drive(reg.next, b.add(m, reg.current, common))
+  b.drive(b.output(m, name, Bits(32)), reg.current)
+b.finish(m)
+def base = compile_simulation(m)
+def replicated = replicate_simulation(base, ~byte_budget: 512, ~work_budget: 64)
+def disabled = replicate_simulation(base, ~byte_budget: 0, ~work_budget: 64)
+def limited = replicate_simulation(base, ~byte_budget: 100, ~work_budget: 6)
+check:
+  disabled === base ~is #true
+  replicated.replicated_bytes > 0 && replicated.replicated_bytes <= 512 ~is #true
+  replicated.replicated_work > 0 && replicated.replicated_work <= 64 ~is #true
+  limited.replicated_bytes <= 100 && limited.replicated_work <= 6 ~is #true
+  replicated.registers ~is base.registers
+  replicated.objects ~is base.objects
+  simulation_bytes(replicated).length() - simulation_bytes(base).length() <= 512 ~is #true
+write_simulation(base, directory ++ "/shared-base.rsim")
+write_simulation(replicated, directory ++ "/shared-replicated.rsim")
+write_simulation(limited, directory ++ "/shared-limited.rsim")
+
+def native_base = compile_simulation(shared.design.modules[0], ~native_models: standard_native_models())
+def native_copies = replicate_simulation(native_base, ~byte_budget: 2048, ~work_budget: 256)
+check:
+  native_copies.replicated_bytes > 0 ~is #true
+  native_copies.objects ~is native_base.objects
+  native_copies.objects.length() ~is 1
+write_simulation(native_base, directory ++ "/shared-native-base.rsim")
+write_simulation(native_copies, directory ++ "/shared-native-replicated.rsim")
+
+// A downstream join keeps all copies in one component, so added work is rejected.
+def joined_id = base.values.length()
+def joined_op = [20, joined_id, base.registers.map(fun (reg): reg[1]), []]
+def joined = SimulationModel(base.values ++ [256], base.operations ++ [joined_op], base.registers, base.memories, base.writes, base.reads, base.checks, base.ports ++ [[1, joined_id, "joined"]], base.occurrences)
+check:
+  replicate_simulation(joined, ~byte_budget: 512, ~work_budget: 64) === joined ~is #true

@@ -1,0 +1,24 @@
+#lang rhombus
+// Emits actual standard-library designs for native protocol and transition validation.
+
+import:
+  "../../rhodium/sim/main.rhm" open
+  "../../sims/native/library.rhm".standard_native_models
+  "../../examples/std/scoreboard.rhdl" as scoreboard
+  "../../examples/std/flow-control.rhdl" as flow
+  "../../examples/std/credited-transport.rhdl" as credit
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_TEST_DIR")
+unless directory | error("RDS_TEST_DIR must name the fixture directory")
+def native_models = standard_native_models()
+for (entry in [[scoreboard.design, "std-scoreboard", "Scoreboard"], [flow.queue_design, "std-queue", "Queue"],
+               [flow.queue_one_design, "std-queue-one", "Queue"], [flow.queue_options_design, "std-queue-options", "Queue"],
+               [flow.pipe_design, "std-pipe", "Pipe"], [flow.arbiter_design, "std-arbiter", "Arbiter"],
+               [credit.design, "std-credit", "CreditedRoundTrip"]]):
+  def top = entry[0].modules.find(fun (m): m.name == entry[2])
+  for (kernels in [#false, #true]):
+    def suffix = if kernels | "" | "-raw"
+    def resolver = if kernels | native_models | fun (_): #false
+    def model = compile_simulation(top, ~semantic_kernels: kernels, ~native_models: resolver)
+    write_simulation(model, directory ++ "/" ++ entry[1] ++ suffix ++ ".rsim")

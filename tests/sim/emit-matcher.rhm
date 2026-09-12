@@ -1,0 +1,53 @@
+#lang rhombus
+// Emits real rotating matchers and a leaf-acyclic feedback wrapper for native equivalence.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "../../flow/matcher.rhdl" as matcher
+  "../../sims/native/library.rhm".standard_native_models
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_TEST_DIR")
+def models = standard_native_models()
+fun save(top, name):
+  write_simulation(compile_simulation(top, ~native_models: models), directory ++ "/" ++ name ++ ".rsim")
+  write_simulation(compile_simulation(top, ~semantic_kernels: #false), directory ++ "/" ++ name ++ "-raw.rsim")
+for (shape in [[1, 1], [3, 2], [3, 5], [8, 4], [11, 11], [64, 2]]):
+  def top = frontend.run_elaboration_with_top(fun (): matcher.OutputGreedyRoundRobinMatcher(shape[0], shape[1])).top
+  save(top, "matcher-" ++ to_string(shape[0]) ++ "-" ++ to_string(shape[1]))
+
+// Later requests may depend on an earlier output without a combinational cycle.
+// Native column queries must not add the reverse dependency through aggregation.
+def child = frontend.run_elaboration_with_top(fun (): matcher.OutputGreedyRoundRobinMatcher(2, 2)).top
+def b = Builder(child.design)
+def top = b.module("MatcherFeedback")
+def clock = b.input(top, "clock", Clock)
+def reset = b.input(top, "reset", Reset)
+def requests = b.input(top, "requests", Bits(2))
+def accepts = b.input(top, "accepts", Bits(2))
+def inst = b.instance(top, child, "matcher")
+b.drive(inst.input("clock"), clock)
+b.drive(inst.input("reset"), reset)
+def grants = b.cast(top, inst.output("grants"), Bits(4))
+def matrix_type = inst.input("requests").type
+def row_type = matrix_type.element_type
+def rows = for List (i in 0..2):
+  b.vector_create(top, row_type, [b.cast(top, b.extract(top, requests, i, i), row_type.element_type), b.vector_get(top, b.vector_get(top, inst.output("grants"), i), 0)])
+b.drive(inst.input("requests"), b.vector_create(top, matrix_type, rows))
+b.drive(inst.input("accepts"), b.cast(top, accepts, inst.input("accepts").type))
+b.drive(b.output(top, "grants", Bits(4)), grants)
+b.finish(top)
+save(top, "matcher-feedback")
+
+// Shared query slices must fit the result and agree on dependency identity.
+def contract = models(child)
+for (invalid_slice in [#true, #false]):
+  def outputs = for List (field in contract.outputs, index in 0..contract.outputs.length()):
+    NativeOutput(field.port, field.low, field.width, field.query,
+                 if !invalid_slice && index == 2 | field.dependencies.reverse() | field.dependencies,
+                 if invalid_slice && index == 0 | 2 | field.query_low, field.query_width)
+  def invalid = NativeModel(contract.kind, contract.width, contract.depth, contract.flags, contract.inputs, outputs)
+  check:
+    compile_simulation(child, ~native_models: fun (m): invalid) ~throws (if invalid_slice | "exceeds query width" | "inconsistent width or dependencies")

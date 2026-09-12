@@ -1,0 +1,33 @@
+#lang rhombus
+// Checks exported flow contracts, field widths, graph immutability, and compiler remapping.
+
+import:
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "../../sims/native/contracts.rhm".flow_contracts
+  "../../sims/native/contract-harness.rhdl".ContractFixture
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_TEST_DIR")
+def top = frontend.run_elaboration_with_top(fun (): ContractFixture()).top
+def before = top.operations.length()
+def extracted = compile_simulation(top, ~contracts: flow_contracts, ~preserve_semantics: #true, ~optimize: #false)
+check: top.operations.length() ~is before
+check: extracted.contracts.length() ~is 2
+for (contract in extracted.contracts):
+  check: contract[1] ~is "map"
+  for (binding in contract[2]):
+    check: extracted.values[binding[1]] ~is (if binding[0].ends_with(".bits") | 8 | 1)
+  check: contract[3][1] ~is ["routes", [[0, 0]]]
+check: ("Irrevocable" in extracted.contracts[0][3][0][1][1][1]) ~is #true
+check: ("Irrevocable" in extracted.contracts[1][3][0][1][1][1]) ~is #false
+def path = directory ++ "/contracts.json"
+write_simulation_report(extracted, path)
+check: read_simulation_report(path).contracts ~is extracted.contracts
+def optimized = compile_simulation(top, ~contracts: flow_contracts, ~preserve_semantics: #true)
+check: optimized.contracts.length() ~is 2
+write_simulation_report(optimized, directory ++ "/contracts-optimized.json")
+write_simulation(optimized, directory ++ "/contracts.rsim")
+check:
+  compile_simulation(top, ~contracts: fun (_): [SimulationContract("bad", [["x", #false, 0, 1]])])
+  ~throws "existing packed core value"

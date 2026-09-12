@@ -1,0 +1,40 @@
+#lang rhombus
+// Exports existing interface transform topology and field bindings without elaborating new projections.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/sim/main.rhm".SimulationContract
+  "../../rhodium/frontend/layers/interface.rhm" as interface
+
+export:
+  flow_contracts
+
+fun flow_contracts(module_def):
+  for List (transform in interface.module_interface_transforms(module_def)):
+    def bindings = MutableList[]
+    def protocols = MutableList[]
+    fun endpoints(value): if value is_a Array | (for List (endpoint in value): endpoint) | [value]
+    fun side(name, value):
+      def ports = endpoints(value)
+      for (endpoint in ports, index in 0..ports.length()):
+        def prefix = name ++ to_string(index)
+        def ancestry = MutableList[]
+        def mutable protocol = endpoint.type
+        while protocol:
+          ancestry.add(protocol.name)
+          protocol := protocol.parent
+        protocols.add([prefix, ancestry.snapshot()])
+        for (binding in endpoint.bindings):
+          def mutable high = binding.direction.type.packed_width()
+          for (field in binding.direction.type.fields):
+            def width = field.type.packed_width()
+            high := high - width
+            when width > 0
+            | bindings.add([prefix ++ "." ++ field.name, binding.entity, high, width])
+    side("in", transform.input)
+    side("out", transform.output)
+    def routes:
+      if transform.trace_model
+      | transform.trace_model.routes.map(fun (route): [route.input_index, route.output_index])
+      | []
+    SimulationContract(transform.kind, bindings.snapshot(), [["protocols", protocols.snapshot()], ["routes", routes]])

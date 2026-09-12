@@ -1,0 +1,27 @@
+#lang rhodium
+// Shares a FIFO occupancy query across independent accumulators to exercise safe replication.
+
+import lib("flow/queue.rhdl").Queue
+
+sync_circuit OccupancyAccumulator():
+  input amount: Bits(32)
+  output total_out: Bits(32)
+  reg total(~init: bits(0, 32))
+  total <== total + amount
+  total_out <== total
+
+sync_circuit SharedNative():
+  input(push, pop): Bool
+  output totals_out: Vec(8, Bits(32))
+  inst queue(Queue(Bits(8), 3))
+  queue.ingress.valid <== push
+  queue.ingress.bits <== bits(37, 8)
+  queue.egress.ready <== pop
+  for (i in 0..8):
+    inst sink(OccupancyAccumulator())
+    sink.amount <== queue.count.zext(32)
+    totals_out[i] <== sink.total_out
+
+def design = elaborate(SharedNative())
+export:
+  design
