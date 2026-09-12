@@ -1,0 +1,42 @@
+#lang rhombus
+// Registers functional ALU and Sv39 TLB implementations by declaration identity.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "../../cores/alu.rhdl" as alu
+  "../../cores/rv5stage/mmu/tlb.rhdl" as tlb
+  "../../riscv/isa/xlen.rhm".XLen
+
+export: cpu_native_models
+
+fun cpu_native_models(~alu: use_alu :: Boolean = #true, ~tlb: use_tlb :: Boolean = #true):
+  def probe = frontend.run_elaboration_with_top(fun (): alu.ALU(XLen.X64)).top
+  def identity = native_specialization(probe).identity
+  def tlb_probe = frontend.run_elaboration_with_top(fun (): tlb.RV5StageTlb(2)).top
+  def tlb_identity = native_specialization(tlb_probe).identity
+  fun (module_def):
+    def origin = native_specialization(module_def)
+    cond
+    | use_tlb && origin && origin.identity === tlb_identity && origin.arguments[0] >= 2:
+        // Record fields are first-most-significant. TranslationResult is 175
+        // bits; its VPN and PPN/level/permission ranges omit unused PA/fault data.
+        def inputs = [["reset", 0, 1], ["invalidate_all", 0, 1], ["fill_in", 175, 1],
+                      ["fill_in", 1, 1], ["fill_in", 123, 27], ["fill_in", 2, 53],
+                      ["virtual_address", 0, 64], ["enabled", 0, 1], ["access", 0, 2],
+                      ["privilege", 0, 2], ["sum", 0, 1], ["mxr", 0, 1],
+                      ["probe_virtual_address", 0, 64], ["probe_enabled", 0, 1],
+                      ["probe_privilege", 0, 2], ["probe_sum", 0, 1], ["probe_mxr", 0, 1]]
+        NativeModel(11, 81, origin.arguments[0], 0, inputs,
+                    [NativeOutput("hit", 0, 1, 0, [6, 7], 56, 128),
+                     NativeOutput("physical_address", 0, 56, 0, [6, 7], 0, 128),
+                     NativeOutput("fault", 0, 1, 1, [6, 7, 8, 9, 10, 11]),
+                     NativeOutput("probe_hit", 0, 1, 5, [12, 13], 56, 128),
+                     NativeOutput("probe_physical_address", 0, 56, 5, [12, 13], 0, 128),
+                     NativeOutput("probe_fault", 0, 1, 2, [12, 13, 14, 15, 16])])
+    | use_alu && origin && origin.identity === identity:
+        def width = module_def.outputs[0].type.packed_width()
+        NativeFunction(30, [["left", 0, width], ["right", 0, width], ["control", 0, 23]],
+                       [NativeOutput("result", 0, width, 0, [0, 1, 2])])
+    | ~else: #false

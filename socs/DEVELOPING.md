@@ -64,6 +64,7 @@ imports of named SoCs from shared components.
 | Compact internal-memory composition | [`mini-soc.rhdl`](mini-soc.rhdl) |
 | Tiled public entrypoint | [`tiled-soc/main.rhdl`](tiled-soc/main.rhdl) |
 | Tiled layout and authoring form | [`tiled-soc/layout.rhm`](tiled-soc/layout.rhm) |
+| Banked all-hart configuration family | [`tiled-soc/configs.rhm`](tiled-soc/configs.rhm) |
 | Private tiled configuration compiler | [`tiled-soc/compile.rhdl`](tiled-soc/compile.rhdl) |
 | Tiled time, ACLINT, and PLIC interrupt distribution overlay | [`tiled-soc/distribution.rhdl`](tiled-soc/distribution.rhdl) |
 | Concrete tile implementations | [`tiled-soc/tiles/`](tiled-soc/tiles/) |

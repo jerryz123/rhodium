@@ -1,0 +1,139 @@
+#lang rhombus
+// Registers native objects against actual standard-library declaration identities.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "../../flow/queue.rhdl" as queue
+  "../../flow/pipe.rhdl" as pipe
+  "../../flow/offer-register.rhdl" as offer
+  "../../flow/credit.rhdl" as credit
+  "../../flow/arbiter.rhdl" as arbiter
+  "../../flow/rr-arbiter.rhdl" as rr
+  "../../flow/packet-rr-arbiter.rhdl" as packet
+  "../../flow/broadcast.rhdl" as broadcast
+  "../../flow/matcher.rhdl" as matcher
+  "../../rhodium/std/scoreboard.rhdl" as scoreboard
+  "../../rhodium/std/counter.rhdl" as counter
+
+export:
+  standard_native_models
+
+fun standard_native_models(~drop_payload: drop_payload :: Boolean = #false):
+  def registry = MutableMap.by(===){}
+  fun register(probe, factory):
+    def elaboration = frontend.run_elaboration_with_top(probe)
+    def origin = native_specialization(elaboration.top)
+    registry[origin.identity] := factory
+  fun input(name, width, low = 0): [name, low, width]
+  fun reset(): input("reset", 1)
+  fun port_width(m, name): m.outputs.find(fun (p): p.name == name).type.packed_width()
+  fun channel(kind, m, width, depth, flags = 0, update = #false):
+    def payload = width > 0 && !drop_payload
+    def ingress = if update | "update_in" | "ingress_in"
+    def inputs = [reset(), input(ingress, 1, width), if payload | input(ingress, width) | #false,
+                  input("egress_in", 1)]
+    def outputs = MutableList[]
+    when m.outputs.find(fun (p): p.name == "count")
+    | outputs.add(NativeOutput("count", 0, port_width(m, "count"), 0, []))
+    when m.outputs.find(fun (p): p.name == "ingress_out")
+    | outputs.add(NativeOutput("ingress_out", 0, 1, 1, if kind == 2 || (flags bits.and 2) != 0 | [3] | []))
+    when width > 0
+    | outputs.add(NativeOutput("egress_out", 0, width, 3, if payload && (flags bits.and 4) != 0 && kind == 1 | [2] | []))
+    outputs.add(NativeOutput("egress_out", width, 1, 2, if kind == 1 && (flags bits.and 4) != 0 | [1] | []))
+    NativeModel(kind, width, depth, flags bits.or (if drop_payload | 1 | 0), inputs, outputs.snapshot())
+  fun fifo_model(m, a):
+    channel(1, m, a[0].packed_width(), a[1], (if a[2] | 2 | 0) bits.or (if a[3] | 4 | 0))
+  fun ctrl_fifo_model(m, a):
+    channel(1, m, 0, a[0], (if a[1] | 2 | 0) bits.or (if a[2] | 4 | 0))
+  fun scoreboard_model(m, a):
+    def iw = m.inputs.find(fun (p): p.name == "set_in").type.packed_width() - 1
+    def inputs = [reset(), input("set_in", 1, iw), input("set_in", iw), input("clear_in", 1, iw), input("clear_in", iw)]
+    NativeModel(4, a[0], a[0], 0, inputs, [NativeOutput("busy", 0, a[0], 0, [])])
+  fun credit_model(m, a):
+    def inputs = [reset(), input("increment", 1), input("decrement", 1)]
+    def outputs = [NativeOutput("count", 0, port_width(m, "count"), 0, []), NativeOutput("empty", 0, 1, 1, []), NativeOutput("full", 0, 1, 2, [])]
+    NativeModel(5, port_width(m, "count"), a[0], 0, inputs, outputs)
+  fun counter_model(m, a):
+    def outputs = [NativeOutput("value", 0, port_width(m, "value"), 0, []), NativeOutput("wrap", 0, 1, 1, [1])]
+    NativeModel(7, port_width(m, "value"), a[0], 0, [reset(), input("enable", 1)], outputs)
+  register(fun (): queue.Queue(Bits(8), 3), fifo_model)
+  register(fun (): queue.CtrlQueue(3), ctrl_fifo_model)
+  register(fun (): pipe.Pipe(Bits(8), 2), fun (m, a): channel(2, m, a[0].packed_width(), a[1]))
+  register(fun (): pipe.CtrlPipe(2), fun (m, a): channel(2, m, 0, a[0]))
+  register(fun (): offer.OfferRegister(Bits(8)), fun (m, a): channel(3, m, a[0].packed_width(), 1, 0, #true))
+  register(fun (): scoreboard.Scoreboard(3), scoreboard_model)
+  register(fun (): credit.CreditCounter(3), credit_model)
+  register(fun (): counter.Counter(3), counter_model)
+  fun valid_pipe_model(m, a):
+    def width = a[0].packed_width()
+    def inputs = [reset(), input("ingress_in", 1, width), if drop_payload | #false | input("ingress_in", width), #false]
+    def outputs = [NativeOutput("egress_out", 0, width, 3, []), NativeOutput("egress_out", width, 1, 2, [])]
+    NativeModel(2, width, a[1], 8 bits.or (if drop_payload | 1 | 0), inputs, outputs)
+  register(fun (): pipe.ValidPipe(Bits(8), 2), valid_pipe_model)
+  fun broadcast_model(m, a, ctrl = #false):
+    def width = if ctrl | 0 | a[0].packed_width()
+    def n = if ctrl | a[0] | a[1]
+    def inputs = MutableList[reset(), input("ingress_in", 1, width), if width > 0 && !drop_payload | input("ingress_in", width) | #false]
+    for (i in 0..n): inputs.add(input("egress_" ++ to_string(i) ++ "_in", 1))
+    def ready = for List (i in 0..n): 3 + i
+    def outputs = MutableList[NativeOutput("ingress_out", 0, 1, 0, ready)]
+    for (i in 0..n):
+      def name = "egress_" ++ to_string(i) ++ "_out"
+      when width > 0 | outputs.add(NativeOutput(name, 0, width, 1, []))
+      outputs.add(NativeOutput(name, width, 1, 2 + i, []))
+    NativeModel(9, width, n, if drop_payload | 1 | 0, inputs.snapshot(), outputs.snapshot())
+  register(fun (): broadcast.Broadcast(Bits(8), 3), broadcast_model)
+  register(fun (): broadcast.CtrlBroadcast(3), fun (m, a): broadcast_model(m, a, #true))
+  fun arbitration(m, a, rotating, ctrl = #false, packet_mode = #false):
+    def n = if ctrl | a[0] | a[1]
+    def width = if ctrl | 0 | a[0].packed_width()
+    def inputs = MutableList[if rotating | reset() | #false, input("egress_in", 1)]
+    for (i in 0..n):
+      def name = "ingress_" ++ to_string(i) ++ "_in"
+      inputs.add(input(name, 1, width))
+      inputs.add(if width > 0 && !drop_payload | input(name, width) | #false)
+    when packet_mode
+    | for (i in 0..n): inputs.add(input("ends_packet", 1, i))
+    def requests = for List (i in 0..n): 2 + 2 * i
+    def payloads = for List (i in 0..n): 3 + 2 * i
+    def outputs = MutableList[NativeOutput("chosen", 0, port_width(m, "chosen"), 0, requests)]
+    when width > 0
+    | outputs.add(NativeOutput("egress_out", 0, width, 2, if drop_payload | [] | requests ++ payloads))
+    outputs.add(NativeOutput("egress_out", width, 1, 1, requests))
+    for (i in 0..n):
+      outputs.add(NativeOutput("ingress_" ++ to_string(i) ++ "_out", 0, 1, 3 + i, requests ++ [1]))
+    NativeModel(6, width, n, (if drop_payload | 1 | 0) bits.or (if rotating | 2 | 0) bits.or (if packet_mode | 16 | 0), inputs.snapshot(), outputs.snapshot())
+  register(fun (): arbiter.Arbiter(Bits(8), 3), fun (m, a): arbitration(m, a, #false))
+  register(fun (): arbiter.CtrlArbiter(3), fun (m, a): arbitration(m, a, #false, #true))
+  register(fun (): rr.RRArbiter(Bits(8), 3), fun (m, a): arbitration(m, a, #true))
+  register(fun (): rr.CtrlRRArbiter(3), fun (m, a): arbitration(m, a, #true, #true))
+  register(fun (): packet.PacketRRArbiter(Bits(8), 3), fun (m, a): arbitration(m, a, #true, #false, #true))
+  fun matcher_model(m, a):
+    def inputs_count = a[0]
+    def outputs_count = a[1]
+    // Keep the portable scalar bitset kernel bounded; larger matrices use IR.
+    cond
+    | inputs_count > 64 || outputs_count > 64: #false
+    | ~else:
+        def inputs = MutableList[reset()]
+        for (i in 0..inputs_count):
+          for (j in 0..outputs_count): inputs.add(input("requests", 1, i * outputs_count + j))
+        for (j in 0..outputs_count): inputs.add(input("accepts", 1, j))
+        def outputs = MutableList[]
+        def columns = MutableList[]
+        for (j in 0..outputs_count):
+          def dependencies = MutableList[]
+          for (earlier in 0..(j + 1)):
+            for (i in 0..inputs_count): dependencies.add(1 + i * outputs_count + earlier)
+          columns.add(dependencies.snapshot())
+        for (i in 0..inputs_count):
+          for (j in 0..outputs_count):
+            outputs.add(NativeOutput("grants", i * outputs_count + j, 1, j, columns[j], i, inputs_count))
+        NativeModel(10, inputs_count, outputs_count, 0, inputs.snapshot(), outputs.snapshot())
+  register(fun (): matcher.OutputGreedyRoundRobinMatcher(3, 2), matcher_model)
+  fun (m):
+    def origin = native_specialization(m)
+    def factory = origin && registry.get(origin.identity, #false)
+    if factory | factory(m, origin.arguments) | #false

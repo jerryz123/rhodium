@@ -157,7 +157,7 @@ The implemented deterministic operation contract is:
 | Comparisons | `rtl.eq`, `rtl.ult`, `rtl.slt` |
 | Selection | total `rtl.mux_lookup`; non-overlapping `rtl.decode` with every output bit cared in every case and the default; `rtl.onehot_mux` when query assumptions prove its selector exactly one-hot |
 | Packing and widths | `rtl.cast`, `rtl.concat`, `rtl.extract`, `rtl.zext`, `rtl.sext`, `rtl.trunc` |
-| Aggregates | `rtl.record_create`, `rtl.record_get`, `rtl.vector_create`, `rtl.vector_get` |
+| Aggregates | `rtl.record_create`, `rtl.record_get`, `rtl.vector_create`, `rtl.vector_get`, `rtl.vector_write_set` |
 
 Shifts include Rhodium's unequal value/amount-width normalization and defined
 overshift behavior. Hierarchy is interpreted compositionally through driven
@@ -225,3 +225,9 @@ An earlier `rfc6455` resolution failure was caused by a restricted test
 environment, not an unavailable package source.
 
 </details>
+
+Enabled vector writes are supported when the query assumptions prove every
+enabled index is in range and enabled indices are pairwise distinct. Disabled
+ports impose no index restriction. Functional `.updated()` supplies its own
+range enable, so its out-of-range no-op cases remain provable without additional
+input assumptions.

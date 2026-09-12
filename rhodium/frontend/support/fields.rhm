@@ -520,39 +520,52 @@ fun build_membership_predicate(value :: HardwareEntity,
                 #false,
                 location)
   | block:
-      def comparisons = candidates.map(
+      def alternatives = candidates.map(
         fun (alternative):
           def alternative_read = kernel.read(alternative, location)
           unless scalar_data_type(alternative_read.type) && type_equal(value_read.type, alternative_read.type)
           | error(~who: #'is_one_of,
                   location.describe() ++ ": .is_one_of operands must have exactly the same ScalarDataType")
-          kernel.hw_eq(hardware_as_bits(value_read,
-                                        #'is_one_of,
-                                        ".is_one_of operand",
-                                        #false,
-                                        location),
-                       hardware_as_bits(alternative_read,
-                                        #'is_one_of,
-                                        ".is_one_of operand",
-                                        #false,
-                                        location),
-                       #false,
-                       location)
+          alternative_read
       )
-      if comparisons.length() == 1
-      | kernel.cast(comparisons[0], Bool, #false, location)
+      fun constant_integer(v):
+        def op = v.module_def.find_operation(v.defining_op_id)
+        cond
+        | op.opcode == "rtl.constant": op.attribute("value")
+        | op.opcode == "rtl.cast": constant_integer(op.operands[0])
+        | ~else: #false
+      def integers = alternatives.map(constant_integer)
+      if integers.filter(~keep: fun (v): v is_a Nat).length() == integers.length()
       | block:
-          def packed = kernel.concat(comparisons, #false, location)
-          def equal_zero = kernel.cast(
-            kernel.hw_eq(packed,
-                         kernel.literal(Bits(comparisons.length()), 0, #false, location),
-                         #false,
-                         location),
-            Bool,
-            #false,
-            location
+          def distinct = MutableSet{}
+          def cases = MutableList[]
+          def care = (1 bits.(<<) value_read.type.packed_width()) - 1
+          for (integer in integers):
+            unless integer in distinct
+            | distinct.add(integer)
+              cases.add([integer, care, 1, 1])
+          kernel.hw_decode(value_read, value_read.type, Bool, cases.snapshot(), 0, 1, #false, location)
+      | block:
+          def comparisons = alternatives.map(
+            fun (alternative_read):
+              kernel.hw_eq(hardware_as_bits(value_read, #'is_one_of, ".is_one_of operand", #false, location),
+                           hardware_as_bits(alternative_read, #'is_one_of, ".is_one_of operand", #false, location),
+                           #false, location)
           )
-          kernel.bit_not(equal_zero, #false, location)
+          if comparisons.length() == 1
+          | kernel.cast(comparisons[0], Bool, #false, location)
+          | block:
+              def packed = kernel.concat(comparisons, #false, location)
+              def equal_zero = kernel.cast(
+                kernel.hw_eq(packed,
+                             kernel.literal(Bits(comparisons.length()), 0, #false, location),
+                             #false,
+                             location),
+                Bool,
+                #false,
+                location
+              )
+              kernel.bit_not(equal_zero, #false, location)
 
 meta:
   fun preserve_receiver_surface(function :: Syntax, receiver :: Syntax):

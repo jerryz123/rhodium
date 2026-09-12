@@ -60,3 +60,39 @@ check:
   equivalent_result.equivalent() ~is #true
   defect_result.counterexample() ~is #true
   defect_result.differences.length() > 0 ~is #true
+
+// The total update guard must prove the partial write operation's precondition.
+fun vector_update_module(implementation, length = 3):
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("VectorUpdateProof")
+  def source = b.input(m, "source", VectorType(length, Bits(4)))
+  def index = b.input(m, "index", Bits(2))
+  def data = b.input(m, "data", Bits(4))
+  def result:
+    if implementation == "reference"
+    | block:
+        def elements = for List (i in 0..length):
+                         b.mux_lookup(m, index, b.vector_get(m, source, i), [[i, data]])
+        b.vector_create(m, source.type, elements)
+    | block:
+        def enable:
+          if implementation == "unchecked" || implementation == "collision" || length == 4
+          | b.constant(m, Bits(1), 1)
+          | b.ult(m, index, b.constant(m, Bits(2), length))
+        def multiport = implementation == "disabled" || implementation == "collision"
+        def port_count = if multiport | 2 | 1
+        def second_enable = b.constant(m, Bits(1), if implementation == "collision" | 1 | 0)
+        def enables = b.vector_create(m, VectorType(port_count, Bits(1)), if multiport | [enable, second_enable] | [enable])
+        def indices = b.vector_create(m, VectorType(port_count, Bits(2)), if multiport | [index, index] | [index])
+        def elements = b.vector_create(m, VectorType(port_count, Bits(4)), if multiport | [data, data] | [data])
+        b.vector_write_set(m, source, enables, indices, elements)
+  b.drive(b.output(m, "result", source.type), result)
+  b.finish(m)
+
+check:
+  check_equivalent(vector_update_module("reference"), vector_update_module("guarded")).equivalent() ~is #true
+  check_equivalent(vector_update_module("reference"), vector_update_module("unchecked")).unsupported() ~is #true
+  check_equivalent(vector_update_module("reference"), vector_update_module("disabled")).equivalent() ~is #true
+  check_equivalent(vector_update_module("reference"), vector_update_module("collision")).unsupported() ~is #true
+  check_equivalent(vector_update_module("reference", 4), vector_update_module("guarded", 4)).equivalent() ~is #true

@@ -1,0 +1,33 @@
+#lang rhodium
+// Exercises round-robin matching and wide payload routing with explicit backpressure.
+
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit RoutingFixture(input_count :: PosInt, output_count :: PosInt, width :: PosInt):
+  input requests: Vec(input_count, Vec(output_count, Bool))
+  input valids: Vec(input_count, Bool)
+  input payloads: Vec(input_count, Bits(width))
+  input ready: Vec(output_count, Bool)
+  output accepted: Vec(input_count, Bool)
+  output offered: Vec(output_count, Bool)
+  output selected: Vec(output_count, Bits(width))
+
+  inst matcher(OutputGreedyRoundRobinMatcher(input_count, output_count))
+  inst crossbar(GrantCrossbar(Bits(width), input_count, output_count))
+  matcher.requests <== vec(
+    for List (i in 0..input_count):
+      vec(for List (j in 0..output_count): requests[i][j] & valids[i])
+  )
+  crossbar.grants <== matcher.grants
+  for (i in 0..input_count):
+    crossbar.ingress[i].valid <== valids[i]
+    crossbar.ingress[i].bits <== payloads[i]
+  for (j in 0..output_count): crossbar.egress[j].ready <== ready[j]
+  matcher.accepts <== vec(for List (j in 0..output_count): ready[j] & crossbar.egress[j].valid)
+  accepted <== vec(for List (i in 0..input_count): crossbar.ingress[i].ready)
+  offered <== vec(for List (j in 0..output_count): crossbar.egress[j].valid)
+  selected <== vec(for List (j in 0..output_count): crossbar.egress[j].bits)
+
+export:
+  RoutingFixture

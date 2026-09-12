@@ -1,0 +1,37 @@
+#lang rhodium
+// Runs all-hart RV5Stage workloads through the upstream host and shared memory channel.
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("socs/tiled-soc/main.rhdl").TiledSoC
+  lib("socs/tiled-soc/configs.rhm").banked_tiled_soc_config
+  lib("socs/tiled-soc/compile.rhdl").compile_tiled_soc
+  lib("chi/subordinate/ram.rhdl") open
+  lib("racket/base.rkt") as rkt
+  "fesvr/direct-memory-htif.rhdl".FesvrRequester
+
+def configured_harts = String.to_int(rkt.getenv("RDS_HARTS") || "8")
+def configuration = banked_tiled_soc_config(configured_harts)
+sync_circuit SoCHarness():
+  def implementation = compile_tiled_soc(configuration)
+  output exit: Bits(32)
+  output hart_count: Bits(4)
+  input uart_in: Bits(1)
+  output uart_out: Bits(1)
+  inst requester(FesvrRequester(XLen.X64, implementation.flit, implementation.host.node, implementation.home_map, implementation.rv5stage_config.physical_map, implementation.host_services, configuration.boot.boot_address_register))
+  inst soc(TiledSoC(configuration))
+  inst memory(CHIRam(CHIRamConfig(implementation.flit, configuration.memory.size_bytes, ~max_outstanding: implementation.memory.node.max_outstanding, ~max_transfer_bytes: 64)))
+  requester.port <=> soc.host.memory
+  soc.memory <=> memory.port
+  memory.identity <== CHIRamIdentity(implementation.flit):
+    node_id: bits(implementation.memory.node.node_id, implementation.flit.node_id_width)
+    base_address: bits(configuration.memory.base, implementation.flit.request_address_width)
+  soc.uart.rx <== uart_in
+  uart_out <== soc.uart.tx
+  exit <== requester.exit
+  hart_count <== bits(configured_harts, 4)
+def design = elaborate(SoCHarness())
+export:
+  configuration
+  configured_harts
+  SoCHarness
+  design

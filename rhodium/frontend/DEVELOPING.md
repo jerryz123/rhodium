@@ -51,6 +51,8 @@ uses the following lifecycle:
    `FrontendContext`.
 2. `build_circuit` rejects live circuit-bound hardware parameters, resolves or
    creates the selected module definition, and establishes the active module.
+   It records a core `ModuleSpecialization` under `rhodium.specialization`,
+   preserving declaration identity and arguments for explicit downstream registries.
 3. Layer and foundation forms call kernel operations, which materialize inputs
    through `kernel.read` and delegate construction to the core Builder.
 4. Circuit finalizers resolve source-order-independent work and accumulated
@@ -167,3 +169,19 @@ Also run:
 If a frontend change alters the core operations or types produced by existing
 programs, run the focused backend fixture that lowers that behavior as well.
 Do not infer backend correctness from host elaboration tests alone.
+
+## Preserve functional operations
+
+`kernel.vector_updated` emits one enabled `rtl.vector_write_set`, plus a
+full-selector range guard and any required index truncation. Its IR size does
+not grow with vector length. The guard preserves `.updated()`'s out-of-range
+no-op behavior; it is functional logic, not an optional diagnostic. CIRCT owns
+per-element hardware lowering; the standalone simulation compiler owns software
+optimization over the retained write operation. Keep new simulation experiments
+out of the elaborator when the public IR already expresses their semantics.
+
+Constant `.is_one_of` alternatives become a fully specified `rtl.decode`, with
+duplicate constants removed before construction. Dynamic alternatives retain
+comparison/reduction semantics. Conditional chains and switches tag mux origins
+with a shared group ID and retain the previous origin as a parent. These tags
+are provenance only: core dependencies and single-driver semantics are unchanged.

@@ -1,0 +1,49 @@
+#lang rhodium
+// Routes opaque token bodies through two contending inputs and two buffered outputs.
+import:
+  lib("flow/queue.rhdl").Queue
+
+sync_circuit TransportFixture(width :: PosInt):
+  input push0: Bool
+  input push1: Bool
+  input pop0: Bool
+  input pop1: Bool
+  input data0: Bits(width)
+  input data1: Bits(width)
+  output valid: Bits(4)
+  output ready: Bits(4)
+  output route: Bits(16)
+  output result0: Bits(width)
+  output result1: Bits(width)
+  inst a0(Queue(Bits(width), 1))
+  inst a1(Queue(Bits(width), 1))
+  inst b0(Queue(Bits(width), 1))
+  inst b1(Queue(Bits(width), 1))
+  def r0 = a0.egress.bits[width - 4..width]
+  def r1 = a1.egress.bits[width - 4..width]
+  def d0 = r0[0].into(Bool)
+  def d1 = r1[0].into(Bool)
+  def g00 = a0.egress.valid & !d0
+  def g01 = a0.egress.valid & d0
+  def g10 = a1.egress.valid & !d1 & !g00
+  def g11 = a1.egress.valid & d1 & !g01
+  a0.ingress.valid <== push0
+  a0.ingress.bits <== data0
+  a1.ingress.valid <== push1
+  a1.ingress.bits <== data1
+  a0.egress.ready <== (g00 & b0.ingress.ready) ||| (g01 & b1.ingress.ready)
+  a1.egress.ready <== (g10 & b0.ingress.ready) ||| (g11 & b1.ingress.ready)
+  b0.ingress.valid <== g00 ||| g10
+  b1.ingress.valid <== g01 ||| g11
+  b0.ingress.bits <== mux(g10, a1.egress.bits, a0.egress.bits)
+  b1.ingress.bits <== mux(g11, a1.egress.bits, a0.egress.bits)
+  b0.egress.ready <== pop0
+  b1.egress.ready <== pop1
+  valid <== vec(a0.egress.valid, a1.egress.valid, b0.egress.valid, b1.egress.valid).as_bits()
+  ready <== vec(a0.ingress.ready, a1.ingress.ready, b0.ingress.ready, b1.ingress.ready).as_bits()
+  route <== vec(r0, r1, b0.egress.bits[width - 4..width], b1.egress.bits[width - 4..width]).as_bits()
+  result0 <== mux(b0.egress.valid, b0.egress.bits, bits(0, width))
+  result1 <== mux(b1.egress.valid, b1.egress.bits, bits(0, width))
+
+export:
+  TransportFixture

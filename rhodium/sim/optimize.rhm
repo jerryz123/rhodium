@@ -1,0 +1,35 @@
+#lang rhombus
+// Invokes the standalone graph compiler through a versioned, pointer-free JSON exchange.
+
+import:
+  "model.rhm" open
+  "inspect.rhm" open
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  lib("racket/system.rkt") as process
+
+export:
+  optimize_simulation
+  run_simulation_compiler
+
+fun run_simulation_compiler(model :: SimulationModel, ~optimize: optimize = #true,
+                            ~byte_budget: byte_budget = 0, ~work_budget: work_budget = 0,
+                            ~cone_work: cone_work = 16) :: SimulationModel:
+  def directory = file.#{make-temporary-file}("rhodium-opt-~a", #'directory)
+  def input = rkt.#{build-path}(directory, "input.json")
+  def output = rkt.#{build-path}(directory, "output.json")
+  def executable = rkt.getenv("RDS_OPTIMIZER") || rkt.#{collection-file-path}("run.sh", "rhodium", "sim", "compiler")
+  rkt.#{dynamic-wind}(
+    fun (): #void,
+    fun ():
+      write_simulation_report(model, "" ++ rkt.#{path->string}(input))
+      def arguments = ["--input", input, "--report", output,
+                       "--replicate-bytes", to_string(byte_budget), "--replicate-work", to_string(work_budget),
+                       "--cone-work", to_string(cone_work)] ++ (if optimize | [] | ["--no-optimize"])
+      unless process.#{system*}(executable, & arguments)
+      | error(~who: #'run_simulation_compiler, "standalone optimizer failed; see its diagnostic")
+      read_simulation_report("" ++ rkt.#{path->string}(output)),
+    fun (): file.#{delete-directory/files}(directory))
+
+fun optimize_simulation(model :: SimulationModel) :: SimulationModel:
+  run_simulation_compiler(model)

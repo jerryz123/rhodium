@@ -1,0 +1,50 @@
+#lang rhombus
+// Emits whole native FIFO variants and token-only models across payload widths and depths.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "../../flow/queue.rhdl" as queue
+  "../../flow/offer-register.rhdl" as offer
+  "../../flow/rr-arbiter.rhdl" as arbiter
+  "../../flow/pipe.rhdl" as pipe
+  "../../flow/broadcast.rhdl" as broadcast
+  "../../flow/packet-rr-arbiter.rhdl" as packet
+  "../../sims/native/library.rhm".standard_native_models
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_TEST_DIR")
+def functional = standard_native_models()
+def tokens = standard_native_models(~drop_payload: #true)
+fun save(top, name):
+  write_simulation(compile_simulation(top, ~native_models: functional), directory ++ "/" ++ name ++ ".rsim")
+  write_simulation(compile_simulation(top, ~native_models: tokens), directory ++ "/" ++ name ++ "-tokens.rsim")
+for (width in [8, 65, 4096]):
+  for (depth in [1, 3, 1024]):
+    for (pipe in [#false, #true]):
+      for (flow in [#false, #true]):
+        def top = frontend.run_elaboration_with_top(fun (): queue.Queue(Bits(width), depth, ~pipe: pipe, ~flow: flow)).top
+        def name = "fifo-" ++ to_string(width) ++ "-" ++ to_string(depth) ++ "-" ++ (if pipe | "1" | "0") ++ (if flow | "1" | "0")
+        save(top, name)
+def offer_top = frontend.run_elaboration_with_top(fun (): offer.OfferRegister(Bits(65))).top
+save(offer_top, "offer")
+def rr_top = frontend.run_elaboration_with_top(fun (): arbiter.RRArbiter(Bits(8), 3)).top
+save(rr_top, "rr")
+// A hand-built module with a library display name has no registered identity.
+def d = Design()
+def b = Builder(d)
+def m = b.module("Queue")
+def a = b.input(m, "a", Bits(8))
+b.drive(b.output(m, "b", Bits(8)), b.bit_not(m, a))
+b.finish(m)
+def untouched = compile_simulation(m, ~native_models: functional)
+unless untouched.objects.length() == 0 | error("display name incorrectly selected native replacement")
+
+for (entry in [[fun (): pipe.ValidPipe(Bits(65), 3), "valid-pipe"],
+               [fun (): broadcast.Broadcast(Bits(65), 3), "broadcast"],
+               [fun (): broadcast.CtrlBroadcast(3), "ctrl-broadcast"],
+               [fun (): packet.PacketRRArbiter(Bits(8), 3), "packet-rr"]]):
+  def top = frontend.run_elaboration_with_top(entry[0]).top
+  save(top, entry[1])
+  write_simulation(compile_simulation(top, ~semantic_kernels: #false), directory ++ "/" ++ entry[1] ++ "-raw.rsim")

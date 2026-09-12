@@ -17,6 +17,7 @@ The central test tree mirrors the implementation boundaries:
 | [`frontend/`](frontend/) | Language profiles, layers, elaboration, compiler-facing interface metadata, static event graphs, examples, and invalid frontend uses |
 | [`backend/`](backend/DEVELOPING.md) | Host-side backend tests, CIRCT fixtures, Verilog benches, and reference maintenance |
 | [`formal/`](formal/) | Optional Rosette semantics, queries, witnesses, and differential replay |
+| [`sim/`](sim/) | Native runtime, occurrence extraction, semantic kernels, and Verilator O2 comparisons |
 | [`emacs/`](emacs/) | Project-aware `rhodium-mode` dispatch and Racket back-end configuration |
 
 Keep library, protocol, core, and system tests with the package that owns the

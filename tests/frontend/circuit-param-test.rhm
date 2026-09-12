@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks automatic specialization reuse with identity and structural equality.
+// Checks specialization reuse and retained declaration provenance across parameter choices.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -25,3 +25,14 @@ check:
   nominal_first.attribute("module") === nominal_second.attribute("module") ~is #true
   nominal_first.attribute("module") === nominal_distinct.attribute("module") ~is #false
   verify_design(design) ~is #void
+
+// Downstream consumers can distinguish declaration identity from specialization values.
+def first_origin = first.attribute("module").metadata_for("rhodium.specialization")[0]
+def different_origin = different.attribute("module").metadata_for("rhodium.specialization")[0]
+def nominal_origin = nominal_first.attribute("module").metadata_for("rhodium.specialization")[0]
+check:
+  first_origin is_a ModuleSpecialization ~is #true
+  first_origin.identity === different_origin.identity ~is #true
+  first_origin.identity === nominal_origin.identity ~is #false
+  first_origin.arguments[0].width ~is 8
+  different_origin.arguments[0].width ~is 16

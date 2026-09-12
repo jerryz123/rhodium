@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks variadic, host-list, and empty receiver membership lowering and result types.
+// Checks semantic constant decodes, dynamic membership, and flat result types.
 
 import:
   "../../rhodium/core/main.rhm" open
@@ -12,10 +12,12 @@ def module_def = fixture.membership_design.modules[0]
 def equalities = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.eq"
 )
+def decodes = module_def.operations.filter(~keep: fun (operation): operation.opcode == "rtl.decode")
 def disjunctions = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.or"
 )
 def surface_module = surfaces.design.modules[0]
+def generic_decode = surface_module.find_operation(surface_module.find_output("generic_member").place.driver.defining_op_id)
 def base_module = base_fixture.design.modules[0]
 def surface_outputs_boolean = for all (name in ["bool_member",
                                                 "signed_member",
@@ -32,10 +34,13 @@ check:
   bool.bool_type(module_def.find_output("exact").type) ~is #true
   bool.bool_type(module_def.find_output("listed").type) ~is #true
   bool.bool_type(module_def.find_output("never").type) ~is #true
-  equalities.length() ~is 11
+  equalities.length() ~is 0
+  decodes.length() ~is 4
   disjunctions.length() ~is 0
   verify_design(fixture.membership_design) ~is #void
   bool.bool_type(base_module.find_output("member").type) ~is #true
   verify_design(base_fixture.design) ~is #void
+  generic_decode.opcode ~is "rtl.decode"
+  generic_decode.attribute("cases").length() ~is 2
   surface_outputs_boolean ~is #true
   verify_design(surfaces.design) ~is #void

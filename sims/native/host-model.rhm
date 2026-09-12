@@ -1,0 +1,25 @@
+#lang rhombus
+// Registers the sized-memory HTIF used by native workload drivers.
+import:
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "../../riscv/isa/xlen.rhm".XLen
+  "../fesvr/direct-memory-htif.rhdl" as htif
+
+def top = frontend.run_elaboration_with_top(fun (): htif.DirectMemoryHTIF(XLen.X64, 0x1000)).top
+def identity = native_specialization(top).identity
+fun workload_host_model(module):
+  def origin = native_specialization(module)
+  if origin && origin.identity === identity
+  | block:
+      unless origin.arguments[0] == XLen.X64 && origin.arguments[1] == 0x1000
+      | error(~who: #'workload_host_model, "workload HTIF requires RV64 and the 0x1000 boot register")
+      NativeModel(8, 0, 7, 0,
+                  [["reset", 0, 1], ["request_ready", 0, 1], ["response_valid", 0, 1],
+                   ["response_data", 0, 64], ["response_status", 0, 8]],
+                  [NativeOutput("request_valid", 0, 1, 0, []), NativeOutput("request_write", 0, 1, 1, []),
+                   NativeOutput("request_address", 0, 64, 2, []), NativeOutput("request_data", 0, 64, 3, []),
+                   NativeOutput("request_length", 0, 8, 4, []), NativeOutput("response_ready", 0, 1, 5, []),
+                   NativeOutput("exit", 0, 32, 6, [])])
+  | #false
+export: workload_host_model

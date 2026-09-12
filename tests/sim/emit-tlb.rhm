@@ -1,0 +1,20 @@
+#lang rhombus
+// Emits original and native Sv39 TLB models for cycle-by-cycle differential replay.
+
+import:
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "../../cores/rv5stage/mmu/tlb.rhdl" as tlb
+  "../../sims/native/cpu.rhm".cpu_native_models
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_TEST_DIR")
+def models = cpu_native_models()
+for (depth in [2, 4, 8]):
+  def top = frontend.run_elaboration_with_top(fun (): tlb.RV5StageTlb(depth)).top
+  def name = directory ++ "/tlb-" ++ to_string(depth)
+  def native = compile_simulation(top, ~native_models: models)
+  write_simulation(native, name ++ ".rsim")
+  write_simulation_report(native, name ++ ".json")
+  write_simulation(compile_simulation(top, ~native_models: models, ~optimize: #false), name ++ "-unshared.rsim")
+  write_simulation(compile_simulation(top, ~semantic_kernels: #false), name ++ "-raw.rsim")

@@ -1,0 +1,18 @@
+#lang rhombus
+// Emits physical-control ALUs with raw RTL and pure functional replacements.
+
+import:
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "../../cores/alu.rhdl" as alu
+  "../../riscv/isa/xlen.rhm".XLen
+  "../../sims/native/cpu.rhm".cpu_native_models
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_TEST_DIR")
+def models = cpu_native_models()
+for (xlen in [XLen.X32, XLen.X64]):
+  def top = frontend.run_elaboration_with_top(fun (): alu.ALU(xlen)).top
+  def name = directory ++ "/alu-" ++ to_string(xlen.width)
+  write_simulation(compile_simulation(top, ~native_models: models), name ++ ".rsim")
+  write_simulation(compile_simulation(top, ~semantic_kernels: #false), name ++ "-raw.rsim")

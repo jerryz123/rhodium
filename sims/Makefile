@@ -83,6 +83,10 @@ SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -
 
 .PHONY: all setup simulator run smoke trace-smoke boot-test host-mmio-test uart-pty-test zicboz-test zihintntl-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
 
+.PHONY: native-smoke
+native-smoke:
+	bash native/run.sh
+
 all: simulator
 
 include arch-test/Makefile.inc

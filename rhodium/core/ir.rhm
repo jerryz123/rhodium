@@ -25,6 +25,7 @@ export:
   Instance
   ModuleMetadataPayload
   ModuleMetadata
+  ModuleSpecialization
   Module
   Design
   DesignElaboration
@@ -227,6 +228,11 @@ class.together:
   interface ModuleMetadataPayload
 
   class ModuleMetadata(namespace :: String, payload :: ModuleMetadataPayload)
+
+  // Preserves declaration identity for explicitly registered downstream models.
+  // Display names alone must never select an implementation replacement.
+  class ModuleSpecialization(identity, arguments :: List):
+    implements ModuleMetadataPayload
 
   class Module(design :: Design,
                id :: Nat,

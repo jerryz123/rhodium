@@ -211,6 +211,7 @@ flowchart TB
     core --> analysis
     core --> formal
     core --> circt
+    core --> native["Compiled native simulation"]
     circt --> sv
 ```
 
@@ -272,6 +273,8 @@ SystemVerilog.
   standalone Perfetto export
 - [`rhodium/backend/README.md`](rhodium/backend/README.md) — CIRCT lowering and
   SystemVerilog generation
+- [`rhodium/sim/README.md`](rhodium/sim/README.md) — compiled synchronous simulation,
+  offline optimization and static parallel execution
 - [`rhodium/formal/README.md`](rhodium/formal/README.md) — Rosette equivalence,
   reachability, and output properties
 - [`tests/README.md`](tests/README.md) and

@@ -1,0 +1,21 @@
+#lang rhodium
+// Exposes a MiniSoC with a sized-memory workload host and direct UART pins.
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("socs/mini-soc.rhdl") as mini
+  "../fesvr/direct-memory-htif.rhdl".FesvrRequester
+sync_circuit SoCHarness():
+  output exit: Bits(32)
+  input uart_in: Bits(1)
+  output uart_out: Bits(1)
+  def fabric = mini.mini_soc_fabric_params
+  inst requester(FesvrRequester(XLen.X64, mini.mini_soc_flit, mini.mini_soc_host_node, mini.mini_soc_home_map, fabric.rv5stage_config.physical_map, fabric.host_services, fabric.boot.boot_address_register))
+  inst soc(mini.MiniSoC())
+  requester.port <=> soc.host.memory
+  soc.uart.rx <== uart_in
+  uart_out <== soc.uart.tx
+  exit <== requester.exit
+def design = elaborate(SoCHarness())
+export:
+  SoCHarness
+  design

@@ -33,10 +33,11 @@ module VectorUpdate(
   output [2:0][3:0] result
 );
 
+  wire _GEN = selector != 2'h3;
   assign result =
-    {{selector == 2'h2 ? replacement : source[2'h2]},
-     {selector == 2'h1 ? replacement : source[2'h1]},
-     {selector == 2'h0 ? replacement : source[2'h0]}};
+    {{_GEN & selector == 2'h2 ? replacement : source[2'h2]},
+     {_GEN & selector == 2'h1 ? replacement : source[2'h1]},
+     {_GEN & selector == 2'h0 ? replacement : source[2'h0]}};
 endmodule
 }>>|
 

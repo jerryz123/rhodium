@@ -36,6 +36,7 @@ fun pc_relative_target(image :: BootROMImage,
   )
 
 def default_image = DefaultRiscvBootROMImage
+def all_harts_image = riscv_bootrom_image(~park_secondary_harts: #false)
 def relocated_image = riscv_bootrom_image(
   0x20000,
   0x7f000000,
@@ -67,6 +68,9 @@ check:
   WFI.matches(image_word(indirect64, 8)) ~is #true
   JImmediate.decode(image_word(indirect64, 9)) ~is 0x1ffffc
   riscv_bootrom_image(~boot_address_register: 0x1004) ~throws "eight-byte aligned"
+  image_word(all_harts_image, 0) ~is image_word(default_image, 0)
+  image_word(all_harts_image, 1) ~is 0x00000013
+  pc_relative_target(all_harts_image, RiscvBootROMResetAddress, 4) ~is RiscvBootROMPayloadAddress
   default_image.size_bytes ~is 32
   default_words ~is [
     0xf1402573,

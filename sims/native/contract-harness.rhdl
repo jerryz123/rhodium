@@ -1,0 +1,15 @@
+#lang rhodium
+// Exercises exported stable and ambient-input flow-map contracts in a small harness.
+
+import:
+  lib("flow/main.rhdl") open
+
+circuit ContractFixture():
+  input changing: Bits(8)
+  interface ingress(Irrevocable(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+
+  ingress |> map_flow(~stable: #true, payload => payload + bits(1, 8)) |> map_flow(payload => payload ^ changing) |> egress
+
+export:
+  ContractFixture

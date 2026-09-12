@@ -116,6 +116,10 @@ check_matrix_entry rheg/tests/event-collector-test.cpp circt_matrix ci-circt-lan
 check_field rhodium/event/analyze.rhm simulation true
 check_field rheg/runtime/rheg.cc simulation true
 check_field rheg/perfetto/rheg_perfetto.cc simulation true
+check_matrix_entry rhodium/sim/runtime/execute.c host_matrix ci-host-backend-test
+check_matrix_entry tests/sim/runtime_test.py host_matrix ci-host-backend-test
+check_matrix_entry sims/native/library.rhm host_matrix ci-host-backend-test
+check_field sims/native/library.rhm simulation true
 check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-foundation-test
 check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-hygiene-test
 check_matrix_entry flow/main.rhdl host_matrix ci-host-cores-test
@@ -176,6 +180,7 @@ check_matrix_entry examples/rtl/alu.rhdl host_matrix ci-host-hygiene-test
 check_matrix_entry examples/rtl/alu.rhdl circt_matrix ci-circt-language-test
 check_matrix_entry examples/clocking/single-clock.rhm example_matrix examples-clocking
 check_matrix_entry examples/std/flow-control.rhdl example_matrix examples-std
+check_matrix_entry examples/std/flow-control.rhdl host_matrix ci-host-backend-test
 check_matrix_entry examples/noc/noc-router.rhdl example_matrix examples-noc
 check_matrix_entry examples/noc/noc-router.rhdl circt_matrix ci-circt-protocols-test
 check_matrix_entry examples/noc/wormhole-router-diagram.rhdl example_matrix examples-noc

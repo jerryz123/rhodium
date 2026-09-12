@@ -124,6 +124,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes device-tree-compiler
+      - name: Install standalone simulator compiler headers
+        if: matrix.target == 'ci-host-backend-test'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libboost-dev nlohmann-json3-dev
       - name: Run affected host test group
         run: make "${{ matrix.target }}"
 
@@ -220,6 +225,8 @@ jobs:
           sudo apt-get install --yes \
             build-essential \
             cmake \
+            libboost-dev \
+            nlohmann-json3-dev \
             device-tree-compiler \
             zlib1g-dev
       - name: Install pinned RISC-V compiler

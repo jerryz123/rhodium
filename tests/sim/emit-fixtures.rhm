@@ -1,0 +1,352 @@
+#lang rhombus
+// Emits native, typed semantic, and CIRCT fixtures for arithmetic, aggregate feedback, state, and memory.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as kernel
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/backend/circt.rhm".emit_circt
+  lib("racket/base.rkt") as rkt
+
+def output_directory = rkt.getenv("RDS_TEST_DIR")
+unless output_directory | error("RDS_TEST_DIR must name the fixture directory")
+
+class Signed(width :: PosInt):
+  implements SignedArithmeticType
+  override method describe(): "signed<" ++ to_string(width) ++ ">"
+  override method type_equal(other): other is_a Signed && width == other.width
+  override method packed_width(): width
+  override method with_bit_width(new_width): Signed(new_width)
+
+fun save(top :: Module, name :: String):
+  def model = compile_simulation(top)
+  when name == "aggregate"
+  | def semantic = compile_simulation(top, ~preserve_semantics: #true, ~optimize: #false)
+    def path = output_directory ++ "/aggregate-semantic.json"
+    write_simulation_report(semantic, path)
+    def restored = read_simulation_report(path)
+    unless restored.types == semantic.types && restored.value_types == semantic.value_types && restored.operations == semantic.operations
+    | error("semantic exchange changed types or operations")
+    write_simulation(compile_simulation(top, ~preserve_semantics: #true), output_directory ++ "/aggregate-semantic.rsim")
+  when name == "arithmetic-65"
+  | def extracted = compile_simulation(top, ~optimize: #false)
+    def exchange = output_directory ++ "/compiler-extracted.json"
+    write_simulation_report(extracted, exchange)
+    unless rkt.#{equal?}(simulation_bytes(read_simulation_report(exchange)), simulation_bytes(extracted))
+    | error("compiler exchange changed extracted IR")
+  write_simulation(model, output_directory ++ "/" ++ name ++ ".rsim")
+  write_simulation(compile_simulation(top, ~semantic_kernels: #false), output_directory ++ "/" ++ name ++ "-raw.rsim")
+  filesystem.write_string(output_directory ++ "/" ++ name ++ ".mlir", emit_circt(top.design), ~exists: #'truncate)
+
+for (width in [1, 7, 31, 32, 33, 63, 64, 65, 127, 128, 129]):
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("Arithmetic")
+  def a = b.input(m, "a", Bits(width))
+  def c = b.input(m, "b", Bits(width))
+  def shift = b.input(m, "shift", Bits(8))
+  def increment = b.input(m, "increment", Bits(1))
+  def decrement = b.input(m, "decrement", Bits(1))
+  def one = b.constant(m, Bits(width), 1)
+  def updated = b.mux_lookup(m, increment, b.sub(m, a, one), [[1, b.add(m, a, one)]])
+  def balance = b.mux_lookup(m, b.bit_xor(m, increment, decrement), a, [[1, updated]])
+  def set_clear = b.bit_and(m, b.bit_or(m, a, c), b.bit_not(m, c))
+  def last = b.constant(m, Bits(width), (1 bits.(<<) width) - 2)
+  def wrapped = b.mux_lookup(m, b.eq(m, a, last), b.add(m, a, one), [[1, b.constant(m, Bits(width), 0)]])
+  def counter_step = b.mux_lookup(m, increment, a, [[1, wrapped]])
+  def sa = b.cast(m, a, Signed(width))
+  def sc = b.cast(m, c, Signed(width))
+  for (entry in [["add", b.add(m, a, c)], ["sub", b.sub(m, a, c)],
+                 ["mul", b.mul(m, a, c)], ["xor", b.bit_xor(m, a, c)],
+                 ["and", b.bit_and(m, a, c)], ["or", b.bit_or(m, a, c)],
+                 ["not", b.bit_not(m, a)], ["slt", b.slt(m, sa, sc)],
+                 ["shrs", b.shrs(m, sa, shift)], ["sext", b.sext(m, sa, width + 17)],
+                 ["zext", b.zext(m, a, width + 17)],
+                 ["shl", b.shl(m, a, shift)], ["shru", b.shru(m, a, shift)],
+                 ["eq", b.eq(m, a, c)], ["ult", b.ult(m, a, c)],
+                 ["balance", balance], ["set_clear", set_clear], ["counter_step", counter_step]]):
+    b.drive(b.output(m, entry[0], entry[1].type), entry[1])
+  b.finish(m)
+  save(m, "arithmetic-" ++ to_string(width))
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def child = b.module("Accumulator")
+  def clk = b.input(child, "clk", Clock)
+  def rst = b.input(child, "rst", Reset)
+  def increment = b.input(child, "increment", Bits(32))
+  def state = b.register(child, "state", Bits(32), clk, rst, b.constant(child, Bits(32), 0))
+  b.drive(state.next, b.add(child, state.current, increment))
+  b.drive(b.output(child, "value", Bits(32)), state.current)
+  b.finish(child)
+  def m = b.module("Hierarchy")
+  def top_clk = b.input(m, "clk", Clock)
+  def top_rst = b.input(m, "rst", Reset)
+  def amount = b.input(m, "amount", Bits(32))
+  def first = b.instance(m, child, "first")
+  def second = b.instance(m, child, "second")
+  for (inst in [first, second]):
+    b.drive(inst.input("clk"), top_clk)
+    b.drive(inst.input("rst"), top_rst)
+  b.drive(first.input("increment"), amount)
+  b.drive(second.input("increment"), first.output("value"))
+  b.drive(b.output(m, "first_value", Bits(32)), first.output("value"))
+  b.drive(b.output(m, "second_value", Bits(32)), second.output("value"))
+  b.finish(m)
+  save(m, "hierarchy")
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("Storage")
+  def clk = b.input(m, "clk", Clock)
+  def addr = b.input(m, "addr", Bits(2))
+  def data = b.input(m, "data", Bits(64))
+  def enable = b.input(m, "enable", Bits(1))
+  def write = b.input(m, "write", Bits(1))
+  def mask = b.input(m, "mask", Bits(8))
+  def memory = b.memory(m, "asynchronous", 4, Bits(64))
+  b.memory_write(m, memory, addr, data, clk, b.bit_and(m, enable, write))
+  b.drive(b.output(m, "async_data", Bits(64)), b.memory_read_async(m, memory, addr))
+  def sync = b.sync_memory(m, "synchronous", 4, Bits(64), clk, #false, #false, #true, 8)
+  b.drive(sync.read_write_port.address, addr)
+  b.drive(sync.read_write_port.enable, enable)
+  b.drive(sync.read_write_port.write, write)
+  b.drive(sync.read_write_port.write_data, data)
+  b.drive(sync.read_write_port.write_mask, mask)
+  b.drive(b.output(m, "sync_data", Bits(64)), sync.read_write_port.read_data)
+  b.finish(m)
+  save(m, "storage")
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("Aggregate")
+  def pair = RecordType([RecordField("left", Bits(65)), RecordField("right", Bits(65))])
+  def vt = VectorType(3, Bits(65))
+  def a = b.input(m, "a", Bits(65))
+  def c = b.input(m, "b", Bits(65))
+  def index = b.input(m, "index", Bits(2))
+  def other_index = b.input(m, "other_index", Bits(2))
+  def enables = b.input(m, "enables", VectorType(2, Bits(1)))
+  def onehot = b.input(m, "onehot", Bits(3))
+  def selector = b.input(m, "selector", Bits(65))
+  def record = b.record_create(m, pair, [["left", a], ["right", c]])
+  for (low in [0, 1, 31, 63, 64, 65, 66]):
+    for (width in [1, 7, 31, 63, 64]):
+      def name = "slice_" ++ to_string(low) ++ "_" ++ to_string(width)
+      b.drive(b.output(m, name, Bits(width)), b.extract(m, b.cast(m, record, Bits(130)), low + width - 1, low))
+  def vector = b.vector_create(m, vt, [a, c, b.constant(m, Bits(65), 7)])
+  def indices = b.vector_create(m, VectorType(2, Bits(2)), [index, other_index])
+  def elements = b.vector_create(m, VectorType(2, Bits(65)), [c, a])
+  def decoded = b.decode(m, selector, Bits(65), Bits(3), [[1 bits.(<<) 64, 1 bits.(<<) 64, 5, 7]], 2, 7)
+  for (entry in [["record", record],
+                 ["cross_word", b.extract(m, b.cast(m, record, Bits(130)), 96, 31)],
+                 ["vector", vector], ["indexed", b.vector_index(m, vector, index)],
+                 ["injected", b.vector_inject(m, vector, index, c)],
+                 ["written", b.vector_write_set(m, vector, enables, indices, elements)],
+                 ["onehot_value", b.onehot_mux(m, onehot, [a, c, b.constant(m, Bits(65), 7)])],
+                 ["lookup", b.mux_lookup(m, selector, a, [[1 bits.(<<) 64, c]])],
+                 ["decoded", decoded]]):
+    b.drive(b.output(m, entry[0], entry[1].type), entry[1])
+  // The second base element reads the first updated element: legal leaf feedback.
+  def update_base = b.wire(m, "update_base", VectorType(2, Bits(65)))
+  def update = b.vector_write_set(m, b.read(update_base), b.vector_create(m, VectorType(1, Bits(1)), [b.constant(m, Bits(1), 1)]), b.vector_create(m, VectorType(1, Bits(1)), [b.trunc(m, index, 1)]), b.vector_create(m, VectorType(1, Bits(65)), [c]))
+  b.drive(b.project_vector(update_base, 0), a)
+  b.drive(b.project_vector(update_base, 1), b.vector_get(m, update, 0))
+  b.drive(b.output(m, "updated_leaf", Bits(65)), b.vector_get(m, update, 0))
+  b.drive(b.output(m, "updated_vector", update.type), update)
+  // Neither whole-record order works here; each leaf is nevertheless acyclic.
+  def left_wire = b.wire(m, "left_wire", pair)
+  def right_wire = b.wire(m, "right_wire", pair)
+  b.drive(b.project(left_wire, "left"), a)
+  b.drive(b.project(left_wire, "right"), b.record_get(m, b.read(right_wire), "left"))
+  b.drive(b.project(right_wire, "left"), b.record_get(m, b.read(left_wire), "left"))
+  b.drive(b.project(right_wire, "right"), c)
+  b.drive(b.output(m, "leaf_cycle", pair), b.read(left_wire))
+  b.finish(m)
+  save(m, "aggregate")
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("Checked")
+  def clk = b.input(m, "clk", Clock)
+  def rst = b.input(m, "rst", Reset)
+  def okay = b.input(m, "okay", Bits(1))
+  def guard = b.input(m, "guard", Bits(1))
+  def state = b.register(m, "state", Bits(8), clk, rst, b.constant(m, Bits(8), 0))
+  b.drive(state.next, b.add(m, state.current, b.constant(m, Bits(8), 1)))
+  b.assert(m, okay, clk, rst, guard, "required_condition")
+  b.drive(b.output(m, "value", Bits(8)), state.current)
+  b.finish(m)
+  save(m, "checked")
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("Pipeline")
+  def clk = b.input(m, "clk", Clock)
+  def rst = b.input(m, "rst", Reset)
+  def amount = b.input(m, "amount", Bits(32))
+  def multiplier = b.constant(m, Bits(32), 1664525)
+  def salt = b.constant(m, Bits(32), 1013904223)
+  def shift = b.constant(m, Bits(5), 13)
+  for (lane in 0..8):
+    def state = b.register(m, "state_" ++ to_string(lane), Bits(32), clk, rst, b.constant(m, Bits(32), lane))
+    def mutable value = b.bit_xor(m, state.current, amount)
+    for (stage in 0..256):
+      value := b.add(m, b.mul(m, value, multiplier), salt)
+      value := b.bit_xor(m, value, b.shru(m, value, shift))
+    b.drive(state.next, value)
+    b.drive(b.output(m, "lane_" ++ to_string(lane), Bits(32)), state.current)
+  b.finish(m)
+  save(m, "pipeline")
+
+// A word lookup and overlapping views must share computation without changing
+// any selected or default value. The report ties those views to source IR.
+block:
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("LookupViews")
+  def selector = b.input(m, "selector", Bits(12))
+  def data = b.input(m, "data", Bits(64))
+  def rows = for List (i in 0..41):
+    [i * 73 + 1, b.bit_xor(m, data, b.constant(m, Bits(64), i * 0x123456789abc))]
+  def result = b.mux_lookup(m, selector, b.constant(m, Bits(64), 0xdeadbeef), rows)
+  for (i in 0..64): b.drive(b.output(m, "bit_" ++ to_string(i), Bits(1)), b.extract(m, result, i, i))
+  b.drive(b.output(m, "word", Bits(64)), result)
+  b.finish(m)
+  save(m, "lookup")
+  fun observe(stage, model): write_simulation_report(model, output_directory ++ "/lookup." ++ stage ++ ".json")
+  fun observe_raw(stage, model):
+    when stage == "extracted" | write_simulation_report(model, output_directory ++ "/lookup.original.json")
+  def observed = compile_simulation(m, ~observe: observe)
+  def raw = compile_simulation(m, ~semantic_kernels: #false, ~observe: observe_raw)
+  #void
+
+// Distinct wide lookup results share sparse key decoding across host words.
+block:
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("SharedDecoder")
+  def selector = b.input(m, "selector", Bits(65))
+  def data = b.input(m, "data", Bits(65))
+  def keys = [0, 1, 2, 73, 511, 2047, 4095, (1 bits.(<<) 64), (1 bits.(<<) 64) + 1, (1 bits.(<<) 65) - 1]
+  for (lane in 0..2):
+    def rows = for List (key in keys, i in 0..keys.length()):
+      [key, b.bit_xor(m, data, b.constant(m, Bits(65), (lane + 1) * (i + 1) * 0x123456789abcdef))]
+    def result = b.mux_lookup(m, selector, b.constant(m, Bits(65), 0xdeadbeef + lane), rows)
+    b.drive(b.output(m, "lane_" ++ to_string(lane), Bits(65)), result)
+  b.finish(m)
+  save(m, "shared-decoder")
+  write_simulation_report(compile_simulation(m), output_directory ++ "/shared-decoder.optimized.json")
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("SmallDecode")
+  def a = b.input(m, "a", Bits(8))
+  def c = b.input(m, "b", Bits(8))
+  for (width in [7, 23, 64]):
+    def mask = (1 bits.(<<) width) - 1
+    def rows = for List (i in 0..12): [i * 16, 0xf0, (i + 1) bits.(<<) (width - 4), mask]
+    for (entry in [["a", a], ["b", c]]):
+      b.drive(b.output(m, entry[0] ++ "_" ++ to_string(width), Bits(width)), b.decode(m, entry[1], Bits(8), Bits(width), rows, 5, mask))
+  b.finish(m)
+  save(m, "small-decode")
+
+block:
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("TreeDecode")
+  def selector = b.input(m, "selector", Bits(32))
+  def mask = (1 bits.(<<) 100) - 1
+  // Different groups constrain different secondary fields. The fourth group
+  // has no common remaining mask and exercises the ordered leaf fallback.
+  def rows = [[0x13, 0x707f, 1 bits.(<<) 90, mask],
+              [0x1013, 0x707f, 2 bits.(<<) 90, mask],
+              [0x33, 0xfe00707f, 3 bits.(<<) 90, mask],
+              [0x40000033, 0xfe00707f, 4 bits.(<<) 90, mask],
+              [0x23, 0xff, 5 bits.(<<) 90, mask],
+              [0x1a3, 0x1ff, 6 bits.(<<) 90, mask]]
+  b.drive(b.output(m, "result", Bits(100)), b.decode(m, selector, Bits(32), Bits(100), rows, 9, mask))
+  b.finish(m)
+  save(m, "tree-decode")
+
+// These byte lanes reproduce the L1D merge and a contiguous L1I round trip.
+// Output and state observations distinguish word recovery from dead-code removal.
+for (width in [32, 64]):
+  def design = Design()
+  def b = Builder(design)
+  def m = b.module("WordCones")
+  def clk = b.input(m, "clk", Clock)
+  def reset = b.input(m, "reset", Reset)
+  def old = b.input(m, "old", Bits(width))
+  def incoming = b.input(m, "incoming", Bits(width))
+  def local = b.input(m, "local", Bits(width))
+  def mask = b.input(m, "mask", Bits(width div 8))
+  def enabled = b.input(m, "enabled", Bits(1))
+  def pending = b.input(m, "pending", Bits(1))
+  def okay = b.input(m, "okay", Bits(1))
+  b.assert(m, okay, clk, reset, b.constant(m, Bits(1), 1), "word_pack_transaction")
+  def bytes = VectorType(width div 8, Bits(8))
+  def lanes = for List (i in 0..(width div 8)):
+    def a = b.extract(m, old, i * 8 + 7, i * 8)
+    def c = b.extract(m, incoming, i * 8 + 7, i * 8)
+    def l = b.extract(m, local, i * 8 + 7, i * 8)
+    def merged = b.mux_lookup(m, b.extract(m, mask, i, i), a, [[1, c]])
+    b.mux_lookup(m, pending, b.mux_lookup(m, enabled, a, [[1, merged]]), [[1, l]])
+  def result = b.cast(m, b.vector_create(m, bytes, lanes), Bits(width))
+  def roundtrip = b.cast(m, b.vector_create(m, bytes, for List (i in 0..(width div 8)): b.extract(m, old, i * 8 + 7, i * 8)), Bits(width))
+  def guard = b.bit_and(m, enabled, pending)
+  def nested = b.mux_lookup(m, guard, b.mux_lookup(m, enabled, incoming, [[1, old]]), [[1, old]])
+  def absorbed = b.bit_and(m, b.bit_or(m, enabled, pending), pending)
+  def state = b.register(m, "state", Bits(width * 2), clk, reset, b.constant(m, Bits(width * 2), 7))
+  def pair = b.cast(m, b.vector_create(m, VectorType(2, Bits(width)), [result, b.extract(m, state.current, width - 1, 0)]), Bits(width * 2))
+  b.drive(state.next, pair)
+  for (entry in [["result", result], ["roundtrip", roundtrip], ["nested", nested], ["absorbed", absorbed], ["state_out", state.current]]):
+    b.drive(b.output(m, entry[0], entry[1].type), entry[1])
+  b.finish(m)
+  save(m, "word-cones-" ++ to_string(width))
+  write_simulation_report(compile_simulation(m), output_directory ++ "/word-cones-" ++ to_string(width) ++ ".json")
+
+// Native FIFO payload cones cover skipped writes, shared uses, late guards,
+// bypass demand, and eager strict failures independently of RTL elaboration.
+for (flags in [0, 2, 4]):
+  for (late in [#false, #true]):
+    def name = "demand-fifo-" ++ to_string(flags) ++ (if late | "-late" | "")
+    def ops = [[29, 6, (if flags == 2 | [2] | []), [0, 1]],
+               [21, 9, [4, 5], [3, 64]], [2, 10, [3], []], [5, 12, [9, 10], []],
+               [20, 11, [10, 12], []], [2, 13, [1], []], [2, 14, [13], []],
+               [29, 7, (if flags == 4 | [11] | []), [0, 3]],
+               [29, 8, (if flags == 4 | [if late | 14 | 1] | []), [0, 2]]]
+    def model = SimulationModel([1, 1, 1, 64, 192, 2, 1, 128, 1, 64, 64, 128, 64, 1, 1], ops,
+                                [], [], [], [], [],
+                                [[0, 0, "reset"], [0, 1, "valid"], [0, 2, "ready"], [0, 3, "data"],
+                                 [0, 4, "vector"], [0, 5, "index"], [1, 6, "accept"], [1, 7, "payload"],
+                                 [1, 8, "available"], [1, 10, "shared"]], [],
+                                [[1, 128, 3, flags, [0, if late | 14 | 1, 11, 2], "fifo"]])
+    write_simulation(model, output_directory ++ "/" ++ name ++ ".rsim")
+    write_simulation(model, output_directory ++ "/" ++ name ++ "-raw.rsim")
+
+// Functional updates must reach the offline compiler without per-element muxes.
+def update_identity = kernel.new_circuit_identity("FunctionalUpdate")
+for (shape in [[1, 1, 1], [3, 2, 4], [32, 5, 1], [32, 64, 1], [3, 2, 65]]):
+  def length = shape[0]
+  def selector_width = shape[1]
+  def element_width = shape[2]
+  def elaboration = kernel.run_elaboration_with_top(
+    fun ():
+      kernel.build_circuit(update_identity, "FunctionalUpdate", shape,
+                           fun ():
+                             def source = kernel.input("source", VectorType(length, Bits(element_width)))
+                             def index = kernel.input("index", Bits(selector_width))
+                             def data = kernel.input("data", Bits(element_width))
+                             kernel.connect(kernel.output("result", source.type), kernel.vector_updated(source, index, data)))
+  )
+  def stem = "functional-update-" ++ to_string(length) ++ "-" ++ to_string(selector_width) ++ "-" ++ to_string(element_width)
+  def extracted = compile_simulation(elaboration, ~optimize: #false)
+  write_simulation_report(extracted, output_directory ++ "/" ++ stem ++ ".json")
+  save(elaboration.top, stem)

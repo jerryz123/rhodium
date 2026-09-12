@@ -124,6 +124,7 @@ Ownership is structural, not inferred from names or list position:
 |---|---|---|
 | `Design` | Root | Owns modules and design-level `DpiImport` declarations; allocates stable numeric IDs. |
 | `Module` | `Design` | Contains ordered operations, ports, values, root places, memories, and extension-owned nonsemantic metadata. |
+| `ModuleSpecialization` | Module metadata | Retains the original declaration identity and parameter values for explicit downstream model registries. It does not change hardware behavior or authorize name-based replacement. |
 | `Operation` | `Module` | References operand values and destination places; defines its result values; carries attributes, location, and origin. |
 | `Value` | `Module` and one defining operation | May be used only by operations in its legal module scope. |
 | `Place` | `Module` and one declaring operation | Receives one final same-type driver; projections remain rooted in that owned place. |
