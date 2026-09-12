@@ -1,0 +1,40 @@
+#lang rhombus
+// Compiles the real MiniSoC harness with standard objects and a registered coherent loader callback.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/sim/main.rhm" open
+  "mini-harness.rhdl" as harness
+  "library.rhm".standard_native_models
+  "cpu.rhm".cpu_native_models
+  "contracts.rhm".flow_contracts
+  "host-model.rhm".workload_host_model
+  lib("racket/base.rkt") as rkt
+
+def standard = standard_native_models()
+def cpu_models = cpu_native_models(~alu: rkt.getenv("RDS_RESIDUAL_ALU") != "1",
+                                   ~tlb: rkt.getenv("RDS_RESIDUAL_TLB") != "1")
+fun models(m): workload_host_model(m) || cpu_models(m) || standard(m)
+def top = harness.design.modules.find(fun (m): m.name == "SoCHarness")
+def report = rkt.getenv("RDS_REPORT")
+when report | filesystem.write_string(report ++ ".core.ir", dump_ir(top.design), ~exists: #'truncate)
+fun observe(stage, model): write_simulation_report(model, report ++ "." ++ stage ++ ".json")
+when report
+| def original = compile_simulation(top, ~semantic_kernels: #false, ~native_models: models,
+                                    ~observe: fun (stage, model): when stage == "extracted" | write_simulation_report(model, report ++ ".original.json"))
+  write_simulation(original, report ++ ".original.rsim")
+def extract_only = ("" ++ (rkt.getenv("RDS_EXTRACT_ONLY") || "")) == "1"
+def base = compile_simulation(top, ~native_models: models, ~optimize: !extract_only,
+                              ~contracts: flow_contracts,
+                              ~preserve_semantics: rkt.getenv("RDS_LEGACY_IR") != "1",
+                              ~share_projections: rkt.getenv("RDS_NO_SHARE_PROJECTIONS") != "1",
+                              ~eager_flat: rkt.getenv("RDS_LEAF_LOOKUPS") != "1",
+                              ~observe: if report | observe | #false)
+def extracted_path = rkt.getenv("RDS_EXTRACTED")
+when extracted_path | write_simulation_report(base, "" ++ extracted_path)
+def model = if !extract_only && rkt.getenv("RDS_REPLICATE") == "1" | replicate_simulation(base, ~byte_budget: 65536, ~work_budget: 2048) | base
+def path = rkt.getenv("RDS_MODEL")
+unless path | error("RDS_MODEL must name the output model")
+unless extract_only && model.types.length() > 0 | write_simulation(model, "" ++ path)
+println("MiniSoC model: " ++ to_string(model.operations.length()) ++ " residual operations, " ++ to_string(model.objects.length()) ++ " native objects")
+println("Replication: " ++ to_string(model.replicated_bytes) ++ " descriptor bytes, " ++ to_string(model.replicated_work) ++ " estimated work")

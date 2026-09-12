@@ -1,0 +1,22 @@
+#lang rhombus
+// Exports the banked SoC once with functional native abstractions and original source provenance.
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/sim/main.rhm" open
+  "../banked-soc-harness.rhdl" as harness
+  "library.rhm".standard_native_models
+  "cpu.rhm".cpu_native_models
+  "contracts.rhm".flow_contracts
+  "host-model.rhm".workload_host_model
+  lib("racket/base.rkt") as rkt
+
+def standard = standard_native_models()
+def cpu = cpu_native_models()
+fun models(module): workload_host_model(module) || cpu(module) || standard(module)
+def top = harness.design.modules.find(fun (module): module.name == "SoCHarness")
+def model = compile_simulation(top, ~native_models: models, ~optimize: #false, ~contracts: flow_contracts, ~preserve_semantics: #true, ~observe: fun (_stage, _model): #void)
+def path = rkt.getenv("RDS_EXTRACTED")
+unless path | error("RDS_EXTRACTED must name the output JSON")
+write_simulation_report(model, "" ++ path)
+println("Banked SoC: " ++ to_string(harness.configured_harts) ++ " harts, " ++ to_string(model.operations.length()) ++ " extracted operations, " ++ to_string(model.objects.length()) ++ " native objects")
