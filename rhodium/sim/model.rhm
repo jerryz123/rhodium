@@ -1,0 +1,94 @@
+#lang rhombus
+// Defines and serializes the simulator's private versioned execution image.
+
+export:
+  SimulationModel
+  SimulationContract
+  simulation_bytes
+  write_simulation
+  simulation_opcodes
+  semantic_opcodes
+  no_value
+  integer_words
+
+def no_value = 0xffffffff
+def simulation_opcodes = ["constant", "copy", "not", "and", "or", "xor",
+                          "add", "sub", "mul", "shl", "shru", "shrs",
+                          "eq", "ult", "slt", "mux_lookup", "onehot_mux", "extract",
+                          "zext", "sext", "pack", "vector_index", "vector_inject",
+                          "vector_write_set", "memory_read_async", "decode", "set_clear", "balance", "counter_step", "object_query", "alu", "byte_merge"]
+
+def semantic_opcodes = simulation_opcodes ++ ["record_create", "record_get", "vector_create", "vector_get", "reinterpret"]
+
+class SimulationModel(values :: List,
+                      operations :: List,
+                      registers :: List,
+                      memories :: List,
+                      writes :: List,
+                      reads :: List,
+                      checks :: List,
+                      ports :: List,
+                      occurrences :: List,
+                      objects :: List = [],
+                      replicated_bytes :: Nat = 0, replicated_work :: Nat = 0,
+                      origins :: List = [], inventory :: List = [],
+                      types :: List = [], value_types :: List = [], groups :: List = [],
+                      contracts :: List = [])
+
+// Adapter-owned facts refer to existing core values or places and packed ranges.
+// The extractor resolves bindings without importing the adapter's authoring layer.
+class SimulationContract(kind :: String, bindings :: List, properties :: List = [])
+
+fun integer_words(value :: Nat, width :: PosInt):
+  for List (index in 0..((width + 63) div 64)):
+    (value bits.(>>) (index * 64)) bits.and 0xffffffffffffffff
+
+fun simulation_bytes(model :: SimulationModel) :: Bytes:
+  unless model.types.length() == 0
+  | error("semantic IR must be lowered by the standalone compiler before binary emission")
+  def out = Port.Output.open_bytes()
+  fun word(value :: Nat, size :: PosInt = 4):
+    unless value < (1 bits.(<<) (size * 8))
+    | error(~who: #'simulation_bytes, "model field exceeds format capacity")
+    for (index in 0..size):
+      out.write_byte((value bits.(>>) (8 * index)) bits.and 255)
+  fun words(items :: List):
+    for (value in items): word(value)
+  fun text(value :: String):
+    def bytes = value.utf8_bytes()
+    word(bytes.length())
+    out.write_bytes(bytes)
+  def args = MutableList[]
+  def immediates = MutableList[]
+  def headers = MutableList[]
+  for (op in model.operations):
+    headers.add([op[0], op[1], args.length(), op[2].length(), immediates.length(), op[3].length()])
+    for (arg in op[2]): args.add(arg)
+    for (immediate in op[3]): immediates.add(immediate)
+  out.write_bytes(#"RHDMSIM\0")
+  words([2, model.values.length(), model.operations.length(), args.length(), immediates.length(),
+         model.registers.length(), model.memories.length(), model.writes.length(), model.reads.length(),
+         model.checks.length(), model.ports.length(), model.objects.length()])
+  words(model.values)
+  for (header in headers): words(header)
+  words(args.snapshot())
+  for (immediate in immediates): word(immediate, 8)
+  for (register in model.registers): words(register)
+  for (memory in model.memories): words(memory)
+  for (write in model.writes): words(write)
+  for (read in model.reads): words(read)
+  for (check in model.checks):
+    words(check.take(3))
+    text(check[3])
+  for (port in model.ports):
+    words(port.take(2))
+    text(port[2])
+  for (object in model.objects):
+    words(object.take(4))
+    word(object[4].length())
+    words(object[4])
+    text(object[5])
+  out.get_bytes()
+
+fun write_simulation(model :: SimulationModel, path :: Path || String):
+  filesystem.write_bytes(path, simulation_bytes(model), ~exists: #'truncate)

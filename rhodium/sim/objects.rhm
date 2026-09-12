@@ -1,0 +1,25 @@
+#lang rhombus
+// Defines explicit occurrence-level native model contracts and per-output dependencies.
+
+export:
+  NativeModel
+  NativeFunction
+  NativeOutput
+  native_specialization
+
+import "../core/main.rhm" open
+
+// Inputs are [port_name, low_bit, width], or #false for an omitted payload.
+// Each output describes one disjoint leaf and the exact input slots it reads.
+class NativeOutput(port :: String, low :: Nat, width :: PosInt, query :: Nat, dependencies :: List,
+                   query_low :: Nat = 0, query_width = #false)
+class NativeModel(kind :: PosInt, width :: Nat, depth :: PosInt, flags :: Nat,
+                  inputs :: List, outputs :: List)
+// A pure replacement emits an operation; it owns no state or publication work.
+class NativeFunction(opcode :: Nat, inputs :: List, outputs :: List, immediates :: List = [])
+
+fun native_specialization(module_def :: Module):
+  def entries = module_def.metadata_for("rhodium.specialization")
+  if entries.length() == 1 && entries[0] is_a ModuleSpecialization
+  | entries[0]
+  | #false

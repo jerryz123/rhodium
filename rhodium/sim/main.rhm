@@ -1,0 +1,23 @@
+#lang rhombus
+// Exposes verified IR compilation and portable native-model serialization.
+
+import:
+  "extract.rhm" open
+  "model.rhm" open
+  "objects.rhm" open
+  "replicate.rhm" open
+  "inspect.rhm" open
+
+export:
+  compile_simulation
+  write_simulation_report
+  read_simulation_report
+  SimulationModel
+  SimulationContract
+  simulation_bytes
+  write_simulation
+  NativeModel
+  NativeFunction
+  NativeOutput
+  native_specialization
+  replicate_simulation

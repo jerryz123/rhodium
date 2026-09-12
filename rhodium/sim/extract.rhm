@@ -1,0 +1,499 @@
+#lang rhombus
+// Normalizes verified IR occurrences into a leaf-sensitive native execution graph.
+
+import:
+  "../core/main.rhm" open
+  "model.rhm" open
+  "optimize.rhm" open
+  "objects.rhm" open
+
+export:
+  compile_simulation
+
+class Occurrence(id :: Nat, module_def :: Module, path :: String,
+                 parent, instance, children :: MutableMap)
+
+fun width_of(type :: HardwareType) :: PosInt:
+  if clock_type(type) || reset_type(type)
+  | 1
+  | block:
+      def width = type.packed_width()
+      unless width is_a PosInt
+      | error(~who: #'compile_simulation, "simulation requires a packed type: " ++ type.describe())
+      width
+
+fun item_index(items :: List, item):
+  def mutable found = #false
+  for (candidate in items, index in 0..items.length()):
+    when candidate === item | found := index
+  unless found is_a Nat | error(~who: #'compile_simulation, "missing IR binding")
+  found
+
+fun compile_simulation(subject :: DesignElaboration || Module,
+                       ~semantic_kernels: semantic_kernels :: Boolean = #true,
+                       ~preserve_semantics: preserve_semantics :: Boolean = #false,
+                       ~native_models: native_models :: Function = fun (_): #false,
+                       ~contracts: contract_resolver :: Function = fun (_): [],
+                       ~share_projections: share_projections :: Boolean = #true,
+                       ~eager_flat: eager_flat :: Boolean = #true,
+                       ~observe: observe = #false,
+                       ~optimize: optimize :: Boolean = #true) :: SimulationModel:
+  def top = if subject is_a DesignElaboration | subject.top | subject
+  verify_design(top.design)
+  def occurrences = MutableList[]
+  def value_widths = MutableList[]
+  def types = MutableList[]
+  def type_ids = MutableMap{}
+  def value_types = MutableList[]
+  def groups = MutableList[]
+  def contracts = MutableList[]
+  def operations = MutableList[]
+  def registers = MutableList[]
+  def memories = MutableList[]
+  def writes = MutableList[]
+  def reads = MutableList[]
+  def checks = MutableList[]
+  def ports = MutableList[]
+  def objects = MutableList[]
+  def query_signatures = MutableMap{}
+  def origins = MutableList[]
+  def inventory = MutableList[]
+  def native = MutableMap{}
+  def sources = MutableMap{}
+  def resources = MutableMap{}
+  def resolved = MutableMap{}
+  def active = MutableSet{}
+  def constants = MutableMap{}
+  def mutable active_clock = #false
+
+  fun intern_type(type):
+    def entry:
+      cond
+      | record_type(type): ["record", type.fields.map(fun (field): [field.name, intern_type(field.type)])]
+      | vector_type(type): ["vector", type.length, intern_type(type.element_type)]
+      | ~else: ["bits", width_of(type)]
+    unless type_ids.has_key(entry)
+    | type_ids[entry] := types.length()
+      types.add(entry)
+    type_ids[entry]
+
+  fun new_value(width :: PosInt):
+    def id = value_widths.length()
+    value_widths.add(width)
+    value_types.add(intern_type(Bits(width)))
+    id
+
+  fun emit(code :: Nat, width :: PosInt, args :: List = [], immediates :: List = []):
+    def key = [width, immediates]
+    cond
+    | code == 0 && constants.has_key(key): constants[key]
+    | ~else:
+        def id = new_value(width)
+        operations.add([code, id, args, immediates])
+        when code == 0 | constants[key] := id
+        id
+
+  fun expand(module_def :: Module, path :: String, parent = #false, instance = #false):
+    def occurrence = Occurrence(occurrences.length(), module_def, path, parent, instance, MutableMap{})
+    occurrences.add(occurrence)
+    def replacement = native_models(module_def)
+    when replacement
+    | def valid_replacement = replacement is_a NativeModel || replacement is_a NativeFunction
+      unless valid_replacement
+      | error("native model resolver must return NativeModel, NativeFunction or false")
+      native[occurrence.id] := [objects.length(), replacement]
+      when replacement is_a NativeModel
+      | objects.add([replacement.kind, replacement.width, replacement.depth, replacement.flags, [], path])
+    when observe
+    | inventory.add([path, module_def.name, if replacement is_a NativeFunction | "function:" ++ to_string(replacement.opcode) | (if replacement | replacement.kind | #false), module_def.operations.length()])
+    for (operation in (if replacement | [] | module_def.operations)):
+      match operation.opcode
+      | "rtl.instance":
+          occurrence.children[operation.id] := expand(operation.attribute("module"),
+                                                      path ++ "/" ++ operation.attribute("name"),
+                                                      occurrence, operation)
+      | "rtl.register" || "rtl.register_reset" || "rtl.sync_memory":
+          for (result in operation.results):
+            def id = new_value(width_of(result.type))
+            value_types[id] := intern_type(result.type)
+            sources[[occurrence.id, result.id]] := id
+      | "sim.dpi_call" || "sim.dpi_register":
+          error(~who: #'compile_simulation,
+                path ++ ": DPI requires an explicitly registered native host adapter")
+      | ~else: #void
+      when operation.opcode == "rtl.memory" || operation.opcode == "rtl.sync_memory"
+      | def resource:
+          if operation.opcode == "rtl.memory" | operation.attribute("memory").id | operation.id
+        resources[[occurrence.id, resource]] := memories.length()
+        memories.add([width_of(operation.attribute("element_type")), operation.attribute("depth")])
+    occurrence
+
+  def root = expand(top, top.name)
+  for (port in top.inputs):
+    def id = new_value(width_of(port.type))
+    value_types[id] := intern_type(port.type)
+    sources[[root.id, port.value.id]] := id
+    ports.add([if clock_type(port.type) | 2 | 0, id, port.name])
+
+  fun native_input(occurrence, index):
+    def spec = native[occurrence.id][1].inputs[index]
+    cond
+    | !spec: no_value
+    | ~else:
+        def port = occurrence.module_def.inputs.find(fun (port): port.name == spec[0])
+        unless port | error("native model input not found: " ++ spec[0])
+        resolve(occurrence, port.value, spec[1], spec[2])
+
+  fun output(occurrence, port, low = 0, part_width = #false):
+    def width = part_width || width_of(port.type)
+    cond
+    | !native.has_key(occurrence.id): resolve(occurrence, port.place.driver, low, width)
+    | ~else:
+        def binding = native[occurrence.id]
+        def pieces = MutableList[]
+        def mutable total = 0
+        for (field in binding[1].outputs):
+          when field.port == port.name
+          | def start = math.max(low, field.low)
+            def end = math.min(low + width, field.low + field.width)
+            when start < end
+            | def query_width = field.query_width || field.width
+              unless query_width is_a PosInt && field.query_low + field.width <= query_width
+              | error("native output exceeds query width")
+              def key = [occurrence.id, "native", field.query]
+              def signature = [query_width, field.dependencies]
+              when query_signatures.has_key(key) && query_signatures[key] != signature
+              | error("native query has inconsistent width or dependencies")
+              query_signatures[key] := signature
+              unless resolved.has_key(key)
+              | def dependencies = field.dependencies.map(fun (index): native_input(occurrence, index))
+                def spec = binding[1]
+                when spec is_a NativeFunction && field.query != 0 | error("native function exposes only query zero")
+                resolved[key] := if spec is_a NativeFunction | emit(spec.opcode, query_width, dependencies, spec.immediates) | emit(29, query_width, dependencies, [binding[0], field.query])
+              def value = resolved[key]
+              unless value_widths[value] == query_width | error("native query has inconsistent widths")
+              def piece = if field.query_low == 0 && start == field.low && end - start == value_widths[value] | value | emit(17, end - start, [value], [field.query_low + start - field.low])
+              pieces.add(piece)
+              total := total + end - start
+        unless total == width | error("native model output does not cover " ++ port.name)
+        if pieces.length() == 1 | pieces[0] | emit(20, width, pieces.snapshot())
+
+  fun equal_index(items, value):
+    def mutable result = #false
+    for (item in items, index in 0..items.length()):
+      when item == value | result := index
+    unless result is_a Nat | error("unsupported semantic operation or field: " ++ to_string(value))
+    result
+
+  // Preserve whole typed operations; C++ resolves demanded aggregate leaves.
+  // Cache a result before following operands so legal leaf feedback can cross
+  // aggregate construction without pretending that the whole value is ready.
+  fun semantic_resolve(occurrence, value, low, width):
+    def full_width = width_of(value.type)
+    def key = [occurrence.id, value.id, low, width]
+    cond
+    | resolved.has_key(key): resolved[key]
+    | low != 0 || width != full_width:
+        def part = emit(17, width, [semantic_resolve(occurrence, value, 0, full_width)], [low])
+        resolved[key] := part
+        part
+    | sources.has_key([occurrence.id, value.id]): sources[[occurrence.id, value.id]]
+    | ~else:
+        def id = new_value(width)
+        value_types[id] := intern_type(value.type)
+        resolved[key] := id
+        def op = value.module_def.find_operation(value.defining_op_id)
+        def args = op.operands
+        fun whole(v): semantic_resolve(occurrence, v, 0, width_of(v.type))
+        def mutable code = 1
+        def mutable operands = []
+        def mutable im = []
+        match op.opcode
+        | "rtl.wire": operands := [whole(op.places[0].driver)]
+        | "rtl.input_port":
+            def index = item_index(occurrence.module_def.inputs.map(fun (p): p.value), value)
+            operands := [resolve(occurrence.parent, occurrence.instance.places[index].driver)]
+        | "rtl.instance":
+            def child = occurrence.children[op.id]
+            operands := [output(child, child.module_def.outputs[item_index(op.results, value)])]
+        | "rtl.record_create": code := 32
+        | "rtl.record_get":
+            code := 33
+            im := [equal_index(args[0].type.fields.map(fun (f): f.name), op.attribute("field"))]
+        | "rtl.vector_create": code := 34
+        | "rtl.vector_get":
+            code := 35
+            im := [op.attribute("index")]
+        | "rtl.cast": code := 36
+        | "rtl.constant":
+            code := 0
+            im := integer_words(op.attribute("value"), width)
+        | "rtl.dont_care":
+            code := 0
+            im := integer_words(0, width)
+        | "rtl.extract":
+            code := 17
+            im := [op.attribute("low")]
+        | "rtl.trunc":
+            code := 17
+            im := [0]
+        | "rtl.mux_lookup":
+            code := 15
+            def keys = MutableList[]
+            for (k in op.attribute("keys")): keys.append(integer_words(k, width_of(args[0].type)))
+            im := keys.snapshot()
+        | "rtl.concat":
+            code := 20
+            operands := args.reverse().map(whole)
+        | "rtl.decode":
+            code := 25
+            def rows = op.attribute("cases")
+            def words = MutableList[rows.length()]
+            words.append(integer_words(op.attribute("default_value"), width))
+            for (row in rows):
+              words.append(integer_words(row[0], width_of(args[0].type)))
+              words.append(integer_words(row[1], width_of(args[0].type)))
+              words.append(integer_words(row[2], width))
+            im := words.snapshot()
+        | "rtl.memory_read_async":
+            code := 24
+            im := [resources[[occurrence.id, op.attribute("memory").id]]]
+        | "rtl.vector_index" || "rtl.vector_inject":
+            code := if op.opcode == "rtl.vector_index" | 21 | 22
+            im := [args[0].type.length, width_of(args[0].type.element_type)]
+        | "rtl.vector_write_set":
+            code := 23
+            im := [args[0].type.length, width_of(args[0].type.element_type), args[1].type.length, width_of(args[2].type.element_type)]
+        | ~else:
+            def name = op.opcode.replace("rtl.", "")
+            code := equal_index(simulation_opcodes, name)
+        when operands.length() == 0 && args.length() > 0 | operands := args.map(whole)
+        operations.add([code, id, operands, im])
+        when code == 15
+        | groups.add([occurrence.id, id, operands[0], im,
+                      if op.origin.kind == "conditional-group" | op.origin.description | ""])
+        when observe | origins.add([id, occurrence.path, value.id, value.name, op.opcode, 0, width])
+        id
+
+  fun resolve(occurrence :: Occurrence, value :: Value,
+              low :: Nat = 0, part_width = #false):
+    def full_width = width_of(value.type)
+    def width = part_width || full_width
+    def key = [occurrence.id, value.id, low, width]
+    cond
+    | preserve_semantics && !clock_type(value.type): semantic_resolve(occurrence, value, low, width)
+    | resolved.has_key(key): resolved[key]
+    | ~else:
+        when key in active
+        | error(~who: #'compile_simulation,
+                occurrence.path ++ ": combinational dependency cycle at " ++ value.name)
+        active.add(key)
+        def operation = value.module_def.find_operation(value.defining_op_id)
+        def source = sources.get([occurrence.id, value.id], #false)
+        def args = operation.operands
+        fun whole(v :: Value): resolve(occurrence, v)
+        fun portion(v :: Value, start :: Nat = low): resolve(occurrence, v, start, width)
+        def id:
+          cond
+          | source is_a Nat:
+              if low == 0 && width == full_width | source | emit(17, width, [source], [low])
+          | operation.opcode == "rtl.wire": portion(operation.places[0].driver)
+          | operation.opcode == "rtl.input_port":
+              def index = item_index(occurrence.module_def.inputs.map(fun (port): port.value), value)
+              resolve(occurrence.parent, occurrence.instance.places[index].driver, low, width)
+          | operation.opcode == "rtl.instance":
+              def child = occurrence.children[operation.id]
+              def index = item_index(operation.results, value)
+              output(child, child.module_def.outputs[index], low, width)
+          | operation.opcode == "rtl.record_get":
+              def mutable offset = 0
+              def mutable found_offset = 0
+              for (field in args[0].type.fields.reverse()):
+                when field.name == operation.attribute("field") | found_offset := offset
+                offset := offset + width_of(field.type)
+              portion(args[0], found_offset + low)
+          | operation.opcode == "rtl.vector_get":
+              portion(args[0], operation.attribute("index") * width_of(value.type) + low)
+          | operation.opcode == "rtl.cast": portion(args[0])
+          | operation.opcode == "rtl.extract": portion(args[0], operation.attribute("low") + low)
+          | operation.opcode == "rtl.trunc": portion(args[0])
+          | operation.opcode == "rtl.record_create" || operation.opcode == "rtl.vector_create" || operation.opcode == "rtl.concat":
+              def ordered = if operation.opcode == "rtl.vector_create" | args | args.reverse()
+              def pieces = MutableList[]
+              def mutable offset = 0
+              for (operand in ordered):
+                def ow = width_of(operand.type)
+                def start = math.max(low, offset)
+                def end = math.min(low + width, offset + ow)
+                when start < end | pieces.add(resolve(occurrence, operand, start - offset, end - start))
+                offset := offset + ow
+              if pieces.length() == 1 | pieces[0] | emit(20, width, pieces.snapshot())
+          // Reuse an already resolved complete lookup for subsequent projections.
+          // Because it exists before this resolve, this cannot add a dependency cycle.
+          | semantic_kernels && share_projections && (operation.opcode == "rtl.mux_lookup" || operation.opcode == "rtl.onehot_mux")
+              && resolved.has_key([occurrence.id, value.id, 0, full_width]):
+              emit(17, width, [resolved[[occurrence.id, value.id, 0, full_width]]], [low])
+          // Core dependency verification treats a flat value as one leaf.
+          // Materialize its selection before slicing; aggregate leaves still
+          // resolve independently to preserve legal field-level feedback.
+          | semantic_kernels && share_projections && eager_flat && value.type is_a ScalarDataType
+              && (low != 0 || width != full_width)
+              && (operation.opcode == "rtl.mux_lookup" || operation.opcode == "rtl.onehot_mux"):
+              emit(17, width, [whole(value)], [low])
+          | operation.opcode == "rtl.mux_lookup":
+              def keys = operation.attribute("keys")
+              def packed_keys = MutableList[]
+              for (key in keys): packed_keys.append(integer_words(key, width_of(args[0].type)))
+              emit(15, width, [whole(args[0])] ++ args.drop(1).map(fun (v): portion(v)), packed_keys.snapshot())
+          | operation.opcode == "rtl.onehot_mux":
+              emit(16, width, [whole(args[0])] ++ args.drop(1).map(fun (v): portion(v)))
+          | operation.opcode == "rtl.vector_write_set" && (low != 0 || width != full_width):
+              def complete_key = [occurrence.id, value.id, 0, full_width]
+              cond
+              | resolved.has_key(complete_key):
+                  emit(17, width, [resolved[complete_key]], [low])
+              | ~else:
+                  // Resolve just the demanded leaves before the whole operation.
+                  // Retain the complete write as the strict-validation root.
+                  def element_width = width_of(args[0].type.element_type)
+                  def index_width = width_of(args[2].type.element_type)
+                  def pieces = MutableList[]
+                  for (element in 0..args[0].type.length):
+                    def start = math.max(low, element * element_width)
+                    def end = math.min(low + width, (element + 1) * element_width)
+                    when start < end
+                    | def part = end - start
+                      def mutable selected = resolve(occurrence, args[0], start, part)
+                      for (port in 0..args[1].type.length):
+                        def enabled = resolve(occurrence, args[1], port, 1)
+                        def index = resolve(occurrence, args[2], port * index_width, index_width)
+                        def key = emit(0, index_width, [], integer_words(element, index_width))
+                        def guard = emit(3, 1, [enabled, emit(12, 1, [index, key])])
+                        def replacement = resolve(occurrence, args[3], port * element_width + start - element * element_width, part)
+                        selected := emit(15, part, [guard, selected, replacement], [1])
+                      pieces.add(selected)
+                  def projected = if pieces.length() == 1 | pieces[0] | emit(20, width, pieces.snapshot())
+                  resolved[key] := projected
+                  unless complete_key in active | whole(value)
+                  projected
+          | low != 0 || width != full_width:
+              emit(17, width, [whole(value)], [low])
+          | operation.opcode == "rtl.constant":
+              emit(0, width, [], integer_words(operation.attribute("value"), width))
+          | operation.opcode == "rtl.dont_care": emit(0, width, [], integer_words(0, width))
+          | operation.opcode == "rtl.decode":
+              def rows = operation.attribute("cases")
+              def im = MutableList[rows.length()]
+              im.append(integer_words(operation.attribute("default_value"), width))
+              for (row in rows):
+                im.append(integer_words(row[0], width_of(args[0].type)))
+                im.append(integer_words(row[1], width_of(args[0].type)))
+                im.append(integer_words(row[2], width))
+              emit(25, width, [whole(args[0])], im.snapshot())
+          | operation.opcode == "rtl.memory_read_async":
+              emit(24, width, [whole(args[0])], [resources[[occurrence.id, operation.attribute("memory").id]]])
+          | operation.opcode == "rtl.vector_index" || operation.opcode == "rtl.vector_inject":
+              emit(if operation.opcode == "rtl.vector_index" | 21 | 22,
+                   width, args.map(whole), [args[0].type.length, width_of(args[0].type.element_type)])
+          | operation.opcode == "rtl.vector_write_set":
+              emit(23, width, args.map(whole),
+                   [args[0].type.length, width_of(args[0].type.element_type),
+                    args[1].type.length, width_of(args[2].type.element_type)])
+          | ~else:
+              def opcode = operation.opcode.replace("rtl.", "")
+              def mutable code = #false
+              for (candidate in simulation_opcodes, index in 0..simulation_opcodes.length()):
+                when candidate == opcode | code := index
+              unless code is_a Nat
+              | error(~who: #'compile_simulation, occurrence.path ++ ": unsupported operation " ++ operation.opcode)
+              emit(code, width, args.map(whole))
+        active.remove(key)
+        resolved[key] := id
+        when observe | origins.add([id, occurrence.path, value.id, value.name, operation.opcode, low, width])
+        id
+
+  fun clock(occurrence :: Occurrence, value :: Value):
+    def id = resolve(occurrence, value)
+    unless ports.snapshot().find(fun (port): port[0] == 2 && port[1] == id)
+    | error(~who: #'compile_simulation, "clock must resolve to a top input")
+    if active_clock is_a Nat
+    | block:
+        unless active_clock == id | error(~who: #'compile_simulation, "multiple active clocks require an explicit edge schedule")
+    | active_clock := id
+
+  for (occurrence in occurrences):
+    fun value(v :: Value): resolve(occurrence, v)
+    when native.has_key(occurrence.id)
+    | def binding = native[occurrence.id]
+      def spec = binding[1]
+      when spec is_a NativeModel
+      | def inputs = for List (index in 0..spec.inputs.length()): native_input(occurrence, index)
+        objects[binding[0]] := [spec.kind, spec.width, spec.depth, spec.flags, inputs, occurrence.path]
+        for (port in occurrence.module_def.inputs):
+          when clock_type(port.type) | clock(occurrence, port.value)
+    for (operation in (if native.has_key(occurrence.id) | [] | occurrence.module_def.operations)):
+      def args = operation.operands
+      match operation.opcode
+      | "rtl.register" || "rtl.register_reset":
+          clock(occurrence, args[0])
+          registers.add([value(operation.results[0]), value(operation.places[0].driver),
+                         if args.length() == 3 | value(args[1]) | no_value,
+                         if args.length() == 3 | value(args[2]) | no_value])
+      | "rtl.memory_write":
+          clock(occurrence, args[2])
+          writes.add([resources[[occurrence.id, operation.attribute("memory").id]],
+                      value(args[0]), value(args[1]), value(args[3]), no_value, 0])
+      | "verif.assert":
+          clock(occurrence, args[1])
+          checks.add([value(args[0]), value(args[2]), value(args[3]),
+                      occurrence.path ++ ":" ++ (operation.attribute("label") || operation.location.describe())])
+      | "rtl.sync_memory":
+          clock(occurrence, args[0])
+          def memory = resources[[occurrence.id, operation.id]]
+          def granule = operation.attribute("mask_granularity")
+          def mutable pi = 0
+          def mutable ri = 0
+          fun input(index :: Nat): value(operation.places[index].driver)
+          when operation.attribute("has_read")
+          | reads.add([memory, input(pi), input(pi + 1), value(operation.results[ri]), no_value])
+            pi := pi + 2
+            ri := ri + 1
+          when operation.attribute("has_write")
+          | writes.add([memory, input(pi), input(pi + 1), input(pi + 2),
+                        if granule | input(pi + 3) | no_value, granule || 0])
+            pi := pi + 3 + (if granule | 1 | 0)
+          when operation.attribute("has_read_write")
+          | def enable = input(pi + 1)
+            def write = input(pi + 2)
+            def write_enable = emit(3, 1, [enable, write])
+            writes.add([memory, input(pi), input(pi + 3), write_enable,
+                        if granule | input(pi + 4) | no_value, granule || 0])
+            reads.add([memory, input(pi), enable, value(operation.results[ri]), write])
+      | ~else: #void
+  for (port in top.outputs):
+    ports.add([1, output(root, port), port.name])
+  for (occurrence in occurrences):
+    unless native.has_key(occurrence.id)
+    | for (contract in contract_resolver(occurrence.module_def)):
+        unless contract is_a SimulationContract
+        | error("contract resolver must return SimulationContract records")
+        def bindings = for List (binding in contract.bindings):
+          unless binding is_a List && binding.length() == 4
+              && binding[0] is_a String && binding[2] is_a Nat && binding[3] is_a PosInt
+          | error("invalid simulation contract binding")
+          def entity = binding[1]
+          def value = if entity is_a Place | entity.driver | entity
+          unless value is_a Value && binding[2] + binding[3] <= width_of(value.type)
+          | error("simulation contract binding must refer to an existing packed core value")
+          [binding[0], resolve(occurrence, value, binding[2], binding[3])]
+        contracts.add([occurrence.id, contract.kind, bindings, contract.properties])
+  def model = SimulationModel(value_widths.snapshot(), operations.snapshot(), registers.snapshot(), memories.snapshot(),
+                              writes.snapshot(), reads.snapshot(), checks.snapshot(), ports.snapshot(),
+                              occurrences.snapshot().map(fun (occurrence): occurrence.path), objects.snapshot(),
+                              0, 0, origins.snapshot(), inventory.snapshot(),
+                              if preserve_semantics | types.snapshot() | [],
+                              if preserve_semantics | value_types.snapshot() | [], groups.snapshot(), contracts.snapshot())
+  when observe | observe("extracted", model)
+  def optimized = if semantic_kernels && optimize | optimize_simulation(model) | model
+  when observe | observe("optimized", optimized)
+  optimized

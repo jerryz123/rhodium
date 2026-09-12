@@ -1,0 +1,21 @@
+#lang rhombus
+// Delegates budgeted snapshot-cone replication to the standalone graph compiler.
+
+import:
+  "model.rhm" open
+  "optimize.rhm" open
+export:
+  replicate_simulation
+
+fun replicate_simulation(model :: SimulationModel,
+                         ~byte_budget: byte_budget :: Nat,
+                         ~work_budget: work_budget :: Nat,
+                         ~cone_work: cone_work :: PosInt = 16) :: SimulationModel:
+  cond
+  | byte_budget == 0 || work_budget == 0: model
+  | ~else:
+      def result = run_simulation_compiler(model, ~optimize: #false, ~byte_budget: byte_budget,
+                                           ~work_budget: work_budget, ~cone_work: cone_work)
+      if result.values == model.values && result.operations == model.operations
+      | model
+      | result

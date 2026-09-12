@@ -30,7 +30,11 @@ fail_matches() {
 }
 
 fail_matches "core must not import analysis, frontend, backend, or formal modules" \
-  '^[[:space:]]+"[^"]*(analysis|frontend|backend|formal)/' rhodium/core
+  '^[[:space:]]+"[^"]*(analysis|frontend|backend|formal|sim)/' rhodium/core
+fail_matches "native simulation must consume core without authoring or backend dependencies" \
+  '^[[:space:]]+.*(frontend/|backend/|std/|formal/|diagram/|event/)' rhodium/sim
+fail_matches "frontend must not import native simulation" \
+  '^[[:space:]]+"[^"]*sim/' rhodium/frontend
 fail_matches "analysis must depend only on core and other analysis modules" \
   '^[[:space:]]+"[^"]*(frontend|backend|formal|std)/' rhodium/analysis
 fail_matches "support annotations must remain dependency-neutral" \
@@ -62,7 +66,7 @@ fail_matches "diagram tooling must not import optional event tooling" \
 fail_matches "event tooling must not import backend, formal, or standard-library modules" \
   '(backend/|formal/|std/)' rhodium/event
 fail_matches "standard library must not import Rhodium implementation packages" \
-  '^[[:space:]]+.*(core/|analysis/|backend/|event/|frontend/|formal/)' rhodium/std
+  '^[[:space:]]+.*(core/|analysis/|backend/|event/|frontend/|formal/|sim/)' rhodium/std
 fail_matches "Rhodium packages, including std, must not import the flow library" \
   '^[[:space:]]*(import[[:space:]]+)?(lib\()?"([^"]*/)?flow/' rhodium
 fail_matches "flow must use collection imports for its public library dependencies" \

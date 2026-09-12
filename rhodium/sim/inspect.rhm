@@ -1,0 +1,66 @@
+#lang rhombus
+// Serializes and reads normalized compiler IR with source origins and occurrence metadata.
+
+import:
+  "model.rhm" open
+  lib("racket/base.rkt") as rkt
+  lib("json/main.rkt") as parser
+
+export:
+  write_simulation_report
+  read_simulation_report
+
+fun json(value):
+  cond
+  | value is_a String: to_string(value, ~mode: #'expr)
+  | value is_a Boolean:
+      if value | "true" | "false"
+  | value is_a Number: to_string(value)
+  | value is_a List: "[" ++ String.join(value.map(json), ",") ++ "]"
+  | value is_a Map:
+      "{" ++ String.join(value.keys(#true).map(fun (key): json(key) ++ ":" ++ json(value[key])), ",") ++ "}"
+  | ~else: error("unsupported simulation report field")
+
+fun write_simulation_report(model :: SimulationModel, path :: Path || String):
+  def report = {
+    "format": if model.types.length() == 0 | "rhodium-simulation-ir-v1" | "rhodium-simulation-ir-v2",
+    "types": model.types,
+    "value_types": model.value_types,
+    "conditional_groups": model.groups,
+    "contracts": model.contracts,
+    "values": model.values,
+    "opcodes": if model.types.length() == 0 | simulation_opcodes | semantic_opcodes,
+    "operations": model.operations,
+    "origins": model.origins,
+    "inventory": model.inventory,
+    "registers": model.registers,
+    "memories": model.memories,
+    "writes": model.writes,
+    "reads": model.reads,
+    "assertions": model.checks,
+    "ports": model.ports,
+    "objects": model.objects,
+    "occurrences": model.occurrences,
+    "replicated_bytes": model.replicated_bytes,
+    "replicated_work": model.replicated_work
+  }
+  filesystem.write_string(path, json(report) ++ "\n", ~exists: #'truncate)
+
+fun read_simulation_report(path :: Path || String) :: SimulationModel:
+  fun convert(value):
+    cond
+    | value is_a PairList: PairList.to_list(value).map(convert)
+    | rkt.#{string?}(value): "" ++ value
+    | ~else: value
+  def data = rkt.#{call-with-input-file}(path, parser.#{read-json})
+  fun get(name): convert(rkt.#{hash-ref}(data, rkt.#{string->symbol}(name)))
+  fun optional(name, fallback):
+    convert(rkt.#{hash-ref}(data, rkt.#{string->symbol}(name), fun (): fallback))
+  unless (get("format") == "rhodium-simulation-ir-v1" && get("opcodes") == simulation_opcodes)
+      || (get("format") == "rhodium-simulation-ir-v2" && get("opcodes") == semantic_opcodes)
+  | error(~who: #'read_simulation_report, "unsupported simulation IR format or opcode contract")
+  SimulationModel(get("values"), get("operations"), get("registers"), get("memories"),
+                  get("writes"), get("reads"), get("assertions"), get("ports"), optional("occurrences", []),
+                  get("objects"), optional("replicated_bytes", 0), optional("replicated_work", 0),
+                  get("origins"), get("inventory"), optional("types", []), optional("value_types", []),
+                  optional("conditional_groups", []), optional("contracts", []))

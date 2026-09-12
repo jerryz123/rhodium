@@ -39,6 +39,7 @@ flowchart LR
 
   Backend["backend/*"] --> Core
   Formal["formal/*"] --> Core
+  NativeSim["sim/*: native simulation"] --> Core
   Diagram["diagram/*"] --> Core
   Diagram --> InterfaceMeta["interface metadata"]
   EventGraph["event/*"] --> Diagram
@@ -67,7 +68,7 @@ internal module implementing its shared frontend forms is called the
   packages.
 - Frontend code never imports a backend. Frontend layers do not import sibling
   layers; reusable cross-layer machinery belongs in `frontend/support/`.
-- Backends and formal tools consume verified core IR without importing
+- Backends, native simulation, and formal tools consume verified core IR without importing
   frontend syntax or elaboration.
 - Standard, flow, and domain libraries use the public language rather than
   Rhodium implementation modules. Flow may depend on std, but std and Rhodium
@@ -101,6 +102,7 @@ internal module implementing its shared frontend forms is called the
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and configured topology stages | Public `#lang rhodium`; focused `std/` modules; other flow modules |
 | [`backend/`](backend/README.md) | Consume verified public IR; currently lower it through CIRCT | Core only |
 | [`formal/`](formal/README.md) | Optional Rosette-backed behavioral equivalence, output reachability, and combinational output properties over verified public IR | Core only; Rosette through one Racket interoperability module |
+| [`sim/`](sim/README.md) | Native C17 simulation over occurrence-expanded verified IR | Core only; private compiler modules and native runtime |
 | [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, shared memory control, single-beat subordinate transactions, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries and root-level `flow/`, including `std/ready-valid.rhdl` for Home snoop-target tracking and the single-beat subordinate engine, `std/bits.rhdl` and `flow/main.rhdl` for service matching, shared memory control, and maintenance, and `std/read-write.rhdl` and `std/sync-ram.rhdl` only for the concrete RAM backend within the memory stack |
 | [`../socs/`](../socs/README.md) | Concrete system composition and end-to-end integration | Public domain-library and core surfaces only |
 | [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, CHI, flow, device (`devices/uart-dpi.rhdl`), and Rhodium surfaces; backend emission; optional event instrumentation and RHEG export; external C++ libraries |
@@ -147,6 +149,18 @@ may consume a backend to validate ordinary lowering.
 The architecture above is the implementation contract. The tables below are
 its review surface: keep them exact when modules or layer imports change. They list
 direct Rhodium dependencies, not the full transitive closure.
+
+### Native simulation dependencies
+
+| Module | Provides | Direct Rhodium dependencies |
+|---|---|---|
+| `sim/main.rhm` | Compilation, inspection, and serialization facade | `sim/extract.rhm`, `sim/model.rhm`, `sim/objects.rhm`, `sim/replicate.rhm`, `sim/inspect.rhm` |
+| `sim/extract.rhm` | Occurrence expansion, bit-range normalization, state and effect extraction | `core/main.rhm`, `sim/model.rhm`, `sim/optimize.rhm`, `sim/objects.rhm` |
+| `sim/objects.rhm` | Explicit native-model contracts and specialization lookup | `core/main.rhm` |
+| `sim/optimize.rhm` | Standalone C++ compiler exchange and optimization adapter | `sim/model.rhm`, `sim/inspect.rhm` |
+| `sim/replicate.rhm` | Standalone cone-replication adapter | `sim/model.rhm`, `sim/optimize.rhm` |
+| `sim/inspect.rhm` | Normalized IR and source-origin inspection reports | `sim/model.rhm` |
+| `sim/model.rhm` | Private binary model and serialization | None |
 
 ### Standard-library dependencies
 

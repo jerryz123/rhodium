@@ -34,6 +34,7 @@ flowchart LR
   Author["Rhodium source"] --> Profiles["#lang rhodium<br/>or #lang rhodium/base"]
   Profiles --> Core["Public core IR"]
   Core --> Backend["CIRCT backend"]
+  Core --> Sim["Compiled native simulation"]
   Core --> Formal["Formal checks"]
   Core --> Views["Analysis and diagrams"]
   Views --> Events["Event graphs and tracing"]
@@ -49,6 +50,7 @@ flowchart LR
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and typed pipeline composition |
 | [`analysis/`](analysis/README.md) | Optional reports and certification over a completed design |
 | [`backend/`](backend/README.md) | CIRCT lowering and emitted hardware |
+| [`sim/`](sim/README.md) | Two-state synchronous simulation with offline optimization and compiled worker schedules |
 | [`formal/`](formal/README.md) | Rosette-backed equivalence, reachability, and combinational properties |
 | [`diagram/`](diagram/README.md) | Logical hierarchy, interface, and flow views |
 | [`event/`](event/README.md) | Compiler-inferred event dependencies and opt-in linear DPI instrumentation |
