@@ -1,0 +1,44 @@
+#lang rhodium
+// Makes queue and fixed-pipeline payloads observable only while terminal valid is set.
+import:
+  "payload-harness.rhdl".PayloadChain
+  lib("flow/pipe.rhdl").ValidPipe
+
+sync_circuit TokenChain(stages :: PosInt, width :: PosInt):
+  input push: Bool
+  input data: Bits(width)
+  input pop: Bool
+  output ready: Bool
+  output valid: Bool
+  output result: Bits(width)
+  inst chain(PayloadChain(stages, width))
+  chain.push <== push
+  chain.data <== data
+  chain.pop <== pop
+  ready <== chain.ready
+  valid <== chain.valid
+  when (chain.valid):
+    result <== chain.result
+  otherwise:
+    result <== bits(0, width)
+
+sync_circuit TokenPipe(stages :: PosInt, width :: PosInt):
+  input push: Bool
+  input data: Bits(width)
+  input pop: Bool
+  output ready: Bool
+  output valid: Bool
+  output result: Bits(width)
+  inst pipe(ValidPipe(Bits(width), stages))
+  pipe.ingress.valid <== push
+  pipe.ingress.bits <== data
+  ready <== Bool(#true)
+  valid <== pipe.egress.valid
+  when (pipe.egress.valid):
+    result <== pipe.egress.bits
+  otherwise:
+    result <== bits(0, width)
+
+export:
+  TokenChain
+  TokenPipe

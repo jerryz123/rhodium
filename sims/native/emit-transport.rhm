@@ -1,0 +1,17 @@
+#lang rhombus
+// Retains actual routed-queue RTL and native graphs for handle-exchange benchmarks.
+import:
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "library.rhm".standard_native_models
+  "transport-harness.rhdl".TransportFixture
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_TRANSPORT_DIR")
+unless directory | error("set RDS_TRANSPORT_DIR to an artifact directory")
+def registry = standard_native_models()
+for (width in [75, 244, 1024]):
+  def top = frontend.run_elaboration_with_top(fun (): TransportFixture(width)).top
+  def stem = directory ++ "/" ++ to_string(width)
+  write_simulation_report(compile_simulation(top, ~preserve_semantics: #true, ~optimize: #false), stem ++ "-original.json")
+  write_simulation_report(compile_simulation(top, ~native_models: registry, ~preserve_semantics: #true, ~optimize: #false), stem ++ "-native.json")

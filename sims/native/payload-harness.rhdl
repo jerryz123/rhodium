@@ -1,0 +1,32 @@
+#lang rhodium
+// Exercises snapshot payload forwarding and backpressure through ordinary queues.
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit PayloadChain(stages :: PosInt, width :: PosInt):
+  input push: Bool
+  input data: Bits(width)
+  input pop: Bool
+  output ready: Bool
+  output valid: Bool
+  output result: Bits(width)
+  wire valids: Vec(stages + 1, Bool)
+  wire payloads: Vec(stages + 1, Bits(width))
+  wire readies: Vec(stages + 1, Bool)
+  valids[0] <== push
+  payloads[0] <== data
+  readies[stages] <== pop
+  for (i in 0..stages):
+    inst stage(Queue(Bits(width), 1))
+    stage.ingress.valid <== valids[i]
+    stage.ingress.bits <== payloads[i]
+    stage.egress.ready <== readies[i + 1]
+    valids[i + 1] <== stage.egress.valid
+    payloads[i + 1] <== stage.egress.bits
+    readies[i] <== stage.ingress.ready
+  ready <== readies[0]
+  valid <== valids[stages]
+  result <== payloads[stages]
+
+export:
+  PayloadChain

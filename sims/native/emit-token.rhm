@@ -1,0 +1,20 @@
+#lang rhombus
+// Exports valid-guarded queue or fixed-pipeline tokens for lifetime measurements.
+import:
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "library.rhm".standard_native_models
+  "contracts.rhm".flow_contracts
+  "token-harness.rhdl" open
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_PAYLOAD_DIR")
+unless directory | error("set RDS_PAYLOAD_DIR to an artifact directory")
+def registry = standard_native_models()
+def fixed = ("" ++ (rkt.getenv("RDS_TOKEN_PIPELINE") || "")) == "1"
+def circuit = if fixed | TokenPipe | TokenChain
+for (shape in [[2, 244], [8, 244], [16, 244], [8, 1024]]):
+  def top = frontend.run_elaboration_with_top(fun (): circuit(shape[0], shape[1])).top
+  def stem = directory ++ "/" ++ to_string(shape[0]) ++ "x" ++ to_string(shape[1])
+  write_simulation_report(compile_simulation(top, ~contracts: flow_contracts, ~preserve_semantics: #true, ~optimize: #false), stem ++ "-original.json")
+  write_simulation_report(compile_simulation(top, ~native_models: registry, ~contracts: flow_contracts, ~preserve_semantics: #true, ~optimize: #false), stem ++ "-native.json")

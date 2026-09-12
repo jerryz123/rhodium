@@ -1,0 +1,21 @@
+#lang rhombus
+// Retains original and native routing graphs for software-kernel comparisons.
+
+import:
+  "../../rhodium/sim/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as frontend
+  "library.rhm".standard_native_models
+  "contracts.rhm".flow_contracts
+  "routing-harness.rhdl".RoutingFixture
+  lib("racket/base.rkt") as rkt
+
+def directory = rkt.getenv("RDS_ROUTING_DIR")
+unless directory | error("set RDS_ROUTING_DIR to an existing artifact directory")
+def registry = standard_native_models()
+for (shape in [[1, 1, 64], [3, 2, 75], [7, 6, 244], [16, 8, 244]]):
+  def top = frontend.run_elaboration_with_top(fun (): RoutingFixture(shape[0], shape[1], shape[2])).top
+  def stem = directory ++ "/" ++ to_string(shape[0]) ++ "x" ++ to_string(shape[1])
+  def original = compile_simulation(top, ~contracts: flow_contracts, ~preserve_semantics: #true, ~optimize: #false)
+  write_simulation_report(original, stem ++ "-original.json")
+  def native = compile_simulation(top, ~native_models: registry, ~contracts: flow_contracts, ~preserve_semantics: #true, ~optimize: #false)
+  write_simulation_report(native, stem ++ "-native.json")
