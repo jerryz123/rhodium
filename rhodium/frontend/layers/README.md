@@ -1220,6 +1220,12 @@ the original local one-bit filter or gate predicate.
 `interface_trace_fixed_latency(cycles)` constructs an
 `InterfaceTraceFixedLatency` contract with a positive, unconditional cycle
 delay, one-to-one non-inventing transfers, and synchronous reset flushing.
+Its optional `~flush: signal` records a local one-bit synchronous cancellation
+control. Flush clears all pipeline stages at the edge and discards simultaneous
+input capture; outputs before that edge are unaffected. Surviving transfers
+retain their fixed latency. The model's `fixed_latency_flush()` exposes this
+control. Declare flushable models inside the implementation; wrappers delegate
+through its contract. Flush controls are validated again when attaching a model.
 It must not describe stalls, clock enables, or variable latency. Storage and
 combinational passthrough contracts require exactly one input and output route.
 The trace model's
@@ -1248,6 +1254,18 @@ outputs still refer to the old owner. There is no input-to-output bypass.
 Capture while active requires release, and release requires active ownership.
 The model exposes `retained_storage()` and `retained_instance()`; latency is unknown.
 
+For a retained relationship that is not expressible as one input/output Flow
+transform, use `describe_interface_trace_edge(parent, child, ~scope: "data")`.
+`parent` and `child` must be distinct annotated event output endpoints in the
+same module. The named scope must resolve to exactly one local retained-storage
+declaration. This adds metadata only: it draws a possible parent-to-child edge
+and lets instrumentation carry one retained reference through the declared
+capture/release/active lifetime; it does not connect, gate, or otherwise modify
+the functional endpoints. A scope has one parent route and may name multiple
+child routes. Use `trace_edge` from `flow/event.rhdl` for the common public
+surface. Normal Flow ancestry remains compiler-inferred, so explicit edges are
+reserved for opaque FSM/register boundaries.
+
 `interface_trace_detached()` deliberately cuts incoming ancestry on one
 input/output route without adding a visible event or changing functional wires.
 Downstream selection may mix these explicitly parentless transactions with
@@ -1269,6 +1287,25 @@ The `InterfaceTraceQueue` model exposes
 wrong control widths/ownership, missing declarations, and mismatched instances
 are rejected. Consumers observe existing pointers and policy rather than
 reconstructing them from names or configuration properties.
+For a compacting, retained window, use
+`describe_interface_window_storage(depth, enqueue, release_count, count, flush, selected)`
+and `interface_trace_window()`. Both accept a region `~name`; the model builder
+also accepts an immediate implementation instance, like the queue model.
+`enqueue` and `flush` are local one-bit controls; `count` and `release_count`
+have `index_width(depth + 1)` bits. `selected` is a nonempty list of local
+one-bit predicates for consecutive head slots, no longer than `depth`.
+
+At each edge, release a prefix of `release_count` entries, then append the
+accepted input at the remaining occupancy. Flush takes priority over both;
+global reset empties storage. Output transfers read pre-edge entries, without
+bypass or implicit consumption. Every selected entry contributes its lineage;
+unselected entries contribute no edge. At least one occupied entry must be
+selected for a transfer. Entries may contribute repeatedly until released,
+including multiple occurrences from the same upstream event site. Occupancy,
+selection, and release policy remain functional controls, not trace state.
+Declare this contract at the boundary that owns both storage control and
+assembly selection; it need not change the payload or expose trace ports.
+
 Other stateful transforms keep route-only models.
 
 A zero-storage selector calls `describe_interface_selection(grants)` per region with

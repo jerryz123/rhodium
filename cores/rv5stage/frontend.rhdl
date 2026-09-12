@@ -21,12 +21,15 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
   interface fetched(Decoupled(FetchDecode(xlen)), ~role: producer)
 
   def recovery = control.flush.valid ||| control.restart.valid ||| control.invalidate_all.valid
-  inst repair(ValidPipe(RV5StageFetchRepair(xlen), 1), ~reset_when: recovery)
+  inst repair(ValidPipe(RV5StageFetchRepair(xlen), 1, ~flushable: #true))
+  repair.flush <== recovery
   def command = recovery ||| repair.egress.valid
   inst source(RV5StageFetchSource(xlen, btb_entries))
   inst instructions(RV5StageInstructionBuffer(core_profile, word_buffer_capacity))
-  inst s1(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1), ~reset_when: command)
-  inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1), ~reset_when: command)
+  inst s1(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
+  inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
+  s1.flush <== command
+  s2.flush <== command
 
   instructions.repair |> repair.ingress
   def Array(repair_restart, repair_invalidate) = repair.egress |> fork_valid(2)
@@ -52,7 +55,9 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
   def occupied = instructions.count.zext(4) + s1.egress.valid.as_bits().zext(4) + s2.egress.valid.as_bits().zext(4)
   assert(occupied <= bits(word_buffer_capacity, 4), "fetch_word_reservations_in_range")
   source.space <== occupied < bits(word_buffer_capacity, 4)
-  def Array(memory_attempts, accepted_attempts) = source.attempts |> atomic_fork(2)
+  def attempts = source.attempts |> trace_event("frontend.s0.request", ~root: #true, ~fields: attempt):
+    pc: attempt.pc
+  def Array(memory_attempts, accepted_attempts) = attempts |> atomic_fork(2)
   (memory_attempts |> map_flow(attempt => RV5StageInstructionReq(xlen)):
     address: attempt.pc.align_down(4)
   ) |> memory.request
@@ -60,17 +65,25 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
 
   // A result is paired with its fixed S2 occurrence, not joined to an
   // independently buffered response. Replay kills only the younger S1.
-  def replays = s2.egress |> filter_valid(_attempt => memory.response.valid & memory.response.bits.replay)
+  def admitted = !command & memory.response.valid & !memory.response.bits.replay
+  def outcome = s2.egress |> trace_valid_event("frontend.s2.outcome", ~fields: attempt):
+    pc: attempt.pc
+    replay: memory.response.bits.replay
+    admitted: admitted
+    page_fault: admitted & memory.response.bits.response.page_fault
+    access_fault: admitted & memory.response.bits.response.access_fault
+  def replays = outcome |> filter_valid(_attempt => memory.response.valid & memory.response.bits.replay)
   replays |> source.replay
-  s1.egress |> filter_valid(_attempt => !command & !replays.valid) |> s2.ingress
-  (s2.egress |> filter_valid(_attempt => !command & memory.response.valid & !memory.response.bits.replay)
-    |> map_valid(attempt => RV5StageFetchWord(xlen)):
-         base: attempt.pc.align_down(4)
-         word: memory.response.bits.response.word
-         page_fault: memory.response.bits.response.page_fault
-         access_fault: memory.response.bits.response.access_fault
-         prediction: attempt.prediction
-  ) |> instructions.fill
+  def lookup = s1.egress |> trace_valid_event("frontend.s1.lookup", ~fields: attempt):
+    pc: attempt.pc
+  lookup |> filter_valid(_attempt => !command & !replays.valid) |> s2.ingress
+  def filled = outcome |> filter_valid(_attempt => admitted) |> map_valid(attempt => RV5StageFetchWord(xlen)):
+    base: attempt.pc.align_down(4)
+    word: memory.response.bits.response.word
+    page_fault: memory.response.bits.response.page_fault
+    access_fault: memory.response.bits.response.access_fault
+    prediction: attempt.prediction
+  filled |> instructions.fill
   memory.flush <== command
   memory.invalidate_all <== control.invalidate_all.valid
   memory.s1_kill <== command ||| replays.valid

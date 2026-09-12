@@ -6,4 +6,4 @@ import:
   "../../rhodium/event/main.rhm".instrument_events
   "../frontend/event-pipeline-fixture.rhdl" as fixture
 
-print(emit_circt(instrument_events(fixture.pipeline).instrumented.design))
+print(emit_circt(instrument_events(fixture.flush_pipeline).instrumented.design))

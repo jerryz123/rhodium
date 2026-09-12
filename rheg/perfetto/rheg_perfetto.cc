@@ -551,11 +551,16 @@ struct PerfettoWriter::Impl {
         for (auto word : node.words) words.push_back(word.second);
         annotation(fields, interns, "payload_words_lsw_first", Json(words).dump());
       }
+      // Shorten only default slice labels; tracks and decoded opcodes retain their names.
+      const auto& site_label = description.sites[ref.site].label;
+      const auto separator = site_label.rfind('.');
+      const auto default_name = separator != std::string::npos && separator + 1 < site_label.size()
+          ? site_label.substr(separator + 1) : site_label;
       // Stalls retain captures but never use instruction/transaction slice names.
       interns.reference(fields, 10, 23, InternedStrings::Name,
                         description.sites[ref.site].kind == "stall" ? "stall" :
                         !selected_label.empty() ? selected_label :
-                        instruction_count == 1 ? mnemonic : description.sites[ref.site].label);
+                        instruction_count == 1 ? mnemonic : default_name);
       event(stream, interns, ref, node.cycle, fields);
       for (auto parent : parents[ref]) {
         const auto identity = additions.count(parent) ? additions.at(parent).first : known.at(parent).first;

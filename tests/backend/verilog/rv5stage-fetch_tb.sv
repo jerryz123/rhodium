@@ -1,5 +1,9 @@
 // Checks fixed-latency fetch assembly, completed-word capacity, restart, and faults.
+`ifdef RV5STAGE_FETCH_TRACE
+module event_frontend_tb;
+`else
 module rv5stage_fetch_tb;
+`endif
   typedef struct packed { logic [63:0] address; } request_bits_t;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;
   typedef struct packed { logic [31:0] word; logic page_fault; logic access_fault; } response_bits_t;
@@ -54,7 +58,28 @@ module rv5stage_fetch_tb;
   integer stalled_requests;
   logic [63:0] held_request_address;
 
+`ifdef RV5STAGE_FETCH_TRACE
+  EventFrontend dut (.control_in, .*);
+  import "DPI-C" function void event_frontend_sample(input int unsigned rst, clear, restart,
+      input longint unsigned restart_address, input int unsigned request_fire,
+      input longint unsigned request_address, input int unsigned response_valid, replay,
+      word, page_fault, access_fault, fetched_valid, fetched_ready,
+      input longint unsigned pc, sequential_pc, predicted_next_pc);
+  import "DPI-C" function void event_frontend_check();
+  import "DPI-C" function void event_frontend_bind();
+  import "DPI-C" function void event_frontend_finish();
+  always @(posedge clock) begin
+    event_frontend_sample(32'(reset), 32'(memory_out.flush), 32'(restart_valid), restart_pc,
+        32'(memory_out.request.valid && memory_in.request.ready), memory_out.request.bits.address,
+        32'(memory_in.response.valid), 32'(memory_in.response.bits.replay),
+        memory_in.response.bits.response.word, 32'(memory_in.response.bits.response.page_fault),
+        32'(memory_in.response.bits.response.access_fault), 32'(fetched_out.valid), 32'(fetched_ready),
+        fetched_out.bits.pc, fetched_out.bits.sequential_pc, fetched_out.bits.predicted_next_pc);
+    #1 event_frontend_check();
+  end
+`else
   RV5StageFrontend dut (.control_in, .*);
+`endif
   always #5 clock = ~clock;
 
   function automatic logic [31:0] word_at(input logic [63:0] address);
@@ -127,7 +152,11 @@ module rv5stage_fetch_tb;
   endtask
 
   initial begin
+`ifdef RV5STAGE_FETCH_TRACE
+    event_frontend_bind();
+`endif
     repeat (2) @(posedge clock);
+    #1;
     reset = 1'b0;
     restart_pc = 64'h0;
     restart_valid = 1'b1;
@@ -209,6 +238,11 @@ module rv5stage_fetch_tb;
                   fetched_out.bits.pc,
                   fetched_out.bits.instruction_page_fault,
                   fetched_out.bits.instruction_fault_address);
+`ifdef RV5STAGE_FETCH_TRACE
+    @(posedge clock);
+    #2;
+    event_frontend_finish();
+`endif
     $finish;
   end
 endmodule

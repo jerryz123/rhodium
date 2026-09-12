@@ -6,6 +6,7 @@ import:
   "../../rhodium/event/main.rhm" open
   "event-graph-fixture.rhdl" as fixture
   "event-offer-fixture.rhdl" as offer
+  "event-retained-fixture.rhdl" as retained_fixture
 
 fun dependency_labels(manifest :: EventManifest):
   manifest.dependencies.map(
@@ -19,6 +20,7 @@ def forked = infer_event_manifest(fixture.forked)
 def merged = infer_event_manifest(fixture.merged)
 def valid = infer_event_manifest(fixture.valid)
 def hierarchical = infer_event_manifest(fixture.hierarchical)
+def explicit_edges = infer_event_manifest(retained_fixture.trace_edges())
 def hierarchy_inside = hierarchical.sites.filter(
   ~keep: fun (site): site.label == "inside"
 )
@@ -100,6 +102,10 @@ check:
   "inside->after-left" in dependency_labels(hierarchical) ~is #true
   "before-right->inside" in dependency_labels(hierarchical) ~is #true
   "inside->after-right" in dependency_labels(hierarchical) ~is #true
+  dependency_labels(explicit_edges) ~is ["parent->child", "parent->sibling"]
+  explicit_edges.dependencies.map(fun (edge): edge.transform_path) ~is [["trace-edge:owner"], ["trace-edge:owner"]]
+  explicit_edges.dependencies.map(fun (edge): edge.trace_stages.length()) ~is [1, 1]
+  explicit_edges.dependencies.map(fun (edge): edge.trace_stages[0] is_a EventTraceRetained) ~is [#true, #true]
   json.contains("\"format\":\"rhodium-event-graph\"") ~is #true
   json.contains("\"top\":\"EventLinear\"") ~is #true
   json.contains("\"parent\":\"EventLinear/event:0\"") ~is #true
@@ -114,5 +120,8 @@ check:
   event_manifest_to_cpp(EventManifest(linear.logical, [linear.sites[0], linear.sites[0]], [])) ~throws "duplicate"
   event_manifest_to_cpp(EventManifest(linear.logical, linear.sites, [EventDependency("missing", linear.sites[0].id, [])])) ~throws "unknown site"
   infer_event_manifest(fixture.opaque) ~throws "transform without a trace model"
+  retained_fixture.trace_edges("missing-scope") ~throws "requires one retained-storage declaration"
+  retained_fixture.trace_edges("duplicate") ~throws "duplicate trace edge"
+  infer_event_manifest(retained_fixture.trace_edges("unannotated")) ~throws "annotated event outputs"
   fixture.elaborate_empty_event() ~throws "event label must not be empty"
   fixture.elaborate_duplicate_event() ~throws "event label must be unique"

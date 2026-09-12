@@ -149,4 +149,5 @@ export:
   parallel
   trace_event
   trace_valid_event
+  trace_edge
   trace_detach

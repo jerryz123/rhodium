@@ -1,0 +1,25 @@
+#lang rhombus
+// Checks window ancestry, capacity through storage, attachment parity, and invalid controls.
+import:
+  "../../rhodium/event/main.rhm" open
+  "../frontend/event-window-fixture.rhdl" as fixture
+
+for (intrinsic in [#true, #false]):
+  def traced = instrument_events(fixture.window(intrinsic))
+  def sink = traced.manifest.sites.find(fun (site): site.label == "instruction")
+  check:
+    event_trace_capacity(traced.manifest.trace_plans[sink.id]) ~is 2
+    traced.manifest.dependencies.length() ~is 1
+    traced.manifest.dependencies[0].latency_cycles ~is #false
+
+def frontend = instrument_events(fixture.frontend)
+def fetch = frontend.manifest.sites.find(fun (site): site.label == "core.s1.fetch")
+check:
+  event_trace_capacity(frontend.manifest.trace_plans[fetch.id]) ~is 2
+  frontend.manifest.dependencies.filter(~keep: fun (edge): edge.child == fetch.id).map(fun (edge): frontend.manifest.site(edge.parent).label) ~is ["frontend.s2.outcome"]
+  fixture.bad_window("missing") ~throws "requires declared storage controls"
+  fixture.bad_window("width") ~throws "required width"
+  fixture.bad_window("selection") ~throws "selection exceeds storage depth"
+  fixture.bad_window("selection-width") ~throws "required width"
+  fixture.bad_window("foreign") ~throws "must be local"
+  fixture.bad_window("duplicate") ~throws "already declared"

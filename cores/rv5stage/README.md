@@ -492,6 +492,18 @@ instructions before the ordinary decoder. It retains the original 16-bit word
 for illegal-instruction trap values, reports second-word faults precisely, and
 flushes retained, queued, or outstanding wrong-path data on redirects.
 
+With [event instrumentation](../../rhodium/event/README.md), accepted fetch
+attempts connect through `frontend.s0.request`, `frontend.s1.lookup`,
+and `frontend.s2.outcome` to `core.s1.fetch`. S2 has one event per outcome,
+capturing `replay`, `admitted`, `page_fault`, and `access_fault`; fault flags are
+meaningful only for admitted outcomes and otherwise zero. Only admitted S2
+occurrences become instruction parents. Compressed instructions may share a word parent; a straddling
+instruction has both contributing word occurrences as parents. Stalled offers
+retain these parents, and flush discards pending lineage without erasing
+history. Failed attempts remain visible but do not produce word admissions;
+retries begin new attempt roots. This does not yet connect MMU walks, I-cache
+refills, or predictor/redirect causality to the instruction graph.
+
 ### Branch prediction
 
 `RV5Stage` and `RV5StageFrontend` accept `~btb_entries` (default 16, zero disables

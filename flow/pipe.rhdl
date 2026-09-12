@@ -46,13 +46,20 @@ sync_circuit Pipe(T :: DataType, stages :: PosInt):
   describe_interface_contract(ingress, egress, "data", ~kind: "pipe", ~trace_model: interface_trace_elastic())
 
 // Valid has no backpressure: every stage advances on every clock, and each
-// asserted input cycle emerges after exactly `stages` cycles.
-sync_circuit ValidPipe(T :: DataType, stages :: PosInt):
+// asserted input cycle emerges after exactly `stages` cycles unless flushed.
+sync_circuit ValidPipe(T :: DataType, stages :: PosInt, ~flushable: flushable :: Boolean = #false):
 
   interface ingress(Valid(T), ~role: consumer)
   interface egress(Valid(T), ~role: producer)
 
-  shift_register stage_valid(ingress.valid, stages, ~init: Bool(#false))
+  def clear:
+    if flushable
+    | block:
+        input flush: Bool
+        flush
+    | Bool(#false)
+  reg stage_valid(~init: vec(for List (_ in 0..stages): Bool(#false)))
+  stage_valid <== mux(clear, vec(for List (_ in 0..stages): Bool(#false)), vec([ingress.valid] ++ (for List (index in 0..(stages - 1)): stage_valid[index])))
   reg stage_bits(Vec(stages, T))
 
   def valid_sources = [ingress.valid] ++ (
@@ -69,21 +76,28 @@ sync_circuit ValidPipe(T :: DataType, stages :: PosInt):
     when (valid_sources[index]):
       stage_bits[index] <== bits_sources[index]
 
-  describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe", ~trace_model: interface_trace_fixed_latency(stages))
+  describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe", ~trace_model: interface_trace_fixed_latency(stages, ~flush: if flushable | clear | #false))
 
 // Payload advances even through invalid cycles, keeping late validity and
 // cancellation logic off every payload register's write-enable path.
-sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt):
+sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt, ~flushable: flushable :: Boolean = #false):
   interface ingress(Valid(T), ~role: consumer)
   interface egress(Valid(T), ~role: producer)
 
-  shift_register stage_valid(ingress.valid, stages, ~init: Bool(#false))
+  def clear:
+    if flushable
+    | block:
+        input flush: Bool
+        flush
+    | Bool(#false)
+  reg stage_valid(~init: vec(for List (_ in 0..stages): Bool(#false)))
+  stage_valid <== mux(clear, vec(for List (_ in 0..stages): Bool(#false)), vec([ingress.valid] ++ (for List (index in 0..(stages - 1)): stage_valid[index])))
   shift_register stage_bits(ingress.bits, stages)
 
   egress.valid <== stage_valid[stages - 1]
   egress.bits <== stage_bits[stages - 1]
 
-  describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe-always-capture", ~trace_model: interface_trace_fixed_latency(stages))
+  describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe-always-capture", ~trace_model: interface_trace_fixed_latency(stages, ~flush: if flushable | clear | #false))
 
 // The control-only specialization stores just the validity of each token.
 // Its output is irrevocable because an occupied stage cannot withdraw while
@@ -132,12 +146,15 @@ fun pipe(stages :: PosInt)
       )
     )
 
-fun valid_pipe(stages :: PosInt)
+fun valid_pipe(stages :: PosInt, ~flush: flush :: False || Bool = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
     def T = valid_flow_payload_type(source)
-    def ValidPipeModule = ValidPipe(T, stages)
+    def ValidPipeModule = ValidPipe(T, stages, ~flushable: flush != #false)
     inst valid_pipe_stage(ValidPipeModule)
+    if flush != #false
+    | valid_pipe_stage.flush <== flush
+    | #void
     finish_interface_transform(
       source,
       describe_interface_transform(
@@ -148,11 +165,14 @@ fun valid_pipe(stages :: PosInt)
       )
     )
 
-fun valid_pipe_always_capture(stages :: PosInt)
+fun valid_pipe_always_capture(stages :: PosInt, ~flush: flush :: False || Bool = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
     def T = valid_flow_payload_type(source)
-    inst valid_pipe_always_capture_stage(ValidPipeAlwaysCapture(T, stages))
+    inst valid_pipe_always_capture_stage(ValidPipeAlwaysCapture(T, stages, ~flushable: flush != #false))
+    if flush != #false
+    | valid_pipe_always_capture_stage.flush <== flush
+    | #void
     finish_interface_transform(
       source,
       describe_interface_transform(

@@ -61,6 +61,11 @@ treated as an unchecked crash.
 The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, `event-join`, `event-stall`, and `event-offer` direct fixtures
 additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
+`event-window` additionally checks retained multi-entry contributions through
+downstream elastic storage against a public fill/release model. `event-frontend`
+runs the existing fetch bench against an instrumented production frontend;
+its public memory/instruction scoreboard checks exact occurrence parents and
+captures, not generated controls or payload-equality matching.
 Pipeline, elastic, queue, arbiter, and broadcast coverage includes direct
 self-described modules and configured adapters, with independent transaction
 scoreboards and uninstrumented reference lanes. `event-instrument-test.rhm`

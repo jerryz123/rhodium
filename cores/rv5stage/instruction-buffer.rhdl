@@ -110,6 +110,14 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RVCoreProfile, capacity :
   word_buffer.window.release.valid <== release_count =/= bits(0, 2)
   word_buffer.window.release.bits <== release_count
 
+  // Assembly observes retained words without necessarily releasing them. A
+  // straddling instruction selects both occurrences, including faulting words.
+  def count_width = index_width(capacity + 1)
+  def released = if count_width < 2 | release_count[0..count_width] | (if count_width > 2 | release_count.zext(count_width) | release_count)
+  def contributors = if capacity > 1 | [Bool(#true), needs_following_word] | [Bool(#true)]
+  describe_interface_window_storage(capacity, fill.valid & !command, released, word_buffer.window.count, command, contributors)
+  describe_interface_contract(fill, fetched, "instruction-assembly", ~trace_model: interface_trace_window())
+
   when command:
     pc <== mux(restart.valid, restart.bits, pc)
   elsewhen instruction_enqueue:

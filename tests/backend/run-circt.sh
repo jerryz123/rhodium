@@ -190,6 +190,9 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
+    language:event-window|cores:event-frontend)
+      return 0
+      ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
@@ -431,7 +434,7 @@ verify_fixture() {
   if [[ -f "$test_dpi_source" ]]; then
     dpi_sources+=("$test_dpi_source")
   fi
-  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
+  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -445,7 +448,9 @@ verify_fixture() {
     # Registered S2 replay feeds S0 through independent packed-interface leaves.
     # fetch-admission checks the actual leaf dependencies; match the SoC setting
     # without disabling assertions or runtime convergence checks.
-    if grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
+    # Instrumented occurrences use top-derived names, so these two fixtures
+    # cannot be recognized by the original frontend module name.
+    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit ]] || grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -651,6 +656,8 @@ fixture_specs=(
 direct_fixture_specs=(
   'event-runtime|event_runtime_tb'
   'event-pipeline|event_pipeline_tb'
+  'event-window|event_window_tb'
+  'event-frontend|event_frontend_tb'
   'event-elastic|event_elastic_tb'
   'event-queue|event_queue_tb'
   'event-arbiter|event_arbiter_tb'

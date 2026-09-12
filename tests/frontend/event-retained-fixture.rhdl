@@ -88,6 +88,35 @@ sync_circuit EventDetached():
 
 fun detached(): elaborate_with_top(EventDetached())
 
+// Exercises an explicit causal edge across two otherwise disconnected routes.
+sync_circuit EventTraceEdges(kind :: String = "valid"):
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sinks[2](Valid(Bits(8)), ~role: producer)
+  input(capture, release, active): Bool
+  def parent = source |> trace_valid_event("parent", ~root: #true, ~payload: #true)
+  def child_link = interface_link(Valid(Bits(8)), "child")
+  child_link.left.field("valid") <== active
+  child_link.left.field("bits") <== bits(1, 8)
+  def child = child_link.right |> trace_valid_event("child", ~terminal: #true, ~payload: #true)
+  child |> sinks[0]
+  def sibling_link = interface_link(Valid(Bits(8)), "sibling")
+  sibling_link.left.field("valid") <== active
+  sibling_link.left.field("bits") <== bits(2, 8)
+  def sibling = sibling_link.right |> trace_valid_event("sibling", ~terminal: #true, ~payload: #true)
+  sibling |> sinks[1]
+  describe_interface_retained_storage(capture, release, active, ~name: "owner")
+  cond
+  | kind == "missing-scope": trace_edge(parent, child, ~scope: "missing")
+  | kind == "duplicate":
+      trace_edge(parent, child, ~scope: "owner")
+      trace_edge(parent, child, ~scope: "owner")
+  | kind == "unannotated": trace_edge(source, child, ~scope: "owner")
+  | ~else:
+      trace_edge(parent, child, ~scope: "owner")
+      trace_edge(parent, sibling, ~scope: "owner")
+
+fun trace_edges(kind :: String = "valid"): elaborate_with_top(EventTraceEdges(kind))
+
 // Adjacent named relations attach to opposite views of a shared local link.
 sync_circuit EventContractLinks():
   interface source(Decoupled(Bits(8)), ~role: consumer)
@@ -108,4 +137,5 @@ export:
   retained
   invalid
   detached
+  trace_edges
   contract_links

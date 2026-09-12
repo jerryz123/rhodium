@@ -11,6 +11,7 @@ export:
   EventDependency
   EventTraceStage
   EventTraceQueue
+  EventTraceWindow
   EventTraceRetained
   EventTracePlan
   EventTraceSource
@@ -42,12 +43,13 @@ class EventSite(id :: String,
                 kind :: String = "transfer",
                 observation_of :: False || String = #false)
 
-// Empty controls mean an unconditional one-cycle delay. Elastic controls retain
-// original IR identity plus the concrete occurrence that owns those signals.
+// Empty controls mean an unconditional one-cycle delay. Optional flush cancels
+// pending lineage at the edge; controls retain their original occurrence identity.
 class EventTraceStage(instance_path :: List.of(String) = [],
                       advance :: False || Value = #false,
-                      valid :: False || Value = #false):
-  method controls(): if advance | [advance, valid] | []
+                      valid :: False || Value = #false,
+                      flush :: False || Value = #false):
+  method controls(): (if advance | [advance, valid] | []) ++ (if flush | [flush] | [])
 
 class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
                       enqueue :: Value, dequeue :: Value,
@@ -56,12 +58,17 @@ class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
 
 interface EventTracePlan
+class EventTraceWindow(instance_path :: List.of(String), depth :: PosInt,
+                       enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
+                       selected :: NonemptyList.of(Value)):
+  method controls(): [enqueue, release_count, count, flush] ++ selected
+
 class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):
   method controls(): [capture, release, active]
 
 class EventTraceSource(site :: False || String, detached :: Boolean = #false):
   implements EventTracePlan
-class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue || EventTraceRetained)):
+class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)):
   implements EventTracePlan
 class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan)):
   implements EventTracePlan
@@ -89,6 +96,11 @@ fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
     | def count:
         cond
         | node is_a EventTraceSource: 1
+        | node is_a EventTracePipeline:
+            def mutable count = capacity(node.input)
+            for (stage in node.stages):
+              when stage is_a EventTraceWindow | count := count * stage.selected.length()
+            count
         | node is_a EventTraceJoin:
             def mutable total = 0
             for (input in node.inputs): total := total + capacity(input)
@@ -108,7 +120,7 @@ class EventDependency(parent :: String,
                       child :: String,
                       transform_path :: List.of(String),
                       latency_cycles :: False || Nat = #false,
-                      trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained) = #false)
+                      trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = #false)
 
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),

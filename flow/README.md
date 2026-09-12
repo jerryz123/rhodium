@@ -90,6 +90,27 @@ inst buffered(Queue(Bits(8), 4, ~pipe: #true, ~flow: #false))
 
 ## Building pipelines
 
+`ValidPipe(T, stages, ~flushable: #true)` and
+`ValidPipeAlwaysCapture(T, stages, ~flushable: #true)` expose a synchronous
+`flush: Bool` input. The default is false and preserves the existing port set.
+Flush clears all stage valid bits at the next clock edge, taking priority over
+new input validity. Payload capture behavior is unchanged: `ValidPipe` captures
+only on the stage's input valid, while `ValidPipeAlwaysCapture` captures every
+cycle. Output validity is not gated combinationally by flush; callers that
+cancel a transfer on the flush cycle must filter that output explicitly.
+Global reset also clears validity. Surviving transfers retain the declared
+fixed latency, and tracing flushes the corresponding lineage without resetting
+event history or sequence counters.
+
+Configured stages accept an optional hardware signal and connect the port:
+
+```rhombus
+source |> valid_pipe(2, ~flush: recovery) |> sink
+```
+
+`valid_pipe_always_capture` accepts the same `~flush` option. Omitting the
+option elaborates the ordinary pipeline without a flush input.
+
 Every lowercase flow-stage helper is configured first and receives its input only
 through Rhombus `|>`. This makes every stage an ordinary unary host function:
 
@@ -113,6 +134,17 @@ on each `valid & !ready` cycle. The default is false; `trace_valid_event` does
 not accept this option because `Valid` has no readiness signal. See
 [stall observations](../rhodium/event/README.md#stall-observations) for ancestry
 and capture semantics.
+
+An opaque state machine can connect two annotated routes with
+`trace_edge(parent, child, ~scope: "request")`. This records a causal edge for
+the event compiler without adding a functional wire or changing the Flow
+datapath. The scope names a module-local
+`describe_interface_retained_storage(capture, release, active, ~name: ...)`
+declaration; one retained owner may feed multiple child routes, while each child
+has one declared parent. Use this only when the state machine retains the
+transaction across cycles. Ordinary Flow still derives its relationships from
+the actual typed topology. The lower-level declaration is documented in the
+[interface contract API](../rhodium/frontend/layers/README.md#interfaces-and-topology).
 
 Bare checkpoints capture identity and timing only. Select named scalar observations
 without changing the forwarded payload:

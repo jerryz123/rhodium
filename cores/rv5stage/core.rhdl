@@ -251,7 +251,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wb_instruction_invalidate |> filter_valid(_pc => fence_i_commit) |> frontend_control.invalidate_all
   def wb_predictor_flush = wb_predictor_invalidate |> filter_valid(_pc => fence_i_commit ||| wb_csrs.translation_flush)
   Array(wb_trap_predictor_flush, wb_predictor_flush) |> valid_arbiter() |> frontend_control.predictor_flush
-  def if_fetch_stream = fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~root: #true, ~fields: operation):
+  def if_fetch_stream = fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
   if_fetch_stream |> if_id_pipe.ingress

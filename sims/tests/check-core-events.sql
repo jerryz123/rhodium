@@ -26,6 +26,6 @@ SELECT
     (src='core.s1.fetch' AND delay<10) OR
     (src!='core.s1.fetch' AND delay!=10)) AND
   (SELECT count(*)=0 FROM pcs c WHERE name!='core.s1.fetch' AND (SELECT count(*) FROM edges WHERE child=c.id)!=1) AND
-  (SELECT count(*)=0 FROM flow JOIN pcs c ON c.id=flow.slice_in WHERE c.name='core.s1.fetch') AND
+  (SELECT count(*)=0 FROM pcs c WHERE c.name='core.s1.fetch' AND (SELECT count(*) FROM flow WHERE slice_in=c.id) NOT BETWEEN 1 AND 2) AND
   (SELECT count(*)=0 FROM (SELECT parent FROM edges GROUP BY parent HAVING count(*)>1)) AND
   (SELECT count(*)>count(DISTINCT pc) FROM pcs WHERE name='core.s1.fetch') AS ok

@@ -121,6 +121,12 @@ architectural recovery has priority. The buffer consumes Valid completed words
 and produces Decoupled instructions. Its occupancy is registered, never a
 same-cycle availability calculation.
 
+Frontend S1/S2 and the repair pipeline use flushable Valid pipes with explicit
+`flush` inputs. Recovery clears their validity at the edge while preserving
+the global reset domain and always-capture payload timing. Retain the existing
+same-cycle output filters: synchronous flush does not gate pre-edge transfers.
+The intrinsic pipe contract exposes flush to event lineage instrumentation.
+
 Keep flow conversions at their actual timing boundaries. MMU and L1I stage
 results derive from their existing Valid context through filters and maps;
 S2 always produces an outcome, including replay when its implementation has
@@ -198,9 +204,20 @@ always-capture payload registers or derive controls from generated signal names.
 EX's payload is still computed unconditionally; its flow filter qualifies only
 token validity, preserving the feed-forward datapath and cancellation timing.
 
-Fetch is an explicit root because cache/MMU/fetch assembly is outside the traced
-lineage. Later checkpoints must not become independent roots to hide an
-unsupported path. Decode transfers fire only when the hazard gate admits them,
+Accepted `frontend.s0.request` occurrences are explicit roots. The intrinsic
+flushable pipes connect them through `frontend.s1.lookup` and
+`frontend.s2.outcome`, which captures replay, admission, and admitted fault flags.
+Only admitted outcomes pass the Flow filter into completed-word storage; no
+additional checkpoint represents that same-cycle admission. Instruction assembly declares a window contract using
+the actual public word-buffer count, releases, flush, and contributing-word
+selection. A word can parent two compressed instructions; a straddle has two
+word parents, including a faulting continuation. `core.s1.fetch` inherits those
+parents instead of cutting ancestry. Retry attempts are new roots, and MMU,
+I-cache refill, predictor-training, and redirect causality remain separate.
+Run `event-window`, `event-frontend`, `rv5stage-fetch-prediction`, and
+`rv5stage-fetch-admission` for changes at this boundary.
+Later checkpoints must not become independent roots to hide an unsupported
+path. Decode transfers fire only when the hazard gate admits them,
 but its checkpoint must precede `gate_flow` and follow the squash filter so
 stall observations see valid instructions while issue is blocked. Keep the
 captured Boolean reason terms aligned with `pipeline_hazard`; do not impose

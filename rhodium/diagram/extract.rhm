@@ -828,7 +828,21 @@ fun diagram_module(module_def :: Module,
                          "data",
                          "data")
         ]
-  DiagramModule(module_def.id, module_def.name, blocks, channels)
+  def trace_edges = for List (edge in module_interface_trace_edges(module_def)):
+    def parent = events.find(fun (event): event.output === edge.parent)
+    def child = events.find(fun (event): event.output === edge.child)
+    unless parent && child
+    | error(~who: #'diagram,
+            "trace edge endpoints must be annotated event outputs in " ++ module_def.name)
+    when parent === child
+    | error(~who: #'diagram, "trace edge parent and child must be distinct events")
+    DiagramTraceEdge(parent.site_index,
+                     child.site_index,
+                     edge.storage.capture,
+                     edge.storage.release,
+                     edge.storage.active,
+                     edge.storage.name)
+  DiagramModule(module_def.id, module_def.name, blocks, channels, trace_edges)
 
 fun diagram(logical :: DesignElaboration):
   verify_design(logical.design)

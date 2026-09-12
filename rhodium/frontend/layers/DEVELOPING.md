@@ -69,6 +69,14 @@ result retains. Exercise the feature through every applicable producer—literal
 port, wire, register, mux, aggregate projection, memory read, cast, and instance
 port—rather than testing only the declaration site.
 
+`sync_circuit` preserves member types determined by required positional
+parameters even when trailing keyword parameters configure the generator.
+Its call macro forwards keywords unchanged to the implementation and substitutes
+only statically available member types independent of those keywords. This
+keeps optional controls from erasing a payload's bundle fields and methods;
+it does not infer conditional ports or keyword-dependent types. Cover this
+boundary with `std-flow-static-test.rhm` and `generator-parameters-test.rhm`.
+
 ## Adding or changing a layer
 
 1. Confirm the feature belongs in a selectable layer using the frontend

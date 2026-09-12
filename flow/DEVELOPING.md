@@ -40,7 +40,9 @@ flowchart TD
   metadata. Analysis and runtime instrumentation stay in `rhodium/event`; flow
   must not import that package.
   Its `trace_detach` adapter explicitly marks an ancestry cut without an event;
-  keep it distinct from opaque-boundary inference failure.
+  keep it distinct from opaque-boundary inference failure. Its `trace_edge`
+  helper records a named retained-state causal relation through the frontend;
+  it must not add functional wiring or move analysis into `flow/`.
 - `offer-decoupled.rhdl` owns best-effort Valid-to-Decoupled wiring;
   `to-decoupled.rhdl` retains the checked same-cycle acceptance contract.
   Keep fault/replay policy downstream. Event qualification in `event.rhdl`

@@ -19,6 +19,7 @@ rheg::Graph expected;
 std::array<std::uint64_t, 3> sequences{};
 std::uint64_t cycle = 0;
 std::deque<Pending> middle, completed;
+unsigned canceled = 0, flush_inputs = 0, flush_outputs = 0;
 
 std::uint64_t node(std::uint32_t site, std::uint32_t payload,
                    int parent = -1, std::uint64_t parent_sequence = 0) {
@@ -34,7 +35,7 @@ std::uint64_t node(std::uint32_t site, std::uint32_t payload,
 }
 }
 
-extern "C" void event_pipeline_sample(std::uint32_t reset, std::uint32_t valid,
+extern "C" void event_pipeline_sample(std::uint32_t reset, std::uint32_t flush, std::uint32_t valid,
     std::uint32_t payload, std::uint32_t out_valid, std::uint32_t out_payload) {
   if (reset) {
     expected.clear();
@@ -64,6 +65,15 @@ extern "C" void event_pipeline_sample(std::uint32_t reset, std::uint32_t valid,
     const auto sequence = node(0, payload);
     if (payload != 0) middle.push_back({cycle + 3, sequence, payload});
   }
+  // Pre-edge observations remain visible. Flush cancels every pending arrival
+  // and this edge's input, but never clears the recorded graph or sequences.
+  if (flush) {
+    canceled += static_cast<unsigned>(middle.size() + completed.size());
+    flush_inputs += valid != 0;
+    flush_outputs += output;
+    middle.clear();
+    completed.clear();
+  }
   ++cycle;
 }
 
@@ -71,4 +81,9 @@ extern "C" void event_pipeline_check() {
   if (rheg::graph().json() != expected.json())
     fail("fixed pipeline event graph mismatch\nactual: "
          + rheg::graph().json() + "expected: " + expected.json());
+}
+
+extern "C" void event_pipeline_finish() {
+  if (!canceled || !flush_inputs || !flush_outputs)
+    fail("flush coverage requires pending work and simultaneous input/output");
 }

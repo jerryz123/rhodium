@@ -111,8 +111,8 @@ will eventually commit.
 
 Stalls are leaf observations: they never advance token metadata, cut ancestry,
 or become parents of a later transfer. The compiler reuses the observed
-checkpoint's incoming references along certified linear paths, including pipes
-and queues, and emits edges only for references actually present. A blocked
+checkpoint's incoming references along certified linear paths, including pipes,
+queues, and retained windows, and emits edges only for references actually present. A blocked
 offer at an input may have no accepted ancestor. Selection, routing, replication,
 and join paths currently produce unlinked stall observations; their transfer
 events retain their normal inferred dependencies.
@@ -246,7 +246,8 @@ remain visible; it does not summarize the whole containing module. See the
 | Connections, hierarchy, `map_flow`, `map_valid`, `to_valid`, checked `to_decoupled` | Preserve the transferred lineage |
 | `offer_decoupled` | Use the same-cycle Valid occurrence for accepted offers; no retained parent for rejected offers |
 | `filter_flow`, `filter_valid`, `gate_flow` | Preserve surviving transfers only |
-| `valid_pipe`, `valid_pipe_always_capture` | Delay lineage by the certified fixed cycle count |
+| `valid_pipe`, `valid_pipe_always_capture` | Delay lineage by the certified fixed cycle count; explicit flush clears pending lineage at the edge |
+| Windowed storage | Retain ordered references across repeated reads; select one or more contributing slots, release a prefix, append, and flush without resetting history |
 | Ready-valid `pipe` | Advance, bubble, and stall with the functional stages |
 | Retained-owner contract | Capture one lineage, reuse it on every attempt, and release it only on completion; replacement exposes the old owner until the edge |
 | `trace_detach` | Explicitly cut ancestry without a visible event; selected transactions remain valid but parentless |
@@ -262,6 +263,21 @@ An annotation emits one node and edges for its incoming parents, then replaces
 that lineage with its own identity. Reconvergence may repeat a parent reference;
 the collector deduplicates exact occurrence pairs, not site IDs. Distinct
 sequences at one site remain distinct parents.
+
+### Explicit edges across retained state
+
+Use `trace_edge(parent, child, ~scope: "request")` when a module retains a
+transaction in registers or an FSM and later emits a related Flow event that
+static topology cannot connect. Both endpoints must be annotated event outputs
+in the same module, and the scope must name that module's
+`describe_interface_retained_storage(capture, release, active, ~name: ...)`
+declaration. The declaration is the lifetime contract; the edge is only the
+causal relation. Instrumentation allocates one retained lineage value per scope,
+reuses it for every named child route, and emits the edge only when the child
+event fires. Multiple children may share one parent scope, but a child cannot
+have two explicit parents. No ready, valid, payload, or state signal is wired by
+this API. Keep using ordinary Flow contracts wherever the relationship is
+visible in the datapath; reserve explicit edges for opaque FSM/register gaps.
 
 ## Instrument storage and selection paths
 
