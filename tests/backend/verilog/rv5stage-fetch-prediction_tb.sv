@@ -19,14 +19,14 @@ module rv5stage_fetch_prediction_tb;
   typedef struct packed { logic valid; fetched_bits_t bits; } fetched_out_t;
   typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; } update_bits_t;
   typedef struct packed { logic valid; update_bits_t bits; } update_t;
-  typedef struct packed { logic valid; } valid_ctrl_t;
+  typedef struct packed { logic valid; } pulse_t;
   typedef struct packed { logic valid; logic [63:0] bits; } valid_bits64_t;
   typedef struct packed {
     logic active;
-    valid_ctrl_t flush;
+    pulse_t flush;
     valid_bits64_t restart;
-    valid_ctrl_t invalidate_all;
-    valid_ctrl_t predictor_flush;
+    pulse_t invalidate_all;
+    pulse_t predictor_flush;
     update_t branch_update;
   } control_t;
   logic clock = 0, reset = 1, active = 0, flush = 0, restart_valid = 0;

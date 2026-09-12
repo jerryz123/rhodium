@@ -16,7 +16,7 @@ ingress |> queue(4, ~pipe: #true) |> pipe(2) |> egress
 ```
 
 The chain belongs inside a `sync_circuit` with compatible ingress and egress
-endpoints. The facade re-exports the existing `ValidCtrl`, `Valid`, `Decoupled`,
+endpoints. The facade re-exports the existing `Pulse`, `Valid`, `Decoupled`,
 `Irrevocable`, control-only, credited, and flit types from
 [`rhodium/std`](../rhodium/std/README.md#protocols-and-transport). These are the
 same nominal definitions, not replacement interfaces.

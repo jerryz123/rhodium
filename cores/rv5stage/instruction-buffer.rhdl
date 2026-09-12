@@ -30,7 +30,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RVCoreProfile, capacity :
   | error(~who: #'RV5StageInstructionBuffer, "compressed assembly requires space for two fetch words")
   input active: Bool
   interface fill(Valid(RV5StageFetchWord(xlen)), ~role: consumer)
-  interface clear(ValidCtrl(), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
   interface restart(Valid(Bits(width)), ~role: consumer)
   interface repair(Valid(RV5StageFetchRepair(xlen)), ~role: producer)
   interface fetched(Decoupled(FetchDecode(xlen)), ~role: producer)

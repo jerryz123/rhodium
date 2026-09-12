@@ -4,11 +4,11 @@ module rv5stage_btb_tb;
   typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; } update_bits_t;
   typedef struct packed { logic valid; update_bits_t bits; } update_t;
   typedef struct packed { logic valid; logic [63:0] bits; } invalidate_t;
-  typedef struct packed { logic valid; } valid_ctrl_t;
+  typedef struct packed { logic valid; } pulse_t;
   logic clock = 0, reset = 1;
   logic [63:0] cursor = 0;
   prediction_t prediction;
-  valid_ctrl_t invalidate_all_in = '0;
+  pulse_t invalidate_all_in = '0;
   update_t update_in = '0;
   invalidate_t invalidate_in = '0;
   RV5StageBtb dut (.*);
@@ -65,7 +65,7 @@ module rv5stage_btb_tb;
     update_in = '0;
     check('h108, 0);
     invalidate_all_in.valid = 1;
-    check('h104, 0); // ValidCtrl suppresses lookup during the clear event.
+    check('h104, 0); // Pulse suppresses lookup during the clear event.
     @(negedge clock);
     invalidate_all_in.valid = 0;
     check('h104, 0);

@@ -20,10 +20,10 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 16):
   input active: Bool
   input space: Bool
   input cursor: Bits(width)
-  interface clear(ValidCtrl(), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
   interface restart(Valid(Bits(width)), ~role: consumer)
   interface replay(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
-  interface predictor_flush(ValidCtrl(), ~role: consumer)
+  interface predictor_flush(Pulse(), ~role: consumer)
   interface predictor_invalidate(Valid(Bits(width)), ~role: consumer)
   interface branch_update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
   interface attempts(Decoupled(RV5StageFetchAttempt(xlen)), ~role: producer)

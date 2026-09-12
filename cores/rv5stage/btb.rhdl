@@ -31,7 +31,7 @@ bundle RV5StageBtbEntry(xlen :: XLen):
 sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
   // Lookup is combinational; only predictor state changes are event flows.
   input cursor: Bits(xlen.width)
-  interface invalidate_all(ValidCtrl(), ~role: consumer)
+  interface invalidate_all(Pulse(), ~role: consumer)
   interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
   interface update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
   output prediction: RV5StagePrediction(xlen)

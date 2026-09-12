@@ -37,7 +37,7 @@ sync_circuit RV5StageFetchWordBuffer(xlen :: XLen, capacity :: PosInt):
   def count_width = index_width(capacity + 1)
   def empty_word = literal(RV5StageFetchWord(xlen), 0)
   interface fill(Valid(RV5StageFetchWord(xlen)), ~role: consumer)
-  interface clear(ValidCtrl(), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
   interface window(RV5StageFetchWordWindow(xlen, capacity), ~role: buffer)
 
   reg words(~init: vec(for List (_index in 0..capacity): empty_word))

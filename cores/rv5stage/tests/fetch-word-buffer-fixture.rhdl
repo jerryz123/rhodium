@@ -27,7 +27,7 @@ sync_circuit RV5StageFetchWordBufferFixture():
     access_fault: Bool(#false)
     prediction: literal(RV5StagePrediction(XLen.X64), 0)
   inject_flow(Valid(RV5StageFetchWord(XLen.X64)), ~valid: fill_valid, ~bits: fill_bits) |> buffer.fill
-  inject_flow(ValidCtrl(), ~valid: clear) |> buffer.clear
+  inject_flow(Pulse(), ~valid: clear) |> buffer.clear
   inject_flow(Valid(Bits(2)), ~valid: release_valid, ~bits: release_count) |> buffer.window.release
   count <== buffer.window.count
   head_valid <== buffer.window.head_valid
