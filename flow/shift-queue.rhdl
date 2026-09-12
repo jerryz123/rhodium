@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements shallow FIFOs with a fixed head register and compact valid mask.
+// Implements traceable shallow FIFOs with a fixed head, compact validity, and optional flush.
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
@@ -9,12 +9,20 @@ import:
 sync_circuit ShiftQueue(T :: DataType,
                         depth :: PosInt,
                         ~pipe: pipe :: Boolean = #false,
-                        ~flow: flow :: Boolean = #false):
+                        ~flow: flow :: Boolean = #false,
+                        ~flushable: flushable :: Boolean = #false):
   interface ingress(Decoupled(T), ~role: consumer)
   def Egress = if flow | Decoupled(T) | Irrevocable(T)
   interface egress(Egress, ~role: producer)
   output count: Bits(index_width(depth + 1))
   output mask: Bits(depth)
+
+  def clear:
+    if flushable
+    | block:
+        input flush: Bool
+        flush
+    | Bool(#false)
 
   reg occupied(~init: vec(for List (_ in 0..depth): Bool(#false)))
   reg payload(Vec(depth, T))
@@ -34,7 +42,9 @@ sync_circuit ShiftQueue(T :: DataType,
     def shifted_payload = if index + 1 < depth | mux(next_occupied, payload[index + 1], ingress.bits) | ingress.bits
     def shift_valid = next_occupied ||| (accepted & (occupied[index] ||| Bool(index == 0 && !flow)))
     def append = accepted & previous_occupied & !occupied[index]
-    when (egress.ready):
+    when clear:
+      occupied[index] <== Bool(#false)
+    elsewhen (egress.ready):
       occupied[index] <== shift_valid
       when shift_valid:
         payload[index] <== shifted_payload
@@ -46,14 +56,25 @@ sync_circuit ShiftQueue(T :: DataType,
     | assert(!occupied[index] ||| occupied[index - 1], "shift_queue_valids_are_compact")
     | #void
 
+  def bypass = if flow | !occupied[0] | Bool(#false)
+  def enqueue = accepted & !(bypass & egress.ready)
+  def release = (occupied[0] & egress.ready).as_bits()
+  def released = if depth == 1 | release | release.zext(index_width(depth + 1))
+  describe_interface_window_storage(depth, enqueue, released, count, clear, [occupied[0]], ~live: if flow | bypass | #false)
+  describe_interface_contract(ingress, egress, "data", ~kind: "shift-queue", ~trace_model: interface_trace_window())
+
 // Configures a fresh fixed-head FIFO for an endpoint or disconnected topology.
 fun shift_queue(depth :: PosInt,
                 ~pipe: pipe_enabled :: Boolean = #false,
-                ~flow: flow_enabled :: Boolean = #false)
+                ~flow: flow_enabled :: Boolean = #false,
+                ~flush: flush :: False || Bool = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
     def T = flow_payload_type(source)
-    inst shift_queue_stage(ShiftQueue(T, depth, ~pipe: pipe_enabled, ~flow: flow_enabled))
+    inst shift_queue_stage(ShiftQueue(T, depth, ~pipe: pipe_enabled, ~flow: flow_enabled, ~flushable: flush != #false))
+    if flush != #false
+    | shift_queue_stage.flush <== flush
+    | #void
     finish_interface_transform(
       source,
       describe_interface_transform(

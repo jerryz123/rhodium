@@ -1,7 +1,7 @@
 #lang rhodium
 // Exercises cold-refill recovery and steady-state frontend/MMU/L1I throughput.
 import:
-  lib("cores/rv5stage/frontend.rhdl") open
+  "fetch-fixture.rhdl" open
   lib("cores/rv5stage/profile.rhm") open
   lib("cores/rv5stage/btb.rhdl") open
   lib("cores/rv5stage/mmu/mmu.rhdl") open
@@ -26,7 +26,7 @@ sync_circuit RV5StageFetchThroughput():
   output pc: Bits(64)
   output instruction: Bits(32)
   interface chi(CHIRNIChannels(test_rv5stage_flit), ~role: node)
-  inst fetch(RV5StageFrontend(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
+  inst fetch(RV5StageFetchFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
   inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))

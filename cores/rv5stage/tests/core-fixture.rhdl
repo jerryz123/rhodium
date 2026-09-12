@@ -100,7 +100,7 @@ sync_circuit RV5StageCoreFixture(profile :: RVCoreProfile, ~reset_address: reset
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries))
   inst memory(RV5StageTestInstructionMemory(xlen))
   core.frontend_control |> frontend.control
-  frontend.fetched |> core.fetched
+  frontend.packets |> core.packets
   frontend.memory |> memory.frontend
   memory.memory |> instruction_access
   core.data_access |> data_access

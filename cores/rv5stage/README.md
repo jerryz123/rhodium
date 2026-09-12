@@ -22,7 +22,7 @@ Contributors changing the core should read
 |---|---|
 | Pipeline | Fetch, Decode, Execute, Memory, Writeback |
 | Issue and retirement | Single issue; ordered WB commit |
-| Pipeline boundaries | Producer-owned fetch queue and elastic IF/ID, then feed-forward ID/EX, EX/MEM, and MEM/WB |
+| Pipeline boundaries | Flow-through raw-packet queue and core parcel buffer directly into Decode, then feed-forward ID/EX, EX/MEM, and MEM/WB |
 | Deferred work | Loads, atomics, multiply, divide, and FP results may complete after their scalar token retires |
 | Integer widths | RV32 and RV64 selected by `XLen.X32` or `XLen.X64` |
 | Floating point | Disabled by default; RV32F or RV64D, with optional Zfhmin, Zfh, or Zfa |
@@ -161,27 +161,29 @@ resident-line preservation, and outer-cache limits.
 
 ## Pipeline event tracing
 
-The core carries metadata-only checkpoints named `core.s1.fetch`, `core.s2.decode`,
+The core carries metadata-only checkpoints named `core.s2.decode`,
 `core.s3.execute`, `core.s4.memory`, and `core.s5.wb`. Ordinary elaboration does not add
 counters or DPI calls; the optional event compiler instruments a separate design.
 The [SimpleSoC trace build](../../sims/README.md#export-simplesoc-events-to-perfetto)
 includes these sites automatically. Stage-number prefixes keep their names in
 pipeline order when sorted lexicographically.
 
-Fetch records acceptance from the fetch queue into IF/ID and starts a new
-lineage. Decode records issue only when hazard and squash gating permit it.
+Accepted `frontend.s0.request` events start lineage, followed by registered
+`frontend.s1.lookup` and `frontend.s2.outcome` events. Decode inherits the one
+or two admitted S2 packets that supply its instruction, including same-cycle
+queue bypass and retained halfwords. It records issue only when hazard and squash
+gating permit it. Raw-packet acceptance is not a separate instruction transfer.
 Execute and Memory record surviving stage transfers; WB records arrival
-at the scalar writeback stage. Inferred edges follow the real elastic IF/ID
-controls and one-cycle always-capture registers. Repeated PCs have separate
+at the scalar writeback stage. Inferred edges follow the one-cycle
+always-capture registers. Repeated PCs have separate
 occurrence identities; squashed tokens may have no later-stage descendant.
 
-Fetch and Decode also emit `.stall` companions on each `valid & !ready` cycle.
-Fetch stalls mean an assembled instruction cannot enter IF/ID, not that fetch
-is waiting for memory. Decode observes the live instruction after squash
+Decode also emits `.stall` companions on each `valid & !ready` cycle.
+Decode observes the live assembled instruction after squash
 filtering but before hazard gating, so it can expose a blocked offer without
-changing issue timing. Its stall nodes retain the accepted fetch parent through
-IF/ID; fetch stalls are independent root observations. Perfetto displays them
-on the corresponding Fetch/Decode track as slices named `stall`, merging
+changing issue timing. Its stalls retain those same packet parents without
+fabricating an IF/ID transfer. Perfetto displays them
+on the Decode track as slices named `stall`, merging
 consecutive observations with unchanged captures and parents. They never become
 parents of subsequent pipeline transfers.
 
@@ -313,7 +315,7 @@ owns Decode through Writeback. Scalar tokens issue and reach WB in order, while
 selected register-producing operations may complete later through explicit
 scoreboards and a completion arbiter.
 
-The execution core consumes `fetched: Decoupled(FetchDecode(xlen))` and supplies
+The execution core consumes `packets: Decoupled(RV5StageFetchPacket(xlen))` and supplies
 `frontend_control` for activity, redirects, invalidation, and predictor training.
 `RV5Stage` connects those ports to the frontend; the frontend's `memory` port
 connects to the MMU's fixed-latency fetch-attempt interface.
@@ -324,8 +326,8 @@ flowchart LR
 
     subgraph scalar["Scalar pipeline — single issue, in-order commit"]
         IF["Fetch (IF)<br/>PC, correlation, redirects"]
-        FQ["Completed words + assembly<br/>5 entries"]
-        IFID["IF/ID<br/>elastic Pipe"]
+        FQ["Raw packets<br/>5-entry flow-through queue"]
+        IFID["Core IBuf<br/>fall-through + residual halfword"]
         ID["Decode (ID)<br/>decode and hazards"]
         IDEX["ID/EX<br/>ValidPipeAlwaysCapture"]
         EX["Execute (EX)<br/>forwarding, branch, AGU"]
@@ -376,7 +378,7 @@ flowchart LR
 
 | Region | Output boundary | May hold? | Primary responsibility |
 |---|---|---:|---|
-| Fetch | Five completed words and assembler, then IF/ID `Pipe` | Yes | Frontend-owned attempts, replay, prediction, and redirect flushing |
+| Fetch | Five flow-through raw packets and a core residual halfword | Yes | Frontend-owned attempts, replay, prediction, and redirect flushing |
 | Decode | ID/EX `ValidPipeAlwaysCapture` | No | Structured decode, operand capture and bypass selection, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
 | Execute | EX/MEM `ValidPipeAlwaysCapture` | No | Registered-source forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP operand preparation, and structural replay |
 | Memory | MEM/WB `ValidPipeAlwaysCapture` | No | Parallel DTLB/cache lookup, hit-result capture, branch recovery, early fault/replay squash, and bypass |
@@ -395,7 +397,7 @@ the oldest failed PC and kills younger attempts while preserving older words.
 A redirect clears speculative frontend state and detaches slow consumers;
 accepted refills and uncached reads still drain.
 
-Decode holds an instruction in IF/ID until its operands and locally reserved
+Decode holds an instruction in the packet queue/IBuf until its operands and locally reserved
 execution resources are available. Once admitted, its ID/EX token advances on
 the next edge. Decode captures register-file operands (including same-cycle
 architectural writes) and chooses the MEM/WB sources that will be present in
@@ -465,27 +467,29 @@ from targeting the same register in one cycle, and a WB-aligned cache hit can
 set and clear a destination without an extra busy cycle.
 
 [`frontend.rhdl`](frontend.rhdl) connects a
-[`RV5StageFetchSource`](fetch-source.rhdl) to its fixed-latency S1/S2 stages
-and a five-entry [`RV5StageInstructionBuffer`](instruction-buffer.rhdl).
-The source offers complete PC, prediction, and continuation context; memory
-acceptance captures that occurrence into S1 atomically. Only completed words
-enter the instruction buffer's internal
-[`RV5StageFetchWordBuffer`](fetch-word-buffer.rhdl). Buffer capacity remains
-a host parameter (at least two with compressed instructions enabled); the
-frontend selects five words. The assembly PC advances when an instruction transfers to
-execution; it can consume zero, one, or two words. Decode readiness and
-same-cycle returned credit never select the live request address. Registered S2
-replay may select S0 directly, without an S1 translation/tag-match feedback
-path.
+[`RV5StageFetchSource`](fetch-source.rhdl), fixed-latency S1/S2 stages, and a
+five-entry flow-through packet queue. Raw packets carry PC, word, halfword mask,
+faults, and occurrence-specific prediction metadata. Mask bits 0 and 1 select
+the lower and upper halfwords; PC identifies the first selected halfword.
+Packets remain ordered, and a split instruction's continuation is contiguous
+even when its predicted target is elsewhere. The core's
+[`RV5StageInstructionBuffer`](instruction-buffer.rhdl) assembles and expands
+instructions directly into Decode, retaining at most one leftover halfword.
+Neither queue bypass nor IBuf adds a mandatory pipeline cycle. On a complete
+instruction hit with an empty queue, S2 and Decode share a cycle; ID/EX captures
+the instruction on the next edge. This is a latency contract, not a frequency
+claim: bypass, expansion, and Decode form one combinational timing path.
+Decode readiness and same-cycle returned credit never grant S0 queue capacity.
+Registered S2 replay may select S0 directly, without an S1 translation/tag-match
+feedback path.
 The MMU and L1I do not queue ordinary requests or promise eventual responses:
 the frontend retries after an ITLB miss, refill, or resource conflict.
 See the [MMU guide](mmu/README.md#request-flow).
-The source and instruction buffer accept independent `clear` and `restart`
-events: either suppresses that cycle's output, and restart also selects the
-new PC. Clearing the source alone resumes at the assembly cursor; clearing
-the buffer alone retains that cursor. Completed-word fills cannot be
-backpressured because their capacity was reserved before issue. A malformed
-prediction produces a repair event, registered before it can clear the pipeline.
+Architectural flush/restart/invalidation clears the queue and core residual.
+A source clear without restart stops new requests until an explicit restart
+supplies the PC. Completed packets cannot be backpressured at S2 because their
+capacity was reserved before issue. A malformed prediction is corrected in S2;
+a registered repair restarts only younger fetches, preserving older packets.
 With C enabled Fetch can reuse either halfword, assemble a
 32-bit instruction that straddles adjacent words, and expand legal compressed
 instructions before the ordinary decoder. It retains the original 16-bit word
@@ -494,7 +498,7 @@ flushes retained, queued, or outstanding wrong-path data on redirects.
 
 With [event instrumentation](../../rhodium/event/README.md), accepted fetch
 attempts connect through `frontend.s0.request`, `frontend.s1.lookup`,
-and `frontend.s2.outcome` to `core.s1.fetch`. S2 has one event per outcome,
+and `frontend.s2.outcome` to `core.s2.decode`. S2 has one event per outcome,
 capturing `replay`, `admitted`, `page_fault`, and `access_fault`; fault flags are
 meaningful only for admitted outcomes and otherwise zero. Only admitted S2
 occurrences become instruction parents. Compressed instructions may share a word parent; a straddling
@@ -514,11 +518,9 @@ two states, and unconditional jumps predict taken on a hit. Invalid slots are
 allocated first, then round-robin replacement is used. No return-address stack,
 global history, or separate direction table is present.
 
-Lookup runs alongside the current word request and chooses the earliest
-predicted-taken branch at or after the request's starting halfword. An accepted
-request atomically captures the complete source attempt into S1 and advances
-the source PC. Unaccepted offers may observe later predictor training;
-accepted occurrences retain their own prediction. The target can be requested on the following
+Lookup uses the registered S1 PC and chooses the earliest predicted-taken branch
+at or after its starting halfword. Its prediction is captured with the S2
+occurrence; queued packets never reconstruct it from the live BTB. The target can be requested on the following
 cycle without a flush or
 prediction-induced bubble. A 32-bit branch starting in the upper halfword first
 requests its required continuation word, then the target. Cache/translation

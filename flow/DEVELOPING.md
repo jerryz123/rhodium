@@ -63,7 +63,10 @@ backend fixture checks both implementations against a transaction scoreboard.
 It also compares configured `shift_queue` stages with explicit instances.
 The configured stage uses the common source normalization and dependent
 topology result contract; do not attach pointer-queue lineage metadata to
-shifted storage. Its event-lineage model remains an explicit unsupported boundary.
+shifted storage. Its intrinsic retained-window contract samples the head-valid
+bit, registered count, actual store/removal, optional empty bypass, and explicit
+flush. The `event-frontend` scoreboard exercises traced flow-through storage
+and cancellation; `shift-queue` covers all handshake options and depths.
 
 1. State the public type, timing, reset, handshake, priority, and invalid-input
    contract in README. Keep application-specific routing and policy downstream.

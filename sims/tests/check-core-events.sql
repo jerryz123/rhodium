@@ -13,19 +13,18 @@ WITH pcs AS (
   FROM flow JOIN pcs a ON a.id=flow.slice_out JOIN pcs b ON b.id=flow.slice_in
 )
 SELECT
-  (SELECT count(DISTINCT name)=5 FROM pcs) AND
+  (SELECT count(DISTINCT name)=4 FROM pcs) AND
   (SELECT count(*)=0 FROM pcs WHERE pc IS NULL OR instruction IS NULL OR length(pc)!=18 OR length(instruction)=0) AND
   (SELECT count(*)>0 FROM pcs WHERE instruction='csrr a0, mhartid') AND
   (SELECT count(*)=0 FROM pcs WHERE mnemonic!=substr(instruction||' ',1,instr(instruction||' ',' ')-1)) AND
   (SELECT count(*)=0 FROM args WHERE key IN ('debug.payload_width','debug.payload_words_lsw_first')) AND
-  (SELECT count(*)=0 FROM pcs WHERE name NOT IN ('core.s1.fetch','core.s2.decode','core.s3.execute','core.s4.memory','core.s5.wb')) AND
-  (SELECT count(DISTINCT src||'->'||dst)=4 FROM edges) AND
+  (SELECT count(*)=0 FROM pcs WHERE name NOT IN ('core.s2.decode','core.s3.execute','core.s4.memory','core.s5.wb')) AND
+  (SELECT count(DISTINCT src||'->'||dst)=3 FROM edges) AND
   (SELECT count(*)=0 FROM edges WHERE
-    (src||'->'||dst) NOT IN ('core.s1.fetch->core.s2.decode','core.s2.decode->core.s3.execute','core.s3.execute->core.s4.memory','core.s4.memory->core.s5.wb') OR
+    (src||'->'||dst) NOT IN ('core.s2.decode->core.s3.execute','core.s3.execute->core.s4.memory','core.s4.memory->core.s5.wb') OR
     parent_pc!=child_pc OR parent_instruction!=child_instruction OR
-    (src='core.s1.fetch' AND delay<10) OR
-    (src!='core.s1.fetch' AND delay!=10)) AND
-  (SELECT count(*)=0 FROM pcs c WHERE name!='core.s1.fetch' AND (SELECT count(*) FROM edges WHERE child=c.id)!=1) AND
-  (SELECT count(*)=0 FROM pcs c WHERE c.name='core.s1.fetch' AND (SELECT count(*) FROM flow WHERE slice_in=c.id) NOT BETWEEN 1 AND 2) AND
+    delay!=10) AND
+  (SELECT count(*)=0 FROM pcs c WHERE name!='core.s2.decode' AND (SELECT count(*) FROM edges WHERE child=c.id)!=1) AND
+  (SELECT count(*)=0 FROM pcs c WHERE c.name='core.s2.decode' AND (SELECT count(*) FROM flow WHERE slice_in=c.id) NOT BETWEEN 1 AND 2) AND
   (SELECT count(*)=0 FROM (SELECT parent FROM edges GROUP BY parent HAVING count(*)>1)) AND
-  (SELECT count(*)>count(DISTINCT pc) FROM pcs WHERE name='core.s1.fetch') AS ok
+  (SELECT count(*)>count(DISTINCT pc) FROM pcs WHERE name='core.s2.decode') AS ok

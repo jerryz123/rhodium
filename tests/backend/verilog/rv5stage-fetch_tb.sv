@@ -60,7 +60,7 @@ module rv5stage_fetch_tb;
 
 `ifdef RV5STAGE_FETCH_TRACE
   EventFrontend dut (.control_in, .*);
-  import "DPI-C" function void event_frontend_sample(input int unsigned rst, clear, restart,
+  import "DPI-C" function void event_frontend_sample(input int unsigned rst, clear, recovery, restart,
       input longint unsigned restart_address, input int unsigned request_fire,
       input longint unsigned request_address, input int unsigned response_valid, replay,
       word, page_fault, access_fault, fetched_valid, fetched_ready,
@@ -69,7 +69,7 @@ module rv5stage_fetch_tb;
   import "DPI-C" function void event_frontend_bind();
   import "DPI-C" function void event_frontend_finish();
   always @(posedge clock) begin
-    event_frontend_sample(32'(reset), 32'(memory_out.flush), 32'(restart_valid), restart_pc,
+    event_frontend_sample(32'(reset), 32'(memory_out.flush), 32'(flush || restart_valid || invalidate_all), 32'(restart_valid), restart_pc,
         32'(memory_out.request.valid && memory_in.request.ready), memory_out.request.bits.address,
         32'(memory_in.response.valid), 32'(memory_in.response.bits.replay),
         memory_in.response.bits.response.word, 32'(memory_in.response.bits.response.page_fault),
@@ -78,7 +78,7 @@ module rv5stage_fetch_tb;
     #1 event_frontend_check();
   end
 `else
-  RV5StageFrontend dut (.control_in, .*);
+  RV5StageFetchFixture dut (.control_in, .*);
 `endif
   always #5 clock = ~clock;
 
@@ -173,9 +173,12 @@ module rv5stage_fetch_tb;
     restart_valid = 1'b1;
     @(posedge clock);
     #1 restart_valid = 1'b0;
-    wait (fetched_out.valid && fetched_out.bits.pc == 64'h100);
+    // Empty FQ and IBuf must expose this complete S2 result to Decode in
+    // the same cycle, before any further storage edge.
+    wait (s2_response.valid);
     #1;
-    assert (fetched_out.bits.instruction == 32'h00000013);
+    assert (fetched_out.valid && fetched_out.bits.pc == 64'h100 && fetched_out.bits.instruction == 32'h00000013)
+      else $fatal(1, "S2-to-Decode bypass added a mandatory cycle");
     held_request_address = memory_out.request.bits.address;
     active = 1'b0;
     #1;
@@ -238,6 +241,19 @@ module rv5stage_fetch_tb;
                   fetched_out.bits.pc,
                   fetched_out.bits.instruction_page_fault,
                   fetched_out.bits.instruction_fault_address);
+    // Accept the checked faulting instruction before the next recovery test.
+    @(posedge clock); #2;
+    // A clear without a PC cannot resume from speculative fetch-ahead state.
+    @(negedge clock); flush = 1'b1;
+    @(posedge clock); #1; flush = 1'b0;
+    repeat (4) begin
+      @(negedge clock);
+      assert (!memory_out.request.valid && !fetched_out.valid)
+        else $fatal(1, "clear resumed without an explicit restart PC");
+    end
+    restart_valid = 1'b1; restart_pc = 64'h100;
+    @(posedge clock); #1; restart_valid = 1'b0;
+    expect_instruction(64'h100, 64'h104, 32'h00000013, 32'h00000013);
 `ifdef RV5STAGE_FETCH_TRACE
     @(posedge clock);
     #2;

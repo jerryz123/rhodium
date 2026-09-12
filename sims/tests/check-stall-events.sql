@@ -1,7 +1,7 @@
 -- Checks shared-track stall durations, exact hazard flags, and non-advancing lineage.
 WITH tracks AS MATERIALIZED (
   SELECT t.id, t.name, EXTRACT_ARG(t.source_arg_set_id,'description') AS schema
-  FROM track t WHERE t.name GLOB 'core.*' OR t.name GLOB '[id]cache.*'
+  FROM track t WHERE t.name GLOB 'core.*' OR t.name GLOB '[id]cache.*' OR t.name GLOB 'frontend.*'
 ), sites AS MATERIALIZED (
   SELECT t.id AS track_id, t.schema FROM tracks t
   UNION ALL
@@ -33,7 +33,6 @@ SELECT
   (SELECT count(*) FROM events)=(SELECT count(*) FROM slice s JOIN tracks t ON t.id=s.track_id) AND
   (SELECT count(*)=0 FROM tracks WHERE name GLOB '*.stall') AND
   (SELECT count(*)=0 FROM (SELECT track_id,ts FROM events GROUP BY track_id,ts HAVING count(*)>1)) AND
-  (SELECT count(*)>0 FROM events WHERE name='core.s1.fetch' AND kind='stall') AND
   (SELECT count(*)>0 FROM events WHERE name='core.s2.decode' AND kind='stall') AND
   (SELECT count(*)=0 FROM events WHERE kind='stall' AND (dur<10 OR dur%10!=0)) AND
   (SELECT count(*)>0 FROM events WHERE kind='stall' AND dur>10) AND
@@ -41,23 +40,23 @@ SELECT
   (SELECT count(*)=0 FROM (SELECT ts,LAG(ts+dur) OVER (PARTITION BY track_id ORDER BY ts) AS previous_end FROM events)
    WHERE previous_end>ts) AND
   (SELECT count(*)=0 FROM events WHERE kind='stall' AND name GLOB 'core.*'
-   AND (name NOT IN ('core.s1.fetch','core.s2.decode') OR pc IS NULL OR instruction IS NULL
+   AND (name!='core.s2.decode' OR pc IS NULL OR instruction IS NULL
         OR length(pc)!=18 OR length(instruction)=0)) AND
-  (SELECT count(*)=2 FROM tracks t, json_each(t.schema,'$.observations') o
+  (SELECT count(*)=1 FROM tracks t, json_each(t.schema,'$.observations') o
    WHERE t.name GLOB 'core.*' AND json_extract(o.value,'$.kind')='stall'
      AND json_extract(o.value,'$.observation_of')=json_extract(t.schema,'$.site_id')
      AND json_extract(o.value,'$.fields')=json_extract(t.schema,'$.fields')) AND
   (SELECT count(*)=0 FROM flow JOIN events s ON s.id=flow.slice_out WHERE s.kind='stall') AND
-  (SELECT count(*)=0 FROM events s WHERE s.name='core.s1.fetch' AND s.kind='stall' AND (SELECT count(*) FROM flow WHERE slice_in=s.id) NOT BETWEEN 1 AND 2) AND
-  (SELECT count(*)=0 FROM flow f JOIN events s ON s.id=f.slice_in JOIN slice p ON p.id=f.slice_out JOIN track t ON t.id=p.track_id WHERE s.name='core.s1.fetch' AND s.kind='stall' AND (t.name!='frontend.s2.outcome' OR p.name='stall' OR p.ts>=s.ts OR EXTRACT_ARG(p.arg_set_id,'debug.admitted') IS NOT 1)) AND
   (SELECT count(*)=0 FROM events s WHERE s.name='core.s2.decode' AND s.kind='stall'
-   AND (SELECT count(*) FROM flow WHERE slice_in=s.id)!=1) AND
+   AND (SELECT count(*) FROM flow WHERE slice_in=s.id) NOT BETWEEN 1 AND 2) AND
   (SELECT count(*)=0 FROM edges WHERE dst='core.s2.decode' AND child_kind='stall'
-   AND (src!='core.s1.fetch' OR parent_kind!='transfer' OR parent_pc!=child_pc OR parent_instruction!=child_instruction OR delay<10)) AND
-  -- A surviving decode transfer still refers to fetch, and occurs after its stalls.
-  (SELECT count(*)>0 FROM edges s JOIN edges issued ON issued.parent=s.parent
+   AND (src!='frontend.s2.outcome' OR parent_kind!='transfer' OR delay<0)) AND
+  (SELECT count(*)=0 FROM flow f JOIN events s ON s.id=f.slice_in JOIN events p ON p.id=f.slice_out WHERE s.name='core.s2.decode' AND s.kind='stall' AND (p.name!='frontend.s2.outcome' OR EXTRACT_ARG(p.arg_set_id,'debug.admitted') IS NOT 1)) AND
+  -- Match both parent and instruction PC: two compressed instructions can
+  -- share one word parent. Surviving instructions follow their own stalls.
+  (SELECT count(*)>0 FROM edges s JOIN edges issued ON issued.parent=s.parent AND issued.child_pc=s.child_pc
    WHERE s.dst='core.s2.decode' AND s.child_kind='stall' AND issued.dst='core.s2.decode' AND issued.child_kind='transfer') AND
-  (SELECT count(*)=0 FROM edges s JOIN edges issued ON issued.parent=s.parent
+  (SELECT count(*)=0 FROM edges s JOIN edges issued ON issued.parent=s.parent AND issued.child_pc=s.child_pc
    WHERE s.dst='core.s2.decode' AND s.child_kind='stall' AND issued.dst='core.s2.decode' AND issued.child_kind='transfer' AND s.delay+s.child_duration>issued.delay) AND
   (SELECT count(*)>0 AND sum(fields=11 AND booleans=11 AND
      CASE kind WHEN 'stall' THEN active>0 ELSE active=0 END)=count(*) FROM reasons) AND

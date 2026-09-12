@@ -1,8 +1,8 @@
-// Checks shift FIFO ordering, options, occupancy, reset, and pointer-FIFO equivalence.
+// Checks shift FIFO ordering, options, occupancy, reset/flush, and pointer-FIFO equivalence.
 module shift_queue_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;
-  logic clock = 0, reset = 1;
+  logic clock = 0, reset = 1, flush = 0;
   forward_t source[12], sink[12];
   reverse_t source_ready[12], sink_ready[12];
   logic [11:0][2:0] counts;
@@ -14,7 +14,7 @@ module shift_queue_tb;
   int unsigned random_state = 32'h517f1f0;
   int bypasses[12], replacements[12], stalls[12], shifts[12];
   ShiftQueueFixture dut(
-    .clock(clock), .reset(reset), .counts(counts), .masks(masks),
+    .clock(clock), .reset(reset), .flush(flush), .counts(counts), .masks(masks),
     .reference_matches(reference_matches),
     .sources_0_in(source[0]), .sources_0_out(source_ready[0]),
     .sinks_0_in(sink_ready[0]), .sinks_0_out(sink[0]),
@@ -56,6 +56,7 @@ module shift_queue_tb;
     for (int step = 0; step < 1200; step++) begin
       @(negedge clock);
       reset = step == 0 || step == 90 || step == 91 || step == 700;
+      flush = step == 333 || step == 334 || step == 812;
       foreach (source[i]) begin
         if (accepted[i] || !source[i].valid || reset) begin
           source[i].valid = step < 1100 && (step < 180 || random_word() % 4 != 0);
@@ -86,7 +87,7 @@ module shift_queue_tb;
         pop = sink[i].valid && sink_ready[i].ready;
         bypass = used[i] == 0 && i % 2 == 1 && push && pop;
         accepted[i] = push;
-        if (reset) used[i] = 0;
+        if (reset || flush) used[i] = 0;
         else begin
           if (bypass) bypasses[i]++;
           if (used[i] == depth(i) && push && pop) replacements[i]++;

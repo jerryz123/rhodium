@@ -2,7 +2,7 @@
 // Exercises retained/live window lineage locally, through a child, and in the real frontend.
 import:
   lib("flow/main.rhdl") open
-  "../../cores/rv5stage/frontend.rhdl" open
+  "../../cores/rv5stage/tests/fetch-fixture.rhdl" open
   "../../cores/rv5stage/frontend-control.rhdl" open
   "../../cores/rv5stage/bundles.rhdl" open
   "../../cores/rv5stage/icache/protocol.rhdl" open
@@ -68,7 +68,7 @@ sync_circuit EventFrontend():
   interface control(RV5StageFrontendControl(xlen), ~role: frontend)
   interface memory(RV5StageFetchAccess(xlen), ~role: requester)
   interface fetched(Decoupled(FetchDecode(xlen)), ~role: producer)
-  inst frontend(RV5StageFrontend(RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions))))
+  inst frontend(RV5StageFetchFixture(RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions))))
   control <=> frontend.control
   memory <=> frontend.memory
   def output = frontend.fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~fields: instruction):

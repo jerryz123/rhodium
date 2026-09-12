@@ -27,7 +27,7 @@ for (intrinsic in [#true, #false]):
 def frontend = instrument_events(fixture.frontend)
 def fetch = frontend.manifest.sites.find(fun (site): site.label == "core.s1.fetch")
 check:
-  event_trace_capacity(frontend.manifest.trace_plans[fetch.id]) ~is 2
+  event_trace_capacity(frontend.manifest.trace_plans[fetch.id]) ~is 4
   frontend.manifest.dependencies.filter(~keep: fun (edge): edge.child == fetch.id).map(fun (edge): frontend.manifest.site(edge.parent).label) ~is ["frontend.s2.outcome"]
   fixture.bad_window("missing") ~throws "requires declared storage controls"
   fixture.bad_window("width") ~throws "required width"

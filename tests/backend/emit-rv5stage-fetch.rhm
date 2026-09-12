@@ -8,9 +8,9 @@ import:
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
-  "../../cores/rv5stage/frontend.rhdl" open
+  "../../cores/rv5stage/tests/fetch-fixture.rhdl" open
 
 def design = embedded.run_elaboration(
-  fun (): RV5StageFrontend(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)))
+  fun (): RV5StageFetchFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)))
 )
 print(emit_circt(design))

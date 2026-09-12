@@ -25,6 +25,8 @@ import:
   "fp/pipeline.rhdl" open
   "fp/bundles.rhdl" open
   "frontend-control.rhdl" open
+  "fetch-packet.rhdl" open
+  "instruction-buffer.rhdl" open
   "decode/fp-ctrl.rhdl" open
   "register-file.rhdl" open
   "dcache/protocol.rhdl" open
@@ -72,7 +74,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   input hart_id: Bits(width)
   input time_counter: Bits(64)
   interface frontend_control(RV5StageFrontendControl(xlen), ~role: core)
-  interface fetched(Decoupled(FetchDecode(xlen)), ~role: consumer)
+  interface packets(Decoupled(RV5StageFetchPacket(xlen)), ~role: consumer)
   interface data_access(RV5StageDataAccess(xlen), ~role: requester)
   interface pipeline_access(RV5StagePipelineAccess(xlen), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
@@ -109,10 +111,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   reg wb_pending_exception(MemoryWriteback(xlen))
 
   // Pipeline storage and reusable execution units.
-  // IF/ID is elastic so Decode can hold hazards. Every boundary after Decode
+  // The fall-through IBuf holds leftover parcels, not a separate IF/ID stage.
+  // Every boundary after Decode
   // advances feed-forward; rejected WB dispatch refetches the instruction
   // without authorizing effects or introducing downstream backpressure.
-  inst if_id_pipe(Pipe(FetchDecode(xlen), 1))
+  inst id_instructions(RV5StageInstructionBuffer(core_profile))
   inst id_ex_pipe(ValidPipeAlwaysCapture(DecodeExecute(xlen), 1))
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen), 1))
@@ -251,10 +254,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wb_instruction_invalidate |> filter_valid(_pc => fence_i_commit) |> frontend_control.invalidate_all
   def wb_predictor_flush = wb_predictor_invalidate |> filter_valid(_pc => fence_i_commit ||| wb_csrs.translation_flush)
   Array(wb_trap_predictor_flush, wb_predictor_flush) |> valid_arbiter() |> frontend_control.predictor_flush
-  def if_fetch_stream = fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~fields: operation):
-    pc: operation.pc
-    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
-  if_fetch_stream |> if_id_pipe.ingress
+  packets |> id_instructions.packets
+  id_instructions.clear.valid <== frontend_control.flush.valid ||| frontend_control.restart.valid ||| frontend_control.invalidate_all.valid
   if_started <== Bool(#true)
   when (wb_csrs.redirect.valid):
     if_architectural_pc <== wb_csrs.redirect.bits
@@ -266,11 +267,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   elsewhen (wb_csrs.wfi_retired):
     if_waiting_for_interrupt <== Bool(#true)
 
-  def id_decode_valid = if_id_pipe.egress.valid & !if_squash
-  def id_decode_bits = if_id_pipe.egress.bits
+  def id_decode_valid = id_instructions.fetched.valid & !if_squash
+  def id_decode_bits = id_instructions.fetched.bits
 
-  // Stage 2: Decode (ID) is ordinary combinational logic between IF/ID and
-  // ID/EX.
+  // Stage 2: Decode (ID) consumes the fall-through IBuf directly into ID/EX.
   // Filtering consumes squashed tokens; gating holds a token that depends on
   // deferred work which has not yet reached the WB commit point.
   def id_instruction = id_decode_bits.instruction
@@ -443,13 +443,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_pipeline_hazard = core_hazard_any(id_hazard_reasons)
   // Operand probes are read-only and may repeat while ID waits. Keeping them
   // independent of transfer/replay avoids feeding WB readiness into FP reads.
-  wb_fp.store_request.valid <== if_id_pipe.egress.valid & id_fp_store
+  wb_fp.store_request.valid <== id_instructions.fetched.valid & id_fp_store
   wb_fp.store_request.bits <== RV5StageFpStoreRequest(Bits(width)):
     context: id_decode_bits.pc
     precision: id_fp_execution_control.source_precision
     rs: id_rs2
   def id_traced_decode:
-    if_id_pipe.egress
+    id_instructions.fetched
       |> filter_flow(_fetched => !if_squash)
       |> trace_event("core.s2.decode", ~stalls: #true, ~fields: operation):
            pc: operation.pc

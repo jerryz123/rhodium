@@ -163,10 +163,11 @@ retains that command as the owner of all generated CHI request fragments and
 write-data transfers until the final host response is accepted, including
 errors. This host root is independent of instruction-originated traffic.
 
-The trace also includes the core's connected Fetch → Decode → Execute → Memory
+The trace also includes the frontend's S0 → S1 → S2 and core's Decode → Execute → Memory
 → WB stage events. See the [core tracing contract](../cores/rv5stage/README.md#pipeline-event-tracing)
 for transfer predicates, squash behavior, payloads, and the distinction between
-WB arrival and retirement. These pipeline events have their own root; they are
+WB arrival and retirement. These pipeline events inherit accepted S0 roots through
+the buffered packet/parcel assembly path; they are
 not connected through unmodeled cache/MMU transactions to the memory checkpoints.
 
 It also includes the [private-cache outer CHI channels](../cores/rv5stage/README.md#private-cache-outer-traffic)

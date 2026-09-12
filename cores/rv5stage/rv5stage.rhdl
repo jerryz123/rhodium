@@ -122,7 +122,7 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   core.hart_id <== hart_id
   core.time_counter <== time_counter
   core.frontend_control |> frontend.control
-  frontend.fetched |> core.fetched
+  frontend.packets |> core.packets
   frontend.memory |> mmu.instruction
   core.data_access |> mmu.data
   core.pipeline_access |> mmu.pipeline

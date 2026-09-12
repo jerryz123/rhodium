@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits the core-side packet assembler for cycle-visible transfer tests.
+
+import:
+  "../../cores/rv5stage/tests/instruction-buffer-fixture.rhdl".RV5StageInstructionBufferFixture
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../rhodium/frontend/kernel.rhm" as embedded
+
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageInstructionBufferFixture())))

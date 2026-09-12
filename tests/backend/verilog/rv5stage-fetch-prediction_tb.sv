@@ -44,7 +44,7 @@ module rv5stage_fetch_prediction_tb;
   int request_checks = 0, output_checks = 0, local_flushes = 0;
   bit continuous_requests = 0, continuous_outputs = 0;
   logic [63:0] expected_requests[$];
-  RV5StageFrontend dut (.control_in, .*);
+  RV5StageFetchFixture dut (.control_in, .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] word_at(input logic [63:0] address);
@@ -151,8 +151,8 @@ module rv5stage_fetch_prediction_tb;
     output_ready = 1;
     expect_pc('h100, 'h200);
 
-    // Capture the entire attempt at the memory handshake, not when it was
-    // first offered or when its response eventually reaches the assembler.
+    // Resolve the accepted PC in S1, then freeze its prediction in S2 rather
+    // than looking up the table again when Decode consumes the packet.
     initialize(0);
     train('h100, 'h200, 0);
     request_ready = 0; output_ready = 0;
@@ -182,7 +182,7 @@ module rv5stage_fetch_prediction_tb;
     initialize(2);
     train('h302, 'h402, 0);
     train('h402, 'h302, 1);
-    // Repeated three-word loops exercise two-word compaction while subsequent
+    // Repeated three-word loops exercise residual-halfword assembly while subsequent
     // occurrences retain their own prediction and continuation metadata.
     repeat (10) begin expected_requests.push_back('h300); expected_requests.push_back('h304); expected_requests.push_back('h400); end
     start('h302);
@@ -194,9 +194,10 @@ module rv5stage_fetch_prediction_tb;
     output_ready = 0;
     start('h4fc);
     repeat (15) @(negedge clock);
-    // Assembly stops at the held older word. Repair the younger cut when it
-    // reaches the head, without discarding or changing that older instruction.
+    // S2 repairs the younger cut even while an older packet is held at Decode.
+    // The older instruction must survive this speculative correction.
     assert (fetched_out.valid && fetched_out.bits.pc == 'h4fc) else $fatal(1, "repair discarded older queued instruction");
+    assert (local_flushes == 1) else $fatal(1, "prediction repair waited for Decode");
     output_ready = 1;
     expect_pc('h500, 'h504);
     assert (local_flushes == 1) else $fatal(1, "stale cut did not repair exactly once");
@@ -212,7 +213,10 @@ module rv5stage_fetch_prediction_tb;
     train('h304, 'h800, 1); // Cut in the continuation halfword.
     start('h302);
     expect_pc('h302, 'h306);
-    assert (local_flushes == 1);
+    // Corrected S2 data bypasses into Decode before registered repair kills
+    // younger requests. Count that recovery after its edge, not before bypass.
+    repeat (2) @(negedge clock);
+    assert (local_flushes == 1) else $fatal(1, "continuation repair did not occur exactly once");
 
     initialize(2);
     train('h302, 'h402, 0);

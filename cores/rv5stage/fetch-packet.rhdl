@@ -1,0 +1,22 @@
+#lang rhodium
+// Defines raw fetch occurrences crossing from the speculative frontend into core Decode.
+
+import:
+  "btb.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+
+bundle RV5StageFetchPacket(xlen :: XLen):
+  pc: Bits(xlen.width)
+  word: Bits(32)
+  mask: Bits(2)
+  page_fault: Bool
+  access_fault: Bool
+  prediction: RV5StagePrediction(xlen)
+
+bundle RV5StageFetchRepair(xlen :: XLen):
+  pc: Bits(xlen.width)
+  entry: Bits(xlen.width)
+
+export:
+  RV5StageFetchPacket
+  RV5StageFetchRepair

@@ -31,8 +31,9 @@ each other; share external transaction machinery through the CHI package.
 | [`btb.rhdl`](btb.rhdl) | Associative word lookup, local direction counters, training, and prediction metadata |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`frontend.rhdl`](frontend.rhdl), [`frontend-control.rhdl`](frontend-control.rhdl) | Fetch topology, fixed-latency S1/S2 correlation, registered repair, and independent execution controls |
-| [`fetch-source.rhdl`](fetch-source.rhdl) | Acceptance-driven PC and continuation state, replay selection, BTB composition, and complete attempt production |
-| [`instruction-buffer.rhdl`](instruction-buffer.rhdl), [`fetch-word-buffer.rhdl`](fetch-word-buffer.rhdl) | Completed-word storage, variable-rate compressed assembly, consumption, and stale-cut detection |
+| [`fetch-source.rhdl`](fetch-source.rhdl) | S0 PC selection, registered S1 prediction, continuation state, and replay selection |
+| [`fetch-packet.rhdl`](fetch-packet.rhdl), [`fetch-scan.rhdl`](fetch-scan.rhdl) | Raw packet boundary and S2 prediction-cut validation |
+| [`instruction-buffer.rhdl`](instruction-buffer.rhdl) | Core-owned fall-through compressed assembly and one residual halfword |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
@@ -90,37 +91,40 @@ each other; share external transaction machinery through the CHI package.
 
 Keep frontend stage ownership explicit: execution owns architectural redirects,
 invalidation, training, and instruction consumption. The separate frontend owns
-PC selection, S0/S1/S2 attempt contexts, replay, completed words, and assembly.
+PC selection, S0/S1/S2 attempt contexts, replay, prediction scanning, and raw packets.
+The core owns instruction assembly and compressed expansion directly in Decode.
 MMU owns S1 translation/PMA and accepted walks; L1I owns SRAM lookup and accepted
 refills. Neither retains an ordinary fetch request for later response.
 
-S0 reserves space from registered completed-word occupancy plus S1/S2 validity.
+S0 reserves space from registered packet-queue occupancy plus S1/S2 validity.
 Never borrow same-cycle dequeue credit or feed Decode readiness into S0.
-The fetch source produces complete `RV5StageFetchAttempt` offers. An
-`atomic_fork` sends one branch through the address map to memory and the other
-through `to_valid` into S1. This captures exactly the prediction and continuation
-context of the transferred occurrence, without a memory-side handshake echo.
+The fetch source forks accepted `RV5StageFetchAttempt` offers to memory and S1.
+BTB lookup uses the registered S1 PC, and its result travels with that occurrence
+into S2. Prediction chooses the next S0 PC; a stall retains that decision.
 The only outcome-to-PC feedback is registered S2 replay selecting the oldest
 failed attempt's PC and continuation context. It kills younger S1 work without
-clearing older completed words or the assembly PC. Architectural recovery and
-registered prediction repair instead clear speculative words and both stages.
-The host-side `fetch-admission-test.rhm` test guards these timing boundaries
-using hierarchical port-leaf dependencies. `rv5stage-fetch` owns the frontend's
-CIRCT lowering and cycle-visible behavior.
+clearing older packets or core residual state. Architectural recovery clears the
+packet queue, IBuf residual, and both stages. Registered prediction repair clears
+only younger attempts: the scanner already corrected the current packet.
+The host `fetch-admission-test.rhm` guards these timing boundaries using
+hierarchical port-leaf dependencies.
 
-The frontend instantiates a five-entry `RV5StageInstructionBuffer`, which owns
-assembly and an internal `RV5StageFetchWordBuffer`. Their host capacity
-parameters permit focused smaller-instance validation. The internal two-word
-window is not two independent streams: consumption releases zero, one, or two
-entries; compaction and append happen at the same edge. There are no
-Requested/Empty entries or request/response ring pointers. Capture prediction
-per attempt occurrence, including continuation context; never reconstruct it
-from the live BTB.
-Correct predictions do not flush the memory path. Malformed cuts produce a
-`Valid(RV5StageFetchRepair)` registered before restart and BTB invalidation;
-architectural recovery has priority. The buffer consumes Valid completed words
-and produces Decoupled instructions. Its occupancy is registered, never a
-same-cycle availability calculation.
+The frontend uses `ShiftQueue(Packet, 5, ~flow: #true)` without same-cycle full
+replacement. A reserved S2 result converts through checked `to_decoupled` into
+the queue. Empty-queue bypass feeds the core IBuf and Decode in the S2 cycle;
+there is no separate IF/ID register. The IBuf stores only one leftover halfword
+with its PC and prediction metadata; faulting packets remain in the queue until
+consumed. Packet consumption is not instruction
+consumption: an incomplete instruction may consume a packet without issuing,
+and a retained compressed instruction may issue without consuming a packet.
+
+The S2 scanner keeps its own partial-instruction bit for fetch lookahead,
+independently of the core's residual parcel. It validates branch locations and
+lengths without full compressed expansion. A stale cut is removed from the
+current packet; a registered repair invalidates the BTB entry and restarts after
+that packet, preserving older queued instructions. Architectural recovery wins.
+A source clear without restart stops admission until an explicit restart; never
+reconstruct recovery from the core's assembly cursor or speculative next PC.
 
 Frontend S1/S2 and the repair pipeline use flushable Valid pipes with explicit
 `flush` inputs. Recovery clears their validity at the edge while preserving
@@ -208,15 +212,17 @@ token validity, preserving the feed-forward datapath and cancellation timing.
 Accepted `frontend.s0.request` occurrences are explicit roots. The intrinsic
 flushable pipes connect them through `frontend.s1.lookup` and
 `frontend.s2.outcome`, which captures replay, admission, and admitted fault flags.
-Only admitted outcomes pass the Flow filter into completed-word storage; no
-additional checkpoint represents that same-cycle admission. Instruction assembly declares a window contract using
-the actual public word-buffer count, releases, flush, and contributing-word
-selection. A word can parent two compressed instructions; a straddle has two
-word parents, including a faulting continuation. `core.s1.fetch` inherits those
+Only admitted outcomes pass the Flow filter into packet storage; no
+additional checkpoint represents that same-cycle admission. ShiftQueue owns
+its shifting-window contract and explicit flush. Core-side assembly declares
+a depth-one window using actual residual capture/release, clear, and independent
+resident/live contribution predicates. A word can parent two compressed
+instructions; a straddle has two word parents, including a faulting continuation.
+`core.s2.decode` inherits those
 parents instead of cutting ancestry. Retry attempts are new roots, and MMU,
 I-cache refill, predictor-training, and redirect causality remain separate.
 Run `event-window`, `event-frontend`, `rv5stage-fetch-prediction`, and
-`rv5stage-fetch-admission` for changes at this boundary.
+the host admission test for changes at this boundary.
 Later checkpoints must not become independent roots to hide an unsupported
 path. Decode transfers fire only when the hazard gate admits them,
 but its checkpoint must precede `gate_flow` and follow the squash filter so
@@ -271,8 +277,8 @@ After changing them, run the SimpleSoC trace smoke; its
 and the lack of fabricated parent edges. Instruction RN-I has no SNP channel;
 only the data cache contributes snoop events. Use a cache-heavy benchmark to inspect
 additional writeback/snoop activity; an idle channel need not emit an event.
-`check-stall-events.sql` separately validates fetch/decode stalls, reason flags,
-and fetch-to-stall ancestry without letting observers count as transfer fanout.
+`check-stall-events.sql` separately validates admitted packet ancestry for Decode
+stalls and reason flags without counting observers as transfer fanout.
 
 ## Maintain the UDB projection
 

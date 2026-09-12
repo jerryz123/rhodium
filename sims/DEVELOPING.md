@@ -132,16 +132,17 @@ checks missing trace path, failed output open, and a small-cycle timeout with
 an importable settled prefix. Also run untraced SimpleSoC smoke after changing
 the common driver.
 
-`tests/check-core-events.sql` additionally requires all five scalar pipeline
-stages, exact permitted edge families, one parent per downstream scalar event, no duplicate
-children, matching RV64 PCs, and one-cycle downstream latency (elastic IF/ID may
-take longer). It requires repeated fetched PCs to exercise distinct occurrences.
+`tests/check-core-events.sql` additionally requires Decode through WB,
+exact permitted edge families, one parent per EX/MEM/WB event, no duplicate
+scalar children, matching RV64 PCs, and one-cycle downstream latency. Decode
+inherits packet ancestry; the raw packet boundary is not an IF/ID transfer. It requires
+repeated decoded PCs to exercise distinct occurrences.
 PC and instruction checks use named captures, independently of core bundle layout.
-`check-frontend-events.sql` connects request, lookup, outcome, and core-fetch
-tracks. Core fetch and its stalls have one or two retained, admitted S2
+`check-frontend-events.sql` connects request, lookup, outcome, and Decode
+tracks. Decode and its stalls have one or two retained/live, admitted S2
 parents; they are no longer roots. S2 captures admission and fault flags in the
-single outcome event, and instruction consumption follows at least one cycle
-later. The cycle-level `event-frontend` fixture owns exact compressed/straddle
+single outcome event, and empty-queue bypass permits same-cycle instruction
+consumption. The cycle-level `event-frontend` fixture owns exact compressed/straddle
 parent reconstruction; the smoke checks importer-visible edge families.
 Select stages through track names, not mnemonic slice names, and check full
 disassembly separately from the mnemonic. Generic display/schema rules belong
@@ -155,10 +156,11 @@ addresses; translation need not preserve their numeric value. Direct S4 refill
 acceptance must reach TXREQ with matching opcode/line address; retries may
 produce multiple children. Explicitly detached traffic may have no S4 parent.
 Restrict those pipeline checks to transfer sites. `tests/check-stall-events.sql`
-requires real fetch/decode backpressure, matching capture layouts, the exact
-Boolean hazard fields, and accepted-fetch parents for decode stalls. It checks
-that surviving issue follows the end of its stalls while still inheriting the fetch parent,
-and rejects outgoing edges from any stall observation. Keep these checks separate
+requires real Decode backpressure, matching capture layouts, the exact
+Boolean hazard fields, and admitted S2 parents for Decode stalls.
+Surviving instructions follow their own stalls; match both instruction PC and
+parent occurrence because two compressed instructions can share a word parent.
+It rejects outgoing edges from any stall observation. Keep these checks separate
 from transfer fanout and fixed-latency rules. Check durations, non-overlap, and
 captured reasons on each coalesced stall slice.
 

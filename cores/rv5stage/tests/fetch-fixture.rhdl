@@ -1,0 +1,26 @@
+#lang rhodium
+// Exercises the production raw-packet boundary and core-side IBuf as one fetch-to-Decode path.
+
+import:
+  "../frontend.rhdl" open
+  "../frontend-control.rhdl" open
+  "../instruction-buffer.rhdl" open
+  "../bundles.rhdl" open
+  "../profile.rhm".RVCoreProfile
+  "../icache/protocol.rhdl" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageFetchFixture(profile :: RVCoreProfile, ~btb_entries: btb_entries :: Nat = 16):
+  interface control(RV5StageFrontendControl(profile.xlen), ~role: frontend)
+  interface memory(RV5StageFetchAccess(profile.xlen), ~role: requester)
+  interface fetched(Decoupled(FetchDecode(profile.xlen)), ~role: producer)
+  inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries))
+  inst instructions(RV5StageInstructionBuffer(profile))
+  control |> frontend.control
+  frontend.memory |> memory
+  frontend.packets |> instructions.packets
+  instructions.clear.valid <== control.flush.valid ||| control.restart.valid ||| control.invalidate_all.valid
+  instructions.fetched |> gate_flow(control.active) |> fetched
+
+export:
+  RV5StageFetchFixture

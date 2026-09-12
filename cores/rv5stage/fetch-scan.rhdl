@@ -1,0 +1,49 @@
+#lang rhodium
+// Checks S2 prediction cuts and repairs younger fetches without discarding older queued packets.
+
+import:
+  "fetch-packet.rhdl" open
+  "profile.rhm".RVCoreProfile
+  "../../riscv/isa/c.rhm" open
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageFetchScan(core_profile :: RVCoreProfile):
+  def xlen = core_profile.xlen
+  def compressed_enabled = compressed_extensions_enabled(core_profile.extensions.compressed)
+  interface ingress(Valid(RV5StageFetchPacket(xlen)), ~role: consumer)
+  interface egress(Valid(RV5StageFetchPacket(xlen)), ~role: producer)
+  interface repair(Valid(RV5StageFetchRepair(xlen)), ~role: producer)
+  interface clear(Pulse(), ~role: consumer)
+  reg partial(~init: Bool(#false))
+  def packet = ingress.bits
+  def lower_compressed = if compressed_enabled | packet.word[0..2] =/= bits(3, 2) | Bool(#false)
+  def upper_compressed = if compressed_enabled | packet.word[16..18] =/= bits(3, 2) | Bool(#false)
+  def lower_start = packet.mask[0].into(Bool) & !partial
+  def upper_start = packet.pc[1].into(Bool) ||| partial ||| lower_compressed
+  def predicted_upper = packet.prediction.pc[1].into(Bool)
+  def predicted_half = mux(predicted_upper, packet.word[16..32], packet.word[0..16])
+  def predicted_compressed = mux(predicted_upper, upper_compressed, lower_compressed)
+  def compressed_jump = (predicted_half[0..2] === bits(1, 2)) & (predicted_half[13..16].is_one_of(bits(5, 3), bits(6, 3), bits(7, 3)) ||| (Bool(xlen == XLen.X32) & (predicted_half[13..16] === bits(1, 3))))
+  def compressed_indirect = (predicted_half[0..2] === bits(2, 2)) & (predicted_half[13..16] === bits(4, 3)) & (predicted_half[2..7] === bits(0, 5)) & predicted_half[7..12].or_reduce()
+  def control_flow = mux(predicted_compressed, compressed_jump ||| compressed_indirect, predicted_half[0..7].is_one_of(bits(0x63, 7), bits(0x6f, 7), bits(0x67, 7)))
+  def boundary = mux(predicted_upper, upper_start, lower_start)
+  def bad_prediction = packet.prediction.valid & !packet.page_fault & !packet.access_fault & (!boundary ||| (packet.prediction.compressed ^ predicted_compressed) ||| !control_flow)
+  def prediction = packet.prediction.updated(~valid: packet.prediction.valid & !bad_prediction)
+  // A valid lower compressed prediction cuts the upper parcel. A stale cut
+  // instead retains the complete word and restarts after it, not before it.
+  def cut_upper = prediction.valid & !predicted_upper & predicted_compressed
+  def mask = mux(cut_upper, bits(1, 2), packet.mask)
+  (ingress |> filter_valid(_packet => !clear.valid) |> map_valid(packet => packet.updated(~mask: mask, ~prediction: prediction))) |> egress
+  (ingress |> filter_valid(_packet => !clear.valid & bad_prediction) |> map_valid(packet => RV5StageFetchRepair(xlen)):
+    pc: packet.pc.align_down(4) + bits(4, xlen.width)
+    entry: packet.prediction.pc
+  ) |> repair
+  when (clear.valid):
+    partial <== Bool(#false)
+  elsewhen (ingress.valid):
+    partial <== mask[1].into(Bool) & upper_start & !upper_compressed & !packet.page_fault & !packet.access_fault
+
+export:
+  RV5StageFetchScan

@@ -248,6 +248,7 @@ remain visible; it does not summarize the whole containing module. See the
 | `filter_flow`, `filter_valid`, `gate_flow` | Preserve surviving transfers only |
 | `valid_pipe`, `valid_pipe_always_capture` | Delay lineage by the certified fixed cycle count; explicit flush clears pending lineage at the edge |
 | Windowed storage | Select retained references and optionally the live input, including simultaneous contributions; release a prefix, append, and flush without resetting history |
+| `ShiftQueue`, `shift_queue` | Follow shifting head storage, optional empty bypass, and explicit flush through the intrinsic window contract |
 | Ready-valid `pipe` | Advance, bubble, and stall with the functional stages |
 | Retained-owner contract | Capture one lineage, reuse it across declared outputs and repeated attempts, and release it only on completion; replacement exposes the old owner until the edge |
 | `trace_detach` | Explicitly cut ancestry without a visible event; selected transactions remain valid but parentless |
@@ -327,7 +328,7 @@ fail rather than inventing lineage or silently wrapping identities.
   bypass does not break a cycle. Joins/windows that grow ancestry on each lap
   are rejected instead of truncating parents. Cyclic static dependencies retain
   one witness path per parent and report unknown latency, not an enumeration of laps.
-- Control-only queues/broadcasts, shift queues, selective/control-only forks and
+- Control-only queues/broadcasts, selective/control-only forks and
   joins, and valid-only/control-only/packet arbitration need dedicated adapters.
   Direct `Join` instances are not certified by name. Reordering, arbitrary
   memory traversal, and CDC are not inferred from topology.

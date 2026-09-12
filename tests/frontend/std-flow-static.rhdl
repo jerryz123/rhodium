@@ -13,6 +13,7 @@ bundle CapturedPayload():
 
 sync_circuit FlowStaticInformation():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  input shift_flush: Bool
 
   def piped = ingress |> pipe(1)
   def piped_bits = piped.bits
@@ -43,7 +44,7 @@ sync_circuit FlowStaticInformation():
   def shifted_bits = shifted.bits
   def detached_shift = Bits(8) |> shift_stage
   def detached_shift_bits = detached_shift.right.bits
-  def extended_shift = detached_shift |> shift_queue(1, ~flow: #true)
+  def extended_shift = detached_shift |> shift_queue(1, ~flow: #true, ~flush: shift_flush)
   def extended_shift_bits = extended_shift.right.bits
   def protocol_shift = Irrevocable(Bits(8)) |> shift_stage
   def protocol_shift_bits = protocol_shift.right.bits

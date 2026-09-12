@@ -1,0 +1,23 @@
+#lang rhodium
+// Exposes packet-to-instruction transfers for bypass, residual, fault, and kill tests.
+
+import:
+  "../instruction-buffer.rhdl" open
+  "../fetch-packet.rhdl" open
+  "../bundles.rhdl" open
+  "../profile.rhm" open
+  "../../../riscv/isa/c.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageInstructionBufferFixture():
+  interface packets(Decoupled(RV5StageFetchPacket(XLen.X64)), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  interface fetched(Decoupled(FetchDecode(XLen.X64)), ~role: producer)
+  inst buffer(RV5StageInstructionBuffer(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions))))
+  packets |> buffer.packets
+  clear |> buffer.clear
+  buffer.fetched |> fetched
+
+export:
+  RV5StageInstructionBufferFixture

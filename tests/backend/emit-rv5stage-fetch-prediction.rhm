@@ -7,5 +7,5 @@ import:
   "../../riscv/isa/c.rhm".CCompressedExtensions
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
-  "../../cores/rv5stage/frontend.rhdl".RV5StageFrontend
-print(emit_circt(embedded.run_elaboration(fun (): RV5StageFrontend(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)), ~btb_entries: 4))))
+  "../../cores/rv5stage/tests/fetch-fixture.rhdl".RV5StageFetchFixture
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageFetchFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)), ~btb_entries: 4))))

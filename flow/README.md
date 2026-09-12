@@ -678,9 +678,12 @@ still controls payload shifting. Both modules export the configured
 payload/protocol seeds, and reusable disconnected handles. Use an explicit
 instance when `count` or `mask` is needed. Positive depth and host Boolean
 options are required; reset empties occupancy without resetting payload.
-The stage records topology metadata, but event-lineage instrumentation across
-shift storage is not yet supported (the pointer-queue trace model does not
-describe shifting slots).
+`~flushable: #true` adds an explicit `flush: Bool` input; configured stages
+accept `~flush: signal`. Flush empties occupancy on the edge, overriding
+simultaneous insertion/removal without resetting payload. It does not suppress
+pre-edge interface offers; callers must filter transfers they intend to cancel.
+The intrinsic retained-window trace contract follows shifting slots and optional
+empty bypass, including flush and full simultaneous replacement.
 
 `CompletionQueue(Request, Response, depth)` couples a ready-valid request path
 to a nonbackpressured implementation. Each request handshake reserves one

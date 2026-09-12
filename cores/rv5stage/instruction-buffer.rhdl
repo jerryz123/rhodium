@@ -1,9 +1,9 @@
 #lang rhodium
-// Assembles variable-length instructions from reserved completed words and reports stale prediction cuts.
+// Feeds Decode directly from fetch packets, retaining only an unconsumed halfword.
 
 import:
   "btb.rhdl" open
-  "fetch-word-buffer.rhdl" open
+  "fetch-packet.rhdl" open
   "profile.rhm".RVCoreProfile
   "decode/core-ctrl.rhdl".rv5stage_instructions
   "bundles.rhdl" open
@@ -14,11 +14,12 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-bundle RV5StageFetchRepair(xlen :: XLen):
+bundle RV5StageFetchParcel(xlen :: XLen):
   pc: Bits(xlen.width)
-  entry: Bits(xlen.width)
+  halfword: Bits(16)
+  prediction: RV5StagePrediction(xlen)
 
-sync_circuit RV5StageInstructionBuffer(core_profile :: RVCoreProfile, capacity :: PosInt):
+sync_circuit RV5StageInstructionBuffer(core_profile :: RVCoreProfile):
   def xlen = core_profile.xlen
   def extensions = core_profile.extensions
   def profile = extensions.floating_point
@@ -26,103 +27,72 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RVCoreProfile, capacity :
   def supported_instruction_names = rv5stage_instructions(xlen, profile, extensions.half_precision, ~zfa: extensions.zfa, ~zicbop: extensions.zicbop, ~zicboz: extensions.zicboz, ~zicbom: extensions.zicbom, ~zawrs: extensions.zawrs, ~zihintpause: extensions.zihintpause, ~zihintntl: extensions.zihintntl).map(fun (instruction): instruction.name)
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
-  unless (!compressed_enabled) || capacity >= 2
-  | error(~who: #'RV5StageInstructionBuffer, "compressed assembly requires space for two fetch words")
-  input active: Bool
-  interface fill(Valid(RV5StageFetchWord(xlen)), ~role: consumer)
+  interface packets(Decoupled(RV5StageFetchPacket(xlen)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
-  interface restart(Valid(Bits(width)), ~role: consumer)
-  interface repair(Valid(RV5StageFetchRepair(xlen)), ~role: producer)
   interface fetched(Decoupled(FetchDecode(xlen)), ~role: producer)
-  output cursor: Bits(width)
-  output count: Bits(index_width(capacity + 1))
 
-  reg pc(~init: bits(0, width))
-  inst word_buffer(RV5StageFetchWordBuffer(xlen, capacity))
-  def command = clear.valid ||| restart.valid
-  fill |> word_buffer.fill
-  word_buffer.clear.valid <== command
-  cursor <== pc
-  count <== word_buffer.window.count
-  def slot0 = word_buffer.window.head
-  def slot1 = word_buffer.window.following
-  def slot0_valid = word_buffer.window.head_valid
-  def slot1_valid = word_buffer.window.following_valid
-  def slot0_fault = slot0.page_fault ||| slot0.access_fault
-  def upper_half = pc[1].into(Bool)
-  def selected_halfword = mux(upper_half, slot0.word[16..32], slot0.word[0..16])
-  def selected_is_compressed = if compressed_enabled | selected_halfword[0..2] =/= bits(3, 2) | Bool(#false)
-  def needs_following_word = slot0_valid & !slot0_fault & upper_half & !selected_is_compressed
-  def output_available = slot0_valid & (!needs_following_word ||| slot1_valid)
-  def current_raw_instruction = mux(selected_is_compressed, selected_halfword.zext(32), slot0.word)
-  def following_raw_instruction = slot1.word[0..16] ++ slot0.word[16..32]
-  def raw_instruction = mux(needs_following_word, following_raw_instruction, current_raw_instruction)
-  def instruction_is_compressed = slot0_valid & selected_is_compressed & !slot0_fault
+  reg residual_valid(~init: Bool(#false))
+  reg residual(RV5StageFetchParcel(xlen))
+  def pc = mux(residual_valid, residual.pc, packets.bits.pc)
+  def upper = pc[1].into(Bool)
+  def halfword = mux(residual_valid, residual.halfword, mux(upper, packets.bits.word[16..32], packets.bits.word[0..16]))
+  def compressed = if compressed_enabled | halfword[0..2] =/= bits(3, 2) | Bool(#false)
+  def head_fault = !residual_valid & (packets.bits.page_fault ||| packets.bits.access_fault)
+  def straddle = upper & !compressed & !head_fault
+  def head_valid = residual_valid ||| packets.valid
+  def following = residual_valid & packets.valid
+  def available = head_valid & (!straddle ||| following)
+  def raw = mux(compressed, halfword.zext(32), mux(straddle, packets.bits.word[0..16] ++ halfword, packets.bits.word))
+  def instruction_is_compressed = compressed & !head_fault
   wire expanded_instruction: Bits(32)
   wire compressed_legal: Bool
   if compressed_enabled
   | block:
       inst expander(RiscvCompressedExpander(xlen, profile, compressed_extensions, ~supported_instructions: supported_instruction_names))
-      expander.compressed <== raw_instruction[0..16]
-      expanded_instruction <== mux(instruction_is_compressed, expander.expansion.instruction, raw_instruction)
+      expander.compressed <== raw[0..16]
+      expanded_instruction <== mux(instruction_is_compressed, expander.expansion.instruction, raw)
       compressed_legal <== expander.expansion.valid
   | block:
-      expanded_instruction <== raw_instruction
+      expanded_instruction <== raw
       compressed_legal <== Bool(#true)
-  def instruction_page_fault = slot0.page_fault ||| (needs_following_word & slot1.page_fault)
-  def instruction_access_fault = slot0.access_fault ||| (needs_following_word & slot1.access_fault)
-  def instruction_bytes = mux(instruction_is_compressed, bits(2, width), bits(4, width))
-  def sequential_pc = pc + instruction_bytes
-  def instruction_fault_address = mux(needs_following_word & (slot1.page_fault ||| slot1.access_fault), slot1.base, pc)
-
-  // A prediction is a cut in this occurrence's stream, not a fresh table lookup.
-  // Reject stale cuts before they can truncate an instruction or enter its middle.
-  def predicted_here = slot0.prediction.valid & (slot0.prediction.pc === pc)
-  def control_flow_opcode = expanded_instruction[0..7].is_one_of(bits(0x63, 7), bits(0x6f, 7), bits(0x67, 7))
-  def wrong_length = predicted_here & (slot0.prediction.compressed ^ selected_is_compressed)
-  def interior_cut = slot0.prediction.valid & !upper_half & !selected_is_compressed & slot0.prediction.pc[1].into(Bool)
-  def continuation_cut = needs_following_word & slot1_valid & slot1.prediction.valid & !slot1.prediction.pc[1].into(Bool)
-  def broken_continuation = needs_following_word & slot1_valid & (slot1.base =/= (slot0.base + bits(4, width)))
-  def stale_prediction = wrong_length ||| interior_cut ||| continuation_cut ||| broken_continuation ||| (output_available & predicted_here & !control_flow_opcode)
-  repair.valid <== active & !command & slot0_valid & !slot0_fault & stale_prediction
-  def predicted_taken = predicted_here & !instruction_page_fault & !instruction_access_fault & !(instruction_is_compressed & !compressed_legal)
-  def predicted_next_pc = mux(predicted_taken, slot0.prediction.target, sequential_pc)
-  repair.bits <== RV5StageFetchRepair(xlen):
-    pc: pc
-    entry: mux(continuation_cut, slot1.prediction.pc, slot0.prediction.pc)
-
-  def fetched_bits = FetchDecode(xlen):
+  def page_fault = (!residual_valid ||| straddle) & packets.bits.page_fault
+  def access_fault = (!residual_valid ||| straddle) & packets.bits.access_fault
+  def sequential_pc = pc + mux(instruction_is_compressed, bits(2, width), bits(4, width))
+  def prediction = mux(residual_valid, residual.prediction, packets.bits.prediction)
+  def predicted_taken = prediction.valid & (prediction.pc === pc) & !page_fault & !access_fault & !(instruction_is_compressed & !compressed_legal)
+  fetched.valid <== available & !clear.valid
+  fetched.bits <== FetchDecode(xlen):
     pc: pc
     instruction: expanded_instruction
-    raw_instruction: raw_instruction
+    raw_instruction: raw
     sequential_pc: sequential_pc
-    predicted_next_pc: predicted_next_pc
+    predicted_next_pc: mux(predicted_taken, prediction.target, sequential_pc)
     compressed_illegal: instruction_is_compressed & !compressed_legal
-    instruction_page_fault: instruction_page_fault
-    instruction_access_fault: instruction_access_fault
-    instruction_fault_address: instruction_fault_address
-  fetched.valid <== active & !command & !repair.valid & output_available
-  fetched.bits <== fetched_bits
+    instruction_page_fault: page_fault
+    instruction_access_fault: access_fault
+    instruction_fault_address: mux(straddle & (packets.bits.page_fault ||| packets.bits.access_fault), packets.bits.pc.align_down(4), pc)
 
-  def instruction_enqueue = fetched.fire()
-  def retain_lower_word = instruction_is_compressed & !upper_half & !predicted_taken
-  def release_count = mux(instruction_enqueue, mux(retain_lower_word, bits(0, 2), mux(predicted_taken & needs_following_word, bits(2, 2), bits(1, 2))), bits(0, 2))
-  word_buffer.window.release.valid <== release_count =/= bits(0, 2)
-  word_buffer.window.release.bits <== release_count
-
-  // Assembly observes retained words without necessarily releasing them. A
-  // straddling instruction selects both occurrences, including faulting words.
-  def count_width = index_width(capacity + 1)
-  def released = if count_width < 2 | release_count[0..count_width] | (if count_width > 2 | release_count.zext(count_width) | release_count)
-  def contributors = if capacity > 1 | [Bool(#true), needs_following_word] | [Bool(#true)]
-  describe_interface_window_storage(capacity, fill.valid & !command, released, word_buffer.window.count, command, contributors)
-  describe_interface_contract(fill, fetched, "instruction-assembly", ~trace_model: interface_trace_window())
-
-  when command:
-    pc <== mux(restart.valid, restart.bits, pc)
-  elsewhen instruction_enqueue:
-    pc <== predicted_next_pc
+  // An incomplete upper-half instruction may enter residual storage without
+  // issuing to Decode. A retained compressed instruction consumes no new packet.
+  def capture_partial = !residual_valid & straddle
+  packets.ready <== !clear.valid & mux(residual_valid, straddle & fetched.ready, capture_partial ||| fetched.ready)
+  def keep_upper = packets.bits.mask[1].into(Bool) & !packets.bits.pc[1].into(Bool) & !packets.bits.page_fault & !packets.bits.access_fault & mux(residual_valid, straddle, compressed)
+  // Assembly may use the resident parcel, the live packet, or both. Capturing
+  // an upper parcel is independent of consuming the instruction being offered.
+  describe_interface_window_storage(1, packets.fire() & (capture_partial ||| keep_upper), (residual_valid & fetched.fire()).as_bits(), residual_valid.as_bits(), clear.valid, [residual_valid], ~live: !residual_valid ||| straddle)
+  describe_interface_contract(packets, fetched, "instruction-assembly", ~trace_model: interface_trace_window())
+  when (clear.valid):
+    residual_valid <== Bool(#false)
+  elsewhen (packets.fire()):
+    residual_valid <== capture_partial ||| keep_upper
+    residual <== RV5StageFetchParcel(xlen):
+      pc: packets.bits.pc.align_down(4) + bits(2, width)
+      halfword: packets.bits.word[16..32]
+      prediction: packets.bits.prediction
+  elsewhen (fetched.fire()):
+    residual_valid <== Bool(#false)
+  when (fetched.valid & straddle):
+    assert(packets.bits.mask[0].into(Bool) & (packets.bits.pc.align_down(4) === (pc.align_down(4) + bits(4, width))), "ibuf_contiguous_instruction")
 
 export:
-  RV5StageFetchRepair
   RV5StageInstructionBuffer
