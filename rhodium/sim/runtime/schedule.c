@@ -288,7 +288,7 @@ int rds_schedule_objects(rds_sim *s, unsigned phase) {
     if(!p->bulk_cycles&&phase!=0)p->offers_ready=false;
     if (phase == 1 && p->prepare_local) {
         for (uint32_t i = 0; i < p->count; ++i)
-            if (p->spin && i ? atomic_load_explicit(&p->completions[i].epoch,memory_order_relaxed)&PREPARATION_FAILED : p->workers[i].prepared)
+            if (p->spin && i ? (atomic_load_explicit(&p->completions[i].epoch,memory_order_relaxed)&PREPARATION_FAILED) != 0 : p->workers[i].prepared != 0)
             return rds_fail(s, p->workers[i].prepare_error);
         return 0;
     }
@@ -312,7 +312,7 @@ int rds_schedule_objects(rds_sim *s, unsigned phase) {
         else pthread_barrier_wait(&p->done);
     }
     for (uint32_t i = 0; i < p->count; ++i)
-        if (p->spin && i ? atomic_load_explicit(&p->completions[i].epoch,memory_order_relaxed)&COMPLETION_FAILED : p->workers[i].status)
+        if (p->spin && i ? (atomic_load_explicit(&p->completions[i].epoch,memory_order_relaxed)&COMPLETION_FAILED) != 0 : p->workers[i].status != 0)
             return rds_fail(s, p->workers[i].view.error);
     return 0;
 }
@@ -399,7 +399,8 @@ static void affinity_place(const rds_sim*s,component*components,uint32_t nc,
             }
             if(gain>best){best=gain;aa=a;bb=b;}
         }
-        if(aa==RDS_NONE)break;uint32_t x=components[aa].id,y=components[bb].id,lx=owner[x],ly=owner[y];
+        if(aa==RDS_NONE)break;
+        uint32_t x=components[aa].id,y=components[bb].id,lx=owner[x],ly=owner[y];
         ++s->schedule->affinity_swaps;s->schedule->affinity_after-=(uint64_t)best;
         loads[lx]=loads[lx]-components[aa].cost+components[bb].cost;loads[ly]=loads[ly]-components[bb].cost+components[aa].cost;owner[x]=ly;owner[y]=lx;
     }

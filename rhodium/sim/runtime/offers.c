@@ -55,7 +55,7 @@ rds_offer_plan *rds_offer_build(const rds_sim *s){
 #undef COPY
     p->model.objects=calloc(s->nx,sizeof *p->model.objects);if(!p->model.objects)goto fail;
     for(uint32_t i=0;i<s->nx;++i){p->model.objects[i]=s->objects[i];p->model.objects[i].inputs=copy_array(s->objects[i].inputs,s->objects[i].ni,sizeof(uint32_t));if(!p->model.objects[i].inputs)goto fail;}
-#define ALLOC(field,count,type) do{p->field=calloc((count)?(count):1,sizeof(type));if(!p->field)goto fail;}while(0)
+#define ALLOC(field,count,type) do{size_t allocation_count=(count);p->field=calloc(allocation_count?allocation_count:1,sizeof(type));if(!p->field)goto fail;}while(0)
     ALLOC(group,s->nx,uint32_t);ALLOC(definition,s->nv,uint32_t);ALLOC(dependency,s->nv,uint32_t);
     ALLOC(offset,s->nv,uint32_t);ALLOC(input_port,s->nv,uint32_t);ALLOC(state,s->nv,unsigned char);ALLOC(offer,s->nv,unsigned char);
     ALLOC(pending,s->nx,bool);ALLOC(staged,s->nr,bool);ALLOC(prepare,s->nx,uint32_t);
@@ -221,6 +221,8 @@ uint64_t rds_offer_key(const rds_sim *s,uint64_t h){const rds_offer_plan *p=s->s
 }
 void rds_offer_report(FILE *f,const rds_sim *s){const rds_offer_plan *p=s->schedule->offers;fputs(",\"bulk_offers\":",f);if(!p){fputs("null",f);return;}
     fprintf(f,"{\"groups\":%u,\"values\":%u,\"bank_bytes\":%u,\"owners\":[",p->groups,p->count,p->words*8);
-    for(uint32_t g=0;g<p->groups;++g)fprintf(f,"%s%u",g?",":"",p->owner[g]);fputs("],\"group_costs\":[",f);
-    for(uint32_t g=0;g<p->groups;++g)fprintf(f,"%s%" PRIu64,g?",":"",p->cost[g]);fputs("]}",f);
+    for(uint32_t g=0;g<p->groups;++g)fprintf(f,"%s%u",g?",":"",p->owner[g]);
+    fputs("],\"group_costs\":[",f);
+    for(uint32_t g=0;g<p->groups;++g)fprintf(f,"%s%" PRIu64,g?",":"",p->cost[g]);
+    fputs("]}",f);
 }

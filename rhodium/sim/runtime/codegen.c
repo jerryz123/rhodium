@@ -1171,9 +1171,12 @@ int rds_use_compiled(rds_sim *s, const char *path) {
     }
     if(transition_bind)for(uint32_t i=0;i<s->schedule->count;++i)
         entries[s->schedule->count*3+4+i]=transition_bind(i);
-    if(offer_bind){for(uint32_t i=0;i<s->schedule->count;++i)for(uint32_t phase=0;phase<2;++phase)
-        entries[s->schedule->count*4+4+2*i+phase]=offer_bind(i,phase);
-        entries[s->schedule->count*6+4]=offer_bind(0,2);}
+    if(offer_bind){
+        for(uint32_t i=0;i<s->schedule->count;++i)
+            for(uint32_t phase=0;phase<2;++phase)
+                entries[s->schedule->count*4+4+2*i+phase]=offer_bind(i,phase);
+        entries[s->schedule->count*6+4]=offer_bind(0,2);
+    }
     uint64_t *arena=s->arena;size_t compact_words=s->value_words;
     if(!s->schedule->plan_released){compact_words=(arena_words()+7)&~(size_t)7;
         arena=aligned_alloc(64,(compact_words?compact_words:8)*8);
