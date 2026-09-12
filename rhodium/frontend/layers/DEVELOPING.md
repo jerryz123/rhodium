@@ -153,6 +153,10 @@ competing producers/consumers through wiring and hierarchy without banning
 unrelated internal Flow. These are inspection invariants, not new core hardware
 semantics. Diagram extraction and event occurrence expansion own hierarchy resolution;
 the interface layer must not import either consumer.
+Retained models may connect one input to multiple outputs sharing the same
+named lifetime. Validate complete ordered output coverage in the model, keeping
+endpoint-ownership overlap checks unchanged. Occurrence expansion reuses the
+same retained controls for each route; instrumentation shares their shadow owner.
 
 | Public area | Owning layer | Shared machinery | Representative tests |
 |---|---|---|---|

@@ -59,6 +59,11 @@ check:
   retained_fixture.invalid("missing") ~throws "requires declared storage controls"
   retained_fixture.invalid("width") ~throws "local one-bit"
   retained_fixture.invalid("duplicate") ~throws "already declared"
+  retained_fixture.invalid("outputs") ~throws "retained trace requires one input and one ordered route per output"
+  retained_fixture.invalid("inputs") ~throws "retained trace requires one input and one ordered route per output"
+  retained_fixture.invalid("routes") ~throws "retained trace requires one input and one ordered route per output"
+  instrument_events(retained_fixture.multi_output()).manifest.dependencies.length() ~is 2
+  instrument_events(retained_fixture.multi_output(#true)) ~throws "uncertified fanout"
   instrument_events(retained_fixture.retained(#true, #false)) ~throws "annotated ancestor on every input"
 
 def stall_before = emit_circt(stall_fixture.stalled.design)

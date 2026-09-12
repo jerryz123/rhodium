@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines structured lineage and bounded parent capacities through storage, routing, replication, and joins.
+// Defines finite lineage graphs and bounded parent capacities through storage and feedback.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -15,6 +15,7 @@ export:
   EventTraceRetained
   EventTracePlan
   EventTraceSource
+  EventTraceLink
   EventTracePipeline
   EventTraceSelection
   EventTraceRouting
@@ -22,6 +23,10 @@ export:
   EventTraceBroadcast
   EventTraceJoin
   event_trace_capacity
+  event_trace_inputs
+  event_trace_nodes
+  event_trace_registered
+  validate_event_trace_feedback
   EventManifest
 
 class EventField(name :: String, type :: String, width :: PosInt,
@@ -68,6 +73,10 @@ class EventTraceRetained(instance_path :: List.of(String), capture :: Value, rel
 
 class EventTraceSource(site :: False || String, detached :: Boolean = #false):
   implements EventTracePlan
+// Occurrence-qualified back references are resolved once after graph discovery.
+// Acyclic paths keep their existing expression shape.
+class EventTraceLink(vertex :: String, mutable target :: False || EventTracePlan = #false):
+  implements EventTracePlan
 class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)):
   implements EventTracePlan
 class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan)):
@@ -87,34 +96,92 @@ class EventTraceBroadcast(input :: EventTracePlan, instance_path :: List.of(Stri
 class EventTraceJoin(inputs :: NonemptyList.of(EventTracePlan)):
   implements EventTracePlan
 
-// Capacity counts slots, not distinct identities; the runtime deduplicates edges.
-// An annotation resets ancestry to one reference, so history does not accumulate.
+fun event_trace_inputs(plan :: EventTracePlan):
+  cond
+  | plan is_a EventTraceSource: []
+  | plan is_a EventTraceLink:
+      unless plan.target | error("unresolved event lineage vertex: " ++ plan.vertex)
+      [plan.target]
+  | plan is_a EventTraceSelection || plan is_a EventTraceJoin: plan.inputs
+  | ~else: [plan.input]
+
+fun event_trace_nodes(plan :: EventTracePlan):
+  def seen = MutableMap.by(===){}
+  def mutable nodes = []
+  fun visit(node :: EventTracePlan):
+    unless seen.has_key(node)
+    | seen[node] := #true
+      for (input in event_trace_inputs(node)): visit(input)
+      nodes := nodes ++ [node]
+  visit(plan)
+  nodes
+
+// A bypass remains a same-cycle dependency unless it is provably disabled.
+fun event_trace_registered(stage :: EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow):
+  fun zero(value :: Value):
+    def op = value.module_def.find_operation(value.defining_op_id)
+    cond
+    | op.opcode == "rtl.constant": op.attribute("value") == 0
+    | op.opcode == "rtl.cast": zero(op.operands[0])
+    | ~else: #false
+  !(stage is_a EventTraceQueue) || zero(stage.bypass)
+
+fun validate_event_trace_feedback(plan :: EventTracePlan):
+  def nodes = event_trace_nodes(plan)
+  def colors = MutableMap.by(===){}
+  fun visit(node :: EventTracePlan):
+    when colors.get(node, 0) == 1
+    | error(~who: #'infer_event_manifest, "same-cycle event lineage cycle; add registered storage or disable queue bypass")
+    unless colors.has_key(node)
+    | colors[node] := 1
+      def registered = node is_a EventTraceBroadcast || (node is_a EventTracePipeline && node.stages.find(event_trace_registered) != #false)
+      unless registered
+      | for (input in event_trace_inputs(node)): visit(input)
+      colors[node] := 2
+  // Visit storage inputs too: cutting one edge must not hide another cycle.
+  for (node in nodes): visit(node)
+  def cyclic = nodes.find(fun (node): node is_a EventTraceLink) != #false
+  def capacity = event_trace_capacity(plan)
+  when cyclic && capacity != 1
+  | error(~who: #'infer_event_manifest, "feedback currently requires single-parent lineage; insert a checkpoint after the join or window")
+  cyclic
+
+// Solve slot-count equations to a least fixed point. Positive feedback through
+// concatenation cannot converge; reject it rather than truncate parent history.
 fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
+  def nodes = event_trace_nodes(plan)
   def capacities = MutableMap.by(===){}
-  fun capacity(node :: EventTracePlan):
-    unless capacities.has_key(node)
-    | def count:
+  for (node in nodes): capacities[node] := 1
+  fun solve(pass :: Nat):
+    def mutable changed = #false
+    for (node in nodes):
+      def count:
         cond
         | node is_a EventTraceSource: 1
         | node is_a EventTracePipeline:
-            def mutable count = capacity(node.input)
+            def mutable count = capacities[node.input]
             for (stage in node.stages):
               when stage is_a EventTraceWindow | count := count * stage.selected.length()
             count
         | node is_a EventTraceJoin:
             def mutable total = 0
-            for (input in node.inputs): total := total + capacity(input)
+            for (input in node.inputs): total := total + capacities[input]
             total
         | node is_a EventTraceSelection:
             def mutable largest = 1
             for (input in node.inputs):
-              def count = capacity(input)
+              def count = capacities[input]
               when count > largest | largest := count
             largest
-        | ~else: capacity(node.input)
+        | ~else: capacities[event_trace_inputs(node)[0]]
+      when count != capacities[node] | changed := #true
       capacities[node] := count
-    capacities[node]
-  capacity(plan)
+    when changed
+    | when pass >= nodes.length()
+      | error(~who: #'infer_event_manifest, "unbounded feedback lineage capacity; insert a checkpoint to bound accumulated parents")
+      solve(pass + 1)
+  solve(0)
+  capacities[plan]
 
 class EventDependency(parent :: String,
                       child :: String,

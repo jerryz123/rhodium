@@ -59,6 +59,8 @@ Flat directional interfaces remain one compound port, rather than separate
 payload and handshake wires. Interface arrays preserve their element indices.
 Nested interface members are expanded recursively so nested interface leaves
 remain compound ports and ordinary leaf members remain ordinary ports.
+Repeated record-field projections identify the same logical endpoint; equal-width
+sibling channels remain distinct by their binding paths.
 
 Inline combinational operations have no block of their own. Extraction walks
 backward through them when finding data dependencies, stopping at a rendered

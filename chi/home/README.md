@@ -25,8 +25,11 @@ Subordinate traffic and incoming snoop/data contributions are not separately
 represented in this graph yet.
 
 Current integration limit: the standalone instrumented Home regression passes,
-but SimpleSoC event instrumentation encounters a structural response-router
-cycle. The event compiler does not yet lower stateful Flow feedback between
-checkpoints, so the enabled D-cache return ancestry does not currently produce
-a complete SoC trace. This is a tracing limitation, not a change to the Home's
-functional request/response behavior.
+but complete SimpleSoC D-cache return ancestry has not been validated.
+[Registered branching feedback](../../rhodium/event/README.md#deliberate-limits)
+has a dedicated queued-crossbar regression. The latest SimpleSoC instrumentation
+attempt passes the shared subordinate and host-requester boundaries, then stops
+at `soc/rv5stage/uncached`'s outgoing CHI REQ boundary. The uncached engine still
+lacks a request-ownership tracing contract. No complete SoC trace was generated;
+this attempt does not establish coverage of the full NoC graph. This is a tracing
+coverage limit, not a change to the Home's functional request/response behavior.

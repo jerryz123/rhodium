@@ -54,6 +54,11 @@ sync_circuit CHISingleBeatSubordinate(p :: CHIFlitParams, label :: NonemptyStrin
   port.dat.response.valid <== phase === CHISingleBeatPhase.ReadResponse
   port.dat.response.bits <== chi_sn_read_completion(p, node_id, saved_request, chi_line_data_id(saved_request.address, p), saved_read_data)
 
+  // DBID and write-data acceptance keep the request alive until final completion.
+  def release_request = (port.rsp.fire() & !dbid) ||| port.dat.response.fire()
+  describe_interface_retained_storage(request_fire, release_request, phase =/= CHISingleBeatPhase.Idle, ~name: "request")
+  describe_interface_contract(port.req, Array(port.rsp, port.dat.response), "responses", ~trace_model: interface_trace_retained(~name: "request", ~outputs: 2))
+
   when request_fire:
     saved_request <== incoming
     phase <== mux(incoming_write, CHISingleBeatPhase.WriteDBID, CHISingleBeatPhase.ReadResponse)

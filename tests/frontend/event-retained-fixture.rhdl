@@ -74,12 +74,55 @@ sync_circuit InvalidRetained(kind :: String):
   cond
   | kind == "missing": interface_trace_retained()
   | kind == "width": describe_interface_retained_storage(bad, Bool(#false), Bool(#false))
+  | kind in ["outputs", "inputs", "routes"]:
+      interface command[2](Decoupled(Bits(8)), ~role: consumer)
+      interface attempt[2](Decoupled(Bits(8)), ~role: producer)
+      describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
+      def model = interface_trace_retained(~outputs: 2)
+      describe_interface_contract(if kind == "inputs" | command | command[0],
+                                  if kind == "outputs" | attempt[0] | attempt,
+                                  "invalid-retained-shape",
+                                  ~trace_model: if kind == "routes"
+                                                | InterfaceTraceModel([InterfaceTraceRoute(0, 0), InterfaceTraceRoute(0, 0)], model.dynamic)
+                                                | model)
   | ~else:
       describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
       describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
 
 fun retained(intrinsic :: Boolean = #true, detach :: Boolean = #true, ~region: region :: String = "region"): elaborate_with_top(EventRetained(intrinsic, detach, region))
 fun invalid(kind :: String): elaborate_with_top(InvalidRetained(kind))
+
+// One retained owner may feed different declared outputs, not duplicate observers of one output.
+sync_circuit RetainedOutputs():
+  interface command(Decoupled(Bits(8)), ~role: consumer)
+  interface attempts[2](Valid(Bits(8)), ~role: producer)
+  input release: Bool
+  reg active(~init: Bool(#false))
+  reg payload(Bits(8))
+  command.ready <== !active
+  when (command.fire()):
+    active <== Bool(#true)
+    payload <== command.bits
+  elsewhen release:
+    active <== Bool(#false)
+  for (index in 0..2):
+    attempts[index].valid <== active
+    attempts[index].bits <== payload
+  describe_interface_retained_storage(command.fire(), release & active, active)
+  describe_interface_contract(command, attempts, "outputs", ~trace_model: interface_trace_retained(~outputs: 2))
+
+sync_circuit EventRetainedOutputs(duplicate :: Boolean):
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Valid(Bits(8)), ~role: producer)
+  input release: Bool
+  inst owner(RetainedOutputs())
+  owner.release <== release
+  source |> trace_event("parent", ~root: #true) |> owner.command
+  for (index in 0..2):
+    owner.attempts[if duplicate | 0 | index] |> valid_pipe(index + 1) |> trace_valid_event("child" ++ to_string(index), ~terminal: #true) |> sinks[index]
+
+fun multi_output(duplicate :: Boolean = #false): elaborate_with_top(EventRetainedOutputs(duplicate))
+export multi_output
 
 sync_circuit EventDetached():
   interface source(Decoupled(Bits(8)), ~role: consumer)

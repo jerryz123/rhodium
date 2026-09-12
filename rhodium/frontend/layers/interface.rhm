@@ -1755,14 +1755,15 @@ fun describe_interface_retained_storage(capture :: HardwareEntity, release :: Ha
     value
   module_def.add_metadata(interface_retained_storage_namespace, InterfaceRetainedStorage(module_def, signal(capture), signal(release), signal(active), name))
 
-fun interface_trace_retained(instance :: False || Instance = #false, ~name: name :: String = "data"):
+fun interface_trace_retained(instance :: False || Instance = #false, ~name: name :: String = "data", ~outputs: output_count :: PosInt = 1):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_retained, "retained implementation must be a local instance")
   def owner = if instance | instance.module_def | kernel.active_module()
   def declarations = owner.metadata_for(interface_retained_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_retained, "retained implementation requires declared storage controls")
-  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceRetained(instance, declarations[0]))
+  def routes = for List (index in 0..output_count): InterfaceTraceRoute(0, index)
+  InterfaceTraceModel(routes, InterfaceTraceRetained(instance, declarations[0]))
 
 // Adds a metadata-only causal edge between two annotated route endpoints. The
 // named retained-storage declaration supplies the shared capture, active, and
@@ -1982,7 +1983,10 @@ fun validate_interface_trace_model(trace_model :: InterfaceTraceModel,
   when trace_model.atomic_join_inputs()
   | unless output_count == 1 && input_count == trace_model.atomic_join_inputs() && trace_model.routes.length() == input_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..input_count): [index, 0])
     | error(~who: #'describe_interface_transform, "atomic join trace requires exactly one output and one ordered route per input")
-  when trace_model.dynamic && !trace_model.atomic_join_inputs()
+  when trace_model.retained_storage()
+  | unless input_count == 1 && output_count > 0 && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..output_count): [0, index])
+    | error(~who: #'describe_interface_transform, "retained trace requires one input and one ordered route per output")
+  when trace_model.dynamic && !trace_model.atomic_join_inputs() && !trace_model.retained_storage()
   | if trace_model.selection_grants()
     | unless output_count == 1 && input_count == trace_model.selection_grants().length() && trace_model.routes.length() == input_count && trace_model.routes.map(fun (route): [route.input_index, route.output_index]) == (for List (index in 0..input_count): [index, 0])
       | error(~who: #'describe_interface_transform, "selection trace requires one grant and route per input and exactly one output")

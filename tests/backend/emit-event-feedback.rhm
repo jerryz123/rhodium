@@ -1,0 +1,14 @@
+#lang rhombus
+// Emits feedback instrumentation and manifest-bound indices for the transfer scoreboard.
+import:
+  "../frontend/event-feedback-fixture.rhdl".compared
+  "../../rhodium/event/main.rhm" open
+  "../../rhodium/backend/circt.rhm".emit_circt
+def traced = instrument_events(compared)
+def indices = for List (label in ["start", "finish"]):
+  def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
+  unless matches.length() == 1 | error("expected one feedback site: " ++ label)
+  to_string(matches[0])
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nconstexpr unsigned feedback_sites[2] = {" ++ String.join(indices, ",") ++ "};\n"
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

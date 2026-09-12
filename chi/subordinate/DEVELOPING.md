@@ -78,3 +78,13 @@ existing gating versus assertion-only mask policies; sharing sequencing is
 not permission to strengthen protocol checks. BootROM's multibeat read engine
 and RAM's queued transactions are separate. Run all four device simulations;
 boot-address negatives also exercise the shared association/early-DAT checks.
+
+The engine's intrinsic `responses` tracing contract connects one input to both
+outputs using the named `request` retained scope. Capture on `request_fire`, not unqualified REQ
+fire; release on final RSP or read DAT, never DBID or incoming write DAT. Keep
+these metadata declarations beside the production phase controls. The
+`event-subordinate` backend fixture observes the production engine's external
+transfers and compares exact occurrence graphs, with reused IDs, credit
+returns while idle/busy, write readiness, response stalls, and pending reset in
+all four non-idle phases. Run it alongside the four device simulations, then
+retry SimpleSoC instrumentation for composed network coverage.

@@ -293,10 +293,21 @@ fun destination_sources(destination :: DiagramTerminal,
       )
   sources
 
+// Repeated nested field access can materialize different record_get values
+// for the same path. Match that path, not merely one chosen projection's ID.
+fun same_record_projection(left :: Value || Place, right :: Value || Place):
+  if left === right
+  | #true
+  | if left is_a Value && right is_a Value
+    | def a = left.module_def.find_operation(left.defining_op_id)
+      def b = right.module_def.find_operation(right.defining_op_id)
+      a && b && a.opcode == "rtl.record_get" && b.opcode == "rtl.record_get" && a.attribute("field") == b.attribute("field") && same_record_projection(a.operands[0], b.operands[0])
+    | #false
+
 fun entity_originates_from(entity :: Value || Place,
                            candidate :: Value || Place,
                            seen :: List.of(Nat) = []):
-  if entity === candidate
+  if same_record_projection(entity, candidate)
   | #true
   | cond
     | entity is_a Place && entity.parent is_a Place:

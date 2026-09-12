@@ -1,5 +1,5 @@
 #lang rhombus
-// Infers static parents and nested storage, selection, routing, replication, and join plans.
+// Infers nearest checkpoints and finite occurrence-qualified lineage graphs, including registered feedback.
 
 import:
   "../core/ir.rhm".DesignElaboration
@@ -228,6 +228,15 @@ fun infer_event_manifest(logical :: DesignElaboration,
               for (port in output_ports, index in 0..output_count):
                 def replication = FlowReplication(replication_id, input, index)
                 replications[terminal_id(instance_path, flow_block.id, port.id)] := replication
+            // Multiple retained outputs replicate the current owner, not the
+            // live input. Keep one shared storage vertex before that fanout.
+            def retained_output = if trace_model.retained_storage() && output_count > 1 | terminal_id(instance_path, flow_block.id, "retained-owner") | #false
+            when retained_output
+            | add_arc(terminal_id(instance_path, flow_block.id, input_ports[0].id), retained_output,
+                      occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label,
+                      trace_model.latency_cycles(), stages)
+              for (port in output_ports, index in 0..output_count):
+                replications[terminal_id(instance_path, flow_block.id, port.id)] := FlowReplication(retained_output, retained_output, index)
             when trace_model.broadcast_storage()
             | def storage = trace_model.broadcast_storage()
               def owner_path = instance_path ++ trace_model.owner_path()
@@ -241,13 +250,15 @@ fun infer_event_manifest(logical :: DesignElaboration,
               def output_port = output_ports[route.output_index]
               if trace_model.detached()
               | detached.add(terminal_id(instance_path, flow_block.id, output_port.id))
-              | add_arc(
-                terminal_id(instance_path, flow_block.id, input_port.id),
-                terminal_id(instance_path, flow_block.id, output_port.id),
-                occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label,
-                trace_model.latency_cycles(),
-                stages
-              )
+              | if retained_output
+                | add_arc(retained_output, terminal_id(instance_path, flow_block.id, output_port.id))
+                | add_arc(
+                    terminal_id(instance_path, flow_block.id, input_port.id),
+                    terminal_id(instance_path, flow_block.id, output_port.id),
+                    occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label,
+                    trace_model.latency_cycles(),
+                    stages
+                  )
           | for (port in output_ports):
               unsupported_by_output[
                 terminal_id(instance_path, flow_block.id, port.id)
@@ -322,11 +333,41 @@ fun infer_event_manifest(logical :: DesignElaboration,
               )
             candidates
 
+  // Discover each reachable vertex once. Cyclic regions have finitely many
+  // nearest sites but infinitely many walks: retain a witness, not every lap.
+  fun discover_nearest(vertex :: String):
+    def colors = MutableMap{}
+    def mutable cyclic = #false
+    def mutable candidates = []
+    def found = MutableSet{}
+    fun visit(vertex :: String, reverse_path :: List = []):
+      def event = event_by_output.get(vertex, #false)
+      cond
+      | event:
+          unless event.id in found
+          | found.add(event.id)
+            candidates := candidates ++ [EventCandidate(event, reverse_path.reverse(), #false, #false)]
+      | vertex in detached: #void
+      | colors.get(vertex, 0) == 1: cyclic := #true
+      | colors.has_key(vertex): #void
+      | ~else:
+          def unsupported = unsupported_by_output.get(vertex, #false)
+          when unsupported
+          | error(~who: #'infer_event_manifest, "event dependency crosses transform without " ++ (if dynamic | "dynamic trace semantics: " | "a trace model: ") ++ unsupported)
+          when dynamic && incoming.get(vertex, []).length() == 0 && !(vertex in roots)
+          | error(~who: #'infer_event_manifest, "event dependency reaches an opaque or disconnected boundary: " ++ vertex)
+          colors[vertex] := 1
+          for (arc in incoming.get(vertex, [])):
+            visit(arc.source, if arc.transform | reverse_path ++ [arc.transform] | reverse_path)
+          colors[vertex] := 2
+    visit(vertex)
+    if cyclic | candidates | nearest_events(vertex)
+
   def mutable dependencies = []
   for (site in sites):
     unless site.id in explicit_children
     | for (input in (if site.root | [] | site_inputs.get(site.id, []))):
-        for (candidate in nearest_events(input)):
+        for (candidate in discover_nearest(input)):
           def dependency = EventDependency(candidate.site.id,
                                            site.id,
                                            candidate.transform_path,
@@ -349,46 +390,52 @@ fun infer_event_manifest(logical :: DesignElaboration,
   // wraps the selected reference once, rather than duplicating it per parent.
   def plans = MutableMap{}
   def cached_plans = MutableMap{}
+  def back_references = MutableMap{}
   def explicit_plans = MutableMap{}
   for (edge in explicit_edges):
     explicit_plans[edge.child] := EventTracePipeline(EventTraceSource(edge.parent), [edge.stage])
   fun trace_plan(vertex :: String, visiting :: List.of(String) = []):
-    when vertex in visiting
-    | error(~who: #'infer_event_manifest, "dynamic event lineage requires an acyclic path: " ++ vertex)
-    unless cached_plans.has_key(vertex)
-    | def event = event_by_output.get(vertex, #false)
-      def arcs = incoming.get(vertex, [])
-      def selection = selections.get(vertex, #false)
-      def join = joins.get(vertex, #false)
-      def routing = routings.get(vertex, #false)
-      def replication = replications.get(vertex, #false)
-      def broadcast = broadcasts.get(vertex, #false)
-      def plan:
-        cond
-        | event: EventTraceSource(event.id)
-        | vertex in detached: EventTraceSource(#false, #true)
-        | join: EventTraceJoin(join.map(fun (input): trace_plan(input, visiting ++ [vertex])))
-        | broadcast:
-            EventTraceBroadcast(trace_plan(broadcast.input, visiting ++ [vertex]), broadcast.instance_path,
-                                broadcast.broadcast_id, broadcast.accept, broadcast.pending, broadcast.output_index)
-        | replication:
-            EventTraceReplication(trace_plan(replication.input, visiting ++ [vertex]),
-                                  replication.replication_id, replication.output_index)
-        | routing:
-            EventTraceRouting(trace_plan(routing.input, visiting ++ [vertex]), routing.instance_path,
-                              routing.routing_id, routing.predicates, routing.output_index)
-        | selection:
-            EventTraceSelection(selection.instance_path, selection.grants,
-                                selection.inputs.map(fun (input): trace_plan(input, visiting ++ [vertex])))
-        | arcs.length() == 0 && vertex in roots: EventTraceSource(#false)
-        | arcs.length() == 1 && arcs[0].trace_stages:
-            def upstream = trace_plan(arcs[0].source, visiting ++ [vertex])
-            if arcs[0].trace_stages.length() == 0
-            | upstream
-            | EventTracePipeline(upstream, arcs[0].trace_stages)
-        | ~else: error(~who: #'infer_event_manifest, "event path requires certified selection or storage semantics: " ++ vertex)
-      cached_plans[vertex] := plan
-    cached_plans[vertex]
+    cond
+    | vertex in visiting:
+        unless back_references.has_key(vertex)
+        | back_references[vertex] := EventTraceLink(vertex)
+        back_references[vertex]
+    | ~else:
+        unless cached_plans.has_key(vertex)
+        | def event = event_by_output.get(vertex, #false)
+          def arcs = incoming.get(vertex, [])
+          def selection = selections.get(vertex, #false)
+          def join = joins.get(vertex, #false)
+          def routing = routings.get(vertex, #false)
+          def replication = replications.get(vertex, #false)
+          def broadcast = broadcasts.get(vertex, #false)
+          def plan:
+            cond
+            | event: EventTraceSource(event.id)
+            | vertex in detached: EventTraceSource(#false, #true)
+            | join: EventTraceJoin(join.map(fun (input): trace_plan(input, visiting ++ [vertex])))
+            | broadcast:
+                EventTraceBroadcast(trace_plan(broadcast.input, visiting ++ [vertex]), broadcast.instance_path,
+                                    broadcast.broadcast_id, broadcast.accept, broadcast.pending, broadcast.output_index)
+            | replication:
+                EventTraceReplication(trace_plan(replication.input, visiting ++ [vertex]),
+                                      replication.replication_id, replication.output_index)
+            | routing:
+                EventTraceRouting(trace_plan(routing.input, visiting ++ [vertex]), routing.instance_path,
+                                  routing.routing_id, routing.predicates, routing.output_index)
+            | selection:
+                EventTraceSelection(selection.instance_path, selection.grants,
+                                    selection.inputs.map(fun (input): trace_plan(input, visiting ++ [vertex])))
+            | arcs.length() == 0 && vertex in roots: EventTraceSource(#false)
+            | arcs.length() == 1 && arcs[0].trace_stages:
+                def upstream = trace_plan(arcs[0].source, visiting ++ [vertex])
+                if arcs[0].trace_stages.length() == 0
+                | upstream
+                | EventTracePipeline(upstream, arcs[0].trace_stages)
+            | ~else: error(~who: #'infer_event_manifest, "event path requires certified selection or storage semantics: " ++ vertex)
+          cached_plans[vertex] := plan
+          when back_references.has_key(vertex) | back_references[vertex].target := plan
+        cached_plans[vertex]
   when dynamic
   | for (site in sites):
       def plan:
@@ -397,6 +444,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
         | explicit_plans.has_key(site.id): explicit_plans[site.id]
         | ~else: trace_plan(site_inputs[site.id][0])
       plans[site.id] := plan
+      validate_event_trace_feedback(plan)
   // Append observations after transfer sites, preserving existing site numbering.
   // They never enter event_by_output: a stall cannot cut or advance lineage.
   for (site in sites):

@@ -249,7 +249,7 @@ remain visible; it does not summarize the whole containing module. See the
 | `valid_pipe`, `valid_pipe_always_capture` | Delay lineage by the certified fixed cycle count; explicit flush clears pending lineage at the edge |
 | Windowed storage | Retain ordered references across repeated reads; select one or more contributing slots, release a prefix, append, and flush without resetting history |
 | Ready-valid `pipe` | Advance, bubble, and stall with the functional stages |
-| Retained-owner contract | Capture one lineage, reuse it on every attempt, and release it only on completion; replacement exposes the old owner until the edge |
+| Retained-owner contract | Capture one lineage, reuse it across declared outputs and repeated attempts, and release it only on completion; replacement exposes the old owner until the edge |
 | `trace_detach` | Explicitly cut ancestry without a visible event; selected transactions remain valid but parentless |
 | `queue` | Preserve FIFO order for all `~pipe`/`~flow` combinations, including bypass and simultaneous replacement |
 | `arbiter`, `rr_arbiter` | Select the actual granted input's lineage, including any multiple-parent lineage |
@@ -258,6 +258,7 @@ remain visible; it does not summarize the whole containing module. See the
 | `atomic_fork`, `fork_valid` | Replicate lineage on synchronous acceptance; downstream buffers may complete independently |
 | `broadcast` | Preserve one accepted lineage until each recipient consumes its copy; replacement cannot change old deliveries |
 | Atomic `zip_flow` | Combine all contributing input lineages |
+| Registered feedback | Carry a single parent through repeated queue/stage and grant-selected traversals to multiple exits without an internal checkpoint |
 
 An annotation emits one node and edges for its incoming parents, then replaces
 that lineage with its own identity. Reconvergence may repeat a parent reference;
@@ -317,9 +318,15 @@ fail rather than inventing lineage or silently wrapping identities.
 - If any selectable or joined input has annotated ancestry, all such inputs must
   have it or explicitly detach it. Missing or unsupported branches still fail.
   Fully unannotated, otherwise supported ancestry establishes a root.
-- Multiple child sites require every pair of possible paths to diverge through
-  distinct outputs of a common certified routing or replication occurrence.
-  Unexplained fanout remains an error; buffered branches may complete concurrently.
+- Multiple child sites require certified routing or replication at divergence.
+  For feedback, the compiler checks branches in the finite graph, not decisions
+  on different laps. Unexplained fanout remains an error; buffered branches may
+  complete concurrently.
+- Feedback currently supports single-parent lineage with multiple downstream
+  transfer checkpoints. Every lineage cycle must cross registered storage; a live queue
+  bypass does not break a cycle. Joins/windows that grow ancestry on each lap
+  are rejected instead of truncating parents. Cyclic static dependencies retain
+  one witness path per parent and report unknown latency, not an enumeration of laps.
 - Control-only queues/broadcasts, shift queues, selective/control-only forks and
   joins, and valid-only/control-only/packet arbitration need dedicated adapters.
   Direct `Join` instances are not certified by name. Reordering, arbitrary

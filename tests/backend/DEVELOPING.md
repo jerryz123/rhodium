@@ -69,6 +69,26 @@ captures, not generated controls or payload-equality matching.
 `event-home` runs the inclusive-Home bench with its production scoped contracts
 and checks every emitted request/response/data occurrence against public port
 transfers, with reused IDs, hit/miss responses, stalls, and pending reset.
+`event-subordinate` checks intrinsic retained-request contracts on the shared
+single-beat MMIO engine. Its public-transfer scoreboard requires exact parents
+through DBID and delayed write data, ignores credit returns, and tests reset
+in every retained phase plus read/write completion under backpressure.
+`event-fesvr` instruments the production host access engine under the existing
+MMIO bench. An independent public-transfer scoreboard checks every request
+fragment, write-data transfer, and final host response against its accepted
+command, including errors, delayed completion, and pending reset. The ordinary
+and traced emitters share `sims/tests/fesvr-mmio-fixture.rhdl` service parameters.
+`event-feedback` checks a queue/grant recirculation loop without an internal
+checkpoint. Its public-control FIFO scoreboard preserves exact parent references
+across multiple laps, repeated payloads, stalls, simultaneous transfers, and reset;
+an uninstrumented lane checks functional equivalence. Host diagnostics cover
+same-cycle cycles and unbounded parent accumulation.
+`event-branching` extends this coverage through direct/configured 3x3 crossbars
+with two fresh sources, a feedback queue, and two buffered exits. Its independent
+FIFO model checks every exact parent occurrence, all source-to-exit routes,
+repeated feedback, changed grants under stall, concurrent exits, and pending reset.
+Keep uncertified feedback fanout under host rejection coverage; do not weaken
+branching validation to make a cyclic fixture elaborate.
 Pipeline, elastic, queue, arbiter, and broadcast coverage includes direct
 self-described modules and configured adapters, with independent transaction
 scoreboards and uninstrumented reference lanes. `event-instrument-test.rhm`

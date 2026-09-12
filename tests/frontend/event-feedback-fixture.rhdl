@@ -1,0 +1,116 @@
+#lang rhodium
+// Exercises checkpoint-free recirculation through intrinsic queue and grant contracts.
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit EventFeedbackLane(traced :: Boolean, flow :: Boolean = #false, split :: Boolean = #false):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  input select_feedback: Bool
+  input route_feedback: Bool
+  inst merge(GrantMerge(Bits(8), 2))
+  inst storage(Queue(Bits(8), 3, ~flow: flow))
+  inst route(GrantDemux(Bits(8), 2))
+  merge.grants <== vec([!select_feedback, select_feedback]).into(MaybeOneHot(2))
+  route.grants <== vec([!route_feedback, route_feedback]).into(MaybeOneHot(2))
+  def start = if traced | ingress |> trace_event("start", ~payload: #true) | ingress
+  if split
+  | block:
+      def branches = start |> atomic_fork(2)
+      def tap = branches[1] |> trace_event("tap", ~terminal: #true)
+      tap.field("ready") <== Bool(#true)
+      branches[0] |> merge.ingress[0]
+  | start |> merge.ingress[0]
+  merge.egress |> storage.ingress
+  storage.egress |> route.ingress
+  route.egress[1] |> merge.ingress[1]
+  if traced
+  | route.egress[0] |> trace_event("finish", ~payload: #true, ~terminal: #true) |> egress
+  | route.egress[0] |> egress
+
+sync_circuit EventFeedback():
+  interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  input select_feedback: Bool
+  input route_feedback: Bool
+  inst traced(EventFeedbackLane(#true))
+  inst reference(EventFeedbackLane(#false))
+  for (lane in [traced, reference], index in 0..2):
+    lane.select_feedback <== select_feedback
+    lane.route_feedback <== route_feedback
+    ingress[index] |> lane.ingress
+    lane.egress |> egress[index]
+
+fun feedback(~bypass: bypass :: Boolean = #false, ~split: split :: Boolean = #false):
+  elaborate_with_top(EventFeedbackLane(#true, bypass, split))
+
+// Valid wiring permits this electrical fanout, but there is deliberately no
+// replication contract authorizing both the tap and the feedback consumer.
+sync_circuit EventUnsafeFeedback():
+  interface ingress(Valid(Bits(8)), ~role: consumer)
+  interface tap(Valid(Bits(8)), ~role: producer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  input select_feedback: Bool
+  input route_feedback: Bool
+  inst merge(GrantMerge(Bits(8), 2))
+  inst storage(Queue(Bits(8), 3))
+  inst route(GrantDemux(Bits(8), 2))
+  merge.grants <== vec([!select_feedback, select_feedback]).into(MaybeOneHot(2))
+  route.grants <== vec([!route_feedback, route_feedback]).into(MaybeOneHot(2))
+  def start = ingress |> trace_valid_event("start")
+  start |> trace_valid_event("tap", ~terminal: #true) |> tap
+  start |> offer_decoupled() |> merge.ingress[0]
+  merge.egress |> storage.ingress
+  storage.egress |> route.ingress
+  route.egress[1] |> merge.ingress[1]
+  route.egress[0] |> trace_event("finish", ~terminal: #true) |> egress
+fun unsafe_feedback(): elaborate_with_top(EventUnsafeFeedback())
+
+// A real 3x3 crossbar routes two fresh sources and one recirculating source
+// to two independently buffered exits or back into the registered feedback queue.
+sync_circuit EventFeedbackCrossbarLane(traced :: Boolean, direct :: Boolean):
+  interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  input grants: Vec(3, Vec(3, Bool))
+  inst returned(Queue(Bits(8), 3))
+  def inputs = for Array (index in 0..3):
+    if index == 2
+    | returned.egress
+    | block:
+        def observed = if traced | ingress[index] |> trace_event("start" ++ to_string(index), ~payload: #true) | ingress[index]
+        observed |> queue(3)
+  def outputs:
+    if direct
+    | block:
+        inst crossbar(GrantCrossbar(Bits(8), 3, 3))
+        crossbar.grants <== grants
+        inputs <=> crossbar.ingress
+        crossbar.egress
+    | inputs |> grant_crossbar(3, ~grants: grants)
+  outputs[2] |> returned.ingress
+  for (index in 0..2):
+    def buffered = outputs[index] |> queue(2)
+    if traced
+    | buffered |> trace_event("finish" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
+    | buffered |> egress[index]
+
+sync_circuit EventFeedbackCrossbar():
+  interface ingress[6](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[6](Decoupled(Bits(8)), ~role: producer)
+  input grants: Vec(3, Vec(3, Bool))
+  inst direct(EventFeedbackCrossbarLane(#true, #true))
+  inst configured(EventFeedbackCrossbarLane(#true, #false))
+  inst reference(EventFeedbackCrossbarLane(#false, #true))
+  for (lane in [direct, configured, reference], lane_index in 0..3):
+    lane.grants <== grants
+    for (index in 0..2):
+      ingress[lane_index * 2 + index] |> lane.ingress[index]
+      lane.egress[index] |> egress[lane_index * 2 + index]
+
+def compared = elaborate_with_top(EventFeedback())
+def branching = elaborate_with_top(EventFeedbackCrossbar())
+export:
+  feedback
+  compared
+  branching
+  unsafe_feedback

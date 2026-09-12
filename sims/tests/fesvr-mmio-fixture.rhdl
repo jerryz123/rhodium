@@ -1,0 +1,45 @@
+#lang rhodium
+// Shares the MMIO service configuration between ordinary and traced host-engine regressions.
+import:
+  lib("flow/main.rhdl") open
+  lib("chi/main.rhdl") open
+  lib("riscv/rtl/pma.rhdl") open
+  lib("socs/endpoint-params.rhdl") open
+  lib("sims/fesvr/direct-memory-htif.rhdl") open
+
+def p = CHIFlitParams()
+def memory = CHIHomeParams("memory", 5, CHINodeKind.HNF, ~max_outstanding: 1)
+def devices = CHIHomeParams("devices", 6, CHINodeKind.HNI, ~max_outstanding: 1)
+def sets = [AddressSet(0x80000000, 0xfff), AddressSet(0x1000, 7), AddressSet(0x10000000, 7), AddressSet(0x10000, 0xfff)]
+def homes = [memory, devices, devices, devices]
+def attrs = [RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true),
+             RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #true),
+             RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false),
+             RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)]
+def sizes = [TransferSizes(1, 64), TransferSizes(4, 8), TransferSizes(1, 1), TransferSizes(4, 8)]
+def services = for List (index in 0..4):
+  CHIHomeServiceParams(
+    homes[index], [sets[index]],
+    [CHIRequestSupport((if index == 0 | CHIReqOpcode.ReadClean | CHIReqOpcode.ReadNoSnp), sizes[index])] ++ (if index == 3 | [] | [CHIRequestSupport((if index == 0 | CHIReqOpcode.WriteUniquePtl | CHIReqOpcode.WriteNoSnpPtl), sizes[index])]))
+def home_map = CHIHomeMap(p, for List (region in sets, home in homes): CHIHomeMapEntry(region, home))
+def physical_map = RiscvPhysicalMemoryMap(p.request_address_width, for List (region in sets, attributes in attrs): RiscvPhysicalMemoryRegion(region, attributes))
+
+sync_circuit EventFesvr():
+  interface requests(Decoupled(FesvrMemoryRequest()), ~role: consumer)
+  interface responses(Decoupled(FesvrMemoryResponse()), ~role: producer)
+  interface port(CHIRNChannels(p), ~role: node)
+  inst access(FesvrCHIAccess(p, soc_host_node(1), home_map, physical_map, services))
+  requests |> trace_event("command", ~root: #true) |> access.requests
+  access.responses |> trace_event("completion", ~terminal: #true) |> responses
+  access.port.requests |> trace_event("request", ~terminal: #true) |> port.requests
+  access.port.request_data |> trace_event("write_data", ~terminal: #true) |> port.request_data
+  access.port.requester_responses |> port.requester_responses
+  port.responses |> access.port.responses
+  port.response_data |> access.port.response_data
+  port.snoops |> access.port.snoops
+
+fun ordinary(): elaborate_with_top(FesvrCHIAccess(p, soc_host_node(1), home_map, physical_map, services))
+fun traced(): elaborate_with_top(EventFesvr())
+export:
+  ordinary
+  traced

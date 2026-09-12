@@ -25,7 +25,28 @@ module fesvr_mmio_tb;
   completion_t responses_out;
   rn_in_t port_in;
   rn_out_t port_out;
+`ifdef FESVR_EVENT_TRACE
+  EventFesvr dut(.*);
+  import "DPI-C" function void event_fesvr_bind();
+  import "DPI-C" function void event_fesvr_sample(int unsigned reset, int unsigned command,
+      int unsigned request, int unsigned write_data, int unsigned completion,
+      int unsigned status, int unsigned stalled);
+  import "DPI-C" function void event_fesvr_check();
+  import "DPI-C" function void event_fesvr_finish();
+  initial event_fesvr_bind();
+  always @(posedge clock) begin
+    event_fesvr_sample(int'(reset), int'(requests_in.valid && requests_out.ready),
+        int'(port_out.requests.valid && port_in.requests.ready),
+        int'(port_out.request_data.valid && port_in.request_data.ready),
+        int'(responses_out.valid && responses_in.ready), int'(responses_out.bits.status),
+        int'((port_out.requests.valid && !port_in.requests.ready) ||
+             (port_out.request_data.valid && !port_in.request_data.ready) ||
+             (responses_out.valid && !responses_in.ready)));
+    #1; event_fesvr_check();
+  end
+`else
   FesvrCHIAccess dut(.*);
+`endif
   always #5 clock = ~clock;
   initial begin #100000; $fatal(1, "host MMIO timeout"); end
 
@@ -133,6 +154,19 @@ module fesvr_mmio_tb;
   initial begin
     requests_in = '0; responses_in = '0; port_in = '0;
     repeat (3) tick(); reset = 0; tick();
+    // Abort a pending request, a partially fragmented read, and a held host response.
+    for (int phase = 0; phase < 3; ++phase) begin
+      issue(0, phase == 2 ? 64'h2000 : 64'h80000003, 0, 8);
+      if (phase == 1) begin
+        expect_request(0, 1, 0, 64'h80000003, 0);
+        return_read(1, 64'h80000003, 64'h11);
+      end
+      repeat (2) tick();
+      reset = 1; requests_in = '0; responses_in = '0; port_in = '0;
+      tick(); reset = 0; tick();
+      assert (requests_out.ready && !responses_out.valid && !port_out.requests.valid && !port_out.request_data.valid)
+        else $fatal(1, "host transaction survived reset");
+    end
     issue(1, 64'h1000, 64'h8877665544332211, 8);
     expect_request(1, 0, 1, 64'h1000, 3);
     // The shared RN-F still services coherent snoops while waiting on MMIO.
@@ -208,6 +242,9 @@ module fesvr_mmio_tb;
     assert(!port_out.request_data.valid);
     finish_command(0, 3);
     $display("Host coherent RAM, exact MMIO, backpressure, and errors passed");
+`ifdef FESVR_EVENT_TRACE
+    event_fesvr_finish();
+`endif
     $finish;
   end
 endmodule

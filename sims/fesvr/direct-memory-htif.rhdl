@@ -4,6 +4,7 @@
 import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/event.rhdl").trace_event
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl").chi_line_data_id
@@ -334,6 +335,10 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   def read_mask = mux_lookup(transfer_size, ~default: bits(0xffffffffffffffff, 64), [[0, bits(0xff, 64)], [1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)]])
   def completed = dat_fire ||| (rsp_fire & comp_pending)
 
+  // All fragments and the final host response belong to one accepted command.
+  describe_interface_retained_storage(requests.fire(), responses.fire(), state =/= FesvrCHIState.Idle, ~name: "command")
+  describe_interface_contract(requests, Array(port.requests, port.request_data, responses), "command-outputs", ~trace_model: interface_trace_retained(~name: "command", ~outputs: 3))
+
   when (requests.fire()):
     address <== incoming.address[0..p.request_address_width]
     data <== incoming.data
@@ -382,13 +387,16 @@ sync_circuit FesvrRequester(xlen :: XLen,
   inst raw(DirectMemoryHTIF(xlen, boot_address_register))
   inst access(FesvrCHIAccess(flit, node, home_map, physical_map, services))
   access.port <=> port
-  access.requests.valid <== raw.request_valid
-  access.requests.bits <== FesvrMemoryRequest():
+  def command = FesvrMemoryRequest():
     write: raw.request_write
     address: raw.request_address
     data: raw.request_data
     length: raw.request_length
-  raw.request_ready <== access.requests.ready
+  def host_requests = inject_interface(Decoupled(FesvrMemoryRequest()), ~valid: raw.request_valid, ~bits: command, ~ready: raw.request_ready) |> trace_event("host.request", ~root: #true, ~fields: request):
+    address: request.address
+    write: request.write
+    length: request.length
+  host_requests |> access.requests
   raw.response_valid <== access.responses.valid
   raw.response_data <== access.responses.bits.data
   raw.response_status <== access.responses.bits.status.as_bits()

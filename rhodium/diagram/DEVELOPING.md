@@ -59,6 +59,10 @@ channel pairs using one cached endpoint projection per extraction. Reverse
 channels follow their own provider direction. Keep scalar sidebands out of this
 route expansion and retain transform implementation occurrence names for clock
 and reset validation by compiler consumers.
+Endpoint matching treats repeated `record_get` chains with the same root and
+field path as equivalent. Keep logical binding paths distinct so equal-width
+sibling channels never alias; do not generalize this to arbitrary payload
+dataflow equivalence.
 
 Keep DOT diagnostic and derived from the model. Presentation changes must not
 alter extraction or become the only representation of a fact. New metadata

@@ -81,6 +81,16 @@ Validate both ordinary and `+load-through-chi` execution when changing loading.
 
 ### Event export integration
 
+`FesvrRequester` marks accepted DPI commands as explicit `host.request` roots
+at the injected Flow boundary. `FesvrCHIAccess` declares one retained command
+scope covering CHI REQ fragments, write DAT, and the host response. Capture at
+command acceptance and release only when the host accepts completion, including
+errors; intermediate fragments and DBID responses must not release the owner.
+Snoop handling remains independent from host-command ownership. The
+`event-fesvr` backend fixture reuses the ordinary MMIO regression and checks
+exact occurrence parents through fragmented reads/writes, errors, stalls, and
+pending reset. Its service configuration lives in `tests/fesvr-mmio-fixture.rhdl`.
+
 The SimpleSoC harness owns transparent external-memory checkpoints. Keep them
 outside synthesizable SoC code. `emit-event-harness.rhm` instruments one
 elaboration, and `materialize-event-harness.rkt` saves its matching descriptor

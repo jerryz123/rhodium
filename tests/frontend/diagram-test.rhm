@@ -9,7 +9,10 @@ import:
 
 def nested_top = diagram(event_fixture.nested_channels).module("EventNestedChannels")
 def nested_routes = nested_top.channels.filter(~keep: fun (channel): channel.kind == "interface" && channel.source_block.starts_with("instance:") && channel.destination_block.starts_with("instance:"))
+def projected_top = diagram(event_fixture.nested_projected_channels).module("EventNestedProjectedChannels")
+def projected_routes = projected_top.channels.filter(~keep: fun (channel): channel.kind == "interface" && channel.source_block.starts_with("instance:") && channel.destination_block.starts_with("instance:"))
 check:
+  projected_routes.map(fun (channel): channel.source_block ++ ":" ++ channel.source_port ++ "->" ++ channel.destination_block ++ ":" ++ channel.destination_port).sort() ~is nested_routes.map(fun (channel): channel.source_block ++ ":" ++ channel.source_port ++ "->" ++ channel.destination_block ++ ":" ++ channel.destination_port).sort()
   nested_routes.map(fun (channel): channel.source_block ++ ":" ++ channel.source_port ++ "->" ++ channel.destination_block ++ ":" ++ channel.destination_port).sort() ~is [
     "instance:requester:bus.traffic.auxiliary->instance:responder:bus.traffic.auxiliary",
     "instance:requester:bus.traffic.request->instance:responder:bus.traffic.request",

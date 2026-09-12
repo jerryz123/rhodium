@@ -1253,6 +1253,12 @@ Simultaneous release/capture replaces the owner after the edge; same-cycle
 outputs still refer to the old owner. There is no input-to-output bypass.
 Capture while active requires release, and release requires active ownership.
 The model exposes `retained_storage()` and `retained_instance()`; latency is unknown.
+Use `~outputs: N` (positive, default 1) for one retained input owner serving an
+array of N output routes, including routes with different payload types. Each
+output can transfer independently or repeatedly while the owner is active;
+this is not an atomic fork or an exactly-once broadcast. Declare one contract
+over the whole output array, not competing contracts over the same input.
+The model requires exactly one input and an ordered route to every output.
 
 For a retained relationship that is not expressible as one input/output Flow
 transform, use `describe_interface_trace_edge(parent, child, ~scope: "data")`.

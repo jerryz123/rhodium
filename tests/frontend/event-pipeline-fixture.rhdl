@@ -120,6 +120,21 @@ sync_circuit EventNestedChannels():
 
 def nested_channels = elaborate_with_top(EventNestedChannels())
 
+// Access sibling leaves separately so nested record projections are repeated.
+sync_circuit EventNestedProjectedChannels():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  inst requester(EventNestedRequester())
+  inst responder(EventNestedResponder())
+  source |> requester.source
+  requester.sink |> sink
+  requester.bus.traffic.request |> responder.bus.traffic.request
+  requester.bus.traffic.auxiliary |> responder.bus.traffic.auxiliary
+  responder.bus.traffic.response |> requester.bus.traffic.response
+
+def nested_projected_channels = elaborate_with_top(EventNestedProjectedChannels())
+export nested_projected_channels
+
 sync_circuit EventPrivateResetChild():
   output value: Bits(8)
   reg count(~init: bits(0, 8))

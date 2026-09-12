@@ -1,0 +1,32 @@
+#lang rhodium
+// Observes the production MMIO engine at its public request and response boundaries.
+import:
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  lib("chi/protocol/flits.rhdl").CHIReqOpcode
+  lib("chi/subordinate/single-beat-subordinate.rhdl").CHISingleBeatSubordinate
+
+sync_circuit EventSubordinate():
+  def p = CHIFlitParams()
+  interface port(CHISNChannels(p), ~role: node)
+  input write_ready: Bool
+  inst transaction(CHISingleBeatSubordinate(p, "trace_subordinate"))
+  transaction.node_id <== bits(13, p.node_id_width)
+  transaction.request_supported <== Bool(#true)
+  transaction.write_supported <== Bool(#true)
+  transaction.write_ready <== write_ready
+  transaction.read_data <== bits(42, p.data_width)
+  def requests = port.req |> trace_event("request", ~root: #true, ~when: port.req.bits.opcode =/= CHIReqOpcode.ReqLCrdReturn, ~fields: flit):
+    txn: flit.txn_id
+  requests |> transaction.port.req
+  port.dat.request |> transaction.port.dat.request
+  def responses = transaction.port.rsp |> trace_event("response", ~terminal: #true, ~fields: flit):
+    txn: flit.txn_id
+  responses |> port.rsp
+  def data = transaction.port.dat.response |> trace_event("data", ~terminal: #true, ~fields: flit):
+    txn: flit.txn_id
+  data |> port.dat.response
+
+def traced_subordinate = elaborate_with_top(EventSubordinate())
+export traced_subordinate

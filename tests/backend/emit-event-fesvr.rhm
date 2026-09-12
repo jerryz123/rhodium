@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits the instrumented host fragmentation fixture and matching collector descriptor.
+import:
+  "../../rhodium/event/main.rhm" open
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../sims/tests/fesvr-mmio-fixture.rhdl" as fixture
+def traced = instrument_events(fixture.traced())
+def site_constants = for List (site in traced.manifest.sites, index in 0..traced.manifest.sites.length()):
+  "inline constexpr unsigned " ++ site.label ++ " = " ++ to_string(index) ++ ";\n"
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

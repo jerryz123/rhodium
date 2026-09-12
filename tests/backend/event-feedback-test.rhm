@@ -1,0 +1,45 @@
+#lang rhombus
+// Checks cyclic inference, preserved originals, capacity bounds, and bypass rejection.
+import:
+  "../../rhodium/event/main.rhm" open
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../frontend/event-feedback-fixture.rhdl" as fixture
+
+def logical = fixture.feedback()
+def before = emit_circt(logical.design)
+def traced = instrument_events(logical)
+check:
+  emit_circt(logical.design) ~is before
+  traced.manifest.dependencies.map(fun (edge): [traced.manifest.site(edge.parent).label, traced.manifest.site(edge.child).label]) ~is [["start", "finish"]]
+  traced.manifest.dependencies[0].latency_cycles ~is #false
+  traced.manifest.dependencies[0].trace_stages ~is #false
+  // A physical flow-through loop is rejected by the ordinary core verifier.
+  fixture.feedback(~bypass: #true) ~throws "combinational cycle"
+  instrument_events(fixture.feedback(~split: #true)).manifest.dependencies.length() ~is 2
+  instrument_events(fixture.unsafe_feedback()) ~throws "uncertified fanout"
+
+def branches = instrument_events(fixture.branching)
+check:
+  branches.manifest.dependencies.length() ~is 8
+  (for all (edge in branches.manifest.dependencies): edge.latency_cycles == #false) ~is #true
+
+def source = EventTraceSource("seed")
+def feedback = EventTraceLink("growing-feedback")
+feedback.target := EventTracePipeline(EventTraceJoin([source, feedback]), [EventTraceStage()])
+check:
+  validate_event_trace_feedback(feedback) ~throws "unbounded feedback lineage capacity"
+
+def combinational = EventTraceLink("combinational-feedback")
+combinational.target := EventTraceJoin([source, combinational])
+check:
+  validate_event_trace_feedback(combinational) ~throws "same-cycle event lineage cycle"
+
+// Independently check the event contract boundary: a possible bypass must not
+// masquerade as a registered cut even though the model also owns queue storage.
+def plan = traced.manifest.trace_plans[traced.manifest.dependencies[0].child]
+def queued = event_trace_nodes(plan).find(fun (node): node is_a EventTracePipeline).stages[0]
+def bypass = EventTraceQueue(queued.instance_path, queued.depth, queued.enqueue, queued.dequeue, queued.read_address, queued.write_address, queued.stored_valid, queued.stored_valid)
+def bypass_loop = EventTraceLink("bypassing-queue")
+bypass_loop.target := EventTracePipeline(bypass_loop, [bypass])
+check:
+  validate_event_trace_feedback(bypass_loop) ~throws "same-cycle event lineage cycle"

@@ -124,6 +124,10 @@ make -C sims uart-pty-test SOC=tiled
 
 ## Export SimpleSoC events to Perfetto
 
+Expanded end-to-end ancestry is still under integration. See the current
+[SimpleSoC tracing limit](../chi/home/README.md#inclusive-home-event-tracing)
+before attempting a new traced build.
+
 Tracing is opt-in and currently supports `SOC=simple`:
 
 ```sh
@@ -152,6 +156,12 @@ channels remain untraced. These memory checkpoints do not match requests to resp
 the CHI controller or identify the originating instructions.
 The request and response source checkpoints explicitly use `~root: #true` to
 start observation at these opaque component outputs.
+
+`host.request` observes each accepted FESVR command at the DPI-to-Flow boundary,
+capturing address, read/write direction, and byte length. The host access engine
+retains that command as the owner of all generated CHI request fragments and
+write-data transfers until the final host response is accepted, including
+errors. This host root is independent of instruction-originated traffic.
 
 The trace also includes the core's connected Fetch → Decode → Execute → Memory
 → WB stage events. See the [core tracing contract](../cores/rv5stage/README.md#pipeline-event-tracing)

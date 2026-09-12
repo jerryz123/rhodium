@@ -55,8 +55,9 @@ endpoint ownership before inference. Named relations may coexist with internal
 Flow; preserve upstream/downstream transforms and checkpoints in the plan.
 
 Keep static `EventDependency` paths for possible-parent reporting. Dynamic
-`trace_plans` are memoized expressions at flow vertices, not independently
-delayed static edges. Storage before selection belongs to its input branch;
+`trace_plans` are finite occurrence-keyed graphs, not independently delayed
+static edges. Acyclic regions retain memoized expressions; `EventTraceLink`
+resolves back references once graph discovery completes. Storage before selection belongs to its input branch;
 storage afterward wraps the selected lineage exactly once. `trace_stages` is
 the linear compatibility projection and becomes false across nonlinear plans.
 `DiagramTraceEdge` records an explicit retained-state relationship between two
@@ -70,16 +71,19 @@ its own typed contracts and nearest-parent inference.
 | Plan | Information retained for lowering |
 |---|---|
 | `EventTraceSource` | Nearest annotation, supported unannotated root, or explicit ancestry cut |
+| `EventTraceLink` | Resolved occurrence-qualified feedback vertex, preserving identity across repeated visits |
 | `EventTracePipeline` | Input plan and ordered fixed, elastic, queue, retained-owner, or retained-window stages |
 | `EventTraceSelection` | Ordered input plans and occurrence-qualified grants |
 | `EventTraceRouting` | Input, concrete router ID, original predicates, output index |
-| `EventTraceReplication` | Input, concrete atomic-fork ID, output index |
+| `EventTraceReplication` | Input, concrete atomic-fork or retained-output ID, output index |
 | `EventTraceBroadcast` | Input, concrete broadcast ID, acceptance, recipient pending control |
 | `EventTraceJoin` | Ordered contributing input plans |
 
 `event_trace_capacity(plan)` is one at a source, the sum at a join, the maximum
 at selection, multiplied by the selected-window length at window storage, and
-unchanged through other storage/routing/replication. Lower lineage
+unchanged through other storage/routing/replication. Solve these equations to a
+least fixed point over the finite graph; continued growth beyond graph-size
+propagation is an unbounded-capacity diagnostic. Lower lineage
 to transaction validity plus `VectorType(P, EventRef)`. A reference contains
 `valid`, numeric `site`, and `sequence`; numeric sites index the occurrence-aware
 manifest rather than a lossy hierarchy hash. Hidden annotation ports remain
@@ -121,9 +125,34 @@ pipeline carrying lineage must still fail validation.
 
 Route original control values through passive observation ports, deduplicated
 by occurrence path and value ID, preserving widths. Never reconstruct controls
-by signal name or drive functional RTL from trace state. Lower recursively at
-each consuming site, memoizing plan values to share common storage within that
-plan. Observation-port pruning is a separate optimization.
+by signal name or drive functional RTL from trace state. Memoize plan values
+across consuming sites in one rebuilt module. For feedback, preallocate storage
+reads with deferred input wires, then lower combinational plans and connect
+the writes. Remove provably disabled queue bypass muxes structurally. Do not
+duplicate a state node on each recursive visit. Observation-port pruning and
+sharing shadow state across different consuming modules remain separate optimizations.
+
+### Feedback analysis
+
+Discover reachable vertices once, stopping at event and detached boundaries.
+For cyclic regions, retain one finite witness per nearest parent, with unknown
+latency and no linear stage projection; do not enumerate cyclic walks. Acyclic
+dependencies preserve their existing paths and latency detail. All reachable
+opaque or unsupported branches must still fail, even if another branch is traced.
+
+Walk the same-cycle dependency graph separately, cutting registered storage
+edges but keeping potentially enabled bypass inputs. Check every node, including
+storage inputs, so one stateful loop cannot hide an unrelated combinational loop.
+Reference/control discovery and capacity analysis use identity-keyed visited
+sets or fixed points. Feedback retains single-parent capacity but permits
+multiple downstream checkpoints. For branching feedback, form the union of
+child plans, resolve back references, and canonicalize checkpoint sources by
+site identity. Reverse plan inputs into consumer edges, including explicit
+child exits, then walk forward from the source once. Every multi-consumer node
+must lead to distinct outputs of one certified router, fork, or broadcast.
+Do not treat decisions on different laps as mutually exclusive. The acyclic
+path-divergence verifier remains for acyclic plans and scoped retained edges.
+No routing-policy or CHI-opcode knowledge belongs in either analysis.
 
 ### Storage lowering
 
@@ -188,6 +217,12 @@ outputs of a common certified router or replicator. Different transforms or the
 same output do not authorize fanout. Routing exclusion concerns a transaction's
 decision, not whether buffered descendants finish in the same cycle. Atomic
 fork recipients share acceptance; broadcast recipients consume independently.
+Multi-output retained contracts instead replicate an already captured owner.
+Expand one shared storage vertex before their output branches, preserving the
+declared output indices as the fanout certificate. Repeated or independent
+outputs do not recapture the live input or consume the owner; only the declared
+release ends its lifetime. Duplicate observers of the same output still require
+a separate certified divergence.
 Joins combine the accepted lineages without creating a visible node.
 
 ## Extend trace coverage
@@ -273,6 +308,8 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-queue` | All flow/pipe modes at depths one/three, depth-five hierarchical composition, empty bypass, full replacement, pointer wraparound |
 | `event-arbiter` | Fixed/round-robin and nested selection, independent input/output buffers, changing offers under stall |
 | `event-crossbar` | Direct/configured grant routing and selection, queued input ancestry, simultaneous outputs, zero grants, changed stalled winners, full replacement, and pending reset |
+| `event-feedback` | Checkpoint-free registered laps, identical payloads, exact occurrence ancestry, full-loop stalls, simultaneous transfers, pending reset, and an uninstrumented reference lane |
+| `event-branching` | Direct/configured 3x3 crossbar feedback, two independently buffered exits, every source-to-exit route, repeated laps, changing grants during stalls, concurrent exits, reset, and an uninstrumented reference lane |
 | `event-demux` | Invalid selectors, changing selection, independent branch buffers, simultaneous completions, nested routing and reconvergence |
 | `event-atomic-fork` | All-or-none transfers, pre/post storage, repeated hierarchy, nested/singleton replication, demux/arbiter composition and uncertified-fanout rejection |
 | `event-broadcast` | Independent recipients, partial-delivery reset, old delivery before replacement, shared parents and duplicate-delivery rejection |
