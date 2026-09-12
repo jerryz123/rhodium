@@ -459,3 +459,6 @@ design-and-technology SRAM mapping while reusing this harness, driver, FESVR
 transport, and smoke payload, run `make -C vlsi/sim smoke`; see the
 [`vlsi/sim` guide](../vlsi/sim/README.md). Keeping mapped simulation there
 prevents technology policy from entering this package or the SoCs.
+
+The [native C simulator](native/README.md) provides a functional MiniSoC smoke
+through whole-object semantic kernels, with an optional Verilator O2 comparison.

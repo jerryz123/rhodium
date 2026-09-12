@@ -291,6 +291,13 @@ classify_path() {
       mark_all_circt
       simulation=true
       ;;
+    sims/native/*)
+      host_backend=true
+      simulation=true
+      ;;
+    rhodium/sim/*|tests/sim/*)
+      host_backend=true
+      ;;
     tests/core/*|tests/analysis/*|tests/frontend/*)
       host_foundation=true
       ;;
@@ -310,6 +317,7 @@ classify_path() {
       host_foundation=true
       ;;
     examples/std/*)
+      host_backend=true
       mark_example_std
       circt_std=true
       ;;

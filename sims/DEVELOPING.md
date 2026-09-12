@@ -33,6 +33,8 @@ systems cannot reuse another system's generated RTL.
 | Shared dynamic harness emitter | [`emit-soc-harness.rhm`](emit-soc-harness.rhm) |
 | System-specific parameterless tops | [`simple-soc-harness.rhdl`](simple-soc-harness.rhdl), [`mini-soc-harness.rhdl`](mini-soc-harness.rhdl), [`tiled-soc-harness.rhdl`](tiled-soc-harness.rhdl) |
 | Direct-memory FESVR transport and CHI requester | [`fesvr/`](fesvr/) |
+| Native abstraction registry and C SoC runner | [`native/DEVELOPING.md`](native/DEVELOPING.md) |
+| All-hart benchmark wrapper and targets | [`banked-soc-harness.rhdl`](banked-soc-harness.rhdl), [`native/BENCHMARKS.md`](native/BENCHMARKS.md) |
 | Verilator VPI/DPI binding | [`verilator/`](verilator/) |
 | Clock, reset, and exit | [`TestDriver.v`](TestDriver.v) |
 | PTY transport and serial conversion reused by every harness | [`../devices/uart-dpi.rhdl`](../devices/uart-dpi.rhdl), [`../devices/dpi/uart_dpi.cc`](../devices/dpi/uart_dpi.cc) |
