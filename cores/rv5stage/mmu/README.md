@@ -64,11 +64,14 @@ arbitration point is the shared physical data port immediately before that
 router; a cacheable PTE read follows the ordinary L1D path.
 
 `instruction_lookup: Decoupled(Bits(XLEN))` launches S0 virtual reads directly
-into L1I. Acceptance captures one S1 address; ITLB and PMA use that registered
-address rather than the live S0 payload. The surviving S1 attempt either
-resolves physically or captures a local fault/replay. S2 reports exactly one
-nonbackpressured outcome. The frontend reserves result capacity and reissues
-the oldest failed PC; the MMU has no instruction request, retry, or owner FIFO.
+into L1I. An atomic fork couples each accepted `RV5StageFetchAccess.request`
+to that lookup and the MMU's S1 context capture. The frontend independently
+captures its complete attempt at the same request handshake. ITLB and PMA use
+the MMU's registered address rather than the live S0 payload. The surviving S1
+attempt either resolves physically or captures a local fault/replay. S2 reports
+exactly one nonbackpressured outcome. The frontend reserves result capacity and
+reissues the oldest failed PC; the MMU has no instruction request, retry, or
+owner FIFO.
 `s1_kill` cancels younger resolution and walk initiation without canceling an
 older S2 outcome or an accepted walk. `flush` also detaches speculative fault
 ownership.

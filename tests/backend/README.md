@@ -63,7 +63,11 @@ Use a group when a change crosses one ownership area:
 bash tests/backend/run-circt.sh --group std
 ```
 
-The accepted groups are `language`, `std`, `protocols`, `cores`, and `rfpl`.
+The accepted groups are `language`, `std`, `protocols`, `cores`,
+`cores-components`, `cores-execution`, `cores-memory`, `cores-cache`, `socs`,
+and `rfpl`. The `cores` group is the union of its four shards; CI runs those
+shards independently so one heavyweight cache build cannot consume the budget
+of unrelated core tests.
 A `std` selection includes both `rhodium/std` foundations and the root-level
 [`flow/` library](../../flow/README.md).
 A group selects every declared fixture in that group, not just the curated

@@ -6,7 +6,7 @@ export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 .PHONY: event-test
 .PHONY: event-runtime-test
 .PHONY: sim-test sim-differential-test
-.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-cores-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-memory-test ci-circt-core-cache-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
 
 RISCV_UDB_CONFIGURATION ?= simple-soc
 RISCV_UDB_OUTPUT ?= /tmp/rhodium-udb/$(RISCV_UDB_CONFIGURATION).yaml
@@ -120,10 +120,10 @@ diagram-test: check-boundaries
 	tools/run-racket-tests.sh tests/frontend/diagram-test.rhm
 
 event-test: check-boundaries
-	tools/run-racket-tests.sh tests/frontend/event-graph-test.rhm tests/frontend/event-stall-test.rhm tests/backend/event-instrument-test.rhm
+	tools/run-racket-tests.sh tests/frontend/event-graph-test.rhm tests/frontend/event-stall-test.rhm tests/backend/event-instrument-test.rhm tests/backend/event-window-test.rhm
 
 event-runtime-test: check-boundaries
-	FIXTURES="event-runtime event-pipeline event-elastic event-queue event-arbiter event-crossbar event-demux event-atomic-fork event-broadcast event-join event-stall event-offer event-retained" bash tests/backend/run-circt.sh
+	FIXTURES="event-runtime event-pipeline event-window event-frontend event-elastic event-queue event-arbiter event-crossbar event-demux event-atomic-fork event-broadcast event-join event-stall event-offer event-retained" bash tests/backend/run-circt.sh
 
 backend-test: check-boundaries
 	tools/run-racket-tests.sh $(BACKEND_TESTS)
@@ -212,7 +212,7 @@ riscv-udb-config:
 	  racket -y tools/write-riscv-udb-config.rhm "$(RISCV_UDB_CONFIGURATION)" "$(RISCV_UDB_OUTPUT)"
 
 rv5stage-test: rv5stage-host-test
-	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-decode rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed rv5stage-fp-decoder rv5stage-fp-register-file rv5stage-fp-pipeline rv5stage-register-file rv5stage-csr rv5stage-zihpm-rv32 rv5stage-zihpm-rv64 rv5stage-atomic rv5stage-btb rv5stage-fetch rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-fetch-admission rv5stage-branch-prediction rv5stage-core rv5stage-load-hit rv5stage-zcb rv5stage-mop rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-pause rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot rv5stage-multiply rv5stage-divide rv5stage-core-rv32 rv5stage-icache rv5stage-dcache rv5stage-dcache-rv32' bash tests/backend/run-circt.sh
+	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed rv5stage-fp-register-file rv5stage-fp-pipeline rv5stage-register-file rv5stage-csr rv5stage-zihpm-rv32 rv5stage-zihpm-rv64 rv5stage-atomic rv5stage-btb rv5stage-fetch rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-branch-prediction rv5stage-core rv5stage-load-hit rv5stage-zcb rv5stage-mop rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-pause rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot rv5stage-multiply rv5stage-divide rv5stage-icache rv5stage-dcache rv5stage-dcache-rv32' bash tests/backend/run-circt.sh
 
 circt-test: check-example-verilog
 	bash tests/backend/run-circt.sh
@@ -238,10 +238,19 @@ ci-circt-protocols-test:
 	bash tools/check-example-verilog.sh examples/noc examples/chi
 	bash tests/backend/run-circt.sh --group protocols
 
-ci-circt-cores-test:
+ci-circt-core-components-test:
 	bash tools/check-example-verilog.sh examples/riscv examples/cores
-	bash tests/backend/run-circt.sh --group cores
+	bash tests/backend/run-circt.sh --group cores-components
+
+ci-circt-core-execution-test:
+	bash tests/backend/run-circt.sh --group cores-execution
 	bash hardfloat/tests/run-circt.sh
+
+ci-circt-core-memory-test:
+	bash tests/backend/run-circt.sh --group cores-memory
+
+ci-circt-core-cache-test:
+	bash tests/backend/run-circt.sh --group cores-cache
 
 verilog-golden-test: check-example-verilog
 	bash tests/backend/run-circt.sh --golden-only

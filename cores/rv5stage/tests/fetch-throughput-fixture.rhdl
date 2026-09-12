@@ -31,13 +31,15 @@ sync_circuit RV5StageFetchThroughput():
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
   inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
   fetch.control.active <== active
-  fetch.control.flush <== Bool(#false)
-  fetch.control.restart_valid <== restart
-  fetch.control.restart_pc <== start_pc
-  fetch.control.invalidate_all <== Bool(#false)
-  fetch.control.predictor_flush <== Bool(#false)
-  fetch.control.branch_update.valid <== Bool(#false)
-  fetch.control.branch_update.bits <== literal(RV5StageBranchUpdate(XLen.X64), 0)
+  inject_flow(Pulse(), ~valid: Bool(#false)) |> fetch.control.flush
+  inject_flow(Valid(Bits(64)), ~valid: restart, ~bits: start_pc) |> fetch.control.restart
+  inject_flow(Pulse(), ~valid: Bool(#false)) |> fetch.control.invalidate_all
+  inject_flow(Pulse(), ~valid: Bool(#false)) |> fetch.control.predictor_flush
+  inject_flow(
+    Valid(RV5StageBranchUpdate(XLen.X64)),
+    ~valid: Bool(#false),
+    ~bits: literal(RV5StageBranchUpdate(XLen.X64), 0)
+  ) |> fetch.control.branch_update
   fetch.fetched.ready <== sink_ready
   valid <== fetch.fetched.valid
   pc <== fetch.fetched.bits.pc

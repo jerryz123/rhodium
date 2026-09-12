@@ -125,10 +125,16 @@ an importable settled prefix. Also run untraced SimpleSoC smoke after changing
 the common driver.
 
 `tests/check-core-events.sql` additionally requires all five scalar pipeline
-stages, exact permitted edge families, one parent per non-root event, no duplicate
+stages, exact permitted edge families, one parent per downstream scalar event, no duplicate
 children, matching RV64 PCs, and one-cycle downstream latency (elastic IF/ID may
 take longer). It requires repeated fetched PCs to exercise distinct occurrences.
 PC and instruction checks use named captures, independently of core bundle layout.
+`check-frontend-events.sql` connects request, lookup, outcome, and core-fetch
+tracks. Core fetch and its stalls have one or two retained, admitted S2
+parents; they are no longer roots. S2 captures admission and fault flags in the
+single outcome event, and instruction consumption follows at least one cycle
+later. The cycle-level `event-frontend` fixture owns exact compressed/straddle
+parent reconstruction; the smoke checks importer-visible edge families.
 Select stages through track names, not mnemonic slice names, and check full
 disassembly separately from the mnemonic. Generic display/schema rules belong
 to [RHEG](../rheg/DEVELOPING.md#perfetto-encoding), not this adapter.

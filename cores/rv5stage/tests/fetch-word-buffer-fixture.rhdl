@@ -1,0 +1,41 @@
+#lang rhodium
+// Exposes a small parameterized RV5Stage fetch-word buffer for cycle-visible ordering tests.
+
+import:
+  "../btb.rhdl" open
+  "../fetch-word-buffer.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageFetchWordBufferFixture():
+  input(fill_valid, clear, release_valid): Bool
+  input fill_base: Bits(64)
+  input fill_word: Bits(32)
+  input release_count: Bits(2)
+  output count: Bits(2)
+  output(head_valid, following_valid): Bool
+  output head_base: Bits(64)
+  output head_word: Bits(32)
+  output following_base: Bits(64)
+  output following_word: Bits(32)
+
+  inst buffer(RV5StageFetchWordBuffer(XLen.X64, 3))
+  def fill_bits = RV5StageFetchWord(XLen.X64):
+    base: fill_base
+    word: fill_word
+    page_fault: Bool(#false)
+    access_fault: Bool(#false)
+    prediction: literal(RV5StagePrediction(XLen.X64), 0)
+  inject_flow(Valid(RV5StageFetchWord(XLen.X64)), ~valid: fill_valid, ~bits: fill_bits) |> buffer.fill
+  inject_flow(Pulse(), ~valid: clear) |> buffer.clear
+  inject_flow(Valid(Bits(2)), ~valid: release_valid, ~bits: release_count) |> buffer.window.release
+  count <== buffer.window.count
+  head_valid <== buffer.window.head_valid
+  following_valid <== buffer.window.following_valid
+  head_base <== buffer.window.head.base
+  head_word <== buffer.window.head.word
+  following_base <== buffer.window.following.base
+  following_word <== buffer.window.following.word
+
+export:
+  RV5StageFetchWordBufferFixture

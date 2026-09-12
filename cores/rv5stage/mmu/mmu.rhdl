@@ -63,11 +63,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def instruction_head = instruction_s1.egress
   def instruction_address = instruction_head.bits.address
   def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address
-  // S0 launches the virtual arrays and captures context, with no local retry.
-  instruction.request.ready <== !instruction.flush & instruction_lookup.ready
-  instruction_lookup.valid <== !instruction.flush & instruction.request.valid
-  instruction_lookup.bits <== instruction.request.bits.address
-  inject_flow(Valid(RV5StageInstructionReq(xlen)), ~valid: instruction.request.fire(), ~bits: instruction.request.bits) |> instruction_s1.ingress
+  // One accepted S0 request atomically launches the virtual lookup and
+  // captures the MMU's S1 context. The frontend retains its own occurrence.
+  def Array(instruction_lookup_request, instruction_admission) = instruction.request |> gate_flow(!instruction.flush) |> atomic_fork(2)
+  instruction_lookup_request |> map_flow(request => request.address) |> instruction_lookup
+  instruction_admission |> to_valid() |> instruction_s1.ingress
   def instruction_s1_valid = instruction_head.valid & !instruction.flush & !instruction.s1_kill
   def data_request :: RV5StageDataReq(xlen) = data.request.bits
   def data_memory_operation = data_request.access
@@ -139,9 +139,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
       [CachePrefetchOperation.Write, prefetch_physical.writable]
     ]
   )
-  def translated_prefetch_valid = virtual_prefetch_pipe.egress.valid & prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_access_permitted
-  def translated_prefetch = prefetch_request.updated(~address: prefetch_line_address)
-  inject_flow(Valid(CachePrefetchReq(width)), ~valid: translated_prefetch_valid, ~bits: translated_prefetch) |> physical_prefetch_pipe.ingress
+  virtual_prefetch_pipe.egress
+    |> filter_valid(_request => prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_access_permitted)
+    |> map_valid(request => request.updated(~address: prefetch_line_address))
+    |> physical_prefetch_pipe.ingress
   // Cancel at the clock edge without reconnecting demand squash to cache admission.
   physical_prefetch_pipe.egress |> physical_prefetch
 
@@ -210,15 +211,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def discard_instruction_walk = instruction.flush & walk_active & !walk_is_data
   walker.cancel <== invalidate_all
 
-  walker.completion.ready <== !fault_valid
-  def walker_completion_fire = walker.completion.fire()
+  def walker_completed = walker.completion |> gate_flow(!fault_valid) |> to_valid()
+  def walker_completion_fire = walker_completed.valid
   def walker_fault_completion = walker_completion_fire & (
     walker.completion.bits.fault ||| walker.completion.bits.access_fault
   )
-  itlb.fill.valid <== walker_completion_fire & !walk_is_data & !walker.completion.bits.access_fault
-  itlb.fill.bits <== walker.completion.bits
-  dtlb.fill.valid <== walker_completion_fire & walk_is_data & !walker.completion.bits.access_fault
-  dtlb.fill.bits <== walker.completion.bits
+  def Array(instruction_fill, data_fill) = walker_completed |> filter_valid(completion => !completion.access_fault) |> fork_valid(2)
+  instruction_fill |> filter_valid(_completion => !walk_is_data) |> itlb.fill
+  data_fill |> filter_valid(_completion => walk_is_data) |> dtlb.fill
 
   def latched_instruction_fault = fault_valid & !fault_is_data & (fault_address === instruction_virtual_address)
   def latched_data_fault = fault_valid & fault_is_data & (fault_address === data_virtual_address)
@@ -248,29 +248,33 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   // Local S1 translation/PMA decisions are registered beside physical lookup.
   // An ITLB miss starts at most one walk; the frontend regenerates the attempt.
-  instruction_memory.request.valid <== instruction_s1_valid & instruction_lookup_ready & !instruction_local_fault
-  instruction_memory.request.bits <== RV5StagePhysicalInstructionReq(xlen):
-    address: instruction_physical_address
-    cacheable: instruction_physical.instruction_cacheable
-    device: instruction_physical.device
+  def Array(instruction_physical_path, instruction_result_path) = instruction_head
+    |> filter_valid(_request => !instruction.flush & !instruction.s1_kill) |> fork_valid(2)
+  (instruction_physical_path |> filter_valid(_request => instruction_lookup_ready & !instruction_local_fault)
+    |> map_valid(_request => RV5StagePhysicalInstructionReq(xlen)):
+         address: instruction_physical_address
+         cacheable: instruction_physical.instruction_cacheable
+         device: instruction_physical.device
+  ) |> instruction_memory.request
   instruction_memory.flush <== instruction.flush
   instruction_memory.invalidate_all <== instruction.invalidate_all
   instruction_memory.s1_kill <== instruction.s1_kill
-  instruction_s2.ingress.valid <== instruction_s1_valid
   def local_response = RV5StageInstructionResp():
     word: bits(0, 32)
     page_fault: instruction_page_fault
     access_fault: instruction_access_fault
-  instruction_s2.ingress.bits <== RV5StageFetchResult():
+  (instruction_result_path |> map_valid(_request => RV5StageFetchResult()):
     response: local_response
     replay: !instruction_lookup_ready
+  ) |> instruction_s2.ingress
   def s2_local = instruction_s2.egress.bits
   def s2_local_result = s2_local.replay ||| s2_local.response.page_fault ||| s2_local.response.access_fault
-  instruction.response.valid <== instruction_s2.egress.valid & !instruction.flush
   def unavailable = RV5StageFetchResult():
     response: literal(RV5StageInstructionResp(), 0)
     replay: Bool(#true)
-  instruction.response.bits <== mux(s2_local_result, s2_local, mux(instruction_memory.response.valid, instruction_memory.response.bits, unavailable))
+  instruction_s2.egress |> filter_valid(_result => !instruction.flush)
+    |> map_valid(result => mux(s2_local_result, result, mux(instruction_memory.response.valid, instruction_memory.response.bits, unavailable)))
+    |> instruction.response
 
   // The walker owns L1D exclusively. Its PTE request waits for two quiescent
   // observations, which drain the cache's nonbackpressured response stage.

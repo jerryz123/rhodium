@@ -29,8 +29,9 @@ bundle RV5StageBtbEntry(xlen :: XLen):
   counter: Bits(2)
 
 sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
+  // Lookup is combinational; only predictor state changes are event flows.
   input cursor: Bits(xlen.width)
-  input invalidate_all: Bool
+  interface invalidate_all(Pulse(), ~role: consumer)
   interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
   interface update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
   output prediction: RV5StagePrediction(xlen)
@@ -49,7 +50,7 @@ sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
       def lower = vec(for List (index in 0..entry_count): candidates[index] & !entries[index].pc[1].into(Bool))
       def selected = entries[priority_encoder(mux(lower.or_reduce(), lower, candidates))]
       prediction <== RV5StagePrediction(xlen):
-        valid: candidates.or_reduce() & !invalidate_all
+        valid: candidates.or_reduce() & !invalidate_all.valid
         pc: selected.pc
         target: selected.target
         compressed: selected.compressed
@@ -62,12 +63,12 @@ sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
       def incremented = mux(previous.counter === bits(3, 2), previous.counter, previous.counter + bits(1, 2))
       def decremented = mux(previous.counter === bits(0, 2), previous.counter, previous.counter - bits(1, 2))
       def write = update.valid & (matched ||| (update.bits.branch & update.bits.taken))
-      when invalidate_all:
+      when (invalidate_all.valid):
         replacement <== bits(0, index_bits)
       elsewhen (write & !matched & !invalidate.valid):
         replacement <== mux(selected_index === bits(entry_count - 1, index_bits), bits(0, index_bits), selected_index + bits(1, index_bits))
       for (index in 0..entry_count):
-        when invalidate_all:
+        when (invalidate_all.valid):
           entries[index] <== literal(RV5StageBtbEntry(xlen), 0)
         elsewhen (invalidate.valid & (entries[index].pc === invalidate.bits)):
           entries[index] <== entries[index].updated(~valid: Bool(#false))

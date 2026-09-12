@@ -99,7 +99,9 @@ inline. These limits bound dictionary memory, not whole-epoch graph retention.
 Use non-thread tracks under a custom design group with
 `child_ordering = LEXICOGRAPHIC`; process/thread descriptors ignore that hint.
 Disable sibling merging to keep repeated labels distinct. Track labels remain
-site labels. An explicit enum label field uses the compiler-supplied symbol table,
+site labels. Default slice names use only the final dot-separated component;
+retain the whole label if that component is empty. Apply this only to the site-label
+fallback, never to enum symbols or dotted instruction mnemonics. An explicit enum label field uses the compiler-supplied symbol table,
 with fixed-width hex for unknown values and unchanged numeric capture arguments.
 Validate unique fitting symbol values/names and at most one selected label; include
 both symbols and selection in JSON/C++ descriptor equality. Never duplicate domain

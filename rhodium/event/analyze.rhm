@@ -14,18 +14,22 @@ class FlowArc(source :: String,
               destination :: String,
               transform :: False || String = #false,
               latency_cycles :: False || Nat = 0,
-              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained) = [])
+              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = [])
 
 class EventCandidate(site :: EventSite,
                      transform_path :: List.of(String),
                      latency_cycles :: False || Nat,
-                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained))
+                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow))
 class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String))
 class FlowRouting(instance_path :: List.of(String), routing_id :: String, predicates :: List,
                   input :: String, output_index :: Nat)
 class FlowReplication(replication_id :: String, input :: String, output_index :: Nat)
 class FlowBroadcast(instance_path :: List.of(String), broadcast_id :: String, accept :: Value, pending :: Value,
                     input :: String, output_index :: Nat)
+class ExplicitTraceEdge(parent :: String,
+                        child :: String,
+                        transform_path :: String,
+                        stage :: EventTraceRetained)
 
 fun occurrence_prefix(instance_path :: List.of(String)):
   String.join(instance_path, "/")
@@ -78,13 +82,15 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def roots = MutableSet{}
   def detached = MutableSet{}
   def stalled_sites = MutableSet{}
+  def explicit_children = MutableSet{}
+  def mutable explicit_edges = []
   def mutable sites = []
 
   fun add_arc(source :: String,
               destination :: String,
               transform :: False || String = #false,
               latency_cycles :: False || Nat = 0,
-              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained) = []):
+              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = []):
     incoming[destination] := incoming.get(destination, []) ++ [
       FlowArc(source, destination, transform, latency_cycles, trace_stages)
     ]
@@ -104,6 +110,23 @@ fun infer_event_manifest(logical :: DesignElaboration,
                       channel.destination_block,
                       channel.destination_port)
         )
+
+    // Explicit FSM edges cross an opaque state boundary while retaining the
+    // declared transaction owner. They are metadata-only and never imply RTL
+    // wiring between the two route endpoints.
+    for (edge in module_diagram.trace_edges):
+      def parent = occurrence_prefix(instance_path) ++ "/event:" ++ to_string(edge.parent_site)
+      def child = occurrence_prefix(instance_path) ++ "/event:" ++ to_string(edge.child_site)
+      when child in explicit_children
+      | error(~who: #'infer_event_manifest,
+              "trace edge child has more than one parent: " ++ child)
+      explicit_children.add(child)
+      explicit_edges := explicit_edges ++ [
+        ExplicitTraceEdge(parent,
+                          child,
+                          "trace-edge:" ++ edge.scope,
+                          EventTraceRetained(instance_path, edge.capture, edge.release, edge.active))
+      ]
 
     for (flow_block in module_diagram.blocks):
       when flow_block.kind == "flow" && !flow_block.delegate_ports
@@ -167,6 +190,10 @@ fun infer_event_manifest(logical :: DesignElaboration,
               | trace_model.routing_predicates(): #false
               | trace_model.atomic_fork_outputs(): #false
               | trace_model.broadcast_storage(): #false
+              | trace_model.window_storage():
+                  def storage = trace_model.window_storage()
+                  [EventTraceWindow(instance_path ++ trace_model.owner_path(), storage.depth, storage.enqueue,
+                                    storage.release_count, storage.count, storage.flush, storage.selected)]
               | trace_model.retained_storage():
                   def storage = trace_model.retained_storage()
                   [EventTraceRetained(instance_path ++ trace_model.owner_path(), storage.capture, storage.release, storage.active)]
@@ -180,7 +207,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                   trace_model.elastic_stages().map(fun (stage): EventTraceStage(owner_path, stage.advance, stage.valid))
               | trace_model.latency_cycles():
                   def owner_path = if flow_block.implementation_name | instance_path ++ [flow_block.implementation_name] | instance_path
-                  for List (_ in 0..trace_model.latency_cycles()): EventTraceStage(owner_path)
+                  for List (_ in 0..trace_model.latency_cycles()): EventTraceStage(owner_path, #false, #false, trace_model.fixed_latency_flush())
               | ~else: #false
             when trace_model.atomic_join_inputs()
             | def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
@@ -263,7 +290,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                      visiting :: List.of(String) = [],
                      reverse_transform_path :: List.of(String) = [],
                      latency_cycles :: False || Nat = 0,
-                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained) = []):
+                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = []):
     def event = event_by_output.get(vertex, #false)
     cond
     | event: [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
@@ -297,22 +324,34 @@ fun infer_event_manifest(logical :: DesignElaboration,
 
   def mutable dependencies = []
   for (site in sites):
-    for (input in (if site.root | [] | site_inputs.get(site.id, []))):
-      for (candidate in nearest_events(input)):
-        def dependency = EventDependency(candidate.site.id,
-                                         site.id,
-                                         candidate.transform_path,
-                                         candidate.latency_cycles,
-                                         candidate.trace_stages)
-        unless dependencies.find(
-          fun (existing): same_dependency(existing, dependency)
-        )
-        | dependencies := dependencies ++ [dependency]
+    unless site.id in explicit_children
+    | for (input in (if site.root | [] | site_inputs.get(site.id, []))):
+        for (candidate in nearest_events(input)):
+          def dependency = EventDependency(candidate.site.id,
+                                           site.id,
+                                           candidate.transform_path,
+                                           candidate.latency_cycles,
+                                           candidate.trace_stages)
+          unless dependencies.find(
+            fun (existing): same_dependency(existing, dependency)
+          )
+          | dependencies := dependencies ++ [dependency]
+  for (edge in explicit_edges):
+    def dependency = EventDependency(edge.parent,
+                                     edge.child,
+                                     [edge.transform_path],
+                                     #false,
+                                     [edge.stage])
+    unless dependencies.find(fun (existing): same_dependency(existing, dependency))
+    | dependencies := dependencies ++ [dependency]
 
   // Construct expressions at flow vertices so storage downstream of selection
   // wraps the selected reference once, rather than duplicating it per parent.
   def plans = MutableMap{}
   def cached_plans = MutableMap{}
+  def explicit_plans = MutableMap{}
+  for (edge in explicit_edges):
+    explicit_plans[edge.child] := EventTracePipeline(EventTraceSource(edge.parent), [edge.stage])
   fun trace_plan(vertex :: String, visiting :: List.of(String) = []):
     when vertex in visiting
     | error(~who: #'infer_event_manifest, "dynamic event lineage requires an acyclic path: " ++ vertex)
@@ -352,7 +391,12 @@ fun infer_event_manifest(logical :: DesignElaboration,
     cached_plans[vertex]
   when dynamic
   | for (site in sites):
-      plans[site.id] := if site.root | EventTraceSource(#false) | trace_plan(site_inputs[site.id][0])
+      def plan:
+        cond
+        | site.root: EventTraceSource(#false)
+        | explicit_plans.has_key(site.id): explicit_plans[site.id]
+        | ~else: trace_plan(site_inputs[site.id][0])
+      plans[site.id] := plan
   // Append observations after transfer sites, preserving existing site numbering.
   // They never enter event_by_output: a stall cannot cut or advance lineage.
   for (site in sites):

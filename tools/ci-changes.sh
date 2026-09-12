@@ -146,7 +146,10 @@ emit_jobs() {
   fi
   if [[ "$circt_cores" == true ]]; then
     circt=true
-    append_matrix_entry circt_matrix '{"name":"cores","target":"ci-circt-cores-test"}'
+    append_matrix_entry circt_matrix '{"name":"core components","target":"ci-circt-core-components-test"}'
+    append_matrix_entry circt_matrix '{"name":"core execution","target":"ci-circt-core-execution-test"}'
+    append_matrix_entry circt_matrix '{"name":"core memory","target":"ci-circt-core-memory-test"}'
+    append_matrix_entry circt_matrix '{"name":"core caches","target":"ci-circt-core-cache-test"}'
   fi
   if [[ "$circt_rfpl" == true ]]; then
     circt=true

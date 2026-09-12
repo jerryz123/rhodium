@@ -78,6 +78,13 @@ def converted = instrument_events(pipeline_fixture.valid_conversion)
 def nested_channels = instrument_events(pipeline_fixture.nested_channels)
 def private_reset = instrument_events(pipeline_fixture.private_reset(#false))
 def adapter_contract = instrument_events(pipeline_fixture.adapter_contract())
+def explicit_edges = instrument_events(retained_fixture.trace_edges())
+def flushed = instrument_events(pipeline_fixture.flush_pipeline)
+check:
+  flushed.manifest.dependencies.map(fun (edge): edge.latency_cycles).sort() ~is [1, 3]
+  (for all (edge in flushed.manifest.dependencies): for all (stage in edge.trace_stages): stage.flush != #false) ~is #true
+  pipeline_fixture.bad_flush("width") ~throws "trace flush must be local one-bit data"
+  pipeline_fixture.bad_flush("foreign") ~throws "trace controls must belong to their owner"
 for (intrinsic in [#true, #false]):
   for (wrapped in [#true, #false]):
     def named = instrument_events(pipeline_fixture.named_contracts(intrinsic, wrapped))
@@ -88,6 +95,10 @@ for (intrinsic in [#true, #false]):
       edges.map(fun (edge): edge.trace_stages[0].instance_path) ~is [["EventNamedContracts", "storage"], ["EventNamedContracts", "storage"]]
       edges[0].trace_stages[0].advance === edges[1].trace_stages[0].advance ~is #false
 check:
+  explicit_edges.manifest.dependencies.length() ~is 2
+  explicit_edges.manifest.dependencies.map(fun (edge): edge.trace_stages.length()) ~is [1, 1]
+  explicit_edges.manifest.dependencies.map(fun (edge): edge.trace_stages[0] is_a EventTraceRetained) ~is [#true, #true]
+  emit_circt(explicit_edges.instrumented.design).contains("sim.func.dpi.call @rheg_edge") ~is #true
   adapter_contract.manifest.dependencies[0].latency_cycles ~is 1
   adapter_contract.manifest.dependencies[0].trace_stages[0].instance_path ~is ["EventAdapterContract", "storage"]
   pipeline_fixture.invalid_contract("foreign") ~throws "trace controls must belong to their owner"

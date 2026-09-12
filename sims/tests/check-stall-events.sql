@@ -48,7 +48,8 @@ SELECT
      AND json_extract(o.value,'$.observation_of')=json_extract(t.schema,'$.site_id')
      AND json_extract(o.value,'$.fields')=json_extract(t.schema,'$.fields')) AND
   (SELECT count(*)=0 FROM flow JOIN events s ON s.id=flow.slice_out WHERE s.kind='stall') AND
-  (SELECT count(*)=0 FROM flow JOIN events s ON s.id=flow.slice_in WHERE s.name='core.s1.fetch' AND s.kind='stall') AND
+  (SELECT count(*)=0 FROM events s WHERE s.name='core.s1.fetch' AND s.kind='stall' AND (SELECT count(*) FROM flow WHERE slice_in=s.id) NOT BETWEEN 1 AND 2) AND
+  (SELECT count(*)=0 FROM flow f JOIN events s ON s.id=f.slice_in JOIN slice p ON p.id=f.slice_out JOIN track t ON t.id=p.track_id WHERE s.name='core.s1.fetch' AND s.kind='stall' AND (t.name!='frontend.s2.outcome' OR p.name='stall' OR p.ts>=s.ts OR EXTRACT_ARG(p.arg_set_id,'debug.admitted') IS NOT 1)) AND
   (SELECT count(*)=0 FROM events s WHERE s.name='core.s2.decode' AND s.kind='stall'
    AND (SELECT count(*) FROM flow WHERE slice_in=s.id)!=1) AND
   (SELECT count(*)=0 FROM edges WHERE dst='core.s2.decode' AND child_kind='stall'

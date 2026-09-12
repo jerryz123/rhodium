@@ -1,15 +1,22 @@
 #lang rhodium
 // Defines Rhodium's canonical valid-only and ready-valid protocol interfaces.
 
-// Every cycle with valid asserted carries one payload; there is no
-// backpressure signal or pending-transfer state.
-interface Valid(T :: DataType):
+// Every cycle with valid asserted is one payloadless control event; there is
+// no backpressure signal or pending-transfer state. Consecutive asserted
+// cycles are separate events, not one edge-detected pulse.
+interface Pulse():
   role producer
   role consumer
   provider producer
 
   producer -> consumer:
     valid: Bool
+
+// Every cycle with valid asserted carries one payload; there is no
+// backpressure signal or pending-transfer state. Payload-bearing valid-only
+// interfaces also provide the payloadless control-event contract.
+interface Valid(T :: DataType) refines Pulse():
+  producer -> consumer:
     bits: T
 
 // The ready-valid family has independent payload and stability axes:
@@ -116,6 +123,7 @@ fun ctrl_endpoint(endpoint :: Endpoint) :~ Endpoint:
   endpoint
 
 export:
+  Pulse
   Valid
   DecoupledCtrl
   IrrevocableCtrl

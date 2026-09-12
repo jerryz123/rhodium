@@ -1,5 +1,5 @@
 #lang rhodium
-// Carries architectural fetch control from execution to the instruction frontend.
+// Defines independent core-to-frontend control streams and their stage-owned payloads.
 
 import:
   "btb.rhdl" open
@@ -12,12 +12,17 @@ interface RV5StageFrontendControl(xlen :: XLen):
   provider core
 
   core -> frontend:
+    // IF owns the persistent fetch-admission level.
     active: Bool
-    flush: Bool
-    restart_valid: Bool
-    restart_pc: Bits(xlen.width)
-    invalidate_all: Bool
-    predictor_flush: Bool
+    // MEM reports a squash after its exception and replay filtering.
+    flush: Pulse()
+    // The core orders MEM branch recovery with WB redirects and restarts.
+    restart: Valid(Bits(xlen.width))
+    // WB commits instruction-cache invalidation.
+    invalidate_all: Pulse()
+    // WB invalidates predictor state for serialized architectural changes.
+    predictor_flush: Pulse()
+    // MEM publishes the uncanceled branch outcome resolved in EX.
     branch_update: Valid(RV5StageBranchUpdate(xlen))
 
 export:

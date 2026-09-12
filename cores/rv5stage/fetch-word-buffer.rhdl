@@ -1,0 +1,88 @@
+#lang rhodium
+// Buffers completed fetch words for RV5Stage's stable two-word instruction assembly window.
+
+import:
+  "btb.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+
+bundle RV5StageFetchWord(xlen :: XLen):
+  base: Bits(xlen.width)
+  word: Bits(32)
+  page_fault: Bool
+  access_fault: Bool
+  prediction: RV5StagePrediction(xlen)
+
+// The frontend observes a stable two-word window and separately releases the
+// zero, one, or two completed words consumed by the current instruction.
+interface RV5StageFetchWordWindow(xlen :: XLen, capacity :: PosInt):
+  role buffer
+  role frontend
+  provider buffer
+
+  buffer -> frontend:
+    count: Bits(index_width(capacity + 1))
+    head_valid: Bool
+    head: RV5StageFetchWord(xlen)
+    following_valid: Bool
+    following: RV5StageFetchWord(xlen)
+
+  frontend -> buffer:
+    release: Valid(Bits(2))
+
+// Every fill is accepted without backpressure. The caller reserves capacity
+// before issuing it, while clear discards simultaneous fill and release work.
+sync_circuit RV5StageFetchWordBuffer(xlen :: XLen, capacity :: PosInt):
+  def count_width = index_width(capacity + 1)
+  def empty_word = literal(RV5StageFetchWord(xlen), 0)
+  interface fill(Valid(RV5StageFetchWord(xlen)), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  interface window(RV5StageFetchWordWindow(xlen, capacity), ~role: buffer)
+
+  reg words(~init: vec(for List (_index in 0..capacity): empty_word))
+  reg count(~init: bits(0, count_width))
+  def release_active = window.release.valid & !clear.valid
+  def release_count = mux(release_active, window.release.bits, bits(0, 2))
+  def release_as_count:
+    if count_width == 1
+    | trunc(release_count, 1)
+    | if count_width == 2
+      | release_count
+      | release_count.zext(count_width)
+  def fill_active = fill.valid & !clear.valid
+  def remaining = count - release_as_count
+  def release_supported = if capacity == 1 | release_count === bits(1, 2) | (release_count === bits(1, 2)) ||| (release_count === bits(2, 2))
+
+  window.count <== count
+  window.head_valid <== count =/= bits(0, count_width)
+  window.head <== words[0]
+  window.following_valid <== if capacity > 1 | count > bits(1, count_width) | Bool(#false)
+  window.following <== if capacity > 1 | words[1] | empty_word
+
+  assert(count <= bits(capacity, count_width), "fetch_word_buffer_count_in_range")
+  when release_active:
+    assert(release_supported, "fetch_word_buffer_release_supported")
+    assert(count >= release_as_count, "fetch_word_buffer_release_available")
+  when fill_active:
+    assert(remaining < bits(capacity, count_width), "fetch_word_buffer_fill_space")
+
+  when (clear.valid):
+    count <== bits(0, count_width)
+  otherwise:
+    count <== remaining + fill_active.as_bits().zext(count_width)
+
+  for (index in 0..capacity):
+    def shifted_once = if index + 1 < capacity | words[index + 1] | empty_word
+    def shifted_twice = if index + 2 < capacity | words[index + 2] | empty_word
+    when (clear.valid):
+      words[index] <== empty_word
+    elsewhen (fill_active & (remaining === bits(index, count_width))):
+      words[index] <== fill.bits
+    elsewhen release_active:
+      words[index] <== mux(release_count === bits(2, 2), shifted_twice, shifted_once)
+
+export:
+  RV5StageFetchWord
+  RV5StageFetchWordWindow
+  RV5StageFetchWordBuffer

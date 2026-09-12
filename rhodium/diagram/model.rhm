@@ -3,6 +3,7 @@
 
 import:
   "../core/ir.rhm".DesignElaboration
+  "../core/ir.rhm".Value
   "../frontend/layers/interface.rhm".InterfaceEventGroup
   "../frontend/layers/interface.rhm".InterfaceTraceModel
 
@@ -10,6 +11,7 @@ export:
   DiagramPort
   DiagramBlock
   DiagramChannel
+  DiagramTraceEdge
   DiagramModule
   DiagramDesign
 
@@ -42,10 +44,20 @@ class DiagramChannel(id :: String,
                      kind :: String = "data",
                      protocol_family :: String = "data")
 
+// A metadata-only causal edge between two event checkpoints in one module.
+// The retained controls are carried through extraction for event analysis.
+class DiagramTraceEdge(parent_site :: Nat,
+                       child_site :: Nat,
+                       capture :: Value,
+                       release :: Value,
+                       active :: Value,
+                       scope :: String)
+
 class DiagramModule(id :: Nat || String,
                     name :: String,
                     blocks :: List.of(DiagramBlock),
-                    channels :: List.of(DiagramChannel))
+                    channels :: List.of(DiagramChannel),
+                    trace_edges :: List.of(DiagramTraceEdge) = [])
 
 class DiagramDesign(logical :: DesignElaboration,
                     modules :: List.of(DiagramModule)):

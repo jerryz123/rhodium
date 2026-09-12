@@ -69,6 +69,14 @@ fun trace_valid_event_config(label :: String,
       )
     )
 
+// Connects a child event to a previously retained parent event without
+// changing the ready-valid datapath. The named retained-storage declaration
+// owns the cross-cycle lifetime; this helper only records the causal relation.
+fun trace_edge(parent :: Endpoint,
+               child :: Endpoint,
+               ~scope: scope :: String = "data"):
+  describe_interface_trace_edge(parent, child, ~scope: scope)
+
 // Bind the observed payload with its hardware surface, like map_valid. The
 // generic annotation owns validation; these macros only configure observation.
 expr.macro
@@ -100,6 +108,7 @@ expr.macro 'capture_fields($(payload :: Identifier)): $field; ...':
 export:
   trace_event
   trace_valid_event
+  trace_edge
   trace_detach
 
 // Deliberately forget ancestry without adding a visible event or changing RTL.

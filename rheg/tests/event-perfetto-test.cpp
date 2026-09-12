@@ -83,6 +83,23 @@ std::string inflate_trace(const std::string& encoded) {
   check(remaining == 0 && status == Z_STREAM_END);
   return decoded;
 }
+void qualified_labels(const std::string& path) {
+  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Labels","sites":[{"id":"front","label":"frontend.s0.request","payload_width":0,"fields":[]},{"id":"back","label":"backend.s0.request","payload_width":0,"fields":[]},{"id":"plain","label":"plain","payload_width":0,"fields":[]},{"id":"trailing","label":"trailing.","payload_width":0,"fields":[]}],"dependencies":[]})",
+      {0,0,0,0}, {}, {{},{},{},{}}};
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000});
+  std::ostringstream live;
+  PerfettoWriter writer(live, descriptor, {100000000});
+  for (unsigned site = 0; site < 4; ++site) {
+    graph.record_node({site,0},site,0);
+    writer.write(batch(site,{site,0}));
+  }
+  writer.finish();
+  std::istringstream input(graph.snapshot().json());
+  std::ostringstream replay;
+  write_perfetto(replay, read_event_trace(input));
+  check(live.str() == replay.str(), "qualified label live/replay bytes differ");
+  std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
+}
 void compression_contract(const std::string& path) {
   std::ostringstream raw, compressed;
   PerfettoWriter plain(raw, manifest(), {100000000});
@@ -385,6 +402,7 @@ void stall_runs(const std::string& path) {
 }
 int main(int argc, char** argv) {
   check(argc == 2);
+  qualified_labels(std::string(argv[1]) + "/qualified-labels.pftrace");
   stall_trace(std::string(argv[1]) + "/stalls.pftrace");
   named_stall_trace(std::string(argv[1]) + "/named-stalls.pftrace");
   stall_runs(std::string(argv[1]) + "/stall-runs.pftrace");

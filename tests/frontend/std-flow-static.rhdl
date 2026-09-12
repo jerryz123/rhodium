@@ -72,6 +72,12 @@ sync_circuit FlowStaticInformation():
   def captured_bits = captured_valid.bits
   def detached_valid = Valid(Bits(8)) |> capture_stage
   def detached_valid_bits = detached_valid.right.bits
+  input flush: Bool
+  def flushing_stage = valid_pipe_always_capture(2, ~flush: flush)
+  def flushing = Valid(Bits(8)) |> flushing_stage |> valid_pipe(1, ~flush: flush)
+  def flushing_bits = flushing.right.bits
+  def flushing_again = Valid(Bits(8)) |> flushing_stage
+  def flushing_again_bits = flushing_again.right.bits
 
   def offer_stage = offer_decoupled()
   interface offer_source(Valid(Bits(8)), ~role: consumer)
@@ -91,6 +97,10 @@ sync_circuit FlowStaticInformation():
 
   inst captured_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1))
   def captured_nibble = captured_payload.egress.bits.low_nibble()
+  inst flushed_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1, ~flushable: #true))
+  def flushed_nibble = flushed_payload.egress.bits.low_nibble()
+  inst flushed_valid_payload(ValidPipe(CapturedPayload(), 2, ~flushable: #true))
+  def flushed_valid_nibble = flushed_valid_payload.egress.bits.low_nibble()
   def named_capture = captured_payload.egress |> trace_valid_event("named", ~fields: payload):
     word: payload.word
     nibble: payload.word[0..4]

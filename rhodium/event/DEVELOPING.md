@@ -59,11 +59,18 @@ Keep static `EventDependency` paths for possible-parent reporting. Dynamic
 delayed static edges. Storage before selection belongs to its input branch;
 storage afterward wraps the selected lineage exactly once. `trace_stages` is
 the linear compatibility projection and becomes false across nonlinear plans.
+`DiagramTraceEdge` records an explicit retained-state relationship between two
+annotated local event outputs. Analysis lowers it to a one-stage
+`EventTraceRetained` plan and omits the child's ordinary topology predecessor;
+the named storage controls define the lifetime, while the metadata edge does not
+alter functional wiring. One scope has one parent route and may feed multiple
+children. Keep this escape hatch narrow: ordinary Flow must continue to supply
+its own typed contracts and nearest-parent inference.
 
 | Plan | Information retained for lowering |
 |---|---|
 | `EventTraceSource` | Nearest annotation, supported unannotated root, or explicit ancestry cut |
-| `EventTracePipeline` | Input plan and ordered fixed, elastic, queue, or retained-owner stages |
+| `EventTracePipeline` | Input plan and ordered fixed, elastic, queue, retained-owner, or retained-window stages |
 | `EventTraceSelection` | Ordered input plans and occurrence-qualified grants |
 | `EventTraceRouting` | Input, concrete router ID, original predicates, output index |
 | `EventTraceReplication` | Input, concrete atomic-fork ID, output index |
@@ -71,7 +78,8 @@ the linear compatibility projection and becomes false across nonlinear plans.
 | `EventTraceJoin` | Ordered contributing input plans |
 
 `event_trace_capacity(plan)` is one at a source, the sum at a join, the maximum
-at selection, and unchanged through storage/routing/replication. Lower lineage
+at selection, multiplied by the selected-window length at window storage, and
+unchanged through other storage/routing/replication. Lower lineage
 to transaction validity plus `VectorType(P, EventRef)`. A reference contains
 `valid`, numeric `site`, and `sequence`; numeric sites index the occurrence-aware
 manifest rather than a lossy hierarchy hash. Hidden annotation ports remain
@@ -120,7 +128,10 @@ plan. Observation-port pruning is a separate optimization.
 ### Storage lowering
 
 - **Fixed latency:** compose certified cycle counts and place an unconditional
-  lineage delay line at the consumer. Reset each stage to invalid. Functional
+  lineage delay line at the consumer. Reset each stage to invalid. When the
+  contract supplies an explicit flush, observe it from its declaring occurrence
+  and invalidate every stage on that edge, ahead of incoming lineage. Keep
+  pre-edge observations and graph sequence counters intact. Functional
   pipeline definitions remain shareable; consumer handshakes suppress filtered
   transactions even across hierarchy.
 - **Elastic stages:** preserve ordered `EventTraceStage` controls. Load on actual
@@ -143,6 +154,16 @@ plan. Observation-port pruning is a separate optimization.
   Assert capture completeness, no live overwrite without release, and no idle
   release. Gate reads with functional active state and reset metadata to invalid.
   This is repeatable transaction ownership, not elastic/FIFO removal semantics.
+- **Retained window:** `EventTraceWindow` samples enqueue, prefix release count,
+  occupancy, flush, and per-slot contribution predicates. Shift a depth-sized
+  vector of lineages by the actual release count and append at remaining
+  occupancy; flush/reset invalidate it. Add no shadow pointers or occupancy
+  controller. Read old entries before simultaneous release/replacement and
+  concatenate only selected parent slots. Completeness requires at least one
+  selected entry and valid lineage in every selected occupied slot. Capacity
+  multiplies by the selection-window length, including through later storage.
+  Assertions check occupancy bounds, release bounds, append space, and capture
+  completeness. Slot reads do not consume lineage.
 
 Detached routes stop both static and dynamic backward traversal.
 `EventTraceSource(#false, #true)` lowers to a valid transaction with invalid
@@ -245,7 +266,9 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | Fixture | Distinct coverage to preserve |
 |---|---|
 | `event-runtime` | Same-cycle edges, repeated hierarchy, hidden ports, shared functional children, map/filter/gate, ready-valid and Valid transfers, 38 selected bits from a 65-bit input, callback permutations, reset and deduplication |
-| `event-pipeline` | One/two-stage and composed hierarchical fixed delays, filters around storage |
+| `event-pipeline` | One/two-stage and composed hierarchical fixed delays, filters, explicit flush with simultaneous input/output, consecutive flushes, and preserved graph history |
+| `event-window` | Repeated and two-parent selections, zero/one/two/three prefix releases, full replacement, flush, and multi-parent ancestry through downstream elastic storage |
+| `event-frontend` | Actual frontend stages and compressed assembly, shared word parents, straddles, continuation faults, bounded runahead, stalls, and restart cancellation |
 | `event-elastic` | Independently stalled repeated instances, simultaneous transfers, full reset, exact ready/valid/payload equivalence |
 | `event-queue` | All flow/pipe modes at depths one/three, depth-five hierarchical composition, empty bypass, full replacement, pointer wraparound |
 | `event-arbiter` | Fixed/round-robin and nested selection, independent input/output buffers, changing offers under stall |

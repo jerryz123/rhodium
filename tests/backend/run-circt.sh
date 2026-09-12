@@ -23,7 +23,7 @@ while (( $# > 0 )); do
       shift
       ;;
     *)
-      echo "usage: $0 [--group language|std|protocols|cores|socs|rfpl] [--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
+      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-memory|cores-cache|socs|rfpl] [--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
       exit 2
       ;;
   esac
@@ -74,7 +74,7 @@ if [[ -n "$fixture_group" && ( -n "${FIXTURE:-}" || -n "${FIXTURES:-}" ) ]]; the
   exit 2
 fi
 case "$fixture_group" in
-  ""|language|std|protocols|cores|socs|rfpl) ;;
+  ""|language|std|protocols|cores|cores-components|cores-execution|cores-memory|cores-cache|socs|rfpl) ;;
   *)
     echo "unknown CIRCT fixture group: $fixture_group" >&2
     exit 2
@@ -100,7 +100,7 @@ integration_fixtures=(
   rv32i-alu rv64i-alu-integrated load-store-rv32-word bit-manip bit-manip-rv32
   credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask runtime-alignment transfer-range
   fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
-  rv5stage-core rv5stage-branch-prediction rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
+  rv5stage-core rv5stage-branch-prediction rv5stage-fetch-word-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
 )
 
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -175,11 +175,18 @@ fixture_in_group() {
   local group="$2"
   local spec fixture top example design_export reference_export
 
+  if [[ "$group" == cores ]]; then
+    for core_group in cores-components cores-execution cores-memory cores-cache; do
+      fixture_in_group "$wanted" "$core_group" && return 0
+    done
+    return 1
+  fi
+
   for spec in "${fixture_specs[@]}"; do
     IFS='|' read -r fixture top example design_export reference_export <<< "$spec"
     if [[ "$fixture" == "$wanted" ]]; then
       case "$group:$example" in
-        language:examples/rtl/*|language:examples/lop/*|language:examples/clocking/*|std:examples/std/*|protocols:examples/noc/*|protocols:examples/chi/*|cores:examples/cores/*|cores:examples/riscv/*|socs:socs/tests/*|rfpl:examples/rfpl/*)
+        language:examples/rtl/*|language:examples/lop/*|language:examples/clocking/*|std:examples/std/*|protocols:examples/noc/*|protocols:examples/chi/*|cores-components:examples/riscv/*|cores-components:examples/cores/decoded-alu.rhdl|cores-execution:examples/cores/rv5stage.rhdl|socs:socs/tests/*|rfpl:examples/rfpl/*)
           return 0
           ;;
         *)
@@ -190,6 +197,9 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
+    language:event-window|cores-execution:event-frontend)
+      return 0
+      ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
@@ -199,7 +209,16 @@ fixture_in_group() {
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
-    cores:rv32i-*|cores:rv64i-*|cores:load-store|cores:load-store-rv32-word|cores:bit-manip*|cores:iterative-multiplier|cores:iterative-divider|cores:riscv-counters-*|cores:riscv-cmo|cores:riscv-pointer-masking|cores:riscv-floating-point|cores:riscv-compressed|cores:scoreboard|cores:rv5stage-*)
+    cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:iterative-divider|cores-components:riscv-counters-*|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
+      return 0
+      ;;
+    cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-atomic|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-fetch-word-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
+      return 0
+      ;;
+    cores-memory:rv5stage-chi-*|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
+      return 0
+      ;;
+    cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:rv5stage-pending-stores|cores-cache:rv5stage-lrsc-*)
       return 0
       ;;
     *)
@@ -431,7 +450,7 @@ verify_fixture() {
   if [[ -f "$test_dpi_source" ]]; then
     dpi_sources+=("$test_dpi_source")
   fi
-  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
+  if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -445,7 +464,9 @@ verify_fixture() {
     # Registered S2 replay feeds S0 through independent packed-interface leaves.
     # fetch-admission checks the actual leaf dependencies; match the SoC setting
     # without disabling assertions or runtime convergence checks.
-    if grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
+    # Instrumented occurrences use top-derived names, so these two fixtures
+    # cannot be recognized by the original frontend module name.
+    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit ]] || grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -651,6 +672,8 @@ fixture_specs=(
 direct_fixture_specs=(
   'event-runtime|event_runtime_tb'
   'event-pipeline|event_pipeline_tb'
+  'event-window|event_window_tb'
+  'event-frontend|event_frontend_tb'
   'event-elastic|event_elastic_tb'
   'event-queue|event_queue_tb'
   'event-arbiter|event_arbiter_tb'
@@ -683,7 +706,6 @@ direct_fixture_specs=(
   'noc-router-family|noc_router_family_tb'
   'rv32i-alu|rv32i_alu_tb'
   'rv64i-alu|rv64i_alu_tb'
-  'rv64i-alu-decode|'
   'credited-monitor-overgrant|'
   'chi-foundation|chi_foundation_tb'
   'chi-packets|chi_packets_tb'
@@ -723,7 +745,6 @@ direct_fixture_specs=(
   'riscv-counters-rv32|riscv_counters_rv32_tb'
   'riscv-floating-point|riscv_floating_point_tb'
   'riscv-compressed|riscv_compressed_tb'
-  'rv5stage-fp-decoder|'
   'rv5stage-fp-register-file|rv5stage_fp_register_file_tb'
   'rv5stage-fp-pipeline|rv5stage_fp_pipeline_tb'
   'rv5stage-register-file|rv5stage_register_file_tb'
@@ -735,19 +756,17 @@ direct_fixture_specs=(
   'rv5stage-access-fault|rv5stage_access_fault_tb'
   'rv5stage-fetch|rv5stage_fetch_tb'
   'rv5stage-btb|rv5stage_btb_tb'
+  'rv5stage-fetch-word-buffer|rv5stage_fetch_word_buffer_tb'
   'rv5stage-fetch-prediction|rv5stage_fetch_prediction_tb'
   'rv5stage-fetch-throughput|rv5stage_fetch_throughput_tb'
   'rv5stage-load-hit|rv5stage_load_hit_tb'
   'rv5stage-branch-prediction|rv5stage_branch_prediction_tb'
-  'rv5stage-fetch-admission|'
   'shift-queue|shift_queue_tb'
   'rv5stage-core|rv5stage_core_tb'
   'rv5stage-zcb|rv5stage_zcb_tb'
   'rv5stage-mop|rv5stage_mop_tb'
   'rv5stage-zkt-rv32|rv5stage_zkt_rv32_tb'
   'rv5stage-zkt-rv64|rv5stage_zkt_rv64_tb'
-  'rv5stage-zkt-rv32f|rv5stage_zkt_rv32f_tb'
-  'rv5stage-zkt-rv64d|rv5stage_zkt_rv64d_tb'
   'rv5stage-core-rv32f|rv5stage_core_rv32f_tb'
   'rv5stage-core-rv64d|rv5stage_core_rv64d_tb'
   'rv5stage-data-fault|rv5stage_data_fault_tb'
@@ -766,7 +785,6 @@ direct_fixture_specs=(
   'rv5stage-io-boot|rv5stage_io_boot_tb'
   'rv5stage-multiply|rv5stage_multiply_tb'
   'rv5stage-divide|rv5stage_divide_tb'
-  'rv5stage-core-rv32|'
   'rv5stage-icache|rv5stage_icache_tb'
   'rv5stage-icache-coherence|rv5stage_icache_coherence_tb'
   'rv5stage-icache-coherence-flat|rv5stage_icache_coherence_tb'
@@ -832,7 +850,7 @@ for direct_spec in "${direct_fixture_specs[@]}"; do
   done
 done
 
-fixture_groups=(language std protocols cores socs rfpl)
+fixture_groups=(language std protocols cores-components cores-execution cores-memory cores-cache socs rfpl)
 for spec in "${fixture_specs[@]}" "${direct_fixture_specs[@]}"; do
   IFS='|' read -r fixture _ <<< "$spec"
   group_count=0

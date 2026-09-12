@@ -72,7 +72,7 @@ flowchart TD
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Host["Host matrix<br/>foundation, backend, models,<br/>protocols, cores, SoCs, hygiene"]
     Compile --> Examples["Example matrix<br/>one owning example group per shard"]
-    Compile --> CIRCT["CIRCT matrix<br/>language, standard library,<br/>protocols, cores, RFPL"]
+    Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/memory/caches, RFPL"]
     Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
     Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
     Compile --> SimpleBuild["Build SimpleSoC once<br/>exact-commit executable artifact"]

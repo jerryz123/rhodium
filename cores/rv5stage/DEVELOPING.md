@@ -30,7 +30,9 @@ each other; share external transaction machinery through the CHI package.
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`btb.rhdl`](btb.rhdl) | Associative word lookup, local direction counters, training, and prediction metadata |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
-| [`frontend.rhdl`](frontend.rhdl), [`frontend-control.rhdl`](frontend-control.rhdl) | Frontend-owned S0/S1/S2 attempts and replay, completed words, compressed assembly, and execution control |
+| [`frontend.rhdl`](frontend.rhdl), [`frontend-control.rhdl`](frontend-control.rhdl) | Fetch topology, fixed-latency S1/S2 correlation, registered repair, and independent execution controls |
+| [`fetch-source.rhdl`](fetch-source.rhdl) | Acceptance-driven PC and continuation state, replay selection, BTB composition, and complete attempt production |
+| [`instruction-buffer.rhdl`](instruction-buffer.rhdl), [`fetch-word-buffer.rhdl`](fetch-word-buffer.rhdl) | Completed-word storage, variable-rate compressed assembly, consumption, and stale-cut detection |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
@@ -94,20 +96,53 @@ refills. Neither retains an ordinary fetch request for later response.
 
 S0 reserves space from registered completed-word occupancy plus S1/S2 validity.
 Never borrow same-cycle dequeue credit or feed Decode readiness into S0.
+The fetch source produces complete `RV5StageFetchAttempt` offers. An
+`atomic_fork` sends one branch through the address map to memory and the other
+through `to_valid` into S1. This captures exactly the prediction and continuation
+context of the transferred occurrence, without a memory-side handshake echo.
 The only outcome-to-PC feedback is registered S2 replay selecting the oldest
 failed attempt's PC and continuation context. It kills younger S1 work without
 clearing older completed words or the assembly PC. Architectural recovery and
 registered prediction repair instead clear speculative words and both stages.
-The `rv5stage-fetch-admission` fixture guards these timing boundaries using
-hierarchical port-leaf dependencies; run it in `--verify-only` mode.
+The host-side `fetch-admission-test.rhm` test guards these timing boundaries
+using hierarchical port-leaf dependencies. `rv5stage-fetch` owns the frontend's
+CIRCT lowering and cycle-visible behavior.
 
-The five-entry completed-word queue exposes its first two words to compressed
-assembly. Consumption releases zero, one, or two entries; compaction and
-append happen at the same edge. There are no Requested/Empty entries or
-request/response ring pointers. Capture prediction per attempt occurrence,
-including continuation context; never reconstruct it from the live BTB.
-Correct predictions do not flush the memory path. Malformed cuts use a
-registered local repair; architectural recovery has priority.
+The frontend instantiates a five-entry `RV5StageInstructionBuffer`, which owns
+assembly and an internal `RV5StageFetchWordBuffer`. Their host capacity
+parameters permit focused smaller-instance validation. The internal two-word
+window is not two independent streams: consumption releases zero, one, or two
+entries; compaction and append happen at the same edge. There are no
+Requested/Empty entries or request/response ring pointers. Capture prediction
+per attempt occurrence, including continuation context; never reconstruct it
+from the live BTB.
+Correct predictions do not flush the memory path. Malformed cuts produce a
+`Valid(RV5StageFetchRepair)` registered before restart and BTB invalidation;
+architectural recovery has priority. The buffer consumes Valid completed words
+and produces Decoupled instructions. Its occupancy is registered, never a
+same-cycle availability calculation.
+
+Frontend S1/S2 and the repair pipeline use flushable Valid pipes with explicit
+`flush` inputs. Recovery clears their validity at the edge while preserving
+the global reset domain and always-capture payload timing. Retain the existing
+same-cycle output filters: synchronous flush does not gate pre-edge transfers.
+The intrinsic pipe contract exposes flush to event lineage instrumentation.
+
+Keep flow conversions at their actual timing boundaries. MMU and L1I stage
+results derive from their existing Valid context through filters and maps;
+S2 always produces an outcome, including replay when its implementation has
+no reply. Never introduce a queue or asynchronous join for fixed-cycle pairing.
+Demand and best-effort prefetch offers share a demand-priority L1I arbiter,
+then accepted events fan out to SRAM commands and lookup context. Refill
+completion remains held through the final installation word. State-owned
+producers may drive their interface fields directly; extracting an existing
+stream's fields solely to inject or eject them elsewhere is unnecessary.
+
+Core restart, invalidation, and training derive from live MEM/WB flows.
+Keep independent events separate; priority arbitration applies to competing
+restart targets, while flush events coalesce. The reset-owned start pulse is
+a genuine source. Nonbranch MEM instructions must still train the BTB so a
+stale prediction at their PC can be removed.
 
 `rv5stage-fetch-throughput` uses the real frontend/MMU/router/L1I path. It
 requires consecutive aligned, straddling, and compressed instructions in each
@@ -170,9 +205,20 @@ always-capture payload registers or derive controls from generated signal names.
 EX's payload is still computed unconditionally; its flow filter qualifies only
 token validity, preserving the feed-forward datapath and cancellation timing.
 
-Fetch is an explicit root because cache/MMU/fetch assembly is outside the traced
-lineage. Later checkpoints must not become independent roots to hide an
-unsupported path. Decode transfers fire only when the hazard gate admits them,
+Accepted `frontend.s0.request` occurrences are explicit roots. The intrinsic
+flushable pipes connect them through `frontend.s1.lookup` and
+`frontend.s2.outcome`, which captures replay, admission, and admitted fault flags.
+Only admitted outcomes pass the Flow filter into completed-word storage; no
+additional checkpoint represents that same-cycle admission. Instruction assembly declares a window contract using
+the actual public word-buffer count, releases, flush, and contributing-word
+selection. A word can parent two compressed instructions; a straddle has two
+word parents, including a faulting continuation. `core.s1.fetch` inherits those
+parents instead of cutting ancestry. Retry attempts are new roots, and MMU,
+I-cache refill, predictor-training, and redirect causality remain separate.
+Run `event-window`, `event-frontend`, `rv5stage-fetch-prediction`, and
+`rv5stage-fetch-admission` for changes at this boundary.
+Later checkpoints must not become independent roots to hide an unsupported
+path. Decode transfers fire only when the hazard gate admits them,
 but its checkpoint must precede `gate_flow` and follow the squash filter so
 stall observations see valid instructions while issue is blocked. Keep the
 captured Boolean reason terms aligned with `pipeline_hazard`; do not impose
@@ -381,13 +427,13 @@ neighboring-line isolation, exact SC matching, and one-shot reservation use;
 the RV64 bench also covers invalidating snoops. These size/boundary regressions
 do not establish eventual LR/SC success under adversarial coherence traffic.
 
-For Zkt, run the architecture/profile/advertisement checks and the four timing
-fixtures:
+For Zkt, run the architecture/profile/advertisement checks and the RV32 and
+RV64 integer timing fixtures:
 
 ```sh
 export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh riscv/tests/zkt-test.rhm tests/backend/rv5stage-zkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
-FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64 rv5stage-zkt-rv32f rv5stage-zkt-rv64d' bash tests/backend/run-circt.sh --simulate-only
+FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64' bash tests/backend/run-circt.sh --simulate-only
 bash socs/tests/run-device-tree.sh
 ```
 
@@ -397,8 +443,9 @@ complete when adding an instruction to that intersection. No cross-compiler or
 checked-in generated program image is needed. Two full cores receive identical
 instruction streams and scheduling but different operands; compare every public
 fetch/data control event, including dependent consumers and deferred hazards.
-The FP-enabled fixtures exercise the integer timing contract with FP hardware
-present, not a constant-time claim about FP instructions.
+The separate RV32F/RV64D core fixtures cover FP-enabled specialization and WB
+integration; repeating the integer-only Zkt program in those configurations
+does not add an FP timing claim.
 
 A separate public-component rig forces load/multiply completion overlap and sink
 backpressure, checking exact fixed multiplier latency and retained arithmetic

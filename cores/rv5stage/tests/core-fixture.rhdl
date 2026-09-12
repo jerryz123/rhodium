@@ -44,6 +44,7 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
   def can_issue = !pending ||| (memory.response.valid & !slow)
   def completed_match = completed & (address === frontend.request.bits.address)
   frontend.request.ready <== !frontend.flush & mux(completed, completed_match, can_issue & memory.request.ready)
+  def frontend_admitted = frontend.request.fire()
   memory.flush <== frontend.flush
   memory.invalidate_all <== frontend.invalidate_all
   memory.request.valid <== frontend.request.valid & !frontend.flush & !completed & can_issue
@@ -60,9 +61,9 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
     slow <== Bool(#false)
     completed <== Bool(#false)
   otherwise:
-    s1_valid <== frontend.request.fire()
+    s1_valid <== frontend_admitted
     s2_valid <== s1_valid & !frontend.s1_kill
-    when (frontend.request.fire()):
+    when frontend_admitted:
       s1_cached <== completed
       s1_response <== response
     s2_result <== RV5StageFetchResult():
@@ -79,7 +80,7 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
     when (response_fire & slow):
       completed <== Bool(#true)
       response <== memory.response.bits
-    elsewhen (frontend.request.fire() & completed_match):
+    elsewhen (frontend_admitted & completed_match):
       completed <== Bool(#false)
 
 sync_circuit RV5StageCoreFixture(profile :: RVCoreProfile, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 16):

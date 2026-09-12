@@ -53,6 +53,14 @@ check_matrix_entry() {
   fi
 }
 
+check_core_circt_matrix() {
+  local path="$1"
+  local target
+  for target in ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-memory-test ci-circt-core-cache-test; do
+    check_matrix_entry "$path" circt_matrix "$target"
+  done
+}
+
 check_no_jobs() {
   local path="$1"
   local output
@@ -126,7 +134,7 @@ check_matrix_entry flow/queue.rhdl host_matrix ci-host-socs-test
 check_matrix_entry flow/queue.rhdl host_matrix ci-host-hygiene-test
 check_matrix_entry flow/queue.rhdl circt_matrix ci-circt-std-test
 check_matrix_entry flow/queue.rhdl circt_matrix ci-circt-protocols-test
-check_matrix_entry flow/queue.rhdl circt_matrix ci-circt-cores-test
+check_core_circt_matrix flow/queue.rhdl
 check_matrix_entry flow/queue.rhdl example_matrix examples-std
 check_field flow/queue.rhdl simulation true
 check_matrix_entry rhodium/std/ready-valid.rhdl circt_matrix ci-circt-std-test
@@ -143,7 +151,7 @@ check_matrix_entry noc/rtl/router.rhdl host_matrix ci-host-models-test
 check_matrix_entry noc/rtl/router.rhdl host_matrix ci-host-socs-test
 check_matrix_entry noc/rtl/router.rhdl circt_matrix ci-circt-protocols-test
 check_matrix_entry hardfloat/rtl/recode.rhdl host_matrix ci-host-models-test
-check_matrix_entry hardfloat/rtl/recode.rhdl circt_matrix ci-circt-cores-test
+check_core_circt_matrix hardfloat/rtl/recode.rhdl
 check_matrix_entry devicetree/main.rhm host_matrix ci-host-models-test
 check_field devicetree/main.rhm circt false
 check_field devicetree/main.rhm simulation false
@@ -164,7 +172,7 @@ check_matrix_entry sims/fesvr/direct-memory-htif.rhdl circt_matrix ci-circt-prot
 check_field sims/fesvr/direct-memory-htif.rhdl simulation true
 check_matrix_entry cores/rv5stage/core.rhdl host_matrix ci-host-cores-test
 check_matrix_entry cores/rv5stage/core.rhdl host_matrix ci-host-socs-test
-check_matrix_entry cores/rv5stage/core.rhdl circt_matrix ci-circt-cores-test
+check_core_circt_matrix cores/rv5stage/core.rhdl
 check_matrix_entry cores/rv5stage/core.rhdl example_matrix examples-rv5stage
 check_field cores/rv5stage/core.rhdl simulation true
 check_matrix_entry examples/rtl/alu.rhdl example_matrix examples-rhodium
@@ -180,11 +188,11 @@ check_matrix_entry examples/lop/adder-core.rhm example_matrix examples-lop
 check_matrix_entry examples/rfpl/circuit-pair.rhdl example_matrix examples-rfpl
 check_matrix_entry examples/rfpl/circuit-pair.rhdl circt_matrix rfpl-circt-test
 check_matrix_entry examples/riscv/instruction-fields.rhdl example_matrix examples-riscv
-check_matrix_entry examples/riscv/instruction-fields.rhdl circt_matrix ci-circt-cores-test
+check_core_circt_matrix examples/riscv/instruction-fields.rhdl
 check_matrix_entry examples/chi/ram.rhdl example_matrix examples-chi
 check_matrix_entry examples/chi/ram.rhdl circt_matrix ci-circt-protocols-test
 check_matrix_entry examples/cores/rv5stage.rhdl example_matrix examples-cores
-check_matrix_entry examples/cores/rv5stage.rhdl circt_matrix ci-circt-cores-test
+check_core_circt_matrix examples/cores/rv5stage.rhdl
 check_matrix_entry examples/rv5stage/core-diagram.rhdl example_matrix examples-rv5stage
 check_matrix_entry tools/write-rv5stage-core-diagram.rhm example_matrix examples-rv5stage
 check_matrix_entry tools/write-riscv-udb-config.rhm host_matrix ci-host-models-test

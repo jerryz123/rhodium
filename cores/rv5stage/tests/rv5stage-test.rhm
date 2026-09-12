@@ -10,6 +10,7 @@ import:
   "../chi/foundation.rhdl" as chi
   "../profile.rhm" as core_profile
   "../rv5stage.rhdl" as rv5stage
+  "../instruction-buffer.rhdl".RV5StageInstructionBuffer
   "params.rhdl" as test_params
 
 def config = test_params.test_rv5stage_chi_config
@@ -63,6 +64,12 @@ for (attributes in [
       ) ~throws "Ziccrse"
 
 check:
+  embedded.run_elaboration(
+    fun (): RV5StageInstructionBuffer(
+      core_profile.RVCoreProfile(~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~compressed: compressed_extensions(CompressedExtension.Zca))),
+      1
+    )
+  ) ~throws "two fetch words"
   params.config === config ~is #true
   params.instruction_node.node_id ~is 2
   params.data_node.node_id ~is 3

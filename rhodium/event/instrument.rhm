@@ -105,10 +105,18 @@ fun instrument_events(logical :: DesignElaboration,
     | for (left in children):
         for (right in children):
           when left != right
-          | for (left_path in alternatives(manifest.trace_plans[left], site.id)):
-              for (right_path in alternatives(manifest.trace_plans[right], site.id)):
-                unless left_path.find(fun (choice): right_path.find(fun (other): choice[0] == other[0] && choice[1] != other[1]))
-                | error(~who: #'instrument_events, "tracing does not support uncertified fanout at " ++ site.id)
+          | def left_edge = manifest.dependencies.find(
+              fun (edge): edge.parent == site.id && edge.child == left
+            )
+            def right_edge = manifest.dependencies.find(
+              fun (edge): edge.parent == site.id && edge.child == right
+            )
+            def shared_scope = left_edge && right_edge && left_edge.transform_path.length() == 1 && right_edge.transform_path.length() == 1 && left_edge.transform_path == right_edge.transform_path && left_edge.transform_path[0].starts_with("trace-edge:")
+            unless shared_scope
+            | for (left_path in alternatives(manifest.trace_plans[left], site.id)):
+                for (right_path in alternatives(manifest.trace_plans[right], site.id)):
+                  unless left_path.find(fun (choice): right_path.find(fun (other): choice[0] == other[0] && choice[1] != other[1]))
+                  | error(~who: #'instrument_events, "tracing does not support uncertified fanout at " ++ site.id)
 
   def mutable occurrences = []
   fun expand(original :: Module, path :: List.of(String), parent :: False || Occurrence, instance :: False || Operation):
@@ -284,6 +292,9 @@ fun instrument_events(logical :: DesignElaboration,
     def sequences = MutableMap{}
     def fires = MutableMap{}
     def annotations = MutableMap{}
+    // One retained declaration represents one FSM owner. Reusing its shadow
+    // register across route-specific plans preserves one parent identity.
+    def retained_states = MutableMap{}
     for (site in local_sites):
       def flow_block = view.module(occurrence.original.name).blocks.find(
         fun (candidate): candidate.event_annotation && candidate.event_annotation.site_index == site.local_site
@@ -364,22 +375,62 @@ fun instrument_events(logical :: DesignElaboration,
           def name = ref_name("__event_parent_", site) ++ "_" ++ to_string(next_stage)
           next_stage := next_stage + 1
           name
-        fun emit_stage(stage :: EventTraceStage || EventTraceQueue || EventTraceRetained, reference :: Value):
+        fun emit_stage(stage :: EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow, reference :: Value):
             def name = stage_name()
             def empty = empty_lineage(reference.type.field("parents").type.length)
             fun observe(value :: Value): observed[control_ids[[stage.instance_path, value.id]]]
             cond
+            | stage is_a EventTraceWindow:
+                def count = observe(stage.count)
+                def release = observe(stage.release_count)
+                def flush = observe(stage.flush)
+                def enabled = builder.bit_not(module_def, flush)
+                def enqueue = builder.bit_and(module_def, enabled, observe(stage.enqueue))
+                def remaining = builder.sub(module_def, count, release)
+                def depth = builder.constant(module_def, count.type, stage.depth)
+                builder.assert(module_def, builder.bit_not(module_def, builder.ult(module_def, depth, count)), clock, reset, yes, name ++ "_count")
+                builder.assert(module_def, builder.bit_not(module_def, builder.ult(module_def, count, release)), clock, reset, enabled, name ++ "_release")
+                builder.assert(module_def, builder.ult(module_def, remaining, depth), clock, reset, enqueue, name ++ "_space")
+                builder.assert(module_def, builder.record_get(module_def, reference, "valid"), clock, reset, enqueue, name ++ "_capture_present")
+                def slots = for List (index in 0..stage.depth):
+                  builder.register(module_def, name ++ "_slot_" ++ to_string(index), reference.type, clock, reset, empty)
+                for (slot in slots, index in 0..stage.depth):
+                  def shifted = builder.mux_lookup(module_def, release, empty, for List (offset in 0..(stage.depth - index)): [offset, slots[index + offset].current])
+                  def append = builder.bit_and(module_def, enqueue, builder.eq(module_def, remaining, builder.constant(module_def, count.type, index)))
+                  def next = builder.mux_lookup(module_def, append, shifted, [[1, reference]])
+                  builder.drive(slot.next, builder.mux_lookup(module_def, flush, next, [[1, empty]]))
+                def mutable complete = enabled
+                def mutable any_selected = builder.constant(module_def, Bits(1), 0)
+                def mutable parents = []
+                for (selection in stage.selected, index in 0..stage.selected.length()):
+                  def selected = observe(selection)
+                  def occupied = builder.ult(module_def, builder.constant(module_def, count.type, index), count)
+                  def resident = slots[index].current
+                  def valid = builder.bit_and(module_def, occupied, builder.record_get(module_def, resident, "valid"))
+                  complete := builder.bit_and(module_def, complete, builder.bit_or(module_def, builder.bit_not(module_def, selected), valid))
+                  any_selected := builder.bit_or(module_def, any_selected, selected)
+                  parents := parents ++ parent_slots(builder.mux_lookup(module_def, selected, empty, [[1, resident]]))
+                lineage(builder.bit_and(module_def, complete, any_selected), parents)
             | stage is_a EventTraceRetained:
-                def resident = builder.register(module_def, name, reference.type, clock, reset, empty)
-                def capture = observe(stage.capture)
-                def release = observe(stage.release)
-                def occupied = observe(stage.active)
-                def released = builder.mux_lookup(module_def, release, resident.current, [[1, empty]])
-                builder.drive(resident.next, builder.mux_lookup(module_def, capture, released, [[1, reference]]))
-                builder.assert(module_def, builder.record_get(module_def, reference, "valid"), clock, reset, capture, name ++ "_capture_present")
-                builder.assert(module_def, builder.bit_or(module_def, builder.bit_not(module_def, occupied), release), clock, reset, capture, name ++ "_no_overwrite")
-                builder.assert(module_def, occupied, clock, reset, release, name ++ "_release_active")
-                builder.mux_lookup(module_def, occupied, empty, [[1, resident.current]])
+                def key = [stage.instance_path, stage.capture.id, stage.release.id, stage.active.id]
+                def existing = retained_states.get(key, #false)
+                if existing
+                | unless type_equal(existing[1], reference.type)
+                  | error(~who: #'instrument_events, "retained trace scope is used with incompatible lineage capacities")
+                  existing[0]
+                | block:
+                    def resident = builder.register(module_def, name, reference.type, clock, reset, empty)
+                    def capture = observe(stage.capture)
+                    def release = observe(stage.release)
+                    def occupied = observe(stage.active)
+                    def released = builder.mux_lookup(module_def, release, resident.current, [[1, empty]])
+                    builder.drive(resident.next, builder.mux_lookup(module_def, capture, released, [[1, reference]]))
+                    builder.assert(module_def, builder.record_get(module_def, reference, "valid"), clock, reset, capture, name ++ "_capture_present")
+                    builder.assert(module_def, builder.bit_or(module_def, builder.bit_not(module_def, occupied), release), clock, reset, capture, name ++ "_no_overwrite")
+                    builder.assert(module_def, occupied, clock, reset, release, name ++ "_release_active")
+                    def result = builder.mux_lookup(module_def, occupied, empty, [[1, resident.current]])
+                    retained_states[key] := [result, reference.type]
+                    result
             | stage is_a EventTraceQueue:
                 def storage = builder.memory(module_def, name, stage.depth, reference.type)
                 def stored = builder.memory_read_async(module_def, storage, observe(stage.read_address))
@@ -395,7 +446,7 @@ fun instrument_events(logical :: DesignElaboration,
                 if stage.advance
                 | def incoming = builder.mux_lookup(module_def, observe(stage.valid), empty, [[1, reference]])
                   builder.drive(delayed.next, builder.mux_lookup(module_def, observe(stage.advance), delayed.current, [[1, incoming]]))
-                | builder.drive(delayed.next, reference)
+                | builder.drive(delayed.next, if stage.flush | builder.mux_lookup(module_def, observe(stage.flush), reference, [[1, empty]]) | reference)
                 delayed.current
         fun emit_plan(plan :: EventTracePlan):
           unless built_plans.has_key(plan)

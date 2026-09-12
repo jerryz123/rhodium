@@ -18,7 +18,7 @@ the facade modules only when a circuit composes several members of that family.
 | Delays and balanced combinational trees | [`shift-register.rhdl`](shift-register.rhdl), [`reduction.rhdl`](reduction.rhdl) | Generic reusable generators |
 | Safe stable-level clock crossing | [`cdc.rhdl`](cdc.rhdl) | `SyncLevel` and its CDC evidence |
 | Typed sparse decode | [`decode.rhdl`](decode.rhdl) | Patterns, pattern sets, decode tables, and generators |
-| Ready-valid protocol declarations | [`ready-valid.rhdl`](ready-valid.rhdl) | `Valid`, `Decoupled`, `Irrevocable`, and transfer detection |
+| Ready-valid protocol declarations | [`ready-valid.rhdl`](ready-valid.rhdl) | `Pulse`, `Valid`, `Decoupled`, `Irrevocable`, and transfer detection |
 | Credit-based transport | [`credited.rhdl`](credited.rhdl) | Credited endpoints and monitoring |
 | Packet/flit representation | [`flit.rhdl`](flit.rhdl) | Packet payload types independent of transport |
 | Endpoint address and ID sets | [`interconnect.rhdl`](interconnect.rhdl) | Host-side interconnect parameters and validation |
@@ -292,13 +292,17 @@ import:
 
 | Interface | Contract |
 |---|---|
+| `Pulse()` | Every asserted cycle is one payloadless control event; no backpressure |
 | `Valid(T)` | Every asserted cycle carries one payload; no backpressure |
 | `DecoupledCtrl()` | Offer/accept control; transfer occurs when `ready` and `valid` are asserted |
 | `IrrevocableCtrl()` | A decoupled offer cannot be withdrawn before transfer |
 | `Decoupled(T)` | Payload-bearing decoupled transfer without a pre-transfer stability guarantee |
 | `Irrevocable(T)` | A valid payload remains asserted and stable until transfer |
 
-`Decoupled` refines `DecoupledCtrl`; `Irrevocable` refines
+A `Pulse()` endpoint's `valid` field may be asserted on consecutive cycles;
+each cycle is a separate event, with no edge detection or required gap.
+
+`Valid(T)` refines `Pulse()`. `Decoupled` refines `DecoupledCtrl`; `Irrevocable` refines
 `IrrevocableCtrl`, which transitively refines `DecoupledCtrl`.
 `Irrevocable(T)` also declares support for the weaker `Decoupled(T)` contract.
 The temporal difference is currently documentation rather than generated

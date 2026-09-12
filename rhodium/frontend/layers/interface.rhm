@@ -37,8 +37,12 @@ export:
   InterfaceTraceFixedLatency
   InterfaceTraceElastic
   InterfaceTraceRetained
+  InterfaceTraceEdge
   InterfaceTraceDetached
   InterfaceTraceQueue
+  InterfaceTraceWindow
+  describe_interface_window_storage
+  interface_trace_window
   InterfaceTraceSelection
   InterfaceTraceRouting
   InterfaceTraceAtomicFork
@@ -64,6 +68,8 @@ export:
   interface_trace_elastic
   describe_interface_retained_storage
   interface_trace_retained
+  describe_interface_trace_edge
+  module_interface_trace_edges
   interface_trace_detached
   describe_interface_queue_storage
   interface_trace_queue
@@ -433,8 +439,8 @@ class InterfaceTraceRoute(input_index :: Nat, output_index :: Nat)
 // Absence of this contract never implies zero-latency runtime propagation.
 class InterfaceTraceCombinational(guard :: False || Value = #false)
 
-// Certifies unconditional cycle latency and synchronous reset flushing.
-class InterfaceTraceFixedLatency(cycles :: PosInt)
+// Certifies fixed latency for survivors, with synchronous reset and optional flush.
+class InterfaceTraceFixedLatency(cycles :: PosInt, flush :: False || Value = #false)
 
 class InterfaceElasticStage(advance :: Value, valid :: Value)
 class InterfaceElasticStages(module_def :: Module, stages :: NonemptyList.of(InterfaceElasticStage), name :: String = "data"):
@@ -446,6 +452,13 @@ class InterfaceRetainedStorage(module_def :: Module, capture :: Value, release :
   implements ModuleMetadataPayload
   method controls(): [capture, release, active]
 class InterfaceTraceRetained(instance :: False || Instance, storage :: InterfaceRetainedStorage)
+// Connects two annotated route occurrences through one retained transaction
+// storage declaration without adding a functional interface connection.
+class InterfaceTraceEdge(module_def :: Module,
+                         parent :: InterfaceEndpoint,
+                         child :: InterfaceEndpoint,
+                         storage :: InterfaceRetainedStorage):
+  implements ModuleMetadataPayload
 // An intentional ancestry cut, distinct from an unsupported or missing route.
 class InterfaceTraceDetached()
 
@@ -457,6 +470,14 @@ class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
   implements ModuleMetadataPayload
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
 class InterfaceTraceQueue(instance :: False || Instance, storage :: InterfaceQueueStorage)
+
+// Ordered retained entries support repeated reads and multi-entry contributions.
+class InterfaceWindowStorage(module_def :: Module, depth :: PosInt,
+                             enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
+                             selected :: NonemptyList.of(Value), name :: String):
+  implements ModuleMetadataPayload
+  method controls(): [enqueue, release_count, count, flush] ++ selected
+class InterfaceTraceWindow(instance :: False || Instance, storage :: InterfaceWindowStorage)
 class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
 class InterfaceTraceSelection(instance :: False || Instance, grants :: NonemptyList.of(Value))
@@ -472,7 +493,7 @@ class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :
 class InterfaceTraceBufferedBroadcast(instance :: False || Instance, storage :: InterfaceBroadcastStorage)
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceRetained || InterfaceTraceDetached || InterfaceTraceQueue || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceRetained || InterfaceTraceDetached || InterfaceTraceQueue || InterfaceTraceWindow || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
@@ -484,6 +505,8 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     | ~else: #false
   method elastic_stages():
     if dynamic is_a InterfaceTraceElastic | dynamic.stages | #false
+  method fixed_latency_flush():
+    if dynamic is_a InterfaceTraceFixedLatency | dynamic.flush | #false
   method elastic_instance():
     if dynamic is_a InterfaceTraceElastic | dynamic.instance | #false
   method retained_storage():
@@ -495,6 +518,10 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceQueue | dynamic.storage | #false
   method queue_instance():
     if dynamic is_a InterfaceTraceQueue | dynamic.instance | #false
+  method window_storage():
+    if dynamic is_a InterfaceTraceWindow | dynamic.storage | #false
+  method window_instance():
+    if dynamic is_a InterfaceTraceWindow | dynamic.instance | #false
   method selection_grants():
     if dynamic is_a InterfaceTraceSelection | dynamic.grants | #false
   method selection_instance():
@@ -513,7 +540,7 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
   // Controls are relative to the declaring module, or an explicitly bound
   // immediate child. Occurrence expansion resolves this once for all models.
   method owner_path():
-    def instance = this.elastic_instance() || this.retained_instance() || this.queue_instance() || this.selection_instance() || this.broadcast_instance()
+    def instance = this.elastic_instance() || this.retained_instance() || this.queue_instance() || this.window_instance() || this.selection_instance() || this.broadcast_instance()
     if instance | [instance.operation.attribute("name")] | []
 
 class InterfaceTransformGroup(module_def :: Module,
@@ -595,8 +622,10 @@ def interface_link_group_namespace = "rhodium.interface.link"
 def interface_elastic_stages_namespace = "rhodium.interface.elastic-stages"
 def interface_retained_storage_namespace = "rhodium.interface.retained-storage"
 def interface_queue_storage_namespace = "rhodium.interface.queue-storage"
+def interface_window_storage_namespace = "rhodium.interface.window-storage"
 def interface_broadcast_storage_namespace = "rhodium.interface.broadcast-storage"
 def interface_selection_namespace = "rhodium.interface.selection"
+def interface_trace_edge_namespace = "rhodium.interface.trace-edge"
 
 fun module_interface_groups(module_def :: Module):
   module_def.metadata_for(interface_group_namespace)
@@ -615,6 +644,9 @@ fun module_interface_connections(module_def :: Module):
 
 fun module_interface_links(module_def :: Module):
   module_def.metadata_for(interface_link_group_namespace)
+
+fun module_interface_trace_edges(module_def :: Module):
+  module_def.metadata_for(interface_trace_edge_namespace)
 
 fun interface_member_type_equal(left :: DataType || InterfaceType,
                                 right :: DataType || InterfaceType):
@@ -1706,8 +1738,11 @@ fun interface_trace_combinational(~guard: guard :: False || HardwareEntity = #fa
 
 // Every surviving output transfer corresponds to the input exactly this many
 // cycles earlier. No backpressure, clock enable, or variable latency is allowed.
-fun interface_trace_fixed_latency(cycles :: PosInt):
-  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceFixedLatency(cycles))
+fun interface_trace_fixed_latency(cycles :: PosInt, ~flush: flush :: False || HardwareEntity = #false):
+  def value = if flush | kernel.read(flush) | #false
+  when value && (!(value.module_def === kernel.active_module()) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
+  | error(~who: #'interface_trace_fixed_latency, "trace flush must be local one-bit data")
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceFixedLatency(cycles, value))
 
 fun describe_interface_retained_storage(capture :: HardwareEntity, release :: HardwareEntity, active :: HardwareEntity, ~name: name :: String = "data"):
   def module_def = kernel.active_module()
@@ -1728,6 +1763,41 @@ fun interface_trace_retained(instance :: False || Instance = #false, ~name: name
   unless declarations.length() == 1
   | error(~who: #'interface_trace_retained, "retained implementation requires declared storage controls")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceRetained(instance, declarations[0]))
+
+// Adds a metadata-only causal edge between two annotated route endpoints. The
+// named retained-storage declaration supplies the shared capture, active, and
+// release lifetime; no functional wiring is introduced.
+fun describe_interface_trace_edge(parent :: InterfaceEndpoint,
+                                  child :: InterfaceEndpoint,
+                                  ~scope: scope :: String = "data"):
+  def module_def = kernel.active_module()
+  unless scope != ""
+  | error(~who: #'describe_interface_trace_edge, "trace edge scope must not be empty")
+  for (endpoint in [parent, child]):
+    unless for all (binding in endpoint.bindings): binding.entity.module_def === module_def
+    | error(~who: #'describe_interface_trace_edge, "trace edge endpoints must belong to the local module")
+  when parent === child
+  | error(~who: #'describe_interface_trace_edge, "trace edge parent and child must be distinct endpoints")
+  def declarations = module_def.metadata_for(interface_retained_storage_namespace).filter(
+    ~keep: fun (declaration): declaration.name == scope
+  )
+  unless declarations.length() == 1
+  | error(~who: #'describe_interface_trace_edge,
+          "trace edge requires one retained-storage declaration: " ++ scope)
+  when module_interface_trace_edges(module_def).find(
+    fun (edge): edge.parent === parent && edge.child === child
+  )
+  | error(~who: #'describe_interface_trace_edge, "duplicate trace edge")
+  when module_interface_trace_edges(module_def).find(
+    fun (edge): edge.storage === declarations[0] && !(edge.parent === parent)
+  )
+  | error(~who: #'describe_interface_trace_edge,
+          "trace edge scope must retain one parent route: " ++ scope)
+  module_def.add_metadata(
+    interface_trace_edge_namespace,
+    InterfaceTraceEdge(module_def, parent, child, declarations[0])
+  )
+  #void
 
 fun interface_trace_detached():
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceDetached())
@@ -1788,6 +1858,35 @@ fun interface_trace_queue(instance :: False || Instance = #false, ~name: name ::
   unless declarations.length() == 1
   | error(~who: #'interface_trace_queue, "queue trace implementation requires declared storage controls")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceQueue(instance, declarations[0]))
+
+// Release a prefix, then append at the remaining occupancy. Selection observes
+// pre-edge entries without consuming them; flush cancels release and append.
+fun describe_interface_window_storage(depth :: PosInt, enqueue :: HardwareEntity,
+                                      release_count :: HardwareEntity, count :: HardwareEntity, flush :: HardwareEntity,
+                                      selected :: NonemptyList.of(HardwareEntity), ~name: name :: String = "data"):
+  def module_def = kernel.active_module()
+  unless name != "" && !module_def.metadata_for(interface_window_storage_namespace).find(fun (declaration): declaration.name == name)
+  | error(~who: #'describe_interface_window_storage, "window storage controls already declared")
+  unless selected.length() <= depth
+  | error(~who: #'describe_interface_window_storage, "window selection exceeds storage depth")
+  fun signal(entity :: HardwareEntity, width :: PosInt):
+    def value = kernel.read(entity)
+    unless value.module_def === module_def && scalar_data_type(value.type) && scalar_width(value.type) == width
+    | error(~who: #'describe_interface_window_storage, "window controls must be local flat data with the required width")
+    value
+  def width = memory_address_width(depth + 1)
+  module_def.add_metadata(interface_window_storage_namespace,
+                          InterfaceWindowStorage(module_def, depth, signal(enqueue, 1), signal(release_count, width),
+                                                 signal(count, width), signal(flush, 1), selected.map(fun (value): signal(value, 1)), name))
+
+fun interface_trace_window(instance :: False || Instance = #false, ~name: name :: String = "data"):
+  unless !instance || instance.operation.module_def === kernel.active_module()
+  | error(~who: #'interface_trace_window, "window trace implementation must be a local instance")
+  def owner = if instance | instance.module_def | kernel.active_module()
+  def declarations = owner.metadata_for(interface_window_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
+  unless declarations.length() == 1
+  | error(~who: #'interface_trace_window, "window trace implementation requires declared storage controls")
+  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceWindow(instance, declarations[0]))
 
 // Grants select the live output offer, not a remembered winner or inferred
 // priority. At most one grant is asserted, and no grant means no output offer.
@@ -1951,7 +2050,9 @@ fun describe_interface_transform(handle :: Handle,
     | error(~who: #'describe_interface_transform, "competing interface transforms: " ++ existing.kind ++ " and " ++ kind)
   when trace_model
   | validate_interface_trace_model(trace_model, handle.left, handle.right)
-    def control_instance = trace_model.elastic_instance() || trace_model.retained_instance() || trace_model.queue_instance() || trace_model.selection_instance() || trace_model.broadcast_instance()
+    when implementation && trace_model.fixed_latency_flush()
+    | error(~who: #'describe_interface_transform, "flushable fixed latency must be declared locally; delegate through the implementation")
+    def control_instance = trace_model.elastic_instance() || trace_model.retained_instance() || trace_model.queue_instance() || trace_model.window_instance() || trace_model.selection_instance() || trace_model.broadcast_instance()
     when control_instance
     | unless implementation && control_instance === implementation
       | error(~who: #'describe_interface_transform, "trace model must match the transform implementation")
@@ -1959,6 +2060,9 @@ fun describe_interface_transform(handle :: Handle,
     def mutable controls = []
     def mutable widths = []
     cond
+    | trace_model.fixed_latency_flush():
+        controls := [trace_model.fixed_latency_flush()]
+        widths := [1]
     | trace_model.retained_storage():
         controls := trace_model.retained_storage().controls()
         widths := [1, 1, 1]
@@ -1970,6 +2074,10 @@ fun describe_interface_transform(handle :: Handle,
         def storage = trace_model.queue_storage()
         controls := storage.controls()
         widths := [1, 1, memory_address_width(storage.depth), memory_address_width(storage.depth), 1, 1]
+    | trace_model.window_storage():
+        def storage = trace_model.window_storage()
+        controls := storage.controls()
+        widths := [1, memory_address_width(storage.depth + 1), memory_address_width(storage.depth + 1), 1] ++ storage.selected.map(fun (_): 1)
     | trace_model.selection_grants():
         controls := trace_model.selection_grants()
         widths := controls.map(fun (_): 1)

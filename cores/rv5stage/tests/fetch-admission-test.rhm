@@ -1,19 +1,18 @@
 #lang rhombus
-// Guards registered fetch/MMU/L1I admission boundaries using hierarchical IR dependencies.
+// Checks registered fetch/MMU/L1I admission boundaries using hierarchical IR dependencies.
 
 import:
-  "../../rhodium/backend/circt.rhm".emit_circt
-  "../../rhodium/core/dependencies.rhm" open
-  "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../riscv/isa/c.rhm" open
-  "../../riscv/isa/fp-profile.rhm" open
-  "../../riscv/isa/xlen.rhm" open
-  "../../cores/rv5stage/frontend.rhdl".RV5StageFrontend
-  "../../cores/rv5stage/mmu/mmu.rhdl".RV5StageMmu
-  "../../cores/rv5stage/profile.rhm" open
-  "../../cores/rv5stage/icache/cache.rhdl".RV5StageL1ICache
-  "../../cores/rv5stage/cache.rhdl".RV5StageCacheConfig
-  "../../cores/rv5stage/tests/params.rhdl" as test_params
+  "../../../rhodium/core/dependencies.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../riscv/isa/c.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../frontend.rhdl".RV5StageFrontend
+  "../mmu/mmu.rhdl".RV5StageMmu
+  "../profile.rhm" open
+  "../icache/cache.rhdl".RV5StageL1ICache
+  "../cache.rhdl".RV5StageCacheConfig
+  "params.rhdl" as test_params
 
 // Reuse the verifier's leaf and sequential-cut semantics, including child ports.
 def summaries = MutableMap.by(===){}
@@ -76,6 +75,14 @@ def fetch = embedded.run_elaboration_with_top(fun (): RV5StageFrontend(RVCorePro
 for (path in [["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(fetch.top, "memory_out", path, "fetched_in", ["ready"])
 check_dependency(fetch.top, "memory_out", ["request", "valid"], "control_in", ["active"], #true)
+// Response data cannot feed admission or the address selector. S2 replay may
+// choose a saved PC, but cannot turn current result data into new capacity.
+for (path in [["response", "valid"], ["response", "bits", "replay"]]):
+  check_dependency(fetch.top, "memory_out", ["request", "valid"], "memory_in", path)
+for (path in [["request", "valid"], ["request", "bits", "address"]]):
+  for (field in ["word", "page_fault", "access_fault"]):
+    check_dependency(fetch.top, "memory_out", path, "memory_in", ["response", "bits", "response", field])
+check_dependency(fetch.top, "memory_out", ["request", "bits", "address"], "memory_in", ["response", "bits", "replay"], #true)
 
 def mmu = embedded.run_elaboration_with_top(fun (): RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_params.test_rv5stage_chi_config.physical_map))
 for (path in [["valid"], ["bits"]]):
@@ -92,4 +99,3 @@ check_dependency(cache.top, "virtual_lookup_out", ["ready"], "core_in", ["flush"
 for (path in [["response", "valid"], ["response", "bits", "replay"], ["response", "bits", "response", "word"]]):
   for (input_path in [["request", "valid"], ["request", "bits", "address"], ["s1_kill"]]):
     check_dependency(cache.top, "core_out", path, "core_in", input_path)
-print(emit_circt(fetch.design))

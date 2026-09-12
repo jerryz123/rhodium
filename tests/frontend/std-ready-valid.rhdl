@@ -12,6 +12,8 @@ interface StableBuffered8() refines Irrevocable(Bits(8))
 
 interface BufferedCtrl() refines DecoupledCtrl()
 
+interface BufferedPulse() refines Pulse()
+
 interface BufferedValid8() refines Valid(Bits(8))
 
 interface Alternate8() refines DecoupledCtrl():
@@ -39,6 +41,18 @@ interface DeepReadyValid():
 circuit ValidAdapter():
   interface ingress(Valid(Bits(8)), ~role: consumer)
   interface egress(Valid(Bits(8)), ~role: producer)
+  egress <=> ingress
+
+circuit PulseAdapter():
+  interface ingress(Pulse(), ~role: consumer)
+  interface egress(Pulse(), ~role: producer)
+  egress <=> ingress
+
+// A payload-bearing producer may satisfy the payloadless control-event
+// contract, while the reverse direction remains intentionally unavailable.
+circuit ValidToPulse():
+  interface ingress(Valid(Bits(8)), ~role: consumer)
+  interface egress(Pulse(), ~role: producer)
   egress <=> ingress
 
 circuit DecoupledAdapter():
@@ -178,6 +192,8 @@ circuit UnsafeCtrlStrengthening():
   egress <=> ingress
 
 export:
+  PulseAdapter
+  ValidToPulse
   ValidAdapter
   DecoupledAdapter
   IrrevocableAdapter
@@ -186,6 +202,7 @@ export:
   Buffered8
   StableBuffered8
   BufferedCtrl
+  BufferedPulse
   BufferedValid8
   Alternate8
   RefinedProtocolHelpers

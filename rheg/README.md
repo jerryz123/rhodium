@@ -162,7 +162,7 @@ and `j`), or raw hex for
 an unknown encoding. The full assembly remains in the field argument. Track
 names retain the site labels, such as `core.s1.fetch`; queries selecting stages
 should join `slice.track_id` to `track.id`. Sites with no instruction field or
-multiple instruction fields retain their site label as the slice name.
+multiple instruction fields use the final dot-separated component of their site label.
 
 ## Optional trace timing
 
@@ -325,7 +325,9 @@ grouped under a custom track named for the top-level design. This group requests
 lexicographic child ordering, independent of site IDs or callback order; viewers
 may override this display hint. Occurrence arguments contain only exact
 cycle, sequence, and captured values (legacy snapshots retain their raw words).
-Slice names normally match their site labels; a single tagged instruction uses
+Slice names normally use the final dot-separated component of their site labels:
+`frontend.s0.request` displays as `request`, while the track retains its full name.
+Labels without dots or ending in a dot remain unchanged. A single tagged instruction uses
 its [disassembled mnemonic](#instruction-disassembly) instead. An explicitly
 selected [enum label](#enum-labels) takes precedence over both. Stall slices are
 always named `stall`, retaining disassembly, opcode, and other captures as arguments.

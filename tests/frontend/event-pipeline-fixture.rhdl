@@ -4,26 +4,45 @@
 import:
   lib("flow/main.rhdl") open
 
-sync_circuit EventPipelineChild():
+sync_circuit EventPipelineChild(~flushable: flushable :: Boolean = #false):
+  def clear:
+    if flushable
+    | block:
+        input flush: Bool
+        flush
+    | #false
   interface ingress(Valid(Bits(8)), ~role: consumer)
   interface egress(Valid(Bits(8)), ~role: producer)
-  ingress
-    |> valid_pipe(2)
+  inst storage(ValidPipeAlwaysCapture(Bits(8), 2, ~flushable: flushable))
+  if flushable
+  | storage.flush <== clear
+  | #void
+  ingress |> storage.ingress
+  storage.egress
     |> trace_valid_event("middle", ~payload: #true)
     |> map_valid(payload => payload + bits(1, 8))
-    |> valid_pipe(1)
+    |> valid_pipe(1, ~flush: clear)
     |> egress
 
-sync_circuit EventPipeline():
+sync_circuit EventPipeline(~flushable: flushable :: Boolean = #false):
+  def clear:
+    if flushable
+    | block:
+        input flush: Bool
+        flush
+    | #false
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sink(Valid(Bits(8)), ~role: producer)
-  inst child(EventPipelineChild())
+  inst child(EventPipelineChild(~flushable: flushable))
+  if flushable
+  | child.flush <== clear
+  | #void
   // A presentation wrapper must delegate through, not bypass, the middle site.
   describe_interface_transform(InterfaceHandle(child.ingress, child.egress), "pipeline-wrapper", {}, child)
   source
     |> trace_valid_event("accepted", ~payload: #true)
     |> filter_valid(payload => !(payload === bits(0, 8)))
-    |> valid_pipe(1)
+    |> valid_pipe(1, ~flush: clear)
     |> child.ingress
   child.egress
     |> filter_valid(payload => !(payload === bits(4, 8)))
@@ -31,6 +50,23 @@ sync_circuit EventPipeline():
     |> sink
 
 def pipeline = elaborate_with_top(EventPipeline())
+def flush_pipeline = elaborate_with_top(EventPipeline(~flushable: #true))
+
+fun foreign_flush(instance):
+  module_interface_transforms(instance.module_def)[0].trace_model.fixed_latency_flush()
+
+sync_circuit EventBadFlush(kind :: String):
+  input bad: Bits(2)
+  inst storage(ValidPipe(Bits(8), 1, ~flushable: #true))
+  def foreign = foreign_flush(storage)
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  cond
+  | kind == "width": interface_trace_fixed_latency(1, ~flush: bad)
+  | ~else:
+      describe_interface_transform(InterfaceHandle(source, sink), "bad-flush", ~trace_model: InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceFixedLatency(1, foreign)))
+
+fun bad_flush(kind): elaborate_with_top(EventBadFlush(kind))
 
 // The core crosses a ready-valid conversion and fans out Valid observations.
 sync_circuit EventValidConversion():
@@ -217,6 +253,8 @@ fun invalid_contract(mode):
 
 export:
   pipeline
+  flush_pipeline
+  bad_flush
   valid_conversion
   nested_channels
   private_reset

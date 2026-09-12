@@ -31,6 +31,24 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
   def circuit_name = name.to_source_string()
   def implementation_name = Syntax.make_id(circuit_name ++ "_sync_circuit", name)
   def parameter_names = [argument.binding.to_source_string(), ...]
+  // A keyword control must not erase surfaces determined by required payload
+  // parameters. Forward keyword syntax untouched; do not guess its defaults.
+  def mutable positional_bindings = []
+  def mutable keyword_names = []
+  def mutable positional_then_keywords = #true
+  for (parameter in [argument, ...]):
+    match parameter
+    | '$(keyword :: Keyword): $(binding :: Identifier) $tail ...':
+        keyword_names := keyword_names ++ [binding.to_source_string()]
+    | '$(binding :: Identifier)':
+        positional_bindings := positional_bindings ++ [binding]
+        when keyword_names.length() != 0
+        | positional_then_keywords := #false
+    | '$(binding :: Identifier) :: $annotation':
+        positional_bindings := positional_bindings ++ [binding]
+        when keyword_names.length() != 0
+        | positional_then_keywords := #false
+    | ~else: positional_then_keywords := #false
   def mutable body_local_names = []
   for (item in [body, ...]):
     match item
@@ -52,14 +70,15 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
     | ~else: #false
   def mutable member_entries = []
   def mutable fallback_member_entries = []
-  fun type_depends_on_parameter(member_type :: Syntax):
+  def mutable positional_member_entries = []
+  fun type_depends_on_parameter(member_type :: Syntax, names :: List.of(String) = parameter_names):
     match member_type
     | '$(type_name :: Identifier)':
-        parameter_names.find(fun (parameter_name): parameter_name == type_name.to_source_string()) != #false
+        names.find(fun (parameter_name): parameter_name == type_name.to_source_string()) != #false
     | '$constructor($type_argument, ...)':
-        def mutable depends = type_depends_on_parameter(constructor)
+        def mutable depends = type_depends_on_parameter(constructor, names)
         for (item in [type_argument, ...]):
-          when type_depends_on_parameter(item)
+          when type_depends_on_parameter(item, names)
           | depends := #true
         depends
     | ~else: #true
@@ -67,6 +86,8 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
     when static_type_available(member_type)
     | def entry = '$member_name: HardwareFields.from_type($member_type)'
       member_entries := member_entries ++ [entry]
+      unless type_depends_on_parameter(member_type, keyword_names)
+      | positional_member_entries := positional_member_entries ++ [entry]
       unless type_depends_on_parameter(member_type)
       | fallback_member_entries := fallback_member_entries ++ [entry]
   fun retain_interface_member(member_name :: Syntax,
@@ -79,6 +100,8 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
         | ['$member_name: ValueSurfaceFields($member_type)']
       )
       member_entries := member_entries ++ entries
+      unless type_depends_on_parameter(member_type, keyword_names)
+      | positional_member_entries := positional_member_entries ++ entries
       unless type_depends_on_parameter(member_type)
       | fallback_member_entries := fallback_member_entries ++ entries
   for (item in [body, ...]):
@@ -116,6 +139,14 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
         substitute_generator_parameters(form, [parameter_binding, ...])
   let [substituted_member_entry, ...]:
     for List (entry in member_entries):
+      match entry
+      | '$(member_name :: Identifier): $annotation':
+          def substituted_annotation = substitute_parameters(annotation)
+          '$member_name: $substituted_annotation'
+      | ~else: syntax_meta.error("invalid circuit member surface", entry)
+  let [positional_binding, ...] = positional_bindings
+  let [positional_member_entry, ...]:
+    for List (entry in positional_member_entries):
       match entry
       | '$(member_name :: Identifier): $annotation':
           def substituted_annotation = substitute_parameters(annotation)
@@ -161,8 +192,19 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
               $implementation_name($parameter_binding, ...)) :: CircuitMemberFields($substituted_member_entry, ...)'
        | '$name': '$implementation_name'
       »'
-    | '«
-       $definition
-       fun $name($argument, ...) :~ CircuitMemberFields($fallback_member_entry, ...):
-         $implementation_name($implementation_argument, ...)
-      »'
+    | if positional_then_keywords && positional_bindings.length() != 0
+      | '«
+         $definition
+         expr.macro
+         | '$name($('$')$positional_binding, ..., $('$')option, $('...'))':
+             '(block:
+                def $positional_binding = $('$')$positional_binding
+                ...
+                $implementation_name($positional_binding, ..., $('$')option, $('...'))) :: CircuitMemberFields($positional_member_entry, ...)'
+         | '$name': '$implementation_name'
+        »'
+      | '«
+         $definition
+         fun $name($argument, ...) :~ CircuitMemberFields($fallback_member_entry, ...):
+           $implementation_name($implementation_argument, ...)
+        »'

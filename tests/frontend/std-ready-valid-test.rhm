@@ -11,6 +11,7 @@ import:
   "../../examples/std/ready-valid-compatibility.rhdl" as example
   "std-ready-valid.rhdl" as fixture
 
+def pulse_type = std.Pulse()
 def valid_type = std.Valid(Bits(8))
 def decoupled_ctrl_type = std.DecoupledCtrl()
 def irrevocable_ctrl_type = std.IrrevocableCtrl()
@@ -19,6 +20,12 @@ def irrevocable_type = std.Irrevocable(Bits(8))
 
 def valid_design = embedded.run_elaboration(fun (): fixture.ValidAdapter())
 def valid_adapter = valid_design.modules[0]
+def pulse_design = embedded.run_elaboration(fun (): fixture.PulseAdapter())
+def pulse_adapter = pulse_design.modules[0]
+def valid_to_pulse_design = embedded.run_elaboration(
+  fun (): fixture.ValidToPulse()
+)
+def valid_to_pulse = valid_to_pulse_design.modules[0]
 def decoupled_design = embedded.run_elaboration(fun (): fixture.DecoupledAdapter())
 def decoupled_adapter = decoupled_design.modules[0]
 def irrevocable_design = embedded.run_elaboration(fun (): fixture.IrrevocableAdapter())
@@ -66,9 +73,13 @@ def remapped_stable_protocol = ready_valid_support.flow_protocol_with_payload(
 )
 
 check:
+  pulse_type.name ~is "Pulse"
+  pulse_type.roles ~is ["producer", "consumer"]
+  pulse_type.members.map(fun (member): member.name) ~is ["valid"]
   valid_type.name ~is "Valid"
   valid_type.roles ~is ["producer", "consumer"]
   valid_type.members.map(fun (member): member.name) ~is ["valid", "bits"]
+  valid_type.parent.name ~is "Pulse"
   valid_type.directions.length() ~is 1
   decoupled_ctrl_type.members.map(fun (member): member.name) ~is ["valid", "ready"]
   decoupled_ctrl_type.parent ~is #false
@@ -85,6 +96,8 @@ check:
   irrevocable_type.supported_types.map(fun (type): type.name) ~is ["Decoupled"]
   irrevocable_type.directions.length() ~is 2
   interface_type_supports(fixture.Buffered8(), std.Decoupled(Bits(8))) ~is #true
+  interface_type_supports(fixture.BufferedValid8(), std.Pulse()) ~is #true
+  interface_type_supports(fixture.BufferedPulse(), std.Pulse()) ~is #true
   interface_type_supports(fixture.Alternate8(), std.Decoupled(Bits(8))) ~is #true
   interface_type_supports(impostor_decoupled, std.Decoupled(Bits(8))) ~is #false
   std.decoupled_protocol_type(impostor_decoupled) ~is #false
@@ -100,6 +113,10 @@ check:
   ready_valid_support.flow_protocol_type(impostor_decoupled) ~throws "requires a Decoupled or Irrevocable protocol"
   valid_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in"]
   valid_adapter.outputs.map(fun (port): port.name) ~is ["egress_out"]
+  pulse_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in"]
+  pulse_adapter.outputs.map(fun (port): port.name) ~is ["egress_out"]
+  valid_to_pulse.inputs.map(fun (port): port.name) ~is ["ingress_in"]
+  valid_to_pulse.outputs.map(fun (port): port.name) ~is ["egress_out"]
   decoupled_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in", "egress_in"]
   decoupled_adapter.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
   irrevocable_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in", "egress_in"]
@@ -122,6 +139,8 @@ check:
     ~keep: fun (operation): operation.opcode == "rtl.and"
   ).length() ~is 1
   verify_design(valid_design) ~is #void
+  verify_design(pulse_design) ~is #void
+  verify_design(valid_to_pulse_design) ~is #void
   verify_design(decoupled_design) ~is #void
   verify_design(irrevocable_design) ~is #void
   verify_design(nested_fire_design) ~is #void
