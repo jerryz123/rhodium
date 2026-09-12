@@ -197,7 +197,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:event-window|cores:event-frontend)
+    language:event-window|cores-execution:event-frontend)
       return 0
       ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
