@@ -1,0 +1,55 @@
+#lang rhombus
+// Defines all-hart tiled systems with address stripes and a shared external memory channel for scalable workloads.
+
+import:
+  "layout.rhm" open
+  "../boot.rhdl" open
+  "../description.rhm".SoCClockConfig
+  "../core-profiles.rhm" open
+  "../../chi/protocol/params.rhdl".CHIFlitParams
+  "../../devices/bootrom-image.rhm".riscv_bootrom_image
+
+fun banked_tiled_soc_config(harts :: PosInt):
+  unless harts == 1 || harts == 2 || harts == 4 || harts == 8
+  | error(~who: #'banked_tiled_soc_config, "expected 1, 2, 4 or 8 harts")
+  def width = if harts > 6 | harts | 6
+  def padding = for List (_ in harts..width): transit_tile
+  def layout = TileGrid([
+    (for List (_ in 0..harts): llc_tile) ++ padding,
+    (for List (_ in 0..harts): rv5stage_tile) ++ padding,
+    [host_tile, device_home_tile, aclint_tile, plic_tile, uart_tile, memory_tile] ++ (
+      for List (_ in 6..width): transit_tile
+    )
+  ])
+  def boot = SoCBootConfig(
+    ~reset_address: 0x10000,
+    ~payload_address: 0x80000000,
+    ~window_bytes: 0x2000,
+    ~device_tree_offset: 0x100,
+    ~program: riscv_bootrom_image(0x10000, 0x80000000, ~device_tree_address: 0x10100, ~park_secondary_harts: #false, ~boot_address_register: SoCBootAddressBase)
+  )
+  TiledSoCConfig(
+    ~layout: layout,
+    ~node_ids: TiledNodeIds(
+      ~rv5stage_coherent_base: 0,
+      ~rv5stage_uncached_base: 32,
+      ~host: 48,
+      ~llc_home_base: 64,
+      ~device_home: 80,
+      ~memory: 96,
+      ~bootrom_subordinate: 116,
+      ~aclint_subordinate: 112,
+      ~plic_subordinate: 117,
+      ~uart_subordinate: 113,
+      ~boot_address_subordinate: 118
+    ),
+    ~memory: StripedMemory(~base: 0x80000000, ~size_bytes: harts * 0x4000, ~stripe_bytes: 0x4000),
+    ~llc: LLCGeometry(~sets: 16, ~ways: 4),
+    ~core_profile: mini_soc_core_profile,
+    ~clocks: SoCClockConfig(~clock_frequency_hz: 100000000, ~timebase_frequency_hz: 1000000),
+    ~flit: CHIFlitParams(~request_address_width: DefaultRhodiumSoCRequestAddressWidth),
+    ~boot: boot
+  )
+
+export:
+  banked_tiled_soc_config

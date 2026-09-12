@@ -106,6 +106,11 @@ default 32-byte program:
 3. jumps to the configured payload through an `AUIPC`/`JALR` trampoline; and
 4. parks every nonzero hart in a `WFI` loop.
 
+`riscv_bootrom_image` accepts `~park_secondary_harts: #false` to send every hart
+to the common payload while retaining its hart ID in `a0`. The default parks
+secondary harts. An all-hart payload must assign private writable memory and
+provide its own synchronization.
+
 `riscv_bootrom_image` requires four-byte-aligned reset and payload addresses,
 an eight-byte-aligned device-tree address, and PC-relative targets within the
 trampolines' range. `BootROMImage` requires a nonempty

@@ -255,6 +255,18 @@ TiledSoC keeps its independent tile and mesh composition. See the
 
 ## TiledSoC
 
+`banked_tiled_soc_config(harts)` from
+[`tiled-soc/configs.rhm`](tiled-soc/configs.rhm) provides 1/2/4/8-core RV5Stage
+systems with one 16 KiB address stripe and one inclusive LLC per hart, backed by
+one shared external memory channel.
+Hart `h` can own `0x80000000 + h*0x4000 .. +0x3fff`; these ranges route to
+different Homes. The profile uses MiniSoC's 2 KiB direct-mapped private caches.
+The all-hart BootROM sends every hart to the common payload, passing its hart ID
+in `a0`; software must partition writable state and coordinate startup. Shared
+instruction fetches, platform traffic and physical mesh links can still contend.
+The executable `vvadd` workload and operator commands belong to
+[`sims/native/`](../sims/native/README.md).
+
 TiledSoC exposes one author configuration and privately derives its network and
 hardware parameters during elaboration:
 

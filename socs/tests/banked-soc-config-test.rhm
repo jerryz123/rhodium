@@ -1,0 +1,23 @@
+#lang rhombus
+// Checks the public banked configuration family and disjoint architectural hart memory ranges.
+
+import:
+  "../tiled-soc/configs.rhm".banked_tiled_soc_config
+
+for (harts in [1, 2, 4, 8]):
+  def config = banked_tiled_soc_config(harts)
+  check:
+    config.hart_count ~is harts
+    config.layout.llcs.length() ~is harts
+    config.memory_bytes ~is harts * 0x4000
+    config.memory.stripe_bytes ~is 0x4000
+    config.boot.payload_address ~is config.memory.base
+  for (hart in 0..harts):
+    def first = config.memory.base + hart * config.memory.stripe_bytes
+    def limit = first + config.memory.stripe_bytes
+    check:
+      first >= config.memory.base ~is #true
+      limit <= config.memory.base + config.memory_bytes ~is #true
+
+check:
+  banked_tiled_soc_config(3) ~throws "expected 1, 2, 4 or 8 harts"

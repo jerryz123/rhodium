@@ -58,6 +58,7 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
 fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
                         payload_address :: Nat = RiscvBootROMPayloadAddress,
                         ~device_tree_address: device_tree_address :: Nat = 0,
+                        ~park_secondary_harts: park_secondary_harts :: Boolean = #true,
                         ~boot_address_register: boot_address_register :: False || Nat = #false,
                         ~xlen: xlen :: XLen = XLen.X64):
   unless reset_address mod 4 == 0
@@ -87,10 +88,9 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
       rs1.constrain(0),
       immediate12.constrain(RiscvMhHartIdCSR)
     ]),
-    BNE.encode([
-      rs1.constrain(10),
-      rs2.constrain(0)
-    ], ~immediate: (if !boot_address_register | 20 | 28))
+    if park_secondary_harts
+    | BNE.encode([rs1.constrain(10), rs2.constrain(0)], ~immediate: (if !boot_address_register | 20 | 28))
+    | ADDI.encode([rd.constrain(0), rs1.constrain(0)], ~immediate: 0)
   ]
 
   def device_tree_immediates = pc_relative_immediates(
