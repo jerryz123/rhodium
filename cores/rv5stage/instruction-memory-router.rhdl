@@ -32,17 +32,20 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   def completed_match = completed & (address === s2.egress.bits.address)
   uncached.flush <== core.flush
   uncached.invalidate_all <== core.invalidate_all
-  uncached.request.valid <== uncached_attempt & !pending & !completed
-  uncached.request.bits <== s2.egress.bits
-  uncached.response.ready <== pending & !core.flush
-  core.response.valid <== s2.egress.valid & !core.flush
+  s2.egress |> filter_valid(request => !request.cacheable & !core.flush & !pending & !completed)
+    |> offer_decoupled() |> uncached.request
+  def uncached_completed = uncached.response |> gate_flow(pending & !core.flush) |> to_valid()
   def unavailable = RV5StageFetchResult():
     response: literal(RV5StageInstructionResp(), 0)
     replay: Bool(#true)
   def uncached_result = RV5StageFetchResult():
     response: response
     replay: !completed_match
-  core.response.bits <== mux(s2.egress.bits.cacheable, mux(cache.response.valid, cache.response.bits, unavailable), uncached_result)
+  // Every live S2 gets an outcome, including a retry when the selected
+  // implementation has no result. Do not arbitrate only available replies.
+  s2.egress |> filter_valid(_request => !core.flush)
+    |> map_valid(request => mux(request.cacheable, mux(cache.response.valid, cache.response.bits, unavailable), uncached_result))
+    |> core.response
   when (core.flush):
     pending <== Bool(#false)
     completed <== Bool(#false)
@@ -50,10 +53,10 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
     when (uncached.request.fire()):
       pending <== Bool(#true)
       address <== s2.egress.bits.address
-    elsewhen (uncached.response.fire()):
+    elsewhen (uncached_completed.valid):
       pending <== Bool(#false)
       completed <== Bool(#true)
-      response <== uncached.response.bits
+      response <== uncached_completed.bits
     elsewhen (uncached_attempt & completed_match):
       completed <== Bool(#false)
 

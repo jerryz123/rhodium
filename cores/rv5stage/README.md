@@ -464,15 +464,28 @@ ordinary WB result uses the other write port. WAW gating prevents both ports
 from targeting the same register in one cycle, and a WB-aligned cache hit can
 set and clear a destination without an extra busy cycle.
 
-[`frontend.rhdl`](frontend.rhdl) captures prediction and continuation context
-for every S0/S1/S2 attempt. Only completed words enter its five-entry queue.
-The assembly PC advances when an instruction transfers to execution; it can
-consume zero, one, or two words. Decode readiness and same-cycle returned
-credit never select the live request address. Registered S2 replay may select
-S0 directly, without an S1 translation/tag-match feedback path.
+[`frontend.rhdl`](frontend.rhdl) connects a
+[`RV5StageFetchSource`](fetch-source.rhdl) to its fixed-latency S1/S2 stages
+and a five-entry [`RV5StageInstructionBuffer`](instruction-buffer.rhdl).
+The source offers complete PC, prediction, and continuation context; memory
+acceptance captures that occurrence into S1 atomically. Only completed words
+enter the instruction buffer's internal
+[`RV5StageFetchWordBuffer`](fetch-word-buffer.rhdl). Buffer capacity remains
+a host parameter (at least two with compressed instructions enabled); the
+frontend selects five words. The assembly PC advances when an instruction transfers to
+execution; it can consume zero, one, or two words. Decode readiness and
+same-cycle returned credit never select the live request address. Registered S2
+replay may select S0 directly, without an S1 translation/tag-match feedback
+path.
 The MMU and L1I do not queue ordinary requests or promise eventual responses:
 the frontend retries after an ITLB miss, refill, or resource conflict.
 See the [MMU guide](mmu/README.md#request-flow).
+The source and instruction buffer accept independent `clear` and `restart`
+events: either suppresses that cycle's output, and restart also selects the
+new PC. Clearing the source alone resumes at the assembly cursor; clearing
+the buffer alone retains that cursor. Completed-word fills cannot be
+backpressured because their capacity was reserved before issue. A malformed
+prediction produces a repair event, registered before it can clear the pipeline.
 With C enabled Fetch can reuse either halfword, assemble a
 32-bit instruction that straddles adjacent words, and expand legal compressed
 instructions before the ordinary decoder. It retains the original 16-bit word
@@ -491,8 +504,10 @@ global history, or separate direction table is present.
 
 Lookup runs alongside the current word request and chooses the earliest
 predicted-taken branch at or after the request's starting halfword. An accepted
-request captures its prediction in its attempt context and selects the next request
-PC. The target can be requested on the following cycle without a flush or
+request atomically captures the complete source attempt into S1 and advances
+the source PC. Unaccepted offers may observe later predictor training;
+accepted occurrences retain their own prediction. The target can be requested on the following
+cycle without a flush or
 prediction-induced bubble. A 32-bit branch starting in the upper halfword first
 requests its required continuation word, then the target. Cache/translation
 misses, downstream stalls, and exhausted reservations still stall fetching.

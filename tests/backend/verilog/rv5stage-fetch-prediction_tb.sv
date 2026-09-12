@@ -19,10 +19,21 @@ module rv5stage_fetch_prediction_tb;
   typedef struct packed { logic valid; fetched_bits_t bits; } fetched_out_t;
   typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; } update_bits_t;
   typedef struct packed { logic valid; update_bits_t bits; } update_t;
+  typedef struct packed { logic valid; } valid_ctrl_t;
+  typedef struct packed { logic valid; logic [63:0] bits; } valid_bits64_t;
+  typedef struct packed {
+    logic active;
+    valid_ctrl_t flush;
+    valid_bits64_t restart;
+    valid_ctrl_t invalidate_all;
+    valid_ctrl_t predictor_flush;
+    update_t branch_update;
+  } control_t;
   logic clock = 0, reset = 1, active = 0, flush = 0, restart_valid = 0;
   logic invalidate_all = 0, predictor_flush = 0;
   logic [63:0] restart_pc = 0;
   update_t branch_update_in = '0;
+  control_t control_in;
   memory_in_t memory_in;
   memory_out_t memory_out;
   ready_t fetched_in;
@@ -33,7 +44,7 @@ module rv5stage_fetch_prediction_tb;
   int request_checks = 0, output_checks = 0, local_flushes = 0;
   bit continuous_requests = 0, continuous_outputs = 0;
   logic [63:0] expected_requests[$];
-  RV5StageFrontend dut (.control_in({active, flush, restart_valid, restart_pc, invalidate_all, predictor_flush, branch_update_in}), .*);
+  RV5StageFrontend dut (.control_in, .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] word_at(input logic [63:0] address);
@@ -54,6 +65,13 @@ module rv5stage_fetch_prediction_tb;
     endcase
   endfunction
   always_comb begin
+    control_in.active = active;
+    control_in.flush.valid = flush;
+    control_in.restart.valid = restart_valid;
+    control_in.restart.bits = restart_pc;
+    control_in.invalidate_all.valid = invalidate_all;
+    control_in.predictor_flush.valid = predictor_flush;
+    control_in.branch_update = branch_update_in;
     memory_in.request.ready = request_ready;
     memory_in.response = '{s2_response.valid, '{s2_response.bits, 1'b0}};
     fetched_in.ready = output_ready;
@@ -132,6 +150,24 @@ module rv5stage_fetch_prediction_tb;
     // Already accepted occurrences still carry their original target.
     output_ready = 1;
     expect_pc('h100, 'h200);
+
+    // Capture the entire attempt at the memory handshake, not when it was
+    // first offered or when its response eventually reaches the assembler.
+    initialize(0);
+    train('h100, 'h200, 0);
+    request_ready = 0; output_ready = 0;
+    start('h100);
+    train('h100, 'h300, 0); // An unaccepted offer sees live predictor training.
+    repeat (3) @(negedge clock);
+    assert (memory_out.request.valid && memory_out.request.bits.address == 'h100);
+    expected_requests = '{'h100};
+    request_ready = 1;
+    @(negedge clock);
+    request_ready = 0;
+    train('h100, 'h400, 0); // This must not change the accepted occurrence.
+    expect_pc('h100, 'h300);
+    assert (request_checks == 1 && memory_out.request.bits.address == 'h300)
+      else $fatal(1, "fetch context was not captured at acceptance");
 
     initialize(1);
     train('h100, 'h900, 1, 1);

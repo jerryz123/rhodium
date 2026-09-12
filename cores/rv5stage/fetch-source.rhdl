@@ -1,0 +1,66 @@
+#lang rhodium
+// Produces complete fetch attempts and owns acceptance-driven PC, continuation, and replay selection.
+
+import:
+  "btb.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+bundle RV5StageFetchAttempt(xlen :: XLen):
+  pc: Bits(xlen.width)
+  continuation: Bool
+  continuation_target: Bits(xlen.width)
+  prediction: RV5StagePrediction(xlen)
+
+// The offer is Decoupled: replay and predictor training may change an
+// unaccepted attempt. Its complete context is captured only on transfer.
+sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 16):
+  def width = xlen.width
+  input active: Bool
+  input space: Bool
+  input cursor: Bits(width)
+  interface clear(ValidCtrl(), ~role: consumer)
+  interface restart(Valid(Bits(width)), ~role: consumer)
+  interface replay(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
+  interface predictor_flush(ValidCtrl(), ~role: consumer)
+  interface predictor_invalidate(Valid(Bits(width)), ~role: consumer)
+  interface branch_update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
+  interface attempts(Decoupled(RV5StageFetchAttempt(xlen)), ~role: producer)
+
+  reg request_pc(~init: bits(0, width))
+  reg continuation(~init: Bool(#false))
+  reg continuation_target(Bits(width))
+  inst btb(RV5StageBtb(xlen, btb_entries))
+  def command = clear.valid ||| restart.valid
+  def s0_pc = mux(replay.valid, replay.bits.pc, request_pc)
+  def s0_continuation = mux(replay.valid, replay.bits.continuation, continuation)
+  def s0_continuation_target = mux(replay.valid, replay.bits.continuation_target, continuation_target)
+  btb.cursor <== s0_pc
+  predictor_flush |> btb.invalidate_all
+  predictor_invalidate |> btb.invalidate
+  branch_update |> btb.update
+  def prediction = mux(s0_continuation, literal(RV5StagePrediction(xlen), 0), btb.prediction)
+  def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
+  attempts.valid <== active & !command & space
+  attempts.bits <== RV5StageFetchAttempt(xlen):
+    pc: s0_pc
+    continuation: s0_continuation
+    continuation_target: s0_continuation_target
+    prediction: prediction
+
+  when command:
+    request_pc <== mux(restart.valid, restart.bits, cursor)
+    continuation <== Bool(#false)
+  elsewhen (attempts.fire()):
+    request_pc <== mux(s0_continuation, s0_continuation_target, mux(prediction.valid & !predicted_straddle, prediction.target, s0_pc.align_down(4) + bits(4, width)))
+    continuation <== predicted_straddle
+    continuation_target <== prediction.target
+  elsewhen (replay.valid):
+    request_pc <== replay.bits.pc
+    continuation <== replay.bits.continuation
+    continuation_target <== replay.bits.continuation_target
+
+export:
+  RV5StageFetchAttempt
+  RV5StageFetchSource

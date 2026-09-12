@@ -89,12 +89,15 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   refill.acknowledgements |> chi.rsp.requester
   chi.dat.request.valid <== Bool(#false)
   chi.dat.request.bits <== literal(CHIDatFlit(p), 0)
-  def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
-  def prefetch_valid = prefetch.valid & (prefetch_request.operation === CachePrefetchOperation.Instruction)
-  def lookup_input_prefetch = !virtual_lookup.valid & prefetch_valid
-  def lookup_index_address = mux(lookup_input_prefetch, prefetch_request.address, virtual_lookup.bits)
-  def request_set_value = lookup_index_address[offset_width..(offset_width + set_width)]
-  def request_data_address = lookup_index_address[word_offset_width..(offset_width + set_width)]
+  def demand_lookup = virtual_lookup |> map_flow(address => RV5StageL1ILookup(width)):
+    address: address
+    prefetch: Bool(#false)
+  def hinted_lookup:
+    (prefetch |> filter_valid(request => request.into(CachePrefetchReq(width)).operation === CachePrefetchOperation.Instruction)
+      |> map_valid(request => RV5StageL1ILookup(width)):
+           address: request.address
+           prefetch: Bool(#true)
+    ) |> offer_decoupled()
   def array_context = array_read.egress.bits.into(RV5StageL1ILookup(width))
   def lookup_address = mux(array_context.prefetch, array_context.address, core.request.bits.address)
   def lookup_set = lookup_address[offset_width..(offset_width + set_width)]
@@ -106,7 +109,6 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   )
   def lookup_selection = priority_encoder_oh(lookup_matches)
   def line_hit = lookup_selection.valid
-  def lookup_miss = lookup.egress.valid & !lookup.egress.bits.hit & !lookup.egress.bits.access_fault
   def cached_words = lines.port.response.bits.as_bits().as_vec(Bits(width))
   def cached_word = lookup_selection.mux(
     for List (way in 0..ways): cached_words[way],
@@ -134,12 +136,9 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   // S0 admission depends only on transaction/installation state, not S1 tags,
   // translation, or the consuming instruction pipeline.
   def array_accepts_input = !cache_flush & refill.command.ready & !refill_installing
-  virtual_lookup.ready <== array_accepts_input
-  def array_lookup_issue = array_accepts_input & (virtual_lookup.valid ||| lookup_input_prefetch)
-  def array_request = RV5StageL1ILookup(width):
-    address: lookup_index_address
-    prefetch: lookup_input_prefetch
-  inject_flow(Valid(RV5StageL1ILookup(width)), ~valid: array_lookup_issue, ~bits: array_request) |> array_read.ingress
+  def Array(array_contexts, tag_reads, line_reads) = Array(demand_lookup, hinted_lookup)
+    |> arbiter() |> gate_flow(array_accepts_input) |> to_valid() |> fork_valid(3)
+  array_contexts |> array_read.ingress
   // S1 captures a physical lookup; local replay kills younger SRAM results.
   def lookup_issue = !cache_flush & !core.s1_kill & array_read.egress.valid & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)
   def retained_error = refill_error_valid & !array_context.prefetch & (refill_error_address.align_down(RV5StageCacheLineBytes) === lookup_address.align_down(RV5StageCacheLineBytes))
@@ -152,7 +151,8 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     hit: line_hit
     word: cached_fetch_word
     access_fault: retained_error
-  inject_flow(Valid(RV5StageL1IResolved(width, way_width)), ~valid: lookup_issue, ~bits: resolved_lookup) |> lookup.ingress
+  array_read.egress |> filter_valid(_context => !cache_flush & !core.s1_kill & tags.port.response.valid & (core.request.valid ||| array_context.prefetch))
+    |> map_valid(_context => resolved_lookup) |> lookup.ingress
   def request_fire = core.request.valid & !core.s1_kill & !cache_flush
   when request_fire:
     assert(array_read.egress.valid & !array_context.prefetch, "l1i_physical_request_has_virtual_lookup")
@@ -162,22 +162,26 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
 
   // S2 misses return replay immediately. The refill engine alone owns the
   // accepted CHI transaction; successful installation is observed by a retry.
-  refill.command.valid <== lookup_miss & !cache_flush
-  refill.command.bits <== RV5StageLineReadCommand(RV5StageL1IRefillContext(width, way_width), width):
-    line_address: lookup.egress.bits.context.address.align_down(RV5StageCacheLineBytes)
-    context: lookup.egress.bits.context
-  core.response.valid <== lookup.egress.valid & !lookup.egress.bits.context.prefetch & !cache_flush
+  def Array(refill_attempts, lookup_results) = lookup.egress |> filter_valid(_result => !cache_flush) |> fork_valid(2)
+  (refill_attempts |> filter_valid(result => !result.hit & !result.access_fault)
+    |> map_valid(result => RV5StageLineReadCommand(RV5StageL1IRefillContext(width, way_width), width)):
+         line_address: result.context.address.align_down(RV5StageCacheLineBytes)
+         context: result.context
+  ) |> offer_decoupled() |> refill.command
   def s2_response = RV5StageInstructionResp():
     word: lookup.egress.bits.word
     page_fault: Bool(#false)
     access_fault: lookup.egress.bits.access_fault
-  core.response.bits <== RV5StageFetchResult():
+  (lookup_results |> filter_valid(result => !result.context.prefetch) |> map_valid(result => RV5StageFetchResult()):
     response: s2_response
-    replay: !lookup.egress.bits.hit & !lookup.egress.bits.access_fault
-  refill.completion.ready <== refill_completion_may_finish
+    replay: !result.hit & !result.access_fault
+  ) |> core.response
+  // Hold the completed line throughout multibeat installation; only the
+  // final word or an explicit discard consumes the completion.
+  def refill_completed = refill.completion |> gate_flow(refill_completion_may_finish) |> to_valid()
 
   def refill_start = refill.command.fire()
-  def refill_complete = refill.completion.fire()
+  def refill_complete = refill_completed.valid
   def install = refill_complete & refill_installing & !refill_completion_discard
   def install_way_mask = rv5stage_cache_way_mask(cache, completion_way)
   def refill_word_bytes = completion_words[refill_install_index].as_vec(Bits(8))
@@ -192,20 +196,36 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     for (byte in 0..word_bytes):
       line_write_bytes := line_write_bytes ++ [refill_word_bytes[byte]]
 
-  tags.port.request.valid <== array_lookup_issue ||| install
-  tags.port.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
-    address: mux(install, completion_set, request_set_value)
-    write: install
-    data: vec(for List (_way in 0..ways): completion_tag)
-    mask: install_way_mask
-  lines.port.request.valid <== array_lookup_issue ||| refill_install_word
-  lines.port.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
-    address: mux(refill_install_word,
-                 (completion_set ++ refill_install_index),
-                 request_data_address)
-    write: refill_install_word
+  def tag_read_commands = tag_reads |> map_valid(request => ReadWriteRequest(set_width, Bits(tag_width), ways)):
+    address: request.address[offset_width..(offset_width + set_width)]
+    write: Bool(#false)
+    data: dont_care(Vec(ways, Bits(tag_width)))
+    mask: dont_care(Mask(ways))
+  def tag_write_commands = refill_completed |> filter_valid(_completion => refill_installing & !refill_completion_discard)
+    |> map_valid(_completion => ReadWriteRequest(set_width, Bits(tag_width), ways)):
+         address: completion_set
+         write: Bool(#true)
+         data: vec(for List (_way in 0..ways): completion_tag)
+         mask: install_way_mask
+  assert(!(tag_read_commands.valid & tag_write_commands.valid), "l1i_tag_ports_exclusive")
+  Array(tag_write_commands, tag_read_commands) |> valid_arbiter() |> tags.port.request
+
+  def line_read_commands = line_reads |> map_valid(request => ReadWriteRequest(data_address_width, Bits(8), data_lanes)):
+    address: request.address[word_offset_width..(offset_width + set_width)]
+    write: Bool(#false)
+    data: dont_care(Vec(data_lanes, Bits(8)))
+    mask: dont_care(Mask(data_lanes))
+  // The installation sequencer is a real producer: each held completion
+  // generates several writes before its own transfer can finish.
+  def line_install :: Handle = interface_link(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)))
+  line_install.left.valid <== refill_install_word
+  line_install.left.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
+    address: completion_set ++ refill_install_index
+    write: Bool(#true)
     data: vec(line_write_bytes)
     mask: line_write_mask
+  assert(!(line_read_commands.valid & line_install.right.valid), "l1i_data_ports_exclusive")
+  Array(line_install.right, line_read_commands) |> valid_arbiter() |> lines.port.request
 
   when (core.invalidate_all):
     valid_lines <== vec(

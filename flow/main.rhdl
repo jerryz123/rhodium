@@ -42,6 +42,7 @@ import:
   lib("flow/event.rhdl") open
 
 export:
+  ValidCtrl
   Valid
   DecoupledCtrl
   IrrevocableCtrl

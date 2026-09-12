@@ -12,7 +12,10 @@ module rv5stage_mmu_replay_tb;
     logic s1_kill;
     instruction_req_t request;
   } instruction_in_t;
-  typedef struct packed { ready_t request; instruction_resp_t response; } instruction_out_t;
+  typedef struct packed {
+    ready_t request;
+    instruction_resp_t response;
+  } instruction_out_t;
   typedef struct packed {
     logic [63:0] address;
     logic cacheable;

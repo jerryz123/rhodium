@@ -76,6 +76,14 @@ def fetch = embedded.run_elaboration_with_top(fun (): RV5StageFrontend(RVCorePro
 for (path in [["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(fetch.top, "memory_out", path, "fetched_in", ["ready"])
 check_dependency(fetch.top, "memory_out", ["request", "valid"], "control_in", ["active"], #true)
+// Response data cannot feed admission or the address selector. S2 replay may
+// choose a saved PC, but cannot turn current result data into new capacity.
+for (path in [["response", "valid"], ["response", "bits", "replay"]]):
+  check_dependency(fetch.top, "memory_out", ["request", "valid"], "memory_in", path)
+for (path in [["request", "valid"], ["request", "bits", "address"]]):
+  for (field in ["word", "page_fault", "access_fault"]):
+    check_dependency(fetch.top, "memory_out", path, "memory_in", ["response", "bits", "response", field])
+check_dependency(fetch.top, "memory_out", ["request", "bits", "address"], "memory_in", ["response", "bits", "replay"], #true)
 
 def mmu = embedded.run_elaboration_with_top(fun (): RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_params.test_rv5stage_chi_config.physical_map))
 for (path in [["valid"], ["bits"]]):

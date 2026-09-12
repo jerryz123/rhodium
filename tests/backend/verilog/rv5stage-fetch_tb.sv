@@ -21,6 +21,17 @@ module rv5stage_fetch_tb;
     logic [63:0] instruction_fault_address;
   } fetched_bits_t;
   typedef struct packed { logic valid; fetched_bits_t bits; } fetched_out_t;
+  typedef struct packed { logic valid; } valid_ctrl_t;
+  typedef struct packed { logic valid; logic [63:0] bits; } valid_bits64_t;
+  typedef struct packed { logic valid; logic [131:0] bits; } branch_update_t;
+  typedef struct packed {
+    logic active;
+    valid_ctrl_t flush;
+    valid_bits64_t restart;
+    valid_ctrl_t invalidate_all;
+    valid_ctrl_t predictor_flush;
+    branch_update_t branch_update;
+  } control_t;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
@@ -31,6 +42,7 @@ module rv5stage_fetch_tb;
   logic invalidate_all = 1'b0;
   logic predictor_flush = 1'b0;
   logic [132:0] branch_update_in = '0;
+  control_t control_in;
   memory_in_t memory_in;
   ready_t fetched_in;
   memory_out_t memory_out;
@@ -42,7 +54,7 @@ module rv5stage_fetch_tb;
   integer stalled_requests;
   logic [63:0] held_request_address;
 
-  RV5StageFrontend dut (.control_in({active, flush, restart_valid, restart_pc, invalidate_all, predictor_flush, branch_update_in}), .*);
+  RV5StageFrontend dut (.control_in, .*);
   always #5 clock = ~clock;
 
   function automatic logic [31:0] word_at(input logic [63:0] address);
@@ -59,6 +71,14 @@ module rv5stage_fetch_tb;
   endfunction
 
   always_comb begin
+    control_in.active = active;
+    control_in.flush.valid = flush;
+    control_in.restart.valid = restart_valid;
+    control_in.restart.bits = restart_pc;
+    control_in.invalidate_all.valid = invalidate_all;
+    control_in.predictor_flush.valid = predictor_flush;
+    control_in.branch_update.valid = branch_update_in[132];
+    control_in.branch_update.bits = branch_update_in[131:0];
     memory_in.request.ready = 1'b1;
     memory_in.response.valid = s2_response.valid;
     memory_in.response.bits = '{s2_response.bits, 1'b0};

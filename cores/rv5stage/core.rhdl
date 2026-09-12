@@ -175,7 +175,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def wb = inject_flow(Valid(MemoryWriteback(xlen)), ~valid: mux(wb_reservation_wait_pending, wb_reservation_wait_done, mux(wb_maintenance_pending, wb_maintenance_done, wb_input.valid & !wb_reservation_wait_accept)), ~bits: mux(wb_reservation_wait_pending, wb_reservation_wait_instruction, mux(wb_maintenance_pending, wb_maintenance_instruction, wb_input.bits)))
   def wb_offer_bits :: MemoryWriteback(xlen) = wb.bits
   wire wb_commit_result: MemoryWriteback(xlen)
-  def wb_commit = inject_flow(Valid(MemoryWriteback(xlen)), ~valid: wb.valid & !wb_maintenance_accepted & !wb_pending_exception_valid, ~bits: wb_commit_result)
+  def wb_commit = wb |> filter_valid(_operation => !wb_maintenance_accepted & !wb_pending_exception_valid) |> map_valid(_operation => wb_commit_result)
   def wb_commit_bits :: MemoryWriteback(xlen) = wb_commit.bits
   def wb_commit_replay = wb_commit.valid & wb_commit_bits.replay
   def wb_commit_valid = wb_commit.valid & !wb_commit_bits.replay
@@ -191,6 +191,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def if_redirect_link :: Handle = interface_link(Valid(Bits(width)))
   def mem_to_if_exception_link :: Handle = interface_link(Valid(Bits(width)))
   def mem_to_if_replay_link :: Handle = interface_link(Valid(Bits(width)))
+  def mem_to_if_redirect_link :: Handle = interface_link(Valid(Bits(width)))
   def wb_to_id_scoreboard_set_link :: Handle = interface_link(Valid(Bits(5)))
   def wb_to_id_scoreboard_clear_link :: Handle = interface_link(Valid(Bits(5)))
   wb_to_id_scoreboard_set_link.right |> wb_scoreboard.set
@@ -204,27 +205,16 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def mem_stage_valid = mem_input.valid & !wb_commit_redirect & !wb_pending_exception_valid & !(wb_commit_valid & wb_commit_bits.exception_valid)
   def mem_exception_event = mem_to_if_exception_link.right.valid
   def mem_replay_event = mem_to_if_replay_link.right.valid
-  def mem_redirect = mem_stage_valid & mem_input.bits.redirect_valid & !mem_exception_event & !mem_replay_event
-  def wb_serializing_redirect = inject_flow(
-    Valid(Bits(width)),
-    ~valid: wb_serializing_resume,
-    ~bits: wb_commit_bits.resume_pc
-  )
-  def wb_commit_replay_redirect = inject_flow(
-    Valid(Bits(width)),
-    ~valid: wb_commit_replay,
-    ~bits: wb_commit_bits.pc
-  )
-  def mem_to_if_redirect_flow = inject_flow(
-    Valid(Bits(width)),
-    ~valid: mem_redirect,
-    ~bits: mem_input.bits.resume_pc
-  )
+  def mem_redirect = mem_to_if_redirect_link.right.valid
+  def Array(wb_trap_restart, wb_trap_predictor_flush) = wb_csrs.redirect |> fork_valid(2)
+  def wb_serializing_redirect = wb_commit |> filter_valid(_operation => wb_serializing_resume) |> map_valid(operation => operation.resume_pc)
+  def Array(wb_serializing_restart, wb_serializing_invalidate) = wb_serializing_redirect |> fork_valid(2)
+  def wb_commit_replay_redirect = wb_commit |> filter_valid(operation => operation.replay) |> map_valid(operation => operation.pc)
   def if_redirect_sources = Array(
-    wb_csrs.redirect,
-    wb_serializing_redirect,
+    wb_trap_restart,
+    wb_serializing_restart,
     wb_commit_replay_redirect,
-    mem_to_if_redirect_flow
+    mem_to_if_redirect_link.right
   )
   if_redirect_sources |> valid_arbiter() |> if_redirect_link.left
 
@@ -250,16 +240,17 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     if_pause_cycles <== if_pause_cycles - bits(1, index_width(if_pause_cycle_limit + 1))
   reg if_architectural_pc(~init: reset_pc)
   // Seed fetch once after reset; software in the reset image owns boot waiting.
-  def if_reset_start = !if_started
+  def if_start_link :: Handle = interface_link(Valid(Bits(width)))
+  if_start_link.left.valid <== !if_started
+  if_start_link.left.bits <== reset_pc
   def if_fetch_valid = if_started & !if_pause_active & !if_pause_commit & !if_squash & !wb_csrs.interrupt_request & !if_waiting_for_interrupt & !wb_reservation_wait_pending & !wb_reservation_wait_accept
   frontend_control.active <== if_fetch_valid
-  frontend_control.flush <== mem_exception_event ||| mem_replay_event
-  frontend_control.restart_valid <== if_redirect_link.right.valid ||| if_reset_start
-  frontend_control.restart_pc <== mux(if_redirect_link.right.valid, if_redirect_link.right.bits, reset_pc)
-  frontend_control.invalidate_all <== fence_i_commit
-  frontend_control.predictor_flush <== fence_i_commit ||| wb_csrs.translation_flush ||| wb_csrs.redirect.valid
-  frontend_control.branch_update.valid <== mem_stage_valid & !mem_exception_event & !mem_replay_event
-  frontend_control.branch_update.bits <== mem_input.bits.branch_update
+  Array(mem_to_if_exception_link.right, mem_to_if_replay_link.right) |> valid_arbiter() |> frontend_control.flush
+  Array(if_redirect_link.right, if_start_link.right) |> valid_arbiter() |> frontend_control.restart
+  def Array(wb_instruction_invalidate, wb_predictor_invalidate) = wb_serializing_invalidate |> fork_valid(2)
+  wb_instruction_invalidate |> filter_valid(_pc => fence_i_commit) |> frontend_control.invalidate_all
+  def wb_predictor_flush = wb_predictor_invalidate |> filter_valid(_pc => fence_i_commit ||| wb_csrs.translation_flush)
+  Array(wb_trap_predictor_flush, wb_predictor_flush) |> valid_arbiter() |> frontend_control.predictor_flush
   def if_fetch_stream = fetched |> trace_event("core.s1.fetch", ~stalls: #true, ~root: #true, ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
@@ -721,7 +712,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
     cache_outcome(~format: "enum"): mem_cache_outcome
     cache_reason(~format: "enum"): mux(pipeline_access.response.valid, pipeline_access.response.bits.reason, RV5StagePipelineReason.None)
-  def Array(mem_to_wb_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_access_path) = mem_live |> fork_valid(4)
+  def Array(mem_to_wb_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_access_path, mem_prediction_path) = mem_live |> fork_valid(5)
   mem_access_path |> filter_valid(operation => operation.data_request.access.into(MemoryOperation).is_memory())
     |> trace_valid_event("dcache.s1.access", ~fields: operation):
          pc: operation.pc
@@ -732,6 +723,12 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     |> map_valid(operation => operation.pc) |> mem_to_if_exception_link.left
   mem_to_if_replay_path |> filter_valid(operation => operation.replay ||| mem_cache_replay)
     |> map_valid(operation => operation.pc) |> mem_to_if_replay_link.left
+  def Array(mem_redirect_path, mem_training_path) = mem_prediction_path
+    |> filter_valid(_operation => !mem_exception_event & !mem_replay_event) |> fork_valid(2)
+  mem_redirect_path |> filter_valid(operation => operation.redirect_valid)
+    |> map_valid(operation => operation.resume_pc) |> mem_to_if_redirect_link.left
+  // Nonbranches also train: they remove a stale prediction at this PC.
+  mem_training_path |> map_valid(operation => operation.branch_update) |> frontend_control.branch_update
   def mem_to_wb = mem_to_wb_path |> map_valid(operation => MemoryWriteback(xlen)):
     pc: operation.pc
     resume_pc: operation.resume_pc

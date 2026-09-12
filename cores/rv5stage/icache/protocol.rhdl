@@ -17,7 +17,8 @@ bundle RV5StageFetchResult():
   response: RV5StageInstructionResp()
   replay: Bool
 
-// S0 acceptance has exactly one S2 result unless flush or s1_kill cancels it.
+// Each accepted S0 request has exactly one S2 result unless flush or s1_kill
+// cancels it. The requester captures its own context at request transfer.
 // Replay is an outcome, not a promise of a later response for this attempt.
 interface RV5StageFetchAccess(xlen :: XLen):
   role requester
