@@ -1,0 +1,59 @@
+#lang rhodium
+// Exposes shared SIMD datapaths and widening preparation for differential behavioral tests.
+
+import:
+  "../simd-alu.rhdl" open
+
+circuit SimdAluFixture():
+  input(left, right): Bits(64)
+  input element_width: SimdElementWidth
+  input result_select: SimdResultSelect
+  input logic_select: SimdLogicSelect
+  input comparison_select: SimdComparisonSelect
+  input permutation_select: SimdPermutationSelect
+  input count_select: SimdCountSelect
+  input(subtract, signed_compare, maximum, shift_right, arithmetic_shift, rotate, invert_right): Bool
+  input(enabled, select_right): Mask(8)
+  input(widening, upper_half): Bool
+  input widen_element_width: SimdWidenElementWidth
+  output(prepared_left, prepared_right): Bits(64)
+  output prepared_width: SimdElementWidth
+  output prepared_enabled: Mask(8)
+  output data: Bits(64)
+  output(comparison, write_mask): Mask(8)
+
+  inst widen(SimdWidenOperands())
+  widen.left <== left
+  widen.right <== right
+  widen.element_width <== widen_element_width
+  widen.upper_half <== upper_half
+  widen.enabled <== enabled
+  prepared_left <== widen.operands.left
+  prepared_right <== widen.operands.right
+  prepared_width <== widen.operands.element_width
+  prepared_enabled <== widen.operands.enabled
+  inst alu(SimdALU())
+  alu.left <== mux(widening, widen.operands.left, left)
+  alu.right <== mux(widening, widen.operands.right, right)
+  alu.element_width <== mux(widening, widen.operands.element_width, element_width)
+  alu.control <== SimdAluControl():
+    result_select: result_select
+    logic_select: logic_select
+    comparison_select: comparison_select
+    permutation_select: permutation_select
+    count_select: count_select
+    subtract: subtract
+    signed_compare: signed_compare
+    maximum: maximum
+    shift_right: shift_right
+    arithmetic_shift: arithmetic_shift
+    rotate: rotate
+    invert_right: invert_right
+  alu.enabled <== mux(widening, widen.operands.enabled, enabled)
+  alu.select_right <== select_right
+  data <== alu.result.data
+  comparison <== alu.result.comparison
+  write_mask <== alu.result.write_mask
+
+export:
+  SimdAluFixture

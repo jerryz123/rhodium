@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits the standalone packed SIMD ALU fixture for CIRCT and behavioral simulation.
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../cores/tests/simd-alu-fixture.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.SimdAluFixture())
+print(emit_circt(design))

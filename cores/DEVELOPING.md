@@ -66,6 +66,33 @@ public README and companion DEVELOPING guide before adding system integration.
 
 ## Focused validation
 
+The packed integer unit in `simd-alu.rhdl` uses guard bits around eight bytes
+to perform every element width through one 72-bit adder. Eight byte comparison
+pairs feed a shared reduction tree; a tapered 64/32/16/16/8/8/8/8-bit shifter
+bank routes different-width operands through the same physical slots. Left
+and right shifts share each slice by reversing around the right shifter.
+Barrel stages select fill or wrap bits for rotation; repeating a narrow
+operand across its slot makes the same network rotate at every element width.
+Byte population counts and directional zero counts feed shared reduction
+trees. Byte-local bit reversal also serves the permutation path, whose
+remaining byte-order changes are wiring and width-selected routing.
+Width-specific logic only routes operands and packs results/masks, rather than
+instantiating full datapaths per width. These design techniques follow
+[Saturn's integer unit](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/IntegerPipe.scala)
+and [shift unit](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/ShiftPipe.scala);
+the public operation and widening contracts are in [README.md](README.md#packed-simd-integer-alu).
+`SimdWidenOperands` prepares one destination group without adding another ALU
+or coupling widening to instruction decode. Keep RVV register layout and
+architectural policy outside this reusable component. Its direct fixture
+checks exhaustive byte operand pairs and directed/random wider elements,
+including rotation with dirty fill controls, zero counts, byte permutations,
+both widening halves, and enable remapping against independent per-element
+models:
+
+```sh
+FIXTURE=simd-alu bash tests/backend/run-circt.sh --simulate-only
+```
+
 Pure host contracts can use the package tests directly. Cycle-visible behavior
 is owned by the matching backend fixtures:
 

@@ -148,6 +148,10 @@ The architecture above is the implementation contract. The tables below are
 its review surface: keep them exact when modules or layer imports change. They list
 direct Rhodium dependencies, not the full transitive closure.
 
+The reusable packed execution module `cores/simd-alu.rhdl` directly imports
+`std/bits.rhdl` for bit reversal and leading-zero count. Its remaining hardware
+operations use the public language; it imports no ISA catalog or named core.
+
 ### Standard-library dependencies
 
 Standard-library modules depend only on the public authoring surface and

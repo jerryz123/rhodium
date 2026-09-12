@@ -1,0 +1,311 @@
+#lang rhodium
+// Implements shared-width packed integer/bit-manipulation datapaths and widening operand preparation.
+
+import:
+  "../rhodium/std/bits.rhdl" open
+
+hardware_enum SimdElementWidth:
+  E8
+  E16
+  E32
+  E64
+
+hardware_enum SimdResultSelect:
+  Adder
+  Logic
+  Shift
+  Compare
+  MinMax
+  Select
+  Permute
+  Count
+
+hardware_enum SimdLogicSelect:
+  And
+  Or
+  Xor
+
+hardware_enum SimdComparisonSelect:
+  Equal
+  Less
+  LessEqual
+
+hardware_enum SimdPermutationSelect:
+  ReverseBits
+  ReverseBitsInBytes
+  ReverseBytes
+
+hardware_enum SimdCountSelect:
+  LeadingZeros
+  TrailingZeros
+  Population
+
+bundle SimdAluControl():
+  result_select: SimdResultSelect
+  logic_select: SimdLogicSelect
+  comparison_select: SimdComparisonSelect
+  permutation_select: SimdPermutationSelect
+  count_select: SimdCountSelect
+  subtract: Bool
+  signed_compare: Bool
+  maximum: Bool
+  shift_right: Bool
+  arithmetic_shift: Bool
+  rotate: Bool
+  invert_right: Bool
+
+bundle SimdAluResult():
+  data: Bits(64)
+  comparison: Mask(8)
+  write_mask: Mask(8)
+
+// Internal routing metadata expands element predicates into byte-level controls.
+bundle SimdRouting():
+  comparison: Mask(8)
+  enabled: Mask(8)
+  select_right: Mask(8)
+  select_left: Mask(8)
+  compare_data: Bits(64)
+  shift_data: Bits(64)
+  permutation_data: Bits(64)
+  count_data: Bits(64)
+
+// Internal tapered-bank slice: one barrel shifter serves both directions and
+// every element width routed into this physical slot.
+circuit SimdShiftSlice(width :: PosInt, amount_width :: PosInt):
+  input source: Bits(width)
+  input amount: Bits(amount_width)
+  input(shift_right, arithmetic_shift, rotate): Bool
+  output result: Bits(width)
+
+  def oriented = mux(shift_right, source, reverse_bits(source))
+  def fill = shift_right & arithmetic_shift & source[width - 1].into(Bool)
+  // Each barrel stage either fills or wraps the discarded bits. Repeated
+  // narrow operands make physical-slot rotation also rotate at element width.
+  def mutable shifted = oriented
+  for (stage in 0..amount_width):
+    def distance = 2 ** stage
+    def previous :: Bits(width) = shifted
+    def padding = mux(fill, !bits(0, distance), bits(0, distance))
+    def upper = mux(rotate, previous[0..distance], padding)
+    shifted := mux(amount[stage].into(Bool), upper ++ previous[distance..width], previous)
+  def shifted_result :: Bits(width) = shifted
+  result <== mux(shift_right, shifted_result, reverse_bits(shifted_result))
+
+circuit SimdALU():
+  input(left, right): Bits(64)
+  input element_width: SimdElementWidth
+  input control: SimdAluControl()
+  input enabled: Mask(8)
+  input select_right: Mask(8)
+  output result: SimdAluResult()
+
+  // Insert one guard bit below each byte. Inside an element, 1+0 propagates
+  // carry. At a boundary, 0+0 kills carry for addition and 1+1 forces the
+  // independent carry-in for subtraction. One 72-bit adder serves all widths.
+  def inverted_right = mux(control.subtract, !right, right)
+  def boundaries = for List (index in 0..8):
+    def boundary = cond
+    | index == 0: Bool(#true)
+    | index mod 4 == 0: element_width =/= SimdElementWidth.E64
+    | index mod 2 == 0: element_width.is_one_of(SimdElementWidth.E8, SimdElementWidth.E16)
+    | ~else: element_width === SimdElementWidth.E8
+    boundary
+  def left_chunks = for List (byte in 0..8):
+    def boundary :: Bool = boundaries[byte]
+    left[byte * 8..(byte + 1) * 8] ++ (!boundary ||| control.subtract).as_bits()
+  def right_chunks = for List (byte in 0..8):
+    def boundary :: Bool = boundaries[byte]
+    inverted_right[byte * 8..(byte + 1) * 8] ++ (boundary & control.subtract).as_bits()
+  def sum = concat(left_chunks.reverse()) + concat(right_chunks.reverse())
+  def sum_bytes = for List (byte in 0..8): sum[byte * 9 + 1..byte * 9 + 9]
+  def added = concat(sum_bytes.reverse())
+  def logic_right = mux(control.invert_right, !right, right)
+  def logic_value = mux_lookup(control.logic_select, ~default: left & logic_right, [[SimdLogicSelect.Or, left ||| logic_right], [SimdLogicSelect.Xor, left ^ logic_right]])
+
+  // Byte reversal is wiring shared by the permutation and trailing-zero paths.
+  // Count trees reuse each byte result for every larger element width.
+  def reversed_bytes = for List (byte in 0..8): reverse_bits(left[byte * 8..(byte + 1) * 8])
+  def trailing = control.count_select === SimdCountSelect.TrailingZeros
+  def mutable count_nodes = for List (byte in 0..8):
+    def source = left[byte * 8..(byte + 1) * 8]
+    def reversed :: Bits(8) = reversed_bytes[byte]
+    [!source.or_reduce(), count_leading_zeros(mux(trailing, reversed, source)), popcount(source)]
+  def count_levels = for List (format in 0..4):
+    def previous = count_nodes
+    def nodes:
+      if format == 0
+      | previous
+      | for List (pair in 0..(8 div (2 ** format))):
+          def low_zero :: Bool = previous[pair * 2][0]
+          def high_zero :: Bool = previous[pair * 2 + 1][0]
+          def low_count :: Bits(3 + format) = previous[pair * 2][1]
+          def high_count :: Bits(3 + format) = previous[pair * 2 + 1][1]
+          def low_population :: Bits(3 + format) = previous[pair * 2][2]
+          def high_population :: Bits(3 + format) = previous[pair * 2 + 1][2]
+          def first_zero = mux(trailing, low_zero, high_zero)
+          def first_count = mux(trailing, low_count, high_count).zext(4 + format)
+          def second_count = mux(trailing, high_count, low_count).zext(4 + format)
+          [low_zero & high_zero,
+           mux(first_zero, bits(8 * (2 ** (format - 1)), 4 + format) + second_count, first_count),
+           low_population.zext(4 + format) + high_population.zext(4 + format)]
+    count_nodes := nodes
+    nodes
+
+  // Eight byte comparisons feed a shared pairwise tree. Wider elements reuse
+  // the lower levels; signedness only corrects the selected element's sign.
+  def mutable compare_nodes = for List (byte in 0..8):
+    def a = left[byte * 8..(byte + 1) * 8]
+    def b = right[byte * 8..(byte + 1) * 8]
+    [a === b, a < b]
+  def compare_levels = for List (element_bytes in [1, 2, 4, 8]):
+    def previous = compare_nodes
+    def nodes:
+      if element_bytes == 1
+      | previous
+      | for List (pair in 0..(8 div element_bytes)):
+          def low_equal :: Bool = previous[pair * 2][0]
+          def low_less :: Bool = previous[pair * 2][1]
+          def high_equal :: Bool = previous[pair * 2 + 1][0]
+          def high_less :: Bool = previous[pair * 2 + 1][1]
+          [high_equal & low_equal, high_less ||| (high_equal & low_less)]
+    compare_nodes := nodes
+    nodes
+
+  // A tapered bank has widths 64,32,16,16,8,8,8,8. Slot i accepts element i
+  // at every supported width, instead of instantiating a full bank per width.
+  def widths = [SimdElementWidth.E8, SimdElementWidth.E16, SimdElementWidth.E32, SimdElementWidth.E64]
+  def shifts = for List (slot in 0..8):
+    def formats = [0, 1, 2, 3].filter(~keep: fun (format :: Nat): slot < (8 div (2 ** format)))
+    def largest = formats[formats.length() - 1]
+    def slice_width = 8 * (2 ** largest)
+    def operands = for List (format in formats):
+      def element_bits = 8 * (2 ** format)
+      def source = left[slot * element_bits..(slot + 1) * element_bits]
+      def extended :: Bits(slice_width):
+        if element_bits == slice_width
+        | source
+        | mux(control.arithmetic_shift, source.into(SInt(element_bits)).sext(slice_width).as_bits(), source.zext(slice_width))
+      def repeated :: Bits(slice_width):
+        if element_bits == slice_width
+        | source
+        | concat(for List (copy in 0..(slice_width div element_bits)): source)
+      [widths[format], mux(control.rotate, repeated, extended)]
+    def amounts = for List (format in formats):
+      def amount = right[slot * 8 * (2 ** format)..slot * 8 * (2 ** format) + 3 + format]
+      def extended :: Bits(3 + largest) = if format == largest | amount | amount.zext(3 + largest)
+      [widths[format], extended]
+    inst shifter(SimdShiftSlice(slice_width, 3 + largest))
+    shifter.source <== mux_lookup(element_width, ~default: bits(0, slice_width), operands)
+    shifter.amount <== mux_lookup(element_width, ~default: bits(0, 3 + largest), amounts)
+    shifter.shift_right <== control.shift_right
+    shifter.arithmetic_shift <== control.arithmetic_shift
+    shifter.rotate <== control.rotate
+    if slice_width == 64 | shifter.result | shifter.result.zext(64)
+
+  // Width-specific work below is only routing and packing: no adders,
+  // comparators, or variable shifters are instantiated here.
+  def packed = for List (format in 0..4):
+    def element_bytes = 2 ** format
+    def element_bits = 8 * element_bytes
+    def count = 8 div element_bytes
+    def predicates = for List (lane in 0..count):
+      def node = compare_levels[format][lane]
+      def equal :: Bool = node[0]
+      def unsigned_less :: Bool = node[1]
+      def sign_bit = (lane + 1) * element_bits - 1
+      def less = mux(control.signed_compare & (left[sign_bit] ^ right[sign_bit]).into(Bool), left[sign_bit].into(Bool), unsigned_less)
+      def comparison = mux_lookup(control.comparison_select, ~default: equal, [[SimdComparisonSelect.Less, less], [SimdComparisonSelect.LessEqual, less ||| equal]])
+      [less, comparison]
+    def lane_comparisons = for List (lane in 0..8):
+      if lane < count
+      | block:
+          def predicate :: Bool = predicates[lane][1]
+          (enabled[lane] & predicate).as_bits()
+      | bits(0, 1)
+    def bytes = for List (byte in 0..8):
+      def lane = byte div element_bytes
+      def less :: Bool = predicates[lane][0]
+      def predicate :: Bool = predicates[lane][1]
+      def shifted :: Bits(64) = shifts[lane]
+      def shift_low = (byte mod element_bytes) * 8
+      def reverse_byte = lane * element_bytes + element_bytes - 1 - (byte mod element_bytes)
+      def reversed_byte :: Bits(8) = reversed_bytes[reverse_byte]
+      def local_reversed_byte :: Bits(8) = reversed_bytes[byte]
+      def permutation = mux_lookup(control.permutation_select, ~default: reversed_byte, [[SimdPermutationSelect.ReverseBitsInBytes, local_reversed_byte], [SimdPermutationSelect.ReverseBytes, left[reverse_byte * 8..(reverse_byte + 1) * 8]]])
+      def zero_count :: Bits(4 + format) = count_levels[format][lane][1]
+      def population :: Bits(4 + format) = count_levels[format][lane][2]
+      def count = mux(control.count_select === SimdCountSelect.Population, population, zero_count)
+      [enabled[lane].as_bits(), select_right[lane].as_bits(), (less ^ control.maximum).as_bits(),
+       (if byte mod element_bytes == 0 | predicate.as_bits().zext(8) | bits(0, 8)), shifted[shift_low..shift_low + 8],
+       permutation, (if byte mod element_bytes == 0 | count.zext(8) | bits(0, 8))]
+    SimdRouting():
+      comparison: concat(lane_comparisons.reverse()).into(Mask(8))
+      enabled: concat(bytes.map(fun (byte :: List): byte[0]).reverse()).into(Mask(8))
+      select_right: concat(bytes.map(fun (byte :: List): byte[1]).reverse()).into(Mask(8))
+      select_left: concat(bytes.map(fun (byte :: List): byte[2]).reverse()).into(Mask(8))
+      compare_data: concat(bytes.map(fun (byte :: List): byte[3]).reverse())
+      shift_data: concat(bytes.map(fun (byte :: List): byte[4]).reverse())
+      permutation_data: concat(bytes.map(fun (byte :: List): byte[5]).reverse())
+      count_data: concat(bytes.map(fun (byte :: List): byte[6]).reverse())
+  def routing :: SimdRouting() = mux_lookup(element_width, ~default: packed[0], for List (format in 1..4): [widths[format], packed[format]])
+  def minmax_bytes = for List (byte in 0..8): mux(routing.select_left[byte], left[byte * 8..(byte + 1) * 8], right[byte * 8..(byte + 1) * 8])
+  def select_bytes = for List (byte in 0..8): mux(routing.select_right[byte], right[byte * 8..(byte + 1) * 8], left[byte * 8..(byte + 1) * 8])
+  def value = mux_lookup(control.result_select, ~default: added, [[SimdResultSelect.Logic, logic_value], [SimdResultSelect.Shift, routing.shift_data], [SimdResultSelect.Compare, routing.compare_data], [SimdResultSelect.MinMax, concat(minmax_bytes.reverse())], [SimdResultSelect.Select, concat(select_bytes.reverse())], [SimdResultSelect.Permute, routing.permutation_data], [SimdResultSelect.Count, routing.count_data]])
+  def enabled_bytes = for List (byte in 0..8): mux(routing.enabled[byte], value[byte * 8..(byte + 1) * 8], bits(0, 8))
+  result <== SimdAluResult():
+    data: concat(enabled_bytes.reverse())
+    comparison: routing.comparison
+    write_mask: routing.enabled
+
+// Widening prepares one 64-bit destination group from either source half.
+// The closed source-width set cannot request an unsupported 64-to-128 result.
+hardware_enum SimdWidenElementWidth:
+  E8
+  E16
+  E32
+
+bundle SimdWidenedOperands():
+  left: Bits(64)
+  right: Bits(64)
+  element_width: SimdElementWidth
+  enabled: Mask(8)
+
+circuit SimdWidenOperands():
+  input(left, right): Bits(64)
+  input element_width: SimdWidenElementWidth
+  input upper_half: Bool
+  input enabled: Mask(8)
+  output operands: SimdWidenedOperands()
+
+  def source_left = mux(upper_half, left[32..64], left[0..32])
+  def source_right = mux(upper_half, right[32..64], right[0..32])
+  def widths = [SimdWidenElementWidth.E8, SimdWidenElementWidth.E16, SimdWidenElementWidth.E32]
+  def destination_widths = [SimdElementWidth.E16, SimdElementWidth.E32, SimdElementWidth.E64]
+  def prepared = for List (format in 0..3):
+    def source_bits = 8 * (2 ** format)
+    def count = 32 div source_bits
+    def a = for List (lane in 0..count): source_left[lane * source_bits..(lane + 1) * source_bits].zext(2 * source_bits)
+    def b = for List (lane in 0..count): source_right[lane * source_bits..(lane + 1) * source_bits].zext(2 * source_bits)
+    def enables = for List (lane in 0..8):
+      if lane < count | mux(upper_half, enabled[lane + count], enabled[lane]).as_bits() | bits(0, 1)
+    SimdWidenedOperands():
+      left: if count == 1 | a[0] | concat(a.reverse())
+      right: if count == 1 | b[0] | concat(b.reverse())
+      element_width: destination_widths[format]
+      enabled: concat(enables.reverse()).into(Mask(8))
+  operands <== mux_lookup(element_width, ~default: prepared[0], for List (format in 1..3): [widths[format], prepared[format]])
+
+export:
+  SimdElementWidth
+  SimdResultSelect
+  SimdLogicSelect
+  SimdComparisonSelect
+  SimdPermutationSelect
+  SimdCountSelect
+  SimdAluControl
+  SimdAluResult
+  SimdALU
+  SimdWidenElementWidth
+  SimdWidenedOperands
+  SimdWidenOperands
