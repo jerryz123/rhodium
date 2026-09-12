@@ -92,6 +92,33 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   assign port_in.subordinate.dat.response = subordinate_data_in;
 
   CHIInclusiveHNF dut (.*);
+`ifdef CHI_HOME_TRACE
+  import "DPI-C" function void event_home_bind();
+  import "DPI-C" function void event_home_sample(input int unsigned reset,
+    input int unsigned request_fire, input longint unsigned address,
+    input int unsigned request_opcode, request_txn, request_src,
+    input int unsigned response_fire, response_opcode, response_txn, response_tgt,
+    input int unsigned data_fire, data_opcode, data_txn, data_tgt, data_id,
+    input int unsigned backing_fire, output_stalled);
+  import "DPI-C" function void event_home_check();
+  import "DPI-C" function void event_home_finish();
+  initial event_home_bind();
+  always @(posedge clock) begin
+    event_home_sample(32'(reset), 32'(requester_requests_in.valid && port_out.requester.requests.ready),
+      64'(requester_requests_in.bits.address), 32'(requester_requests_in.bits.opcode),
+      32'(requester_requests_in.bits.txn_id), 32'(requester_requests_in.bits.src_id),
+      32'(port_out.requester.responses.valid && requester_responses_ready_in.ready),
+      32'(port_out.requester.responses.bits.opcode), 32'(port_out.requester.responses.bits.txn_id), 32'(port_out.requester.responses.bits.tgt_id),
+      32'(port_out.requester.response_data.valid && response_data_ready_in.ready),
+      32'(port_out.requester.response_data.bits.opcode), 32'(port_out.requester.response_data.bits.txn_id),
+      32'(port_out.requester.response_data.bits.tgt_id), 32'(port_out.requester.response_data.bits.data_id),
+      32'(port_out.subordinate.req.valid && subordinate_requests_ready_in.ready),
+      32'((port_out.requester.responses.valid && !requester_responses_ready_in.ready) ||
+          (port_out.requester.response_data.valid && !response_data_ready_in.ready)));
+    #0.5;
+    event_home_check();
+  end
+`endif
   always #5 clock = ~clock;
   initial begin
     #100000;
@@ -694,6 +721,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     send_request(LINE0, 7'h03); finish_cached();
 
     $display("CHI inclusive Home residency, copyback, response errors, and storage simulation passed");
+`ifdef CHI_HOME_TRACE
+    event_home_finish();
+`endif
     $finish;
   end
 endmodule

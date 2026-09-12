@@ -20,12 +20,12 @@ import:
   lib("chi/protocol/channels.rhdl") open
 
 // Observe accepted flits at the private-cache boundary. D-cache requests inherit
-// certified refill ownership; other channels remain independent observations.
+// certified refill ownership and Home returns continue that ownership graph.
 // Transaction IDs are captures, not parent IDs.
 fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String, ~snoopable: snoopable :: Boolean = #true, ~request_root: request_root :: Boolean = #true):
   def request_source = if snoopable | cache.field("requests") | cache.field("req")
   def request_sink = if snoopable | outer.field("requests") | outer.field("req")
-  def requests = request_source |> trace_event(label ++ ".txreq", ~stalls: #true, ~root: request_root, ~terminal: #true, ~fields: flit):
+  def requests = request_source |> trace_event(label ++ ".txreq", ~stalls: #true, ~root: request_root, ~fields: flit):
     address: flit.address
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
@@ -41,7 +41,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     def remote = if snoopable | outer.field(channel) | outer.field("rsp").field(if outgoing | "requester" | "response")
     def source = if outgoing | local | remote
     def sink = if outgoing | remote | local
-    def responses = source |> trace_event(label ++ "." ++ suffix, ~stalls: #true, ~root: #true, ~terminal: #true, ~fields: flit):
+    def responses = source |> trace_event(label ++ "." ++ suffix, ~stalls: #true, ~root: outgoing || request_root, ~terminal: #true, ~fields: flit):
       opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
       src_id(~format: "unsigned"): flit.src_id
@@ -57,7 +57,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     def remote = if snoopable | outer.field(channel) | outer.field("dat").field(if outgoing | "request" | "response")
     def source = if outgoing | local | remote
     def sink = if outgoing | remote | local
-    def data = source |> trace_event(label ++ "." ++ suffix, ~stalls: #true, ~root: #true, ~terminal: #true, ~fields: flit):
+    def data = source |> trace_event(label ++ "." ++ suffix, ~stalls: #true, ~root: outgoing || request_root, ~terminal: #true, ~fields: flit):
       opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
       src_id(~format: "unsigned"): flit.src_id

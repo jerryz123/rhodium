@@ -66,6 +66,9 @@ downstream elastic storage against a public fill/release model. `event-frontend`
 runs the existing fetch bench against an instrumented production frontend;
 its public memory/instruction scoreboard checks exact occurrence parents and
 captures, not generated controls or payload-equality matching.
+`event-home` runs the inclusive-Home bench with its production scoped contracts
+and checks every emitted request/response/data occurrence against public port
+transfers, with reused IDs, hit/miss responses, stalls, and pending reset.
 Pipeline, elastic, queue, arbiter, and broadcast coverage includes direct
 self-described modules and configured adapters, with independent transaction
 scoreboards and uninstrumented reference lanes. `event-instrument-test.rhm`

@@ -70,6 +70,16 @@ LR/SC progress after changing target selection. Rerun SimpleSoC vvadd with
 unchanged host polling and inspect `tohost` snoops and pipeline replay counts;
 keep correctness and reduced traffic distinct from a cycle-count prediction.
 
+Inclusive-Home event checkpoints use `trace_edge` with the named `request`
+retained scope. Capture on accepted requester REQ; keep ownership throughout
+the real FSM lifetime, releasing on copyback finish, terminal completion,
+final data without CompAck, or accepted CompAck. Do not release on the first
+data beat, DBID response, subordinate response, or delayed acknowledgement.
+Both requester output channels share this lifetime; Flow infers network transit.
+Run `event-home` for exact per-cycle graph comparison against public transfers,
+including hit/miss data, repeated IDs, backpressure, and pending reset, then
+the SimpleSoC trace smoke for the composed router/queue paths.
+
 For maintenance changes, run the `chi-cache-maintenance`,
 `chi-maintenance-home`, and `chi-maintenance-inclusive` backend fixtures. The
 last two share a behavioral bench with independent RN-F caches and backing

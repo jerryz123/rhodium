@@ -1,4 +1,4 @@
--- Checks private-cache CHI transfers/stalls and direct-refill request lineage.
+-- Checks private-cache CHI schemas, direct-refill requests, and certified Home returns.
 -- Materialize shared views so per-field checks also scale to full benchmark traces.
 WITH expected(suffix, fields) AS (
   VALUES
@@ -71,5 +71,11 @@ SELECT
      AND EXTRACT_ARG(arg_set_id,'debug.size_or_num_req')=6) AND
   (SELECT count(*)=0 FROM events WHERE channel GLOB '*.rxsnp'
    AND substr(EXTRACT_ARG(arg_set_id,'debug.address'),-1) NOT IN ('0','8')) AND
-  (SELECT count(*)=0 FROM flow
-   WHERE slice_out IN (SELECT id FROM events) OR slice_in IN (SELECT id FROM events WHERE channel!='dcache.txreq')) AS ok
+  (SELECT count(*)=0 FROM flow f JOIN events p ON p.id=f.slice_out
+   JOIN slice c ON c.id=f.slice_in JOIN track t ON t.id=c.track_id
+   WHERE p.channel NOT IN ('icache.txreq','dcache.txreq') OR p.kind!='transfer' OR t.name!='home.request') AND
+  (SELECT count(*)=0 FROM flow f JOIN events c ON c.id=f.slice_in
+   JOIN slice p ON p.id=f.slice_out JOIN track t ON t.id=p.track_id
+   WHERE c.channel!='dcache.txreq' AND
+     (c.channel NOT IN ('dcache.rxrsp','dcache.rxdat') OR
+      t.name!=CASE c.channel WHEN 'dcache.rxrsp' THEN 'home.response' ELSE 'home.data' END)) AS ok

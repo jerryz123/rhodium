@@ -32,10 +32,12 @@ def inclusive_home_config = CHIInclusiveHNFConfig(
   ~sets: 2,
   ~ways: 2
 )
-def inclusive_home_design = elaborate(CHIInclusiveHNF(inclusive_home_config))
+def inclusive_home_elaboration = elaborate_with_top(CHIInclusiveHNF(inclusive_home_config))
+def inclusive_home_design = inclusive_home_elaboration.design
 
 export:
   inclusive_home_addressing
   inclusive_home_base_config
   inclusive_home_config
   inclusive_home_design
+  inclusive_home_elaboration

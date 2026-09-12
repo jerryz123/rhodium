@@ -5,6 +5,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/read-write.rhdl").ReadWriteRequest
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/main.rhdl") open
   lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
   lib("chi/protocol/params.rhdl") open
   lib("chi/protocol/flits.rhdl") open
@@ -178,9 +179,14 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   inst lines(SyncRam1RW(sets, Bits(512), ways))
 
   def idle = phase === CHIInclusiveHNFPhase.Idle
-  def incoming_request = requester.requests.bits
+  def accepted_request = requester.requests |> trace_event("home.request", ~fields: flit):
+    address: flit.address
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    src_id(~format: "unsigned"): flit.src_id
+  def incoming_request = accepted_request.bits
   def incoming_write = chi_hnf_subordinate_opcode(incoming_request.opcode).is_initial_write()
-  requester.requests.ready <== idle
+  accepted_request.ready <== idle
   def request_fire = requester.requests.fire()
   when (requester.requests.valid & idle):
     assert(chi_hnf_source_known(p, home_config, incoming_request),
@@ -194,8 +200,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   def send_requester_dbid = phase === CHIInclusiveHNFPhase.SendRequesterDBID
   def send_requester_completion = phase === CHIInclusiveHNFPhase.SendRequesterCompletion
-  requester.responses.valid <== send_requester_dbid ||| send_requester_completion
-  requester.responses.bits <== chi_hnf_response(
+  def response_events = Decoupled(CHIRspFlit(p)) |> trace_event("home.response", ~fields: flit):
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    tgt_id(~format: "unsigned"): flit.tgt_id
+  response_events |> requester.responses
+  response_events.left.valid <== send_requester_dbid ||| send_requester_completion
+  response_events.left.bits <== chi_hnf_response(
     p,
     home_id,
     request,
@@ -385,7 +396,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def final_response_data = remaining_response_data_ids === one_hot(selected_response_data_id).as_bits()
   def response_line_packet = chi_transfer_beat(selected_response_data_id, p)[0..packet_index_width]
   def sending_cached_data = phase === CHIInclusiveHNFPhase.SendCachedData
-  requester.response_data.valid <== sending_cached_data
+  def data_events = Decoupled(CHIDatFlit(p)) |> trace_event("home.data", ~fields: flit):
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    tgt_id(~format: "unsigned"): flit.tgt_id
+    data_id(~format: "unsigned"): flit.data_id
+  data_events |> requester.response_data
+  data_events.left.valid <== sending_cached_data
   def cached_response = chi_inclusive_cached_data(
     p,
     home_id,
@@ -394,7 +411,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     selected_response_data_id,
     selected_line[response_line_packet]
   )
-  requester.response_data.bits <== cached_response.updated(~resp_err: completion_error, ~resp: mux(completion_error === CHIRespErr.OK, cached_response.resp, bits(0, 3)))
+  data_events.left.bits <== cached_response.updated(~resp_err: completion_error, ~resp: mux(completion_error === CHIRespErr.OK, cached_response.resp, bits(0, 3)))
   def cached_data_fire = requester.response_data.fire()
 
   def requester_write_valids = requester_write_line_valids.as_vec(Bool)
@@ -618,6 +635,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
                   CHIInclusiveHNFPhase.SendCachedData)
   elsewhen (requester_control_fire & awaiting_comp_ack):
     phase <== CHIInclusiveHNFPhase.Idle
+
+  // One retained requester owns every response beat, including across misses,
+  // snoops and writeback. CompAck extends lifetime but is not traced here.
+  def release_request = finish_copyback ||| (requester_response_fire & send_requester_completion) ||| (cached_data_fire & final_response_data & !request.exp_comp_ack) ||| (requester_control_fire & awaiting_comp_ack)
+  describe_interface_retained_storage(request_fire, release_request, !idle, ~name: "request")
+  trace_edge(accepted_request, response_events.right, ~scope: "request")
+  trace_edge(accepted_request, data_events.right, ~scope: "request")
 
   when request_fire:
     completion_error <== CHIRespErr.OK

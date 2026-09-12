@@ -1,0 +1,12 @@
+#lang rhombus
+// Instruments the production inclusive Home for exact retained-response lineage checks.
+import:
+  "../../rhodium/event/main.rhm" open
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../../chi/tests/inclusive-home-fixture.rhdl" as fixture
+def traced = instrument_events(fixture.inclusive_home_elaboration)
+def site_constants = for List (site in traced.manifest.sites, index in 0..traced.manifest.sites.length()):
+  "inline constexpr unsigned " ++ String.join(site.label.split("."), "_") ++ " = " ++ to_string(index) ++ ";\n"
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))
