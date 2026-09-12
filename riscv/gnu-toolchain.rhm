@@ -1,0 +1,43 @@
+#lang rhombus
+// Projects a canonical RISC-V capability list to GNU compiler architecture and ABI options.
+
+import:
+  "isa/xlen.rhm".XLen
+
+def GnuSingleLetterExtensions = ["i", "m", "a", "f", "d", "c", "b"]
+def GnuMultiLetterExtensions = [
+  "za64rs", "zba", "zbb", "zbs", "zca", "zcb", "zcd", "zcf", "zcmop",
+  "zic64b", "zicbop", "zicboz", "ziccamoa", "ziccif", "ziccrse",
+  "zawrs", "zihintpause", "zihintntl", "zicntr", "zicond", "zicsr",
+  "zifencei", "zihpm", "zimop", "zkt",
+  "zfa", "zfh", "zfhmin", "ssnpm"
+]
+
+class GnuIsaTarget(march :: String, mabi :: String)
+
+fun gnu_isa_target(xlen :: XLen, extensions :: List.of(String)) :: GnuIsaTarget:
+  unless extensions.contains("i")
+  | error(~who: #'gnu_isa_target, "GNU RISC-V targets require the base I extension")
+  def unknown = extensions.filter(
+    ~keep: fun (extension): !GnuSingleLetterExtensions.contains(extension) && !GnuMultiLetterExtensions.contains(extension)
+  )
+  unless unknown.length() == 0
+  | error(~who: #'gnu_isa_target,
+          "no GNU toolchain spelling for extension " ++ unknown[0])
+  def single_letters = String.join(
+    GnuSingleLetterExtensions.filter(~keep: fun (extension): extensions.contains(extension)),
+    ""
+  )
+  def multi_letters = extensions.filter(
+    ~keep: fun (extension): GnuMultiLetterExtensions.contains(extension)
+  )
+  def suffix = if multi_letters.length() == 0 | "" | "_" ++ String.join(multi_letters, "_")
+  def float_abi = if extensions.contains("d") | "d" | (if extensions.contains("f") | "f" | "")
+  GnuIsaTarget(
+    "rv" ++ to_string(xlen.width) ++ single_letters ++ suffix,
+    (if xlen == XLen.X64 | "lp64" | "ilp32") ++ float_abi
+  )
+
+export:
+  GnuIsaTarget
+  gnu_isa_target

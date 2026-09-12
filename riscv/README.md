@@ -1,4 +1,4 @@
-<!-- Defines the pure RISC-V host model, ISA catalogs, and Rhodium adapter boundary. -->
+<!-- Defines the pure RISC-V host model, ISA catalogs, GNU target projection, and Rhodium adapter boundary. -->
 
 # RISC-V instruction model
 
@@ -17,6 +17,7 @@ Contributors extending the model or catalogs should read
 |---|---|
 | Define a field, encoding, format, or instruction | [Pure model](#pure-model) |
 | Select an integer, floating-point, compressed, or privileged catalog | [ISA catalog map](#isa-catalog-map) |
+| Project canonical capabilities to GNU `-march` and `-mabi` | [GNU toolchain projection](#gnu-toolchain-projection) |
 | Expand a 16-bit C instruction to its canonical 32-bit instruction | [Compressed-instruction expansion](#compressed-instruction-expansion) |
 | Turn descriptions into hardware patterns or extracted fields | [RISC-V/Rhodium adapter](rtl/README.md) |
 | Build CSR, PMA, Sv39, counter, trap, interrupt, or FP hardware | [Adapter component map](rtl/README.md#component-map) |
@@ -44,6 +45,14 @@ flowchart LR
 Concrete processors consume these packages but do not define their contracts;
 core-specific decode, execution, fetch, pipeline, CSR policy, and retirement
 belong under [`../cores/`](../cores/README.md).
+
+## GNU toolchain projection
+
+[`gnu-toolchain.rhm`](gnu-toolchain.rhm) converts an XLEN and canonical extension
+list into deterministic GNU `-march` and `-mabi` options. It does not select a
+processor profile: the concrete processor or SoC supplies its capabilities, and
+the toolchain projection only owns their GNU spelling. An unknown extension is
+rejected rather than silently omitted.
 
 ## UDB configuration model
 

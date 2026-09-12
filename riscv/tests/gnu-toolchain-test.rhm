@@ -1,0 +1,20 @@
+#lang rhombus
+// Checks deterministic GNU compiler targets derived from canonical RISC-V capabilities.
+
+import:
+  "../gnu-toolchain.rhm" open
+  "../isa/xlen.rhm".XLen
+
+def rv64 = gnu_isa_target(
+  XLen.X64,
+  ["i", "m", "a", "f", "d", "c", "b", "zba", "zicond", "zicsr"]
+)
+def rv32 = gnu_isa_target(XLen.X32, ["i", "m", "f", "zicsr"])
+
+check:
+  rv64.march ~is "rv64imafdcb_zba_zicond_zicsr"
+  rv64.mabi ~is "lp64d"
+  rv32.march ~is "rv32imf_zicsr"
+  rv32.mabi ~is "ilp32f"
+  gnu_isa_target(XLen.X64, ["m"]) ~throws "base I"
+  gnu_isa_target(XLen.X64, ["i", "future_extension"]) ~throws "no GNU toolchain spelling"

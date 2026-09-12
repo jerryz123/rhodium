@@ -11,6 +11,8 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 
+from program_target import target_fingerprint, validate_target
+
 
 def execute(test, simulator, root, output, timeout, cycles):
     started = time.monotonic()
@@ -52,6 +54,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--simulator', type=Path, required=True)
+    parser.add_argument('--simulator-metadata', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--jobs', type=int, default=1)
     parser.add_argument('--timeout', type=float, default=300)
@@ -63,6 +66,21 @@ def main():
     for name in ('results.json', 'junit.xml'):
         (args.output / name).unlink(missing_ok=True)
     manifest = json.loads(args.manifest.read_text())
+    if 'target' in manifest:
+        try:
+            target = validate_target(manifest['target'])
+        except ValueError as error:
+            parser.error(str(error))
+        expected_fingerprint = target_fingerprint(target)
+        if manifest.get('target_fingerprint') != expected_fingerprint:
+            parser.error('manifest target fingerprint is missing or invalid')
+        if not args.simulator_metadata:
+            parser.error('a target-bound manifest requires --simulator-metadata')
+        simulator_metadata = json.loads(args.simulator_metadata.read_text())
+        if (simulator_metadata.get('target_fingerprint') != expected_fingerprint
+                or simulator_metadata.get('soc') != target['soc']
+                or simulator_metadata.get('sha256') != hashlib.sha256(args.simulator.read_bytes()).hexdigest()):
+            parser.error('workload target does not match simulator attestation')
     tests = manifest['tests']
     names = [test['name'] for test in tests]
     if not tests or len(set(names)) != len(names) or any(Path(n).name != n or n in ('.', '..') for n in names):

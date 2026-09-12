@@ -258,11 +258,21 @@ arbitrary external fabric fairness.
 ### Software suite and artifact maintenance
 
 `program-test/isa.mk` includes upstream build rules and selects their physical
-test inventories. `build.py` owns benchmark selection, build flags, and
+test inventories. `program-test/write-target.rhm` projects the concrete SoC
+profile through the pure RISC-V GNU adapter, while `build.py` owns benchmark
+selection, mode choice, compiler probing, ELF-attribute checks, and
 content-addressed ELF directories. Update selections for architecture or
 execution-environment compatibility, never to hide failures. Keep sources in
 the pinned submodule untouched. Compiler/source/adapter changes must invalidate
 binary reuse; regenerate the manifest on every build invocation.
+
+Target-native benchmark builds are the default. `baseline` is an explicit
+comparison mode, not an alternative hardware capability claim. Keep the target
+descriptor and its fingerprint in the workload manifest, bind the same
+fingerprint into the simulator attestation, and reject mismatches before
+execution. Compiler acceptance and normalized ELF attributes prove that a
+binary may use the target extensions; they do not prove dynamic instruction
+coverage.
 
 `program-test/write-target.rhm` projects the existing concrete SoC description
 to the ISA smoke adapter; do not duplicate ISA or RAM constants in Python.

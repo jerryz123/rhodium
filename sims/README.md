@@ -280,7 +280,12 @@ TiledSoC boots only hart 0: this is mesh-backed memory coverage, not a
 multihart coherence test. ACT and benchmarks remain SimpleSoC-only.
 
 Benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`, `multiply`,
-`mm`, `dhrystone`, and `spmv`, compiled for RV64IMAFDC with the double-float ABI.
+`mm`, `dhrystone`, and `spmv`. By default, their GNU `-march` and `-mabi`
+options are derived from the exact SimpleSoC core profile. This target-native
+mode lets the compiler use every extension that the concrete system advertises;
+it does not imply that every benchmark contains an instruction from every
+extension. Use `BENCHMARK_MODE=baseline` to reproduce the former
+`rv64imafdc_zicsr_zifencei`/`lp64d` compiler target for historical comparisons.
 Multihart, vector, and PMP benchmarks require capabilities outside this platform.
 These are compatibility selections, not a list of tests proven to pass. Any
 selected workload failure fails its suite; there are no expected-failure masks.
@@ -292,7 +297,13 @@ CI installs a checksum-pinned GCC/Newlib release via
 
 `PROGRAM_BUILD_ROOT` defaults to `/tmp/rhodium-program-tests`. Each suite writes
 a manifest, build log, per-test execution logs, `results.json`, and `junit.xml`.
-The manifest records source/compiler provenance, exclusions, and ELF checksums.
+Benchmark builds also write `instruction-report.json`, with executable
+instruction counts, compressed counts, unknown-decoding counts, and canonical
+mnemonic frequencies from no-alias disassembly. Their manifest records the
+concrete target and its fingerprint, exact compiler options, normalized ELF ISA
+attributes, source/compiler provenance, exclusions, and ELF checksums. The
+runner rejects a target-bound manifest unless the simulator attests the same
+profile fingerprint.
 The runner requires confirmed HTIF success and executes the entire manifest,
 including tests following a failure. Empty selections and missing/modified ELFs
 are errors. Results include exact simulator commands for reruns.

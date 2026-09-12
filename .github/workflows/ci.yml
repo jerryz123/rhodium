@@ -396,8 +396,9 @@ jobs:
       - name: Build and attest simulator
         run: |
           make setup-circt
-          make -C sims setup simulator SOC=simple
-          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/simple/obj/VTestDriver --soc simple
+          make -C sims setup simulator program-target SOC=simple
+          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/simple/obj/VTestDriver --soc simple \
+            --target /tmp/rhodium-sims/simple/obj/program-target.json
           ldd /tmp/rhodium-sims/simple/obj/VTestDriver
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -405,6 +406,7 @@ jobs:
           path: |
             /tmp/rhodium-sims/simple/obj/VTestDriver
             /tmp/rhodium-sims/simple/obj/VTestDriver.json
+            /tmp/rhodium-sims/simple/obj/program-target.json
           if-no-files-found: error
           retention-days: 3
 
@@ -440,7 +442,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/rhodium-program-tests/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/program-test/build.py', 'sims/program-test/isa.mk') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'sims/program-test/build.py', 'sims/program-test/program_target.py', 'sims/program-test/write-target.rhm', 'sims/program-test/isa.mk') }}"
       - name: Build and run every selected workload
         env:
           SUITE: ${{ matrix.suite }}
@@ -458,6 +460,7 @@ jobs:
           path: |
             ${{ runner.temp }}/program-logs
             /tmp/rhodium-program-tests/*/manifest.json
+            /tmp/rhodium-program-tests/*/instruction-report.json
             /tmp/rhodium-program-tests/*/build.log
             /tmp/rhodium-program-tests/*/results
           if-no-files-found: warn
