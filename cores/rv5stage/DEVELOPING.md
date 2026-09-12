@@ -104,8 +104,9 @@ The only outcome-to-PC feedback is registered S2 replay selecting the oldest
 failed attempt's PC and continuation context. It kills younger S1 work without
 clearing older completed words or the assembly PC. Architectural recovery and
 registered prediction repair instead clear speculative words and both stages.
-The `rv5stage-fetch-admission` fixture guards these timing boundaries using
-hierarchical port-leaf dependencies; run it in `--verify-only` mode.
+The host-side `fetch-admission-test.rhm` test guards these timing boundaries
+using hierarchical port-leaf dependencies. `rv5stage-fetch` owns the frontend's
+CIRCT lowering and cycle-visible behavior.
 
 The frontend instantiates a five-entry `RV5StageInstructionBuffer`, which owns
 assembly and an internal `RV5StageFetchWordBuffer`. Their host capacity
@@ -426,13 +427,13 @@ neighboring-line isolation, exact SC matching, and one-shot reservation use;
 the RV64 bench also covers invalidating snoops. These size/boundary regressions
 do not establish eventual LR/SC success under adversarial coherence traffic.
 
-For Zkt, run the architecture/profile/advertisement checks and the four timing
-fixtures:
+For Zkt, run the architecture/profile/advertisement checks and the RV32 and
+RV64 integer timing fixtures:
 
 ```sh
 export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh riscv/tests/zkt-test.rhm tests/backend/rv5stage-zkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
-FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64 rv5stage-zkt-rv32f rv5stage-zkt-rv64d' bash tests/backend/run-circt.sh --simulate-only
+FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64' bash tests/backend/run-circt.sh --simulate-only
 bash socs/tests/run-device-tree.sh
 ```
 
@@ -442,8 +443,9 @@ complete when adding an instruction to that intersection. No cross-compiler or
 checked-in generated program image is needed. Two full cores receive identical
 instruction streams and scheduling but different operands; compare every public
 fetch/data control event, including dependent consumers and deferred hazards.
-The FP-enabled fixtures exercise the integer timing contract with FP hardware
-present, not a constant-time claim about FP instructions.
+The separate RV32F/RV64D core fixtures cover FP-enabled specialization and WB
+integration; repeating the integer-only Zkt program in those configurations
+does not add an FP timing claim.
 
 A separate public-component rig forces load/multiply completion overlap and sink
 backpressure, checking exact fixed multiplier latency and retained arithmetic

@@ -58,10 +58,11 @@ tools/run-racket-tests.sh \
   cores/rv5stage/tests/rv5stage-test.rhm
 ```
 
-Use the `rv5stage-fp-decoder`, `rv5stage-fp-register-file`, and
-`rv5stage-fp-pipeline` CIRCT fixtures for their owning boundaries. Include
-`rv5stage-core-rv32f` and `rv5stage-core-rv64d` when imports, payloads, profile
-specialization, or scalar-core integration change. Run `make check-boundaries`
-after moving modules or changing dependency direction. The backend fixture
+The host control-table test owns decoder specialization. Use the
+`rv5stage-fp-register-file` and `rv5stage-fp-pipeline` CIRCT fixtures for their
+cycle-visible boundaries. Include `rv5stage-core-rv32f` and
+`rv5stage-core-rv64d` when imports, payloads, profile specialization, or
+scalar-core integration change. Run `make check-boundaries` after moving
+modules or changing dependency direction. The backend fixture
 [`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) owns runner modes and
 artifact policy.
