@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits the RV32 VLEN256 unroller to cover wider-than-XLEN elements and register groups.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm" open
+  "../../cores/rv5stage/tests/vector-unroller-fixture.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.RV5StageVectorUnrollerFixture(XLen.X32, 256))
+print(emit_circt(design))

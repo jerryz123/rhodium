@@ -32,7 +32,7 @@
   logic [1:0] cbo_operation = 0;
   logic [2:0] cbo_permission;
 
-  RV5StageCsrFile dut (.vector_state(), .vector_enabled(), .pointer_masking(), .pointer_masking_changed(), .*);
+  RV5StageCsrFile dut (.vector_state(), .vector_enabled(), .vector_retire_in('0), .pointer_masking(), .pointer_masking_changed(), .*);
   always #5 clock = ~clock;
 
   task automatic access_csr(

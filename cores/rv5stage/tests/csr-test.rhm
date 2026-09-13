@@ -17,7 +17,7 @@ def rv32_design = embedded.run_elaboration(fun (): csr.RV5StageCsrFile(RVCorePro
 def rv32 = rv32_design.modules[0]
 check:
   rv64.inputs.map(fun (port): port.name) ~is [
-    "clock", "reset", "interrupts", "hart_id", "time_counter", "interrupt_boundary", "interrupt_pc", "commit_in", "fp_update_in", "cbo_operation"
+    "clock", "reset", "interrupts", "hart_id", "time_counter", "interrupt_boundary", "interrupt_pc", "commit_in", "fp_update_in", "vector_retire_in", "cbo_operation"
   ]
   rv64.outputs.map(fun (port): port.name) ~is [
     "redirect_out", "interrupt_request", "wfi_retired", "wfi_wake",

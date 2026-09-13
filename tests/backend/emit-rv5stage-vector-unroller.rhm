@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits the RV64 VLEN128 integer unroller composition for behavioral qualification.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm" open
+  "../../cores/rv5stage/tests/vector-unroller-fixture.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.RV5StageVectorUnrollerFixture(XLen.X64, 128))
+print(emit_circt(design))

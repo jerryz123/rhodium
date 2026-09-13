@@ -115,7 +115,7 @@ module rv5stage_csr_tb;
   logic [2:0] pointer_masking;
   logic pointer_masking_changed;
 
-  RV5StageCsrFile dut (.vector_state(), .vector_enabled(), .*);
+  RV5StageCsrFile dut (.vector_state(), .vector_enabled(), .vector_retire_in('0), .*);
   always #5 clock = ~clock;
 
   task automatic clear_commit;

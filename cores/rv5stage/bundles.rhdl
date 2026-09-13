@@ -78,6 +78,8 @@ bundle RV5StageOperand(xlen :: XLen):
   value: Bits(xlen.width)
 
 bundle DecodeExecute(xlen :: XLen):
+  vector_valid: Bool
+  vector_last: Bool
   pointer_masking: PointerMaskControl()
   pc: Bits(xlen.width)
   instruction: Bits(32)
@@ -124,6 +126,8 @@ bundle RV5StageException(xlen :: XLen):
   value: Bits(xlen.width)
 
 bundle ExecuteMemory(xlen :: XLen):
+  vector_valid: Bool
+  vector_last: Bool
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
@@ -152,6 +156,8 @@ bundle ExecuteMemory(xlen :: XLen):
   exception_value: Bits(xlen.width)
 
 bundle MemoryWriteback(xlen :: XLen):
+  vector_valid: Bool
+  vector_last: Bool
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   instruction: Bits(32)

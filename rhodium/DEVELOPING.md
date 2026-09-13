@@ -155,11 +155,16 @@ operations use the public language; it imports no ISA catalog or named core.
 
 The `cores/rv5stage/vector/` package imports public `std/bits.rhdl` for
 mask expansion/merging, `std/ready-valid.rhdl` for authorized CSR events, and
-`flow/main.rhdl` for synchronous Valid read transactions. Its pure geometry
+`flow/main.rhdl` for synchronous Valid read transactions, unroller read-context
+storage, and credited issue buffering. Its pure geometry
 dependency is `riscv/isa/vector.rhm`; that module imports Rhombus metadata only
 and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
 `std/bits.rhdl`; `cores/rv5stage/decode/vector-ctrl.rhdl` imports public
 `std/decode.rhdl`, pure ISA descriptors, RISC-V adapters, and the shared SIMD ALU.
+The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for atomic issue
+fanout, private Valid pipeline storage, and WB-authorized write/retirement flows;
+its datapath dependencies remain inside the named vector package. Scalar
+pipeline bundles do not import the vector package or carry its packed data.
 
 ### Standard-library dependencies
 

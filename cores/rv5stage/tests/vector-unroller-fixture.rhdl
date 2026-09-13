@@ -1,0 +1,85 @@
+#lang rhodium
+// Composes real decode, VRF reads, packed execution, and a cancelable three-stage WB test boundary.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../vector/bundles.rhdl" open
+  "../vector/csr.rhdl" open
+  "../vector/unroller.rhdl" open
+  "../vector/register-file.rhdl" open
+  "../vector/execute.rhdl" open
+  "../decode/core-ctrl.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
+  input instruction: Bits(32)
+  input(vtype, vl, vstart, scalar): Bits(xlen.width)
+  input(request_valid, issue_ready, cancel, retry_enable): Bool
+  input retry_first: Bits(index_width(vlen + 1))
+  interface initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
+  output(active, request_ready, legal, issued, committed, retried): Bool
+  output result: RV5StageVectorResultBeat(vlen)
+  inst decode(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
+  inst legality(RV5StageVectorLegality(xlen, vlen))
+  inst unroller(RV5StageVectorUnroller(xlen, vlen, Bits(xlen.width)))
+  inst bank(RV5StageVectorRegisterFile(vlen))
+  inst execute(RV5StageVectorExecute(vlen))
+  inst pipeline(ValidPipe(RV5StageVectorResultBeat(vlen), 3, ~flushable: #true))
+  decode.instruction <== instruction
+  legality.instruction <== instruction
+  legality.control <== decode.control.vector
+  legality.vtype <== vtype
+  legal <== decode.valid & legality.legal
+  unroller.request.valid <== request_valid
+  unroller.request.bits <== RV5StageVectorInstruction(xlen, Bits(xlen.width)):
+    context: bits(0x100, xlen.width)
+    descriptor:
+      RV5StageVectorDescriptor(xlen):
+        pc: bits(0x100, xlen.width)
+        instruction: instruction
+        state:
+          RV5StageVectorState(xlen):
+            vl: vl
+            vtype: vtype
+            vstart: vstart
+            vxrm: bits(0, 2)
+            vxsat: Bool(#false)
+        control: decode.control.vector
+        scalar: scalar
+        vd: instruction[7..12]
+        vs1: instruction[15..20]
+        vs2: instruction[20..25]
+        masked: !instruction[25].into(Bool)
+  unroller.reads <=> bank.reads
+  bank.results <=> unroller.results
+  unroller.cancel.valid <== cancel
+  unroller.issue.ready <== issue_ready
+  execute.beat <== unroller.issue.bits.beat
+  pipeline.ingress.valid <== unroller.issue.fire()
+  pipeline.ingress.bits <== execute.result
+  def retry = pipeline.egress.valid & retry_enable & (pipeline.egress.bits.first === retry_first) & !cancel
+  pipeline.flush <== cancel ||| retry
+  def authorization = pipeline.egress.valid & !retry & !cancel
+  unroller.feedback.valid <== pipeline.egress.valid & !cancel
+  unroller.feedback.bits <== RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width)):
+    context: bits(0x100, xlen.width)
+    first: pipeline.egress.bits.first
+    end: pipeline.egress.bits.end
+    disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
+    cause: bits(0, xlen.width)
+    fault_address: bits(0, xlen.width)
+  bank.write.valid <== initialize.valid ||| (authorization & pipeline.egress.bits.write.mask.or_reduce())
+  bank.write.bits <== mux(initialize.valid, initialize.bits, pipeline.egress.bits.write)
+  assert(!(initialize.valid & unroller.active), "vector_fixture_initialization_is_exclusive")
+  request_ready <== unroller.request.ready
+  active <== unroller.active
+  issued <== unroller.issue.fire()
+  committed <== authorization
+  retried <== retry
+  result <== pipeline.egress.bits
+
+export:
+  RV5StageVectorUnrollerFixture

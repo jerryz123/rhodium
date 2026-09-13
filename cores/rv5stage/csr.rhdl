@@ -310,6 +310,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   output fp_enabled: Bool
   output vector_enabled: Bool
   output vector_state: RV5StageVectorState(xlen)
+  interface vector_retire(Pulse(), ~role: consumer)
   output cbo_zero_enabled: Bool
   input cbo_operation: CboManagementOperation
   output cbo_permission: CboManagementPermission()
@@ -325,6 +326,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def FpCsrModule = if floating_point_supports_f(profile) | RV5StageFpCsrs() | RV5StageDisabledFpCsrs()
   inst fp_csrs(FpCsrModule)
   inst vector_csrs(RV5StageVectorCsrs(xlen, core_profile.experimental_vector))
+  vector_retire |> vector_csrs.retire
   fp_update |> fp_csrs.update
 
   fun flag_value(original :: Bits(width),

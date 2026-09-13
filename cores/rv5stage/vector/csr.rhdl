@@ -26,6 +26,7 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
   // Preview is independent of WB authorization; an illegal candidate cannot authorize itself.
   input candidate: RiscvVectorConfigRequest(xlen)
   interface configure(Pulse(), ~role: consumer)
+  interface retire(Pulse(), ~role: consumer)
   interface write(Valid(RV5StageVectorCsrWrite(xlen)), ~role: consumer)
   interface status_write(Valid(Bits(2)), ~role: consumer)
   output state: RV5StageVectorState(xlen)
@@ -49,6 +50,8 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
         vl <== next_config.vl
         vtype <== next_config.vtype
         vstart <== bits(0, index_width(vlen))
+      elsewhen (retire.valid):
+        vstart <== bits(0, index_width(vlen))
       elsewhen (write.valid & (write.bits.address === csr_bits(CsrId.Vstart))):
         vstart <== write.bits.value[0..index_width(vlen)]
       when (write.valid & (write.bits.address === csr_bits(CsrId.Vcsr))):
@@ -61,7 +64,7 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
           vxsat <== write.bits.value[0].into(Bool)
       when (status_write.valid):
         vs <== status_write.bits
-      elsewhen (configuration_write ||| write.valid):
+      elsewhen (configuration_write ||| write.valid ||| retire.valid):
         vs <== bits(3, 2)
       state <== RV5StageVectorState(xlen):
         vl: vl.zext(xlen.width)

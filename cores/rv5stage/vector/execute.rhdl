@@ -1,0 +1,36 @@
+#lang rhodium
+// Executes one packed integer beat without owning pipeline or architectural state.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "packing.rhdl" open
+  "register-file.rhdl" open
+  "../../simd-alu.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+
+circuit RV5StageVectorExecute(vlen :: VectorLength):
+  input beat: RV5StageVectorBeat(vlen)
+  output result: RV5StageVectorResultBeat(vlen)
+  inst alu(SimdALU())
+  inst packing(RV5StageVectorResult(vlen))
+  alu.left <== mux(beat.control.swap_operands, beat.right, beat.left)
+  alu.right <== mux(beat.control.swap_operands, beat.left, beat.right)
+  alu.control <== beat.control.alu
+  alu.element_width <== beat.element_width
+  alu.enabled <== beat.enabled
+  alu.select_right <== bits(0, 8).into(Mask(8))
+  packing.destination <== beat.destination
+  packing.first_element <== beat.first
+  packing.element_width <== beat.element_width
+  packing.mask_destination <== beat.control.mask_destination
+  packing.enabled <== beat.enabled
+  packing.result <== alu.result.updated(~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
+  result <== RV5StageVectorResultBeat(vlen):
+    first: beat.first
+    end: beat.end
+    last: beat.last
+    write: packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))
+
+export:
+  RV5StageVectorExecute

@@ -62,10 +62,11 @@ for (instruction in VectorIntegerInstructions):
 for (vlen in [128, 256, 512, 65536]):
   def micro = RV5StageVectorMicroOp(vlen, Bits(4))
   def feedback = RV5StageVectorFeedback(XLen.X64, vlen, Bits(4))
+  def beat = micro.field("beat").type
   check:
-    micro.field("left").type.packed_width() ~is 64
-    micro.field("right").type.packed_width() ~is 64
+    beat.field("left").type.packed_width() ~is 64
+    beat.field("right").type.packed_width() ~is 64
     micro.field("context").type.packed_width() ~is 4
     feedback.field("context").type.packed_width() ~is 4
-    (1 bits.(<<) micro.field("end").type.packed_width()) > vlen ~is #true
-    micro.field("end").type.packed_width() ~is feedback.field("end").type.packed_width()
+    (1 bits.(<<) beat.field("end").type.packed_width()) > vlen ~is #true
+    beat.field("end").type.packed_width() ~is feedback.field("end").type.packed_width()

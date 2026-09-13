@@ -44,6 +44,7 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   csrs.interrupts <== literal(RV5StageInterrupts(), 0)
   csrs.hart_id <== bits(0, xlen.width)
   csrs.time_counter <== bits(0, 64)
+  csrs.vector_retire.valid <== Bool(#false)
   csrs.interrupt_boundary <== Bool(#false)
   csrs.interrupt_pc <== bits(0, xlen.width)
   csrs.fp_update.valid <== Bool(#false)

@@ -1,0 +1,143 @@
+#lang rhodium
+// Streams synchronous VRF reads into packed beats while retaining one macro until ordered WB feedback.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "packing.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
+  "../../simd-alu.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+
+sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+  def Address = Bits(index_width(vector_depth(vlen)))
+  def Count = Bits(index_width(vlen + 1))
+  def MicroOp = RV5StageVectorMicroOp(vlen, Context)
+  interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
+  interface cancel(Pulse(), ~role: consumer)
+  interface feedback(Valid(RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
+  interface reads[3](Valid(Address), ~role: producer)
+  interface results[3](Valid(Bits(64)), ~role: consumer)
+  interface issue(Decoupled(MicroOp), ~role: producer)
+  output active: Bool
+
+  reg occupied(~init: Bool(#false))
+  reg instruction(RV5StageVectorInstruction(xlen, Context))
+  reg cursor(Count)
+  reg minimum(Count)
+  reg authorized(Count)
+  reg all_issued(~init: Bool(#false))
+  // Credits cover both the unbackpressurable read response and the output FIFO.
+  reg reserved(~init: bits(0, 2))
+  inst context_pipe(ValidPipe(RV5StageVectorBeat(vlen), 1, ~flushable: #true))
+  inst pending(ShiftQueue(MicroOp, 2, ~pipe: #true, ~flushable: #true))
+  inst packing(RV5StageVectorOperands(vlen))
+  def descriptor = instruction.descriptor
+  def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
+  def format = geometry.sew.into(SimdElementWidth)
+  def limit = descriptor.state.vl[0..index_width(vlen + 1)]
+  def lanes = mux_lookup(format, ~default: bits(8, index_width(vlen + 1)), [[SimdElementWidth.E16, bits(4, index_width(vlen + 1))], [SimdElementWidth.E32, bits(2, index_width(vlen + 1))], [SimdElementWidth.E64, bits(1, index_width(vlen + 1))]])
+  fun aligned_first(first :: Bits(index_width(vlen + 1)), sew :: Bits(2)):
+    mux_lookup(sew, ~default: first.align_down(8), [[1, first.align_down(4)], [2, first.align_down(2)], [3, first]])
+  def retry = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Retry)
+  def fault = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Fault)
+  def clear = cancel.valid ||| retry ||| fault
+  pending.egress |> gate_flow(!clear) |> issue
+  def empty = minimum >= limit
+  def next_cursor = cursor.zext(index_width(vlen + 1) + 1) + lanes.zext(index_width(vlen + 1) + 1)
+  def end = mux(empty ||| (next_cursor >= limit.zext(index_width(vlen + 1) + 1)), limit, next_cursor[0..index_width(vlen + 1)])
+  def launch = occupied & !all_issued & !clear & ((reserved < bits(2, 2)) ||| issue.fire())
+  def source_chunk = cursor >> (bits(3, 2) - geometry.sew)
+  def row_base_width = index_width(vector_depth(vlen))
+  def addresses = Array(
+    (descriptor.vs2.zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width],
+    (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width],
+    (cursor >> 6)[0..row_base_width]
+  )
+  for (index in 0..3):
+    reads[index].valid <== launch & !empty
+    reads[index].bits <== addresses[index]
+  context_pipe.flush <== clear
+  context_pipe.ingress.valid <== launch
+  context_pipe.ingress.bits <== RV5StageVectorBeat(vlen):
+    first: cursor
+    end: end
+    last: end === limit
+    empty: empty
+    left: bits(0, 64)
+    right: bits(0, 64)
+    enabled: bits(0, 8).into(Mask(8))
+    element_width: format
+    control: descriptor.control
+    destination: descriptor.vd
+  def response = context_pipe.egress
+  packing.control <== VectorPackingControl(vlen):
+    element_width: response.bits.element_width
+    first_element: response.bits.first
+    vl: limit
+    vstart: minimum
+    vlmax: geometry.vlmax
+    masked: descriptor.masked
+    operand_select: mux_lookup(descriptor.control.operand, ~default: VectorOperandSelect.Vector, [[VectorOperandMode.Scalar, VectorOperandSelect.Scalar], [VectorOperandMode.Immediate, VectorOperandSelect.Immediate]])
+    immediate_unsigned: descriptor.control.immediate_unsigned
+    widening: Bool(#false)
+    upper_half: Bool(#false)
+  packing.left <== results[0].bits
+  packing.right <== results[1].bits
+  packing.mask_word <== results[2].bits
+  packing.scalar <== if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.into(SInt(32)).sext(64).into(Bits(64))
+  packing.immediate <== descriptor.vs1
+  pending.flush <== clear
+  pending.ingress.valid <== response.valid & !clear
+  pending.ingress.bits <== RV5StageVectorMicroOp(vlen, Context):
+    context: instruction.context
+    beat: response.bits.updated(~left: packing.operands.left, ~right: packing.operands.right, ~enabled: mux(response.bits.empty, bits(0, 8).into(Mask(8)), packing.operands.enabled))
+  active <== occupied
+  request.ready <== !occupied & !clear
+  def accepted = request.fire()
+  def authorized_event = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Authorized)
+  when (response.valid & !clear):
+    assert(pending.ingress.ready, "vector_read_has_reserved_output_slot")
+    assert(response.bits.empty ||| (results[0].valid & results[1].valid & results[2].valid), "vector_read_context_matches_all_ports")
+    assert(response.bits.empty ||| packing.legal, "vector_packed_read_is_legal")
+  when (feedback.valid & !cancel.valid):
+    assert(occupied, "vector_feedback_has_active_macro")
+    assert(feedback.bits.context === descriptor.pc, "vector_feedback_matches_active_macro")
+    assert(empty ||| ((feedback.bits.first <= authorized) & (feedback.bits.end > authorized)), "vector_feedback_is_oldest_unauthorized_beat")
+  when (retry & !cancel.valid):
+    assert(feedback.bits.end <= limit, "vector_retry_stays_within_active_body")
+  when (cancel.valid ||| fault):
+    occupied <== Bool(#false)
+    all_issued <== Bool(#false)
+    reserved <== bits(0, 2)
+  elsewhen accepted:
+    occupied <== Bool(#true)
+    instruction <== request.bits
+    def start = request.bits.descriptor.state.vstart[0..index_width(vlen + 1)]
+    cursor <== aligned_first(start, request.bits.descriptor.state.vtype[3..5])
+    minimum <== start
+    authorized <== start
+    all_issued <== Bool(#false)
+    reserved <== bits(0, 2)
+  elsewhen retry:
+    cursor <== aligned_first(authorized, geometry.sew)
+    minimum <== authorized
+    all_issued <== Bool(#false)
+    reserved <== bits(0, 2)
+  elsewhen occupied:
+    when launch:
+      cursor <== end
+      all_issued <== end === limit
+    when (launch =/= issue.fire()):
+      reserved <== mux(launch, reserved + bits(1, 2), reserved - bits(1, 2))
+    when authorized_event:
+      authorized <== feedback.bits.end
+      when (feedback.bits.end === limit):
+        occupied <== Bool(#false)
+
+export:
+  RV5StageVectorUnroller

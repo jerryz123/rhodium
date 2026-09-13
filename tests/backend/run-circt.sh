@@ -748,6 +748,8 @@ direct_fixture_specs=(
   'rv5stage-vector|rv5stage_vector_tb'
   'rv5stage-vector-control|rv5stage_vector_control_tb'
   'rv5stage-vector-config|rv5stage_vector_config_tb'
+  'rv5stage-vector-unroller|rv5stage_vector_unroller_tb'
+  'rv5stage-vector-unroller-rv32|rv5stage_vector_unroller_rv32_tb'
   'rv5stage-vector-control-rv32|rv5stage_vector_control_rv32_tb'
   'riscv-cmo|riscv_cmo_tb'
   'riscv-pointer-masking|riscv_pointer_masking_tb'

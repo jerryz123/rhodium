@@ -1,0 +1,66 @@
+#lang rhodium
+// Owns integer vector unrolling, private EX/MEM/WB data, and WB-authorized register writes.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "vector/bundles.rhdl" open
+  "vector/unroller.rhdl" open
+  "vector/execute.rhdl" open
+  "vector/register-file.rhdl" open
+  "../../riscv/isa/vector.rhm" open
+  "../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+  interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
+  interface issue(Decoupled(RV5StageVectorToken(Context)), ~role: producer)
+  interface cancel(Pulse(), ~role: consumer)
+  // A commit names the macro PC and authorizes the beat issued three cycles ago.
+  interface commit(Valid(Bits(xlen.width)), ~role: consumer)
+  interface retire(Pulse(), ~role: producer)
+  output active: Bool
+
+  inst unroller(RV5StageVectorUnroller(xlen, vlen, Context))
+  inst registers(RV5StageVectorRegisterFile(vlen))
+  inst ex_pipe(ValidPipe(RV5StageVectorBeat(vlen), 1, ~flushable: #true))
+  inst execute(RV5StageVectorExecute(vlen))
+  inst wb_pipe(ValidPipe(RV5StageVectorResultBeat(vlen), 2, ~flushable: #true))
+  request |> unroller.request
+  cancel |> unroller.cancel
+  unroller.reads <=> registers.reads
+  registers.results <=> unroller.results
+  active <== unroller.active
+  ex_pipe.flush <== cancel.valid
+  wb_pipe.flush <== cancel.valid
+
+  // Bookkeeping admission and private operand capture are one atomic transfer.
+  def Array(token, operands) = unroller.issue |> atomic_fork(2)
+  (
+    token |> map_flow(operation => RV5StageVectorToken(Context)):
+      context: operation.context
+      last: operation.beat.last
+  ) |> issue
+  operands |> map_flow(operation => operation.beat) |> to_valid() |> ex_pipe.ingress
+  execute.beat <== ex_pipe.egress.bits
+  ex_pipe.egress |> map_valid(_beat => execute.result) |> wb_pipe.ingress
+
+  // Cancellation drops future private results; a live older WB authorization
+  // still takes effect on this edge. Results alone never authorize a write.
+  when (commit.valid):
+    assert(wb_pipe.egress.valid, "vector_commit_has_aligned_result")
+  def authorized = commit |> map_valid(_pc => wb_pipe.egress.bits)
+  def Array(write, progress, last) = authorized |> fork_valid(3)
+  write |> filter_valid(beat => beat.write.mask.or_reduce()) |> map_valid(beat => beat.write) |> registers.write
+  (
+    progress |> map_valid(beat => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
+      context: commit.bits
+      first: beat.first
+      end: beat.end
+      disposition: RV5StageVectorDisposition.Authorized
+      cause: bits(0, xlen.width)
+      fault_address: bits(0, xlen.width)
+  ) |> unroller.feedback
+  last |> filter_valid(beat => beat.last) |> retire
+
+export:
+  RV5StageVectorPipeline

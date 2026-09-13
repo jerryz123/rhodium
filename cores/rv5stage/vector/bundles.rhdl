@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines macro snapshots, packed micro-ops, and WB feedback for the future Decode-held unroller.
+// Defines macro snapshots, packed integer beats, and ordered WB feedback.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -21,16 +21,36 @@ bundle RV5StageVectorDescriptor(xlen :: XLen):
   vs2: Bits(5)
   masked: Bool
 
-bundle RV5StageVectorMicroOp(vlen :: VectorLength, Context):
+bundle RV5StageVectorInstruction(xlen :: XLen, Context :: DataType):
   context: Context
+  descriptor: RV5StageVectorDescriptor(xlen)
+
+// Scalar stages retain only their original context and macro retirement marker.
+bundle RV5StageVectorToken(Context :: DataType):
+  context: Context
+  last: Bool
+
+bundle RV5StageVectorBeat(vlen :: VectorLength):
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
+  last: Bool
+  empty: Bool
   left: Bits(64)
   right: Bits(64)
   enabled: Mask(8)
   element_width: SimdElementWidth
   control: RV5StageVectorControl()
-  destination: Bits(index_width(vector_depth(vlen)))
+  destination: Bits(5)
+
+bundle RV5StageVectorMicroOp(vlen :: VectorLength, Context :: DataType):
+  context: Context
+  beat: RV5StageVectorBeat(vlen)
+
+bundle RV5StageVectorResultBeat(vlen :: VectorLength):
+  first: Bits(index_width(vlen + 1))
+  end: Bits(index_width(vlen + 1))
+  last: Bool
+  write: VectorRegisterWrite(vlen)
 
 hardware_enum RV5StageVectorDisposition:
   Authorized
@@ -39,7 +59,7 @@ hardware_enum RV5StageVectorDisposition:
 
 // end is exclusive architectural position, not the number of active lanes.
 // Authorized is not a result completion; accepted effects must never be retried.
-bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context):
+bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   context: Context
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
@@ -49,6 +69,10 @@ bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context):
 
 export:
   RV5StageVectorDescriptor
+  RV5StageVectorInstruction
+  RV5StageVectorToken
+  RV5StageVectorBeat
   RV5StageVectorMicroOp
+  RV5StageVectorResultBeat
   RV5StageVectorDisposition
   RV5StageVectorFeedback
