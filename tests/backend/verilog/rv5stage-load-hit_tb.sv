@@ -69,6 +69,8 @@ module rv5stage_load_hit_tb;
   integer retry_phase=0;
   logic previous_load=0;
   logic [63:0] previous_address;
+  wire instruction_request_fire=instruction_out.request.valid && instruction_in.request.ready;
+  wire instruction_response_fire=instruction_in.response.valid && instruction_out.response.ready;
 
   function automatic logic [31:0] load_insn(input int rd, rs1, offset, size);
     return {12'(offset),5'(rs1),3'(size),5'(rd),7'h03};
@@ -188,7 +190,7 @@ module rv5stage_load_hit_tb;
   endfunction
   always_comb begin
     instruction_in='0;
-    instruction_in.request.ready=instruction_count<8;
+    instruction_in.request.ready=instruction_out.flush || instruction_count<8;
     instruction_in.response.valid=instruction_count!=0;
     instruction_in.response.bits.word=instruction_words[instruction_head];
   end
@@ -254,15 +256,20 @@ module rv5stage_load_hit_tb;
         measured<=measured+1;
         previous_issue<=cycle;
       end
-      if(instruction_out.flush) begin instruction_count<=0; instruction_head<=0; instruction_tail<=0; end
-      else begin
-        case({instruction_out.request.valid && instruction_in.request.ready,instruction_in.response.valid && instruction_out.response.ready})
+      if(instruction_out.flush) begin
+        // A transferred restart is the sole entry in the replacement epoch.
+        instruction_count<=instruction_request_fire ? 4'd1 : 4'd0;
+        instruction_head<=0;
+        instruction_tail<=instruction_request_fire ? 3'd1 : 3'd0;
+        if(instruction_request_fire) instruction_words[0]<=instruction_at(instruction_out.request.bits.address);
+      end else begin
+        case({instruction_request_fire,instruction_response_fire})
           2'b10: instruction_count<=instruction_count+1;
           2'b01: instruction_count<=instruction_count-1;
           default: ;
         endcase
-        if(instruction_in.response.valid && instruction_out.response.ready) instruction_head<=instruction_head+1;
-        if(instruction_out.request.valid && instruction_in.request.ready) begin
+        if(instruction_response_fire) instruction_head<=instruction_head+1;
+        if(instruction_request_fire) begin
           instruction_words[instruction_tail]<=instruction_at(instruction_out.request.bits.address);
           instruction_tail<=instruction_tail+1;
         end
