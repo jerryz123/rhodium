@@ -255,7 +255,7 @@ jobs:
       - name: Test program suite adapters
         run: make -C sims program-test-adapter-test
       - name: Download exact SimpleSoC simulator
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: simple-soc-${{ github.sha }}
           path: ${{ runner.temp }}/simple-soc
@@ -428,7 +428,7 @@ jobs:
           make -C sims program-test-setup
           echo "revision=$(git rev-parse HEAD:riscv/riscv-isa-tests)" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/setup-riscv-toolchain
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: simple-soc-${{ github.sha }}
           path: ${{ runner.temp }}/simple-soc
@@ -563,11 +563,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Initialize upstream runner
         run: git submodule update --init riscv/riscv-arch-test
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: simple-soc-${{ github.sha }}
           path: ${{ runner.temp }}/simple-soc
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: simple-soc-arch-elfs-${{ github.sha }}
           path: ${{ runner.temp }}/act
