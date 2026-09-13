@@ -35,6 +35,15 @@ hardware_enum OneHotState(~encoding: one_hot):
   method is_access(state):
     state.is_one_of(OneHotState.Read, OneHotState.Write)
 
+hardware_enum ReflectionCollision:
+  values = 7
+  names = 1
+
+circuit EnumeratedMethods(enumerated :: Boolean):
+  output shared: Vec(4, Bool)
+  def states = if enumerated | CacheState.values() | ([CacheState.Invalid, CacheState.SharedClean, CacheState.SharedDirty, CacheState.UniqueClean] :: List.of(CacheState))
+  shared <== vec(for List (state in states): state.is_shared())
+
 bundle CacheEnvelope():
   state: CacheState
 
@@ -147,6 +156,8 @@ circuit WrongBundleSpecialization():
   result <== select_operand(source)
 
 export:
+  ReflectionCollision
+  EnumeratedMethods
   AnnotatedBundleSelection
   WrongBundleSpecialization
   CacheState

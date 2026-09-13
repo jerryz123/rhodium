@@ -409,6 +409,28 @@ Each evaluated declaration has distinct nominal identity. Members lower to
 from exactly the selector's enum and retains a mandatory default for unused
 encodings. See [`../../../examples/rtl/enum-state.rhdl`](../../../examples/rtl/enum-state.rhdl).
 
+Enum definitions also support host-side enumeration:
+
+```rhombus
+State.names()  // ["Idle", "Running", "Done"]
+State.values() // equivalent to [State.Idle, State.Running, State.Done]
+```
+
+Both return immutable host lists in declaration order, not encoding order.
+`values()` returns typed member literals and allocates no IR until those
+literals are consumed by hardware. It supports automatic, explicitly encoded,
+and one-hot enums, and preserves the declared enum's value surface when called
+on its definition. Use it to generate complete mux/decode tables or per-member
+hardware without maintaining a second member list.
+
+`enum_names(State)` and `enum_values(State)` provide function equivalents,
+including for a dynamically obtained enum descriptor such as a union's tag
+type. Declared members take precedence over descriptor methods: if an enum
+declares `names` or `values`, use the function form to enumerate it.
+`enum_members(State)` remains the existing name-list API; the `.members`
+property remains schema metadata. Neither enumeration helper includes unused
+encodings or changes an enum's nominal identity.
+
 ### Tagged unions
 
 Tagged unions are nominal packed `DataType`s whose leading tag uses the same

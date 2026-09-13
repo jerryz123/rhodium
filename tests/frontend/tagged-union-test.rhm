@@ -32,7 +32,8 @@ check:
   union_type.packed_width() ~is 18
   enum.enum_type(tag_type) ~is #true
   enum.enum_width(tag_type) ~is 2
-  enum.enum_members(tag_type) ~is ["Idle", "Read", "Write"]
+  tag_type.names() ~is ["Idle", "Read", "Write"]
+  tag_type.values().map(fun (member): member.packed_value()) ~is [0, 1, 2]
   fixture.Request.Read.tag is_a HardwareLiteral ~is #true
   type_equal(fixture.Request.Read.tag.literal_type(), tag_type) ~is #true
   fixture.Request.Read.tag.packed_value() ~is 1

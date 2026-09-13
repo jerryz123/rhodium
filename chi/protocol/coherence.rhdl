@@ -47,29 +47,7 @@ bundle CHICoherentResponse():
 
 // Every ordinary SNP opcode is mandatory at an RN-F endpoint. Link Credit
 // Return remains an activation-control flit and is accepted independently.
-def chi_rnf_snoop_opcodes = [
-  CHISnpOpcode.SnpShared,
-  CHISnpOpcode.SnpClean,
-  CHISnpOpcode.SnpOnce,
-  CHISnpOpcode.SnpNotSharedDirty,
-  CHISnpOpcode.SnpUniqueStash,
-  CHISnpOpcode.SnpMakeInvalidStash,
-  CHISnpOpcode.SnpUnique,
-  CHISnpOpcode.SnpCleanShared,
-  CHISnpOpcode.SnpCleanInvalid,
-  CHISnpOpcode.SnpMakeInvalid,
-  CHISnpOpcode.SnpStashUnique,
-  CHISnpOpcode.SnpStashShared,
-  CHISnpOpcode.SnpDVMOp,
-  CHISnpOpcode.SnpQuery,
-  CHISnpOpcode.SnpSharedFwd,
-  CHISnpOpcode.SnpCleanFwd,
-  CHISnpOpcode.SnpOnceFwd,
-  CHISnpOpcode.SnpNotSharedDirtyFwd,
-  CHISnpOpcode.SnpPreferUnique,
-  CHISnpOpcode.SnpPreferUniqueFwd,
-  CHISnpOpcode.SnpUniqueFwd
-]
+def chi_rnf_snoop_opcodes = CHISnpOpcode.values().filter(~keep: fun (opcode): opcode != CHISnpOpcode.SnpLCrdReturn)
 
 export:
   CHICacheState

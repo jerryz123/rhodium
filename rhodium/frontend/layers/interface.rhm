@@ -16,8 +16,7 @@ import:
   "../support/instance-members.rhm".InstanceMembers
   "../support/instance-members.rhm".register_member_resolver
   "../support/variants.rhm".enum_type
-  "../support/variants.rhm".enum_members
-  "../support/variants.rhm".enum_encoding
+  "../support/variants.rhm".enum_values
 
 export:
   InterfaceDirection
@@ -584,7 +583,7 @@ fun event_field(name :: String, value :: HardwareEntity,
     | block:
         unless enum_type(captured.type) && captured.type.packed_width() <= 64
         | error(~who: #'event_field, "enum capture requires a hardware enum of at most 64 bits")
-        enum_members(captured.type).map(fun (member): {"name": member, "value": to_string(enum_encoding(captured.type, member))})
+        enum_values(captured.type).map(fun (member): {"name": member.member_name, "value": to_string(member.encoding)})
     | []
   when label && format != "enum"
   | error(~who: #'event_field, "event label selection requires enum capture format")

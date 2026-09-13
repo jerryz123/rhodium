@@ -19,6 +19,8 @@ export:
   enum_type
   enum_width
   enum_members
+  enum_names
+  enum_values
   enum_encoding
 
 fun make_automatic_enum(name :: AsciiIdentifier,
@@ -257,12 +259,11 @@ meta:
          dot.macro '$member_dot $('$')left $('$')dot $('$')right':
            if [$member_name, ...].contains(right.to_source_string())
            | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $name'
-           | if ["name", "identity", "members", "width",
-                 "packed_width", "enum_encodings", "member", "describe"].contains(
-                  right.to_source_string()
-                )
-             | #false
-             | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $name'
+           | if right.to_source_string() == "values"
+             | 'fun () :~ List.of($name): enum_values($('$')left)'
+             | if ["name", "identity", "members", "names", "width", "packed_width", "enum_encodings", "member", "describe"].contains(right.to_source_string())
+               | #false
+               | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $name'
          annot.macro '$member_annotation':
            annot_meta.pack_predicate(
              'fun (value): value is_a HardwareType && enum_type(value)',
@@ -278,12 +279,11 @@ meta:
          dot.macro '$member_dot $('$')left $('$')dot $('$')right':
            if [$member_name, ...].contains(right.to_source_string())
            | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $name'
-           | if ["name", "identity", "members", "width",
-                 "packed_width", "enum_encodings", "member", "describe"].contains(
-                  right.to_source_string()
-                )
-             | #false
-             | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $name'
+           | if right.to_source_string() == "values"
+             | 'fun () :~ List.of($name): enum_values($('$')left)'
+             | if ["name", "identity", "members", "names", "width", "packed_width", "enum_encodings", "member", "describe"].contains(right.to_source_string())
+               | #false
+               | 'enum_value($('$')left, $('$')(right.to_source_string())) :: $name'
          annot.macro '$member_annotation':
            annot_meta.pack_predicate(
              'fun (value): value is_a HardwareType && enum_type(value)',

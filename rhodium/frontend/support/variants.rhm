@@ -23,6 +23,8 @@ export:
   enum_type
   enum_width
   enum_members
+  enum_names
+  enum_values
   enum_encoding
   enum_value
   variant_schema_equal
@@ -148,6 +150,9 @@ class EnumType(schema :: VariantSchema):
   property members: schema.members
   property width: schema.width
 
+  method names(): enum_names(this)
+  method values(): enum_values(this)
+
   override method describe(): "enum<" ++ schema.name ++ ">"
   override method type_equal(other :: HardwareType):
     enum_type(other) && schema.identity === other.schema.identity
@@ -169,6 +174,9 @@ class OneHotEnumType(schema :: VariantSchema):
   property identity: schema.identity
   property members: schema.members
   property width: schema.width
+
+  method names(): enum_names(this)
+  method values(): enum_values(this)
 
   override method describe(): "one-hot enum<" ++ schema.name ++ ">"
   override method type_equal(other :: HardwareType):
@@ -199,6 +207,11 @@ fun enum_members(type :: HardwareType):
   | error(~who: #'enum_members, "expected a hardware enum type")
   type.schema.members.map(fun (member): member.name)
 
+fun enum_names(type :: HardwareType):
+  unless enum_type(type)
+  | error(~who: #'enum_names, "expected a hardware enum type")
+  type.schema.members.map(fun (member): member.name)
+
 fun enum_encoding(type :: HardwareType, member_name :: String):
   unless enum_type(type)
   | error(~who: #'enum_encoding, "expected a hardware enum type")
@@ -223,3 +236,8 @@ fun enum_value(type :: HardwareType, member_name :: String):
   unless enum_type(type)
   | error(~who: #'hardware_enum, "member access requires an enum type")
   EnumValue(type, member_name, enum_encoding(type, member_name))
+
+fun enum_values(type :: HardwareType) :~ List.of(EnumValue):
+  unless enum_type(type)
+  | error(~who: #'enum_values, "expected a hardware enum type")
+  type.schema.members.map(fun (member): EnumValue(type, member.name, member.encoding))

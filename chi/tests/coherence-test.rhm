@@ -7,6 +7,7 @@ import:
 
 check:
   chi.chi_rnf_snoop_opcodes.length() ~is 21
+  chi.chi_rnf_snoop_opcodes.contains(chi.CHISnpOpcode.SnpLCrdReturn) ~is #false
   chi.chi_rnf_snoop_opcodes.contains(chi.CHISnpOpcode.SnpShared) ~is #true
   chi.chi_rnf_snoop_opcodes.contains(chi.CHISnpOpcode.SnpUniqueFwd) ~is #true
   chi.CHICacheState.packed_width() ~is 3

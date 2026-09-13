@@ -7,6 +7,8 @@ import:
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../rhodium/frontend/layers/enum.rhm".enum_encoding
   "../../rhodium/frontend/layers/enum.rhm".enum_width
+  "../../rhodium/frontend/layers/enum.rhm".enum_names
+  "../../rhodium/frontend/layers/enum.rhm".enum_values
   "enum-method-fixture.rhdl" as fixture
 
 def module_def = fixture.design.modules[0]
@@ -21,6 +23,15 @@ def onehot_muxes = module_def.operations.filter(
 )
 
 check:
+  fixture.CacheState.names() ~is ["Invalid", "SharedClean", "SharedDirty", "UniqueClean"]
+  fixture.SparseState.values().map(fun (value): value.packed_value()) ~is [1, 5]
+  fixture.WideState.values().map(fun (value): value.packed_value()) ~is [0, 1]
+  fixture.OneHotState.values().map(fun (value): value.packed_value()) ~is [1, 2, 4]
+  fixture.ReflectionCollision.values.packed_value() ~is 7
+  fixture.ReflectionCollision.names.packed_value() ~is 1
+  enum_names(fixture.ReflectionCollision) ~is ["values", "names"]
+  enum_values(fixture.ReflectionCollision).map(fun (value): value.packed_value()) ~is [7, 1]
+  dump_ir(embedded.run_elaboration(fun (): fixture.EnumeratedMethods(#true))) ~is dump_ir(embedded.run_elaboration(fun (): fixture.EnumeratedMethods(#false)))
   record_type(module_def.find_input("envelope").type) ~is #true
   enum_width(fixture.SparseState) ~is 3
   enum_encoding(fixture.SparseState, "Cold") ~is 1

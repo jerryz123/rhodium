@@ -74,6 +74,14 @@ check:
   enum.enum_width(fixture.State) ~is 2
   enum.enum_width(fixture.Opcode) ~is 4
   enum.enum_members(fixture.State) ~is ["Idle", "Running", "Done"]
+  fixture.State.names() ~is enum.enum_names(fixture.State)
+  fixture.State.names() ~is ["Idle", "Running", "Done"]
+  fixture.State.values().map(fun (value): value.packed_value()) ~is [0, 1, 2]
+  (for all (value in fixture.State.values()): type_equal(value.literal_type(), fixture.State)) ~is #true
+  composed_fixture.State.names() ~is ["Idle", "Running", "Done"]
+  composed_fixture.State.values().map(fun (value): value.packed_value()) ~is [0, 1, 2]
+  enum.enum_values(Bits(2)) ~throws "expected a hardware enum type"
+  enum.enum_names(Bits(2)) ~throws "expected a hardware enum type"
   enum.enum_encoding(fixture.State, "Idle") ~is 0
   enum.enum_encoding(fixture.State, "Running") ~is 1
   enum.enum_encoding(fixture.State, "Done") ~is 2
@@ -87,8 +95,7 @@ check:
     "Or",
     "And"
   ]
-  (for List (member in enum.enum_members(one_hot_fixture.ResultSelect)):
-     enum.enum_encoding(one_hot_fixture.ResultSelect, member)) ~is [1, 2, 4, 8, 16, 32]
+  one_hot_fixture.ResultSelect.values().map(fun (member): member.packed_value()) ~is [1, 2, 4, 8, 16, 32]
   one_hot_fixture.ResultSelect.Arithmetic is_a mux_support.MuxLookupKey ~is #true
   one_hot_fixture.ResultSelect is_a mux_support.OneHotSelectorType ~is #true
   type_equal(one_hot_fixture.ResultSelect, one_hot.OneHot(6)) ~is #false

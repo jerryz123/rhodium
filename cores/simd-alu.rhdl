@@ -175,7 +175,7 @@ circuit SimdALU():
 
   // A tapered bank has widths 64,32,16,16,8,8,8,8. Slot i accepts element i
   // at every supported width, instead of instantiating a full bank per width.
-  def widths = [SimdElementWidth.E8, SimdElementWidth.E16, SimdElementWidth.E32, SimdElementWidth.E64]
+  def widths = SimdElementWidth.values()
   def shifts = for List (slot in 0..8):
     def formats = [0, 1, 2, 3].filter(~keep: fun (format :: Nat): slot < (8 div (2 ** format)))
     def largest = formats[formats.length() - 1]
@@ -281,7 +281,7 @@ circuit SimdWidenOperands():
 
   def source_left = mux(upper_half, left[32..64], left[0..32])
   def source_right = mux(upper_half, right[32..64], right[0..32])
-  def widths = [SimdWidenElementWidth.E8, SimdWidenElementWidth.E16, SimdWidenElementWidth.E32]
+  def widths = SimdWidenElementWidth.values()
   def destination_widths = [SimdElementWidth.E16, SimdElementWidth.E32, SimdElementWidth.E64]
   def prepared = for List (format in 0..3):
     def source_bits = 8 * (2 ** format)
