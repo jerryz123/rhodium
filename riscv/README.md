@@ -46,7 +46,10 @@ Its geometry follows
 [`isa/v.rhm`](isa/v.rhm) provides an explicitly partial RVV 1.0 catalog:
 the three `vset*` forms and same-width integer add/sub, logic, shifts,
 comparisons, min/max, and ordinary unit-stride `vle8/16/32/64.v` and
-`vse8/16/32/64.v`. `VectorMemoryInstructions` excludes segmented,
+`vse8/16/32/64.v`. `VectorFloatingPointInstructions` contains same-width
+`vfadd.vv`, `vfsub.vv`, and `vfmul.vv`, matching the canonical
+[riscv-opcodes OPFVV encodings](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_v).
+`VectorMemoryInstructions` excludes segmented,
 fault-only-first, mask-register, and whole-register transfers. Vector operands use `RegisterBank.Vector`, with
 named vector register, mask-enable, vtype, and AVL fields. The catalog is not
 a full V-extension claim. [`rtl/vector.rhdl`](rtl/vector.rhdl) materializes
@@ -164,7 +167,7 @@ pure host code or be materialized by the Rhodium adapter.
 | Module | Public catalog or configuration | Coverage |
 |---|---|---|
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
-| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorMemoryInstructions` | Partial RVV 1.0 configuration, integer, and unit-stride catalog; see [vector geometry](#vector-geometry) |
+| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

@@ -47,6 +47,15 @@ check:
   value(field(control(VMAX_VV), "alu"), "maximum") ~is 1
   value(field(control(VMINU_VX), "alu"), "maximum") ~is 0
 
+for (instruction in VectorFloatingPointInstructions):
+  def decoded = control(instruction)
+  check:
+    value(decoded, "floating_point") ~is 1
+    value(decoded, "integer") ~is 0
+    value(decoded, "memory") ~is 0
+    value(decoded, "fp_subtract") ~is (if instruction == VFSUB_VV | 1 | 0)
+    value(decoded, "fp_multiply") ~is (if instruction == VFMUL_VV | 1 | 0)
+
 for (instruction in VectorIntegerInstructions):
   def decoded = control(instruction)
   def expected_operand = cond

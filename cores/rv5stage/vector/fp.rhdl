@@ -1,0 +1,46 @@
+#lang rhodium
+// Adapts one packed vector element to the shared scalar-format FP execution contract.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "../fp/bundles.rhdl" open
+  "../decode/fp-ctrl.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/rtl/floating-point.rhdl" open
+  lib("hardfloat/main.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+
+fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), tag :: Bits(index_width(slots)), rounding :: RoundingMode) :~ RV5StageFpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
+  def profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
+  def flen = floating_point_register_width(profile)
+  def single = beat.element_width.into(Bits(2)) === bits(2, 2)
+  def precision = mux(single, RV5StageFloatPrecision.Single, RV5StageFloatPrecision.Double)
+  // Materialize a typed base, specifying only controls consumed by add/multiply.
+  wire unused: RV5StageFloatingPointControl()
+  unused <== dont_care(RV5StageFloatingPointControl())
+  def control = unused.updated(
+    ~registers: unused.registers.updated(~destination: RV5StageFloatDestination.FloatingPoint, ~uses_frs1: Bool(#true)),
+    ~execution: unused.execution.updated(
+      ~unit: mux(beat.control.fp_multiply, RV5StageFloatUnit.Multiply, RV5StageFloatUnit.Add),
+      ~source_precision: precision, ~destination_precision: precision,
+      ~add_operation: mux(beat.control.fp_subtract, RV5StageFloatAddOperation.Subtract, RV5StageFloatAddOperation.Add)
+    )
+  )
+  fun operand(value :: Bits(64)) :~ Bits(flen):
+    def boxed = riscv_nan_box(FloatFormat.F32, value[0..32].into(IEEEFloat(FloatFormat.F32)), flen)
+    if xlen == XLen.X32 | boxed | mux(single, boxed, value)
+  RV5StageFpExecutionRequest(xlen, profile, Bits(index_width(slots))):
+    tag: tag
+    control: control
+    left: operand(beat.left)
+    right: operand(beat.right)
+    third: dont_care(Bits(flen))
+    integer_operand: dont_care(Bits(xlen.width))
+    immediate_index: dont_care(Bits(5))
+    rounding_mode: rounding
+
+export:
+  vector_fp_request

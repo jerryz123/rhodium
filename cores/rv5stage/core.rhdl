@@ -30,6 +30,8 @@ import:
   "multiply.rhdl" open
   "divide.rhdl" open
   "fp/pipeline.rhdl" open
+  "fp/execute.rhdl" open
+  lib("hardfloat/main.rhdl").RoundingMode
   "fp/bundles.rhdl" open
   "fetch/protocol.rhdl" open
   "fetch/packet.rhdl" open
@@ -138,7 +140,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst wb_divider(RV5StageDivider(xlen))
   inst wb_scoreboard(Scoreboard(register_count))
   inst wb_fp_integer_scoreboard(Scoreboard(register_count))
-  def wb_fp_module = if floating_point_supports_f(profile) | RV5StageFpPipeline(xlen, effective_fp_profile, Bits(width), ~half_precision: half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
+  def wb_fp_module = if floating_point_supports_f(profile) | RV5StageFpScalar(xlen, effective_fp_profile, Bits(width), ~half_precision: half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst wb_fp(wb_fp_module)
   inst wb_csrs(RV5StageCsrFile(core_profile))
   wire id_vector_active: Bool
@@ -150,7 +152,35 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id
   wb_csrs.time_counter <== time_counter
-  wb_fp.state_update |> wb_csrs.fp_update
+  def wb_scalar_fp_tag = RV5StageFpScalarTag(Bits(width))
+  def wb_vector_fp_tag = Bits(index_width(vector_completion_slots))
+  def wb_vector_fp_request_link :: Handle = interface_link(Decoupled(RV5StageFpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag)))
+  def wb_vector_fp_result_link :: Handle = interface_link(Irrevocable(RV5StageFpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag)))
+  def wb_vector_fp_update_link :: Handle = interface_link(Valid(Bits(5)))
+  // Scalar and vector completions may both update flags on the same edge.
+  wb_csrs.fp_update.valid <== wb_fp.state_update.valid ||| wb_vector_fp_update_link.right.valid
+  wb_csrs.fp_update.bits <== mux(wb_fp.state_update.valid, wb_fp.state_update.bits, bits(0, 5)) ||| mux(wb_vector_fp_update_link.right.valid, wb_vector_fp_update_link.right.bits, bits(0, 5))
+  if floating_point_supports_f(profile)
+  | block:
+      tagged_union FpOwner():
+        Scalar(wb_scalar_fp_tag)
+        Vector(wb_vector_fp_tag)
+      inst wb_fp_execution(RV5StageFpExecutionService(xlen, effective_fp_profile, FpOwner(), ~half_precision: half_precision, ~zfa: zfa_enabled))
+      Array(
+        wb_fp.execution_request |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_scalar_fp_tag, FpOwner(), request, FpOwner().Scalar(request.tag))),
+        wb_vector_fp_request_link.right |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_vector_fp_tag, FpOwner(), request, FpOwner().Vector(request.tag)))
+      ) |> rr_arbiter() |> wb_fp_execution.request
+      (
+        wb_fp_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(FpOwner().Vector).into(Bool))
+          |> parallel(
+               map_flow(~stable: #true, result => fp_result_with_tag(xlen, effective_fp_profile, FpOwner(), wb_scalar_fp_tag, result, result.tag.view(FpOwner().Scalar).payload)),
+               map_flow(~stable: #true, result => fp_result_with_tag(xlen, effective_fp_profile, FpOwner(), wb_vector_fp_tag, result, result.tag.view(FpOwner().Vector).payload))
+             )
+      ) <=> Array(wb_fp.execution_result, wb_vector_fp_result_link.left)
+  | block:
+      wb_vector_fp_request_link.right.ready <== Bool(#false)
+      wb_vector_fp_result_link.left.valid <== Bool(#false)
+      wb_vector_fp_result_link.left.bits <== dont_care(RV5StageFpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag))
 
   // Stage boundary aliases and retained retirement contexts. These aliases
   // keep the stage bodies below independent of Flow implementation details.
@@ -308,7 +338,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_management = id_control.memory.access.is_cache_management()
   def id_cbo_permission :: CboManagementPermission() = wb_csrs.cbo_permission
   def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), MemoryOperation.CacheBlockFlush, id_control.memory.access)
-  def id_illegal = id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| ((id_control.vector.integer ||| id_control.vector.memory) & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
+  def id_illegal = id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (wb_csrs.frm > bits(4, 3))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| ((id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point) & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
     (id_control.system.action === SystemOperation.VectorConfig) & !wb_csrs.vector_enabled
   ) ||| (
     id_control.memory.access.is_cache_block_zero() & !wb_csrs.cbo_zero_enabled
@@ -448,10 +478,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_fp_store_resource_hazard = id_fp_store & !id_fault & wb.valid & wb_offer_bits.fp_compute
   def id_local_resource_hazard = id_multiply_resource_hazard ||| id_divide_resource_hazard ||| id_fp_store_resource_hazard
   // VX captures a scalar value once in ID, not a selector for next cycle's EX.
-  def id_vector_scalar_wait = (id_control.vector.integer ||| id_control.vector.memory) & (id_control.vector.operand === VectorOperandMode.Scalar) & id_rs1.or_reduce() & ((ex_input.valid & ex_input.bits.writeback_enable & (ex_input.bits.rd === id_rs1)) ||| (mem_input.valid & mem_input.bits.writeback_enable & (mem_input.bits.rd === id_rs1)))
+  def id_vector_scalar_wait = (id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point) & (id_control.vector.operand === VectorOperandMode.Scalar) & id_rs1.or_reduce() & ((ex_input.valid & ex_input.bits.writeback_enable & (ex_input.bits.rd === id_rs1)) ||| (mem_input.valid & mem_input.bits.writeback_enable & (mem_input.bits.rd === id_rs1)))
   // Independent scalar work may pass a load tail; stores and vector/state
   // observers wait. Store ordering extends through the LSU's ordered drain.
-  def id_vector_wait = id_vector_unrolling ||| (id_vector_active & (id_control.vector.integer ||| id_control.vector.memory ||| core_serializing_operation(id_control.system, id_control.fence) ||| id_memory_operation.needs_unique())) ||| (wb_vector_stores_pending & id_memory_operation.is_memory())
+  def id_vector_wait = id_vector_unrolling ||| (id_vector_active & (id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| core_serializing_operation(id_control.system, id_control.fence) ||| id_memory_operation.needs_unique())) ||| (wb_vector_stores_pending & id_memory_operation.is_memory())
   def id_hazard_reasons = RV5StageHazardReasons():
     deferred_dependency: id_deferred_dependency_hazard
     scoreboard_raw: id_scoreboard_raw_hazard
@@ -492,7 +522,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_operation:
     // Observe the live offer before the gate hides valid; only admission advances ID/EX.
     id_traced_decode |> gate_flow(!id_pipeline_hazard) |> map_flow(fetched => DecodeExecute(xlen, vector_completion_slots)):
-          vector_valid: (id_control.vector.integer ||| id_control.vector.memory) & !id_fault
+          vector_valid: (id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point) & !id_fault
           vector_last: Bool(#false)
           vector_tag: bits(0, index_width(vector_completion_slots))
           pc: fetched.pc
@@ -547,6 +577,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       id_vector_unrolling <== id_vector.unrolling
       wb_vector_pending <== id_vector.pending
       wb_vector_stores_pending <== id_vector.stores_pending
+      id_vector.rounding_mode <== wb_csrs.frm.into(RoundingMode)
+      id_vector.fp_request |> wb_vector_fp_request_link.left
+      wb_vector_fp_result_link.right |> id_vector.fp_result
+      id_vector.fp_update |> wb_vector_fp_update_link.left
       id_vector.memory_drained <== data_access.drained
       // A last-beat prediction repair clears younger fetch, not its own WB owner.
       id_vector.cancel.valid <== if_squash & !(mem_redirect & mem_input.bits.vector_valid & mem_input.bits.vector_last)
@@ -593,6 +627,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       id_vector.fault_start |> wb_csrs.vector_fault_start
       id_vector.retire |> wb_csrs.vector_retire
   | block:
+      wb_vector_fp_request_link.left.valid <== Bool(#false)
+      wb_vector_fp_request_link.left.bits <== dont_care(RV5StageFpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag))
+      wb_vector_fp_result_link.right.ready <== Bool(#true)
+      wb_vector_fp_update_link.left.valid <== Bool(#false)
+      wb_vector_fp_update_link.left.bits <== bits(0, 5)
       id_vector_active <== Bool(#false)
       id_vector_legal <== Bool(#false)
       id_vector_unrolling <== Bool(#false)

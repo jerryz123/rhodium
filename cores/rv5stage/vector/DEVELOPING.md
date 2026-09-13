@@ -41,6 +41,18 @@ Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
 Do not turn the experimental VLEN option into a public ISA/profile claim.
 
+`fp.rhdl` adapts singleton operands and the vector control modifiers to the
+shared FP request. It imports the named FP contracts, FP controls, RISC-V
+boxing helpers, and HardFloat types; none of those modules imports vector
+execution. The parent pipeline reserves completion slots for both memory and
+FP, captures rounding at macro admission, and queues operands only at WB.
+The core composes `RV5StageFpScalar` and vector requests around one execution
+service. Keep scalar FPR ownership separate from vector slot ownership, and
+merge simultaneous architectural flag pulses without arbitration loss.
+Use `rv5stage-vector-fp` and `rv5stage-vector-fp-one-slot` for instruction-to-memory-result coverage, alongside
+the scalar FP and existing vector memory/unroller fixtures when these shared
+boundaries change.
+
 Memory beats use encoded EEW and singleton element positions. Keep their
 slot identifier in the `RV5StageMemoryWriteback.Vector` variant, and propagate
 the complete union opaquely through the LSU.

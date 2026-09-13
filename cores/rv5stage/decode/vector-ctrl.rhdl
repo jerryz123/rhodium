@@ -27,6 +27,9 @@ hardware_enum VectorOperandMode:
 bundle RV5StageVectorControl():
   configure: VectorConfigMode
   integer: Bool
+  floating_point: Bool
+  fp_subtract: Bool
+  fp_multiply: Bool
   memory: Bool
   store: Bool
   eew: Bits(2)
@@ -40,6 +43,7 @@ bundle RV5StageVectorControl():
 def NoVectorControl = partial_pattern(RV5StageVectorControl()):
   configure: VectorConfigMode.None
   integer: Bool(#false)
+  floating_point: Bool(#false)
   memory: Bool(#false)
 
 fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
@@ -48,6 +52,7 @@ fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
     partial_pattern(RV5StageVectorControl()):
       configure: mode
       integer: Bool(#false)
+      floating_point: Bool(#false)
       memory: Bool(#false)
   )
 def VectorConfigurationCases = [
@@ -66,6 +71,7 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
     partial_pattern(RV5StageVectorControl()):
       configure: VectorConfigMode.None
       integer: Bool(#true)
+      floating_point: Bool(#false)
       memory: Bool(#false)
       operand: if form == VectorVVFormat | VectorOperandMode.Vector | (if form == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
       immediate_unsigned: Bool(form == VectorShiftVIFormat)
@@ -216,12 +222,27 @@ def VectorMemoryCases = for List (instruction in VectorMemoryInstructions, index
     partial_pattern(RV5StageVectorControl()):
       configure: VectorConfigMode.None
       integer: Bool(#false)
+      floating_point: Bool(#false)
       memory: Bool(#true)
       store: Bool(index >= 4)
       eew: bits(index mod 4, 2)
       operand: VectorOperandMode.Scalar
   )
-def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMemoryCases
+def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstructions):
+  DecodeCase(
+    instruction_pattern(instruction),
+    partial_pattern(RV5StageVectorControl()):
+      configure: VectorConfigMode.None
+      integer: Bool(#false)
+      floating_point: Bool(#true)
+      memory: Bool(#false)
+      store: Bool(#false)
+      operand: VectorOperandMode.Vector
+      mask_destination: Bool(#false)
+      fp_subtract: Bool(instruction == VFSUB_VV)
+      fp_multiply: Bool(instruction == VFMUL_VV)
+  )
+def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMemoryCases ++ VectorFloatingPointCases
 
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
@@ -256,7 +277,8 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def masked = !instruction_field(vm, instruction).or_reduce()
   def integer_legal = control.integer & source2_aligned & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
   def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
-  legal <== !config.vill & (integer_legal ||| memory_legal)
+  def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())
+  legal <== !config.vill & (integer_legal ||| memory_legal ||| fp_legal)
 
 export:
   VectorConfigMode
@@ -266,6 +288,7 @@ export:
   VectorConfigurationCases
   VectorIntegerCases
   VectorMemoryCases
+  VectorFloatingPointCases
   VectorControlCases
   RV5StageVectorLegality
   vector_configuration_request

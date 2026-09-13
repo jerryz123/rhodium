@@ -169,6 +169,22 @@
       end
     end
 
+    // The initial FP subset admits aligned same-width FP32/64 groups on RV64.
+    for (int op = 0; op < 3; op++) begin
+      for (int sew = 0; sew < 4; sew++) begin
+        for (int lm = -3; lm <= 3; lm++) begin
+          for (int rd = 0; rd < 16; rd++) begin
+            automatic bit expected_legal = XLEN == 64 && sew >= 2 && sew <= lm + 3 && rd != 0 && (lm <= 0 || rd % (1 << lm) == 0);
+            test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
+            instruction = {6'(op == 0 ? 0 : op == 1 ? 2 : 36), 1'b0, 5'd16, 5'd24, 3'd1, 5'(rd), 7'h57};
+            #1;
+            assert (decoded_valid && legal == expected_legal) else $fatal(1, "FP vector geometry sew=%0d lm=%0d rd=%0d", sew, lm, rd);
+            checks++;
+          end
+        end
+      end
+    end
+
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

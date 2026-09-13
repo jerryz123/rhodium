@@ -26,8 +26,10 @@ and singleton LSU operands, and authorizes the parallel pipeline's writes at WB.
 RV64 unit-stride vector memory shares scalar lookup and WB dispatch, with
 tagged completion slots and precise element restart. The host profile's
 `~vector_completion_slots` selects a power-of-two depth, default eight,
-independently of VLEN. Shared FP/expensive
-execution is not integrated; no V/Zve/Zvbb extension is advertised.
+independently of VLEN. RV64D also shares scalar FP execution for same-width
+FP32/FP64 vector add, subtract, and multiply, with WB-authorized operands and
+ordered VRF/flag completion. Other expensive vector execution is not integrated;
+no V/Zve/Zvbb extension is advertised.
 
 ## At a glance
 

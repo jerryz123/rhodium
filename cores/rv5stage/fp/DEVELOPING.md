@@ -50,7 +50,9 @@ host elaboration so disabled formats and units do not become runtime hardware.
    clients arbitrate before the service and demultiplex returned ownership tags.
 4. Update the package README when supported profiles or observable flow,
    ownership, timing, or failure contracts change.
-5. Preserve the common enabled/disabled interface shape used by `core.rhdl`.
+5. Preserve the common architectural enabled/disabled interface shape used by
+   `core.rhdl`; only the enabled scalar adapter exposes operand service ports.
+   Keep the standalone adapter-plus-service composition for independent users.
 
 ## Focused validation
 
@@ -81,3 +83,5 @@ mixed fixed/divide/sqrt reordering, rounding and flags, held results,
 simultaneous issue/completion, bounded drain, and reset with pending work.
 The scalar fixtures retain F/D/Zfh/Zfa arithmetic, FPR hazards, LSU bridges,
 WB authorization, and flag retirement coverage.
+Include `rv5stage-vector-fp` when changing shared scalar/vector arbitration,
+retagging, or flag-update composition in the core.

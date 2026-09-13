@@ -749,6 +749,8 @@ direct_fixture_specs=(
   'rv5stage-vector|rv5stage_vector_tb'
   'rv5stage-vector-control|rv5stage_vector_control_tb'
   'rv5stage-vector-config|rv5stage_vector_config_tb'
+  'rv5stage-vector-fp|rv5stage_vector_fp_tb'
+  'rv5stage-vector-fp-one-slot|rv5stage_vector_fp_tb'
   'rv5stage-vector-memory|rv5stage_vector_memory_tb'
   'rv5stage-vector-memory-one-slot|rv5stage_vector_memory_tb'
   'rv5stage-vector-memory-sixteen-slots|rv5stage_vector_memory_tb'

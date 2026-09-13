@@ -1,5 +1,5 @@
 #lang rhodium
-// Executes packed integer beats and prepares singleton memory destination masks.
+// Executes packed integer beats and prepares singleton memory/FP destination masks.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,20 +26,23 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   packing.mask_destination <== beat.control.mask_destination
   packing.enabled <== beat.enabled
   packing.result <== alu.result.updated(~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
-  def memory_shift = (beat.first[0..3] << beat.control.eew) ++ bits(0, 3)
-  def element_mask = mux_lookup(beat.control.eew, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
-  def memory_write = VectorRegisterWrite(vlen):
-    address: (beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (beat.first >> (bits(3, 2) - beat.control.eew))[0..index_width(vector_depth(vlen))]
+  def singleton = beat.control.memory ||| beat.control.floating_point
+  def singleton_width = mux(beat.control.memory, beat.control.eew, beat.element_width.into(Bits(2)))
+  def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
+  def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
+  def element_write = VectorRegisterWrite(vlen):
+    address: (beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (beat.first >> (bits(3, 2) - singleton_width))[0..index_width(vector_depth(vlen))]
     data: bits(0, 64)
-    mask: mux(beat.enabled.as_bits()[0].into(Bool) & !beat.control.store, element_mask << memory_shift, bits(0, 64))
+    mask: mux(beat.enabled.as_bits()[0].into(Bool) & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, bits(0, 64))
   result <== RV5StageVectorResultBeat(vlen):
     first: beat.first
     end: beat.end
     last: beat.last
     memory: beat.control.memory
+    floating_point: beat.control.floating_point
     store: beat.control.store
-    shift: memory_shift
-    write: mux(beat.control.memory, memory_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask)))
+    shift: element_shift
+    write: mux(singleton, element_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask)))
 
 export:
   RV5StageVectorExecute

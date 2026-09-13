@@ -36,6 +36,11 @@ bundle RV5StageFpExecutionResult(xlen :: XLen, profile :: FloatingPointProfile, 
   exception_flags: Bits(5)
   exception_flags_valid: Bool
 
+bundle RV5StageFpScalarTag(Context :: DataType):
+  context: Context
+  destination: RV5StageFloatDestination
+  rd: Bits(5)
+
 bundle RV5StageFpCompletion(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
   context: Context
   destination: RV5StageFloatDestination
@@ -65,11 +70,34 @@ bundle RV5StageFpStoreResponse(Context :: DataType):
   context: Context
   data: Bits(64)
 
+// Retagging changes only caller ownership, never the numeric execution payload.
+fun fp_request_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, request :: RV5StageFpExecutionRequest(xlen, profile, From), tag :: Hardware.of(To)) :~ RV5StageFpExecutionRequest(xlen, profile, To):
+  RV5StageFpExecutionRequest(xlen, profile, To):
+    tag: tag
+    control: request.control
+    left: request.left
+    right: request.right
+    third: request.third
+    integer_operand: request.integer_operand
+    immediate_index: request.immediate_index
+    rounding_mode: request.rounding_mode
+
+fun fp_result_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, result :: RV5StageFpExecutionResult(xlen, profile, From), tag :: Hardware.of(To)) :~ RV5StageFpExecutionResult(xlen, profile, To):
+  RV5StageFpExecutionResult(xlen, profile, To):
+    tag: tag
+    integer_value: result.integer_value
+    fp_value: result.fp_value
+    exception_flags: result.exception_flags
+    exception_flags_valid: result.exception_flags_valid
+
 export:
+  fp_request_with_tag
+  fp_result_with_tag
   RV5StageFpIssue
   RV5StageFpExecutionRequest
   RV5StageFpExecutionResult
   RV5StageFpCompletion
+  RV5StageFpScalarTag
   RV5StageFpLoadReservation
   RV5StageFpLoadCompletion
   RV5StageFpStoreRequest

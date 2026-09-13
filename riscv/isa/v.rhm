@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines RVV 1.0 configuration, same-width integer, and unit-stride memory catalogs.
+// Defines partial RVV 1.0 configuration, integer, FP, and unit-stride memory catalogs.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -42,66 +42,75 @@ def VSE32_V = unit_stride("VSE32.V", #true, 6)
 def VSE64_V = unit_stride("VSE64.V", #true, 7)
 def VectorMemoryInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VSE8_V, VSE16_V, VSE32_V, VSE64_V]
 
-fun vector_integer(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
+fun vector_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
 
-def VADD_VV = vector_integer("VADD.VV", 0, VectorVVFormat, 0)
-def VADD_VX = vector_integer("VADD.VX", 0, VectorVXFormat, 4)
-def VADD_VI = vector_integer("VADD.VI", 0, VectorVIFormat, 3)
-def VSUB_VV = vector_integer("VSUB.VV", 2, VectorVVFormat, 0)
-def VSUB_VX = vector_integer("VSUB.VX", 2, VectorVXFormat, 4)
-def VAND_VV = vector_integer("VAND.VV", 9, VectorVVFormat, 0)
-def VAND_VX = vector_integer("VAND.VX", 9, VectorVXFormat, 4)
-def VAND_VI = vector_integer("VAND.VI", 9, VectorVIFormat, 3)
-def VOR_VV = vector_integer("VOR.VV", 10, VectorVVFormat, 0)
-def VOR_VX = vector_integer("VOR.VX", 10, VectorVXFormat, 4)
-def VOR_VI = vector_integer("VOR.VI", 10, VectorVIFormat, 3)
-def VXOR_VV = vector_integer("VXOR.VV", 11, VectorVVFormat, 0)
-def VXOR_VX = vector_integer("VXOR.VX", 11, VectorVXFormat, 4)
-def VXOR_VI = vector_integer("VXOR.VI", 11, VectorVIFormat, 3)
-def VSLL_VV = vector_integer("VSLL.VV", 37, VectorVVFormat, 0)
-def VSLL_VX = vector_integer("VSLL.VX", 37, VectorVXFormat, 4)
-def VSLL_VI = vector_integer("VSLL.VI", 37, VectorShiftVIFormat, 3)
-def VSRL_VV = vector_integer("VSRL.VV", 40, VectorVVFormat, 0)
-def VSRL_VX = vector_integer("VSRL.VX", 40, VectorVXFormat, 4)
-def VSRL_VI = vector_integer("VSRL.VI", 40, VectorShiftVIFormat, 3)
-def VSRA_VV = vector_integer("VSRA.VV", 41, VectorVVFormat, 0)
-def VSRA_VX = vector_integer("VSRA.VX", 41, VectorVXFormat, 4)
-def VSRA_VI = vector_integer("VSRA.VI", 41, VectorShiftVIFormat, 3)
-def VMSEQ_VV = vector_integer("VMSEQ.VV", 24, VectorVVFormat, 0)
-def VMSEQ_VX = vector_integer("VMSEQ.VX", 24, VectorVXFormat, 4)
-def VMSEQ_VI = vector_integer("VMSEQ.VI", 24, VectorVIFormat, 3)
-def VMSNE_VV = vector_integer("VMSNE.VV", 25, VectorVVFormat, 0)
-def VMSNE_VX = vector_integer("VMSNE.VX", 25, VectorVXFormat, 4)
-def VMSNE_VI = vector_integer("VMSNE.VI", 25, VectorVIFormat, 3)
-def VMSLTU_VV = vector_integer("VMSLTU.VV", 26, VectorVVFormat, 0)
-def VMSLTU_VX = vector_integer("VMSLTU.VX", 26, VectorVXFormat, 4)
-def VMSLT_VV = vector_integer("VMSLT.VV", 27, VectorVVFormat, 0)
-def VMSLT_VX = vector_integer("VMSLT.VX", 27, VectorVXFormat, 4)
-def VMSLEU_VV = vector_integer("VMSLEU.VV", 28, VectorVVFormat, 0)
-def VMSLEU_VX = vector_integer("VMSLEU.VX", 28, VectorVXFormat, 4)
-def VMSLEU_VI = vector_integer("VMSLEU.VI", 28, VectorVIFormat, 3)
-def VMSLE_VV = vector_integer("VMSLE.VV", 29, VectorVVFormat, 0)
-def VMSLE_VX = vector_integer("VMSLE.VX", 29, VectorVXFormat, 4)
-def VMSLE_VI = vector_integer("VMSLE.VI", 29, VectorVIFormat, 3)
-def VMSGTU_VX = vector_integer("VMSGTU.VX", 30, VectorVXFormat, 4)
-def VMSGTU_VI = vector_integer("VMSGTU.VI", 30, VectorVIFormat, 3)
-def VMSGT_VX = vector_integer("VMSGT.VX", 31, VectorVXFormat, 4)
-def VMSGT_VI = vector_integer("VMSGT.VI", 31, VectorVIFormat, 3)
-def VMINU_VV = vector_integer("VMINU.VV", 4, VectorVVFormat, 0)
-def VMINU_VX = vector_integer("VMINU.VX", 4, VectorVXFormat, 4)
-def VMIN_VV = vector_integer("VMIN.VV", 5, VectorVVFormat, 0)
-def VMIN_VX = vector_integer("VMIN.VX", 5, VectorVXFormat, 4)
-def VMAXU_VV = vector_integer("VMAXU.VV", 6, VectorVVFormat, 0)
-def VMAXU_VX = vector_integer("VMAXU.VX", 6, VectorVXFormat, 4)
-def VMAX_VV = vector_integer("VMAX.VV", 7, VectorVVFormat, 0)
-def VMAX_VX = vector_integer("VMAX.VX", 7, VectorVXFormat, 4)
+def VADD_VV = vector_arithmetic("VADD.VV", 0, VectorVVFormat, 0)
+def VADD_VX = vector_arithmetic("VADD.VX", 0, VectorVXFormat, 4)
+def VADD_VI = vector_arithmetic("VADD.VI", 0, VectorVIFormat, 3)
+def VSUB_VV = vector_arithmetic("VSUB.VV", 2, VectorVVFormat, 0)
+def VSUB_VX = vector_arithmetic("VSUB.VX", 2, VectorVXFormat, 4)
+def VAND_VV = vector_arithmetic("VAND.VV", 9, VectorVVFormat, 0)
+def VAND_VX = vector_arithmetic("VAND.VX", 9, VectorVXFormat, 4)
+def VAND_VI = vector_arithmetic("VAND.VI", 9, VectorVIFormat, 3)
+def VOR_VV = vector_arithmetic("VOR.VV", 10, VectorVVFormat, 0)
+def VOR_VX = vector_arithmetic("VOR.VX", 10, VectorVXFormat, 4)
+def VOR_VI = vector_arithmetic("VOR.VI", 10, VectorVIFormat, 3)
+def VXOR_VV = vector_arithmetic("VXOR.VV", 11, VectorVVFormat, 0)
+def VXOR_VX = vector_arithmetic("VXOR.VX", 11, VectorVXFormat, 4)
+def VXOR_VI = vector_arithmetic("VXOR.VI", 11, VectorVIFormat, 3)
+def VSLL_VV = vector_arithmetic("VSLL.VV", 37, VectorVVFormat, 0)
+def VSLL_VX = vector_arithmetic("VSLL.VX", 37, VectorVXFormat, 4)
+def VSLL_VI = vector_arithmetic("VSLL.VI", 37, VectorShiftVIFormat, 3)
+def VSRL_VV = vector_arithmetic("VSRL.VV", 40, VectorVVFormat, 0)
+def VSRL_VX = vector_arithmetic("VSRL.VX", 40, VectorVXFormat, 4)
+def VSRL_VI = vector_arithmetic("VSRL.VI", 40, VectorShiftVIFormat, 3)
+def VSRA_VV = vector_arithmetic("VSRA.VV", 41, VectorVVFormat, 0)
+def VSRA_VX = vector_arithmetic("VSRA.VX", 41, VectorVXFormat, 4)
+def VSRA_VI = vector_arithmetic("VSRA.VI", 41, VectorShiftVIFormat, 3)
+def VMSEQ_VV = vector_arithmetic("VMSEQ.VV", 24, VectorVVFormat, 0)
+def VMSEQ_VX = vector_arithmetic("VMSEQ.VX", 24, VectorVXFormat, 4)
+def VMSEQ_VI = vector_arithmetic("VMSEQ.VI", 24, VectorVIFormat, 3)
+def VMSNE_VV = vector_arithmetic("VMSNE.VV", 25, VectorVVFormat, 0)
+def VMSNE_VX = vector_arithmetic("VMSNE.VX", 25, VectorVXFormat, 4)
+def VMSNE_VI = vector_arithmetic("VMSNE.VI", 25, VectorVIFormat, 3)
+def VMSLTU_VV = vector_arithmetic("VMSLTU.VV", 26, VectorVVFormat, 0)
+def VMSLTU_VX = vector_arithmetic("VMSLTU.VX", 26, VectorVXFormat, 4)
+def VMSLT_VV = vector_arithmetic("VMSLT.VV", 27, VectorVVFormat, 0)
+def VMSLT_VX = vector_arithmetic("VMSLT.VX", 27, VectorVXFormat, 4)
+def VMSLEU_VV = vector_arithmetic("VMSLEU.VV", 28, VectorVVFormat, 0)
+def VMSLEU_VX = vector_arithmetic("VMSLEU.VX", 28, VectorVXFormat, 4)
+def VMSLEU_VI = vector_arithmetic("VMSLEU.VI", 28, VectorVIFormat, 3)
+def VMSLE_VV = vector_arithmetic("VMSLE.VV", 29, VectorVVFormat, 0)
+def VMSLE_VX = vector_arithmetic("VMSLE.VX", 29, VectorVXFormat, 4)
+def VMSLE_VI = vector_arithmetic("VMSLE.VI", 29, VectorVIFormat, 3)
+def VMSGTU_VX = vector_arithmetic("VMSGTU.VX", 30, VectorVXFormat, 4)
+def VMSGTU_VI = vector_arithmetic("VMSGTU.VI", 30, VectorVIFormat, 3)
+def VMSGT_VX = vector_arithmetic("VMSGT.VX", 31, VectorVXFormat, 4)
+def VMSGT_VI = vector_arithmetic("VMSGT.VI", 31, VectorVIFormat, 3)
+def VMINU_VV = vector_arithmetic("VMINU.VV", 4, VectorVVFormat, 0)
+def VMINU_VX = vector_arithmetic("VMINU.VX", 4, VectorVXFormat, 4)
+def VMIN_VV = vector_arithmetic("VMIN.VV", 5, VectorVVFormat, 0)
+def VMIN_VX = vector_arithmetic("VMIN.VX", 5, VectorVXFormat, 4)
+def VMAXU_VV = vector_arithmetic("VMAXU.VV", 6, VectorVVFormat, 0)
+def VMAXU_VX = vector_arithmetic("VMAXU.VX", 6, VectorVXFormat, 4)
+def VMAX_VV = vector_arithmetic("VMAX.VV", 7, VectorVVFormat, 0)
+def VMAX_VX = vector_arithmetic("VMAX.VX", 7, VectorVXFormat, 4)
 
 def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX]
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMemoryInstructions
-def VectorInitial = InstructionCatalog("RVV initial integer/configuration/unit-stride subset", "V 1.0 (partial)", VectorInitialInstructions)
+// Same-width OPFVV arithmetic from the canonical riscv-opcodes RVV 1.0 table.
+def VFADD_VV = vector_arithmetic("VFADD.VV", 0x00, VectorVVFormat, 1)
+def VFSUB_VV = vector_arithmetic("VFSUB.VV", 0x02, VectorVVFormat, 1)
+def VFMUL_VV = vector_arithmetic("VFMUL.VV", 0x24, VectorVVFormat, 1)
+def VectorFloatingPointInstructions = [VFADD_VV, VFSUB_VV, VFMUL_VV]
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions
+def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
+  VFADD_VV
+  VFSUB_VV
+  VFMUL_VV
+  VectorFloatingPointInstructions
   vs3
   VectorLoadFormat
   VectorStoreFormat

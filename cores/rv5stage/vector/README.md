@@ -104,7 +104,35 @@ Fault feedback terminates issue and emits the failing element through
 This cut preserves inactive and tail contents, supports fractional LMUL and
 in-place same-width groups, sign-extends RV32 VX operands before SEW64
 broadcast, and packs comparison bits through the ordinary masked write port.
-Shared FP/multiply/divide issue remains future integration work.
+Shared multiply/divide issue remains future integration work.
+
+## Shared floating point
+
+The experimental RV64D path executes same-width `vfadd.vv`, `vfsub.vv`, and
+`vfmul.vv` at SEW32 or SEW64. This is a subset, not an advertised V extension.
+FS and VS must be enabled and `frm` must select a supported rounding mode;
+the macro captures `frm` at admission. FP16, RV32 vector FP, scalar-FP vector
+operands, widening, and fused operations are outside this cut.
+
+The unroller reads one element from each vector source and its mask through
+the existing 3R1W bank. Narrow elements are NaN-boxed only at the shared
+execution-service boundary; VRF storage remains packed. Active elements queue
+for execution only when scalar WB authorizes them. Masked, tail, and pre-vstart
+elements never execute or contribute flags. Empty bodies still complete once.
+
+The core composes scalar and vector requests around one FP execution service
+using round-robin arbitration and an owner-tagged union. Scalar FPR state
+remains in its architectural adapter; vector operands never pass through it.
+Each vector element reserves a completion slot before issue. A bounded
+WB-authorized request queue absorbs service backpressure, while slot exhaustion
+stops earlier issue, keeping MEM/WB feed-forward. Results can return out of
+order; masked VRF writes and exception-flag updates drain in element order.
+Scalar and vector flag updates on the same cycle are ORed together.
+
+Cancellation discards speculative slots and private pipeline validity, but
+authorized requests and their result ownership survive until drained. CSR
+observers, subsequent vector instructions, and interrupts wait for this tail.
+Final completion clears `vstart`; inactive and tail bits remain undisturbed.
 
 ## Unit-stride memory
 

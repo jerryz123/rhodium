@@ -21,7 +21,7 @@ not name, read, reserve, or write an architectural register.
 
 FP operands use the existing FLEN-wide NaN-boxed representation. Results retain
 the same boxing, canonical-NaN, resolved-rounding, and flag behavior as scalar
-execution. A future packed vector caller must box narrow elements on entry and
+execution. The packed vector caller boxes narrow elements on entry and
 extract the selected element width on return. The service does not resolve
 dynamic rounding modes, accumulate architectural flags, or interpret tags.
 
@@ -44,7 +44,7 @@ the service itself owns no client count or client-specific scheduling policy.
 
 ## Scalar architectural wrapper
 
-The enabled and disabled implementations expose the same integration shape.
+The enabled and disabled implementations expose the same architectural ports.
 The enabled pipeline accepts non-speculative compute work through a
 `Decoupled` issue input and retains results through an `Irrevocable` completion
 output. It also provides a `Decoupled` load-reservation input, a `Valid` load
@@ -52,11 +52,14 @@ completion, a separate WB `Valid` load-hit input, one-cycle `Valid` store reques
 architectural-state update, the FPR busy mask, and a drained indicator. The
 disabled implementation rejects FP work and reports itself drained.
 
-`RV5StageFpPipeline` wraps one execution service. It owns the scalar FPR bank,
-scoreboard, load/store bridges, and architectural completion/state updates.
+`RV5StageFpScalar` owns the scalar FPR bank, scoreboard, load/store bridges,
+and architectural completion/state updates, exposing operand execution ports.
+`RV5StageFpPipeline` is its standalone composition with one execution service.
 Scalar context, destination kind, and register number travel through execution
 only as an opaque wrapper-owned tag. Its external issue/completion interfaces
-are unchanged; vector dispatch is not yet connected to this service.
+are unchanged. The core instead connects the scalar adapter and the
+[experimental vector caller](../vector/README.md#shared-floating-point) to
+one service with ordinary Flow arbitration and owner-tag routing.
 
 Drained describes accepted execution and load reservations, not speculative
 store-operand probes. Those read-only probes may repeat while Decode waits;

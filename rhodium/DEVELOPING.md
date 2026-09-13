@@ -163,7 +163,10 @@ and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
 `std/decode.rhdl`, pure ISA descriptors, RISC-V adapters, and the shared SIMD ALU.
 The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for atomic issue
 fanout, private Valid pipeline storage, and WB-authorized write/retirement flows;
-its datapath dependencies remain inside the named vector package. Scalar
+it additionally imports named FP bundles, pure FP profiles, and public
+HardFloat rounding types. `vector/fp.rhdl` imports those FP bundles and decode
+controls plus RISC-V FP boxing helpers and HardFloat types to adapt packed
+elements, without adding a reverse dependency from FP to vector. Scalar
 pipeline bundles do not import the vector package or carry its packed data.
 The vector pipeline and its bundles, scalar pipeline bundles, data/uncached
 protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
@@ -178,6 +181,9 @@ imports that service, `flow/main.rhdl`, `std/bits.rhdl`, and
 wrapper. `fp/div-sqrt.rhdl` directly imports `std/ready-valid.rhdl` and Flow's
 `rr-arbiter`, `completion-queue`, `demux`, `gate`, and `queue` modules. No FP
 implementation depends on the vector package or on test/backend code.
+`cores/rv5stage/core.rhdl` directly imports the FP execution service and
+HardFloat rounding types to compose scalar and vector operand clients around
+one service. Generic request/result retagging remains in the FP bundles.
 
 ### Standard-library dependencies
 
