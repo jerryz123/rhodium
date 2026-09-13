@@ -12,6 +12,7 @@ import:
   "../../branch-resolver.rhdl" open
   "../../cache-prefetch.rhdl" open
   "../decode/core-ctrl.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/branch-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
@@ -52,10 +53,11 @@ for (instruction in ZawrsInstructions, action in [SystemOperation.WrsNto, System
         action: FenceOperation.None
     hint: HintOperation.None
     floating_point_valid: Bool(#false)
+    vector: NoVectorControl
   check:
     row.input.care_bits ~is 0xffffffff
     expected.subsumes(row.output) ~is #true
-    // No extra constraints on inactive ALU, multiply, divide, or FP fields.
+    // No extra constraints on inactive ALU, multiply, divide, FP, or vector payload fields.
     row.output.subsumes(expected) ~is #true
 
 for (configuration in [[XLen.X32, FloatingPointProfile.None], [XLen.X64, FloatingPointProfile.None], [XLen.X32, FloatingPointProfile.F], [XLen.X64, FloatingPointProfile.D]]):

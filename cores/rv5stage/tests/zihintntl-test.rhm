@@ -13,6 +13,7 @@ import:
   "../../branch-resolver.rhdl" open
   "../../cache-prefetch.rhdl" open
   "../decode/core-ctrl.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
   "../decode/hint-ctrl.rhdl" open
   "../decode/fence-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
@@ -51,6 +52,7 @@ for (instruction in ZihintntlInstructions, hint in hints, compressed_word in com
       pattern(FenceControl()):
         action: FenceOperation.None
     floating_point_valid: Bool(#false)
+    vector: NoVectorControl
   def row = ZihintntlCoreControlCases.find(fun (candidate): candidate.input.matches(bits(instruction.encode([]), 32)))
   check:
     row.input.care_bits ~is 0xffffffff
