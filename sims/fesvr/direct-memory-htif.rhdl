@@ -5,7 +5,6 @@
 import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("flow/event.rhdl").trace_event
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl").chi_line_data_id
@@ -393,11 +392,7 @@ sync_circuit FesvrRequester(xlen :: XLen,
     address: raw.request_address
     data: raw.request_data
     length: raw.request_length
-  def host_requests = inject_interface(Decoupled(FesvrMemoryRequest()), ~valid: raw.request_valid, ~bits: command, ~ready: raw.request_ready) |> trace_event("host.request", ~root: #true, ~fields: request):
-    address: request.address
-    write: request.write
-    length: request.length
-  host_requests |> access.requests
+  inject_interface(Decoupled(FesvrMemoryRequest()), ~valid: raw.request_valid, ~bits: command, ~ready: raw.request_ready) |> access.requests
   raw.response_valid <== access.responses.valid
   raw.response_data <== access.responses.bits.data
   raw.response_status <== access.responses.bits.status.as_bits()

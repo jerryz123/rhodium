@@ -1,0 +1,39 @@
+#lang rhodium
+// Places caller-owned checkpoints around an unannotated inclusive Home's retained contract.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+  lib("chi/main.rhdl") open
+  "inclusive-home-fixture.rhdl" as fixture
+
+sync_circuit EventHome():
+  def config = fixture.inclusive_home_config
+  def p = config.home.flit
+  input identity: CHIHNFIdentity(p)
+  interface port(CHIHNChannels(p), ~role: home)
+  inst home(CHIInclusiveHNF(config))
+  home.identity <== identity
+  def request_event = port.requester.requests |> trace_event("request", ~root: #true, ~fields: flit):
+    address: flit.address
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    src_id(~format: "unsigned"): flit.src_id
+  request_event |> home.port.requester.requests
+  def response_event = home.port.requester.responses |> trace_event("response", ~fields: flit):
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    tgt_id(~format: "unsigned"): flit.tgt_id
+  response_event |> port.requester.responses
+  def data_event = home.port.requester.response_data |> trace_event("data", ~fields: flit):
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    tgt_id(~format: "unsigned"): flit.tgt_id
+    data_id(~format: "unsigned"): flit.data_id
+  data_event |> port.requester.response_data
+  port.requester.requester_responses |> home.port.requester.requester_responses
+  port.requester.request_data |> home.port.requester.request_data
+  home.port.requester.snoops |> port.requester.snoops
+  port.subordinate <=> home.port.subordinate
+
+def elaboration = elaborate_with_top(EventHome())
+export elaboration

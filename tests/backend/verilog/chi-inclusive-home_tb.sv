@@ -92,7 +92,11 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   assign port_in.subordinate.dat.request = subordinate_data_ready_in;
   assign port_in.subordinate.dat.response = subordinate_data_in;
 
+`ifdef CHI_HOME_TRACE
+  EventHome dut (.*);
+`else
   CHIInclusiveHNF dut (.*);
+`endif
 `ifdef CHI_HOME_TRACE
   import "DPI-C" function void event_home_bind();
   import "DPI-C" function void event_home_sample(input int unsigned reset,

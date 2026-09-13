@@ -14,8 +14,10 @@ Contributor ownership and validation are described in
 
 ## Inclusive Home event tracing
 
-The optional event compiler connects `home.request` to every `home.response`
-and `home.data` transfer using the blocking transaction's retained ownership.
+The optional event compiler carries incoming request ancestry to requester
+response and data transfers using the blocking transaction's retained ownership.
+The Home emits no checkpoints of its own: caller annotations connect across it
+without adding intermediate Home tracks.
 The same request remains the parent across LLC misses, snoops, and writebacks;
 transaction IDs may be reused without confusing occurrences. Request ownership
 ends at actual transaction completion, including CompAck when required, or reset.

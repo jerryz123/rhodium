@@ -71,12 +71,14 @@ LR/SC progress after changing target selection. Rerun SimpleSoC vvadd with
 unchanged host polling and inspect `tohost` snoops and pipeline replay counts;
 keep correctness and reduced traffic distinct from a cycle-count prediction.
 
-Inclusive-Home event checkpoints use `trace_edge` with the named `request`
-retained scope. Capture on accepted requester REQ; keep ownership throughout
-the real FSM lifetime, releasing on copyback finish, terminal completion,
+Inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
+requester REQ to requester RSP/DAT with the named `request` retained scope.
+Keep visible checkpoints in callers, not the Home. Capture on accepted requester
+REQ; keep ownership throughout the real FSM lifetime, releasing on copyback finish, terminal completion,
 final data without CompAck, or accepted CompAck. Do not release on the first
 data beat, DBID response, subordinate response, or delayed acknowledgement.
 Both requester output channels share this lifetime; Flow infers network transit.
+`chi/tests/home-trace-fixture.rhdl` supplies test-only boundary checkpoints.
 Run `event-home` for exact per-cycle graph comparison against public transfers,
 including hit/miss data, repeated IDs, backpressure, and pending reset, then
 the SimpleSoC trace smoke for the composed router/queue paths.

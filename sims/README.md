@@ -164,11 +164,11 @@ the CHI controller or identify the originating instructions.
 The request and response source checkpoints explicitly use `~root: #true` to
 start observation at these opaque component outputs.
 
-`host.request` observes each accepted FESVR command at the DPI-to-Flow boundary,
-capturing address, read/write direction, and byte length. The host access engine
-retains that command as the owner of all generated CHI request fragments and
-write-data transfers until the final host response is accepted, including
-errors. This host root is independent of instruction-originated traffic.
+The host access engine retains each accepted FESVR command as the owner of all
+generated CHI request fragments and write-data transfers until the final host
+response is accepted, including errors. It emits no host checkpoints. Without
+a caller-supplied root at the opaque DPI boundary, host-originated ancestry is
+unknown in partial tracing; instruction-originated ancestry remains independent.
 
 The trace also includes the frontend's S0 → S1 → S2 and core's Decode → Execute → Memory
 → WB stage events. See the [core tracing contract](../cores/rv5stage/README.md#pipeline-event-tracing)

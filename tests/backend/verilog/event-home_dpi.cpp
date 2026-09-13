@@ -34,17 +34,17 @@ extern "C" void event_home_sample(unsigned reset, unsigned request_fire, std::ui
   using namespace test_sites;
   if (reset) { resets += owner.has_value(); expected.clear(); sequences.clear(); owner.reset(); cycle = 0; missed = false; return; }
   if (request_fire) {
-    owner = node(home_request,70,(static_cast<unsigned __int128>(address)<<26) |
+    owner = node(request,70,(static_cast<unsigned __int128>(address)<<26) |
         (std::uint64_t(request_opcode)<<19) | (request_txn<<7) | request_src,false);
     missed = false;
   }
   missed |= backing_fire;
   if (response_fire) {
-    node(home_response,24,(response_opcode<<19) | (response_txn<<7) | response_tgt,true);
+    node(response,24,(response_opcode<<19) | (response_txn<<7) | response_tgt,true);
     ++responses;
   }
   if (data_fire) {
-    node(home_data,25,(data_opcode<<21) | (data_txn<<9) | (data_tgt<<2) | data_id,true);
+    node(data,25,(data_opcode<<21) | (data_txn<<9) | (data_tgt<<2) | data_id,true);
     if (missed) ++misses; else ++hits;
   }
   stalled += output_stalled;
