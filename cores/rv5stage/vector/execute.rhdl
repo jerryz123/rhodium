@@ -14,11 +14,14 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   output result: RV5StageVectorResultBeat(vlen)
   inst alu(SimdALU())
   inst packing(RV5StageVectorResult(vlen))
+  def reduction = beat.control.integer & beat.control.reduction
+  def element_move = beat.control.integer & beat.control.element_move
+  def scalar_destination = element_move & beat.control.scalar_destination
   alu.left <== mux(beat.control.swap_operands, beat.right, beat.left)
   alu.right <== mux(beat.control.swap_operands, beat.left, beat.right)
   alu.control <== beat.control.alu
   alu.element_width <== beat.element_width
-  alu.enabled <== beat.enabled
+  alu.enabled <== mux(reduction, bits(1, 8).into(Mask(8)), beat.enabled)
   alu.select_right <== beat.select_right
   packing.destination <== beat.destination
   packing.first_element <== beat.first
@@ -40,17 +43,33 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     address: (beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (beat.first >> (bits(3, 2) - singleton_width))[0..index_width(vector_depth(vlen))]
     data: bits(0, 64)
     mask: mux(beat.enabled.as_bits()[0].into(Bool) & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, bits(0, 64))
+  // Reduction input is one element plus the seed/committed accumulator. Masked
+  // elements retain that accumulator; only the final beat writes element zero.
+  def reduced = mux(beat.enabled.as_bits()[0].into(Bool), alu.result.data, beat.right)
+  def scalar_value = mux(scalar_destination, beat.left, beat.right)
+  def extended_scalar = mux_lookup(beat.element_width, ~default: scalar_value, [
+    [SimdElementWidth.E8, scalar_value[0..8].into(SInt(8)).sext(64).into(Bits(64))],
+    [SimdElementWidth.E16, scalar_value[0..16].into(SInt(16)).sext(64).into(Bits(64))],
+    [SimdElementWidth.E32, scalar_value[0..32].into(SInt(32)).sext(64).into(Bits(64))]
+  ])
+  def element_zero_write = VectorRegisterWrite(vlen):
+    address: beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))
+    data: mux(reduction, reduced, extended_scalar)
+    mask: mux(!beat.empty & beat.last & !scalar_destination, element_mask, bits(0, 64))
   result <== RV5StageVectorResultBeat(vlen):
     first: beat.first
     end: beat.end
     last: beat.last
+    reduction: reduction
+    scalar_destination: scalar_destination
+    destination: beat.destination
     memory: beat.control.memory
     floating_point: beat.control.floating_point
     multiply_divide: beat.control.multiply_divide
     divide: beat.control.divide
     store: beat.control.store
     shift: element_shift
-    write: mux(singleton, element_write, mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))))
+    write: mux(reduction ||| element_move, element_zero_write, mux(singleton, element_write, mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask)))))
 
 export:
   RV5StageVectorExecute

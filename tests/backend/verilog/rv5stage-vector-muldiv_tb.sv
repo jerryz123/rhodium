@@ -1,4 +1,4 @@
-// Checks shared mul-div and move/merge/mask programs through architectural memory signatures.
+// Checks shared mul-div, moves, masks, and reductions through architectural memory signatures.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_vector_muldiv_tb;
@@ -57,8 +57,8 @@ module rv5stage_vector_muldiv_tb;
   logic [31:0] response_word;
   logic [31:0] program_words [0:16383];
   logic [63:0] memory_words [0:8191];
-  logic [63:0] expected_data [0:2047], expected_address [0:2047];
-  integer expected_width [0:2047];
+  logic [63:0] expected_data [0:4095], expected_address [0:4095];
+  integer expected_width [0:4095];
   integer pc = 0, expected_count = 0, stores = 0, cycles = 0, load_delay = 0;
   data_resp_bits_t pending_load;
   RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
@@ -128,6 +128,21 @@ module rv5stage_vector_muldiv_tb;
       5: return -64'd29;
       6: return 64'hfedcba9876543210;
       default: return 64'h123456789abcdef;
+    endcase
+  endfunction
+  function automatic logic [63:0] reduce_value(input int op, input int width, input logic [63:0] a, b);
+    logic signed [63:0] sa, sb;
+    sa = $signed(a << (64-width)) >>> (64-width);
+    sb = $signed(b << (64-width)) >>> (64-width);
+    case (op)
+      0: return (a+b) & ('1 >> (64-width));
+      1: return a & b;
+      2: return a | b;
+      3: return a ^ b;
+      4: return a < b ? a : b;
+      5: return sa < sb ? a : b;
+      6: return a > b ? a : b;
+      default: return sa > sb ? a : b;
     endcase
   endfunction
   function automatic logic [63:0] right_value(input int lane);
@@ -273,9 +288,58 @@ module rv5stage_vector_muldiv_tb;
       address += 16;
       signature('h008,address,0); address += 8;
     end
+    for (int sew=0;sew<4;sew++) begin
+      logic [63:0] accumulator, scalar_value;
+      width=8<<sew; mask='1>>(64-width);
+      for (int op=0;op<8;op++) begin
+        vset(sew,2); vload(3,'h10080+sew*256,sew); vload(7,'h10080+sew*256,sew);
+        vset(sew,16,3); vload(8,'h10000+sew*256,sew);
+        vec('h1f,0,8,0,0,3); // positive source elements define v0
+        accumulator=mask;
+        for (int i=0;i<16;i++) begin
+          a=left_value(i,sew)&mask;
+          if (op%2==0 || (a!=0 && !a[width-1])) accumulator=reduce_value(op,width,accumulator,a);
+        end
+        vec(op,7,8,3,op%2!=0,2);
+        vec(16,5,7,0,0,2); // vmv.x.s x5,v7, with an immediate dependent
+        emit('h00128313); // addi x6,x5,1
+        scalar_value=64'($signed(accumulator<<(64-width)) >>> (64-width));
+        scalar_signature(6,address,scalar_value+1); address+=8;
+        vset(sew,2); vstore(7,address,sew);
+        expect_store(address,accumulator,sew); expect_store(address+(1<<sew),0,sew); address+=16;
+        signature('h008,address,0); address+=8;
+      end
+      // Moves ignore LMUL alignment, and only extraction ignores empty bodies.
+      vset(sew,2); vload(7,'h10080+sew*256,sew);
+      vset(sew,16,3); li(5,-9); vec(16,7,0,5,0,6); // vmv.s.x
+      emit('h00000463); vec(16,7,0,0,0,6); // squashed insertion
+      vset(sew,0,3); vec(16,7,0,0,0,6); // empty insertion
+      emit('h0083d073); vec(16,5,7,0,0,2); // extraction with vl=0,vstart=7
+      emit('h00128313); scalar_signature(6,address,-64'd8); address+=8;
+      signature('h008,address,0); address+=8;
+      vset(sew,2); vstore(7,address,sew);
+      expect_store(address,-64'd9&mask,sew); expect_store(address+(1<<sew),0,sew); address+=16;
+      vset(sew,0,3); vec(0,7,8,3,0,2); // empty reduction must not copy seed
+      vec(16,5,7,0,0,2); scalar_signature(5,address,-64'd9); address+=8;
+      vec(16,0,7,0,0,2); scalar_signature(0,address,0); address+=8;
+      li(5,7); emit('h00000463); vec(16,5,7,0,0,2);
+      scalar_signature(5,address,7); address+=8;
+      // An older deferred GPR writer must drain before vmv.x.s overwrites it.
+      li(5,7); li(6,13); emit('h026282b3); vec(16,5,7,0,0,2);
+      scalar_signature(5,address,-64'd9); address+=8;
+    end
+    // Nonzero vstart is illegal for every reduction, even with VL=0. The trap
+    // handler skips the instruction; a sentinel catches unintended VRF writes.
+    for (int op=0;op<8;op++) begin
+      vset(0,op%2==0 ? 8 : 0); emit('h0080d073);
+      vec(op,7,8,3,0,2); expect_store('h2fff0,2,3);
+      vec(16,5,7,0,0,2); scalar_signature(5,address,-64'd9); address+=8;
+    end
     assert(pc < 'hff00/4) else $fatal(1,"program exceeds ROM");
-    program_words['hff00/4] = 'h342021f3;
-    program_words['hff04/4] = 'h00303023;
+    pc='hff00/4;
+    emit('h342021f3); li(10,'h2fff0); emit('h00353023);
+    emit('h341021f3); emit('h00418193); emit('h34119073);
+    emit('h00801073); emit('h30200073);
     repeat (4) @(posedge clock);
     @(negedge clock); reset = 0;
   end
@@ -320,7 +384,7 @@ module rv5stage_vector_muldiv_tb;
             else $fatal(1, "signature %0d address %h value %h expected %h", stores, data_access_out.request.bits.address, data_access_out.request.bits.data, expected_data[stores]);
           stores <= stores + 1;
           if (stores + 1 == expected_count) begin
-            $display("rv5stage shared muldiv and vector move/merge/mask passed: %0d stores, %0d cycles", expected_count, cycles);
+            $display("rv5stage shared muldiv, vector moves/masks/reductions passed: %0d stores, %0d cycles", expected_count, cycles);
             $finish;
           end
         end

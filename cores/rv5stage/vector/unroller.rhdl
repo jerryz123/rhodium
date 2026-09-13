@@ -39,11 +39,14 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def descriptor = instruction.descriptor
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
   def sew = mux(descriptor.control.memory, descriptor.control.eew, geometry.sew)
-  def singleton = descriptor.control.memory ||| descriptor.control.floating_point ||| descriptor.control.multiply_divide
+  def element_move = descriptor.control.integer & descriptor.control.element_move
+  def reduction = descriptor.control.integer & descriptor.control.reduction
+  def singleton = descriptor.control.memory ||| descriptor.control.floating_point ||| descriptor.control.multiply_divide ||| element_move ||| reduction
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
   def mask_select = descriptor.control.integer & descriptor.control.mask_select
   def format = mux(mask_logic, SimdElementWidth.E64, sew.into(SimdElementWidth))
-  def limit = descriptor.state.vl[0..index_width(vlen + 1)]
+  // Element moves have one bookkeeping beat, not a VL-sized iteration space.
+  def limit = mux(element_move, bits(1, index_width(vlen + 1)), descriptor.state.vl[0..index_width(vlen + 1)])
   def lanes = mux(mask_logic, bits(64, index_width(vlen + 1)), mux(singleton, bits(1, index_width(vlen + 1)), mux_lookup(format, ~default: bits(8, index_width(vlen + 1)), [[SimdElementWidth.E16, bits(4, index_width(vlen + 1))], [SimdElementWidth.E32, bits(2, index_width(vlen + 1))], [SimdElementWidth.E64, bits(1, index_width(vlen + 1))]])))
   fun aligned_first(first :: Bits(index_width(vlen + 1)), sew :: Bits(2)):
     mux_lookup(sew, ~default: first.align_down(8), [[1, first.align_down(4)], [2, first.align_down(2)], [3, first]])
@@ -51,7 +54,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def fault = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Fault)
   def clear = cancel.valid ||| retry ||| fault
   pending.egress |> gate_flow(!clear) |> issue
-  def empty = minimum >= limit
+  def empty = mux(element_move, !descriptor.control.scalar_destination & (descriptor.state.vstart >= descriptor.state.vl), minimum >= limit)
   def next_cursor = cursor.zext(index_width(vlen + 1) + 1) + lanes.zext(index_width(vlen + 1) + 1)
   def end = mux(empty ||| (next_cursor >= limit.zext(index_width(vlen + 1) + 1)), limit, next_cursor[0..index_width(vlen + 1)])
   def launch = occupied & !all_issued & !clear & ((reserved < bits(2, 2)) ||| issue.fire())
@@ -59,7 +62,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def row_base_width = index_width(vector_depth(vlen))
   def addresses = Array(
     (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width],
-    (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width],
+    (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), source_chunk[0..row_base_width]),
     (cursor >> 6)[0..row_base_width]
   )
   for (index in 0..3):
@@ -103,7 +106,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def memory_enabled = !response.bits.empty & (!descriptor.masked ||| (results[2].bits >> response.bits.first[0..6])[0].into(Bool))
   def operands = response.bits.updated(
     ~left: mux(singleton, results[0].bits >> memory_shift, packing.operands.left),
-    ~right: mux(mask_logic, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)),
+    ~right: mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)),
     ~select_right: mux(mask_select, (results[2].bits >> response.bits.first[0..6])[0..8], !bits(0, 8)).into(Mask(8)),
     // One physical 64-bit logic lane computes the word; mask_enabled controls
     // its 64 independently writable architectural elements at the result port.
@@ -135,8 +138,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   elsewhen accepted:
     occupied <== Bool(#true)
     instruction <== request.bits
-    def start = request.bits.descriptor.state.vstart[0..index_width(vlen + 1)]
-    cursor <== mux(request.bits.descriptor.control.integer & request.bits.descriptor.control.mask_logic, start.align_down(64), mux(request.bits.descriptor.control.memory ||| request.bits.descriptor.control.floating_point ||| request.bits.descriptor.control.multiply_divide, start, aligned_first(start, request.bits.descriptor.state.vtype[3..5])))
+    def start = mux(request.bits.descriptor.control.integer & request.bits.descriptor.control.element_move, bits(0, index_width(vlen + 1)), request.bits.descriptor.state.vstart[0..index_width(vlen + 1)])
+    cursor <== mux(request.bits.descriptor.control.integer & request.bits.descriptor.control.mask_logic, start.align_down(64), mux(request.bits.descriptor.control.memory ||| request.bits.descriptor.control.floating_point ||| request.bits.descriptor.control.multiply_divide ||| (request.bits.descriptor.control.integer & request.bits.descriptor.control.reduction), start, aligned_first(start, request.bits.descriptor.state.vtype[3..5])))
     minimum <== start
     authorized <== start
     all_issued <== Bool(#false)

@@ -152,6 +152,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wire id_vector_unrolling: Bool
   wire wb_vector_pending: Bool
   wire wb_vector_stores_pending: Bool
+  def wb_vector_scalar_result_link :: Handle = interface_link(Valid(RegisterFileWrite(xlen)))
   wire wb_memory_accepted: Bool
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id
@@ -390,7 +391,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_management = id_control.memory.access.is_cache_management()
   def id_cbo_permission :: CboManagementPermission() = wb_csrs.cbo_permission
   def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), MemoryOperation.CacheBlockFlush, id_control.memory.access)
-  def id_illegal = id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (wb_csrs.frm > bits(4, 3))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| ((id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide) & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
+  def id_illegal = (id_control.vector.integer & id_control.vector.reduction & wb_csrs.vector_state.vstart.or_reduce()) ||| id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (wb_csrs.frm > bits(4, 3))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| ((id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide) & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
     (id_control.system.action === SystemOperation.VectorConfig) & !wb_csrs.vector_enabled
   ) ||| (
     id_control.memory.access.is_cache_block_zero() & !wb_csrs.cbo_zero_enabled
@@ -407,8 +408,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   id_registers.read_address_2 <== id_rs2
   // Decode selects the registered data source that will be present in EX's
   // next cycle. Live MEM faults, replay, and redirects never select operands.
-  def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & (ex_input.bits.writeback_source =/= WritebackSelect.Csr)
-  def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & (mem_input.bits.writeback_source =/= WritebackSelect.Csr)
+  def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & !ex_input.bits.writeback_source.is_one_of(WritebackSelect.Csr, WritebackSelect.Vector)
+  def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & !mem_input.bits.writeback_source.is_one_of(WritebackSelect.Csr, WritebackSelect.Vector)
   fun id_operand(index :: Bits(5), register_value :: Bits(width)):
     def id_from_memory = index.or_reduce() & id_ex_bypass_available & (ex_input.bits.rd === index)
     def id_from_writeback = index.or_reduce() & id_mem_bypass_available & (mem_input.bits.rd === index)
@@ -682,6 +683,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       ) |> id_vector.completion
       id_vector.fault_start |> wb_csrs.vector_fault_start
       id_vector.retire |> wb_csrs.vector_retire
+      id_vector.scalar_result |> wb_vector_scalar_result_link.left
   | block:
       wb_vector_multiply_request_link.left.valid <== Bool(#false)
       wb_vector_multiply_request_link.left.bits <== dont_care(RV5StageExecutionRequest(MultiplierRequest(width), wb_vector_arithmetic_tag))
@@ -699,6 +701,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       id_vector_unrolling <== Bool(#false)
       wb_vector_pending <== Bool(#false)
       wb_vector_stores_pending <== Bool(#false)
+      wb_vector_scalar_result_link.left.valid <== Bool(#false)
+      wb_vector_scalar_result_link.left.bits <== dont_care(RegisterFileWrite(xlen))
       wb_csrs.vector_fault_start.valid <== Bool(#false)
       wb_csrs.vector_fault_start.bits <== zero
       wb_csrs.vector_retire.valid <== Bool(#false)
@@ -1119,9 +1123,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       |> map_valid(committed => committed.rd)
   ) |> wb_to_id_scoreboard_set_link.left
 
-  (
+  def wb_normal_write = (
     wb_register_path
-      |> filter_valid(committed => !committed.replay & !core_deferred_writeback(committed.writeback_source) & (
+      |> filter_valid(committed => !committed.replay & (committed.writeback_source =/= WritebackSelect.Vector) & !core_deferred_writeback(committed.writeback_source) & (
           committed.write_enable
         ) & ((committed.writeback_source =/= WritebackSelect.Csr) ||| wb_csrs.writeback_valid))
       |> map_valid(committed => RegisterFileWrite(xlen)):
@@ -1131,7 +1135,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
             wb_csrs.writeback_value,
             committed.value
           )
-  ) |> wb_commit_write
+  )
+  Array(wb_normal_write, wb_vector_scalar_result_link.right) |> valid_arbiter() |> wb_commit_write
 
   // Retirement authorizes issue; retained maintenance/WRS context never selects arithmetic operands.
   (

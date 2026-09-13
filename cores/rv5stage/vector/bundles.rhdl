@@ -58,6 +58,9 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   last: Bool
+  reduction: Bool
+  scalar_destination: Bool
+  destination: Bits(5)
   memory: Bool
   floating_point: Bool
   multiply_divide: Bool

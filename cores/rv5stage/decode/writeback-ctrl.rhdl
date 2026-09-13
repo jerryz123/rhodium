@@ -28,6 +28,7 @@ hardware_enum WritebackSelect:
   Divide
   Csr
   Zero
+  Vector
 
 bundle WritebackControl():
   enable: Bool

@@ -27,6 +27,7 @@ def VectorFixedVIFormat = InstructionFormat("vector-immediate fixed vm", VectorV
 def VectorMoveVFormat = InstructionFormat("vector move", [vector_destination, RegisterOperand("vs1", vs1, "source", RegisterBank.Vector)])
 def VectorMoveXFormat = InstructionFormat("scalar broadcast", [vector_destination, RegisterOperand("rs1", rs1, "source")])
 def VectorMoveIFormat = InstructionFormat("immediate broadcast", [vector_destination], VectorImmediate)
+def VectorReadScalarFormat = InstructionFormat("vector element to integer", [RegisterOperand("rd", rd, "destination"), vector_source])
 def VsetvliFormat = InstructionFormat("vsetvli", [RegisterOperand("rd", rd, "destination"), RegisterOperand("rs1", rs1, "source")], #false, [vtype11])
 def VsetivliFormat = InstructionFormat("vsetivli", [RegisterOperand("rd", rd, "destination")], #false, [avl5, vtype10])
 def VSETVLI = InstructionSpec("VSETVLI", VsetvliFormat, [opcode.constrain(0x57), funct3.constrain(7), BitField("config high", 31, 31).constrain(0)])
@@ -123,6 +124,18 @@ def VMNOR_MM = fixed_mask_arithmetic("VMNOR.MM", 0x1e, VectorFixedVVFormat, 2, 1
 def VMXNOR_MM = fixed_mask_arithmetic("VMXNOR.MM", 0x1f, VectorFixedVVFormat, 2, 1)
 def VectorMoveMergeInstructions = [VMERGE_VVM, VMERGE_VXM, VMERGE_VIM, VMV_V_V, VMV_V_X, VMV_V_I]
 def VectorMaskLogicInstructions = [VMANDN_MM, VMAND_MM, VMOR_MM, VMXOR_MM, VMORN_MM, VMNAND_MM, VMNOR_MM, VMXNOR_MM]
+def VMV_X_S = InstructionSpec("VMV.X.S", VectorReadScalarFormat, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(0x10), vm.constrain(1), vs1.constrain(0)])
+def VMV_S_X = fixed_mask_arithmetic("VMV.S.X", 0x10, VectorMoveXFormat, 6, 1, ~move: #true)
+def VectorElementMoveInstructions = [VMV_X_S, VMV_S_X]
+def VREDSUM_VS = vector_arithmetic("VREDSUM.VS", 0, VectorVVFormat, 2)
+def VREDAND_VS = vector_arithmetic("VREDAND.VS", 1, VectorVVFormat, 2)
+def VREDOR_VS = vector_arithmetic("VREDOR.VS", 2, VectorVVFormat, 2)
+def VREDXOR_VS = vector_arithmetic("VREDXOR.VS", 3, VectorVVFormat, 2)
+def VREDMINU_VS = vector_arithmetic("VREDMINU.VS", 4, VectorVVFormat, 2)
+def VREDMIN_VS = vector_arithmetic("VREDMIN.VS", 5, VectorVVFormat, 2)
+def VREDMAXU_VS = vector_arithmetic("VREDMAXU.VS", 6, VectorVVFormat, 2)
+def VREDMAX_VS = vector_arithmetic("VREDMAX.VS", 7, VectorVVFormat, 2)
+def VectorIntegerReductionInstructions = [VREDSUM_VS, VREDAND_VS, VREDOR_VS, VREDXOR_VS, VREDMINU_VS, VREDMIN_VS, VREDMAXU_VS, VREDMAX_VS]
 // Same-width OPFVV arithmetic from the canonical riscv-opcodes RVV 1.0 table.
 def VFADD_VV = vector_arithmetic("VFADD.VV", 0x00, VectorVVFormat, 1)
 def VFSUB_VV = vector_arithmetic("VFSUB.VV", 0x02, VectorVVFormat, 1)
@@ -146,10 +159,23 @@ def VMULHSU_VX = vector_arithmetic("VMULHSU.VX", 38, VectorVXFormat, 6)
 def VMULH_VV = vector_arithmetic("VMULH.VV", 39, VectorVVFormat, 2)
 def VMULH_VX = vector_arithmetic("VMULH.VX", 39, VectorVXFormat, 6)
 def VectorMultiplyDivideInstructions = [VDIVU_VV, VDIVU_VX, VDIV_VV, VDIV_VX, VREMU_VV, VREMU_VX, VREM_VV, VREM_VX, VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX, VMULHSU_VV, VMULHSU_VX, VMULH_VV, VMULH_VX]
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
+  VectorReadScalarFormat
+  VectorElementMoveInstructions
+  VectorIntegerReductionInstructions
+  VMV_X_S
+  VMV_S_X
+  VREDSUM_VS
+  VREDAND_VS
+  VREDOR_VS
+  VREDXOR_VS
+  VREDMINU_VS
+  VREDMIN_VS
+  VREDMAXU_VS
+  VREDMAX_VS
   VectorFixedVVFormat
   VectorFixedVXFormat
   VectorFixedVIFormat

@@ -131,6 +131,32 @@ results. Empty bodies perform no write but still retire once and clear `vstart`.
 Writes remain WB-authorized; retry resumes at the authorized frontier and
 cancellation suppresses speculative writes. This is still partial V coverage.
 
+## Element moves and integer reductions
+
+The experimental RV32/RV64 path also executes `vmv.x.s`, `vmv.s.x`, and
+`vredsum.vs`, `vredand.vs`, `vredor.vs`, `vredxor.vs`, `vredminu.vs`,
+`vredmin.vs`, `vredmaxu.vs`, and `vredmax.vs` at SEW8/16/32/64.
+Element moves ignore LMUL grouping. Extraction sign-extends or truncates to
+XLEN and executes even when VL is zero or `vstart >= vl`; insertion does not
+write when `vstart >= vl`. Both clear `vstart` on successful retirement.
+The vector pipeline's `scalar_result: Valid(RegisterFileWrite(xlen))` is
+aligned with the authorizing WB event, not a deferred completion. The core
+routes it to normal GPR writeback; scalar dependencies and older deferred WAW
+hazards remain subject to the existing interlocks.
+
+Reductions start from `vs1[0]`, fold active `vs2` elements, and write only
+`vd[0]`. The seed and destination name single registers regardless of LMUL;
+the source group must be aligned. The destination may overlap sources or v0.
+Masked reductions cannot also use v0 as a SEW-sized data source.
+All-masked nonempty reductions copy the seed; VL zero leaves the destination
+unchanged. Nonzero `vstart` traps before issue. Destination tails are preserved.
+
+This first implementation reuses the SIMD ALU with one reduction element in
+flight. Its accumulator advances only with WB authorization, so retries retain
+the authorized prefix without double counting. Cancellation cannot expose a
+partial reduction in the VRF. This is not a packed-per-cycle reduction tree;
+ordinary packed integer throughput is unchanged. The bank remains 3R1W.
+
 ## Shared integer multiply/divide
 
 RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,

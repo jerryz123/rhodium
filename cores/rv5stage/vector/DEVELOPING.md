@@ -92,6 +92,29 @@ a later completion could alter a prior read or create an in-place ALU loop.
 One write port uses row-local masked hold feedback, never a destination snapshot
 captured by an earlier micro-op or an extra indexed read port for write merging.
 
+Element moves use a one-token schedule independent of VL; insertion separately
+checks its architectural empty-body condition. Reduction rows use singleton
+source reads and a fixed seed address. The parent pipeline gates reduction
+issue until the preceding beat reaches WB, substitutes the authorized
+accumulator for subsequent seeds at EX, and updates it only on authorization.
+Do not move accumulation into read/issue time without a speculative checkpoint
+design. Final-only VRF writes make source, seed, and mask overlap safe.
+The `scalar_result` Valid output carries the existing integer register-write
+type at WB; the core composes it with normal writeback through Flow. Decode
+owns the scalar destination/source metadata and rejects nonzero reduction
+`vstart` before the unroller can launch a read.
+
+Run `rv5stage-vector-reduction` and `rv5stage-vector-reduction-rv32` for
+production-pipeline tests of both scalar moves and eight integer reductions.
+They initialize/read storage through public LSU transactions (including a
+test-only RV32 initialization transport, not an RV32 memory-ISA claim), fold
+elements with an independent model, and cover SEW/LMUL, masks, aliases, tails,
+empty bodies, issue stalls, initial/midstream retry, and partial cancellation.
+The full-core `rv5stage-vector-muldiv` program covers GPR consumers, deferred
+WAW interlocks, x0, squash, empty-body moves, and illegal reduction `vstart`.
+Keep the existing unroller, control, scalar-core, and shared-FP fixtures when
+changing their common result/decode payloads.
+
 `packing.rhdl` handles runtime SEW, broadcasting, lane enables, widening halves,
 and destination packing. Global element position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`

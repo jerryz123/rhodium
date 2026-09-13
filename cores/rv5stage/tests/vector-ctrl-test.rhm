@@ -7,6 +7,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../decode/vector-ctrl.rhdl" open
   "../decode/core-ctrl.rhdl" open
+  "../decode/writeback-ctrl.rhdl".WritebackSelect
   "../vector/bundles.rhdl" open
   "../../simd-alu.rhdl" open
   "../../../rhodium/core/main.rhm" open
@@ -29,6 +30,12 @@ fun core_control(instruction):
   VectorCoreControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 
 check:
+  value(control(VMV_X_S), "scalar_destination") ~is 1
+  value(control(VMV_S_X), "element_move") ~is 1
+  value(field(core_control(VMV_X_S), "writeback"), "enable") ~is 1
+  value(field(core_control(VMV_X_S), "writeback"), "source") ~is WritebackSelect.Vector.packed_value()
+  value(field(core_control(VMV_S_X), "operand"), "uses_rs1") ~is 1
+  value(field(core_control(VMV_X_S), "operand"), "uses_rs1") ~is 0
   VectorControlCases.length() ~is VectorInitialInstructions.length()
   VectorCoreControlCases.length() ~is VectorInitialInstructions.length()
   value(control(VSETVLI), "configure") ~is VectorConfigMode.VtypeImmediate.packed_value()
@@ -49,6 +56,11 @@ check:
   value(field(control(VMAX_VV), "alu"), "maximum") ~is 1
   value(field(control(VMINU_VX), "alu"), "maximum") ~is 0
 
+for (instruction in VectorIntegerReductionInstructions):
+  check:
+    value(control(instruction), "reduction") ~is 1
+    value(field(core_control(instruction), "writeback"), "enable") ~is 0
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
 for (instruction in VectorMoveMergeInstructions, index in 0..6):
   check:
     value(control(instruction), "integer") ~is 1

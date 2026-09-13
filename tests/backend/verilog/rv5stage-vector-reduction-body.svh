@@ -1,0 +1,163 @@
+// Models reduction folds independently, including masks, aliases, WB retry, cancellation, and scalar moves.
+// SPDX-License-Identifier: Apache-2.0
+  localparam int CW = $clog2(VLEN+1), CHUNKS = VLEN/64;
+  typedef struct packed { logic [4:0] address; logic [XLEN-1:0] data; } scalar_write_t;
+  typedef struct packed { logic valid; scalar_write_t bits; } scalar_port_t;
+  logic clock = 0, reset = 1;
+  logic [31:0] instruction;
+  logic [XLEN-1:0] vtype, vl, vstart, scalar, load_data;
+  logic request_valid = 0, issue_ready = 1, cancel = 0, retry_enable = 0;
+  logic [CW-1:0] retry_index = 0, wb_index;
+  logic active, request_ready, issued, committed, retried, retired;
+  logic [63:0] store_data;
+  scalar_port_t scalar_result_out;
+  RV5StageVectorReductionFixture dut (.*);
+  always #5 clock = ~clock;
+  logic [63:0] model [0:31][0:CHUNKS-1];
+  logic [63:0] rng = 64'h651b3c5defab7809, scalar_expected;
+  int mode = 0, regno = 0, cycles = 0, checks = 0, macros = 0, retry_count = 0;
+  int retired_count, commit_count, scalar_count;
+  function automatic logic [63:0] random_word();
+    rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return rng;
+  endfunction
+  function automatic logic [63:0] element(input int r, i, width);
+    return (model[r + i*width/VLEN][(i*width%VLEN)/64] >> (i*width%64)) & ('1 >> (64-width));
+  endfunction
+  function automatic logic [63:0] sext(input logic [63:0] x, input int width);
+    return 64'($signed(x << (64-width)) >>> (64-width));
+  endfunction
+  function automatic logic [31:0] vec(input int code, d, s2, s1, f3, input bit masked = 0);
+    return 32'((code<<26) | (int'(!masked)<<25) | (s2<<20) | (s1<<15) | (f3<<12) | (d<<7) | 'h57);
+  endfunction
+  function automatic logic [63:0] fold(input int op, width, input logic [63:0] a, b);
+    case (op)
+      0: return (a+b) & ('1 >> (64-width));
+      1: return a & b;
+      2: return a | b;
+      3: return a ^ b;
+      4: return a < b ? a : b;
+      5: return $signed(sext(a,width)) < $signed(sext(b,width)) ? a : b;
+      6: return a > b ? a : b;
+      default: return $signed(sext(a,width)) > $signed(sext(b,width)) ? a : b;
+    endcase
+  endfunction
+  always_comb load_data = XLEN'(element(regno,int'(wb_index),XLEN));
+  task automatic tick;
+    #1;
+    if (!reset) begin
+      if (retried) begin retry_count++; end
+      if (committed) begin
+        commit_count++;
+        if (mode == 2) begin
+          assert (XLEN'(store_data) == XLEN'(element(regno,int'(wb_index),XLEN)))
+            else $fatal(1,"VRF r%0d element%0d got%h expected%h macro%0d",regno,wb_index,store_data,element(regno,int'(wb_index),XLEN),macros);
+          checks++;
+        end
+      end
+      if (scalar_result_out.valid) begin
+        assert (mode == 3 && scalar_result_out.bits.address == 5 && scalar_result_out.bits.data == XLEN'(scalar_expected))
+          else $fatal(1,"scalar result got %h expected %h",scalar_result_out,scalar_expected);
+        scalar_count++; checks++;
+      end
+      if (retired) retired_count++;
+    end
+    @(posedge clock); #1; @(negedge clock);
+    cycles++;
+    if (cycles > 1500000) $fatal(1,"pipeline timeout");
+  endtask
+  task automatic run(input logic [31:0] insn, input int sew, lm, length, start = 0, input int retry_at = -1, kill_after = -1);
+    int before_retry, timeout;
+    instruction = insn; vtype = (XLEN'(sew)<<3)|XLEN'(lm); vl = XLEN'(length); vstart = XLEN'(start);
+    retired_count = 0; commit_count = 0; scalar_count = 0; timeout = 0;
+    retry_enable = retry_at >= 0; retry_index = CW'(retry_at); before_retry = retry_count;
+    request_valid = 1;
+    while (!request_ready) tick();
+    tick(); request_valid = 0;
+    while (active) begin
+      issue_ready = (random_word() & 3) != 0;
+      tick();
+      if (retry_count != before_retry) retry_enable = 0;
+      if (kill_after >= 0 && commit_count >= kill_after && active) begin
+        cancel = 1; tick(); cancel = 0; break;
+      end
+      timeout++; if (timeout > 20000) $fatal(1,"macro stuck insn=%h wb=%0d",insn,wb_index);
+    end
+    repeat (5) tick();
+    assert (retired_count == (kill_after < 0 ? 1 : 0)) else $fatal(1,"macro retirement count %0d",retired_count);
+    if (retry_at >= 0) assert (retry_count == before_retry+1) else $fatal(1,"retry not exercised");
+    if (mode == 3) assert (scalar_count == (kill_after < 0 ? 1 : 0)) else $fatal(1,"scalar write count");
+    retry_enable = 0; issue_ready = 1; macros++;
+  endtask
+  // Public LSU completions initialize storage; this test adapter is not an RV32 memory-ISA claim.
+  task automatic load_reg(input int r);
+    mode = 1; regno = r;
+    run(32'('h02000007 | ((XLEN==64 ? 7 : 6)<<12) | (r<<7)),XLEN==64 ? 3 : 2,0,VLEN/XLEN);
+    mode = 0;
+  endtask
+  task automatic check_reg(input int r);
+    mode = 2; regno = r;
+    run(32'('h02000027 | ((XLEN==64 ? 7 : 6)<<12) | (r<<7)),XLEN==64 ? 3 : 2,0,VLEN/XLEN);
+    mode = 0;
+  endtask
+  initial begin
+    logic [63:0] acc, mask, old;
+    int width, length, dest;
+    instruction=0; vtype=0; vl=0; vstart=0; scalar=0;
+    repeat (3) tick(); reset=0;
+    for (int r=0;r<32;r++) begin
+      for (int c=0;c<CHUNKS;c++) model[r][c]=random_word();
+      load_reg(r);
+    end
+    for (int sew=0;sew<4;sew++) begin
+      width=8<<sew; mask='1>>(64-width);
+      for (int lm=0;lm<8;lm++) begin
+        if (lm==4 || (lm>=5 && sew > lm-5)) continue;
+        length=(VLEN/width)*(lm<4 ? (1<<lm) : 1)/(lm<4 ? 1 : (1<<(8-lm)));
+        for (int op=0;op<8;op++) begin
+          for (int scenario=0;scenario<4;scenario++) begin
+            // Single-register seed/destination may be unaligned, overlap the
+            // source group, each other, or the input mask.
+            dest=scenario==0 ? 7 : scenario==1 ? 8 : scenario==2 ? 3 : 0;
+            if (scenario==3) begin
+              for (int c=0;c<CHUNKS;c++) model[0][c]=0;
+              load_reg(0);
+            end else begin
+              for (int c=0;c<CHUNKS;c++) model[0][c]=random_word();
+              load_reg(0);
+            end
+            acc=element(3,0,width);
+            for (int i=0;i<length;i++)
+              if (scenario==0 || element(0,i,1)!=0) acc=fold(op,width,acc,element(8,i,width));
+            mode=0;
+            run(vec(op,dest,8,3,2,scenario!=0),sew,lm,length,0,length>2 ? length/2 : 0);
+            model[dest][0]=(model[dest][0]&~mask)|(acc&mask);
+            check_reg(dest);
+          end
+        end
+      end
+      // Empty reductions preserve even element zero; cancellation discards
+      // partial authorized accumulation without an architectural VRF write.
+      for (int op=0;op<8;op++) begin
+        acc=fold(op,width,element(3,0,width),element(8,0,width));
+        run(vec(op,7,8,3,2),sew,3,1,0,0);
+        model[7][0]=(model[7][0]&~mask)|(acc&mask);
+        check_reg(7);
+      end
+      run(vec(0,7,8,3,2),sew,3,0); check_reg(7);
+      run(vec(0,7,8,3,2),sew,3,8,0,-1,2); check_reg(7);
+      for (int c=0;c<CHUNKS;c++) model[3][c]=random_word();
+      load_reg(3);
+      // Both scalar moves ignore LMUL; extraction also ignores VL/vstart.
+      for (int empty=0;empty<4;empty++) begin
+        scalar=XLEN'(-7); old=model[3][0];
+        run(vec(16,3,0,5,6),sew,3,empty==1 ? 0 : 4,empty==2 ? 4 : empty==3 ? 1 : 0,0);
+        if (empty==0 || empty==3) model[3][0]=(old&~mask)|(64'(sext(64'(scalar),XLEN))&mask);
+        check_reg(3);
+        scalar_expected=sext(element(3,0,width),width); mode=3;
+        run(vec(16,5,3,0,2),sew,3,0,7,0);
+        mode=0;
+      end
+    end
+    $display("vector reductions/moves XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
+    $finish;
+  end

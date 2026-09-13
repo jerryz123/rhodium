@@ -1,0 +1,90 @@
+#lang rhodium
+// Exercises the production vector pipeline with controlled WB authorization, retry, and cancellation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../vector.rhdl" open
+  "../vector/bundles.rhdl" open
+  "../vector/csr.rhdl" open
+  "../register-file.rhdl".RegisterFileWrite
+  "../decode/core-ctrl.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
+  input instruction: Bits(32)
+  input(vtype, vl, vstart, scalar, load_data): Bits(xlen.width)
+  input(request_valid, issue_ready, cancel, retry_enable): Bool
+  input retry_index: Bits(index_width(vlen + 1))
+  output(active, request_ready, issued, committed, retried, retired): Bool
+  output wb_index: Bits(index_width(vlen + 1))
+  output store_data: Bits(64)
+  interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  inst decode(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
+  inst vector(RV5StageVectorPipeline(xlen, vlen, Bits(32)))
+  inst tokens(ValidPipe(RV5StageVectorToken(Bits(32), 8), 3, ~flushable: #true))
+  reg index(~init: bits(0, index_width(vlen + 1)))
+  decode.instruction <== instruction
+  vector.request.valid <== request_valid
+  vector.request.bits <== RV5StageVectorInstruction(xlen, Bits(32)):
+    context: instruction
+    descriptor:
+      RV5StageVectorDescriptor(xlen):
+        pc: bits(0x100, xlen.width)
+        instruction: instruction
+        state:
+          RV5StageVectorState(xlen):
+            vl: vl
+            vtype: vtype
+            vstart: vstart
+            vxrm: bits(0, 2)
+            vxsat: Bool(#false)
+        control: decode.control.vector
+        scalar: scalar
+        vd: instruction[7..12]
+        vs1: instruction[15..20]
+        vs2: instruction[20..25]
+        masked: !instruction[25].into(Bool)
+  vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
+  def retry = tokens.egress.valid & retry_enable & (index === retry_index) & !cancel
+  tokens.flush <== cancel ||| retry
+  vector.cancel.valid <== cancel
+  vector.commit.valid <== tokens.egress.valid & !cancel
+  vector.commit.bits <== RV5StageVectorCommit(xlen):
+    pc: bits(0x100, xlen.width)
+    disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
+    slow: Bool(#false)
+    data: load_data
+    cause: bits(0, xlen.width)
+    fault_address: bits(0, xlen.width)
+  vector.completion.valid <== Bool(#false)
+  vector.completion.bits <== dont_care(RV5StageVectorCompletion(xlen, 8))
+  vector.memory_drained <== Bool(#true)
+  vector.rounding_mode <== literal(vector.rounding_mode.type, 0)
+  vector.fp_request.ready <== Bool(#false)
+  vector.fp_result.valid <== Bool(#false)
+  vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)
+  vector.multiply_request.ready <== Bool(#false)
+  vector.multiply_result.valid <== Bool(#false)
+  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
+  vector.divide_request.ready <== Bool(#false)
+  vector.divide_result.valid <== Bool(#false)
+  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  vector.scalar_result |> scalar_result
+  request_ready <== vector.request.ready
+  active <== vector.active
+  issued <== vector.issue.fire()
+  committed <== vector.commit.valid & !retry
+  retried <== retry
+  retired <== vector.retire.valid
+  wb_index <== index
+  store_data <== tokens.egress.bits.store_data
+  when (vector.request.fire()):
+    index <== bits(0, index_width(vlen + 1))
+  elsewhen (vector.commit.valid & !retry):
+    index <== index + bits(1, index_width(vlen + 1))
+
+export:
+  RV5StageVectorReductionFixture

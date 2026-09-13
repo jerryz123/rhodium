@@ -275,8 +275,8 @@ def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialIn
       prefetch: CachePrefetchOperation.None
       writeback:
         pattern(WritebackControl()):
-          enable: Bool(configuration)
-          source: WritebackSelect.Csr
+          enable: Bool(configuration || instruction == vector_isa.VMV_X_S)
+          source: if instruction == vector_isa.VMV_X_S | WritebackSelect.Vector | WritebackSelect.Csr
       system:
         pattern(SystemControl()):
           csr: CsrOperation.None

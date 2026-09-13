@@ -236,6 +236,31 @@
       end
     end
 
+    // Element moves ignore LMUL alignment. Reduction seed/destination are
+    // single registers, while vs2 still obeys the source group's alignment.
+    for (int sew=0;sew<4;sew++) begin
+      for (int lm=-3;lm<=3;lm++) begin
+        test_vtype=(word_t'(sew)<<3)|(word_t'(lm)&7);
+        instruction={6'h10,1'b1,5'd3,5'd0,3'd2,5'd5,7'h57}; #1;
+        assert(decoded_valid && legal==(sew<=lm+3)) else $fatal(1,"scalar extraction geometry");
+        instruction={6'h10,1'b1,5'd0,5'd5,3'd6,5'd3,7'h57}; #1;
+        assert(decoded_valid && legal==(sew<=lm+3)) else $fatal(1,"scalar insertion geometry");
+        for (int op=0;op<8;op++) begin
+          for (int src=8;src<10;src++) begin
+            instruction={6'(op),1'b0,5'(src),5'd3,3'd2,5'd0,7'h57}; #1;
+            assert(decoded_valid && legal==(sew<=lm+3 && (lm<=0 || src%(1<<lm)==0)))
+              else $fatal(1,"reduction source alignment");
+            checks++;
+          end
+        end
+      end
+    end
+    instruction=32'h402020d7; #1; assert(!decoded_valid) else $fatal(1,"masked extraction reserved");
+    instruction=32'h400160d7; #1; assert(!decoded_valid) else $fatal(1,"masked insertion reserved");
+    test_vtype=0;
+    instruction={6'd0,1'b0,5'd8,5'd0,3'd2,5'd7,7'h57}; #1;
+    assert(decoded_valid && !legal) else $fatal(1,"masked reduction reads v0 at two EEWs");
+
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

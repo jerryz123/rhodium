@@ -163,7 +163,8 @@ and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
 `std/decode.rhdl`, pure ISA descriptors, RISC-V adapters, and the shared SIMD ALU.
 The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for atomic issue
 fanout, private Valid pipeline storage, and WB-authorized write/retirement flows;
-it additionally imports named FP bundles, pure FP profiles, and public
+it additionally imports the named integer register-write contract for WB-aligned
+scalar results, named FP bundles, pure FP profiles, and public
 HardFloat rounding types. `vector/fp.rhdl` imports those FP bundles and decode
 controls plus RISC-V FP boxing helpers and HardFloat types to adapt packed
 elements, without adding a reverse dependency from FP to vector. Scalar
