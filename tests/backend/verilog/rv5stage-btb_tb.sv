@@ -1,8 +1,13 @@
 // Checks associative PC/halfword selection, saturating counters, replacement, and invalidation.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_btb_tb;
-  typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; } prediction_t;
-  typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; } update_bits_t;
+  typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
+  typedef struct packed {
+    logic [63:0] pc, target;
+    logic branch, conditional, taken, compressed;
+    logic [1:0] ras_action, predicted_ras_action;
+    logic [63:0] return_address;
+  } update_bits_t;
   typedef struct packed { logic valid; update_bits_t bits; } update_t;
   typedef struct packed { logic valid; logic [63:0] bits; } invalidate_t;
   typedef struct packed { logic valid; } pulse_t;
@@ -15,16 +20,16 @@ module rv5stage_btb_tb;
   RV5StageBtb dut (.*);
   always #5 clock = ~clock;
 
-  task automatic train(input logic [63:0] pc, target, input bit conditional, taken, compressed = 0, branch = 1);
+  task automatic train(input logic [63:0] pc, target, input bit conditional, taken, compressed = 0, branch = 1, input logic [1:0] ras_action = 0);
     @(negedge clock);
-    update_in = '{1'b1, '{pc, target, branch, conditional, taken, compressed}};
+    update_in = '{1'b1, '{pc, target, branch, conditional, taken, compressed, ras_action, ras_action, pc + (compressed ? 2 : 4)}};
     @(negedge clock);
     update_in = '0;
   endtask
-  task automatic check(input logic [63:0] pc, input bit valid, input logic [63:0] target = 0);
+  task automatic check(input logic [63:0] pc, input bit valid, input logic [63:0] target = 0, input logic [1:0] ras_action = 0);
     cursor = pc;
     #1;
-    assert (prediction.valid == valid && (!valid || prediction.target == target))
+    assert (prediction.valid == valid && (!valid || (prediction.target == target && prediction.ras_action == ras_action)))
       else $fatal(1, "BTB query %h valid=%b target=%h", pc, prediction.valid, prediction.target);
   endtask
   initial begin
@@ -60,7 +65,7 @@ module rv5stage_btb_tb;
     check('h102, 0);
     @(negedge clock);
     invalidate_in = '{1'b1, 64'h108};
-    update_in = '{1'b1, '{64'h108, 64'h700, 1'b1, 1'b0, 1'b1, 1'b0}};
+    update_in = '{1'b1, '{64'h108, 64'h700, 1'b1, 1'b0, 1'b1, 1'b0, 2'd0, 2'd0, 64'h10c}};
     @(negedge clock);
     invalidate_in = '0;
     update_in = '0;
@@ -74,8 +79,10 @@ module rv5stage_btb_tb;
     train('h100, 'h200, 0, 1, 1);
     check('h100, 1, 'h200); // Address order wins even when allocated later.
     check('h102, 1, 'h300);
+    train('h10c, 'h700, 0, 1, 0, 1, 2'd2);
+    check('h10c, 1, 'h700, 2'd2);
     invalidate_all_in.valid = 1;
-    update_in = '{1'b1, '{64'h104, 64'h500, 1'b1, 1'b0, 1'b1, 1'b0}};
+    update_in = '{1'b1, '{64'h104, 64'h500, 1'b1, 1'b0, 1'b1, 1'b0, 2'd0, 2'd0, 64'h108}};
     @(negedge clock);
     invalidate_all_in.valid = 0;
     update_in = '0;

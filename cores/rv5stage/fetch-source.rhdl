@@ -4,6 +4,7 @@
 
 import:
   "btb.rhdl" open
+  "ras.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -16,7 +17,7 @@ bundle RV5StageFetchAttempt(xlen :: XLen):
 
 // S0 offers are Decoupled. Acceptance captures PC/continuation into S1;
 // prediction is resolved there and captured with the S2 occurrence.
-sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 16):
+sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 16, ras_entries :: Nat = 6):
   def width = xlen.width
   input active: Bool
   input space: Bool
@@ -26,6 +27,8 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 16):
   interface predictor_flush(Pulse(), ~role: consumer)
   interface predictor_invalidate(Valid(Bits(width)), ~role: consumer)
   interface branch_update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
+  interface ras_speculate(Valid(RV5StageRasUpdate(xlen)), ~role: consumer)
+  interface ras_restore(Pulse(), ~role: consumer)
   interface attempts(Decoupled(RV5StageFetchAttempt(xlen)), ~role: producer)
   interface stage1(Valid(RV5StageFetchAttempt(xlen)), ~role: producer)
 
@@ -34,13 +37,28 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 16):
   reg continuation_target(Bits(width))
   reg running(~init: Bool(#true))
   inst btb(RV5StageBtb(xlen, btb_entries))
+  inst ras(RV5StageRas(xlen, if btb_entries == 0 | 0 | ras_entries))
   def command = clear.valid ||| restart.valid
   inst s1(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
   btb.cursor <== s1.egress.bits.pc
-  predictor_flush |> btb.invalidate_all
+  btb.invalidate_all.valid <== predictor_flush.valid
+  ras.clear.valid <== predictor_flush.valid
   predictor_invalidate |> btb.invalidate
-  branch_update |> btb.update
-  def prediction = mux(s1.egress.bits.continuation, literal(RV5StagePrediction(xlen), 0), btb.prediction)
+  def Array(btb_update, ras_resolution) = branch_update |> fork_valid(2)
+  btb_update |> btb.update
+  (ras_resolution |> map_valid(update => RV5StageRasResolution(xlen)):
+    actual:
+      RV5StageRasUpdate(xlen):
+        action: update.ras_action
+        return_address: update.return_address
+    predicted_action: update.predicted_ras_action
+  ) |> ras.resolve
+  ras_speculate |> ras.speculate
+  ras_restore |> ras.restore
+  def stored_prediction = btb.prediction
+  def predicted_return = stored_prediction.ras_action.is_one_of(RV5StageRasAction.Pop, RV5StageRasAction.PopPush) & ras.head_valid
+  def btb_prediction = stored_prediction.updated(~target: mux(predicted_return, ras.head, stored_prediction.target))
+  def prediction = mux(s1.egress.bits.continuation, literal(RV5StagePrediction(xlen), 0), btb_prediction)
   def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
   def next_pc = mux(s1.egress.bits.continuation, s1.egress.bits.continuation_target, mux(prediction.valid & !predicted_straddle, prediction.target, s1.egress.bits.pc.align_down(4) + bits(4, width)))
   def s0_pc = mux(restart.valid, restart.bits, mux(replay.valid, replay.bits.pc, mux(s1.egress.valid, next_pc, request_pc)))

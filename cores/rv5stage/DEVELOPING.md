@@ -30,6 +30,7 @@ each other; share external transaction machinery through the CHI package.
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`btb.rhdl`](btb.rhdl) | Associative word lookup, local direction counters, training, and prediction metadata |
+| [`ras.rhdl`](ras.rhdl) | RISC-V call/return classification, speculative return targets, and resolved recovery state |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`frontend.rhdl`](frontend.rhdl), [`frontend-control.rhdl`](frontend-control.rhdl) | Fetch topology, fixed-latency S1/S2 correlation, registered repair, and independent execution controls |
 | [`fetch-source.rhdl`](fetch-source.rhdl) | S0 PC selection, registered S1 prediction, continuation state, and replay selection |
@@ -171,13 +172,26 @@ over training. Preserve `sequential_pc` for links and `predicted_next_pc` for
 recovery as distinct payload fields. The BTB is ordinary named-core RTL, not a
 new language feature or ISA profile parameter.
 
-For predictor changes run `rv5stage-btb`, `rv5stage-fetch-prediction`, and
+The RAS is also named-core RTL. Its default six-entry speculative stack drives
+return targets in frontend S1; only an accepted, validated S2 prediction applies
+its action. A second resolved stack advances from uncancelled S4 outcomes. An
+ordinary architectural recovery restores speculative state from the resolved
+state, including the resolving action when present, while an action mismatch
+repairs the stack even when the target itself happened to match. Predictor flush
+clears both copies. Classify expanded `JAL` and `JALR` instructions from the
+RISC-V `x1`/`x5` implicit hint table, preserving distinct push, pop, and
+pop-then-push actions. Do not infer calls from arbitrary nonzero link registers.
+
+For predictor changes run `rv5stage-btb`, `rv5stage-ras`,
+`rv5stage-fetch-prediction`, `rv5stage-return-prediction`, and
 `rv5stage-branch-prediction`, then existing `rv5stage-fetch`, `rv5stage-core`,
-and fault/replay fixtures. The paired core test compares actual stores, cycle
-counts, flushes, and consecutive backedge requests with prediction enabled and
-disabled; it does not inspect internal predictor state. The fetch test covers
-compressed branch ordering, continuation words, duplicate-PC occurrences,
-backpressure, stale-cut repair, and precise continuation faults.
+and fault/replay fixtures. The paired branch core test compares actual stores,
+cycle counts, flushes, and consecutive backedge requests with prediction enabled
+and disabled; the paired return test holds the BTB constant while alternating
+two call sites into one return with the RAS enabled and disabled. Neither test
+inspects internal predictor state. The fetch test covers compressed branch
+ordering, continuation words, duplicate-PC occurrences, backpressure, stale-cut
+repair, and precise continuation faults.
 
 Mul/div dispatch validity comes from authorized commit, but operand payloads
 come directly from the normal WB pipeline token. Retained CMO and WRS retirement

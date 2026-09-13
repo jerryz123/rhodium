@@ -537,12 +537,22 @@ accepted S0 parent; MMU walks and predictor/redirect causality remain unmodeled.
 ### Branch prediction
 
 `RV5Stage` and `RV5StageFrontend` accept `~btb_entries` (default 16, zero disables
-prediction). The fully associative BTB stores full instruction-PC tags, targets,
-instruction lengths, and conditional/unconditional classification. Each entry
-has a two-bit saturating counter; conditional branches predict taken in the upper
-two states, and unconditional jumps predict taken on a hit. Invalid slots are
-allocated first, then round-robin replacement is used. No return-address stack,
-global history, or separate direction table is present.
+prediction) and `~ras_entries` (default 6, zero disables return prediction). The
+fully associative BTB stores full instruction-PC tags, targets, instruction
+lengths, return-stack actions, and conditional/unconditional classification.
+Each entry has a two-bit saturating counter; conditional branches predict taken
+in the upper two states, and unconditional jumps predict taken on a hit. Invalid
+slots are allocated first, then round-robin replacement is used. Disabling the
+BTB also elaborates away the RAS. No global history or separate direction table
+is present.
+
+The RAS follows the RISC-V `x1`/`x5` implicit call and return hints, including
+the pop-then-push coroutine case. Calls push their two- or four-byte sequential
+PC; return BTB hits use the stack head and fall back to the BTB target when the
+stack is empty. Accepted S2 predictions update speculative state exactly once.
+Uncancelled S4 resolutions update resolved state and repair speculation after a
+redirect or action mismatch. Overflow replaces the oldest entry and underflow
+is a no-op.
 
 Lookup uses the registered S1 PC and chooses the earliest predicted-taken branch
 at or after its starting halfword. Its prediction is captured with the S2

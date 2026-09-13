@@ -1,0 +1,32 @@
+#lang rhodium
+// Exposes RV5Stage RAS state and call/return classification in one behavioral fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../ras.rhdl" open
+  "../../../riscv/isa/xlen.rhm".XLen
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageRasFixture():
+  input instruction: Bits(32)
+  interface speculate(Valid(RV5StageRasUpdate(XLen.X64)), ~role: consumer)
+  interface resolve(Valid(RV5StageRasResolution(XLen.X64)), ~role: consumer)
+  interface restore(Pulse(), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  output classification: RV5StageRasAction
+  output head_valid: Bool
+  output head: Bits(64)
+
+  inst ras(RV5StageRas(XLen.X64, 3))
+  speculate |> ras.speculate
+  resolve |> ras.resolve
+  restore |> ras.restore
+  clear |> ras.clear
+  classification <== rv5stage_ras_action(instruction)
+  head_valid <== ras.head_valid
+  head <== ras.head
+
+def design = elaborate(RV5StageRasFixture())
+
+export:
+  design

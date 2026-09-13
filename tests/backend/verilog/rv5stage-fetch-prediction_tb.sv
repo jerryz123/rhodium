@@ -14,11 +14,17 @@ module rv5stage_fetch_prediction_tb;
     logic [63:0] pc;
     logic [31:0] instruction, raw_instruction;
     logic [63:0] sequential_pc, predicted_next_pc;
+    logic [1:0] predicted_ras_action;
     logic compressed_illegal, instruction_page_fault, instruction_access_fault;
     logic [63:0] instruction_fault_address;
   } fetched_bits_t;
   typedef struct packed { logic valid; fetched_bits_t bits; } fetched_out_t;
-  typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; } update_bits_t;
+  typedef struct packed {
+    logic [63:0] pc, target;
+    logic branch, conditional, taken, compressed;
+    logic [1:0] ras_action, predicted_ras_action;
+    logic [63:0] return_address;
+  } update_bits_t;
   typedef struct packed { logic valid; update_bits_t bits; } update_t;
   typedef struct packed { logic valid; } pulse_t;
   typedef struct packed { logic valid; logic [63:0] bits; } valid_bits64_t;
@@ -114,8 +120,8 @@ module rv5stage_fetch_prediction_tb;
     repeat (2) @(negedge clock);
     reset = 0;
   endtask
-  task automatic train(input logic [63:0] pc, target, input bit compressed, conditional = 0, taken = 1);
-    branch_update_in = '{1'b1, '{pc, target, 1'b1, conditional, taken, compressed}};
+  task automatic train(input logic [63:0] pc, target, input bit compressed, conditional = 0, taken = 1, input logic [1:0] ras_action = 0);
+    branch_update_in = '{1'b1, '{pc, target, 1'b1, conditional, taken, compressed, ras_action, ras_action, pc + (compressed ? 2 : 4)}};
     @(negedge clock);
     branch_update_in = '0;
   endtask

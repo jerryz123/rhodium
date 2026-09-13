@@ -4,6 +4,7 @@
 
 import:
   "btb.rhdl" open
+  "ras.rhdl" open
   "fetch-source.rhdl" open
   "fetch-packet.rhdl" open
   "fetch-scan.rhdl" open
@@ -13,7 +14,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_entries :: Nat = 16):
+sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_entries :: Nat = 16, ~ras_entries: ras_entries :: Nat = 6):
   def xlen = core_profile.xlen
   def packet_capacity :: PosInt = 5
   interface control(RV5StageFrontendControl(xlen), ~role: frontend)
@@ -24,7 +25,7 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
   inst repair(ValidPipe(RV5StageFetchRepair(xlen), 1, ~flushable: #true))
   repair.flush <== recovery
   def command = recovery ||| repair.egress.valid
-  inst source(RV5StageFetchSource(xlen, btb_entries))
+  inst source(RV5StageFetchSource(xlen, btb_entries, ras_entries))
   inst scan(RV5StageFetchScan(core_profile))
   inst queue(ShiftQueue(RV5StageFetchPacket(xlen), packet_capacity, ~flow: #true, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
@@ -37,6 +38,7 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
   repair_invalidate |> map_valid(repair => repair.entry) |> source.predictor_invalidate
   control.predictor_flush |> source.predictor_flush
   control.branch_update |> source.branch_update
+  source.ras_restore.valid <== recovery
   source.clear.valid <== command
   source.active <== control.active
   // Prediction repair discards only younger attempts. The corrected S2 packet
@@ -73,6 +75,12 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
          prediction: attempt.prediction
   ) |> scan.ingress
   scan.egress |> to_decoupled() |> queue.ingress
+  (scan.egress
+    |> filter_valid(packet => queue.ingress.ready & !packet.page_fault & !packet.access_fault & packet.prediction.valid & (packet.prediction.ras_action =/= RV5StageRasAction.None))
+    |> map_valid(packet => RV5StageRasUpdate(xlen)):
+         action: packet.prediction.ras_action
+         return_address: packet.prediction.pc + mux(packet.prediction.compressed, bits(2, xlen.width), bits(4, xlen.width))
+  ) |> source.ras_speculate
   memory.flush <== command
   memory.invalidate_all <== control.invalidate_all.valid
   memory.s1_kill <== command ||| replays.valid

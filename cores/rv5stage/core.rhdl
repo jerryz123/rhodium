@@ -4,6 +4,7 @@
 
 import:
   "btb.rhdl" open
+  "ras.rhdl" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../load-store.rhdl" open
@@ -490,6 +491,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           raw_instruction: fetched.raw_instruction
           sequential_pc: fetched.sequential_pc
           predicted_next_pc: fetched.predicted_next_pc
+          predicted_ras_action: fetched.predicted_ras_action
           alu_control: id_control.alu
           vector_control: id_control.vector
           operand_left: id_control.operand.left
@@ -720,12 +722,16 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     unsigned: ex_input.bits.memory_unsigned
     data: ex_data_request.data
 
+  def ex_resume_pc = mux(ex_redirect_requested, ex_redirect_target, ex_input.bits.sequential_pc)
+  def ex_ras_action = rv5stage_ras_action(ex_input.bits.instruction)
+  def ex_ras_mispredicted = ex_ras_action =/= ex_input.bits.predicted_ras_action
+  def ex_redirect_valid = ((ex_resume_pc =/= ex_input.bits.predicted_next_pc) ||| ex_ras_mispredicted) & !ex_exception.valid & (!ex_input.bits.vector_valid ||| ex_input.bits.vector_last)
   def ex_payload = ExecuteMemory(xlen):
     vector_valid: ex_input.bits.vector_valid
     vector_last: ex_input.bits.vector_last
     pc: ex_input.bits.pc
-    resume_pc: mux(ex_redirect_requested, ex_redirect_target, ex_input.bits.sequential_pc)
-    redirect_valid: (mux(ex_redirect_requested, ex_redirect_target, ex_input.bits.sequential_pc) =/= ex_input.bits.predicted_next_pc) & !ex_exception.valid & (!ex_input.bits.vector_valid ||| ex_input.bits.vector_last)
+    resume_pc: ex_resume_pc
+    redirect_valid: ex_redirect_valid
     branch_update:
       RV5StageBranchUpdate(xlen):
         pc: ex_input.bits.pc
@@ -734,6 +740,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
         conditional: !ex_input.bits.branch_control.unconditional
         taken: ex_redirect_requested
         compressed: ex_input.bits.sequential_pc === (ex_input.bits.pc + bits(2, width))
+        ras_action: ex_ras_action
+        predicted_ras_action: ex_input.bits.predicted_ras_action
+        return_address: ex_input.bits.sequential_pc
     instruction: ex_input.bits.instruction
     replay: ex_replay
     data_request_valid: ex_is_memory & !ex_request_fault & !ex_replay

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "ras.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -12,6 +13,7 @@ bundle RV5StagePrediction(xlen :: XLen):
   pc: Bits(xlen.width)
   target: Bits(xlen.width)
   compressed: Bool
+  ras_action: RV5StageRasAction
 
 bundle RV5StageBranchUpdate(xlen :: XLen):
   pc: Bits(xlen.width)
@@ -20,6 +22,9 @@ bundle RV5StageBranchUpdate(xlen :: XLen):
   conditional: Bool
   taken: Bool
   compressed: Bool
+  ras_action: RV5StageRasAction
+  predicted_ras_action: RV5StageRasAction
+  return_address: Bits(xlen.width)
 
 bundle RV5StageBtbEntry(xlen :: XLen):
   valid: Bool
@@ -28,6 +33,7 @@ bundle RV5StageBtbEntry(xlen :: XLen):
   conditional: Bool
   compressed: Bool
   counter: Bits(2)
+  ras_action: RV5StageRasAction
 
 sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
   // Lookup is combinational; only predictor state changes are event flows.
@@ -55,6 +61,7 @@ sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
         pc: selected.pc
         target: selected.target
         compressed: selected.compressed
+        ras_action: selected.ras_action
 
       def matches = vec(for List (index in 0..entry_count): entries[index].valid & (entries[index].pc === update.bits.pc))
       def empty = vec(for List (index in 0..entry_count): !entries[index].valid)
@@ -81,6 +88,7 @@ sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
             conditional: update.bits.conditional
             compressed: update.bits.compressed
             counter: mux(matched, mux(update.bits.taken, incremented, decremented), bits(2, 2))
+            ras_action: update.bits.ras_action
 
 export:
   RV5StagePrediction

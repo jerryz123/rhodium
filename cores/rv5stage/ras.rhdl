@@ -1,0 +1,145 @@
+#lang rhodium
+// Implements RV5Stage's speculative six-entry-style return-address stack and resolved recovery state.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/model/formats.rhm" as riscv_fields
+  "../../riscv/rtl/instruction-fields.rhdl".instruction_field
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+hardware_enum RV5StageRasAction:
+  None
+  Push
+  Pop
+  PopPush
+
+bundle RV5StageRasUpdate(xlen :: XLen):
+  action: RV5StageRasAction
+  return_address: Bits(xlen.width)
+
+bundle RV5StageRasResolution(xlen :: XLen):
+  actual: RV5StageRasUpdate(xlen)
+  predicted_action: RV5StageRasAction
+
+fun rv5stage_ras_action(instruction :: Bits(32)) :~ RV5StageRasAction:
+  def opcode = instruction_field(riscv_fields.opcode, instruction)
+  def rd = instruction_field(riscv_fields.rd, instruction)
+  def rs1 = instruction_field(riscv_fields.rs1, instruction)
+  def rd_link = rd.is_one_of(bits(1, 5), bits(5, 5))
+  def rs1_link = rs1.is_one_of(bits(1, 5), bits(5, 5))
+  mux(
+    (opcode === bits(0x6f, 7)) & rd_link,
+    RV5StageRasAction.Push,
+    mux(
+      opcode === bits(0x67, 7),
+      mux(
+        rd_link & rs1_link,
+        mux(rd === rs1, RV5StageRasAction.Push, RV5StageRasAction.PopPush),
+        mux(rd_link, RV5StageRasAction.Push, mux(rs1_link, RV5StageRasAction.Pop, RV5StageRasAction.None))
+      ),
+      RV5StageRasAction.None
+    )
+  )
+
+fun rv5stage_ras_writes(action :: RV5StageRasAction) :~ Bool:
+  action.is_one_of(RV5StageRasAction.Push, RV5StageRasAction.PopPush)
+
+sync_circuit RV5StageRas(xlen :: XLen, entry_count :: Nat = 6):
+  interface speculate(Valid(RV5StageRasUpdate(xlen)), ~role: consumer)
+  interface resolve(Valid(RV5StageRasResolution(xlen)), ~role: consumer)
+  interface restore(Pulse(), ~role: consumer)
+  interface clear(Pulse(), ~role: consumer)
+  output head_valid: Bool
+  output head: Bits(xlen.width)
+
+  if entry_count == 0
+  | block:
+      head_valid <== Bool(#false)
+      head <== dont_care(Bits(xlen.width))
+  | block:
+      def index_bits = index_width(entry_count)
+      def count_bits = index_width(entry_count + 1)
+      def empty_entries = vec(for List (_index in 0..entry_count): bits(0, xlen.width))
+      reg speculative_entries(Vec(entry_count, Bits(xlen.width)), ~init: empty_entries)
+      reg speculative_top(~init: bits(0, index_bits))
+      reg speculative_count(~init: bits(0, count_bits))
+      reg committed_entries(Vec(entry_count, Bits(xlen.width)), ~init: empty_entries)
+      reg committed_top(~init: bits(0, index_bits))
+      reg committed_count(~init: bits(0, count_bits))
+
+      fun increment(index :: Bits(index_bits)) :~ Bits(index_bits):
+        mux(index === bits(entry_count - 1, index_bits), bits(0, index_bits), index + bits(1, index_bits))
+      fun decrement(index :: Bits(index_bits)) :~ Bits(index_bits):
+        mux(index === bits(0, index_bits), bits(entry_count - 1, index_bits), index - bits(1, index_bits))
+      fun updated_top(top :: Bits(index_bits), count :: Bits(count_bits), action :: RV5StageRasAction) :~ Bits(index_bits):
+        mux(
+          action === RV5StageRasAction.Push,
+          mux(count === bits(0, count_bits), top, increment(top)),
+          mux(
+            action === RV5StageRasAction.Pop,
+            mux(count === bits(0, count_bits), top, decrement(top)),
+            top
+          )
+        )
+      fun updated_count(count :: Bits(count_bits), action :: RV5StageRasAction) :~ Bits(count_bits):
+        mux(
+          action === RV5StageRasAction.Push,
+          mux(count === bits(entry_count, count_bits), count, count + bits(1, count_bits)),
+          mux(
+            action === RV5StageRasAction.Pop,
+            mux(count === bits(0, count_bits), count, count - bits(1, count_bits)),
+            mux(
+              action === RV5StageRasAction.PopPush,
+              mux(count === bits(0, count_bits), bits(1, count_bits), count),
+              count
+            )
+          )
+        )
+      fun write_index(top :: Bits(index_bits), count :: Bits(count_bits), action :: RV5StageRasAction) :~ Bits(index_bits):
+        mux(action === RV5StageRasAction.Push, mux(count === bits(0, count_bits), top, increment(top)), top)
+
+      def speculative_write_index = write_index(speculative_top, speculative_count, speculate.bits.action)
+      def speculative_next_entries = speculative_entries.updated(speculative_write_index, speculate.bits.return_address)
+      def resolved_write_index = write_index(committed_top, committed_count, resolve.bits.actual.action)
+      def committed_next_entries = committed_entries.updated(resolved_write_index, resolve.bits.actual.return_address)
+      def committed_next_top = updated_top(committed_top, committed_count, resolve.bits.actual.action)
+      def committed_next_count = updated_count(committed_count, resolve.bits.actual.action)
+      def reconcile = resolve.valid & (resolve.bits.actual.action =/= resolve.bits.predicted_action)
+
+      head_valid <== speculative_count =/= bits(0, count_bits)
+      head <== speculative_entries[speculative_top]
+
+      when (clear.valid):
+        committed_entries <== empty_entries
+        committed_top <== bits(0, index_bits)
+        committed_count <== bits(0, count_bits)
+      elsewhen (resolve.valid):
+        committed_entries <== mux(rv5stage_ras_writes(resolve.bits.actual.action), committed_next_entries, committed_entries)
+        committed_top <== committed_next_top
+        committed_count <== committed_next_count
+
+      when (clear.valid):
+        speculative_entries <== empty_entries
+        speculative_top <== bits(0, index_bits)
+        speculative_count <== bits(0, count_bits)
+      elsewhen (resolve.valid & (restore.valid ||| reconcile)):
+        speculative_entries <== mux(rv5stage_ras_writes(resolve.bits.actual.action), committed_next_entries, committed_entries)
+        speculative_top <== committed_next_top
+        speculative_count <== committed_next_count
+      elsewhen (restore.valid):
+        speculative_entries <== committed_entries
+        speculative_top <== committed_top
+        speculative_count <== committed_count
+      elsewhen (speculate.valid):
+        speculative_entries <== mux(rv5stage_ras_writes(speculate.bits.action), speculative_next_entries, speculative_entries)
+        speculative_top <== updated_top(speculative_top, speculative_count, speculate.bits.action)
+        speculative_count <== updated_count(speculative_count, speculate.bits.action)
+
+export:
+  RV5StageRasAction
+  RV5StageRasUpdate
+  RV5StageRasResolution
+  rv5stage_ras_action
+  RV5StageRas

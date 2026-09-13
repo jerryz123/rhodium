@@ -4,6 +4,7 @@
 
 import:
   "btb.rhdl" open
+  "ras.rhdl" open
   "fetch-packet.rhdl" open
   "profile.rhm".RVCoreProfile
   "decode/core-ctrl.rhdl".rv5stage_instructions
@@ -68,6 +69,7 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RVCoreProfile):
     raw_instruction: raw
     sequential_pc: sequential_pc
     predicted_next_pc: mux(predicted_taken, prediction.target, sequential_pc)
+    predicted_ras_action: mux(predicted_taken, prediction.ras_action, RV5StageRasAction.None)
     compressed_illegal: instruction_is_compressed & !compressed_legal
     instruction_page_fault: page_fault
     instruction_access_fault: access_fault
