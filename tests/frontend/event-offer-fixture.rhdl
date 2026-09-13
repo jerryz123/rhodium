@@ -10,7 +10,7 @@ sync_circuit EventOffer():
   interface sink(Decoupled(Bits(8)), ~role: producer)
   input qualify: Bool
   output offer_ready: Bool
-  def attempted = source |> trace_valid_event("attempt", ~root: #true, ~payload: #true)
+  def attempted = source |> trace_valid_event("attempt", ~payload: #true)
   def offered = attempted |> offer_decoupled()
   offer_ready <== offered.ready
   def admitted = offered

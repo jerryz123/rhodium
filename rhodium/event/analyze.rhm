@@ -82,7 +82,6 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def replications = MutableMap{}
   def broadcasts = MutableMap{}
   def roots = MutableSet{}
-  def detached = MutableSet{}
   def stalled_sites = MutableSet{}
   def explicit_children = MutableSet{}
   def mutable explicit_edges = []
@@ -186,7 +185,6 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  if annotation.payload | annotation.payload.type.describe() | #false,
                                  if annotation.payload | annotation.payload.type.packed_width() | #false,
                                  annotation.location.describe(),
-                                 annotation.root,
                                  captures)
             sites := sites ++ [site]
             when annotation.stalls | stalled_sites.add(site.id)
@@ -261,17 +259,15 @@ fun infer_event_manifest(logical :: DesignElaboration,
             for (route in trace_model.routes):
               def input_port = input_ports[route.input_index]
               def output_port = output_ports[route.output_index]
-              if trace_model.detached()
-              | detached.add(terminal_id(instance_path, flow_block.id, output_port.id))
-              | if retained_output
-                | add_arc(retained_output, terminal_id(instance_path, flow_block.id, output_port.id))
-                | add_arc(
-                    terminal_id(instance_path, flow_block.id, input_port.id),
-                    terminal_id(instance_path, flow_block.id, output_port.id),
-                    occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label,
-                    trace_model.latency_cycles(),
-                    stages
-                  )
+              if retained_output
+              | add_arc(retained_output, terminal_id(instance_path, flow_block.id, output_port.id))
+              | add_arc(
+                  terminal_id(instance_path, flow_block.id, input_port.id),
+                  terminal_id(instance_path, flow_block.id, output_port.id),
+                  occurrence_prefix(instance_path) ++ "/" ++ flow_block.id ++ ":" ++ flow_block.label,
+                  trace_model.latency_cycles(),
+                  stages
+                )
           | for (port in output_ports):
               unsupported_by_output[
                 terminal_id(instance_path, flow_block.id, port.id)
@@ -318,7 +314,6 @@ fun infer_event_manifest(logical :: DesignElaboration,
     def event = event_by_output.get(vertex, #false)
     cond
     | event: [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
-    | vertex in detached: []
     | gap_reason(vertex):
         record_gap(vertex)
         []
@@ -363,7 +358,6 @@ fun infer_event_manifest(logical :: DesignElaboration,
           unless event.id in found
           | found.add(event.id)
             candidates := candidates ++ [EventCandidate(event, reverse_path.reverse(), #false, #false)]
-      | vertex in detached: #void
       | gap_reason(vertex): record_gap(vertex)
       | colors.get(vertex, 0) == 1: cyclic := #true
       | colors.has_key(vertex): #void
@@ -384,7 +378,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   for (site in sites):
     current_site := site.id
     unless site.id in explicit_children
-    | for (input in (if site.root | [] | site_inputs.get(site.id, []))):
+    | for (input in site_inputs.get(site.id, [])):
         for (candidate in discover_nearest(input)):
           def dependency = EventDependency(candidate.site.id,
                                            site.id,
@@ -438,8 +432,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
           def plan:
             cond
             | event: EventTraceSource(event.id)
-            | vertex in detached: EventTraceSource(#false, #true)
-            | gap_reason(vertex): EventTraceSource(#false, #false, vertex)
+            | gap_reason(vertex): EventTraceSource(#false, vertex)
             | join: EventTraceJoin(join.map(fun (input): trace_plan(input, visiting ++ [vertex])))
             | broadcast:
                 EventTraceBroadcast(trace_plan(broadcast.input, visiting ++ [vertex]), broadcast.instance_path,
@@ -467,7 +460,6 @@ fun infer_event_manifest(logical :: DesignElaboration,
   | for (site in sites):
       def plan:
         cond
-        | site.root: EventTraceSource(#false)
         | explicit_plans.has_key(site.id): explicit_plans[site.id]
         | ~else: trace_plan(site_inputs[site.id][0])
       validate_event_trace_feedback(plan)
@@ -478,7 +470,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
     when site.id in stalled_sites
     | def stall = EventSite(site.id ++ "/stall", site.label ++ ".stall", site.module_name,
                             site.instance_path, site.local_site, site.protocol, site.payload_type,
-                            site.payload_width, site.source_location, site.root, site.fields,
+                            site.payload_width, site.source_location, site.fields,
                             "stall", site.id)
       sites := sites ++ [stall]
       // Only linear transfer contracts currently expose certified pending
@@ -490,6 +482,6 @@ fun infer_event_manifest(logical :: DesignElaboration,
       | def nodes = event_trace_nodes(plans[site.id])
         def unknown = partial && nodes.find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
         def linear = for all (node in nodes): node is_a EventTraceSource || node is_a EventTracePipeline
-        plans[stall.id] := (if parents.length() > 0 || (unknown && linear) | plans[site.id] | (if unknown | EventTraceSource(#false, #false, site.id) | EventTraceSource(#false)))
+        plans[stall.id] := (if parents.length() > 0 || (unknown && linear) | plans[site.id] | (if unknown | EventTraceSource(#false, site.id) | EventTraceSource(#false)))
       gaps := gaps ++ gaps.filter(~keep: fun (gap): gap.site == site.id).map(fun (gap): EventTraceGap(stall.id, gap.boundary, gap.reason))
   EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]), gaps)

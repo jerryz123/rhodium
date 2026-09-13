@@ -6,7 +6,7 @@ import:
   "../../rhodium/backend/circt.rhm".emit_circt
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../rhodium/event/main.rhm" open
-def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageLoadHit()))
+def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageLoadHit()), EventInstrumentationConfig(~partial: #true))
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace demand_sites {\n" ++ String.join(
   for List (label in ["core/s4.memory", "core/s5.wb", "dcache/s1.access", "dcache/s2.resp", "dcache/s3.lookup", "dcache/s4.resolve", "dcache/chi.txreq"], name in ["mem", "wb", "access", "response", "lookup", "resolve", "txreq"]):
     def indices = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)

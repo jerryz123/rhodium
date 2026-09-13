@@ -25,13 +25,13 @@ sync_circuit EventPartialLane(traced :: Boolean):
   inst isolated(OpaqueEventStorage())
   inst select(GrantMerge(Bits(8), 3))
   select.grants <== grants.into(MaybeOneHot(3))
-  def known = if traced | ingress[0] |> trace_event("known", ~root: #true) | ingress[0]
-  def before = if traced | ingress[1] |> trace_event("before", ~root: #true) | ingress[1]
-  def buddy = if traced | ingress[3] |> trace_event("buddy", ~root: #true) | ingress[3]
+  def known = if traced | ingress[0] |> trace_event("known") | ingress[0]
+  def before = if traced | ingress[1] |> trace_event("before") | ingress[1]
+  def buddy = if traced | ingress[3] |> trace_event("buddy") | ingress[3]
   known |> select.ingress[0]
   before |> opaque.ingress
   opaque.egress |> select.ingress[1]
-  ingress[2] |> trace_detach() |> select.ingress[2]
+  ingress[2] |> select.ingress[2]
   def selected = select.egress |> queue(2) |> shift_queue(2, ~flow: #true)
   def joined = Array(selected, buddy) |> zip_flow(a, b => a ^ b)
   def buffered = joined |> queue(2)

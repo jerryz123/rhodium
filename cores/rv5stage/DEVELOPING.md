@@ -219,7 +219,8 @@ always-capture payload registers or derive controls from generated signal names.
 EX's payload is still computed unconditionally; its flow filter qualifies only
 token validity, preserving the feed-forward datapath and cancellation timing.
 
-Accepted `frontend/s0.request` occurrences are explicit roots. The intrinsic
+Accepted `frontend/s0.request` occurrences report unknown incoming ancestry
+until source-FSM causality is modeled. The intrinsic
 flushable pipes connect them through `frontend/s1.lookup` and
 `frontend/s2.outcome`, which captures replay, admission, and admitted fault flags.
 Only admitted outcomes pass the Flow filter into packet storage; no
@@ -229,7 +230,7 @@ a depth-one window using actual residual capture/release, clear, and independent
 resident/live contribution predicates. A word can parent two compressed
 instructions; a straddle has two word parents, including a faulting continuation.
 `core/s2.decode` inherits those
-parents instead of cutting ancestry. Frontend replay attempts are new roots;
+parents instead of cutting ancestry. Frontend replay attempts are new occurrences;
 I-cache TXREQ inherits the S0 occurrence that launched its refill. MMU walk,
 predictor-training, and redirect causality remain separate.
 Run `event-window`, `event-frontend`, `rv5stage-fetch-prediction`, and
@@ -254,14 +255,15 @@ their own trace models. Observe S3 before its advance gate (including stalls)
 and S4 before its hit/transaction demux. Capture direct refill acceptance and
 command fields on S4, before arbitration with post-eviction commands; do not
 certify the gather FSM as a pipe.
-Walker and admitted prefetch sources are explicit independent roots.
+Walker and admitted prefetch checkpoints infer available ancestry just like
+demand checkpoints; unmodeled source state remains unknown in partial mode.
 `rv5stage-load-hit` instruments the actual core/MMU/router/cache composition;
 its DPI scoreboard checks S1/MEM and S2/WB alignment, one-cycle S1/S2
 correspondence, public admission against S2 fields, FIFO ancestry through
 S3/S4, exact miss PCs and direct refill addresses, and S4 ownership across
 backpressured CHI attempts, RetryAck, and PCrdGrant. Refill owns the scoped
-command-to-attempt contract before its Flow request mapper; unrelated engine branches explicitly detach before
-request arbitration.
+command-to-attempt contract before its Flow request mapper; unmodeled engine
+branches retain unknown ancestry through request arbitration in partial mode.
 
 After edits, run `rv5stage-core` for forwarding, stalls, replay, redirects, and
 deferred completion, then the SimpleSoC trace smoke. Its native Perfetto checks
@@ -279,8 +281,8 @@ names independently of numeric opcode captures in the trace smoke.
 Do not infer CHI transaction ownership by matching TxnID/DBID values. Request
 checkpoints supply occurrence identities that Flow carries through network transit.
 I/D-cache incoming RSP/DAT observations inherit certified Home output ancestry;
-the inclusive Home's retained request scope bridges its FSM. Outgoing RSP/DAT,
-snoops remain independent observations.
+the inclusive Home's retained request scope bridges its FSM. Outgoing RSP/DAT
+and snoops also infer all available parents, reporting unmodeled owners as gaps.
 Refill acknowledgement/completion and backing-memory provenance remain separate.
 Enable stall companions without requiring activity on idle channels.
 After changing them, run the SimpleSoC trace smoke; its

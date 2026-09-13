@@ -58,7 +58,7 @@ sync_circuit EventWindow(intrinsic :: Boolean = #true, live_support :: Boolean =
   storage.remove_count <== remove_count
   storage.selected <== selected
   occupancy <== storage.occupancy
-  source |> trace_valid_event("word", ~root: #true, ~payload: #true) |> storage.source
+  source |> trace_valid_event("word", ~payload: #true) |> storage.source
   if !intrinsic
   | describe_interface_transform(InterfaceHandle(storage.source, storage.sink), "window", {}, storage, ~trace_model: interface_trace_window(storage))
   | #void

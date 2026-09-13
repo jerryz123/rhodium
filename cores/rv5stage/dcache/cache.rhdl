@@ -427,7 +427,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   s4_refill_opcode <== direct_refill_commands.bits.opcode
   s4_refill_address <== direct_refill_commands.bits.line_address
   // Gather/writeback ownership is not yet modeled; never borrow a live S4 token.
-  Array(direct_refill_commands, post_eviction_refills |> trace_detach()) |> arbiter() |> refill.command
+  Array(direct_refill_commands, post_eviction_refills) |> arbiter() |> refill.command
   def writeback_complete = writeback.completion.fire()
 
   // Finish an already accepted snoop before installation. New probes wait
@@ -624,7 +624,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
           request: request
           prefetch: Bool(#true)
           prefetch_write: hint.operation === CachePrefetchOperation.Write
-  ) |> to_decoupled() |> trace_event("dcache/prefetch", ~root: #true)
+  ) |> to_decoupled() |> trace_event("dcache/prefetch")
   Array(s2_demand, s2_hint) |> arbiter() |> gate_flow(s2_admit) |> s3_lookup.ingress
   def service_request_accept = core.request.fire()
   def s2_issue = s3_lookup.ingress.fire()
@@ -885,7 +885,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     )
 
   // CHI transport: array order is the existing fixed-priority policy.
-  Array(refill.requests, writeback.requests |> trace_detach(), maintenance.requests |> trace_detach()) |> arbiter() |> chi.requests
+  Array(refill.requests, writeback.requests, maintenance.requests) |> arbiter() |> chi.requests
   Array(refill.acknowledgements, snoop.responses) |> arbiter() |> chi.requester_responses
   Array(writeback.data, snoop.data) |> arbiter() |> chi.request_data
   chi.response_data |> refill.response_data

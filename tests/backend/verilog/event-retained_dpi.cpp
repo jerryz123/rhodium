@@ -1,4 +1,4 @@
-// Scores retained ownership, retries, replacement, reset, and detached traffic from public transfers.
+// Scores retained ownership, retries, replacement, reset, and unknown traffic from public transfers.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-retained_manifest.h"
@@ -10,7 +10,7 @@ rheg::Graph expected;
 std::array<std::uint64_t,2> sequence{};
 std::optional<rheg::Ref> owner;
 std::uint64_t cycle=0;
-unsigned outputs=0, repeats=0, detached=0, replacements=0, pending_resets=0, deliveries=0;
+unsigned outputs=0, repeats=0, unknown=0, replacements=0, pending_resets=0, deliveries=0;
 bool resetting=true;
 [[noreturn]] void fail(const char* message) { std::fprintf(stderr,"retained trace: %s at %llu\n",message,(unsigned long long)cycle); std::abort(); }
 rheg::Ref node(unsigned site, unsigned payload) {
@@ -29,7 +29,7 @@ extern "C" void retained_sample(unsigned reset, unsigned capture, unsigned relea
   }
   if(transfer) {
     auto child=node(1,output_bits); ++outputs;
-    if(unrelated_transfer) ++detached;
+    if(unrelated_transfer) { ++unknown; expected.nodes.at(child).ancestry_unknown=true; }
     else {
       if(!owner) fail("output without resident owner");
       expected.edges.insert({*owner,child});
@@ -46,6 +46,6 @@ extern "C" void retained_check() {
   if(!resetting) ++cycle;
 }
 extern "C" void retained_finish() {
-  if(!outputs || !repeats || !detached || !replacements || !pending_resets) fail("missing repeat, detach, replacement, or pending-reset coverage");
-  std::printf("retained lineage passed: outputs=%u repeats=%u detached=%u replacements=%u pending-resets=%u\n",outputs,repeats,detached,replacements,pending_resets);
+  if(!outputs || !repeats || !unknown || !replacements || !pending_resets) fail("missing repeat, unknown, replacement, or pending-reset coverage");
+  std::printf("retained lineage passed: outputs=%u repeats=%u unknown=%u replacements=%u pending-resets=%u\n",outputs,repeats,unknown,replacements,pending_resets);
 }

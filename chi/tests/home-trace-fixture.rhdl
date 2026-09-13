@@ -13,7 +13,7 @@ sync_circuit EventHome():
   interface port(CHIHNChannels(p), ~role: home)
   inst home(CHIInclusiveHNF(config))
   home.identity <== identity
-  def request_event = port.requester.requests |> trace_event("request", ~root: #true, ~fields: flit):
+  def request_event = port.requester.requests |> trace_event("request", ~fields: flit):
     address: flit.address
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id

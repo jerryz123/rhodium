@@ -44,7 +44,6 @@ class EventSite(id :: String,
                 payload_type :: False || String,
                 payload_width :: False || PosInt,
                 source_location :: String,
-                root :: Boolean = #false,
                 fields :: List.of(EventField) = [],
                 kind :: String = "transfer",
                 observation_of :: False || String = #false)
@@ -72,7 +71,7 @@ class EventTraceWindow(instance_path :: List.of(String), depth :: PosInt,
 class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):
   method controls(): [capture, release, active]
 
-class EventTraceSource(site :: False || String, detached :: Boolean = #false, unknown :: False || String = #false):
+class EventTraceSource(site :: False || String, unknown :: False || String = #false):
   implements EventTracePlan
 // Occurrence-qualified back references are resolved once after graph discovery.
 // Acyclic paths keep their existing expression shape.

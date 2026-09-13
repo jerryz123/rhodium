@@ -1295,11 +1295,6 @@ child routes. Use `trace_edge` from `flow/event.rhdl` for the common public
 surface. Normal Flow ancestry remains compiler-inferred, so explicit edges are
 reserved for opaque FSM/register boundaries.
 
-`interface_trace_detached()` deliberately cuts incoming ancestry on one
-input/output route without adding a visible event or changing functional wires.
-Downstream selection may mix these explicitly parentless transactions with
-annotated ones. It does not make any other unsupported branch traceable.
-
 An in-order asynchronous-read queue calls
 `describe_interface_queue_storage(depth, enqueue, dequeue, read_address, write_address, stored_valid, bypass)`
 for each named region inside its implementation. The positive depth fixes metadata capacity;
@@ -1416,9 +1411,10 @@ the same module-local namespace. This remains metadata on a transparent
 checkpoint; [event instrumentation](../../event/README.md#stall-observations)
 owns its runtime meaning.
 
-`describe_interface_event(..., ~root: #true)` declares an intentional lineage
-start. The default is false. See the [event contract](../../event/README.md#annotate-events)
-for dependency-cut semantics; this annotation never certifies opaque hardware.
+`describe_interface_event` records a checkpoint, not a lineage cut. The consumer
+infers available parents from its inputs. See the
+[event contract](../../event/README.md#annotate-events) for naturally parentless
+sources and partial ancestry.
 
 ### Injection and ejection boundaries
 

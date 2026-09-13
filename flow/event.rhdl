@@ -12,7 +12,6 @@ import:
 fun trace_event_config(label :: String,
                        ~when: qualification :: Bool = Bool(#true),
                        ~stalls: stalls :: Boolean = #false,
-                       ~root: root :: Boolean = #false,
                        ~payload: raw :: Boolean = #false,
                        ~capture: capture :: False || Function = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
@@ -34,15 +33,13 @@ fun trace_event_config(label :: String,
         ~fields: if capture | capture(flow_payload_type(source), input_endpoint.field("bits")) | [],
         ~valid: input_endpoint.field("valid") & qualification,
         ~ready: output_endpoint.field("ready"),
-        ~stalls,
-        ~root
+        ~stalls
       )
     )
 
 // Valid has no reverse readiness member, so its transparent event checkpoint
 // forwards only the offer and payload.
 fun trace_valid_event_config(label :: String,
-                             ~root: root :: Boolean = #false,
                              ~payload: raw :: Boolean = #false,
                              ~capture: capture :: False || Function = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
@@ -61,8 +58,7 @@ fun trace_valid_event_config(label :: String,
         label,
         ~payload: if raw | input_endpoint.field("bits") | #false,
         ~fields: if capture | capture(valid_flow_payload_type(source), input_endpoint.field("bits")) | [],
-        ~valid: input_endpoint.field("valid"),
-        ~root
+        ~valid: input_endpoint.field("valid")
       )
     )
 
@@ -106,15 +102,3 @@ export:
   trace_event
   trace_valid_event
   trace_edge
-  trace_detach
-
-// Deliberately forget ancestry without adding a visible event or changing RTL.
-fun trace_detach() :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
-  fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def protocol = flow_protocol_type(source)
-    def input_link = interface_link(protocol, "detach_input")
-    def output_link = interface_link(protocol, "detach_output")
-    output_link.left.field("valid") <== input_link.right.field("valid")
-    output_link.left.field("bits") <== input_link.right.field("bits")
-    input_link.right.field("ready") <== output_link.left.field("ready")
-    finish_interface_transform(source, describe_interface_transform(interface_transform(input_link, output_link), "trace-detach", ~trace_model: interface_trace_detached()))

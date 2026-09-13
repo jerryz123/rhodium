@@ -18,10 +18,10 @@ check:
   instrument_events(logical) ~throws "opaque or disconnected"
   emit_circt(logical.design) ~is before
   manifest.sites.length() ~is 8
-  manifest.gaps.length() ~is 4
+  manifest.gaps.length() ~is 6
   infer_event_manifest(logical, ~partial: #true).gaps.map(fun (gap): gap.site ++ ":" ++ gap.boundary).sort() ~is manifest.gaps.map(fun (gap): gap.site ++ ":" ++ gap.boundary).sort()
-  manifest.gaps.map(fun (gap): manifest.site(gap.site).label).sort() ~is ["isolated", "isolated.stall", "middle", "middle.stall"]
-  (for all (gap in manifest.gaps): gap.reason == "opaque-boundary") ~is #true
+  manifest.gaps.map(fun (gap): manifest.site(gap.site).label).sort() ~is ["isolated", "isolated.stall", "middle", "middle", "middle.stall", "middle.stall"]
+  manifest.gaps.map(fun (gap): gap.reason).sort() ~is ["opaque-boundary", "opaque-boundary", "opaque-boundary", "opaque-boundary", "unannotated-input", "unannotated-input"]
   manifest.dependencies.map(fun (edge): manifest.site(edge.parent).label ++ ":" ++ manifest.site(edge.child).label).sort() ~is ["buddy:middle", "known:middle", "middle:after"]
   event_manifest_to_json(manifest).contains("\"gaps\"") ~is #true
   instrument_events(feedback.unsafe_feedback(), EventInstrumentationConfig(~partial: #true)) ~throws "uncertified fanout"

@@ -28,6 +28,9 @@ rheg::Ref node(unsigned site, std::uint64_t pc, unsigned flags = 0, unsigned fla
   rheg::Ref ref{site, sequences[site]++};
   auto& n = expected.nodes[ref];
   n.present = true; n.cycle = cycle; n.width = 64 + flag_bits;
+  // The PC/replay source FSM has no incoming causal contract. Its downstream
+  // checkpoints still have complete immediate parents from public transfers.
+  n.ancestry_unknown = site == frontend_s0_request;
   const auto low = (pc << flag_bits) | flags;
   n.words[0] = std::uint32_t(low); n.words[1] = std::uint32_t(low >> 32);
   if (flag_bits) n.words[2] = std::uint32_t(pc >> (64 - flag_bits));

@@ -25,9 +25,10 @@ for (intrinsic in [#true, #false]):
       check:
         validate_event_trace_feedback(loop) ~throws "same-cycle event lineage cycle"
 
-def frontend = instrument_events(fixture.frontend)
+def frontend = instrument_events(fixture.frontend, EventInstrumentationConfig(~partial: #true))
 def fetch = frontend.manifest.sites.find(fun (site): site.label == "core.s1.fetch")
 check:
+  frontend.manifest.gaps.map(fun (gap): frontend.manifest.site(gap.site).label) ~is ["frontend/s0.request"]
   event_trace_capacity(frontend.manifest.trace_plans[fetch.id]) ~is 4
   frontend.manifest.dependencies.filter(~keep: fun (edge): edge.child == fetch.id).map(fun (edge): frontend.manifest.site(edge.parent).label) ~is ["frontend/s2.outcome"]
   fixture.bad_window("missing") ~throws "requires declared storage controls"

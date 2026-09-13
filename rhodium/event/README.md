@@ -56,7 +56,7 @@ import:
   lib("flow/main.rhdl") open
 
 source
-  |> trace_event("accepted", ~root: #true)
+  |> trace_event("accepted")
   |> pipe(2)
   |> trace_event("issued")
   |> sink
@@ -81,11 +81,11 @@ recorded parent, for example because faulting transactions never reach it or
 because its observation is qualified consistently. Missing-parent assertions
 remain enabled; qualification is not a generic trace-sampling mechanism.
 
-`~root: #true` explicitly starts new lineage, including at an opaque component
-output. It cuts off earlier ancestry without certifying the component or
-relaxing clock/reset checks. The default is false: ordinary checkpoints reject
-opaque ancestry in strict mode or report it in partial mode. Uncertified
-structural relationships remain errors. The manifest records `sites[].root`.
+Every checkpoint infers available incoming ancestry. A wholly supported region
+with no upstream checkpoint is naturally parentless; no source annotation is
+needed. Opaque ancestry is rejected in strict mode or reported as unknown in
+partial mode. Missing contracts never authorize silently discarding ancestry.
+Uncertified structural relationships remain errors.
 Every checkpoint can supply its occurrence identity to downstream checkpoints.
 Leaves follow from the discovered graph; they need no special annotation.
 
@@ -135,7 +135,7 @@ no fixed latency. Runtime nodes and DPI packing are unchanged.
 Select observations independently at each checkpoint with a typed binder:
 
 ```rhombus
-def observed = source |> trace_event("fetch", ~root: #true, ~fields: payload):
+def observed = source |> trace_event("fetch", ~fields: payload):
   pc: payload.pc
   instruction: payload.instruction
   low_pc(~format: "unsigned"): payload.pc[0..5]
@@ -189,8 +189,8 @@ relationships or change the captured bit layout.
 For an intentional whole-payload dump, use `~payload: #true` to create a single
 `raw` capture; do not combine it with named fields. Low-level adapters can pass
 `~fields: [event_field("pc", pc), ...]` to `describe_interface_event`, whose
-`~payload: value` option is an explicit raw capture. The same low-level API
-accepts explicit root metadata.
+`~payload: value` option is an explicit raw capture. It uses the same incoming
+dependency inference as the Flow convenience adapters.
 
 All captures sample with their occurrence's transfer or stall predicate. They are local
 observations, not extra values propagated along dependency edges. The manifest's
@@ -217,7 +217,7 @@ direct dependencies `A -> B` and `B -> C`, not `A -> C`. Inference is read-only.
 The structured result includes:
 
 - `EventSite`: occurrence ID, label, defining module, instance path, local site
-  ordinal, protocol, capture schema, root flag, and source location.
+  ordinal, protocol, capture schema, and source location.
 - `EventDependency`: parent/child IDs, intervening transforms, and
   `latency_cycles` (fixed nonnegative delay, or `false` for variable/unknown
   latency). `trace_stages` describes certified linear paths and is `false`
@@ -252,7 +252,6 @@ remain visible; it does not summarize the whole containing module. See the
 | `ShiftQueue`, `shift_queue` | Follow shifting head storage, optional empty bypass, and explicit flush through the intrinsic window contract |
 | Ready-valid `pipe` | Advance, bubble, and stall with the functional stages |
 | Retained-owner contract | Capture one lineage, reuse it across declared outputs and repeated attempts, and release it only on completion; replacement exposes the old owner until the edge |
-| `trace_detach` | Explicitly cut ancestry without a visible event; selected transactions remain valid but parentless |
 | `queue` | Preserve FIFO order for all `~pipe`/`~flow` combinations, including bypass and simultaneous replacement |
 | `arbiter`, `rr_arbiter` | Select the actual granted input's lineage, including any multiple-parent lineage |
 | `GrantDemux`, `GrantMerge`, `GrantCrossbar`, `grant_crossbar` | Live grant-selected lineage through composed routing/selection; zero grants block transfer |
@@ -323,13 +322,13 @@ also accepts `~partial: #true`.
 Partial inference stops at missing, opaque, or unmodeled contracts but retains
 every annotated event and all certified nearest-parent dependencies. The
 manifest's optional `gaps` array identifies each affected site, boundary, and
-reason. It does not relabel gaps as intentional roots or detached traffic.
+reason. It does not relabel gaps as known-parentless traffic.
 Supported wholly unannotated input regions retain ordinary inferred-root behavior.
 
 The compiler carries an unknown-ancestry bit through modeled storage and
 selection. A join retains known parents even when another contributor is
 unknown. Affected occurrences carry `ancestry_unknown: true` in RHEG and Perfetto;
-known or explicitly detached selections do not. This describes immediate
+fully known selections do not. This describes immediate
 nearest-parent completeness, not transitive graph completeness: the next
 checkpoint supplies its own definite occurrence identity to downstream events.
 Linear stall observations share their transfer's carried status; unsupported
@@ -343,10 +342,10 @@ disable runtime assertions for certified storage and selection.
 
 - Only flat top-level flow endpoints are traceable, not nested interface members.
 - In strict mode, unmodeled, disconnected, opaque, and route-only boundaries are rejected during
-  required traversal. An explicit root can start observation beyond a boundary;
-  failure to infer ancestry never implicitly grants root intent.
+  required traversal. Partial mode can observe beyond a boundary while marking
+  the missing ancestry, without suppressing available parents.
 - In strict mode, if any selectable or joined input has annotated ancestry, all such inputs must
-  have it or explicitly detach it. Missing or unsupported branches still fail.
+  have it. Missing or unsupported branches still fail.
   Fully unannotated, otherwise supported ancestry establishes a root.
 - Multiple child sites require certified routing or replication at divergence.
   For feedback, the compiler checks branches in the finite graph, not decisions

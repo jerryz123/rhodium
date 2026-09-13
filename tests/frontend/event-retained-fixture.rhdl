@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises retained transaction ownership, replacement, and explicit untraced arbitration.
+// Exercises retained transaction ownership, replacement, and arbitration with unannotated traffic.
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
@@ -47,11 +47,11 @@ sync_circuit RetainedRegion(mode :: String):
   | def source = interface_link(Decoupled(Bits(8)), "independent")
     source.left.field("valid") <== Bool(#false)
     source.left.field("bits") <== bits(0, 8)
-    def output :: Endpoint = source.right |> pipe(1) |> trace_event("independent", ~root: #true)
+    def output :: Endpoint = source.right |> pipe(1) |> trace_event("independent")
     output.ready <== Bool(#true)
   | #void
 
-sync_circuit EventRetained(intrinsic :: Boolean = #true, detach :: Boolean = #true, region :: String = "region"):
+sync_circuit EventRetained(intrinsic :: Boolean = #true, region :: String = "region"):
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface unrelated(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
@@ -63,12 +63,8 @@ sync_circuit EventRetained(intrinsic :: Boolean = #true, detach :: Boolean = #tr
   if (!intrinsic) && region == ""
   | describe_interface_transform(InterfaceHandle(owner.command, owner.attempt), "attempts", {}, owner, ~trace_model: interface_trace_retained(owner))
   | #void
-  source |> trace_event("accepted", ~root: #true, ~payload: #true) |> owner.command
-  def untraced :: Endpoint:
-    if detach
-    | unrelated |> trace_detach()
-    | unrelated
-  Array(owner.attempt, untraced) |> arbiter() |> trace_event("attempt", ~payload: #true) |> sink
+  source |> trace_event("accepted", ~payload: #true) |> owner.command
+  Array(owner.attempt, unrelated) |> arbiter() |> trace_event("attempt", ~payload: #true) |> sink
 
 sync_circuit InvalidRetained(kind :: String):
   input bad: Bits(2)
@@ -90,7 +86,7 @@ sync_circuit InvalidRetained(kind :: String):
       describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
       describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
 
-fun retained(intrinsic :: Boolean = #true, detach :: Boolean = #true, ~region: region :: String = "region"): elaborate_with_top(EventRetained(intrinsic, detach, region))
+fun retained(intrinsic :: Boolean = #true, ~region: region :: String = "region"): elaborate_with_top(EventRetained(intrinsic, region))
 fun invalid(kind :: String): elaborate_with_top(InvalidRetained(kind))
 
 // One retained owner may feed different declared outputs, not duplicate observers of one output.
@@ -118,26 +114,19 @@ sync_circuit EventRetainedOutputs(duplicate :: Boolean):
   input release: Bool
   inst owner(RetainedOutputs())
   owner.release <== release
-  source |> trace_event("parent", ~root: #true) |> owner.command
+  source |> trace_event("parent") |> owner.command
   for (index in 0..2):
     owner.attempts[if duplicate | 0 | index] |> valid_pipe(index + 1) |> trace_valid_event("child" ++ to_string(index)) |> sinks[index]
 
 fun multi_output(duplicate :: Boolean = #false): elaborate_with_top(EventRetainedOutputs(duplicate))
 export multi_output
 
-sync_circuit EventDetached():
-  interface source(Decoupled(Bits(8)), ~role: consumer)
-  interface sink(Decoupled(Bits(8)), ~role: producer)
-  source |> trace_event("before", ~root: #true) |> trace_detach() |> trace_event("after") |> sink
-
-fun detached(): elaborate_with_top(EventDetached())
-
 // Exercises an explicit causal edge across two otherwise disconnected routes.
 sync_circuit EventTraceEdges(kind :: String = "valid"):
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sinks[2](Valid(Bits(8)), ~role: producer)
   input(capture, release, active): Bool
-  def parent = source |> trace_valid_event("parent", ~root: #true, ~payload: #true)
+  def parent = source |> trace_valid_event("parent", ~payload: #true)
   def child_link = interface_link(Valid(Bits(8)), "child")
   child_link.left.field("valid") <== active
   child_link.left.field("bits") <== bits(1, 8)
@@ -173,13 +162,12 @@ sync_circuit EventContractLinks():
     pair[1].left.field("bits") <== pair[0].right.field("bits") + bits(1, 8)
     pair[0].right.field("ready") <== pair[1].left.field("ready")
     describe_interface_contract(pair[0].right, pair[1].left, name, ~trace_model: interface_trace_combinational())
-  source |> trace_event("before", ~root: #true) |> input
+  source |> trace_event("before") |> input
   output.right |> trace_event("after") |> sink
 
 fun contract_links(): elaborate_with_top(EventContractLinks())
 export:
   retained
   invalid
-  detached
   trace_edges
   contract_links

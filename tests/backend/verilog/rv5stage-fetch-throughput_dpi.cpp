@@ -38,6 +38,7 @@ extern "C" void fetch_trace_check(unsigned done) {
   if(bool(graph.nodes.count(request))!=bool(flags & Admit)) fail("S0 differs from public admission");
   if(flags & Admit) {
     if(graph.nodes.at(request).cycle!=cycle || (field(request,"pc") & ~3ULL)!=address) fail("S0 timestamp or PC");
+    if(!graph.nodes.at(request).ancestry_unknown) fail("unmodeled S0 source must report unknown ancestry");
     incoming=Attempt{request,address};
     ++requests;
   }

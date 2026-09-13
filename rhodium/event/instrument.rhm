@@ -51,7 +51,7 @@ fun instrument_events(logical :: DesignElaboration,
   for (site in manifest.sites, index in 0..manifest.sites.length()): site_ids[site.id] := index
   def parent_plans = MutableMap{}
   fun sources(plan :: EventTracePlan):
-    event_trace_nodes(plan).filter(~keep: fun (node): node is_a EventTraceSource && !node.detached && !node.unknown).map(fun (node): node.site)
+    event_trace_nodes(plan).filter(~keep: fun (node): node is_a EventTraceSource && !node.unknown).map(fun (node): node.site)
   fun incomplete(plan :: EventTracePlan):
     event_trace_nodes(plan).find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
   fun plan_controls(plan :: EventTracePlan):
@@ -504,8 +504,8 @@ fun instrument_events(logical :: DesignElaboration,
               cond
               | plan is_a EventTraceLink: emit_plan(plan.target)
               | plan is_a EventTraceSource:
-                  if plan.detached || plan.unknown
-                  | lineage(yes, [empty_reference], builder.constant(module_def, Bits(1), if plan.unknown | 1 | 0))
+                  if plan.unknown
+                  | lineage(yes, [empty_reference], yes)
                   | block:
                       def reference = references[plan.site]
                       lineage(builder.record_get(module_def, reference, "valid"), [reference])

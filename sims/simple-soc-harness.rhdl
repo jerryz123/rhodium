@@ -24,8 +24,8 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
   requester.port <=> soc.host.memory
   uart.uart_tx <== soc.uart.tx
   soc.uart.rx <== uart.uart_rx
-  soc.memory.req |> trace_event("memory-request", ~payload: #true, ~root: #true) |> trace_event("memory-accept", ~payload: #true) |> memory.port.req
-  memory.port.rsp |> trace_event("memory-response", ~payload: #true, ~root: #true) |> trace_event("soc-response", ~payload: #true) |> soc.memory.rsp
+  soc.memory.req |> trace_event("memory-request", ~payload: #true) |> trace_event("memory-accept", ~payload: #true) |> memory.port.req
+  memory.port.rsp |> trace_event("memory-response", ~payload: #true) |> trace_event("soc-response", ~payload: #true) |> soc.memory.rsp
   soc.memory.dat <=> memory.port.dat
   memory.identity <== CHIRamIdentity(fabric_params.flit):
     node_id: bits(fabric_params.memory_port.node_id, fabric_params.flit.node_id_width)

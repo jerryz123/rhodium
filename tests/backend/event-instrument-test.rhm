@@ -25,7 +25,7 @@ import:
 for (intrinsic in [#true, #false]):
   def logical = retained_fixture.retained(intrinsic, ~region: "")
   def original = emit_circt(logical.design)
-  def retained = instrument_events(logical)
+  def retained = instrument_events(logical, EventInstrumentationConfig(~partial: #true))
   check:
     emit_circt(logical.design) ~is original
     retained.manifest.dependencies.length() ~is 1
@@ -41,12 +41,13 @@ fun retained_stage_count(plan):
 for (region in ["region", "internal", "checkpoint", "disjoint"]):
   def logical = retained_fixture.retained(~region: region)
   def original = emit_circt(logical.design)
-  def traced = instrument_events(logical)
+  def traced = instrument_events(logical, EventInstrumentationConfig(~partial: #true))
   def edges = traced.manifest.dependencies
   def labels = edges.map(fun (edge): [traced.manifest.site(edge.parent).label, traced.manifest.site(edge.child).label]).sort(fun (a, b): a[0] < b[0])
   check:
     emit_circt(logical.design) ~is original
     labels ~is (if region == "checkpoint" | [["accepted", "mapped"], ["mapped", "attempt"]] | [["accepted", "attempt"]])
+    traced.manifest.gaps.map(fun (gap): traced.manifest.site(gap.site).label).sort() ~is (if region == "disjoint" | ["attempt", "independent"] | ["attempt"])
     (for any (edge in edges): edge.transform_path.find(fun (path): path.ends_with(":map")) != #false) ~is #true
     (for values(count = 0) (site in traced.manifest.sites): count + retained_stage_count(traced.manifest.trace_plans[site.id])) ~is 1
     verify_design(traced.instrumented.design) ~is #void
@@ -56,7 +57,6 @@ check:
   linked_contracts.manifest.dependencies[0].latency_cycles ~is 0
   linked_contracts.manifest.dependencies[0].transform_path.filter(~keep: fun (path): path.contains("/contract:")).length() ~is 2
   infer_event_manifest(retained_fixture.retained(~region: "summary")) ~throws "overlaps internal trace topology"
-  instrument_events(retained_fixture.detached()).manifest.dependencies.length() ~is 0
   retained_fixture.invalid("missing") ~throws "requires declared storage controls"
   retained_fixture.invalid("width") ~throws "local one-bit"
   retained_fixture.invalid("duplicate") ~throws "already declared"
@@ -65,7 +65,7 @@ check:
   retained_fixture.invalid("routes") ~throws "retained trace requires one input and one ordered route per output"
   instrument_events(retained_fixture.multi_output()).manifest.dependencies.length() ~is 2
   instrument_events(retained_fixture.multi_output(#true)) ~throws "uncertified fanout"
-  instrument_events(retained_fixture.retained(#true, #false)) ~throws "annotated ancestor on every input"
+  instrument_events(retained_fixture.retained()) ~throws "annotated ancestor on every input"
 
 def stall_before = emit_circt(stall_fixture.stalled.design)
 def stalled = instrument_events(stall_fixture.stalled)
@@ -82,8 +82,8 @@ def before = emit_circt(fixture.runtime.design)
 def result = instrument_events(fixture.runtime)
 def after = emit_circt(fixture.runtime.design)
 def emitted = emit_circt(result.instrumented.design)
-def rooted = instrument_events(fixture.root_boundary(#true))
-def cut = instrument_events(fixture.root_cut)
+def opaque = instrument_events(fixture.opaque_boundary(), EventInstrumentationConfig(~partial: #true))
+def valid_chain = instrument_events(fixture.valid_checkpoint_chain).manifest
 def converted = instrument_events(pipeline_fixture.valid_conversion)
 def nested_channels = instrument_events(pipeline_fixture.nested_channels)
 def private_reset = instrument_events(pipeline_fixture.private_reset(#false))
@@ -123,17 +123,17 @@ check:
   converted.manifest.dependencies.length() ~is 2
   converted.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [1, 1]
   emit_circt(converted.instrumented.design).contains("sim.func.dpi.call @rheg_edge") ~is #true
-  instrument_events(fixture.root_boundary(#false)) ~throws "opaque or disconnected boundary"
-  rooted.manifest.sites.map(fun (site): site.root) ~is [#true, #false]
-  rooted.manifest.sites.map(fun (site): site.payload_width) ~is [73, 73]
-  emit_circt(rooted.instrumented.design).contains("sim.func.dpi.call @rheg_payload") ~is #true
-  rooted.manifest.dependencies.length() ~is 1
-  rooted.manifest.site(rooted.manifest.dependencies[0].parent).label ~is "start"
-  rooted.manifest.site(rooted.manifest.dependencies[0].child).label ~is "end"
-  infer_event_manifest(fixture.root_cut).dependencies.length() ~is 1
-  cut.manifest.dependencies.length() ~is 1
-  cut.manifest.site(cut.manifest.dependencies[0].parent).label ~is "start"
-  event_manifest_to_json(rooted.manifest).contains("\"root\":true") ~is #true
+  instrument_events(fixture.opaque_boundary()) ~throws "opaque or disconnected boundary"
+  opaque.manifest.sites.map(fun (site): site.payload_width) ~is [73, 73]
+  emit_circt(opaque.instrumented.design).contains("sim.func.dpi.call @rheg_payload") ~is #true
+  opaque.manifest.gaps.length() ~is 1
+  opaque.manifest.site(opaque.manifest.gaps[0].site).label ~is "start"
+  opaque.manifest.gaps[0].reason ~is "opaque-boundary"
+  opaque.manifest.dependencies.map(fun (edge): [opaque.manifest.site(edge.parent).label, opaque.manifest.site(edge.child).label]) ~is [["start", "end"]]
+  valid_chain.dependencies.map(fun (edge): [valid_chain.site(edge.parent).label, valid_chain.site(edge.child).label]) ~is [["before", "start"], ["start", "end"]]
+  valid_chain.gaps.length() ~is 0
+  valid_chain.trace_plans[valid_chain.sites[0].id].site ~is #false
+  valid_chain.trace_plans[valid_chain.sites[0].id].unknown ~is #false
 
 fun child(module_def :: Module, name :: String):
   module_def.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")

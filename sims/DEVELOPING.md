@@ -107,7 +107,7 @@ before normal exit or timeout. Keep emitter, generated clock constant, descripto
 and RTL tied to the same harness configuration.
 The emitter opts into `EventInstrumentationConfig(~partial: #true)` to preserve
 supported ancestry when other branches lack contracts. Keep manifest gaps and
-runtime unknown-ancestry markers intact; do not detach opaque branches merely
+runtime unknown-ancestry markers intact; do not suppress opaque branches merely
 to make instrumentation succeed. Partial mode does not waive contract validation.
 Verilator's generated link rule omits user archives from its prerequisites.
 When the outer simulator target is stale, `verilator/relink.mk` marks only the
@@ -165,7 +165,8 @@ admitted S2 ancestry into S3, one-cycle S3-to-S4 advancement, and S4 refill
 acceptance fields. Keep effective S1/S2 addresses separate from physical S3/S4
 addresses; translation need not preserve their numeric value. Direct S4 refill
 acceptance must reach TXREQ with matching opcode/line address; retries may
-produce multiple children. Explicitly detached traffic may have no S4 parent.
+produce multiple children. Unmodeled traffic may have no S4 parent and must
+report unknown ancestry.
 Restrict those pipeline checks to transfer sites. `tests/check-stall-events.sql`
 requires real Decode backpressure, matching capture layouts, the exact
 Boolean hazard fields, and admitted S2 parents for Decode stalls.

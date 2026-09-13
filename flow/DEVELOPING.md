@@ -40,8 +40,7 @@ flowchart TD
 - `event.rhdl` owns transparent checkpoint adapters and publishes public
   metadata. Analysis and runtime instrumentation stay in `rhodium/event`; flow
   must not import that package.
-  Its `trace_detach` adapter explicitly marks an ancestry cut without an event;
-  keep it distinct from opaque-boundary inference failure. Its `trace_edge`
+  Missing ancestry is reported by the consumer's partial mode. Its `trace_edge`
   helper records a named retained-state causal relation through the frontend;
   it must not add functional wiring or move analysis into `flow/`.
 - `offer-decoupled.rhdl` owns best-effort Valid-to-Decoupled wiring;

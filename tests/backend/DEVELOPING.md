@@ -85,7 +85,7 @@ checkpoint. Its public-control FIFO scoreboard preserves exact parent references
 across multiple laps, repeated payloads, stalls, simultaneous transfers, and reset;
 an uninstrumented lane checks functional equivalence. Host diagnostics cover
 same-cycle cycles and unbounded parent accumulation.
-`event-partial` checks opaque storage beside known and detached sources through
+`event-partial` checks opaque storage beside known and unannotated sources through
 grant selection, queues, flow-through shift queues, a join, and a downstream checkpoint. Its independent
 transfer scoreboard compares exact edges and unknown flags under changing grants,
 stalls, equal payloads, and pending reset; a second lane checks unchanged RTL
@@ -113,7 +113,7 @@ of each TXREQ, including delayed retries, request backpressure, redirect while
 the refill remains owned, and pending reset. Retain its cold/warm instruction
 throughput and payload checks alongside the lineage scoreboard.
 `event-retained` independently covers repeated output, release/replacement,
-pending reset, and parentless detached traffic selected beside traced traffic.
+pending reset, and unknown traffic selected beside traced traffic.
 Its scoped relation ends at an opaque child's attempt output before a normal
 Flow mapper. Host coverage also preserves a downstream checkpoint, permits an
 unrelated traced lane, and rejects summaries overlapping existing Flow.

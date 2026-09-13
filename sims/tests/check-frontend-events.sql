@@ -14,6 +14,10 @@ WITH events AS MATERIALIZED (
 SELECT
   (SELECT count(DISTINCT name)=4 FROM events) AND
   (SELECT count(*)=0 FROM events WHERE pc IS NULL OR length(pc)!=18) AND
+  -- The unmodeled PC source is unknown; its checkpoints supply definite parents.
+  (SELECT count(*)=0 FROM events WHERE
+    COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),'false') !=
+      CASE WHEN name='frontend/s0.request' THEN 'true' ELSE 'false' END) AND
   (SELECT count(DISTINCT src||'->'||dst)=3 FROM edges) AND
   (SELECT count(*)=0 FROM edges WHERE
     (src||'->'||dst) NOT IN ('frontend/s0.request->frontend/s1.lookup',

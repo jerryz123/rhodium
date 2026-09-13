@@ -38,7 +38,6 @@ export:
   InterfaceTraceElastic
   InterfaceTraceRetained
   InterfaceTraceEdge
-  InterfaceTraceDetached
   InterfaceTraceQueue
   InterfaceTraceWindow
   describe_interface_window_storage
@@ -70,7 +69,6 @@ export:
   interface_trace_retained
   describe_interface_trace_edge
   module_interface_trace_edges
-  interface_trace_detached
   describe_interface_queue_storage
   interface_trace_queue
   describe_interface_selection
@@ -459,8 +457,6 @@ class InterfaceTraceEdge(module_def :: Module,
                          child :: InterfaceEndpoint,
                          storage :: InterfaceRetainedStorage):
   implements ModuleMetadataPayload
-// An intentional ancestry cut, distinct from an unsupported or missing route.
-class InterfaceTraceDetached()
 
 // Certifies an in-order, async-read queue using its functional storage controls.
 class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
@@ -493,7 +489,7 @@ class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :
 class InterfaceTraceBufferedBroadcast(instance :: False || Instance, storage :: InterfaceBroadcastStorage)
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceRetained || InterfaceTraceDetached || InterfaceTraceQueue || InterfaceTraceWindow || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin = #false):
+                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceRetained || InterfaceTraceQueue || InterfaceTraceWindow || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
@@ -513,7 +509,6 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceRetained | dynamic.storage | #false
   method retained_instance():
     if dynamic is_a InterfaceTraceRetained | dynamic.instance | #false
-  method detached(): dynamic is_a InterfaceTraceDetached
   method queue_storage():
     if dynamic is_a InterfaceTraceQueue | dynamic.storage | #false
   method queue_instance():
@@ -598,7 +593,6 @@ class InterfaceEventGroup(module_def :: Module,
                           location :: Location,
                           valid :: False || Value = #false,
                           ready :: False || Value = #false,
-                          root :: Boolean = #false,
                           fields :: List.of(InterfaceEventField) = [],
                           stalls :: Boolean = #false):
   implements ModuleMetadataPayload
@@ -1799,9 +1793,6 @@ fun describe_interface_trace_edge(parent :: InterfaceEndpoint,
   )
   #void
 
-fun interface_trace_detached():
-  InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceDetached())
-
 // A pipeline publishes its actual stage load and input-valid signals. This
 // contract describes one ordered pipeline, with synchronous reset flushing.
 fun describe_interface_elastic_stages(advances :: NonemptyList.of(HardwareEntity),
@@ -2147,7 +2138,6 @@ fun describe_interface_contract(input :: InterfaceEndpoint || Array,
 fun describe_interface_event(handle :: Handle,
                              label :: String,
                              ~stalls: stalls :: Boolean = #false,
-                             ~root: root :: Boolean = #false,
                              ~payload: payload :: False || HardwareEntity = #false,
                              ~fields: fields :: List.of(InterfaceEventField) = [],
                              ~valid: valid :: False || HardwareEntity = #false,
@@ -2223,14 +2213,13 @@ fun describe_interface_event(handle :: Handle,
                                   location,
                                   transfer_value(valid),
                                   transfer_value(ready),
-                                  root,
                                   if payload | [InterfaceEventField("raw", payload_value, "hex")] | fields,
                                   stalls)
   module_def.add_metadata(interface_event_group_namespace, event)
   describe_interface_transform(
     handle,
     "event",
-    {"label": label, "site": site_index, "root": root},
+    {"label": label, "site": site_index},
     ~trace_model: interface_trace_passthrough()
   )
 

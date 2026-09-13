@@ -24,6 +24,7 @@ constexpr std::array<std::uint64_t, 6> miss_addresses{0x1000,0x1100,0x1200,0x130
 bool equal(rheg::Ref a, rheg::Ref b) { return a.site==b.site && a.sequence==b.sequence; }
 std::uint64_t field(rheg::Ref ref, const char* name) { return rheg::graph().field(ref,name).unsigned_value(); }
 rheg::Ref parent_of(rheg::Ref child) {
+  if(rheg::graph().nodes.at(child).ancestry_unknown) fail("incomplete demand ancestry");
   std::optional<rheg::Ref> result;
   for(const auto& edge:rheg::graph().edges) if(equal(edge.second,child)) {
     if(result) fail("multiple parents");

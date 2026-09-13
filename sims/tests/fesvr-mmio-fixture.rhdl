@@ -30,7 +30,7 @@ sync_circuit EventFesvr():
   interface responses(Decoupled(FesvrMemoryResponse()), ~role: producer)
   interface port(CHIRNChannels(p), ~role: node)
   inst access(FesvrCHIAccess(p, soc_host_node(1), home_map, physical_map, services))
-  requests |> trace_event("command", ~root: #true) |> access.requests
+  requests |> trace_event("command") |> access.requests
   access.responses |> trace_event("completion") |> responses
   access.port.requests |> trace_event("request") |> port.requests
   access.port.request_data |> trace_event("write_data") |> port.request_data

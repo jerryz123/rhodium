@@ -134,8 +134,8 @@ sequence)` marks an occurrence whose immediate parent set is incomplete;
 the order-independent collector stores `Node::ancestry_unknown` and emits
 `ancestry_unknown: true` only on affected JSON nodes. Perfetto displays the
 corresponding `debug.ancestry_unknown` string argument as `true`. Absence means
-no unknown contributor, not necessarily a parent: explicit roots and detached
-traffic can be completely known and parentless. Descendants name the checkpoint
+no unknown contributor, not necessarily a parent: inferred roots can be
+completely known and parentless. Descendants name the checkpoint
 normally; the flag is not a transitive taint. Stall runs split when it changes.
 
 ## Enum labels

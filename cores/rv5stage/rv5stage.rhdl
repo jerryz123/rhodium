@@ -23,10 +23,10 @@ import:
 // Observe accepted flits at the private-cache boundary. Cache requests inherit
 // certified refill ownership and Home returns continue that ownership graph.
 // Transaction IDs are captures, not parent IDs.
-fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String, ~snoopable: snoopable :: Boolean = #true, ~request_root: request_root :: Boolean = #true):
+fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String, ~snoopable: snoopable :: Boolean = #true):
   def request_source = if snoopable | cache.field("requests") | cache.field("req")
   def request_sink = if snoopable | outer.field("requests") | outer.field("req")
-  def requests = request_source |> trace_event(label ++ "/chi.txreq", ~stalls: #true, ~root: request_root, ~fields: flit):
+  def requests = request_source |> trace_event(label ++ "/chi.txreq", ~stalls: #true, ~fields: flit):
     address: flit.address
     opcode(~format: "enum", ~label: #true): flit.opcode
     txn_id(~format: "unsigned"): flit.txn_id
@@ -42,7 +42,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     def remote = if snoopable | outer.field(channel) | outer.field("rsp").field(if outgoing | "requester" | "response")
     def source = if outgoing | local | remote
     def sink = if outgoing | remote | local
-    def responses = source |> trace_event(label ++ "/chi." ++ suffix, ~stalls: #true, ~root: outgoing || request_root, ~fields: flit):
+    def responses = source |> trace_event(label ++ "/chi." ++ suffix, ~stalls: #true, ~fields: flit):
       opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
       src_id(~format: "unsigned"): flit.src_id
@@ -58,7 +58,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     def remote = if snoopable | outer.field(channel) | outer.field("dat").field(if outgoing | "request" | "response")
     def source = if outgoing | local | remote
     def sink = if outgoing | remote | local
-    def data = source |> trace_event(label ++ "/chi." ++ suffix, ~stalls: #true, ~root: outgoing || request_root, ~fields: flit):
+    def data = source |> trace_event(label ++ "/chi." ++ suffix, ~stalls: #true, ~fields: flit):
       opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
       src_id(~format: "unsigned"): flit.src_id
@@ -72,7 +72,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
 
   if snoopable
   | block:
-      def snoops = outer.field("snoops") |> trace_event(label ++ "/chi.rxsnp", ~stalls: #true, ~root: #true, ~fields: flit):
+      def snoops = outer.field("snoops") |> trace_event(label ++ "/chi.rxsnp", ~stalls: #true, ~fields: flit):
         address: flit.address ++ bits(0, 3)
         opcode(~format: "enum", ~label: #true): flit.opcode
         txn_id(~format: "unsigned"): flit.txn_id
@@ -149,8 +149,8 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
   mmu.ordered_busy <== memory_router.ordered_busy
-  connect_traced_cache_chi(l1i.chi, imem, "icache", ~snoopable: #false, ~request_root: #false)
-  connect_traced_cache_chi(l1d.chi, dmem, "dcache", ~request_root: #false)
+  connect_traced_cache_chi(l1i.chi, imem, "icache", ~snoopable: #false)
+  connect_traced_cache_chi(l1d.chi, dmem, "dcache")
   uncached.chi <=> umem
 
 export:

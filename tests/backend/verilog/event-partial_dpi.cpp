@@ -1,4 +1,4 @@
-// Scores known, unknown, and detached parents independently of generated trace state.
+// Scores known, opaque, and unannotated contributors independently of generated trace state.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-partial_manifest.h"
@@ -6,13 +6,13 @@
 #include <cstdlib>
 #include <deque>
 namespace {
-struct Ancestry { std::vector<rheg::Ref> parents; bool unknown=false; };
+struct Ancestry { std::vector<rheg::Ref> parents; bool unknown=false, unannotated=false; };
 std::deque<Ancestry> selected, joined;
 std::deque<rheg::Ref> middle;
 rheg::Graph expected;
 std::map<unsigned,std::uint64_t> sequences;
 std::uint64_t cycle=0;
-unsigned known_count=0, unknown_count=0, detached_count=0, isolated_count=0, resets=0, stalls=0, after_count=0;
+unsigned known_count=0, opaque_count=0, unannotated_count=0, isolated_count=0, resets=0, stalls=0, after_count=0;
 [[noreturn]] void fail(const char* message) { std::fprintf(stderr,"%s at %llu\n",message,(unsigned long long)cycle); std::abort(); }
 rheg::Ref node(unsigned site, Ancestry ancestry={}) {
   rheg::Ref ref{site,sequences[site]++};
@@ -39,9 +39,9 @@ extern "C" void partial_sample(unsigned reset,unsigned inputs,unsigned choice,un
   if (middle_fire) {
     if (joined.empty()) fail("missing joined transaction");
     auto parents=joined.front(); joined.pop_front();
-    if (parents.unknown) ++unknown_count;
-    else if (parents.parents.size()==2) ++known_count;
-    else ++detached_count;
+    if (parents.unannotated) ++unannotated_count;
+    else if (parents.unknown) ++opaque_count;
+    else ++known_count;
     middle.push_back(node(test_sites::middle,parents));
   }
   if (join_fire) {
@@ -50,7 +50,7 @@ extern "C" void partial_sample(unsigned reset,unsigned inputs,unsigned choice,un
   }
   if (select_fire) {
     if (choice==0 && !known) fail("selected known input did not fire");
-    selected.push_back({choice==0 ? std::vector<rheg::Ref>{*known} : std::vector<rheg::Ref>{},choice==1});
+    selected.push_back({choice==0 ? std::vector<rheg::Ref>{*known} : std::vector<rheg::Ref>{},choice!=0,choice==2});
   }
   if (isolated) { node(test_sites::isolated,{{},true}); ++isolated_count; }
   if (middle_stalled) node(test_sites::middle_stall,{{},true});
@@ -62,8 +62,8 @@ extern "C" void partial_check() {
 }
 extern "C" void partial_finish() {
   rheg::graph().validate();
-  if (!selected.empty() || !joined.empty() || !middle.empty() || !known_count || !unknown_count ||
-      !detached_count || !isolated_count || !after_count || !stalls || !resets) fail("partial coverage incomplete");
-  std::printf("Partial tracing passed: %u known joins, %u unknown joins, %u detached joins, %u isolated events, %u downstream events, %u stalls, %u pending resets\n",
-    known_count,unknown_count,detached_count,isolated_count,after_count,stalls,resets);
+  if (!selected.empty() || !joined.empty() || !middle.empty() || !known_count || !opaque_count ||
+      !unannotated_count || !isolated_count || !after_count || !stalls || !resets) fail("partial coverage incomplete");
+  std::printf("Partial tracing passed: %u known joins, %u opaque joins, %u unannotated joins, %u isolated events, %u downstream events, %u stalls, %u pending resets\n",
+    known_count,opaque_count,unannotated_count,isolated_count,after_count,stalls,resets);
 }

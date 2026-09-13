@@ -50,7 +50,11 @@ SELECT
      EXTRACT_ARG(parent_args,'debug.refill_opcode')!=EXTRACT_ARG(child_args,'debug.opcode') OR
      ltrim(substr(EXTRACT_ARG(parent_args,'debug.refill_address'),3),'0')!=ltrim(substr(EXTRACT_ARG(child_args,'debug.address'),3),'0'))) AND
   (SELECT count(*)=0 FROM events e WHERE name='dcache/chi.txreq' AND
-    (SELECT count(*) FROM edges WHERE child=e.id)>1) AND
+    ((SELECT count(*) FROM edges WHERE child=e.id)>1 OR
+     ((SELECT count(*) FROM edges WHERE child=e.id)=0 AND
+      COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),'false')!='true') OR
+     ((SELECT count(*) FROM edges WHERE child=e.id)=1 AND
+      COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),'false')!='false'))) AND
   (SELECT count(*)=0 FROM events e WHERE name='dcache/s4.resolve' AND EXTRACT_ARG(arg_set_id,'debug.refill_accepted')=1 AND
     NOT EXISTS (SELECT 1 FROM edges WHERE parent=e.id AND dst='dcache/chi.txreq')) AND
   (SELECT count(*)=0 FROM edges WHERE dst IN ('mmu/pte.request','dcache/prefetch')) AS ok

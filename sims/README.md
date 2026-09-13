@@ -159,21 +159,22 @@ Four checkpoints observe real external-memory request and response handshakes:
 `memory-request` to `memory-accept`, and `memory-response` to `soc-response`.
 Each pair describes the same transfer across a transparent harness wire, so its
 inferred edge has zero latency and preserves the payload. External SN data
-channels remain untraced. These memory checkpoints do not match requests to responses through
-the CHI controller or identify the originating instructions.
-The request and response source checkpoints explicitly use `~root: #true` to
-start observation at these opaque component outputs.
+channels remain untraced. Available Flow contracts also infer
+`memory-accept` to `memory-response` dependencies, but do not cover every
+controller response branch or identify the originating instructions.
+Unmodeled request and response branches report unknown ancestry; their
+downstream wire-pair edges remain known.
 
 The host access engine retains each accepted FESVR command as the owner of all
 generated CHI request fragments and write-data transfers until the final host
 response is accepted, including errors. It emits no host checkpoints. Without
-a caller-supplied root at the opaque DPI boundary, host-originated ancestry is
+a caller-supplied checkpoint at the opaque DPI boundary, host-originated ancestry is
 unknown in partial tracing; instruction-originated ancestry remains independent.
 
 The trace also includes the frontend's S0 → S1 → S2 and core's Decode → Execute → Memory
 → WB stage events. See the [core tracing contract](../cores/rv5stage/README.md#pipeline-event-tracing)
 for transfer predicates, squash behavior, payloads, and the distinction between
-WB arrival and retirement. These pipeline events inherit accepted S0 roots through
+WB arrival and retirement. These pipeline events inherit accepted S0 occurrences through
 the buffered packet/parcel assembly path; they are
 not connected through unmodeled cache/MMU transactions to the memory checkpoints.
 

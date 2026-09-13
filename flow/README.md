@@ -119,16 +119,12 @@ through Rhombus `|>`. This makes every stage an ordinary unary host function:
 ingress |> queue(4, ~pipe: #true) |> pipe(2) |> egress
 ```
 
-`trace_detach()` is a transparent ready-valid adapter that deliberately clears
-ancestry without emitting an event. Use it at a known untraced boundary before
-merging with traced traffic; it is not an automatic fallback for missing contracts.
-
 `trace_event(label)` inserts a transparent compiler-visible checkpoint on a
 `Decoupled` or `Irrevocable` payload flow. `trace_valid_event(label)` provides
 the same annotation for `Valid`. These helpers do not add state or runtime
 effects; `rhodium/event` consumes their metadata to infer possible nearest
 dependencies. The [annotation contract](../rhodium/event/README.md#annotate-events)
-owns label rules, explicit ancestry cuts, and supported tracing behavior.
+owns label rules, partial ancestry, and supported tracing behavior.
 
 `trace_event(label, ~stalls: #true)` also requests a `<label>.stall` observation
 on each `valid & !ready` cycle. The default is false; `trace_valid_event` does
@@ -530,8 +526,9 @@ Direct and configured crossbars inherit these contracts through their internal
 demux/merge structure. Each accepted output retains only its selected input's
 ancestry, including through upstream queues; zero grants transfer nothing.
 Changing grants during a stall changes the offered ancestry, not a remembered
-winner. All possible input paths must have supported ancestry (or an explicit
-`trace_detach()` boundary).
+winner. Strict tracing requires complete annotated ancestry when mixing traced
+inputs. Partial tracing preserves known parents and marks missing contributors
+unknown, including through selection.
 
 ## Joining and branching topologies
 

@@ -251,12 +251,12 @@ Admission is an S2 field, not a later pipeline stage. Likewise, S4's
 There is no separate same-cycle demand or refill stage.
 
 Prefetch admission (`dcache/prefetch`) and page-table requests (`mmu/pte.request`)
-start explicit independent roots rather than borrowing a scalar instruction's
-identity. Direct refill commands retain their S4 parent through the refill
+infer available parents; unmodeled source state reports unknown ancestry in
+partial mode. Direct refill commands retain their S4 parent through the refill
 engine, including retry/credit waiting, and every accepted request attempt on
 `dcache/chi.txreq` points back to that same S4 occurrence. No extra stage event is
 inserted. Dirty-victim gathering, post-writeback refills, and maintenance requests
-remain explicitly detached. Refill completion and acknowledgement ownership
+remain unknown in partial tracing. Refill completion and acknowledgement ownership
 remain separate from the network return ancestry described below.
 
 ### Private-cache outer traffic
@@ -530,8 +530,9 @@ occurrences become instruction parents. Compressed instructions may share a word
 instruction has both contributing word occurrences as parents. Stalled offers
 retain these parents, and flush discards pending lineage without erasing
 history. Failed attempts remain visible but do not produce word admissions;
-retries begin new attempt roots. This does not yet connect MMU walks, I-cache
-refills, or predictor/redirect causality to the instruction graph.
+retries begin new attempt occurrences. S0 reports unknown incoming ancestry
+until source-FSM causality is modeled. I-cache refill requests inherit their
+accepted S0 parent; MMU walks and predictor/redirect causality remain unmodeled.
 
 ### Branch prediction
 

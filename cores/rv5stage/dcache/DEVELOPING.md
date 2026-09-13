@@ -82,8 +82,8 @@ arbitration with post-eviction work, not on a separate numbered stage.
 S1/MEM and S2/WB observations belong to the core, where fast responses and
 instruction identity are retained. The refill engine declares retained ownership
 from command acceptance through completion; its request attempts carry S4
-ancestry through the final arbiter. Explicitly detach post-eviction commands,
-writeback requests, and maintenance requests until those owners are modeled.
+ancestry through the final arbiter. Post-eviction commands, writeback requests,
+and maintenance requests report unknown ancestry until those owners are modeled.
 Do not infer gather-FSM ancestry from an address or transaction ID. See the
 parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
 

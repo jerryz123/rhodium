@@ -46,7 +46,6 @@ fun json_site(site :: EventSite):
       "name": field.name, "type": field.type, "width": field.width,
       "offset": field.offset, "encoding": field.encoding
     } ++ (if field.encoding == "riscv" | {"isa": field.isa, "pc": field.pc} | {}) ++ (if field.encoding == "enum" | {"symbols": field.symbols} | {}) ++ (if field.label | {"label": #true} | {})),
-    "root": site.root,
     "kind": site.kind,
     "source_location": site.source_location
   } ++ (if site.observation_of | {"observation_of": site.observation_of} | {})

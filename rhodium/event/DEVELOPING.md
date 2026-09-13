@@ -71,7 +71,7 @@ its own typed contracts and nearest-parent inference.
 
 | Plan | Information retained for lowering |
 |---|---|
-| `EventTraceSource` | Nearest annotation, supported unannotated root, or explicit ancestry cut |
+| `EventTraceSource` | Nearest annotation, supported unannotated root, or unknown boundary |
 | `EventTraceLink` | Resolved occurrence-qualified feedback vertex, preserving identity across repeated visits |
 | `EventTracePipeline` | Input plan and ordered fixed, elastic, queue, retained-owner, or retained-window stages |
 | `EventTraceSelection` | Ordered input plans and occurrence-qualified grants |
@@ -98,9 +98,9 @@ matching invalid values, including after joins. Emit one edge per valid slot
 after asserting transaction completeness. Keep duplicate slots in hardware;
 RHEG deduplicates full occurrence pairs. Never deduplicate by site alone.
 
-Explicit roots stop traversal at their inputs but retain their output identity
-for downstream inference. Default checkpoints must not turn failed traversal
-into a root. Strict mode rejects partial annotated ancestry; both modes reject
+Every checkpoint traverses its inputs unless an explicit retained relation
+supplies them. Failed traversal must not become a known root. Strict mode rejects partial
+annotated ancestry; both modes reject
 uncertified merges/fanout. Leaves are derived from connectivity, not declared
 on checkpoints. Stall observations remain leaf-only through their separate kind
 and exclusion from downstream lineage discovery.
@@ -138,14 +138,14 @@ sharing shadow state across different consuming modules remain separate optimiza
 
 ### Feedback analysis
 
-Discover reachable vertices once, stopping at event and detached boundaries.
+Discover reachable vertices once, stopping at events and missing boundaries.
 For cyclic regions, retain one finite witness per nearest parent, with unknown
 latency and no linear stage projection; do not enumerate cyclic walks. Acyclic
 dependencies preserve their existing paths and latency detail. All reachable
 opaque or unsupported branches fail in strict mode. Partial mode cuts precisely
 at the missing boundary and records `EventTraceGap` entries per consuming site.
-`EventTraceSource.unknown` distinguishes these leaves from deliberate detach
-and supported inferred roots. Do not replace a whole mixed plan with a root.
+`EventTraceSource.unknown` distinguishes these leaves from supported inferred
+roots. Do not replace a whole mixed plan with a root.
 
 Lineage structs carry transaction validity, parent slots, and an independent
 unknown bit. Selection chooses all three together; joins and selected windows
@@ -216,10 +216,10 @@ No routing-policy or CHI-opcode knowledge belongs in either analysis.
   contribution remains a same-cycle dependency in feedback validation; only
   an absent or provably disabled live input permits a registered cut.
 
-Detached routes stop both static and dynamic backward traversal.
-`EventTraceSource(#false, #true)` lowers to a valid transaction with invalid
-parent slots; ordinary unannotated sources remain distinguishable and cannot
-silently satisfy mixed annotated ancestry. Never emit a synthetic node for a cut.
+Unknown boundaries lower to valid transactions with invalid parent slots and
+the unknown bit set. Ordinary unannotated inputs beside annotated ancestry are
+also unknown in partial mode and cannot silently satisfy strict completeness.
+Never emit a synthetic node for a missing boundary.
 
 ### Selection and replication lowering
 
@@ -338,7 +338,7 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-join` | Nested joins, differently sized arbiter lineages, pre/post storage, fork/broadcast reconvergence, downstream demux, annotation cut points and distinct sequences at one site |
 | `event-stall` | Per-cycle blocked offers, changing/withdrawn Decoupled values, elastic and bypass/replacement queue ancestry, reset, repeated payloads and differential functional behavior |
 | `event-offer` | Best-effort Valid offers, qualified transfer/stall suppression, exact replay ancestry, reset, and unchanged public wiring |
-| `event-retained` | Scoped command-to-child-attempt ownership followed by payload mapping, repeated emissions, equal payloads, same-cycle release/replacement, pending reset, arbitration with explicitly detached traffic, and independent public-state checks |
+| `event-retained` | Scoped command-to-child-attempt ownership followed by payload mapping, repeated emissions, equal payloads, same-cycle release/replacement, pending reset, arbitration with unknown traffic, and independent public-state checks |
 
 The `event-runtime` runner includes the standalone collector test. `event-join`
 binds a descriptor generated from the same instrumented result as its RTL, adding
