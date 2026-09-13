@@ -44,6 +44,8 @@ bundle RV5StageVectorBeat(vlen :: VectorLength):
   left: Bits(64)
   right: Bits(64)
   enabled: Mask(8)
+  select_right: Mask(8)
+  mask_enabled: Bits(64)
   element_width: SimdElementWidth
   control: RV5StageVectorControl()
   destination: Bits(5)

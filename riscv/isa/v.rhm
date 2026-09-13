@@ -20,6 +20,13 @@ def VectorVVFormat = InstructionFormat("vector-vector", [vector_destination, vec
 def VectorVXFormat = InstructionFormat("vector-scalar", [vector_destination, vector_source, RegisterOperand("rs1", rs1, "source")], #false, [vm])
 def VectorVIFormat = InstructionFormat("vector-immediate", [vector_destination, vector_source], VectorImmediate, [vm])
 def VectorShiftVIFormat = InstructionFormat("vector-shift-immediate", [vector_destination, vector_source], VectorShiftImmediate, [vm])
+// Fixed-vm forms keep selection/mask operands distinct from execution predication.
+def VectorFixedVVFormat = InstructionFormat("vector-vector fixed vm", VectorVVFormat.operands)
+def VectorFixedVXFormat = InstructionFormat("vector-scalar fixed vm", VectorVXFormat.operands)
+def VectorFixedVIFormat = InstructionFormat("vector-immediate fixed vm", VectorVIFormat.operands, VectorImmediate)
+def VectorMoveVFormat = InstructionFormat("vector move", [vector_destination, RegisterOperand("vs1", vs1, "source", RegisterBank.Vector)])
+def VectorMoveXFormat = InstructionFormat("scalar broadcast", [vector_destination, RegisterOperand("rs1", rs1, "source")])
+def VectorMoveIFormat = InstructionFormat("immediate broadcast", [vector_destination], VectorImmediate)
 def VsetvliFormat = InstructionFormat("vsetvli", [RegisterOperand("rd", rd, "destination"), RegisterOperand("rs1", rs1, "source")], #false, [vtype11])
 def VsetivliFormat = InstructionFormat("vsetivli", [RegisterOperand("rd", rd, "destination")], #false, [avl5, vtype10])
 def VSETVLI = InstructionSpec("VSETVLI", VsetvliFormat, [opcode.constrain(0x57), funct3.constrain(7), BitField("config high", 31, 31).constrain(0)])
@@ -98,6 +105,24 @@ def VMAX_VV = vector_arithmetic("VMAX.VV", 7, VectorVVFormat, 0)
 def VMAX_VX = vector_arithmetic("VMAX.VX", 7, VectorVXFormat, 4)
 
 def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX]
+fun fixed_mask_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat, mask_bit :: Nat, ~move: move :: Boolean = #false):
+  InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code), vm.constrain(mask_bit)] ++ (if move | [vs2.constrain(0)] | []))
+def VMERGE_VVM = fixed_mask_arithmetic("VMERGE.VVM", 0x17, VectorFixedVVFormat, 0, 0)
+def VMERGE_VXM = fixed_mask_arithmetic("VMERGE.VXM", 0x17, VectorFixedVXFormat, 4, 0)
+def VMERGE_VIM = fixed_mask_arithmetic("VMERGE.VIM", 0x17, VectorFixedVIFormat, 3, 0)
+def VMV_V_V = fixed_mask_arithmetic("VMV.V.V", 0x17, VectorMoveVFormat, 0, 1, ~move: #true)
+def VMV_V_X = fixed_mask_arithmetic("VMV.V.X", 0x17, VectorMoveXFormat, 4, 1, ~move: #true)
+def VMV_V_I = fixed_mask_arithmetic("VMV.V.I", 0x17, VectorMoveIFormat, 3, 1, ~move: #true)
+def VMANDN_MM = fixed_mask_arithmetic("VMANDN.MM", 0x18, VectorFixedVVFormat, 2, 1)
+def VMAND_MM = fixed_mask_arithmetic("VMAND.MM", 0x19, VectorFixedVVFormat, 2, 1)
+def VMOR_MM = fixed_mask_arithmetic("VMOR.MM", 0x1a, VectorFixedVVFormat, 2, 1)
+def VMXOR_MM = fixed_mask_arithmetic("VMXOR.MM", 0x1b, VectorFixedVVFormat, 2, 1)
+def VMORN_MM = fixed_mask_arithmetic("VMORN.MM", 0x1c, VectorFixedVVFormat, 2, 1)
+def VMNAND_MM = fixed_mask_arithmetic("VMNAND.MM", 0x1d, VectorFixedVVFormat, 2, 1)
+def VMNOR_MM = fixed_mask_arithmetic("VMNOR.MM", 0x1e, VectorFixedVVFormat, 2, 1)
+def VMXNOR_MM = fixed_mask_arithmetic("VMXNOR.MM", 0x1f, VectorFixedVVFormat, 2, 1)
+def VectorMoveMergeInstructions = [VMERGE_VVM, VMERGE_VXM, VMERGE_VIM, VMV_V_V, VMV_V_X, VMV_V_I]
+def VectorMaskLogicInstructions = [VMANDN_MM, VMAND_MM, VMOR_MM, VMXOR_MM, VMORN_MM, VMNAND_MM, VMNOR_MM, VMXNOR_MM]
 // Same-width OPFVV arithmetic from the canonical riscv-opcodes RVV 1.0 table.
 def VFADD_VV = vector_arithmetic("VFADD.VV", 0x00, VectorVVFormat, 1)
 def VFSUB_VV = vector_arithmetic("VFSUB.VV", 0x02, VectorVVFormat, 1)
@@ -121,10 +146,32 @@ def VMULHSU_VX = vector_arithmetic("VMULHSU.VX", 38, VectorVXFormat, 6)
 def VMULH_VV = vector_arithmetic("VMULH.VV", 39, VectorVVFormat, 2)
 def VMULH_VX = vector_arithmetic("VMULH.VX", 39, VectorVXFormat, 6)
 def VectorMultiplyDivideInstructions = [VDIVU_VV, VDIVU_VX, VDIV_VV, VDIV_VX, VREMU_VV, VREMU_VX, VREM_VV, VREM_VX, VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX, VMULHSU_VV, VMULHSU_VX, VMULH_VV, VMULH_VX]
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
+  VectorFixedVVFormat
+  VectorFixedVXFormat
+  VectorFixedVIFormat
+  VectorMoveVFormat
+  VectorMoveXFormat
+  VectorMoveIFormat
+  VectorMoveMergeInstructions
+  VectorMaskLogicInstructions
+  VMERGE_VVM
+  VMERGE_VXM
+  VMERGE_VIM
+  VMV_V_V
+  VMV_V_X
+  VMV_V_I
+  VMANDN_MM
+  VMAND_MM
+  VMOR_MM
+  VMXOR_MM
+  VMORN_MM
+  VMNAND_MM
+  VMNOR_MM
+  VMXNOR_MM
   VectorMultiplyDivideInstructions
   VDIVU_VV
   VDIVU_VX

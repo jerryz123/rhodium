@@ -19,7 +19,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   alu.control <== beat.control.alu
   alu.element_width <== beat.element_width
   alu.enabled <== beat.enabled
-  alu.select_right <== bits(0, 8).into(Mask(8))
+  alu.select_right <== beat.select_right
   packing.destination <== beat.destination
   packing.first_element <== beat.first
   packing.element_width <== beat.element_width
@@ -27,6 +27,12 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   packing.enabled <== beat.enabled
   packing.result <== alu.result.updated(~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
   def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide
+  // Mask logical operands are already packed one bit per element. Reuse the
+  // ALU logic network, but write bits rather than repacking comparisons.
+  def mask_write = packing.write.updated(
+    ~data: mux(beat.control.invert_logic_result, !alu.result.data, alu.result.data),
+    ~mask: beat.mask_enabled
+  )
   def singleton_width = mux(beat.control.memory, beat.control.eew, beat.element_width.into(Bits(2)))
   def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
@@ -44,7 +50,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     divide: beat.control.divide
     store: beat.control.store
     shift: element_shift
-    write: mux(singleton, element_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask)))
+    write: mux(singleton, element_write, mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))))
 
 export:
   RV5StageVectorExecute

@@ -9,6 +9,15 @@ import:
   "../model/main.rhm" as model
 
 check:
+  VMERGE_VVM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x5c2180d7
+  VMERGE_VXM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x5c21c0d7
+  VMERGE_VIM.encode([vd.constrain(1), vs2.constrain(2)], ~immediate: -1) ~is 0x5c2fb0d7
+  VMV_V_V.encode([vd.constrain(1), vs1.constrain(3)]) ~is 0x5e0180d7
+  VMV_V_X.encode([vd.constrain(1), model.rs1.constrain(3)]) ~is 0x5e01c0d7
+  VMV_V_I.encode([vd.constrain(1)], ~immediate: -1) ~is 0x5e0fb0d7
+  VectorInitial.matching(0x5e2180d7) ~is #false
+  VectorMoveVFormat.operands.map(fun (operand): operand.name) ~is ["vd", "vs1"]
+  VectorMoveXFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer]
   VMUL_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x9621a0d7
   VMULHSU_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(0)]) ~is 0x9821e0d7
   VDIV_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x8621a0d7
@@ -31,6 +40,11 @@ check:
   VectorStoreFormat.operands.map(fun (operand): operand.role) ~is ["source", "source"]
   VectorVVFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Vector, model.RegisterBank.Vector]
   [CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_address) ~is [8, 9, 10, 15, 0xc20, 0xc21, 0xc22]
+
+for (instruction in VectorMaskLogicInstructions, index in 0..8):
+  check:
+    instruction.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is (0x6221a0d7 bits.or (index bits.(<<) 26))
+    VectorInitial.matching(instruction.encoding.value bits.xor (1 bits.(<<) 25)) ~is #false
 
 for (vlen in [128, 256, 512, 65536]):
   for (encoding in 0..512):

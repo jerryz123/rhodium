@@ -1,4 +1,4 @@
-// Checks shared scalar/vector mul-div across SEW, masks, restart, contention, and completion-slot reuse.
+// Checks shared mul-div and move/merge/mask programs through architectural memory signatures.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_vector_muldiv_tb;
@@ -213,6 +213,66 @@ module rv5stage_vector_muldiv_tb;
       vset(sew,0,3); emit('h0083d073); vec('h27, 24, 8, 16, 0, 2);
       signature('h008,address,0); address += 8;
     end
+    // Exercise the new cheap operations through Decode and real WB, not just
+    // the standalone unroller. Older branches must squash each new family.
+    for (int sew = 0; sew < 4; sew++) begin
+      width = 8 << sew; mask = '1 >> (64-width);
+      vset(sew,16,3);
+      vload(8,'h10000+sew*256,sew); vload(16,'h10080+sew*256,sew);
+      for (int form = 0; form < 3; form++) begin
+        li(5,-7);
+        vec('h17,24,0,form == 0 ? 16 : form == 1 ? 5 : 29,0,form == 0 ? 0 : form == 1 ? 4 : 3);
+        li(5,13); // the broadcast must have captured -7, not this value
+        emit('h00000463); vec('h17,24,0,0,0,3);
+        vstore(24,address,sew);
+        for (int lane = 0; lane < 16; lane++)
+          expect_store(address+(lane << sew),(form == 0 ? right_value(lane) : form == 1 ? -64'd7 : -64'd3) & mask,sew);
+        address += 128;
+        // Selection is data: the zero half of the mask still writes vs2.
+        vec('h1f,0,8,0,0,3);
+        emit('h0081d073);
+        li(5,-9);
+        vec('h17,24,8,form == 0 ? 16 : form == 1 ? 5 : 17,1,form == 0 ? 0 : form == 1 ? 4 : 3);
+        emit('h00000463); vec('h17,24,16,0,1,3);
+        vstore(24,address,sew);
+        for (int lane = 0; lane < 16; lane++) begin
+          a = left_value(lane,sew) & mask;
+          b = lane < 3 ? (form == 0 ? right_value(lane) : form == 1 ? -64'd7 : -64'd3) :
+              a != 0 && !a[width-1] ? (form == 0 ? right_value(lane) : form == 1 ? -64'd9 : -64'd15) : a;
+          expect_store(address+(lane << sew),b & mask,sew);
+        end
+        address += 128;
+      end
+    end
+    // Mask logic uses 128 one-bit elements even though its registers are
+    // unaligned for the current LMUL=8. Read back both physical mask words.
+    for (int op = 24; op < 32; op++) begin
+      logic [63:0] expected;
+      vset(3,2);
+      vload(3,'h10000,3); vload(5,'h10080,3); vload(7,'h10100,3);
+      li(1,128); emit('h0030f057); // vsetvli x0,x1,e8,m8
+      li(1,63); emit('h00809073); // vstart straddles mask words
+      vec(op,3,3,5,0,2);
+      emit('h00000463); vec(27,3,3,3,0,2);
+      vset(3,2); vstore(3,address,3);
+      for (int word_index = 0; word_index < 2; word_index++) begin
+        a = memory_words[word_index]; b = memory_words[16+word_index];
+        case (op)
+          24: expected = a & ~b;
+          25: expected = a & b;
+          26: expected = a | b;
+          27: expected = a ^ b;
+          28: expected = a | ~b;
+          29: expected = ~(a & b);
+          30: expected = ~(a | b);
+          default: expected = ~(a ^ b);
+        endcase
+        if (word_index == 0) expected = {expected[63],a[62:0]};
+        expect_store(address+word_index*8,expected,3);
+      end
+      address += 16;
+      signature('h008,address,0); address += 8;
+    end
     assert(pc < 'hff00/4) else $fatal(1,"program exceeds ROM");
     program_words['hff00/4] = 'h342021f3;
     program_words['hff04/4] = 'h00303023;
@@ -260,7 +320,7 @@ module rv5stage_vector_muldiv_tb;
             else $fatal(1, "signature %0d address %h value %h expected %h", stores, data_access_out.request.bits.address, data_access_out.request.bits.data, expected_data[stores]);
           stores <= stores + 1;
           if (stores + 1 == expected_count) begin
-            $display("rv5stage shared scalar/vector muldiv passed: %0d stores, %0d cycles", expected_count, cycles);
+            $display("rv5stage shared muldiv and vector move/merge/mask passed: %0d stores, %0d cycles", expected_count, cycles);
             $finish;
           end
         end

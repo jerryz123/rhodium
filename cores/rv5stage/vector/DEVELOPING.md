@@ -97,6 +97,24 @@ and destination packing. Global element position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`
 outputs are not architectural group/overlap permission or WB authorization.
 
+Keep execution enables separate from `select_right`: merge consumes `v0` as
+data while both selected alternatives remain writable. Move rows describe only
+their real source and select the existing SIMD right-input path. Mask-logic rows
+select a 64-mask-bit schedule in `unroller.rhdl`, with a retained
+bit-enable mask for the partial first/last word. `execute.rhdl` reuses the SIMD
+logic network and writes its packed data directly instead of comparison bits.
+The single-register legality rule belongs in decode, not generic VRF geometry.
+Do not make memory/FP scheduling depend on integer-only don't-care controls.
+
+The RV32/RV64 unroller fixtures cover all fourteen move/merge/mask encodings,
+legal SEW/LMUL combinations, single-register mask addressing, overlaps, partial
+words, stalls, retries, cancellation, and empty bodies. The full-core
+`rv5stage-vector-muldiv` program additionally checks their memory signatures,
+scalar-source capture, branch squash, and `vstart` clearing alongside shared
+execution regression. The control fixtures reject reserved vm/vs2 encodings
+and merge into/from vector v0 while accepting scalar x0, immediate zero, and
+unaligned single mask registers at large LMUL.
+
 The composed `tests/vector-fixture.rhdl` captures request controls alongside
 the bank read, executes the actual SIMD ALU, and optionally commits its result
 through the same masked port used for initialization. Its independent SV

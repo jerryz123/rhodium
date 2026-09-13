@@ -125,6 +125,37 @@
     read_csr('h341, 'h100);
     read_csr('hc02, word_t'(retired));
 
+    // Move source metadata and mask-register geometry are not ordinary data groups.
+    @(negedge clock);
+    for (int lm = 0; lm < 4; lm++) begin
+      test_vtype = word_t'(lm);
+      for (int op = 24; op < 32; op++) begin
+        instruction = (32'(op) << 26) | 32'h0272a1d7; #1; // vd=3,vs1=5,vs2=7
+        assert (decoded_valid && legal && mask_destination && operand == 0) else $fatal(1, "mask registers inherited LMUL");
+        instruction[11:7] = 0; #1;
+        assert (legal) else $fatal(1, "mask result v0 rejected");
+        instruction[25] = 0; #1;
+        assert (!decoded_valid) else $fatal(1, "reserved masked mask-logic encoding");
+      end
+      instruction = 32'h5e0fc057; #1; // vmv.v.x v0,x31
+      assert (decoded_valid && legal && operand == 1) else $fatal(1, "broadcast inferred a vector source");
+      instruction = 32'h5e080457; #1; // vmv.v.v v8,v16
+      assert (decoded_valid && legal && operand == 0) else $fatal(1, "move vector source");
+      instruction[24:20] = 1; #1;
+      assert (!decoded_valid) else $fatal(1, "move accepted nonzero reserved vs2");
+      instruction = 32'h5c880c57; #1; // vmerge.vvm v24,v8,v16,v0
+      assert (decoded_valid && legal) else $fatal(1, "merge rejected");
+      instruction[24:20] = 0; #1;
+      assert (!legal) else $fatal(1, "merge read v0 at both EEW=1 and SEW");
+      instruction[24:20] = 8; instruction[19:15] = 0; #1;
+      assert (!legal) else $fatal(1, "merge second vector source overlaps v0");
+      instruction[14:12] = 4; #1;
+      assert (legal && operand == 1) else $fatal(1, "merge scalar x0 is not vector v0");
+      instruction[14:12] = 3; #1;
+      assert (legal && operand == 2) else $fatal(1, "merge immediate zero is not vector v0");
+      instruction[11:7] = 0; #1;
+      assert (!legal) else $fatal(1, "merge overwrote its selection mask");
+    end
     // Same-width data groups and mask destinations have different overlap rules.
     @(negedge clock);
     test_vtype = 1; // e8,m2

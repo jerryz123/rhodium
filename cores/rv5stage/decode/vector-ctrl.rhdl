@@ -41,6 +41,10 @@ bundle RV5StageVectorControl():
   operand: VectorOperandMode
   immediate_unsigned: Bool
   mask_destination: Bool
+  mask_logic: Bool
+  mask_select: Bool
+  uses_vs2: Bool
+  invert_logic_result: Bool
   invert_comparison: Bool
   swap_operands: Bool
   alu: SimdAluControl()
@@ -70,6 +74,10 @@ def VectorConfigurationCases = [
 
 fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~mask: mask :: Boolean = #false,
+                 ~mask_logic: mask_logic :: Boolean = #false,
+                 ~mask_select: mask_select :: Boolean = #false,
+                 ~uses_vs2: uses_vs2 :: Boolean = #true,
+                 ~invert_logic: invert_logic :: Boolean = #false,
                  ~invert: invert :: Boolean = #false,
                  ~swap: swap :: Boolean = #false):
   def form = instruction.format
@@ -81,9 +89,13 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       floating_point: Bool(#false)
       multiply_divide: Bool(#false)
       memory: Bool(#false)
-      operand: if form == VectorVVFormat | VectorOperandMode.Vector | (if form == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
+      operand: if [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat].contains(form) | VectorOperandMode.Vector | (if [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form) | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
       immediate_unsigned: Bool(form == VectorShiftVIFormat)
       mask_destination: Bool(mask)
+      mask_logic: Bool(mask_logic)
+      mask_select: Bool(mask_select)
+      uses_vs2: Bool(uses_vs2)
+      invert_logic_result: Bool(invert_logic)
       invert_comparison: Bool(invert)
       swap_operands: Bool(swap)
       alu: alu
@@ -224,6 +236,34 @@ def VectorIntegerCases = [
   integer_case(VMAX_VV, vmax_control),
   integer_case(VMAX_VX, vmax_control)
 ]
+def vselect_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Select
+def vandn_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Logic
+  logic_select: SimdLogicSelect.And
+  invert_right: Bool(#true)
+def vorn_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Logic
+  logic_select: SimdLogicSelect.Or
+  invert_right: Bool(#true)
+def VectorMoveMergeCases = [
+  integer_case(VMERGE_VVM, vselect_control, ~mask_select: #true),
+  integer_case(VMERGE_VXM, vselect_control, ~mask_select: #true),
+  integer_case(VMERGE_VIM, vselect_control, ~mask_select: #true),
+  integer_case(VMV_V_V, vselect_control, ~uses_vs2: #false),
+  integer_case(VMV_V_X, vselect_control, ~uses_vs2: #false),
+  integer_case(VMV_V_I, vselect_control, ~uses_vs2: #false)
+]
+def VectorMaskLogicCases = [
+  integer_case(VMANDN_MM, vandn_control, ~mask: #true, ~mask_logic: #true),
+  integer_case(VMAND_MM, vand_control, ~mask: #true, ~mask_logic: #true),
+  integer_case(VMOR_MM, vor_control, ~mask: #true, ~mask_logic: #true),
+  integer_case(VMXOR_MM, vxor_control, ~mask: #true, ~mask_logic: #true),
+  integer_case(VMORN_MM, vorn_control, ~mask: #true, ~mask_logic: #true),
+  integer_case(VMNAND_MM, vand_control, ~mask: #true, ~mask_logic: #true, ~invert_logic: #true),
+  integer_case(VMNOR_MM, vor_control, ~mask: #true, ~mask_logic: #true, ~invert_logic: #true),
+  integer_case(VMXNOR_MM, vxor_control, ~mask: #true, ~mask_logic: #true, ~invert_logic: #true)
+]
 def VectorMemoryCases = for List (instruction in VectorMemoryInstructions, index in 0..8):
   DecodeCase(
     instruction_pattern(instruction),
@@ -272,7 +312,7 @@ def VectorMultiplyDivideCases = for List (instruction in VectorMultiplyDivideIns
       right_signed: Bool(signed_right)
       upper_result: Bool(![VMUL_VV, VMUL_VX, VDIV_VV, VDIV_VX, VDIVU_VV, VDIVU_VX].contains(instruction))
   )
-def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
+def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMoveMergeCases ++ VectorMaskLogicCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
 
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
@@ -305,7 +345,12 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   fun mask_overlap_legal(source :: Bits(5)) :: Bool:
     ((destination & !group_mask) =/= source) ||| (destination === source)
   def masked = !instruction_field(vm, instruction).or_reduce()
-  def integer_legal = control.integer & source2_aligned & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+  // Merge reads v0 at EEW=1; the same register cannot also supply SEW data.
+  def merge_sources_legal = !control.mask_select ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))
+  // Mask logic always names single registers, regardless of the data LMUL.
+  def integer_legal = control.integer & (control.mask_logic ||| (
+    merge_sources_legal & (!control.uses_vs2 ||| source2_aligned) & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+  ))
   def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())
   def multiply_divide_legal = control.multiply_divide & Bool(xlen == XLen.X64) & source2_aligned & (!vector_operand ||| source1_aligned) & destination_aligned & !(masked & !destination.or_reduce())

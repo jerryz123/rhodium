@@ -105,6 +105,32 @@ This cut preserves inactive and tail contents, supports fractional LMUL and
 in-place same-width groups, sign-extends RV32 VX operands before SEW64
 broadcast, and packs comparison bits through the ordinary masked write port.
 
+## Moves, merge, and mask logic
+
+The experimental RV32/RV64 integer path supports `vmv.v.v`, `vmv.v.x`, and
+`vmv.v.i`, plus `vmerge.vvm`, `vmerge.vxm`, and `vmerge.vim`, at every supported
+SEW/LMUL. Moves copy or broadcast their sole source; the reserved `vs2` field
+must be zero. Scalar and signed immediate broadcasts use the ordinary captured
+operand path. Merge uses each `v0` bit to select between sources, not to
+suppress the destination write. Both zero and one mask bits write their
+selected value within the body. Merge cannot target `v0`; unmasked moves can.
+Merge vector data sources also cannot overlap `v0`, since an instruction may
+not read the same register at both mask EEW=1 and data SEW. Scalar `x0` and an
+immediate zero remain valid merge inputs.
+
+`vmandn.mm`, `vmand.mm`, `vmor.mm`, `vmxor.mm`, `vmorn.mm`, `vmnand.mm`,
+`vmnor.mm`, and `vmxnor.mm` operate on packed one-bit elements. Each operand
+names one register independent of LMUL. They are always unmasked, may write
+`v0`, and support in-place source/destination overlap. The unroller processes
+up to 64 mask bits per beat through the existing logic datapath and VRF write
+port; it does not expand mask bits into SEW-sized data elements.
+
+All these operations preserve pre-`vstart` and tail contents, including partial
+mask words. Preserving mask tails is a permitted choice for tail-agnostic mask
+results. Empty bodies perform no write but still retire once and clear `vstart`.
+Writes remain WB-authorized; retry resumes at the authorized frontier and
+cancellation suppresses speculative writes. This is still partial V coverage.
+
 ## Shared integer multiply/divide
 
 RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,

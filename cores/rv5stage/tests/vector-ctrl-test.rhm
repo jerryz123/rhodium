@@ -25,6 +25,8 @@ fun value(record, name):
   field(record, name).packed_value()
 fun control(instruction):
   VectorControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
+fun core_control(instruction):
+  VectorCoreControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 
 check:
   VectorControlCases.length() ~is VectorInitialInstructions.length()
@@ -46,6 +48,25 @@ check:
   value(field(control(VMSLT_VV), "alu"), "signed_compare") ~is 1
   value(field(control(VMAX_VV), "alu"), "maximum") ~is 1
   value(field(control(VMINU_VX), "alu"), "maximum") ~is 0
+
+for (instruction in VectorMoveMergeInstructions, index in 0..6):
+  check:
+    value(control(instruction), "integer") ~is 1
+    value(control(instruction), "mask_select") ~is (if index < 3 | 1 | 0)
+    value(control(instruction), "uses_vs2") ~is (if index < 3 | 1 | 0)
+    value(field(control(instruction), "alu"), "result_select") ~is SimdResultSelect.Select.packed_value()
+    value(control(instruction), "operand") ~is index mod 3
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is (if index mod 3 == 1 | 1 | 0)
+    value(field(core_control(instruction), "writeback"), "enable") ~is 0
+
+for (instruction in VectorMaskLogicInstructions, index in 0..8):
+  check:
+    value(control(instruction), "mask_logic") ~is 1
+    value(control(instruction), "mask_destination") ~is 1
+    value(control(instruction), "invert_logic_result") ~is (if index >= 5 | 1 | 0)
+    value(field(control(instruction), "alu"), "invert_right") ~is (if index == 0 || index == 4 | 1 | 0)
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
+    value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
 
 for (instruction in VectorMultiplyDivideInstructions, index in 0..16):
   def decoded = control(instruction)

@@ -18,7 +18,7 @@
   logic [63:0] rng = 64'h713bfd9167c282c9;
   int tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2;
   logic [63:0] tx_scalar;
-  bit tx_masked, tx_compare, tx_dense, checking;
+  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, checking;
   int tx_beats;
   int checks = 0, macros = 0, retries = 0, cycles = 0, last_commit_cycle, consecutive = 0;
 
@@ -46,18 +46,30 @@
         assert (checking) else $fatal(1, "write escaped a cancelled macro");
         first = tx_first;
         ending = tx_start >= tx_vl ? tx_vl : ((first + tx_lanes < tx_vl) ? first + tx_lanes : tx_vl);
-        address = tx_vd * VLEN / 64 + (tx_compare ? first / 64 : first * tx_width / 64);
+        address = tx_vd * VLEN / 64 + (tx_compare || tx_mask_logic ? first / 64 : first * tx_width / 64);
         expected_data = 0; expected_mask = 0;
         lane_mask = 64'hffffffffffffffff >> (64 - tx_width);
         broadcast_value = tx_scalar;
         if (tx_mode == 3) broadcast_value = (tx_opcode >= 37 && tx_opcode <= 41) ? 64'(tx_vs1) : {{59{tx_vs1[4]}}, 5'(tx_vs1)};
         for (int lane = 0; lane < tx_lanes; lane++) begin
           position = first + lane;
-          enabled = position >= tx_start && position < tx_vl && (!tx_masked || snapshot[position / 64][position % 64]);
+          enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || snapshot[position / 64][position % 64]);
           if (enabled) begin
             a = element(tx_vs2, position, tx_width);
-            b = tx_mode == 0 ? element(tx_vs1, position, tx_width) : broadcast_value & lane_mask;
-            case (tx_opcode)
+            b = tx_mode == 0 || tx_mask_logic ? element(tx_vs1, position, tx_width) : broadcast_value & lane_mask;
+            if (tx_mask_logic) begin
+              case (tx_opcode)
+                24: value = a & ~b;
+                25: value = a & b;
+                26: value = a | b;
+                27: value = a ^ b;
+                28: value = a | ~b;
+                29: value = ~(a & b);
+                30: value = ~(a | b);
+                31: value = ~(a ^ b);
+                default: $fatal(1, "bad mask opcode");
+              endcase
+            end else case (tx_opcode)
               0: value = a + b;
               2: value = a - b;
               4: value = a < b ? a : b;
@@ -67,6 +79,7 @@
               9: value = a & b;
               10: value = a | b;
               11: value = a ^ b;
+              23: value = !tx_masked || snapshot[position / 64][position % 64] ? b : a;
               24: value = 64'(a == b);
               25: value = 64'(a != b);
               26: value = 64'(a < b);
@@ -112,10 +125,11 @@
                            input bit masked_op, inject_retry = 0, random_stalls = 1, input int retry_at = -1);
     int timeout;
     assert (!active && !checking) else $fatal(1, "previous macro did not drain");
-    tx_width = 8 << sew; tx_lanes = 64 / tx_width;
+    tx_mask_logic = mode == 2;
+    tx_width = tx_mask_logic ? 1 : 8 << sew; tx_lanes = 64 / tx_width;
     tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
-    tx_masked = masked_op; tx_compare = op >= 24 && op <= 31;
+    tx_masked = masked_op; tx_compare = !tx_mask_logic && op >= 24 && op <= 31;
     tx_dense = !random_stalls && !inject_retry; tx_beats = 0;
     tx_scalar = XLEN == 32 ? {{32{scalar[31]}}, scalar[31:0]} : 64'(scalar);
     for (int row = 0; row < DEPTH; row++) snapshot[row] = memory[row];
@@ -173,6 +187,47 @@
       run_macro(sew, 0, 0, 0, 0, 0, 24, 16, 8, 0);
       run_macro(sew, 0, 1, 7, 0, 0, 24, 16, 8, 0);
     end
+    // Moves and merge share an encoding but not predication: a zero v0 bit
+    // selects vs2; it must not disable the destination write.
+    for (int sew = 0; sew < 4; sew++) begin
+      for (int lm = 0; lm < 8; lm++) begin
+        int maximum;
+        if (lm == 4 || (lm >= 5 && sew > lm - 5)) continue;
+        maximum = lm < 4 ? ((VLEN / (8 << sew)) << lm) : ((VLEN / (8 << sew)) >> (8 - lm));
+        for (int form = 0; form < 3; form++) begin
+          int mode, src;
+          mode = form == 0 ? 0 : form == 1 ? 4 : 3;
+          src = form == 0 ? 16 : 31;
+          run_macro(sew, lm, maximum, 0, 23, mode, 24, src, 0, 0);
+          run_macro(sew, lm, maximum - 1, maximum > 2 ? 1 : 0, 23, mode, 8, src, 8, 1);
+          // Legal moves to v0 and in-place vector-source moves.
+          run_macro(sew, lm, maximum, 0, 23, mode, form == 0 ? 16 : 0, src, 0, 0);
+        end
+      end
+      // All mask instructions address single registers, even with LMUL=8.
+      // Vary SEW while keeping valid VL and sweep in-place operands/destination v0.
+      for (int op = 24; op < 32; op++) begin
+        int maximum;
+        maximum = VLEN >> sew;
+        run_macro(sew, 3, maximum, 0, op, 2, 3, 5, 7, 0, 0, 0);
+        run_macro(sew, 3, maximum - 1, 3, op, 2, 5, 5, 7, 0);
+        run_macro(sew, 3, maximum, maximum > 64 ? 63 : 1, op, 2, 0, 5, 0, 0, 1, 1, 0);
+      end
+      run_macro(sew, 0, 0, 7, 23, 3, 0, 31, 0, 0);
+      run_macro(sew, 0, 1, 7, 23, 4, 8, 3, 8, 1);
+      run_macro(sew, 0, 0, 7, 31, 2, 0, 5, 7, 0);
+    end
+    // Retry after an authorized in-place prefix and in its first partial row.
+    for (int ones = 0; ones < 2; ones++) begin
+      for (int row = 0; row < VLEN / 64; row++) begin
+        initialize_in = '{1'b1, '{AW'(row), ones != 0 ? 64'hffffffffffffffff : 64'b0, 64'hffffffffffffffff}};
+        tick();
+      end
+      initialize_in.valid = 0;
+      run_macro(0,3,VLEN,0,23,0,8,16,8,1,0,0);
+    end
+    run_macro(0, 3, VLEN - 1, 3, 27, 2, 3, 5, 3, 0, 1, 1, 64);
+    run_macro(0, 3, VLEN - 1, 3, 23, 0, 8, 16, 8, 1, 1, 1, 8);
     run_macro(0, 3, VLEN, 0, 0, 0, 24, 16, 8, 0, 0, 0);
     // Retry both the initial partial chunk and a later in-place chunk after
     // its prefix committed; neither case may rewrite pre-vstart elements.
@@ -184,11 +239,14 @@
     assert (consecutive >= VLEN / 8 - 1 && retries > 0) else $fatal(1, "missing throughput/retry coverage");
     // Cancel at read, buffered-offer, and pre-WB boundaries. No killed token
     // may update the bank or be mistaken for the next macro's response.
-    for (int delay = 0; delay < 4; delay++) begin
-      instruction = 32'h02880c57; vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
+    for (int family = 0; family < 4; family++) begin
+      for (int delay = 0; delay < 4; delay++) begin
+      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : 32'h6e72a1d7;
+      vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
       request_valid = 1; issue_ready = delay == 3; tick(); request_valid = 0;
       repeat (delay) tick(); cancel = 1; tick(); cancel = 0;
       repeat (7) tick();
+      end
     end
     instruction = 32'h02880c57; vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
     request_valid = 1; issue_ready = 0; tick(); request_valid = 0;
