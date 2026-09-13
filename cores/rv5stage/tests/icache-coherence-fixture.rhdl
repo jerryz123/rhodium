@@ -26,7 +26,7 @@ sync_circuit RV5StageInstructionCoherence(inclusive :: Boolean):
   def home_config = CHIHNFConfig(p, [nodes.instruction_home_port(~coherent: #true), nodes.data_node.icn_peer()], 65535, ram_config.requests)
   interface fetch(RV5StageInstructionLookup(RV5StageInstructionReq(XLen.X64)), ~role: responder)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: consumer)
-  interface host(RV5StageDataAccess(XLen.X64), ~role: responder)
+  interface host(RV5StageDataAccess(XLen.X64, 8), ~role: responder)
   output instruction_request: Bool
   output instruction_fence: Bool
   inst icache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: config))

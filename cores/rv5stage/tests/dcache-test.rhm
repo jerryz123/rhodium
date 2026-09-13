@@ -18,12 +18,20 @@ def design = embedded.run_elaboration(
   fun (): l1d.RV5StageL1DCache(XLen.X64, cache_config, ~chi: config)
 )
 def cache = design.modules.find(fun (module_def): module_def.name == "RV5StageL1DCache")
-def data_access_type = protocol.RV5StageDataAccess(XLen.X64)
+def data_access_type = protocol.RV5StageDataAccess(XLen.X64, 8)
 def data_request_member = data_access_type.members.find(fun (member): member.name == "request")
 def rv32_design = embedded.run_elaboration(
   fun (): l1d.RV5StageL1DCache(XLen.X32, cache_config, ~chi: config)
 )
 def rv32_cache = rv32_design.modules.find(fun (module_def): module_def.name == "RV5StageL1DCache")
+
+// The public wire contract grows only when the slot index is the widest variant.
+for (slots in [1, 2, 4, 8, 16, 256]):
+  def writeback = protocol.RV5StageMemoryWriteback(slots)
+  check:
+    writeback.packed_width() ~is (if slots == 256 | 10 | 9)
+    type_equal(protocol.RV5StageDataReq(XLen.X64, slots).field("writeback").type, writeback) ~is #true
+    type_equal(protocol.RV5StageDataResp(XLen.X64, slots).field("writeback").type, writeback) ~is #true
 
 check:
   associative_cache_config.set_width ~is 3
@@ -37,13 +45,11 @@ check:
   cache.find_input("virtual_lookup_in").type.field("bits").type.width ~is 64
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("access").type.width ~is 4
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("atomic").type.width ~is 4
-  cache.find_input("core_in").type.field("request").type.field("bits").type.field("destination").type.width ~is 2
-  cache.find_input("core_in").type.field("request").type.field("bits").type.field("rd").type.width ~is 5
-  scalar_width(cache.find_input("core_in").type.field("request").type.field("bits").type.field("floating_point_precision").type) ~is 2
+  type_equal(cache.find_input("core_in").type.field("request").type.field("bits").type.field("writeback").type, protocol.RV5StageMemoryWriteback(8)) ~is #true
+  protocol.RV5StageMemoryWriteback(8).variants ~is ["Ack", "Integer", "FloatingPoint", "Vector"]
+  protocol.RV5StageMemoryWriteback(8).packed_width() ~is 9
   scalar_width(cache.find_input("core_in").type.field("request").type.field("bits").type.field("locality").type) ~is 3
-  cache.find_output("core_out").type.field("response").type.field("bits").type.field("destination").type.width ~is 2
-  cache.find_output("core_out").type.field("response").type.field("bits").type.field("rd").type.width ~is 5
-  scalar_width(cache.find_output("core_out").type.field("response").type.field("bits").type.field("floating_point_precision").type) ~is 2
+  type_equal(cache.find_output("core_out").type.field("response").type.field("bits").type.field("writeback").type, protocol.RV5StageMemoryWriteback(8)) ~is #true
   scalar_width(cache.find_output("core_out").type.field("drained").type) ~is 1
   cache.find_output("chi_out").type.field("request_data").type.field("bits").type.field("byte_enable").type.width ~is 16
   rv32_cache.find_input("core_in").type.field("request").type.field("bits").type.field("data").type.width ~is 32

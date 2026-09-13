@@ -55,9 +55,18 @@ for (instruction in VectorIntegerInstructions):
   | ~else: VectorOperandMode.Immediate
   check:
     value(decoded, "integer") ~is 1
+    value(decoded, "memory") ~is 0
     value(decoded, "configure") ~is VectorConfigMode.None.packed_value()
     value(decoded, "operand") ~is expected_operand.packed_value()
     value(decoded, "immediate_unsigned") ~is (if instruction.format == VectorShiftVIFormat | 1 | 0)
+
+for (instruction in VectorMemoryInstructions, index in 0..8):
+  def decoded = control(instruction)
+  check:
+    value(decoded, "integer") ~is 0
+    value(decoded, "memory") ~is 1
+    value(decoded, "store") ~is (if index >= 4 | 1 | 0)
+    value(decoded, "eew") ~is index mod 4
 
 for (vlen in [128, 256, 512, 65536]):
   def micro = RV5StageVectorMicroOp(vlen, Bits(4))

@@ -311,6 +311,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   output vector_enabled: Bool
   output vector_state: RV5StageVectorState(xlen)
   interface vector_retire(Pulse(), ~role: consumer)
+  interface vector_fault_start(Valid(Bits(xlen.width)), ~role: consumer)
   output cbo_zero_enabled: Bool
   input cbo_operation: CboManagementOperation
   output cbo_permission: CboManagementPermission()
@@ -327,6 +328,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   inst fp_csrs(FpCsrModule)
   inst vector_csrs(RV5StageVectorCsrs(xlen, core_profile.experimental_vector))
   vector_retire |> vector_csrs.retire
+  vector_fault_start |> vector_csrs.fault_start
   fp_update |> fp_csrs.update
 
   fun flag_value(original :: Bits(width),

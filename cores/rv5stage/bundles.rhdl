@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
   "fetch/bpd/protocol.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
@@ -66,9 +67,10 @@ bundle RV5StageOperand(xlen :: XLen):
   stage_sel: RV5StageBypassStage
   value: Bits(xlen.width)
 
-bundle DecodeExecute(xlen :: XLen):
+bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_valid: Bool
   vector_last: Bool
+  vector_tag: Bits(index_width(vector_completion_slots))
   pointer_masking: PointerMaskControl()
   pc: Bits(xlen.width)
   instruction: Bits(32)
@@ -115,7 +117,7 @@ bundle RV5StageException(xlen :: XLen):
   cause: Bits(xlen.width)
   value: Bits(xlen.width)
 
-bundle ExecuteMemory(xlen :: XLen):
+bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_valid: Bool
   vector_last: Bool
   pc: Bits(xlen.width)
@@ -125,7 +127,7 @@ bundle ExecuteMemory(xlen :: XLen):
   instruction: Bits(32)
   replay: Bool
   data_request_valid: Bool
-  data_request: RV5StageDataReq(xlen)
+  data_request: RV5StageDataReq(xlen, vector_completion_slots)
   fp_compute: Bool
   fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
   prefetch: CachePrefetchReq(xlen.width)
@@ -145,7 +147,7 @@ bundle ExecuteMemory(xlen :: XLen):
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
 
-bundle MemoryWriteback(xlen :: XLen):
+bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_valid: Bool
   vector_last: Bool
   pc: Bits(xlen.width)
@@ -155,7 +157,7 @@ bundle MemoryWriteback(xlen :: XLen):
   load_hit: Bool
   cache_outcome: RV5StagePipelineOutcome
   data_request_valid: Bool
-  data_request: RV5StageDataReq(xlen)
+  data_request: RV5StageDataReq(xlen, vector_completion_slots)
   fp_compute: Bool
   fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
   prefetch: CachePrefetchReq(xlen.width)

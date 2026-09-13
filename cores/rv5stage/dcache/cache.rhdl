@@ -32,21 +32,21 @@ hardware_enum RV5StageDataGatherState:
   SnoopReady
 
 bundle RV5StageL1DTransactionContext(xlen :: XLen,
-                                     way_width :: PosInt):
-  request: RV5StageDataReq(xlen)
+                                     way_width :: PosInt, vector_completion_slots :: Pow2Int):
+  request: RV5StageDataReq(xlen, vector_completion_slots)
   way: Bits(way_width)
   allocation: Bool
   install: Bool
   prefetch: Bool
   prefetch_write: Bool
 
-bundle RV5StageL1DLookup(xlen :: XLen):
-  request: RV5StageDataReq(xlen)
+bundle RV5StageL1DLookup(xlen :: XLen, vector_completion_slots :: Pow2Int):
+  request: RV5StageDataReq(xlen, vector_completion_slots)
   prefetch: Bool
   prefetch_write: Bool
 
-bundle RV5StageL1DResolved(xlen :: XLen, way_width :: PosInt):
-  lookup: RV5StageL1DLookup(xlen)
+bundle RV5StageL1DResolved(xlen :: XLen, way_width :: PosInt, vector_completion_slots :: Pow2Int):
+  lookup: RV5StageL1DLookup(xlen, vector_completion_slots)
   hit: Bool
   hit_way: Bits(way_width)
   state: CHICacheState
@@ -63,7 +63,8 @@ fun check_l1d_geometry(width :: PosInt, cache :: RV5StageCacheConfig):
 
 sync_circuit RV5StageL1DCache(xlen :: XLen,
                               cache :: RV5StageCacheConfig,
-                              ~chi: config :: RV5StageCHIConfig):
+                              ~chi: config :: RV5StageCHIConfig,
+                              ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
   def p = config.flit
   check_l1d_geometry(width, cache)
@@ -82,7 +83,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def data_address_width = index_width(data_depth)
 
   input node_id: Bits(p.node_id_width)
-  interface core(RV5StageDataAccess(xlen), ~role: responder)
+  interface core(RV5StageDataAccess(xlen, vector_completion_slots), ~role: responder)
   interface virtual_lookup(Valid(Bits(width)), ~role: consumer)
   interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: consumer)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
@@ -103,10 +104,10 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   inst refill_load_gen(LoadGen(xlen, word_bytes))
   inst refill_store_gen(StoreGen(xlen, word_bytes))
   inst refill_atomic_alu(RV5StageAtomicALU(xlen))
-  inst refill(RV5StageLineRefill(RV5StageL1DTransactionContext(xlen, way_width), width, config))
+  inst refill(RV5StageLineRefill(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width, config))
   inst snoop(RV5StageDataSnoop(width, config))
-  inst writeback(RV5StageLineWriteback(RV5StageL1DTransactionContext(xlen, way_width), width, config, 1))
-  inst maintenance(CHICacheMaintenance(p, RV5StageDataReq(xlen)))
+  inst writeback(RV5StageLineWriteback(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width, config, 1))
+  inst maintenance(CHICacheMaintenance(p, RV5StageDataReq(xlen, vector_completion_slots)))
   maintenance.node_id <== node_id
   maintenance.txn_id <== bits(2, 12)
   refill.node_id <== node_id
@@ -114,15 +115,15 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   writeback.node_id <== node_id
   // Registered capacity owns acceptance even when a paired virtual lookup can
   // bypass this buffer. Busy arrays retain permitted physical requests here.
-  inst service_requests(Queue(RV5StageDataReq(xlen), 2, ~flow: #true))
+  inst service_requests(Queue(RV5StageDataReq(xlen, vector_completion_slots), 2, ~flow: #true))
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
-  inst s3_lookup(Pipe(RV5StageL1DLookup(xlen), 1))
-  inst s4_result(ValidPipeAlwaysCapture(RV5StageL1DResolved(xlen, way_width), 1))
+  inst s3_lookup(Pipe(RV5StageL1DLookup(xlen, vector_completion_slots), 1))
+  inst s4_result(ValidPipeAlwaysCapture(RV5StageL1DResolved(xlen, way_width, vector_completion_slots), 1))
   reg s3_read_valid(~init: Bool(#false))
   // The slow-service response register isolates its SRAM result path.
   // The core-aligned hit path bypasses it; neither response is backpressured.
-  inst service_responses(ValidPipe(RV5StageDataResp(xlen), 1))
+  inst service_responses(ValidPipe(RV5StageDataResp(xlen, vector_completion_slots), 1))
 
   // Persistent cache and engine state spans transactions, not core stages.
   reg valid_lines(~init: vec(
@@ -148,7 +149,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // An owned local store, AMO, or successful SC commits from this register
   // on the cycle after the S4 permission decision.
   reg pending_mutation_valid(~init: Bool(#false))
-  reg pending_mutation_request(RV5StageDataReq(xlen))
+  reg pending_mutation_request(RV5StageDataReq(xlen, vector_completion_slots))
   reg pending_mutation_way(Bits(way_width))
   reg pending_mutation_old_value(Bits(width))
   reg pending_zero_index(~init: bits(0, word_index_width))
@@ -169,7 +170,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   reg gather_way(Bits(way_width))
   reg eviction_line_address(Bits(width))
   reg eviction_state(~init: CHICacheState.Invalid)
-  reg eviction_context(RV5StageL1DTransactionContext(xlen, way_width))
+  reg eviction_context(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots))
   reg gathered_snoop_state(~init: CHICacheState.Invalid)
   reg snoop_metadata_pending(~init: Bool(#false))
 
@@ -275,7 +276,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def management_home = config.home_map.lookup(management_address)
   (
     management_requests |> gate_flow(stores.empty & !s2_store_candidate.egress.valid & refill.command.ready & writeback.command.ready & !s3_lookup.egress.valid & !s4_result.egress.valid & !service_responses.egress.valid & !pending_mutation_valid & !refill_installing & (gather_state === RV5StageDataGatherState.Idle))
-      |> map_flow(request => CHICacheMaintenanceCommand(p, RV5StageDataReq(xlen))):
+      |> map_flow(request => CHICacheMaintenanceCommand(p, RV5StageDataReq(xlen, vector_completion_slots))):
          address: management_address
          opcode: mux_lookup(
            request.access, ~default: CHIReqOpcode.MakeInvalid,
@@ -317,7 +318,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     ~default: bits(0, width)
   )
   // s4 / resolution: permissions and transaction selection from captured results.
-  def s4_context = s4_result.egress.bits.lookup.into(RV5StageL1DLookup(xlen))
+  def s4_context = s4_result.egress.bits.lookup.into(RV5StageL1DLookup(xlen, vector_completion_slots))
   wire s4_refill_accepted: Bool
   wire s4_refill_opcode: CHIReqOpcode
   wire s4_refill_address: Bits(width)
@@ -329,7 +330,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     refill_opcode(~format: "enum"): s4_refill_opcode
     refill_address: s4_refill_address
   def s4_path = s4_observed |> to_decoupled()
-  def s4_request :: RV5StageDataReq(xlen) = s4_context.request
+  def s4_request :: RV5StageDataReq(xlen, vector_completion_slots) = s4_context.request
   def s4_prefetch = s4_context.prefetch
   def s4_prefetch_write = s4_context.prefetch_write
   def s4_set = s4_request.address[offset_width..(offset_width + set_width)]
@@ -354,8 +355,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s4_needs_refill = s4_load & (!s4_hit ||| (s4_lr & !s4_state.is_unique())) ||| s4_mutation & !s4_owned_mutation ||| (s4_prefetch_needs_refill & !s4_prefetch_dirty_victim)
   // Every NTL selector discourages L1 retention. Keep that policy separate
   // from architectural intent; LR, mutations, and prefetches still allocate.
-  fun bypass_allocation(result :: RV5StageL1DResolved(xlen, way_width)):
-    def lookup = result.lookup.into(RV5StageL1DLookup(xlen))
+  fun bypass_allocation(result :: RV5StageL1DResolved(xlen, way_width, vector_completion_slots)):
+    def lookup = result.lookup.into(RV5StageL1DLookup(xlen, vector_completion_slots))
     !lookup.prefetch & !result.hit & (lookup.request.access === MemoryOperation.Load) & (lookup.request.locality =/= RV5StageMemoryLocality.Default)
   def s4_bypass_refill = bypass_allocation(s4_result.egress.bits)
   def s4_dirty_victim = s4_needs_refill & !s4_bypass_refill & !s4_prefetch & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
@@ -374,11 +375,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     s4_transaction_path |> demux_flow(2, _result => s4_dirty_victim.as_bits())
   )
   def s4_local = s4_hit_path |> to_valid()
-  fun transaction_context(result :: RV5StageL1DResolved(xlen, way_width),
+  fun transaction_context(result :: RV5StageL1DResolved(xlen, way_width, vector_completion_slots),
                           allocation :: Bool,
-                          install :: Bool) :~ RV5StageL1DTransactionContext(xlen, way_width):
-    def lookup = result.lookup.into(RV5StageL1DLookup(xlen))
-    RV5StageL1DTransactionContext(xlen, way_width):
+                          install :: Bool) :~ RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots):
+    def lookup = result.lookup.into(RV5StageL1DLookup(xlen, vector_completion_slots))
+    RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots):
       request: lookup.request
       way: mux(result.hit, result.hit_way, result.allocation_way)
       allocation: allocation
@@ -388,9 +389,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def direct_refill_commands = (
     s4_refill_path
       |> map_flow(result):
-        def lookup = result.lookup.into(RV5StageL1DLookup(xlen))
+        def lookup = result.lookup.into(RV5StageL1DLookup(xlen, vector_completion_slots))
         def bypass = bypass_allocation(result)
-        RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width):
+        RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width):
           line_address: lookup.request.address.as_bits().align_down(RV5StageCacheLineBytes)
           opcode: mux(lookup.prefetch_write ||| lookup.request.access.into(MemoryOperation).needs_unique() ||| (lookup.request.access === MemoryOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
           context: transaction_context(result, !result.hit & !bypass, !bypass)
@@ -398,7 +399,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s4_victim_address = s4_result.egress.bits.victim_address
   def eviction_start = s4_eviction_path |> gate_flow(gather_idle & !refill_installing) |> to_valid()
   def eviction_gather_start = eviction_start.valid
-  def eviction_command = RV5StageLineWritebackCommand(RV5StageL1DTransactionContext(xlen, way_width), width):
+  def eviction_command = RV5StageLineWritebackCommand(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width):
     line_address: eviction_line_address
     line: gathered_line.as_vec(Bits(64))
     context: eviction_context
@@ -414,7 +415,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     eviction_state <== mux(snoop.update.bits.invalidate, CHICacheState.Invalid, snoop.update.bits.state)
   def post_eviction_refills = (
     writeback.completion
-      |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width), width)):
+      |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width)):
         line_address: result.context.request.address.as_bits().align_down(RV5StageCacheLineBytes)
         opcode: mux(result.context.prefetch_write ||| result.context.request.access.into(MemoryOperation).needs_unique() ||| (result.context.request.access === MemoryOperation.LoadReserved),
                     CHIReqOpcode.ReadUnique,
@@ -456,7 +457,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def refill_tag = refill_request.address[(offset_width + set_width)..width]
   def refill_word_index = refill_request.address[word_offset_width..offset_width]
   def refill_words = refill.completion.bits.line.as_bits().as_vec(Bits(width))
-  def service_load_request :: RV5StageDataReq(xlen) = mux(refill.completion.valid, refill_request, s4_request)
+  def service_load_request :: RV5StageDataReq(xlen, vector_completion_slots) = mux(refill.completion.valid, refill_request, s4_request)
   def service_load_unsigned = mux(service_load_request.access === MemoryOperation.Load, service_load_request.unsigned, Bool(#false))
   def refilled_word = refill_words[refill_word_index]
   service_load_gen.address <== service_load_request.address
@@ -562,7 +563,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     s3_observed
       |> gate_flow(s3_can_advance & s3_read_valid)
       |> to_valid()
-      |> map_valid(request => RV5StageL1DResolved(xlen, way_width)):
+      |> map_valid(request => RV5StageL1DResolved(xlen, way_width, vector_completion_slots)):
         lookup: request
         hit: s3_hit_way.valid
         hit_way: s3_hit_way.index
@@ -598,7 +599,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def array_read_data_address = array_read_address[word_offset_width..(offset_width + set_width)]
   def s2_admit = !management_waiting & s3_can_advance & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
   core.request |> service_requests.ingress
-  def s2_demand = ordinary_requests |> map_flow(request => RV5StageL1DLookup(xlen)):
+  def s2_demand = ordinary_requests |> map_flow(request => RV5StageL1DLookup(xlen, vector_completion_slots)):
     request: request
     prefetch: Bool(#false)
     prefetch_write: Bool(#false)
@@ -609,18 +610,16 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
       |> filter_valid(_hint => s2_prefetch & s2_admit & s3_lookup.ingress.ready & !ordinary_requests.valid)
       |> map_valid(payload):
         def hint = payload.into(CachePrefetchReq(width))
-        def request = RV5StageDataReq(xlen):
+        def request = RV5StageDataReq(xlen, vector_completion_slots):
           address: hint.address
           access: MemoryOperation.Load
           atomic: RV5StageAtomicOperation.Swap
           width: MemoryWidth.Byte
           unsigned: Bool(#true)
           data: bits(0, width)
-          destination: RV5StageDataDestination.None
-          rd: bits(0, 5)
-          floating_point_precision: RV5StageFloatPrecision.Single
+          writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
           locality: RV5StageMemoryLocality.Default
-        RV5StageL1DLookup(xlen):
+        RV5StageL1DLookup(xlen, vector_completion_slots):
           request: request
           prefetch: Bool(#true)
           prefetch_write: hint.operation === CachePrefetchOperation.Write
@@ -641,7 +640,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s4_load_hit = s4_local.valid & s4_load & s4_hit & (!s4_lr ||| s4_state.is_unique())
   def s4_failed_sc = s4_local.valid & s4_sc & !s4_sc_authorized
   def produces_response = maintenance_complete ||| s4_load_hit ||| local_mutation_complete ||| s4_failed_sc ||| (complete_refill & !refill_prefetch)
-  def response_request :: RV5StageDataReq(xlen) = mux(
+  def response_request :: RV5StageDataReq(xlen, vector_completion_slots) = mux(
     maintenance_complete,
     maintenance_done.bits.context,
     mux(complete_refill, refill_request, mux(local_mutation_commit, pending_mutation_request, s4_request))
@@ -650,17 +649,15 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def response_address = response_request.address
   def response_width = response_request.width
   def response_old_value = mux(local_mutation_commit, pending_mutation_old_value, service_load_gen.value)
-  def response = RV5StageDataResp(xlen):
+  def response = RV5StageDataResp(xlen, vector_completion_slots):
     access_fault: maintenance_complete & (maintenance_done.bits.error =/= CHIRespErr.OK)
     data: mux(response_access.returns_old_value(),
               response_old_value,
               mux(response_access.is_store_conditional() & s4_failed_sc,
                   bits(1, width),
                   bits(0, width)))
-    destination: response_request.destination
-    rd: response_request.rd
-    floating_point_precision: response_request.floating_point_precision
-  inject_flow(Valid(RV5StageDataResp(xlen)), ~valid: produces_response, ~bits: response) |> service_responses.ingress
+    writeback: response_request.writeback
+  inject_flow(Valid(RV5StageDataResp(xlen, vector_completion_slots)), ~valid: produces_response, ~bits: response) |> service_responses.ingress
 
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no
@@ -737,7 +734,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   when local_mutation_capture:
     pending_mutation_valid <== Bool(#true)
-    pending_mutation_request <== s4_local.bits.lookup.into(RV5StageL1DLookup(xlen)).request
+    pending_mutation_request <== s4_local.bits.lookup.into(RV5StageL1DLookup(xlen, vector_completion_slots)).request
     pending_mutation_way <== s4_local.bits.hit_way
     pending_mutation_old_value <== service_load_gen.value
     pending_zero_index <== bits(0, word_index_width)
@@ -777,7 +774,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     gather_response_pending <== Bool(#false)
     gather_last_issued <== Bool(#false)
     gathered_line <== bits(0, RV5StageCacheLineBytes * 8)
-    gather_set <== eviction_start.bits.lookup.into(RV5StageL1DLookup(xlen)).request.address[offset_width..(offset_width + set_width)]
+    gather_set <== eviction_start.bits.lookup.into(RV5StageL1DLookup(xlen, vector_completion_slots)).request.address[offset_width..(offset_width + set_width)]
     gather_way <== eviction_start.bits.allocation_way
     eviction_line_address <== eviction_start.bits.victim_address
     eviction_context <== transaction_context(eviction_start.bits, Bool(#true), Bool(#true))

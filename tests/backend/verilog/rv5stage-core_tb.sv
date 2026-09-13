@@ -1,5 +1,6 @@
 // Verifies RV5StageCore forwarding priority, captured operands, replay, redirects, and ordered commit.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_core_tb;
   typedef struct packed {
     logic supervisor_software;
@@ -28,18 +29,14 @@ module rv5stage_core_tb;
     logic [1:0] width;
     logic unsigned_0;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
     logic access_fault;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
@@ -80,8 +77,8 @@ module rv5stage_core_tb;
   logic saw_fence_i_refetch;
   logic [2:0] fetch_flushes;
   localparam logic [3:0] MEMORY_LOAD = 4'd1;
-  localparam logic [1:0] DATA_DESTINATION_NONE = 2'd0;
-  localparam logic [1:0] DATA_DESTINATION_INTEGER = 2'd1;
+  localparam logic [1:0] WRITEBACK_ACK_KIND = 2'd0;
+  localparam logic [1:0] WRITEBACK_INTEGER_KIND = 2'd1;
 
   RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
@@ -136,9 +133,7 @@ module rv5stage_core_tb;
     data_access_in.request_access_fault = 1'b0;
     data_access_in.response.valid = data_response_valid;
     data_access_in.response.bits.data = data_response_bits;
-    data_access_in.response.bits.destination = DATA_DESTINATION_INTEGER;
-    data_access_in.response.bits.rd = data_response_rd;
-    data_access_in.response.bits.floating_point_precision = 2'b01;
+    data_access_in.response.bits.writeback = memory_integer(data_response_rd);
     data_access_in.drained = 1'b1;
     data_access_in.reservation_valid = 1'b0;
   end
@@ -208,8 +203,8 @@ module rv5stage_core_tb;
         assert (!rejected_first_load && load_requests == 0 &&
                 data_access_out.request.bits.access == MEMORY_LOAD &&
                 data_access_out.request.bits.address == 64'd0 &&
-                data_access_out.request.bits.destination == DATA_DESTINATION_INTEGER &&
-                data_access_out.request.bits.rd == 5'd5)
+                data_access_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
+                memory_rd(data_access_out.request.bits.writeback) == 5'd5)
           else $fatal(1, "unexpected or repeated rejected data request");
         rejected_first_load <= 1'b1;
       end
@@ -253,14 +248,14 @@ module rv5stage_core_tb;
                     instruction_access_out.request.bits.address == 64'h00000001_00000000)))
               else $fatal(1, "load was accepted without a WB replay and refetch");
             assert (data_access_out.request.bits.address == 64'd0 &&
-                    data_access_out.request.bits.destination == DATA_DESTINATION_INTEGER &&
-                    data_access_out.request.bits.rd == 5'd5)
+                    data_access_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
+                    memory_rd(data_access_out.request.bits.writeback) == 5'd5)
               else $fatal(1, "first load lost its address or destination register");
           end else
             assert (load_requests == 1 &&
                     data_access_out.request.bits.address == 64'd16 &&
-                    data_access_out.request.bits.destination == DATA_DESTINATION_INTEGER &&
-                    data_access_out.request.bits.rd == 5'd8)
+                    data_access_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
+                    memory_rd(data_access_out.request.bits.writeback) == 5'd8)
               else $fatal(1, "second load lost its address or destination register");
           if (load_requests == 0)
             first_response_delay <= 2'd1;
@@ -273,21 +268,21 @@ module rv5stage_core_tb;
           if (stores_seen == 0) begin
             assert (data_access_out.request.bits.address == 64'd8 &&
                     data_access_out.request.bits.data == 64'd43 &&
-                    data_access_out.request.bits.destination == DATA_DESTINATION_NONE)
+                    data_access_out.request.bits.writeback[8:7] == WRITEBACK_ACK_KIND)
               else $fatal(1, "RAW-dependent result was incorrect");
             stores_seen <= 1;
           end else if (stores_seen == 1) begin
             assert (
                     data_access_out.request.bits.address == 64'd16 &&
                     data_access_out.request.bits.data == 64'd9 &&
-                    data_access_out.request.bits.destination == DATA_DESTINATION_NONE)
+                    data_access_out.request.bits.writeback[8:7] == WRITEBACK_ACK_KIND)
               else $fatal(1, "WAW ordering was not preserved");
             stores_seen <= 2;
           end else if (stores_seen == 2) begin
             assert (
                     data_access_out.request.bits.address == 64'd24 &&
                     data_access_out.request.bits.data == 64'h00000001_00000050 &&
-                    data_access_out.request.bits.destination == DATA_DESTINATION_NONE)
+                    data_access_out.request.bits.writeback[8:7] == WRITEBACK_ACK_KIND)
               else $fatal(1, "JAL link writeback was not preserved through MEM redirect");
             assert (saw_fence_i_invalidate && saw_fence_i_refetch)
               else $fatal(1, "FENCE.I did not invalidate and refetch from pc + 4");
@@ -297,7 +292,7 @@ module rv5stage_core_tb;
               else $fatal(1, "memory replay was not observed before completion");
             stores_seen <= 3;
           end else begin
-            assert (data_access_out.request.bits.destination == DATA_DESTINATION_NONE)
+            assert (data_access_out.request.bits.writeback[8:7] == WRITEBACK_ACK_KIND)
               else $fatal(1, "forwarding test store acquired a destination");
             case (stores_seen)
               3: assert (data_access_out.request.bits.address == 40 && data_access_out.request.bits.data == 6)

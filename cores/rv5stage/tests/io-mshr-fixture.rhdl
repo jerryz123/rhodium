@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
   "../memory-router.rhdl".RV5StageMemoryRouter
   "../chi/uncached.rhdl".RV5StageUncached
   "../dcache/protocol.rhdl".RV5StageDataAccess
@@ -11,15 +12,15 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
-sync_circuit RV5StageIOMSHRFixture():
+sync_circuit RV5StageIOMSHRFixture(~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def config = test_rv5stage_uncached_config
   input node_id: Bits(config.flit.node_id_width)
-  interface core(RV5StageDataAccess(XLen.X64), ~role: responder)
-  interface cache(RV5StageDataAccess(XLen.X64), ~role: requester)
+  interface core(RV5StageDataAccess(XLen.X64, vector_completion_slots), ~role: responder)
+  interface cache(RV5StageDataAccess(XLen.X64, vector_completion_slots), ~role: requester)
   interface instruction(RV5StagePhysicalInstructionAccess(XLen.X64), ~role: responder)
   interface chi(CHIRNIChannels(config.flit), ~role: node)
-  inst router(RV5StageMemoryRouter(XLen.X64, config.physical_map))
-  inst uncached(RV5StageUncached(XLen.X64, config))
+  inst router(RV5StageMemoryRouter(XLen.X64, config.physical_map, ~vector_completion_slots: vector_completion_slots))
+  inst uncached(RV5StageUncached(XLen.X64, config, ~vector_completion_slots: vector_completion_slots))
   core |> router.core
   router.cache |> cache
   router.uncached |> uncached.core

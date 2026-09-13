@@ -17,6 +17,11 @@ check:
   VADD_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~is 0x022fb0d7
   VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0x962fb0d7
   VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~throws ""
+  VLE8_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x02010087
+  VLE16_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x02015087
+  VSE64_V.encode([vs3.constrain(3), model.rs1.constrain(2), vm.constrain(0)]) ~is 0x000171a7
+  VectorLoadFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer]
+  VectorStoreFormat.operands.map(fun (operand): operand.role) ~is ["source", "source"]
   VectorVVFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Vector, model.RegisterBank.Vector]
   [CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_address) ~is [8, 9, 10, 15, 0xc20, 0xc21, 0xc22]
 

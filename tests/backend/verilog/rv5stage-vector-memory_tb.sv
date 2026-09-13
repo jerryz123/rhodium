@@ -1,0 +1,325 @@
+// Checks vector memory against real MMU/cache execution, including tagged responses and precise restart.
+// SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
+`ifndef RV5STAGE_VECTOR_COMPLETION_SLOTS
+`define RV5STAGE_VECTOR_COMPLETION_SLOTS 8
+`endif
+module rv5stage_vector_memory_tb;
+  localparam int COMPLETION_SLOTS = `RV5STAGE_VECTOR_COMPLETION_SLOTS;
+  typedef struct packed {logic ready;} ready_t;
+  typedef struct packed {logic [63:0] address;} ireq_bits_t;
+  typedef struct packed {logic valid; ireq_bits_t bits;} ireq_t;
+  typedef struct packed {logic [31:0] word; logic page_fault, access_fault;} iresp_bits_t;
+  typedef struct packed {logic valid; iresp_bits_t bits;} iresp_t;
+  typedef struct packed {ready_t request; iresp_t response;} instruction_in_t;
+  typedef struct packed {logic flush, invalidate_all; ireq_t request; ready_t response;} instruction_out_t;
+  typedef struct packed {
+    logic [63:0] address;
+    logic [3:0] access, atomic;
+    logic [1:0] width;
+    logic unsigned_0;
+    logic [63:0] data;
+    logic [8:0] writeback;
+    logic [2:0] locality;
+  } request_bits_t;
+  typedef struct packed {request_bits_t request; logic device;} ureq_bits_t;
+  typedef struct packed {logic valid; ureq_bits_t bits;} ureq_t;
+  typedef struct packed {logic access_fault; logic [63:0] data; logic [8:0] writeback;} response_bits_t;
+  typedef struct packed {logic valid; response_bits_t bits;} response_t;
+  typedef struct packed {ready_t request; logic request_fault, request_access_fault; response_t response; logic drained;} uncached_in_t;
+  typedef struct packed {ureq_t request;} uncached_out_t;
+  typedef struct packed {logic valid; CHIReqFlit bits;} req_t;
+  typedef struct packed {logic valid; CHIRspFlit bits;} rsp_t;
+  typedef struct packed {logic valid; CHIDatFlit bits;} dat_t;
+  typedef struct packed {logic valid; CHISnpFlit bits;} snp_t;
+  typedef struct packed {ready_t requests, requester_responses, request_data; rsp_t responses; dat_t response_data; snp_t snoops;} chi_in_t;
+  typedef struct packed {req_t requests; rsp_t requester_responses; dat_t request_data; ready_t responses, response_data, snoops;} chi_out_t;
+
+  logic clock=0, reset=1;
+  instruction_in_t instruction_in;
+  instruction_out_t instruction_out;
+  uncached_in_t uncached_in;
+  uncached_out_t uncached_out;
+  chi_in_t chi_in;
+  chi_out_t chi_out;
+  logic load_issue, load_hit, transaction_valid, transaction_fire;
+  logic [63:0] load_address, cache_address;
+  request_bits_t transaction;
+  logic demand_attempt, demand_fire, cache_fire, permit_demand = 0;
+  RV5StageLoadHit dut(.*);
+  always #5 clock = ~clock;
+
+  logic [31:0] program_words[2048];
+  byte unsigned memory[32768];
+  logic [63:0] expected[256];
+  int pc = 0, expected_count = 0, signatures = 0, cycles = 0;
+  int hits = 0, warm_run = 0, longest_warm_run = 0, rejections = 0;
+  int overlapping_hits = 0, scalar_overlap = 0;
+  int refills = 0, copybacks = 0, fault_signature = 0, device_elements = 0;
+  bit instruction_valid = 0, uncached_pending = 0, returning = 0, writing_back = 0;
+  logic [31:0] instruction_word;
+  response_bits_t uncached_response;
+  logic [63:0] line_address;
+  logic [11:0] txn;
+  int beat = 0, delay_cycles = 0, response_phase = 0, uncached_delay = 0;
+  bit resumed = 0, vector_load_pending = 0;
+
+  function automatic logic [31:0] addi(input int rd, rs, imm);
+    return {12'(imm), 5'(rs), 3'b000, 5'(rd), 7'h13};
+  endfunction
+  function automatic logic [31:0] csr(input int address, rd, rs, op = 1);
+    return {12'(address), 5'(rs), 3'(op), 5'(rd), 7'h73};
+  endfunction
+  function automatic logic [31:0] vmem(input bit store, input int width, regno, base, input bit masked = 0);
+    return {6'b0, !masked, 5'b0, 5'(base), 3'(width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
+  endfunction
+  function automatic logic [31:0] vint(input int op, vd, vs2, vs1, mode = 0);
+    return {6'(op), 1'b1, 5'(vs2), 5'(vs1), 3'(mode), 5'(vd), 7'h57};
+  endfunction
+  function automatic logic [63:0] read_word(input int address);
+    logic [63:0] value = 0;
+    for (int b = 0; b < 8; b++) value[b*8+:8] = memory[address+b];
+    return value;
+  endfunction
+  task automatic write_word(input int address, input logic [63:0] value);
+    for (int b = 0; b < 8; b++) memory[address+b] = value[b*8+:8];
+  endtask
+  task automatic emit(input logic [31:0] instruction);
+    program_words[pc++] = instruction;
+  endtask
+  task automatic li(input int rd, value);
+    emit({20'((value + 2048) >> 12), 5'(rd), 7'h37});
+    emit(addi(rd, rd, value));
+  endtask
+  task automatic configure(input int sew, lmul, vl);
+    emit(addi(6, 0, vl));
+    emit({1'b0, 11'((sew << 3) | lmul), 5'd6, 3'b111, 5'd0, 7'h57});
+  endtask
+  task automatic signature(input int regno, input logic [63:0] value);
+    int offset = expected_count * 8;
+    expected[expected_count++] = value;
+    emit({7'(offset >> 5), 5'(regno), 5'd20, 3'b011, 5'(offset), 7'h23});
+    emit(32'h0ff0000f);
+  endtask
+  task automatic check_memory(input int base, bytes, input logic [63:0] values[]);
+    li(9, base);
+    for (int wordno = 0; wordno < bytes/8; wordno++) begin
+      emit({12'(wordno*8), 5'd9, 3'b011, 5'd7, 7'h03});
+      signature(7, values[wordno]);
+    end
+  endtask
+
+  always_comb begin
+    instruction_in = '0;
+    instruction_in.request.ready = instruction_out.flush || !instruction_valid;
+    instruction_in.response.valid = instruction_valid;
+    instruction_in.response.bits.word = instruction_word;
+    uncached_in = '0;
+    uncached_in.request.ready = !uncached_pending;
+    uncached_in.response.valid = uncached_pending && uncached_delay == 0;
+    uncached_in.response.bits = uncached_response;
+    uncached_in.drained = !uncached_pending;
+    chi_in = '0;
+    chi_in.requests.ready = cycles % 4 != 0 && !returning && !writing_back && response_phase == 0;
+    chi_in.responses.valid = response_phase != 0;
+    chi_in.responses.bits.opcode = response_phase == 1 ? 5'h03 : response_phase == 2 ? 5'h07 : 5'h05;
+    chi_in.responses.bits.src_id = 7'd1;
+    chi_in.responses.bits.tgt_id = 7'd3;
+    chi_in.responses.bits.txn_id = txn;
+    chi_in.responses.bits.dbid_or_group_id = 12'h55;
+    chi_in.responses.bits.pcrd_type = 4'd2;
+    chi_in.requester_responses.ready = cycles % 3 != 0;
+    chi_in.request_data.ready = cycles % 3 != 0;
+    chi_in.response_data.valid = returning && delay_cycles == 0 && cycles % 3 != 0;
+    chi_in.response_data.bits.opcode = 4'h4;
+    chi_in.response_data.bits.resp = 3'b010;
+    chi_in.response_data.bits.byte_enable = 16'hffff;
+    chi_in.response_data.bits.data_id = 2'(beat);
+    chi_in.response_data.bits.home_nid_or_pbha_or_mismatched_mecid = 7'd1;
+    chi_in.response_data.bits.dbid_or_mecid = 16'h55;
+    chi_in.response_data.bits.txn_id = txn;
+    chi_in.response_data.bits.src_id = 7'd1;
+    chi_in.response_data.bits.tgt_id = 7'd3;
+    chi_in.response_data.bits.data = {read_word(int'(line_address) + 16*beat + 8), read_word(int'(line_address) + 16*beat)};
+  end
+  always @(posedge clock) begin
+    cycles <= cycles + 1;
+    if (reset) begin
+      instruction_valid <= 0;
+      permit_demand <= 0;
+    end else begin
+      // One rejection per transaction, followed by persistent readiness: no
+      // artificial periodic readiness/replay phase lock.
+      if (demand_attempt) begin
+        if (!permit_demand) begin permit_demand <= 1; rejections <= rejections + 1; end
+        else if (demand_fire) permit_demand <= 0;
+      end
+      if (instruction_out.flush) instruction_valid <= 0;
+      else if (instruction_in.response.valid && instruction_out.response.ready) instruction_valid <= 0;
+      if (instruction_out.request.valid && instruction_in.request.ready) begin
+        instruction_valid <= 1;
+        instruction_word <= program_words[int'(instruction_out.request.bits.address / 4) % 2048];
+      end
+      if (load_hit) begin
+        if (returning && line_address == 64'h1540) overlapping_hits <= overlapping_hits + 1;
+        hits <= hits + 1;
+        warm_run <= warm_run + 1;
+        if (warm_run + 1 > longest_warm_run) longest_warm_run <= warm_run + 1;
+      end else warm_run <= 0;
+      if (resumed && load_issue)
+        assert (load_address != 64'h4ff0 && load_address != 64'h4ff8)
+          else $fatal(1, "fault restart repeated an authorized prefix element");
+      if (load_issue && load_address == 64'h1300 && vector_load_pending) scalar_overlap <= scalar_overlap + 1;
+      if (device_elements != 0 && load_issue && load_address == 64'h1308)
+        assert (device_elements == 4 && !uncached_pending) else $fatal(1, "scalar load passed undrained vector stores");
+      if (transaction_fire && transaction.access == 2 && transaction.address == 64'h2700)
+        assert (!vector_load_pending) else $fatal(1, "scalar store passed an incomplete vector load");
+      if (chi_out.requests.valid && chi_in.requests.ready) begin
+        assert (chi_out.requests.bits.opcode inside {7'h02,7'h07,7'h1b})
+          else $fatal(1, "unexpected CHI opcode %h", chi_out.requests.bits.opcode);
+        line_address <= 64'(chi_out.requests.bits.address);
+        txn <= chi_out.requests.bits.txn_id;
+        if (chi_out.requests.bits.allow_retry) response_phase <= 1;
+        else if (chi_out.requests.bits.opcode == 7'h1b) begin
+          writing_back <= 1; response_phase <= 3; copybacks <= copybacks + 1; beat <= 0;
+        end else begin
+          returning <= 1; beat <= 0; delay_cycles <= 19; refills <= refills + 1;
+        end
+      end
+      if (chi_in.responses.valid && chi_out.responses.ready) response_phase <= response_phase == 1 ? 2 : 0;
+      if (delay_cycles > 0) delay_cycles <= delay_cycles - 1;
+      if (chi_in.response_data.valid && chi_out.response_data.ready) begin
+        if (beat == 3) returning <= 0; else beat <= beat + 1;
+      end
+      if (chi_out.request_data.valid && chi_in.request_data.ready) begin
+        assert(writing_back) else $fatal(1, "unowned writeback");
+        for (int b = 0; b < 16; b++)
+          if (chi_out.request_data.bits.byte_enable[b])
+            memory[int'(line_address) + 16*int'(chi_out.request_data.bits.data_id) + b] <= chi_out.request_data.bits.data[b*8+:8];
+        if (beat == 3) writing_back <= 0; else beat <= beat + 1;
+      end
+      if (uncached_delay > 0) uncached_delay <= uncached_delay - 1;
+      if (uncached_in.response.valid) begin uncached_pending <= 0; vector_load_pending <= 0; end
+      if (uncached_out.request.valid && uncached_in.request.ready) begin
+        uncached_pending <= 1; uncached_delay <= 11;
+        uncached_response <= '{access_fault:0, data:64'h31,
+          writeback:uncached_out.request.bits.request.writeback};
+        if (uncached_out.request.bits.request.address == 64'ha000) begin
+          assert (uncached_out.request.bits.request.access == 1 && uncached_out.request.bits.request.writeback[8:7] == 3)
+            else $fatal(1, "expected vector uncached load");
+          vector_load_pending <= 1; uncached_delay <= 50;
+        end else if (uncached_out.request.bits.request.address >= 64'h9000) begin
+          assert (uncached_out.request.bits.request.access == 2 &&
+                  uncached_out.request.bits.request.address == 64'h9000 + 64'(device_elements*8) &&
+                  uncached_out.request.bits.request.data == 64'(device_elements+1))
+            else $fatal(1, "duplicate, unordered, or corrupt vector device store");
+          device_elements <= device_elements + 1;
+        end else begin
+          assert (uncached_out.request.bits.request.access == 2 &&
+                  uncached_out.request.bits.request.address == 64'h8000 + 64'(signatures*8) &&
+                  uncached_out.request.bits.request.data == expected[signatures])
+            else $fatal(1, "signature %0d addr=%h got=%h expected=%h", signatures,
+                        uncached_out.request.bits.request.address, uncached_out.request.bits.request.data, expected[signatures]);
+          signatures <= signatures + 1;
+          if (signatures == fault_signature + 3) resumed <= 1;
+          if (signatures + 1 == expected_count) begin
+            assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && rejections > 8 && device_elements == 4)
+              else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
+            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; masked/EEW/vstart/device/fault restart passed",
+                     COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
+            $finish;
+          end
+        end
+      end
+      assert (cycles < 60000) else $fatal(1, "vector memory timeout: signatures=%0d/%0d hits=%0d", signatures,expected_count,hits);
+    end
+  end
+
+  initial begin
+    logic [63:0] values[];
+    int fault_pc, continuation, before_handler;
+    for (int i = 0; i < 2048; i++) program_words[i] = 32'h0000006f;
+    for (int i = 0; i < 32768; i++) memory[i] = 8'h55;
+    li(20, 'h8000); li(1, 'h600); emit(csr('h300,0,1)); li(1,'h1000); emit(csr('h305,0,1));
+    for (int sew = 0; sew < 4; sew++) begin
+      values = new[2 << sew];
+      for (int i = 0; i < 16; i++) begin
+        for (int b = 0; b < (1 << sew); b++) memory['h1000+sew*256+(i<<sew)+b] = 8'((i+1) >> (8*b));
+        for (int b = 0; b < (1 << sew); b++) values[(i<<sew)/8][(((i<<sew)+b)%8)*8+:8] = 8'((i+2) >> (8*b));
+      end
+      configure(sew,3,16);
+      li(8,'h1000+sew*256); li(9,'h2000+sew*256);
+      emit(vmem(0,sew,8,8));
+      emit(vint(0,16,8,1,3)); // packed vadd.vi, between memory macros
+      emit(vmem(1,sew,16,9));
+      check_memory('h2000+sew*256,16<<sew,values);
+      // Warm-cache vector loads must sustain one element per cycle.
+      emit(vmem(0,sew,8,8));
+    end
+    // Cold first element followed by seven resident elements: complete hits
+    // ahead of an older delayed miss, then drain the tagged results in order.
+    values = new[8];
+    for (int i = 0; i < 8; i++) begin
+      values[i] = 64'(101+i); write_word('h1578+i*8,values[i]);
+    end
+    li(8,'h1580); emit({12'b0,5'd8,3'b011,5'd7,7'h03}); emit(32'h0ff0000f);
+    configure(3,2,8); li(8,'h1578); li(9,'h2600);
+    emit(vmem(0,3,8,8)); emit(vmem(1,3,8,9));
+    check_memory('h2600,64,values);
+    // EEW differs from SEW: EMUL=4, not LMUL=8.
+    configure(1,3,16); li(8,'h1000); emit(vmem(0,0,8,8));
+    configure(0,0,16);
+    emit(vint(28,0,8,8,3)); // vmsleu.vi: enable the first eight elements
+    emit(vint(11,16,16,16)); // clear v16 with vxor
+    li(7,'h55); emit(vint(0,16,16,7,4));
+    emit(csr(8,0,3,5)); // vstart=3
+    emit(vmem(0,0,16,8,1));
+    li(9,'h2400); emit(vmem(1,0,16,9));
+    values = new[2]; values[0]=64'h0807060504555555; values[1]=64'h5555555555555555;
+    check_memory('h2400,16,values);
+    // Empty and fully masked bodies must not touch an unmapped address.
+    li(8,'h10000); emit(csr(8,0,20,5)); emit(vmem(0,0,16,8));
+    emit(vint(25,0,8,8)); // vmsne.vv v0,v8,v8
+    emit(vmem(0,0,16,8,1)); emit(vmem(1,0,16,8,1));
+    emit(csr(8,7,0,2)); signature(7,0);
+    // A scalar load may pass an older vector load's delayed completion, but
+    // the following scalar store must wait for that vector load to drain.
+    configure(3,0,1); li(8,'ha000); li(9,'h1300); li(10,'h2700);
+    emit(vmem(0,3,8,8));
+    emit({12'b0,5'd9,3'b011,5'd7,7'h03});
+    emit({7'b0,5'd7,5'd10,3'b011,5'b0,7'h23});
+    signature(7,1);
+    // Exactly-once vector stores through the uncached/device LSU path.
+    configure(3,1,4); li(8,'h1300); emit(vmem(0,3,8,8)); li(9,'h9000); emit(vmem(1,3,8,9));
+    emit({12'd8,5'd8,3'b011,5'd7,7'h03}); signature(7,2);
+    // A Sv39 leaf boundary faults at element 2 after a two-element prefix.
+    write_word('h3000,64'h1001); write_word('h4000,64'h1401);
+    write_word('h5020,64'h4c7); write_word('h5028,0);
+    write_word('h1ff0,64'h21); write_word('h1ff8,64'h22);
+    write_word('h6000,64'h23); write_word('h6008,64'h24);
+    li(7,1); emit({6'b0,6'd63,5'd7,3'b001,5'd7,7'h13}); emit(addi(7,7,3)); emit(csr('h180,0,7));
+    li(8,'h4ff0); li(1,'h20e00); emit(csr('h300,0,1));
+    fault_pc=pc*4; emit(vmem(0,3,8,8)); continuation=pc;
+    li(1,'h600); emit(csr('h300,0,1));
+    li(9,'h2500); emit(vmem(1,3,8,9));
+    values=new[4]; for(int i=0;i<4;i++) values[i]=64'('h21+i);
+    // Handler signatures precede these continuation signatures.
+    before_handler=pc; pc=1024;
+    li(1,'h600); emit(csr('h300,0,1));
+    fault_signature=expected_count;
+    emit(csr('h342,7,0,2)); signature(7,13);
+    emit(csr('h343,7,0,2)); signature(7,'h5000);
+    emit(csr(8,7,0,2)); signature(7,2);
+    emit(csr('h341,10,0,2)); signature(10,64'(fault_pc));
+    li(9,'h5028); li(7,'h18c7); emit({7'b0,5'd7,5'd9,3'b011,5'b0,7'h23});
+    emit(32'h0ff0000f); emit(32'h12000073);
+    li(8,'h4ff0); li(1,'h20e00); emit(csr('h300,0,1)); emit({12'b0,5'd10,3'b0,5'd0,7'h67});
+    pc=before_handler;
+    check_memory('h2500,32,values);
+    emit(csr(8,7,0,2)); signature(7,0);
+    emit(32'h0000006f);
+    assert(continuation < 1024) else $fatal(1,"program overlaps handler");
+    repeat(4) @(negedge clock);
+    reset=0;
+  end
+endmodule

@@ -94,7 +94,7 @@ sync_circuit RV5StageCoreFixture(profile :: RVCoreProfile, ~reset_address: reset
   input hart_id: Bits(xlen.width)
   input time_counter: Bits(64)
   interface instruction_access(RV5StageTestInstructionAccess(xlen), ~role: requester)
-  interface data_access(RV5StageDataAccess(xlen), ~role: requester)
+  interface data_access(RV5StageDataAccess(xlen, profile.vector_completion_slots), ~role: requester)
   interface pipeline_access(RV5StagePipelineAccess(xlen), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(xlen.width)), ~role: producer)
   output privilege: PrivilegeMode

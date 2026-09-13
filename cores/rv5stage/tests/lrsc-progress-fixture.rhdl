@@ -24,7 +24,7 @@ sync_circuit RV5StageLRSCProgress():
   def left_node = RV5StageCHIParams(config, 2, 3).data_node
   def right_node = RV5StageCHIParams(config, 4, 5).data_node
   def home_config = CHIHNFConfig(p, [left_node.icn_peer(), right_node.icn_peer()], 4095, ram_config.requests)
-  interface core[2](RV5StageDataAccess(XLen.X64), ~role: responder)
+  interface core[2](RV5StageDataAccess(XLen.X64, 8), ~role: responder)
   output eviction_waiting: Bool
 
   inst left(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(4, 2), ~chi: config))

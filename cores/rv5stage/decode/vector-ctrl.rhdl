@@ -1,5 +1,5 @@
 #lang rhodium
-// Decodes the initial RVV integer subset directly into packed-lane and operand controls.
+// Decodes RVV integer and unit-stride memory controls with runtime register-group legality.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -27,6 +27,9 @@ hardware_enum VectorOperandMode:
 bundle RV5StageVectorControl():
   configure: VectorConfigMode
   integer: Bool
+  memory: Bool
+  store: Bool
+  eew: Bits(2)
   operand: VectorOperandMode
   immediate_unsigned: Bool
   mask_destination: Bool
@@ -37,6 +40,7 @@ bundle RV5StageVectorControl():
 def NoVectorControl = partial_pattern(RV5StageVectorControl()):
   configure: VectorConfigMode.None
   integer: Bool(#false)
+  memory: Bool(#false)
 
 fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
   DecodeCase(
@@ -44,6 +48,7 @@ fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
     partial_pattern(RV5StageVectorControl()):
       configure: mode
       integer: Bool(#false)
+      memory: Bool(#false)
   )
 def VectorConfigurationCases = [
   config_case(VSETVLI, VectorConfigMode.VtypeImmediate),
@@ -58,9 +63,10 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
   def form = instruction.format
   DecodeCase(
     instruction_pattern(instruction),
-    pattern(RV5StageVectorControl()):
+    partial_pattern(RV5StageVectorControl()):
       configure: VectorConfigMode.None
       integer: Bool(#true)
+      memory: Bool(#false)
       operand: if form == VectorVVFormat | VectorOperandMode.Vector | (if form == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
       immediate_unsigned: Bool(form == VectorShiftVIFormat)
       mask_destination: Bool(mask)
@@ -204,7 +210,18 @@ def VectorIntegerCases = [
   integer_case(VMAX_VV, vmax_control),
   integer_case(VMAX_VX, vmax_control)
 ]
-def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases
+def VectorMemoryCases = for List (instruction in VectorMemoryInstructions, index in 0..8):
+  DecodeCase(
+    instruction_pattern(instruction),
+    partial_pattern(RV5StageVectorControl()):
+      configure: VectorConfigMode.None
+      integer: Bool(#false)
+      memory: Bool(#true)
+      store: Bool(index >= 4)
+      eew: bits(index mod 4, 2)
+      operand: VectorOperandMode.Scalar
+  )
+def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMemoryCases
 
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
@@ -216,14 +233,17 @@ fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruc
     maximum: !immediate_avl & source_zero & !destination_zero
     keep_vl: !immediate_avl & source_zero & destination_zero
 
-// Same-width ordinary operands and mask-result overlap; no widening policy is inferred.
+// Same-width integer overlap and EEW-derived memory groups; no widening policy is inferred.
 circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   input instruction: Bits(32)
   input control: RV5StageVectorControl()
   input vtype: Bits(xlen.width)
   output legal: Bool
   def config = vector_type(xlen, vlen, vtype)
-  def group_mask = mux_lookup(config.lmul, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
+  // LMUL is a signed power-of-two exponent; EMUL = LMUL * EEW / SEW.
+  def emul = config.lmul.into(SInt(3)).sext(5) + control.eew.zext(5).into(SInt(5)) - config.sew.zext(5).into(SInt(5))
+  def group = mux(control.memory, emul.into(Bits(5))[0..3], config.lmul)
+  def group_mask = mux_lookup(group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
   def destination = instruction_field(vd, instruction)
   def source1 = instruction_field(vs1, instruction)
   def source2 = instruction_field(vs2, instruction)
@@ -234,7 +254,9 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   fun mask_overlap_legal(source :: Bits(5)) :: Bool:
     ((destination & !group_mask) =/= source) ||| (destination === source)
   def masked = !instruction_field(vm, instruction).or_reduce()
-  legal <== control.integer & !config.vill & source2_aligned & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+  def integer_legal = control.integer & source2_aligned & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+  def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
+  legal <== !config.vill & (integer_legal ||| memory_legal)
 
 export:
   VectorConfigMode
@@ -243,6 +265,7 @@ export:
   NoVectorControl
   VectorConfigurationCases
   VectorIntegerCases
+  VectorMemoryCases
   VectorControlCases
   RV5StageVectorLegality
   vector_configuration_request

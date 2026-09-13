@@ -1,5 +1,6 @@
 // Verifies CBO.ZERO replay, single retirement, fence ordering, and precise faults.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_zicboz_tb;
   typedef struct packed {
     logic supervisor_software;
@@ -28,18 +29,14 @@ module rv5stage_zicboz_tb;
     logic [1:0] width;
     logic unsigned_0;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
     logic access_fault;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed {
@@ -132,7 +129,7 @@ module rv5stage_zicboz_tb;
       if (pending_cycles != 0) pending_cycles <= pending_cycles - 1;
       if (data_access_out.request.valid && data_access_out.request.bits.access == 4'd6) begin
         assert (scenario != 3 && data_access_out.request.bits.address == 63 &&
-                data_access_out.request.bits.destination == 0)
+                data_access_out.request.bits.writeback[8:7] == 0)
           else $fatal(1, "CBO.ZERO lost its address, had a destination, or bypassed CBZE");
         attempts <= attempts + 1;
         if (data_access_in.request.ready) begin

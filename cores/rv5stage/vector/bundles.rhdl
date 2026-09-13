@@ -1,8 +1,9 @@
 #lang rhodium
-// Defines macro snapshots, packed integer beats, and ordered WB feedback.
+// Defines vector snapshots, packed beats, memory issue metadata, and WB feedback.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
   "csr.rhdl" open
   "register-file.rhdl" open
   "../decode/vector-ctrl.rhdl" open
@@ -26,9 +27,14 @@ bundle RV5StageVectorInstruction(xlen :: XLen, Context :: DataType):
   descriptor: RV5StageVectorDescriptor(xlen)
 
 // Scalar stages retain only their original context and macro retirement marker.
-bundle RV5StageVectorToken(Context :: DataType):
+bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2Int):
   context: Context
   last: Bool
+  memory: Bool
+  enabled: Bool
+  offset: Bits(64)
+  store_data: Bits(64)
+  completion_tag: Bits(index_width(vector_completion_slots))
 
 bundle RV5StageVectorBeat(vlen :: VectorLength):
   first: Bits(index_width(vlen + 1))
@@ -50,7 +56,23 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   last: Bool
+  memory: Bool
+  store: Bool
+  shift: Bits(6)
   write: VectorRegisterWrite(vlen)
+
+// LSU tags name bounded completion slots, not scalar register destinations.
+bundle RV5StageVectorCommit(xlen :: XLen):
+  pc: Bits(xlen.width)
+  disposition: RV5StageVectorDisposition
+  slow: Bool
+  data: Bits(xlen.width)
+  cause: Bits(xlen.width)
+  fault_address: Bits(xlen.width)
+
+bundle RV5StageVectorCompletion(xlen :: XLen, vector_completion_slots :: Pow2Int):
+  tag: Bits(index_width(vector_completion_slots))
+  data: Bits(xlen.width)
 
 hardware_enum RV5StageVectorDisposition:
   Authorized
@@ -76,3 +98,5 @@ export:
   RV5StageVectorResultBeat
   RV5StageVectorDisposition
   RV5StageVectorFeedback
+  RV5StageVectorCommit
+  RV5StageVectorCompletion

@@ -10,7 +10,7 @@ import:
 circuit RV5StageAtomicFixture(xlen :: XLen):
   def width = xlen.width
 
-  input request: RV5StageDataReq(xlen)
+  input request: RV5StageDataReq(xlen, 8)
   input old_value: Bits(width)
   output is_load: Bool
   output needs_unique: Bool

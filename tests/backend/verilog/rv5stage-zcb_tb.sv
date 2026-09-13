@@ -1,5 +1,6 @@
 // Executes a short mixed-width Zcb program through RV5Stage's normal pipeline.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_zcb_tb;
   typedef struct packed {
     logic supervisor_software;
@@ -28,18 +29,14 @@ module rv5stage_zcb_tb;
     logic [1:0] width;
     logic unsigned_0;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
     logic access_fault;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
@@ -63,7 +60,7 @@ module rv5stage_zcb_tb;
   logic [31:0] instruction_response_bits;
   localparam logic [3:0] MEMORY_STORE = 4'd2;
   localparam logic [1:0] MEMORY_WIDTH_BYTE = 2'd0;
-  localparam logic [1:0] DATA_DESTINATION_NONE = 2'd0;
+  localparam logic [1:0] WRITEBACK_ACK_KIND = 2'd0;
 
   RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
   always #5 clock = ~clock;
@@ -109,7 +106,7 @@ module rv5stage_zcb_tb;
               data_access_out.request.bits.width == MEMORY_WIDTH_BYTE &&
               data_access_out.request.bits.address == 64'd0 &&
               data_access_out.request.bits.data == 64'd15 &&
-              data_access_out.request.bits.destination == DATA_DESTINATION_NONE)
+              data_access_out.request.bits.writeback[8:7] == WRITEBACK_ACK_KIND)
         else $fatal(1, "Zcb multiply result did not reach the compressed byte store");
 
       $display("RV5Stage Zcb mixed-width execution passed");

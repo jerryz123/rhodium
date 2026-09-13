@@ -3,16 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
   "../memory.rhdl" open
   "../fp/types.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../load-store.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open
 
-hardware_enum RV5StageDataDestination:
-  None
-  Integer
-  FloatingPoint
+bundle RV5StageFpMemoryWriteback():
+  rd: Bits(5)
+  precision: RV5StageFloatPrecision
+
+tagged_union RV5StageMemoryWriteback(vector_completion_slots :: Pow2Int):
+  Ack
+  Integer(Bits(5))
+  FloatingPoint(RV5StageFpMemoryWriteback())
+  Vector(Bits(index_width(vector_completion_slots)))
 
 hardware_enum RV5StagePipelineOutcome:
   Slow
@@ -59,39 +65,35 @@ interface RV5StagePipelineAccess(xlen :: XLen):
     response: Valid(RV5StagePipelineResult(xlen))
     commit_ready: Bool
 
-bundle RV5StageDataReq(xlen :: XLen):
+bundle RV5StageDataReq(xlen :: XLen, vector_completion_slots :: Pow2Int):
   address: Bits(xlen.width)
   access: MemoryOperation
   atomic: RV5StageAtomicOperation
   width: MemoryWidth
   unsigned: Bool
   data: Bits(xlen.width)
-  destination: RV5StageDataDestination
-  rd: Bits(5)
-  floating_point_precision: RV5StageFloatPrecision
+  writeback: RV5StageMemoryWriteback(vector_completion_slots)
   locality: RV5StageMemoryLocality
 
-bundle RV5StageDataResp(xlen :: XLen):
+bundle RV5StageDataResp(xlen :: XLen, vector_completion_slots :: Pow2Int):
   // Management retains retirement context for delayed faults. Other current
   // engines report rejection before acceptance and return successful responses.
   access_fault: Bool
   data: Bits(xlen.width)
-  destination: RV5StageDataDestination
-  rd: Bits(5)
-  floating_point_precision: RV5StageFloatPrecision
+  writeback: RV5StageMemoryWriteback(vector_completion_slots)
 
-interface RV5StageDataAccess(xlen :: XLen):
+interface RV5StageDataAccess(xlen :: XLen, vector_completion_slots :: Pow2Int):
   role requester
   role responder
   provider requester
 
   requester -> responder:
-    request: Decoupled(RV5StageDataReq(xlen))
+    request: Decoupled(RV5StageDataReq(xlen, vector_completion_slots))
 
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool
-    response: Valid(RV5StageDataResp(xlen))
+    response: Valid(RV5StageDataResp(xlen, vector_completion_slots))
     drained: Bool
     reservation_valid: Bool
 
@@ -101,7 +103,8 @@ export:
   RV5StagePipelineAccess
   RV5StagePipelineOutcome
   RV5StagePipelineReason
-  RV5StageDataDestination
+  RV5StageFpMemoryWriteback
+  RV5StageMemoryWriteback
   RV5StageDataReq
   RV5StageDataResp
   RV5StageDataAccess

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
   "../memory.rhdl".MemoryOperation
   "../uncached-protocol.rhdl" open
   "../../../riscv/isa/xlen.rhm".XLen
@@ -13,12 +14,12 @@ hardware_enum RV5StageIOMSHRState:
   Queued
   Active
 
-sync_circuit RV5StageIOMSHR(xlen :: XLen):
-  interface core(RV5StageUncachedDataAccess(xlen), ~role: responder)
-  interface memory(RV5StageUncachedDataAccess(xlen), ~role: requester)
+sync_circuit RV5StageIOMSHR(xlen :: XLen, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
+  interface core(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: responder)
+  interface memory(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: requester)
 
   reg state(~init: RV5StageIOMSHRState.Idle)
-  reg request(RV5StageUncachedDataReq(xlen))
+  reg request(RV5StageUncachedDataReq(xlen, vector_completion_slots))
   def idle = state === RV5StageIOMSHRState.Idle
   def queued = state === RV5StageIOMSHRState.Queued
   def active = state === RV5StageIOMSHRState.Active

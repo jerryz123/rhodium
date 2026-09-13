@@ -35,6 +35,24 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 
 ## Core-facing protocol
 
+Slow requests and responses carry one `writeback: RV5StageMemoryWriteback(vector_completion_slots)`
+tagged union, preserved unchanged by the cache and adapters:
+
+- `Ack`: complete the transaction without register or vector-slot writeback.
+- `Integer(Bits(5))`: integer destination register.
+- `FloatingPoint(RV5StageFpMemoryWriteback())`: FP destination register and precision.
+- `Vector(Bits(index_width(vector_completion_slots)))`: reserved vector completion slot, including vector stores.
+
+`Ack` does not suppress a response. Scalar stores and maintenance still complete;
+page-table reads return data to the MMU's retained walker owner. The vector
+pipeline owns its slot identifiers; the LSU does not interpret element positions.
+The power-of-two `vector_completion_slots` parameter is shared by the data
+protocol, cache, MMU, router, and uncached path. Payload types require it
+explicitly; profiles and circuit generators default to eight. The union
+uses two tag bits plus `max(7, index_width(vector_completion_slots))` payload
+bits: nine bits at the default depth. A one-slot configuration uses a one-bit
+slot index whose only valid value is zero.
+
 `RV5StagePipelineAccess(xlen)` carries ordinary loads and stores. The MMU
 launches `pipeline_lookup` with EX's virtual request, then supplies
 `pipeline.request` with MEM's translated physical address and controls.
@@ -103,14 +121,14 @@ of cache policy. Non-default selectors bypass L1 allocation on ordinary integer
 and FP load misses; all hits and other operations keep their existing behavior.
 Prefetch requests use `Default`.
 
-[`protocol.rhdl`](protocol.rhdl) defines `RV5StageDataAccess(xlen)`:
+[`protocol.rhdl`](protocol.rhdl) defines `RV5StageDataAccess(xlen, vector_completion_slots)`:
 
 | Direction | Member | Meaning |
 |---|---|---|
-| Requester → cache | `request: Decoupled(RV5StageDataReq)` | Permitted physical XLEN byte address; scalar or cache-block operation; atomic function; scalar width; load signedness; XLEN source data; destination bank; five-bit `rd`; and FP precision metadata |
+| Requester → cache | `request: Decoupled(RV5StageDataReq)` | Permitted physical XLEN byte address; scalar or cache-block operation; atomic function; scalar width; load signedness; XLEN source data; opaque writeback union; locality |
 | MMU → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
 | MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical read/write hint; no acceptance or completion |
-| Cache → requester | `response: Valid(RV5StageDataResp)` | Ordered completion with `access_fault`, XLEN load/atomic/SC result, destination, `rd`, and FP precision metadata |
+| Cache → requester | `response: Valid(RV5StageDataResp)` | Ordered completion with `access_fault`, XLEN load/atomic/SC result, and the unchanged writeback union |
 | Cache → requester | `request_fault`, `request_access_fault` | Always false in this physical cache; translation and PMA routing own architectural faults |
 | Cache → requester | `drained` | Combinational quiescence observation used by architectural serialization |
 

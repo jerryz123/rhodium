@@ -183,7 +183,7 @@ module rv5stage_uncached_tb;
     core_in.request.valid = 1'b1;
     core_in.request.bits.request.address = 64'hc03f;
     core_in.request.bits.request.access = 4'd6;
-    core_in.request.bits.request.destination = 2'd0;
+    core_in.request.bits.request.writeback = 9'b0;
     core_in.request.bits.device = 1'b0;
     tick();
     core_in.request.valid = 1'b0;

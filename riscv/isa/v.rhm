@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines RVV 1.0 configuration and the initial same-width integer catalog, not a complete V implementation.
+// Defines RVV 1.0 configuration, same-width integer, and unit-stride memory catalogs.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,6 +26,21 @@ def VSETVLI = InstructionSpec("VSETVLI", VsetvliFormat, [opcode.constrain(0x57),
 def VSETIVLI = InstructionSpec("VSETIVLI", VsetivliFormat, [opcode.constrain(0x57), funct3.constrain(7), BitField("config high", 31, 30).constrain(3)])
 def VSETVL = InstructionSpec("VSETVL", RFormat, [opcode.constrain(0x57), funct3.constrain(7), funct7.constrain(0x40)])
 def VectorConfigInstructions = [VSETVLI, VSETIVLI, VSETVL]
+
+def vs3 = BitField("vs3", 11, 7)
+def VectorLoadFormat = InstructionFormat("vector-load", [vector_destination, RegisterOperand("rs1", rs1, "source")], #false, [vm])
+def VectorStoreFormat = InstructionFormat("vector-store", [RegisterOperand("vs3", vs3, "source", RegisterBank.Vector), RegisterOperand("rs1", rs1, "source")], #false, [vm])
+fun unit_stride(name :: String, store :: Boolean, width :: Nat):
+  InstructionSpec(name, if store | VectorStoreFormat | VectorLoadFormat, [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), BitField("nf/mew/mop", 31, 26).constrain(0), BitField("lumop/sumop", 24, 20).constrain(0)])
+def VLE8_V = unit_stride("VLE8.V", #false, 0)
+def VLE16_V = unit_stride("VLE16.V", #false, 5)
+def VLE32_V = unit_stride("VLE32.V", #false, 6)
+def VLE64_V = unit_stride("VLE64.V", #false, 7)
+def VSE8_V = unit_stride("VSE8.V", #true, 0)
+def VSE16_V = unit_stride("VSE16.V", #true, 5)
+def VSE32_V = unit_stride("VSE32.V", #true, 6)
+def VSE64_V = unit_stride("VSE64.V", #true, 7)
+def VectorMemoryInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VSE8_V, VSE16_V, VSE32_V, VSE64_V]
 
 fun vector_integer(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
@@ -83,10 +98,22 @@ def VMAX_VV = vector_integer("VMAX.VV", 7, VectorVVFormat, 0)
 def VMAX_VX = vector_integer("VMAX.VX", 7, VectorVXFormat, 4)
 
 def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX]
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions
-def VectorInitial = InstructionCatalog("RVV initial integer/configuration subset", "V 1.0 (partial)", VectorInitialInstructions)
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMemoryInstructions
+def VectorInitial = InstructionCatalog("RVV initial integer/configuration/unit-stride subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
+  vs3
+  VectorLoadFormat
+  VectorStoreFormat
+  VectorMemoryInstructions
+  VLE8_V
+  VLE16_V
+  VLE32_V
+  VLE64_V
+  VSE8_V
+  VSE16_V
+  VSE32_V
+  VSE64_V
   vd
   vs1
   vs2

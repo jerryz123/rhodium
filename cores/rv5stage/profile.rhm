@@ -141,14 +141,16 @@ class RVCoreProfile(xlen :: XLen,
                     extensions :: RV5StageExtensions,
                     mmu_mode :: RV5StageMmuMode,
                     cache_geometry :: RV5StageCacheGeometry,
-                    experimental_vector :: False || VectorLength):
+                    experimental_vector :: False || VectorLength,
+                    vector_completion_slots :: Pow2Int):
   implements StableCircuitParam
 
   constructor (~xlen: xlen :: XLen,
                ~extensions: extensions :: RV5StageExtensions = RV5StageExtensions(),
                ~mmu_mode: mmu_mode :: RV5StageMmuMode = RV5StageMmuMode.Bare,
                ~cache_geometry: cache_geometry :: RV5StageCacheGeometry = RV5StageCacheGeometry(),
-               ~experimental_vector: experimental_vector :: False || VectorLength = #false):
+               ~experimental_vector: experimental_vector :: False || VectorLength = #false,
+               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
     check_rv5stage_floating_point_profile(
       xlen,
       extensions.floating_point,
@@ -160,7 +162,7 @@ class RVCoreProfile(xlen :: XLen,
     | error(~who: #'RVCoreProfile, "Ssnpm requires RV64")
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RVCoreProfile, "RV32 profiles support only Bare translation")
-    super(xlen, extensions, mmu_mode, cache_geometry, experimental_vector)
+    super(xlen, extensions, mmu_mode, cache_geometry, experimental_vector, vector_completion_slots)
 
   property isa_base :: String:
     if xlen == XLen.X32 | "rv32i" | "rv64i"

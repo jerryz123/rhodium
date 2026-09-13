@@ -1,4 +1,4 @@
-<!-- Routes vector configuration, decode, storage, and integer unrolling to their validation owners. -->
+<!-- Routes vector configuration, unrolling, memory ownership, and storage to their validation owners. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the vector path
@@ -29,16 +29,32 @@ bookkeeping admission to private operand capture without splitting handshakes.
 Configuration follows ordinary serializing system instructions through
 `core.rhdl`. Integer issue tokens use its existing EX/MEM/WB boundaries while
 packed data follows the vector module's parallel three-cycle path. The core
-passes successful WB PCs back as nonstallable authorizations, never packed
-register writes. The vector pipeline asserts result alignment, writes its bank,
-and returns a last-beat retirement pulse; only that beat updates CSR/PC/NTL
-macro state. Cancellation flushes speculative private validity, and the core
+passes WB outcomes back as nonstallable feedback, never packed register writes.
+The vector pipeline asserts result alignment and returns a last-completion pulse.
+Only the last authorized beat updates scalar retirement/PC/NTL macro state;
+vector CSR completion waits for VRF drain. Cancellation flushes speculative private validity, and the core
 must exempt a vector's own last-beat prediction repair from owner cancellation.
 The scalar VX snapshot must wait for older EX/MEM GPR producers, because the
 ordinary scalar bypass selector describes next-cycle EX, not a retained ID
-value. Keep the unroller active through WB drain, including issue gaps, so
-interrupts and younger scalar instructions cannot observe partial execution.
+value. Keep issue occupancy distinct from accepted memory completion ownership.
+Interrupts and vector/state observers wait for both; scalar memory admission
+uses the asymmetric barriers documented in the README.
 Do not turn the experimental VLEN option into a public ISA/profile claim.
+
+Memory beats use encoded EEW and singleton element positions. Keep their
+slot identifier in the `RV5StageMemoryWriteback.Vector` variant, and propagate
+the complete union opaquely through the LSU.
+The private pipeline retains destination mask/shift and element range; the
+profile's power-of-two `vector_completion_slots` reserved slots absorb hit and slow completions independently before ordered
+VRF drain. Reserve on issue, authorize only at WB, and clear only unauthorized
+slots on retry/cancel. Retry flushes younger scalar EX/MEM tokens without
+redirecting fetch to the macro PC. Faults update `vstart` and keep accepted
+response ownership alive through precise-trap draining.
+
+Slot selection is the element index modulo the configured depth. Depth one
+must explicitly produce zero and hold the drain head at zero; `index_width(1)`
+still represents a one-bit hardware value. Keep the count on public token,
+completion, and data-protocol types, not just on the private register arrays.
 
 `register-file.rhdl` is 3R1W, stores a flat `Vec(32 * VLEN / 64, Bits(64))`, and uses
 Flow `map_valid`/`valid_pipe` to snapshot each read. Forward the bit-merged value
@@ -91,3 +107,21 @@ mask writes, in-place operations, randomized issue stalls, authorized-prefix
 retry, and cancellation. Keep the retry test's downstream flush explicit.
 Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 `rv5stage-zihpm-*` fixtures. These fixtures belong to `cores-execution`.
+
+For vector memory, run `rv5stage-vector-memory` through the shared real
+core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer
+regression. The memory bench covers all four EEWs, an EEW/SEW mismatch, masks,
+empty bodies, in-order device stores, request/CHI backpressure, and a Sv39
+page-boundary fault repaired and restarted from `vstart`. It also requires
+warm-hit throughput, hits completing ahead of a delayed miss, scalar-load
+overlap with a vector-load tail, and both asymmetric scalar/store barriers. Keep ordinary
+scalar and RV32F/RV64D core regressions when shared LSU metadata changes.
+The control fixtures sweep EEW/SEW/EMUL and destination alignment independently.
+The `rv5stage-vector-memory-one-slot` and
+`rv5stage-vector-memory-sixteen-slots` specializations reuse that architectural
+scoreboard to cover zero-index head wrap and four-bit slot reuse. Only the
+single-slot run omits multi-slot throughput/overlap requirements; all variants
+retain signature, replay, ordering, mask, and precise-fault restart checks.
+The IO-MSHR fixture additionally returns slot fifteen through the physical
+router and shared RN-I engine under contention and cancellation; this guards
+against an adapter silently retaining the former three-bit slot width.

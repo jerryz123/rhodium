@@ -86,6 +86,7 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
                       ~chi: config :: RV5StageCHIConfig,
                       ~btb_entries: btb_entries :: Nat = 16,
                       ~ras_entries: ras_entries :: Nat = 6):
+  def vector_completion_slots = profile.vector_completion_slots
   def xlen = profile.xlen
   def extensions = profile.extensions
   def width = xlen.width
@@ -111,12 +112,12 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
 
   inst core(RV5StageCore(profile, ~reset_address: reset_address))
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
-  inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map))
+  inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst l1i(RV5StageL1ICache(xlen, profile.cache_geometry.instruction, ~chi: config))
-  inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config))
+  inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~vector_completion_slots: vector_completion_slots))
   inst instruction_memory_router(RV5StageInstructionMemoryRouter(xlen))
-  inst memory_router(RV5StageMemoryRouter(xlen, config.physical_map))
-  inst uncached(RV5StageUncached(xlen, config))
+  inst memory_router(RV5StageMemoryRouter(xlen, config.physical_map, ~vector_completion_slots: vector_completion_slots))
+  inst uncached(RV5StageUncached(xlen, config, ~vector_completion_slots: vector_completion_slots))
   l1i.node_id <== chi_identity.instruction_node_id
   l1d.node_id <== chi_identity.data_node_id
   uncached.node_id <== chi_identity.uncached_node_id

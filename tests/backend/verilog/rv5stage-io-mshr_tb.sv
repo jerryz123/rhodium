@@ -1,5 +1,6 @@
 // Verifies IO-MSHR retention, data ordering, exactly-once issue, and fetch-flush independence.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_io_mshr_tb;
   typedef struct packed {
     logic flush;
@@ -104,7 +105,7 @@ module rv5stage_io_mshr_tb;
     instruction_in.request.valid = 0;
   endtask
 
-  task automatic contended_load(input bit flush_fetch);
+  task automatic contended_load(input bit flush_fetch, input logic [8:0] expected_writeback);
     int initial_requests, initial_accepted, initial_completed;
     initial_requests = requests;
     initial_accepted = accepted;
@@ -117,9 +118,7 @@ module rv5stage_io_mshr_tb;
     core_in.request.bits.access = 4'd1;
     core_in.request.bits.width = 2'd2;
     core_in.request.bits.unsigned_0 = 1;
-    core_in.request.bits.destination = 2'd2;
-    core_in.request.bits.rd = 5'd17;
-    core_in.request.bits.floating_point_precision = 2'd1;
+    core_in.request.bits.writeback = expected_writeback;
     #1;
     assert (core_out.request.ready && !core_out.request_access_fault)
       else $fatal(1, "instruction-owned RN-I blocked data admission");
@@ -180,8 +179,7 @@ module rv5stage_io_mshr_tb;
     read_data(128'h0000000000000000_8000000000000000);
     #1;
     assert (core_out.response.valid && core_out.response.bits.data == 64'h80000000 &&
-            core_out.response.bits.destination == 2'd2 && core_out.response.bits.rd == 5'd17 &&
-            core_out.response.bits.floating_point_precision == 2'd1 && !core_out.drained)
+            core_out.response.bits.writeback == expected_writeback && !core_out.drained)
       else $fatal(1, "load completion lost retained width, signedness, or destination metadata");
     tick();
     chi_in.dat.response.valid = 0;
@@ -203,8 +201,10 @@ module rv5stage_io_mshr_tb;
     chi_in.req.ready = 1;
     chi_in.dat.request.ready = 1;
 
-    contended_load(0);
-    contended_load(1);
+    contended_load(0, memory_fp(5'd17, 2'd1));
+    contended_load(1, {2'd3, 7'd15}); // Four-bit slot must survive retained RN-I ownership.
+    contended_load(0, memory_integer(5'd31));
+    contended_load(1, 9'b0);
 
     // Queue a store behind an unissued fetch, then cancel only the fetch.
     chi_in.req.ready = 0;
@@ -256,11 +256,11 @@ module rv5stage_io_mshr_tb;
     chi_in.rsp.response.bits.opcode = 5'h04;
     chi_in.rsp.response.valid = 1;
     #1;
-    assert (core_out.response.valid) else $fatal(1, "store did not complete");
+    assert (core_out.response.valid && core_out.response.bits.writeback == 9'b0) else $fatal(1, "store did not return Ack");
     tick();
     chi_in.rsp.response.valid = 0;
     repeat (4) tick();
-    assert (core_out.drained && accepted == 3 && completed == 3 && requests == 5 && writes == 1)
+    assert (core_out.drained && accepted == 5 && completed == 5 && requests == 9 && writes == 1)
       else $fatal(1, "unexpected admission, completion, or CHI transfer count");
 
     // Reset clears a queued slot along with the shared transaction engine.

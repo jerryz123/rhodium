@@ -165,6 +165,10 @@ The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for atomic issu
 fanout, private Valid pipeline storage, and WB-authorized write/retirement flows;
 its datapath dependencies remain inside the named vector package. Scalar
 pipeline bundles do not import the vector package or carry its packed data.
+The vector pipeline and its bundles, scalar pipeline bundles, data/uncached
+protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
+completion-depth annotation. Tag widths derive from the public `index_width`
+operation; memory engines retain the specialized union opaquely.
 
 ### Standard-library dependencies
 

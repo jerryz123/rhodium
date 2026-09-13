@@ -28,7 +28,7 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   def host_node = RV5StageCHIParams(config, 4, 5).data_node
   def home_config = CHIHNFConfig(p, [nodes.instruction_home_port(~coherent: #true), nodes.data_node.icn_peer(), host_node.icn_peer()], 65535, ram_config.requests)
   input run: Bool
-  interface host(RV5StageDataAccess(XLen.X64), ~role: responder)
+  interface host(RV5StageDataAccess(XLen.X64, 8), ~role: responder)
   output instruction_requests: Bool
   output data_requests: Bool
   output eviction_waiting: Bool

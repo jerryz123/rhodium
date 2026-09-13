@@ -1,8 +1,9 @@
 #lang rhodium
-// Owns integer vector unrolling, private EX/MEM/WB data, and WB-authorized register writes.
+// Owns vector issue, WB authorization, tagged memory completions, and ordered VRF writes.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
   "vector/bundles.rhdl" open
   "vector/unroller.rhdl" open
   "vector/execute.rhdl" open
@@ -11,34 +12,68 @@ import:
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
-  interface issue(Decoupled(RV5StageVectorToken(Context)), ~role: producer)
+  interface issue(Decoupled(RV5StageVectorToken(Context, vector_completion_slots)), ~role: producer)
   interface cancel(Pulse(), ~role: consumer)
   // A commit names the macro PC and authorizes the beat issued three cycles ago.
-  interface commit(Valid(Bits(xlen.width)), ~role: consumer)
+  interface commit(Valid(RV5StageVectorCommit(xlen)), ~role: consumer)
+  interface completion(Valid(RV5StageVectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
+  interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
   interface retire(Pulse(), ~role: producer)
+  input memory_drained: Bool
   output active: Bool
+  output unrolling: Bool
+  output pending: Bool
+  output stores_pending: Bool
 
   inst unroller(RV5StageVectorUnroller(xlen, vlen, Context))
   inst registers(RV5StageVectorRegisterFile(vlen))
   inst ex_pipe(ValidPipe(RV5StageVectorBeat(vlen), 1, ~flushable: #true))
   inst execute(RV5StageVectorExecute(vlen))
   inst wb_pipe(ValidPipe(RV5StageVectorResultBeat(vlen), 2, ~flushable: #true))
-  request |> unroller.request
+  // Configured slots reserve storage before issue for non-backpressurable responses.
+  // Tags identify these slots; scalar rd never encodes vector element position.
+  reg allocated(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg authorized_slots(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg completed(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg entries(Vec(vector_completion_slots, RV5StageVectorResultBeat(vlen)))
+  reg completion_data(Vec(vector_completion_slots, Bits(64)))
+  reg head(Bits(index_width(vector_completion_slots)))
+  reg store_barrier(~init: Bool(#false))
+  def retry = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Retry)
+  def fault = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Fault)
+  def clear = cancel.valid ||| retry ||| fault
+  request |> gate_flow(!allocated.as_bits().or_reduce()) |> unroller.request
   cancel |> unroller.cancel
   unroller.reads <=> registers.reads
   registers.results <=> unroller.results
-  active <== unroller.active
-  ex_pipe.flush <== cancel.valid
-  wb_pipe.flush <== cancel.valid
+  active <== unroller.active ||| allocated.as_bits().or_reduce()
+  unrolling <== unroller.active
+  pending <== authorized_slots.as_bits().or_reduce()
+  stores_pending <== store_barrier
+  ex_pipe.flush <== clear
+  wb_pipe.flush <== clear
+
+  def tag_width = index_width(vector_completion_slots)
+  fun slot_index(position :: Bits) :~ Bits(tag_width):
+    cond
+    | vector_completion_slots == 1: bits(0, tag_width)
+    | position.type.packed_width() < tag_width: position.zext(tag_width)
+    | ~else: position[0..tag_width]
 
   // Bookkeeping admission and private operand capture are one atomic transfer.
-  def Array(token, operands) = unroller.issue |> atomic_fork(2)
+  def available = !unroller.issue.bits.beat.control.memory ||| !allocated[slot_index(unroller.issue.bits.beat.first)]
+  def Array(token, operands) = unroller.issue |> gate_flow(available & !clear) |> atomic_fork(2)
   (
-    token |> map_flow(operation => RV5StageVectorToken(Context)):
+    token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
       context: operation.context
       last: operation.beat.last
+      memory: operation.beat.control.memory
+      enabled: operation.beat.enabled.as_bits()[0].into(Bool)
+      offset: operation.beat.first.zext(64) << operation.beat.control.eew
+      store_data: operation.beat.left
+      completion_tag: slot_index(operation.beat.first)
   ) |> issue
   operands |> map_flow(operation => operation.beat) |> to_valid() |> ex_pipe.ingress
   execute.beat <== ex_pipe.egress.bits
@@ -48,19 +83,68 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   // still takes effect on this edge. Results alone never authorize a write.
   when (commit.valid):
     assert(wb_pipe.egress.valid, "vector_commit_has_aligned_result")
-  def authorized = commit |> map_valid(_pc => wb_pipe.egress.bits)
-  def Array(write, progress, last) = authorized |> fork_valid(3)
-  write |> filter_valid(beat => beat.write.mask.or_reduce()) |> map_valid(beat => beat.write) |> registers.write
+  def beat = wb_pipe.egress.bits
+  def wb_tag = slot_index(beat.first)
+  def successful = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Authorized)
+  def memory_commit = successful & beat.memory
+  def drain = authorized_slots[head] & completed[head]
+  def result = entries[head]
+  def drain_write = result.write.updated(~data: completion_data[head] << result.shift)
+  def integer_write = successful & !beat.memory & beat.write.mask.or_reduce()
+  registers.write.valid <== integer_write ||| (drain & result.write.mask.or_reduce())
+  registers.write.bits <== mux(integer_write, beat.write, drain_write)
+  assert(!(integer_write & drain), "vector_integer_and_memory_write_owners_exclusive")
+  fault_start.valid <== fault
+  fault_start.bits <== beat.first.zext(xlen.width)
+  retire.valid <== (successful & !beat.memory & beat.last) ||| (drain & result.last)
   (
-    progress |> map_valid(beat => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
-      context: commit.bits
+    commit |> map_valid(event => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
+      context: event.pc
       first: beat.first
       end: beat.end
-      disposition: RV5StageVectorDisposition.Authorized
-      cause: bits(0, xlen.width)
-      fault_address: bits(0, xlen.width)
+      disposition: event.disposition
+      cause: event.cause
+      fault_address: event.fault_address
   ) |> unroller.feedback
-  last |> filter_valid(beat => beat.last) |> retire
+
+  def memory_issue = issue.fire() & issue.bits.memory
+  when (request.fire()):
+    head <== slot_index(request.bits.descriptor.state.vstart)
+  elsewhen drain:
+    head <== if vector_completion_slots == 1 | bits(0, tag_width) | head + bits(1, tag_width)
+  when (request.fire() & request.bits.descriptor.control.memory & request.bits.descriptor.control.store):
+    store_barrier <== Bool(#true)
+  elsewhen (store_barrier & !active & memory_drained):
+    store_barrier <== Bool(#false)
+  when (completion.valid):
+    assert(authorized_slots[completion.bits.tag], "vector_response_has_authorized_owner")
+    assert(!completed[completion.bits.tag], "vector_response_completes_once")
+  // Independent slots absorb a hit and a delayed response on the same edge;
+  // the single VRF write port drains them strictly in architectural order.
+  for (slot in 0..vector_completion_slots):
+    def tag = bits(slot, tag_width)
+    def authorizing = memory_commit & (wb_tag === tag)
+    def releasing = drain & (head === tag)
+    when releasing:
+      allocated[slot] <== Bool(#false)
+      authorized_slots[slot] <== Bool(#false)
+    elsewhen authorizing:
+      authorized_slots[slot] <== Bool(#true)
+      entries[slot] <== beat
+    elsewhen clear:
+      allocated[slot] <== authorized_slots[slot]
+    elsewhen (memory_issue & (issue.bits.completion_tag === tag)):
+      allocated[slot] <== Bool(#true)
+      authorized_slots[slot] <== Bool(#false)
+    // Completion writes have independent priority from speculative slot clear.
+    when (completion.valid & (completion.bits.tag === tag)):
+      completed[slot] <== Bool(#true)
+      completion_data[slot] <== if xlen == XLen.X64 | completion.bits.data | completion.bits.data.zext(64)
+    elsewhen (releasing ||| (memory_issue & (issue.bits.completion_tag === tag))):
+      completed[slot] <== Bool(#false)
+    elsewhen authorizing:
+      completed[slot] <== !commit.bits.slow
+      completion_data[slot] <== if xlen == XLen.X64 | commit.bits.data | commit.bits.data.zext(64)
 
 export:
   RV5StageVectorPipeline

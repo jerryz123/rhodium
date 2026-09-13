@@ -1,5 +1,6 @@
 // Verifies a WB-stage data access fault traps without replaying or reserving its destination.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_data_fault_tb;
   typedef struct packed {
     logic supervisor_software;
@@ -28,18 +29,14 @@ module rv5stage_data_fault_tb;
     logic [1:0] width;
     logic unsigned_0;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
     logic access_fault;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed {
@@ -124,7 +121,7 @@ module rv5stage_data_fault_tb;
         if (data_access_out.request.bits.access == MEMORY_LOAD) begin
           assert (!faulting_load_seen && data_access_in.request_access_fault &&
                   data_access_out.request.bits.address == 64'd0 &&
-                  data_access_out.request.bits.rd == 5'd5)
+                  memory_rd(data_access_out.request.bits.writeback) == 5'd5)
             else $fatal(1, "faulting load was replayed or lost its request metadata");
           faulting_load_seen <= 1'b1;
         end else begin

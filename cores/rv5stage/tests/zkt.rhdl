@@ -18,7 +18,7 @@ import:
 sync_circuit RV5StageZkt(profile :: RVCoreProfile):
   def width = profile.xlen.width
   interface instruction_access(RV5StageTestInstructionAccess(profile.xlen), ~role: requester)
-  interface data_access(RV5StageDataAccess(profile.xlen), ~role: requester)
+  interface data_access(RV5StageDataAccess(profile.xlen, profile.vector_completion_slots), ~role: requester)
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
   output satp: Bits(width)

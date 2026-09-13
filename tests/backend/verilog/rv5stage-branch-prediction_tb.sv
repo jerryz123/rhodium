@@ -1,5 +1,6 @@
 // Compares real loop/indirect-branch execution, wrong-path stores, flushes, and cycles with BTB off/on.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_branch_prediction_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -14,13 +15,11 @@ module rv5stage_branch_prediction_tb;
     logic [1:0] width;
     logic unsigned_0;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
-  typedef struct packed { logic access_fault; logic [63:0] data; logic [1:0] destination; logic [4:0] rd; logic [1:0] floating_point_precision; } data_resp_bits_t;
+  typedef struct packed { logic access_fault; logic [63:0] data; logic [8:0] writeback; } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault, request_access_fault; data_resp_t response; logic drained, reservation_valid; } data_in_t;
   typedef struct packed { data_req_t request; } data_out_t;

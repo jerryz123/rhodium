@@ -2,6 +2,7 @@
 // Exercises load/store pipeline timing and WB authorization through the core, MMU, and L1D.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
   "core-fixture.rhdl" open
   "../profile.rhm" open
   "../mmu/mmu.rhdl" open
@@ -15,25 +16,26 @@ import:
   "../cache.rhdl" open
   "params.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
   lib("flow/main.rhdl") open
   lib("chi/protocol/channels.rhdl") open
   lib("cores/cache-prefetch.rhdl") open
 
-sync_circuit RV5StageLoadHit():
+sync_circuit RV5StageLoadHit(~experimental_vector: vlen :: False || VectorLength = #false, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   input permit_demand: Bool
   interface instruction(RV5StageTestInstructionAccess(XLen.X64), ~role: requester)
-  interface uncached(RV5StageUncachedDataAccess(XLen.X64), ~role: requester)
+  interface uncached(RV5StageUncachedDataAccess(XLen.X64, vector_completion_slots), ~role: requester)
   interface chi(CHIRNChannels(test_rv5stage_flit), ~role: node)
   output(load_issue, load_hit, transaction_valid, transaction_fire): Bool
   output load_address: Bits(64)
-  output transaction: RV5StageDataReq(XLen.X64)
+  output transaction: RV5StageDataReq(XLen.X64, vector_completion_slots)
   output(demand_attempt, demand_fire, cache_fire): Bool
   output cache_address: Bits(64)
-  inst core(RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D)), ~reset_address: 0))
-  inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_uncached_config.physical_map))
-  inst router(RV5StageMemoryRouter(XLen.X64, test_rv5stage_uncached_config.physical_map))
-  inst cache(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(32, 2), ~chi: test_rv5stage_uncached_config))
+  inst core(RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~mmu_mode: RV5StageMmuMode.Sv39, ~experimental_vector: vlen, ~vector_completion_slots: vector_completion_slots), ~reset_address: 0))
+  inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_uncached_config.physical_map, ~vector_completion_slots: vector_completion_slots))
+  inst router(RV5StageMemoryRouter(XLen.X64, test_rv5stage_uncached_config.physical_map, ~vector_completion_slots: vector_completion_slots))
+  inst cache(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(32, 2), ~chi: test_rv5stage_uncached_config, ~vector_completion_slots: vector_completion_slots))
   core.interrupts <== literal(RV5StageInterrupts(), 0)
   core.hart_id <== bits(0, 64)
   core.time_counter <== bits(0, 64)

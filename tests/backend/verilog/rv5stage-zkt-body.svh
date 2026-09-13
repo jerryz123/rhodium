@@ -1,5 +1,6 @@
 // Compares public RV5Stage timing for identical programs and distinct operand data.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [W-1:0] address; } iqbits_t;
   typedef struct packed { logic valid; iqbits_t bits; } iq_t;
@@ -14,13 +15,11 @@
     logic [1:0] width;
     logic unsigned_0;
     logic [W-1:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } dqbits_t;
   typedef struct packed { logic valid; dqbits_t bits; } dq_t;
-  typedef struct packed { logic access_fault; logic [W-1:0] data; logic [1:0] destination; logic [4:0] rd; logic [1:0] floating_point_precision; } drbits_t;
+  typedef struct packed { logic access_fault; logic [W-1:0] data; logic [8:0] writeback; } drbits_t;
   typedef struct packed { logic valid; drbits_t bits; } dr_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dr_t response; logic drained; logic reservation_valid; } di_t;
   typedef struct packed { dq_t request; } do_t;
@@ -92,8 +91,7 @@
       di[g].request.ready = response_delay == 0 && (schedule == 0 || cycle % (schedule == 1 ? 7 : 5) > 1);
       di[g].drained = response_delay == 0;
       di[g].response.valid = response_delay == 1;
-      di[g].response.bits.destination = 1;
-      di[g].response.bits.rd = response_rd;
+      di[g].response.bits.writeback = memory_integer(response_rd);
       di[g].response.bits.data = response_second ? operand_b[g] : operand_a[g];
     end
   end
@@ -128,8 +126,8 @@
         assert (dout[0].request.bits.address === dout[1].request.bits.address &&
                 dout[0].request.bits.access === dout[1].request.bits.access &&
                 dout[0].request.bits.width === dout[1].request.bits.width &&
-                dout[0].request.bits.destination === dout[1].request.bits.destination &&
-                dout[0].request.bits.rd === dout[1].request.bits.rd)
+                dout[0].request.bits.writeback[8:7] === dout[1].request.bits.writeback[8:7] &&
+                memory_rd(dout[0].request.bits.writeback) === memory_rd(dout[1].request.bits.writeback))
           else $fatal(1, "data request control diverged");
       end
       if (io[0].flush) begin
@@ -152,7 +150,7 @@
             assert (dout[0].request.bits.address == 0 || dout[0].request.bits.address == 8)
               else $fatal(1, "unexpected operand load address");
             response_delay <= schedule == 0 ? 2 : (3 + cycle % (schedule == 1 ? 5 : 11));
-            response_rd <= dout[0].request.bits.rd;
+            response_rd <= memory_rd(dout[0].request.bits.writeback);
             response_second <= dout[0].request.bits.address == 8;
           end
           2: begin

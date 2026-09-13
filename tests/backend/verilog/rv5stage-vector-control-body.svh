@@ -147,6 +147,28 @@
     test_vtype = word_t'(1) << (XLEN-1); #1;
     assert (!legal) else $fatal(1, "vill accepted arithmetic");
 
+    // Memory EEW changes EMUL, independently of configured SEW. Check every
+    // legal/illegal exponent and register alignment, with masked v0 rules.
+    for (int sew = 0; sew < 4; sew++) begin
+      for (int lm = -3; lm <= 3; lm++) begin
+        for (int eew = 0; eew < 4; eew++) begin
+          for (int store = 0; store < 2; store++) begin
+            for (int regno = 0; regno < 32; regno++) begin
+              automatic int emul = lm + eew - sew;
+              automatic bit aligned = emul <= 0 ? 1 : (regno % (1 << emul)) == 0;
+              automatic bit expected_legal = XLEN == 64 && sew <= lm + 3 && emul >= -3 && emul <= 3 && aligned && (store != 0 || regno != 0);
+              test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
+              instruction = {6'b0,1'b0,5'b0,5'd1,3'(eew == 0 ? 0 : eew+4),5'(regno),store != 0 ? 7'h27 : 7'h07};
+              #1;
+              assert(decoded_valid && legal == expected_legal)
+                else $fatal(1,"memory legality sew=%0d lm=%0d eew=%0d reg=%0d store=%0d",sew,lm,eew,regno,store);
+              checks++;
+            end
+          end
+        end
+      end
+    end
+
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

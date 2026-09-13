@@ -1,5 +1,6 @@
 // Checks WB NTL association, replay, FP memory, squash, trap entry, and interrupt entry.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_ntl_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageInstructionReq bits; } ireq_t;
@@ -126,9 +127,7 @@ module rv5stage_ntl_tb;
           accepted <= accepted + 1;
           if (data_access_out.request.bits.access == 1) begin
             d_bits <= '{access_fault: 1'b0, data: 64'd42,
-                        destination: data_access_out.request.bits.destination,
-                        rd: data_access_out.request.bits.rd,
-                        floating_point_precision: data_access_out.request.bits.floating_point_precision};
+                        writeback: data_access_out.request.bits.writeback};
             load_delay <= scenario == 13 ? 50 : 8;
           end
           if (data_access_out.request.bits.address == 520 && (scenario == 6 || scenario == 7))

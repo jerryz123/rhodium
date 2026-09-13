@@ -97,7 +97,7 @@ module rv5stage_zicbom_tb;
       end
       if (pending_cycles != 0) pending_cycles <= pending_cycles - 1;
       if (data_access_out.request.valid && data_access_out.request.bits.access >= 7) begin
-        assert (scenario != 6 && scenario != 9 && scenario != 10 && data_access_out.request.bits.address == 63 && data_access_out.request.bits.destination == 0)
+        assert (scenario != 6 && scenario != 9 && scenario != 10 && data_access_out.request.bits.address == 63 && data_access_out.request.bits.writeback == 0)
           else $fatal(1, "CMO permission, squash, or original address violated");
         assert (data_access_out.request.bits.access == (scenario == 0 ? 8 : scenario == 2 || scenario == 7 ? 9 : 7))
           else $fatal(1, "wrong decoded/converted CMO operation");

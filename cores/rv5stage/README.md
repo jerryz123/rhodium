@@ -21,10 +21,13 @@ The experimental [vector path](vector/README.md) provides configurable VLEN,
 a flat 3R1W 64-bit register bank, SIMD packing, and opt-in WB-owned `vset*`/CSR
 and same-width integer execution. One Decode-held macro streams packed beats
 through a separate [`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
-SIMD datapath, and vector bank. Scalar EX/MEM/WB carries only retirement
-bookkeeping and authorizes the parallel pipeline's writes at WB.
-Vector memory and shared FP/expensive execution are not
-integrated; no V/Zve/Zvbb extension is advertised.
+SIMD datapath, and vector bank. Scalar EX/MEM/WB carries retirement bookkeeping
+and singleton LSU operands, and authorizes the parallel pipeline's writes at WB.
+RV64 unit-stride vector memory shares scalar lookup and WB dispatch, with
+tagged completion slots and precise element restart. The host profile's
+`~vector_completion_slots` selects a power-of-two depth, default eight,
+independently of VLEN. Shared FP/expensive
+execution is not integrated; no V/Zve/Zvbb extension is advertised.
 
 ## At a glance
 

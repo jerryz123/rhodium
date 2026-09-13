@@ -69,7 +69,7 @@ module rv5stage_dcache_rv32_tb;
     core_in.request.bits.locality = locality;
     core_in.request.bits.data = data;
     core_in.request.bits.atomic = atomic;
-    core_in.request.bits.destination = access inside {4'd1, 4'd3, 4'd4, 4'd5} ? 2'd1 : 2'd0;
+    core_in.request.bits.writeback = access inside {4'd1, 4'd3, 4'd4, 4'd5} ? 9'h080 : 9'b0;
     core_in.request.valid = 1;
     tick();
     core_in.request.valid = 0;

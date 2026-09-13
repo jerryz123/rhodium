@@ -26,7 +26,8 @@ hardware_enum RV5StageUncachedState:
   WriteResponse
 
 sync_circuit RV5StageUncached(xlen :: XLen,
-                              config :: RV5StageCHIConfig):
+                              config :: RV5StageCHIConfig,
+                              ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
   def p = config.flit
   def word_lanes = p.data_bytes / 8
@@ -36,7 +37,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
 
   input node_id: Bits(p.node_id_width)
   interface instruction(RV5StagePhysicalInstructionAccess(xlen), ~role: responder)
-  interface core(RV5StageUncachedDataAccess(xlen), ~role: responder)
+  interface core(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: responder)
   interface chi(CHIRNIChannels(p), ~role: node)
 
   inst load_gen(LoadGen(xlen))
@@ -45,9 +46,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   reg address(Bits(width))
   reg memory_width(MemoryWidth)
   reg unsigned_load(~init: Bool(#false))
-  reg destination(RV5StageDataDestination)
-  reg rd(Bits(5))
-  reg floating_point_precision(RV5StageFloatPrecision)
+  reg writeback(RV5StageMemoryWriteback(vector_completion_slots))
   reg owner_is_instruction(~init: Bool(#false))
   reg instruction_live(~init: Bool(#false))
   reg home_id(Bits(p.node_id_width))
@@ -61,7 +60,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   reg zero_index(Bits(index_width(RV5StageCacheLineBytes / 8)), ~init: bits(0, index_width(RV5StageCacheLineBytes / 8)))
 
   def idle = state === RV5StageUncachedState.Idle
-  def command :: RV5StageDataReq(xlen) = core.request.bits.request
+  def command :: RV5StageDataReq(xlen, vector_completion_slots) = core.request.bits.request
   def command_access = command.access
   def command_supported = command_access.is_one_of(MemoryOperation.Load,
                                                    MemoryOperation.Store,
@@ -183,12 +182,10 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     access_fault: Bool(#false)
 
   core.response.valid <== data_read_valid ||| (completion_fire & (!zero_active ||| zero_last))
-  core.response.bits <== RV5StageDataResp(xlen):
+  core.response.bits <== RV5StageDataResp(xlen, vector_completion_slots):
     access_fault: Bool(#false)
     data: mux(data_read_valid, load_gen.value, bits(0, width))
-    destination: destination
-    rd: rd
-    floating_point_precision: floating_point_precision
+    writeback: writeback
   core.drained <== idle
   chi.rsp.requester.valid <== Bool(#false)
   chi.rsp.requester.bits <== literal(CHIRspFlit(p), 0)
@@ -197,9 +194,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     address <== selected_address
     memory_width <== command.width
     unsigned_load <== command.unsigned
-    destination <== command.destination
-    rd <== command.rd
-    floating_point_precision <== command.floating_point_precision
+    writeback <== command.writeback
     owner_is_instruction <== select_instruction
     home_id <== selected_home.node_id
     request_size <== selected_size

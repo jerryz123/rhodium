@@ -16,17 +16,18 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 sync_circuit RV5StageMemoryRouter(xlen :: XLen,
-                                  physical_map :: RiscvPhysicalMemoryMap):
-  interface core(RV5StageDataAccess(xlen), ~role: responder)
-  interface cache(RV5StageDataAccess(xlen), ~role: requester)
-  interface uncached(RV5StageUncachedDataAccess(xlen), ~role: requester)
+                                  physical_map :: RiscvPhysicalMemoryMap,
+                                  ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
+  interface core(RV5StageDataAccess(xlen, vector_completion_slots), ~role: responder)
+  interface cache(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
+  interface uncached(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: requester)
   output ordered_busy: Bool
-  inst uncached_management(ValidPipe(RV5StageDataResp(xlen), 1))
+  inst uncached_management(ValidPipe(RV5StageDataResp(xlen, vector_completion_slots), 1))
 
-  inst io_mshr(RV5StageIOMSHR(xlen))
+  inst io_mshr(RV5StageIOMSHR(xlen, ~vector_completion_slots: vector_completion_slots))
   io_mshr.memory |> uncached
 
-  def request :: RV5StageDataReq(xlen) = core.request.bits
+  def request :: RV5StageDataReq(xlen, vector_completion_slots) = core.request.bits
   def operation = request.access
   def last_byte_offset :: Bits(xlen.width) = mux_lookup(
     request.width,
@@ -64,18 +65,16 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   // permission checks and older traffic drain, maintenance needs no device IO.
   (
     management_requests |> gate_flow(cache.drained & io_mshr.core.request.ready)
-      |> to_valid() |> map_valid(request => RV5StageDataResp(xlen)):
+      |> to_valid() |> map_valid(request => RV5StageDataResp(xlen, vector_completion_slots)):
          access_fault: Bool(#false)
          data: bits(0, xlen.width)
-         destination: request.destination
-         rd: request.rd
-         floating_point_precision: request.floating_point_precision
+         writeback: request.writeback
   ) |> uncached_management.ingress
   cache_requests |> gate_flow(cache_available) |> cache.request
   (
     uncached_requests
       |> gate_flow(uncached_available)
-      |> map_flow(request => RV5StageUncachedDataReq(xlen)):
+      |> map_flow(request => RV5StageUncachedDataReq(xlen, vector_completion_slots)):
           request: request
           device: physical.device
   ) |> io_mshr.core.request

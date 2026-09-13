@@ -34,8 +34,8 @@ each other; share external transaction machinery through the CHI package.
 | [`fetch/DEVELOPING.md`](fetch/DEVELOPING.md) | Fetch protocols, frontend sequencing, instruction assembly, BTB, and RAS |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
-| [`vector.rhdl`](vector.rhdl) | Parallel integer vector pipeline, internal unroller/SIMD/VRF, and scalar WB authorization boundary |
-| [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Experimental vector CSR state, Decode-held integer unroller, flat register bank, and SIMD packing |
+| [`vector.rhdl`](vector.rhdl) | Parallel vector pipeline, internal unroller/SIMD/VRF, tagged memory completion, and scalar WB authorization boundary |
+| [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Experimental vector CSR state, Decode-held unroller, flat register bank, SIMD packing, and LSU ownership |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
 | [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |

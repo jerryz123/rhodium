@@ -1,5 +1,6 @@
 // Checks real-core load timing, authorization, and exact demand-to-refill event ancestry.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_load_hit_tb;
   typedef struct packed {logic ready;} ready_t;
   typedef struct packed {logic [63:0] address;} ireq_bits_t;
@@ -14,14 +15,12 @@ module rv5stage_load_hit_tb;
     logic [1:0] width;
     logic unsigned_0;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } request_bits_t;
   typedef struct packed {request_bits_t request; logic device;} ureq_bits_t;
   typedef struct packed {logic valid; ureq_bits_t bits;} ureq_t;
-  typedef struct packed {logic access_fault; logic [63:0] data; logic [1:0] destination; logic [4:0] rd; logic [1:0] floating_point_precision;} response_bits_t;
+  typedef struct packed {logic access_fault; logic [63:0] data; logic [8:0] writeback;} response_bits_t;
   typedef struct packed {logic valid; response_bits_t bits;} response_t;
   typedef struct packed {ready_t request; logic request_fault, request_access_fault; response_t response; logic drained;} uncached_in_t;
   typedef struct packed {ureq_t request;} uncached_out_t;
@@ -295,7 +294,7 @@ module rv5stage_load_hit_tb;
       uncached_pending<=0;
       if(uncached_out.request.valid && uncached_in.request.ready) begin
         uncached_pending<=1;
-        uncached_response<='{access_fault:1'b0,data:64'hfeedface,destination:uncached_out.request.bits.request.destination,rd:uncached_out.request.bits.request.rd,floating_point_precision:uncached_out.request.bits.request.floating_point_precision};
+        uncached_response<='{access_fault:1'b0,data:64'hfeedface,writeback:uncached_out.request.bits.request.writeback};
         if(uncached_out.request.bits.request.access==4'd1) device_reads<=device_reads+1;
       end
       if(transaction_fire && transaction.access==4'd2 && transaction.address<64'h8000 && !(transaction.address>=64'h1300 && transaction.address<64'h1340)) begin

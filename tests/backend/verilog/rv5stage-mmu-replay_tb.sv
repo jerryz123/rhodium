@@ -1,5 +1,6 @@
 // Verifies MMU translation, accepted-walk survival across fetch recovery, faults, and prefetches.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
@@ -33,18 +34,14 @@ module rv5stage_mmu_replay_tb;
     logic [1:0] width;
     logic unsigned_0;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
     logic access_fault;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_bits_t;
@@ -79,7 +76,7 @@ module rv5stage_mmu_replay_tb;
   localparam logic [1:0] PRIVILEGE_S = 2'd1;
   localparam logic [3:0] MEMORY_LOAD = 4'd1;
   localparam logic [1:0] MEMORY_DOUBLE = 2'd3;
-  localparam logic [1:0] DATA_DESTINATION_INTEGER = 2'd1;
+  localparam logic [1:0] WRITEBACK_INTEGER_KIND = 2'd1;
   localparam logic [63:0] VIRTUAL_ADDRESS = 64'h4000;
   localparam logic [63:0] FAULT_VIRTUAL_ADDRESS = 64'h8000;
   localparam logic [63:0] PHYSICAL_ADDRESS = 64'h8000;
@@ -161,9 +158,7 @@ module rv5stage_mmu_replay_tb;
     data_in.request.bits.width = MEMORY_DOUBLE;
     data_in.request.bits.unsigned_0 = 1'b1;
     data_in.request.bits.data = '0;
-    data_in.request.bits.destination = DATA_DESTINATION_INTEGER;
-    data_in.request.bits.rd = 5'd7;
-    data_in.request.bits.floating_point_precision = '0;
+    data_in.request.bits.writeback = memory_integer(5'd7);
     data_in.request.bits.locality = 3'd3;
     instruction_memory_in = '0;
     instruction_memory_in.response.valid = instruction_return_valid;
@@ -174,9 +169,7 @@ module rv5stage_mmu_replay_tb;
     data_memory_in.response.valid = pte_response_valid || ordinary_response_valid || manual_pte_valid;
     data_memory_in.response.bits.access_fault = 0;
     data_memory_in.response.bits.data = manual_pte_valid ? manual_pte_data : ordinary_response_valid ? 64'hfeedface_12345678 : pte_response_data;
-    data_memory_in.response.bits.destination = ordinary_response_valid ? DATA_DESTINATION_INTEGER : 2'd0;
-    data_memory_in.response.bits.rd = ordinary_response_valid ? 5'd7 : 5'd0;
-    data_memory_in.response.bits.floating_point_precision = '0;
+    data_memory_in.response.bits.writeback = ordinary_response_valid ? memory_integer(5'd7) : 9'b0;
     data_memory_in.drained = memory_idle && !pte_response_valid && !manual_pte_valid;
     data_memory_in.reservation_valid = memory_idle;
   end
@@ -192,6 +185,11 @@ module rv5stage_mmu_replay_tb;
       pte_response_valid <= 1'b0;
       assert (data_out.reservation_valid == data_memory_in.reservation_valid)
         else $fatal(1, "MMU did not forward reservation status");
+      if (data_out.response.valid)
+        assert(data_out.response.bits.writeback == memory_integer(5'd7)) else $fatal(1,"MMU lost response writeback");
+      if (data_memory_out.request.valid)
+        assert(data_memory_out.request.bits.writeback == (data_memory_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND ? memory_integer(5'd7) : 9'b0))
+          else $fatal(1,"MMU lost request owner tag or leaked it into a page walk");
       if (pte_response_valid || manual_pte_valid)
         assert (!data_out.response.valid)
           else $fatal(1, "page-table response leaked onto the core data path");
@@ -199,7 +197,7 @@ module rv5stage_mmu_replay_tb;
         else $fatal(1, "data miss unexpectedly issued an instruction-memory request");
       if (data_memory_out.request.valid && data_memory_in.request.ready) begin
         assert (data_memory_out.request.bits.locality ==
-                (data_memory_out.request.bits.destination == DATA_DESTINATION_INTEGER ? 3'd3 : 3'd0))
+                (data_memory_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND ? 3'd3 : 3'd0))
           else $fatal(1, "translation lost locality or leaked it to the walker");
         assert (data_lookup_out.valid &&
                 data_lookup_out.bits[11:0] == data_memory_out.request.bits.address[11:0])
@@ -208,7 +206,7 @@ module rv5stage_mmu_replay_tb;
           assert (data_lookup_out.bits == data_memory_out.request.bits.address)
             else $fatal(1, "PTW read did not supply a physical lookup index");
         if (detached_walk_phase) begin
-          assert (data_memory_out.request.bits.destination == 0)
+          assert (data_memory_out.request.bits.writeback[8:7] == 0)
             else $fatal(1, "detached walk emitted a core data transaction");
           manual_pte_requests <= manual_pte_requests + 1;
         end else if (instruction_translation_phase) begin
@@ -268,8 +266,8 @@ module rv5stage_mmu_replay_tb;
           pte_requests <= 3;
         end else begin
           assert (data_request_valid && data_memory_out.request.bits.address == PHYSICAL_ADDRESS + (management_operation != 0 ? 64'd63 : 64'd0) &&
-                  data_memory_out.request.bits.destination == DATA_DESTINATION_INTEGER &&
-                  data_memory_out.request.bits.rd == 5'd7)
+                  data_memory_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
+                  memory_rd(data_memory_out.request.bits.writeback) == 5'd7)
             else $fatal(1, "replayed request was not translated with its metadata intact");
           translated_request_seen <= 1'b1;
         end

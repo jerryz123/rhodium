@@ -25,15 +25,16 @@ import:
 sync_circuit RV5StageMmu(xlen :: XLen,
                          mmu_mode :: RV5StageMmuMode,
                          physical_map :: RiscvPhysicalMemoryMap,
-                         tlb_entries :: Pow2Int = 8):
+                         tlb_entries :: Pow2Int = 8,
+                         ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
   interface instruction(RV5StageFetchAccess(xlen), ~role: responder)
-  interface data(RV5StageDataAccess(xlen), ~role: responder)
+  interface data(RV5StageDataAccess(xlen, vector_completion_slots), ~role: responder)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
   interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
-  interface data_memory(RV5StageDataAccess(xlen), ~role: requester)
+  interface data_memory(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(width)), ~role: producer)
   interface data_lookup(Valid(Bits(width)), ~role: producer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
@@ -73,7 +74,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // the old S1 context; a flush without a transfer clears S1 normally.
   instruction_s1.flush <== instruction.flush & !instruction_admission.valid
   def instruction_s1_valid = instruction_head.valid & !instruction.flush & !instruction.s1_kill
-  def data_request :: RV5StageDataReq(xlen) = data.request.bits
+  def data_request :: RV5StageDataReq(xlen, vector_completion_slots) = data.request.bits
   def data_memory_operation = data_request.access
   def data_virtual_address = if xlen == XLen.X32 | data_request.address.zext(64) | data_request.address
   def data_access_kind = mux(data_memory_operation.is_cache_management(), Sv39Access.CacheManagement, mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load))
@@ -297,16 +298,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   data.request_access_fault <== data.request.valid & !data_page_fault & (
     data_walk_access_fault ||| (data_forwarding_enabled & data_memory.request_access_fault)
   )
-  def walker_data_request = walker_memory_request |> map_flow(address => RV5StageDataReq(xlen)):
+  def walker_data_request = walker_memory_request |> map_flow(address => RV5StageDataReq(xlen, vector_completion_slots)):
     address: if xlen == XLen.X32 | address[0..32] | address
     access: MemoryOperation.Load
     atomic: RV5StageAtomicOperation.Swap
     width: MemoryWidth.Double
     unsigned: Bool(#true)
     data: bits(0, width)
-    destination: RV5StageDataDestination.None
-    rd: bits(0, 5)
-    floating_point_precision: RV5StageFloatPrecision.Single
+    writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
     locality: RV5StageMemoryLocality.Default
   // Local faults consume the core attempt; unresolved translations and walker
   // ownership block it. Neither case may issue a physical request.

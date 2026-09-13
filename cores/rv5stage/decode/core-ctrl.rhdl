@@ -246,20 +246,32 @@ def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, HintOperation.Pause)
 // Scalar effects for vector rows live only at this composition boundary.
 def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialInstructions):
   def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
+  def memory = vector_isa.VectorMemoryInstructions.contains(instruction)
+  def store = instruction.format == vector_isa.VectorStoreFormat
+  def memory_width = cond
+  | [vector_isa.VLE8_V, vector_isa.VSE8_V].contains(instruction): MemoryWidth.Byte
+  | [vector_isa.VLE16_V, vector_isa.VSE16_V].contains(instruction): MemoryWidth.Half
+  | [vector_isa.VLE32_V, vector_isa.VSE32_V].contains(instruction): MemoryWidth.Word
+  | ~else: MemoryWidth.Double
   def sources = instruction.operands.filter(~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer)
   def input = instruction_pattern(instruction)
   DecodeCase(
     input,
     partial_pattern(RV5StageControl()):
+      alu: component_output(RV64IAluCases, instruction_pattern(ADD))
       operand:
         pattern(OperandControl()):
           uses_rs1: Bool(!sources.is_empty())
           uses_rs2: Bool(instruction == vector_isa.VSETVL)
           left: OperandASelect.Register
-          right: OperandBSelect.Register
+          right: if memory | OperandBSelect.Immediate | OperandBSelect.Register
           immediate: ImmediateSelect.None
       branch: inactive_branch_control
-      memory: inactive_memory_control
+      memory:
+        partial_pattern(MemoryControl()):
+          access: if memory | (if store | MemoryOperation.Store | MemoryOperation.Load) | MemoryOperation.None
+          width: memory_width
+          unsigned: Bool(#true)
       prefetch: CachePrefetchOperation.None
       writeback:
         pattern(WritebackControl()):

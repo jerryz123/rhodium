@@ -4,9 +4,9 @@
 # Experimental vector path
 
 The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
-vector CSR state, and the decoded same-width integer subset. The default is
-`#false`. Neither setting advertises `V`, Zve, or Zvbb; vector memory and the
-remaining vector instruction families are not implemented.
+vector CSR state, the decoded same-width integer subset, and RV64 unit-stride
+memory operations. The default is `#false`. Neither setting advertises `V`,
+Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
 ## Configuration and decode
@@ -24,7 +24,7 @@ The CSR bank exposes `vstart`, `vxrm`, `vxsat`, `vcsr`, `vl`, `vtype`, and
 `vlenb`. `vstart` retains enough low bits for VLEN-1; `vxrm` and `vxsat` alias
 `vcsr`. VL/type/VLENB are read-only. Reset starts with `vill=1`, VL=0, and
 `mstatus.VS=Off`; VS Off blocks vector CSR access and configuration. Successful
-configuration, vector CSR writes, or integer macro retirement mark VS Dirty;
+configuration, vector CSR writes, vector completion, or a vector fault mark VS Dirty;
 reads do not, and SD combines
 the FP and vector dirty states. Software may manage VS through M/S status.
 
@@ -41,18 +41,30 @@ not a complete vector ISA implementation.
 
 [`RV5StageVectorPipeline`](../vector.rhdl) contains the unroller, 3R1W vector
 register bank, packed SIMD execution, and private EX/MEM/WB data registers.
-Its `request` accepts a legal macro snapshot. Each accepted `issue` emits only
-the caller's context and a `last` marker, atomically capturing that beat's
-operands in the private pipeline. Scalar stages carry bookkeeping, not vector
-operands or register-write payloads.
+Its `request` accepts a legal macro snapshot. Each accepted `issue` emits
+the caller's context, a `last` marker, and scalar-LSU memory metadata when
+applicable, atomically capturing that beat's
+operands in the private pipeline. Scalar stages carry bookkeeping and singleton
+LSU operands, not packed vector operands or register-write payloads.
 
-The nonstallable `commit: Valid(Bits(XLEN))` supplies the macro PC and authorizes
-the corresponding result exactly three cycles after issue. No authorization
+The nonstallable `commit: Valid(RV5StageVectorCommit(xlen))` supplies the macro
+PC, authorization/retry/fault outcome, and hit data exactly three cycles after
+issue. No authorization
 means no write. `cancel: Pulse` discards speculative work and flushes private
 stage validity; it does not undo a live older WB authorization on that edge.
 The caller must suppress authorizations for squashed tokens. `retire: Pulse`
-reports the authorized last beat. `active` stays asserted through WB drain.
-These are fixed-cycle paired pipelines, not independently queued completions.
+reports the completed last beat. `active` includes accepted memory completion
+ownership; `unrolling` reports the separate issue/authorization lifetime.
+Integer results use fixed-cycle pairing; slow memory uses tagged completions.
+
+`RVCoreProfile(~vector_completion_slots: n)` configures the memory completion
+window independently of VLEN; `n` must be a positive power of two and defaults
+to eight. Standalone `RV5StageVectorPipeline` accepts the same keyword.
+Storage depth and tag width derive from this count, with a one-bit zero index
+for a single slot. Slots are reserved before issue and released only after
+ordered completion drain; a smaller window can reduce memory throughput.
+The integrated core propagates the count through every LSU adapter. Standalone
+compositions must select the same count on their data interfaces and engines.
 
 [`bundles.rhdl`](bundles.rhdl) defines an instruction/configuration snapshot,
 64-bit packed micro-ops, and WB authorization/retry/fault feedback. Position
@@ -62,7 +74,7 @@ from result completion, and accepted side effects must never be retried.
 [`RV5StageVectorUnroller`](unroller.rhdl) retains one macro descriptor and its
 scalar/configuration snapshot. Younger instructions wait in Decode until its
 last WB beat; older scalar instructions can finish or squash it normally.
-Three synchronous VRF reads supply `vs2`, `vs1`, and `v0`. A two-slot credit
+Three synchronous VRF reads supply `vs2` (or store `vs3`), `vs1`, and `v0`. A two-slot credit
 window reserves space before every read, covering read latency and buffered
 beats even when issue stalls. Once filled, it supplies one packed 64-bit beat
 per cycle. A macro has setup/drain latency; this is not single-cycle vector
@@ -70,11 +82,12 @@ instruction issue.
 
 The vector pipeline's private EX stage uses
 [`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its MEM/WB
-registers retain the packed result; only scalar WB authorization writes the
-VRF. An exclusive end position advances even for masked-off
-elements. Only the final beat retires the macro, advances architectural PC,
-consumes an NTL hint, clears `vstart`, and marks VS Dirty. Interrupt entry waits
-for the macro to drain. A zero-length body or `vstart >= vl` emits one empty
+registers retain the packed result; scalar WB authorization permits the VRF
+write. An exclusive end position advances even for masked-off elements. The
+final authorized beat retires the macro, advances architectural PC, and consumes
+an NTL hint. Integer retirement clears `vstart` and marks VS Dirty immediately;
+memory waits for its final ordered completion. Interrupt entry waits for the
+macro to drain. A zero-length body or `vstart >= vl` emits one empty
 completion beat, with no register write.
 
 At the low-level unroller boundary, issued and authorized positions are
@@ -83,17 +96,47 @@ identifies the oldest unauthorized beat and the macro PC. Retry flushes all
 pending reads/issue beats and restarts at the authorized frontier, preserving
 already committed writes and the initial partial-chunk enable floor. The
 caller must discard younger downstream beats on retry/cancellation; the
-unroller does not own EX/MEM/WB. The composed integer vector pipeline cannot
-reject a vector write, so its public interface accepts only commit/cancel and
-it generates authorization feedback internally. Fault
-feedback and cancellation terminate the retained macro; a future faulting LSU
-must additionally own architectural `vstart`/trap handling.
+unroller does not own scalar EX/MEM/WB. The composed vector pipeline forwards
+WB feedback to the unroller and flushes its private speculative pipeline.
+Fault feedback terminates issue and emits the failing element through
+`fault_start`; accepted memory slots remain owned until drained.
 
 This cut preserves inactive and tail contents, supports fractional LMUL and
 in-place same-width groups, sign-extends RV32 VX operands before SEW64
 broadcast, and packs comparison bits through the ordinary masked write port.
-Shared FP/multiply/divide issue and vector memory ordering remain separate
-future integration work.
+Shared FP/multiply/divide issue remains future integration work.
+
+## Unit-stride memory
+
+The RV64 experimental path executes naturally aligned `vle8/16/32/64.v` and
+`vse8/16/32/64.v`, one element per micro-op. Encoded EEW determines both the
+address increment and EMUL (`LMUL * EEW / SEW`); legality checks the effective
+group and rejects masked load overlap with `v0`. RV32 memory execution is not
+enabled. Masks suppress accesses and faults, and nonzero `vstart` preserves the
+prefix. Empty bodies still complete exactly one macro without memory effects.
+
+Elements use the scalar EX/MEM speculative lookup and WB authorization paths.
+Warm loads can complete at one element per cycle. Stores cannot mutate the
+cache or devices before WB. Misses, translation misses, and uncached accesses
+use the ordinary authorized LSU service. Each accepted slow request carries a
+`RV5StageMemoryWriteback(n).Vector(slot)` identifying one of `n` reserved vector
+slots, distinct from integer and FP writeback variants. MMU, router, cache, and
+uncached service preserve the union unchanged.
+
+Slots are reserved before issue. A hit and delayed response can complete
+different slots on the same edge; the single VRF write port drains completed
+slots in element order. A local replay rewinds only the unauthorized frontier,
+without refetching the macro or reissuing accepted effects. Cancellation drops
+speculative slots but never erases accepted response ownership. Ordinary LSU
+faults are reported before acceptance, as in the scalar protocol; this does
+not introduce asynchronous ordinary-load error handling.
+
+A fault records its element in `vstart`, stops younger elements, and waits for
+older accepted data/VRF work before entering the precise trap at the macro PC.
+Successful final completion clears `vstart`. Younger independent scalar work
+may pass a vector load's completion tail, but scalar stores and vector/CSR
+state observers wait. Younger scalar loads and stores wait for an older vector
+store's ordered LSU drain. Interrupt entry waits for vector completion.
 
 ## Register bank
 

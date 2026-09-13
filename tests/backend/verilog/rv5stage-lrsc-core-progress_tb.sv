@@ -46,7 +46,7 @@ module rv5stage_lrsc_core_progress_tb;
     host_in.request.bits.access = operation != 0 ? 4'(operation) : write ? 2 : 1;
     host_in.request.bits.width = 2'(data_width);
     host_in.request.bits.data = data;
-    host_in.request.bits.destination = write ? 0 : 1;
+    host_in.request.bits.writeback = write ? 9'b0 : 9'h080;
     host_in.request.valid = 1;
     tick();
     host_in.request.valid = 0;

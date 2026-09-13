@@ -1,5 +1,6 @@
 // Exercises WB replay and fault isolation across memory, FP registers, flags, prefetches, and atomics.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 typedef struct packed { logic ss, ms, st, mt, se, me; } interrupts_t;
 typedef struct packed { logic ready; } ready_t;
 typedef struct packed { logic valid; logic [XLEN-1:0] address; } ireq_t;
@@ -13,18 +14,14 @@ typedef struct packed {
   logic [1:0] width;
   logic unsigned_load;
   logic [XLEN-1:0] data;
-  logic [1:0] destination;
-  logic [4:0] rd;
-  logic [1:0] precision;
+  logic [8:0] writeback;
   logic [2:0] locality;
 } dreq_bits_t;
 typedef struct packed { logic valid; dreq_bits_t bits; } dreq_t;
 typedef struct packed {
   logic access_fault;
   logic [XLEN-1:0] data;
-  logic [1:0] destination;
-  logic [4:0] rd;
-  logic [1:0] precision;
+  logic [8:0] writeback;
 } dresp_bits_t;
 typedef struct packed { logic valid; dresp_bits_t bits; } dresp_t;
 typedef struct packed { ready_t request; logic request_fault, request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;
@@ -102,7 +99,7 @@ function automatic logic [31:0] instruction_at(input logic [XLEN-1:0] address);
   endcase
 endfunction
 
-assign instruction_access_in.request.ready = !instruction_pending;
+assign instruction_access_in.request.ready = instruction_access_out.flush || !instruction_pending;
 assign instruction_access_in.response.valid = instruction_pending;
 assign instruction_access_in.response.word = instruction_word;
 assign instruction_access_in.response.page_fault = 0;
@@ -126,12 +123,11 @@ always_ff @(posedge clock) begin
     done <= 0;
   end else begin
     if (instruction_access_out.flush) instruction_pending <= 0;
-    else begin
-      if (instruction_pending && instruction_access_out.response.ready) instruction_pending <= 0;
-      if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
-        instruction_pending <= 1;
-        instruction_word <= instruction_at(instruction_access_out.request.address);
-      end
+    else if (instruction_pending && instruction_access_out.response.ready) instruction_pending <= 0;
+    // A restart may replace the cancelled request on the same edge.
+    if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
+      instruction_pending <= 1;
+      instruction_word <= instruction_at(instruction_access_out.request.address);
     end
     if (response_delay != 0) response_delay <= response_delay - 1;
     if (prefetch_out.valid) begin
@@ -169,12 +165,10 @@ always_ff @(posedge clock) begin
         end
       end else begin
         if (data_access_out.request.bits.address == 'h400) accepted <= accepted + 1;
-        else assert(scenario == 0 && ((data_access_out.request.bits.address == 'h450 && data_access_out.request.bits.access inside {3, 4, 5}) || (data_access_out.request.bits.address == 'h480 && data_access_out.request.bits.access == 1 && data_access_out.request.bits.destination == 2))) else $fatal(1, "unexpected memory effect");
+        else assert(scenario == 0 && ((data_access_out.request.bits.address == 'h450 && data_access_out.request.bits.access inside {3, 4, 5}) || (data_access_out.request.bits.address == 'h480 && data_access_out.request.bits.access == 1 && data_access_out.request.bits.writeback[8:7] == 2))) else $fatal(1, "unexpected memory effect");
         response_delay <= data_access_out.request.bits.address == 'h400 ? 20 : 4;
         pending_response.data <= data_access_out.request.bits.address == 'h480 ? 'h40400000 : 42;
-        pending_response.destination <= data_access_out.request.bits.destination;
-        pending_response.rd <= data_access_out.request.bits.rd;
-        pending_response.precision <= data_access_out.request.bits.precision;
+        pending_response.writeback <= data_access_out.request.bits.writeback;
       end
     end
 

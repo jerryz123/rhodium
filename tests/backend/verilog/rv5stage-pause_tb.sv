@@ -1,5 +1,6 @@
 // Checks bounded PAUSE throttling, retirement, squash, interrupt exit, and older-load independence.
 // SPDX-License-Identifier: Apache-2.0
+`include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_pause_tb;
   typedef struct packed {
     logic supervisor_software;
@@ -28,18 +29,14 @@ module rv5stage_pause_tb;
     logic [1:0] width;
     logic unsigned_0;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
   typedef struct packed {
     logic access_fault;
     logic [63:0] data;
-    logic [1:0] destination;
-    logic [4:0] rd;
-    logic [1:0] floating_point_precision;
+    logic [8:0] writeback;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
@@ -116,8 +113,7 @@ module rv5stage_pause_tb;
     data_access_in.request.ready = 1;
     data_access_in.drained = !load_pending;
     data_access_in.response.valid = load_pending && load_age == (scenario == 8 ? 12 : 120);
-    data_access_in.response.bits.rd = 20;
-    data_access_in.response.bits.destination = 1; // integer register completion
+    data_access_in.response.bits.writeback = memory_integer(5'd20);
     data_access_in.response.bits.data = 64'h1234;
   end
 

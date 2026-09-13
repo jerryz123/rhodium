@@ -33,6 +33,11 @@ def rv32_half = RVCoreProfile(
 )
 
 check:
+  RVCoreProfile(~xlen: XLen.X64).vector_completion_slots ~is 8
+  RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 1).vector_completion_slots ~is 1
+  RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 16).vector_completion_slots ~is 16
+  RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 0) ~throws "Pow2Int"
+  RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 3) ~throws "Pow2Int"
   RVCoreProfile(~xlen: XLen.X64).experimental_vector ~is #false
   RVCoreProfile(~xlen: XLen.X64, ~experimental_vector: 128).experimental_vector ~is 128
   RVCoreProfile(~xlen: XLen.X32, ~experimental_vector: 65536).experimental_vector ~is 65536
