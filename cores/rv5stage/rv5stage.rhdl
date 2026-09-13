@@ -5,7 +5,7 @@
 import:
   "../cache-prefetch.rhdl" open
   "core.rhdl" open
-  "frontend.rhdl" open
+  "fetch/frontend.rhdl" open
   "interrupt.rhdl" open
   "chi/foundation.rhdl" open
   "profile.rhm" open

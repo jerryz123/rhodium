@@ -3,25 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../riscv/isa/xlen.rhm" open
-  "../../riscv/model/formats.rhm" as riscv_fields
-  "../../riscv/rtl/instruction-fields.rhdl".instruction_field
+  "protocol.rhdl" open
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../../../riscv/model/formats.rhm" as riscv_fields
+  "../../../../riscv/rtl/instruction-fields.rhdl".instruction_field
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
-
-hardware_enum RV5StageRasAction:
-  None
-  Push
-  Pop
-  PopPush
-
-bundle RV5StageRasUpdate(xlen :: XLen):
-  action: RV5StageRasAction
-  return_address: Bits(xlen.width)
-
-bundle RV5StageRasResolution(xlen :: XLen):
-  actual: RV5StageRasUpdate(xlen)
-  predicted_action: RV5StageRasAction
 
 fun rv5stage_ras_action(instruction :: Bits(32)) :~ RV5StageRasAction:
   def opcode = instruction_field(riscv_fields.opcode, instruction)
@@ -138,8 +125,5 @@ sync_circuit RV5StageRas(xlen :: XLen, entry_count :: Nat = 6):
         speculative_count <== updated_count(speculative_count, speculate.bits.action)
 
 export:
-  RV5StageRasAction
-  RV5StageRasUpdate
-  RV5StageRasResolution
   rv5stage_ras_action
   RV5StageRas

@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "btb.rhdl" open
-  "ras.rhdl" open
-  "../../riscv/isa/xlen.rhm" open
+  "bpd/protocol.rhdl" open
+  "bpd/btb.rhdl" open
+  "bpd/ras.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 

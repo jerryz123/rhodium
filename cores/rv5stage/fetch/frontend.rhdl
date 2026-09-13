@@ -3,14 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "btb.rhdl" open
-  "ras.rhdl" open
-  "fetch-source.rhdl" open
-  "fetch-packet.rhdl" open
-  "fetch-scan.rhdl" open
-  "frontend-control.rhdl" open
-  "profile.rhm".RVCoreProfile
-  "icache/protocol.rhdl" open
+  "bpd/protocol.rhdl" open
+  "source.rhdl" open
+  "packet.rhdl" open
+  "scan.rhdl" open
+  "protocol.rhdl" open
+  "../profile.rhm".RVCoreProfile
+  "../icache/protocol.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 

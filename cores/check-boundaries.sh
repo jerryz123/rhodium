@@ -80,6 +80,35 @@ if [[ -n "$alternate_core_sources" ]]; then
   exit 1
 fi
 
+legacy_rv5stage_fetch_sources="$(find cores/rv5stage -maxdepth 1 -type f \
+  \( -name 'frontend.rhdl' -o -name 'frontend-control.rhdl' \
+     -o -name 'fetch-source.rhdl' -o -name 'fetch-packet.rhdl' \
+     -o -name 'fetch-scan.rhdl' -o -name 'instruction-buffer.rhdl' \
+     -o -name 'btb.rhdl' -o -name 'ras.rhdl' \) -print)"
+if [[ -n "$legacy_rv5stage_fetch_sources" ]]; then
+  echo "RV5Stage fetch and predictor sources must live under cores/rv5stage/fetch" >&2
+  echo "$legacy_rv5stage_fetch_sources" >&2
+  exit 1
+fi
+
+bpd_consumer_imports="$(search_sources \
+  '^[[:space:]]+"\.\./(frontend|source|packet|scan|instruction-buffer|protocol)\.rhdl"' \
+  cores/rv5stage/fetch/bpd || true)"
+if [[ -n "$bpd_consumer_imports" ]]; then
+  echo "RV5Stage branch predictors must not import their fetch consumers" >&2
+  echo "$bpd_consumer_imports" >&2
+  exit 1
+fi
+
+fetch_protocol_implementation_imports="$(search_sources \
+  '^[[:space:]]+"bpd/(btb|ras)\.rhdl"' \
+  cores/rv5stage/fetch/protocol.rhdl cores/rv5stage/fetch/packet.rhdl || true)"
+if [[ -n "$fetch_protocol_implementation_imports" ]]; then
+  echo "RV5Stage fetch protocols must not depend on predictor implementations" >&2
+  echo "$fetch_protocol_implementation_imports" >&2
+  exit 1
+fi
+
 cache_cross_imports="$(search_sources '^[[:space:]]+"[^" ]*(icache|dcache)/' \
   cores/rv5stage/icache cores/rv5stage/dcache \
   || true)"

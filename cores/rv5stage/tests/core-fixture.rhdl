@@ -4,7 +4,7 @@
 
 import:
   "../core.rhdl" open
-  "../frontend.rhdl" open
+  "../fetch/frontend.rhdl" open
   "../profile.rhm" open
   "../icache/protocol.rhdl" open
   "../dcache/protocol.rhdl" open

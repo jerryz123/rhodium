@@ -1,0 +1,45 @@
+#lang rhodium
+// Defines prediction, training, and return-stack payloads shared by RV5Stage fetch and execution.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../riscv/isa/xlen.rhm" open
+
+hardware_enum RV5StageRasAction:
+  None
+  Push
+  Pop
+  PopPush
+
+bundle RV5StageRasUpdate(xlen :: XLen):
+  action: RV5StageRasAction
+  return_address: Bits(xlen.width)
+
+bundle RV5StageRasResolution(xlen :: XLen):
+  actual: RV5StageRasUpdate(xlen)
+  predicted_action: RV5StageRasAction
+
+bundle RV5StagePrediction(xlen :: XLen):
+  valid: Bool
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  compressed: Bool
+  ras_action: RV5StageRasAction
+
+bundle RV5StageBranchUpdate(xlen :: XLen):
+  pc: Bits(xlen.width)
+  target: Bits(xlen.width)
+  branch: Bool
+  conditional: Bool
+  taken: Bool
+  compressed: Bool
+  ras_action: RV5StageRasAction
+  predicted_ras_action: RV5StageRasAction
+  return_address: Bits(xlen.width)
+
+export:
+  RV5StageRasAction
+  RV5StageRasUpdate
+  RV5StageRasResolution
+  RV5StagePrediction
+  RV5StageBranchUpdate

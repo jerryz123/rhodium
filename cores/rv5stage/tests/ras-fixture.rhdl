@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../ras.rhdl" open
+  "../fetch/bpd/protocol.rhdl" open
+  "../fetch/bpd/ras.rhdl" open
   "../../../riscv/isa/xlen.rhm".XLen
   lib("flow/main.rhdl") open
 

@@ -14,7 +14,8 @@ RV5Stage may depend on public Rhodium libraries, the pure RISC-V model and RTL
 adapter, reusable components directly under `cores/`, HardFloat, and shared
 CHI libraries. It must not import another named core, a backend, examples, or
 tests. The parent [`check-boundaries.sh`](../check-boundaries.sh) enforces these
-rules plus decode-column and cache-package separation.
+rules plus fetch/predictor placement, decode-column, and cache-package
+separation.
 
 Keep the scalar pipeline dependent on the RV5Stage cache protocols rather than
 a generic memory transport. Keep I-cache and D-cache packages independent of
@@ -29,13 +30,8 @@ each other; share external transaction machinery through the CHI package.
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
-| [`btb.rhdl`](btb.rhdl) | Associative word lookup, local direction counters, training, and prediction metadata |
-| [`ras.rhdl`](ras.rhdl) | RISC-V call/return classification, speculative return targets, and resolved recovery state |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
-| [`frontend.rhdl`](frontend.rhdl), [`frontend-control.rhdl`](frontend-control.rhdl) | Fetch topology, fixed-latency S1/S2 correlation, registered repair, and independent execution controls |
-| [`fetch-source.rhdl`](fetch-source.rhdl) | S0 PC selection, registered S1 prediction, continuation state, and replay selection |
-| [`fetch-packet.rhdl`](fetch-packet.rhdl), [`fetch-scan.rhdl`](fetch-scan.rhdl) | Raw packet boundary and S2 prediction-cut validation |
-| [`instruction-buffer.rhdl`](instruction-buffer.rhdl) | Core-owned fall-through compressed assembly and one residual halfword |
+| [`fetch/DEVELOPING.md`](fetch/DEVELOPING.md) | Fetch protocols, frontend sequencing, instruction assembly, BTB, and RAS |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`vector.rhdl`](vector.rhdl) | Parallel integer vector pipeline, internal unroller/SIMD/VRF, and scalar WB authorization boundary |

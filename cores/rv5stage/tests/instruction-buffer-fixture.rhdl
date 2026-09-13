@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../instruction-buffer.rhdl" open
-  "../fetch-packet.rhdl" open
-  "../bundles.rhdl" open
+  "../fetch/instruction-buffer.rhdl" open
+  "../fetch/packet.rhdl" open
+  "../fetch/protocol.rhdl" open
   "../profile.rhm" open
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/isa/xlen.rhm" open

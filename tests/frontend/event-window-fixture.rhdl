@@ -4,8 +4,7 @@
 import:
   lib("flow/main.rhdl") open
   "../../cores/rv5stage/tests/fetch-fixture.rhdl" open
-  "../../cores/rv5stage/frontend-control.rhdl" open
-  "../../cores/rv5stage/bundles.rhdl" open
+  "../../cores/rv5stage/fetch/protocol.rhdl" open
   "../../cores/rv5stage/icache/protocol.rhdl" open
   "../../cores/rv5stage/profile.rhm" open
   "../../riscv/isa/c.rhm" open

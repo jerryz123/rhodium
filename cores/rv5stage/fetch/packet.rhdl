@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "btb.rhdl" open
-  "../../riscv/isa/xlen.rhm" open
+  "bpd/protocol.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
 
 bundle RV5StageFetchPacket(xlen :: XLen):
   pc: Bits(xlen.width)

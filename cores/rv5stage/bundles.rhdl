@@ -3,8 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "btb.rhdl" open
-  "ras.rhdl" open
+  "fetch/bpd/protocol.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
@@ -30,18 +29,6 @@ import:
   "divide.rhdl" open
   "fp/bundles.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
-
-bundle FetchDecode(xlen :: XLen):
-  pc: Bits(xlen.width)
-  instruction: Bits(32)
-  raw_instruction: Bits(32)
-  sequential_pc: Bits(xlen.width)
-  predicted_next_pc: Bits(xlen.width)
-  predicted_ras_action: RV5StageRasAction
-  compressed_illegal: Bool
-  instruction_page_fault: Bool
-  instruction_access_fault: Bool
-  instruction_fault_address: Bits(xlen.width)
 
 hardware_enum RV5StageBypassStage(~encoding: one_hot):
   RegisterFile
@@ -189,7 +176,6 @@ bundle MemoryWriteback(xlen :: XLen):
   exception_value: Bits(xlen.width)
 
 export:
-  FetchDecode
   RV5StageBypassStage
   RV5StageCompletionSource
   RV5StageDeferredCompletion

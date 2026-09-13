@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "btb.rhdl" open
-  "ras.rhdl" open
+  "fetch/bpd/protocol.rhdl" open
+  "fetch/bpd/ras.rhdl" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../load-store.rhdl" open
@@ -31,9 +31,9 @@ import:
   "divide.rhdl" open
   "fp/pipeline.rhdl" open
   "fp/bundles.rhdl" open
-  "frontend-control.rhdl" open
-  "fetch-packet.rhdl" open
-  "instruction-buffer.rhdl" open
+  "fetch/protocol.rhdl" open
+  "fetch/packet.rhdl" open
+  "fetch/instruction-buffer.rhdl" open
   "decode/fp-ctrl.rhdl" open
   "register-file.rhdl" open
   "dcache/protocol.rhdl" open

@@ -4,7 +4,7 @@
 import:
   "fetch-fixture.rhdl" open
   lib("cores/rv5stage/profile.rhm") open
-  lib("cores/rv5stage/btb.rhdl") open
+  lib("cores/rv5stage/fetch/bpd/protocol.rhdl") open
   lib("cores/rv5stage/mmu/mmu.rhdl") open
   lib("cores/rv5stage/csr.rhdl").PrivilegeMode
   lib("cores/rv5stage/instruction-memory-router.rhdl") open

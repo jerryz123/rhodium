@@ -8,7 +8,7 @@ import:
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
-  "../frontend.rhdl".RV5StageFrontend
+  "../fetch/frontend.rhdl".RV5StageFrontend
   "../mmu/mmu.rhdl".RV5StageMmu
   "../profile.rhm" open
   "../icache/cache.rhdl".RV5StageL1ICache

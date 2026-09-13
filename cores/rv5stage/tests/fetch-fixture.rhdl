@@ -3,10 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../frontend.rhdl" open
-  "../frontend-control.rhdl" open
-  "../instruction-buffer.rhdl" open
-  "../bundles.rhdl" open
+  "../fetch/frontend.rhdl" open
+  "../fetch/protocol.rhdl" open
+  "../fetch/instruction-buffer.rhdl" open
   "../profile.rhm".RVCoreProfile
   "../icache/protocol.rhdl" open
   lib("flow/main.rhdl") open

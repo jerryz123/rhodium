@@ -3,28 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "ras.rhdl" open
-  "../../riscv/isa/xlen.rhm" open
+  "protocol.rhdl" open
+  "../../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
-
-bundle RV5StagePrediction(xlen :: XLen):
-  valid: Bool
-  pc: Bits(xlen.width)
-  target: Bits(xlen.width)
-  compressed: Bool
-  ras_action: RV5StageRasAction
-
-bundle RV5StageBranchUpdate(xlen :: XLen):
-  pc: Bits(xlen.width)
-  target: Bits(xlen.width)
-  branch: Bool
-  conditional: Bool
-  taken: Bool
-  compressed: Bool
-  ras_action: RV5StageRasAction
-  predicted_ras_action: RV5StageRasAction
-  return_address: Bits(xlen.width)
 
 bundle RV5StageBtbEntry(xlen :: XLen):
   valid: Bool
@@ -91,7 +73,5 @@ sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
             ras_action: update.bits.ras_action
 
 export:
-  RV5StagePrediction
-  RV5StageBranchUpdate
   RV5StageBtbEntry
   RV5StageBtb

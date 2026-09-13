@@ -332,7 +332,7 @@ This does not add PMP, hypervisor support, or dynamic PMA reconfiguration.
 
 ## Microarchitecture
 
-[`RV5StageFrontend`](frontend.rhdl) owns Fetch; [`RV5StageCore`](core.rhdl)
+[`RV5StageFrontend`](fetch/frontend.rhdl) owns Fetch; [`RV5StageCore`](core.rhdl)
 owns Decode through Writeback. Scalar tokens issue and reach WB in order, while
 selected register-producing operations may complete later through explicit
 scoreboards and a completion arbiter.
@@ -488,14 +488,14 @@ ordinary WB result uses the other write port. WAW gating prevents both ports
 from targeting the same register in one cycle, and a WB-aligned cache hit can
 set and clear a destination without an extra busy cycle.
 
-[`frontend.rhdl`](frontend.rhdl) connects a
-[`RV5StageFetchSource`](fetch-source.rhdl), fixed-latency S1/S2 stages, and a
+[`fetch/frontend.rhdl`](fetch/frontend.rhdl) connects a
+[`RV5StageFetchSource`](fetch/source.rhdl), fixed-latency S1/S2 stages, and a
 five-entry flow-through packet queue. Raw packets carry PC, word, halfword mask,
 faults, and occurrence-specific prediction metadata. Mask bits 0 and 1 select
 the lower and upper halfwords; PC identifies the first selected halfword.
 Packets remain ordered, and a split instruction's continuation is contiguous
 even when its predicted target is elsewhere. The core's
-[`RV5StageInstructionBuffer`](instruction-buffer.rhdl) assembles and expands
+[`RV5StageInstructionBuffer`](fetch/instruction-buffer.rhdl) assembles and expands
 instructions directly into Decode, retaining at most one leftover halfword.
 Neither queue bypass nor IBuf adds a mandatory pipeline cycle. On a complete
 instruction hit with an empty queue, S2 and Decode share a cycle; ID/EX captures
@@ -538,18 +538,20 @@ accepted S0 parent; MMU walks and predictor/redirect causality remain unmodeled.
 
 `RV5Stage` and `RV5StageFrontend` accept `~btb_entries` (default 16, zero disables
 prediction) and `~ras_entries` (default 6, zero disables return prediction). The
-fully associative BTB stores full instruction-PC tags, targets, instruction
-lengths, return-stack actions, and conditional/unconditional classification.
+fully associative [BTB](fetch/bpd/btb.rhdl) stores full instruction-PC tags,
+targets, instruction lengths, return-stack actions, and
+conditional/unconditional classification.
 Each entry has a two-bit saturating counter; conditional branches predict taken
 in the upper two states, and unconditional jumps predict taken on a hit. Invalid
 slots are allocated first, then round-robin replacement is used. Disabling the
 BTB also elaborates away the RAS. No global history or separate direction table
 is present.
 
-The RAS follows the RISC-V `x1`/`x5` implicit call and return hints, including
-the pop-then-push coroutine case. Calls push their two- or four-byte sequential
-PC; return BTB hits use the stack head and fall back to the BTB target when the
-stack is empty. Accepted S2 predictions update speculative state exactly once.
+The [RAS](fetch/bpd/ras.rhdl) follows the RISC-V `x1`/`x5` implicit call and
+return hints, including the pop-then-push coroutine case. Calls push their two-
+or four-byte sequential PC; return BTB hits use the stack head and fall back to
+the BTB target when the stack is empty. Accepted S2 predictions update
+speculative state exactly once.
 Uncancelled S4 resolutions update resolved state and repair speculation after a
 redirect or action mismatch. Overflow replaces the oldest entry and underflow
 is a no-op.
