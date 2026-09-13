@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks Zicsr and privileged-system instruction catalogs and encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/zicsr.rhm" open

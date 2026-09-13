@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Enforces Rhodium source conventions, package imports, and standard/base profile composition.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

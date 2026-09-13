@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines shared CHI packet positions, transfer packet sets, and physical legality.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

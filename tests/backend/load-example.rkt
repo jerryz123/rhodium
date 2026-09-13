@@ -1,5 +1,6 @@
 #lang racket/base
 ;; Materializes designs, goldens, and optional compiler manifest headers for external tests.
+;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/file
          racket/match)

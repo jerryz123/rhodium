@@ -1,4 +1,5 @@
 ;; Lists invalid frontend fixtures and the diagnostics each must produce.
+;; SPDX-License-Identifier: Apache-2.0
 
 (("bad-input-drive.rhdl" "connection target must be a driveable hardware place")
  ("bad-valid-event-stalls.rhdl" "does not expect an argument with given keyword")

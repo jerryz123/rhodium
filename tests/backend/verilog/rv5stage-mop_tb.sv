@@ -1,4 +1,5 @@
 // Executes Zimop zero-write and Zcmop no-write semantics through RV5Stage.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_mop_tb;
   typedef struct packed {
     logic supervisor_software;

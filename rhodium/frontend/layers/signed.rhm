@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines explicit-width signed integers, two's-complement literals, and signed resizing.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

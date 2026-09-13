@@ -1,4 +1,5 @@
 // Exercises request legality and shared subordinate early-data, identity, and mask rejection.
+// SPDX-License-Identifier: Apache-2.0
 module boot_address_invalid_case #(parameter int MODE = 0);
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

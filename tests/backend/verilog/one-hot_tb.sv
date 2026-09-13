@@ -1,4 +1,5 @@
 // Simulates every valid selector encoding through the typed one-hot example.
+// SPDX-License-Identifier: Apache-2.0
 module one_hot_tb;
   logic [3:0] current;
   logic [3:0] next_grant;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits bounded runtime alignment checks across address and exponent widths.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

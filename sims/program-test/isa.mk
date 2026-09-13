@@ -1,4 +1,5 @@
 # Selects physical-environment RV64 instruction tests from upstream's own inventory.
+# SPDX-License-Identifier: Apache-2.0
 include $(src_dir)/Makefile
 
 # The initial suite covers instruction behavior, not upstream's virtual or

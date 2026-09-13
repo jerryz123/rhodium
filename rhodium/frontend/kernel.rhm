@@ -1,5 +1,6 @@
 #lang rhombus
 // Implements context-based elaboration and deferred frontend hardware values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises stateless CHI responses and Home transforms across DAT widths and optional metadata.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks immutable formal snapshots, scalar representations, aggregates, and operation metadata.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,4 +1,5 @@
 <!-- Describes the public boundary of CHI transaction mechanisms. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # CHI transaction mechanisms
 

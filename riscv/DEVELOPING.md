@@ -1,4 +1,5 @@
 <!-- Guides contributors through extending the pure RISC-V model, ISA catalogs, and host toolchain projections. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the RISC-V instruction model
 

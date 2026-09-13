@@ -1,4 +1,5 @@
 // Drives legal changing matchings and compares direct/configured crossbars under backpressure.
+// SPDX-License-Identifier: Apache-2.0
 module event_crossbar_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

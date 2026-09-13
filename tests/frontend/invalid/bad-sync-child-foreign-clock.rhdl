@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects overriding a sync child to a foreign clock inside a sync parent.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit Child():
   output value: Bits(1)

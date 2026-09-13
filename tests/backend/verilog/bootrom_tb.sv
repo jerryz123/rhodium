@@ -1,4 +1,5 @@
 // Verifies CHI BootROM reads, byte lanes, backpressure, and top-of-address-space containment.
+// SPDX-License-Identifier: Apache-2.0
 module bootrom_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

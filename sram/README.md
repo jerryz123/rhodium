@@ -1,4 +1,5 @@
 <!-- Defines the reusable CIRCT-boundary SRAM mapping package and its contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # SRAM mapping
 

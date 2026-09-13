@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises bundle-owned hardware methods and their exact static propagation.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum CacheState:
   Invalid

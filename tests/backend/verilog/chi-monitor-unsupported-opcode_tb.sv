@@ -1,4 +1,5 @@
 // Drives a negotiated-but-unadvertised CHI request opcode into the link monitor.
+// SPDX-License-Identifier: Apache-2.0
 module chi_monitor_unsupported_opcode_tb;
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

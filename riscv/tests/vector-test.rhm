@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks configurable vector geometry, fractional groups, chunk mapping, masks, and ordinary data overlap rules.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/vector.rhm" open

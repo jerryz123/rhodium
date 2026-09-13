@@ -1,4 +1,5 @@
 -- Checks private-cache CHI schemas, direct-refill requests, and certified Home returns.
+-- SPDX-License-Identifier: Apache-2.0
 -- Materialize shared views so per-field checks also scale to full benchmark traces.
 WITH expected(suffix, fields) AS (
   VALUES

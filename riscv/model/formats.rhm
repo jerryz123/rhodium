@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines shared RISC-V operand fields, immediate layouts, and instruction formats.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

@@ -1,5 +1,6 @@
 #lang rhombus
 // Exposes event dependency inference, instrumentation, and manifest serialization.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "model.rhm" open

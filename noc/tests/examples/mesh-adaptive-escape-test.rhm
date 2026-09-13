@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks adaptive-escape materialization, deterministic cycle rejection, and raw equivalence.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

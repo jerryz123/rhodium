@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the public widths of default and fully populated CHI flits.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" as chi

@@ -1,4 +1,5 @@
 // Compares public RV5Stage timing for identical programs and distinct operand data.
+// SPDX-License-Identifier: Apache-2.0
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [W-1:0] address; } iqbits_t;
   typedef struct packed { logic valid; iqbits_t bits; } iq_t;

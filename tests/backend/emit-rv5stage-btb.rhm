@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits a three-entry BTB to test associative matching and non-power-of-two replacement.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/backend/circt.rhm".emit_circt
   "../../rhodium/frontend/kernel.rhm" as embedded

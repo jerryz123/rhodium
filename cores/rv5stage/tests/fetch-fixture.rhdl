@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises the production raw-packet boundary and core-side IBuf as one fetch-to-Decode path.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../frontend.rhdl" open

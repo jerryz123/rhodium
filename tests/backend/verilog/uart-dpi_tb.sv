@@ -1,4 +1,5 @@
 // Verifies serial transfers through the production UART model's slave PTY.
+// SPDX-License-Identifier: Apache-2.0
 module uart_dpi_tb;
   import "DPI-C" function int uart_test_connect(input int model_id);
   import "DPI-C" function int uart_test_write(input int model_id,

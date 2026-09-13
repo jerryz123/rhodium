@@ -1,4 +1,5 @@
 // Simulates profile-driven CHI retry handshakes and completion milestones.
+// SPDX-License-Identifier: Apache-2.0
 module chi_retryable_transaction_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } response_in_t;

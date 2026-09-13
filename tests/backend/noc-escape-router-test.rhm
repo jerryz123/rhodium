@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks escape-certified router lowering and fallback-mask preservation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

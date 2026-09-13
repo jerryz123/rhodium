@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks minimal adaptive choices, irreversible XY escape routing, and policy validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../model/main.rhm" open

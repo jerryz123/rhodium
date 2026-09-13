@@ -1,4 +1,5 @@
 // Simulates initial-profile HN-I translation through CHIHNIChannels.
+// SPDX-License-Identifier: Apache-2.0
 module chi_home_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;

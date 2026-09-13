@@ -1,5 +1,6 @@
 #lang rhodium
 // Generates hardware field and immediate extraction from pure RISC-V descriptors.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/fields.rhm" open

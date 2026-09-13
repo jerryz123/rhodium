@@ -1,4 +1,5 @@
 // Tests the shared C++ encoder, strict snapshot parser, and failed-output contract.
+// SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include <zlib.h>
 #include <array>

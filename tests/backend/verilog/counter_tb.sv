@@ -1,4 +1,5 @@
 // Simulates enable, variable increments, modular wrap, and synchronous reset.
+// SPDX-License-Identifier: Apache-2.0
 module counter_tb;
     logic clock = 1'b0;
     logic reset = 1'b1;

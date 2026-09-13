@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks typed hardware inequality lowering, result types, and verification.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

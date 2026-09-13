@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines XLEN-independent integer instruction encodings shared by RV32I and RV64I.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

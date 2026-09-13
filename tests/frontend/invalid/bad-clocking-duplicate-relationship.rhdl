@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Rejects duplicate clock relationships collected through the frontend clocking layer.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/clocking.rhm") open

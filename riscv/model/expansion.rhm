@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines validated, host-interpretable mappings from compact encodings to canonical instructions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

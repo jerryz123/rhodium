@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines nominal and deterministically ordered identities for pure NoC graph objects.
+// SPDX-License-Identifier: Apache-2.0
 
 export:
   NodeId

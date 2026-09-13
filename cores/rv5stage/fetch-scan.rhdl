@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks S2 prediction cuts and repairs younger fetches without discarding older queued packets.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "fetch-packet.rhdl" open

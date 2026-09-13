@@ -1,5 +1,6 @@
 #lang rfpl
 // Invalid fixture omitting one direct child from a composite floorplan.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../support/annotation-circuits.rhm" as circuits

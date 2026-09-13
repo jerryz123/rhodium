@@ -1,4 +1,5 @@
 // Checks every response opcode against independent milestone expectations.
+// SPDX-License-Identifier: Apache-2.0
 module chi_response_profile_tb;
   logic [4:0] opcode;
   wire [1:0] effects, legacy_effects;

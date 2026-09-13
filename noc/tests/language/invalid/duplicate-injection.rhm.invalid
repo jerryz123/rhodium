@@ -1,5 +1,6 @@
 #lang rhombus
 // Rejects duplicate injection-terminal declarations in embedded topology syntax.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks shared system parameter derivation with independent addresses, widths, and NodeIDs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../single-core-system.rhdl" open

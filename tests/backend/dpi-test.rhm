@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CIRCT lowering for a mandatory-clock enabled DPI declaration and call.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Summarizes clock use and hierarchy-aware temporal provenance for completed core modules.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../core/types.rhm" open

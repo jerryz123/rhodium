@@ -1,5 +1,6 @@
 #lang rhodium
 // Attaches both HN-I sides and exposes colocated subordinate endpoints on one CHI router.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/channels.rhdl").CHISNChannels

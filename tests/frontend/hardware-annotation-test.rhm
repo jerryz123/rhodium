@@ -1,5 +1,6 @@
 #lang rhombus
 // Verifies exact hardware annotations preserve type checks and frontend operations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

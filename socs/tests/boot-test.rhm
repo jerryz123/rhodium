@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks shared SoC BootROM metadata, generated polling reset programs, and image layout.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

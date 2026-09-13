@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Builds a counter hierarchy from only explicitly selected sequential frontend layers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/comb.rhm") open

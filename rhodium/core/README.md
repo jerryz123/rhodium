@@ -1,4 +1,5 @@
 <!-- Documents the backend-independent Rhodium semantic model, public IR, and verification contract. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium core
 

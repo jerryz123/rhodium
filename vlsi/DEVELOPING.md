@@ -1,4 +1,5 @@
 <!-- Guides contributors through maintaining Rhodium physical-flow prototypes and handoffs. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing VLSI flows
 

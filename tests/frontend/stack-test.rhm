@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the stack example's memory, pointer, conditions, and registered output.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

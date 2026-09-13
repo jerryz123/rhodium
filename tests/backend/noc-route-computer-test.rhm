@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that router-local validated route tables lower into sparse CaseZ relations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

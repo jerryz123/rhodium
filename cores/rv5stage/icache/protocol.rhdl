@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines instruction words, fixed-latency fetch attempts, and ordered slow transactions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/xlen.rhm" open

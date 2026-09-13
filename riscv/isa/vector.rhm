@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Models ELEN=64 vector configurations, register groups, and 64-bit chunk locations without hardware dependencies.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

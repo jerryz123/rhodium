@@ -1,4 +1,5 @@
 // Exposes DirectMemoryHtif through the multi-output DPI-C tick used by Verilator.
+// SPDX-License-Identifier: Apache-2.0
 #include "direct_mem_htif.h"
 #include "direct_mem_htif_dpi.h"
 

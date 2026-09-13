@@ -1,4 +1,5 @@
 # Ignore generated compiler, simulator, and platform files.
+# SPDX-License-Identifier: Apache-2.0
 
 compiled/
 __pycache__/

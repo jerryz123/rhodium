@@ -1,4 +1,5 @@
 <!-- Explains how to implement, extend, and validate Rhodium frontend layers. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing Rhodium frontend layers
 

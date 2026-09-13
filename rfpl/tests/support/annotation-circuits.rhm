@@ -1,5 +1,6 @@
 #lang rhodium
 // Supplies reusable logical hierarchies for invalid RFPL annotation fixtures.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Leaf():
   input value_in: Bits(8)

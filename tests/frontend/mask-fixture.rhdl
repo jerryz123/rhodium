@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises Mask literals, conversions, set operations, indexing, and invalid numeric uses.
+// SPDX-License-Identifier: Apache-2.0
 
 def Mask4 = Mask(4)
 

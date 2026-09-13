@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the supported architectural integer widths as host configuration values.
+// SPDX-License-Identifier: Apache-2.0
 
 class XLen(private width_value :: PosInt):
   internal make_xlen

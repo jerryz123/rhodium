@@ -1,4 +1,5 @@
 // Bridges each UART DPI model to a nonblocking raw pseudo-terminal.
+// SPDX-License-Identifier: Apache-2.0
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE 600
 

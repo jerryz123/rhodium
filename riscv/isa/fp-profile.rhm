@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the host-side floating-point specialization selected by a core.
+// SPDX-License-Identifier: Apache-2.0
 
 enum FloatingPointProfile
 | None

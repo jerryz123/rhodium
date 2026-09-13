@@ -1,4 +1,5 @@
 // Verifies selected token routing, backpressure, and invalid-selector blocking.
+// SPDX-License-Identifier: Apache-2.0
 module ctrl_demux_tb;
   typedef struct packed { logic valid; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

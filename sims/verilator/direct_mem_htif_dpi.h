@@ -1,4 +1,5 @@
 // Declares the stable C ABI between generated simulation RTL and Verilator.
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 extern "C" int rhodium_htif_tick(unsigned char reset,

@@ -1,5 +1,6 @@
 #lang rhodium
 // Returns one snoop-visible victim through a retryable full-line CHI copyback.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../cache.rhdl" open

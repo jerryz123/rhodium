@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits feedback instrumentation and manifest-bound indices for the transfer scoreboard.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../frontend/event-feedback-fixture.rhdl".compared
   "../../rhodium/event/main.rhm" open

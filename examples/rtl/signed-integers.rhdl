@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates explicit-width signed arithmetic, ordering, shifts, and resizing.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit SignedIntegers():
   input(a, b): SInt(8)

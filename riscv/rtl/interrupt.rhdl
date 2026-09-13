@@ -1,5 +1,6 @@
 #lang rhodium
 // Converts architectural interrupt causes into typed xcause hardware values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/interrupt.rhm" open

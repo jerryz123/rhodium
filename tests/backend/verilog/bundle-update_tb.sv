@@ -1,4 +1,5 @@
 // Checks immutable bundle replacement, untouched metadata, and method propagation.
+// SPDX-License-Identifier: Apache-2.0
 module bundle_update_tb;
   logic clock = 0, reset = 0, choose = 0;
   logic [13:0] source = 0;

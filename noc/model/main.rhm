@@ -1,5 +1,6 @@
 #lang rhombus
 // Aggregates the public pure NoC model without adding behavior.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "identities.rhm" open

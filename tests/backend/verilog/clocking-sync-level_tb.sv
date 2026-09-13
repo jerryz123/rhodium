@@ -1,4 +1,5 @@
 // Verifies two-edge stable-level synchronization and deliberately resetless stages.
+// SPDX-License-Identifier: Apache-2.0
 module clocking_sync_level_tb;
     logic clock = 1'b0;
     logic reset = 1'b0;

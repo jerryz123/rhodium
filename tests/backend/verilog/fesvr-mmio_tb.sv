@@ -1,4 +1,5 @@
 // Checks complete FESVR REQ packets, exact MMIO widths, fragmentation, stalls, and failures.
+// SPDX-License-Identifier: Apache-2.0
 module fesvr_mmio_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;

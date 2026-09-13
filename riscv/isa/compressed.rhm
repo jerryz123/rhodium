@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines shared descriptors and constructors for compressed-instruction catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

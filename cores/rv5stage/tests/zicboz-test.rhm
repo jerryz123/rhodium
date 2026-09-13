@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks CBO.ZERO's composed scalar controls and opt-in architectural profile.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/std/decode.rhdl" open

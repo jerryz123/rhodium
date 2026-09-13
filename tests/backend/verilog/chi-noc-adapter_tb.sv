@@ -1,4 +1,5 @@
 // Checks complete CHI adapter payloads, route keys, backpressure, and expected assertion failures.
+// SPDX-License-Identifier: Apache-2.0
 module chi_noc_adapter_test #(parameter int FAILURE = 0);
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic route_key; CHIReqFlit payload; } req_beat_t;

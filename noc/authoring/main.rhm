@@ -1,5 +1,6 @@
 #lang rhombus
 // Aggregates the public pure NoC authoring API.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "names.rhm" open

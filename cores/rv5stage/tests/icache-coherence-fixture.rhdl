@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises nonsnooping instruction snapshots against a real dirty L1D and either Home implementation.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../cache.rhdl" open
   "../icache/cache.rhdl" open

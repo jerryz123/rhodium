@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks RV5Stage's public cache-line refill types and geometry validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/core/main.rhm" open

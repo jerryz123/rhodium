@@ -1,4 +1,5 @@
 // Verifies WB-authorized stores drain before precise machine interrupt entry.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_interrupt_tb;
   typedef struct packed {
     logic supervisor_software;

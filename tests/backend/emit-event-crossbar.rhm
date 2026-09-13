@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits crossbar trace RTL and manifest-resolved site indices for its independent scoreboard.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../frontend/event-crossbar-fixture.rhdl".crossed
   "../../rhodium/event/main.rhm" open

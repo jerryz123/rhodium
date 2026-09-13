@@ -1,4 +1,5 @@
 <!-- Defines the standalone AMBA CHI package, its implemented layers, and supported transaction profile. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # AMBA CHI domain library
 

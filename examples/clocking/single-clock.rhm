@@ -1,5 +1,6 @@
 #lang rhombus
 // Shows one top-level timing contract certifying data sampled throughout a sync_circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/core/main.rhm") open

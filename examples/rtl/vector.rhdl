@@ -1,5 +1,6 @@
 #lang rhodium
 // Showcases first-class vectors, static and dynamic indexing, packing, and state.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit CarryEndpoints(n :: PosInt):
   input carries: Vec(n + 1, Bool)

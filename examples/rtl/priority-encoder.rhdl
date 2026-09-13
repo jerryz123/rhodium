@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates lower-index-first priority encoders over packed and aggregate data.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit PriorityEncoderFive():
   input requests: Bits(5)

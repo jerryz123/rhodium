@@ -1,4 +1,5 @@
 <!-- Explains RFPL's implementation boundary, extension workflow, and focused validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing RFPL
 

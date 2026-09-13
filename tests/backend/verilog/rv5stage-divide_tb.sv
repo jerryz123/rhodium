@@ -1,4 +1,5 @@
 // Verifies commit-issued division, word projections, hazards, and independent progress.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_divide_tb;
   typedef struct packed {
     logic supervisor_software;

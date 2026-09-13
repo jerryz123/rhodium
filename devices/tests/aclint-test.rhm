@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks ACLINT host configuration, CHI service metadata, and parameter rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/std/interconnect.rhdl".AddressSet

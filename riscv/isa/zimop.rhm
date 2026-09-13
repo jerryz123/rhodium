@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the ratified Zimop may-be-operation instruction catalog.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

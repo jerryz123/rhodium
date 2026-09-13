@@ -1,4 +1,5 @@
 ;;; rhodium-mode.el --- Project-aware Emacs entry point for Rhodium -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: Apache-2.0
 
 ;; Package-Requires: ((emacs "25.1") (racket-mode "1.0"))
 ;; Version: 0.1.0

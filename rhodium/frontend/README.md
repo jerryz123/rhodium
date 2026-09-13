@@ -1,4 +1,5 @@
 <!-- Documents Rhodium elaboration, public language profiles, and frontend extension boundaries. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium frontend
 

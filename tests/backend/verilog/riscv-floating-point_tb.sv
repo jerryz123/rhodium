@@ -1,4 +1,5 @@
 // Verifies reusable RISC-V NaN, rounding, move, classification, and flag policy.
+// SPDX-License-Identifier: Apache-2.0
 module riscv_floating_point_tb;
   logic [31:0] value;
   logic [31:0] other;

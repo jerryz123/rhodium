@@ -1,4 +1,5 @@
 // Differentially checks flat vector storage, masked forwarding, packing, and SIMD writes at three VLENs.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_tb;
   logic clock = 0, reset = 1;
   logic read_valid;

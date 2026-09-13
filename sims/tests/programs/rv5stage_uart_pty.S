@@ -1,4 +1,5 @@
 // Exchanges every byte value through the UART pins and PTY, then exits through HTIF.
+// SPDX-License-Identifier: Apache-2.0
 .section .text
 .globl _start
 _start:

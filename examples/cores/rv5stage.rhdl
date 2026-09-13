@@ -1,5 +1,6 @@
 #lang rhodium
 // Materializes a complete compressed RV64 RV5Stage processor with private instruction and data caches.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/rv5stage/rv5stage.rhdl") open

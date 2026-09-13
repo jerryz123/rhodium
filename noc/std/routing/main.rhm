@@ -1,5 +1,6 @@
 #lang rhombus
 // Aggregates reusable routing policies outside the core NoC abstractions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "dimension-order.rhm" open

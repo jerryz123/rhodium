@@ -1,4 +1,5 @@
 // Exhaustively checks legal RV64 load/store lanes and size-based alignment.
+// SPDX-License-Identifier: Apache-2.0
 module load_store_tb;
   localparam logic [1:0] BYTE   = 2'd0;
   localparam logic [1:0] HALF   = 2'd1;

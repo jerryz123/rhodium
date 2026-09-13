@@ -1,4 +1,5 @@
 // Verifies PLIC priorities, contexts, gateways, claim/completion, and CHI backpressure.
+// SPDX-License-Identifier: Apache-2.0
 module plic_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

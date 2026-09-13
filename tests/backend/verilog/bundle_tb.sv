@@ -1,4 +1,5 @@
 // Simulates a record-valued mux, synchronous-reset register, and output port.
+// SPDX-License-Identifier: Apache-2.0
 module bundle_tb;
   typedef struct packed {
     logic [7:0] left;

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines nested combinational and synchronous circuits for lexical-scope tests.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit LocalParent(width):
   input value_in: Bits(width)

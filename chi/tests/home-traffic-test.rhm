@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks destination-specific requester capabilities without changing physical node identity.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" open

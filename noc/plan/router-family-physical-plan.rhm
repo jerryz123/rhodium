@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the topology-only physical-link manifest shared by stamped router families.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

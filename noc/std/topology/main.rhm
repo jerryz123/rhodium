@@ -1,5 +1,6 @@
 #lang rhombus
 // Aggregates reusable topology-family definitions outside the core NoC abstractions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "line.rhm" open

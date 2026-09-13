@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines validated, unordered host-side decode relations over typed Patterns.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

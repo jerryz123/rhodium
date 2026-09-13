@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks canonical flow compositions plus test-only protocol and consumption failures.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

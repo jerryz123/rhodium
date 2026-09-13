@@ -1,5 +1,6 @@
 #lang rhodium
 // Reads complete instruction lines from coherent RAM or immutable noncoherent ROM without cache ownership.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../cache.rhdl" open

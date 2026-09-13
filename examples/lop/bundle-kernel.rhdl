@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Builds a record-valued swap through explicit core types and kernel operations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/types.rhm" open

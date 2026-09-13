@@ -1,5 +1,6 @@
 #lang rhombus
 // Intentionally declares a routing rule without any policy constraints.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

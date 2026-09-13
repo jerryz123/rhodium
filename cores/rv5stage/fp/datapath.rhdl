@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's combinational fixed-latency floating-point execution datapaths.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Projects validated routing into deterministic router, external-port, and VC wiring assignments.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

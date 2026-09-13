@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds scalar, aggregate, and extension-defined host patterns for focused tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/decode/pattern.rhdl") open

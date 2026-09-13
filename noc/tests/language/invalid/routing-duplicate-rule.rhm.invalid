@@ -1,5 +1,6 @@
 #lang rhombus
 // Intentionally duplicates a routing rule name to exercise expansion diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the two-subordinate CHI NoC compilation and adapter elaboration.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "sn-noc-fixture.rhdl" as fixture

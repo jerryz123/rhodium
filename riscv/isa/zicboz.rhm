@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the XLEN-independent Zicboz 1.0.0 cache-block zero instruction catalog.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Couples execution and the real frontend to a latency-tolerant word-memory test model.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core.rhdl" open

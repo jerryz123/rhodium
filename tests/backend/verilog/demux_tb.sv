@@ -1,4 +1,5 @@
 // Verifies selected routing, selected backpressure, and invalid-selector blocking.
+// SPDX-License-Identifier: Apache-2.0
 module demux_tb;
   typedef struct packed {
     logic       valid;

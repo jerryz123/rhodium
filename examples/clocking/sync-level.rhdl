@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates strict CDC acceptance through the standard two-stage stable-level synchronizer.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/cdc.rhdl") open

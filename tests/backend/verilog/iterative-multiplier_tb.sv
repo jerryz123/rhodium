@@ -1,4 +1,5 @@
 // Checks captured operands, preparation latency, reset, signed products, and response backpressure.
+// SPDX-License-Identifier: Apache-2.0
 module iterative_multiplier_tb;
   typedef struct packed {
     logic left_signed;

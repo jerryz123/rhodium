@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks Zimop and Zcmop encodings and architectural no-effect semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/zimop.rhm" open

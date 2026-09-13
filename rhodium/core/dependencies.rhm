@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines shared leaf-sensitive value dependency semantics and cycle analysis.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "types.rhm" open

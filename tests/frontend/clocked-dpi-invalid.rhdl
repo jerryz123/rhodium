@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines invalid DPI bindings and unsupported conditional DPI effects for diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 dpi_import procedure rhodium_trace(value: Bits(8))
 dpi_import function rhodium_step(value: Bits(8)) -> result: Bits(8)

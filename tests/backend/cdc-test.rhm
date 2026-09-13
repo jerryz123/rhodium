@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CIRCT lowering of verified sync-level evidence into synchronizer attributes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

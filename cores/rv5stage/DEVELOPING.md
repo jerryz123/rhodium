@@ -1,4 +1,5 @@
 <!-- Guides contributors through RV5Stage implementation ownership, diagrams, and validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing RV5Stage
 

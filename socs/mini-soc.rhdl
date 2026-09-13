@@ -1,5 +1,6 @@
 #lang rhodium
 // Composes an independent compact SoC with on-chip RAM and shared platform devices.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

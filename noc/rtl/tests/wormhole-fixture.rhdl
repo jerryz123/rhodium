@@ -1,5 +1,6 @@
 #lang rhodium
 // Assembles a multi-router wormhole network across user-owned hierarchy.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

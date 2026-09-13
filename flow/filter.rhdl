@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines inline ready-valid filtering that consumes rejected payloads.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

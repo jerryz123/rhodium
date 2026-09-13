@@ -1,4 +1,5 @@
 // Exercises rotating fairness and selected readiness in the token arbiter.
+// SPDX-License-Identifier: Apache-2.0
 module ctrl_rr_arbiter_tb;
   typedef struct packed { logic valid; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

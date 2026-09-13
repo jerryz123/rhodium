@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects observing an ambient reset without an enclosing sync circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit ResetObservationOutsideSync():
   output value: Bits(1)

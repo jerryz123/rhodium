@@ -1,5 +1,6 @@
 #lang rhombus
 // Enumerates the architectural RV32I 2.1 instruction encodings and field layouts.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

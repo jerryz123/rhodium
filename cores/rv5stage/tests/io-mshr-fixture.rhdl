@@ -1,5 +1,6 @@
 #lang rhodium
 // Composes the physical data router and shared RN-I engine for IO-MSHR contention tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../memory-router.rhdl".RV5StageMemoryRouter

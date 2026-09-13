@@ -1,4 +1,5 @@
 // Verifies fair changed-state delivery, irrevocable stalls, and local state replication.
+// SPDX-License-Identifier: Apache-2.0
 module state_flow_tb;
   typedef struct packed {
     logic       enabled;

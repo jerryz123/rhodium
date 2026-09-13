@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks generic Bits ordering, layout, alignment, lane-mask widths, and host constraints.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

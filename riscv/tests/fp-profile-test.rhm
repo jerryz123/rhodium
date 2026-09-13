@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks host floating-point profiles and their implied extension support.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/fp-profile.rhm" open

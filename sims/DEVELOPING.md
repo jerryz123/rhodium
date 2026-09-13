@@ -1,4 +1,5 @@
 <!-- Guides contributors through maintaining executable SoC harnesses and simulator bindings. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing simulation harnesses
 

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks RV5Stage's host-side CHI response profiles for transaction engines.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/flits.rhdl").CHIRspOpcode

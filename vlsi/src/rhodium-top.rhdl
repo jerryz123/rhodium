@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the minimal combinational Rhodium leaf used by the OpenFrame GDS smoke flow.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit RhodiumTop():
   input in_bit: Bits(1)

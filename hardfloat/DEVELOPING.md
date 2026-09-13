@@ -1,4 +1,5 @@
 <!-- Guides contributors through maintaining the Rhodium Berkeley HardFloat port. -->
+<!-- SPDX-License-Identifier: BSD-3-Clause -->
 
 # Developing HardFloat for Rhodium
 

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks exact locality-hint words, operand-free assembly, and C/Zca expansion equivalence.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

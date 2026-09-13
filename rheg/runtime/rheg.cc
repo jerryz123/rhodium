@@ -1,4 +1,5 @@
 // Collects rheg DPI callbacks and exports timed snapshots and settled-cycle batches.
+// SPDX-License-Identifier: Apache-2.0
 #include "rheg.h"
 
 #include <algorithm>

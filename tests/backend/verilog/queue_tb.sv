@@ -1,4 +1,5 @@
 // Exercises default FIFO order, full backpressure, count, wraparound, and stalls.
+// SPDX-License-Identifier: Apache-2.0
 module queue_tb;
   typedef struct packed {
     logic       valid;

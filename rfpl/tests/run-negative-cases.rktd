@@ -1,4 +1,5 @@
 ;; Lists invalid RFPL fixtures and the diagnostics each must produce.
+;; SPDX-License-Identifier: Apache-2.0
 
 (("logic-in-composite.rfpl" "composite floorplan LogicTop cannot contain rtl.add")
  ("top-mismatch.rfpl" "physical top Leaf does not match logical top Pair")

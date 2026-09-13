@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates two-region CHI subordinate address selection into combinational hardware.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

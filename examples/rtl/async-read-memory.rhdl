@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a host-sized memory with async reads and one synchronous write port.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit AsyncReadMemory(depth :: PosInt, width :: PosInt):
   input clock: Clock

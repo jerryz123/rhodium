@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the standalone packed SIMD ALU fixture for CIRCT and behavioral simulation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates fixed and elaboration-conditional bundles over core record semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle Pair(T :: DataType):
   left: T

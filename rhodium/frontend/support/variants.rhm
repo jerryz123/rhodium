@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines shared nominal variant schemas, tag enums, and encoded member values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

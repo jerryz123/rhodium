@@ -1,4 +1,5 @@
 <!-- Compares Rhodium's exact synchronous construction with Filament's timeline-typed pipeline language. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and Filament: explicit cycles versus timeline-typed composition
 

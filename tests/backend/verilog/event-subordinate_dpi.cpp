@@ -1,4 +1,5 @@
 // Checks retained MMIO ancestry using only accepted public transfers and response opcodes.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-subordinate_manifest.h"
 #include <cstdio>

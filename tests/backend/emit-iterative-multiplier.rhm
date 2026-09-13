@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT MLIR for the reusable eight-bit iterative multiplier fixture.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

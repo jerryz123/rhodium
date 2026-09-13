@@ -1,4 +1,5 @@
 // Verifies IO-MSHR retention, data ordering, exactly-once issue, and fetch-flush independence.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_io_mshr_tb;
   typedef struct packed {
     logic flush;

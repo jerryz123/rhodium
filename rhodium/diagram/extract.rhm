@@ -1,5 +1,6 @@
 #lang rhombus
 // Extracts hierarchical logical blocks and compound interface channels from verified Rhodium.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/main.rhm" open

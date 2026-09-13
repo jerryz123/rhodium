@@ -1,4 +1,5 @@
 <!-- Guides contributors through extending and validating the standalone AMBA CHI package. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing CHI
 

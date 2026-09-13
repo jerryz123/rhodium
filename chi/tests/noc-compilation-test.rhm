@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks pure CHI channel compilation through generic topology and routing inputs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../noc/authoring/main.rhm" open

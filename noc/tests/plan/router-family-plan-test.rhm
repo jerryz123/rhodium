@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks topology-independent merging of router plans into one uniform family.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

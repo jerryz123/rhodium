@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an explicit assertion with a clock but no matching reset.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadAssertPartialDomain():
   input clock: Clock

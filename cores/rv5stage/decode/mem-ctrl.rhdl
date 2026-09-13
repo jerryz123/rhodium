@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's load, store, LR/SC, and AMO decode controls.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/zawrs.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Privately compiles one TiledSoC configuration into boot, placement, fabric, and tile parameters.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

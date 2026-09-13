@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks synchronous exception cause identifiers, codes, and generated masks.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/trap.rhm" open

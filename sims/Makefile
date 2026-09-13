@@ -1,4 +1,5 @@
 # Builds a reusable FESVR-backed SoC simulator and runs target binaries through HTIF.
+# SPDX-License-Identifier: Apache-2.0
 REPO_DIR := $(abspath ..)
 FESVR_DIR := $(CURDIR)/fesvr
 VERILATOR_DIR := $(CURDIR)/verilator

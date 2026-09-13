@@ -1,5 +1,6 @@
 #lang racket/base
 ;; Emits instrumented RTL input and matching runtime metadata from one elaboration.
+;; SPDX-License-Identifier: Apache-2.0
 (require racket/file racket/runtime-path)
 (define-runtime-path emitter "emit-event-harness.rhm")
 (define args (current-command-line-arguments))

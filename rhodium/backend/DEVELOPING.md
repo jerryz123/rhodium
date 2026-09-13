@@ -1,4 +1,5 @@
 <!-- Explains how to extend, maintain, and validate Rhodium's CIRCT backend. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the CIRCT backend
 

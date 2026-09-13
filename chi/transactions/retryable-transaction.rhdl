@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines declarative CHI response profiles and retryable transaction control.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

@@ -1,4 +1,5 @@
 // Verifies packet ownership across transfers, bubbles, stalls, and final flits.
+// SPDX-License-Identifier: Apache-2.0
 module packet_rr_arbiter_tb;
   typedef struct packed {
     logic       head;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves core, kernel, composed-base, and standard adders construct the same public IR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

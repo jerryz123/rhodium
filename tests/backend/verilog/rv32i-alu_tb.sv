@@ -1,4 +1,5 @@
 // Simulates RV32I integer ALU resource controls and shift-width edge cases.
+// SPDX-License-Identifier: Apache-2.0
 module rv32i_alu_tb;
   logic [31:0] left;
   logic [31:0] right;

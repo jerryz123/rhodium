@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the standard bounded counter's widths, state, outputs, and validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,4 +1,5 @@
 <!-- Compares Rhodium with PyMTL3 across embedded RTL syntax and multi-level modeling semantics. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and PyMTL3
 

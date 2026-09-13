@@ -1,5 +1,6 @@
 #lang rhodium
 // Showcases layer-defined Bool, equality, and canonical N-way selection.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit ALU(width :: PosInt):
   input(a, b): Bits(width)

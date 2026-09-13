@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Provides shared field, immutable update, cast, lookup, indexing, membership, and width syntax for hardware entities.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

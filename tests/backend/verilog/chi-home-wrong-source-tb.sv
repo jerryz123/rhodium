@@ -1,4 +1,5 @@
 // Proves that HN-I rejects response and read-data traffic from the wrong subordinate.
+// SPDX-License-Identifier: Apache-2.0
 package chi_home_wrong_source_types;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;

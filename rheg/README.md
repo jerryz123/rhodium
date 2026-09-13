@@ -1,4 +1,5 @@
 <!-- Documents RHEG collector, snapshot, timing, and C++ Perfetto export contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RHEG: Rhodium Hardware Event Graph
 

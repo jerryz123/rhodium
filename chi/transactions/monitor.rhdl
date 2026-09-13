@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines low-level CHI checks and explicit whole-endpoint monitor functions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/credited.rhdl").check_credited

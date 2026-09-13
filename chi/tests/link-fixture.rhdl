@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides legal and monitored RN-I, RN-F, and SN-F link fixtures.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

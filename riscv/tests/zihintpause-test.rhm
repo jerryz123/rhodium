@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks PAUSE's exact operand-free encoding and its intentional FENCE overlap.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/zihintpause.rhm" open

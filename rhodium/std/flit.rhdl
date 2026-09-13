@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines protocol-neutral flit payload shapes and their family classifiers.
+// SPDX-License-Identifier: Apache-2.0
 
 // A variable-length packet carries explicit boundaries on every flit. The
 // payload shape is independent of the transport used to move it.

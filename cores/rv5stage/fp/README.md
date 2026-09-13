@@ -1,4 +1,5 @@
 <!-- Defines the public behavior and integration contracts of RV5Stage floating point. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV5Stage floating point
 

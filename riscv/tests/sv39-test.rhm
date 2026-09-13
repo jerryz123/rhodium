@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks Sv39 architectural constants, canonical addresses, and fence encoding.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/sv39.rhm" open

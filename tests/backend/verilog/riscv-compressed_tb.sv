@@ -1,4 +1,5 @@
 // Checks representative Zca and profile-dependent full-C expansions.
+// SPDX-License-Identifier: Apache-2.0
 module riscv_compressed_tb;
   logic [15:0] compressed;
   RiscvCompressedExpansion rv32f;

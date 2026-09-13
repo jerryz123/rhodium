@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects ambient register syntax outside an active sync circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadAmbientRegister():
   output value: Bits(1)

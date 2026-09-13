@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the public SyncLevel circuit, standard clocking profile, and retained evidence.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

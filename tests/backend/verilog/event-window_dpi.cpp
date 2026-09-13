@@ -1,4 +1,5 @@
 // Reconstructs exact retained/live parents from public controls and transfers.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>

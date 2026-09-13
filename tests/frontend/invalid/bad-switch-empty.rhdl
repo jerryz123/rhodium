@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalid fixture declaring a hardware switch without any exact-key case.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadSwitchEmpty():
   input selector: Bits(2)

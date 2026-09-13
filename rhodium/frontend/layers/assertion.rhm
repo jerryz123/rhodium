@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines reset-suppressed clocked hardware assertions with ambient or explicit domains.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../core/types.rhm" open

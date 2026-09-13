@@ -1,4 +1,5 @@
 <!-- Guides contributors through maintaining mapped MiniSoC simulation orchestration. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing mapped VLSI simulation
 

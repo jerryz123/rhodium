@@ -1,4 +1,5 @@
 // Predicts payload transfers and exact event edges independently of inserted RTL.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <deque>

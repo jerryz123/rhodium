@@ -1,4 +1,5 @@
 // Simulates signed overflow, ordering, arithmetic shifts, and explicit resizing.
+// SPDX-License-Identifier: Apache-2.0
 module signed_integers_tb;
     logic signed [7:0] a;
     logic signed [7:0] b;

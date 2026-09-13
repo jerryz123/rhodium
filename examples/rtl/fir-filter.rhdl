@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a signed direct-form FIR filter with generated taps and explicit widths.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/shift-register.rhdl").shift_register

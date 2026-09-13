@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic VC ranks and provenance-labeled cycle witnesses.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines invalid RISC-V field uses retained as frontend rejection fixtures.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../riscv/model/fields.rhm" open

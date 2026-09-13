@@ -1,4 +1,5 @@
 # Checks UDB-to-Sail projection, privileged-inclusive generation, and ACT completion.
+# SPDX-License-Identifier: Apache-2.0
 import importlib.util
 from itertools import product
 import os

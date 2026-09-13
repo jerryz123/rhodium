@@ -1,4 +1,5 @@
 // Simulates the CIRCT-exported canonical adder module.
+// SPDX-License-Identifier: Apache-2.0
 module adder_tb;
     logic [7:0] a;
     logic [7:0] b;

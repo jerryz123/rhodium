@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises enum-owned hardware methods across precise frontend value producers.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum CacheState:
   Invalid

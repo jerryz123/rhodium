@@ -1,4 +1,5 @@
 // Checks maintenance against independent caches with real inclusive grants, stalls, and reset.
+// SPDX-License-Identifier: Apache-2.0
 typedef struct packed { logic ready; } ready_t;
 typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
 typedef struct packed { logic valid; CHIRspFlit bits; } rsp_t;

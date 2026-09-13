@@ -1,4 +1,5 @@
 // Verifies exactly-once broadcast delivery under independent output stalls.
+// SPDX-License-Identifier: Apache-2.0
 module broadcast_tb;
   typedef struct packed {
     logic       valid;

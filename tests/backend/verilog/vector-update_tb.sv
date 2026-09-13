@@ -1,4 +1,5 @@
 // Simulates selected replacement and out-of-range preservation for vector updates.
+// SPDX-License-Identifier: Apache-2.0
 module vector_update_tb;
     logic [2:0][3:0] source;
     logic [1:0] selector;

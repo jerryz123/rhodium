@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines explicit-clock, single-port, and invalid synchronous-memory frontend cases.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit ReadOnlySyncMemory():
   input clock: Clock

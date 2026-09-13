@@ -1,4 +1,5 @@
 // Simulates a lexically nested child circuit and its captured host width.
+// SPDX-License-Identifier: Apache-2.0
 module nested_circuit_tb;
   logic [7:0] value_in;
   logic [7:0] value_out;

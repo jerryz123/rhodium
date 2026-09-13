@@ -1,4 +1,5 @@
 // Verifies RV5Stage WFI sleep, masked wake, lost-wakeup avoidance, and interrupt entry.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_wfi_tb;
   typedef struct packed {
     logic supervisor_software;

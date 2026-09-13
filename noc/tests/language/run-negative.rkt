@@ -1,5 +1,6 @@
 #lang racket/base
 ;; Loads every invalid NoC-language fixture in one process and checks its diagnostic.
+;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/runtime-path
          racket/string)

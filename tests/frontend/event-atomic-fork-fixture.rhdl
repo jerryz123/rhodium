@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises atomic replication, branch-local storage, hierarchy, and malformed trace contracts.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the PTY UART model's externally consumed DPI ABI and parameter bounds.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

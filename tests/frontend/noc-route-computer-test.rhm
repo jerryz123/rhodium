@@ -1,5 +1,6 @@
 #lang rhombus
 // Exhaustively checks router-local route ABIs and their Rhodium decode operations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

@@ -1,4 +1,5 @@
 // Verifies that an atomic fork never permits a partial ready-valid transfer.
+// SPDX-License-Identifier: Apache-2.0
 module atomic_fork_tb;
   typedef struct packed {
     logic       valid;

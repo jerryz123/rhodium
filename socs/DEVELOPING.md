@@ -1,4 +1,5 @@
 <!-- Guides contributors through changing and validating concrete SoC compositions. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing SoC compositions
 

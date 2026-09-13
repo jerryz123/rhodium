@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks core single-driver wires, readability, aggregate assembly, and failures.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

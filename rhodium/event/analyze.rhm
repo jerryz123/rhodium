@@ -1,5 +1,6 @@
 #lang rhombus
 // Infers nearest checkpoints and finite occurrence-qualified lineage graphs, including registered feedback.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm".DesignElaboration

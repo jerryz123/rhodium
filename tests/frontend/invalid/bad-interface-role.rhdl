@@ -1,5 +1,6 @@
 #lang rhodium
 // Must reject an endpoint whose selected role is absent from its interface.
+// SPDX-License-Identifier: Apache-2.0
 
 interface Link(T):
   role producer

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks standard flit shapes, conversion composition, and invalid authoring uses.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

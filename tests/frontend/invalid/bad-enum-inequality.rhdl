@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects inequality between distinct nominal hardware-enum declarations.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum LeftState:
   Idle

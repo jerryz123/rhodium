@@ -1,4 +1,5 @@
 <!-- Guides the use and maintenance of the repository's dependency-neutral Rhombus refinements. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Shared Rhombus refinements
 

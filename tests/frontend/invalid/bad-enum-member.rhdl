@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects access to an undeclared hardware-enum member.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum State:
   Idle

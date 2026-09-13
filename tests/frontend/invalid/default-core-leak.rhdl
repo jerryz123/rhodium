@@ -1,4 +1,5 @@
 #lang rhodium
 // Ensures the curated standard profile does not implicitly expose the public core Builder API.
+// SPDX-License-Identifier: Apache-2.0
 
 def design = Design()

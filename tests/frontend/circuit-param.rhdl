@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises nominal and structural StableCircuitParam specialization equality.
+// SPDX-License-Identifier: Apache-2.0
 
 class WidthConfig(width :: PosInt):
   implements StableCircuitParam

@@ -1,5 +1,6 @@
 #lang rhombus
 // Composes independently selected Zc extensions into validated instruction catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "compressed.rhm" open

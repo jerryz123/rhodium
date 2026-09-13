@@ -1,4 +1,5 @@
 // Exercises real L1Ds and inclusive LLC eviction against LR/SC and competing writes.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_lrsc_progress_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;

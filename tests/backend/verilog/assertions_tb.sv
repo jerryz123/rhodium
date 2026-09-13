@@ -1,4 +1,5 @@
 // Simulates reset suppression and both vacuous and active implication checks.
+// SPDX-License-Identifier: Apache-2.0
 module assertions_tb;
   logic clock = 1'b0;
   logic reset = 1'b1;

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Enforces RFPL's read-only dependency on the public Rhodium core IR.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

@@ -1,4 +1,5 @@
 // Exercises PTY creation, raw I/O, reset buffering, and model isolation.
+// SPDX-License-Identifier: Apache-2.0
 #include "uart_dpi.h"
 
 #include <fcntl.h>

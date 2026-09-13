@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates equivalent enum mux and switch forms plus explicit encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum State:
   Idle

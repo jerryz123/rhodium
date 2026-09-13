@@ -1,4 +1,5 @@
 // Checks cold-refill recovery and bubble-free aligned, straddling, and compressed fetch streams.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_fetch_throughput_tb;
   typedef struct packed {logic ready;} ready_t;
   typedef struct packed {logic valid; CHIReqFlit bits;} req_t;

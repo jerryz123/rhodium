@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks user-owned hierarchical assembly of independently configured NoC routers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

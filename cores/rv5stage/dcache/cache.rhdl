@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements staged L1D hits, flow-based transaction transport, and coherent miss service.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../cache-prefetch.rhdl" open

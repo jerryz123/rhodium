@@ -1,4 +1,5 @@
 <!-- Defines the public configuration and transaction contracts of RV5Stage CHI endpoints. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV5Stage CHI endpoints
 

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's semantic memory operations and local atomic-update datapath.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../load-store.rhdl" open

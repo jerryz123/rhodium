@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Exercises foundational receiver membership without importing optional frontend layers.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BaseMembership():
   input value: Bits(2)

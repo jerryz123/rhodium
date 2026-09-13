@@ -1,4 +1,5 @@
 <!-- Defines ownership and dependency boundaries for reusable processor components and named cores. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Processor components and cores
 

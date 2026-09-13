@@ -1,4 +1,5 @@
 // Verifies RV32 counter halves, retirement increments, writes, and overflow.
+// SPDX-License-Identifier: Apache-2.0
 module riscv_counters_rv32_tb;
   typedef struct packed {
     logic [11:0] address;

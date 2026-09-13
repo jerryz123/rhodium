@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits an RV64 core with PAUSE throttling enabled for cycle-visible regression tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

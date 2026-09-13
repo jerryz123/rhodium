@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits generic transfer containment over every window size in a four-bit address space.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

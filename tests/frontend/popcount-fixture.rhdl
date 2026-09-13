@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises population counts over packed bits, aggregates, lists, and identities.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit PopcountFixture():
   input bits_value: Bits(5)

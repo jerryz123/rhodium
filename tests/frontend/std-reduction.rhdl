@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides arithmetic, aggregate, singleton, and invalid generic reduction fixtures.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/reduction.rhdl").tree_reduce

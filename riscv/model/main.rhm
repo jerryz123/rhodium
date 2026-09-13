@@ -1,5 +1,6 @@
 #lang rhombus
 // Re-exports the complete pure host-side RISC-V instruction model.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "fields.rhm" open

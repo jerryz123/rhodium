@@ -1,4 +1,5 @@
 // Scores host command ownership across fragments, write data, errors, completion stalls, and reset.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-fesvr_manifest.h"
 #include <cstdio>

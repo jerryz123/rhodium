@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks Zcb encodings, canonical expansions, prerequisites, and Zca composition.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/b.rhm" as riscv_b

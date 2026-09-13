@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines CHI fabric ports, services, and executable Home and subordinate address selection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

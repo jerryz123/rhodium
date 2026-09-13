@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines symbolic route classes independently of normalized model identities.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "names.rhm" open

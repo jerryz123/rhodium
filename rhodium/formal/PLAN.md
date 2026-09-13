@@ -1,4 +1,5 @@
 <!-- Defines the staged architecture, semantics, and validation plan for an optional Rosette formal engine over verified Rhodium IR. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rosette formal-engine plan
 

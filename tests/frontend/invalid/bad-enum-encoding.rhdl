@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects duplicate explicit hardware-enum encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum BadEncoding:
   First = 1

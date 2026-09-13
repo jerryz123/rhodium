@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines transparent event checkpoints with explicit transfer controls for tracing.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

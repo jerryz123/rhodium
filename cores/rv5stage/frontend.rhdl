@@ -1,5 +1,6 @@
 #lang rhodium
 // Fetches speculative raw packets through S1/S2 into a reserved flow-through queue.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "btb.rhdl" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks nominal enums, runtime validity, switch keys, literals, state, and composition.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides positive and invalid fixtures for the standard occupancy scoreboard.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/scoreboard.rhdl") open

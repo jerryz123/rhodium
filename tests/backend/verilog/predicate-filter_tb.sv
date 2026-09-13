@@ -1,4 +1,5 @@
 // Simulates composed valid propagation through the specialized predicate filters.
+// SPDX-License-Identifier: Apache-2.0
 module predicate_filter_tb;
     typedef struct packed {
         logic valid;

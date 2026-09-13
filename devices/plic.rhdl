@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a configurable SiFive-compatible level-sensitive PLIC as a CHI SN-I device.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm").NonemptyString

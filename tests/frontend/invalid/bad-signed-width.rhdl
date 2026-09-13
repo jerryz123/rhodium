@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects signed modular arithmetic across different explicit widths.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadSignedWidth():
   input left: SInt(4)

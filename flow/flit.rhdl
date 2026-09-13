@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines ready-valid packet serialization and conversions among standard flit formats.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/flit.rhdl") open

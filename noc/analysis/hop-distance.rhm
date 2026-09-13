@@ -1,5 +1,6 @@
 #lang rhombus
 // Computes deterministic unit-hop distances and all minimal links for directed topologies.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

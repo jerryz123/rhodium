@@ -1,4 +1,5 @@
 // Verifies WB-only CMO dispatch, precise completion, arithmetic resumption, privilege policy, and squash.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_zicbom_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageInstructionReq bits; } ireq_t;

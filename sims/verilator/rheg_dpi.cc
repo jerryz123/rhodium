@@ -1,4 +1,5 @@
 // Streams settled SimpleSoC event cycles using the descriptor generated alongside RTL.
+// SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include "soc_events.h"
 #include <cstdio>

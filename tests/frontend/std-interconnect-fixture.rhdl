@@ -1,5 +1,6 @@
 #lang rhodium
 // Supplies address matching, transfer containment, and stripe-projection validation fixtures.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/interconnect.rhdl") open

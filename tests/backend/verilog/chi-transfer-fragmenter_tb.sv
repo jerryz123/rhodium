@@ -1,4 +1,5 @@
 // Simulates fragmented CHI RAM writes and reads with stalled read responses.
+// SPDX-License-Identifier: Apache-2.0
 module chi_transfer_fragmenter_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;

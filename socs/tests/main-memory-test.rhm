@@ -1,5 +1,6 @@
 #lang rhombus
 // Audits Ziccif/Ziccamoa/Ziccrse PMA prerequisites and complete coherent-memory coverage in concrete SoCs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../chi/main.rhdl" open

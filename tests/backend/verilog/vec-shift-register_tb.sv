@@ -1,4 +1,5 @@
 // Simulates vector load, shifting, load priority, and implicit register hold.
+// SPDX-License-Identifier: Apache-2.0
 module vec_shift_register_tb;
     logic clock = 1'b0;
     logic reset = 1'b0;

@@ -1,4 +1,5 @@
 // Verifies block payload mapping and unchanged ready-valid control.
+// SPDX-License-Identifier: Apache-2.0
 module flow_map_tb;
   typedef struct packed {
     logic       valid;

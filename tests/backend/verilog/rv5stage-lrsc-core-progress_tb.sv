@@ -1,4 +1,5 @@
 // Qualifies word/doubleword constrained loops, prediction, read pressure, and competing LR/SC progress.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_lrsc_core_progress_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;

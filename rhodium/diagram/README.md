@@ -1,4 +1,5 @@
 <!-- Describes Rhodium's read-only logical block and flow visualization package. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Logical circuit diagrams
 

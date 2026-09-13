@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks generic compilation from separate topology, terminal, flow, and routing inputs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../authoring/main.rhm" open

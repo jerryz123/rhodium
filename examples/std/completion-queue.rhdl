@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a completion queue that reserves response capacity before issue.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

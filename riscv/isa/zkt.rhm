@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines Zkt's architectural timing scope, independently of implemented opcode catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "xlen.rhm".XLen

@@ -1,4 +1,5 @@
 /* Places relocatable RV5Stage smoke code and fixed HTIF mailboxes in SoC memory. */
+/* SPDX-License-Identifier: Apache-2.0 */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 

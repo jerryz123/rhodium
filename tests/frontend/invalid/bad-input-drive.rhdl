@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalid fixture attempting to connect to a read-only input value.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadInputDrive(width):
   input(a, b): Bits(width)

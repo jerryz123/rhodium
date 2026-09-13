@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises complete RV5Stage REQ/RSP construction and snoop address resizing at width boundaries.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

@@ -1,4 +1,5 @@
 // Simulates carry preservation and full-width unsigned and signed multiplication.
+// SPDX-License-Identifier: Apache-2.0
 module expanding_arithmetic_tb;
     logic [7:0] a;
     logic [3:0] b;

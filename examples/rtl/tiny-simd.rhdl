@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds a host-specialized SIMD microengine with typed instructions and generated lanes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl").Pow2Int

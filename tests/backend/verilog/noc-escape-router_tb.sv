@@ -1,4 +1,5 @@
 // Exercises immediate adaptive routing, persistent escape fallback, and fair contention.
+// SPDX-License-Identifier: Apache-2.0
 module noc_escape_router_tb;
     logic clock;
     logic reset;

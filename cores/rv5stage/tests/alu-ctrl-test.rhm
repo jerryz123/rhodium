@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the host-side base, B, and Zicond ALU decode relation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

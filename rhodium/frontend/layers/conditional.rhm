@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines hardware-only predicate and exact-key conditional assignment syntax.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

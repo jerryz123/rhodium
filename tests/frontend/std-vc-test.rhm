@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks generic virtual-channel flow composition independently of NoC types.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises composed fixed delays and filters across an annotated child boundary.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

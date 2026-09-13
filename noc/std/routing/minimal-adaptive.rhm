@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines topology-independent minimal-adaptive routing over precomputed hop distances.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

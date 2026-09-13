@@ -1,5 +1,6 @@
 #lang rhodium
 // Materializes descriptor-driven compressed-instruction profiles as combinational hardware.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/c.rhm" open

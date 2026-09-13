@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines base and extension architectural writeback and result-source controls.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/zawrs.rhm" open

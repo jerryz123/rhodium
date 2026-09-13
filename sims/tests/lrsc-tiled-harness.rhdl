@@ -1,5 +1,6 @@
 #lang rhodium
 // Releases all eight production TiledSoC harts through the existing FESVR polling boot path.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../tiled-soc-harness.rhdl".SoCHarness

@@ -1,4 +1,5 @@
 // Simulates a vector assembled through an internal Rhodium wire after CIRCT export.
+// SPDX-License-Identifier: Apache-2.0
 module wire_tb;
     logic [3:0] left;
     logic [3:0] right;

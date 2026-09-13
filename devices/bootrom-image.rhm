@@ -1,5 +1,6 @@
 #lang rhombus
 // Builds validated immutable BootROM images and the default multihart RISC-V reset program.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

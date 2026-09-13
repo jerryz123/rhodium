@@ -1,4 +1,5 @@
 <!-- Defines the Rhodium implementation package graph and contributor dependency contract. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing Rhodium
 

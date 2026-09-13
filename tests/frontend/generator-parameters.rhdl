@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises arbitrary host generator parameters while retaining the live-hardware boundary.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit ParameterSink(~parameter: parameter):
   output result: Bits(1)

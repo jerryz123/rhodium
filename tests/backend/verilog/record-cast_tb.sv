@@ -1,4 +1,5 @@
 // Simulates canonical record packing order and a Bits-to-record round trip.
+// SPDX-License-Identifier: Apache-2.0
 module record_cast_tb;
   typedef struct packed {
     logic [7:0] left;

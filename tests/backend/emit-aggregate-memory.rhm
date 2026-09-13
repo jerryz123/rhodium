@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT for aggregate, masked, and depth-one memory lowering cases.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

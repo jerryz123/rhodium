@@ -1,4 +1,5 @@
 // Verifies RV5StageCore forwarding priority, captured operands, replay, redirects, and ordered commit.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_core_tb;
   typedef struct packed {
     logic supervisor_software;

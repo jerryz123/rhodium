@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects zero extension on a receiver that is not an unsigned Bits value.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadZeroExtension():
   input value: SInt(4)

@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises receiver membership across generic and specialized flat-data surfaces.
+// SPDX-License-Identifier: Apache-2.0
 
 def Mask3 = Mask(3)
 def Exact3 = OneHot(3)

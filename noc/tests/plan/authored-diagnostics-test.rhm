@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks semantically named cycle diagnostics recorded during one authored-policy evaluation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

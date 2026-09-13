@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Installs the pinned FESVR library and headers used by the simulation harness.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 revision="e1fa113cfb6d55d878a3c1ea3befa8d9c13ce154"

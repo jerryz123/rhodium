@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the RV32 and RV64 Zca compressed-integer instruction catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/expansion.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines physical RFPL views over already elaborated Rhodium circuit hierarchy.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

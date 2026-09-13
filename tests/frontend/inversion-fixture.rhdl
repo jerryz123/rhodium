@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises width-preserving bang inversion for hardware Bits and Bool values.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Inversion():
   input bits_in: Bits(8)

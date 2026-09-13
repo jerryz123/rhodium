@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks explicit coverage failures, monitor opt-out, and ready-valid endpoint contract rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" as chi

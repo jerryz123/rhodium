@@ -1,5 +1,6 @@
 #lang rhombus
 // Covers fixed synchronous-memory ports, ownership, typing, printing, and verification.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

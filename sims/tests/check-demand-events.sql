@@ -1,4 +1,5 @@
 -- Checks four D-cache stages: core-aligned access/response and admitted lookup/resolution.
+-- SPDX-License-Identifier: Apache-2.0
 WITH events AS MATERIALIZED (
   SELECT s.id, s.ts, s.arg_set_id, t.name
   FROM slice s JOIN track t ON t.id=s.track_id

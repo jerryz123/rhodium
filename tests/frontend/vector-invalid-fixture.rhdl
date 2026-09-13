@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines invalid vector uses for focused frontend diagnostic checks.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit OutOfBoundsVector():
   input source: Vec(2, Bits(4))

@@ -1,5 +1,6 @@
 #lang rhodium
 // Resolves registered fetch/load attempts and retains only translation and shared-walker ownership.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../cache-prefetch.rhdl" open

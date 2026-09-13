@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks resource-visible routing phases, VC-group transitions, and eager lowering validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

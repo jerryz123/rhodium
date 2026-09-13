@@ -1,4 +1,5 @@
 // Checks coherent reads, copyback grants and packets, and forwarded snoop completion.
+// SPDX-License-Identifier: Apache-2.0
 module chi_coherent_tb #(parameter bit EARLY_COPYBACK = 0);
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

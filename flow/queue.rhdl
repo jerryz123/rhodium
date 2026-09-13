@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines payload-bearing and control-only configurable ready-valid queues.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

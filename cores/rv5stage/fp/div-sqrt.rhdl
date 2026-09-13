@@ -1,5 +1,6 @@
 #lang rhodium
 // Wraps HardFloat division and square root as buffered RV5Stage FP pipeline lanes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open

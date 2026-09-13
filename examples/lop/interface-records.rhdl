@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Builds a ready-valid adapter from explicit directional record ports.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/types.rhm" open

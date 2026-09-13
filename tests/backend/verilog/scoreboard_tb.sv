@@ -1,4 +1,5 @@
 // Verifies registered non-power-of-two scoreboard set, clear, and retention behavior.
+// SPDX-License-Identifier: Apache-2.0
 module scoreboard_tb;
   typedef struct packed { logic valid; logic [1:0] bits; } update_t;
 

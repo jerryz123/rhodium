@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides two-hart distribution and time-sweep integration fixtures for behavioral testing.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("noc/authoring/main.rhm").VCGroup

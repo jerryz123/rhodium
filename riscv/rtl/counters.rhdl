@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements reusable 64-bit RISC-V cycle and instruction-retirement counters.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/csr.rhm" open

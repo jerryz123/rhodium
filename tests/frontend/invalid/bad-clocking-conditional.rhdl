@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects structural timing declarations inside runtime hardware control flow.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/clocking.rhm") open

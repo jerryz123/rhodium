@@ -1,4 +1,5 @@
 // Checks exact crossbar occurrence ancestry using public grants and an independent FIFO model.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-crossbar_manifest.h"
 #include <array>

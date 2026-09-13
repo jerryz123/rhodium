@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an untyped bit vector connected to a nominal CHI flit-field type.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks Zawrs control care masks and opt-in single-table RV32/RV64 decoding.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/core/main.rhm" open

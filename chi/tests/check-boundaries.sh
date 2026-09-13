@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Checks recursive CHI import auditing, pure NoC ownership, and tool failures.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 fixture="$(mktemp -d /tmp/rhodium-chi-boundaries.XXXXXX)"

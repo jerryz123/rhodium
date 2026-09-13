@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Compiles and runs the standalone UART DPI pseudo-terminal model test.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"

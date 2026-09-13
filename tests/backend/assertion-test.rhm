@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CIRCT lowering of reset-suppressed assertions with activation guards.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

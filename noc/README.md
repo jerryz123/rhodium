@@ -1,4 +1,5 @@
 <!-- Defines the pure host-side NoC model and analysis contract and their separation from Rhodium. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Pure NoC model and analysis
 

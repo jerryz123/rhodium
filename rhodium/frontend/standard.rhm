@@ -1,5 +1,6 @@
 #lang rhombus
 // Aggregates the curated foundation and standard frontend layers without implementing features.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "foundation.rhm" open

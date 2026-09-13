@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines dependency-neutral Rhombus refinements shared by repository packages.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

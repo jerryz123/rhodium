@@ -1,5 +1,6 @@
 #lang rhodium
 // Applies a custom connection policy even when both interface arguments are equal.
+// SPDX-License-Identifier: Apache-2.0
 
 interface DistinctPeers(tag):
   role producer

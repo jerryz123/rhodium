@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates packet-locked round-robin arbitration over variable flits.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

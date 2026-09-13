@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines exact-key hardware switch circuits, effects, nesting, and invalid uses.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum State:
   Idle

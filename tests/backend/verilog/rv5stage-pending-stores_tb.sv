@@ -1,4 +1,5 @@
 // Checks two committed entries, all-byte hazards, same-cycle enqueue, FIFO order, and bounded age.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_pending_stores_tb;
   typedef struct packed {
     logic [63:0] address;

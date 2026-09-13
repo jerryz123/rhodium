@@ -1,4 +1,5 @@
 // Activates a branch assertion with a false condition and expects its labeled failure.
+// SPDX-License-Identifier: Apache-2.0
 module assertions_fail_tb;
   logic clock = 1'b0;
   logic reset = 1'b1;

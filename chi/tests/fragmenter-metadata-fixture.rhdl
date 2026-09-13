@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes native fragmenter channels at all DAT widths with optional fields on and off.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

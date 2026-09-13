@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises retained transaction ownership, replacement, and explicit untraced arbitration.
+// SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
 

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks cyclic inference, preserved originals, capacity bounds, and bypass rejection.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/event/main.rhm" open
   "../../rhodium/backend/circt.rhm".emit_circt

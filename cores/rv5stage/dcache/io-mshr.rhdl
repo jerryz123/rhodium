@@ -1,5 +1,6 @@
 #lang rhodium
 // Retains one non-cacheable data operation from admission through RN-I completion.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../memory.rhdl".MemoryOperation

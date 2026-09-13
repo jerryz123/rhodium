@@ -1,5 +1,6 @@
 #lang rhombus
 // Builds the reference adder by explicitly importing the context-based elaboration kernel.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/types.rhm" open

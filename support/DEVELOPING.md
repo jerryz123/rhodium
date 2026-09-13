@@ -1,4 +1,5 @@
 <!-- Explains how to place, implement, and validate dependency-neutral shared Rhombus refinements. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing shared refinements
 

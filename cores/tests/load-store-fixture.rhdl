@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes the shared load/store generators and alignment helper through one test circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../load-store.rhdl" open

@@ -1,4 +1,5 @@
 <!-- Compares Rhodium's exact construction semantics with SystemVerilog's core design language. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and SystemVerilog
 

@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Demonstrates typed transforms over custom bidirectional interfaces without flow libraries.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/interface.rhm") open

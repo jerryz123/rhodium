@@ -1,4 +1,5 @@
 <!-- Documents Rhodium's optional protocols and reusable circuit-generator library. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium standard library
 

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks ordered channel closure indices derived from mixed CHI endpoint attachment plans.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../protocol/params.rhdl".CHIFlitParams

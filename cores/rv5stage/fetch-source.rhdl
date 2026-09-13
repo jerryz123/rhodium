@@ -1,5 +1,6 @@
 #lang rhodium
 // Selects S0 PCs and resolves predictions from the registered S1 fetch occurrence.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "btb.rhdl" open

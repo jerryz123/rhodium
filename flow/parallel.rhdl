@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides parallel composition for generic interface-handle shapes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

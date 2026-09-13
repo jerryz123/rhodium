@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines valid and invalid flow handle and sink chains for frontend tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

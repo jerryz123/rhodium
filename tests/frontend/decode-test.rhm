@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks relational DecodeGen elaboration and typed decode-table validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

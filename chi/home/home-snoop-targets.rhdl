@@ -1,5 +1,6 @@
 #lang rhodium
 // Tracks a Home's pending snoop targets and retains the last dispatched NodeID.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Preserves flow-named aliases for the generic interface boundary operations.
+// SPDX-License-Identifier: Apache-2.0
 
 fun flow_fields(~& bindings :: Map):
   interface_fields(~& bindings)

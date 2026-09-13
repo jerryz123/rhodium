@@ -1,4 +1,5 @@
 // Simulates ordinary and overflowing unsigned fixed-width multiplication.
+// SPDX-License-Identifier: Apache-2.0
 module multiply_tb;
     logic [7:0] a;
     logic [7:0] b;

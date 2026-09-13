@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CHI physical parameter defaults, exact flit layouts, and invalid selections.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

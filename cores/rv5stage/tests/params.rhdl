@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the standalone CHI environment shared by RV5Stage unit tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/rv5stage/chi/foundation.rhdl") open

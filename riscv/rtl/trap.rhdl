@@ -1,5 +1,6 @@
 #lang rhodium
 // Converts architectural synchronous exception causes into typed hardware values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/trap.rhm" open

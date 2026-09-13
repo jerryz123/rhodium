@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic whole-network port and VC wiring projected from validated routing.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

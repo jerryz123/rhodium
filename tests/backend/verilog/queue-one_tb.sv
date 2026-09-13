@@ -1,4 +1,5 @@
 // Exercises default no-pipe behavior and occupancy reporting in a depth-one queue.
+// SPDX-License-Identifier: Apache-2.0
 module queue_one_tb;
   typedef struct packed {
     logic       valid;

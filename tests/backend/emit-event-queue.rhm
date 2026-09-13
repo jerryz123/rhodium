@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits instrumented queue configurations with unannotated differential references.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm".emit_circt

@@ -1,4 +1,5 @@
 // Reconstructs frontend occurrences from public memory and instruction transfers, not trace state.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-frontend_manifest.h"
 #include <cstdio>

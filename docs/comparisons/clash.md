@@ -1,4 +1,5 @@
 <!-- Compares Rhodium's explicit construction language with Clash's typed functional synthesis semantics. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and Clash: explicit construction versus typed functional synthesis
 

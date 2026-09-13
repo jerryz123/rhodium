@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks strict CDC policy, sync-level approval, lineage, and pre-crossing fan-in rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

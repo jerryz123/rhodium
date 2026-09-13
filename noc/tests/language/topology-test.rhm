@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks embedded topology declarations against equivalent ordinary authoring values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../authoring/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects backpressure observation on a Valid checkpoint without a ready signal.
+// SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
 

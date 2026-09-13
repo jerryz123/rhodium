@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an explicit asynchronous-memory write clock inside a sync circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit ExplicitWriteClock():
   input other_clock: Clock

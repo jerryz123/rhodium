@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks RV5Stage's host-side F/D control domains and operand metadata.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

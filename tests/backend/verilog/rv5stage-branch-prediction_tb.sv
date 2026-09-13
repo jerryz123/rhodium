@@ -1,4 +1,5 @@
 // Compares real loop/indirect-branch execution, wrong-path stores, flushes, and cycles with BTB off/on.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_branch_prediction_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;

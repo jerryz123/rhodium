@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects semantically compatible specializations whose realized wire widths differ.
+// SPDX-License-Identifier: Apache-2.0
 
 interface WidthLink(capacity, width):
   role producer

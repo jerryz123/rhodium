@@ -1,5 +1,6 @@
 #lang rhombus
 // Rejects terminal declarations attached to an undeclared router.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks host-parameterized vector register construction and static shifting.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks window ancestry, capacity through storage, attachment parity, and invalid controls.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/event/main.rhm" open
   "../frontend/event-window-fixture.rhdl" as fixture

@@ -1,4 +1,5 @@
 // Maps initial-image physical ranges to protocol-independent native byte-store callbacks.
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <algorithm>

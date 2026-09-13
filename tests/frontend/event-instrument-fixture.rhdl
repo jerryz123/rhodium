@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises traced wrappers, shared untouched subtrees, and wide Valid payloads.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

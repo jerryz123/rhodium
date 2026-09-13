@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates explicit endpoint monitors over read-only interface observations.
+// SPDX-License-Identifier: Apache-2.0
 
 interface MonitoredWordStream(width :: PosInt):
   role producer

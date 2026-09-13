@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalid fixture recursively elaborating an active embedded circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Recursive(width):
   Recursive(width)

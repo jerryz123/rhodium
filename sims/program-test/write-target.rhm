@@ -1,5 +1,6 @@
 #lang rhombus
 // Projects concrete SoC capabilities, compiler options, and RAM bounds for target programs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open

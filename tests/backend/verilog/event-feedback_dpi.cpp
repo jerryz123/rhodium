@@ -1,4 +1,5 @@
 // Checks feedback lineage against a public-control FIFO model, never payload matching.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-feedback_manifest.h"
 #include <cstdio>

@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the multi-configuration shift FIFO behavioral comparison fixture.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm".emit_circt

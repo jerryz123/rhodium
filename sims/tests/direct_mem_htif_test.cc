@@ -1,4 +1,5 @@
 // Exercises exact FESVR transfers and software boot publication under stalls and failures.
+// SPDX-License-Identifier: Apache-2.0
 #include "direct_mem_htif.h"
 
 #include <array>

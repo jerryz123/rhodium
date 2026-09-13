@@ -1,5 +1,6 @@
 #lang rhodium
 // Composes RV5Stage's core and L1 caches with annotated outer CHI transfers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../cache-prefetch.rhdl" open

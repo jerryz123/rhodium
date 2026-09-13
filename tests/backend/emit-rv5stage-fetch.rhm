@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT IR for RV5Stage compressed instruction fetch assembly.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../cores/rv5stage/profile.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the all-channel CHI adapter contract fixture for CIRCT and Verilator.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

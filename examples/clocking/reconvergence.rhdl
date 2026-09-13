@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a diagnostic when independently synchronized levels reconverge.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/cdc.rhdl") open

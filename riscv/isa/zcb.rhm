@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines prerequisite-aware RV32 and RV64 Zcb compressed-integer catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

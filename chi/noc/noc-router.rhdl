@@ -1,5 +1,6 @@
 #lang rhodium
 // Stamps composable site-selected CHI channel routers behind one physical-link interface.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

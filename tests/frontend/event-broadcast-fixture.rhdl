@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises independent broadcast delivery, branch-local storage, and repeated hierarchy.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

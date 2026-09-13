@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic CIRCT lowering primarily from frontend-elaborated designs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

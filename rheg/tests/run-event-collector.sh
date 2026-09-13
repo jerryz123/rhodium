@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Runs collector contracts and checks lossless timing and identities in trace JSON.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 collector_tmp_dir="$(mktemp -d /tmp/rhodium-event-collector.XXXXXX)"

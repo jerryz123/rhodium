@@ -1,4 +1,5 @@
 # Hardens the Rhodium inverter in a compact, tap-filled block for reproducible LVS.
+# SPDX-License-Identifier: Apache-2.0
 
 DESIGN_NAME: rhodium_lvs_smoke
 VERILOG_FILES:

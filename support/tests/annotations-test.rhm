@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the reusable dependency-neutral support refinement annotations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../annotations.rhm" open

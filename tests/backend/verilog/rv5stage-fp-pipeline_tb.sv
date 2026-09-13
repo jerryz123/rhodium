@@ -1,4 +1,5 @@
 // Verifies the standalone FP pipeline's LSU bridge, hazards, backpressure, and F/D/Zfh/Zfa execution paths.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_fp_pipeline_tb;
   typedef struct packed {
     logic valid;

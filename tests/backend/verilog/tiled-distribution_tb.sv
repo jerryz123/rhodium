@@ -1,4 +1,5 @@
 // Verifies routed time, local interrupt, and external interrupt updates under independent backpressure.
+// SPDX-License-Identifier: Apache-2.0
 
 module tiled_distribution_tb;
   logic clock = 0;

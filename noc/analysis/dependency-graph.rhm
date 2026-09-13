@@ -1,5 +1,6 @@
 #lang rhombus
 // Projects reachable held-VC transitions into a deterministic dependency graph with provenance.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

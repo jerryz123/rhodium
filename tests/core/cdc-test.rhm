@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks durable sync-level crossing evidence and its structural core invariants.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

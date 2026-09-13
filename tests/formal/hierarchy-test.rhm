@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks compositional formal interpretation across repeated and nested module instances.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

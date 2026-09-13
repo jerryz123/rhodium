@@ -1,5 +1,6 @@
 #lang rhodium
 // Fragments large CHI reads and writes into serialized single-beat transactions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm") open

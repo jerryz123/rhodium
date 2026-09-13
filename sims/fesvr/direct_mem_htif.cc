@@ -1,4 +1,5 @@
 // Loads images through registered native memory or exact target transactions, then uses coherent HTIF.
+// SPDX-License-Identifier: Apache-2.0
 #include "direct_mem_htif.h"
 
 #include <stdexcept>

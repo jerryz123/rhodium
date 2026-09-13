@@ -1,4 +1,5 @@
 <!-- Documents the optional CIRCT backend and its lowering of verified public Rhodium IR. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # CIRCT backend
 

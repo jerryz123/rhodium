@@ -1,4 +1,5 @@
 <!-- Defines the architecture and phased implementation plan for Rhodium clock-domain and reset-domain reasoning. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Clocking, CDC, and RDC plan
 

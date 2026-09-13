@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates nominal lane-set masks, safe selector widening, and set operations.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit LaneSets(n :: PosInt):
   input requested: Mask(n)

@@ -1,4 +1,5 @@
 // Verifies AMO PMA admission/rejection, IO-MSHR admission, and data ordering.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_memory_router_tb;
   typedef struct packed {
     logic [31:0] address;

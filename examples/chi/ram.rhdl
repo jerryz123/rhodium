@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a finite non-coherent CHI RAM with native cache-line transfers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

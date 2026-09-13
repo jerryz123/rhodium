@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises requester and subordinate monitor attachments on the same accepted ready-valid transfers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/transactions/data-checks.rhdl").monitor_chi_unelided_data

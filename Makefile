@@ -1,10 +1,13 @@
 # Build and test entry points for Rhodium's Rhombus and CIRCT-based toolchain.
+# SPDX-License-Identifier: Apache-2.0
 
 .PHONY: sram-test
 .PHONY: setup-verilator
 export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 .PHONY: event-test
 .PHONY: event-runtime-test
+.PHONY: check-license-headers
+.PHONY: check-license-headers-staged
 .PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-memory-test ci-circt-core-cache-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
 
 RISCV_UDB_CONFIGURATION ?= simple-soc
@@ -71,6 +74,12 @@ check-boundaries:
 
 check-example-verilog:
 	bash tools/check-example-verilog.sh
+
+check-license-headers:
+	bash tools/check-license-headers.sh
+
+check-license-headers-staged:
+	bash tools/check-license-headers.sh --cached
 
 check-parameter-annotations:
 	tools/run-racket.sh tools/check-parameter-annotations.rkt --named-only --reject-any --files-from tools/parameter-annotation-scope.txt
@@ -245,7 +254,7 @@ update-verilog-goldens:
 	bash tools/check-example-verilog.sh --allow-empty
 	bash tests/backend/run-circt.sh --update-goldens
 
-host-checks: check-parameter-annotations support-annotation-test devicetree-test unit-test rfpl-unit-test noc-test riscv-test device-test chi-test soc-test hardfloat-host-test rv5stage-host-test
+host-checks: check-license-headers check-parameter-annotations support-annotation-test devicetree-test unit-test rfpl-unit-test noc-test riscv-test device-test chi-test soc-test hardfloat-host-test rv5stage-host-test
 
 ci-host-foundation-test: support-annotation-test frontend-test lop-test
 
@@ -259,7 +268,7 @@ ci-host-cores-test: rv5stage-host-test
 
 ci-host-socs-test: soc-test
 
-ci-host-hygiene-test: check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test
+ci-host-hygiene-test: check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test
 
 host-test: host-checks examples
 

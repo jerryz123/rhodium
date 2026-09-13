@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides the public facade for standard clock-domain crossing circuits.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/cdc/level.rhdl") open

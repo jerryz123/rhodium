@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a masked fixed-latency synchronous RAM through Valid flows.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/read-write.rhdl") open

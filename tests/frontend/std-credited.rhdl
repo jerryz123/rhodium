@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides focused adapter wrappers and invalid credited-transport test cases.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

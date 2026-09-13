@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks elaboration and verification of the RISC-V floating-point helper surface.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

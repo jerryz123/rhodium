@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines a small typed model and deterministic YAML encoder for UDB architecture configurations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../support/annotations.rhm".NonemptyString

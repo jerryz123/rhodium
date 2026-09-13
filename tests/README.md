@@ -1,4 +1,5 @@
 <!-- Documents Rhodium's mirrored test organization and focused verification commands. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium tests
 

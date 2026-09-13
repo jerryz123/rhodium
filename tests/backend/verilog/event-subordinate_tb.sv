@@ -1,4 +1,5 @@
 // Exercises repeated MMIO requests, response stalls, credit returns, and reset in every retained phase.
+// SPDX-License-Identifier: Apache-2.0
 module event_subordinate_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks hardware and host-list OR and AND reduction lowering and identities.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

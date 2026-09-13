@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits queued crossbar feedback RTL and descriptor-resolved indices for both traced lanes.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../frontend/event-feedback-fixture.rhdl".branching
   "../../rhodium/event/main.rhm" open

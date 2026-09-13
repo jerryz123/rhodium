@@ -1,5 +1,6 @@
 #lang rhombus
 // Prints deterministic, human-readable text for the public Rhodium hardware IR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "types.rhm" open

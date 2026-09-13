@@ -1,4 +1,5 @@
 // Simulates enable, hold, shifting, and synchronous reset in the generated shift register.
+// SPDX-License-Identifier: Apache-2.0
 module enable_shift_register_tb;
     logic [3:0] data_in;
     logic shift;

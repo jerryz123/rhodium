@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises function and operator concatenation across Bits, Bool, records, and host values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

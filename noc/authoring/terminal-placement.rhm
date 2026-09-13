@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines symbolic ingress and egress placement independently of physical links.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "names.rhm" open

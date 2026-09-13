@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Builds the enum switch state machine from explicitly selected frontend layers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/comb.rhm") open

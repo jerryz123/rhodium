@@ -1,5 +1,6 @@
 #lang rhodium
 // Proves configured flow stages preserve exact topology under static checking.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

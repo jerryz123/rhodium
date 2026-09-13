@@ -1,4 +1,5 @@
 <!-- Records the incremental plan for Rhodium logical circuit visualization. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Logical visualization plan
 

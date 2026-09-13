@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's standalone parallel floating-point execution pipeline.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open

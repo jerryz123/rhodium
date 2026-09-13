@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks NTL overlays, exact side-effect-free controls, compressed targets, and single-decoder composition.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/frontend/kernel.rhm" as embedded

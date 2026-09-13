@@ -1,5 +1,6 @@
 #lang rfpl
 // Invalid fixture assigning an instance the physical view of another circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../support/annotation-circuits.rhm" as circuits

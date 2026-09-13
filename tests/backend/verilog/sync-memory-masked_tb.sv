@@ -1,4 +1,5 @@
 // Simulates byte-mask selection on a shared synchronous read-write memory port.
+// SPDX-License-Identifier: Apache-2.0
 module sync_memory_masked_tb;
   logic clock = 1'b0;
   logic reset = 1'b0;

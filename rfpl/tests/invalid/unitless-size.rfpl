@@ -1,5 +1,6 @@
 #lang rfpl
 // Invalid fixture supplying a unitless number as a physical view dimension.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../support/annotation-circuits.rhm" as circuits

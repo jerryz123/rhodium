@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a native CHI subordinate memory backed by a simulator DPI model.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

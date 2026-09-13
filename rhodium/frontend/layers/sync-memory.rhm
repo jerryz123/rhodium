@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines circuit-shaped synchronous memories with fixed read, write, and shared ports.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

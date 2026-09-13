@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the complete-packet RV5Stage requester construction regression.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

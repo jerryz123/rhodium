@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CHI subordinate-map validation, host lookup, and combinational hardware elaboration.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

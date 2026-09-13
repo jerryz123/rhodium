@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds the record-valued swap through the concise bundle layer.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle Pair(T :: DataType):
   left: T

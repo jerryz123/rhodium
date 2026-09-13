@@ -1,4 +1,5 @@
 // Translates clocked CHI beats to the shared bounded native byte store.
+// SPDX-License-Identifier: Apache-2.0
 #include "chi_dpi_memory_dpi.h"
 #include "chi_memory.h"
 

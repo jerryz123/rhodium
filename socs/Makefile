@@ -1,4 +1,5 @@
 # Runs focused host configuration and topology-compilation checks for repository SoCs.
+# SPDX-License-Identifier: Apache-2.0
 REPO_DIR := $(abspath ..)
 RACO ?= raco
 

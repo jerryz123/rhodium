@@ -1,4 +1,5 @@
 <!-- Describes the public boundary of CHI subordinate engines and storage. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # CHI subordinate engines and storage
 

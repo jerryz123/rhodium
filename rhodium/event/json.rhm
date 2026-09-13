@@ -1,5 +1,6 @@
 #lang rhombus
 // Serializes event manifests as JSON and matching compiler-owned C++ descriptors.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("json/main.rkt").#{jsexpr->string} as encode_json_string

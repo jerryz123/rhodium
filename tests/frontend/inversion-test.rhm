@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks bang inversion lowering, widths, nominal Bool retention, and verification.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,4 +1,5 @@
 <!-- Documents CIRCT fixtures, Verilator simulations, and example-owned Verilog goldens. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Backend tests
 

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks exact Zawrs encodings, operand-free assembly, and SYSTEM catalog separation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

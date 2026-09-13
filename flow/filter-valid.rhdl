@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines inline filtering for nonbackpressured Valid flows.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

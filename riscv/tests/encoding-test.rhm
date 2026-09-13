@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks construction, matching, and relations for pure instruction encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

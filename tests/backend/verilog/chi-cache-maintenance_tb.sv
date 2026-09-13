@@ -1,4 +1,5 @@
 // Checks complete maintenance REQs, retained identity/PAS, retries, errors, and backpressure.
+// SPDX-License-Identifier: Apache-2.0
 module chi_cache_maintenance_tb #(parameter bit WRONG_SOURCE = 0, BAD_ADDRESS = 0);
   logic clock = 0, reset = 1;
   logic [6:0] node_id = 3;

@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Rejects temporal environment declarations owned by a child rather than the explicit top.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/hierarchy.rhm") open

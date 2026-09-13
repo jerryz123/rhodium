@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds a host-parameterized, zero-initialized vector shift register.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/shift-register.rhdl").shift_register

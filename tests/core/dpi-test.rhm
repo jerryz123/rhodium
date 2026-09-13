@@ -1,5 +1,6 @@
 #lang rhombus
 // Covers design-level DPI imports and mandatory-clock stateful call construction.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

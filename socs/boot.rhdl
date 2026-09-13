@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines polling SoC BootROM configuration, image layout, and executable PMA metadata.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm") open

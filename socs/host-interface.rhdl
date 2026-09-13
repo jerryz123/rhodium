@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the shared coherent RAM and non-snooping MMIO host boundary.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

@@ -1,4 +1,5 @@
 // Verifies the CHI UART register contract, FIFOs, interrupts, and serial pins.
+// SPDX-License-Identifier: Apache-2.0
 module uart16550_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

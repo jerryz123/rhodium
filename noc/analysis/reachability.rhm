@@ -1,5 +1,6 @@
 #lang rhombus
 // Computes valid reachable route states from an immutable materialized routing snapshot.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

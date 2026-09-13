@@ -1,5 +1,6 @@
 #lang rhombus
 // Converts verified public Rhodium IR into immutable plain data for the Rosette engine.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/main.rhm" open

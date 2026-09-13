@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks bootable SimpleSoC host configuration, address maps, and routing plans.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../chi/protocol/flits.rhdl".CHIReqOpcode

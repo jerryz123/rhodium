@@ -1,4 +1,5 @@
 # Keeps immutable GitHub Actions references current through reviewed pull requests.
+# SPDX-License-Identifier: Apache-2.0
 
 version: 2
 updates:

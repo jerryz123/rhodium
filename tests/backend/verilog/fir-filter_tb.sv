@@ -1,4 +1,5 @@
 // Simulates the FIR example's positive and negative impulse responses.
+// SPDX-License-Identifier: Apache-2.0
 module fir_filter_tb;
     logic clock = 1'b0;
     logic reset = 1'b1;

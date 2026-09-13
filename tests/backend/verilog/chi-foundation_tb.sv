@@ -1,4 +1,5 @@
 // Checks CHI flits, service matching, and singleton/multiregion address maps including NodeID-zero hits.
+// SPDX-License-Identifier: Apache-2.0
 module chi_foundation_tb;
   logic [43:0] map_address;
   logic [7:0] home_lookup, subordinate_lookup;

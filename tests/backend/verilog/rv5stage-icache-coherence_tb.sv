@@ -1,4 +1,5 @@
 // Checks dirty-code visibility, fence synchronization, and snapshot retention under outer replacement.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_icache_coherence_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;

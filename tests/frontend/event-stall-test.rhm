@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks companion metadata, reserved labels, and conservative stall ancestry.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/event/main.rhm" open
   "event-stall-fixture.rhdl" as fixture

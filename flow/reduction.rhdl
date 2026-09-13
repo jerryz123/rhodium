@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds shared balanced Boolean reductions for all-except-one flow conditions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/reduction.rhdl").tree_reduce

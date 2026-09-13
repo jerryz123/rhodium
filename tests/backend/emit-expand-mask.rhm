@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits lane-mask expansion for exhaustive checks of bit ordering and lane widths.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

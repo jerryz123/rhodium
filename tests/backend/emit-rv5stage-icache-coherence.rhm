@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits instruction-snapshot coherence with a real D-cache and inclusive Home.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../cores/rv5stage/tests/icache-coherence-fixture.rhdl".RV5StageInstructionCoherence
   "../../rhodium/backend/circt.rhm".emit_circt

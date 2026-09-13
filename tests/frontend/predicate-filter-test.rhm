@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks stable predicate-policy parameters elaborate inline in one Valid module.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

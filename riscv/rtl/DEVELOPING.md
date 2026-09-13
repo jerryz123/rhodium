@@ -1,4 +1,5 @@
 <!-- Guides contributors through maintaining the RISC-V-to-Rhodium adapter. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the RISC-V/Rhodium adapter
 

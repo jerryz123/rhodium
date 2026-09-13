@@ -1,4 +1,5 @@
 // Simulates both directions of a ready-valid interface adapter.
+// SPDX-License-Identifier: Apache-2.0
 module interface_tb;
   typedef struct packed {
     logic valid;

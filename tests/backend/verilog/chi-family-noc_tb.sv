@@ -1,4 +1,5 @@
 // Checks ordered payload delivery and queued backpressure across family-remapped CHI attachments.
+// SPDX-License-Identifier: Apache-2.0
 module chi_family_noc_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } request_t;

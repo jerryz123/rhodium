@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a nominal Boolean where a hardware Bits shift amount is required.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadShiftAmount():
   input value: Bits(8)

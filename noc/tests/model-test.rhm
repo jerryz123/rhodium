@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks valid and invalid construction of the pure directed NoC and routing model.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

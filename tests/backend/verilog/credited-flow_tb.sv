@@ -1,4 +1,5 @@
 // Simulates initial grants, stalls, credit recycling, ordering, and disabled grants.
+// SPDX-License-Identifier: Apache-2.0
 module credited_flow_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } ingress_forward_t;
   typedef struct packed { logic ready; } ingress_reverse_t;

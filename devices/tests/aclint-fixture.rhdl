@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates a two-hart ACLINT fixture for host and backend verification.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("devices/aclint.rhdl") open

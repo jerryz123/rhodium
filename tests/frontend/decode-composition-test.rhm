@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks generic decode composition and the example that grows a control relation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

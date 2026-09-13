@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT MLIR for RV5Stage's two-write register-file fixture.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

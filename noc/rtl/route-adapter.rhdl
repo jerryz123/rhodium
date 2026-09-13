@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements protocol-neutral ready-valid attachment and removal of NoC route metadata.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Builds deterministic route tables and the opaque artifact gated by all NoC validation passes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

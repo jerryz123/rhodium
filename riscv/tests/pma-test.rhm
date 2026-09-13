@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks host-side construction and validation of RISC-V physical-memory maps.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/std/interconnect.rhdl".AddressSet

@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates a three-input, two-output output-greedy round-robin matching fixture.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/matcher.rhdl") open

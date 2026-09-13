@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates RV5Stage's uncached engine and physical-memory router with an HN-I range.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../chi/uncached.rhdl" open

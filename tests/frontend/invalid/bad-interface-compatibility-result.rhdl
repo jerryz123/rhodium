@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an interface connection policy that returns a non-Boolean host value.
+// SPDX-License-Identifier: Apache-2.0
 
 interface BadPolicy(tag):
   role producer

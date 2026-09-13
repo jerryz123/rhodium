@@ -1,5 +1,6 @@
 #lang rhombus
 // Verifies synthesis don't-care construction, printing, and malformed-IR rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

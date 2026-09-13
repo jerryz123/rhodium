@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises elaboration-conditional bundle fields across types, literals, and circuits.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle OptionalPacket(has_tag, has_metadata):
   payload: Bits(8)

@@ -1,4 +1,5 @@
 // Simulates simultaneous distinct-address writes through two physical memory ports.
+// SPDX-License-Identifier: Apache-2.0
 module multi_write_memory_tb;
     logic clock = 1'b0;
     logic [1:0] read_address;

@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Rejects an input timing contract attached to a top-level output.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/clocking.rhm") open

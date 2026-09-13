@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises CMO CSR policy, physical permissions, and all Sv39 demand access classes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/xlen.rhm") open

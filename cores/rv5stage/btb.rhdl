@@ -1,5 +1,6 @@
 #lang rhodium
 // Predicts the earliest taken branch in a fetch word using fully associative local counters.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../riscv/isa/xlen.rhm" open

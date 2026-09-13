@@ -1,5 +1,6 @@
 #lang rhodium
 // Observes the production MMIO engine at its public request and response boundaries.
+// SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams

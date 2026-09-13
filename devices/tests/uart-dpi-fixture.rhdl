@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates the device-owned PTY UART model for host and backend tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("devices/uart-dpi.rhdl").UartDPI

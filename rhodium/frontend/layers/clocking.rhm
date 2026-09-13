@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Adds temporal environment declarations, sync-level evidence, and optional CDC enforcement.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

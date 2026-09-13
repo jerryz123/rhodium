@@ -1,4 +1,5 @@
 // Checks inclusive residency, copyback ownership, races, and complete cache-line packets.
+// SPDX-License-Identifier: Apache-2.0
 module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;

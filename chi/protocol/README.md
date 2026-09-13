@@ -1,4 +1,5 @@
 <!-- Describes the public boundary of CHI protocol contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # CHI protocol contracts
 

@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits production fetch stages and assembly with a traced instruction consumer.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/event/main.rhm" open
   "../../rhodium/backend/circt.rhm".emit_circt

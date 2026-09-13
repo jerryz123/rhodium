@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates ordinary host functions that accept, construct, and return hardware objects.
+// SPDX-License-Identifier: Apache-2.0
 
 fun wrap_around(n :: Bits,
                 max :: Bits) :: Bits(n.type.width):

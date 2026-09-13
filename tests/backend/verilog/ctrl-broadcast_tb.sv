@@ -1,4 +1,5 @@
 // Verifies exactly-once token broadcast under independent recipient stalls.
+// SPDX-License-Identifier: Apache-2.0
 module ctrl_broadcast_tb;
   typedef struct packed { logic valid; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

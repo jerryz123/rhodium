@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates endpoint arrays, generic handles, and terminated interface sinks.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

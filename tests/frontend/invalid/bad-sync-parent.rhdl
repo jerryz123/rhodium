@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects automatic sync-child propagation when the parent has no ambient domain.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit Child():
   output value: Bits(1)

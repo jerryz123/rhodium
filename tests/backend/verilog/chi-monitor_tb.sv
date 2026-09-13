@@ -1,4 +1,5 @@
 // Simulates legal activation, credit, request, response, and deactivation on a monitored CHI link.
+// SPDX-License-Identifier: Apache-2.0
 module chi_monitor_tb;
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

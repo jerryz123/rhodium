@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks compressed-instruction catalogs, XLEN distinctions, and pure expansion semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/c.rhm" open

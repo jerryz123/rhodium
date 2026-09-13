@@ -1,4 +1,5 @@
 // Checks fixed-latency fetch assembly, completed-word capacity, restart, and faults.
+// SPDX-License-Identifier: Apache-2.0
 `ifdef RV5STAGE_FETCH_TRACE
 module event_frontend_tb;
 `else

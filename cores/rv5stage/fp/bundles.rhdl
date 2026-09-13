@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's standalone floating-point pipeline and LSU bridge payloads.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../decode/fp-ctrl.rhdl" open

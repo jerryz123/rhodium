@@ -1,5 +1,6 @@
 #lang rhodium
 // Compares explicit and configured shift FIFOs with pointer FIFOs across options.
+// SPDX-License-Identifier: Apache-2.0
 
 import lib("flow/main.rhdl") open
 

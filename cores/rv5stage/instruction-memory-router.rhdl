@@ -1,5 +1,6 @@
 #lang rhodium
 // Selects fixed-latency cache outcomes and retains one ordered uncached fetch.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "icache/protocol.rhdl" open

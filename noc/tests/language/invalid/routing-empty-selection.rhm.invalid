@@ -1,5 +1,6 @@
 #lang rhombus
 // Intentionally leaves a routing VC-group selection empty.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

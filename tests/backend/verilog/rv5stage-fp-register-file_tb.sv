@@ -1,4 +1,5 @@
 // Verifies two-write forwarding, retention, all three reads, and writable f0.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_fp_register_file_tb;
   typedef struct packed {
     logic [4:0] address;

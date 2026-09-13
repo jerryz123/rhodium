@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises descriptor-derived CSR recognition, reads, writes, and invalid tables.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../riscv/isa/csr.rhm" open

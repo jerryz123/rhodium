@@ -1,4 +1,5 @@
 <!-- Defines the pure RISC-V host model, ISA catalogs, GNU target projection, and Rhodium adapter boundary. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RISC-V instruction model
 

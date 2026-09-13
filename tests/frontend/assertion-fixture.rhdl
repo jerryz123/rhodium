@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines ambient, explicit, and priority-guarded assertions for frontend inspection.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit AmbientAssertions():
   input condition: Bool

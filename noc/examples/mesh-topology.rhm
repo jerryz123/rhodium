@@ -1,5 +1,6 @@
 #lang rhombus
 // Instantiates a concrete mesh separately from reusable topology definitions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../authoring/main.rhm" open

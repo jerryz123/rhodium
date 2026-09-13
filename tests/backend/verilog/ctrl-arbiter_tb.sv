@@ -1,4 +1,5 @@
 // Exercises fixed priority, chosen index, and selected token readiness.
+// SPDX-License-Identifier: Apache-2.0
 module ctrl_arbiter_tb;
   typedef struct packed { logic valid; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

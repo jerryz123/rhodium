@@ -1,5 +1,6 @@
 #lang rhodium
 // Re-exports NoC route computation and packet transport hardware.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "route-computer.rhdl" open

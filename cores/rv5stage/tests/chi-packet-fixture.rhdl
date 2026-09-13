@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises shared packet layout and RV5Stage write construction against CHI DAT monitoring at every bus width.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

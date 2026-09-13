@@ -1,4 +1,5 @@
 // Selects a scoped HW hierarchy and retargets policy-selected FIRRTLMem occurrences to SRAM externs.
+// SPDX-License-Identifier: Apache-2.0
 
 #include "circt/Dialect/HW/HWOps.h"
 #include "mlir/IR/BuiltinOps.h"

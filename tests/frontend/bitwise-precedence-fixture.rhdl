@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises the canonical symbolic bitwise operators and their precedence.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BitwisePrecedence():
   input(a, b, c): Bits(8)

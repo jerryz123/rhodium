@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks RV5Stage's public boundary, CMO and main-memory guarantees, and configuration rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/frontend/kernel.rhm" as embedded

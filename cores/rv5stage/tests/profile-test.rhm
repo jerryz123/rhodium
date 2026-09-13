@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks RV5Stage architectural profiles, non-aliasing VIPT geometry, and invalid combinations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../profile.rhm" open

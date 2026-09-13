@@ -1,4 +1,5 @@
 // Exhaustively checks every local router lookup in the validated two-hop fixture.
+// SPDX-License-Identifier: Apache-2.0
 module noc_route_computer_tb;
     logic source_route_key;
     logic source_origin_key;

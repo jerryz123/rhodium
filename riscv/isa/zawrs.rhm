@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the XLEN-independent Zawrs 1.01 wait-on-reservation instruction catalog.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines Rhodium's canonical valid-only and ready-valid protocol interfaces.
+// SPDX-License-Identifier: Apache-2.0
 
 // Every cycle with valid asserted is one payloadless control event; there is
 // no backpressure signal or pending-transfer state. Consecutive asserted

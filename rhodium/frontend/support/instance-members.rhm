@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Provides shared instance-member and chained hardware-field syntax for hierarchy-aware layers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

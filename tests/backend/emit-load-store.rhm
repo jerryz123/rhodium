@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT IR for the reusable load/store lane-generation fixture.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

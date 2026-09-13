@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks inferred-type and immediate-next register forms in ambient and explicit domains.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines floating-point precision tags shared by RV5Stage decode and memory paths.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum RV5StageFloatPrecision:
   Half

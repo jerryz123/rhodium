@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits best-effort offer instrumentation with the descriptor used by its scoreboard.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/backend/circt.rhm".emit_circt
   "../../rhodium/event/main.rhm" open

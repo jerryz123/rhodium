@@ -1,4 +1,5 @@
 // Checks manifest-bound join snapshots against parent sets reconstructed from public transfers.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-join_manifest.h"
 #include <array>

@@ -1,5 +1,6 @@
 #lang racket/base
 ;; Loads invalid-language fixtures from a suite manifest and checks their diagnostics.
+;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/cmdline
          racket/match

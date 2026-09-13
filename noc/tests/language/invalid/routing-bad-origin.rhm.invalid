@@ -1,5 +1,6 @@
 #lang rhombus
 // Intentionally uses an unsupported routing origin selector.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

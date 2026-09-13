@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalid fixture placing a hardware switch case after its otherwise clause.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadSwitchCaseAfterOtherwise():
   input selector: Bits(2)

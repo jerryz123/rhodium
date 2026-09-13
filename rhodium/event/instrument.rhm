@@ -1,5 +1,6 @@
 #lang rhombus
 // Lowers bounded lineage graphs with preallocated feedback storage and DPI emission.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm" open

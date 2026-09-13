@@ -1,4 +1,5 @@
 <!-- Compares Rhodium's exact-construction semantics with Bluespec's guarded atomic rules as language abstractions. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and Bluespec: construction graphs versus guarded atomic actions
 

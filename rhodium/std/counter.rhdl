@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the standard enabled counter with a fixed host-selected state count.
+// SPDX-License-Identifier: Apache-2.0
 
 // Counts from zero through n - 1. Wrap is asserted during an enabled cycle at
 // the final value, immediately before the following edge returns value to zero.

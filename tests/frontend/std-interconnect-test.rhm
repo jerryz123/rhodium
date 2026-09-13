@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks generic host sets, stripe geometry, and transfer-containment argument contracts.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

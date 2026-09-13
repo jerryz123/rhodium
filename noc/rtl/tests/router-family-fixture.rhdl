@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises generic physical-link binding and unused-local closure on two asymmetric router sites.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../examples/router-family.rhm" as fixture

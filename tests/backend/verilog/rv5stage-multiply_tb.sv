@@ -1,4 +1,5 @@
 // Verifies commit-issued multiplication, deferred hazards, and independent progress.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_multiply_tb;
   typedef struct packed {
     logic supervisor_software;

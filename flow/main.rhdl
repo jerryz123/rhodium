@@ -1,5 +1,6 @@
 #lang rhodium
 // Re-exports transport protocols, flit formats, and reusable flow generators.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

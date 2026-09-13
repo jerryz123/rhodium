@@ -1,5 +1,6 @@
 #lang rhombus
 // Writes native DTB and inspection DTS artifacts for every concrete SoC description.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open

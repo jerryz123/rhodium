@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the ordinary logical circuit hierarchy annotated by the RFPL example.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Adder(width :: PosInt):
   input(a, b): Bits(width)

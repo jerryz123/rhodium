@@ -1,5 +1,6 @@
 #lang rhodium
 // Compares otherwise identical RV64 pipelines with enabled and disabled branch prediction.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "core-fixture.rhdl" open
   "../profile.rhm" open

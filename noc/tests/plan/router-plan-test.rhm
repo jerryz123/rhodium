@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic per-node projection of validated routes into local router encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

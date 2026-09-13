@@ -1,5 +1,6 @@
 #lang rfpl
 // Annotates an existing Rhodium hierarchy and retains its generated Verilog golden.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "circuit-pair.rhdl" as logical_fixture

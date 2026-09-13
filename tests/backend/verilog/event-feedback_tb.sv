@@ -1,4 +1,5 @@
 // Drives registered recirculation and compares instrumentation against an untraced lane.
+// SPDX-License-Identifier: Apache-2.0
 module event_feedback_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

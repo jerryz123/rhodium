@@ -1,4 +1,5 @@
 // Executes cached polling BootROM with delayed uncached entry publication, secondary parking, and IO ordering.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_io_boot_tb;
   typedef struct packed {
     struct packed { logic ready; } req;

@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds a payload-neutral virtual-channel mux and demux round trip.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl").Decoupled

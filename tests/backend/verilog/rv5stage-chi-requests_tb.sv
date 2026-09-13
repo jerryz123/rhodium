@@ -1,4 +1,5 @@
 // Checks complete requester packets, response defaults, and truncated/equal/extended snoop addresses.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_chi_requests_tb;
   logic [63:0] address;
   logic [6:0] opcode;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks SNP-plane compilation and ready-valid adapter elaboration.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "snp-noc-fixture.rhdl" as fixture

@@ -1,5 +1,6 @@
 #lang rhodium
 // Mirrors a Chisel ResetShiftRegister with ambient reset registers and conditional shifting.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/shift-register.rhdl").shift_register

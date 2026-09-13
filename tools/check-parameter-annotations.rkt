@@ -1,5 +1,6 @@
 #lang racket/base
 ;; Checks Rhombus source declarations for explicitly annotated parameters.
+;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/cmdline
          racket/file

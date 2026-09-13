@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects passing a frontend interface endpoint directly to a circuit generator.
+// SPDX-License-Identifier: Apache-2.0
 
 interface Link(T):
   role producer

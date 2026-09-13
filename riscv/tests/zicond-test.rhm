@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the ratified RV32/RV64 Zicond catalogs and instruction encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/zicond.rhm" open

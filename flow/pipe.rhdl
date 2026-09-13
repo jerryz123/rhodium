@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines pipelines with fixed-latency or actual elastic stage-control trace contracts.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Projects one or more cache-line-striped CHI banks into dense local addresses.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm") open

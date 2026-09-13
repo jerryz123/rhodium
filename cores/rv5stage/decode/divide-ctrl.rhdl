@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's RV32 and RV64 integer divide/remainder control relation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/zawrs.rhm" open

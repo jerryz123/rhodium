@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks automatic specialization reuse with identity and structural equality.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

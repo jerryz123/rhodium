@@ -1,4 +1,5 @@
 // Checks family-site routing, generic physical-link binding, and downstream backpressure.
+// SPDX-License-Identifier: Apache-2.0
 module noc_router_family_tb;
     logic clock;
     logic reset;

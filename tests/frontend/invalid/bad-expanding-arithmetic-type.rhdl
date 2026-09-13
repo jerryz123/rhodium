@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects expanding arithmetic applied to a nominal non-Bits hardware value.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadExpandingArithmeticType():
   input flag: Bool

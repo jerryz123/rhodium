@@ -1,5 +1,6 @@
 #lang rhodium
 // Attaches the SoC PLIC SN-I and external-interrupt update source to a dedicated CHI router tile.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

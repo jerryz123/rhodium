@@ -1,4 +1,5 @@
 // Verifies RV5Stage integer/FP CSR state, traps, interrupts, and privilege returns.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_csr_tb;
   logic [1:0] cbo_operation = 0;
   logic [2:0] cbo_permission;

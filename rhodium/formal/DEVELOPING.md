@@ -1,4 +1,5 @@
 <!-- Explains how to extend and validate Rhodium's Rosette-backed formal engine. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the formal engine
 

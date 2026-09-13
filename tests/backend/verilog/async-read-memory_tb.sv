@@ -1,4 +1,5 @@
 // Simulates asynchronous reads, enabled writes, and disabled writes for memory.
+// SPDX-License-Identifier: Apache-2.0
 module async_read_memory_tb;
     logic clock = 1'b0;
     logic [1:0] read_address;

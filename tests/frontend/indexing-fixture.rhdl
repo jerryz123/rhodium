@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines valid and invalid circuits used to test host-range hardware indexing.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Indexed(width, low, high):
   input source: Bits(width)

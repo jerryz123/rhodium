@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a provider specialization that does not satisfy its peer's declared requirement.
+// SPDX-License-Identifier: Apache-2.0
 
 interface CapacityLink(capacity):
   role producer

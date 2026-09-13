@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates two same-clock physical write ports on one async-read memory.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit MultiWriteMemory(depth :: PosInt, width :: PosInt):
   input clock: Clock

@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes one tiled-mesh router attachment to an external coherent host RN-F.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/channels.rhdl").CHIRNChannels

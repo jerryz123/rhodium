@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a byte-masked 64-bit payload-entry register behind a one-outstanding CHI SN-I port.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm").NonemptyString

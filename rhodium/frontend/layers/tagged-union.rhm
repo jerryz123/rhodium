@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines nominal tagged unions whose tags reuse shared hardware-enum schemas.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

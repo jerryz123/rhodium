@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks shared CHI memory configuration, legacy imports, service metadata, and invalid regions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

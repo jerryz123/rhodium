@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks specialization reuse, declaration identity, context isolation, and recursion tracking.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

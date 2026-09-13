@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements one RV5Stage compute tile around a bundled four-plane CHI router.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

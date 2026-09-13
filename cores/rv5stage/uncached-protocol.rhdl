@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines physical instruction and data requests carried by RV5Stage's shared uncached path.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "dcache/protocol.rhdl" open

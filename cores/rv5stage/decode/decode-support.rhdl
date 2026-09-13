@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides catalog-independent case-list helpers for RV5Stage's control decoders.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/rtl/instruction-pattern.rhdl" open

@@ -1,4 +1,5 @@
 // Checks bounded PAUSE throttling, retirement, squash, interrupt exit, and older-load independence.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_pause_tb;
   typedef struct packed {
     logic supervisor_software;

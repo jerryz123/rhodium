@@ -1,4 +1,5 @@
 // Tests manifest validation, callback ordering, timed snapshots, and streaming boundaries.
+// SPDX-License-Identifier: Apache-2.0
 #include "../runtime/rheg.h"
 #include <algorithm>
 #include <array>

@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides monitored initial RN-I, RN-F, and SN-F transaction fixtures.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

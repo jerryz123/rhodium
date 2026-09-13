@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Ensures the compositional base profile does not include assertions implicitly.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit MissingAssertionLayer():
   input clock: Clock

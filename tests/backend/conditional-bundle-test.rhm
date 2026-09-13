@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that distinct conditional bundle specializations lower to distinct CIRCT types.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

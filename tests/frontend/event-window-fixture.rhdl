@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises retained/live window lineage locally, through a child, and in the real frontend.
+// SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
   "../../cores/rv5stage/tests/fetch-fixture.rhdl" open

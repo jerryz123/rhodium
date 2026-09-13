@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines a reusable rectangular-mesh topology view and generator.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../authoring/main.rhm" open

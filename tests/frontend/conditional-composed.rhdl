@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Checks that hardware conditional assignment composes from independently selected frontend layers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/sequential.rhm") open

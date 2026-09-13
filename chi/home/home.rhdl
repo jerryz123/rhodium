@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements the initial non-coherent CHI HN-I transaction engine.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

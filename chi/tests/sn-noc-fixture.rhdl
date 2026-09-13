@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates one HN subordinate attachment routed to two independent SN nodes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

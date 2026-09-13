@@ -1,4 +1,5 @@
 <!-- Specifies RV5Stage's Sv39 translation, TLB, page-walk, arbitration, and fault contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV5Stage MMU
 

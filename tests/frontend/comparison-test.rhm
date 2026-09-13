@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks unsigned comparison syntax, lowering shape, typing, and host fallback.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

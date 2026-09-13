@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves concise bundles and interfaces elaborate like their explicit record forms.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

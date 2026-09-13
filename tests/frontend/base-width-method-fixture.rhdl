@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Exercises foundational zero extension without importing optional frontend layers.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BaseWidthMethod():
   input value: Bits(4)

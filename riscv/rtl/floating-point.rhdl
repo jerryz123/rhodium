@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements reusable RISC-V policy around architectural IEEE floating-point values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("hardfloat/main.rhdl") open

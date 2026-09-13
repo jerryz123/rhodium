@@ -1,4 +1,5 @@
 // Checks address-dependent CHI packet sets, physical IDs, and monitored write constructors for 128/256/512-bit buses.
+// SPDX-License-Identifier: Apache-2.0
 module chi_packets_tb;
   logic clock = 0;
   logic reset = 1;

@@ -1,5 +1,6 @@
 #lang racket/base
 ;; Exhaustively checks the Rosette engine's packed combinational semantics and query results.
+;; SPDX-License-Identifier: Apache-2.0
 
 (require rackunit
          racket/list

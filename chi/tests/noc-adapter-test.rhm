@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks downstream flow metadata survives shared CHI adapter construction.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "noc-adapter-fixture.rhdl" as fixture

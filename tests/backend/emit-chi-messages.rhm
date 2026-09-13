@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the width- and option-specialized subordinate message regression.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

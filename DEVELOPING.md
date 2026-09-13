@@ -1,4 +1,5 @@
 <!-- Guides contributors through Rhodium's repository architecture, change workflow, and validation ownership. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing Rhodium
 
@@ -73,6 +74,39 @@ Choose the lowest package that owns the behavior before editing:
 Every documented directory keeps its public contracts in `README.md` and its
 implementation architecture, source ownership, extension workflows, and
 focused validation in the companion `DEVELOPING.md`.
+
+## Contribution and provenance
+
+Except where a file or directory states otherwise, contributions intentionally
+submitted for inclusion in Rhodium are accepted under Apache-2.0. Every commit
+must certify the [Developer Certificate of Origin](DCO) with a real-name trailer:
+
+```text
+Signed-off-by: Contributor Name <contributor@example.com>
+```
+
+Create that trailer with `git commit -s`. A contributor must have the right to
+submit the complete contribution, including employer- or institution-owned work,
+material produced with automated tools, and modifications derived from other
+projects. Identify third-party provenance and preserve its notices before the
+work is incorporated. Do not add code under terms incompatible with the owning
+directory's license.
+
+The complete `hardfloat/` package retains its documented BSD license and source
+headers. Git submodules retain the terms of their pinned upstream repositories.
+See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for the current exception
+inventory. The project does not currently require a separate contributor license
+agreement.
+
+New original source and documentation files must carry
+`SPDX-License-Identifier: Apache-2.0` in the format's native comment syntax,
+after any mandatory first line and the file-specific purpose comment. Preserve
+a different SPDX identifier and its notices when modifying separately licensed
+material. Exact license and notice texts without a comment syntax are exempt
+from the source-header requirement. Run `make check-license-headers` to check
+the tracked-file inventory. CI runs that complete check, while the supplied
+pre-commit hook checks the exact staged contents through
+`make check-license-headers-staged`.
 
 ## Preserve the architecture
 

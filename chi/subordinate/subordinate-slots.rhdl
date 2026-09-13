@@ -1,5 +1,6 @@
 #lang rhodium
 // Tracks bounded subordinate transactions and associates write data with DBIDs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

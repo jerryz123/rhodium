@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the RV32 CSR file for zero-valued Zihpm access and privilege tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

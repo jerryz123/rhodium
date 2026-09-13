@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a shared RV32/RV64 integer, B, and Zicond execution datapath.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../riscv/isa/xlen.rhm" open

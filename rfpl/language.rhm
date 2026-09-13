@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Assembles #lang rfpl from ordinary Rhombus and physical-view annotations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus

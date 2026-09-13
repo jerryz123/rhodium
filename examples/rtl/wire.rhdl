@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates reading a single-driver vector wire before declaring its drivers.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit VectorWire(n :: PosInt):
   input(left, right): Vec(n, Bool)

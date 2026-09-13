@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the closed host-side XLEN configuration and width conversion.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/xlen.rhm" open

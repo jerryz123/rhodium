@@ -1,4 +1,5 @@
 <!-- Explains how to extend, maintain, and validate Rhodium's standard library. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the Rhodium standard library
 

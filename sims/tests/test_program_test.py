@@ -1,4 +1,5 @@
 # Exercises workload accounting, completion, deadlines, and exact-commit simulator reuse.
+# SPDX-License-Identifier: Apache-2.0
 import hashlib
 import importlib.util
 import json

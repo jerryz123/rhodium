@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks concise memory syntax and its elaborated public IR structure.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

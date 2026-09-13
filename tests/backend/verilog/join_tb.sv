@@ -1,4 +1,5 @@
 // Verifies that a join never partially consumes its ready-valid inputs.
+// SPDX-License-Identifier: Apache-2.0
 module join_tb;
   typedef struct packed {
     logic       valid;

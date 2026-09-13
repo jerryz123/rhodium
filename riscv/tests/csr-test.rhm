@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the closed architectural CSR identifier catalog and address mapping.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/csr.rhm" open

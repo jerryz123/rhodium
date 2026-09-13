@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the standard RV32B/RV64B catalogs and representative Zba, Zbb, and Zbs encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/b.rhm" open

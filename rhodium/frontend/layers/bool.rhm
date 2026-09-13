@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines lane masks, optional-one-hot values, reductions, encoders, comparisons, and selection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

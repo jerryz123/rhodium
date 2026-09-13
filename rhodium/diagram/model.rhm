@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the tool-neutral logical block and compound-channel diagram model.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm".DesignElaboration

@@ -1,4 +1,5 @@
 // Exercises same-cycle lineage, hierarchy, stalls, drops, wide payloads, and reset.
+// SPDX-License-Identifier: Apache-2.0
 module event_runtime_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

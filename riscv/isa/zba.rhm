@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the ratified RV32 and RV64 Zba address-generation instruction catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

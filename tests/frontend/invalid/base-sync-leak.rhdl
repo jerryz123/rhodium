@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Ensures the base composition profile does not implicitly include sync circuits.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit UnexpectedSync():
   output value: Bits(1)

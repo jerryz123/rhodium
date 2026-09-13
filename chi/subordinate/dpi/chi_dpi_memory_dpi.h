@@ -1,4 +1,5 @@
 // Declares the stable wide-data DPI ABI for the CHI memory model.
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <svdpi.h>

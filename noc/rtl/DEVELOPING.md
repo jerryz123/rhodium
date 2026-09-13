@@ -1,4 +1,5 @@
 <!-- Guides contributors through implementing and validating NoC hardware from certified plans. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing NoC RTL
 

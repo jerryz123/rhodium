@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines binding-derived instances, sync propagation, and typed child-port access.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the FESVR DPI transport independently of any SoC harness.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

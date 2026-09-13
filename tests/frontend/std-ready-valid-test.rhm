@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks standard valid interfaces, directions, nominal identity, and bulk connection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

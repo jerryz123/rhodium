@@ -1,4 +1,5 @@
 # Exercises generic SRAM mapping, scoped site selection, and generated-wrapper behavior.
+# SPDX-License-Identifier: Apache-2.0
 
 import json
 import os

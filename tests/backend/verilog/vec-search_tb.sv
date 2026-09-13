@@ -1,4 +1,5 @@
 // Simulates the full eight-cycle sequence of the registered vector search.
+// SPDX-License-Identifier: Apache-2.0
 module vec_search_tb;
     logic clock = 1'b0;
     logic reset = 1'b1;

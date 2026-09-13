@@ -1,4 +1,5 @@
 #lang rhodium/base
 // Ensures the base composition profile does not implicitly include optional data refinements.
+// SPDX-License-Identifier: Apache-2.0
 
 def mask_type = Mask

@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's commit-owned CSR, privilege, trap, and interrupt state.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "profile.rhm".RVCoreProfile

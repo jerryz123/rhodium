@@ -1,5 +1,6 @@
 #lang rhodium
 // Resolves ready-valid protocol families for standard flow-stage implementations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks generic balanced reduction structure, aggregate combiners, and empty rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

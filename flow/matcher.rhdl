@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines explicitly ordered one-to-one matching over a hardware request matrix.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/circular-priority.rhdl") open

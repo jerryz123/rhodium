@@ -1,4 +1,5 @@
 // Scores each offer's current parent and qualified transfer/stall against public inputs.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-offer_manifest.h"
 #include <array>

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks named instruction fields and their fixed-value constraints.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/fields.rhm" open

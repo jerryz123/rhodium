@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines RV5Stage's immutable architectural and cache specialization profile.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

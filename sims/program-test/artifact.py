@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Attests and verifies an exact-commit native simulator before cross-job reuse.
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
 import json

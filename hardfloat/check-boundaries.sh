@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Enforces the public-authoring and generated-file boundaries of the HardFloat port.
+# SPDX-License-Identifier: BSD-3-Clause
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

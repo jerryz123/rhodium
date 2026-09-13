@@ -1,5 +1,6 @@
 #lang rhodium
 // Wraps bootable MiniSoC with FESVR and a serial-pin PTY UART model.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/xlen.rhm").XLen

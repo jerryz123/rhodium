@@ -1,4 +1,5 @@
 // Uses transaction FIFOs, not pipeline enables, to check elastic runtime parent identity.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines shared boot devices, ACLINT, PLIC, UART, PMA, and HN-I platform contracts for SoCs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/interconnect.rhdl").AddressSet

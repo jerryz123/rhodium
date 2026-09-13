@@ -1,4 +1,5 @@
 // Simulates both sides of a two-subordinate CHI SN NoC attachment.
+// SPDX-License-Identifier: Apache-2.0
 module chi_sn_noc_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;

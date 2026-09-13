@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines explicit procedure calls and binding-derived DPI register syntax.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

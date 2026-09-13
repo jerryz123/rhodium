@@ -1,4 +1,5 @@
 <!-- Guides contributors through maintaining the Sky130 SRAM catalog and functional model. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing Sky130 SRAM support
 

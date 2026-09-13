@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the committed-store buffer for bounded FIFO, physical-byte, and snoop tests.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded

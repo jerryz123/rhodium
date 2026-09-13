@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Prepares all UDB-applicable ACT tests and their Sail/platform configuration.
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 import json
 import math

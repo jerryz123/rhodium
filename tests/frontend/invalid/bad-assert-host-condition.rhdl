@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a host Boolean used where a runtime hardware assertion is required.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit BadAssertHostCondition():
   assert(#true)

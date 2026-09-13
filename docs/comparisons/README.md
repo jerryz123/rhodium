@@ -1,4 +1,5 @@
 <!-- Indexes Rhodium's language and compiler comparisons and defines the common rubric used by the suite. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium comparison guide
 

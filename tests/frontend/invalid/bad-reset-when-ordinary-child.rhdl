@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects derived-reset instantiation for an ordinary circuit child.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit OrdinaryChild():
   output value: Bits(1)

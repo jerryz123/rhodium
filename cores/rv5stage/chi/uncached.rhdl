@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's one-outstanding non-cacheable CHI RN-I transaction path.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "foundation.rhdl" open

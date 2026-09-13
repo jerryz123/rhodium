@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines invalid wire uses for focused frontend diagnostic checks.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit ForwardWire():
   input source: Bits(4)

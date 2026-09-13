@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects direct source references to the implicit sync-circuit reset.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit ManualResetReference():
   output value: Bits(1)

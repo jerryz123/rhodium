@@ -1,4 +1,5 @@
 // Provides test-only access to the production UART model's slave PTY.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../devices/dpi/uart_dpi.h"
 
 #include <fcntl.h>

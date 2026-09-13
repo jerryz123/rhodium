@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises load/store pipeline timing and WB authorization through the core, MMU, and L1D.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "core-fixture.rhdl" open
   "../profile.rhm" open

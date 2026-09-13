@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the opt-in RV64 core for reservation-wait retirement and trap tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

@@ -1,4 +1,5 @@
 // Verifies WB-owned WRS waiting, timeout, interrupt wake, and precise retirement.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_zawrs_tb;
   typedef struct packed {
     logic supervisor_software;

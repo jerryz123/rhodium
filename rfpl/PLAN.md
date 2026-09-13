@@ -1,4 +1,5 @@
 <!-- Defines RFPL as physical annotation over an existing Rhodium circuit hierarchy. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFPL physical-annotation plan
 

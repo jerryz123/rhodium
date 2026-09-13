@@ -1,5 +1,6 @@
 #lang rhombus
 // Builds and validates a user-authored XY policy with phases encoded by VC groups.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

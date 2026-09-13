@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the RV32 integer Zkt timing fixture and its catalog-generated program.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

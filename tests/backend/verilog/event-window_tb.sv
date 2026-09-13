@@ -1,4 +1,5 @@
 // Exercises live/retained selections, replacement, flush, and downstream stalls.
+// SPDX-License-Identifier: Apache-2.0
 module event_window_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } channel_t;
   typedef struct packed { logic ready; } ready_t;

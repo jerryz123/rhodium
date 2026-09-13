@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks standard interrupt cause identifiers and architectural cause codes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/interrupt.rhm" open

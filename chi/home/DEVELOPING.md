@@ -1,4 +1,5 @@
 <!-- Guides changes to CHI Home engines. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing CHI Home engines
 

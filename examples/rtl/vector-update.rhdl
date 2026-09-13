@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates functional vector replacement and dynamic vector-register writes.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit VectorUpdate():
   input source: Vec(3, Bits(4))

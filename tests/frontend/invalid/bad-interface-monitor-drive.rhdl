@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an endpoint monitor that attempts to drive its read-only observation.
+// SPDX-License-Identifier: Apache-2.0
 
 interface BadObservationDrive():
   role producer

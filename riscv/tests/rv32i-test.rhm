@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the complete RV32I catalog and its relationship to RV64I.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

@@ -1,4 +1,5 @@
 // Implements the external C symbol linked into the clocked DPI simulation.
+// SPDX-License-Identifier: Apache-2.0
 #include <cstdint>
 
 extern "C" void rhodium_trace(std::uint8_t value) {

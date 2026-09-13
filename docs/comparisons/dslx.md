@@ -1,4 +1,5 @@
 <!-- Compares Rhodium's exact RTL construction with DSLX and the XLS functional HLS model. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and DSLX (XLS): exact RTL and functional HLS
 

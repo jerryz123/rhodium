@@ -1,4 +1,5 @@
 // Simulates enable, non-power-of-two rollover, wrap indication, and reset.
+// SPDX-License-Identifier: Apache-2.0
 module standard_counter_tb;
   logic       clock = 1'b0;
   logic       reset = 1'b1;

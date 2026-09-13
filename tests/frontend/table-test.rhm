@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks host-generated table contents and direct hardware vector indexing.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

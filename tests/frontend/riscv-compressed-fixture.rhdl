@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes Zca-only and full-C compressed expansion profiles for backend simulation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/c.rhm") open

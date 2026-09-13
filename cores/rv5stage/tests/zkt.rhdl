@@ -1,5 +1,6 @@
 #lang rhodium
 // Wraps the public core interfaces with a catalog-generated instruction ROM for timing comparison.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "zkt-program.rhm" open

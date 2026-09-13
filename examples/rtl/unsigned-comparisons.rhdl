@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates unsigned fixed-width ordering with nominal Boolean results.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit UnsignedComparisons(width :: PosInt):
   input(a, b): Bits(width)

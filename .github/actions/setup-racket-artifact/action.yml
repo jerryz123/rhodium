@@ -1,4 +1,5 @@
 # Restores the exact-commit compiled root for one Rhodium test job.
+# SPDX-License-Identifier: Apache-2.0
 
 name: Set up precompiled Rhodium
 description: Restore dependencies, install exact project bytecode, and verify its manifest.

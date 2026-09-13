@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a one-hot enum mux whose named arms do not match its declaration.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum Select(~encoding: one_hot):
   First

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that RV5Stage's XLEN-wide cache arrays lower through the CIRCT backend.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

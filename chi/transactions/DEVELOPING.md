@@ -1,4 +1,5 @@
 <!-- Guides changes to CHI transaction mechanisms. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing CHI transaction mechanisms
 

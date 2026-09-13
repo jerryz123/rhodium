@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic, exactly-once materialization of finite routing relations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

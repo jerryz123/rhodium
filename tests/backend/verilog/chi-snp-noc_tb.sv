@@ -1,4 +1,5 @@
 // Simulates NodeID-selected CHI SNP delivery through an independently routed plane.
+// SPDX-License-Identifier: Apache-2.0
 module chi_snp_noc_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHISnoopDispatch bits; } dispatch_t;

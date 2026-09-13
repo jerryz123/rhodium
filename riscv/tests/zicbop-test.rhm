@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks Zicbop encodings, operands, and signed 32-byte-granular offsets.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/integer-common.rhm".ORI

@@ -1,5 +1,6 @@
 #lang rhodium
 // Converts pure RISC-V instruction encodings into typed Rhodium input patterns.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/encoding.rhm".InstructionEncoding

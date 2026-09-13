@@ -1,4 +1,5 @@
 // Simulates reset and cycle-by-cycle shifting in the parameterized vector register.
+// SPDX-License-Identifier: Apache-2.0
 module vec_shift_register_param_tb;
     logic clock = 1'b0;
     logic reset = 1'b1;

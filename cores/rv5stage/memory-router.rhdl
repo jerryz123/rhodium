@@ -1,5 +1,6 @@
 #lang rhodium
 // Routes permitted data accesses between L1D and a completion-owned IO-MSHR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../load-store.rhdl".MemoryWidth

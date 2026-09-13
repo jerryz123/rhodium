@@ -1,5 +1,6 @@
 #lang rhodium
 // Retains two committed owned-line stores and checks physical byte and snoop hazards.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/xlen.rhm" open

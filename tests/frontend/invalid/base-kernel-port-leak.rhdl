@@ -1,4 +1,5 @@
 #lang rhodium/base
 // Ensures public port syntax does not also expose the kernel's same-named input function.
+// SPDX-License-Identifier: Apache-2.0
 
 def port = input("a", Bits(1))

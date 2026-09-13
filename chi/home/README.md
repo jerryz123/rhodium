@@ -1,4 +1,5 @@
 <!-- Describes the public boundary of CHI Home engines. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # CHI Home engines
 

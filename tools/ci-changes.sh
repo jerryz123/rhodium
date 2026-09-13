@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Classifies changed repository paths into dependency-aware CI job matrices.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 host_foundation=false
@@ -193,7 +194,7 @@ classify_path() {
   # Workloads follow the complete SimpleSoC dependency closure independently
   # of host/CIRCT grouping. More specific suite paths must precede broad roots.
   case "$path" in
-    *.md|LICENSE|LICENSE.*|AGENTS.md|.gitignore|.gitattributes|tests/emacs/*|tools/emacs/*) ;;
+    *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes|tests/emacs/*|tools/emacs/*) ;;
     sims/program-test/isa.mk) program_isa=true ;;
     sims/arch-test/*|sims/tests/test_arch_test.py|riscv/riscv-arch-test|riscv/riscv-arch-test/*|tools/write-riscv-udb-config.rhm)
       program_arch=true ;;
@@ -211,7 +212,7 @@ classify_path() {
       ;;
   esac
   case "$path" in
-    *.md|LICENSE|LICENSE.*|AGENTS.md|.gitignore|.gitattributes)
+    *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes)
       # Documentation and repository metadata cannot affect executable behavior.
       ;;
     sram/*|vlsi/sim/*|vlsi/designs/mini-soc/sky130/*)
@@ -255,7 +256,7 @@ classify_path() {
     tools/write-noc-router-diagram.rhm)
       mark_example_noc
       ;;
-    .githooks/pre-commit|tools/check-parameter-annotations.rkt|tools/parameter-annotation-scope.txt|tools/check-boundaries.sh|rfpl/check-boundaries.sh|noc/check-boundaries.sh|riscv/check-boundaries.sh|chi/check-boundaries.sh|cores/check-boundaries.sh|socs/check-boundaries.sh)
+    .githooks/pre-commit|tools/check-license-headers.sh|tools/check-parameter-annotations.rkt|tools/parameter-annotation-scope.txt|tools/check-boundaries.sh|rfpl/check-boundaries.sh|noc/check-boundaries.sh|riscv/check-boundaries.sh|chi/check-boundaries.sh|cores/check-boundaries.sh|socs/check-boundaries.sh)
       host_hygiene=true
       ;;
     rhodium/event/*|rheg/*)

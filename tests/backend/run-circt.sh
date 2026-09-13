@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Checks CIRCT lowering, Verilog goldens, simulations, and event snapshot handoff.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 mode=run

@@ -1,4 +1,5 @@
 <!-- Documents optional backend-independent analyses over Rhodium core IR. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium analysis
 

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks standard flow generators, internal invariants, parameters, and public IR shape.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

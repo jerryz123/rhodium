@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits an opt-in Ssnpm core for tagged-address, serialization, replay, and fault tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

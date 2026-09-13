@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Defines nested reset scopes for focused sync-circuit composition tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/comb.rhm") open

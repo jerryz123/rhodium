@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises direct/configured crossbar ancestry through independent input queues.
+// SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
 

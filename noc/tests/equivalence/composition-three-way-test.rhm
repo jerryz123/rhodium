@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves raw, builder, and embedded composed-topology routing have identical semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

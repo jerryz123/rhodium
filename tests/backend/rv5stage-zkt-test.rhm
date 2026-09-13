@@ -1,5 +1,6 @@
 #lang rhombus
 // Guards timing-ROM coverage against omissions when implemented instruction catalogs change.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../cores/rv5stage/tests/zkt-program.rhm" open

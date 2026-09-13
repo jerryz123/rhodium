@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks clock-analysis summaries, reset inventory, aliases, and one-clock certification.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,4 +1,5 @@
 // Scores stall observations against public offers and accepted-token FIFOs, never trace internals.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-stall_manifest.h"
 #include <array>

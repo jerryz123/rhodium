@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines inline payload transformation as a generic interface handle.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

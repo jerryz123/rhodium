@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a flat 64-bit vector bank with three synchronous reads and one bit-masked write.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/vector.rhm" open

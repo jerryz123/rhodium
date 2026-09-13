@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines hardware-enum declarations over shared nominal variant schemas.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

@@ -1,4 +1,5 @@
 // Qualifies constrained word/doubleword loops on real SoC memory paths, including multihart contention.
+// SPDX-License-Identifier: Apache-2.0
 .option norvc
 .option norelax
 .section .text

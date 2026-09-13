@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates the RV64 RV5Stage core into a logical diagram.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../cores/rv5stage/core.rhdl" open

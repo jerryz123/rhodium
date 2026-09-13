@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements reusable fixed-format 8-N-1 UART transmit and receive engines.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

@@ -1,4 +1,5 @@
 // Defines bounded byte storage shared by clocked CHI DPI and simulator image loading.
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <array>

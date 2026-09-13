@@ -1,4 +1,5 @@
 // Exercises simple-router matching, buffering, ejection, and backpressure.
+// SPDX-License-Identifier: Apache-2.0
 module noc_router_tb;
     logic clock;
     logic reset;

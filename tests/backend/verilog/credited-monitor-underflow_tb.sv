@@ -1,4 +1,5 @@
 // Violates the credited monitor by transmitting without a previously held credit.
+// SPDX-License-Identifier: Apache-2.0
 module credited_monitor_underflow_tb;
   typedef struct packed { logic credit; } link_reverse_t;
   typedef struct packed { logic valid; logic [7:0] bits; } link_forward_t;

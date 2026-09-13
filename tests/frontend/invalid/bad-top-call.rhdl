@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalid fixture constructing a circuit outside an elaborate expression.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadTopCall(width):
   input a: Bits(width)

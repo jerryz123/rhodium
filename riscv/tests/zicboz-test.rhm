@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks Zicboz encoding, rs1-only assembly, and fixed-field discrimination.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

@@ -1,4 +1,5 @@
 // Simulates every RV64I integer ALU resource-control combination and width edge case.
+// SPDX-License-Identifier: Apache-2.0
 module rv64i_alu_tb;
   logic [63:0] left;
   logic [63:0] right;

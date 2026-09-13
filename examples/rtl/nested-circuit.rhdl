@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a private child circuit that captures a host parameter.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Incrementer(width :: PosInt):
   input value_in: Bits(width)

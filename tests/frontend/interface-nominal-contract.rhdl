@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines one side of a same-named interface collision used to test nominal identity.
+// SPDX-License-Identifier: Apache-2.0
 
 interface Collision(T):
   role producer

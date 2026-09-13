@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that CHI endpoint adapters resolve through uniform router-family slots.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "family-noc-fixture.rhdl" as fixture

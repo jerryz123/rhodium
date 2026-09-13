@@ -1,4 +1,5 @@
 // Checks S1/S2 routing, explicit replay, exactly-once uncached work, and cancellation.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_instruction_memory_router_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageFetchResult bits; } result_t;

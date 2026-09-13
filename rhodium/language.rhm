@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Assembles #lang rhodium as the curated standard frontend profile over ordinary Rhombus.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus

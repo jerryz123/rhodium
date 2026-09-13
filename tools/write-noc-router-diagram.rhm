@@ -1,5 +1,6 @@
 #lang rhombus
 // Writes the generated packet-retaining NoC router diagram to a requested directory.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the standard RISC-V interrupt causes and architectural cause codes.
+// SPDX-License-Identifier: Apache-2.0
 
 enum InterruptCause
 | SupervisorSoftware

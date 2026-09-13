@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines sync circuits with hidden ambient controls and scoped synchronous resets.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

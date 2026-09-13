@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects passing a register handle directly to a circuit generator.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Child(parameter):
   input x: Bits(1)

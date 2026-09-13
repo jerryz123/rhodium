@@ -1,5 +1,6 @@
 #lang rhodium
 // Qualifies XLEN and predictor specializations under inclusive-Home and competing LR/SC traffic.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../rv5stage.rhdl".RV5Stage

@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves raw, standard-builder, and embedded forms have identical 2x2 XY semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

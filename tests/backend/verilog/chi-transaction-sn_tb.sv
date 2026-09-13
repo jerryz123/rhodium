@@ -1,4 +1,5 @@
 // Simulates legal initial-profile CHI transactions at a Subordinate Node.
+// SPDX-License-Identifier: Apache-2.0
 module chi_transaction_sn_tb;
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

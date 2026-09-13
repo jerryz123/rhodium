@@ -1,5 +1,6 @@
 #lang rhodium
 // Resolves conditional and unconditional control transfers from orthogonal controls.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

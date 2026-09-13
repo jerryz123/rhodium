@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks enum-owned hardware methods and exact static-information propagation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

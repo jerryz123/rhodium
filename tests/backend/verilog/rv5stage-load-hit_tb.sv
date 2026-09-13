@@ -1,4 +1,5 @@
 // Checks real-core load timing, authorization, and exact demand-to-refill event ancestry.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_load_hit_tb;
   typedef struct packed {logic ready;} ready_t;
   typedef struct packed {logic [63:0] address;} ireq_bits_t;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that host control uses Rhombus truthiness while hardware control remains hardware-only.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

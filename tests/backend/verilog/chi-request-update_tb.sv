@@ -1,4 +1,5 @@
 // Checks generic stripe edge cases and metadata-transparent CHI address projection.
+// SPDX-License-Identifier: Apache-2.0
 module chi_request_update_tb;
   logic [11:0] offset;
   wire [11:0] dense_single, dense_four, dense_byte, dense_stripe_only;

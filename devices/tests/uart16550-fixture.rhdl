@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates a FIFO-equipped CHI UART fixture for host and backend verification.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("devices/uart16550.rhdl") open

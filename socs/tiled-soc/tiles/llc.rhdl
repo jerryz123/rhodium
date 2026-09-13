@@ -1,5 +1,6 @@
 #lang rhodium
 // Attaches both sides of one inclusive LLC slice to the shared CHI fabric.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks shift operator elaboration, provenance, result widths, and host-integer fallback.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

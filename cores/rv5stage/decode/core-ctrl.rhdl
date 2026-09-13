@@ -1,5 +1,6 @@
 #lang rhodium
 // Composes RV5Stage's scalar, optional-extension, floating-point, and system controls.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/zawrs.rhm" open

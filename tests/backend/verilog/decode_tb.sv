@@ -1,4 +1,5 @@
 // Simulates only the output bits constrained by the typed decode relation.
+// SPDX-License-Identifier: Apache-2.0
 module decode_tb;
     logic [4:0] encoded;
     logic [1:0] alu;

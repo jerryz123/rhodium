@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines raw fetch occurrences crossing from the speculative frontend into core Decode.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "btb.rhdl" open

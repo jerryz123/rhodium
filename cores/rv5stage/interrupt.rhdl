@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's controller-independent standard interrupt input contract.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../riscv/isa/interrupt.rhm" open

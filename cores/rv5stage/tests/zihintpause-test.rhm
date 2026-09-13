@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks exact PAUSE overlays, inactive effects, neighboring fences, and profile-selected decoding.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/frontend/kernel.rhm" as embedded

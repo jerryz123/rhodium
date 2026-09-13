@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks rectangular-mesh generation, typed queries, prefixing, and normalized equivalence.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../authoring/main.rhm" open

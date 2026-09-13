@@ -1,4 +1,5 @@
 // Verifies selective joining consumes the control and exactly the selected data lanes atomically.
+// SPDX-License-Identifier: Apache-2.0
 module selective_join_tb;
   typedef struct packed {
     logic       valid;

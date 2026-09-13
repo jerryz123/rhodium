@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks Zicbom's composed controls, opt-in catalog, and architectural profile.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/std/decode.rhdl" open

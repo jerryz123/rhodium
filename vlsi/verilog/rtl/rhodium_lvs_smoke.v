@@ -1,4 +1,5 @@
 // Wraps the generated Rhodium inverter with explicit supplies for focused LVS testing.
+// SPDX-License-Identifier: Apache-2.0
 
 `default_nettype none
 

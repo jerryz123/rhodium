@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Executes every manifest ELF with bounded resources and explicit HTIF completion accounting.
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import hashlib

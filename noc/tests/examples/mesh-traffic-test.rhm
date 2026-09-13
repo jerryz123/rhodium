@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks concrete mesh traffic instantiation without adding traffic choices to reusable modules.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../examples/mesh-traffic.rhm" open

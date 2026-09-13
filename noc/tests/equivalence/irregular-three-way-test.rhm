@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves raw, builder, and embedded forms have identical irregular-network semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

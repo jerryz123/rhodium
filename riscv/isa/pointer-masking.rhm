@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the architectural PMM encodings and supported RV64 pointer-mask lengths.
+// SPDX-License-Identifier: Apache-2.0
 
 enum PointerMaskMode
 | Disabled

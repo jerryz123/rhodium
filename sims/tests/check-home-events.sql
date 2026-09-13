@@ -1,4 +1,5 @@
 -- Checks retained Home ownership and the network round trip to D-cache return events.
+-- SPDX-License-Identifier: Apache-2.0
 WITH events AS MATERIALIZED (
   SELECT s.id, s.ts, s.arg_set_id, t.name, s.name AS opcode
   FROM slice s JOIN track t ON t.id=s.track_id WHERE s.name!='stall'

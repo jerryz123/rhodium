@@ -1,4 +1,5 @@
 // Reconstructs broadcast ancestry from public transfers and compares the complete DPI graph.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>

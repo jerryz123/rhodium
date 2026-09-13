@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a combinational feedback loop that crosses an identity-child boundary.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Identity():
   input a: Bits(1)

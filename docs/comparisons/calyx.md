@@ -1,4 +1,5 @@
 <!-- Compares Rhodium's exact RTL construction model with Calyx's control-oriented accelerator IR. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and Calyx: exact RTL and scheduled accelerator control
 

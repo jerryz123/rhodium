@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines the recursively composable explicit-role interface frontend layer.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

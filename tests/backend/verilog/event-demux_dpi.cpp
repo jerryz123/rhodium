@@ -1,4 +1,5 @@
 // Reconstructs exact demux ancestry from public routing transfers, not compiler observations.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>

@@ -1,5 +1,6 @@
 #lang rhombus
 // Writes one concrete RISC-V UDB configuration selected from the repository catalog.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Dynamically loads one selected SoC harness and emits its CIRCT input.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open

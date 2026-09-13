@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines protocol-neutral sets, stripe geometry, and overflow-safe hardware transfer matching.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

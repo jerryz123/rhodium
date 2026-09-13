@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's serialized non-speculative Sv39 page-table walker.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "protocol.rhdl" open

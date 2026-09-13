@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines host-side typed literal shadows and their generic packed materialization.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../core/ir.rhm" open

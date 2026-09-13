@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's two-read, two-write integer register file with x0 hardwired to zero.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../riscv/isa/xlen.rhm" open

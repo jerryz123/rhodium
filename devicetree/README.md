@@ -1,4 +1,5 @@
 <!-- Documents the generic host-side device-tree model and its DTS and DTB encoders. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Device trees
 

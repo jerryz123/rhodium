@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the shared introspection contract for finite hardware enum encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 export:
   FiniteEnumType

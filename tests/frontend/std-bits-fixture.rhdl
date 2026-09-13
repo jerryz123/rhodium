@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises generic bit ordering, layout, alignment, and lane-mask operations and invalid parameters.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

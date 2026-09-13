@@ -1,4 +1,5 @@
 <!-- Guides standalone vector storage/packing changes and their composed behavioral regression. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing vector storage and packing
 

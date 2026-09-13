@@ -1,4 +1,5 @@
 <!-- Defines flow library ownership, dependency boundaries, and focused validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the flow library
 

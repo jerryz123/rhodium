@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks dependency inference and safe JSON/C++ runtime manifest serialization.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("json/main.rkt").#{string->jsexpr} as parse_json

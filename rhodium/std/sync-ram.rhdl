@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements shared 1RW synchronous RAMs over one lane-masked request flow.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/read-write.rhdl") open

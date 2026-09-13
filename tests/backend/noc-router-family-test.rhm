@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic CIRCT lowering of a site-selected shared router family.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

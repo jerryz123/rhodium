@@ -1,4 +1,5 @@
 // Checks copyback retry, grant/snoop ordering, all DAT widths, and stalled retirement.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_copyback_tb;
   logic clock = 0, reset = 1;
   logic [2:0] enabled = 0;

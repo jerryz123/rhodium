@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines a validated host-side device-tree model with DTS and flattened-tree encoders.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(>>) as >>

@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises native optional-one-hot construction, inspection, masking, and total selection.
+// SPDX-License-Identifier: Apache-2.0
 
 def Maybe3 = MaybeOneHot(3)
 

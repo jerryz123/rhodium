@@ -1,5 +1,6 @@
 #lang rhombus
 // Intentionally declares an empty routing relation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

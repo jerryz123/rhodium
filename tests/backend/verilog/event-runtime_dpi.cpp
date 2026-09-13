@@ -1,4 +1,5 @@
 // Checks simulated event occurrences against an independent transfer scoreboard.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include <stdexcept>
 

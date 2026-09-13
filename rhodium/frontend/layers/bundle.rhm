@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines bundle declarations, type-named record construction, and field access.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

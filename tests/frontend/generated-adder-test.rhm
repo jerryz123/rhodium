@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks host-Array instance generation and vector-wire carry chaining in the n-bit adder.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Materializes every finite routing query once into a deterministic immutable snapshot.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

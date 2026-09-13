@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a one-bit full adder with nominal Boolean ports and combinational logic.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit FullAdder():
   input(a, b, cin): Bool

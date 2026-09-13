@@ -1,5 +1,6 @@
 #lang rhombus
 // Produces clock-use and hierarchy-aware temporal reports for a sync design.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/analysis/clocking.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects different CHI feature selections even when the RN-I wire shape is identical.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

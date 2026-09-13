@@ -1,4 +1,5 @@
 // Verifies an instruction access fault traps precisely and squashes younger execution.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_access_fault_tb;
   typedef struct packed {
     logic supervisor_software;

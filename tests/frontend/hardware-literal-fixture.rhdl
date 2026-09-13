@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises static literal shadows, aggregate packing, and extension-defined literals.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/types.rhm".BitwiseType

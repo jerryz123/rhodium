@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks irregular adaptive-cycle rejection, escape acceptance, and boundary equivalence.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

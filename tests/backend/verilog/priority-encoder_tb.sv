@@ -1,4 +1,5 @@
 // Exhaustively checks zero, one-hot, and multi-hot five-lane priority encoding.
+// SPDX-License-Identifier: Apache-2.0
 module priority_encoder_tb;
   logic [4:0] requests;
   logic [2:0] selected_index;

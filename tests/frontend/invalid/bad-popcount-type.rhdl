@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects population counting of a non-data hardware clock value.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadPopcountType():
   input source: Clock

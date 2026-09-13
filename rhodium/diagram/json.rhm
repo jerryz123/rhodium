@@ -1,5 +1,6 @@
 #lang rhombus
 // Serializes logical Rhodium diagrams to deterministic, tool-neutral JSON.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "model.rhm" open

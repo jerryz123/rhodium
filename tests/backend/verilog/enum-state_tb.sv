@@ -1,4 +1,5 @@
 // Simulates enum switch transitions and recovery through the generated state machine.
+// SPDX-License-Identifier: Apache-2.0
 module enum_state_tb;
   logic       clock;
   logic       reset;

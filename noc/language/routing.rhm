@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines unordered routing-rule syntax as a thin layer over public policy combinators.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

@@ -1,4 +1,5 @@
 // Simulates the CIRCT-exported explicitly reused module hierarchy.
+// SPDX-License-Identifier: Apache-2.0
 module hierarchy_tb;
     logic [7:0] a;
     logic [7:0] b;

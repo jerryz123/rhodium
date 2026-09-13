@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Verifies CI execution policy, dependency classification, and tracked executable coverage.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -77,6 +78,10 @@ check_no_jobs() {
 }
 
 check_no_jobs README.md
+check_no_jobs LICENSE
+check_no_jobs NOTICE
+check_no_jobs DCO
+check_no_jobs THIRD_PARTY_NOTICES.md
 check_field sims/arch-test/configure.py program_arch true
 check_field sims/arch-test/configure.py program_native false
 check_field sims/program-test/isa.mk program_matrix '{"include":[{"suite":"isa"}]}'
@@ -200,6 +205,7 @@ check_field tools/run-racket-tests.sh examples true
 check_field tools/run-racket-tests.sh simulation true
 check_matrix_entry tools/check-parameter-annotations.rkt host_matrix ci-host-hygiene-test
 check_matrix_entry tools/parameter-annotation-scope.txt host_matrix ci-host-hygiene-test
+check_matrix_entry tools/check-license-headers.sh host_matrix ci-host-hygiene-test
 check_matrix_entry .githooks/pre-commit host_matrix ci-host-hygiene-test
 check_matrix_entry socs/check-boundaries.sh host_matrix ci-host-hygiene-test
 check_field tests/backend/verilog/adder_tb.sv circt true

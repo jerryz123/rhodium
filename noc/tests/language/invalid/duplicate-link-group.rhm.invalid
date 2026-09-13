@@ -1,5 +1,6 @@
 #lang rhombus
 // Intentionally selects one VC group twice on a directed topology link.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

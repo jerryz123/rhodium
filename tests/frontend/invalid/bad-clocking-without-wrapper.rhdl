@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Rejects clocking declarations made outside the clock-aware elaboration wrapper.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/clocking.rhm") open

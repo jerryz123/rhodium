@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks normalized generator bindings for positional and keyword defaults and overrides.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the RV64D core with prefetch hints for WB authorization checks.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

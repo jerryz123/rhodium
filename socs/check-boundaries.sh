@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Keeps named SoC compositions independent and shared components below them.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Builds and verifies the pinned Verilator used by local and CI simulations.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

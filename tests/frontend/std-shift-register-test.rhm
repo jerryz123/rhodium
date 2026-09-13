@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks generic shift-register typing, reset modes, initialization, enable, and errors.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

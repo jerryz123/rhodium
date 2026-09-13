@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates stable host predicate policies inline through a Valid interface.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

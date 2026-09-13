@@ -1,4 +1,5 @@
 <!-- Documents the public streaming components and composition contracts of the flow library. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Flow library
 

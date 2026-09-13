@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CHI coherent-state widths and the public RN-F snoop family.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" as chi

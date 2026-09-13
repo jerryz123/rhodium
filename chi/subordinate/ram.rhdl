@@ -1,5 +1,6 @@
 #lang rhodium
 // Backs the shared native-CHI memory controller with a fixed-latency lane-masked SRAM.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl").alignment_bits

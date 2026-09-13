@@ -1,4 +1,5 @@
 <!-- Documents the reproducible Rhodium-to-GDS smoke flow for Double-Wide OpenFrame. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium physical-flow prototypes
 

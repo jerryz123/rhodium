@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines invalid selective atomic-fork uses for focused frontend diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

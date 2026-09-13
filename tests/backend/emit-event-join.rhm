@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits join instrumentation and its matching runtime manifest descriptor.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm".emit_circt

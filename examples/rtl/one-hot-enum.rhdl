@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a nominal one-hot enum selecting named datapath result families.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum ResultSelect(~encoding: one_hot):
   Arithmetic

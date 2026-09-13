@@ -1,5 +1,6 @@
 #lang rhombus
 // Intentionally reuses a link name across directed and bidirectional declarations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

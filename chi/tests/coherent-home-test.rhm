@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks mixed-requester HN-F host parameters and invalid configurations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" as chi

@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the core fixture and guards registered one-hot EX operand forwarding.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

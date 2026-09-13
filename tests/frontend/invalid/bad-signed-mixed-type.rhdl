@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects implicit arithmetic between signed integers and raw unsigned Bits.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadSignedMixedType():
   input left: SInt(8)

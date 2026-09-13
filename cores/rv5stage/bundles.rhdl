@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's pipeline payload and sideband bundle types.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "btb.rhdl" open

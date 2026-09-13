@@ -1,5 +1,6 @@
 #lang rhodium
 // Assembles three user-owned router subsystems into a validated two-hop transport.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../noc/model/main.rhm" open

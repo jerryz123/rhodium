@@ -1,5 +1,6 @@
 #lang rhodium
 // Owns one-at-a-time CHI MMIO transaction sequencing while devices supply decode, snapshots, and write policy.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm").NonemptyString

@@ -1,4 +1,5 @@
 # Balances MiniSoC's Sky130 RV64 arithmetic capture cones and proves each replacement before handoff.
+# SPDX-License-Identifier: Apache-2.0
 
 set step [file normalize $::env(MINI_SOC_SYNTH_STEP_DIR)]
 set out [file normalize $::env(MINI_SOC_POST_SYNTH_DIR)]

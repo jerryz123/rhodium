@@ -1,5 +1,6 @@
 #lang rhodium
 // Shares the MMIO service configuration between ordinary and traced host-engine regressions.
+// SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
   lib("chi/main.rhdl") open

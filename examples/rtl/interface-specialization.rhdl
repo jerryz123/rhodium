@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates declaration-owned compatibility between parameterized interface specializations.
+// SPDX-License-Identifier: Apache-2.0
 
 interface CapacityLink(capacity :: PosInt, width :: PosInt):
   role producer

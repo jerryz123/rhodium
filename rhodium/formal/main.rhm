@@ -1,5 +1,6 @@
 #lang rhombus
 // Exposes typed combinational equivalence, reachability, and output-property queries over verified Rhodium subjects.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

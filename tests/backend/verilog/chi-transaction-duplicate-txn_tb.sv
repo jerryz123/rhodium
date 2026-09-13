@@ -1,4 +1,5 @@
 // Violates the initial CHI transaction profile by reusing a live TxnID.
+// SPDX-License-Identifier: Apache-2.0
 module chi_transaction_duplicate_txn_tb;
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

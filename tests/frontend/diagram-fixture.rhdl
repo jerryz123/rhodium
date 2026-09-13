@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines a representative mapped, filtered, pipelined, and forked flow diagram fixture.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a PTY-backed DPI model for device-level UART simulation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("devices/uart.rhdl") open

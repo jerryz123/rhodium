@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes packet-to-instruction transfers for bypass, residual, fault, and kill tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../instruction-buffer.rhdl" open

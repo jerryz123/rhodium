@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic UDB YAML serialization and duplicate-key rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../udb.rhm" open

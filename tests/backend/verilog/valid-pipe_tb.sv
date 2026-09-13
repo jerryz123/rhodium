@@ -1,4 +1,5 @@
 // Exercises default Valid pipe latency, bubble advancement, and invalid-cycle payload retention.
+// SPDX-License-Identifier: Apache-2.0
 module valid_pipe_tb;
   typedef struct packed {
     logic       valid;

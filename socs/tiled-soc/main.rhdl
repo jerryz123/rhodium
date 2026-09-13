@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes the author-facing bootable TiledSoC configuration and structural circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

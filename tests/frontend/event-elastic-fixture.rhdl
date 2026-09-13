@@ -1,5 +1,6 @@
 #lang rhodium
 // Provides repeated traced elastic lanes and identical unannotated reference lanes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

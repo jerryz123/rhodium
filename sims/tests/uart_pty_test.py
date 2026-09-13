@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Checks real SoC UART pins against an external raw PTY client, with bounded execution."""
+# SPDX-License-Identifier: Apache-2.0
 
 import errno
 import os

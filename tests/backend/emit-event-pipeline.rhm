@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the fixed-latency event pipeline for an independent runtime scoreboard.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm".emit_circt

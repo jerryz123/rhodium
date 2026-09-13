@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Verifies RFPL CIRCT lowering and its example-owned normalized Verilog output.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"

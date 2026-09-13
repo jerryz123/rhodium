@@ -1,4 +1,5 @@
 // Verifies payload-selected atomic transfer, changing stalled offers, and empty selection.
+// SPDX-License-Identifier: Apache-2.0
 module selective_atomic_fork_tb;
   typedef struct packed {
     logic [2:0] destinations;

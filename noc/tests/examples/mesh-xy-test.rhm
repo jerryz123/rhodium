@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the concrete mesh-XY example reaches validated routing and deterministic tables.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

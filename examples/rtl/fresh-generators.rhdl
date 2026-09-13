@@ -1,5 +1,6 @@
 #lang rhodium
 // Shows repeated calls reusing one circuit specialization during elaboration.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Adder(width :: PosInt):
   input(a, b): Bits(width)

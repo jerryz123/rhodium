@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises immutable record replacement, exact result surfaces, and invalid updates.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum UpdateState(~width: 1):
   Idle = 0

@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalid fixture adding embedded hardware values with mismatched widths.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadWidth():
   input a: Bits(4)

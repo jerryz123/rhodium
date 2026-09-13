@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks scalar capabilities, canonical packed widths, and aggregate type boundaries.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

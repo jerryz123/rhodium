@@ -1,4 +1,5 @@
 <!-- Guides implementation and validation of RV5Stage's set-isolated hit-under-miss data cache. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the RV5Stage data cache
 

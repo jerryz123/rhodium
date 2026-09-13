@@ -1,5 +1,6 @@
 #lang rhodium
 // Keeps Endpoint.of exact when an interface family declares relaxed connection compatibility.
+// SPDX-License-Identifier: Apache-2.0
 
 interface CapacityLink(capacity):
   role producer

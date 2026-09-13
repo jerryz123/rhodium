@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects signed ordering across different explicit widths.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadSignedComparison():
   input left: SInt(4)

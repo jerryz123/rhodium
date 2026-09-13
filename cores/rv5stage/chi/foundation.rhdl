@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's RN-F/RN-I endpoint parameters and conservative CHI flit constructors.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../cache.rhdl".RV5StageCacheLineBytes

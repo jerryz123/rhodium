@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the Zifencei catalog and its architecturally ignored encoding fields.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/zifencei.rhm" open

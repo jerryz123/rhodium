@@ -1,5 +1,6 @@
 #lang rhombus
 // Aggregates the public validated-routing planning API.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "validated-routing.rhm" open

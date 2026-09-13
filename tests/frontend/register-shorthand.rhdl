@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Exercises inferred-type and immediate-next register forms in ambient and explicit domains.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/sequential.rhm") open

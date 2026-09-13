@@ -1,5 +1,6 @@
 #lang rhombus
 // Composes adaptive and escape policies with irreversible VC-group transitions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

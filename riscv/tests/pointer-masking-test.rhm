@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the architectural PMM encodings and corresponding ignored pointer lengths.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/pointer-masking.rhm" open

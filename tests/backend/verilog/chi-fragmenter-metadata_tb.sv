@@ -1,4 +1,5 @@
 // Checks complete native DAT/RSP transformations across widths/options, ordering, and stalls.
+// SPDX-License-Identifier: Apache-2.0
 module chi_fragmenter_metadata_case #(
   parameter int DATA_WIDTH = 128,
   parameter type InputT = logic,

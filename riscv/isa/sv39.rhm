@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the host-visible constants and field helpers for Sv39 translation.
+// SPDX-License-Identifier: Apache-2.0
 
 def Sv39ModeBare :: Nat = 0
 def Sv39Mode :: Nat = 8

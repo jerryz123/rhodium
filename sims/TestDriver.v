@@ -1,4 +1,5 @@
 // Clocks a generated SoCHarness and bounds execution with an optional max-cycles plusarg.
+// SPDX-License-Identifier: Apache-2.0
 module TestDriver;
   reg clock;
   reg reset;

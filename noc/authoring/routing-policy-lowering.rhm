@@ -1,5 +1,6 @@
 #lang rhombus
 // Lowers symbolic routing policies to the sole normalized RoutingRelation callback path.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

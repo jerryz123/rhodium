@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks bounded coherent reads, full-line copyback handoffs, paired DVM, and RN-F snoops.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

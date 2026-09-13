@@ -1,4 +1,5 @@
 -- Checks shared-track stall durations, exact hazard flags, and non-advancing lineage.
+-- SPDX-License-Identifier: Apache-2.0
 WITH tracks AS MATERIALIZED (
   SELECT t.id, t.name, EXTRACT_ARG(t.source_arg_set_id,'description') AS schema
   FROM track t WHERE t.name GLOB 'core.*' OR t.name GLOB '[id]cache.*' OR t.name GLOB 'frontend.*'

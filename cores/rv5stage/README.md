@@ -1,4 +1,5 @@
 <!-- Defines RV5Stage's public microarchitecture, system boundary, and supported behavior. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV5Stage
 

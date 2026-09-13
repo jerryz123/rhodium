@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that callable Bool literals lower through explicit Bits constants and casts.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

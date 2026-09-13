@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks popcount result widths and capacity-sized balanced-adder lowering.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

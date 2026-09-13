@@ -1,4 +1,5 @@
 <!-- Defines the standalone RV5Stage vector register bank and packed execution adapters. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Vector storage and packing
 

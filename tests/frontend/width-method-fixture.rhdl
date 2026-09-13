@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises receiver width extension through precise frontend value producers.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle WidthPair():
   unsigned: Bits(4)

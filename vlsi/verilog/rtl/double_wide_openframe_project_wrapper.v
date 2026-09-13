@@ -1,4 +1,5 @@
 // Connects the minimal Rhodium leaf to the pinned Double-Wide OpenFrame pad contract.
+// SPDX-License-Identifier: Apache-2.0
 
 `default_nettype none
 

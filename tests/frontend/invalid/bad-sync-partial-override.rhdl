@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an explicit sync-child override that supplies only one domain signal.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit Child():
   output value: Bits(1)

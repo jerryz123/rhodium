@@ -1,5 +1,6 @@
 #lang rhodium
 // Materializes an arbitrary hardware member of a typed host-side Pattern cube.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/decode/pattern.rhdl").Pattern

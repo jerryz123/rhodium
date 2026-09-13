@@ -1,5 +1,6 @@
 #lang rhombus
 // Synthesizes deterministic up*/down* routing for connected bidirectional topologies.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

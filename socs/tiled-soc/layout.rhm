@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines the author-facing TiledSoC layout, NodeIDs, boot policy, and immutable configuration.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

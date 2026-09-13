@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a clocked effect in a sync circuit that uses a second clock input.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit ForeignClockedState():
   input other_clock: Clock

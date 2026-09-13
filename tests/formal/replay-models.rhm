@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves differential identities and prints replayable Rosette counterexample vectors.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/formal/main.rhm" open

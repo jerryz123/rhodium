@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Enforces ownership, dependency, and generated-file boundaries for processor cores.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

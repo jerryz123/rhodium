@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks standard scoreboard interfaces, state, lookup, assertions, and bounds.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

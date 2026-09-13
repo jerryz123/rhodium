@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Runs isolated invalid CHI programs and checks their package-owned diagnostics.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"

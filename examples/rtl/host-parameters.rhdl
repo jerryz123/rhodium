@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates StableCircuitParam reuse and hardware-type circuit parameters.
+// SPDX-License-Identifier: Apache-2.0
 
 class HostConfig(use_configured_width :: Boolean,
                  width :: PosInt,

@@ -1,4 +1,5 @@
 // Checks permanent HardFloat representation, conversion, rounding, and arithmetic behavior.
+// SPDX-License-Identifier: BSD-3-Clause
 module hardfloat_representation_tb;
   integer ieee_value;
   integer low_mask_input;

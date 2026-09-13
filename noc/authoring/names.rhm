@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines symbolic hierarchical NoC authoring handles and named virtual-channel groups.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

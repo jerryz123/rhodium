@@ -1,4 +1,5 @@
 // Checks two-hart time packet stability, atomic reconstruction, and latest-snapshot coalescing.
+// SPDX-License-Identifier: Apache-2.0
 module tiled_time_tb;
   logic clock = 0;
   logic reset = 1;

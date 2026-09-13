@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects binary priority encoding of a non-data hardware clock value.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadPriorityEncoderType():
   input source: Clock

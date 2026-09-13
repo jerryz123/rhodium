@@ -1,5 +1,6 @@
 #lang rhodium
 // Connects two real L1Ds, a tiny inclusive Home, and SRAM for LR/SC progress tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../dcache/cache.rhdl" open

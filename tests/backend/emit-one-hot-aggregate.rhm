@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT MLIR for one-hot selection over a packed aggregate value.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

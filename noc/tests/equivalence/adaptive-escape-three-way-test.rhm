@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves raw, builder, and embedded adaptive-escape routing have identical proof results.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

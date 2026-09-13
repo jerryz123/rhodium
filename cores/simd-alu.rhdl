@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements shared-width packed integer/bit-manipulation datapaths and widening operand preparation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../rhodium/std/bits.rhdl" open

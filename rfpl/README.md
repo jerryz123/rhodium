@@ -1,4 +1,5 @@
 <!-- Documents RFPL's public physical-view language, validation rules, and limits. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RFPL physical views
 

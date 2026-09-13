@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CHI endpoint contracts and structural link equality, including every credit-field mismatch.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" as chi

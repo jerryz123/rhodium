@@ -1,4 +1,5 @@
 // Compares directly streamed Perfetto prefixes with a replayable snapshot fixture.
+// SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include <filesystem>
 #include <fstream>

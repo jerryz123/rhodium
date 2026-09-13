@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks hierarchical block extraction and compound ready-valid flow channels.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("json/main.rkt").#{string->jsexpr} as parse_json

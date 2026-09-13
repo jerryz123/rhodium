@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits buffered-broadcast event tracing and unannotated reference lanes for simulation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm".emit_circt

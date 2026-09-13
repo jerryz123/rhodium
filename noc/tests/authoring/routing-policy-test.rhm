@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks inspectable routing-policy composition, symbolic lowering, and invalid references.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

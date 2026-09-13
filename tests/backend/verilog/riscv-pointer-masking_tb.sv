@@ -1,4 +1,5 @@
 // Sweeps PMM, effective privilege, MXR, translation, tags, and width specialization.
+// SPDX-License-Identifier: Apache-2.0
 module riscv_pointer_masking_tb;
   logic [63:0] address, mstatus, satp, senvcfg;
   logic [1:0] privilege, effective;

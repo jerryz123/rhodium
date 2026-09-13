@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates arithmetic negation, reductions, membership tests, and enum validity.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum MembershipState:
   Idle

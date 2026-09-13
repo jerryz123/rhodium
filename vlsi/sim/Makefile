@@ -1,4 +1,5 @@
 # Builds and runs a MiniSoC simulator after site-specific SRAM macro mapping.
+# SPDX-License-Identifier: Apache-2.0
 
 .DELETE_ON_ERROR:
 

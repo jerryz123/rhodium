@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines typed CSR values and a descriptor-derived CSR bank authoring layer.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks PLIC host configuration, CHI service metadata, elaboration, and parameter rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm".verify_design

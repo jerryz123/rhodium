@@ -1,4 +1,5 @@
 // Confirms that an RN-F completion acknowledgement requires completed read data.
+// SPDX-License-Identifier: Apache-2.0
 module chi_coherent_early_comp_ack_tb;
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

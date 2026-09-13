@@ -1,5 +1,6 @@
 #lang rhodium
 // Materializes the standard ten-state counter and its readable Verilog reference.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/counter.rhdl") open

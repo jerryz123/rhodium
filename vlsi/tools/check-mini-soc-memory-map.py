@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Verifies the exact RV64 MiniSoC SRAM mapping shared by synthesis and simulation.
+# SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 

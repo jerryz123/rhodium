@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the validation gate and exact route-table projection from the materialized relation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an interface member that is neither hardware data nor a nested interface type.
+// SPDX-License-Identifier: Apache-2.0
 
 interface BadNested():
   role producer

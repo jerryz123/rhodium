@@ -1,5 +1,6 @@
 #lang rhodium
 // Must reject bulk connection between distinct interface definitions.
+// SPDX-License-Identifier: Apache-2.0
 
 interface FirstLink(T):
   role producer

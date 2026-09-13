@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a signed literal outside the declared two's-complement range.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadSignedLiteral():
   output result: SInt(8)

@@ -1,4 +1,5 @@
 // Adapts CHI-owned byte storage to the simulation loader without coupling CHI to FESVR.
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include "chi_memory.h"

@@ -1,4 +1,5 @@
 <!-- Explains how to change, extend, and validate Rhodium's backend-independent core. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the Rhodium core
 

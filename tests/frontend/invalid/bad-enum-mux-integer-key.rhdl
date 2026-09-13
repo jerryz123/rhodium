@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalid fixture using an untyped integer key with an enum mux selector.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum State:
   Idle

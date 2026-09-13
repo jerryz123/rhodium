@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates positional, keyword, typed, defaulted, and synchronous generator parameters.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit OrdinaryDefaults(width :: PosInt = 4 + 4,
                          ~extra: extra :: PosInt = 2 - 1):

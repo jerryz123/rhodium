@@ -1,4 +1,5 @@
 // Simulates ordering and backpressure through a chained Queue and Pipe.
+// SPDX-License-Identifier: Apache-2.0
 module flow_chain_tb;
   typedef struct packed {
     logic       valid;

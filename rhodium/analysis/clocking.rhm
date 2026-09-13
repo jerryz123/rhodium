@@ -1,5 +1,6 @@
 #lang rhombus
 // Exposes backend-independent clock-use and temporal-provenance analysis over core IR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "clocking/module.rhm" open

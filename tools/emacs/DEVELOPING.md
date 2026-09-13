@@ -1,4 +1,5 @@
 <!-- Guides contributors through maintaining and validating Rhodium's Emacs integration. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the Emacs integration
 

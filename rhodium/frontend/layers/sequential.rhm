@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines explicit and sync-domain ambient binding-derived register syntax.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

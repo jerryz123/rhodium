@@ -1,4 +1,5 @@
 <!-- Explains CIRCT fixtures, event snapshot/stream tests, and Verilog references. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing backend tests
 

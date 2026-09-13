@@ -1,4 +1,5 @@
 // Verifies CBO.ZERO replay, single retirement, fence ordering, and precise faults.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_zicboz_tb;
   typedef struct packed {
     logic supervisor_software;

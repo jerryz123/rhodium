@@ -1,4 +1,5 @@
 // Simulates vector construction, selection, packing, projection, and registers after CIRCT export.
+// SPDX-License-Identifier: Apache-2.0
 module vector_tb;
     logic clk = 1'b0;
     logic reset = 1'b1;

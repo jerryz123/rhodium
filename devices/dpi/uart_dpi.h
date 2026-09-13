@@ -1,4 +1,5 @@
 // Declares the PTY-backed UART DPI ABI and model observations.
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 extern "C" char uart_pty_tick(

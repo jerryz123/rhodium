@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises nominal identity, provider orientation, and specialization-defined interface compatibility.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "interface-nominal-contract.rhdl" as foreign

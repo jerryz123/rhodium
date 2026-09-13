@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks embedded #lang rhodium elaboration and user-library layering.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

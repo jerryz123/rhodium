@@ -1,4 +1,5 @@
 // Checks joined lineage and manifest-bound snapshots under stalls, reset, and reconvergence.
+// SPDX-License-Identifier: Apache-2.0
 module event_join_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

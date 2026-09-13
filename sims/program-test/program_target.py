@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Validates program-target descriptors, fingerprints them, and inspects RISC-V ELF attributes.
+# SPDX-License-Identifier: Apache-2.0
 import hashlib
 import json
 from pathlib import Path

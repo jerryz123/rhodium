@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines M/S/U cache-block privilege policy and xenvcfg WARL field handling.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/xlen.rhm" open

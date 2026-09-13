@@ -1,4 +1,5 @@
 // Simulates an enabled dynamic vector-register write and conditional hold.
+// SPDX-License-Identifier: Apache-2.0
 module vector_register_update_tb;
     logic clock = 1'b0;
     logic reset = 1'b1;

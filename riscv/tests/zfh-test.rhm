@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the Zfhmin and Zfh instruction catalogs and their architectural boundaries.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/zfhmin.rhm" as zfhmin

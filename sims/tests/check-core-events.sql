@@ -1,4 +1,5 @@
 -- Checks named PC/instruction captures, scalar stage ancestry, and real pipeline latency.
+-- SPDX-License-Identifier: Apache-2.0
 WITH pcs AS (
   SELECT s.id, t.name, s.name AS mnemonic, s.ts, s.arg_set_id,
     EXTRACT_ARG(s.arg_set_id, 'debug.pc') AS pc,

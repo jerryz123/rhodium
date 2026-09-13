@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the reusable explicit-address pointer-masking fixture for CIRCT simulation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

@@ -1,4 +1,5 @@
 // Simulates equality boundaries and unsigned high-bit ordering comparisons.
+// SPDX-License-Identifier: Apache-2.0
 module unsigned_comparisons_tb;
     logic [7:0] a;
     logic [7:0] b;

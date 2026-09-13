@@ -1,4 +1,5 @@
 // Exercises output-greedy one-to-one grants, input rotation, and stalled priorities.
+// SPDX-License-Identifier: Apache-2.0
 module round_robin_matcher_tb;
   logic clock = 1'b0;
   logic reset = 1'b1;

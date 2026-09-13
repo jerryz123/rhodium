@@ -1,5 +1,6 @@
 #lang rhombus
 // Intentionally declares topology metadata without any topology node.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../language/main.rhm" open

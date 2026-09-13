@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines Rhodium's canonical hardware-type abstraction and structural predicates.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

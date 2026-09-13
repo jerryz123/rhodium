@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an explicit hardware-enum encoding that exceeds its declared width.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum BadWidth(~width: 2):
   TooLarge = 4

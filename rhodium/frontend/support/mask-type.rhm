@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the shared structural protocol implemented by fixed-width lane-set masks.
+// SPDX-License-Identifier: Apache-2.0
 
 export:
   MaskType

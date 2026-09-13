@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the validated AMBA CHI physical flit parameterization.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

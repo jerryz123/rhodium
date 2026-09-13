@@ -1,4 +1,5 @@
 // Checks the public retained-owner circuit against an independent state/handshake model.
+// SPDX-License-Identifier: Apache-2.0
 module event_retained_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

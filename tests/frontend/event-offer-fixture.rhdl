@@ -1,5 +1,6 @@
 #lang rhodium
 // Traces qualified best-effort offers without changing their public handshake.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

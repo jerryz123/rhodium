@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates descriptor-generated RISC-V fields and immediate extraction.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/model/fields.rhm") open

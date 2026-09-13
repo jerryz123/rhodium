@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the host-side RV32 and RV64 M divide decode relation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/frontend/layers/bool.rhm" as bool

@@ -1,4 +1,5 @@
 // Reconstructs arbiter ancestry from accepted transfers, never from compiler grant observations.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>

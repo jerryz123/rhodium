@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises clocking declarations now included in the standard Rhodium profile.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit ClockingTop():
   input clock: Clock

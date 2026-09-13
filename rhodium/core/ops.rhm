@@ -1,5 +1,6 @@
 #lang rhombus
 // Registers namespaced Rhodium operations and their structural and behavioral schemas.
+// SPDX-License-Identifier: Apache-2.0
 
 export:
   OperationSchema

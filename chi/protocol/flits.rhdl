@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the exact AMBA CHI opcodes and parameterized protocol flit layouts.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl") open

@@ -1,4 +1,5 @@
 # Synthesizes mapped MiniSoC RTL through Slang with Sky130 SRAM physical views.
+# SPDX-License-Identifier: Apache-2.0
 
 DESIGN_NAME: MiniSoC
 VERILOG_FILES:

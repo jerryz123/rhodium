@@ -1,5 +1,6 @@
 #lang rhodium
 // Must reject behavioral support attributed to a role other than the provider.
+// SPDX-License-Identifier: Apache-2.0
 
 interface BaseProtocol():
   role producer

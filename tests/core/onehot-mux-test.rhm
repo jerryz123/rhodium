@@ -1,5 +1,6 @@
 #lang rhombus
 // Verifies core one-hot mux construction, printing, aggregate typing, and rejection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

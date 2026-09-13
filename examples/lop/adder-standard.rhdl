@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds the reference adder with the standard binding and operator layers.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Adder(width :: PosInt):
   input(a, b): Bits(width)

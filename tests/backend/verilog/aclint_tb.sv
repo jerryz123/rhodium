@@ -1,4 +1,5 @@
 // Verifies the CHI-native ACLINT timer, compare, software-interrupt, and masking behavior.
+// SPDX-License-Identifier: Apache-2.0
 module aclint_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

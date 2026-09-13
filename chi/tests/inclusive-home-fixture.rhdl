@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates a small inclusive HN-F with two caching peers and partial dirty data.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/interconnect.rhdl").StripedAddressLayout

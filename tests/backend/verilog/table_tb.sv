@@ -1,4 +1,5 @@
 // Simulates every address of the host-generated identity byte table.
+// SPDX-License-Identifier: Apache-2.0
 module table_tb;
     logic [7:0] addr;
     logic [7:0] out;

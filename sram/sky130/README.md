@@ -1,4 +1,5 @@
 <!-- Documents the Sky130 macro catalog and simulation-model ownership. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Sky130 SRAM support
 

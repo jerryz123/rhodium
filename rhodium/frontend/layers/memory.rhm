@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines binding-derived memories with async indexing and synchronous writes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

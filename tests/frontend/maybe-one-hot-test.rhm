@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks MaybeOneHot typing, compact literals, methods, total muxing, and invalid uses.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

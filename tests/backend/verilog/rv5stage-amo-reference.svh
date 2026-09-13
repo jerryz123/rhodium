@@ -1,4 +1,5 @@
 // Supplies an independent scalar arithmetic oracle for cache-level AMO sweeps.
+// SPDX-License-Identifier: Apache-2.0
 function automatic logic [63:0] amo_reference(input logic [63:0] old_value, operand,
                                              input int operation, input bit word_access);
   logic [63:0] left_value, right_value, result;

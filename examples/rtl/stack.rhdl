@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a host-sized 32-bit stack with async-read memory and registered output.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit Stack(depth :: PosInt):
 

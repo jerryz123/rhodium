@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that the buffered simple router lowers through CIRCT deterministically.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

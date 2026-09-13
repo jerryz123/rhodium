@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a configurable immutable CHI SN-I BootROM with native cache-line reads.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm").NonemptyString

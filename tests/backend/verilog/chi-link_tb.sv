@@ -1,4 +1,5 @@
 // Simulates transparent CHI activation, credited request, response, and credit wiring.
+// SPDX-License-Identifier: Apache-2.0
 module chi_link_tb;
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

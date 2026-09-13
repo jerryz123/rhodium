@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits retained-owner RTL and its exact collector descriptor.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../frontend/event-retained-fixture.rhdl".retained
   "../../rhodium/event/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines a concise user combinator by importing only the combinational frontend layer it needs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/comb.rhm") open

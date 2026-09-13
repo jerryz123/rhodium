@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks public widths and types at RV5Stage's Sv39 translation boundaries.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/core/main.rhm" open

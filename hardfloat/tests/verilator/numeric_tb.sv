@@ -1,4 +1,5 @@
 // Exhaustively checks binary16 minimum/maximum, integral rounding, and modulo conversion behavior.
+// SPDX-License-Identifier: BSD-3-Clause
 module hardfloat_numeric_tb;
   integer value_index;
   integer operation_index;

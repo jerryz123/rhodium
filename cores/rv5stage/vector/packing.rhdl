@@ -1,5 +1,6 @@
 #lang rhodium
 // Adapts aligned vector chunks, scalar/immediate operands, and mask results to the shared SIMD datapath.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/vector.rhm" open

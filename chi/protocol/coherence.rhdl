@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines CHI coherent cache states and protocol-family classifiers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

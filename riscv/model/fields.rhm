@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines named instruction bit fields and fixed-value encoding constraints.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

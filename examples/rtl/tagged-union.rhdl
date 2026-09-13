@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates payload-bearing and nullary variants sharing nominal enum tags.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle WritePayload():
   address: Bits(8)

@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits integrated cold-refill, compressed-stream, and backpressured fetch regressions.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../cores/rv5stage/tests/fetch-throughput-fixture.rhdl".RV5StageFetchThroughput
   "../../rhodium/backend/circt.rhm".emit_circt

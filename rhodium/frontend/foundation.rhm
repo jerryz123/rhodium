@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines the foundational circuit, port, connection, and elaboration surface shared by Rhodium profiles.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

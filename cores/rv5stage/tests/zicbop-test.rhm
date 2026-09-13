@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks RV5Stage's feature-selected Zicbop decode and prefetch event boundary.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/core/main.rhm" open

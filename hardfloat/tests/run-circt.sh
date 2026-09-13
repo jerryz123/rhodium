@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Lowers and simulates the permanent combinational and iterative HardFloat fixtures through CIRCT and Verilator.
+# SPDX-License-Identifier: BSD-3-Clause
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"

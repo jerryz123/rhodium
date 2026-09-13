@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes shared SIMD datapaths and widening preparation for differential behavioral tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../simd-alu.rhdl" open

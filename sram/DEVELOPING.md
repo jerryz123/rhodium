@@ -1,4 +1,5 @@
 <!-- Guides contributors through extending and validating CIRCT-boundary SRAM mapping. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing SRAM mapping
 

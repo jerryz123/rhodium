@@ -1,5 +1,6 @@
 #lang rhombus
 // Builds a timing-probe ROM from implemented instructions intersected with the architectural Zkt scope.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/zkt.rhm" open

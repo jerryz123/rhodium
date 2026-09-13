@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates materializing RV32I and RV64I encodings as typed Rhodium patterns.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/rv32i.rhm") as rv32

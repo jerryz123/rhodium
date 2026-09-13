@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates typed one-hot selection, equality, and representation casts.
+// SPDX-License-Identifier: Apache-2.0
 
 def Grant = OneHot(4)
 

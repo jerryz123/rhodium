@@ -1,4 +1,5 @@
 ;; Lists invalid CHI fixtures and the diagnostics each must produce.
+;; SPDX-License-Identifier: Apache-2.0
 
 (("bad-chi-request-capability.rhdl" "does not support")
  ("bad-chi-credit-compatibility.rhdl" "does not support")

@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines shared core-only designs for Rosette-to-CIRCT differential validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

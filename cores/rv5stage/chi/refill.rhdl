@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's retry-aware packet-complete coherent cache-line acquisition.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../cache.rhdl" open

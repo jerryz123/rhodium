@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the reusable best-effort cache-prefetch request carried by cores.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum CachePrefetchOperation:
   None

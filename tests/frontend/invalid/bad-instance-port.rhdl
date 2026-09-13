@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects dot access to a port absent from an instantiated child interface.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Child():
   input value: Bits(1)

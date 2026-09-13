@@ -1,5 +1,6 @@
 #lang rhombus
 // Renders logical Rhodium modules as port-anchored Graphviz DOT schematics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "model.rhm" open

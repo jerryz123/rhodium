@@ -1,4 +1,5 @@
 // Verifies coherent and ROM instruction snapshots, VIPT hits, refill errors, and FENCE.I cancellation.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_icache_tb;
   typedef struct packed { logic [63:0] address; } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;

@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines the concise fixed-length vector type and construction frontend layer.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

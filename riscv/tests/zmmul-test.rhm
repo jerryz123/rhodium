@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the RV32 and RV64 Zmmul catalogs and representative encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/rv64i.rhm" as rv64i

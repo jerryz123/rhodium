@@ -1,5 +1,6 @@
 #lang rhombus
 // Lowers the public Rhodium hardware IR to textual CIRCT HW, Comb, and Seq MLIR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

@@ -1,4 +1,5 @@
 # Seeds a fresh project bytecode root from versioned Racket and Rhombus dependencies.
+# SPDX-License-Identifier: Apache-2.0
 
 name: Set up Racket bytecode cache
 description: Cache dependency bytecode while keeping checkout-specific bytecode fresh.

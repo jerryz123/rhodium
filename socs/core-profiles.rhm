@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the default RV5Stage profiles and physical-address width shared by concrete SoCs and host generators.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../cores/rv5stage/profile.rhm" open

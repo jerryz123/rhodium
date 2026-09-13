@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds an ordered balanced reduction tree with a caller-supplied binary function.
+// SPDX-License-Identifier: Apache-2.0
 
 fun tree_reduce(input_values :: List, combine :: Function.of_arity(2)):
   unless input_values.length() > 0

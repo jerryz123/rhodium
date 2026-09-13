@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT MLIR for credited-transfer underflow assertion testing.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

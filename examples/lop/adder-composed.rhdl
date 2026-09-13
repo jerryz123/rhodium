@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Builds the reference adder by composing the minimal language with combinational syntax.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/comb.rhm") open

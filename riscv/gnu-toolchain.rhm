@@ -1,5 +1,6 @@
 #lang rhombus
 // Projects a canonical RISC-V capability list to GNU compiler architecture and ABI options.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "isa/xlen.rhm".XLen

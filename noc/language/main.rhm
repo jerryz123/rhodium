@@ -1,5 +1,6 @@
 #lang rhombus
 // Aggregates optional embedded NoC authoring syntax over the public builder API.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "topology.rhm" open

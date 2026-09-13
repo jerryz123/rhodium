@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines validated instruction specifications and disjoint ISA catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

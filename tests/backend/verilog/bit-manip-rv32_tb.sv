@@ -1,4 +1,5 @@
 // Exercises standard-B and Zicond resource controls in the reusable RV32 ALU.
+// SPDX-License-Identifier: Apache-2.0
 module bit_manip_rv32_tb;
   logic [31:0] left;
   logic [31:0] right;

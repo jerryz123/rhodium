@@ -1,4 +1,5 @@
 // Checks predicted streams, completed-word compaction, compressed cuts, stalls, and repair.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_fetch_prediction_tb;
   typedef struct packed { logic [63:0] address; } request_bits_t;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;

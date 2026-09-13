@@ -1,4 +1,5 @@
 // Checks RV32 buffered-store lanes, AMOs, byte blocks, delayed LR/SC, and reservation bounds.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_dcache_rv32_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed { logic ready; } ready_t;

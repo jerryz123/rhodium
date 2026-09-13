@@ -1,4 +1,5 @@
 // Exercises latency, throughput, and backpressure stability in a two-stage pipe.
+// SPDX-License-Identifier: Apache-2.0
 module pipe_tb;
   typedef struct packed {
     logic       valid;

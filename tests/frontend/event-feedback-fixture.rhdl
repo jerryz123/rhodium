@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises checkpoint-free recirculation through intrinsic queue and grant contracts.
+// SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
 

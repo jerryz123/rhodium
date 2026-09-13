@@ -1,4 +1,5 @@
 # Builds the reusable C++ Perfetto library, standalone converter, and contract tests.
+# SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.20)
 project(rheg_perfetto LANGUAGES CXX)
 include(FetchContent)

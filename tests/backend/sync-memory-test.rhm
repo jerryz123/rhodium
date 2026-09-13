@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CIRCT lowering for fixed one-cycle synchronous-memory ports.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

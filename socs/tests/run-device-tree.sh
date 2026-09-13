@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Cross-checks every concrete SoC's generated DTB against standard device-tree tools.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

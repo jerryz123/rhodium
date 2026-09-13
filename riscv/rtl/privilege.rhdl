@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines typed M/S/U privilege values and effective privilege for explicit data accesses.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/xlen.rhm" open

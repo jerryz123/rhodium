@@ -1,5 +1,6 @@
 #lang rhombus
 // Writes one representative native DTB and its DTS rendering for external-tool interoperability checks.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open

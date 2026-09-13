@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT MLIR for an RV64 RV5Stage core with Zimop and Zcmop support.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

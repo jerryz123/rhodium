@@ -1,4 +1,5 @@
 // Exercises WB replay and fault isolation across memory, FP registers, flags, prefetches, and atomics.
+// SPDX-License-Identifier: Apache-2.0
 typedef struct packed { logic ss, ms, st, mt, se, me; } interrupts_t;
 typedef struct packed { logic ready; } ready_t;
 typedef struct packed { logic valid; logic [XLEN-1:0] address; } ireq_t;

@@ -1,5 +1,6 @@
 #lang rhodium
 // Composes configurable vector banks, operand capture, packing, SIMD execution, and authorized writes for simulation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../vector/register-file.rhdl" open

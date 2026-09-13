@@ -1,5 +1,6 @@
 #lang rhodium
 // Owns a blocking inclusive LLC, packet-complete copyback, and requester residency.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

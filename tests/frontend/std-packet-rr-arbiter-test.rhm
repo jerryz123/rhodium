@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks packet-locked arbitration structure, composition, and invalid uses.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

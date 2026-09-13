@@ -1,4 +1,5 @@
 <!-- Explains how to extend and validate backend-independent Rhodium analyses. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing Rhodium analysis
 

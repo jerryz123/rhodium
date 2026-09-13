@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's three-read, two-write floating-point register file.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/fp-profile.rhm" open

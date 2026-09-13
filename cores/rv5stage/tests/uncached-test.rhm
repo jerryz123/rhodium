@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks RV5Stage's host-side HN-I classification and uncached RN-I metadata.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/std/interconnect.rhdl".AddressSet

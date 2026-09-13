@@ -1,5 +1,6 @@
 #lang rhodium
 // Derives a caller-configured single-core system and populates it without a wrapper module.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm") open

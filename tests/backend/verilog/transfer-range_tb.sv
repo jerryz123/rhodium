@@ -1,4 +1,5 @@
 // Exhaustively checks transfer containment, zero lengths, and address-space-end arithmetic.
+// SPDX-License-Identifier: Apache-2.0
 module transfer_range_tb;
   logic [3:0] address, length, base;
   wire [15:0] contained;

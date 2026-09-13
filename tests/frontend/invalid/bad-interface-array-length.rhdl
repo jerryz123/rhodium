@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects bulk connection between interface endpoint arrays of different lengths.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

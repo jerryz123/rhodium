@@ -1,4 +1,5 @@
 // Verifies that a token join never partially consumes its inputs.
+// SPDX-License-Identifier: Apache-2.0
 module ctrl_join_tb;
   typedef struct packed { logic valid; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the canonical resetless two-stage synchronizer for a stable one-bit level.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit SyncLevel():
   input level: Bits(1)

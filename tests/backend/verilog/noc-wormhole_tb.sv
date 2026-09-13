@@ -1,4 +1,5 @@
 // Verifies multi-router wormhole delivery, packet retention, sharing, and backpressure.
+// SPDX-License-Identifier: Apache-2.0
 module noc_wormhole_tb;
     logic clock;
     logic reset;

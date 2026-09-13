@@ -1,4 +1,5 @@
 # Excludes generated CIRCT plugin and SRAM-mapper test artifacts.
+# SPDX-License-Identifier: Apache-2.0
 
 build/
 __pycache__/

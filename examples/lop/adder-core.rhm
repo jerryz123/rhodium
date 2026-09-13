@@ -1,5 +1,6 @@
 #lang rhombus
 // Builds the reference adder by explicitly importing and using the public core Builder API.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

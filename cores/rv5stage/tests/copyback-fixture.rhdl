@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes full-line copyback at every CHI DAT width through one fixed test shape.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../chi/writeback.rhdl" open

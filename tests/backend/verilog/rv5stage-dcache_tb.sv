@@ -1,4 +1,5 @@
 // Verifies flow admission, set-isolated hits under a miss, stores, coherence, and atomics.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_dcache_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed {

@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates fixed-width logical shifts with host and hardware amounts.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit ShiftOps8():
   input value: Bits(8)

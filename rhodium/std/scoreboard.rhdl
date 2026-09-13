@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines a reusable positive-sized single-set, single-clear occupancy scoreboard.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

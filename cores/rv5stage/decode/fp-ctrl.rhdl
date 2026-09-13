@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's profile-selected F and D register and execution controls.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../profile.rhm" open

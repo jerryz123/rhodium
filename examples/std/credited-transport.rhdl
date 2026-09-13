@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates monitored and composed credited transport with sender and buffer adapters.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

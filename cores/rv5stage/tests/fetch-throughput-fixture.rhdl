@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises cold-refill recovery and steady-state frontend/MMU/L1I throughput.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "fetch-fixture.rhdl" open
   lib("cores/rv5stage/profile.rhm") open

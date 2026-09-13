@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CIRCT lowering for the one-router multi-terminal NoC crossbar fixture.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

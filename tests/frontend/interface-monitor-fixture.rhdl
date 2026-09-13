@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines monitor edge cases that remain test-only beside the canonical example.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../examples/rtl/interface-monitor.rhdl" open

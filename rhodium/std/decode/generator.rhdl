@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines callable DecodeGen values that preserve typed decode relations in core IR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/decode/pattern.rhdl") open

@@ -1,8 +1,12 @@
 <!-- Introduces Rhodium, its authoring model, quick start, public capabilities, and user-facing documentation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium
 
-> All the code and text in this repository was written by a LLM. The only text not produced by a LLM is this disclaimer. I worked with a coding agent to implement everything here to my personal preferences.
+> Original Rhodium code and text were developed with a coding agent under my
+> direction and review; this disclaimer is the only text I wrote directly.
+> This statement does not describe separately licensed derived code or Git
+> submodules.
 
 Rhodium is an experimental hardware description language built for explicit
 hardware and extensible abstractions. Hosted by
@@ -311,7 +315,22 @@ SystemVerilog.
 Read [`DEVELOPING.md`](DEVELOPING.md) before changing implementation packages,
 tests, generated references, or documentation ownership. Package-level
 `DEVELOPING.md` files refine that repository-wide workflow without redefining
-their sibling README's public contract.
+their sibling README's public contract. Contributions must carry the
+`Signed-off-by` certification described in the [contribution and provenance
+policy](DEVELOPING.md#contribution-and-provenance).
+
+## License
+
+Except where noted otherwise, original Rhodium content is licensed under the
+[Apache License 2.0](LICENSE). The Berkeley HardFloat port retains its upstream
+BSD terms, and Git submodules retain the licenses of their pinned upstream
+repositories; see [third-party notices](THIRD_PARTY_NOTICES.md).
+
+Rhodium's license applies to Rhodium itself, not to a user's input design merely
+because the compiler processes it. Generated output is not automatically placed
+under Apache-2.0 for that reason. Portions copied from or derived from bundled
+Rhodium library or hardware-IP implementations remain subject to their
+applicable licenses and notices.
 
 ## Current status
 

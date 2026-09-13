@@ -1,5 +1,6 @@
 #lang rhodium
 // Bridges software-owned FESVR loading and boot publication through generic CHI memory transactions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

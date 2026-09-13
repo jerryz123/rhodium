@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves all frontend profiles and aggregate abstractions reach identical CIRCT MLIR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

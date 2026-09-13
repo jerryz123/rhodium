@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines shared geometry and replacement helpers for RV5Stage's private L1 caches.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

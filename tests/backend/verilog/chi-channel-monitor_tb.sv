@@ -1,4 +1,5 @@
 // Checks transaction monitoring under stalls, concurrent progress, multibeat retirement, reuse, and invalid associations.
+// SPDX-License-Identifier: Apache-2.0
 module chi_channel_monitor_test #(parameter MODE = 0);
   logic clock = 0, reset = 1;
   logic req_valid = 0, req_ready = 0;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks registered fetch/MMU/L1I admission boundaries using hierarchical IR dependencies.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../rhodium/core/dependencies.rhm" open

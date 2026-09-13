@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Runs the fast parameter-annotation policy before creating a local commit.
+# Runs fast source-header and parameter-annotation policies before creating a local commit.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(git rev-parse --show-toplevel)"
+make -C "$repo_dir" check-license-headers-staged
 make -C "$repo_dir" check-parameter-annotations

@@ -1,5 +1,6 @@
 #lang rhombus
 // Projects an RV5Stage architectural profile and physical-address contract into a UDB configuration.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm".NonemptyString

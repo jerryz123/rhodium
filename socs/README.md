@@ -1,4 +1,5 @@
 <!-- Documents the repository's concrete coherent SoC compositions and integration contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # SoC compositions
 

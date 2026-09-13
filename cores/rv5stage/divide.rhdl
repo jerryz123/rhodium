@@ -1,5 +1,6 @@
 #lang rhodium
 // Adapts the reusable iterative divider to RV5Stage's deferred-writeback protocol.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../divider.rhdl" open

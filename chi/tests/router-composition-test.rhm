@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks shared and split no-SNP CHI router compositions and rejects unsupported attachments.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "router-composition-fixture.rhdl" as fixture

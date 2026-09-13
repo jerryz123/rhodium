@@ -1,5 +1,6 @@
 #lang rhombus
 // Copies one verified module into a new design, remapping owned IR references.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm" open

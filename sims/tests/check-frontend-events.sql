@@ -1,4 +1,5 @@
 -- Checks fetch-attempt stages and retained/live S2-to-instruction ancestry in the native importer.
+-- SPDX-License-Identifier: Apache-2.0
 WITH events AS MATERIALIZED (
   SELECT s.id, t.name, s.ts, s.arg_set_id, EXTRACT_ARG(s.arg_set_id,'debug.pc') AS pc
   FROM slice s JOIN track t ON t.id=s.track_id

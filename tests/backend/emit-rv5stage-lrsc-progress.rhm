@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the two-cache inclusive-Home LR/SC progress integration fixture.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

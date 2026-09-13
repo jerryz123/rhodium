@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements the simple buffered NoC router driven by a validated router plan.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

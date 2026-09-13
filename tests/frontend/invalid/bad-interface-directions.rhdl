@@ -1,5 +1,6 @@
 #lang rhodium
 // Must reject bulk connection when endpoint roles and boundary directions conflict.
+// SPDX-License-Identifier: Apache-2.0
 
 interface Link(T):
   role producer

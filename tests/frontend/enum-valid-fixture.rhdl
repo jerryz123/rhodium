@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the invalid raw-Bits use of enum_valid for frontend rejection tests.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit InvalidEnumValidity():
   input raw: Bits(3)

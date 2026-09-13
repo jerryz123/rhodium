@@ -1,4 +1,5 @@
 <!-- Explains how to add, organize, classify, and maintain Rhodium tests. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing Rhodium tests
 
@@ -114,6 +115,12 @@ functional CI lane; Rhodium sources there still receive source hygiene, while
 `vlsi/sim/` and the mapped MiniSoC flow select simulation. Unrecognized paths
 fail closed by selecting every job, and the classifier audit rejects tracked
 executable source that selects no job.
+
+The hygiene lane runs `make check-license-headers` over the complete tracked
+source, test, script, configuration, and documentation inventory. It requires
+Apache-2.0 identifiers for original Rhodium material and BSD-3-Clause
+identifiers within `hardfloat/`, while exempting exact legal texts and external
+submodule contents.
 
 When adding or moving executable source, update the classifier if its existing
 dependency rules do not select every affected owner. Test the classifier change

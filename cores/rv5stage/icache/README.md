@@ -1,4 +1,5 @@
 <!-- Specifies RV5Stage's instruction-cache protocol and software-synchronized snapshot contract. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV5Stage instruction cache
 

@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an explicit DPI procedure clock inside a sync circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 dpi_import procedure observe(value: Bits(1))
 

@@ -1,5 +1,6 @@
 #lang rfpl
 // Invalid fixture supplying a zero physical length to a physical view.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../support/annotation-circuits.rhm" as circuits

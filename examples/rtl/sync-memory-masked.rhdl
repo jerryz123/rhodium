@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates byte-masked writes through one shared synchronous memory port.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit MaskedSyncMemoryExample(depth :: PosInt):
   input address: Bits(index_width(depth))

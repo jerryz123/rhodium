@@ -1,4 +1,5 @@
 # Maps one scoped equal-shaped memory while deliberately leaving its sibling inferred.
+# SPDX-License-Identifier: Apache-2.0
 
 schema_version: 1
 top: Leaf

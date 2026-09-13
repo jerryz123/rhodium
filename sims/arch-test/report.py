@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Accounts for every generated ACT ELF using the upstream runner's completion summary.
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 import json
 from pathlib import Path

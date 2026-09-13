@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks generic topology prefixing, composition, directed links, and custom views.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../authoring/main.rhm" open

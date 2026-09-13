@@ -1,4 +1,5 @@
 // Checks loss, replay, qualification, and reset against the adapter's public wiring.
+// SPDX-License-Identifier: Apache-2.0
 module event_offer_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

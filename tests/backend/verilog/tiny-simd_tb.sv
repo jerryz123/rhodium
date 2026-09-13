@@ -1,4 +1,5 @@
 // Simulates program loading, generated lanes, enum decode, and host-enabled multiplication.
+// SPDX-License-Identifier: Apache-2.0
 module tiny_simd_tb;
   typedef struct packed {
     logic [1:0] address;

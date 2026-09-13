@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic GNU compiler targets derived from canonical RISC-V capabilities.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../gnu-toolchain.rhm" open

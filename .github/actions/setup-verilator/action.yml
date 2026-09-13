@@ -1,4 +1,5 @@
 # Installs and caches the repository-pinned simulator for every native CI lane.
+# SPDX-License-Identifier: Apache-2.0
 name: Set up Verilator
 description: Build or restore the pinned Verilator and verify it before simulation.
 runs:

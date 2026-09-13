@@ -1,4 +1,5 @@
 // Exercises flow-through, piped full replacement, and count queue options.
+// SPDX-License-Identifier: Apache-2.0
 module queue_options_tb;
   typedef struct packed {
     logic       valid;

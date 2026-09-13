@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises CHI flits, protocol classifiers, service-size matching, and Home/subordinate address decoding.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

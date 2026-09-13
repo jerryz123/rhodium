@@ -1,4 +1,5 @@
 <!-- Presents the executable Rhodium and RFPL walkthroughs and canonical feature examples. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and RFPL examples
 

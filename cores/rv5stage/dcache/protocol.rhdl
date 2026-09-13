@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines pipelined load/store decisions, WB store authorization, and blocking transactions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../memory.rhdl" open

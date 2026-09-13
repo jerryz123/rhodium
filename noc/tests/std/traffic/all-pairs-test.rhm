@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks standard all-pairs traffic generation, naming, lowering, and topology independence.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../model/main.rhm" open

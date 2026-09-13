@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the complete half-precision floating-point instruction catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

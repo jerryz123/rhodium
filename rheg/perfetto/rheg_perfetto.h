@@ -1,4 +1,5 @@
 // Exposes the rheg C++ Perfetto encoder for live batches and saved traces.
+// SPDX-License-Identifier: Apache-2.0
 #ifndef RHEG_PERFETTO_H
 #define RHEG_PERFETTO_H
 #include "rheg.h"

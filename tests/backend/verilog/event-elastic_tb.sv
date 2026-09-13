@@ -1,4 +1,5 @@
 // Differentially checks repeated elastic lanes under deterministic randomized stalls.
+// SPDX-License-Identifier: Apache-2.0
 module event_elastic_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Covers builder rejection and whole-design verification of malformed Rhodium IR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

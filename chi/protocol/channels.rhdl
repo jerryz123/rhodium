@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines reusable ready-valid CHI Request, Home, and Subordinate Node contracts.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl").Decoupled

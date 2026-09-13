@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a service-row CHI router tile with no locally attached endpoint.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/noc/noc-router.rhdl") open

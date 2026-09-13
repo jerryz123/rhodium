@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds a four-bit ripple-carry adder from one reusable FullAdder definition.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "full-adder.rhdl".FullAdder

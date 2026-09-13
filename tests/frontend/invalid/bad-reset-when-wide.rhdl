@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a scoped reset condition wider than one bit.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit WideResetScope():
   input condition: Bits(2)

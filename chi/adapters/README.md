@@ -1,4 +1,5 @@
 <!-- Describes the public boundary of CHI transaction adapters. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # CHI transaction adapters
 

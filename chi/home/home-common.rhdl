@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines shared coherent Home configuration, identity, request legality, and message policy without engine state.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

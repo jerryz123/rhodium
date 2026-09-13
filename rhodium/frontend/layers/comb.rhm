@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines the combinational value, function, and operator layer over the elaboration kernel.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus

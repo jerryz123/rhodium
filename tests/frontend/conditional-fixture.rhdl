@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines valid and invalid circuits for hardware conditional-assignment tests.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit PrioritySelect():
   input first: Bool

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic CIRCT lowering of user-owned hierarchical NoC assembly.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

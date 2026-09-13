@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines shared exact and optional one-hot selector protocols and lowering builders.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

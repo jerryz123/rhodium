@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the architecture-owned Zkt timing scope and XLEN-specific instruction families.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/zkt.rhm" open

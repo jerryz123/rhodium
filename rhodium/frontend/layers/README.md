@@ -1,4 +1,5 @@
 <!-- Documents the independently selectable Rhodium frontend layers and their authoring semantics. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium frontend layers
 

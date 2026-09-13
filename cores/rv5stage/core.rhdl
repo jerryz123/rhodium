@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements RV5Stage's five-stage core with EX-issued load hits and ordered side effects.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "btb.rhdl" open

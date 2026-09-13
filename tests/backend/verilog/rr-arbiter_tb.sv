@@ -1,4 +1,5 @@
 // Verifies rotating fairness, selected readiness, and legal stalled reselection.
+// SPDX-License-Identifier: Apache-2.0
 module rr_arbiter_tb;
   typedef struct packed {
     logic       valid;

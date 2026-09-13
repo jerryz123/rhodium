@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks host-side initial transaction capability classification and limits.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" as chi

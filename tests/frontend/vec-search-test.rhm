@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks host-pattern vector construction, registered indexing, and lookup default.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

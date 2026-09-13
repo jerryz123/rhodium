@@ -1,4 +1,5 @@
 // Checks inclusive Home response ownership against public requests, including repeated IDs and reset.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-home_manifest.h"
 #include <cstdio>

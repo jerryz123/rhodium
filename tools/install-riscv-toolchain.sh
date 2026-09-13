@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Installs the checksum-pinned Linux RV64 Newlib compiler used by all software suites.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 version=2026.08.27

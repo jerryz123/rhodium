@@ -1,5 +1,6 @@
 #lang rfpl
 // Invalid fixture using a unitless physical placement coordinate.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../support/annotation-circuits.rhm" as circuits

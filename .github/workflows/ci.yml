@@ -1,4 +1,5 @@
 # Runs dependency-sensitive Rhodium host, example, CIRCT, and simulation checks.
+# SPDX-License-Identifier: Apache-2.0
 
 name: CI
 

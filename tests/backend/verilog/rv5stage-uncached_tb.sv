@@ -1,4 +1,5 @@
 // Verifies RV5Stage instruction/data arbitration, non-allocating fetches, and Home-routed device stores.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_uncached_tb;
   typedef struct packed {
     logic flush;

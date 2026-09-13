@@ -1,5 +1,6 @@
 #lang rhodium
 // Generates a flow-aware diagram of the packet-retaining phased-XY NoC router.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../noc/examples/mesh-phased-xy.rhm" as phased

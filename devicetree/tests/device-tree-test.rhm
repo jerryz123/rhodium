@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks typed device-tree construction, validation, deterministic rendering, and DTB layout.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhm" open

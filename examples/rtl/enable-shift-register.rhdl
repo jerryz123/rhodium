@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a four-stage shift register with synchronous reset and a hardware enable.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit EnableShiftRegister():
   input data_in: Bits(4)

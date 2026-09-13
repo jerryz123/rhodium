@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines Sv39 values and demand, cache-management, and prefetch permission helpers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/sv39.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates lossless unsigned addition and signed and unsigned multiplication.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit ExpandingArithmetic():
   input a: Bits(8)

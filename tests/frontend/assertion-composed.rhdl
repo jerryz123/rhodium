@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Selects only sync-domain and assertion layers over the compositional profile.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/assertion.rhm") open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines immutable RISC-V SoC descriptions and their native device-tree projection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

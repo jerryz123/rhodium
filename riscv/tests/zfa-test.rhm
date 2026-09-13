@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks Zfa catalogs, encodings, and register-operand metadata.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/zfa.rhm" open

@@ -1,4 +1,5 @@
 <!-- Documents executable SoC harnesses, host models, and simulator bindings. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Simulation harnesses
 

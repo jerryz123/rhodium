@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Installs the pinned official CIRCT toolchain used by Rhodium backend tests.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

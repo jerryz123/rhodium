@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks RV5Stage profile projection into UDB extension and parameter claims.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../profile.rhm" open

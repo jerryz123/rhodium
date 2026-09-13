@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects sign extension on a receiver without signed-arithmetic semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadSignExtension():
   input value: Bits(4)

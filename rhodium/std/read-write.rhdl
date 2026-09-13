@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines one addressed read-or-write Valid flow over replicated data lanes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

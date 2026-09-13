@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements Ssnpm WARL controls and explicit-address masking without changing low address bits.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/xlen.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds an n-bit ripple-carry adder from a host Array of FullAdder instances.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "full-adder.rhdl".FullAdder

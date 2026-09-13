@@ -1,5 +1,6 @@
 #lang rhombus
 // Lowers symbolic topology specifications deterministically and retains identity provenance.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

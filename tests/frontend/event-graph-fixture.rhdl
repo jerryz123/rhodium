@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines annotated ready-valid flow topologies for static event-graph tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

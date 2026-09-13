@@ -1,5 +1,6 @@
 #lang rhombus
 // Preserves the mesh adaptive/XY API as a wrapper around generic escape composition.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../analysis/main.rhm" open

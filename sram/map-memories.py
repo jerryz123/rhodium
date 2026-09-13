@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Plans selected CIRCT memory sites onto interface-described SRAM macros and emits exact-name wrappers.
+# SPDX-License-Identifier: Apache-2.0
 
 import argparse
 import configparser

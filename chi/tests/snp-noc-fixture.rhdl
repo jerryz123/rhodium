@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates a one-router SNP plane from one HN-F to two RN-F endpoints.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl").Decoupled

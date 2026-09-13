@@ -1,5 +1,6 @@
 #lang rhombus
 // Loads the use_static flow fixture, including reusable always-capture Valid pipe stages.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "std-flow-static.rhdl" as fixture

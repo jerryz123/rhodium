@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks hardware extraction generated from RISC-V field and immediate descriptors.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Recursively audits CHI production imports and the pure CHI-to-NoC boundary.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

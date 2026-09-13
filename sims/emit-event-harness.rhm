@@ -1,5 +1,6 @@
 #lang rhombus
 // Instruments the SimpleSoC harness and exports its matching descriptor and clock configuration.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "simple-soc-harness.rhdl" as harness

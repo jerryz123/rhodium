@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects .is_one_of alternatives whose hardware type differs from the subject.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum FirstState:
   Idle

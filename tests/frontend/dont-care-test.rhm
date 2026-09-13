@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks typed frontend don't-cares and Pattern-based partial output values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

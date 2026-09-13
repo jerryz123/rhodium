@@ -1,5 +1,6 @@
 #lang rhombus
 // Builds well-owned Rhodium IR while enforcing local type, naming, and driver rules.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

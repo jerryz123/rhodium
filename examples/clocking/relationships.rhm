@@ -1,5 +1,6 @@
 #lang rhombus
 // Compares exact, identical, derived, asynchronous, and unknown clock relationships.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/core/main.rhm") open

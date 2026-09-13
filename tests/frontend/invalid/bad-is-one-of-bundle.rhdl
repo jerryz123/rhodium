@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects receiver membership on an aggregate rather than a flat hardware value.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle Pair():
   left: Bits(4)

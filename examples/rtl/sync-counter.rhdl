@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates sync circuits, ambient registers, and nested clock/reset propagation.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit Counter(width :: PosInt):
   output count: Bits(width)

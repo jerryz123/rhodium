@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks fully cared decode equivalence, counterexamples, aggregates, and fail-closed output freedom.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

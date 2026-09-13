@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes RV5Stage memory-operation classification and atomic-ALU behavior for tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../memory.rhdl" open

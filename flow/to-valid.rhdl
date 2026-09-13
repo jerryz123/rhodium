@@ -1,5 +1,6 @@
 #lang rhodium
 // Converts an always-accepted ready-valid flow into same-cycle Valid events.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

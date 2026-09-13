@@ -1,5 +1,6 @@
 #lang rhodium
 // Must reject an explicit compatibility provider that is not a declared interface role.
+// SPDX-License-Identifier: Apache-2.0
 
 interface BadProvider():
   role producer

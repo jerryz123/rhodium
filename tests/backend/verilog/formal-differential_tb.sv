@@ -1,4 +1,5 @@
 // Exhaustively checks reduced-width formal semantics and replays solver counterexamples.
+// SPDX-License-Identifier: Apache-2.0
 module formal_differential_tb;
   logic [2:0] shift_value;
   logic [3:0] shift_amount;

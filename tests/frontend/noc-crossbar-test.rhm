@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that a linkless one-router NoC elaborates as an independently indexed 3-by-3 crossbar.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

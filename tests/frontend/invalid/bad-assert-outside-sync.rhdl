@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects an ambient assertion outside a synchronous circuit domain.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadAssertOutsideSync():
   input condition: Bits(1)

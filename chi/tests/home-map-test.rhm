@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CHI Home map host lookup and miss behavior.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" as chi

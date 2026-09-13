@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits a complete RV64 core and the real generated polling ROM for CHI boot testing.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

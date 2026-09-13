@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates typed synthesis freedom and Pattern-selected fixed output bits.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/decode/pattern.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines an inline heterogeneous ready-valid join as an interface handle.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

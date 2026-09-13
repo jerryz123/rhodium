@@ -1,4 +1,5 @@
 // Simulates carry propagation through the four FullAdder instances.
+// SPDX-License-Identifier: Apache-2.0
 module adder4_tb;
   logic [3:0] A;
   logic [3:0] B;

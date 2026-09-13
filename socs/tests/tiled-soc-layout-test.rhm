@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the public TiledSoC tile-grid language, coordinates, and validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../tiled-soc/layout.rhm" open

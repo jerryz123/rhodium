@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that both integer catalogs retain their exact encodings through the Rhodium adapter.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../examples/riscv/instruction-pattern.rhdl" as fixture

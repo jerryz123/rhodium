@@ -1,5 +1,6 @@
 #lang rhodium
 // Feeds Decode directly from fetch packets, retaining only an unconsumed halfword.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "btb.rhdl" open

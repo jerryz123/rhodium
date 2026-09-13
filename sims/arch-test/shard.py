@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Partitions the complete generated ACT inventory without changing architectural selection.
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 import json
 from pathlib import Path

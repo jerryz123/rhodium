@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks closed-design input contracts, clock relationships, validation, and reports.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

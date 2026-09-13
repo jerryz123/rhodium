@@ -1,5 +1,6 @@
 #lang rhombus
 // Catalogs generated UDB configurations for concrete RISC-V SoC and core combinations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../support/annotations.rhm".NonemptyString

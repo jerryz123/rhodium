@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a selection flow atomically joining a chosen subset of data flows.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines invalid state-flow constructions used to check the public initialization contract.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/state.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines a generated-list OneHot mux and focused invalid elaboration cases.
+// SPDX-License-Identifier: Apache-2.0
 
 def Grant4 = OneHot(4)
 def Grant3 = OneHot(3)

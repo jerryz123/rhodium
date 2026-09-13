@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds a 256-entry combinational byte table from host-generated vector contents.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Tbl():
   input addr: Bits(8)

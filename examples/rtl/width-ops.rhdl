@@ -1,5 +1,6 @@
 #lang rhodium
 // Showcases concise width-changing operations over explicit kernel/core semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit WidthOps8():
   input a: Bits(8)

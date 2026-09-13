@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises profile methods and compatibility calls with combined and retry-only response effects.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/flits.rhdl") open

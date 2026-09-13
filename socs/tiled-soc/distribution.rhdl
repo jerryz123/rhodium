@@ -1,5 +1,6 @@
 #lang rhodium
 // Routes packetized time and convergent interrupt state across the tiled platform mesh.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("noc/model/main.rhm") open

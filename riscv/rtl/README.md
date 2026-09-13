@@ -1,4 +1,5 @@
 <!-- Defines the dependency boundary and public API of the RISC-V-to-Rhodium adapter. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RISC-V/Rhodium adapter
 

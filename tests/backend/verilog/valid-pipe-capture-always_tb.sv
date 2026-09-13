@@ -1,4 +1,5 @@
 // Checks always-capture payload latency through bubbles, back-to-back tokens, and reset.
+// SPDX-License-Identifier: Apache-2.0
 module valid_pipe_capture_always_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } valid_t;
   logic clock = 1'b0;

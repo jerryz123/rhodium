@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Exercises member-style casting using only the compositional base language.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BaseInto():
   input raw: Bits(1)

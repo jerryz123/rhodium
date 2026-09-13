@@ -1,4 +1,5 @@
 <!-- Defines the evidence, rubric, update workflow, and validation policy for Rhodium comparisons. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the comparison suite
 

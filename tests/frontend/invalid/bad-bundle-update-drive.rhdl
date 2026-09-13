@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects driving a field of the fresh immutable value returned by a bundle update.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle Payload():
   data: Bits(8)

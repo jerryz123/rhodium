@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates inferred register types, immediate next values, reset values, and direct next-state drives.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit RegisterForms():
   input data: Bits(8)

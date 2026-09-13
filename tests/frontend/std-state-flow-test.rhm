@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks aggregate state-flow construction and rejection of mismatched initial literals.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

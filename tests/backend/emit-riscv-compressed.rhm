@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT IR for Zca-only and profile-dependent full-C instruction expansion.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the boot-address register's host parameters and supported CHI service sizes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/std/interconnect.rhdl".AddressSet

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that logical diagram metadata is invisible to CIRCT lowering.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

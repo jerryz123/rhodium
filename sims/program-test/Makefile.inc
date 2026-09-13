@@ -1,4 +1,5 @@
 # Runs full SimpleSoC workload suites and capability-filtered ISA smoke on concrete SoCs.
+# SPDX-License-Identifier: Apache-2.0
 RISCV_TESTS_DIR ?= $(REPO_DIR)/riscv/riscv-isa-tests
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1

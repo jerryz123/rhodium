@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines inspectable dimension-order routing policies for rectangular meshes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../authoring/main.rhm" open

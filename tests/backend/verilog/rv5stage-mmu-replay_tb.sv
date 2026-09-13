@@ -1,4 +1,5 @@
 // Verifies MMU translation, accepted-walk survival across fetch recovery, faults, and prefetches.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_mmu_replay_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;

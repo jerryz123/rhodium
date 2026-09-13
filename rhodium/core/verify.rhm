@@ -1,5 +1,6 @@
 #lang rhombus
 // Verifies Rhodium schemas, ownership, use-def links, types, drivers, and graph invariants.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/rx open

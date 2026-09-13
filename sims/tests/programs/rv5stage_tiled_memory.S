@@ -1,4 +1,5 @@
 // Forces striped LLC writeback and refill through the single external memory channel.
+// SPDX-License-Identifier: Apache-2.0
 .option norvc
 .section .text
 .globl _start

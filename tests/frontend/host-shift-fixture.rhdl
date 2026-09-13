@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises constant host-integer shifts alongside dynamic hardware shifts.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit HostShiftOps():
   input unsigned_value: Bits(8)

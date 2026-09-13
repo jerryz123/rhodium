@@ -1,5 +1,6 @@
 #lang rhombus
 // Merges one network's router plans into a uniform, site-selected router family.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

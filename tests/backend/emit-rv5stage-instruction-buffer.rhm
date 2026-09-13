@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the core-side packet assembler for cycle-visible transfer tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../cores/rv5stage/tests/instruction-buffer-fixture.rhdl".RV5StageInstructionBufferFixture

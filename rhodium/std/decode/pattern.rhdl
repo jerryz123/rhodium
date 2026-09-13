@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines typed host-side patterns and recursive aggregate pattern construction.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks Mask typing, operations, conversions, indexing, and rejection of numeric behavior.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

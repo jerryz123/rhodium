@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the operand-free PAUSE encoding from ratified Zihintpause 2.0.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks striped CHI service selection, dense address projection, and validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../main.rhdl" as chi

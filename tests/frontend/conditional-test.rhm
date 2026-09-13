@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks hardware-only conditional assignment, priority muxing, nesting, holds, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

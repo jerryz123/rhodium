@@ -1,4 +1,5 @@
 // Sweeps zero-valued HPM and minimal machine CSRs, write intent, XLEN, and S/U permissions.
+// SPDX-License-Identifier: Apache-2.0
   typedef logic [XLEN-1:0] word_t;
   typedef struct packed {
     word_t pc;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks shared enum tags, nominal union values, construction, and typed views.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

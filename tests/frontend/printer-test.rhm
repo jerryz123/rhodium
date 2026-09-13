@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks deterministic IR printing using designs elaborated by the frontend.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

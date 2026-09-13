@@ -1,4 +1,5 @@
 // Checks queue lineage from public transfers without using hardware storage controls.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>

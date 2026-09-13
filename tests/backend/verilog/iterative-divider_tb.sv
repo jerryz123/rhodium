@@ -1,4 +1,5 @@
 // Exercises unsigned, signed, exceptional, and backpressured divider transactions.
+// SPDX-License-Identifier: Apache-2.0
 module iterative_divider_tb;
   typedef struct packed {
     logic [7:0] dividend;

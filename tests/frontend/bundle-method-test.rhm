@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks bundle-owned methods, typed results, and exact producer propagation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

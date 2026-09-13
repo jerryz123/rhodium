@@ -1,4 +1,5 @@
 # Builds and tests the technology-independent SRAM mapping package.
+# SPDX-License-Identifier: Apache-2.0
 
 .DELETE_ON_ERROR:
 

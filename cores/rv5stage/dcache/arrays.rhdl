@@ -1,5 +1,6 @@
 #lang rhodium
 // Owns the independent synchronous metadata and byte-masked data SRAM ports of L1D.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../profile.rhm" open

@@ -1,4 +1,5 @@
 # Pins external repositories used by Rhodium tests and downstream prototypes.
+# SPDX-License-Identifier: Apache-2.0
 
 [submodule "vlsi/double_wide_openframe"]
 	path = vlsi/double_wide_openframe

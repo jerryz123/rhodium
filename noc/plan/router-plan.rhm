@@ -1,5 +1,6 @@
 #lang rhombus
 // Projects one validated network into deterministic router-local route encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

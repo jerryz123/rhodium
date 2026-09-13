@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the RV32 Zcf compressed single-precision load and store catalog.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "compressed.rhm" open

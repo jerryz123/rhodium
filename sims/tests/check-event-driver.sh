@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Exercises trace-driver failures and validates a settled timeout prefix without Python.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 ulimit -c 0
 : "${TRACE_PROCESSOR:?Set TRACE_PROCESSOR to the native trace_processor_shell executable}"

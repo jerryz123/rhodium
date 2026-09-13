@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines architectural CSR identifiers and their canonical 12-bit addresses.
+// SPDX-License-Identifier: Apache-2.0
 
 enum CsrId
 | Fflags

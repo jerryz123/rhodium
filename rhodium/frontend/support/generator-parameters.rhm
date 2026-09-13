@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Extracts runtime bindings from the supported host generator-parameter forms.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

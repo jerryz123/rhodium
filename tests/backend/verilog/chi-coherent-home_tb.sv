@@ -1,4 +1,5 @@
 // Simulates coherent reads, interventions, and one-request full-line copyback through CHIHNF.
+// SPDX-License-Identifier: Apache-2.0
 module chi_coherent_home_tb #(parameter bit COPYBACK_ERROR = 0);
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;

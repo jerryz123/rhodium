@@ -1,4 +1,5 @@
 <!-- Documents event annotations, dependency inference, and supported compiler instrumentation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Event graphs
 

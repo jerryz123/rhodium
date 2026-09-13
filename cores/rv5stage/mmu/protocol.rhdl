@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's internal Sv39 lookup and page-table-memory protocols.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/rtl/sv39.rhdl" open

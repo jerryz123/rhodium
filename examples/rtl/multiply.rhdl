@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements same-width unsigned multiplication with modular fixed-width results.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Multiplier(width :: PosInt):
   input(a, b): Bits(width)

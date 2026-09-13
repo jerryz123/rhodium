@@ -1,4 +1,5 @@
 // Checks RV32 scalar load/store lane generation within one 32-bit cache word.
+// SPDX-License-Identifier: Apache-2.0
 module load_store_rv32_word_tb;
   localparam logic [1:0] BYTE = 2'd0;
   localparam logic [1:0] HALF = 2'd1;

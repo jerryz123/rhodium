@@ -1,4 +1,5 @@
 // Verifies startup entry publication, ELF-loaded UART data, and an MMIO signature for FESVR.
+// SPDX-License-Identifier: Apache-2.0
 .section .text
 .globl _start
 _start:

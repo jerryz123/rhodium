@@ -1,5 +1,6 @@
 #lang rhodium
 // Wraps TiledSoC with FESVR, one external memory model, and a serial-pin PTY UART.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/xlen.rhm").XLen

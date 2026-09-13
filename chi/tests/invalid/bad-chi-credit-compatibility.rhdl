@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects CHI peers that disagree about a physical channel's credit limit.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

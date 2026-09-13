@@ -1,4 +1,5 @@
 # Builds and runs UDB-selected ACT4 payloads for a selected platform configuration.
+# SPDX-License-Identifier: Apache-2.0
 ACT_CONFIGURATION ?= simple-soc
 PYTHON ?= python3
 ACT_DIR ?= $(REPO_DIR)/riscv/riscv-arch-test

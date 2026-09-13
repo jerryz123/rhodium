@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Writes and verifies the exact-environment manifest for precompiled Rhodium bytecode.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

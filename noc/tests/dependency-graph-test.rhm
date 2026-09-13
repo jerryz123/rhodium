@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks reachable-only VC dependency projection, stable ordering, and merged provenance.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

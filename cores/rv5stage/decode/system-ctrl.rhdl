@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines RV5Stage's CSR, trap, return, and wait instruction controls.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/zawrs.rhm" open

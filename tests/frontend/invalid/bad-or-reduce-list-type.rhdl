@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a host reduction list containing a non-data hardware value.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadOrReduceListType():
   input source: Clock

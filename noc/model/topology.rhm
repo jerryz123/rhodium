@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines validated directed multigraph topologies and stable virtual-channel enumeration.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "identities.rhm" open

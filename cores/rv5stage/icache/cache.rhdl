@@ -1,5 +1,6 @@
 #lang rhodium
 // Caches coherent instruction snapshots until FENCE.I, independently of outer cache residency.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../cache-prefetch.rhdl" open

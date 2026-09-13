@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Validates example manifest coverage and exact references selected for simple fixtures.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 allow_empty=false

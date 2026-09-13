@@ -1,4 +1,5 @@
 // Violates the initial CHI transaction profile by sending write data before DBIDResp.
+// SPDX-License-Identifier: Apache-2.0
 module chi_transaction_early_data_tb;
   typedef struct packed { logic credit; } credit_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Verifies that an annotated composite circuit contains only hierarchy and wiring.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/ir.rhm" open

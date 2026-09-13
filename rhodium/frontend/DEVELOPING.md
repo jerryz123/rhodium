@@ -1,4 +1,5 @@
 <!-- Explains the Rhodium frontend implementation, extension workflow, and focused validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the Rhodium frontend
 

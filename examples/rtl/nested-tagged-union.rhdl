@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates literal and runtime composition of nested tagged-union values.
+// SPDX-License-Identifier: Apache-2.0
 
 tagged_union InnerMessage:
   Empty

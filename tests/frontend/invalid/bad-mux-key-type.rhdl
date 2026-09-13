@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalid fixture using a non-Int host value as a mux lookup key.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadMuxKeyType():
   input selector: Bits(3)

@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines lossless expanding arithmetic as explicit resizing plus modular core operations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus

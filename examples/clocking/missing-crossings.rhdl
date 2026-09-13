@@ -1,5 +1,6 @@
 #lang rhodium
 // Shows complete hierarchical CDC findings and the same design repaired with SyncLevel.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/cdc.rhdl") open

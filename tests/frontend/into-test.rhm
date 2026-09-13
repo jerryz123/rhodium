@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that base `.into` syntax preserves the existing explicit-cast semantics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

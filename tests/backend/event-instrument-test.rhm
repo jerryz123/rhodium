@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks immutable instrumentation, exact stage plans, observed controls, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("json/main.rkt").#{string->jsexpr} as parse_json

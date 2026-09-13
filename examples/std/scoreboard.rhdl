@@ -1,5 +1,6 @@
 #lang rhodium
 // Materializes a three-entry occupancy scoreboard with set and clear assertions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/scoreboard.rhdl") open

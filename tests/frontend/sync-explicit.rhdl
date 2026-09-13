@@ -1,5 +1,6 @@
 #lang rhodium
 // Constructs the sync-counter hierarchy with fully explicit clock and reset wiring.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Counter(width):
   input clock: Clock

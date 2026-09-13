@@ -1,5 +1,6 @@
 #lang rhodium
 // Showcases binding-derived instances and dot access to elaborated child ports.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Adder(width :: PosInt):
   input(a, b): Bits(width)

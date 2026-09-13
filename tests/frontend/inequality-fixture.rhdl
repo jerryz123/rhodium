@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises typed hardware inequality over Bits and a nominal enum.
+// SPDX-License-Identifier: Apache-2.0
 
 hardware_enum ComparisonState:
   Idle

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that a concrete topology instance depends only on public authoring and standard APIs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../examples/mesh-topology.rhm" open

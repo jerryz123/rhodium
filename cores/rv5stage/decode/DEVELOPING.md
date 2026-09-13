@@ -1,4 +1,5 @@
 <!-- Guides contributors through extending and validating RV5Stage structured decode. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing RV5Stage decode
 

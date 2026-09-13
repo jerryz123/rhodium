@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Defines structurally sized one-hot values, index conversion, and typed selection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

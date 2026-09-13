@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines backend-independent clock-analysis summaries, environments, and report objects.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../core/ir.rhm" open

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Tests C++ live/replay parity and native Trace Processor queries without Python.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 stream_test_dir="$(mktemp -d /tmp/rheg-perfetto.XXXXXX)"

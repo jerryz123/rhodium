@@ -1,5 +1,6 @@
 #lang rhombus
 // Compiles orthogonal topology, terminal, flow, and routing inputs into a validated network plan.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

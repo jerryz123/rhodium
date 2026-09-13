@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises shared CHI attachments on an asymmetric family-remapped three-router path.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

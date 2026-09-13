@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines bounded stateful monitoring for the initial non-coherent CHI transaction subset.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

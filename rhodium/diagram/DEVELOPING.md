@@ -1,4 +1,5 @@
 <!-- Explains the implementation, metadata ownership, and validation of Rhodium logical diagrams. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing logical diagrams
 

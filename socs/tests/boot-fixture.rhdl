@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds shared SoC BootROM metadata and its finalized four-hart image.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

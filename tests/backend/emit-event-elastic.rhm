@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits traced elastic lanes and unmodified reference lanes for differential simulation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm".emit_circt

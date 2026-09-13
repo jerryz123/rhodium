@@ -1,5 +1,6 @@
 #lang rhombus
 // Proves that standard and explicitly composed adders are behaviorally equivalent.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/formal/main.rhm" open

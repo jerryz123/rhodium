@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises grant-selected ancestry, mixed buffering, nested arbiters, and shared references.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

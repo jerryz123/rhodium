@@ -1,4 +1,5 @@
 # Builds Rhodium smoke designs and mapped MiniSoC artifacts through CIRCT and LibreLane.
+# SPDX-License-Identifier: Apache-2.0
 
 .DELETE_ON_ERROR:
 

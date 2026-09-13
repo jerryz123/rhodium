@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the paired core benchmark for architectural and branch-recovery comparisons.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/backend/circt.rhm".emit_circt
   "../../cores/rv5stage/tests/branch-prediction-fixture.rhdl".design

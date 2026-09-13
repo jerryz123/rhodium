@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT MLIR for nested bundle construction and projection.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

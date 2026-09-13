@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements packet-retaining wormhole routing from a validated router plan.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/flit.rhdl").VariableFlit

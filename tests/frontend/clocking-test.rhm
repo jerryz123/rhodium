@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks selectable frontend clocking declarations, reports, and profile-independent hardware IR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Serializes coherent requests, interventions, and full-line copyback to backing memory.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

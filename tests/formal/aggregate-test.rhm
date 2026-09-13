@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks record and vector packing, projection, equivalence, and aggregate counterexamples.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

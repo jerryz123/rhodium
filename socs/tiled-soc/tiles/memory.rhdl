@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes one external CHI SN-F memory channel from its dedicated fabric router.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/channels.rhdl").CHISNChannels

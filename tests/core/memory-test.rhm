@@ -1,5 +1,6 @@
 #lang rhombus
 // Covers core async-read memory construction, verification, and rejection rules.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

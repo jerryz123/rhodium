@@ -1,4 +1,5 @@
 <!-- Guides contributors through implementing and validating RV5Stage translation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the RV5Stage MMU
 

@@ -1,4 +1,5 @@
 <!-- Defines mandatory execution and source-editing rules for agents working on Rhodium. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium agent instructions
 

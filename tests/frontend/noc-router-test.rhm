@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks compiled simple-router configuration, structure, and proof boundaries.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

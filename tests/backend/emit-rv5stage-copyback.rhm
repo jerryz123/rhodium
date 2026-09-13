@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the packet-width and snoop-handoff copyback fixture.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/backend/circt.rhm" open
   "../../cores/rv5stage/tests/copyback-fixture.rhdl" as fixture

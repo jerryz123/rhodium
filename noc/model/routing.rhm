@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines finite route classes, routing origins, and topology-derived candidate queries.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "identities.rhm" open

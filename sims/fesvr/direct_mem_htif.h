@@ -1,4 +1,5 @@
 // Declares exact-width FESVR transactions and software-owned boot entry publication.
+// SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <cstddef>

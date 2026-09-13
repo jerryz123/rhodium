@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a multi-bit hardware value used as an assertion condition.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit BadAssertWideCondition():
   input condition: Bits(2)

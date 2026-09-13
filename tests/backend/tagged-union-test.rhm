@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that frontend tagged unions lower through the generic flat CIRCT path.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm".emit_circt

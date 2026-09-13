@@ -1,4 +1,5 @@
 // Exhaustively checks lane-mask expansion, single enables, slices, and non-byte lane widths.
+// SPDX-License-Identifier: Apache-2.0
 module expand_mask_tb;
   logic [7:0] mask;
   logic single;

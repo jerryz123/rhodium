@@ -1,4 +1,5 @@
 // Exhaustively checks runtime alignment, explicit bounds, and mismatched operand widths.
+// SPDX-License-Identifier: Apache-2.0
 module runtime_alignment_tb;
   logic [7:0] value;
   logic [5:0] exponent;

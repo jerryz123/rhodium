@@ -1,5 +1,6 @@
 #lang rhodium
 // Attaches one shared ACLINT SN-I to its dedicated CHI service-row router.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

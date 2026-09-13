@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks reusable line topology definitions against explicit core authoring values.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../authoring/main.rhm" open

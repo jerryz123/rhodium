@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a bundle declaration that gives one dot name to a field and method.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle ConflictingEnvelope():
   valid: Bool

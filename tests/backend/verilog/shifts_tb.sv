@@ -1,4 +1,5 @@
 // Simulates fixed-width logical shifts with host and hardware shift amounts.
+// SPDX-License-Identifier: Apache-2.0
 module shifts_tb;
     logic [7:0] value;
     logic [2:0] amount;

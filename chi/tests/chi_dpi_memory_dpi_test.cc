@@ -1,4 +1,5 @@
 // Exercises reset registration, shared storage, CHI beat masking, and instance isolation.
+// SPDX-License-Identifier: Apache-2.0
 #include "chi_dpi_memory_dpi.h"
 #include "chi_memory.h"
 #include "chi_image_memory.h"

@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines synchronous exception causes and their architectural cause codes.
+// SPDX-License-Identifier: Apache-2.0
 
 enum ExceptionCause
 | InstructionAddressMisaligned

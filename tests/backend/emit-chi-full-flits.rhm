@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT MLIR for the maximal AMBA CHI physical flit profile.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

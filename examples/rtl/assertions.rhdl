@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates reset-suppressed assertions with branch-derived activation guards.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit Assertions():
   input always_condition: Bool

@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates explicit DPI procedure effects and result-bearing DPI register state.
+// SPDX-License-Identifier: Apache-2.0
 
 dpi_import procedure rhodium_trace(value: Bits(8))
 dpi_import function rhodium_step(value: Bits(8)) -> result: Bits(8)

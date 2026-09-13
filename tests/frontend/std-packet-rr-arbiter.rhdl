@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines representative packet-arbitration chains and invalid frontend uses.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

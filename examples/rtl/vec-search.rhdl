@@ -1,5 +1,6 @@
 #lang rhodium
 // Cycles through a host-defined pattern using a registered hardware vector index.
+// SPDX-License-Identifier: Apache-2.0
 
 def search_pattern = [0, 4, 15, 14, 2, 5, 13]
 

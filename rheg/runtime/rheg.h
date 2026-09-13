@@ -1,4 +1,5 @@
 // Defines Rhodium Hardware Event Graph (rheg) snapshots, streaming batches, and DPI ABI.
+// SPDX-License-Identifier: Apache-2.0
 #ifndef RHEG_H
 #define RHEG_H
 

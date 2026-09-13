@@ -1,4 +1,5 @@
 # Hardens the Rhodium smoke-test leaf inside the pinned Double-Wide OpenFrame wrapper.
+# SPDX-License-Identifier: Apache-2.0
 
 DESIGN_NAME: double_wide_openframe_project_wrapper
 VERILOG_FILES:

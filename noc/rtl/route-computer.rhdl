@@ -1,5 +1,6 @@
 #lang rhodium
 // Lowers validated router and router-family plans into combinational route lookups.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/decode.rhdl") open

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks shared RV32I/RV64I operands, immediate assembly, and format coverage.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

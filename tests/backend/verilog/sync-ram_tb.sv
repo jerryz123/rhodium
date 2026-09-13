@@ -1,4 +1,5 @@
 // Verifies one-cycle read validity, write silence, and lane-masked updates.
+// SPDX-License-Identifier: Apache-2.0
 module sync_ram_tb;
   typedef struct packed {
     logic [1:0]  address;

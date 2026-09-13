@@ -1,5 +1,6 @@
 #lang rhombus
 // Compiles logical CHI connections into independent, validated NoC channel plans.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

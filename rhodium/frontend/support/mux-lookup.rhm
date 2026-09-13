@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines shared typed-key protocols for frontend mux lookup extensions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../core/types.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a multi-subordinate, multi-beat initial-profile HN-I bridge.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

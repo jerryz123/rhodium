@@ -1,5 +1,6 @@
 #lang rhodium
 // Selects one request from a hardware-supplied circular starting priority.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle CircularPriorityChoice(n :: PosInt, index_width :: PosInt):
   valid: Bool

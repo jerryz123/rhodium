@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks semantic snapshots for cycle witnesses and escape-certified routing results.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

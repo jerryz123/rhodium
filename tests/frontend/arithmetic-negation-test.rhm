@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks unary arithmetic negation lowering, exact hardware types, and host fallback.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

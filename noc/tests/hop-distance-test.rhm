@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks directed hop distances, complete minimal choices, and deterministic diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

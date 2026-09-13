@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks logical CHI connections and their expansion into independent NoC planes.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../noc/authoring/main.rhm" open

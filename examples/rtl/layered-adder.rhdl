@@ -1,5 +1,6 @@
 #lang rhodium
 // Showcases an imported hardware library and recursive host-generated structure.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "add-pair.rhm" open

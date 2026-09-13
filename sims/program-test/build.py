@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Builds pinned upstream workloads without modifying their source or selecting by pass status.
+# SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
 import json

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks MiniSoC's on-chip memory, BootROM, and address-map policy.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../socs/mini-soc.rhdl" as soc

@@ -1,5 +1,6 @@
 #lang rhombus
 // Aggregates the complete ratified RV32 and RV64 B standard extension catalogs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

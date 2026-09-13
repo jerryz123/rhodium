@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a CHI SN-I ACLINT with MTIMER/MSWI state and sparse time updates.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm").NonemptyString

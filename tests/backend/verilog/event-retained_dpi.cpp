@@ -1,4 +1,5 @@
 // Scores retained ownership, retries, replacement, reset, and detached traffic from public transfers.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-retained_manifest.h"
 #include <array>

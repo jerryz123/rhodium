@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks selection-controlled joining, public exports, result shape, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,5 +1,6 @@
 #lang rhodium
 // Re-exports typed patterns, grouped cases, and decode generators.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/decode/pattern.rhdl") open

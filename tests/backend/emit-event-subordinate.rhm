@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits production single-beat subordinate instrumentation and its matching descriptor.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/event/main.rhm" open
   "../../rhodium/backend/circt.rhm".emit_circt

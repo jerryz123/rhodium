@@ -1,5 +1,6 @@
 #lang rhombus
 // Captures comparable public semantics from one compiled routing result for equivalence tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

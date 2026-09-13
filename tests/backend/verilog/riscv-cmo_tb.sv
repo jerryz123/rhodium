@@ -1,4 +1,5 @@
 // Exhaustively checks M/S/U CMO controls, WARL normalization, Sv39 permissions, and PMAs.
+// SPDX-License-Identifier: Apache-2.0
 module riscv_cmo_tb;
   logic [1:0] operation = 0, access = 0;
   logic user_mode = 0, supervisor_mode = 0, sum = 0, mxr = 0;

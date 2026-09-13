@@ -1,4 +1,5 @@
 // Compares traced queues with reference lanes under directed and randomized traffic.
+// SPDX-License-Identifier: Apache-2.0
 module event_queue_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks exact-key switch typing, direct mux lowering, effects, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

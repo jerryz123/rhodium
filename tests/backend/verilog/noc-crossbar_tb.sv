@@ -1,4 +1,5 @@
 // Exercises independent destination selection and contention in the linkless NoC crossbar.
+// SPDX-License-Identifier: Apache-2.0
 module noc_crossbar_tb;
     logic clock;
     logic reset;

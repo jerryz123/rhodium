@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects packed OR reduction of a non-data hardware clock value.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadOrReduceType():
   input source: Clock

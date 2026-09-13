@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines CHI node roles, capabilities, credited links, and connection legality.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

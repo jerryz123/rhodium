@@ -1,4 +1,5 @@
 <!-- Guides changes to CHI transaction adapters. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing CHI transaction adapters
 

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks conditional bundle shapes, packing, construction, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

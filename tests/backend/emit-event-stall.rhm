@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits stall instrumentation and its matching manifest for public-interface scoreboarding.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/backend/circt.rhm".emit_circt
   "../../rhodium/event/main.rhm" open

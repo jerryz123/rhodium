@@ -1,4 +1,5 @@
 // Checks fixed-delay lineage through filtering, local flush, and reset with pending work.
+// SPDX-License-Identifier: Apache-2.0
 module event_pipeline_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } channel_t;
   logic clock = 0, reset = 1, flush = 0;

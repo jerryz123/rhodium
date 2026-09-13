@@ -1,0 +1,7 @@
+Rhodium
+Copyright 2026 Jerry Zhao
+
+This product includes a Rhodium port of Berkeley HardFloat. The Regents of
+the University of California and SiFive, Inc. retain copyright in the derived
+algorithms. The port is separately licensed under the BSD terms reproduced in
+hardfloat/LICENSE.md.

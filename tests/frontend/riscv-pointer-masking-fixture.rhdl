@@ -1,5 +1,6 @@
 #lang rhodium
 // Exposes pointer normalization, policy selection, and WARL specialization for behavioral tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../riscv/isa/xlen.rhm" open

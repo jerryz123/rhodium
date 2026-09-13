@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines the narrow rotating stream that distributes ACLINT time snapshots to tiled harts.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

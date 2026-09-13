@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits CIRCT IR for the reusable RV32 ALU with B and Zicond operations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

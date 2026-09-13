@@ -1,5 +1,6 @@
 #lang rhodium
 // Composes an independent single-core SoC with an inclusive LLC and external CHI memory.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm") open

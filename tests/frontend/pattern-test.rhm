@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks typed Pattern normalization, relations, aggregates, and extension literals.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/types.rhm".Bits

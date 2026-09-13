@@ -1,4 +1,5 @@
 // Simulates explicit synchronous-memory read and write port timing.
+// SPDX-License-Identifier: Apache-2.0
 module sync_memory_tb;
   logic clock = 1'b0;
   logic reset = 1'b0;

@@ -1,4 +1,5 @@
 <!-- Guides contributors through implementing and validating reusable platform devices. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing platform devices
 

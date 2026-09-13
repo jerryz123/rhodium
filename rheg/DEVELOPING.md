@@ -1,4 +1,5 @@
 <!-- Defines RHEG collector invariants, Perfetto encoding, decoder ownership, and validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing RHEG
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Checks SimpleSoC outer-memory/cache transfers and scalar pipeline lineage with the native importer.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 : "${TRACE_PROCESSOR:?Set TRACE_PROCESSOR to the native trace_processor_shell executable}"
 trace_file="${1:?expected trace path}"

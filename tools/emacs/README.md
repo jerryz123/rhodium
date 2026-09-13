@@ -1,4 +1,5 @@
 <!-- Documents installation and behavior of Rhodium's project-aware Emacs integration. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium Emacs integration
 

@@ -1,4 +1,5 @@
 <!-- Explains how RV5Stage selects, composes, and validates its structured decode controls. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV5Stage decode
 

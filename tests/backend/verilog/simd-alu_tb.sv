@@ -1,4 +1,5 @@
 // Checks shared SIMD bit operations and widening against independent per-element models.
+// SPDX-License-Identifier: Apache-2.0
 module simd_alu_tb;
   localparam logic [2:0] ADDER = 0, LOGIC_OP = 1, SHIFT = 2,
                          COMPARE = 3, MINMAX = 4, SELECT_OP = 5, PERMUTE = 6, COUNT = 7;

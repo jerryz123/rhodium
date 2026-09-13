@@ -1,4 +1,5 @@
 ;;; rhodium-mode-test.el --- Tests for Rhodium's Emacs entry point -*- lexical-binding: t; -*-
+;; SPDX-License-Identifier: Apache-2.0
 
 (require 'ert)
 (require 'cl-lib)

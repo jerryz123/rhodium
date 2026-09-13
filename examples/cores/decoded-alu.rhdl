@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates RV64I instruction decoding connected directly to the reusable ALU.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/alu.rhdl") open

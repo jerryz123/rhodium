@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks symbolic route-class validation, deterministic lowering, provenance, and model integration.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

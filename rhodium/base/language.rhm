@@ -1,5 +1,6 @@
 #lang rhombus/and_meta
 // Assembles #lang rhodium/base from Rhombus and the foundational Rhodium frontend surface.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus

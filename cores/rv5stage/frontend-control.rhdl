@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines independent core-to-frontend control streams and their stage-owned payloads.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "btb.rhdl" open

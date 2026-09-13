@@ -1,4 +1,5 @@
 // Exercises fixed priority, selected readiness, chosen index, and stalled preemption.
+// SPDX-License-Identifier: Apache-2.0
 module arbiter_tb;
   typedef struct packed {
     logic       valid;

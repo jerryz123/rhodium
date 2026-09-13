@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises order-independent clock and enable options on single and multiple DPI registers.
+// SPDX-License-Identifier: Apache-2.0
 
 dpi_import function option_step(value: Bits(8)) -> result: Bits(8)
 dpi_import function option_step_pair(value: Bits(8)) -> (out doubled: Bits(8), return incremented: Bits(8))

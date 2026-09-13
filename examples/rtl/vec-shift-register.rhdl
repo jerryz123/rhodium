@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates element-wise conditional updates to one aggregate vector register.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit VecShiftRegister():
   input ins: Vec(4, Bits(4))

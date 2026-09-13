@@ -1,4 +1,5 @@
 <!-- Describes the public boundary of CHI network integration. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # CHI network integration
 

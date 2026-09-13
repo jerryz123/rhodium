@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks routing-rule syntax against builder policies and the validation pipeline.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../model/main.rhm" open

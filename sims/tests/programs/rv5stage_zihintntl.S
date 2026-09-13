@@ -1,4 +1,5 @@
 // Checks translated NTL load non-allocation and dirty-data preservation through real SoC/FESVR execution.
+// SPDX-License-Identifier: Apache-2.0
 .option norvc
 
 .macro prime_conflict_set

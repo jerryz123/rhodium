@@ -1,4 +1,5 @@
 <!-- Defines event compiler ownership, lineage lowering invariants, and extension validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing event graphs
 

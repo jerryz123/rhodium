@@ -1,5 +1,6 @@
 #lang rhodium
 // Composes the generated platform polling ROM and a complete core for CHI boot execution tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/channels.rhdl") open

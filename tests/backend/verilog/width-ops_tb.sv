@@ -1,4 +1,5 @@
 // Simulates concatenation, extraction, zero extension, and truncation after CIRCT export.
+// SPDX-License-Identifier: Apache-2.0
 // Simulates the CIRCT-exported width-changing datapath module.
 module width_ops_tb;
     logic [7:0] a;

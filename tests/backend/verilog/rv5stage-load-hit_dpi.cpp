@@ -1,4 +1,5 @@
 // Checks D-cache stage timing and retained ancestry against public core/cache transfers.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "rv5stage-load-hit_manifest.h"
 #include <array>

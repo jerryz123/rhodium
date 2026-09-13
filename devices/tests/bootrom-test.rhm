@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks BootROM image generation, CHI service metadata, and parameter validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks that an explicit endpoint monitor reaches CIRCT assertion IR.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

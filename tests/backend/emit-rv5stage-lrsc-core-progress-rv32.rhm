@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits predictor-enabled X32 constrained-loop qualification.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

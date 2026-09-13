@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks successful traversal and deterministic rejection of invalid reachable routing branches.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

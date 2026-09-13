@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects a CHI NodeID that does not fit the physical NodeID field width.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

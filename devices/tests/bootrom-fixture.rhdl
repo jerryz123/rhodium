@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates the default multihart RISC-V image in a standalone CHI BootROM.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("devices/bootrom.rhdl") open

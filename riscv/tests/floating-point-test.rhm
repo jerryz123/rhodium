@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks reusable RISC-V floating-point policy helpers, including Zfa constants.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

@@ -1,4 +1,5 @@
 // Checks completed one-bit and two-bit iterative HardFloat division and square-root behavior.
+// SPDX-License-Identifier: BSD-3-Clause
 module hardfloat_divide_sqrt_tb;
   logic clock;
   logic reset;

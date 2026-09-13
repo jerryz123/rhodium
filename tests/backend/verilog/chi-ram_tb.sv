@@ -1,4 +1,5 @@
 // Simulates CHIRam masks, concurrent allocation/DAT, reset recovery, stalls, and address-space-end access.
+// SPDX-License-Identifier: Apache-2.0
 module chi_ram_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;

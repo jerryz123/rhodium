@@ -1,4 +1,5 @@
 <!-- Compares the core denotation and authoring semantics of Rhodium and Hardcaml. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and Hardcaml
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Runs one test batch in the caller's clean bytecode root or a fresh local root.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

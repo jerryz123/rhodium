@@ -1,4 +1,5 @@
 // Simulates decoded RV64I controls through the ALU, including unconstrained modifiers.
+// SPDX-License-Identifier: Apache-2.0
 module rv64i_alu_integrated_tb;
     logic [31:0] instruction;
     logic [63:0] left;

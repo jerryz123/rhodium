@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # Verifies that the prototype wrapper still matches the pinned harness boundary contract.
+# SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
 

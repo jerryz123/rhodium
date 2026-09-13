@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines transport-independent RISC-V physical-memory regions and hardware access lookup.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

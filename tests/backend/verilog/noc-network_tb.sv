@@ -1,4 +1,5 @@
 // Verifies end-to-end delivery, destination selection, ordering, and conservation under backpressure.
+// SPDX-License-Identifier: Apache-2.0
 module noc_network_tb;
     logic clock;
     logic reset;

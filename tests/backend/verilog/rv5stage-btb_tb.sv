@@ -1,4 +1,5 @@
 // Checks associative PC/halfword selection, saturating counters, replacement, and invalidation.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_btb_tb;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; } prediction_t;
   typedef struct packed { logic [63:0] pc, target; logic branch, conditional, taken, compressed; } update_bits_t;

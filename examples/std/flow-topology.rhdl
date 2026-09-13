@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates primitive generators and composable ready-valid handle/sink topologies.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

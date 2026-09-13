@@ -1,5 +1,6 @@
 #lang rhombus
 // Enumerates standard privileged return, wait, and translation instructions.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "integer-common.rhm" open

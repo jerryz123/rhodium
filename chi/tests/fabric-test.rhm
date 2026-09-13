@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks CHI fabric services, executable Home selection, and subordinate metadata.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<

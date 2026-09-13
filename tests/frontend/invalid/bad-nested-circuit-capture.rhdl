@@ -1,5 +1,6 @@
 #lang rhodium
 // Invalidly captures parent hardware directly inside a nested child module.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit Parent():
   input source: Bits(8)

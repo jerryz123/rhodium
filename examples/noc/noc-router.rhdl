@@ -1,5 +1,6 @@
 #lang rhodium
 // Builds buffered transit and ejection routers from one validated two-hop NoC.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../noc/model/main.rhm" open

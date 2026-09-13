@@ -1,5 +1,6 @@
 #lang rhombus
 // Enumerates the six XLEN-independent Zicsr instruction encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

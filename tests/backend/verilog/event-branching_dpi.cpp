@@ -1,4 +1,5 @@
 // Models public FIFO transfers through two buffered exits and a crossbar feedback lane.
+// SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "event-branching_manifest.h"
 #include <array>

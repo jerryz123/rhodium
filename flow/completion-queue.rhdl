@@ -1,5 +1,6 @@
 #lang rhodium
 // Bridges ready-valid requests to nonstallable issues and completions with reserved response buffering.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

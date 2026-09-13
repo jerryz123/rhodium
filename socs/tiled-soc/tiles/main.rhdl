@@ -1,5 +1,6 @@
 #lang rhodium
 // Re-exports the concrete compute, LLC, device, and transit TiledSoC tiles.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "rv5stage.rhdl" open

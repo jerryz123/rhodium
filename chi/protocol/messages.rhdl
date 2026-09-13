@@ -1,5 +1,6 @@
 #lang rhodium
 // Constructs stateless requester/subordinate messages and Home transforms without engine policy.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open

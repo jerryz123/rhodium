@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines an asymmetric fork-merge network used to exercise uniform router families.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

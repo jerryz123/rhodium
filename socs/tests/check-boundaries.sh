@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Exercises SoC import boundaries and failure propagation without ripgrep.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 fixture="$(mktemp -d /tmp/rhodium-soc-boundaries.XXXXXX)"

@@ -1,5 +1,6 @@
 #lang rhodium
 // Specializes the production TiledSoC harness with independently stalled memory channels.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../tiled-soc-harness.rhdl".SoCHarness

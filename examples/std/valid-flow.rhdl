@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates composable Valid mapping, fanout, filtering, and Decoupled conversion.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

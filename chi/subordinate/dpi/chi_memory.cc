@@ -1,4 +1,5 @@
 // Implements sparse bounded byte memories with allocation-free clearing of empty ranges.
+// SPDX-License-Identifier: Apache-2.0
 #include "chi_memory.h"
 
 #include <algorithm>

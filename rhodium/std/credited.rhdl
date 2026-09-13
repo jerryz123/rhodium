@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines protocol-neutral credited transport and explicit endpoint monitoring.
+// SPDX-License-Identifier: Apache-2.0
 
 fun checked_credited_payload(T :: DataType, credit_limit :: PosInt):
   T

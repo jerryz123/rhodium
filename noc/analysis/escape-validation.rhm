@@ -1,5 +1,6 @@
 #lang rhombus
 // Validates escape-subnetwork closure, entry, progress, and dependency acyclicity.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

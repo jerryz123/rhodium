@@ -1,4 +1,5 @@
 <!-- Defines the dependency and behavioral contract for NoC-specific Rhodium hardware. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # NoC RTL
 

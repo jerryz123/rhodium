@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the core-neutral catalog of concrete RISC-V UDB configurations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../udb.rhm" open

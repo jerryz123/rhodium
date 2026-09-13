@@ -1,5 +1,6 @@
 #lang rhodium
 // Maps base control transfers and disabled extension cases to branch controls.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../riscv/isa/zawrs.rhm" open

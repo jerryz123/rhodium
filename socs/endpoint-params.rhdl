@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines SoC host capabilities and Home-specific service projections.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/interconnect.rhdl").AddressSet

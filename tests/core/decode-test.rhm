@@ -1,5 +1,6 @@
 #lang rhombus
 // Verifies typed core decode construction, canonical patterns, and validation.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

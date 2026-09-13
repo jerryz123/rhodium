@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks record-update lowering, descriptor preservation, and invalid field replacements.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

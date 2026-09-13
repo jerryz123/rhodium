@@ -1,4 +1,5 @@
 <!-- Guides changes to CHI protocol contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing CHI protocol contracts
 

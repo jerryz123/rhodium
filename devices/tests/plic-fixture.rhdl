@@ -1,5 +1,6 @@
 #lang rhodium
 // Elaborates a three-source, two-context PLIC fixture for host and backend verification.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("devices/plic.rhdl") open

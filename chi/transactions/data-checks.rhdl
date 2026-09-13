@@ -1,5 +1,6 @@
 #lang rhodium
 // Checks unelided packets and full-copyback state/masks without owning receipt state.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams

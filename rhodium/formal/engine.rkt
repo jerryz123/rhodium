@@ -1,5 +1,6 @@
 #lang rosette
 ;; Interprets immutable verified Rhodium snapshots for combinational equivalence, reachability, and property queries.
+;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/list
          racket/match

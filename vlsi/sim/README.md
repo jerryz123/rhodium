@@ -1,4 +1,5 @@
 <!-- Documents cycle-level simulation after design- and technology-specific SRAM mapping. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Mapped VLSI simulation
 

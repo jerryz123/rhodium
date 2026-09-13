@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises stall observations across direct, elastic, and bypass/replacement queue paths.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

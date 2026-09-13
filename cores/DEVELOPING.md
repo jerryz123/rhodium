@@ -1,4 +1,5 @@
 <!-- Guides contributors through placing, implementing, and validating processor components and cores. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing processor components and cores
 

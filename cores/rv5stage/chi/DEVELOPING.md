@@ -1,4 +1,5 @@
 <!-- Guides contributors through RV5Stage CHI implementation ownership and validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing RV5Stage CHI endpoints
 

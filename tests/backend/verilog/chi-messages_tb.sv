@@ -1,4 +1,5 @@
 // Checks repeated CHI builders and complete Home transforms, including optional metadata at every DAT width.
+// SPDX-License-Identifier: Apache-2.0
 module chi_messages_tb;
   logic [511:0] home_request_bits;
   logic [1023:0] home_data_bits;

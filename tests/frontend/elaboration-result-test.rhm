@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks explicit top retention and stable instance lookup for annotated consumers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/ir.rhm".DesignElaboration

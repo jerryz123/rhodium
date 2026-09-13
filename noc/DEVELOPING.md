@@ -1,4 +1,5 @@
 <!-- Guides contributors through extending the pure NoC model, proofs, and hardware plans. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing the pure NoC stack
 

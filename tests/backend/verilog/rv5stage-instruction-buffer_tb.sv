@@ -1,4 +1,5 @@
 // Checks zero-cycle Decode bypass, parcel retention, stalls, precise faults, and clear priority.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_instruction_buffer_tb;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; } prediction_t;
   typedef struct packed {

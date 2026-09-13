@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits compressed fetch with a small trained BTB for predicted-stream behavioral tests.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../cores/rv5stage/profile.rhm" open
   "../../rhodium/backend/circt.rhm".emit_circt

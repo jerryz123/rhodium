@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a circuit-shaped synchronous memory with fixed read and write ports.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit SyncMemoryExample(depth :: PosInt, width :: PosInt):
   input read_address: Bits(index_width(depth))

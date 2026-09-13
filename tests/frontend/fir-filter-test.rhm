@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks the FIR example's generated delay line, signed MAC structure, and width policy.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

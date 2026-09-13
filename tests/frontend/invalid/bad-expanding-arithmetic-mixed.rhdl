@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects expanding multiplication between unsigned Bits and signed arithmetic.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BadExpandingArithmeticMixed():
   input left: SInt(8)

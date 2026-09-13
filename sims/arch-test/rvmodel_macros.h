@@ -1,4 +1,5 @@
 // Terminates self-checking ACT payloads through the simulator's coherent HTIF mailboxes.
+// SPDX-License-Identifier: Apache-2.0
 #ifndef RHODIUM_ACT_RVMODEL_MACROS_H
 #define RHODIUM_ACT_RVMODEL_MACROS_H
 

@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines bit ordering, layout, alignment, lane-mask expansion, and masked-merge utilities for Bits.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

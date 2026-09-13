@@ -1,4 +1,5 @@
 // Simulates clocked DPI updates and verifies disabled calls retain their result state.
+// SPDX-License-Identifier: Apache-2.0
 module clocked_dpi_tb;
   logic clock = 1'b0;
   logic reset = 1'b0;

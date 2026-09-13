@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates independently extending a typed decode relation along every table axis.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/decode.rhdl") open

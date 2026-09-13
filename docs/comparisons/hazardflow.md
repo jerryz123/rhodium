@@ -1,4 +1,5 @@
 <!-- Compares Rhodium's general construction semantics with HazardFlow's typed hazard-interface language. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium and HazardFlow: explicit RTL versus typed protocol flow
 

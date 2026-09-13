@@ -1,4 +1,5 @@
 // Simulates stack push, pop, output timing, enable gating, and full protection.
+// SPDX-License-Identifier: Apache-2.0
 module stack_tb;
     logic clock = 1'b0;
     logic reset = 1'b1;

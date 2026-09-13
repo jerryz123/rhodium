@@ -1,4 +1,5 @@
 // Converts a saved Rhodium event snapshot to native Perfetto on standard output.
+// SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include <fstream>
 #include <iostream>

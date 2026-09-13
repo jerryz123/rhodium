@@ -1,5 +1,6 @@
 #lang rhombus
 // Provides topology-independent naming, composition, and directed-link helpers.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "names.rhm" open

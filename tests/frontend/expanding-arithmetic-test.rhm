@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks expanding arithmetic widths and its composition from existing core operations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

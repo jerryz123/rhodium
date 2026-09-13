@@ -1,4 +1,5 @@
 <!-- Describes reusable platform devices and their integration contracts. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Platform devices
 

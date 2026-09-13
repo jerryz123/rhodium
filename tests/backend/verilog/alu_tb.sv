@@ -1,4 +1,5 @@
 // Simulates every operation in the eight-bit Rhodium ALU after CIRCT export.
+// SPDX-License-Identifier: Apache-2.0
 // Simulates the CIRCT-exported canonical ALU module.
 module alu_tb;
     logic [7:0] a;

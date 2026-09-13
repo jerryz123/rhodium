@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks interface arrays, generic handles and sinks, hierarchy, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

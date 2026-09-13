@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the integrated load-hit regression with instruction-to-refill lineage and its descriptor.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../cores/rv5stage/tests/load-hit-fixture.rhdl".RV5StageLoadHit
   "../../rhodium/backend/circt.rhm".emit_circt

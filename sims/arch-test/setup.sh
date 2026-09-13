@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Installs ACT's isolated Python/Ruby dependencies and the checksum-pinned Sail reference model.
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 act_dir="$repo_dir/riscv/riscv-arch-test"

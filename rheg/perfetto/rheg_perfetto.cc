@@ -1,4 +1,5 @@
 // Encodes Perfetto v58.2 packets and parses rheg trace snapshots in C++.
+// SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include <nlohmann/json.hpp>
 #include <disasm.h>

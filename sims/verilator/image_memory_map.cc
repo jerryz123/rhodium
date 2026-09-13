@@ -1,4 +1,5 @@
 // Collects reset-initialized native RAM models for the selected simulator build.
+// SPDX-License-Identifier: Apache-2.0
 #include "image_memory.h"
 #ifdef RHODIUM_CHI_MEMORY
 #include "chi_image_memory.h"

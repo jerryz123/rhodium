@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects explicit assertion controls inside a sync circuit.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit ExplicitAssertionDomain():
   input other_clock: Clock

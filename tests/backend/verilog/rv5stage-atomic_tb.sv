@@ -1,4 +1,5 @@
 // Verifies every RV5Stage AMO function for RV64 doubleword and word operands.
+// SPDX-License-Identifier: Apache-2.0
 module rv5stage_atomic_tb;
   localparam logic [1:0] WORD = 2'd2;
   localparam logic [1:0] DOUBLE = 2'd3;

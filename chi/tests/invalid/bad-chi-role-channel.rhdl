@@ -1,5 +1,6 @@
 #lang rhodium
 // Rejects advertising an SNP receive capability on an RN-I endpoint.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/main.rhdl") open

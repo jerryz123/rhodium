@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises checked hardware-type annotations across the standard type surface.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/types.rhm".BitwiseType

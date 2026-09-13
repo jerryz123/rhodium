@@ -1,4 +1,5 @@
 // Exercises every standard-B and Zicond resource family in the RV64 ALU.
+// SPDX-License-Identifier: Apache-2.0
 module bit_manip_tb;
   logic [63:0] left;
   logic [63:0] right;

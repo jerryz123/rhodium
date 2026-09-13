@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines a named generic shift register over arbitrary data with optional reset and enable.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

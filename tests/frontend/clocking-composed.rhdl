@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Exercises report-only clocking declarations through explicit base-profile layer composition.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/layers/sequential.rhm") open

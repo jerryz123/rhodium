@@ -1,4 +1,5 @@
 <!-- Specifies RV5Stage's write-back L1D, single-miss ownership, and independent load-hit policy. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV5Stage data cache
 

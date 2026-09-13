@@ -1,4 +1,5 @@
 <!-- Documents the optional Rosette formal engine, its supported semantics, API, and focused validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium formal engine
 

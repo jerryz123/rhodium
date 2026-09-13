@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises nested joins, replica reconvergence, variable-width selection, and annotation cut points.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

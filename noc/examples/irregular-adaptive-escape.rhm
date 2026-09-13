@@ -1,5 +1,6 @@
 #lang rhombus
 // Demonstrates generic adaptive routing with a user-authored tree escape on an irregular graph.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/main.rhm" open

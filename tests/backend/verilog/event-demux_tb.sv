@@ -1,4 +1,5 @@
 // Checks exclusive routing under changing selectors, independent stalls, buffering, and reset.
+// SPDX-License-Identifier: Apache-2.0
 module event_demux_tb;
   typedef struct packed { logic valid; logic [7:0] bits; } forward_t;
   typedef struct packed { logic ready; } reverse_t;

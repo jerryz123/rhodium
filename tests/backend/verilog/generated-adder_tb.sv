@@ -1,4 +1,5 @@
 // Simulates the host-generated eight-bit ripple-carry adder after CIRCT export.
+// SPDX-License-Identifier: Apache-2.0
 module generated_adder_tb;
     logic [7:0] A;
     logic [7:0] B;

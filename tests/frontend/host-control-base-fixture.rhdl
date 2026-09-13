@@ -1,5 +1,6 @@
 #lang rhodium/base
 // Exercises ordinary Rhombus host control with a hardware object in the base profile.
+// SPDX-License-Identifier: Apache-2.0
 
 circuit BaseHostControl():
   input signal: Bits(1)

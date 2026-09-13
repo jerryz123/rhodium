@@ -1,5 +1,6 @@
 #lang rhombus
 // Checks public output reachability, witness replay, assumptions, aggregates, hierarchy, and fail-closed cases.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/core/main.rhm" open

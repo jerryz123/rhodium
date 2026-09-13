@@ -1,5 +1,6 @@
 #lang rhodium
 // Implements a CHI-native 16550-style UART with 8-N-1 serial engines and FIFOs.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("support/annotations.rhm").NonemptyString

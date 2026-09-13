@@ -1,5 +1,6 @@
 #lang rhombus
 // Carries sync-circuit metadata and expands ambient clock/reset policy into explicit kernel operations.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../support/annotations.rhm" open

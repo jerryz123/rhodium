@@ -1,5 +1,6 @@
 #lang rhodium
 // Generates XLEN load values and byte-lane stores within configurable memory beats.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../riscv/isa/xlen.rhm" open

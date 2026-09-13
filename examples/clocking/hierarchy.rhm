@@ -1,5 +1,6 @@
 #lang rhombus
 // Shows one reusable child receiving distinct temporal classifications at two instances.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/core/main.rhm") open

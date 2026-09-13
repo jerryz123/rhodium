@@ -1,4 +1,5 @@
 <!-- Guides changes to CHI network integration. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing CHI network integration
 

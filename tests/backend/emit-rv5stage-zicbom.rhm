@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the feature-enabled scalar core for precise CMO retirement tests.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/backend/circt.rhm" open

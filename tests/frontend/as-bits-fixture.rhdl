@@ -1,5 +1,6 @@
 #lang rhodium
 // Exercises inferred canonical packing and vector-shaped representation casts.
+// SPDX-License-Identifier: Apache-2.0
 
 bundle Pair(T):
   high: T

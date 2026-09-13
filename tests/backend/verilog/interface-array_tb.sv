@@ -1,4 +1,5 @@
 // Simulates two independent ready-valid lanes flattened from an interface array.
+// SPDX-License-Identifier: Apache-2.0
 module interface_array_tb;
   typedef struct packed {
     logic       valid;

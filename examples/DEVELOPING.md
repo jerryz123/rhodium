@@ -1,4 +1,5 @@
 <!-- Explains how to add, catalog, validate, and maintain Rhodium and RFPL examples. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing Rhodium examples
 

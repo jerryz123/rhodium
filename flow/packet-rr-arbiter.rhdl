@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines round-robin arbitration that retains one input through a complete packet.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

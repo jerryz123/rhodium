@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates reliable changed-state emission and local state replication over ready-valid flow.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open

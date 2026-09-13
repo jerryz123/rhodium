@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines the RV32A and RV64A atomic-instruction catalogs and encodings.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open

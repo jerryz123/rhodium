@@ -1,5 +1,6 @@
 #lang rhombus
 // Emits the uncached Home for the common cache-maintenance behavior suite.
+// SPDX-License-Identifier: Apache-2.0
 import:
   "../../rhodium/backend/circt.rhm" open
   "../../chi/tests/coherent-home-fixture.rhdl" as fixture

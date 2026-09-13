@@ -1,5 +1,6 @@
 #lang rhombus
 // Defines public Rhodium hardware IR objects and their ownership relationships.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   "types.rhm" open

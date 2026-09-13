@@ -1,4 +1,5 @@
 // Simulates mutually exclusive reads and writes through one synchronous memory port.
+// SPDX-License-Identifier: Apache-2.0
 module sync_memory_1rw_tb;
   logic clock = 1'b0;
   logic reset = 1'b0;

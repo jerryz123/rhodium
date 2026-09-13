@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines atomic forks and certifies payload-bearing flow replication for tracing.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open

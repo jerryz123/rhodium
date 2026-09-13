@@ -1,5 +1,6 @@
 #lang rhodium
 // Defines grant-controlled payload traversal between ready-valid flow arrays.
+// SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open

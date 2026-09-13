@@ -1,4 +1,5 @@
 <!-- Guides changes to CHI subordinate engines and storage. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing CHI subordinate engines and storage
 

@@ -1,5 +1,6 @@
 #lang rhodium
 // Demonstrates a synchronous memory with one shared read-write physical port.
+// SPDX-License-Identifier: Apache-2.0
 
 sync_circuit SyncMemory1RWExample(depth :: PosInt, width :: PosInt):
   input address: Bits(index_width(depth))
