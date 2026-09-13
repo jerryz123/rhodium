@@ -767,6 +767,7 @@ direct_fixture_specs=(
   'riscv-compressed|riscv_compressed_tb'
   'rv5stage-fp-register-file|rv5stage_fp_register_file_tb'
   'rv5stage-fp-pipeline|rv5stage_fp_pipeline_tb'
+  'rv5stage-fp-service|rv5stage_fp_service_tb'
   'rv5stage-register-file|rv5stage_register_file_tb'
   'rv5stage-csr|rv5stage_csr_tb'
   'rv5stage-pointer-masking|rv5stage_pointer_masking_tb'

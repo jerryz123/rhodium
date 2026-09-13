@@ -4,8 +4,7 @@
 
 import:
   "bundles.rhdl" open
-  "datapath.rhdl" open
-  "div-sqrt.rhdl" open
+  "execute.rhdl" open
   "register-file.rhdl" open
   "../decode/fp-ctrl.rhdl" open
   "../../../riscv/isa/fp-profile.rhm" open
@@ -93,7 +92,6 @@ sync_circuit RV5StageFpPipeline(
   def register_count = 32
   def flen = floating_point_register_width(profile)
   def Issue = RV5StageFpIssue(xlen, profile, Context)
-  def ExecutionRequest = RV5StageFpExecutionRequest(xlen, profile, Context)
   def Completion = RV5StageFpCompletion(xlen, profile, Context)
 
   interface issue(Decoupled(Issue), ~role: consumer)
@@ -114,32 +112,23 @@ sync_circuit RV5StageFpPipeline(
   fun register_bit(index :: Bits(5)) :~ Mask(register_count):
     one_hot(index).into(Mask(register_count))
 
-  def FixedModule = cond
-  | !half_precision_supports_zfhmin(half_precision):
-      if profile == FloatingPointProfile.F | RV5StageFpFixedF(xlen, Context, ~zfa: zfa_enabled) | RV5StageFpFixedD(xlen, Context, ~zfa: zfa_enabled)
-  | profile == FloatingPointProfile.F:
-      RV5StageFpFixedFHalf(xlen, Context, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
-  | ~else:
-      RV5StageFpFixedDHalf(xlen, Context, ~arithmetic: half_precision_supports_zfh(half_precision), ~zfa: zfa_enabled)
-  def DivSqrtModule = cond
-  | !half_precision_supports_zfh(half_precision):
-      if profile == FloatingPointProfile.F | RV5StageFpDivSqrtF(xlen, Context) | RV5StageFpDivSqrtD(xlen, Context)
-  | profile == FloatingPointProfile.F: RV5StageFpDivSqrtFHalf(xlen, Context)
-  | ~else: RV5StageFpDivSqrtDHalf(xlen, Context)
-  inst fixed(FixedModule)
-  inst div_sqrt(DivSqrtModule)
-  inst fixed_responses(CompletionQueue(ExecutionRequest, Completion, 4))
-  fixed.request <== fixed_responses.issue.bits
-  fixed_responses.issue |> map_valid(_request => fixed.completion)
-    |> valid_pipe(2)
-    |> fixed_responses.completion
-
-  inst completion_merge(Arbiter(Completion, 2))
-  fixed_responses.response |> completion_merge.ingress[0]
-  div_sqrt.completion |> completion_merge.ingress[1]
-  inst completed(Queue(Completion, 2, ~pipe: #true))
-  completion_merge.egress |> completed.ingress
-  completed.egress |> completion
+  // Scalar metadata is opaque to every shared execution lane.
+  bundle ScalarTag():
+    context: Context
+    destination: RV5StageFloatDestination
+    rd: Bits(5)
+  inst execution(RV5StageFpExecutionService(xlen, profile, ScalarTag(), ~half_precision: half_precision, ~zfa: zfa_enabled))
+  (
+    execution.result |> map_flow(~stable: #true, completed):
+      RV5StageFpCompletion(xlen, profile, Context):
+        context: completed.tag.context
+        destination: completed.tag.destination
+        rd: completed.tag.rd
+        integer_value: completed.integer_value
+        fp_value: completed.fp_value
+        exception_flags: completed.exception_flags
+        exception_flags_valid: completed.exception_flags_valid
+  ) |> completion
 
   def execution_completion = completion.bits
   def execution_write_valid = completion.fire() & (
@@ -193,12 +182,15 @@ sync_circuit RV5StageFpPipeline(
   def fp_destination = control.registers.destination === RV5StageFloatDestination.FloatingPoint
   def destination_hazard = fp_destination & register_busy(issue.bits.frd)
   def issue_hazard = source_hazard ||| destination_hazard
-  def divide_request = control.execution.unit === RV5StageFloatUnit.DivideSquareRoot
   def memory_request = control.execution.unit === RV5StageFloatUnit.Memory
-  def execution_requests = (
+  (
     issue |> gate_flow(!issue_hazard & !memory_request) |> map_flow(issued):
-      RV5StageFpExecutionRequest(xlen, profile, Context):
-        context: issued.context
+      RV5StageFpExecutionRequest(xlen, profile, ScalarTag()):
+        tag:
+          ScalarTag():
+            context: issued.context
+            destination: issued.control.registers.destination
+            rd: issued.frd
         control: issued.control
         left: registers.read_data_1
         right: registers.read_data_2
@@ -206,13 +198,7 @@ sync_circuit RV5StageFpPipeline(
         integer_operand: issued.integer_operand
         immediate_index: issued.frs1
         rounding_mode: issued.rounding_mode
-        rd: issued.frd
-  )
-  def Array(fixed_request, division_request) = (
-    execution_requests |> demux_flow(2, _request => divide_request.as_bits())
-  )
-  fixed_request |> fixed_responses.request
-  division_request |> div_sqrt.request
+  ) |> execution.request
   def issue_fire = issue.fire()
 
   // The third read port is shared by accepted execution and store-read events.

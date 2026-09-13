@@ -170,6 +170,15 @@ protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
 completion-depth annotation. Tag widths derive from the public `index_width`
 operation; memory engines retain the specialized union opaquely.
 
+`cores/rv5stage/fp/execute.rhdl` directly imports `flow/main.rhdl` for
+operand routing, reserved fixed-latency completion buffering, round-robin
+completion arbitration, and output retention. The scalar `fp/pipeline.rhdl`
+imports that service, `flow/main.rhdl`, `std/bits.rhdl`, and
+`std/scoreboard.rhdl`; FPR state and architectural destinations stay in this
+wrapper. `fp/div-sqrt.rhdl` directly imports `std/ready-valid.rhdl` and Flow's
+`rr-arbiter`, `completion-queue`, `demux`, `gate`, and `queue` modules. No FP
+implementation depends on the vector package or on test/backend code.
+
 ### Standard-library dependencies
 
 Standard-library modules depend only on the public authoring surface and

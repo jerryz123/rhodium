@@ -10,13 +10,13 @@ import:
   "../../../riscv/rtl/floating-point.rhdl" open
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("flow/arbiter.rhdl").Arbiter
+  lib("flow/rr-arbiter.rhdl").RRArbiter
   lib("flow/completion-queue.rhdl").CompletionQueue
   lib("flow/demux.rhdl").demux_flow
   lib("flow/gate.rhdl").gate_flow
   lib("flow/queue.rhdl").Queue
 
-sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format :: FloatFormat, Context :: DataType):
+sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format :: FloatFormat, Tag :: DataType):
   def flen = floating_point_register_width(profile)
   unless flen >= format.ieee_width
   | error(~who: #'RV5StageFpDivSqrtLane,
@@ -25,16 +25,16 @@ sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile
   interface request(Decoupled(RV5StageFpExecutionRequest(
     xlen,
     profile,
-    Context
+    Tag
   )), ~role: consumer)
-  interface completion(Irrevocable(RV5StageFpCompletion(
+  interface completion(Irrevocable(RV5StageFpExecutionResult(
     xlen,
     profile,
-    Context
+    Tag
   )), ~role: producer)
 
-  def Request = RV5StageFpExecutionRequest(xlen, profile, Context)
-  def Completion = RV5StageFpCompletion(xlen, profile, Context)
+  def Request = RV5StageFpExecutionRequest(xlen, profile, Tag)
+  def Completion = RV5StageFpExecutionResult(xlen, profile, Tag)
   inst bridge(CompletionQueue(Request, Completion, 1))
   bridge.response |> completion
   inst operation(DivSqrtRecFN(format))
@@ -49,48 +49,44 @@ sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile
   assert(!bridge.issue.valid ||| operation.input_ready,
          "rv5stage_fp_div_sqrt_issue_available")
 
-  reg context(Context)
-  reg destination(Bits(5))
+  reg tag(Tag)
   when (bridge.issue.valid):
-    context <== bridge.issue.bits.context
-    destination <== bridge.issue.bits.rd
+    tag <== bridge.issue.bits.tag
 
   def result_valid = operation.division_valid ||| operation.square_root_valid
   def result = riscv_canonicalize_nan(format, operation.out.to_ieee())
   bridge.completion.valid <== result_valid
-  bridge.completion.bits <== RV5StageFpCompletion(xlen, profile, Context):
-    context: context
-    destination: RV5StageFloatDestination.FloatingPoint
-    rd: destination
+  bridge.completion.bits <== RV5StageFpExecutionResult(xlen, profile, Tag):
+    tag: tag
     integer_value: bits(0, xlen.width)
     fp_value: riscv_nan_box(format, result, flen)
     exception_flags: riscv_exception_flags(operation.exception_flags)
     exception_flags_valid: Bool(#true)
 
-sync_circuit RV5StageFpDivSqrtF(xlen :: XLen, Context :: DataType):
+sync_circuit RV5StageFpDivSqrtF(xlen :: XLen, Tag :: DataType):
   interface request(Decoupled(RV5StageFpExecutionRequest(
     xlen,
     FloatingPointProfile.F,
-    Context
+    Tag
   )), ~role: consumer)
-  interface completion(Irrevocable(RV5StageFpCompletion(
+  interface completion(Irrevocable(RV5StageFpExecutionResult(
     xlen,
     FloatingPointProfile.F,
-    Context
+    Tag
   )), ~role: producer)
 
   inst lane(RV5StageFpDivSqrtLane(
     xlen,
     FloatingPointProfile.F,
     FloatFormat.F32,
-    Context
+    Tag
   ))
   request |> lane.request
   lane.completion |> completion
 
-sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Context :: DataType):
-  def Request = RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Context)
-  def Completion = RV5StageFpCompletion(xlen, FloatingPointProfile.D, Context)
+sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Tag :: DataType):
+  def Request = RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
+  def Completion = RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Tag)
   interface request(Decoupled(Request), ~role: consumer)
   interface completion(Irrevocable(Completion), ~role: producer)
 
@@ -98,13 +94,13 @@ sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Context :: DataType):
     xlen,
     FloatingPointProfile.D,
     FloatFormat.F32,
-    Context
+    Tag
   ))
   inst double(RV5StageFpDivSqrtLane(
     xlen,
     FloatingPointProfile.D,
     FloatFormat.F64,
-    Context
+    Tag
   ))
   def Array(double_request, single_request) = request |> demux_flow(
     2,
@@ -113,51 +109,51 @@ sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Context :: DataType):
   single_request |> single.request
   double_request |> double.request
 
-  inst merge(Arbiter(Completion, 2))
+  inst merge(RRArbiter(Completion, 2))
   single.completion |> merge.ingress[0]
   double.completion |> merge.ingress[1]
   inst buffered(Queue(Completion, 2, ~pipe: #true))
   merge.egress |> buffered.ingress
   buffered.egress |> completion
 
-sync_circuit RV5StageFpDivSqrtFHalf(xlen :: XLen, Context :: DataType):
+sync_circuit RV5StageFpDivSqrtFHalf(xlen :: XLen, Tag :: DataType):
   def profile = FloatingPointProfile.F
-  def Request = RV5StageFpExecutionRequest(xlen, profile, Context)
-  def Completion = RV5StageFpCompletion(xlen, profile, Context)
+  def Request = RV5StageFpExecutionRequest(xlen, profile, Tag)
+  def Completion = RV5StageFpExecutionResult(xlen, profile, Tag)
   interface request(Decoupled(Request), ~role: consumer)
   interface completion(Irrevocable(Completion), ~role: producer)
 
-  inst half(RV5StageFpDivSqrtLane(xlen, profile, FloatFormat.F16, Context))
-  inst base(RV5StageFpDivSqrtF(xlen, Context))
+  inst half(RV5StageFpDivSqrtLane(xlen, profile, FloatFormat.F16, Tag))
+  inst base(RV5StageFpDivSqrtF(xlen, Tag))
   def Array(base_request, half_request) = request |> demux_flow(
     2,
     issued => issued.control.execution.source_precision === RV5StageFloatPrecision.Half
   )
   half_request |> half.request
   base_request |> base.request
-  inst merge(Arbiter(Completion, 2))
+  inst merge(RRArbiter(Completion, 2))
   half.completion |> merge.ingress[0]
   base.completion |> merge.ingress[1]
   inst buffered(Queue(Completion, 2, ~pipe: #true))
   merge.egress |> buffered.ingress
   buffered.egress |> completion
 
-sync_circuit RV5StageFpDivSqrtDHalf(xlen :: XLen, Context :: DataType):
+sync_circuit RV5StageFpDivSqrtDHalf(xlen :: XLen, Tag :: DataType):
   def profile = FloatingPointProfile.D
-  def Request = RV5StageFpExecutionRequest(xlen, profile, Context)
-  def Completion = RV5StageFpCompletion(xlen, profile, Context)
+  def Request = RV5StageFpExecutionRequest(xlen, profile, Tag)
+  def Completion = RV5StageFpExecutionResult(xlen, profile, Tag)
   interface request(Decoupled(Request), ~role: consumer)
   interface completion(Irrevocable(Completion), ~role: producer)
 
-  inst half(RV5StageFpDivSqrtLane(xlen, profile, FloatFormat.F16, Context))
-  inst base(RV5StageFpDivSqrtD(xlen, Context))
+  inst half(RV5StageFpDivSqrtLane(xlen, profile, FloatFormat.F16, Tag))
+  inst base(RV5StageFpDivSqrtD(xlen, Tag))
   def Array(base_request, half_request) = request |> demux_flow(
     2,
     issued => issued.control.execution.source_precision === RV5StageFloatPrecision.Half
   )
   half_request |> half.request
   base_request |> base.request
-  inst merge(Arbiter(Completion, 2))
+  inst merge(RRArbiter(Completion, 2))
   half.completion |> merge.ingress[0]
   base.completion |> merge.ingress[1]
   inst buffered(Queue(Completion, 2, ~pipe: #true))

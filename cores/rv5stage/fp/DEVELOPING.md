@@ -25,11 +25,12 @@ import `types.rhdl` only to preserve FP precision metadata.
 | File | Ownership |
 |---|---|
 | [`types.rhdl`](types.rhdl) | Precision tags shared with decode and memory paths |
-| [`bundles.rhdl`](bundles.rhdl) | Issue, execution, completion, load, and store payloads |
+| [`bundles.rhdl`](bundles.rhdl) | Scalar issue/completion/LSU payloads and opaque-tag operand requests/results |
 | [`register-file.rhdl`](register-file.rhdl) | Three-read, two-write architectural FP register bank |
 | [`datapath.rhdl`](datapath.rhdl) | Fixed-latency F, D, optional half-precision, and Zfa execution |
 | [`div-sqrt.rhdl`](div-sqrt.rhdl) | Buffered HardFloat division and square-root lanes |
-| [`pipeline.rhdl`](pipeline.rhdl) | Register state, scoreboard, execution composition, LSU bridges, and completion arbitration |
+| [`execute.rhdl`](execute.rhdl) | Operand-only execution service, profile specialization, reserved buffering, and fair completion arbitration |
+| [`pipeline.rhdl`](pipeline.rhdl) | Scalar register state, scoreboard, service tag adaptation, LSU bridges, and architectural completion |
 
 Keep `types.rhdl` dependency-light because decode and memory paths import it.
 The payload definitions may depend on decode controls; datapaths and the
@@ -42,8 +43,11 @@ host elaboration so disabled formats and units do not become runtime hardware.
    `bundles.rhdl`.
 2. Keep combinational format operations in `datapath.rhdl`; put retained or
    variable-latency divide/square-root behavior in `div-sqrt.rhdl`.
-3. Integrate register state, scoreboarding, execution selection, and completion
-   only through `pipeline.rhdl`.
+3. Keep lane composition in `execute.rhdl`. Carry caller-selected tags opaquely
+   through fixed and variable-latency paths; do not reintroduce scalar register
+   numbers into their request/result payloads. `pipeline.rhdl` alone adapts
+   scalar register state, scoreboarding, and architectural completion. Shared
+   clients arbitrate before the service and demultiplex returned ownership tags.
 4. Update the package README when supported profiles or observable flow,
    ownership, timing, or failure contracts change.
 5. Preserve the common enabled/disabled interface shape used by `core.rhdl`.
@@ -67,3 +71,13 @@ scalar-core integration change. Run `make check-boundaries` after moving
 modules or changing dependency direction. The backend fixture
 [`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) owns runner modes and
 artifact policy.
+
+For shared execution changes, select `rv5stage-fp-service` together with
+`rv5stage-fp-pipeline`, `rv5stage-core-rv32f`, and `rv5stage-core-rv64d`.
+The two-client fixture in `../tests/fp-service-fixture.rhdl` uses ordinary Flow
+arbitration and owner-tag routing around one service. Its independent SV
+scoreboard checks overlapping/reused client tags, fixed one-per-cycle issue,
+mixed fixed/divide/sqrt reordering, rounding and flags, held results,
+simultaneous issue/completion, bounded drain, and reset with pending work.
+The scalar fixtures retain F/D/Zfh/Zfa arithmetic, FPR hazards, LSU bridges,
+WB authorization, and flag retirement coverage.

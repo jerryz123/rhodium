@@ -1,0 +1,59 @@
+#lang rhodium
+// Composes two independent operand clients around one tagged FP execution service.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../fp/bundles.rhdl" open
+  "../fp/execute.rhdl" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageFpServiceFixture():
+  def xlen = XLen.X64
+  def profile = FloatingPointProfile.D
+  def Request = RV5StageFpExecutionRequest(xlen, profile, Bits(8))
+  def Result = RV5StageFpExecutionResult(xlen, profile, Bits(8))
+  bundle Owner():
+    client: Bool
+    token: Bits(8)
+  interface first(Decoupled(Request), ~role: consumer)
+  interface second(Decoupled(Request), ~role: consumer)
+  interface first_result(Irrevocable(Result), ~role: producer)
+  interface second_result(Irrevocable(Result), ~role: producer)
+
+  fun tagged_request(client :: Boolean):
+    map_flow(issued):
+      RV5StageFpExecutionRequest(xlen, profile, Owner()):
+        tag:
+          Owner():
+            client: Bool(client)
+            token: issued.tag
+        control: issued.control
+        left: issued.left
+        right: issued.right
+        third: issued.third
+        integer_operand: issued.integer_operand
+        immediate_index: issued.immediate_index
+        rounding_mode: issued.rounding_mode
+  fun untagged_result():
+    map_flow(~stable: #true, completed):
+      RV5StageFpExecutionResult(xlen, profile, Bits(8)):
+        tag: completed.tag.token
+        integer_value: completed.integer_value
+        fp_value: completed.fp_value
+        exception_flags: completed.exception_flags
+        exception_flags_valid: completed.exception_flags_valid
+
+  inst execution(RV5StageFpExecutionService(xlen, profile, Owner()))
+  Array(first |> tagged_request(#false), second |> tagged_request(#true))
+    |> rr_arbiter()
+    |> execution.request
+  (
+    execution.result
+      |> demux_flow(2, ~stable: #true, completed => completed.tag.client)
+      |> parallel(untagged_result(), untagged_result())
+  ) <=> Array(first_result, second_result)
+
+export:
+  RV5StageFpServiceFixture

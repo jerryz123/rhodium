@@ -106,7 +106,7 @@ circuit RV5StageFpFormatDatapath(
   xlen :: XLen,
   profile :: FloatingPointProfile,
   format :: FloatFormat,
-  Context :: DataType,
+  Tag :: DataType,
   ~zfa: zfa_enabled :: Boolean = #false,
   ~zfa_modulo: zfa_modulo_enabled :: Boolean = #false
 ):
@@ -116,8 +116,8 @@ circuit RV5StageFpFormatDatapath(
   | error(~who: #'RV5StageFpFormatDatapath,
           "floating-point register width must cover the selected format")
 
-  input request: RV5StageFpExecutionRequest(xlen, profile, Context)
-  output completion: RV5StageFpCompletion(xlen, profile, Context)
+  input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
+  output completion: RV5StageFpExecutionResult(xlen, profile, Tag)
 
   def control = request.control.execution
   def left = riscv_unbox(format, flen, request.left)
@@ -280,26 +280,22 @@ circuit RV5StageFpFormatDatapath(
     RV5StageFloatUnit.IntegerModulo
   )
 
-  completion <== RV5StageFpCompletion(xlen, profile, Context):
-    context: request.context
-    destination: request.control.registers.destination
-    rd: request.rd
+  completion <== RV5StageFpExecutionResult(xlen, profile, Tag):
+    tag: request.tag
     integer_value: integer_value
     fp_value: riscv_nan_box(format, arithmetic_fp, flen)
     exception_flags: exception_flags
     exception_flags_valid: exception_flags_valid
 
-circuit RV5StageFpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
+circuit RV5StageFpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
   def flen = floating_point_register_width(profile)
-  input request: RV5StageFpExecutionRequest(xlen, profile, Context)
-  output completion: RV5StageFpCompletion(xlen, profile, Context)
+  input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
+  output completion: RV5StageFpExecutionResult(xlen, profile, Tag)
 
   def format = FloatFormat.F16
   def source = request.left[0..format.ieee_width].into(IEEEFloat(format))
-  completion <== RV5StageFpCompletion(xlen, profile, Context):
-    context: request.context
-    destination: request.control.registers.destination
-    rd: request.rd
+  completion <== RV5StageFpExecutionResult(xlen, profile, Tag):
+    tag: request.tag
     integer_value: fp_move_to_integer(xlen, format, source)
     fp_value: riscv_nan_box(format,
                             integer_move_to_fp(xlen, format, request.integer_operand),
@@ -308,39 +304,39 @@ circuit RV5StageFpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProf
     exception_flags_valid: Bool(#false)
 
 circuit RV5StageFpFixedF(xlen :: XLen,
-                         Context :: DataType,
+                         Tag :: DataType,
                          ~zfa: zfa_enabled :: Boolean = #false):
-  input request: RV5StageFpExecutionRequest(xlen, FloatingPointProfile.F, Context)
-  output completion: RV5StageFpCompletion(xlen, FloatingPointProfile.F, Context)
+  input request: RV5StageFpExecutionRequest(xlen, FloatingPointProfile.F, Tag)
+  output completion: RV5StageFpExecutionResult(xlen, FloatingPointProfile.F, Tag)
 
   inst single(RV5StageFpFormatDatapath(
     xlen,
     FloatingPointProfile.F,
     FloatFormat.F32,
-    Context,
+    Tag,
     ~zfa: zfa_enabled
   ))
   single.request <== request
   completion <== single.completion
 
 circuit RV5StageFpFixedD(xlen :: XLen,
-                         Context :: DataType,
+                         Tag :: DataType,
                          ~zfa: zfa_enabled :: Boolean = #false):
-  input request: RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Context)
-  output completion: RV5StageFpCompletion(xlen, FloatingPointProfile.D, Context)
+  input request: RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
+  output completion: RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Tag)
 
   inst single(RV5StageFpFormatDatapath(
     xlen,
     FloatingPointProfile.D,
     FloatFormat.F32,
-    Context,
+    Tag,
     ~zfa: zfa_enabled
   ))
   inst double(RV5StageFpFormatDatapath(
     xlen,
     FloatingPointProfile.D,
     FloatFormat.F64,
-    Context,
+    Tag,
     ~zfa: zfa_enabled,
     ~zfa_modulo: #true
   ))
@@ -394,16 +390,16 @@ circuit RV5StageFpFixedD(xlen :: XLen,
   )
 
 circuit RV5StageFpFixedFHalf(xlen :: XLen,
-                             Context :: DataType,
+                             Tag :: DataType,
                              ~arithmetic: arithmetic_enabled :: Boolean,
                              ~zfa: zfa_enabled :: Boolean = #false):
   def profile = FloatingPointProfile.F
-  input request: RV5StageFpExecutionRequest(xlen, profile, Context)
-  output completion: RV5StageFpCompletion(xlen, profile, Context)
+  input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
+  output completion: RV5StageFpExecutionResult(xlen, profile, Tag)
 
-  def HalfModule = if arithmetic_enabled | RV5StageFpFormatDatapath(xlen, profile, FloatFormat.F16, Context, ~zfa: zfa_enabled) | RV5StageFpHalfMinimalDatapath(xlen, profile, Context)
+  def HalfModule = if arithmetic_enabled | RV5StageFpFormatDatapath(xlen, profile, FloatFormat.F16, Tag, ~zfa: zfa_enabled) | RV5StageFpHalfMinimalDatapath(xlen, profile, Tag)
   inst half(HalfModule)
-  inst single(RV5StageFpFixedF(xlen, Context, ~zfa: zfa_enabled))
+  inst single(RV5StageFpFixedF(xlen, Tag, ~zfa: zfa_enabled))
   half.request <== request
   single.request <== request
 
@@ -442,16 +438,16 @@ circuit RV5StageFpFixedFHalf(xlen :: XLen,
   )
 
 circuit RV5StageFpFixedDHalf(xlen :: XLen,
-                             Context :: DataType,
+                             Tag :: DataType,
                              ~arithmetic: arithmetic_enabled :: Boolean,
                              ~zfa: zfa_enabled :: Boolean = #false):
   def profile = FloatingPointProfile.D
-  input request: RV5StageFpExecutionRequest(xlen, profile, Context)
-  output completion: RV5StageFpCompletion(xlen, profile, Context)
+  input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
+  output completion: RV5StageFpExecutionResult(xlen, profile, Tag)
 
-  def HalfModule = if arithmetic_enabled | RV5StageFpFormatDatapath(xlen, profile, FloatFormat.F16, Context, ~zfa: zfa_enabled) | RV5StageFpHalfMinimalDatapath(xlen, profile, Context)
+  def HalfModule = if arithmetic_enabled | RV5StageFpFormatDatapath(xlen, profile, FloatFormat.F16, Tag, ~zfa: zfa_enabled) | RV5StageFpHalfMinimalDatapath(xlen, profile, Tag)
   inst half(HalfModule)
-  inst base(RV5StageFpFixedD(xlen, Context, ~zfa: zfa_enabled))
+  inst base(RV5StageFpFixedD(xlen, Tag, ~zfa: zfa_enabled))
   half.request <== request
   base.request <== request
 

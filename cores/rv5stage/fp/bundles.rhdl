@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's standalone floating-point pipeline and LSU bridge payloads.
+// Defines scalar FP/LSU payloads and opaque-tag operand execution transactions.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -18,8 +18,9 @@ bundle RV5StageFpIssue(xlen :: XLen, profile :: FloatingPointProfile, Context ::
   integer_operand: Bits(xlen.width)
   rounding_mode: RoundingMode
 
-bundle RV5StageFpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
-  context: Context
+// Execution tags belong to the caller; lanes never interpret them as registers.
+bundle RV5StageFpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
+  tag: Tag
   control: RV5StageFloatingPointControl()
   left: Bits(floating_point_register_width(profile))
   right: Bits(floating_point_register_width(profile))
@@ -27,7 +28,13 @@ bundle RV5StageFpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile,
   integer_operand: Bits(xlen.width)
   immediate_index: Bits(5)
   rounding_mode: RoundingMode
-  rd: Bits(5)
+
+bundle RV5StageFpExecutionResult(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
+  tag: Tag
+  integer_value: Bits(xlen.width)
+  fp_value: Bits(floating_point_register_width(profile))
+  exception_flags: Bits(5)
+  exception_flags_valid: Bool
 
 bundle RV5StageFpCompletion(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
   context: Context
@@ -61,6 +68,7 @@ bundle RV5StageFpStoreResponse(Context :: DataType):
 export:
   RV5StageFpIssue
   RV5StageFpExecutionRequest
+  RV5StageFpExecutionResult
   RV5StageFpCompletion
   RV5StageFpLoadReservation
   RV5StageFpLoadCompletion
