@@ -1,4 +1,4 @@
-// Checks early and late predicted streams, compressed cuts, stalls, faults, and repair.
+// Checks early and S2-fallback predictions, compressed cuts, stalls, faults, and repair.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_fetch_prediction_tb;
   typedef struct packed { logic [63:0] address; } request_bits_t;
@@ -96,6 +96,26 @@ module rv5stage_fetch_prediction_tb;
         'h600: return 32'h8082c001; // C.BEQZ followed by C.JR x1.
         'h700: return 32'h00630001; // C.NOP followed by the first half of BEQ.
         'h704: return 32'h80820000; // BEQ continuation followed by C.JR x1.
+        default: return 32'h00000013;
+      endcase
+      9: case (address)
+        'h800: return 32'h100000ef; // JAL x1, +256.
+        'h804: return 32'hffdff06f; // JAL x0, -4.
+        'h900: return 32'h00008067; // JALR x0, x1, 0.
+        default: return 32'h00000013;
+      endcase
+      10: case (address)
+        'ha00: return 32'h0001a011; // C.J +4 followed by C.NOP.
+        'ha04: return 32'h0001bff5; // C.J -4 followed by C.NOP.
+        default: return 32'h00000013;
+      endcase
+      11: case (address)
+        'hb00: return 32'h006f0001; // C.NOP followed by the first half of JAL x0, +256.
+        'hb04: return 32'h00011000; // JAL continuation followed by C.NOP.
+        default: return 32'h00000013;
+      endcase
+      12: case (address)
+        'hd00: return 32'ha0110001; // C.NOP followed by C.J +4.
         default: return 32'h00000013;
       endcase
       default: return 32'h00000013;
@@ -322,6 +342,37 @@ module rv5stage_fetch_prediction_tb;
     expect_pc('h100, 'h702, 0, 2'd1);
     expect_pc('h702, 'h706);
     expect_pc('h706, 'h708);
+
+    // Direct jumps use the same S2 fallback, learn in the BTB, and preserve
+    // call/return RAS actions across repeated execution.
+    initialize(9);
+    start('h800);
+    repeat (2) begin
+      expect_pc('h800, 'h900, 0, 2'd1);
+      expect_pc('h900, 'h804, 0, 2'd2);
+      expect_pc('h804, 'h800);
+    end
+
+    initialize(10);
+    start('ha00);
+    repeat (2) begin
+      expect_pc('ha00, 'ha04);
+      expect_pc('ha04, 'ha00);
+    end
+
+    initialize(11);
+    start('hb02);
+    expect_pc('hb02, 'hc02);
+
+    initialize(12);
+    start('hd00);
+    expect_pc('hd00, 'hd02);
+    expect_pc('hd02, 'hd06);
+
+    initialize(9);
+    fault_address = 'h800;
+    start('h800);
+    expect_pc('h800, 'h804, 1, 0, 'h800);
 
     initialize(4);
     start('h200);

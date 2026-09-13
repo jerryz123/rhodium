@@ -71,8 +71,6 @@ module rv5stage_core_tb;
   logic saw_replay_refetch;
   logic saw_fetch_flush;
   logic saw_redirect;
-  logic saw_jal_redirect;
-  logic saw_jal_flush;
   logic saw_fence_i_invalidate;
   logic saw_fence_i_refetch;
   logic [2:0] fetch_flushes;
@@ -155,8 +153,6 @@ module rv5stage_core_tb;
       saw_replay_refetch <= 1'b0;
       saw_fetch_flush <= 1'b0;
       saw_redirect <= 1'b0;
-      saw_jal_redirect <= 1'b0;
-      saw_jal_flush <= 1'b0;
       saw_fence_i_invalidate <= 1'b0;
       saw_fence_i_refetch <= 1'b0;
       fetch_flushes <= '0;
@@ -167,8 +163,6 @@ module rv5stage_core_tb;
         fetch_flushes <= fetch_flushes + 1'b1;
         if (instruction_access_out.invalidate_all)
           saw_fence_i_invalidate <= 1'b1;
-        if (saw_fence_i_refetch && !instruction_access_out.invalidate_all)
-          saw_jal_flush <= 1'b1;
       end else if (instruction_response_valid && instruction_access_out.response.ready) begin
         instruction_response_valid <= 1'b0;
       end
@@ -191,12 +185,6 @@ module rv5stage_core_tb;
         if (instruction_access_out.request.bits.address == 64'h00000001_0000004c &&
             (saw_fence_i_invalidate || instruction_access_out.invalidate_all))
           saw_fence_i_refetch <= 1'b1;
-        // Sequential lookahead may fetch this address before JAL resolves.
-        // Count only its re-fetch in the post-FENCE.I recovery cycle.
-        if (instruction_access_out.request.bits.address == 64'h00000001_00000054 &&
-            (saw_jal_flush || (instruction_access_out.flush && saw_fence_i_refetch && !instruction_access_out.invalidate_all))) begin
-          saw_jal_redirect <= 1'b1;
-        end
       end
 
       if (data_access_out.request.valid && !data_access_in.request.ready) begin
@@ -283,11 +271,9 @@ module rv5stage_core_tb;
                     data_access_out.request.bits.address == 64'd24 &&
                     data_access_out.request.bits.data == 64'h00000001_00000050 &&
                     data_access_out.request.bits.writeback[8:7] == WRITEBACK_ACK_KIND)
-              else $fatal(1, "JAL link writeback was not preserved through MEM redirect");
+              else $fatal(1, "JAL link writeback was not preserved through redirect");
             assert (saw_fence_i_invalidate && saw_fence_i_refetch)
               else $fatal(1, "FENCE.I did not invalidate and refetch from pc + 4");
-            assert (saw_jal_redirect)
-              else $fatal(1, "JAL did not redirect from MEM");
             assert (rejected_first_load && saw_replay_refetch)
               else $fatal(1, "memory replay was not observed before completion");
             stores_seen <= 3;

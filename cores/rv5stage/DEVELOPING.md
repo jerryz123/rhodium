@@ -126,12 +126,14 @@ and a retained compressed instruction may issue without consuming a packet.
 The S2 scanner keeps its own partial instruction and first halfword for fetch
 lookahead, independently of the core's residual parcel. It validates branch
 locations and lengths without full compressed expansion. On a BTB miss it also
-recognizes ordinary, compressed, and straddling return hints. A nonempty RAS
-turns an accepted return into a late prediction, truncates trailing parcels,
-redirects only younger S1 work, and discovers an unconditional BTB entry. A
-stale cut is removed from the current packet; a registered repair invalidates
-the BTB entry and restarts after that packet, preserving older queued
-instructions. Architectural recovery wins.
+recognizes direct `JAL`, `C.J`, RV32 `C.JAL`, and return hints, including
+straddling 32-bit instructions. It computes direct targets from the immediate
+and uses a nonempty RAS for returns. An accepted fallback truncates trailing
+parcels, redirects only younger S1 work, and discovers an unconditional BTB
+entry. It never skips an earlier control-flow instruction. A stale cut is
+removed from the current packet; a registered repair invalidates the BTB entry
+and restarts after that packet, preserving older queued instructions.
+Architectural recovery wins.
 A source clear without restart stops admission until an explicit restart; never
 reconstruct recovery from the core's assembly cursor or speculative next PC.
 
@@ -175,16 +177,18 @@ new language feature or ISA profile parameter.
 The RAS is also named-core RTL. Its default six-entry speculative stack drives
 return targets for S1 BTB hits and fault-free S2 predecode fallbacks; only an
 accepted, validated S2 prediction applies its action. The registered late
-fallback is a soft redirect: it preserves older queued packets and the accepted
-return while killing younger S1/S2 work. Its BTB discovery is distinct from
-resolved branch training and never advances resolved RAS state. A second
+control-flow fallback is a soft redirect: it preserves older queued packets and
+the accepted instruction while killing younger S1/S2 work. Its BTB discovery
+is distinct from resolved branch training and never advances resolved RAS
+state. A second
 resolved stack advances from uncancelled S4 outcomes. An
 ordinary architectural recovery restores speculative state from the resolved
 state, including the resolving action when present, while an action mismatch
 repairs the stack even when the target itself happened to match. Predictor flush
-clears both copies. Classify expanded `JAL` and `JALR` instructions from the
-RISC-V `x1`/`x5` implicit hint table, preserving distinct push, pop, and
-pop-then-push actions. Do not infer calls from arbitrary nonzero link registers.
+clears both copies. Classify expanded `JAL` and `JALR` instructions plus raw
+compressed `C.JAL`, `C.JR`, and `C.JALR` from the RISC-V `x1`/`x5` implicit hint
+table, preserving distinct push, pop, and pop-then-push actions. Do not infer
+calls from arbitrary nonzero link registers.
 
 For predictor changes run `rv5stage-btb`, `rv5stage-ras`,
 `rv5stage-fetch-prediction`, `rv5stage-return-prediction`, and

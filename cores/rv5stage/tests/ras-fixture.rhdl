@@ -17,6 +17,7 @@ sync_circuit RV5StageRasFixture():
   interface clear(Pulse(), ~role: consumer)
   output classification: RV5StageRasAction
   output compressed_classification: RV5StageRasAction
+  output compressed_classification_rv32: RV5StageRasAction
   output head_valid: Bool
   output head: Bits(64)
 
@@ -26,7 +27,8 @@ sync_circuit RV5StageRasFixture():
   restore |> ras.restore
   clear |> ras.clear
   classification <== rv5stage_ras_action(instruction)
-  compressed_classification <== rv5stage_compressed_ras_action(compressed_instruction)
+  compressed_classification <== rv5stage_compressed_ras_action(XLen.X64, compressed_instruction)
+  compressed_classification_rv32 <== rv5stage_compressed_ras_action(XLen.X32, compressed_instruction)
   head_valid <== ras.head_valid
   head <== ras.head
 
