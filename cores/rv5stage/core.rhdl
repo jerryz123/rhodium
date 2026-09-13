@@ -173,7 +173,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       Array(
         wb_fp.execution_request |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_scalar_fp_tag, FpOwner(), request, FpOwner().Scalar(request.tag))),
         wb_vector_fp_request_link.right |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_vector_fp_tag, FpOwner(), request, FpOwner().Vector(request.tag)))
-      ) |> rr_arbiter() |> wb_fp_execution.request
+      ) |> rr_arbiter() |> queue(2) |> wb_fp_execution.request
       (
         wb_fp_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(FpOwner().Vector).into(Bool))
           |> parallel(
@@ -196,7 +196,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   Array(
     wb_multiplier.execution_request |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), RV5StageMultiplyTag(), MultiplyOwner(), request, MultiplyOwner().Scalar(request.tag))),
     wb_vector_multiply_request_link.right |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), wb_vector_arithmetic_tag, MultiplyOwner(), request, MultiplyOwner().Vector(request.tag)))
-  ) |> rr_arbiter() |> wb_multiply_execution.request
+  ) |> rr_arbiter() |> queue(2) |> wb_multiply_execution.request
   (
     wb_multiply_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(MultiplyOwner().Vector).into(Bool))
       |> parallel(
@@ -213,7 +213,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   Array(
     wb_divider.execution_request |> map_flow(request => integer_request_with_tag(DividerRequest(width), RV5StageDivideTag(), DivideOwner(), request, DivideOwner().Scalar(request.tag))),
     wb_vector_divide_request_link.right |> map_flow(request => integer_request_with_tag(DividerRequest(width), wb_vector_arithmetic_tag, DivideOwner(), request, DivideOwner().Vector(request.tag)))
-  ) |> rr_arbiter() |> wb_divide_execution.request
+  ) |> rr_arbiter() |> queue(2) |> wb_divide_execution.request
   (
     wb_divide_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(DivideOwner().Vector).into(Bool))
       |> parallel(

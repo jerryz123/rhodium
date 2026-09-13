@@ -213,8 +213,11 @@ between WB selection and full-width negation.
 Scalar adapters reserve a one-entry request queue in ID, enqueue at WB, and
 expose tagged requests/results without owning an execution unit. The standalone
 wrappers compose those adapters with one service; the core instead arbitrates
-them with vector requests around one service per operation. This queue-space
-reservation remains valid even if vector work wins the execution arbiter.
+them with vector requests around one service per operation. Each arbiter feeds
+a two-entry service-request queue so execution readiness cannot flow backward
+through WB replay into frontend recovery without halving steady-state request
+throughput. Scalar queue-space reservation remains valid even if vector work wins
+the execution arbiter.
 Accepted requests are never killed, and result tags retain all selection and
 destination metadata until consumption.
 
