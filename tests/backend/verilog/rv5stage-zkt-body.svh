@@ -43,10 +43,12 @@
   logic [31:0] program_word[2], probe_count[2];
   logic instruction_pending;
   logic [31:0] instruction_word;
+  wire instruction_request_fire = io[0].request.valid && ii[0].request.ready;
+  wire instruction_response_fire = instruction_pending && io[0].response.ready;
   int response_delay;
   logic [4:0] response_rd;
   logic response_second;
-  int cycle, stores, trial, schedule, total_probes = 0, differing_results = 0;
+  int cycle, stores, trial, schedule, total_probes = 0, differing_results = 0, flush_restarts = 0;
   longint unsigned total_cycles = 0;
   logic [W-1:0] operand_a[2], operand_b[2];
   for (genvar g=0; g<2; g++) begin: pair
@@ -83,7 +85,7 @@
   always_comb begin
     for (int g=0; g<2; g++) begin
       ii[g] = '0;
-      ii[g].request.ready = run_core && !instruction_pending && (schedule == 0 || cycle % (schedule == 1 ? 5 : 3) != 0);
+      ii[g].request.ready = run_core && (!instruction_pending || io[g].flush) && (schedule == 0 || cycle % (schedule == 1 ? 5 : 3) != 0);
       ii[g].response.valid = instruction_pending;
       ii[g].response.bits.word = instruction_word;
       di[g] = '0;
@@ -130,12 +132,19 @@
                 dout[0].request.bits.rd === dout[1].request.bits.rd)
           else $fatal(1, "data request control diverged");
       end
-      if (instruction_pending && io[0].response.ready) instruction_pending <= 0;
-      if (io[0].request.valid && ii[0].request.ready) begin
-        instruction_pending <= 1;
-        instruction_word <= program_word[0];
+      if (io[0].flush) begin
+        instruction_pending <= instruction_request_fire;
+        if (instruction_request_fire) begin
+          instruction_word <= program_word[0];
+          flush_restarts <= flush_restarts + 1;
+        end
+      end else begin
+        if (instruction_response_fire) instruction_pending <= 0;
+        if (instruction_request_fire) begin
+          instruction_pending <= 1;
+          instruction_word <= program_word[0];
+        end
       end
-      if (io[0].flush) instruction_pending <= 0;
       if (response_delay > 0) response_delay <= response_delay - 1;
       if (dout[0].request.valid && di[0].request.ready) begin
         case (dout[0].request.bits.access)
@@ -256,6 +265,7 @@
       end
     end
     assert (differing_results > 0) else $fatal(1, "vacuous comparison: operands did not change any result");
+    assert (flush_restarts > 0) else $fatal(1, "replacement-epoch request coverage was not exercised");
     $display("Zkt timing regression RV%0d PASS: %0d forms, 96 operand pairs x 3 schedules, %0d compared probes, %0d cycles, %0d differing results", W, int'(probe_count[0]), total_probes, total_cycles, differing_results);
     $finish;
   end
