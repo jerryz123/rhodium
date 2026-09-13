@@ -58,6 +58,8 @@ in the fixture name changed to underscores. Assertion and protocol monitors
 also have dedicated negative benches. Those checks pass only when simulation
 fails and reports the expected assertion label, so an expected failure is not
 treated as an unchecked crash.
+The failure runner accepts optional trailing native sources for DPI-backed
+assertion benches, such as the RHEG collector for missing selected parents.
 
 The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, `event-join`, `event-stall`, and `event-offer` direct fixtures
 additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
@@ -105,6 +107,15 @@ The `rv5stage-load-hit` fixture also links RHEG and exports a matching descripto
 its scoreboard checks D-cache S1/MEM and S2/WB alignment, public core/cache
 admission, and retained S2-to-S3-to-S4 ancestry including direct-refill fields.
 The existing bench checks functional load timing and architectural results.
+`event-parents` checks qualified original/intermediate checkpoints, late-bound WB,
+and selected intermediate/combined parents past WB through one flushed pipe and
+its ordinary consumer fork. An unannotated pipe checks unchanged functional valid
+and payload. Its public-input scoreboard uses repeated payloads, bubbles, and reset
+and compares every occurrence and edge. Host coverage also retains complementary
+filter/selection paths, rejects bad references, rebinding, conditional binding,
+and uncertified fanout, and checks module-occurrence identities and metadata-only binding.
+The negative bench forces a child observation without its qualified upstream
+checkpoint and requires the runtime missing-parent assertion.
 Every refill receives RetryAck and PCrdGrant before retransmission, with request
 backpressure; both attempts must retain the same S4 occurrence.
 `rv5stage-fetch-throughput` similarly links RHEG for the real frontend/MMU/L1I
@@ -112,6 +123,15 @@ path. A public admission/S1-kill/S2-outcome model identifies the exact S0 parent
 of each TXREQ, including delayed retries, request backpressure, redirect while
 the refill remains owned, and pending reset. Retain its cold/warm instruction
 throughput and payload checks alongside the lineage scoreboard.
+`rv5stage-fetch-source` independently models the original cursor, continuation,
+admission, and replacement priorities from public inputs. It compares inactive
+offer payloads as well as transfers, and checks exact restart/replay/successor/
+held parent occurrences with equal PCs, blocked replacements, clears, and reset.
+Core CMO/WRS and FP/scalar regressions check the inline live/maintenance/WRS
+retirement flows, completion policy, and dispatch behavior at the core boundary.
+`event-offer-register` compares traced/untraced public outputs and exact captured
+owners through stalled replacement, simultaneous update/delivery, pending stall
+observations, drain, and reset. Equal payloads must not merge owner identities.
 `event-retained` independently covers repeated output, release/replacement,
 pending reset, and unknown traffic selected beside traced traffic.
 Its scoped relation ends at an opaque child's attempt output before a normal

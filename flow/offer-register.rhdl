@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines a rewritable one-slot state holder with a Decoupled flow egress.
+// Defines a rewritable one-slot offer with intrinsic capture, replacement, and release lineage.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -24,6 +24,11 @@ sync_circuit OfferRegister(T :: DataType):
     payload <== update.bits
   elsewhen (egress.fire()):
     occupied <== Bool(#false)
+
+  // Updating a busy slot abandons its old owner even without a transfer.
+  // The pre-edge output still belongs to the old update on simultaneous delivery.
+  describe_interface_retained_storage(update.valid, occupied & (update.valid ||| egress.ready), occupied)
+  describe_interface_contract(update, egress, "offer", ~trace_model: interface_trace_retained())
 
 export:
   OfferRegister

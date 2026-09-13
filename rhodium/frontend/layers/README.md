@@ -1405,6 +1405,17 @@ or partial consumption. `interface_trace_merge(count)` remains route-only.
 requires `~valid`. Clock/reset selection belongs to the instrumenter, not to
 interface metadata.
 
+`~parents: [endpoint, ...]` optionally selects earlier local checkpoint outputs
+instead of nearest checkpoints. Metadata stores their site indices; event analysis
+verifies upstream reachability and infers transport through ordinary Flow contracts.
+`describe_interface_event_parents(child, [endpoint, ...])` binds the same selection
+after both checkpoints exist, regardless of declaration order. Parent selection
+is single-assignment during the declaring module's construction, outside hardware
+conditionals; neither form changes wiring. Binding twice, including mixing inline
+and late binding, is rejected.
+The list must be nonempty and contain distinct annotated local endpoints. See the
+[event contract](../../event/README.md#annotate-events) for multi-parent completeness.
+
 `~stalls: #true` additionally requests blocked-offer observations and requires
 both `~valid` and `~ready`. It reserves the companion label `<label>.stall` in
 the same module-local namespace. This remains metadata on a transparent

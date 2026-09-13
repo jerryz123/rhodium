@@ -1,4 +1,4 @@
--- Checks named PC/instruction captures, scalar stage ancestry, and real pipeline latency.
+-- Checks direct core-stage ancestry independently of intervening cache checkpoints.
 -- SPDX-License-Identifier: Apache-2.0
 WITH pcs AS (
   SELECT s.id, t.name, s.name AS mnemonic, s.ts, s.arg_set_id,

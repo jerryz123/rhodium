@@ -1,4 +1,4 @@
-// Checks D-cache stage timing and retained ancestry against public core/cache transfers.
+// Checks independent MEM-to-WB and S1-to-S2 ownership through shared pipeline storage.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../rheg/runtime/rheg.h"
 #include "rv5stage-load-hit_manifest.h"
@@ -12,7 +12,8 @@ namespace {
 struct Demand { rheg::Ref parent; std::uint64_t address, cycle; };
 std::deque<Demand> pending, advancing;
 std::deque<rheg::Ref> launching;
-std::map<rheg::Ref,rheg::Ref> accesses_by_mem;
+std::map<rheg::Ref,rheg::Ref> writebacks_by_parent;
+std::uint64_t writebacks=0;
 std::uint64_t cycle=0, accesses=0, responses=0, lookups=0, resolutions=0;
 std::uint64_t admissions=0, refills=0, rejected=0, hits=0, replays=0, cache_address=0;
 bool resetting=true, accepted=false, cache_accepted=false;
@@ -33,9 +34,9 @@ rheg::Ref parent_of(rheg::Ref child) {
   if(!result) fail("missing parent");
   return *result;
 }
-void check_core_parent(rheg::Ref child, unsigned site) {
+void check_core_parent(rheg::Ref child, unsigned site, unsigned delay=0) {
   auto parent=parent_of(child);
-  if(parent.site!=site || rheg::graph().nodes.at(parent).cycle!=cycle ||
+  if(parent.site!=site || rheg::graph().nodes.at(parent).cycle+delay!=cycle ||
      rheg::graph().nodes.at(child).cycle!=cycle) fail("core stage alignment");
   for(const auto* name:{"pc","instruction"})
     if(field(parent,name)!=field(child,name)) fail("wrong core occurrence");
@@ -46,7 +47,8 @@ extern "C" void demand_sample(unsigned reset, unsigned attempt, unsigned fire, u
   resetting=reset; accepted=fire; cache_accepted=cached; cache_address=address;
   tx_accepted=txfire;
   if(reset) {
-    pending.clear(); advancing.clear(); accesses_by_mem.clear();
+    pending.clear(); advancing.clear(); writebacks_by_parent.clear();
+    writebacks=0;
     launching.clear(); attempts=retries=0;
     cycle=accesses=responses=lookups=resolutions=admissions=refills=rejected=hits=replays=0;
     return;
@@ -58,21 +60,28 @@ extern "C" void demand_check(unsigned done) {
   auto& graph=rheg::graph();
   graph.validate();
   if(resetting) return;
+  const rheg::Ref wb{demand_sites::wb,writebacks};
+  if(graph.nodes.count(wb)) {
+    auto parent=parent_of(wb);
+    check_core_parent(wb,demand_sites::mem,1);
+    if(!writebacks_by_parent.emplace(parent,wb).second) fail("duplicate WB for predecessor");
+    ++writebacks;
+  }
   const rheg::Ref access{demand_sites::access,accesses};
   if(graph.nodes.count(access)) {
     check_core_parent(access,demand_sites::mem);
-    accesses_by_mem.emplace(parent_of(access),access);
     ++accesses;
   }
   const rheg::Ref response{demand_sites::response,responses};
   if(graph.nodes.count(response)) {
-    check_core_parent(response,demand_sites::wb);
-    auto mem=parent_of(parent_of(response));
-    auto prior=accesses_by_mem.find(mem);
-    if(prior==accesses_by_mem.end()) fail("S2 has no corresponding S1");
-    if(graph.nodes.at(prior->second).cycle+1!=cycle ||
-       field(prior->second,"pc")!=field(response,"pc") ||
-       field(prior->second,"address")!=field(response,"address")) fail("S1/S2 capture or latency");
+    check_core_parent(response,demand_sites::access,1);
+    auto prior=parent_of(response);
+    auto wb_sibling=writebacks_by_parent.find(parent_of(prior));
+    if(wb_sibling==writebacks_by_parent.end() || graph.nodes.at(wb_sibling->second).cycle!=cycle)
+      fail("S2 has no same-cycle WB sibling");
+    for(const auto* name:{"pc","instruction"})
+      if(field(wb_sibling->second,name)!=field(response,name)) fail("S2/WB capture mismatch");
+    if(field(prior,"address")!=field(response,"address")) fail("S1/S2 address capture");
     if(bool(field(response,"admitted"))!=accepted) fail("S2 admission differs from public transfer");
     if(accepted && (field(response,"fault") || field(response,"replay"))) fail("admitted fault or replay");
     if(accepted) ++admissions;

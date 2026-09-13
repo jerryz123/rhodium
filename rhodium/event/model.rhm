@@ -16,6 +16,7 @@ export:
   EventTraceRetained
   EventTracePlan
   EventTraceSource
+  EventTraceRequire
   EventTraceLink
   EventTracePipeline
   EventTraceSelection
@@ -71,7 +72,11 @@ class EventTraceWindow(instance_path :: List.of(String), depth :: PosInt,
 class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):
   method controls(): [capture, release, active]
 
-class EventTraceSource(site :: False || String, unknown :: False || String = #false):
+class EventTraceSource(site :: False || String, unknown :: False || String = #false, absent :: Boolean = #false):
+  implements EventTracePlan
+// Require a selected contribution only at its consuming checkpoint, not while
+// unrelated transactions traverse shared storage on a filtered-out branch.
+class EventTraceRequire(input :: EventTracePlan):
   implements EventTracePlan
 // Occurrence-qualified back references are resolved once after graph discovery.
 // Acyclic paths keep their existing expression shape.
@@ -198,6 +203,8 @@ class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),
                     dependencies :: List.of(EventDependency),
                     trace_plans :: Map = {},
-                    gaps :: List.of(EventTraceGap) = []):
+                    gaps :: List.of(EventTraceGap) = [],
+                    topology_dependencies :: False || List.of(EventDependency) = #false,
+                    topology_trace_plans :: False || Map = #false):
   method site(id :: String):
     sites.find(fun (candidate): candidate.id == id)

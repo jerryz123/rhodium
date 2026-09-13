@@ -1,4 +1,4 @@
-// Exercises WB replay and fault isolation across memory, FP registers, flags, prefetches, and atomics.
+// Exercises WB isolation and FP/memory effects while honoring accepted restart fetches.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 typedef struct packed { logic ss, ms, st, mt, se, me; } interrupts_t;
@@ -39,7 +39,7 @@ dout_t data_access_out;
 struct packed { logic valid; logic [XLEN-1:0] address; logic [1:0] operation; } prefetch_out;
 logic instruction_pending = 0;
 logic [31:0] instruction_word;
-integer scenario, attempts, accepted, stores, response_delay, prefetches;
+integer scenario, attempts, accepted, stores, response_delay, prefetches, restart_accepts;
 logic done;
 dresp_bits_t pending_response;
 RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .*);
@@ -118,16 +118,17 @@ always_ff @(posedge clock) begin
     accepted <= 0;
     stores <= 0;
     prefetches <= 0;
+    restart_accepts <= 0;
     response_delay <= 0;
     pending_response <= '0;
     done <= 0;
   end else begin
-    if (instruction_access_out.flush) instruction_pending <= 0;
-    else if (instruction_pending && instruction_access_out.response.ready) instruction_pending <= 0;
-    // A restart may replace the cancelled request on the same edge.
+    if (instruction_access_out.flush || (instruction_pending && instruction_access_out.response.ready)) instruction_pending <= 0;
+    // Flush cancels the old response; an accepted replacement belongs to the new epoch.
     if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
       instruction_pending <= 1;
       instruction_word <= instruction_at(instruction_access_out.request.address);
+      if (instruction_access_out.flush) restart_accepts <= restart_accepts + 1;
     end
     if (response_delay != 0) response_delay <= response_delay - 1;
     if (prefetch_out.valid) begin
@@ -183,6 +184,7 @@ initial begin
     @(negedge clock);
     for (int cycles = 0; cycles < 2500 && !done; cycles++) @(negedge clock);
     assert(done) else $fatal(1, "WB scenario %0d timed out", scenario);
+    assert(restart_accepts > 0) else $fatal(1, "WB scenario missed accepted restart coverage");
     assert(prefetches == (scenario == 0 ? 1 : 0)) else $fatal(1, "WB prefetch count mismatch");
   end
   $display("RV%0d WB memory/FP authorization, replay, and fault isolation passed", XLEN);

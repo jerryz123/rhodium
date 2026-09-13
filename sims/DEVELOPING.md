@@ -144,13 +144,19 @@ an importable settled prefix. Also run untraced SimpleSoC smoke after changing
 the common driver.
 
 `tests/check-core-events.sql` additionally requires Decode through WB,
-exact permitted edge families, one parent per EX/MEM/WB event, no duplicate
+exact permitted core-stage edge families, one MEM parent per WB event even
+for memory instructions, one parent per EX/MEM event, no duplicate
 scalar children, matching RV64 PCs, and one-cycle downstream latency. Decode
 inherits packet ancestry; the raw packet boundary is not an IF/ID transfer. It requires
 repeated decoded PCs to exercise distinct occurrences.
 PC and instruction checks use named captures, independently of core bundle layout.
 `check-frontend-events.sql` connects request, lookup, outcome, and Decode
-tracks. Decode and its stalls have one or two retained/live, admitted S2
+tracks, including selected fetch causes: preceding S0 successors, S2 replays
+or registered prediction repairs, and core redirects/retries. S0 has at most
+one selected parent; only requests reached through an unmodeled cause carry
+unknown ancestry. The direct `rv5stage-fetch-source` fixture checks exact
+selection and held-cursor ownership against public controls, including blocked
+restarts and replacement. Decode and its stalls have one or two retained/live, admitted S2
 parents; they are no longer roots. S2 captures admission and fault flags in the
 single outcome event, and empty-queue bypass permits same-cycle instruction
 consumption. The cycle-level `event-frontend` fixture owns exact compressed/straddle
@@ -160,7 +166,8 @@ disassembly separately from the mnemonic. Generic display/schema rules belong
 to [RHEG](../rheg/DEVELOPING.md#perfetto-encoding), not this adapter.
 Memory pairs explicitly retain raw capture for their payload-equality checks.
 The D-cache stage checks in `tests/check-demand-events.sql` pair S1 and S2
-through their MEM/WB parents and require one-cycle correspondence. They check
+through their direct occurrence edge and require one-cycle correspondence, plus a
+same-cycle WB sibling with matching instruction captures. They check
 admitted S2 ancestry into S3, one-cycle S3-to-S4 advancement, and S4 refill
 acceptance fields. Keep effective S1/S2 addresses separate from physical S3/S4
 addresses; translation need not preserve their numeric value. Direct S4 refill

@@ -41,6 +41,7 @@ fun within(site :: EventSite, path :: List.of(String)):
 fun instrument_events(logical :: DesignElaboration,
                       config :: EventInstrumentationConfig = EventInstrumentationConfig()):
   def manifest = infer_event_manifest(logical, ~dynamic: #true, ~partial: config.partial)
+  def topology = EventManifest(logical, manifest.sites, manifest.topology_dependencies || manifest.dependencies, manifest.topology_trace_plans || manifest.trace_plans)
   unless manifest.sites.length() > 0 && manifest.sites.length() < 2 ** 32
   | error(~who: #'instrument_events, "instrumentation requires 1..2^32-1 event occurrences")
   def top_clock = logical.top.inputs.find(fun (port): port.name == config.clock_port)
@@ -51,7 +52,7 @@ fun instrument_events(logical :: DesignElaboration,
   for (site in manifest.sites, index in 0..manifest.sites.length()): site_ids[site.id] := index
   def parent_plans = MutableMap{}
   fun sources(plan :: EventTracePlan):
-    event_trace_nodes(plan).filter(~keep: fun (node): node is_a EventTraceSource && !node.unknown).map(fun (node): node.site)
+    event_trace_nodes(plan).filter(~keep: fun (node): node is_a EventTraceSource && !node.unknown && !node.absent).map(fun (node): node.site)
   fun incomplete(plan :: EventTracePlan):
     event_trace_nodes(plan).find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
   fun plan_controls(plan :: EventTracePlan):
@@ -81,7 +82,7 @@ fun instrument_events(logical :: DesignElaboration,
       def node = canonical(input)
       consumers[node] := consumers.get(node, []) ++ [[consumer, index]]
     for (child in children):
-      def plan = manifest.trace_plans[child]
+      def plan = topology.trace_plans[child]
       add(plan, TraceExit(child), 0)
       for (raw in event_trace_nodes(plan)):
         def node = canonical(raw)
@@ -132,24 +133,24 @@ fun instrument_events(logical :: DesignElaboration,
       | error(~who: #'instrument_events, "selection or join requires an annotated ancestor on every input path: " ++ site.id)
       parent_plans[site.id] := plan
     def children = MutableSet{}
-    for (edge in manifest.dependencies):
+    for (edge in topology.dependencies):
       when edge.parent == site.id && manifest.site(edge.child).kind != "stall" | children.add(edge.child)
     when children.length() > 1
-    | if (for any (child in children): feedback(manifest.trace_plans[child]))
+    | if (for any (child in children): feedback(topology.trace_plans[child]))
       | feedback_branching(site.id, for List (child in children): child)
       | for (left in children):
           for (right in children):
             when left != right
-            | def left_edge = manifest.dependencies.find(
+            | def left_edge = topology.dependencies.find(
                 fun (edge): edge.parent == site.id && edge.child == left
               )
-              def right_edge = manifest.dependencies.find(
+              def right_edge = topology.dependencies.find(
                 fun (edge): edge.parent == site.id && edge.child == right
               )
               def shared_scope = left_edge && right_edge && left_edge.transform_path.length() == 1 && right_edge.transform_path.length() == 1 && left_edge.transform_path == right_edge.transform_path && left_edge.transform_path[0].starts_with("trace-edge:")
               unless shared_scope
-              | for (left_path in alternatives(manifest.trace_plans[left], site.id)):
-                  for (right_path in alternatives(manifest.trace_plans[right], site.id)):
+              | for (left_path in alternatives(topology.trace_plans[left], site.id)):
+                  for (right_path in alternatives(topology.trace_plans[right], site.id)):
                     unless left_path.find(fun (choice): right_path.find(fun (other): choice[0] == other[0] && choice[1] != other[1]))
                     | error(~who: #'instrument_events, "tracing does not support uncertified fanout at " ++ site.id)
 
@@ -458,7 +459,7 @@ fun instrument_events(logical :: DesignElaboration,
                   parents := parents ++ parent_slots(builder.mux_lookup(module_def, selected, empty, [[1, reference]]))
                 lineage(builder.bit_and(module_def, complete, any_selected), parents, unknown)
             | stage is_a EventTraceRetained:
-                def key = [stage.instance_path, stage.capture.id, stage.release.id, stage.active.id]
+                def key = [stage.instance_path, stage.capture.id, stage.release.id, stage.active.id, reference.id]
                 def existing = retained_states.get(key, #false)
                 if existing
                 | unless type_equal(existing[1], reference.type)
@@ -504,11 +505,19 @@ fun instrument_events(logical :: DesignElaboration,
               cond
               | plan is_a EventTraceLink: emit_plan(plan.target)
               | plan is_a EventTraceSource:
-                  if plan.unknown
-                  | lineage(yes, [empty_reference], yes)
-                  | block:
+                  cond
+                  | plan.absent: lineage(yes, [empty_reference])
+                  | plan.unknown: lineage(yes, [empty_reference], yes)
+                  | ~else:
                       def reference = references[plan.site]
                       lineage(builder.record_get(module_def, reference, "valid"), [reference])
+              | plan is_a EventTraceRequire:
+                  def incoming = emit_plan(plan.input)
+                  def unknown = builder.record_get(module_def, incoming, "unknown")
+                  def mutable present = unknown
+                  def parents = parent_slots(incoming)
+                  for (parent in parents): present := builder.bit_or(module_def, present, builder.record_get(module_def, parent, "valid"))
+                  lineage(builder.bit_and(module_def, builder.record_get(module_def, incoming, "valid"), present), parents, unknown)
               | plan is_a EventTraceJoin:
                   def mutable valid = yes
                   def mutable unknown = builder.constant(module_def, Bits(1), 0)

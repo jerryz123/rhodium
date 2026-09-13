@@ -1,4 +1,4 @@
--- Checks four D-cache stages: core-aligned access/response and admitted lookup/resolution.
+-- Checks direct S1-to-S2 ownership, sibling WB alignment, and admitted cache stages.
 -- SPDX-License-Identifier: Apache-2.0
 WITH events AS MATERIALIZED (
   SELECT s.id, s.ts, s.arg_set_id, t.name
@@ -9,12 +9,14 @@ WITH events AS MATERIALIZED (
          c.ts-p.ts AS delay, p.arg_set_id AS parent_args, c.arg_set_id AS child_args
   FROM flow JOIN events p ON p.id=flow.slice_out JOIN events c ON c.id=flow.slice_in
 ), responses AS MATERIALIZED (
-  SELECT e.*, a.id AS access, e.ts-a.ts AS latency, a.arg_set_id AS access_args
+  SELECT e.*, a.id AS access, e.ts-a.ts AS latency, a.arg_set_id AS access_args,
+         w.ts AS wb_ts, w.arg_set_id AS wb_args
   FROM events e
-  JOIN edges wb ON wb.child=e.id AND wb.src='core/s5.wb'
-  JOIN edges mem ON mem.child=wb.parent AND mem.src='core/s4.memory'
-  JOIN edges access ON access.parent=mem.parent AND access.dst='dcache/s1.access'
-  JOIN events a ON a.id=access.child
+  JOIN edges access ON access.child=e.id AND access.src='dcache/s1.access'
+  JOIN edges mem ON mem.child=access.parent AND mem.src='core/s4.memory'
+  JOIN edges wb ON wb.parent=mem.parent AND wb.dst='core/s5.wb'
+  JOIN events w ON w.id=wb.child
+  JOIN events a ON a.id=access.parent
   WHERE e.name='dcache/s2.resp'
 )
 SELECT
@@ -23,7 +25,7 @@ SELECT
     AND (SELECT count(*) FROM edges WHERE child=e.id)!=1) AND
   (SELECT count(*)=0 FROM edges WHERE
     (dst='dcache/s1.access' AND (src!='core/s4.memory' OR delay!=0)) OR
-    (dst='dcache/s2.resp' AND (src!='core/s5.wb' OR delay!=0)) OR
+    (dst='dcache/s2.resp' AND (src!='dcache/s1.access' OR delay!=10)) OR
     (dst='dcache/s3.lookup' AND (src NOT IN ('dcache/s2.resp','mmu/pte.request','dcache/prefetch') OR delay<10)) OR
     (dst='dcache/s4.resolve' AND (src!='dcache/s3.lookup' OR delay!=10))) AND
   (SELECT count(*)=0 FROM edges WHERE dst IN ('dcache/s1.access','dcache/s2.resp') AND
@@ -31,6 +33,9 @@ SELECT
      EXTRACT_ARG(parent_args,'debug.instruction')!=EXTRACT_ARG(child_args,'debug.instruction'))) AND
   (SELECT count(*) FROM responses)=(SELECT count(*) FROM events WHERE name='dcache/s2.resp') AND
   (SELECT count(*)=0 FROM responses WHERE latency!=10 OR
+    wb_ts!=ts OR
+    EXTRACT_ARG(wb_args,'debug.pc')!=EXTRACT_ARG(arg_set_id,'debug.pc') OR
+    EXTRACT_ARG(wb_args,'debug.instruction')!=EXTRACT_ARG(arg_set_id,'debug.instruction') OR
     EXTRACT_ARG(access_args,'debug.pc')!=EXTRACT_ARG(arg_set_id,'debug.pc') OR
     EXTRACT_ARG(access_args,'debug.address')!=EXTRACT_ARG(arg_set_id,'debug.address')) AND
   (SELECT count(*)>0 FROM responses WHERE EXTRACT_ARG(arg_set_id,'debug.admitted')=1) AND

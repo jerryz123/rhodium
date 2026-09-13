@@ -85,6 +85,7 @@ export:
   describe_interface_contract
   validate_interface_contracts
   describe_interface_event
+  describe_interface_event_parents
   interface_type_supports
   interface_link
   interface_transform
@@ -594,7 +595,8 @@ class InterfaceEventGroup(module_def :: Module,
                           valid :: False || Value = #false,
                           ready :: False || Value = #false,
                           fields :: List.of(InterfaceEventField) = [],
-                          stalls :: Boolean = #false):
+                          stalls :: Boolean = #false,
+                          mutable parents :: False || List.of(Nat) = #false):
   implements ModuleMetadataPayload
 class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
@@ -2133,10 +2135,39 @@ fun describe_interface_contract(input :: InterfaceEndpoint || Array,
   describe_interface_transform(InterfaceHandle(inputs, outputs), kind, ~trace_model: trace_model, ~contract_name: name)
   #void
 
+// Both inline and late parent selection use local checkpoint identities.
+// Selection is single-assignment metadata during module construction only.
+fun selected_event_parents(module_def :: Module, parents :: List.of(InterfaceEndpoint), who :: Symbol):
+  unless parents.length() > 0
+  | error(~who: who, "selected parents must not be empty")
+  def existing = module_interface_events(module_def)
+  def selected = for List (parent in parents):
+    def event = existing.find(fun (event): event.output === parent)
+    unless event
+    | error(~who: who, "selected parent must be an annotated local checkpoint endpoint")
+    event.site_index
+  unless selected.length() == (for Set (index in selected): index).length()
+  | error(~who: who, "duplicate selected parent")
+  selected
+
+fun describe_interface_event_parents(child :: InterfaceEndpoint, parents :: List.of(InterfaceEndpoint)):
+  kernel.reject_unsupported_conditional_effect("event parent selection", Location(), "bind parents outside hardware control flow")
+  def module_def = kernel.active_module()
+  when module_def.finished
+  | error(~who: #'describe_interface_event_parents, "cannot bind parents in a finished module")
+  def event = module_interface_events(module_def).find(fun (event): event.output === child)
+  unless event
+  | error(~who: #'describe_interface_event_parents, "child must be an annotated local checkpoint endpoint")
+  when event.parents != #false
+  | error(~who: #'describe_interface_event_parents, "event parents are already bound")
+  event.parents := selected_event_parents(module_def, parents, #'describe_interface_event_parents)
+  #void
+
 // Marks a transparent one-to-one transform as a user-visible event site while
 // retaining a dedicated metadata record for compiler consumers.
 fun describe_interface_event(handle :: Handle,
                              label :: String,
+                             ~parents: parents :: False || List.of(InterfaceEndpoint) = #false,
                              ~stalls: stalls :: Boolean = #false,
                              ~payload: payload :: False || HardwareEntity = #false,
                              ~fields: fields :: List.of(InterfaceEventField) = [],
@@ -2170,6 +2201,10 @@ fun describe_interface_event(handle :: Handle,
       unless pc_field && pc_field.encoding in ["hex", "unsigned"] && pc_field.value.type.packed_width() == (if field.isa.starts_with("rv32") | 32 | 64)
       | error(~who: #'describe_interface_event, "RISC-V capture PC must reference a hex/unsigned field of ISA XLEN width")
   def existing = module_interface_events(module_def)
+  def selected_parents:
+    if parents
+    | selected_event_parents(module_def, parents, #'describe_interface_event)
+    | #false
   def labels = if stalls | [label, label ++ ".stall"] | [label]
   when existing.find(fun (event): labels.find(fun (name): name == event.label || (event.stalls && name == (event.label ++ ".stall"))))
   | error(~who: #'describe_interface_event,
@@ -2214,7 +2249,8 @@ fun describe_interface_event(handle :: Handle,
                                   transfer_value(valid),
                                   transfer_value(ready),
                                   if payload | [InterfaceEventField("raw", payload_value, "hex")] | fields,
-                                  stalls)
+                                  stalls,
+                                  selected_parents)
   module_def.add_metadata(interface_event_group_namespace, event)
   describe_interface_transform(
     handle,

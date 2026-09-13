@@ -23,6 +23,8 @@ circuit ValidArbiter(T :: DataType, n :: PosInt):
     ~default: ingress[0].bits
   )
   chosen <== grant.index
+  describe_interface_selection(for List (index in 0..n): grant[index])
+  describe_interface_contract(ingress, egress, "data", ~kind: "valid-arbiter", ~trace_model: interface_trace_selection())
 
 // Lower indices have higher priority. The output uses Decoupled because a new
 // higher-priority arrival may change the selected payload while stalled.

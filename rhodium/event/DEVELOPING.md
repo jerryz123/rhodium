@@ -91,6 +91,19 @@ to transaction validity plus `VectorType(P, EventRef)`. A reference contains
 manifest rather than a lossy hierarchy hash. Hidden annotation ports remain
 singleton references because each annotation replaces incoming ancestry.
 
+Selected `~parents` searches are keyed by vertex and requested site, passing
+through checkpoint identity wiring until that site is reached. Capture a separate
+ordinary nearest-checkpoint topology in the manifest for fanout certification;
+the selected graph controls emission, not physical-connectivity authorization.
+`EventTraceRequire` checks each requested contribution at the consumer. A known
+branch without the selected site carries an absent reference through storage, not
+an invented root or unknown marker; filtering may prevent that branch from firing
+the consumer. Broadcast and retained caches must distinguish selected reference
+streams, so shared functional storage never aliases different ancestors.
+Inline and late parent binding have the same finalized metadata. Qualified
+checkpoints remain cut points; consumers selecting older ancestors traverse their
+identity wiring, not a synthetic bypass or modified functional valid signal.
+
 At a join, transaction validity is the conjunction of contributors; it is not
 the conjunction of every padded slot. Preserve each slot's validity when padding
 selection inputs. Registers and memories must use the incoming lineage type and
@@ -286,9 +299,12 @@ it adds neither payload bits nor lineage state and requires no CIRCT support.
 ## Stall observation lowering
 
 Expand companion sites after transfer-site analysis so transfer IDs and
-`event_by_output` cut points remain unchanged. Only certified linear trace
-projections supply stall dependencies; nonlinear transfer contracts do not
-certify the identity of a blocked offer. Mark observation latency unknown.
+`event_by_output` cut points remain unchanged. Certified linear trace projections
+and source/pipeline plans containing transparent replication supply stall
+dependencies. Replication preserves present references without selecting a
+blocked offer; selection, routing, broadcast, and join still need separate
+pending-offer contracts. Mark observation latency unknown. Do not use a missing
+linear compatibility projection to discard an otherwise supported forked path.
 
 Lower each transfer checkpoint's incoming shadow state once, then reuse those
 references for its stall companion. Give companions their own counters and

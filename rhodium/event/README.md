@@ -69,8 +69,9 @@ or DPI calls. Bare checkpoints capture identity and timing, not payload fields.
 Labels must be nonempty and unique within one module definition. Each concrete
 instance of a reused definition has distinct event-site identities.
 
-`trace_event(..., ~when: predicate)` optionally qualifies observation with a
-hardware `Bool` (default true). Transfers fire on `valid & ready & predicate`;
+Both checkpoints accept `~when: predicate` to qualify observation with a
+hardware `Bool` (default true). Valid events fire on `valid & predicate`;
+ready-valid transfers fire on `valid & ready & predicate`;
 with `~stalls: #true`, stalls fire on `valid & !ready & predicate`. This does
 not gate functional valid/ready, change payloads, buffer, or drop hardware
 transactions. It is useful for observing nonfaulting admission after
@@ -78,7 +79,8 @@ transactions. It is useful for observing nonfaulting admission after
 Qualification still creates an ancestry cut point: a suppressed event does not
 forward its parent's identity. Any downstream traced transaction must have a
 recorded parent, for example because faulting transactions never reach it or
-because its observation is qualified consistently. Missing-parent assertions
+because its observation is qualified consistently, or because `~parents` selects
+an earlier checkpoint across the suppressed one. Missing-parent assertions
 remain enabled; qualification is not a generic trace-sampling mechanism.
 
 Every checkpoint infers available incoming ancestry. A wholly supported region
@@ -88,6 +90,30 @@ partial mode. Missing contracts never authorize silently discarding ancestry.
 Uncertified structural relationships remain errors.
 Every checkpoint can supply its occurrence identity to downstream checkpoints.
 Leaves follow from the discovered graph; they need no special annotation.
+
+`trace_event` and `trace_valid_event` optionally accept `~parents: [upstream, ...]`.
+Each element is an earlier annotated output endpoint in the same module, not a
+label or payload ID. Alternatively, call `trace_parents(child, [upstream, ...])`
+after both checkpoints exist; their declaration order then does not matter.
+This is the same parent selection as `~parents`, not a functional connection or
+a retained-state contract. Bind a child's parents once, either inline or later,
+within its declaring circuit and outside hardware control flow. Rebinding is rejected.
+The nonempty list replaces ordinary nearest-parent selection.
+The compiler searches backward along actual Flow connections, through intervening
+checkpoints, and carries the requested occurrence references using existing storage
+and routing contracts. Multiple entries request multiple contributing parents;
+every requested contribution must be present when the consumer fires. Filters or
+observation qualification may exclude transactions lacking a parent. Duplicate, foreign, unannotated,
+and non-upstream references are rejected. Ordinary topology validation still applies:
+parent selection cannot certify missing flow contracts or fanout. Unmodeled branches
+retain partial-mode diagnostics rather than acquiring invented parents.
+
+For example, WB can select MEM while a later cache response selects S1, across
+the intervening WB checkpoint on the same pipelined transaction. Qualify S1/S2
+to observe only memory instructions without filtering the functional pipeline.
+This changes only
+the trace graph and instrumentation, never functional wiring or pipeline timing.
+Retained-state `trace_edge` and selected parents cannot both own one child's ancestry.
 
 ### Stall observations
 
@@ -113,8 +139,8 @@ will eventually commit.
 Stalls are leaf observations: they never advance token metadata, cut ancestry,
 or become parents of a later transfer. The compiler reuses the observed
 checkpoint's incoming references along certified linear paths, including pipes,
-queues, and retained windows, and emits edges only for references actually present. A blocked
-offer at an input may have no accepted ancestor. Selection, routing, replication,
+queues, retained windows, and transparent forks, and emits edges only for references actually present. A blocked
+offer at an input may have no accepted ancestor. Selection, routing, buffered broadcast,
 and join paths currently produce unlinked stall observations; their transfer
 events retain their normal inferred dependencies.
 
@@ -246,14 +272,15 @@ remain visible; it does not summarize the whole containing module. See the
 |---|---|
 | Connections, hierarchy, `map_flow`, `map_valid`, `to_valid`, checked `to_decoupled` | Preserve the transferred lineage |
 | `offer_decoupled` | Use the same-cycle Valid occurrence for accepted offers; no retained parent for rejected offers |
+| `OfferRegister` | Retain the latest update's lineage, replace it even while stalled, and deliver the old owner on simultaneous output/update |
 | `filter_flow`, `filter_valid`, `gate_flow` | Preserve surviving transfers only |
 | `valid_pipe`, `valid_pipe_always_capture` | Delay lineage by the certified fixed cycle count; explicit flush clears pending lineage at the edge |
 | Windowed storage | Select retained references and optionally the live input, including simultaneous contributions; release a prefix, append, and flush without resetting history |
 | `ShiftQueue`, `shift_queue` | Follow shifting head storage, optional empty bypass, and explicit flush through the intrinsic window contract |
 | Ready-valid `pipe` | Advance, bubble, and stall with the functional stages |
-| Retained-owner contract | Capture one lineage, reuse it across declared outputs and repeated attempts, and release it only on completion; replacement exposes the old owner until the edge |
+| Retained-owner contract | Capture one lineage, reuse it across declared outputs and repeated attempts, and release it on the declared control; replacement exposes the old owner until the edge |
 | `queue` | Preserve FIFO order for all `~pipe`/`~flow` combinations, including bypass and simultaneous replacement |
-| `arbiter`, `rr_arbiter` | Select the actual granted input's lineage, including any multiple-parent lineage |
+| `arbiter`, `rr_arbiter`, `valid_arbiter` | Select the actual granted input's lineage, including any multiple-parent lineage; Valid arbitration drops unselected occurrences |
 | `GrantDemux`, `GrantMerge`, `GrantCrossbar`, `grant_crossbar` | Live grant-selected lineage through composed routing/selection; zero grants block transfer |
 | `demux_flow` | Route to the selected output; no selection blocks transfer |
 | `atomic_fork`, `fork_valid` | Replicate lineage on synchronous acceptance; downstream buffers may complete independently |

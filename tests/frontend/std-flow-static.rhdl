@@ -103,7 +103,7 @@ sync_circuit FlowStaticInformation():
   def flushed_nibble = flushed_payload.egress.bits.low_nibble()
   inst flushed_valid_payload(ValidPipe(CapturedPayload(), 2, ~flushable: #true))
   def flushed_valid_nibble = flushed_valid_payload.egress.bits.low_nibble()
-  def named_capture = captured_payload.egress |> trace_valid_event("named", ~fields: payload):
+  def named_capture = captured_payload.egress |> trace_valid_event("named", ~when: Bool(#true), ~fields: payload):
     word: payload.word
     nibble: payload.word[0..4]
   def named_word = named_capture.bits.word

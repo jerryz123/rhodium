@@ -126,6 +126,11 @@ effects; `rhodium/event` consumes their metadata to infer possible nearest
 dependencies. The [annotation contract](../rhodium/event/README.md#annotate-events)
 owns label rules, partial ancestry, and supported tracing behavior.
 
+Both checkpoints accept `~when: Bool` to qualify observation without gating the
+flow. Use `~parents: [checkpoint, ...]` to select upstream ancestors, or bind the
+same selection later with `trace_parents(child, [checkpoint, ...])` once both
+endpoints exist. Parent binding is metadata-only and single-assignment.
+
 `trace_event(label, ~stalls: #true)` also requests a `<label>.stall` observation
 on each `valid & !ready` cycle. The default is false; `trace_valid_event` does
 not accept this option because `Valid` has no readiness signal. See
@@ -635,11 +640,14 @@ Its configured helper carries the same fixed-latency trace metadata.
 
 `valid_arbiter(n)` similarly infers its payload and, for a connected endpoint
 array, its input count. Because `Valid` has no backpressure, callers must accept
-that simultaneous unselected events are dropped.
+that simultaneous unselected events are dropped. Its intrinsic trace contract
+carries only the winning input's lineage, just like ready-valid arbitration.
 `OfferRegister(T)` accepts `Valid(T)` state updates and exposes the current
 state as a `Decoupled(T)` offer. An update replaces the offer even while it is
 stalled; otherwise a transfer clears the slot. This makes replacement explicit
-without claiming irrevocability.
+without claiming irrevocability. Its intrinsic trace contract retains the latest
+update's occurrence. Replacing a stalled offer replaces that owner; simultaneous
+delivery and update emits the old owner's edge and stores the new one.
 
 `queue(depth, ...)` and `pipe(stages)` similarly infer their eventual
 ready-valid input. `Pipe` and a non-flowing `Queue` produce an `Irrevocable`

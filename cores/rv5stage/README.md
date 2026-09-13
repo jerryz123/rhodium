@@ -225,8 +225,13 @@ enums, distinguishing hits, slow service, faults, and replay causes without
 changing instruction labels or pipeline ancestry.
 WB is not retirement: traps, maintenance/WRS holding, and deferred
 load/multiply/divide/FP completion remain outside the pipeline trace.
-No dependency is inferred between the memory-boundary graph and fetch through
-the cache/MMU, or across a replay's subsequent refetch.
+Fetch requests inherit their selected replay/restart cause through the frontend
+candidate flows and held cursor. A cache replay points to its failed S2 outcome;
+a core retry or serialization restart points to its original WB occurrence,
+including retained maintenance/WRS context; MEM redirects retain their MEM parent.
+CSR trap/return redirects remain unmodeled. Reset seeds and
+unmodeled control sources remain unknown. Cache installation is not yet connected
+to the later successful fetch that observes it.
 
 ### D-cache stages
 
@@ -243,10 +248,14 @@ The slash selects the `dcache` display group; tracks retain the dotted leaf
 names such as `s1.access`. See the [display contract](../../rheg/README.md#perfetto-display-and-queries)
 for hierarchy, slice naming, and querying full labels.
 
-S1 and S2 are same-cycle children of their corresponding core MEM and WB
-occurrences. Their correspondence follows the core MEM-to-WB edge, rather
-than an invented direct S1-to-S2 dependency. Hits, faults, and replays remain
-visible at S2; only admitted cacheable slow requests continue from S2 through
+S1 is a same-cycle child of core MEM on the memory instruction's path into
+MEM/WB. S2 inherits that S1 occurrence one cycle later. Core WB explicitly
+selects MEM as its parent for every instruction, across the same storage.
+S1/S2 observation is qualified for memory instructions without filtering the
+functional pipeline. S2 selects S1 across the intervening WB checkpoint;
+WB is not S2's parent.
+Hits, faults, and replays remain visible at S2; only admitted cacheable slow
+requests continue from S2 through
 MMU translation, physical routing, the service queue, and S3 into S4.
 Queueing and rereads make S2-to-S3 latency variable. S3 stalls share its track
 as continuous slices named `stall`; the feed-forward stages have no synthetic

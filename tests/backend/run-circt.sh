@@ -198,7 +198,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:event-window|language:event-feedback|language:event-branching|language:event-partial|cores-execution:event-frontend|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
+    language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution:event-frontend|cores-execution:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
@@ -378,6 +378,7 @@ run_expected_assertion_failure() {
   local top="$2"
   local testbench="$3"
   local expected_label="$4"
+  shift 4
   local verilog="$test_tmp_dir/$fixture.sv"
   local object_dir="$test_tmp_dir/${fixture}_${top}_failure_obj"
   local build_log="$test_tmp_dir/$fixture.$top.failure.verilator.log"
@@ -388,7 +389,7 @@ run_expected_assertion_failure() {
 
   if ! verilator --binary --timing --assert --build-jobs 0 --top-module "$top" \
       --Mdir "$object_dir" \
-      "$verilog" "$testbench" \
+      "$verilog" "$testbench" "$@" \
       > "$build_log" 2>&1; then
     cat "$build_log" >&2
     return 1
@@ -453,7 +454,7 @@ verify_fixture() {
   fi
   if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
-  elif [[ "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-compack ]]; then
+  elif [[ "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == event-offer-register || "$fixture" == event-parents || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-source || "$fixture" == rv5stage-compack ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -680,6 +681,9 @@ direct_fixture_specs=(
   'event-home|event_home_tb'
   'event-subordinate|event_subordinate_tb'
   'rv5stage-compack|rv5stage_compack_tb'
+  'rv5stage-fetch-source|rv5stage_fetch_source_tb'
+  'event-offer-register|event_offer_register_tb'
+  'event-parents|event_parents_tb'
   'event-fesvr|event_fesvr_tb'
   'event-partial|event_partial_tb'
   'event-elastic|event_elastic_tb'
@@ -935,6 +939,9 @@ done
 
 run_expected_assertion_failure assertions assertions_fail_tb \
   tests/backend/verilog/assertions_fail_tb.sv request_holds
+run_expected_assertion_failure event-parents event_parents_missing_tb \
+  tests/backend/verilog/event-parents-missing_tb.sv __event_parent_present_ \
+  "$repo_dir/rheg/runtime/rheg.cc"
 run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_route_tb \
   tests/backend/verilog/chi-noc-adapter_tb.sv chi_req_noc_target_has_route
 run_expected_assertion_failure chi-noc-adapter chi_noc_adapter_target_tb \

@@ -89,10 +89,11 @@ sync_circuit RV5StageFetchScan(core_profile :: RVCoreProfile):
   def cut_upper = effective_prediction.valid & !effective_prediction.pc[1].into(Bool) & effective_prediction.compressed
   def cut_after_straddle = fallback_valid & partial & first_fallback
   def mask = mux(cut_upper ||| cut_after_straddle, bits(1, 2), packet.mask)
-  (ingress |> filter_valid(_packet => !clear.valid) |> map_valid(packet => packet.updated(~mask: mask, ~prediction: effective_prediction))) |> egress
+  def Array(packets, repairs) = ingress |> fork_valid(2)
+  (packets |> filter_valid(_packet => !clear.valid) |> map_valid(packet => packet.updated(~mask: mask, ~prediction: effective_prediction))) |> egress
   fallback.valid <== fallback_valid & !clear.valid
   fallback.bits <== fallback_prediction
-  (ingress |> filter_valid(_packet => !clear.valid & bad_prediction) |> map_valid(packet => RV5StageFetchRepair(xlen)):
+  (repairs |> filter_valid(_packet => !clear.valid & bad_prediction) |> map_valid(packet => RV5StageFetchRepair(xlen)):
     pc: packet.pc.align_down(4) + bits(4, xlen.width)
     entry: packet.prediction.pc
   ) |> repair

@@ -1,0 +1,23 @@
+#lang rhodium
+// Compares rewritable offers with independent nearest and selected retained parents.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit EventOfferRegister():
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  inst storage(OfferRegister(Bits(8)))
+  inst reference(OfferRegister(Bits(8)))
+  def update = source |> trace_valid_event("update", ~payload: #true)
+  update |> trace_valid_event("captured", ~payload: #true) |> storage.update
+  reference.update.valid <== source.valid
+  reference.update.bits <== source.bits
+  reference.egress.ready <== sink.ready
+  storage.egress |> trace_event("delivered", ~payload: #true)
+    |> trace_event("offer", ~parents: [update], ~stalls: #true, ~payload: #true) |> sink
+  assert(storage.egress.valid === reference.egress.valid, "offer_valid_unchanged")
+  assert(storage.egress.bits === reference.egress.bits, "offer_payload_unchanged")
+
+def offered = elaborate_with_top(EventOfferRegister())
+export offered

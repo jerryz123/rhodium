@@ -1,5 +1,5 @@
 #lang rhodium
-// Selects S0 PCs and resolves predictions from the registered S1 fetch occurrence.
+// Selects S0 candidates through Flow, retaining cursor ancestry across blocked issuance.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,32 @@ bundle RV5StageFetchAttempt(xlen :: XLen):
   continuation: Bool
   continuation_target: Bits(xlen.width)
   prediction: RV5StagePrediction(xlen)
+
+// Repeated cursor observations keep the last update's owner until replacement.
+// An empty cursor is supplied by the reset seed in the caller, not invented lineage.
+sync_circuit RV5StageFetchCursor(xlen :: XLen):
+  interface update(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
+  interface stored(Valid(RV5StageFetchAttempt(xlen)), ~role: producer)
+  reg occupied(~init: Bool(#false))
+  reg payload(RV5StageFetchAttempt(xlen))
+  stored.valid <== occupied
+  stored.bits <== payload
+  when (update.valid):
+    occupied <== Bool(#true)
+    payload <== update.bits
+  describe_interface_retained_storage(update.valid, occupied & update.valid, occupied)
+  describe_interface_contract(update, stored, "cursor", ~trace_model: interface_trace_retained())
+
+// Admission is independent of replay/candidate validity; the fallback guarantees
+// a candidate. Keep the assertion rather than feeding selection into admission.
+sync_circuit RV5StageFetchOffer(xlen :: XLen):
+  input enabled: Bool
+  interface candidate(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
+  interface egress(Decoupled(RV5StageFetchAttempt(xlen)), ~role: producer)
+  egress.valid <== enabled
+  egress.bits <== candidate.bits
+  assert(!enabled ||| candidate.valid, "fetch_offer_has_candidate")
+  describe_interface_contract(candidate, egress, "admission", ~trace_model: interface_trace_combinational(~guard: enabled))
 
 // S0 offers are Decoupled. Acceptance captures PC/continuation into S1;
 // prediction is resolved there and captured with the S2 occurrence.
@@ -37,10 +63,9 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   output ras_head_valid: Bool
   output ras_head: Bits(width)
 
-  reg request_pc(~init: bits(0, width))
-  reg continuation(~init: Bool(#false))
-  reg continuation_target(Bits(width))
   reg running(~init: Bool(#true))
+  inst cursor(RV5StageFetchCursor(xlen))
+  inst offer(RV5StageFetchOffer(xlen))
   inst btb(RV5StageBtb(xlen, btb_entries))
   inst ras(RV5StageRas(xlen, if btb_entries == 0 | 0 | ras_entries))
   def command = clear.valid ||| restart.valid ||| redirect.valid
@@ -70,46 +95,51 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entr
   def predicted_straddle = prediction.valid & prediction.pc[1].into(Bool) & !prediction.compressed
   def next_pc = mux(s1.egress.bits.continuation, s1.egress.bits.continuation_target, mux(prediction.valid & !predicted_straddle, prediction.target, s1.egress.bits.pc.align_down(4) + bits(4, width)))
   def redirecting = restart.valid ||| redirect.valid
-  def redirect_target = mux(restart.valid, restart.bits, redirect.bits)
-  def s0_pc = mux(redirecting, redirect_target, mux(replay.valid, replay.bits.pc, mux(s1.egress.valid, next_pc, request_pc)))
-  def s0_continuation = mux(redirecting, Bool(#false), mux(replay.valid, replay.bits.continuation, mux(s1.egress.valid, predicted_straddle, continuation)))
-  def s0_continuation_target = mux(redirecting, redirect_target, mux(replay.valid, replay.bits.continuation_target, mux(s1.egress.valid, prediction.target, continuation_target)))
-  def offer :: Handle = interface_link(Decoupled(RV5StageFetchAttempt(xlen)))
-  // Architectural restart replaces the old epoch without a reservation.
-  // A late return redirect preserves the epoch and issues only with space.
-  offer.left.valid <== restart.valid ||| (redirect.valid & space) ||| (active & running & !command & space)
-  offer.left.bits <== RV5StageFetchAttempt(xlen):
-    pc: s0_pc
-    continuation: s0_continuation
-    continuation_target: s0_continuation_target
+  def restart_candidates = Array(restart, redirect) |> valid_arbiter() |> map_valid(pc => RV5StageFetchAttempt(xlen)):
+    pc: pc
+    continuation: Bool(#false)
+    continuation_target: pc
     prediction: literal(RV5StagePrediction(xlen), 0)
+  def Array(restart_offer, restart_update) = restart_candidates |> fork_valid(2)
+  def Array(replay_offer, replay_update) = (replay |> map_valid(attempt => attempt.updated(~prediction: literal(RV5StagePrediction(xlen), 0)))) |> fork_valid(2)
+  def Array(prediction_source, lookup_source) = s1.egress |> fork_valid(2)
+  def next_candidates = prediction_source |> map_valid(_attempt => RV5StageFetchAttempt(xlen)):
+    pc: next_pc
+    continuation: predicted_straddle
+    continuation_target: prediction.target
+    prediction: literal(RV5StagePrediction(xlen), 0)
+  def Array(next_offer, next_update) = next_candidates |> fork_valid(2)
+  def seed :: Handle = interface_link(Valid(RV5StageFetchAttempt(xlen)))
+  seed.left.valid <== Bool(#true)
+  seed.left.bits <== literal(RV5StageFetchAttempt(xlen), 0)
+  def saved = Array(cursor.stored, seed.right) |> valid_arbiter()
+  def Array(saved_offer, saved_clear) = saved |> fork_valid(2)
+  Array(restart_offer, replay_offer, next_offer, saved_offer) |> valid_arbiter() |> offer.candidate
+  // Restart bypasses old-epoch reservation; a late redirect preserves the epoch
+  // and issues only with space. Neither admission depends on candidate validity.
+  offer.enabled <== restart.valid ||| (redirect.valid & space) ||| (active & running & !command & space)
   // The S1 lookup result is captured with this occurrence at the S2 boundary.
-  (s1.egress |> map_valid(attempt => attempt.updated(~prediction: prediction))) |> stage1
+  (lookup_source |> map_valid(attempt => attempt.updated(~prediction: prediction))) |> stage1
   // Acceptance alone advances S1; an unaccepted offer owns no pipeline slot.
-  def accepted = offer.right |> trace_event("frontend/s0.request", ~fields: attempt):
+  def accepted = offer.egress |> trace_event("frontend/s0.request", ~fields: attempt):
     pc: attempt.pc
   // A transferred restart replaces the old S1 occurrence at this edge.
-  // Otherwise command clears S1 and request_pc retains the restart for retry.
-  def Array(requests, contexts) = accepted |> atomic_fork(2)
+  // Otherwise command clears S1 and the cursor retains the restart for retry.
+  def Array(requests, contexts, advanced) = accepted |> atomic_fork(3)
   requests |> attempts
   contexts |> to_valid() |> s1.ingress
   s1.flush <== command & !attempts.fire()
 
-  when command:
-    request_pc <== mux(redirecting, redirect_target, request_pc)
-    continuation <== Bool(#false)
-    running <== redirecting
-  elsewhen (attempts.fire()):
-    request_pc <== s0_pc.align_down(4) + bits(4, width)
-    continuation <== Bool(#false)
-  elsewhen (replay.valid):
-    request_pc <== replay.bits.pc
-    continuation <== replay.bits.continuation
-    continuation_target <== replay.bits.continuation_target
-  elsewhen (s1.egress.valid):
-    request_pc <== next_pc
-    continuation <== predicted_straddle
-    continuation_target <== prediction.target
+  // Preserve the original state-update priority, distinct from live PC selection.
+  // Restart stores its target even when that same-cycle replacement transfers.
+  Array(
+    restart_update |> map_valid(attempt => attempt.updated(~continuation_target: saved.bits.continuation_target)),
+    saved_clear |> filter_valid(_attempt => clear.valid) |> map_valid(attempt => attempt.updated(~continuation: Bool(#false))),
+    advanced |> to_valid() |> filter_valid(_attempt => !command) |> map_valid(attempt => attempt.updated(~pc: attempt.pc.align_down(4) + bits(4, width), ~continuation: Bool(#false), ~continuation_target: saved.bits.continuation_target)),
+    replay_update |> filter_valid(_attempt => !command),
+    next_update |> filter_valid(_attempt => !command)
+  ) |> valid_arbiter() |> cursor.update
+  when command: running <== redirecting
 
 export:
   RV5StageFetchAttempt

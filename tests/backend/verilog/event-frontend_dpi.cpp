@@ -15,6 +15,7 @@ using namespace test_sites;
 struct Attempt { std::uint64_t pc; rheg::Ref ref; };
 struct Word { std::uint64_t base; unsigned bits; bool fault; rheg::Ref ref; };
 std::optional<Attempt> s1, s2;
+std::optional<rheg::Ref> held_parent;
 std::deque<Word> words;
 rheg::Graph expected;
 std::map<unsigned, std::uint64_t> sequences;
@@ -28,9 +29,8 @@ rheg::Ref node(unsigned site, std::uint64_t pc, unsigned flags = 0, unsigned fla
   rheg::Ref ref{site, sequences[site]++};
   auto& n = expected.nodes[ref];
   n.present = true; n.cycle = cycle; n.width = 64 + flag_bits;
-  // The PC/replay source FSM has no incoming causal contract. Its downstream
-  // checkpoints still have complete immediate parents from public transfers.
-  n.ancestry_unknown = site == frontend_s0_request;
+  // Only unannotated external restarts/reset seeds remain unknown.
+  n.ancestry_unknown = site == frontend_s0_request && parents.empty();
   const auto low = (pc << flag_bits) | flags;
   n.words[0] = std::uint32_t(low); n.words[1] = std::uint32_t(low >> 32);
   if (flag_bits) n.words[2] = std::uint32_t(pc >> (64 - flag_bits));
@@ -44,17 +44,12 @@ extern "C" void event_frontend_sample(unsigned reset, unsigned clear, unsigned r
     unsigned fetched_valid, unsigned ready, std::uint64_t pc, std::uint64_t sequential_pc,
     std::uint64_t predicted_next_pc) {
   if (reset) {
-    expected.clear(); sequences.clear(); words.clear(); s1.reset(); s2.reset();
+    expected.clear(); sequences.clear(); words.clear(); s1.reset(); s2.reset(); held_parent.reset();
     cycle = next_attempt = cursor = 0; consumed.clear(); return;
   }
   std::optional<Attempt> incoming, next_s2;
+  std::optional<rheg::Ref> replay_parent;
   const bool replaying = s2 && response_valid && replay;
-  if (request_fire) {
-    const auto candidate = restart ? restart_pc : replaying ? s2->pc : next_attempt;
-    if ((candidate & ~3ULL) != request_address) fail("request occurrence PC mismatch");
-    incoming = Attempt{candidate, node(frontend_s0_request, candidate)};
-    next_attempt = (candidate & ~3ULL) + 4;
-  } else if (replaying) next_attempt = s2->pc;
   if (s1) {
     auto ref = node(frontend_s1_lookup, s1->pc, 0, 0, {s1->ref});
     if (!clear && !replaying) next_s2 = Attempt{s1->pc, ref};
@@ -64,11 +59,23 @@ extern "C" void event_frontend_sample(unsigned reset, unsigned clear, unsigned r
     const unsigned flags = (replay << 3) | (unsigned(admitted) << 2) |
         (unsigned(admitted && page_fault) << 1) | unsigned(admitted && access_fault);
     auto outcome = node(frontend_s2_outcome, s2->pc, flags, 4, {s2->ref});
+    if (replaying) replay_parent = outcome;
     if (admitted) {
       auto base = s2->pc & ~3ULL;
       words.push_back({base, bits, bool(page_fault || access_fault), outcome});
     }
   }
+  if (request_fire) {
+    const auto candidate = restart ? restart_pc : replaying ? s2->pc : s1 ? (s1->pc & ~3ULL) + 4 : next_attempt;
+    const auto parent = restart ? std::optional<rheg::Ref>{} : replaying ? replay_parent : s1 ? std::optional<rheg::Ref>{s1->ref} : held_parent;
+    if ((candidate & ~3ULL) != request_address) fail("request occurrence PC mismatch");
+    incoming = Attempt{candidate, node(frontend_s0_request, candidate, 0, 0, parent ? std::vector<rheg::Ref>{*parent} : std::vector<rheg::Ref>{})};
+  }
+  if (clear) {
+    if (restart) { next_attempt = restart_pc; held_parent.reset(); }
+  } else if (incoming) { next_attempt = (incoming->pc & ~3ULL) + 4; held_parent = incoming->ref; }
+  else if (replaying) { next_attempt = s2->pc; held_parent = replay_parent; }
+  else if (s1) { next_attempt = (s1->pc & ~3ULL) + 4; held_parent = s1->ref; }
   // The fall-through queue can expose this cycle's admitted S2 packet.
   // The abstract word stream retains a word until all of its parcels are used.
   if (fetched_valid) {
@@ -104,7 +111,6 @@ extern "C" void event_frontend_sample(unsigned reset, unsigned clear, unsigned r
     s1 = incoming; s2.reset();
     if (restart) {
       cursor = restart_pc;
-      if (!incoming) next_attempt = restart_pc;
     }
   } else { s1 = incoming; s2 = next_s2; }
   ++cycle;

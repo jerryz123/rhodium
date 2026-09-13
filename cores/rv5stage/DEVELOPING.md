@@ -255,9 +255,35 @@ always-capture payload registers or derive controls from generated signal names.
 EX's payload is still computed unconditionally; its flow filter qualifies only
 token validity, preserving the feed-forward datapath and cancellation timing.
 
-Accepted `frontend/s0.request` occurrences report unknown incoming ancestry
-until source-FSM causality is modeled. The intrinsic
-flushable pipes connect them through `frontend/s1.lookup` and
+The inline retirement flows in `core.rhdl` preserve WRS-over-maintenance-over-live WB payload
+selection, even before a resident completes and while the output is invalid.
+Generic `OfferRegister` instances own pending payloads and their intrinsic
+lineage contracts. Capture comes from the original WB occurrence;
+completion gates acceptance and releases that same owner. Keep WRS timeout/wake policy, maintenance
+completion/fault policy, and architectural commit qualification in `core.rhdl`.
+Grant selection follows pending ownership, then gates completion; arbitration
+must not fall through to younger live WB while a resident is unfinished.
+Explicit forks separate WB arrival, memory observation, FP issue, and retirement
+consumers. Core retry/serialization restarts therefore inherit live or retained
+WB ancestry without adding a retirement checkpoint. CSR trap/return and retained
+exception redirects remain a separate unmodeled boundary.
+Run `event-offer-register` for retained ownership, replacement, stalls, and reset;
+use `rv5stage-core`, `rv5stage-zicbom`, `rv5stage-zawrs`, and the FP core fixtures
+for production retirement selection and completion policy, then the SimpleSoC
+trace check for integration.
+
+`fetch/source.rhdl` maps restart, late redirect, replay, and S1 successor occurrences into
+candidate flows, then selects restart over late redirect over replay over S1 over the saved cursor.
+`RV5StageFetchCursor` retains the last update with a local storage contract;
+an explicit unannotated reset seed supplies the initial fallback. Cursor update
+priority is separately restart/late redirect/clear, accepted advancement, replay, then S1.
+Clear preserves the PC while stopping admission; restart replaces it even when
+that same-cycle offer transfers. Preserve inactive continuation-target payloads.
+`RV5StageFetchOffer` keeps admission independent of candidate validity, asserting
+that the fallback supplies a candidate. Do not replace it with a gate whose
+validity depends on replay, or insert a cycle before a restart can transfer.
+Only reset seeds and unmodeled upstream control owners remain unknown.
+The intrinsic flushable pipes connect S0 through `frontend/s1.lookup` and
 `frontend/s2.outcome`, which captures replay, admission, and admitted fault flags.
 Only admitted outcomes pass the Flow filter into packet storage; no
 additional checkpoint represents that same-cycle admission. ShiftQueue owns
@@ -266,10 +292,15 @@ a depth-one window using actual residual capture/release, clear, and independent
 resident/live contribution predicates. A word can parent two compressed
 instructions; a straddle has two word parents, including a faulting continuation.
 `core/s2.decode` inherits those
-parents instead of cutting ancestry. Frontend replay attempts are new occurrences;
-I-cache TXREQ inherits the S0 occurrence that launched its refill. MMU walk,
-predictor-training, and redirect causality remain separate.
-Run `event-window`, `event-frontend`, `rv5stage-fetch-prediction`, and
+parents instead of cutting ancestry. Frontend replay attempts are new occurrences
+parented by the failed S2 outcome; selected modeled core restarts inherit their
+pipeline occurrence. Sequential/predicted successors inherit the preceding S0
+through S1, and blocked candidates retain their selected cause.
+I-cache TXREQ inherits the S0 occurrence that launched its refill. Packet scanning
+explicitly forks admitted outcomes into packet delivery and prediction repair;
+the repair pipe retains the cause until its restart is selected. MMU walk,
+predictor-training, and unmodeled control ownership remain separate.
+Run `rv5stage-fetch-source`, `event-window`, `event-frontend`, `rv5stage-fetch-prediction`, and
 the host admission test for changes at this boundary.
 Later checkpoints must not become independent roots to hide an unsupported
 path. Decode transfers fire only when the hazard gate admits them,
@@ -279,11 +310,18 @@ captured Boolean reason terms aligned with `pipeline_hazard`; do not impose
 priority on simultaneous reasons. Keep WB arrival distinct
 from architectural retirement and deferred completion.
 
-Fork the live MEM observation for `dcache/s1.access` and filter WB memory
-operations for `dcache/s2.resp`. Select by access kind, not the slow-request
-valid bit, so fast hits and replays remain visible. These observations retain
-their core-stage parents; do not add registers or override intrinsic storage
-contracts to manufacture a direct S1-to-S2 edge. WB uses `offer_decoupled()`
+Keep `dcache/s1.access` directly on the existing path into MEM/WB, with `~when`
+qualifying only memory observations. Do not split/merge the functional flow to
+make an event selective. Declare WB on the pipe output before its ordinary
+retirement/FP/request consumer fork. Bind `trace_parents(wb_input, [mem_live])`
+after MEM is declared; this metadata-only binding avoids a declaration-order
+wire. The request branch observes `dcache/s2.resp` with `~parents: [mem_access]`
+and matching memory qualification. Inference carries S1 across existing MEM/WB
+storage and past WB while carrying MEM independently into WB; neither checkpoint
+needs a new observation branch or a different functional route.
+Select by access kind, not the slow-request valid bit, so fast hits and replays
+remain visible. Do not add registers or override intrinsic storage
+contracts to describe S1-to-S2 separately: ordinary Flow infers transport. WB uses `offer_decoupled()`
 after S2 for the Valid-to-Decoupled slow request. Record nonfaulting admission
 in S2 without feeding readiness/fault status into functional request validity.
 The cache's named queue, S3 elastic pipe, and S4 always-capture register carry

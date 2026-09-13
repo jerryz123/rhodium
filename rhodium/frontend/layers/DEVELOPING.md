@@ -143,6 +143,13 @@ never let it execute unguarded.
 
 ## Implementation map
 
+`InterfaceEventGroup.parents` is set once during circuit construction, either by
+the checkpoint's `~parents` option or `describe_interface_event_parents`. Share
+local-endpoint normalization and preserve the annotation's identity and site
+index when late binding. Reject repeated binding, finished modules, and hardware
+conditionals. Consumers read the finalized selection after elaboration; parent
+binding does not create operations, connections, or storage.
+
 Interface trace contracts use one `InterfaceTransformGroup` representation for
 inline adapters and named local endpoint relations. Declarations normalize
 endpoint polarity with metadata-only connections; never emit functional

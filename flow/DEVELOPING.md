@@ -43,6 +43,10 @@ flowchart TD
   Missing ancestry is reported by the consumer's partial mode. Its `trace_edge`
   helper records a named retained-state causal relation through the frontend;
   it must not add functional wiring or move analysis into `flow/`.
+  Checkpoint `~parents` and late `trace_parents` forward existing annotated
+  endpoints to the same frontend selection metadata; backward path discovery
+  and shadow transport remain compiler-owned. Both checkpoint protocols support
+  `~when` without changing functional transfers.
 - `offer-decoupled.rhdl` owns best-effort Valid-to-Decoupled wiring;
   `to-decoupled.rhdl` retains the checked same-cycle acceptance contract.
   Keep fault/replay policy downstream. Event qualification in `event.rhdl`
@@ -95,6 +99,18 @@ direct instances against configured reference lanes, actual control sampling,
 and traversal through presentation wrappers. Keep those behavioral checks when
 changing how contracts are attached; elaboration alone does not establish
 reset, simultaneous-transfer, or backpressure correctness.
+
+`ValidArbiter` certifies its actual one-hot grants without introducing readiness
+or retaining losing occurrences. Its configured adapter delegates to that
+intrinsic contract. The `rv5stage-fetch-source` fixture checks nested Valid
+selection through replay/restart replacement and held cursor feedback.
+
+`OfferRegister` owns its retained trace contract. Capture on every update;
+release the old owner on occupied replacement or accepted output, with capture
+taking priority. Do not require acceptance before replacing a stalled offer.
+`event-offer-register` checks exact parents through replacement, simultaneous
+delivery/update, drain, and reset. RV5Stage's core CMO/WRS fixtures check reuse
+under completion gating and ownership-selected arbitration.
 
 `GrantDemux` and `GrantMerge` own routing and selection contracts sampled from
 their functional grants. `GrantCrossbar` and its configured adapter delegate

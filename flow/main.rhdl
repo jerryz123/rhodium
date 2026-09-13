@@ -150,4 +150,5 @@ export:
   parallel
   trace_event
   trace_valid_event
+  trace_parents
   trace_edge

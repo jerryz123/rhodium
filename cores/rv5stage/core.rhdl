@@ -231,16 +231,20 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def mem_cache_replay = mem_cache_outcome === RV5StagePipelineOutcome.Replay
   // Accepted maintenance retains retirement context outside the feed-forward
   // pipeline. Only its completion can retire it; it is never reissued.
-  reg wb_maintenance_pending(~init: Bool(#false))
-  reg wb_maintenance_instruction(MemoryWriteback(xlen, vector_completion_slots))
+  inst wb_maintenance(OfferRegister(MemoryWriteback(xlen, vector_completion_slots)))
+  inst wb_reservation_wait(OfferRegister(MemoryWriteback(xlen, vector_completion_slots)))
+  inst wb_selection(GrantMerge(MemoryWriteback(xlen, vector_completion_slots), 3))
+  def wb_maintenance_pending = wb_maintenance.egress.valid
   wire wb_maintenance_accepted: Bool
   def wb_input = mem_wb_pipe.egress |> trace_valid_event("core/s5.wb", ~fields: operation):
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+  def Array(wb_retirement_path, wb_fp_path, wb_memory_path) = wb_input |> fork_valid(3)
+  def Array(wb_live_path, wb_maintenance_path, wb_wait_path) = wb_retirement_path |> fork_valid(3)
   // WRS owns its retirement context outside the feed-forward pipeline. Wake
   // levels win over timeout, including a reservation lost on entry to waiting.
-  reg wb_reservation_wait_pending(~init: Bool(#false))
-  reg wb_reservation_wait_instruction(MemoryWriteback(xlen, vector_completion_slots))
+  def wb_reservation_wait_pending = wb_reservation_wait.egress.valid
+  def wb_reservation_wait_instruction = wb_reservation_wait.egress.bits
   reg wb_reservation_wait_count(~init: bits(0, 12))
   def wb_reservation_wait_wake = !data_access.reservation_valid ||| wb_csrs.wfi_wake
   def wb_reservation_wait_expired = and_reduce(wb_reservation_wait_count)
@@ -251,20 +255,28 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def wb_reservation_wait_illegal = wb_reservation_wait_done & !wb_reservation_wait_wake & !wb_reservation_wait_short & wb_reservation_wait_tw
   def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_maintenance_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & wb_input.bits.system.action.is_one_of(SystemOperation.WrsNto, SystemOperation.WrsSto)
   when wb_reservation_wait_accept:
-    wb_reservation_wait_pending <== Bool(#true)
-    wb_reservation_wait_instruction <== wb_input.bits
     wb_reservation_wait_count <== bits(0, 12)
-  elsewhen wb_reservation_wait_done:
-    wb_reservation_wait_pending <== Bool(#false)
-  elsewhen (wb_reservation_wait_pending & !wb_reservation_wait_expired):
+  elsewhen (wb_reservation_wait_pending & !wb_reservation_wait_done & !wb_reservation_wait_expired):
     wb_reservation_wait_count <== wb_reservation_wait_count + bits(1, 12)
   def wb_maintenance_done = wb_maintenance_pending & data_access.response.valid
   when (data_access.response.valid & data_access.response.bits.access_fault):
     assert(wb_maintenance_pending, "rv5stage_completion_fault_has_retirement_context")
-  def wb = inject_flow(Valid(MemoryWriteback(xlen, vector_completion_slots)), ~valid: mux(wb_reservation_wait_pending, wb_reservation_wait_done, mux(wb_maintenance_pending, wb_maintenance_done, wb_input.valid & !wb_reservation_wait_accept)), ~bits: mux(wb_reservation_wait_pending, wb_reservation_wait_instruction, mux(wb_maintenance_pending, wb_maintenance_instruction, wb_input.bits)))
+  assert(!wb_maintenance_accepted ||| wb_input.valid, "maintenance_capture_has_wb")
+  assert(!wb_reservation_wait_accept ||| wb_input.valid, "wait_capture_has_wb")
+  wb_maintenance_path |> filter_valid(_instruction => wb_maintenance_accepted) |> wb_maintenance.update
+  wb_wait_path |> filter_valid(_instruction => wb_reservation_wait_accept) |> wb_reservation_wait.update
+  // Select the pending owner before gating completion, preserving its payload
+  // while unfinished. Acceptance releases that OfferRegister at the edge.
+  wb_selection.grants <== vec([!wb_maintenance_pending & !wb_reservation_wait_pending, wb_maintenance_pending & !wb_reservation_wait_pending, wb_reservation_wait_pending]).into(MaybeOneHot(3))
+  wb_live_path |> filter_valid(_instruction => !wb_reservation_wait_accept) |> offer_decoupled() |> wb_selection.ingress[0]
+  wb_maintenance.egress |> wb_selection.ingress[1]
+  wb_reservation_wait.egress |> wb_selection.ingress[2]
+  def wb = wb_selection.egress |> gate_flow(mux(wb_reservation_wait_pending, wb_reservation_wait_done, mux(wb_maintenance_pending, wb_maintenance_done, Bool(#true)))) |> to_valid()
+  def Array(wb_commit_path, wb_fp_reservation_path, wb_fp_hit_path) = wb |> fork_valid(3)
   def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb.bits
   wire wb_commit_result: MemoryWriteback(xlen, vector_completion_slots)
-  def wb_commit = wb |> filter_valid(_operation => !wb_maintenance_accepted & !wb_pending_exception_valid) |> map_valid(_operation => wb_commit_result)
+  def wb_commit = wb_commit_path |> filter_valid(_operation => !wb_maintenance_accepted & !wb_pending_exception_valid) |> map_valid(_operation => wb_commit_result)
+  def Array(wb_serializing_path, wb_replay_path, wb_prefetch_path, wb_vector_path, wb_scoreboard_path, wb_register_path, wb_multiply_path, wb_divide_path) = wb_commit |> fork_valid(8)
   def wb_commit_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb_commit.bits
   def wb_commit_replay = wb_commit.valid & wb_commit_bits.replay
   def wb_commit_valid = wb_commit.valid & !wb_commit_bits.replay
@@ -297,9 +309,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def mem_replay_event = mem_to_if_replay_link.right.valid
   def mem_redirect = mem_to_if_redirect_link.right.valid
   def Array(wb_trap_restart, wb_trap_predictor_flush) = wb_csrs.redirect |> fork_valid(2)
-  def wb_serializing_redirect = wb_commit |> filter_valid(_operation => wb_serializing_resume) |> map_valid(operation => operation.resume_pc)
+  def wb_serializing_redirect = wb_serializing_path |> filter_valid(_operation => wb_serializing_resume) |> map_valid(operation => operation.resume_pc)
   def Array(wb_serializing_restart, wb_serializing_invalidate) = wb_serializing_redirect |> fork_valid(2)
-  def wb_commit_replay_redirect = wb_commit |> filter_valid(operation => operation.replay & !operation.vector_valid) |> map_valid(operation => operation.pc)
+  def wb_commit_replay_redirect = wb_replay_path |> filter_valid(operation => operation.replay & !operation.vector_valid) |> map_valid(operation => operation.pc)
   def if_redirect_sources = Array(
     wb_trap_restart,
     wb_serializing_restart,
@@ -655,7 +667,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       )) |> to_valid()
       Array(id_scalar |> to_valid(), id_vector_operation) |> valid_arbiter() |> id_ex_pipe.ingress
       (
-        wb_commit |> filter_valid(operation => operation.vector_valid) |> map_valid(operation => RV5StageVectorCommit(xlen)):
+        wb_vector_path |> filter_valid(operation => operation.vector_valid) |> map_valid(operation => RV5StageVectorCommit(xlen)):
           pc: operation.pc
           disposition: mux(operation.exception_valid, RV5StageVectorDisposition.Fault, mux(operation.replay, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized))
           slow: wb_memory_accepted
@@ -908,9 +920,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
     cache_outcome(~format: "enum"): mem_cache_outcome
     cache_reason(~format: "enum"): mux(pipeline_access.response.valid, pipeline_access.response.bits.reason, RV5StagePipelineReason.None)
-  def Array(mem_to_wb_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_access_path, mem_prediction_path) = mem_live |> fork_valid(5)
-  mem_access_path |> filter_valid(operation => operation.data_request.access.into(MemoryOperation).is_memory())
-    |> trace_valid_event("dcache/s1.access", ~fields: operation):
+  trace_parents(wb_input, [mem_live])
+  def Array(mem_access_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_prediction_path) = mem_live |> fork_valid(4)
+  // Observe only memory instructions without filtering the stage's valid flow.
+  def mem_access = mem_access_path
+    |> trace_valid_event("dcache/s1.access", ~when: mem_access_path.bits.data_request.access.into(MemoryOperation).is_memory(), ~fields: operation):
          pc: operation.pc
          instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
          address: operation.data_request.address
@@ -925,7 +939,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     |> map_valid(operation => operation.resume_pc) |> mem_to_if_redirect_link.left
   // Nonbranches also train: they remove a stale prediction at this PC.
   mem_training_path |> map_valid(operation => operation.branch_update) |> frontend_control.branch_update
-  def mem_to_wb = mem_to_wb_path |> map_valid(operation => MemoryWriteback(xlen, vector_completion_slots)):
+  def mem_to_wb = mem_access |> map_valid(operation => MemoryWriteback(xlen, vector_completion_slots)):
     vector_valid: operation.vector_valid
     vector_last: operation.vector_last
     pc: operation.pc
@@ -989,8 +1003,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wire wb_memory_response_replay: Bool
   // Observe the MEM result at its real WB capture, including hits and replay.
   // Admission qualifies continuation, not whether the S2 response is recorded.
-  def wb_memory_response = wb_input |> filter_valid(operation => operation.data_request.access.into(MemoryOperation).is_memory())
-    |> trace_valid_event("dcache/s2.resp", ~fields: operation):
+  def wb_memory_response = wb_memory_path
+    |> trace_valid_event("dcache/s2.resp", ~parents: [mem_access], ~when: wb_memory_path.bits.data_request.access.into(MemoryOperation).is_memory(), ~fields: operation):
          pc: operation.pc
          instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
          address: operation.data_request.address
@@ -1004,7 +1018,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
        ))
   // Request validity must not depend on admission or fault-status feedback.
   wb_memory_offer |> offer_decoupled() |> data_access.request
-  wb_input |> filter_valid(_operation => wb_attempt & wb_offer_bits.fp_compute)
+  wb_fp_path |> filter_valid(_operation => wb_attempt & wb_offer_bits.fp_compute)
     |> map_valid(operation => operation.fp_issue)
     |> eject_flow(~valid: wb_fp.issue.valid, ~bits: wb_fp.issue.bits)
   def wb_page_fault = (wb_attempt & (wb_offer_bits.cache_outcome === RV5StagePipelineOutcome.PageFault)) ||| (data_access.request.valid & data_access.request_fault)
@@ -1012,11 +1026,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wb_data_fault <== wb_page_fault ||| wb_access_fault
   wb_memory_accepted <== data_access.request.fire() & !wb_data_fault
   wb_maintenance_accepted <== wb_memory_accepted & wb_offer_bits.data_request.access.into(MemoryOperation).is_cache_management()
-  when wb_maintenance_accepted:
-    wb_maintenance_pending <== Bool(#true)
-    wb_maintenance_instruction <== wb_offer_bits
-  elsewhen wb_maintenance_done:
-    wb_maintenance_pending <== Bool(#false)
   wb_memory_replay <== wb_memory_attempt & (!wb_fp_load_ready ||| (!wb_data_fault & !data_access.request.ready))
   def wb_fp_replay = wb_fp.issue.valid & !wb_fp.issue.ready
   def wb_deferred_fp_load_completion = data_access.response.valid & data_access.response.bits.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)
@@ -1052,21 +1061,21 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     ~exception_value: wb_exception.value
   )
   def wb_fp_load_reservation:
-    wb |> filter_valid(_operation => wb_memory_accepted & wb_fp_load)
+    wb_fp_reservation_path |> filter_valid(_operation => wb_memory_accepted & wb_fp_load)
       |> map_valid(operation => RV5StageFpLoadReservation(Bits(width))):
            context: operation.pc
            precision: operation.data_request.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.precision
            rd: operation.data_request.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.rd
   wb_fp_load_reservation |> to_decoupled() |> wb_fp.load_reserve
   (
-    wb |> filter_valid(operation => wb_attempt & operation.load_hit & wb_fp_load & !wb_hit_fp_replay)
+    wb_fp_hit_path |> filter_valid(operation => wb_attempt & operation.load_hit & wb_fp_load & !wb_hit_fp_replay)
       |> map_valid(operation => RV5StageFpLoadCompletion(Bits(width))):
            context: operation.pc
            precision: operation.data_request.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.precision
            rd: operation.data_request.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.rd
            data: if xlen == XLen.X32 | operation.value.zext(64) | operation.value
   ) |> wb_fp.load_hit
-  wb_commit |> filter_valid(operation => !operation.replay & !operation.exception_valid & wb_offer_bits.prefetch.into(CachePrefetchReq(width)).operation.into(CachePrefetchOperation).is_prefetch())
+  wb_prefetch_path |> filter_valid(operation => !operation.replay & !operation.exception_valid & wb_offer_bits.prefetch.into(CachePrefetchReq(width)).operation.into(CachePrefetchOperation).is_prefetch())
     |> map_valid(operation => operation.prefetch) |> prefetch
   assert(!(wb_data_fault & wb_memory_replay), "rv5stage_wb_fault_does_not_replay")
   assert(!(wb_memory_accepted & wb_replay), "rv5stage_wb_memory_accept_does_not_replay")
@@ -1103,7 +1112,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     wb_pending_exception_valid <== Bool(#false)
 
   (
-    wb_commit
+    wb_scoreboard_path
       |> filter_valid(committed => !committed.replay & core_deferred_writeback(committed.writeback_source) & (
           committed.write_enable
         ) & committed.rd.or_reduce())
@@ -1111,7 +1120,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   ) |> wb_to_id_scoreboard_set_link.left
 
   (
-    wb_commit
+    wb_register_path
       |> filter_valid(committed => !committed.replay & !core_deferred_writeback(committed.writeback_source) & (
           committed.write_enable
         ) & ((committed.writeback_source =/= WritebackSelect.Csr) ||| wb_csrs.writeback_valid))
@@ -1126,7 +1135,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
 
   // Retirement authorizes issue; retained maintenance/WRS context never selects arithmetic operands.
   (
-    wb_commit
+    wb_multiply_path
       |> filter_valid(committed => !committed.replay & (
           committed.writeback_source === WritebackSelect.Multiply
         ) & committed.write_enable & committed.rd.or_reduce())
@@ -1135,7 +1144,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   when wb_commit_has_multiply:
     assert(wb_multiplier.available, "rv5stage_multiplier_commit_reserved")
   (
-    wb_commit
+    wb_divide_path
       |> filter_valid(committed => !committed.replay & (
           committed.writeback_source === WritebackSelect.Divide
         ) & committed.write_enable & committed.rd.or_reduce())
