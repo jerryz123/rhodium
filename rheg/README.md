@@ -31,6 +31,7 @@ Its [header](runtime/rheg.h) defines the fixed ABI and `graph()` API:
 - `rheg_payload` supplies zero-padded 32-bit words, least-significant
   word first, so arbitrary fixed-width packed payloads use the same ABI.
 - `rheg_edge` records an exact parent/child reference pair.
+- `rheg_unknown` marks an occurrence whose immediate ancestry is incomplete in partial mode.
 - `rheg_reset` clears the graph on an asserted sampled reset.
 
 The site number is the zero-based index into **the accompanying manifest's
@@ -110,7 +111,7 @@ only for the `signed` encoding. `capture_field(node, field)` also works on a
 cycle batch without requiring a retained graph.
 
 Perfetto preserves capture names such as `pc` and `instruction`
-(SQL keys `debug.pc`, etc.). The built-in names `cycle` and `sequence` are
+(SQL keys `debug.pc`, etc.). The built-in names `cycle`, `sequence`, and `ancestry_unknown` are
 reserved and rejected as capture names. Bitvectors default to fixed-width hex
 strings. Booleans and integers use native scalar arguments; values wider than
 64 bits, and unsigned values above INT64_MAX, use exact decimal strings.
@@ -123,6 +124,19 @@ Mixed schema presence, duplicate names, overlaps, gaps, out-of-range fields,
 invalid encodings, and JSON/C++ table mismatches are errors. The collector
 validates typed descriptors without acquiring a JSON dependency; the shared
 export library interprets the same schema for streaming and replay.
+
+## Partial ancestry
+
+Partial compiler traces retain known edges and describe missing contracts in
+the manifest's optional `gaps` table (`site`, `boundary`, `reason`). These gaps
+appear in Perfetto track descriptions as `ancestry_gaps`. `rheg_unknown(site,
+sequence)` marks an occurrence whose immediate parent set is incomplete;
+the order-independent collector stores `Node::ancestry_unknown` and emits
+`ancestry_unknown: true` only on affected JSON nodes. Perfetto displays the
+corresponding `debug.ancestry_unknown` string argument as `true`. Absence means
+no unknown contributor, not necessarily a parent: explicit roots and detached
+traffic can be completely known and parentless. Descendants name the checkpoint
+normally; the flag is not a transitive taint. Stall runs split when it changes.
 
 ## Enum labels
 

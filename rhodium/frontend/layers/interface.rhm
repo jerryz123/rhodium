@@ -566,7 +566,7 @@ fun event_field(name :: String, value :: HardwareEntity,
   def captured = kernel.read(value, location)
   unless name is_a AsciiIdentifier && scalar_data_type(captured.type)
   | error(~who: #'event_field, "capture requires an ASCII identifier name and scalar DataType")
-  when name in ["cycle", "sequence"]
+  when name in ["cycle", "sequence", "ancestry_unknown"]
   | error(~who: #'event_field, "reserved capture field name: " ++ name)
   def format = encoding || (if bool_type(captured.type) | "bool" | (if signed_arithmetic_type(captured.type) | "signed" | "hex"))
   unless format in ["hex", "unsigned", "signed", "bool", "riscv", "enum"]
@@ -596,7 +596,6 @@ class InterfaceEventGroup(module_def :: Module,
                           input :: InterfaceEndpoint,
                           output :: InterfaceEndpoint,
                           payload :: False || Value,
-                          terminal :: Boolean,
                           location :: Location,
                           valid :: False || Value = #false,
                           ready :: False || Value = #false,
@@ -2152,7 +2151,6 @@ fun describe_interface_event(handle :: Handle,
                              ~root: root :: Boolean = #false,
                              ~payload: payload :: False || HardwareEntity = #false,
                              ~fields: fields :: List.of(InterfaceEventField) = [],
-                             ~terminal: terminal :: Boolean = #false,
                              ~valid: valid :: False || HardwareEntity = #false,
                              ~ready: ready :: False || HardwareEntity = #false,
                              ~location: location :: Location = Location()) :: Handle:
@@ -2223,7 +2221,6 @@ fun describe_interface_event(handle :: Handle,
                                   handle.left,
                                   handle.right,
                                   payload_value,
-                                  terminal,
                                   location,
                                   transfer_value(valid),
                                   transfer_value(ready),
@@ -2234,7 +2231,7 @@ fun describe_interface_event(handle :: Handle,
   describe_interface_transform(
     handle,
     "event",
-    {"label": label, "site": site_index, "terminal": terminal, "root": root},
+    {"label": label, "site": site_index, "root": root},
     ~trace_model: interface_trace_passthrough()
   )
 

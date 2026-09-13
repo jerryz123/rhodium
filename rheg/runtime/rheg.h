@@ -26,6 +26,7 @@ struct Node {
   std::uint64_t cycle = 0;
   std::uint32_t width = 0;
   std::map<std::uint32_t, std::uint32_t> words;
+  bool ancestry_unknown = false;
 };
 // Bit offsets index the compact selected capture, not the functional RTL bundle.
 struct Field {
@@ -87,6 +88,7 @@ struct Graph {
   void end_stream();
   void record_node(Ref ref, std::uint64_t cycle, std::uint32_t width);
   void record_payload(Ref ref, std::uint32_t index, std::uint32_t word);
+  void record_unknown(Ref ref);
   void record_edge(Ref parent, Ref child);
   FieldValue field(Ref ref, const std::string& name) const;
   void reset(bool active);
@@ -122,6 +124,7 @@ Graph& graph();
 
 extern "C" {
 void rheg_reset(std::uint8_t active);
+void rheg_unknown(std::uint32_t site, std::uint64_t sequence);
 void rheg_node(std::uint32_t site, std::uint64_t sequence,
                         std::uint64_t cycle, std::uint32_t width);
 void rheg_payload(std::uint32_t site, std::uint64_t sequence,

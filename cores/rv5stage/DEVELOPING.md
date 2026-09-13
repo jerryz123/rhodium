@@ -268,7 +268,7 @@ Select each channel's enum opcode with `~format: "enum", ~label: #true`; do not
 hand-maintain REQ/RSP/DAT/SNP decoding tables in the exporter. Check decoded slice
 names independently of numeric opcode captures in the trace smoke.
 Do not infer CHI transaction ownership by matching TxnID/DBID values. Request
-checkpoints are nonterminal so Flow can carry them through network transit.
+checkpoints supply occurrence identities that Flow carries through network transit.
 D-cache incoming RSP/DAT observations inherit certified Home output ancestry;
 the inclusive Home's retained request scope bridges its FSM. Outgoing RSP/DAT,
 snoops, and instruction-return channels remain independent observations.

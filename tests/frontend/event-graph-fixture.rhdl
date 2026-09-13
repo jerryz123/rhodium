@@ -16,7 +16,7 @@ sync_circuit EventLinear():
     |> pipe(1)
     |> trace_event("issued", ~payload: #true)
     |> queue(2, ~flow: #true)
-    |> trace_event("completed", ~payload: #true, ~terminal: #true)
+    |> trace_event("completed", ~payload: #true)
     |> sink
 
 sync_circuit EventFork():
@@ -198,6 +198,10 @@ sync_circuit InvalidCaptures(kind :: String):
   | kind == "sequence":
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         sequence: payload.nested.pc
+      selected |> sink
+  | kind == "ancestry_unknown":
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        ancestry_unknown: payload.nested.pc
       selected |> sink
   | ~else:
       def selected = source |> trace_valid_event("invalid", ~fields: payload):

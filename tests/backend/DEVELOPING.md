@@ -84,6 +84,11 @@ checkpoint. Its public-control FIFO scoreboard preserves exact parent references
 across multiple laps, repeated payloads, stalls, simultaneous transfers, and reset;
 an uninstrumented lane checks functional equivalence. Host diagnostics cover
 same-cycle cycles and unbounded parent accumulation.
+`event-partial` checks opaque storage beside known and detached sources through
+grant selection, queues, flow-through shift queues, a join, and a downstream checkpoint. Its independent
+transfer scoreboard compares exact edges and unknown flags under changing grants,
+stalls, equal payloads, and pending reset; a second lane checks unchanged RTL
+behavior. Host tests retain strict rejection and unsafe-fanout diagnostics.
 `event-branching` extends this coverage through direct/configured 3x3 crossbars
 with two fresh sources, a feedback queue, and two buffered exits. Its independent
 FIFO model checks every exact parent occurrence, all source-to-exit routes,

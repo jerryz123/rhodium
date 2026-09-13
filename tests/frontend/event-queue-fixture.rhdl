@@ -29,7 +29,7 @@ sync_circuit EventQueueLane(depth :: PosInt, piped :: Boolean, flowed :: Boolean
   | accepted |> storage.ingress
   def arrived = if composed | storage.egress |> map_flow(payload => payload + bits(1, 8)) |> filter_flow(payload => !(payload === bits(4, 8))) | storage.egress
   if traced
-  | arrived |> trace_event("completed", ~payload: #true, ~terminal: #true) |> egress
+  | arrived |> trace_event("completed", ~payload: #true) |> egress
   | arrived |> egress
 
 sync_circuit EventQueue():

@@ -128,7 +128,7 @@ merging with traced traffic; it is not an automatic fallback for missing contrac
 the same annotation for `Valid`. These helpers do not add state or runtime
 effects; `rhodium/event` consumes their metadata to infer possible nearest
 dependencies. The [annotation contract](../rhodium/event/README.md#annotate-events)
-owns label rules, root/terminal semantics, and supported tracing behavior.
+owns label rules, explicit ancestry cuts, and supported tracing behavior.
 
 `trace_event(label, ~stalls: #true)` also requests a `<label>.stall` observation
 on each `valid & !ready` cycle. The default is false; `trace_valid_event` does

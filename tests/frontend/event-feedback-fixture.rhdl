@@ -18,7 +18,7 @@ sync_circuit EventFeedbackLane(traced :: Boolean, flow :: Boolean = #false, spli
   if split
   | block:
       def branches = start |> atomic_fork(2)
-      def tap = branches[1] |> trace_event("tap", ~terminal: #true)
+      def tap = branches[1] |> trace_event("tap")
       tap.field("ready") <== Bool(#true)
       branches[0] |> merge.ingress[0]
   | start |> merge.ingress[0]
@@ -26,7 +26,7 @@ sync_circuit EventFeedbackLane(traced :: Boolean, flow :: Boolean = #false, spli
   storage.egress |> route.ingress
   route.egress[1] |> merge.ingress[1]
   if traced
-  | route.egress[0] |> trace_event("finish", ~payload: #true, ~terminal: #true) |> egress
+  | route.egress[0] |> trace_event("finish", ~payload: #true) |> egress
   | route.egress[0] |> egress
 
 sync_circuit EventFeedback():
@@ -59,12 +59,12 @@ sync_circuit EventUnsafeFeedback():
   merge.grants <== vec([!select_feedback, select_feedback]).into(MaybeOneHot(2))
   route.grants <== vec([!route_feedback, route_feedback]).into(MaybeOneHot(2))
   def start = ingress |> trace_valid_event("start")
-  start |> trace_valid_event("tap", ~terminal: #true) |> tap
+  start |> trace_valid_event("tap") |> tap
   start |> offer_decoupled() |> merge.ingress[0]
   merge.egress |> storage.ingress
   storage.egress |> route.ingress
   route.egress[1] |> merge.ingress[1]
-  route.egress[0] |> trace_event("finish", ~terminal: #true) |> egress
+  route.egress[0] |> trace_event("finish") |> egress
 fun unsafe_feedback(): elaborate_with_top(EventUnsafeFeedback())
 
 // A real 3x3 crossbar routes two fresh sources and one recirculating source
@@ -92,7 +92,7 @@ sync_circuit EventFeedbackCrossbarLane(traced :: Boolean, direct :: Boolean):
   for (index in 0..2):
     def buffered = outputs[index] |> queue(2)
     if traced
-    | buffered |> trace_event("finish" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
+    | buffered |> trace_event("finish" ++ to_string(index), ~payload: #true) |> egress[index]
     | buffered |> egress[index]
 
 sync_circuit EventFeedbackCrossbar():

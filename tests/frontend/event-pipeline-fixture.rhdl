@@ -47,7 +47,7 @@ sync_circuit EventPipeline(~flushable: flushable :: Boolean = #false):
     |> child.ingress
   child.egress
     |> filter_valid(payload => !(payload === bits(4, 8)))
-    |> trace_valid_event("completed", ~payload: #true, ~terminal: #true)
+    |> trace_valid_event("completed", ~payload: #true)
     |> sink
 
 def pipeline = elaborate_with_top(EventPipeline())
@@ -103,7 +103,7 @@ sync_circuit EventNestedRequester():
   source |> trace_valid_event("request") |> to_decoupled() |> bus.traffic.request
   bus.traffic.auxiliary.valid <== Bool(#false)
   bus.traffic.auxiliary.bits <== bits(0, 8)
-  bus.traffic.response |> trace_valid_event("completed", ~terminal: #true) |> sink
+  bus.traffic.response |> trace_valid_event("completed") |> sink
 
 sync_circuit EventNestedResponder():
   interface bus(EventNestedEnvelope(), ~role: responder)

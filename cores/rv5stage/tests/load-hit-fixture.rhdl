@@ -68,7 +68,7 @@ sync_circuit RV5StageLoadHit():
   mmu.instruction_memory.response.valid <== Bool(#false)
   mmu.instruction_memory.response.bits <== literal(RV5StageFetchResult(), 0)
   cache.node_id <== bits(3, 7)
-  def traced_requests = cache.chi.requests |> trace_event("dcache.txreq", ~terminal: #true, ~fields: request):
+  def traced_requests = cache.chi.requests |> trace_event("dcache.txreq", ~fields: request):
     address: request.address
     opcode(~format: "enum"): request.opcode
     allow_retry: request.allow_retry

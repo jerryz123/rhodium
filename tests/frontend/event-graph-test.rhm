@@ -31,7 +31,7 @@ def captures = infer_event_manifest(fixture.captures)
 def enum_captures = infer_event_manifest(fixture.enum_captures)
 def unusual_label = "quote\" slash\\ newline\n tab\t null\u0000 bell\u0007 λ )rhdl0"
 def unusual = EventManifest(linear.logical, [
-  EventSite("odd", unusual_label, "mod", ["top"], 0, "Valid", #false, #false, #false, "<unknown>")
+  EventSite("odd", unusual_label, "mod", ["top"], 0, "Valid", #false, #false, "<unknown>")
 ], [])
 
 check:
@@ -70,13 +70,13 @@ check:
   fixture.invalid_captures("aggregate") ~throws "scalar DataType"
   fixture.invalid_captures("cycle") ~throws "reserved capture field name: cycle"
   fixture.invalid_captures("sequence") ~throws "reserved capture field name: sequence"
+  fixture.invalid_captures("ancestry_unknown") ~throws "reserved capture field name: ancestry_unknown"
   fixture.invalid_captures("bool") ~throws "one bit"
   fixture.invalid_captures("float") ~throws "unsupported capture format"
   linear.sites.map(fun (site): site.label) ~is ["accepted", "issued", "completed"]
   linear.sites.map(fun (site): site.local_site) ~is [0, 1, 2]
   linear.sites.map(fun (site): site.payload_type) ~is ["bits<8>", "bits<8>", "bits<8>"]
   linear.sites.map(fun (site): site.payload_width) ~is [8, 8, 8]
-  linear.sites.map(fun (site): site.terminal) ~is [#false, #false, #true]
   linear_labels ~is ["accepted->issued", "issued->completed"]
   linear.dependencies[0].transform_path.length() ~is 2
   linear.dependencies[0].transform_path[0].contains(":map") ~is #true

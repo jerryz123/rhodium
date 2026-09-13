@@ -31,7 +31,7 @@ sync_circuit EventJoinLane(mode :: Nat, traced :: Boolean):
   def outputs = Array(routed[0] |> pipe(1), routed[1] |> queue(2))
   for (index in 0..2):
     if traced
-    | outputs[index] |> trace_event("completed" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
+    | outputs[index] |> trace_event("completed" ++ to_string(index), ~payload: #true) |> egress[index]
     | outputs[index] |> egress[index]
   first_fire <== first.valid & first.ready
   replicas_fire <== vec(for List (index in 0..2): replicas[index].valid & replicas[index].ready).as_bits()
@@ -49,7 +49,7 @@ sync_circuit EventJoinOccurrences(traced :: Boolean):
   def odd = routes[1] |> pipe(2)
   def paired = Array(even, odd) |> zip_flow(a, b => a ^ b) |> queue(2, ~flow: #true)
   if traced
-  | paired |> trace_event("paired", ~payload: #true, ~terminal: #true) |> egress
+  | paired |> trace_event("paired", ~payload: #true) |> egress
   | paired |> egress
 
 sync_circuit EventJoin():

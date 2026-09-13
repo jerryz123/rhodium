@@ -104,6 +104,10 @@ falling edges; trace batches therefore follow all rising-edge callbacks.
 Bind descriptor and timing before callbacks, and flush the final settled cycle
 before normal exit or timeout. Keep emitter, generated clock constant, descriptor,
 and RTL tied to the same harness configuration.
+The emitter opts into `EventInstrumentationConfig(~partial: #true)` to preserve
+supported ancestry when other branches lack contracts. Keep manifest gaps and
+runtime unknown-ancestry markers intact; do not detach opaque branches merely
+to make instrumentation succeed. Partial mode does not waive contract validation.
 Verilator's generated link rule omits user archives from its prerequisites.
 When the outer simulator target is stale, `verilator/relink.mk` marks only the
 generated executable target phony to force linking. Its model archive still

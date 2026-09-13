@@ -129,6 +129,12 @@ Expanded end-to-end ancestry is still under integration. See the current
 [SimpleSoC tracing limit](../chi/home/README.md#inclusive-home-event-tracing)
 before attempting a new traced build.
 
+The harness uses [partial tracing](../rhodium/event/README.md): supported Flow
+paths retain their edges while opaque boundaries are reported as ancestry gaps.
+Affected occurrences carry `ancestry_unknown` in Perfetto; they are not silently
+treated as independent roots. Invalid contracts and unsafe lineage structures
+still reject the build.
+
 Tracing is opt-in and currently supports `SOC=simple`:
 
 ```sh

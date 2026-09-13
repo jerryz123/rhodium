@@ -35,7 +35,7 @@ sync_circuit EventElasticLane(traced :: Boolean):
   | ingress |> trace_event("accepted", ~payload: #true) |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> child.ingress
   | ingress |> filter_flow(payload => !(payload === bits(0, 8))) |> pipe(1) |> child.ingress
   if traced
-  | child.egress |> filter_flow(payload => !(payload === bits(4, 8))) |> trace_event("completed", ~payload: #true, ~terminal: #true) |> egress
+  | child.egress |> filter_flow(payload => !(payload === bits(4, 8))) |> trace_event("completed", ~payload: #true) |> egress
   | child.egress |> filter_flow(payload => !(payload === bits(4, 8))) |> egress
 
 sync_circuit EventElastic():

@@ -51,7 +51,7 @@ sync_circuit EventArbiterLane(mode :: Nat, traced :: Boolean):
     | ingress[index] |> trace_event("input" ++ to_string(index), ~payload: #true) |> network.ingress[index]
     | ingress[index] |> network.ingress[index]
   if traced
-  | network.egress |> trace_event("completed", ~payload: #true, ~terminal: #true) |> egress
+  | network.egress |> trace_event("completed", ~payload: #true) |> egress
   | network.egress |> egress
   take0 <== network.take0
   take1 <== network.take1

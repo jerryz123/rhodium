@@ -1,0 +1,73 @@
+#lang rhodium
+// Exercises missing ancestry through selection, FIFO/live-window storage, joins, and checkpoints.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit OpaqueEventStorage():
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  reg full(~init: Bool(#false))
+  reg payload(Bits(8))
+  ingress.ready <== !full ||| egress.ready
+  egress.valid <== full
+  egress.bits <== payload
+  when (ingress.ready):
+    full <== ingress.valid
+    payload <== ingress.bits
+
+sync_circuit EventPartialLane(traced :: Boolean):
+  interface ingress[5](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  input grants: Vec(3, Bool)
+  output(selected_fire, joined_fire, middle_fire, middle_stall): Bool
+  inst opaque(OpaqueEventStorage())
+  inst isolated(OpaqueEventStorage())
+  inst select(GrantMerge(Bits(8), 3))
+  select.grants <== grants.into(MaybeOneHot(3))
+  def known = if traced | ingress[0] |> trace_event("known", ~root: #true) | ingress[0]
+  def before = if traced | ingress[1] |> trace_event("before", ~root: #true) | ingress[1]
+  def buddy = if traced | ingress[3] |> trace_event("buddy", ~root: #true) | ingress[3]
+  known |> select.ingress[0]
+  before |> opaque.ingress
+  opaque.egress |> select.ingress[1]
+  ingress[2] |> trace_detach() |> select.ingress[2]
+  def selected = select.egress |> queue(2) |> shift_queue(2, ~flow: #true)
+  def joined = Array(selected, buddy) |> zip_flow(a, b => a ^ b)
+  def buffered = joined |> queue(2)
+  def middle = if traced | buffered |> trace_event("middle", ~stalls: #true) | buffered
+  if traced
+  | middle |> pipe(1) |> trace_event("after") |> egress[0]
+  | middle |> pipe(1) |> egress[0]
+  ingress[4] |> isolated.ingress
+  def isolated_output = isolated.egress |> shift_queue(2, ~flow: #true)
+  if traced
+  | isolated_output |> trace_event("isolated", ~stalls: #true) |> egress[1]
+  | isolated_output |> egress[1]
+  selected_fire <== select.egress.valid & select.egress.ready
+  joined_fire <== joined.valid & joined.ready
+  middle_fire <== middle.valid & middle.ready
+  middle_stall <== middle.valid & !middle.ready
+
+sync_circuit EventPartial():
+  interface ingress[5](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  interface gold_ingress[5](Decoupled(Bits(8)), ~role: consumer)
+  interface gold_egress[2](Decoupled(Bits(8)), ~role: producer)
+  input grants: Vec(3, Bool)
+  output(selected_fire, joined_fire, middle_fire, middle_stall): Bool
+  inst traced(EventPartialLane(#true))
+  inst gold(EventPartialLane(#false))
+  traced.grants <== grants
+  gold.grants <== grants
+  ingress <=> traced.ingress
+  traced.egress <=> egress
+  gold_ingress <=> gold.ingress
+  gold.egress <=> gold_egress
+  selected_fire <== traced.selected_fire
+  joined_fire <== traced.joined_fire
+  middle_fire <== traced.middle_fire
+  middle_stall <== traced.middle_stall
+
+fun partial(): elaborate_with_top(EventPartial())
+export partial

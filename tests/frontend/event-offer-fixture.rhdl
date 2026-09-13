@@ -14,7 +14,7 @@ sync_circuit EventOffer():
   def offered = attempted |> offer_decoupled()
   offer_ready <== offered.ready
   def admitted = offered
-    |> trace_event("admitted", ~when: qualify, ~stalls: #true, ~terminal: #true, ~fields: payload):
+    |> trace_event("admitted", ~when: qualify, ~stalls: #true, ~fields: payload):
          value: payload
   admitted |> sink
 

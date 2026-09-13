@@ -20,7 +20,7 @@ sync_circuit EventCrossbarLane(direct :: Boolean, partial :: Boolean = #false):
         crossbar.egress
     | inputs |> grant_crossbar(2, ~grants: grants)
   for (index in 0..2):
-    outputs[index] |> trace_event("output" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
+    outputs[index] |> trace_event("output" ++ to_string(index), ~payload: #true) |> egress[index]
 
 sync_circuit EventCrossbar():
   interface sources[6](Decoupled(Bits(8)), ~role: consumer)

@@ -281,12 +281,14 @@ source/transaction IDs, opcode, and return-to-source control. Opcode names come
 from the channel's hardware enum declaration, not a separate host table. Unknown
 encodings use hex slice names and retain their numeric opcode argument.
 
-Each channel is terminal. Except for the direct-refill parents on `dcache.txreq`,
-channels start independent observations. These events do not
-infer request-to-response ancestry through CHI transaction state, NoC/Home/LLC
-logic, or the cache-to-pipeline path. Transaction IDs can be reused and have
-channel-specific meaning; equality alone is not an event dependency. Uncached
-RN-I traffic remains outside these private-cache checkpoints.
+D-cache requests inherit certified refill ownership, and incoming D-cache
+RSP/DAT checkpoints inherit ancestry through modeled Flow and Home contracts.
+Other channels start independent observations but can supply parents to
+downstream checkpoints. Missing ownership contracts remain explicit gaps in
+partial tracing; see the [current integration limit](../../chi/home/README.md#inclusive-home-event-tracing).
+Transaction IDs can be reused and have channel-specific meaning; equality alone
+is not an event dependency. Uncached RN-I traffic remains outside these
+private-cache checkpoints.
 
 ## Cache-block management
 

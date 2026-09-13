@@ -62,6 +62,7 @@ struct Description {
   std::vector<Site> sites;
   std::vector<std::uint32_t> track_sites;
   std::vector<bool> shared_tracks;
+  std::map<std::uint32_t, Json> gaps;
 };
 Description describe(const Json& json) {
   format(json, "rhodium-event-graph");
@@ -106,6 +107,17 @@ Description describe(const Json& json) {
     }
   }
   validate_capture_schema(result.manifest);
+  if (json.contains("gaps")) {
+    require(json.at("gaps").is_array(), "gaps must be an array");
+    for (const auto& gap : json.at("gaps")) {
+      auto site = ids.find(gap.at("site").get<std::string>());
+      require(site != ids.end(), "unknown gap site");
+      const auto boundary = gap.at("boundary").get<std::string>();
+      const auto reason = gap.at("reason").get<std::string>();
+      require(!boundary.empty() && !reason.empty(), "empty ancestry gap");
+      result.gaps[site->second].push_back({{"boundary", boundary}, {"reason", reason}});
+    }
+  }
   result.shared_tracks.resize(result.sites.size(), false);
   for (std::size_t i = 0; i < result.sites.size(); ++i) {
     const auto& site = result.sites[i];
@@ -355,6 +367,7 @@ struct PerfettoWriter::Impl {
                    {"source_location", description.sites[i].source},
                    {"payload_width", description.manifest.payload_widths[i]}};
       site["kind"] = description.sites[i].kind;
+      if (description.gaps.count(i)) site["ancestry_gaps"] = description.gaps.at(i);
       if (description.sites[i].kind == "stall") site["observation_of"] = description.sites[i].observation_of;
       if (!description.manifest.fields.empty()) {
         site["fields"] = Json::array();
@@ -504,6 +517,7 @@ struct PerfettoWriter::Impl {
                  next->second.cycle != node.cycle ||
                  static_cast<__uint128_t>(run.node.cycle) + 1 != node.cycle ||
                  next->second.words != run.node.words ||
+                 next->second.ancestry_unknown != run.node.ancestry_unknown ||
                  !std::equal(parents[next->first].begin(), parents[next->first].end(),
                              run.parents.begin(), run.parents.end(), [](Ref a, Ref b) {
                                return a.site == b.site && a.sequence == b.sequence;
@@ -529,6 +543,7 @@ struct PerfettoWriter::Impl {
       // Unique counters remain exact decimal strings, without filling the dictionary.
       annotation(fields, interns, "sequence", std::to_string(ref.sequence), false);
       annotation(fields, interns, "cycle", std::to_string(node.cycle), false);
+      if (node.ancestry_unknown) annotation(fields, interns, "ancestry_unknown", "true", true);
       if (!description.manifest.fields.empty()) {
         for (const auto& field : description.manifest.fields[ref.site]) {
           if (field.encoding == "riscv") {
@@ -604,6 +619,10 @@ Snapshot read_event_trace(std::istream& input) {
   for (const auto& node : occurrences.at("nodes")) {
     Ref ref{static_cast<std::uint32_t>(number(node.at("site"), UINT32_MAX)), number(node.at("sequence"))};
     graph.record_node(ref, number(node.at("cycle")), number(node.at("width"), UINT32_MAX));
+    if (node.contains("ancestry_unknown")) {
+      require(node.at("ancestry_unknown").is_boolean(), "ancestry_unknown must be boolean");
+      if (node.at("ancestry_unknown").get<bool>()) graph.record_unknown(ref);
+    }
     require(node.at("words").is_array() && node.at("words").size() <= UINT32_MAX, "invalid payload words");
     std::uint32_t index = 0;
     for (const auto& word : node.at("words")) graph.record_payload(ref, index++, number(word, UINT32_MAX));

@@ -29,6 +29,7 @@ export:
   event_trace_registered
   validate_event_trace_feedback
   EventManifest
+  EventTraceGap
 
 class EventField(name :: String, type :: String, width :: PosInt,
                  offset :: Nat, encoding :: String, isa :: String = "", pc :: String = "",
@@ -42,7 +43,6 @@ class EventSite(id :: String,
                 protocol :: String,
                 payload_type :: False || String,
                 payload_width :: False || PosInt,
-                terminal :: Boolean,
                 source_location :: String,
                 root :: Boolean = #false,
                 fields :: List.of(EventField) = [],
@@ -72,7 +72,7 @@ class EventTraceWindow(instance_path :: List.of(String), depth :: PosInt,
 class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):
   method controls(): [capture, release, active]
 
-class EventTraceSource(site :: False || String, detached :: Boolean = #false):
+class EventTraceSource(site :: False || String, detached :: Boolean = #false, unknown :: False || String = #false):
   implements EventTracePlan
 // Occurrence-qualified back references are resolved once after graph discovery.
 // Acyclic paths keep their existing expression shape.
@@ -193,9 +193,12 @@ class EventDependency(parent :: String,
                       latency_cycles :: False || Nat = #false,
                       trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = #false)
 
+class EventTraceGap(site :: String, boundary :: String, reason :: String)
+
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),
                     dependencies :: List.of(EventDependency),
-                    trace_plans :: Map = {}):
+                    trace_plans :: Map = {},
+                    gaps :: List.of(EventTraceGap) = []):
   method site(id :: String):
     sites.find(fun (candidate): candidate.id == id)

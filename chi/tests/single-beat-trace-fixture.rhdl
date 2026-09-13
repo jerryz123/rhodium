@@ -22,10 +22,10 @@ sync_circuit EventSubordinate():
     txn: flit.txn_id
   requests |> transaction.port.req
   port.dat.request |> transaction.port.dat.request
-  def responses = transaction.port.rsp |> trace_event("response", ~terminal: #true, ~fields: flit):
+  def responses = transaction.port.rsp |> trace_event("response", ~fields: flit):
     txn: flit.txn_id
   responses |> port.rsp
-  def data = transaction.port.dat.response |> trace_event("data", ~terminal: #true, ~fields: flit):
+  def data = transaction.port.dat.response |> trace_event("data", ~fields: flit):
     txn: flit.txn_id
   data |> port.dat.response
 

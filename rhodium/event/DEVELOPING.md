@@ -100,8 +100,10 @@ RHEG deduplicates full occurrence pairs. Never deduplicate by site alone.
 
 Explicit roots stop traversal at their inputs but retain their output identity
 for downstream inference. Default checkpoints must not turn failed traversal
-into a root. Reject partial annotated ancestry, uncertified merges/fanout, and
-terminal ancestors according to the public contract.
+into a root. Strict mode rejects partial annotated ancestry; both modes reject
+uncertified merges/fanout. Leaves are derived from connectivity, not declared
+on checkpoints. Stall observations remain leaf-only through their separate kind
+and exclusion from downstream lineage discovery.
 
 ### Selective hierarchy rebuilding
 
@@ -140,7 +142,18 @@ Discover reachable vertices once, stopping at event and detached boundaries.
 For cyclic regions, retain one finite witness per nearest parent, with unknown
 latency and no linear stage projection; do not enumerate cyclic walks. Acyclic
 dependencies preserve their existing paths and latency detail. All reachable
-opaque or unsupported branches must still fail, even if another branch is traced.
+opaque or unsupported branches fail in strict mode. Partial mode cuts precisely
+at the missing boundary and records `EventTraceGap` entries per consuming site.
+`EventTraceSource.unknown` distinguishes these leaves from deliberate detach
+and supported inferred roots. Do not replace a whole mixed plan with a root.
+
+Lineage structs carry transaction validity, parent slots, and an independent
+unknown bit. Selection chooses all three together; joins and selected windows
+OR unknown contributors. Queue, retained, pipeline, and broadcast state preserve
+the bit through the same controls as their parents. `rheg_unknown` marks only
+fired occurrences with unknown incoming ancestry, including plans with no known
+parent edges. Checkpoints replace ancestry with their own definite reference.
+Keep malformed contracts and unsafe graph invariants fatal in both modes.
 
 Walk the same-cycle dependency graph separately, cutting registered storage
 edges but keeping potentially enabled bypass inputs. Check every node, including

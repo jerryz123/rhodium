@@ -46,7 +46,6 @@ fun json_site(site :: EventSite):
       "name": field.name, "type": field.type, "width": field.width,
       "offset": field.offset, "encoding": field.encoding
     } ++ (if field.encoding == "riscv" | {"isa": field.isa, "pc": field.pc} | {}) ++ (if field.encoding == "enum" | {"symbols": field.symbols} | {}) ++ (if field.label | {"label": #true} | {})),
-    "terminal": site.terminal,
     "root": site.root,
     "kind": site.kind,
     "source_location": site.source_location
@@ -67,7 +66,7 @@ fun event_manifest_to_json(manifest :: EventManifest):
     "top": manifest.logical.top.name,
     "sites": manifest.sites.map(json_site),
     "dependencies": manifest.dependencies.map(json_dependency)
-  }) ++ "\n"
+  } ++ (if manifest.gaps.length() > 0 | {"gaps": manifest.gaps.map(fun (gap): {"site": gap.site, "boundary": gap.boundary, "reason": gap.reason})} | {})) ++ "\n"
 
 // Raw literals preserve JSON escaping and UTF-8 labels without interpreting
 // JSON escapes as C++ escapes. Pick a delimiter absent from the actual JSON.

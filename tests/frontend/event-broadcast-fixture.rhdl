@@ -40,7 +40,7 @@ sync_circuit EventBroadcastLane(buffered :: Boolean, traced :: Boolean):
   | ingress |> network.ingress
   for (index in 0..3):
     if traced
-    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~payload: #true, ~terminal: #true) |> egress[index]
+    | network.egress[index] |> trace_event("branch" ++ to_string(index), ~payload: #true) |> egress[index]
     | network.egress[index] |> egress[index]
   broadcast_valid <== network.broadcast_valid
   broadcast_ready <== network.broadcast_ready

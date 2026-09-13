@@ -44,7 +44,7 @@ Here, `C #3` inherits `A #7` through the queue; the later grant to B produces
 `B #2 -> C #4` on the same cycle. The two possible static parents do not become
 two actual parents of every C occurrence. Only annotations emit nodes: the queue
 and arbiter carry lineage without creating synthetic events. Unsupported flow
-semantics are rejected rather than guessed. Ordinary, uninstrumented elaboration
+semantics are rejected in strict mode or reported as gaps in partial mode, never guessed. Ordinary, uninstrumented elaboration
 is unchanged; tracing builds a separate design.
 
 ## Annotate events
@@ -58,7 +58,7 @@ import:
 source
   |> trace_event("accepted", ~root: #true)
   |> pipe(2)
-  |> trace_event("issued", ~terminal: #true)
+  |> trace_event("issued")
   |> sink
 ```
 
@@ -83,11 +83,11 @@ remain enabled; qualification is not a generic trace-sampling mechanism.
 
 `~root: #true` explicitly starts new lineage, including at an opaque component
 output. It cuts off earlier ancestry without certifying the component or
-relaxing clock/reset checks. The default is false: ordinary checkpoints still
-reject opaque or uncertified ancestry. The manifest records `sites[].root`.
-`~terminal: #true` preserves transparent wiring and records terminal metadata;
-static inference does not prune downstream paths, but dynamic instrumentation
-rejects dependencies on terminal ancestors.
+relaxing clock/reset checks. The default is false: ordinary checkpoints reject
+opaque ancestry in strict mode or report it in partial mode. Uncertified
+structural relationships remain errors. The manifest records `sites[].root`.
+Every checkpoint can supply its occurrence identity to downstream checkpoints.
+Leaves follow from the discovered graph; they need no special annotation.
 
 ### Stall observations
 
@@ -142,7 +142,7 @@ def observed = source |> trace_event("fetch", ~root: #true, ~fields: payload):
 ```
 
 The `~fields` binder is last in the argument list. Names are unique ASCII
-identifiers; `cycle` and `sequence` are reserved. Values must be local scalar
+identifiers; `cycle`, `sequence`, and `ancestry_unknown` are reserved. Values must be local scalar
 hardware expressions. Nested selections, aliases, slices, and combinational
 expressions are allowed; select aggregate leaves or explicitly cast an aggregate
 to Bits for a packed capture. Missing members, duplicate names, foreign-module
@@ -190,7 +190,7 @@ For an intentional whole-payload dump, use `~payload: #true` to create a single
 `raw` capture; do not combine it with named fields. Low-level adapters can pass
 `~fields: [event_field("pc", pc), ...]` to `describe_interface_event`, whose
 `~payload: value` option is an explicit raw capture. The same low-level API
-accepts root and terminal metadata.
+accepts explicit root metadata.
 
 All captures sample with their occurrence's transfer or stall predicate. They are local
 observations, not extra values propagated along dependency edges. The manifest's
@@ -217,7 +217,7 @@ direct dependencies `A -> B` and `B -> C`, not `A -> C`. Inference is read-only.
 The structured result includes:
 
 - `EventSite`: occurrence ID, label, defining module, instance path, local site
-  ordinal, protocol, capture schema, root/terminal flags, and source location.
+  ordinal, protocol, capture schema, root flag, and source location.
 - `EventDependency`: parent/child IDs, intervening transforms, and
   `latency_cycles` (fixed nonnegative delay, or `false` for variable/unknown
   latency). `trace_stages` describes certified linear paths and is `false`
@@ -298,7 +298,7 @@ and their ancestors are specialized. Unchanged definitions remain shared within
 the derived design, not by object identity with the original. See
 [selective rebuilding](DEVELOPING.md#selective-hierarchy-rebuilding).
 
-`EventInstrumentationConfig(clock_port, reset_port)` selects top-level `Clock`
+`EventInstrumentationConfig(clock_port, reset_port, ~partial: #false)` selects top-level `Clock`
 and synchronous `Reset` inputs, defaulting to `"clock"` and `"reset"`. Clock/reset
 signals for event sites and observed trace controls must resolve to those inputs
 through direct wiring or casts. Untouched opaque subtrees may keep private domains.
@@ -313,11 +313,39 @@ fail rather than inventing lineage or silently wrapping identities.
 
 ## Deliberate limits
 
+### Partial tracing
+
+Pass `EventInstrumentationConfig(~partial: #true)` to `instrument_events` to
+observe a partially modeled design. Strict mode remains the API default;
+the SimpleSoC trace harness opts into partial mode. `infer_event_manifest`
+also accepts `~partial: #true`.
+
+Partial inference stops at missing, opaque, or unmodeled contracts but retains
+every annotated event and all certified nearest-parent dependencies. The
+manifest's optional `gaps` array identifies each affected site, boundary, and
+reason. It does not relabel gaps as intentional roots or detached traffic.
+Supported wholly unannotated input regions retain ordinary inferred-root behavior.
+
+The compiler carries an unknown-ancestry bit through modeled storage and
+selection. A join retains known parents even when another contributor is
+unknown. Affected occurrences carry `ancestry_unknown: true` in RHEG and Perfetto;
+known or explicitly detached selections do not. This describes immediate
+nearest-parent completeness, not transitive graph completeness: the next
+checkpoint supplies its own definite occurrence identity to downstream events.
+Linear stall observations share their transfer's carried status; unsupported
+nonlinear stall ancestry remains outside the offer-tracing contract.
+
+Partial mode does not relax malformed-contract, clock/reset, unsafe fanout,
+same-cycle-cycle, or unbounded-capacity checks. It does not
+disable runtime assertions for certified storage and selection.
+
+### Remaining restrictions
+
 - Only flat top-level flow endpoints are traceable, not nested interface members.
-- Unmodeled, disconnected, opaque, and route-only boundaries are rejected during
+- In strict mode, unmodeled, disconnected, opaque, and route-only boundaries are rejected during
   required traversal. An explicit root can start observation beyond a boundary;
   failure to infer ancestry never implicitly grants root intent.
-- If any selectable or joined input has annotated ancestry, all such inputs must
+- In strict mode, if any selectable or joined input has annotated ancestry, all such inputs must
   have it or explicitly detach it. Missing or unsupported branches still fail.
   Fully unannotated, otherwise supported ancestry establishes a root.
 - Multiple child sites require certified routing or replication at divergence.

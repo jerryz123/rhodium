@@ -1,0 +1,32 @@
+#lang rhombus
+// Checks partial manifests without weakening strict missing-contract or unsafe-fanout diagnostics.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../frontend/event-partial-fixture.rhdl" as fixture
+  "../frontend/event-feedback-fixture.rhdl" as feedback
+  "../frontend/event-graph-fixture.rhdl" as graph_fixture
+  "../frontend/event-instrument-fixture.rhdl" as instrument_fixture
+  "../frontend/event-join-fixture.rhdl" as join_fixture
+  "../../rhodium/event/main.rhm" open
+  "../../rhodium/backend/circt.rhm".emit_circt
+def logical = fixture.partial()
+def before = emit_circt(logical.design)
+def traced = instrument_events(logical, EventInstrumentationConfig(~partial: #true))
+def manifest = traced.manifest
+def chain = instrument_events(instrument_fixture.checkpoint_chain, EventInstrumentationConfig(~partial: #true)).manifest
+check:
+  instrument_events(logical) ~throws "opaque or disconnected"
+  emit_circt(logical.design) ~is before
+  manifest.sites.length() ~is 8
+  manifest.gaps.length() ~is 4
+  infer_event_manifest(logical, ~partial: #true).gaps.map(fun (gap): gap.site ++ ":" ++ gap.boundary).sort() ~is manifest.gaps.map(fun (gap): gap.site ++ ":" ++ gap.boundary).sort()
+  manifest.gaps.map(fun (gap): manifest.site(gap.site).label).sort() ~is ["isolated", "isolated.stall", "middle", "middle.stall"]
+  (for all (gap in manifest.gaps): gap.reason == "opaque-boundary") ~is #true
+  manifest.dependencies.map(fun (edge): manifest.site(edge.parent).label ++ ":" ++ manifest.site(edge.child).label).sort() ~is ["buddy:middle", "known:middle", "middle:after"]
+  event_manifest_to_json(manifest).contains("\"gaps\"") ~is #true
+  instrument_events(feedback.unsafe_feedback(), EventInstrumentationConfig(~partial: #true)) ~throws "uncertified fanout"
+  chain.dependencies.map(fun (edge): [chain.site(edge.parent).label, chain.site(edge.child).label, edge.latency_cycles]) ~is [["first", "second", 0], ["second", "third", 0]]
+  instrument_events(graph_fixture.opaque, EventInstrumentationConfig(~partial: #true)).manifest.dependencies.length() ~is 0
+  instrument_events(graph_fixture.opaque, EventInstrumentationConfig(~partial: #true)).manifest.gaps.find(fun (gap): gap.reason == "unmodeled-transform") != #false ~is #true
+  instrument_events(join_fixture.partial(), EventInstrumentationConfig(~partial: #true)).manifest.dependencies.length() ~is 1
+  instrument_events(graph_fixture.linear, EventInstrumentationConfig(~partial: #true)).manifest.gaps.length() ~is 0

@@ -69,7 +69,8 @@ fun same_dependency(left :: EventDependency,
   left.parent == right.parent && left.child == right.child && left.transform_path == right.transform_path && left.latency_cycles == right.latency_cycles
 
 fun infer_event_manifest(logical :: DesignElaboration,
-                         ~dynamic: dynamic :: Boolean = #false):
+                         ~dynamic: dynamic :: Boolean = #false,
+                         ~partial: partial :: Boolean = #false):
   def view = diagram(logical)
   def incoming = MutableMap{}
   def event_by_output = MutableMap{}
@@ -86,6 +87,18 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def explicit_children = MutableSet{}
   def mutable explicit_edges = []
   def mutable sites = []
+  def mutable gaps = []
+  def mutable current_site = ""
+
+  fun gap_reason(vertex :: String):
+    cond
+    | !partial: #false
+    | unsupported_by_output.has_key(vertex): "unmodeled-transform"
+    | incoming.get(vertex, []).length() == 0: (if vertex in roots | "unannotated-input" | "opaque-boundary")
+    | ~else: #false
+  fun record_gap(vertex :: String):
+    unless gaps.find(fun (gap): gap.site == current_site && gap.boundary == vertex)
+    | gaps := gaps ++ [EventTraceGap(current_site, vertex, gap_reason(vertex))]
 
   fun add_arc(source :: String,
               destination :: String,
@@ -172,7 +185,6 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  input_ports[0].protocol,
                                  if annotation.payload | annotation.payload.type.describe() | #false,
                                  if annotation.payload | annotation.payload.type.packed_width() | #false,
-                                 annotation.terminal,
                                  annotation.location.describe(),
                                  annotation.root,
                                  captures)
@@ -307,6 +319,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
     cond
     | event: [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
     | vertex in detached: []
+    | gap_reason(vertex):
+        record_gap(vertex)
+        []
     | ~else:
         def unsupported = unsupported_by_output.get(vertex, #false)
         when unsupported
@@ -349,6 +364,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
           | found.add(event.id)
             candidates := candidates ++ [EventCandidate(event, reverse_path.reverse(), #false, #false)]
       | vertex in detached: #void
+      | gap_reason(vertex): record_gap(vertex)
       | colors.get(vertex, 0) == 1: cyclic := #true
       | colors.has_key(vertex): #void
       | ~else:
@@ -366,6 +382,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
 
   def mutable dependencies = []
   for (site in sites):
+    current_site := site.id
     unless site.id in explicit_children
     | for (input in (if site.root | [] | site_inputs.get(site.id, []))):
         for (candidate in discover_nearest(input)):
@@ -393,6 +410,14 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def cached_plans = MutableMap{}
   def back_references = MutableMap{}
   def explicit_plans = MutableMap{}
+  // Preserve ordinary inferred roots when the complete supported region has
+  // no checkpoint parent. A top input is unknown only beside other ancestry.
+  def inferred_roots = MutableSet{}
+  for (site in sites):
+    def local_gaps = gaps.filter(~keep: fun (gap): gap.site == site.id)
+    when local_gaps.length() > 0 && !dependencies.find(fun (edge): edge.child == site.id) && (for all (gap in local_gaps): gap.reason == "unannotated-input")
+    | inferred_roots.add(site.id)
+  gaps := gaps.filter(~keep: fun (gap): !(gap.site in inferred_roots))
   for (edge in explicit_edges):
     explicit_plans[edge.child] := EventTracePipeline(EventTraceSource(edge.parent), [edge.stage])
   fun trace_plan(vertex :: String, visiting :: List.of(String) = []):
@@ -414,6 +439,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
             cond
             | event: EventTraceSource(event.id)
             | vertex in detached: EventTraceSource(#false, #true)
+            | gap_reason(vertex): EventTraceSource(#false, #false, vertex)
             | join: EventTraceJoin(join.map(fun (input): trace_plan(input, visiting ++ [vertex])))
             | broadcast:
                 EventTraceBroadcast(trace_plan(broadcast.input, visiting ++ [vertex]), broadcast.instance_path,
@@ -444,15 +470,15 @@ fun infer_event_manifest(logical :: DesignElaboration,
         | site.root: EventTraceSource(#false)
         | explicit_plans.has_key(site.id): explicit_plans[site.id]
         | ~else: trace_plan(site_inputs[site.id][0])
-      plans[site.id] := plan
       validate_event_trace_feedback(plan)
+      plans[site.id] := (if site.id in inferred_roots | EventTraceSource(#false) | plan)
   // Append observations after transfer sites, preserving existing site numbering.
   // They never enter event_by_output: a stall cannot cut or advance lineage.
   for (site in sites):
     when site.id in stalled_sites
     | def stall = EventSite(site.id ++ "/stall", site.label ++ ".stall", site.module_name,
                             site.instance_path, site.local_site, site.protocol, site.payload_type,
-                            site.payload_width, #true, site.source_location, site.root, site.fields,
+                            site.payload_width, site.source_location, site.root, site.fields,
                             "stall", site.id)
       sites := sites ++ [stall]
       // Only linear transfer contracts currently expose certified pending
@@ -461,5 +487,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
       for (edge in parents):
         dependencies := dependencies ++ [EventDependency(edge.parent, stall.id, edge.transform_path, #false, edge.trace_stages)]
       when dynamic
-      | plans[stall.id] := (if parents.length() > 0 | plans[site.id] | EventTraceSource(#false))
-  EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]))
+      | def nodes = event_trace_nodes(plans[site.id])
+        def unknown = partial && nodes.find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
+        def linear = for all (node in nodes): node is_a EventTraceSource || node is_a EventTracePipeline
+        plans[stall.id] := (if parents.length() > 0 || (unknown && linear) | plans[site.id] | (if unknown | EventTraceSource(#false, #false, site.id) | EventTraceSource(#false)))
+      gaps := gaps ++ gaps.filter(~keep: fun (gap): gap.site == site.id).map(fun (gap): EventTraceGap(stall.id, gap.boundary, gap.reason))
+  EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]), gaps)

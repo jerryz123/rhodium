@@ -1201,7 +1201,7 @@ control.attempt |> map_flow(attempt => make_request(attempt)) |> requests
 ```
 
 Event observations use `~fields: [event_field("pc", value), ...]` with unique
-ASCII names and local scalar values; `cycle` and `sequence` are reserved for
+ASCII names and local scalar values; `cycle`, `sequence`, and `ancestry_unknown` are reserved for
 built-in event arguments. `event_field` infers Bool/SInt/bitvector
 encoding and accepts `~format` overrides. Named fields and explicit raw
 `~payload` are mutually exclusive. See the owning

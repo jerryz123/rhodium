@@ -38,6 +38,10 @@ assert_query() {
   fi
 }
 assert_query "$stream_test_dir/build/qualified-labels.pftrace" "WITH expected(track,label) AS (VALUES('frontend.s0.request','request'),('backend.s0.request','request'),('plain','plain'),('trailing.','trailing.')) SELECT count(*)=4 AND count(DISTINCT s.track_id)=4 AND sum(s.name=e.label AND s.dur=10)=4 AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN expected e ON e.track=t.name"
+assert_query "$stream_test_dir/build/partial.pftrace" "SELECT count(*)=2 AND sum(COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown')='true',0))=1 AND (SELECT count(*) FROM flow)=1 AS ok FROM slice"
+assert_query "$stream_test_dir/build/partial.pftrace" "SELECT count(*)=1 AND min(json_extract(EXTRACT_ARG(source_arg_set_id,'description'),'$.ancestry_gaps[0].boundary'))='opaque.output' AS ok FROM track WHERE name='issued'"
+assert_query "$stream_test_dir/build/partial.pftrace" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
+assert_query "$stream_test_dir/build/partial-stalls.pftrace" "SELECT count(*)=2 AND sum(dur)=30 AND sum(COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown')='true',0))=1 AND sum(ts=10 AND dur=20)=1 AS ok FROM slice"
 assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=4 AND sum(dur)=50 AND sum(dur=20 AND name='stall')=1 AND sum(ts=10*CAST(EXTRACT_ARG(arg_set_id,'debug.cycle') AS INT))=4 AS ok FROM slice"
 assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=2 AND sum(a.name='accepted')=2 AND sum(b.name='stall')=1 AND sum(b.name='issued')=1 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
 assert_query "$stream_test_dir/build/stalls.pftrace" "SELECT count(*)=2 AND sum(json_extract(a.string_value,'$.kind')='transfer')=2 AND sum(json_extract(a.string_value,'$.observations[0].kind')='stall' AND json_extract(a.string_value,'$.observations[0].observation_of')='issued' AND json_extract(a.string_value,'$.observations[0].site')=2)=1 AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE a.key='description'"

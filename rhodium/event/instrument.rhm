@@ -17,7 +17,8 @@ export:
   instrument_events
 
 class EventInstrumentationConfig(clock_port :: String = "clock",
-                                 reset_port :: String = "reset")
+                                 reset_port :: String = "reset",
+                                 ~partial: partial :: Boolean = #false)
 class EventInstrumentedElaboration(original :: DesignElaboration,
                                    instrumented :: DesignElaboration,
                                    manifest :: EventManifest)
@@ -39,7 +40,7 @@ fun within(site :: EventSite, path :: List.of(String)):
 
 fun instrument_events(logical :: DesignElaboration,
                       config :: EventInstrumentationConfig = EventInstrumentationConfig()):
-  def manifest = infer_event_manifest(logical, ~dynamic: #true)
+  def manifest = infer_event_manifest(logical, ~dynamic: #true, ~partial: config.partial)
   unless manifest.sites.length() > 0 && manifest.sites.length() < 2 ** 32
   | error(~who: #'instrument_events, "instrumentation requires 1..2^32-1 event occurrences")
   def top_clock = logical.top.inputs.find(fun (port): port.name == config.clock_port)
@@ -50,7 +51,9 @@ fun instrument_events(logical :: DesignElaboration,
   for (site in manifest.sites, index in 0..manifest.sites.length()): site_ids[site.id] := index
   def parent_plans = MutableMap{}
   fun sources(plan :: EventTracePlan):
-    event_trace_nodes(plan).filter(~keep: fun (node): node is_a EventTraceSource && !node.detached).map(fun (node): node.site)
+    event_trace_nodes(plan).filter(~keep: fun (node): node is_a EventTraceSource && !node.detached && !node.unknown).map(fun (node): node.site)
+  fun incomplete(plan :: EventTracePlan):
+    event_trace_nodes(plan).find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
   fun plan_controls(plan :: EventTracePlan):
     def mutable found = []
     for (node in event_trace_nodes(plan)):
@@ -123,11 +126,7 @@ fun instrument_events(logical :: DesignElaboration,
         found
   for (site in manifest.sites):
     def edges = manifest.dependencies.filter(~keep: fun (edge): edge.child == site.id)
-    for (edge in edges):
-      def parent = manifest.site(edge.parent)
-      when parent.terminal
-      | error(~who: #'instrument_events, "terminal event has a downstream annotation: " ++ parent.id)
-    when edges.length() > 0
+    when edges.length() > 0 || incomplete(manifest.trace_plans[site.id])
     | def plan = manifest.trace_plans[site.id]
       when #false in sources(plan)
       | error(~who: #'instrument_events, "selection or join requires an annotated ancestor on every input path: " ++ site.id)
@@ -251,6 +250,7 @@ fun instrument_events(logical :: DesignElaboration,
   def word_dpi = builder.dpi_import("rheg_payload", ["site", "sequence", "index", "word"], [Bits(32), Bits(64), Bits(32), Bits(32)])
   def edge_dpi = builder.dpi_import("rheg_edge", ["child", "child_sequence", "parent", "parent_sequence"], [Bits(32), Bits(64), Bits(32), Bits(64)])
   def reset_dpi = builder.dpi_import("rheg_reset", ["active"], [Bits(1)])
+  def unknown_dpi = if manifest.gaps.length() > 0 | builder.dpi_import("rheg_unknown", ["site", "sequence"], [Bits(32), Bits(64)]) | #false
 
   fun subtree_sites(occurrence :: Occurrence):
     manifest.sites.filter(~keep: fun (site): within(site, occurrence.path))
@@ -393,10 +393,10 @@ fun instrument_events(logical :: DesignElaboration,
         // Transaction completeness is distinct from padded parent-slot validity.
         // Selection can choose differently sized lineages; joins require every
         // contributing input, but unused selection padding must emit no edge.
-        fun lineage(valid :: Value, parents :: NonemptyList.of(Value)):
+        fun lineage(valid :: Value, parents :: NonemptyList.of(Value), unknown :: Value = builder.constant(module_def, Bits(1), 0)):
           def vector = builder.vector_create(module_def, VectorType(parents.length(), reference_type), parents)
-          def type = RecordType([RecordField("valid", Bits(1)), RecordField("parents", vector.type)])
-          builder.record_create(module_def, type, [["valid", valid], ["parents", vector]])
+          def type = RecordType([RecordField("valid", Bits(1)), RecordField("parents", vector.type), RecordField("unknown", Bits(1))])
+          builder.record_create(module_def, type, [["valid", valid], ["parents", vector], ["unknown", unknown]])
         fun parent_slots(reference :: Value):
           def vector = builder.record_get(module_def, reference, "parents")
           for List (index in 0..vector.type.length): builder.vector_get(module_def, vector, index)
@@ -406,7 +406,7 @@ fun instrument_events(logical :: DesignElaboration,
           def parents = parent_slots(reference)
           if parents.length() == count
           | reference
-          | lineage(builder.record_get(module_def, reference, "valid"), parents ++ (for List (_ in parents.length()..count): empty_reference))
+          | lineage(builder.record_get(module_def, reference, "valid"), parents ++ (for List (_ in parents.length()..count): empty_reference), builder.record_get(module_def, reference, "unknown"))
         def mutable next_stage = 0
         fun stage_name():
           def name = ref_name("__event_parent_", site) ++ "_" ++ to_string(next_stage)
@@ -438,6 +438,7 @@ fun instrument_events(logical :: DesignElaboration,
                   builder.drive(slot.next, builder.mux_lookup(module_def, flush, next, [[1, empty]]))
                 def mutable complete = enabled
                 def mutable any_selected = builder.constant(module_def, Bits(1), 0)
+                def mutable unknown = builder.constant(module_def, Bits(1), 0)
                 def mutable parents = []
                 for (selection in stage.selected, index in 0..stage.selected.length()):
                   def selected = observe(selection)
@@ -446,14 +447,16 @@ fun instrument_events(logical :: DesignElaboration,
                   def valid = builder.bit_and(module_def, occupied, builder.record_get(module_def, resident, "valid"))
                   complete := builder.bit_and(module_def, complete, builder.bit_or(module_def, builder.bit_not(module_def, selected), valid))
                   any_selected := builder.bit_or(module_def, any_selected, selected)
+                  unknown := builder.bit_or(module_def, unknown, builder.bit_and(module_def, selected, builder.record_get(module_def, resident, "unknown")))
                   parents := parents ++ parent_slots(builder.mux_lookup(module_def, selected, empty, [[1, resident]]))
                 when stage.live
                 | def selected = observe(stage.live)
                   def valid = builder.record_get(module_def, reference, "valid")
                   complete := builder.bit_and(module_def, complete, builder.bit_or(module_def, builder.bit_not(module_def, selected), valid))
                   any_selected := builder.bit_or(module_def, any_selected, selected)
+                  unknown := builder.bit_or(module_def, unknown, builder.bit_and(module_def, selected, builder.record_get(module_def, reference, "unknown")))
                   parents := parents ++ parent_slots(builder.mux_lookup(module_def, selected, empty, [[1, reference]]))
-                lineage(builder.bit_and(module_def, complete, any_selected), parents)
+                lineage(builder.bit_and(module_def, complete, any_selected), parents, unknown)
             | stage is_a EventTraceRetained:
                 def key = [stage.instance_path, stage.capture.id, stage.release.id, stage.active.id]
                 def existing = retained_states.get(key, #false)
@@ -501,19 +504,21 @@ fun instrument_events(logical :: DesignElaboration,
               cond
               | plan is_a EventTraceLink: emit_plan(plan.target)
               | plan is_a EventTraceSource:
-                  if plan.detached
-                  | lineage(yes, [empty_reference])
+                  if plan.detached || plan.unknown
+                  | lineage(yes, [empty_reference], builder.constant(module_def, Bits(1), if plan.unknown | 1 | 0))
                   | block:
                       def reference = references[plan.site]
                       lineage(builder.record_get(module_def, reference, "valid"), [reference])
               | plan is_a EventTraceJoin:
                   def mutable valid = yes
+                  def mutable unknown = builder.constant(module_def, Bits(1), 0)
                   def mutable parents = []
                   for (input in plan.inputs):
                     def incoming = emit_plan(input)
                     valid := builder.bit_and(module_def, valid, builder.record_get(module_def, incoming, "valid"))
+                    unknown := builder.bit_or(module_def, unknown, builder.record_get(module_def, incoming, "unknown"))
                     parents := parents ++ parent_slots(incoming)
-                  lineage(valid, parents)
+                  lineage(valid, parents, unknown)
               | plan is_a EventTraceReplication: emit_plan(plan.input)
               | plan is_a EventTraceBroadcast:
                   fun observe(value :: Value): observed[control_ids[[plan.instance_path, value.id]]]
@@ -585,10 +590,14 @@ fun instrument_events(logical :: DesignElaboration,
               | ~else: #void
         // A companion shares its checkpoint's shadow state; it only observes
         // resident ancestry and cannot create a new carried transaction identity.
-        def reference = if site.kind == "stall" | incoming_references[site.observation_of] | emit_plan(parent_plans[site.id])
+        def shared_observation = site.kind == "stall" && parent_plans[site.id] === manifest.trace_plans[site.observation_of]
+        def reference = if shared_observation | incoming_references[site.observation_of] | emit_plan(parent_plans[site.id])
         for (input in pending_inputs): builder.drive(input[0], emit_plan(input[1]))
         incoming_references[site.id] := reference
         def parent_valid = builder.record_get(module_def, reference, "valid")
+        when unknown_dpi
+        | def unknown = builder.bit_and(module_def, parent_valid, builder.record_get(module_def, reference, "unknown"))
+          builder.dpi_call(module_def, unknown_dpi, [id, sequence], clock, builder.bit_and(module_def, fire, unknown))
         unless site.kind == "stall"
         | builder.assert(module_def, parent_valid, clock, reset, fire, ref_name("__event_parent_present_", site))
         for (parent in parent_slots(reference)):

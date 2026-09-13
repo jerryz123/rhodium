@@ -198,7 +198,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:event-window|language:event-feedback|language:event-branching|cores-execution:event-frontend|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
+    language:event-window|language:event-feedback|language:event-branching|language:event-partial|cores-execution:event-frontend|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
@@ -453,7 +453,7 @@ verify_fixture() {
   fi
   if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
-  elif [[ "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching ]]; then
+  elif [[ "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -680,6 +680,7 @@ direct_fixture_specs=(
   'event-home|event_home_tb'
   'event-subordinate|event_subordinate_tb'
   'event-fesvr|event_fesvr_tb'
+  'event-partial|event_partial_tb'
   'event-elastic|event_elastic_tb'
   'event-queue|event_queue_tb'
   'event-arbiter|event_arbiter_tb'

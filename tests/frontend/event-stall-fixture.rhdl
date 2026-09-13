@@ -18,7 +18,7 @@ sync_circuit EventStallLane(mode :: Nat, traced :: Boolean):
   | 1: accepted |> pipe(2)
   | ~else: accepted |> queue(3, ~flow: #true, ~pipe: #true)
   if traced
-  | def completed = held |> trace_event("completed", ~stalls: #true, ~terminal: #true, ~fields: value):
+  | def completed = held |> trace_event("completed", ~stalls: #true, ~fields: value):
       value: value
     completed |> egress
   | held |> egress

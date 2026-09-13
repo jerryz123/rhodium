@@ -37,6 +37,21 @@ Graph populated() {
 }
 }
 int main() {
+  for (bool before : {false, true}) {
+    Graph partial; partial.bind_manifest(descriptor()); partial.bind_timing({100000000});
+    partial.begin_stream();
+    if (before) partial.record_unknown({0,0});
+    partial.record_node({0,0},0,0);
+    if (!before) partial.record_unknown({0,0});
+    rejects([&] { partial.record_unknown({0,0}); }, "duplicate unknown");
+    auto settled = partial.finish_cycle(0);
+    require(settled.nodes.at({0,0}).ancestry_unknown);
+    require(partial.snapshot().json().find("\"ancestry_unknown\":true") != std::string::npos);
+    rejects([&] { partial.record_unknown({0,0}); }, "already streamed");
+    partial.end_stream(); partial.reset(true);
+    require(partial.nodes.empty());
+  }
+  { Graph missing; missing.record_unknown({0,0}); rejects([&] { missing.validate(); }, "incomplete event node"); }
   auto schema = descriptor();
   schema.fields = {{}, {{"small", 3, 5, "unsigned"}, {"signed", 5, 0, "signed"}}};
   Graph named; named.bind_manifest(schema);
@@ -45,7 +60,7 @@ int main() {
   require(named.field({1, 0}, "signed").signed_value() == -7);
   require(named.snapshot().field({1, 0}, "signed").decimal() == "-7");
   rejects([&] { named.field({1, 0}, "absent"); }, "unknown capture field");
-  for (const auto& reserved : {"cycle", "sequence"}) {
+  for (const auto& reserved : {"cycle", "sequence", "ancestry_unknown"}) {
     auto bad = schema; bad.fields[1][1].name = reserved;
     rejects([&] { Graph rejected; rejected.bind_manifest(bad); },
             std::string("reserved capture field name: ") + reserved);

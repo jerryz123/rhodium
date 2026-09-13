@@ -403,7 +403,41 @@ void stall_runs(const std::string& path) {
 }
 int main(int argc, char** argv) {
   check(argc == 2);
+  {
+    auto descriptor = manifest();
+    const auto ending = descriptor.json.rfind('}');
+    descriptor.json.insert(ending, ",\"gaps\":[{\"site\":\"root/issued\",\"boundary\":\"opaque.output\",\"reason\":\"opaque-boundary\"}]");
+    Graph partial; partial.bind_manifest(descriptor); partial.bind_timing({100000000}); partial.begin_stream();
+    std::ostringstream live; PerfettoWriter writer(live, descriptor, {100000000});
+    partial.record_node({0,0},0,8); partial.record_payload({0,0},0,42); writer.write(partial.finish_cycle(0));
+    partial.record_unknown({1,0}); partial.record_edge({0,0},{1,0}); partial.record_node({1,0},1,0);
+    writer.write(partial.finish_cycle(1)); writer.finish();
+    std::istringstream input(partial.snapshot().json());
+    auto replayed = read_event_trace(input);
+    check(replayed.nodes().at({1,0}).ancestry_unknown);
+    std::ostringstream replay; write_perfetto(replay,replayed);
+    check(live.str()==replay.str(), "partial live/replay differs");
+    std::ofstream file(std::string(argv[1])+"/partial.pftrace",std::ios::binary); file << live.str(); file.close(); check(bool(file));
+    auto malformed = partial.snapshot().json();
+    malformed.replace(malformed.find("\"ancestry_unknown\":true"), 23, "\"ancestry_unknown\":1");
+    rejects([&] { std::istringstream bad(malformed); read_event_trace(bad); }, "ancestry_unknown must be boolean");
+  }
   qualified_labels(std::string(argv[1]) + "/qualified-labels.pftrace");
+  {
+    Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"PartialStalls","sites":[{"id":"transfer","label":"issue","payload_width":false},{"id":"stall","label":"issue.stall","payload_width":false,"kind":"stall","observation_of":"transfer"}],"dependencies":[]})", {0,0}, {}};
+    Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
+    std::ostringstream live; PerfettoWriter writer(live,descriptor,{100000000});
+    for (unsigned cycle=0; cycle<3; ++cycle) {
+      graph.record_node({1,cycle},cycle,0);
+      if (cycle) graph.record_unknown({1,cycle});
+      writer.write(graph.finish_cycle(cycle));
+    }
+    writer.finish();
+    std::istringstream input(graph.snapshot().json()); std::ostringstream replay;
+    write_perfetto(replay,read_event_trace(input));
+    check(live.str()==replay.str(),"unknown stall boundary differs in replay");
+    std::ofstream file(std::string(argv[1])+"/partial-stalls.pftrace",std::ios::binary); file << live.str(); file.close(); check(bool(file));
+  }
   stall_trace(std::string(argv[1]) + "/stalls.pftrace");
   named_stall_trace(std::string(argv[1]) + "/named-stalls.pftrace");
   stall_runs(std::string(argv[1]) + "/stall-runs.pftrace");

@@ -13,7 +13,6 @@ fun trace_event_config(label :: String,
                        ~when: qualification :: Bool = Bool(#true),
                        ~stalls: stalls :: Boolean = #false,
                        ~root: root :: Boolean = #false,
-                       ~terminal: terminal :: Boolean = #false,
                        ~payload: raw :: Boolean = #false,
                        ~capture: capture :: False || Function = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
@@ -36,8 +35,7 @@ fun trace_event_config(label :: String,
         ~valid: input_endpoint.field("valid") & qualification,
         ~ready: output_endpoint.field("ready"),
         ~stalls,
-        ~root,
-        ~terminal
+        ~root
       )
     )
 
@@ -45,7 +43,6 @@ fun trace_event_config(label :: String,
 // forwards only the offer and payload.
 fun trace_valid_event_config(label :: String,
                              ~root: root :: Boolean = #false,
-                             ~terminal: terminal :: Boolean = #false,
                              ~payload: raw :: Boolean = #false,
                              ~capture: capture :: False || Function = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
@@ -65,8 +62,7 @@ fun trace_valid_event_config(label :: String,
         ~payload: if raw | input_endpoint.field("bits") | #false,
         ~fields: if capture | capture(valid_flow_payload_type(source), input_endpoint.field("bits")) | [],
         ~valid: input_endpoint.field("valid"),
-        ~root,
-        ~terminal
+        ~root
       )
     )
 

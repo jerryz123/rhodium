@@ -50,14 +50,14 @@ sync_circuit EventRuntime():
   inst left(EventRuntimeWrapper())
   inst right(EventRuntimeWrapper())
   sources[0] |> trace_event("left-input", ~payload: #true) |> gate_flow(enabled) |> left.ingress
-  left.egress |> trace_event("left-output", ~payload: #true, ~terminal: #true) |> sinks[0]
+  left.egress |> trace_event("left-output", ~payload: #true) |> sinks[0]
   sources[1] |> trace_event("right-input", ~payload: #true) |> right.ingress
-  right.egress |> trace_event("right-output", ~payload: #true, ~terminal: #true) |> sinks[1]
+  right.egress |> trace_event("right-output", ~payload: #true) |> sinks[1]
   def observed_wide = wide_source
     |> trace_valid_event("wide-input", ~payload: #true)
     |> map_valid(payload => payload)
     |> filter_valid(payload => !(payload === bits(0, 65)))
-    |> trace_valid_event("wide-output", ~terminal: #true, ~fields: payload):
+    |> trace_valid_event("wide-output", ~fields: payload):
          low: payload[0..37]
          high: payload[64]
   observed_wide |> wide_sink
@@ -75,15 +75,15 @@ circuit EventWrongDomain():
 def runtime = elaborate_with_top(EventRuntime())
 fun wrong_domain(): elaborate_with_top(EventWrongDomain())
 
-sync_circuit EventTerminalChain():
+sync_circuit EventCheckpointChain():
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  source |> trace_event("stop", ~payload: #true, ~terminal: #true) |> trace_event("after-stop", ~payload: #true) |> sink
+  source |> trace_event("first", ~payload: #true) |> trace_event("second", ~payload: #true) |> trace_event("third", ~payload: #true) |> sink
 
 circuit EventBadGuard():
   def invalid = interface_trace_combinational(~guard: bits(0, 2))
 
-def terminal_chain = elaborate_with_top(EventTerminalChain())
+def checkpoint_chain = elaborate_with_top(EventCheckpointChain())
 fun bad_guard(): elaborate_with_top(EventBadGuard())
 
 sync_circuit EventUntouchedCounter():
@@ -120,7 +120,7 @@ def root_cut = elaborate_with_top(EventRootCut())
 export:
   runtime
   wrong_domain
-  terminal_chain
+  checkpoint_chain
   bad_guard
   root_boundary
   root_cut

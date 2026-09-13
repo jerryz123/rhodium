@@ -19,7 +19,7 @@ void validate_capture_schema(const Manifest& manifest) {
     for (const auto& field : manifest.fields[site]) {
       if (field.name.empty() || !names.insert(field.name).second)
         throw std::runtime_error("duplicate or empty capture field name");
-      if (field.name == "cycle" || field.name == "sequence")
+      if (field.name == "cycle" || field.name == "sequence" || field.name == "ancestry_unknown")
         throw std::runtime_error("reserved capture field name: " + field.name);
       auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
       if (!letter(field.name.front()) || !std::all_of(field.name.begin(), field.name.end(), [&](char c) {
@@ -263,7 +263,9 @@ static std::string occurrences_json(const std::map<Ref, Node>& nodes,
       word_comma = true;
       out << word.second;
     }
-    out << "]}";
+    out << "]";
+    if (entry.second.ancestry_unknown) out << ",\"ancestry_unknown\":true";
+    out << "}";
   }
   out << "],\"edges\":[";
   comma = false;
@@ -315,6 +317,16 @@ void Graph::record_edge(Ref parent, Ref child) {
   edges.insert({parent, child});
   if (streaming_) pending_edges_.insert({parent, child});
 }
+void Graph::record_unknown(Ref ref) {
+  if (streaming_ && nodes.count(ref) && nodes.at(ref).present && !pending_nodes_.count(ref))
+    throw std::runtime_error("event ancestry node already streamed");
+  started_ = true;
+  epoch_active_ = true;
+  auto& node = nodes[ref];
+  if (node.ancestry_unknown) throw std::runtime_error("duplicate unknown ancestry marker");
+  node.ancestry_unknown = true;
+  if (streaming_) pending_nodes_.insert(ref);
+}
 void Graph::reset(bool active) {
   if (active && streaming_ && (epoch_active_ || finished_cycle_ || !pending_nodes_.empty() || !pending_edges_.empty()))
     throw std::runtime_error("end event stream before reset");
@@ -339,6 +351,9 @@ extern "C" void rheg_reset(std::uint8_t active) {
 extern "C" void rheg_node(std::uint32_t site, std::uint64_t sequence,
                                     std::uint64_t cycle, std::uint32_t width) {
   rheg::graph().record_node({site, sequence}, cycle, width);
+}
+extern "C" void rheg_unknown(std::uint32_t site, std::uint64_t sequence) {
+  rheg::graph().record_unknown({site, sequence});
 }
 extern "C" void rheg_payload(std::uint32_t site, std::uint64_t sequence,
                                        std::uint32_t index, std::uint32_t word) {

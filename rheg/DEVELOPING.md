@@ -51,6 +51,13 @@ entries only after constructing and validating the batch. Reject callbacks that
 could mutate an emitted child. Full-epoch retention and snapshot copying remain
 intentional; bounded-memory collection is separate work.
 
+`record_unknown`/`rheg_unknown` may arrive before or after the node callback,
+but never after that occurrence has streamed. Preserve the optional marker in
+snapshots and batches, reject duplicates and orphan markers, and omit it from
+JSON when false for legacy compatibility. The exporter validates its boolean
+JSON type, displays it only when true, and treats changes as stall-run boundaries.
+Missing-contract details are static track context, not duplicated per occurrence.
+
 ## Perfetto encoding
 
 `PerfettoWriter` accepts typed settled batches. `read_event_trace` parses saved

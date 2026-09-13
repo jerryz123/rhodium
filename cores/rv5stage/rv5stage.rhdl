@@ -42,7 +42,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     def remote = if snoopable | outer.field(channel) | outer.field("rsp").field(if outgoing | "requester" | "response")
     def source = if outgoing | local | remote
     def sink = if outgoing | remote | local
-    def responses = source |> trace_event(label ++ "." ++ suffix, ~stalls: #true, ~root: outgoing || request_root, ~terminal: #true, ~fields: flit):
+    def responses = source |> trace_event(label ++ "." ++ suffix, ~stalls: #true, ~root: outgoing || request_root, ~fields: flit):
       opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
       src_id(~format: "unsigned"): flit.src_id
@@ -58,7 +58,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
     def remote = if snoopable | outer.field(channel) | outer.field("dat").field(if outgoing | "request" | "response")
     def source = if outgoing | local | remote
     def sink = if outgoing | remote | local
-    def data = source |> trace_event(label ++ "." ++ suffix, ~stalls: #true, ~root: outgoing || request_root, ~terminal: #true, ~fields: flit):
+    def data = source |> trace_event(label ++ "." ++ suffix, ~stalls: #true, ~root: outgoing || request_root, ~fields: flit):
       opcode(~format: "enum", ~label: #true): flit.opcode
       txn_id(~format: "unsigned"): flit.txn_id
       src_id(~format: "unsigned"): flit.src_id
@@ -72,7 +72,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
 
   if snoopable
   | block:
-      def snoops = outer.field("snoops") |> trace_event(label ++ ".rxsnp", ~stalls: #true, ~root: #true, ~terminal: #true, ~fields: flit):
+      def snoops = outer.field("snoops") |> trace_event(label ++ ".rxsnp", ~stalls: #true, ~root: #true, ~fields: flit):
         address: flit.address ++ bits(0, 3)
         opcode(~format: "enum", ~label: #true): flit.opcode
         txn_id(~format: "unsigned"): flit.txn_id

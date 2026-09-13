@@ -25,6 +25,5 @@ for (site in stalls):
   check:
     site.label ~is (transfer.label ++ ".stall")
     site.fields ~is transfer.fields
-    site.terminal ~is #true
     site.local_site ~is transfer.local_site
     manifest.dependencies.find(fun (edge): edge.parent == site.id) ~is #false

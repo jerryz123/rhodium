@@ -115,10 +115,10 @@ diagram-test: check-boundaries
 	tools/run-racket-tests.sh tests/frontend/diagram-test.rhm
 
 event-test: check-boundaries
-	tools/run-racket-tests.sh tests/frontend/event-graph-test.rhm tests/frontend/event-stall-test.rhm tests/backend/event-instrument-test.rhm tests/backend/event-window-test.rhm tests/backend/event-feedback-test.rhm
+	tools/run-racket-tests.sh tests/frontend/event-graph-test.rhm tests/frontend/event-stall-test.rhm tests/backend/event-instrument-test.rhm tests/backend/event-window-test.rhm tests/backend/event-feedback-test.rhm tests/backend/event-partial-test.rhm
 
 event-runtime-test: check-boundaries
-	FIXTURES="event-runtime event-pipeline event-window event-frontend event-home event-subordinate event-fesvr event-feedback event-branching event-elastic event-queue event-arbiter event-crossbar event-demux event-atomic-fork event-broadcast event-join event-stall event-offer event-retained" bash tests/backend/run-circt.sh
+	FIXTURES="event-runtime event-pipeline event-window event-frontend event-home event-subordinate event-fesvr event-feedback event-branching event-partial event-elastic event-queue event-arbiter event-crossbar event-demux event-atomic-fork event-broadcast event-join event-stall event-offer event-retained" bash tests/backend/run-circt.sh
 
 backend-test: check-boundaries
 	tools/run-racket-tests.sh $(BACKEND_TESTS)
