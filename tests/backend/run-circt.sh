@@ -212,7 +212,7 @@ fixture_in_group() {
     cores-components:simd-alu|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:iterative-divider|cores-components:riscv-counters-*|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
       return 0
       ;;
-    cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-atomic|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
+    cores-execution:rv5stage-vector|cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-atomic|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
       return 0
       ;;
     cores-memory:rv5stage-chi-*|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
@@ -743,6 +743,7 @@ direct_fixture_specs=(
   'rv5stage-copyback|rv5stage_copyback_tb'
   'load-store|load_store_tb'
   'simd-alu|simd_alu_tb'
+  'rv5stage-vector|rv5stage_vector_tb'
   'riscv-cmo|riscv_cmo_tb'
   'riscv-pointer-masking|riscv_pointer_masking_tb'
   'load-store-rv32-word|load_store_rv32_word_tb'

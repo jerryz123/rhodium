@@ -1,0 +1,39 @@
+#lang rhodium
+// Implements a flat 64-bit vector bank with three synchronous reads and one bit-masked write.
+
+import:
+  "../../../riscv/isa/vector.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+bundle VectorRegisterWrite(vlen :: VectorLength):
+  address: Bits(index_width(vector_depth(vlen)))
+  data: Bits(64)
+  mask: Bits(64)
+
+sync_circuit RV5StageVectorRegisterFile(vlen :: VectorLength):
+  def Address = Bits(index_width(vector_depth(vlen)))
+  interface reads[3](Valid(Address), ~role: consumer)
+  interface results[3](Valid(Bits(64)), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
+
+  // No architectural reset value, and v0 is ordinary writable storage. The
+  // physical index is register * (VLEN/64) + chunk, never a VLEN-wide row.
+  reg storage(Vec(vector_depth(vlen), Bits(64)))
+  def writing = write.valid & !reset_active().into(Bool)
+  // Row-local hold feedback implements masked writes without a fourth indexed
+  // read mux for read-modify-write on the write port.
+  for (row in 0..vector_depth(vlen)):
+    when (writing & (write.bits.address === bits(row, index_width(vector_depth(vlen))))):
+      storage[row] <== masked_merge(storage[row], write.bits.data, write.bits.mask)
+
+  fun read_word(address :: Bits(index_width(vector_depth(vlen)))) :~ Bits(64):
+    def retained = storage[address]
+    mux(writing & (write.bits.address === address), masked_merge(retained, write.bits.data, write.bits.mask), retained)
+
+  for (port in 0..3):
+    reads[port] |> map_valid(address => read_word(address)) |> valid_pipe(1) |> results[port]
+
+export:
+  VectorRegisterWrite
+  RV5StageVectorRegisterFile

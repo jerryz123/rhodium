@@ -1,0 +1,107 @@
+#lang rhodium
+// Adapts aligned vector chunks, scalar/immediate operands, and mask results to the shared SIMD datapath.
+
+import:
+  "../../../riscv/isa/vector.rhm" open
+  "../../simd-alu.rhdl" open
+  "register-file.rhdl" open
+  lib("rhodium/std/bits.rhdl") open
+
+hardware_enum VectorOperandSelect:
+  Vector
+  Scalar
+  Immediate
+
+bundle VectorPackingControl(vlen :: VectorLength):
+  element_width: SimdElementWidth
+  first_element: Bits(index_width(vlen + 1))
+  vl: Bits(index_width(vlen + 1))
+  vstart: Bits(index_width(vlen + 1))
+  vlmax: Bits(index_width(vlen + 1))
+  masked: Bool
+  operand_select: VectorOperandSelect
+  immediate_unsigned: Bool
+  widening: Bool
+  upper_half: Bool
+
+bundle VectorPackedOperands(vlen :: VectorLength):
+  left: Bits(64)
+  right: Bits(64)
+  element_width: SimdElementWidth
+  enabled: Mask(8)
+  first_element: Bits(index_width(vlen + 1))
+
+circuit RV5StageVectorOperands(vlen :: VectorLength):
+  input control: VectorPackingControl(vlen)
+  input(left, right, mask_word, scalar): Bits(64)
+  input immediate: Bits(5)
+  output operands: VectorPackedOperands(vlen)
+  output legal: Bool
+
+  def count_width = index_width(vlen + 1)
+  def widths = [SimdElementWidth.E8, SimdElementWidth.E16, SimdElementWidth.E32, SimdElementWidth.E64]
+  def immediate_value = mux(control.immediate_unsigned, immediate.zext(64), immediate.into(SInt(5)).sext(64).into(Bits(64)))
+  def broadcast_source = mux(control.operand_select === VectorOperandSelect.Immediate, immediate_value, scalar)
+  def source_mask = (mask_word >> control.first_element[0..6])[0..8]
+  def alternatives:
+    for List (format in 0..4):
+      def width = 8 << format
+      def lanes = 64 / width
+      def enabled = vec(for List (lane in 0..8):
+                          def element = control.first_element.zext(count_width + 1) + bits(lane, count_width + 1)
+                          Bool(lane < lanes) & (element >= control.vstart.zext(count_width + 1)) & (element < control.vl.zext(count_width + 1)) & (element < control.vlmax.zext(count_width + 1)) & (!control.masked ||| source_mask[lane].into(Bool)))
+      VectorPackedOperands(vlen):
+        left: left
+        right: mux(control.operand_select === VectorOperandSelect.Vector, right, vec(for List (_ in 0..lanes): broadcast_source[0..width]).as_bits())
+        element_width: widths[format]
+        enabled: enabled.as_bits().into(Mask(8))
+        first_element: control.first_element
+  def packed :: VectorPackedOperands(vlen) = mux_lookup(control.element_width, ~default: alternatives[0], for List (format in 1..4): [widths[format], alternatives[format]])
+  inst widen(SimdWidenOperands())
+  widen.left <== packed.left
+  widen.right <== packed.right
+  widen.enabled <== packed.enabled
+  widen.upper_half <== control.upper_half
+  widen.element_width <== control.element_width.as_bits().into(SimdWidenElementWidth)
+  def half_elements = mux_lookup(control.element_width, ~default: bits(4, count_width), [[SimdElementWidth.E16, bits(2, count_width)], [SimdElementWidth.E32, bits(1, count_width)]])
+  def widened = VectorPackedOperands(vlen):
+    left: widen.operands.left
+    right: widen.operands.right
+    element_width: widen.operands.element_width
+    enabled: widen.operands.enabled
+    first_element: control.first_element + mux(control.upper_half, half_elements, bits(0, count_width))
+  operands <== mux(control.widening, widened, packed)
+  def aligned = mux_lookup(control.element_width, ~default: control.first_element.is_aligned(8), [[SimdElementWidth.E16, control.first_element.is_aligned(4)], [SimdElementWidth.E32, control.first_element.is_aligned(2)], [SimdElementWidth.E64, Bool(#true)]])
+  legal <== aligned & (control.vl <= control.vlmax) & (control.vlmax <= bits(vlen, count_width)) & control.vlmax.or_reduce() & (control.first_element < control.vlmax) & !(control.widening & (control.element_width === SimdElementWidth.E64))
+
+circuit RV5StageVectorResult(vlen :: VectorLength):
+  input destination: Bits(5)
+  input first_element: Bits(index_width(vlen + 1))
+  input element_width: SimdElementWidth
+  input mask_destination: Bool
+  input enabled: Mask(8)
+  input result: SimdAluResult()
+  output write: VectorRegisterWrite(vlen)
+  output legal: Bool
+
+  // Keep the carry above the physical address until checking the bank bound.
+  def address_width = index_width(vector_depth(vlen))
+  def calculation_width = index_width(vlen + 1) + 1
+  def base = destination.zext(calculation_width) << index_width(vector_chunks(vlen))
+  def element = first_element.zext(calculation_width)
+  def data_chunk = mux_lookup(element_width, ~default: element >> 3, [[SimdElementWidth.E16, element >> 2], [SimdElementWidth.E32, element >> 1], [SimdElementWidth.E64, element]])
+  def address = base + mux(mask_destination, element >> 6, data_chunk)
+  def comparison_mask = enabled.as_bits().zext(64) << first_element[0..6]
+  write <== VectorRegisterWrite(vlen):
+    address: address[0..address_width]
+    data: mux(mask_destination, result.comparison.as_bits().zext(64) << first_element[0..6], result.data)
+    mask: mux(mask_destination, comparison_mask, expand_mask(result.write_mask.as_bits(), 8))
+  def aligned = mux_lookup(element_width, ~default: first_element.is_aligned(8), [[SimdElementWidth.E16, first_element.is_aligned(4)], [SimdElementWidth.E32, first_element.is_aligned(2)], [SimdElementWidth.E64, Bool(#true)]])
+  legal <== aligned & (address < bits(vector_depth(vlen), calculation_width)) & (!mask_destination ||| (first_element < bits(vlen, index_width(vlen + 1))))
+
+export:
+  VectorOperandSelect
+  VectorPackingControl
+  VectorPackedOperands
+  RV5StageVectorOperands
+  RV5StageVectorResult

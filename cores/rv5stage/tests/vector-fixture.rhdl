@@ -1,0 +1,197 @@
+#lang rhodium
+// Composes configurable vector banks, operand capture, packing, SIMD execution, and authorized writes for simulation.
+
+import:
+  "../vector/register-file.rhdl" open
+  "../vector/packing.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../simd-alu.rhdl" open
+  lib("flow/main.rhdl") open
+
+bundle VectorFixtureContext(vlen :: VectorLength):
+  control: VectorPackingControl(vlen)
+  scalar: Bits(64)
+  immediate: Bits(5)
+  operation: Bits(3)
+  destination: Bits(5)
+  mask_destination: Bool
+
+sync_circuit VectorBankFixture(vlen :: VectorLength):
+  input read_valid: Bool
+  input read_a: Bits(16)
+  input read_b: Bits(16)
+  input read_c: Bits(16)
+  input write_valid: Bool
+  input write_address: Bits(16)
+  input write_data: Bits(64)
+  input write_mask: Bits(64)
+  input commit: Bool
+  input destination: Bits(5)
+  input mask_destination: Bool
+  input element_width: SimdElementWidth
+  input first_element: Bits(17)
+  input vl: Bits(17)
+  input vstart: Bits(17)
+  input vlmax: Bits(17)
+  input masked: Bool
+  input operand_select: VectorOperandSelect
+  input immediate_unsigned: Bool
+  input widening: Bool
+  input upper_half: Bool
+  input scalar: Bits(64)
+  input immediate: Bits(5)
+  input operation: Bits(3)
+  output read_a_result: Bits(64)
+  output read_b_result: Bits(64)
+  output read_c_result: Bits(64)
+  output result_valid: Bool
+  output result_legal: Bool
+  output result_address: Bits(16)
+  output result_data: Bits(64)
+  output result_mask: Bits(64)
+  def address_width = index_width(vector_depth(vlen))
+  def count_width = index_width(vlen + 1)
+  inst bank(RV5StageVectorRegisterFile(vlen))
+  inst context(ValidPipe(VectorFixtureContext(vlen), 1))
+  context.ingress.valid <== read_valid
+  def packing_control = VectorPackingControl(vlen):
+    element_width: element_width
+    first_element: first_element[0..count_width]
+    vl: vl[0..count_width]
+    vstart: vstart[0..count_width]
+    vlmax: vlmax[0..count_width]
+    masked: masked
+    operand_select: operand_select
+    immediate_unsigned: immediate_unsigned
+    widening: widening
+    upper_half: upper_half
+  context.ingress.bits <== VectorFixtureContext(vlen):
+    control: packing_control
+    scalar: scalar
+    immediate: immediate
+    operation: operation
+    destination: destination
+    mask_destination: mask_destination
+  for (port in 0..3):
+    bank.reads[port].valid <== read_valid
+    bank.reads[port].bits <== [read_a, read_b, read_c][port][0..address_width]
+  read_a_result <== bank.results[0].bits
+  read_b_result <== bank.results[1].bits
+  read_c_result <== bank.results[2].bits
+  def c :: VectorFixtureContext(vlen) = context.egress.bits
+  inst prepare(RV5StageVectorOperands(vlen))
+  prepare.control <== c.control
+  prepare.left <== bank.results[0].bits
+  prepare.right <== bank.results[1].bits
+  prepare.mask_word <== bank.results[2].bits
+  prepare.scalar <== c.scalar
+  prepare.immediate <== c.immediate
+  inst alu(SimdALU())
+  alu.left <== prepare.operands.left
+  alu.right <== prepare.operands.right
+  alu.element_width <== prepare.operands.element_width
+  alu.enabled <== prepare.operands.enabled
+  alu.select_right <== bits(0, 8).into(Mask(8))
+  alu.control <== SimdAluControl():
+    result_select: mux_lookup(c.operation, ~default: SimdResultSelect.Adder, [[2, SimdResultSelect.Logic], [3, SimdResultSelect.Compare], [4, SimdResultSelect.Shift]])
+    logic_select: SimdLogicSelect.Xor
+    comparison_select: SimdComparisonSelect.Less
+    permutation_select: SimdPermutationSelect.ReverseBits
+    count_select: SimdCountSelect.Population
+    subtract: c.operation === bits(1, 3)
+    signed_compare: Bool(#false)
+    maximum: Bool(#false)
+    shift_right: Bool(#false)
+    arithmetic_shift: Bool(#false)
+    rotate: Bool(#false)
+    invert_right: Bool(#false)
+  inst assemble(RV5StageVectorResult(vlen))
+  assemble.destination <== c.destination
+  assemble.first_element <== prepare.operands.first_element
+  assemble.element_width <== prepare.operands.element_width
+  assemble.mask_destination <== c.mask_destination
+  assemble.enabled <== prepare.operands.enabled
+  assemble.result <== alu.result
+  result_valid <== context.egress.valid
+  result_legal <== prepare.legal & assemble.legal
+  result_address <== assemble.write.address.zext(16)
+  result_data <== assemble.write.data
+  result_mask <== assemble.write.mask
+  def committing = commit & context.egress.valid & prepare.legal & assemble.legal
+  bank.write.valid <== write_valid ||| committing
+  def initialization = VectorRegisterWrite(vlen):
+    address: write_address[0..address_width]
+    data: write_data
+    mask: write_mask
+  bank.write.bits <== mux(committing, assemble.write, initialization)
+
+sync_circuit RV5StageVectorFixture():
+  input read_valid: Bool
+  input read_a: Bits(16)
+  input read_b: Bits(16)
+  input read_c: Bits(16)
+  input write_valid: Bool
+  input write_address: Bits(16)
+  input write_data: Bits(64)
+  input write_mask: Bits(64)
+  input commit: Bool
+  input destination: Bits(5)
+  input mask_destination: Bool
+  input element_width: SimdElementWidth
+  input first_element: Bits(17)
+  input vl: Bits(17)
+  input vstart: Bits(17)
+  input vlmax: Bits(17)
+  input masked: Bool
+  input operand_select: VectorOperandSelect
+  input immediate_unsigned: Bool
+  input widening: Bool
+  input upper_half: Bool
+  input scalar: Bits(64)
+  input immediate: Bits(5)
+  input operation: Bits(3)
+  output read_a_result: Vec(3, Bits(64))
+  output read_b_result: Vec(3, Bits(64))
+  output read_c_result: Vec(3, Bits(64))
+  output result_valid: Vec(3, Bool)
+  output result_legal: Vec(3, Bool)
+  output result_address: Vec(3, Bits(16))
+  output result_data: Vec(3, Bits(64))
+  output result_mask: Vec(3, Bits(64))
+  for (index in 0..3):
+    inst bank(VectorBankFixture([128, 256, 512][index]))
+    bank.read_valid <== read_valid
+    bank.read_a <== read_a
+    bank.read_b <== read_b
+    bank.read_c <== read_c
+    bank.write_valid <== write_valid
+    bank.write_address <== write_address
+    bank.write_data <== write_data
+    bank.write_mask <== write_mask
+    bank.commit <== commit
+    bank.destination <== destination
+    bank.mask_destination <== mask_destination
+    bank.element_width <== element_width
+    bank.first_element <== first_element
+    bank.vl <== vl
+    bank.vstart <== vstart
+    bank.vlmax <== vlmax
+    bank.masked <== masked
+    bank.operand_select <== operand_select
+    bank.immediate_unsigned <== immediate_unsigned
+    bank.widening <== widening
+    bank.upper_half <== upper_half
+    bank.scalar <== scalar
+    bank.immediate <== immediate
+    bank.operation <== operation
+    read_a_result[index] <== bank.read_a_result
+    read_b_result[index] <== bank.read_b_result
+    read_c_result[index] <== bank.read_c_result
+    result_valid[index] <== bank.result_valid
+    result_legal[index] <== bank.result_legal
+    result_address[index] <== bank.result_address
+    result_data[index] <== bank.result_data
+    result_mask[index] <== bank.result_mask
+
+export:
+  RV5StageVectorFixture

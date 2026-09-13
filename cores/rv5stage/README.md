@@ -16,6 +16,10 @@ caches live here. Reusable execution components remain directly under
 Contributors changing the core should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
+Standalone [vector storage and packing](vector/README.md) provide a configurable
+VLEN, flat 64-bit register bank and adapters to the reusable SIMD ALU. They are
+not integrated into this scalar pipeline and do not enable vector instructions.
+
 ## At a glance
 
 | Property | Contract |

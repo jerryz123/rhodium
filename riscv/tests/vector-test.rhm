@@ -1,0 +1,58 @@
+#lang rhombus
+// Checks configurable vector geometry, fractional groups, chunk mapping, masks, and ordinary data overlap rules.
+
+import:
+  "../isa/vector.rhm" open
+
+for (vlen in [128, 256, 512, 1024, 65536]):
+  check:
+    vector_depth(vlen) * 64 ~is 32 * vlen
+    vector_chunks(vlen) * 64 ~is vlen
+  for (sew in VectorElementWidths):
+    for (lmul in VectorRegisterGroups):
+      when vector_element_bits(sew) <= 64 * vector_lmul(lmul)
+      | block:
+          def config = VectorConfig(vlen, sew, lmul)
+          check:
+            config.vlmax * config.element_bits ~is vlen * vector_lmul(lmul)
+            config.select_vl(0) ~is 0
+            config.select_vl(config.vlmax + 7) ~is config.vlmax
+            config.select_vl(config.vlmax div 2) ~is config.vlmax div 2
+            config.active(0, config.vlmax, 0, #true) ~is #true
+            config.active(config.vlmax, config.vlmax, 0, #true) ~is #false
+            config.active(0, config.vlmax, 1, #true) ~is #false
+            config.active(0, config.vlmax, 0, #false) ~is #false
+          for (base in 0..32):
+            check: config.legal_group(base) ~is (base mod config.registers == 0 && base + config.registers <= 32)
+            when config.legal_group(base)
+            | block:
+                for (element in [0, config.vlmax - 1]):
+                  def location = config.location(base, element)
+                  check:
+                    location.chunk * 64 + location.bit_offset ~is base * vlen + element * config.element_bits
+                    location.chunk < vector_depth(vlen) ~is #true
+  def mask = vector_mask_location(vlen, 31, vlen - 1)
+  check:
+    mask.chunk ~is vector_depth(vlen) - 1
+    mask.bit_offset ~is 63
+
+def narrow = VectorConfig(256, VectorSEW.E8, VectorLMUL.M1)
+def wide = narrow.with_eew(VectorSEW.E16)
+check:
+  wide.vlmax ~is narrow.vlmax
+  wide.lmul ~is VectorLMUL.M2
+  vector_data_overlap_legal(narrow, 3, wide, 2) ~is #true
+  vector_data_overlap_legal(narrow, 2, wide, 2) ~is #false
+  vector_data_overlap_legal(wide, 2, narrow, 2) ~is #true
+  vector_data_overlap_legal(wide, 2, narrow, 3) ~is #false
+  vector_data_overlap_legal(narrow, 2, narrow, 2) ~is #true
+  vector_data_overlap_legal(narrow, 2, wide, 4) ~is #true
+  vector_data_overlap_legal(VectorConfig(256, VectorSEW.E8, VectorLMUL.MF2), 2, VectorConfig(256, VectorSEW.E16, VectorLMUL.M1), 2) ~is #false
+  vector_chunks(192) ~throws ""
+  vector_chunks(64) ~throws ""
+  VectorConfig(128, VectorSEW.E64, VectorLMUL.MF2) ~throws ""
+  wide.location(1, 0) ~throws ""
+  narrow.location(31, narrow.vlmax) ~throws ""
+  narrow.active(0, narrow.vlmax + 1, 0, #true) ~throws ""
+  vector_mask_location(128, 32, 0) ~throws ""
+  VectorConfig(128, VectorSEW.E8, VectorLMUL.M8).with_eew(VectorSEW.E16) ~throws ""

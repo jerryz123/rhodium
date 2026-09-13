@@ -36,6 +36,7 @@ each other; share external transaction machinery through the CHI package.
 | [`instruction-buffer.rhdl`](instruction-buffer.rhdl) | Core-owned fall-through compressed assembly and one residual halfword |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
+| [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Standalone flat vector bank, operand/result packing, and composed SIMD validation |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
 | [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |

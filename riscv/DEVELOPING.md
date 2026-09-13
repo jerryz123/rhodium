@@ -37,6 +37,7 @@ architectural state, and retirement in concrete cores. The package-local
 | Compact-to-canonical bindings | [`model/expansion.rhm`](model/expansion.rhm) |
 | Pure-model facade | [`model/main.rhm`](model/main.rhm) |
 | Architectural catalogs and profiles | [`isa/`](isa/) |
+| Pure vector geometry and data-overlap model | [`isa/vector.rhm`](isa/vector.rhm), tested by [`tests/vector-test.rhm`](tests/vector-test.rhm) |
 | GNU compiler target projection | [`gnu-toolchain.rhm`](gnu-toolchain.rhm) |
 | Typed UDB document values and deterministic YAML serialization | [`udb.rhm`](udb.rhm) |
 | Hardware materialization | [`rtl/DEVELOPING.md`](rtl/DEVELOPING.md) |

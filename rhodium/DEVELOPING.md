@@ -152,6 +152,11 @@ The reusable packed execution module `cores/simd-alu.rhdl` directly imports
 `std/bits.rhdl` for bit reversal and leading-zero count. Its remaining hardware
 operations use the public language; it imports no ISA catalog or named core.
 
+The standalone `cores/rv5stage/vector/` package imports public `std/bits.rhdl`
+for mask expansion/merging and `flow/main.rhdl` for synchronous Valid read
+transactions. Its pure geometry dependency is `riscv/isa/vector.rhm`; that
+module imports Rhombus metadata only and has no Rhodium dependency.
+
 ### Standard-library dependencies
 
 Standard-library modules depend only on the public authoring surface and

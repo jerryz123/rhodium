@@ -25,6 +25,22 @@ Contributors extending the model or catalogs should read
 | Run the focused package checks | [Validation](#validation) |
 | Initialize the architectural test sources | [Architectural tests](#architectural-tests) |
 
+## Vector geometry
+
+[`isa/vector.rhm`](isa/vector.rhm) is a pure ELEN=64 geometry model, not a
+vector instruction catalog. `VectorLength` admits power-of-two VLEN values
+128..65536; `VectorConfig` describes supported decoded SEW/LMUL combinations,
+VLMAX, aligned register groups, deterministic `min(AVL, VLMAX)` length selection,
+element/chunk locations, and EEW-to-EMUL conversion. Fractional LMUL uses the
+low portion of a register. Mask locations always use one bit per element,
+independently of SEW/LMUL.
+
+`vector_data_overlap_legal` implements ordinary data-operand overlap rules;
+mask operands and instruction-specific restrictions still require decode
+checks. The model does not implement `vtype`/`vill` CSR behavior, VS tracking,
+or advertise an executable vector subset. Its geometry follows
+[RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext).
+
 ## Dependency boundary
 
 Arrows show allowed import direction. Pure ISA and model code never imports the

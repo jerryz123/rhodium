@@ -1,0 +1,128 @@
+#lang rhombus/and_meta
+// Models ELEN=64 vector configurations, register groups, and 64-bit chunk locations without hardware dependencies.
+
+import:
+  rhombus/meta open
+
+fun vector_length(value :: PosInt):
+  128 <= value && value <= 65536 && (value bits.and (value - 1)) == 0
+
+annot.macro 'VectorLength':
+  'PosInt && satisfying(vector_length)'
+
+enum VectorSEW
+| E8
+| E16
+| E32
+| E64
+
+enum VectorLMUL
+| MF8
+| MF4
+| MF2
+| M1
+| M2
+| M4
+| M8
+
+def VectorElementWidths = [VectorSEW.E8, VectorSEW.E16, VectorSEW.E32, VectorSEW.E64]
+def VectorRegisterGroups = [VectorLMUL.MF8, VectorLMUL.MF4, VectorLMUL.MF2, VectorLMUL.M1, VectorLMUL.M2, VectorLMUL.M4, VectorLMUL.M8]
+
+fun vector_element_bits(sew :: VectorSEW) :: PosInt:
+  cond
+  | sew == VectorSEW.E8: 8
+  | sew == VectorSEW.E16: 16
+  | sew == VectorSEW.E32: 32
+  | ~else: 64
+
+fun vector_lmul(lmul :: VectorLMUL):
+  cond
+  | lmul == VectorLMUL.MF8: 1/8
+  | lmul == VectorLMUL.MF4: 1/4
+  | lmul == VectorLMUL.MF2: 1/2
+  | lmul == VectorLMUL.M1: 1
+  | lmul == VectorLMUL.M2: 2
+  | lmul == VectorLMUL.M4: 4
+  | ~else: 8
+
+fun vector_chunks(vlen :: VectorLength) :: PosInt:
+  vlen / 64
+
+fun vector_depth(vlen :: VectorLength) :: PosInt:
+  32 * vector_chunks(vlen)
+
+class VectorLocation(chunk :: Nat, bit_offset :: Nat)
+
+// This ELEN=64 model supports fractional LMUL through SEW <= LMUL*ELEN.
+// It describes a decoded legal configuration, not the vtype CSR's vill state.
+class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
+  constructor (vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
+    unless vector_element_bits(sew) <= 64 * vector_lmul(lmul)
+    | error(~who: #'VectorConfig, "unsupported SEW/LMUL combination")
+    super(vlen, sew, lmul)
+
+  property element_bits :: PosInt: vector_element_bits(sew)
+  property group_bits :: PosInt: vlen * vector_lmul(lmul)
+  property vlmax :: PosInt: group_bits / element_bits
+  property registers :: PosInt: math.max(1, vector_lmul(lmul))
+
+  method legal_group(base :: Nat) :: Boolean:
+    base mod registers == 0 && base + registers <= 32
+
+  method select_vl(avl :: Nat) :: Nat:
+    math.min(avl, vlmax)
+
+  method location(base :: Nat, element :: Nat) :: VectorLocation:
+    unless legal_group(base) && element < vlmax
+    | error(~who: #'VectorConfig.location, "element or register group out of range")
+    def offset = element * element_bits
+    VectorLocation(base * vector_chunks(vlen) + offset div 64, offset mod 64)
+
+  method active(element :: Nat, vl :: Nat, vstart :: Nat, enabled :: Boolean) :: Boolean:
+    unless vl <= vlmax
+    | error(~who: #'VectorConfig.active, "vl exceeds VLMAX")
+    enabled && vstart <= element && element < vl
+
+  // EEW changes EMUL while preserving the number of elements in the group.
+  method with_eew(eew :: VectorSEW) :: VectorConfig:
+    def ratio = vector_lmul(lmul) * vector_element_bits(eew) / element_bits
+    def matches = VectorRegisterGroups.filter(~keep: fun (group): vector_lmul(group) == ratio)
+    unless matches.length() == 1
+    | error(~who: #'VectorConfig.with_eew, "effective register group is not representable")
+    VectorConfig(vlen, eew, matches[0])
+
+fun vector_mask_location(vlen :: VectorLength, base :: Nat, element :: Nat) :: VectorLocation:
+  unless base < 32 && element < vlen
+  | error(~who: #'vector_mask_location, "mask element or register out of range")
+  VectorLocation(base * vector_chunks(vlen) + element div 64, element mod 64)
+
+// Ordinary elementwise data operands only: masks and instruction-specific
+// overlap restrictions are checked by the eventual instruction decoder.
+fun vector_data_overlap_legal(source :: VectorConfig, source_base :: Nat,
+                              destination :: VectorConfig, destination_base :: Nat) :: Boolean:
+  unless source.vlen == destination.vlen && source.legal_group(source_base) && destination.legal_group(destination_base)
+  | error(~who: #'vector_data_overlap_legal, "invalid register groups")
+  def source_start = source_base * source.vlen
+  def destination_start = destination_base * destination.vlen
+  def source_end = source_start + source.group_bits
+  def destination_end = destination_start + destination.group_bits
+  cond
+  | source_end <= destination_start || destination_end <= source_start: #true
+  | source.element_bits == destination.element_bits: #true
+  | destination.element_bits < source.element_bits: destination_start == source_start
+  | ~else: vector_lmul(source.lmul) >= 1 && source_end == destination_end
+
+export:
+  VectorLength
+  VectorSEW
+  VectorLMUL
+  VectorElementWidths
+  VectorRegisterGroups
+  VectorConfig
+  VectorLocation
+  vector_element_bits
+  vector_lmul
+  vector_chunks
+  vector_depth
+  vector_mask_location
+  vector_data_overlap_legal
