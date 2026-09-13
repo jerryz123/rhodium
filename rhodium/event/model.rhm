@@ -65,8 +65,8 @@ class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
 interface EventTracePlan
 class EventTraceWindow(instance_path :: List.of(String), depth :: PosInt,
                        enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
-                       selected :: NonemptyList.of(Value)):
-  method controls(): [enqueue, release_count, count, flush] ++ selected
+                       selected :: NonemptyList.of(Value), live :: False || Value = #false):
+  method controls(): [enqueue, release_count, count, flush] ++ selected ++ (if live | [live] | [])
 
 class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):
   method controls(): [capture, release, active]
@@ -124,7 +124,10 @@ fun event_trace_registered(stage :: EventTraceStage || EventTraceQueue || EventT
     | op.opcode == "rtl.constant": op.attribute("value") == 0
     | op.opcode == "rtl.cast": zero(op.operands[0])
     | ~else: #false
-  !(stage is_a EventTraceQueue) || zero(stage.bypass)
+  cond
+  | stage is_a EventTraceQueue: zero(stage.bypass)
+  | stage is_a EventTraceWindow: !stage.live || zero(stage.live)
+  | ~else: #true
 
 fun validate_event_trace_feedback(plan :: EventTracePlan):
   def nodes = event_trace_nodes(plan)
@@ -161,7 +164,7 @@ fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
         | node is_a EventTracePipeline:
             def mutable count = capacities[node.input]
             for (stage in node.stages):
-              when stage is_a EventTraceWindow | count := count * stage.selected.length()
+              when stage is_a EventTraceWindow | count := count * (stage.selected.length() + (if stage.live | 1 | 0))
             count
         | node is_a EventTraceJoin:
             def mutable total = 0

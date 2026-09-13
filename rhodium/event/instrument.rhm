@@ -446,6 +446,12 @@ fun instrument_events(logical :: DesignElaboration,
                   complete := builder.bit_and(module_def, complete, builder.bit_or(module_def, builder.bit_not(module_def, selected), valid))
                   any_selected := builder.bit_or(module_def, any_selected, selected)
                   parents := parents ++ parent_slots(builder.mux_lookup(module_def, selected, empty, [[1, resident]]))
+                when stage.live
+                | def selected = observe(stage.live)
+                  def valid = builder.record_get(module_def, reference, "valid")
+                  complete := builder.bit_and(module_def, complete, builder.bit_or(module_def, builder.bit_not(module_def, selected), valid))
+                  any_selected := builder.bit_or(module_def, any_selected, selected)
+                  parents := parents ++ parent_slots(builder.mux_lookup(module_def, selected, empty, [[1, reference]]))
                 lineage(builder.bit_and(module_def, complete, any_selected), parents)
             | stage is_a EventTraceRetained:
                 def key = [stage.instance_path, stage.capture.id, stage.release.id, stage.active.id]

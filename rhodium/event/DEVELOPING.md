@@ -80,7 +80,8 @@ its own typed contracts and nearest-parent inference.
 | `EventTraceJoin` | Ordered contributing input plans |
 
 `event_trace_capacity(plan)` is one at a source, the sum at a join, the maximum
-at selection, multiplied by the selected-window length at window storage, and
+at selection, multiplied by the selected-window length plus its optional live
+contribution at window storage, and
 unchanged through other storage/routing/replication. Solve these equations to a
 least fixed point over the finite graph; continued growth beyond graph-size
 propagation is an unbounded-capacity diagnostic. Lower lineage
@@ -192,7 +193,14 @@ No routing-policy or CHI-opcode knowledge belongs in either analysis.
   selected entry and valid lineage in every selected occupied slot. Capacity
   multiplies by the selection-window length, including through later storage.
   Assertions check occupancy bounds, release bounds, append space, and capture
-  completeness. Slot reads do not consume lineage.
+  completeness. Slot reads do not consume lineage. An optional live-input
+  predicate appends one independently selected incoming lineage, allowing
+  bypass or simultaneous live/retained contributions without capturing it.
+  Capacity includes that extra contribution and remains correct through later
+  storage. Flush suppresses all contributions; selected live inputs must be
+  complete just like selected resident entries. A potentially enabled live
+  contribution remains a same-cycle dependency in feedback validation; only
+  an absent or provably disabled live input permits a registered cut.
 
 Detached routes stop both static and dynamic backward traversal.
 `EventTraceSource(#false, #true)` lowers to a valid transaction with invalid

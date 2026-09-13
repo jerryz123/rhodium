@@ -5,12 +5,24 @@ import:
   "../frontend/event-window-fixture.rhdl" as fixture
 
 for (intrinsic in [#true, #false]):
-  def traced = instrument_events(fixture.window(intrinsic))
-  def sink = traced.manifest.sites.find(fun (site): site.label == "instruction")
-  check:
-    event_trace_capacity(traced.manifest.trace_plans[sink.id]) ~is 2
-    traced.manifest.dependencies.length() ~is 1
-    traced.manifest.dependencies[0].latency_cycles ~is #false
+  for (live in [#true, #false]):
+    def traced = instrument_events(fixture.window(intrinsic, live))
+    def sink = traced.manifest.sites.find(fun (site): site.label == "instruction")
+    def stages = event_trace_nodes(traced.manifest.trace_plans[sink.id]).filter(~keep: fun (node): node is_a EventTracePipeline)
+    def mutable window = #false
+    for (node in stages):
+      for (stage in node.stages):
+        when stage is_a EventTraceWindow | window := stage
+    check:
+      event_trace_registered(window) ~is !live
+      event_trace_capacity(traced.manifest.trace_plans[sink.id]) ~is (if live | 3 | 2)
+      traced.manifest.dependencies.length() ~is 1
+      traced.manifest.dependencies[0].latency_cycles ~is #false
+    when live
+    | def loop = EventTraceLink("live-window-feedback")
+      loop.target := EventTracePipeline(loop, [window])
+      check:
+        validate_event_trace_feedback(loop) ~throws "same-cycle event lineage cycle"
 
 def frontend = instrument_events(fixture.frontend)
 def fetch = frontend.manifest.sites.find(fun (site): site.label == "core.s1.fetch")
@@ -21,5 +33,7 @@ check:
   fixture.bad_window("width") ~throws "required width"
   fixture.bad_window("selection") ~throws "selection exceeds storage depth"
   fixture.bad_window("selection-width") ~throws "required width"
+  fixture.bad_window("live-width") ~throws "required width"
+  fixture.bad_window("live-foreign") ~throws "must be local"
   fixture.bad_window("foreign") ~throws "must be local"
   fixture.bad_window("duplicate") ~throws "already declared"

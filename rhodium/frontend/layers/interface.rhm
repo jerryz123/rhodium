@@ -474,9 +474,9 @@ class InterfaceTraceQueue(instance :: False || Instance, storage :: InterfaceQue
 // Ordered retained entries support repeated reads and multi-entry contributions.
 class InterfaceWindowStorage(module_def :: Module, depth :: PosInt,
                              enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
-                             selected :: NonemptyList.of(Value), name :: String):
+                             selected :: NonemptyList.of(Value), name :: String, live :: False || Value = #false):
   implements ModuleMetadataPayload
-  method controls(): [enqueue, release_count, count, flush] ++ selected
+  method controls(): [enqueue, release_count, count, flush] ++ selected ++ (if live | [live] | [])
 class InterfaceTraceWindow(instance :: False || Instance, storage :: InterfaceWindowStorage)
 class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
@@ -1864,7 +1864,8 @@ fun interface_trace_queue(instance :: False || Instance = #false, ~name: name ::
 // pre-edge entries without consuming them; flush cancels release and append.
 fun describe_interface_window_storage(depth :: PosInt, enqueue :: HardwareEntity,
                                       release_count :: HardwareEntity, count :: HardwareEntity, flush :: HardwareEntity,
-                                      selected :: NonemptyList.of(HardwareEntity), ~name: name :: String = "data"):
+                                      selected :: NonemptyList.of(HardwareEntity), ~name: name :: String = "data",
+                                      ~live: live :: False || HardwareEntity = #false):
   def module_def = kernel.active_module()
   unless name != "" && !module_def.metadata_for(interface_window_storage_namespace).find(fun (declaration): declaration.name == name)
   | error(~who: #'describe_interface_window_storage, "window storage controls already declared")
@@ -1878,7 +1879,8 @@ fun describe_interface_window_storage(depth :: PosInt, enqueue :: HardwareEntity
   def width = memory_address_width(depth + 1)
   module_def.add_metadata(interface_window_storage_namespace,
                           InterfaceWindowStorage(module_def, depth, signal(enqueue, 1), signal(release_count, width),
-                                                 signal(count, width), signal(flush, 1), selected.map(fun (value): signal(value, 1)), name))
+                                                 signal(count, width), signal(flush, 1), selected.map(fun (value): signal(value, 1)), name,
+                                                 if live | signal(live, 1) | #false))
 
 fun interface_trace_window(instance :: False || Instance = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
@@ -2081,7 +2083,7 @@ fun describe_interface_transform(handle :: Handle,
     | trace_model.window_storage():
         def storage = trace_model.window_storage()
         controls := storage.controls()
-        widths := [1, memory_address_width(storage.depth + 1), memory_address_width(storage.depth + 1), 1] ++ storage.selected.map(fun (_): 1)
+        widths := [1, memory_address_width(storage.depth + 1), memory_address_width(storage.depth + 1), 1] ++ storage.selected.map(fun (_): 1) ++ (if storage.live | [1] | [])
     | trace_model.selection_grants():
         controls := trace_model.selection_grants()
         widths := controls.map(fun (_): 1)

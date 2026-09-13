@@ -193,7 +193,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               | trace_model.window_storage():
                   def storage = trace_model.window_storage()
                   [EventTraceWindow(instance_path ++ trace_model.owner_path(), storage.depth, storage.enqueue,
-                                    storage.release_count, storage.count, storage.flush, storage.selected)]
+                                    storage.release_count, storage.count, storage.flush, storage.selected, storage.live)]
               | trace_model.retained_storage():
                   def storage = trace_model.retained_storage()
                   [EventTraceRetained(instance_path ++ trace_model.owner_path(), storage.capture, storage.release, storage.active)]

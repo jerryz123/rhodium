@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises retained window lineage locally, through a child, and in the real frontend.
+// Exercises retained/live window lineage locally, through a child, and in the real frontend.
 import:
   lib("flow/main.rhdl") open
   "../../cores/rv5stage/frontend.rhdl" open
@@ -10,10 +10,10 @@ import:
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/xlen.rhm" open
 
-sync_circuit WindowCell(intrinsic :: Boolean):
+sync_circuit WindowCell(intrinsic :: Boolean, live_support :: Boolean = #true):
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  input(flush, emit): Bool
+  input(flush, emit, live, capture): Bool
   input(remove_count, selected): Bits(2)
   output occupancy: Bits(2)
   reg count(~init: bits(0, 2))
@@ -21,35 +21,39 @@ sync_circuit WindowCell(intrinsic :: Boolean):
   def remaining = count - remove_count
   occupancy <== count
   sink.valid <== emit & !flush
-  sink.bits <== mux(selected[0].into(Bool), words[0], bits(0, 8)) ^ mux(selected[1].into(Bool), words[1], bits(0, 8))
+  def include_live = if live_support | live | Bool(#false)
+  def enqueue = source.valid & capture
+  sink.bits <== mux(selected[0].into(Bool), words[0], bits(0, 8)) ^ mux(selected[1].into(Bool), words[1], bits(0, 8)) ^ mux(include_live, source.bits, bits(0, 8))
   when flush:
     count <== bits(0, 2)
   otherwise:
-    count <== remaining + source.valid.as_bits().zext(2)
+    count <== remaining + enqueue.as_bits().zext(2)
   for (index in 0..3):
     def mutable shifted = bits(0, 8)
     for (offset in 0..(3 - index)):
       shifted := mux(remove_count === bits(offset, 2), words[index + offset], shifted)
     when flush:
       words[index] <== bits(0, 8)
-    elsewhen (source.valid & (remaining === bits(index, 2))):
+    elsewhen (enqueue & (remaining === bits(index, 2))):
       words[index] <== source.bits
     otherwise:
       words[index] <== shifted
-  describe_interface_window_storage(3, source.valid, remove_count, count, flush, [selected[0], selected[1]])
+  describe_interface_window_storage(3, enqueue, remove_count, count, flush, [selected[0], selected[1]], ~live: if live_support | live | #false)
   if intrinsic
   | describe_interface_contract(source, sink, "window", ~trace_model: interface_trace_window())
   | #void
 
-sync_circuit EventWindow(intrinsic :: Boolean = #true):
+sync_circuit EventWindow(intrinsic :: Boolean = #true, live_support :: Boolean = #true):
   interface source(Valid(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
-  input(flush, emit): Bool
+  input(flush, emit, live, capture): Bool
   input(remove_count, selected): Bits(2)
   output occupancy: Bits(2)
-  inst storage(WindowCell(intrinsic))
+  inst storage(WindowCell(intrinsic, live_support))
   storage.flush <== flush
   storage.emit <== emit
+  storage.live <== live
+  storage.capture <== capture
   storage.remove_count <== remove_count
   storage.selected <== selected
   occupancy <== storage.occupancy
@@ -81,6 +85,10 @@ sync_circuit BadWindow(kind :: String):
   | kind == "width": describe_interface_window_storage(3, flag, flag, amount, flag, [flag])
   | kind == "selection": describe_interface_window_storage(1, flag, flag, flag, flag, [flag, flag])
   | kind == "selection-width": describe_interface_window_storage(3, flag, amount, amount, flag, [amount])
+  | kind == "live-width": describe_interface_window_storage(3, flag, amount, amount, flag, [flag], ~live: amount)
+  | kind == "live-foreign":
+      inst child(WindowCell(#false))
+      describe_interface_window_storage(3, flag, amount, amount, flag, [flag], ~live: child_flush(child))
   | kind == "foreign":
       inst child(WindowCell(#false))
       describe_interface_window_storage(3, flag, amount, amount, child_flush(child), [flag])
@@ -89,7 +97,7 @@ sync_circuit BadWindow(kind :: String):
       describe_interface_window_storage(3, flag, amount, amount, flag, [flag])
 
 fun bad_window(kind): elaborate_with_top(BadWindow(kind))
-fun window(intrinsic): elaborate_with_top(EventWindow(intrinsic))
+fun window(intrinsic, live_support = #true): elaborate_with_top(EventWindow(intrinsic, live_support))
 def frontend = elaborate_with_top(EventFrontend())
 export:
   window

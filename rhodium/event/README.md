@@ -247,7 +247,7 @@ remain visible; it does not summarize the whole containing module. See the
 | `offer_decoupled` | Use the same-cycle Valid occurrence for accepted offers; no retained parent for rejected offers |
 | `filter_flow`, `filter_valid`, `gate_flow` | Preserve surviving transfers only |
 | `valid_pipe`, `valid_pipe_always_capture` | Delay lineage by the certified fixed cycle count; explicit flush clears pending lineage at the edge |
-| Windowed storage | Retain ordered references across repeated reads; select one or more contributing slots, release a prefix, append, and flush without resetting history |
+| Windowed storage | Select retained references and optionally the live input, including simultaneous contributions; release a prefix, append, and flush without resetting history |
 | Ready-valid `pipe` | Advance, bubble, and stall with the functional stages |
 | Retained-owner contract | Capture one lineage, reuse it across declared outputs and repeated attempts, and release it only on completion; replacement exposes the old owner until the edge |
 | `trace_detach` | Explicitly cut ancestry without a visible event; selected transactions remain valid but parentless |

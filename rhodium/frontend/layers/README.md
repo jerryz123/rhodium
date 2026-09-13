@@ -1312,6 +1312,14 @@ selection, and release policy remain functional controls, not trace state.
 Declare this contract at the boundary that owns both storage control and
 assembly selection; it need not change the payload or expose trace ports.
 
+The optional `~live: predicate` adds the current input as an independently
+selected contributor. The predicate must be local one-bit data. An output may
+select retained entries, the live input, or both; live selection does not imply
+enqueue and may bypass empty storage. If selected, the input must have valid
+lineage for that output transfer. Same-cycle release/replacement still reads
+the old retained entries, and flush suppresses both retained and live output
+ancestry. Omitting `~live` preserves the no-bypass contract and its capacity.
+
 Other stateful transforms keep route-only models.
 
 A zero-storage selector calls `describe_interface_selection(grants)` per region with

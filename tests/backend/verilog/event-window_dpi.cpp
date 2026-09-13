@@ -1,4 +1,4 @@
-// Reconstructs exact window parents from public fills, releases, and output transfers.
+// Reconstructs exact retained/live parents from public controls and transfers.
 #include "../../../rheg/runtime/rheg.h"
 #include <array>
 #include <cstdio>
@@ -16,6 +16,7 @@ rheg::Graph expected;
 std::array<std::uint64_t, 2> sequences{};
 std::uint64_t cycle = 0;
 unsigned pairs = 0, repeated = 0, canceled = 0, replacements = 0, stalls = 0;
+unsigned triples = 0, live_only = 0, live_without_capture = 0;
 std::array<unsigned, 4> releases{};
 std::set<rheg::Ref> used;
 [[noreturn]] void fail(const char* message) { std::fprintf(stderr, "%s\n", message); std::abort(); }
@@ -28,7 +29,7 @@ rheg::Ref node(unsigned site, unsigned bits, const std::vector<rheg::Ref>& paren
 }
 }
 extern "C" void event_window_sample(unsigned reset, unsigned flush, unsigned emit,
-    unsigned release, unsigned selected, unsigned valid, unsigned payload, unsigned ready,
+    unsigned release, unsigned selected, unsigned live, unsigned capture, unsigned valid, unsigned payload, unsigned ready,
     unsigned out_valid, unsigned out_payload, unsigned count) {
   if (reset) {
     expected.clear(); words.clear(); sequences.fill(0); holding = false; cycle = 0; used.clear(); return;
@@ -39,8 +40,11 @@ extern "C" void event_window_sample(unsigned reset, unsigned flush, unsigned emi
   if (holding && ready) {
     node(1, held.bits, held.parents);
     if (held.parents.size() == 2) ++pairs;
+    if (held.parents.size() == 3) ++triples;
     for (auto parent : held.parents) if (!used.insert(parent).second) ++repeated;
   }
+  rheg::Ref incoming{};
+  if (valid) incoming = node(0, payload);
   if (!holding || ready) {
     holding = emit && !flush;
     if (holding) {
@@ -50,17 +54,22 @@ extern "C" void event_window_sample(unsigned reset, unsigned flush, unsigned emi
         held.bits ^= words[i].bits;
         held.parents.insert(held.parents.end(), words[i].parents.begin(), words[i].parents.end());
       }
+      if (live) {
+        if (!valid) fail("invalid live selection");
+        held.bits ^= payload;
+        held.parents.push_back(incoming);
+        live_only += !selected;
+        live_without_capture += !capture;
+      }
     }
   }
   const bool full = words.size() == 3;
-  rheg::Ref incoming{};
-  if (valid) incoming = node(0, payload);
   if (flush) { canceled += !words.empty(); words.clear(); }
   else {
     if (release > words.size()) fail("invalid test release");
     ++releases[release];
     while (release--) words.pop_front();
-    if (valid) { replacements += full; words.push_back({payload, {incoming}}); }
+    if (valid && capture) { replacements += full; words.push_back({payload, {incoming}}); }
   }
   ++cycle;
 }
@@ -68,6 +77,6 @@ extern "C" void event_window_check() {
   if (rheg::graph().json() != expected.json()) fail("window graph differs from public-transfer model");
 }
 extern "C" void event_window_finish() {
-  if (!pairs || !repeated || !canceled || !replacements || !stalls || !releases[0] || !releases[1] || !releases[2] || !releases[3])
+  if (!pairs || !triples || !live_only || !live_without_capture || !repeated || !canceled || !replacements || !stalls || !releases[0] || !releases[1] || !releases[2] || !releases[3])
     fail("window test missed required coverage");
 }
