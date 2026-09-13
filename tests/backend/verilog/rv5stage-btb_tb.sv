@@ -1,4 +1,4 @@
-// Checks associative PC/halfword selection, saturating counters, replacement, and invalidation.
+// Checks compact associative matching, counters, entry/page replacement, and invalidation.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_btb_tb;
   typedef struct packed { logic valid; logic [63:0] pc, target; logic compressed; logic [1:0] ras_action; } prediction_t;
@@ -31,7 +31,7 @@ module rv5stage_btb_tb;
   task automatic check(input logic [63:0] pc, input bit valid, input logic [63:0] target = 0, input logic [1:0] ras_action = 0);
     cursor = pc;
     #1;
-    assert (prediction.valid == valid && (!valid || (prediction.target == target && prediction.ras_action == ras_action)))
+    assert (prediction.valid == valid && (!valid || (prediction.pc[63:2] == pc[63:2] && prediction.target == target && prediction.ras_action == ras_action)))
       else $fatal(1, "BTB query %h valid=%b target=%h", pc, prediction.valid, prediction.target);
   endtask
   task automatic discover(input logic [63:0] pc, target, input bit compressed, input logic [1:0] ras_action);
@@ -105,6 +105,17 @@ module rv5stage_btb_tb;
     invalidate_all_in.valid = 0;
     update_in = '0;
     check('h104, 0);
+    train('h100, 'h4100, 0, 1);
+    check('h100, 1, 'h4100);
+    train('h104, 'h8100, 0, 1);
+    check('h100, 0); // Replacing only its target page invalidates the entry.
+    check('h104, 1, 'h8100);
+    train('h8100, 'h100, 0, 1);
+    check('h8100, 1, 'h100);
+    train('hc100, 'h8100, 0, 1);
+    check('h104, 0); // Replacing a source page invalidates entries that source it.
+    check('h8100, 0); // The same replacement invalidates entries that target it.
+    check('hc100, 1, 'h8100);
     $display("RV5Stage associative BTB counters and replacement passed");
     $finish;
   end

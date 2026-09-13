@@ -171,8 +171,12 @@ Do not use that model to claim frontend throughput or LR/SC progress.
 Keep predictor updates in MEM behind older-WB cancellation, faults, and replay.
 Update by current PC match rather than a stale entry index; invalidation wins
 over training. Preserve `sequential_pc` for links and `predicted_next_pc` for
-recovery as distinct payload fields. The BTB is ordinary named-core RTL, not a
-new language feature or ISA profile parameter.
+recovery as distinct payload fields. The 32-entry BTB compares 14 low address
+bits per entry and shares eight upper-address pages between source PCs and
+targets. Reusing a page invalidates every dependent entry so truncated storage
+never creates a false full-address hit or reconstructs a stale target. Keep the
+page CAM and low-entry comparisons parallel in S1. The BTB is ordinary
+named-core RTL, not a new language feature or ISA profile parameter.
 
 The RAS is also named-core RTL. Its default six-entry speculative stack drives
 return targets for S1 BTB hits and fault-free S2 predecode fallbacks; only an

@@ -88,7 +88,7 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
     elsewhen (frontend_admitted & completed_match):
       completed <== Bool(#false)
 
-sync_circuit RV5StageCoreFixture(profile :: RVCoreProfile, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 16, ~ras_entries: ras_entries :: Nat = 6):
+sync_circuit RV5StageCoreFixture(profile :: RVCoreProfile, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
   def xlen = profile.xlen
   input interrupts: RV5StageInterrupts()
   input hart_id: Bits(xlen.width)

@@ -541,10 +541,12 @@ accepted S0 parent; MMU walks and predictor/redirect causality remain unmodeled.
 
 ### Branch prediction
 
-`RV5Stage` and `RV5StageFrontend` accept `~btb_entries` (default 16, zero disables
+`RV5Stage` and `RV5StageFrontend` accept `~btb_entries` (default 32, zero disables
 prediction) and `~ras_entries` (default 6, zero disables return prediction). The
-fully associative [BTB](fetch/bpd/btb.rhdl) stores full instruction-PC tags,
-targets, instruction lengths, return-stack actions, and
+fully associative [BTB](fetch/bpd/btb.rhdl) stores 14 low address bits and
+references one of eight shared upper-address tags for both its instruction PC
+and target. This preserves exact full-address matching while compacting entries.
+Entries also retain instruction lengths, return-stack actions, and
 conditional/unconditional classification.
 Each entry has a two-bit saturating counter; conditional branches predict taken
 in the upper two states, and unconditional jumps predict taken on a hit. Invalid

@@ -18,7 +18,7 @@ bundle RV5StageFetchAttempt(xlen :: XLen):
 
 // S0 offers are Decoupled. Acceptance captures PC/continuation into S1;
 // prediction is resolved there and captured with the S2 occurrence.
-sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 16, ras_entries :: Nat = 6):
+sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entries :: Nat = 6):
   def width = xlen.width
   input active: Bool
   input space: Bool

@@ -84,7 +84,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
 sync_circuit RV5Stage(profile :: RVCoreProfile,
                       ~reset_address: reset_address :: Nat,
                       ~chi: config :: RV5StageCHIConfig,
-                      ~btb_entries: btb_entries :: Nat = 16,
+                      ~btb_entries: btb_entries :: Nat = 32,
                       ~ras_entries: ras_entries :: Nat = 6):
   def vector_completion_slots = profile.vector_completion_slots
   def xlen = profile.xlen

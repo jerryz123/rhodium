@@ -10,7 +10,7 @@ import:
   "../icache/protocol.rhdl" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageFetchFixture(profile :: RVCoreProfile, ~btb_entries: btb_entries :: Nat = 16, ~ras_entries: ras_entries :: Nat = 6):
+sync_circuit RV5StageFetchFixture(profile :: RVCoreProfile, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
   interface control(RV5StageFrontendControl(profile.xlen), ~role: frontend)
   interface memory(RV5StageFetchAccess(profile.xlen), ~role: requester)
   interface fetched(Decoupled(FetchDecode(profile.xlen)), ~role: producer)

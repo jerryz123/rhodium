@@ -19,7 +19,7 @@ instruction storage, refill, and coherence rather than fetch sequencing.
 | [`packet.rhdl`](packet.rhdl), [`scan.rhdl`](scan.rhdl) | Raw packet representation, prediction-cut validation, and S2 control-flow predecode |
 | [`instruction-buffer.rhdl`](instruction-buffer.rhdl) | Compressed expansion, straddling assembly, and residual-halfword state |
 | [`bpd/protocol.rhdl`](bpd/protocol.rhdl) | Prediction, training, and return-stack payload contracts |
-| [`bpd/btb.rhdl`](bpd/btb.rhdl) | Fully associative targets, local direction counters, S2 discovery, and replacement |
+| [`bpd/btb.rhdl`](bpd/btb.rhdl) | Compact fully associative entries, shared upper-address pages, local direction counters, S2 discovery, and replacement |
 | [`bpd/ras.rhdl`](bpd/ras.rhdl) | RISC-V call/return classification and speculative/resolved stack state |
 
 ## Dependency direction
