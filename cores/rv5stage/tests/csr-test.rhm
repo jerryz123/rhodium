@@ -22,7 +22,7 @@ check:
   rv64.outputs.map(fun (port): port.name) ~is [
     "redirect_out", "interrupt_request", "wfi_retired", "wfi_wake",
     "writeback_valid", "writeback_value", "privilege", "mstatus", "satp",
-    "frm", "fp_enabled", "cbo_zero_enabled", "cbo_permission", "translation_flush",
+    "frm", "fp_enabled", "vector_enabled", "vector_state", "cbo_zero_enabled", "cbo_permission", "translation_flush",
     "pointer_masking", "pointer_masking_changed"
   ]
   rv64.find_input("interrupts").type.field("machine_timer").type.packed_width() ~is 1

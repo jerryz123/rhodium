@@ -1,0 +1,54 @@
+#lang rhodium
+// Defines macro snapshots, packed micro-ops, and WB feedback for the future Decode-held unroller.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "csr.rhdl" open
+  "register-file.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
+  "../../simd-alu.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+
+bundle RV5StageVectorDescriptor(xlen :: XLen):
+  pc: Bits(xlen.width)
+  instruction: Bits(32)
+  state: RV5StageVectorState(xlen)
+  control: RV5StageVectorControl()
+  scalar: Bits(xlen.width)
+  vd: Bits(5)
+  vs1: Bits(5)
+  vs2: Bits(5)
+  masked: Bool
+
+bundle RV5StageVectorMicroOp(vlen :: VectorLength, Context):
+  context: Context
+  first: Bits(index_width(vlen + 1))
+  end: Bits(index_width(vlen + 1))
+  left: Bits(64)
+  right: Bits(64)
+  enabled: Mask(8)
+  element_width: SimdElementWidth
+  control: RV5StageVectorControl()
+  destination: Bits(index_width(vector_depth(vlen)))
+
+hardware_enum RV5StageVectorDisposition:
+  Authorized
+  Retry
+  Fault
+
+// end is exclusive architectural position, not the number of active lanes.
+// Authorized is not a result completion; accepted effects must never be retried.
+bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context):
+  context: Context
+  first: Bits(index_width(vlen + 1))
+  end: Bits(index_width(vlen + 1))
+  disposition: RV5StageVectorDisposition
+  cause: Bits(xlen.width)
+  fault_address: Bits(xlen.width)
+
+export:
+  RV5StageVectorDescriptor
+  RV5StageVectorMicroOp
+  RV5StageVectorDisposition
+  RV5StageVectorFeedback

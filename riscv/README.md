@@ -38,9 +38,17 @@ independently of SEW/LMUL.
 
 `vector_data_overlap_legal` implements ordinary data-operand overlap rules;
 mask operands and instruction-specific restrictions still require decode
-checks. The model does not implement `vtype`/`vill` CSR behavior, VS tracking,
-or advertise an executable vector subset. Its geometry follows
+checks. `vector_vtype_config` validates a complete raw vtype image against
+this geometry; architectural state and VS tracking remain core-owned.
+Its geometry follows
 [RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext).
+
+[`isa/v.rhm`](isa/v.rhm) provides an explicitly partial RVV 1.0 catalog:
+the three `vset*` forms and same-width integer add/sub, logic, shifts,
+comparisons, and min/max. Vector operands use `RegisterBank.Vector`, with
+named vector register, mask-enable, vtype, and AVL fields. The catalog is not
+a full V-extension claim. [`rtl/vector.rhdl`](rtl/vector.rhdl) materializes
+stateless vtype/VL selection for a core-owned configuration unit.
 
 ## Dependency boundary
 
@@ -154,6 +162,7 @@ pure host code or be materialized by the Rhodium adapter.
 | Module | Public catalog or configuration | Coverage |
 |---|---|---|
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
+| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions` | Partial RVV 1.0 configuration and same-width integer catalog; see [vector geometry](#vector-geometry) |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

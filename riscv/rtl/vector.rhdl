@@ -1,0 +1,58 @@
+#lang rhodium
+// Materializes ELEN=64 vtype legality and vset AVL selection without owning architectural state.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/vector.rhm" open
+  "../isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+
+bundle RiscvVectorType(xlen :: XLen, vlen :: VectorLength):
+  value: Bits(xlen.width)
+  vill: Bool
+  sew: Bits(2)
+  lmul: Bits(3)
+  vlmax: Bits(index_width(vlen + 1))
+
+bundle RiscvVectorConfigRequest(xlen :: XLen):
+  vtype: Bits(xlen.width)
+  avl: Bits(xlen.width)
+  maximum: Bool
+  keep_vl: Bool
+
+bundle RiscvVectorConfiguration(xlen :: XLen, vlen :: VectorLength):
+  vtype: Bits(xlen.width)
+  vl: Bits(index_width(vlen + 1))
+  illegal: Bool
+
+fun vector_type(xlen :: XLen, vlen :: VectorLength, value :: Bits(xlen.width)) :~ RiscvVectorType(xlen, vlen):
+  def count_width = index_width(vlen + 1)
+  def cases = for List (encoding in 0..64):
+    def config = vector_vtype_config(vlen, encoding)
+    [encoding, bits(if config | config.vlmax | 0, count_width)]
+  def maximum = mux_lookup(value[0..6], ~default: bits(0, count_width), cases)
+  def illegal = value[8..xlen.width].or_reduce() ||| !maximum.or_reduce()
+  RiscvVectorType(xlen, vlen):
+    value: mux(illegal, bits(1 << (xlen.width - 1), xlen.width), value)
+    vill: illegal
+    sew: value[3..5]
+    lmul: value[0..3]
+    vlmax: mux(illegal, bits(0, count_width), maximum)
+
+fun vector_configure(xlen :: XLen, vlen :: VectorLength, request :: RiscvVectorConfigRequest(xlen), old_type :: Bits(xlen.width), old_vl :: Bits(index_width(vlen + 1))) :~ RiscvVectorConfiguration(xlen, vlen):
+  def previous = vector_type(xlen, vlen, old_type)
+  def next_type = vector_type(xlen, vlen, request.vtype)
+  def maximum = next_type.vlmax.zext(xlen.width)
+  def avl = mux(request.keep_vl, old_vl.zext(xlen.width), request.avl)
+  def selected = mux(request.maximum ||| (avl > maximum), maximum, avl)
+  RiscvVectorConfiguration(xlen, vlen):
+    vtype: next_type.value
+    vl: mux(next_type.vill, bits(0, index_width(vlen + 1)), selected[0..index_width(vlen + 1)])
+    illegal: request.keep_vl & (previous.vill ||| next_type.vill ||| (previous.vlmax =/= next_type.vlmax))
+
+export:
+  RiscvVectorType
+  RiscvVectorConfigRequest
+  RiscvVectorConfiguration
+  vector_type
+  vector_configure

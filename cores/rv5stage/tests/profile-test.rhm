@@ -33,6 +33,12 @@ def rv32_half = RVCoreProfile(
 )
 
 check:
+  RVCoreProfile(~xlen: XLen.X64).experimental_vector ~is #false
+  RVCoreProfile(~xlen: XLen.X64, ~experimental_vector: 128).experimental_vector ~is 128
+  RVCoreProfile(~xlen: XLen.X32, ~experimental_vector: 65536).experimental_vector ~is 65536
+  RVCoreProfile(~xlen: XLen.X64, ~experimental_vector: 128).isa_extensions ~is rv64_integer.isa_extensions
+  RVCoreProfile(~xlen: XLen.X64, ~experimental_vector: 128).misa_value ~is rv64_integer.misa_value
+  RVCoreProfile(~xlen: XLen.X64, ~experimental_vector: 192) ~throws "VectorLength"
   RV5StageExtensions().ssnpm ~is #false
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)).extensions.ssnpm ~is #true
   RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~ssnpm: #true)) ~throws "RV64"

@@ -7,6 +7,8 @@ import:
   "decode/fence-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "interrupt.rhdl" open
+  "vector/csr.rhdl" open
+  "../../riscv/rtl/vector.rhdl" open
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/csr.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
@@ -31,6 +33,7 @@ bundle RV5StageCsrCommit(xlen :: XLen):
   fence: FenceControl()
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
+  vector_config: RiscvVectorConfigRequest(xlen)
   exception_valid: Bool
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
@@ -305,6 +308,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   output satp: Bits(width)
   output frm: Bits(3)
   output fp_enabled: Bool
+  output vector_enabled: Bool
+  output vector_state: RV5StageVectorState(xlen)
   output cbo_zero_enabled: Bool
   input cbo_operation: CboManagementOperation
   output cbo_permission: CboManagementPermission()
@@ -319,6 +324,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   inst counters(RiscvBaseCounters(xlen))
   def FpCsrModule = if floating_point_supports_f(profile) | RV5StageFpCsrs() | RV5StageDisabledFpCsrs()
   inst fp_csrs(FpCsrModule)
+  inst vector_csrs(RV5StageVectorCsrs(xlen, core_profile.experimental_vector))
   fp_update |> fp_csrs.update
 
   fun flag_value(original :: Bits(width),
@@ -328,9 +334,10 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
 
   def fp_status_value = fp_csrs.status.zext(width) << 13
   def fp_status_dirty = fp_csrs.status === bits(3, 2)
-  def status_dirty_value = mux(fp_status_dirty, bits(1 << (width - 1), width), zero)
-  def mstatus_value = state.mstatus ||| mstatus_fixed ||| fp_status_value ||| status_dirty_value
-  def sstatus_value = (state.mstatus & sstatus_write_mask) ||| sstatus_fixed ||| fp_status_value ||| status_dirty_value
+  def vector_status_value = vector_csrs.status.zext(width) << 9
+  def status_dirty_value = mux(fp_status_dirty ||| (vector_csrs.status === bits(3, 2)), bits(1 << (width - 1), width), zero)
+  def mstatus_value = state.mstatus ||| mstatus_fixed ||| fp_status_value ||| vector_status_value ||| status_dirty_value
+  def sstatus_value = (state.mstatus & sstatus_write_mask) ||| sstatus_fixed ||| fp_status_value ||| vector_status_value ||| status_dirty_value
   def cycle_value = if xlen == XLen.X32 | counters.cycle[0..32] | counters.cycle
   def cycleh_value = if xlen == XLen.X32 | counters.cycle[32..64] | zero
   def time_value = if xlen == XLen.X32 | time_counter[0..32] | time_counter
@@ -343,6 +350,13 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     read CsrId.Fflags: fp_csrs.fflags.zext(width)
     read CsrId.Frm: fp_csrs.frm.zext(width)
     read CsrId.Fcsr: concat(fp_csrs.frm, fp_csrs.fflags).zext(width)
+    read CsrId.Vstart: vector_csrs.state.vstart
+    read CsrId.Vxrm: vector_csrs.state.vxrm.zext(width)
+    read CsrId.Vxsat: vector_csrs.state.vxsat.as_bits().zext(width)
+    read CsrId.Vcsr: (vector_csrs.state.vxrm ++ vector_csrs.state.vxsat.as_bits()).zext(width)
+    read CsrId.Vl: vector_csrs.state.vl
+    read CsrId.Vtype: vector_csrs.state.vtype
+    read CsrId.Vlenb: bits(if core_profile.experimental_vector | core_profile.experimental_vector / 8 | 0, width)
     csr CsrId.Sstatus:
       read: sstatus_value
       write value:
@@ -451,7 +465,9 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def fp_access_enabled = Bool(floating_point_supports_f(profile)) & fp_csrs.status.or_reduce()
   assert(!fp_update.valid ||| fp_access_enabled, "rv5stage_fp_update_enabled")
   def high_machine_csr_unavailable = !rv32_counter_halves & csr.is_one_of(csr_bits(CsrId.Mstatush), csr_bits(CsrId.Menvcfgh))
-  def csr_recognized = bank.recognized & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled)
+  def vector_csr = csr.is_one_of([CsrId.Vstart, CsrId.Vxrm, CsrId.Vxsat, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_bits))
+  def vector_access_enabled = vector_csrs.status.or_reduce()
+  def csr_recognized = bank.recognized & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
   def csr_read_value = bank.read_value
   def write_requested = csr_write_requested(commit.bits.system.csr, commit.bits.instruction[15..20])
   def csr_read_only = csr[10..12] === bits(3, 2)
@@ -480,7 +496,14 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     privilege_bits < required_privilege
   ) & !(write_requested & csr_read_only) & !satp_restricted & (!counter_csr ||| counter_access_enabled)
   def csr_commit = commit.valid & (commit.bits.system.csr =/= CsrOperation.None)
-  def synchronous_trap = resolve_rv5stage_trap(xlen, commit.valid, commit.bits, privilege_state, state.mstatus, csr_access_legal, state.medeleg)
+  def vector_config_commit = commit.valid & (commit.bits.system.action === SystemOperation.VectorConfig)
+  def illegal_vector_config = vector_config_commit & (!vector_access_enabled ||| vector_csrs.configuration_illegal)
+  def checked_commit = commit.bits.updated(
+    ~exception_valid: commit.bits.exception_valid ||| illegal_vector_config,
+    ~exception_cause: mux(commit.bits.exception_valid, commit.bits.exception_cause, exception_cause_bits(ExceptionCause.IllegalInstruction, width)),
+    ~exception_value: mux(commit.bits.exception_valid, commit.bits.exception_value, if width == 32 | commit.bits.instruction | commit.bits.instruction.zext(width))
+  )
+  def synchronous_trap = resolve_rv5stage_trap(xlen, commit.valid, checked_commit, privilege_state, state.mstatus, csr_access_legal, state.medeleg)
   def interrupt = resolve_rv5stage_interrupt(
     xlen,
     interrupt_pending,
@@ -511,6 +534,14 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     ]
   )
   def csr_write = csr_commit & csr_access_legal & write_requested
+  vector_csrs.configure.valid <== vector_config_commit & !trap.valid
+  vector_csrs.candidate <== commit.bits.vector_config
+  vector_csrs.write.valid <== csr_write & vector_csr & !trap.valid
+  vector_csrs.write.bits <== RV5StageVectorCsrWrite(xlen):
+    address: csr
+    value: csr_replacement
+  vector_csrs.status_write.valid <== csr_write & !trap.valid & csr.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
+  vector_csrs.status_write.bits <== csr_replacement[9..11]
   pointer_masking <== user_pointer_mask_control(xlen, privilege_state, mstatus_value, state.satp, state.senvcfg, ~enabled: core_profile.extensions.ssnpm)
   pointer_masking_changed <== Bool(core_profile.extensions.ssnpm) & csr_write & !trap.valid & (csr === csr_bits(CsrId.Senvcfg)) & (pointer_mask_mode(xlen, csr_replacement) =/= pointer_mask_mode(xlen, state.senvcfg))
   def fp_csr_write = csr_write & fp_csr
@@ -587,8 +618,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     Bool(#false)
   ) & !bits(0x20000, width)
 
-  writeback_valid <== csr_commit & csr_access_legal & commit.bits.rd.or_reduce()
-  writeback_value <== csr_read_value
+  writeback_valid <== !trap.valid & ((csr_commit & csr_access_legal) ||| vector_config_commit) & commit.bits.rd.or_reduce()
+  writeback_value <== mux(vector_config_commit, vector_csrs.configuration_vl, csr_read_value)
   interrupt_request <== interrupt.valid
   wfi_retired <== commit.valid & (commit.bits.system.action === SystemOperation.Wfi) & !synchronous_trap.valid
   wfi_wake <== or_reduce(interrupt_pending & state.mie)
@@ -597,6 +628,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   satp <== state.satp
   frm <== fp_csrs.frm
   fp_enabled <== fp_access_enabled
+  vector_enabled <== vector_access_enabled
+  vector_state <== vector_csrs.state
   redirect.valid <== trap.valid ||| mret ||| sret
   redirect.bits <== mux(
     trap.valid,

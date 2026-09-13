@@ -10,6 +10,8 @@ import:
   "../cache-prefetch.rhdl" open
   "memory.rhdl" open
   "decode/core-ctrl.rhdl" open
+  "decode/vector-ctrl.rhdl" open
+  "../../riscv/rtl/vector.rhdl" open
   "decode/operand-ctrl.rhdl" open
   "decode/branch-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
@@ -59,6 +61,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def zihintntl_enabled = extensions.zihintntl
   def compressed_extensions = extensions.compressed
   def width = xlen.width
+  def vector_enabled = core_profile.experimental_vector != #false
   def trace_isa = "rv" ++ to_string(width) ++ String.join(core_profile.isa_extensions.filter(~keep: fun (name): name.length() == 1), "") ++ "_" ++ String.join(core_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
@@ -121,7 +124,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen), 1))
 
-  inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled))
+  inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~experimental_vector: vector_enabled))
   inst id_registers(RV5StageRegisterFile(xlen))
   inst ex_alu(ALU(xlen))
   inst ex_branch_resolver(BranchResolver(width))
@@ -292,7 +295,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_management = id_control.memory.access.is_cache_management()
   def id_cbo_permission :: CboManagementPermission() = wb_csrs.cbo_permission
   def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), MemoryOperation.CacheBlockFlush, id_control.memory.access)
-  def id_illegal = id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (
+  // Integer vector rows publish controls but cannot execute before the unroller exists.
+  def id_illegal = id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| id_control.vector.integer ||| (
+    (id_control.system.action === SystemOperation.VectorConfig) & !wb_csrs.vector_enabled
+  ) ||| (
     id_control.memory.access.is_cache_block_zero() & !wb_csrs.cbo_zero_enabled
   ) ||| (id_management & !id_cbo_permission.permitted) ||| (
     id_control.floating_point_valid & (
@@ -475,6 +481,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           sequential_pc: fetched.sequential_pc
           predicted_next_pc: fetched.predicted_next_pc
           alu_control: id_control.alu
+          vector_control: id_control.vector
           operand_left: id_control.operand.left
           operand_right: id_control.operand.right
           pointer_masking: wb_csrs.pointer_masking
@@ -590,6 +597,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     ex_input.bits.instruction[15..20].zext(width),
     ex_forwarded_rs1
   )
+  def ex_vector_config = vector_configuration_request(xlen, ex_input.bits.vector_control.configure, ex_input.bits.instruction, ex_forwarded_rs1, ex_forwarded_rs2)
   def ex_result = mux_lookup(
     ex_input.bits.writeback_source,
     ~default: ex_alu.result,
@@ -696,6 +704,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     hint: ex_input.bits.hint
     csr_address: ex_input.bits.instruction[20..32]
     csr_source: ex_csr_source
+    vector_config: ex_vector_config
     exception_valid: ex_exception.valid
     exception_cause: ex_exception.cause
     exception_value: ex_exception.value
@@ -753,6 +762,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     hint: operation.hint
     csr_address: operation.csr_address
     csr_source: operation.csr_source
+    vector_config: operation.vector_config
     exception_valid: operation.exception_valid
     exception_cause: operation.exception_cause
     exception_value: operation.exception_value
@@ -893,6 +903,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     fence: wb_architectural_commit.fence
     csr_address: wb_architectural_commit.csr_address
     csr_source: wb_architectural_commit.csr_source
+    vector_config: wb_architectural_commit.vector_config
     exception_valid: wb_architectural_commit.exception_valid
     exception_cause: wb_architectural_commit.exception_cause
     exception_value: wb_architectural_commit.exception_value

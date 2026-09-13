@@ -3,6 +3,13 @@
 
 # RV5Stage decode
 
+`~experimental_vector: #true` adds the initial RVV configuration/integer rows
+to the same decoder. The vector column directly selects SIMD controls and
+operand routing; scalar `vset*` effects are composed only in `core-ctrl.rhdl`.
+This is decode coverage, not full vector execution. See the
+[experimental vector contract](../vector/README.md) for WB-owned configuration,
+legality, and the deliberately unimplemented unroller.
+
 `~zihintpause: #true` overlays the exact PAUSE word on the existing FENCE row
 in the same combined decoder. Its hint selector enables bounded throttling at
 WB; register use, writeback, memory, and ordinary fence actions are disabled.

@@ -1,0 +1,248 @@
+#lang rhodium
+// Decodes the initial RVV integer subset directly into packed-lane and operand controls.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../riscv/isa/v.rhm" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/instruction-fields.rhdl" open
+  "../../../riscv/rtl/instruction-pattern.rhdl" open
+  "../../../riscv/model/instruction.rhm".InstructionSpec
+  "../../simd-alu.rhdl" open
+  lib("rhodium/std/decode.rhdl") open
+
+hardware_enum VectorConfigMode:
+  None
+  VtypeImmediate
+  AllImmediate
+  VtypeRegister
+
+hardware_enum VectorOperandMode:
+  Vector
+  Scalar
+  Immediate
+
+bundle RV5StageVectorControl():
+  configure: VectorConfigMode
+  integer: Bool
+  operand: VectorOperandMode
+  immediate_unsigned: Bool
+  mask_destination: Bool
+  invert_comparison: Bool
+  swap_operands: Bool
+  alu: SimdAluControl()
+
+def NoVectorControl = partial_pattern(RV5StageVectorControl()):
+  configure: VectorConfigMode.None
+  integer: Bool(#false)
+
+fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
+  DecodeCase(
+    instruction_pattern(instruction),
+    partial_pattern(RV5StageVectorControl()):
+      configure: mode
+      integer: Bool(#false)
+  )
+def VectorConfigurationCases = [
+  config_case(VSETVLI, VectorConfigMode.VtypeImmediate),
+  config_case(VSETIVLI, VectorConfigMode.AllImmediate),
+  config_case(VSETVL, VectorConfigMode.VtypeRegister)
+]
+
+fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
+                 ~mask: mask :: Boolean = #false,
+                 ~invert: invert :: Boolean = #false,
+                 ~swap: swap :: Boolean = #false):
+  def form = instruction.format
+  DecodeCase(
+    instruction_pattern(instruction),
+    pattern(RV5StageVectorControl()):
+      configure: VectorConfigMode.None
+      integer: Bool(#true)
+      operand: if form == VectorVVFormat | VectorOperandMode.Vector | (if form == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
+      immediate_unsigned: Bool(form == VectorShiftVIFormat)
+      mask_destination: Bool(mask)
+      invert_comparison: Bool(invert)
+      swap_operands: Bool(swap)
+      alu: alu
+  )
+
+def vadd_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  subtract: Bool(#false)
+def vsub_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  subtract: Bool(#true)
+def vand_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Logic
+  logic_select: SimdLogicSelect.And
+  invert_right: Bool(#false)
+def vor_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Logic
+  logic_select: SimdLogicSelect.Or
+  invert_right: Bool(#false)
+def vxor_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Logic
+  logic_select: SimdLogicSelect.Xor
+  invert_right: Bool(#false)
+def vsll_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Shift
+  shift_right: Bool(#false)
+  arithmetic_shift: Bool(#false)
+  rotate: Bool(#false)
+def vsrl_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Shift
+  shift_right: Bool(#true)
+  arithmetic_shift: Bool(#false)
+  rotate: Bool(#false)
+def vsra_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Shift
+  shift_right: Bool(#true)
+  arithmetic_shift: Bool(#true)
+  rotate: Bool(#false)
+def vmseq_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Compare
+  comparison_select: SimdComparisonSelect.Equal
+  signed_compare: Bool(#false)
+def vmsne_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Compare
+  comparison_select: SimdComparisonSelect.Equal
+  signed_compare: Bool(#false)
+def vmsltu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Compare
+  comparison_select: SimdComparisonSelect.Less
+  signed_compare: Bool(#false)
+def vmslt_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Compare
+  comparison_select: SimdComparisonSelect.Less
+  signed_compare: Bool(#true)
+def vmsleu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Compare
+  comparison_select: SimdComparisonSelect.LessEqual
+  signed_compare: Bool(#false)
+def vmsle_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Compare
+  comparison_select: SimdComparisonSelect.LessEqual
+  signed_compare: Bool(#true)
+def vmsgtu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Compare
+  comparison_select: SimdComparisonSelect.Less
+  signed_compare: Bool(#false)
+def vmsgt_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Compare
+  comparison_select: SimdComparisonSelect.Less
+  signed_compare: Bool(#true)
+def vminu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.MinMax
+  signed_compare: Bool(#false)
+  maximum: Bool(#false)
+def vmin_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.MinMax
+  signed_compare: Bool(#true)
+  maximum: Bool(#false)
+def vmaxu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.MinMax
+  signed_compare: Bool(#false)
+  maximum: Bool(#true)
+def vmax_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.MinMax
+  signed_compare: Bool(#true)
+  maximum: Bool(#true)
+
+def VectorIntegerCases = [
+  integer_case(VADD_VV, vadd_control),
+  integer_case(VADD_VX, vadd_control),
+  integer_case(VADD_VI, vadd_control),
+  integer_case(VSUB_VV, vsub_control),
+  integer_case(VSUB_VX, vsub_control),
+  integer_case(VAND_VV, vand_control),
+  integer_case(VAND_VX, vand_control),
+  integer_case(VAND_VI, vand_control),
+  integer_case(VOR_VV, vor_control),
+  integer_case(VOR_VX, vor_control),
+  integer_case(VOR_VI, vor_control),
+  integer_case(VXOR_VV, vxor_control),
+  integer_case(VXOR_VX, vxor_control),
+  integer_case(VXOR_VI, vxor_control),
+  integer_case(VSLL_VV, vsll_control),
+  integer_case(VSLL_VX, vsll_control),
+  integer_case(VSLL_VI, vsll_control),
+  integer_case(VSRL_VV, vsrl_control),
+  integer_case(VSRL_VX, vsrl_control),
+  integer_case(VSRL_VI, vsrl_control),
+  integer_case(VSRA_VV, vsra_control),
+  integer_case(VSRA_VX, vsra_control),
+  integer_case(VSRA_VI, vsra_control),
+  integer_case(VMSEQ_VV, vmseq_control, ~mask: #true),
+  integer_case(VMSEQ_VX, vmseq_control, ~mask: #true),
+  integer_case(VMSEQ_VI, vmseq_control, ~mask: #true),
+  integer_case(VMSNE_VV, vmsne_control, ~mask: #true, ~invert: #true),
+  integer_case(VMSNE_VX, vmsne_control, ~mask: #true, ~invert: #true),
+  integer_case(VMSNE_VI, vmsne_control, ~mask: #true, ~invert: #true),
+  integer_case(VMSLTU_VV, vmsltu_control, ~mask: #true),
+  integer_case(VMSLTU_VX, vmsltu_control, ~mask: #true),
+  integer_case(VMSLT_VV, vmslt_control, ~mask: #true),
+  integer_case(VMSLT_VX, vmslt_control, ~mask: #true),
+  integer_case(VMSLEU_VV, vmsleu_control, ~mask: #true),
+  integer_case(VMSLEU_VX, vmsleu_control, ~mask: #true),
+  integer_case(VMSLEU_VI, vmsleu_control, ~mask: #true),
+  integer_case(VMSLE_VV, vmsle_control, ~mask: #true),
+  integer_case(VMSLE_VX, vmsle_control, ~mask: #true),
+  integer_case(VMSLE_VI, vmsle_control, ~mask: #true),
+  integer_case(VMSGTU_VX, vmsgtu_control, ~mask: #true, ~swap: #true),
+  integer_case(VMSGTU_VI, vmsgtu_control, ~mask: #true, ~swap: #true),
+  integer_case(VMSGT_VX, vmsgt_control, ~mask: #true, ~swap: #true),
+  integer_case(VMSGT_VI, vmsgt_control, ~mask: #true, ~swap: #true),
+  integer_case(VMINU_VV, vminu_control),
+  integer_case(VMINU_VX, vminu_control),
+  integer_case(VMIN_VV, vmin_control),
+  integer_case(VMIN_VX, vmin_control),
+  integer_case(VMAXU_VV, vmaxu_control),
+  integer_case(VMAXU_VX, vmaxu_control),
+  integer_case(VMAX_VV, vmax_control),
+  integer_case(VMAX_VX, vmax_control)
+]
+def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases
+
+fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
+  def immediate_avl = mode === VectorConfigMode.AllImmediate
+  def source_zero = !instruction_field(vs1, instruction).or_reduce()
+  def destination_zero = !instruction_field(vd, instruction).or_reduce()
+  RiscvVectorConfigRequest(xlen):
+    vtype: mux(mode === VectorConfigMode.VtypeRegister, scalar2, mux(immediate_avl, instruction_field(vtype10, instruction).zext(xlen.width), instruction_field(vtype11, instruction).zext(xlen.width)))
+    avl: mux(immediate_avl, instruction_field(avl5, instruction).zext(xlen.width), scalar1)
+    maximum: !immediate_avl & source_zero & !destination_zero
+    keep_vl: !immediate_avl & source_zero & destination_zero
+
+// Same-width ordinary operands and mask-result overlap; no widening policy is inferred.
+circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
+  input instruction: Bits(32)
+  input control: RV5StageVectorControl()
+  input vtype: Bits(xlen.width)
+  output legal: Bool
+  def config = vector_type(xlen, vlen, vtype)
+  def group_mask = mux_lookup(config.lmul, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
+  def destination = instruction_field(vd, instruction)
+  def source1 = instruction_field(vs1, instruction)
+  def source2 = instruction_field(vs2, instruction)
+  def vector_operand = control.operand === VectorOperandMode.Vector
+  def destination_aligned = !(destination & group_mask).or_reduce()
+  def source1_aligned = !(source1 & group_mask).or_reduce()
+  def source2_aligned = !(source2 & group_mask).or_reduce()
+  fun mask_overlap_legal(source :: Bits(5)) :: Bool:
+    ((destination & !group_mask) =/= source) ||| (destination === source)
+  def masked = !instruction_field(vm, instruction).or_reduce()
+  legal <== control.integer & !config.vill & source2_aligned & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+
+export:
+  VectorConfigMode
+  VectorOperandMode
+  RV5StageVectorControl
+  NoVectorControl
+  VectorConfigurationCases
+  VectorIntegerCases
+  VectorControlCases
+  RV5StageVectorLegality
+  vector_configuration_request

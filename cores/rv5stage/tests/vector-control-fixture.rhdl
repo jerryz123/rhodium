@@ -1,0 +1,72 @@
+#lang rhodium
+// Exercises real integrated decode, configuration extraction, CSR commit, and runtime vector legality.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../csr.rhdl" open
+  "../profile.rhm" open
+  "../interrupt.rhdl" open
+  "../decode/core-ctrl.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
+  "../decode/system-ctrl.rhdl" open
+  "../vector/csr.rhdl" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/cmo.rhdl" open
+
+sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
+  input instruction: Bits(32)
+  input(scalar1, scalar2): Bits(xlen.width)
+  input(commit_valid, exception_valid): Bool
+  input test_vtype: Bits(xlen.width)
+  output(decoded_valid, legal, writeback_valid, redirect_valid): Bool
+  output writeback_value: Bits(xlen.width)
+  output mstatus: Bits(xlen.width)
+  output state: RV5StageVectorState(xlen)
+  output(configuration, operand): Bits(2)
+  output(mask_destination, invert_comparison, swap_operands): Bool
+  inst decoder(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
+  inst csrs(RV5StageCsrFile(RVCoreProfile(~xlen: xlen, ~experimental_vector: vlen)))
+  inst legality(RV5StageVectorLegality(xlen, vlen))
+  decoder.instruction <== instruction
+  legality.instruction <== instruction
+  legality.control <== decoder.control.vector
+  legality.vtype <== test_vtype
+  legal <== decoder.valid & legality.legal
+  decoded_valid <== decoder.valid
+  configuration <== decoder.control.vector.configure.as_bits()
+  operand <== decoder.control.vector.operand.as_bits()
+  mask_destination <== decoder.control.vector.mask_destination
+  invert_comparison <== decoder.control.vector.invert_comparison
+  swap_operands <== decoder.control.vector.swap_operands
+  csrs.interrupts <== literal(RV5StageInterrupts(), 0)
+  csrs.hart_id <== bits(0, xlen.width)
+  csrs.time_counter <== bits(0, 64)
+  csrs.interrupt_boundary <== Bool(#false)
+  csrs.interrupt_pc <== bits(0, xlen.width)
+  csrs.fp_update.valid <== Bool(#false)
+  csrs.fp_update.bits <== bits(0, 5)
+  csrs.cbo_operation <== CboManagementOperation.Invalidate
+  csrs.commit.valid <== commit_valid
+  csrs.commit.bits <== RV5StageCsrCommit(xlen):
+    pc: bits(0x100, xlen.width)
+    instruction: instruction
+    rd: instruction[7..12]
+    system: decoder.control.system
+    fence: decoder.control.fence
+    csr_address: instruction[20..32]
+    csr_source: mux(decoder.control.system.immediate, instruction[15..20].zext(xlen.width), scalar1)
+    vector_config: vector_configuration_request(xlen, decoder.control.vector.configure, instruction, scalar1, scalar2)
+    exception_valid: exception_valid ||| !decoder.valid ||| decoder.control.vector.integer
+    exception_cause: bits(2, xlen.width)
+    exception_value: if xlen == XLen.X32 | instruction | instruction.zext(xlen.width)
+  writeback_valid <== csrs.writeback_valid
+  writeback_value <== csrs.writeback_value
+  redirect_valid <== csrs.redirect.valid
+  mstatus <== csrs.mstatus
+  state <== csrs.vector_state
+
+export:
+  RV5StageVectorControlFixture

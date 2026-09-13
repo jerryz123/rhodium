@@ -35,6 +35,7 @@ hardware_enum SystemOperation:
   Wfi
   WrsNto
   WrsSto
+  VectorConfig
 
 bundle SystemControl():
   csr: CsrOperation

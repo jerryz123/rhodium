@@ -5,10 +5,11 @@
     word_t pc;
     logic [31:0] instruction;
     logic [4:0] rd;
-    struct packed { logic [1:0] csr; logic immediate; logic [2:0] action; } system;
+    struct packed { logic [1:0] csr; logic immediate; logic [3:0] action; } system;
     struct packed { logic [1:0] action; } fence;
     logic [11:0] csr_address;
     word_t csr_source;
+    struct packed { word_t vtype; word_t avl; logic maximum; logic keep_vl; } vector_config;
     logic exception_valid;
     word_t exception_cause;
     word_t exception_value;
@@ -31,7 +32,7 @@
   logic [1:0] cbo_operation = 0;
   logic [2:0] cbo_permission;
 
-  RV5StageCsrFile dut (.pointer_masking(), .pointer_masking_changed(), .*);
+  RV5StageCsrFile dut (.vector_state(), .vector_enabled(), .pointer_masking(), .pointer_masking_changed(), .*);
   always #5 clock = ~clock;
 
   task automatic access_csr(

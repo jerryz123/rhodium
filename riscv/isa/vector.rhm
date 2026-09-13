@@ -97,6 +97,34 @@ fun vector_mask_location(vlen :: VectorLength, base :: Nat, element :: Nat) :: V
   | error(~who: #'vector_mask_location, "mask element or register out of range")
   VectorLocation(base * vector_chunks(vlen) + element div 64, element mod 64)
 
+fun vector_sew_encoding(sew :: VectorSEW) :: Nat:
+  match sew
+  | VectorSEW.E8: 0
+  | VectorSEW.E16: 1
+  | VectorSEW.E32: 2
+  | VectorSEW.E64: 3
+
+fun vector_lmul_encoding(lmul :: VectorLMUL) :: Nat:
+  match lmul
+  | VectorLMUL.M1: 0
+  | VectorLMUL.M2: 1
+  | VectorLMUL.M4: 2
+  | VectorLMUL.M8: 3
+  | VectorLMUL.MF8: 5
+  | VectorLMUL.MF4: 6
+  | VectorLMUL.MF2: 7
+
+// Unsupported runtime encodings become vill; they are not host contract errors.
+fun vector_vtype_config(vlen :: VectorLength, raw :: Nat) :: False || VectorConfig:
+  def sew = bits.field(raw, 3, 6)
+  def lmul = bits.field(raw, 0, 3)
+  def groups = VectorRegisterGroups.filter(~keep: fun (group): vector_lmul_encoding(group) == lmul)
+  if raw >= 256 || sew >= 4 || groups.is_empty()
+  | #false
+  | if vector_element_bits(VectorElementWidths[sew]) > 64 * vector_lmul(groups[0])
+    | #false
+    | VectorConfig(vlen, VectorElementWidths[sew], groups[0])
+
 // Ordinary elementwise data operands only: masks and instruction-specific
 // overlap restrictions are checked by the eventual instruction decoder.
 fun vector_data_overlap_legal(source :: VectorConfig, source_base :: Nat,
@@ -126,4 +154,7 @@ export:
   vector_chunks
   vector_depth
   vector_mask_location
+  vector_sew_encoding
+  vector_lmul_encoding
+  vector_vtype_config
   vector_data_overlap_legal

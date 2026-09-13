@@ -1,11 +1,51 @@
-<!-- Defines the standalone RV5Stage vector register bank and packed execution adapters. -->
+<!-- Defines experimental vector configuration, decode, storage, and execution-boundary contracts. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Vector storage and packing
+# Experimental vector path
 
-These standalone components prepare RV5Stage's vector execution path. They do
-not add vector instructions, CSRs, retirement, or a `V`/Zvbb profile claim.
+These components prepare RV5Stage's vector execution path. The opt-in
+`RVCoreProfile(~experimental_vector: vlen)` enables configuration instructions
+and vector CSR state. The default is `#false`. Neither setting advertises
+`V`, Zve, or Zvbb: vector arithmetic and memory execution are not integrated.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
+
+## Configuration and decode
+
+The experimental core executes `vsetvli`, `vsetivli`, and `vsetvl` through the
+existing serializing system-instruction path. Only WB updates `vl`, `vtype`,
+and `vstart`; scalar `rd` receives the new VL. Squashed or faulting operations
+do not update this state. Supported geometry is ELEN=64, SEW 8/16/32/64,
+LMUL 1/8 through 8, subject to SEW <= LMUL * ELEN. Unsupported configurations
+set `vill` and zero VL. Ordinary AVL selection uses `min(AVL, VLMAX)`;
+`rs1=x0,rd!=x0` selects VLMAX, while `rs1=rd=x0` preserves VL only when the
+old/new types are legal and VLMAX is unchanged. Reserved keep-VL uses trap.
+
+The CSR bank exposes `vstart`, `vxrm`, `vxsat`, `vcsr`, `vl`, `vtype`, and
+`vlenb`. `vstart` retains enough low bits for VLEN-1; `vxrm` and `vxsat` alias
+`vcsr`. VL/type/VLENB are read-only. Reset starts with `vill=1`, VL=0, and
+`mstatus.VS=Off`; VS Off blocks vector CSR access and configuration. Successful
+configuration or vector CSR writes mark VS Dirty, reads do not, and SD combines
+the FP and vector dirty states. Software may manage VS through M/S status.
+
+The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
+add/sub, logic, shifts, comparisons, and min/max using direct SIMD controls,
+operand selection, comparison inversion, and operand swapping. Runtime group
+checks cover alignment, fractional groups, masked data destinations, and
+mask-result overlap. These rows are available to a future unroller, but the
+current scalar pipeline deliberately traps them as illegal instructions.
+This is an initial subset of [RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext),
+not a complete vector ISA implementation.
+
+## Unroller boundary
+
+[`bundles.rhdl`](bundles.rhdl) defines an instruction/configuration snapshot,
+64-bit packed micro-ops, and WB authorization/retry/fault feedback. Position
+is an exclusive architectural element range, independent of masked-off lanes;
+caller-defined context identifies outstanding work. Authorization is distinct
+from result completion, and accepted side effects must never be retried.
+These payloads do not instantiate a scheduler or change scalar memory ordering.
+The Decode-held unroller, precise partial progress, arithmetic retirement,
+shared FP execution, and vector LSU scheduling remain the next integration cut.
 
 ## Register bank
 

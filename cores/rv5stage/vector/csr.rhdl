@@ -1,0 +1,82 @@
+#lang rhodium
+// Owns experimental vector configuration and writable CSR state under authorized commit events.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/csr.rhm" open
+  "../../../riscv/rtl/csr.rhdl" open
+  "../../../riscv/rtl/vector.rhdl" open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+
+bundle RV5StageVectorCsrWrite(xlen :: XLen):
+  address: Bits(12)
+  value: Bits(xlen.width)
+
+bundle RV5StageVectorState(xlen :: XLen):
+  vl: Bits(xlen.width)
+  vtype: Bits(xlen.width)
+  vstart: Bits(xlen.width)
+  vxrm: Bits(2)
+  vxsat: Bool
+
+sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
+  // Preview is independent of WB authorization; an illegal candidate cannot authorize itself.
+  input candidate: RiscvVectorConfigRequest(xlen)
+  interface configure(Pulse(), ~role: consumer)
+  interface write(Valid(RV5StageVectorCsrWrite(xlen)), ~role: consumer)
+  interface status_write(Valid(Bits(2)), ~role: consumer)
+  output state: RV5StageVectorState(xlen)
+  output status: Bits(2)
+  output configuration_illegal: Bool
+  output configuration_vl: Bits(xlen.width)
+
+  if vlen
+  | block:
+      reg vl(~init: bits(0, index_width(vlen + 1)))
+      reg vtype(~init: bits(1 << (xlen.width - 1), xlen.width))
+      reg vstart(~init: bits(0, index_width(vlen)))
+      reg vxrm(~init: bits(0, 2))
+      reg vxsat(~init: Bool(#false))
+      reg vs(~init: bits(0, 2))
+      def next_config = vector_configure(xlen, vlen, candidate, vtype, vl)
+      configuration_illegal <== next_config.illegal
+      configuration_vl <== next_config.vl.zext(xlen.width)
+      def configuration_write = configure.valid & !next_config.illegal
+      when configuration_write:
+        vl <== next_config.vl
+        vtype <== next_config.vtype
+        vstart <== bits(0, index_width(vlen))
+      elsewhen (write.valid & (write.bits.address === csr_bits(CsrId.Vstart))):
+        vstart <== write.bits.value[0..index_width(vlen)]
+      when (write.valid & (write.bits.address === csr_bits(CsrId.Vcsr))):
+        vxrm <== write.bits.value[1..3]
+        vxsat <== write.bits.value[0].into(Bool)
+      otherwise:
+        when (write.valid & (write.bits.address === csr_bits(CsrId.Vxrm))):
+          vxrm <== write.bits.value[0..2]
+        when (write.valid & (write.bits.address === csr_bits(CsrId.Vxsat))):
+          vxsat <== write.bits.value[0].into(Bool)
+      when (status_write.valid):
+        vs <== status_write.bits
+      elsewhen (configuration_write ||| write.valid):
+        vs <== bits(3, 2)
+      state <== RV5StageVectorState(xlen):
+        vl: vl.zext(xlen.width)
+        vtype: vtype
+        vstart: vstart.zext(xlen.width)
+        vxrm: vxrm
+        vxsat: vxsat
+      status <== vs
+  | block:
+      state <== literal(RV5StageVectorState(xlen), 0)
+      status <== bits(0, 2)
+      configuration_illegal <== Bool(#true)
+      configuration_vl <== bits(0, xlen.width)
+
+export:
+  RV5StageVectorCsrWrite
+  RV5StageVectorState
+  RV5StageVectorCsrs

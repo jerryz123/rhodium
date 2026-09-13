@@ -17,9 +17,10 @@ caches live here. Reusable execution components remain directly under
 Contributors changing the core should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
-Standalone [vector storage and packing](vector/README.md) provide a configurable
-VLEN, flat 64-bit register bank and adapters to the reusable SIMD ALU. They are
-not integrated into this scalar pipeline and do not enable vector instructions.
+The experimental [vector path](vector/README.md) provides configurable VLEN,
+a flat 3R1W 64-bit register bank, SIMD packing, and opt-in WB-owned `vset*`/CSR
+execution. Vector arithmetic and memory are not integrated; no V/Zve/Zvbb
+extension is advertised.
 
 ## At a glance
 

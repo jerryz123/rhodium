@@ -72,6 +72,7 @@ export:
 enum RegisterBank
 | Integer
 | FloatingPoint
+| Vector
 
 class RegisterOperand(name :: NonemptyString, field :: BitField, role :: String, bank :: RegisterBank):
   constructor (name :: NonemptyString, field :: BitField, role :: String, bank :: RegisterBank = RegisterBank.Integer):

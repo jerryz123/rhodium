@@ -1,0 +1,71 @@
+#lang rhombus
+// Checks initial vector control rows, scalar source metadata, and reusable unroller payload widths.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../riscv/isa/v.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../decode/vector-ctrl.rhdl" open
+  "../decode/core-ctrl.rhdl" open
+  "../vector/bundles.rhdl" open
+  "../../simd-alu.rhdl" open
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
+
+fun field(record, name):
+  def mutable offset = record.literal_type().packed_width()
+  def mutable selected = #false
+  for (entry in record.literal_type().fields):
+    def end = offset
+    offset := offset - entry.type.packed_width()
+    when entry.name == name
+    | selected := PackedLiteral(entry.type, bits.field(record.packed_value(), offset, end))
+  selected
+fun value(record, name):
+  field(record, name).packed_value()
+fun control(instruction):
+  VectorControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
+
+check:
+  VectorControlCases.length() ~is VectorInitialInstructions.length()
+  VectorCoreControlCases.length() ~is VectorInitialInstructions.length()
+  value(control(VSETVLI), "configure") ~is VectorConfigMode.VtypeImmediate.packed_value()
+  value(control(VSETIVLI), "configure") ~is VectorConfigMode.AllImmediate.packed_value()
+  value(control(VSETVL), "configure") ~is VectorConfigMode.VtypeRegister.packed_value()
+  value(field(control(VSUB_VV), "alu"), "subtract") ~is 1
+  value(field(control(VADD_VX), "alu"), "subtract") ~is 0
+  value(field(control(VAND_VI), "alu"), "logic_select") ~is SimdLogicSelect.And.packed_value()
+  value(field(control(VOR_VV), "alu"), "logic_select") ~is SimdLogicSelect.Or.packed_value()
+  value(field(control(VXOR_VX), "alu"), "logic_select") ~is SimdLogicSelect.Xor.packed_value()
+  value(field(control(VSLL_VI), "alu"), "shift_right") ~is 0
+  value(field(control(VSRL_VI), "alu"), "arithmetic_shift") ~is 0
+  value(field(control(VSRA_VI), "alu"), "arithmetic_shift") ~is 1
+  value(control(VMSNE_VV), "invert_comparison") ~is 1
+  value(control(VMSGT_VI), "swap_operands") ~is 1
+  value(field(control(VMSLEU_VV), "alu"), "comparison_select") ~is SimdComparisonSelect.LessEqual.packed_value()
+  value(field(control(VMSLT_VV), "alu"), "signed_compare") ~is 1
+  value(field(control(VMAX_VV), "alu"), "maximum") ~is 1
+  value(field(control(VMINU_VX), "alu"), "maximum") ~is 0
+
+for (instruction in VectorIntegerInstructions):
+  def decoded = control(instruction)
+  def expected_operand = cond
+  | instruction.format == VectorVVFormat: VectorOperandMode.Vector
+  | instruction.format == VectorVXFormat: VectorOperandMode.Scalar
+  | ~else: VectorOperandMode.Immediate
+  check:
+    value(decoded, "integer") ~is 1
+    value(decoded, "configure") ~is VectorConfigMode.None.packed_value()
+    value(decoded, "operand") ~is expected_operand.packed_value()
+    value(decoded, "immediate_unsigned") ~is (if instruction.format == VectorShiftVIFormat | 1 | 0)
+
+for (vlen in [128, 256, 512, 65536]):
+  def micro = RV5StageVectorMicroOp(vlen, Bits(4))
+  def feedback = RV5StageVectorFeedback(XLen.X64, vlen, Bits(4))
+  check:
+    micro.field("left").type.packed_width() ~is 64
+    micro.field("right").type.packed_width() ~is 64
+    micro.field("context").type.packed_width() ~is 4
+    feedback.field("context").type.packed_width() ~is 4
+    (1 bits.(<<) micro.field("end").type.packed_width()) > vlen ~is #true
+    micro.field("end").type.packed_width() ~is feedback.field("end").type.packed_width()

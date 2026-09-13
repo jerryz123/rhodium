@@ -10,6 +10,7 @@ import:
   lib("riscv/isa/c.rhm") open
   lib("riscv/isa/fp-profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector.rhm").VectorLength
 
 def RV5StageCacheLineBytes :: Pow2Int = 64
 
@@ -139,13 +140,15 @@ fun check_rv5stage_floating_point_profile(xlen :: XLen,
 class RVCoreProfile(xlen :: XLen,
                     extensions :: RV5StageExtensions,
                     mmu_mode :: RV5StageMmuMode,
-                    cache_geometry :: RV5StageCacheGeometry):
+                    cache_geometry :: RV5StageCacheGeometry,
+                    experimental_vector :: False || VectorLength):
   implements StableCircuitParam
 
   constructor (~xlen: xlen :: XLen,
                ~extensions: extensions :: RV5StageExtensions = RV5StageExtensions(),
                ~mmu_mode: mmu_mode :: RV5StageMmuMode = RV5StageMmuMode.Bare,
-               ~cache_geometry: cache_geometry :: RV5StageCacheGeometry = RV5StageCacheGeometry()):
+               ~cache_geometry: cache_geometry :: RV5StageCacheGeometry = RV5StageCacheGeometry(),
+               ~experimental_vector: experimental_vector :: False || VectorLength = #false):
     check_rv5stage_floating_point_profile(
       xlen,
       extensions.floating_point,
@@ -157,7 +160,7 @@ class RVCoreProfile(xlen :: XLen,
     | error(~who: #'RVCoreProfile, "Ssnpm requires RV64")
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RVCoreProfile, "RV32 profiles support only Bare translation")
-    super(xlen, extensions, mmu_mode, cache_geometry)
+    super(xlen, extensions, mmu_mode, cache_geometry, experimental_vector)
 
   property isa_base :: String:
     if xlen == XLen.X32 | "rv32i" | "rv64i"

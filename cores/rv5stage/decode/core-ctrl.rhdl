@@ -22,6 +22,8 @@ import:
   "../../../riscv/isa/zihintpause.rhm" open
   "../../../riscv/isa/zihintntl.rhm" open
   "fp-ctrl.rhdl" open
+  "vector-ctrl.rhdl" open
+  "../../../riscv/isa/v.rhm" as vector_isa
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/f.rhm" as f
@@ -59,6 +61,7 @@ bundle RV5StageControl():
   hint: HintOperation
   floating_point_valid: Bool
   floating_point: RV5StageFloatingPointControl()
+  vector: RV5StageVectorControl()
 
 // Ordinary host code adds independently authored control columns to one row
 // per instruction. The selected ISA still elaborates to one decode table.
@@ -91,6 +94,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec),
           hint: HintOperation.None
           floating_point_valid: Bool(#false)
           floating_point: pattern(RV5StageFloatingPointControl(), _)
+          vector: NoVectorControl
       )
 
 fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
@@ -161,6 +165,7 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
           hint: HintOperation.None
           floating_point_valid: Bool(#true)
           floating_point: component_output(floating_point_cases, input)
+          vector: NoVectorControl
       )
 
 // Zicbop refines three ORI-to-x0 regions. Complete override rows are formed
@@ -214,6 +219,7 @@ def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions)
       hint: HintOperation.None
       floating_point_valid: Bool(#false)
       floating_point: pattern(RV5StageFloatingPointControl(), _)
+      vector: NoVectorControl
   )
 
 // Hint overlays preserve intent without introducing register use or architectural effects.
@@ -233,8 +239,42 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: HintOperation):
       fence: inactive_fence_control
       hint: hint
       floating_point_valid: Bool(#false)
+      vector: NoVectorControl
   )
 def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, HintOperation.Pause)]
+
+// Scalar effects for vector rows live only at this composition boundary.
+def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialInstructions):
+  def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
+  def sources = instruction.operands.filter(~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer)
+  def input = instruction_pattern(instruction)
+  DecodeCase(
+    input,
+    partial_pattern(RV5StageControl()):
+      operand:
+        pattern(OperandControl()):
+          uses_rs1: Bool(!sources.is_empty())
+          uses_rs2: Bool(instruction == vector_isa.VSETVL)
+          left: OperandASelect.Register
+          right: OperandBSelect.Register
+          immediate: ImmediateSelect.None
+      branch: inactive_branch_control
+      memory: inactive_memory_control
+      prefetch: CachePrefetchOperation.None
+      writeback:
+        pattern(WritebackControl()):
+          enable: Bool(configuration)
+          source: WritebackSelect.Csr
+      system:
+        pattern(SystemControl()):
+          csr: CsrOperation.None
+          immediate: Bool(#false)
+          action: if configuration | SystemOperation.VectorConfig | SystemOperation.None
+      fence: inactive_fence_control
+      hint: HintOperation.None
+      floating_point_valid: Bool(#false)
+      vector: component_output(VectorControlCases, input)
+  )
 def ZihintntlCoreControlCases = [
   hint_control_case(NTL_P1, HintOperation.NtlP1),
   hint_control_case(NTL_PALL, HintOperation.NtlPall),
@@ -378,7 +418,8 @@ circuit RV5StageInstructionDecoder(
   ~zihintpause: zihintpause_enabled :: Boolean = #false,
   ~zihintntl: zihintntl_enabled :: Boolean = #false,
   ~zicbom: zicbom_enabled :: Boolean = #false,
-  ~zicboz: zicboz_enabled :: Boolean = #false
+  ~zicboz: zicboz_enabled :: Boolean = #false,
+  ~experimental_vector: vector_enabled :: Boolean = #false
 ):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   input instruction: Bits(32)
@@ -396,11 +437,12 @@ circuit RV5StageInstructionDecoder(
         rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled),
         rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled)
       )
-  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases)(instruction)
+  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases ++ (if vector_enabled | VectorCoreControlCases | []))(instruction)
   valid <== decoded.valid
   control <== decoded.value
 
 export:
+  VectorCoreControlCases
   ZihintntlCoreControlCases
   ZihintpauseCoreControlCases
   ZawrsCoreControlCases

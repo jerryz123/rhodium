@@ -49,6 +49,7 @@ Dependency enforcement and extension workflow are documented in
 | [`compressed.rhdl`](compressed.rhdl) | `RiscvCompressedExpansion`, `RiscvCompressedExpander`, `compressed_selector_cases` | Recognize legal C encodings and emit canonical 32-bit instructions |
 | [`mop.rhdl`](mop.rhdl) | `resolve_mop_decode_cases` | Compatibility name for the standard decode-overlay operation |
 | [`csr.rhdl`](csr.rhdl) | `CsrBank`, `csr_bits`, `csr_bank` | Convert `CsrId` and define exact-key CSR recognition, reads, and writes |
+| [`vector.rhdl`](vector.rhdl) | `vector_type`, `vector_configure` | ELEN=64 vtype legality, vill normalization, AVL clamping, and reserved keep-VL checks; no architectural state |
 | [`cmo.rhdl`](cmo.rhdl) | `CboManagementOperation`, `CboInvalidateMode`, `CboManagementPermission`, and `cbo_*`/`cmo_*` helpers | M/S/U CMO permission, invalidate-to-flush conversion, xenvcfg WARL fields, and physical permission |
 | [`privilege.rhdl`](privilege.rhdl) | `PrivilegeMode`, `effective_data_privilege` | Shared M/S/U values and MPRV/MPP selection for explicit accesses |
 | [`pointer-masking.rhdl`](pointer-masking.rhdl) | `PointerMaskMode`, `PointerMaskControl`, and pointer-mask helpers | RV64 Ssnpm WARL controls and explicit-address normalization |

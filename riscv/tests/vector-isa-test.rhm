@@ -1,0 +1,39 @@
+#lang rhombus
+// Checks independent RVV opcode words, operand formats, CSR IDs, and all vtype encodings.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/v.rhm" open
+  "../isa/vector.rhm" open
+  "../isa/csr.rhm" open
+  "../model/main.rhm" as model
+
+check:
+  VSETVLI.encode([model.rd.constrain(1), model.rs1.constrain(2), vtype11.constrain(0xd0)]) ~is 0x0d0170d7
+  VSETIVLI.encode([model.rd.constrain(1), avl5.constrain(7), vtype10.constrain(0xd0)]) ~is 0xcd03f0d7
+  VSETVL.encode([model.rd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3)]) ~is 0x803170d7
+  VADD_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x022180d7
+  VSUB_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(0)]) ~is 0x0821c0d7
+  VADD_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~is 0x022fb0d7
+  VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0x962fb0d7
+  VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~throws ""
+  VectorVVFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Vector, model.RegisterBank.Vector]
+  [CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_address) ~is [8, 9, 10, 15, 0xc20, 0xc21, 0xc22]
+
+for (vlen in [128, 256, 512, 65536]):
+  for (encoding in 0..512):
+    def sew = bits.field(encoding, 3, 6)
+    def lm = bits.field(encoding, 0, 3)
+    def exponent = if lm >= 4 | lm - 8 | lm
+    def legal = encoding < 256 && sew <= 3 && lm != 4 && sew <= exponent + 3
+    def decoded = vector_vtype_config(vlen, encoding)
+    check:
+      (decoded != #false) ~is legal
+    when decoded
+    | check:
+        decoded.vlmax ~is vlen * (2 ** exponent) / (8 * (2 ** sew))
+        vector_sew_encoding(decoded.sew) ~is sew
+        vector_lmul_encoding(decoded.lmul) ~is lm
+for (instruction in VectorInitialInstructions):
+  check:
+    VectorInitial.matching(instruction.encoding.value) === instruction ~is #true

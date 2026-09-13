@@ -7,6 +7,8 @@ import:
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
+  "../../riscv/rtl/vector.rhdl" open
+  "decode/vector-ctrl.rhdl" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
   "../cache-prefetch.rhdl" open
@@ -83,6 +85,7 @@ bundle DecodeExecute(xlen :: XLen):
   sequential_pc: Bits(xlen.width)
   predicted_next_pc: Bits(xlen.width)
   alu_control: AluControl()
+  vector_control: RV5StageVectorControl()
   operand_left: OperandASelect
   operand_right: OperandBSelect
   branch_control: BranchResolverControl()
@@ -143,6 +146,7 @@ bundle ExecuteMemory(xlen :: XLen):
   hint: HintOperation
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
+  vector_config: RiscvVectorConfigRequest(xlen)
   exception_valid: Bool
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
@@ -170,6 +174,7 @@ bundle MemoryWriteback(xlen :: XLen):
   hint: HintOperation
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
+  vector_config: RiscvVectorConfigRequest(xlen)
   exception_valid: Bool
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)

@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits the composed X32 vector configuration, CSR, and decode fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm" open
+  "../../cores/rv5stage/tests/vector-control-fixture.rhdl" open
+
+def design = embedded.run_elaboration(fun (): RV5StageVectorControlFixture(XLen.X32, 256))
+print(emit_circt(design))

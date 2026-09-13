@@ -1,0 +1,13 @@
+#lang rhombus
+// Emits the experimental vector configuration core for architectural execution tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../riscv/isa/xlen.rhm" open
+  "../../cores/rv5stage/tests/core-fixture.rhdl" as core
+  "../../cores/rv5stage/profile.rhm" open
+
+def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~experimental_vector: 128), ~reset_address: 0))
+print(emit_circt(design))

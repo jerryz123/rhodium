@@ -29,6 +29,7 @@ direction.
 | Field and immediate materialization | [`instruction-fields.rhdl`](instruction-fields.rhdl) |
 | Compressed expansion | [`compressed.rhdl`](compressed.rhdl) |
 | CSR values and bank construction | [`csr.rhdl`](csr.rhdl) |
+| Stateless vector type/configuration rules | [`vector.rhdl`](vector.rhdl); composed behavior validated by the RV5Stage vector-control fixtures |
 | CMO privilege, WARL, and physical permission policy | [`cmo.rhdl`](cmo.rhdl) |
 | Effective explicit-access privilege and pointer masking | [`privilege.rhdl`](privilege.rhdl), [`pointer-masking.rhdl`](pointer-masking.rhdl) |
 | Base architectural counters | [`counters.rhdl`](counters.rhdl) |

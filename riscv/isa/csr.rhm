@@ -6,6 +6,13 @@ enum CsrId
 | Fflags
 | Frm
 | Fcsr
+| Vstart
+| Vxsat
+| Vxrm
+| Vcsr
+| Vl
+| Vtype
+| Vlenb
 | Sstatus
 | Sie
 | Stvec
@@ -251,6 +258,7 @@ def MachineHpmEventIds = [
 
 def CsrIds = [
   CsrId.Fflags, CsrId.Frm, CsrId.Fcsr,
+  CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb,
   CsrId.Sstatus, CsrId.Sie, CsrId.Stvec, CsrId.Scounteren,
   CsrId.Senvcfg, CsrId.Sscratch, CsrId.Sepc, CsrId.Scause,
   CsrId.Stval, CsrId.Sip, CsrId.Satp,
@@ -269,6 +277,13 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Fflags: 0x001
   | CsrId.Frm: 0x002
   | CsrId.Fcsr: 0x003
+  | CsrId.Vstart: 0x008
+  | CsrId.Vxsat: 0x009
+  | CsrId.Vxrm: 0x00a
+  | CsrId.Vcsr: 0x00f
+  | CsrId.Vl: 0xc20
+  | CsrId.Vtype: 0xc21
+  | CsrId.Vlenb: 0xc22
   | CsrId.Sstatus: 0x100
   | CsrId.Sie: 0x104
   | CsrId.Stvec: 0x105

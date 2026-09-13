@@ -14,7 +14,7 @@ module rv5stage_csr_tb;
   typedef struct packed {
     logic [1:0] csr;
     logic immediate;
-    logic [2:0] action;
+    logic [3:0] action;
   } system_control_t;
   typedef struct packed {
     logic [1:0] action;
@@ -27,6 +27,7 @@ module rv5stage_csr_tb;
     fence_control_t fence;
     logic [11:0] csr_address;
     logic [63:0] csr_source;
+    struct packed { logic [63:0] vtype; logic [63:0] avl; logic maximum; logic keep_vl; } vector_config;
     logic exception_valid;
     logic [63:0] exception_cause;
     logic [63:0] exception_value;
@@ -67,12 +68,12 @@ module rv5stage_csr_tb;
   localparam logic [11:0] CSR_TIME = 12'hc01;
   localparam logic [11:0] CSR_INSTRET = 12'hc02;
   localparam logic [11:0] CSR_MHARTID = 12'hf14;
-  localparam logic [2:0] SYSTEM_NONE = 3'd0;
-  localparam logic [2:0] SYSTEM_ECALL = 3'd1;
-  localparam logic [2:0] SYSTEM_EBREAK = 3'd2;
-  localparam logic [2:0] SYSTEM_MRET = 3'd3;
-  localparam logic [2:0] SYSTEM_SRET = 3'd4;
-  localparam logic [2:0] SYSTEM_WFI = 3'd5;
+  localparam logic [3:0] SYSTEM_NONE = 4'd0;
+  localparam logic [3:0] SYSTEM_ECALL = 4'd1;
+  localparam logic [3:0] SYSTEM_EBREAK = 4'd2;
+  localparam logic [3:0] SYSTEM_MRET = 4'd3;
+  localparam logic [3:0] SYSTEM_SRET = 4'd4;
+  localparam logic [3:0] SYSTEM_WFI = 4'd5;
   localparam logic [1:0] FENCE_NONE = 2'd0;
   localparam logic [1:0] FENCE_ADDRESS_TRANSLATION = 2'd3;
   localparam logic [1:0] PRIVILEGE_U = 2'd0;
@@ -114,7 +115,7 @@ module rv5stage_csr_tb;
   logic [2:0] pointer_masking;
   logic pointer_masking_changed;
 
-  RV5StageCsrFile dut (.*);
+  RV5StageCsrFile dut (.vector_state(), .vector_enabled(), .*);
   always #5 clock = ~clock;
 
   task automatic clear_commit;
@@ -239,7 +240,7 @@ module rv5stage_csr_tb;
   endtask
 
   task automatic system_action(
-    input logic [2:0] operation,
+    input logic [3:0] operation,
     input logic [63:0] pc,
     input logic [63:0] expected_target
   );
@@ -264,7 +265,7 @@ module rv5stage_csr_tb;
   endtask
 
   task automatic privileged_action(
-    input logic [2:0] system_operation,
+    input logic [3:0] system_operation,
     input logic [1:0] fence_operation,
     input logic [63:0] pc,
     input logic [31:0] instruction,

@@ -1,0 +1,160 @@
+#lang rhombus
+// Defines RVV 1.0 configuration and the initial same-width integer catalog, not a complete V implementation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../model/main.rhm" open
+
+def vd = BitField("vd", 11, 7)
+def vs1 = BitField("vs1", 19, 15)
+def vs2 = BitField("vs2", 24, 20)
+def vm = BitField("vm", 25, 25)
+def vtype11 = BitField("vtype11", 30, 20)
+def vtype10 = BitField("vtype10", 29, 20)
+def avl5 = BitField("avl5", 19, 15)
+def VectorImmediate = ImmediateLayout("vector immediate", 5, #true, [ImmediatePiece(vs1, 4, 0)])
+def VectorShiftImmediate = ImmediateLayout("vector shift immediate", 5, #false, [ImmediatePiece(vs1, 4, 0)])
+def vector_destination = RegisterOperand("vd", vd, "destination", RegisterBank.Vector)
+def vector_source = RegisterOperand("vs2", vs2, "source", RegisterBank.Vector)
+def VectorVVFormat = InstructionFormat("vector-vector", [vector_destination, vector_source, RegisterOperand("vs1", vs1, "source", RegisterBank.Vector)], #false, [vm])
+def VectorVXFormat = InstructionFormat("vector-scalar", [vector_destination, vector_source, RegisterOperand("rs1", rs1, "source")], #false, [vm])
+def VectorVIFormat = InstructionFormat("vector-immediate", [vector_destination, vector_source], VectorImmediate, [vm])
+def VectorShiftVIFormat = InstructionFormat("vector-shift-immediate", [vector_destination, vector_source], VectorShiftImmediate, [vm])
+def VsetvliFormat = InstructionFormat("vsetvli", [RegisterOperand("rd", rd, "destination"), RegisterOperand("rs1", rs1, "source")], #false, [vtype11])
+def VsetivliFormat = InstructionFormat("vsetivli", [RegisterOperand("rd", rd, "destination")], #false, [avl5, vtype10])
+def VSETVLI = InstructionSpec("VSETVLI", VsetvliFormat, [opcode.constrain(0x57), funct3.constrain(7), BitField("config high", 31, 31).constrain(0)])
+def VSETIVLI = InstructionSpec("VSETIVLI", VsetivliFormat, [opcode.constrain(0x57), funct3.constrain(7), BitField("config high", 31, 30).constrain(3)])
+def VSETVL = InstructionSpec("VSETVL", RFormat, [opcode.constrain(0x57), funct3.constrain(7), funct7.constrain(0x40)])
+def VectorConfigInstructions = [VSETVLI, VSETIVLI, VSETVL]
+
+fun vector_integer(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
+  InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
+
+def VADD_VV = vector_integer("VADD.VV", 0, VectorVVFormat, 0)
+def VADD_VX = vector_integer("VADD.VX", 0, VectorVXFormat, 4)
+def VADD_VI = vector_integer("VADD.VI", 0, VectorVIFormat, 3)
+def VSUB_VV = vector_integer("VSUB.VV", 2, VectorVVFormat, 0)
+def VSUB_VX = vector_integer("VSUB.VX", 2, VectorVXFormat, 4)
+def VAND_VV = vector_integer("VAND.VV", 9, VectorVVFormat, 0)
+def VAND_VX = vector_integer("VAND.VX", 9, VectorVXFormat, 4)
+def VAND_VI = vector_integer("VAND.VI", 9, VectorVIFormat, 3)
+def VOR_VV = vector_integer("VOR.VV", 10, VectorVVFormat, 0)
+def VOR_VX = vector_integer("VOR.VX", 10, VectorVXFormat, 4)
+def VOR_VI = vector_integer("VOR.VI", 10, VectorVIFormat, 3)
+def VXOR_VV = vector_integer("VXOR.VV", 11, VectorVVFormat, 0)
+def VXOR_VX = vector_integer("VXOR.VX", 11, VectorVXFormat, 4)
+def VXOR_VI = vector_integer("VXOR.VI", 11, VectorVIFormat, 3)
+def VSLL_VV = vector_integer("VSLL.VV", 37, VectorVVFormat, 0)
+def VSLL_VX = vector_integer("VSLL.VX", 37, VectorVXFormat, 4)
+def VSLL_VI = vector_integer("VSLL.VI", 37, VectorShiftVIFormat, 3)
+def VSRL_VV = vector_integer("VSRL.VV", 40, VectorVVFormat, 0)
+def VSRL_VX = vector_integer("VSRL.VX", 40, VectorVXFormat, 4)
+def VSRL_VI = vector_integer("VSRL.VI", 40, VectorShiftVIFormat, 3)
+def VSRA_VV = vector_integer("VSRA.VV", 41, VectorVVFormat, 0)
+def VSRA_VX = vector_integer("VSRA.VX", 41, VectorVXFormat, 4)
+def VSRA_VI = vector_integer("VSRA.VI", 41, VectorShiftVIFormat, 3)
+def VMSEQ_VV = vector_integer("VMSEQ.VV", 24, VectorVVFormat, 0)
+def VMSEQ_VX = vector_integer("VMSEQ.VX", 24, VectorVXFormat, 4)
+def VMSEQ_VI = vector_integer("VMSEQ.VI", 24, VectorVIFormat, 3)
+def VMSNE_VV = vector_integer("VMSNE.VV", 25, VectorVVFormat, 0)
+def VMSNE_VX = vector_integer("VMSNE.VX", 25, VectorVXFormat, 4)
+def VMSNE_VI = vector_integer("VMSNE.VI", 25, VectorVIFormat, 3)
+def VMSLTU_VV = vector_integer("VMSLTU.VV", 26, VectorVVFormat, 0)
+def VMSLTU_VX = vector_integer("VMSLTU.VX", 26, VectorVXFormat, 4)
+def VMSLT_VV = vector_integer("VMSLT.VV", 27, VectorVVFormat, 0)
+def VMSLT_VX = vector_integer("VMSLT.VX", 27, VectorVXFormat, 4)
+def VMSLEU_VV = vector_integer("VMSLEU.VV", 28, VectorVVFormat, 0)
+def VMSLEU_VX = vector_integer("VMSLEU.VX", 28, VectorVXFormat, 4)
+def VMSLEU_VI = vector_integer("VMSLEU.VI", 28, VectorVIFormat, 3)
+def VMSLE_VV = vector_integer("VMSLE.VV", 29, VectorVVFormat, 0)
+def VMSLE_VX = vector_integer("VMSLE.VX", 29, VectorVXFormat, 4)
+def VMSLE_VI = vector_integer("VMSLE.VI", 29, VectorVIFormat, 3)
+def VMSGTU_VX = vector_integer("VMSGTU.VX", 30, VectorVXFormat, 4)
+def VMSGTU_VI = vector_integer("VMSGTU.VI", 30, VectorVIFormat, 3)
+def VMSGT_VX = vector_integer("VMSGT.VX", 31, VectorVXFormat, 4)
+def VMSGT_VI = vector_integer("VMSGT.VI", 31, VectorVIFormat, 3)
+def VMINU_VV = vector_integer("VMINU.VV", 4, VectorVVFormat, 0)
+def VMINU_VX = vector_integer("VMINU.VX", 4, VectorVXFormat, 4)
+def VMIN_VV = vector_integer("VMIN.VV", 5, VectorVVFormat, 0)
+def VMIN_VX = vector_integer("VMIN.VX", 5, VectorVXFormat, 4)
+def VMAXU_VV = vector_integer("VMAXU.VV", 6, VectorVVFormat, 0)
+def VMAXU_VX = vector_integer("VMAXU.VX", 6, VectorVXFormat, 4)
+def VMAX_VV = vector_integer("VMAX.VV", 7, VectorVVFormat, 0)
+def VMAX_VX = vector_integer("VMAX.VX", 7, VectorVXFormat, 4)
+
+def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX]
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions
+def VectorInitial = InstructionCatalog("RVV initial integer/configuration subset", "V 1.0 (partial)", VectorInitialInstructions)
+
+export:
+  vd
+  vs1
+  vs2
+  vm
+  avl5
+  vtype11
+  vtype10
+  VectorImmediate
+  VectorShiftImmediate
+  VectorVVFormat
+  VectorVXFormat
+  VectorVIFormat
+  VectorShiftVIFormat
+  VSETVLI
+  VSETIVLI
+  VSETVL
+  VectorConfigInstructions
+  VectorIntegerInstructions
+  VectorInitialInstructions
+  VectorInitial
+  VADD_VV
+  VADD_VX
+  VADD_VI
+  VSUB_VV
+  VSUB_VX
+  VAND_VV
+  VAND_VX
+  VAND_VI
+  VOR_VV
+  VOR_VX
+  VOR_VI
+  VXOR_VV
+  VXOR_VX
+  VXOR_VI
+  VSLL_VV
+  VSLL_VX
+  VSLL_VI
+  VSRL_VV
+  VSRL_VX
+  VSRL_VI
+  VSRA_VV
+  VSRA_VX
+  VSRA_VI
+  VMSEQ_VV
+  VMSEQ_VX
+  VMSEQ_VI
+  VMSNE_VV
+  VMSNE_VX
+  VMSNE_VI
+  VMSLTU_VV
+  VMSLTU_VX
+  VMSLT_VV
+  VMSLT_VX
+  VMSLEU_VV
+  VMSLEU_VX
+  VMSLEU_VI
+  VMSLE_VV
+  VMSLE_VX
+  VMSLE_VI
+  VMSGTU_VX
+  VMSGTU_VI
+  VMSGT_VX
+  VMSGT_VI
+  VMINU_VV
+  VMINU_VX
+  VMIN_VV
+  VMIN_VX
+  VMAXU_VV
+  VMAXU_VX
+  VMAX_VV
+  VMAX_VX
