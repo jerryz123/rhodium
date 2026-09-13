@@ -157,6 +157,33 @@ the authorized prefix without double counting. Cancellation cannot expose a
 partial reduction in the VRF. This is not a packed-per-cycle reduction tree;
 ordinary packed integer throughput is unchanged. The bank remains 3R1W.
 
+## Mask queries and prefix/index generation
+
+The experimental RV32/RV64 path executes `vcpop.m`, `vfirst.m`, `vmsbf.m`,
+`vmsif.m`, `vmsof.m`, `viota.m`, and `vid.v`. Queries count active source mask
+bits or return the first active set-bit index through the WB-aligned scalar
+result interface. VL zero still writes a scalar result: zero for population
+count and -1 for first-set. Only the final authorized beat writes the GPR.
+
+The three first-bit mask generators preserve inactive and tail bits and write
+before, through, or only at the first active set bit. Iota writes the count
+of preceding active set bits into each enabled SEW-sized element. Index writes
+the architectural element number, independent of masking. Counts and indices
+truncate to SEW. All six source-scanning instructions require `vstart=0`;
+`vid.v` permits nonzero `vstart` and preserves earlier elements.
+
+Mask sources and mask destinations name single registers regardless of LMUL.
+Prefix-mask destinations cannot overlap their source or, when masked, v0.
+Iota's aligned data group cannot overlap its source mask or, when masked, v0;
+index has no source group. Queries permit any source mask, including v0.
+
+The packed scan network processes up to 64 mask bits per query/prefix-mask
+beat or 8/4/2/1 elements per iota beat. One dependent scan beat is in flight;
+its carry advances only at WB, and retries resume from the authorized frontier.
+Cancellation preserves authorized prefix writes while suppressing future writes
+and unfinished scalar answers. Index needs no carry dependency and retains the
+ordinary packed issue schedule. The bank remains 3R1W, and V remains unadvertised.
+
 ## Shared integer multiply/divide
 
 RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,

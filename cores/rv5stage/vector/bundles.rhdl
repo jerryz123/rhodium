@@ -59,6 +59,8 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   end: Bits(index_width(vlen + 1))
   last: Bool
   reduction: Bool
+  scan: Bool
+  scan_carry: Bits(64)
   scalar_destination: Bool
   destination: Bits(5)
   memory: Bool

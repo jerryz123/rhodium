@@ -59,6 +59,9 @@ from actual register sources, so broadcasts do not imply a `vs2` dependency.
 `VectorElementMoveInstructions` contains `vmv.x.s` and `vmv.s.x`, with explicit
 integer-versus-vector register-bank metadata. `VectorIntegerReductionInstructions`
 contains the eight same-width sum, logic, and signed/unsigned min/max reductions.
+`VectorMaskScanInstructions` contains `vcpop.m`, `vfirst.m`, the three first-bit
+mask generators, `viota.m`, and `vid.v`, with distinct scalar-query, unary-mask,
+and source-free index formats.
 `VectorMemoryInstructions` excludes segmented,
 fault-only-first, mask-register, and whole-register transfers. Vector operands use `RegisterBank.Vector`, with
 named vector register, mask-enable, vtype, and AVL fields. The catalog is not

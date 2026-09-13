@@ -61,6 +61,15 @@ for (instruction in VectorIntegerReductionInstructions):
     value(control(instruction), "reduction") ~is 1
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
+for (instruction in VectorMaskScanInstructions, index in 0..7):
+  check:
+    value(control(instruction), "scan") ~is 1
+    value(control(instruction), "scalar_destination") ~is (if index < 2 | 1 | 0)
+    value(control(instruction), "mask_destination") ~is (if index >= 2 && index < 5 | 1 | 0)
+    value(field(control(instruction), "scan_control"), "index") ~is (if index == 6 | 1 | 0)
+    value(field(core_control(instruction), "writeback"), "enable") ~is (if index < 2 | 1 | 0)
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
+    value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
 for (instruction in VectorMoveMergeInstructions, index in 0..6):
   check:
     value(control(instruction), "integer") ~is 1

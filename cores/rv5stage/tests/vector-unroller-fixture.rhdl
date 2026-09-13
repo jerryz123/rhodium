@@ -58,6 +58,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
   unroller.cancel.valid <== cancel
   unroller.issue.ready <== issue_ready
   execute.beat <== unroller.issue.bits.beat
+  execute.scan_carry <== bits(0, 64)
   pipeline.ingress.valid <== unroller.issue.fire()
   pipeline.ingress.bits <== execute.result
   def retry = pipeline.egress.valid & retry_enable & (pipeline.egress.bits.first === retry_first) & !cancel

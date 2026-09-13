@@ -15,6 +15,7 @@ import:
   lib("hardfloat/main.rhdl").RoundingMode
   "vector/unroller.rhdl" open
   "vector/execute.rhdl" open
+  "vector/mask.rhdl".VectorScanResult
   "vector/register-file.rhdl" open
   "register-file.rhdl".RegisterFileWrite
   "../../riscv/isa/vector.rhm" open
@@ -67,8 +68,9 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   reg completion_data(Vec(vector_completion_slots, Bits(64)))
   reg head(Bits(index_width(vector_completion_slots)))
   reg store_barrier(~init: Bool(#false))
-  reg reduction_inflight(~init: Bool(#false))
+  reg fold_inflight(~init: Bool(#false))
   reg accumulator(Bits(64))
+  reg scan_carry(Bits(64))
   def retry = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Retry)
   def fault = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Fault)
   def clear = cancel.valid ||| retry ||| fault
@@ -92,7 +94,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
 
   // Bookkeeping admission and private operand capture are one atomic transfer.
   def available = !(unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide) ||| !allocated[slot_index(unroller.issue.bits.beat.first)]
-  def Array(token, operands) = unroller.issue |> gate_flow(available & !clear & !reduction_inflight) |> atomic_fork(2)
+  def Array(token, operands) = unroller.issue |> gate_flow(available & !clear & !fold_inflight) |> atomic_fork(2)
   (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
       context: operation.context
@@ -106,6 +108,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   operands |> map_flow(operation => operation.beat) |> to_valid() |> ex_pipe.ingress
   def ex_beat = ex_pipe.egress.bits
   execute.beat <== ex_beat.updated(~right: mux(ex_beat.control.integer & ex_beat.control.reduction & ex_beat.first.or_reduce(), accumulator, ex_beat.right))
+  execute.scan_carry <== scan_carry
   ex_pipe.egress |> map_valid(_beat => execute.result) |> wb_pipe.ingress
 
   inst fp_operands(ValidPipe(FpRequest, 2, ~flushable: #true))
@@ -142,10 +145,14 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   // element twice, and an overlapping destination is written only at the end.
   when (successful & beat.reduction):
     accumulator <== beat.write.data
-  when (clear ||| (commit.valid & beat.reduction)):
-    reduction_inflight <== Bool(#false)
-  elsewhen (issue.fire() & unroller.issue.bits.beat.control.integer & unroller.issue.bits.beat.control.reduction):
-    reduction_inflight <== Bool(#true)
+  when (request.fire()):
+    scan_carry <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !bits(0, 64), bits(0, 64))
+  elsewhen (successful & beat.scan):
+    scan_carry <== beat.scan_carry
+  when (clear ||| (commit.valid & (beat.reduction ||| beat.scan))):
+    fold_inflight <== Bool(#false)
+  elsewhen (issue.fire() & unroller.issue.bits.beat.control.integer & (unroller.issue.bits.beat.control.reduction ||| (unroller.issue.bits.beat.control.scan & !unroller.issue.bits.beat.control.scan_control.index))):
+    fold_inflight <== Bool(#true)
   (
     commit |> filter_valid(event => (event.disposition === RV5StageVectorDisposition.Authorized) & beat.scalar_destination)
       |> map_valid(_event => RegisterFileWrite(xlen)):

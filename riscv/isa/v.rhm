@@ -28,6 +28,9 @@ def VectorMoveVFormat = InstructionFormat("vector move", [vector_destination, Re
 def VectorMoveXFormat = InstructionFormat("scalar broadcast", [vector_destination, RegisterOperand("rs1", rs1, "source")])
 def VectorMoveIFormat = InstructionFormat("immediate broadcast", [vector_destination], VectorImmediate)
 def VectorReadScalarFormat = InstructionFormat("vector element to integer", [RegisterOperand("rd", rd, "destination"), vector_source])
+def VectorMaskScalarFormat = InstructionFormat("mask to integer", VectorReadScalarFormat.operands, #false, [vm])
+def VectorMaskUnaryFormat = InstructionFormat("unary mask", [vector_destination, vector_source], #false, [vm])
+def VectorIndexFormat = InstructionFormat("element index", [vector_destination], #false, [vm])
 def VsetvliFormat = InstructionFormat("vsetvli", [RegisterOperand("rd", rd, "destination"), RegisterOperand("rs1", rs1, "source")], #false, [vtype11])
 def VsetivliFormat = InstructionFormat("vsetivli", [RegisterOperand("rd", rd, "destination")], #false, [avl5, vtype10])
 def VSETVLI = InstructionSpec("VSETVLI", VsetvliFormat, [opcode.constrain(0x57), funct3.constrain(7), BitField("config high", 31, 31).constrain(0)])
@@ -127,6 +130,16 @@ def VectorMaskLogicInstructions = [VMANDN_MM, VMAND_MM, VMOR_MM, VMXOR_MM, VMORN
 def VMV_X_S = InstructionSpec("VMV.X.S", VectorReadScalarFormat, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(0x10), vm.constrain(1), vs1.constrain(0)])
 def VMV_S_X = fixed_mask_arithmetic("VMV.S.X", 0x10, VectorMoveXFormat, 6, 1, ~move: #true)
 def VectorElementMoveInstructions = [VMV_X_S, VMV_S_X]
+fun mask_unary(name :: String, code :: Nat, selector :: Nat, form :: InstructionFormat):
+  InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(code), vs1.constrain(selector)] ++ (if form == VectorIndexFormat | [vs2.constrain(0)] | []))
+def VCPOP_M = mask_unary("VCPOP.M", 0x10, 0x10, VectorMaskScalarFormat)
+def VFIRST_M = mask_unary("VFIRST.M", 0x10, 0x11, VectorMaskScalarFormat)
+def VMSBF_M = mask_unary("VMSBF.M", 0x14, 1, VectorMaskUnaryFormat)
+def VMSIF_M = mask_unary("VMSIF.M", 0x14, 3, VectorMaskUnaryFormat)
+def VMSOF_M = mask_unary("VMSOF.M", 0x14, 2, VectorMaskUnaryFormat)
+def VIOTA_M = mask_unary("VIOTA.M", 0x14, 0x10, VectorMaskUnaryFormat)
+def VID_V = mask_unary("VID.V", 0x14, 0x11, VectorIndexFormat)
+def VectorMaskScanInstructions = [VCPOP_M, VFIRST_M, VMSBF_M, VMSIF_M, VMSOF_M, VIOTA_M, VID_V]
 def VREDSUM_VS = vector_arithmetic("VREDSUM.VS", 0, VectorVVFormat, 2)
 def VREDAND_VS = vector_arithmetic("VREDAND.VS", 1, VectorVVFormat, 2)
 def VREDOR_VS = vector_arithmetic("VREDOR.VS", 2, VectorVVFormat, 2)
@@ -159,10 +172,21 @@ def VMULHSU_VX = vector_arithmetic("VMULHSU.VX", 38, VectorVXFormat, 6)
 def VMULH_VV = vector_arithmetic("VMULH.VV", 39, VectorVVFormat, 2)
 def VMULH_VX = vector_arithmetic("VMULH.VX", 39, VectorVXFormat, 6)
 def VectorMultiplyDivideInstructions = [VDIVU_VV, VDIVU_VX, VDIV_VV, VDIV_VX, VREMU_VV, VREMU_VX, VREM_VV, VREM_VX, VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX, VMULHSU_VV, VMULHSU_VX, VMULH_VV, VMULH_VX]
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
+  VectorMaskScalarFormat
+  VectorMaskUnaryFormat
+  VectorIndexFormat
+  VectorMaskScanInstructions
+  VCPOP_M
+  VFIRST_M
+  VMSBF_M
+  VMSIF_M
+  VMSOF_M
+  VIOTA_M
+  VID_V
   VectorReadScalarFormat
   VectorElementMoveInstructions
   VectorIntegerReductionInstructions

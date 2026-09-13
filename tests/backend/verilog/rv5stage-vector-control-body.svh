@@ -261,6 +261,26 @@
     instruction={6'd0,1'b0,5'd8,5'd0,3'd2,5'd7,7'h57}; #1;
     assert(decoded_valid && !legal) else $fatal(1,"masked reduction reads v0 at two EEWs");
 
+    // Mask sources name single registers; only element destinations use LMUL.
+    for(int lm=-3;lm<=3;lm++) begin
+      test_vtype=word_t'(lm)&7;
+      for(int op=0;op<7;op++) begin
+        for(int dest=0;dest<32;dest++) begin
+          for(int source=0;source<32;source++) begin
+            for(int masked=0;masked<2;masked++) begin
+              int selector, group;
+              bit expected;
+              group=lm>0 ? 1<<lm : 1;
+              selector=op==0 ? 16 : op==1 ? 17 : op==2 ? 1 : op==3 ? 3 : op==4 ? 2 : op==5 ? 16 : 17;
+              instruction={6'(op<2 ? 16 : 20),1'(masked==0),5'(op==6 ? 0 : source),5'(selector),3'd2,5'(dest),7'h57}; #1;
+              expected=op<2 || ((masked==0 || dest!=0) && (op<5 ? dest!=source : dest%group==0 && (op==6 || source/group!=dest/group)));
+              assert(decoded_valid && legal==expected) else $fatal(1,"scan legality op%0d dest%0d src%0d lm%0d masked%0d",op,dest,source,lm,masked);
+              checks++;
+            end
+          end
+        end
+      end
+    end
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

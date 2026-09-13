@@ -11,6 +11,7 @@ import:
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../../../riscv/model/instruction.rhm".InstructionSpec
   "../../simd-alu.rhdl" open
+  "../vector/mask.rhdl" open
   lib("rhodium/std/decode.rhdl") open
 
 hardware_enum VectorConfigMode:
@@ -46,6 +47,8 @@ bundle RV5StageVectorControl():
   element_move: Bool
   scalar_destination: Bool
   reduction: Bool
+  scan: Bool
+  scan_control: VectorMaskScanControl()
   uses_vs2: Bool
   invert_logic_result: Bool
   invert_comparison: Bool
@@ -82,6 +85,11 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~element_move: element_move :: Boolean = #false,
                  ~scalar_destination: scalar_destination :: Boolean = #false,
                  ~reduction: reduction :: Boolean = #false,
+                 ~scan: scan :: Boolean = #false,
+                 ~scan_result: scan_result :: VectorScanResult = VectorScanResult.Count,
+                 ~scan_index: scan_index :: Boolean = #false,
+                 ~include_first: include_first :: Boolean = #false,
+                 ~only_first: only_first :: Boolean = #false,
                  ~uses_vs2: uses_vs2 :: Boolean = #true,
                  ~invert_logic: invert_logic :: Boolean = #false,
                  ~invert: invert :: Boolean = #false,
@@ -95,7 +103,7 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       floating_point: Bool(#false)
       multiply_divide: Bool(#false)
       memory: Bool(#false)
-      operand: if [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat, VectorReadScalarFormat].contains(form) | VectorOperandMode.Vector | (if [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form) | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
+      operand: if [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat, VectorReadScalarFormat, VectorMaskScalarFormat, VectorMaskUnaryFormat, VectorIndexFormat].contains(form) | VectorOperandMode.Vector | (if [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form) | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
       immediate_unsigned: Bool(form == VectorShiftVIFormat)
       mask_destination: Bool(mask)
       mask_logic: Bool(mask_logic)
@@ -103,6 +111,13 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       element_move: Bool(element_move)
       scalar_destination: Bool(scalar_destination)
       reduction: Bool(reduction)
+      scan: Bool(scan)
+      scan_control:
+        VectorMaskScanControl():
+          result: scan_result
+          index: Bool(scan_index)
+          include_first: Bool(include_first)
+          only_first: Bool(only_first)
       uses_vs2: Bool(uses_vs2)
       invert_logic_result: Bool(invert_logic)
       invert_comparison: Bool(invert)
@@ -279,6 +294,15 @@ def VectorElementMoveCases = [
 ]
 def VectorIntegerReductionCases = for List (instruction in VectorIntegerReductionInstructions, alu in [vadd_control, vand_control, vor_control, vxor_control, vminu_control, vmin_control, vmaxu_control, vmax_control]):
   integer_case(instruction, alu, ~reduction: #true)
+def VectorMaskScanCases = [
+  integer_case(VCPOP_M, vselect_control, ~scan: #true, ~scalar_destination: #true),
+  integer_case(VFIRST_M, vselect_control, ~scan: #true, ~scalar_destination: #true, ~scan_result: VectorScanResult.First),
+  integer_case(VMSBF_M, vselect_control, ~scan: #true, ~mask: #true, ~scan_result: VectorScanResult.Mask),
+  integer_case(VMSIF_M, vselect_control, ~scan: #true, ~mask: #true, ~scan_result: VectorScanResult.Mask, ~include_first: #true),
+  integer_case(VMSOF_M, vselect_control, ~scan: #true, ~mask: #true, ~scan_result: VectorScanResult.Mask, ~only_first: #true),
+  integer_case(VIOTA_M, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements),
+  integer_case(VID_V, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements, ~scan_index: #true, ~uses_vs2: #false)
+]
 def VectorMemoryCases = for List (instruction in VectorMemoryInstructions, index in 0..8):
   DecodeCase(
     instruction_pattern(instruction),
@@ -327,7 +351,7 @@ def VectorMultiplyDivideCases = for List (instruction in VectorMultiplyDivideIns
       right_signed: Bool(signed_right)
       upper_result: Bool(![VMUL_VV, VMUL_VX, VDIV_VV, VDIV_VX, VDIVU_VV, VDIVU_VX].contains(instruction))
   )
-def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMoveMergeCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
+def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMoveMergeCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
 
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
@@ -363,8 +387,11 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   // Merge reads v0 at EEW=1; the same register cannot also supply SEW data.
   def merge_sources_legal = !control.mask_select ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))
   def reduction_sources_legal = source2_aligned & (!masked ||| (source1.or_reduce() & source2.or_reduce()))
+  def scan_mask = control.scan_control.result === VectorScanResult.Mask
+  def scan_overlap = mux(scan_mask, destination === source2, (source2 & !group_mask) === destination)
+  def scan_legal = control.scalar_destination ||| ((!masked ||| destination.or_reduce()) & mux(scan_mask, destination =/= source2, destination_aligned & (control.scan_control.index ||| !scan_overlap)))
   // Mask logic always names single registers, regardless of the data LMUL.
-  def integer_legal = control.integer & (control.element_move ||| mux(control.reduction, reduction_sources_legal, control.mask_logic ||| (
+  def integer_legal = control.integer & mux(control.scan, scan_legal, control.element_move ||| mux(control.reduction, reduction_sources_legal, control.mask_logic ||| (
     merge_sources_legal & (!control.uses_vs2 ||| source2_aligned) & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
   )))
   def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
@@ -373,6 +400,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   legal <== !config.vill & (integer_legal ||| memory_legal ||| fp_legal ||| multiply_divide_legal)
 
 export:
+  VectorScanResult
   VectorConfigMode
   VectorOperandMode
   RV5StageVectorControl

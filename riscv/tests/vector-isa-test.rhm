@@ -9,6 +9,16 @@ import:
   "../model/main.rhm" as model
 
 check:
+  VCPOP_M.encode([model.rd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x422820d7
+  VFIRST_M.encode([model.rd.constrain(1), vs2.constrain(2), vm.constrain(0)]) ~is 0x4028a0d7
+  VMSBF_M.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x5220a0d7
+  VMSIF_M.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x5221a0d7
+  VMSOF_M.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x522120d7
+  VIOTA_M.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x522820d7
+  VID_V.encode([vd.constrain(1), vm.constrain(1)]) ~is 0x5208a0d7
+  VectorMaskScalarFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Integer, model.RegisterBank.Vector]
+  VectorIndexFormat.operands.map(fun (operand): operand.name) ~is ["vd"]
+  VectorInitial.matching(0x5218a0d7) ~is #false
   VMV_X_S.encode([model.rd.constrain(1), vs2.constrain(2)]) ~is 0x422020d7
   VMV_S_X.encode([vd.constrain(1), model.rs1.constrain(3)]) ~is 0x4201e0d7
   VectorReadScalarFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Integer, model.RegisterBank.Vector]

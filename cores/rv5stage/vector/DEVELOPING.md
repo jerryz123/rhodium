@@ -104,6 +104,26 @@ type at WB; the core composes it with normal writeback through Flow. Decode
 owns the scalar destination/source metadata and rejects nonzero reduction
 `vstart` before the unroller can launch a read.
 
+`mask.rhdl` owns decoded scan controls and a combinational parallel prefix
+network. Decode selects count/first/mask/element results and prefix/index
+modifiers; the datapath does not recognize instructions. The unroller reads
+source masks at EEW=1 through existing ports and bounds every scan's enables
+to that beat's exclusive end. Iota uses data-width beats; queries and first-bit
+masks use 64-mask-bit beats. The parent retains scan carry separately from
+VRF write data and serializes dependent beats through WB. Index is stateless.
+Admission seeds carry, authorization advances it, and retry retains it.
+Only final query results select GPR WB.
+
+The reduction fixtures also exercise all seven scans across SEW/LMUL, source
+mask aliases, bit-63/64 boundaries, all-masked/empty inputs, packed results,
+nonzero index restart, retries, and partial cancellation. Control fixtures
+sweep source/destination/group/mask legality. The full-core muldiv fixture
+checks scalar consumers, WAW/x0/squash, vector signatures, empty queries, and
+the six nonzero-vstart traps. Include the existing unroller fixtures when
+changing their common result payload. `rv5stage-vector-mask-512` reuses the
+transaction scoreboard with eight words per register to check SEW8 prefix
+count and element-index truncation beyond 255.
+
 Run `rv5stage-vector-reduction` and `rv5stage-vector-reduction-rv32` for
 production-pipeline tests of both scalar moves and eight integer reductions.
 They initialize/read storage through public LSU transactions (including a

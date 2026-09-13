@@ -335,6 +335,52 @@ module rv5stage_vector_muldiv_tb;
       vec(op,7,8,3,0,2); expect_store('h2fff0,2,3);
       vec(16,5,7,0,0,2); scalar_signature(5,address,-64'd9); address+=8;
     end
+    // Queries share normal GPR retirement; prefixes and indices use packed VRF writes.
+    begin
+      logic [63:0] source_mask, prefix;
+      int count, first_set;
+      source_mask=0; count=0; first_set=-1;
+      vset(0,16); vload(8,'h10000,0); vec('h1f,0,8,0,0,3);
+      for(int i=0;i<16;i++) begin
+        a=left_value(i,0)&255;
+        if(a!=0 && !a[7]) begin source_mask[i]=1; count++; if(first_set<0) first_set=i; end
+      end
+      for(int masked=0;masked<2;masked++) begin
+        for(int query=0;query<2;query++) begin
+          li(5,7); li(6,13); emit('h026282b3); // older deferred WAW
+          vec(16,5,0,16+query,1'(masked),2);
+          emit('h00128313); scalar_signature(6,address,(query==0 ? 64'(count) : 64'(first_set))+64'd1); address+=8;
+        end
+      end
+      vec(16,0,0,16,0,2); scalar_signature(0,address,0); address+=8;
+      li(5,9); emit('h00000463); vec(16,5,0,16,0,2);
+      scalar_signature(5,address,9); address+=8;
+      for(int op=0;op<3;op++) begin
+        vset(0,16); vec(20,3,0,op==0 ? 1 : op==1 ? 3 : 2,0,2);
+        prefix=0;
+        for(int i=0;i<16;i++) prefix[i]=op==0 ? first_set<0 || i<first_set : op==1 ? first_set<0 || i<=first_set : i==first_set;
+        vset(0,2); vstore(3,address,0);
+        expect_store(address,prefix&255,0); expect_store(address+1,(prefix>>8)&255,0); address+=8;
+      end
+      for(int op=0;op<2;op++) begin
+        count=0; vset(0,16); vec(20,16,0,16+op,0,2); vstore(16,address,0);
+        for(int i=0;i<16;i++) begin
+          expect_store(address+i,64'(op==0 ? count : i),0); if(source_mask[i]) count++;
+        end
+        address+=16;
+      end
+      vset(0,0);
+      for(int query=0;query<2;query++) begin
+        vec(16,5,0,16+query,0,2); scalar_signature(5,address,query==0 ? 0 : '1); address+=8;
+      end
+      for(int op=0;op<6;op++) begin
+        int selector;
+        selector=op==0 ? 16 : op==1 ? 17 : op==2 ? 1 : op==3 ? 3 : op==4 ? 2 : 16;
+        vset(0,op%2==0 ? 16 : 0); emit('h0080d073);
+        vec(op<2 ? 16 : 20,op<2 ? 5 : 16,0,selector,0,2); expect_store('h2fff0,2,3);
+        signature('h008,address,0); address+=8;
+      end
+    end
     assert(pc < 'hff00/4) else $fatal(1,"program exceeds ROM");
     pc='hff00/4;
     emit('h342021f3); li(10,'h2fff0); emit('h00353023);

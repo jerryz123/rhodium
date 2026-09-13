@@ -757,6 +757,7 @@ direct_fixture_specs=(
   'rv5stage-vector-muldiv|rv5stage_vector_muldiv_tb'
   'rv5stage-vector-reduction|rv5stage_vector_reduction_tb'
   'rv5stage-vector-reduction-rv32|rv5stage_vector_reduction_rv32_tb'
+  'rv5stage-vector-mask-512|rv5stage_vector_mask_512_tb'
   'rv5stage-vector-muldiv-one-slot|rv5stage_vector_muldiv_tb'
   'rv5stage-vector-fp-one-slot|rv5stage_vector_fp_tb'
   'rv5stage-vector-memory|rv5stage_vector_memory_tb'

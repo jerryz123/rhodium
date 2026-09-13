@@ -1,4 +1,4 @@
-// Models reduction folds independently, including masks, aliases, WB retry, cancellation, and scalar moves.
+// Models reduction and mask scans independently, including WB retry, cancellation, and scalar results.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN+1), CHUNKS = VLEN/64;
   typedef struct packed { logic [4:0] address; logic [XLEN-1:0] data; } scalar_write_t;
@@ -99,6 +99,59 @@
     run(32'('h02000027 | ((XLEN==64 ? 7 : 6)<<12) | (r<<7)),XLEN==64 ? 3 : 2,0,VLEN/XLEN);
     mode = 0;
   endtask
+  task automatic scan_case(input int op, sew, lm, length, pattern, input bit masked,
+                           input int retry_at = -1, kill_after = -1, start = 0);
+    logic [63:0] expected [0:8*CHUNKS-1];
+    logic [63:0] value, lane_mask;
+    int count, first_set, width, lanes, dest, source, selector, row, offset, written, groups;
+    bit selected, active_element;
+    width=8<<sew; lanes=op<5 ? 64 : 64/width; dest=op<2 ? 5 : op<5 ? 3 : 16;
+    source=pattern==6 ? 0 : 7;
+    groups=op<5 ? 1 : lm<4 ? 1<<lm : 1;
+    for (int c=0;c<CHUNKS;c++) begin
+      model[0][c]=pattern==5 ? 0 : masked ? random_word() : '1;
+      model[7][c]=pattern==0 ? 0 : pattern==1 ? '1 : pattern==2 || pattern==3 || pattern==4 ? 0 : random_word();
+    end
+    if (pattern>=2 && pattern<=4) begin
+      int position;
+      position=pattern==2 ? 63 : pattern==3 ? 64 : VLEN-1;
+      model[7][position/64]=64'(1)<<(position%64);
+    end
+    load_reg(0); load_reg(7);
+    for (int c=0;c<groups*CHUNKS;c++) expected[c]=model[dest+c/CHUNKS][c%CHUNKS];
+    count=0; first_set=-1;
+    // Prefix/index golden model uses architectural elements, never RTL chunks.
+    for (int i=0;i<length;i++) begin
+      active_element=!masked || element(0,i,1)!=0;
+      selected=active_element && element(source,i,1)!=0;
+      if (op>=2 && i>=start && active_element) begin
+        case(op)
+          2: value=64'(first_set<0 && !selected);
+          3: value=64'(first_set<0);
+          4: value=64'(first_set<0 && selected);
+          5: value=64'(count);
+          default: value=64'(i);
+        endcase
+        row=op<5 ? i/64 : i*width/64; offset=op<5 ? i%64 : i*width%64;
+        lane_mask=op<5 ? 1 : '1>>(64-width);
+        expected[row]=(expected[row]&~(lane_mask<<offset))|((value&lane_mask)<<offset);
+      end
+      if (selected) begin count++; if(first_set<0) first_set=i; end
+    end
+    selector=op==0 ? 16 : op==1 ? 17 : op==2 ? 1 : op==3 ? 3 : op==4 ? 2 : op==5 ? 16 : 17;
+    if (op<2) begin scalar_expected=op==0 ? 64'(count) : 64'($signed(first_set)); mode=3; end
+    run(vec(op<2 ? 16 : 20,dest,op==6 ? 0 : source,selector,2,masked),sew,lm,length,start,retry_at,kill_after);
+    mode=0;
+    if(op>=2) begin
+      written=kill_after<0 ? length : commit_count*lanes;
+      for(int i=start;i<length && i<written;i++) begin
+        row=op<5 ? i/64 : i*width/64; offset=op<5 ? i%64 : i*width%64;
+        lane_mask=(op<5 ? 64'(1) : '1>>(64-width))<<offset;
+        model[dest+row/CHUNKS][row%CHUNKS]=(model[dest+row/CHUNKS][row%CHUNKS]&~lane_mask)|(expected[row]&lane_mask);
+      end
+      for(int r=0;r<groups;r++) check_reg(dest+r);
+    end
+  endtask
   initial begin
     logic [63:0] acc, mask, old;
     int width, length, dest;
@@ -158,6 +211,32 @@
         mode=0;
       end
     end
-    $display("vector reductions/moves XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
+    for(int sew=0;sew<4;sew++) begin
+      for(int lm=0;lm<8;lm++) begin
+        if(lm==4 || (lm>=5 && sew>lm-5)) continue;
+        length=(VLEN/(8<<sew))*(lm<4 ? 1<<lm : 1)/(lm<4 ? 1 : 1<<(8-lm));
+        for(int op=0;op<7;op++) begin
+          int lanes;
+          lanes=op<5 ? 64 : 64/(8<<sew);
+          scan_case(op,sew,lm,length,7,0,(length+lanes-1)/lanes/2);
+          scan_case(op,sew,lm,length,6,1,0);
+          scan_case(op,sew,lm,0,0,1,0);
+        end
+      end
+    end
+    for(int op=0;op<7;op++) begin
+      for(int pattern=0;pattern<6;pattern++) begin
+        scan_case(op,0,3,VLEN,pattern,pattern==5,1);
+        scan_case(op,0,3,65,pattern,1,0);
+      end
+      scan_case(op,0,3,VLEN,7,1,-1,1);
+      scan_case(op,0,3,1,1,1,0);
+    end
+    // vid supports arbitrary vstart; indices do not restart at zero after replay.
+    for(int sew=0;sew<4;sew++) begin
+      scan_case(6,sew,3,VLEN/(8<<sew)*8,7,1,1,-1,3);
+      scan_case(6,sew,3,1,7,0,0,-1,5);
+    end
+    $display("vector reductions/moves/scans XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
     $finish;
   end
