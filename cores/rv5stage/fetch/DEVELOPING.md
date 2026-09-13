@@ -16,10 +16,10 @@ instruction storage, refill, and coherence rather than fetch sequencing.
 | [`protocol.rhdl`](protocol.rhdl) | Core/frontend control and the final fetch-to-Decode payload |
 | [`frontend.rhdl`](frontend.rhdl) | S1/S2 correlation, repair, reservation, and packet queue topology |
 | [`source.rhdl`](source.rhdl) | S0 PC selection, continuation, replay, and prediction lookup |
-| [`packet.rhdl`](packet.rhdl), [`scan.rhdl`](scan.rhdl) | Raw packet representation and prediction-cut validation |
+| [`packet.rhdl`](packet.rhdl), [`scan.rhdl`](scan.rhdl) | Raw packet representation, prediction-cut validation, and S2 return predecode |
 | [`instruction-buffer.rhdl`](instruction-buffer.rhdl) | Compressed expansion, straddling assembly, and residual-halfword state |
 | [`bpd/protocol.rhdl`](bpd/protocol.rhdl) | Prediction, training, and return-stack payload contracts |
-| [`bpd/btb.rhdl`](bpd/btb.rhdl) | Fully associative targets, local direction counters, and replacement |
+| [`bpd/btb.rhdl`](bpd/btb.rhdl) | Fully associative targets, local direction counters, S2 discovery, and replacement |
 | [`bpd/ras.rhdl`](bpd/ras.rhdl) | RISC-V call/return classification and speculative/resolved stack state |
 
 ## Dependency direction

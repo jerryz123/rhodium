@@ -23,6 +23,7 @@ sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
   interface invalidate_all(Pulse(), ~role: consumer)
   interface invalidate(Valid(Bits(xlen.width)), ~role: consumer)
   interface update(Valid(RV5StageBranchUpdate(xlen)), ~role: consumer)
+  interface discover(Valid(RV5StagePrediction(xlen)), ~role: consumer)
   output prediction: RV5StagePrediction(xlen)
 
   if entry_count == 0
@@ -45,14 +46,19 @@ sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
         compressed: selected.compressed
         ras_action: selected.ras_action
 
-      def matches = vec(for List (index in 0..entry_count): entries[index].valid & (entries[index].pc === update.bits.pc))
+      def discovering = discover.valid & discover.bits.valid & !update.valid
+      def write_pc = mux(update.valid, update.bits.pc, discover.bits.pc)
+      def write_target = mux(update.valid, update.bits.target, discover.bits.target)
+      def write_compressed = mux(update.valid, update.bits.compressed, discover.bits.compressed)
+      def write_ras_action = mux(update.valid, update.bits.ras_action, discover.bits.ras_action)
+      def matches = vec(for List (index in 0..entry_count): entries[index].valid & (entries[index].pc === write_pc))
       def empty = vec(for List (index in 0..entry_count): !entries[index].valid)
       def matched = matches.or_reduce()
       def selected_index = mux(matched, priority_encoder(matches), mux(empty.or_reduce(), priority_encoder(empty), replacement))
       def previous = entries[selected_index]
       def incremented = mux(previous.counter === bits(3, 2), previous.counter, previous.counter + bits(1, 2))
       def decremented = mux(previous.counter === bits(0, 2), previous.counter, previous.counter - bits(1, 2))
-      def write = update.valid & (matched ||| (update.bits.branch & update.bits.taken))
+      def write = (update.valid & (matched ||| (update.bits.branch & update.bits.taken))) ||| discovering
       when (invalidate_all.valid):
         replacement <== bits(0, index_bits)
       elsewhen (write & !matched & !invalidate.valid):
@@ -64,13 +70,13 @@ sync_circuit RV5StageBtb(xlen :: XLen, entry_count :: Nat = 16):
           entries[index] <== entries[index].updated(~valid: Bool(#false))
         elsewhen (write & !invalidate.valid & (selected_index === bits(index, index_bits))):
           entries[index] <== RV5StageBtbEntry(xlen):
-            valid: update.bits.branch
-            pc: update.bits.pc
-            target: update.bits.target
-            conditional: update.bits.conditional
-            compressed: update.bits.compressed
-            counter: mux(matched, mux(update.bits.taken, incremented, decremented), bits(2, 2))
-            ras_action: update.bits.ras_action
+            valid: mux(update.valid, update.bits.branch, Bool(#true))
+            pc: write_pc
+            target: write_target
+            conditional: mux(update.valid, update.bits.conditional, Bool(#false))
+            compressed: write_compressed
+            counter: mux(update.valid & matched, mux(update.bits.taken, incremented, decremented), bits(2, 2))
+            ras_action: write_ras_action
 
 export:
   RV5StageBtbEntry

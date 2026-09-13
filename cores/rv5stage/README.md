@@ -553,8 +553,12 @@ is present.
 The [RAS](fetch/bpd/ras.rhdl) follows the RISC-V `x1`/`x5` implicit call and
 return hints, including the pop-then-push coroutine case. Calls push their two-
 or four-byte sequential PC; return BTB hits use the stack head and fall back to
-the BTB target when the stack is empty. Accepted S2 predictions update
-speculative state exactly once.
+the BTB target when the stack is empty. On a BTB miss, fault-free S2 fetch data
+predecodes ordinary, compressed, and straddling returns. A nonempty RAS supplies
+a late prediction that redirects only younger fetch work and installs return
+metadata in the BTB; older packets and the accepted return remain intact. An
+empty RAS continues sequentially until normal execution recovery. Accepted S2
+predictions update speculative state exactly once.
 Uncancelled S4 resolutions update resolved state and repair speculation after a
 redirect or action mismatch. Overflow replaces the oldest entry and underflow
 is a no-op.
@@ -566,6 +570,8 @@ cycle without a flush or
 prediction-induced bubble. A 32-bit branch starting in the upper halfword first
 requests its required continuation word, then the target. Cache/translation
 misses, downstream stalls, and exhausted reservations still stall fetching.
+An S2 return fallback is slower than this BTB-hit path but redirects before the
+instruction enters execution; it does not wait for MEM branch resolution.
 
 Assembly retains instructions up to the predicted branch, discards trailing
 halfwords, and continues through already requested target words. Predictions

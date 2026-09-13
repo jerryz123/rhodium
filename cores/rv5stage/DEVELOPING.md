@@ -123,11 +123,15 @@ consumed. Packet consumption is not instruction
 consumption: an incomplete instruction may consume a packet without issuing,
 and a retained compressed instruction may issue without consuming a packet.
 
-The S2 scanner keeps its own partial-instruction bit for fetch lookahead,
-independently of the core's residual parcel. It validates branch locations and
-lengths without full compressed expansion. A stale cut is removed from the
-current packet; a registered repair invalidates the BTB entry and restarts after
-that packet, preserving older queued instructions. Architectural recovery wins.
+The S2 scanner keeps its own partial instruction and first halfword for fetch
+lookahead, independently of the core's residual parcel. It validates branch
+locations and lengths without full compressed expansion. On a BTB miss it also
+recognizes ordinary, compressed, and straddling return hints. A nonempty RAS
+turns an accepted return into a late prediction, truncates trailing parcels,
+redirects only younger S1 work, and discovers an unconditional BTB entry. A
+stale cut is removed from the current packet; a registered repair invalidates
+the BTB entry and restarts after that packet, preserving older queued
+instructions. Architectural recovery wins.
 A source clear without restart stops admission until an explicit restart; never
 reconstruct recovery from the core's assembly cursor or speculative next PC.
 
@@ -169,8 +173,12 @@ recovery as distinct payload fields. The BTB is ordinary named-core RTL, not a
 new language feature or ISA profile parameter.
 
 The RAS is also named-core RTL. Its default six-entry speculative stack drives
-return targets in frontend S1; only an accepted, validated S2 prediction applies
-its action. A second resolved stack advances from uncancelled S4 outcomes. An
+return targets for S1 BTB hits and fault-free S2 predecode fallbacks; only an
+accepted, validated S2 prediction applies its action. The registered late
+fallback is a soft redirect: it preserves older queued packets and the accepted
+return while killing younger S1/S2 work. Its BTB discovery is distinct from
+resolved branch training and never advances resolved RAS state. A second
+resolved stack advances from uncancelled S4 outcomes. An
 ordinary architectural recovery restores speculative state from the resolved
 state, including the resolving action when present, while an action mismatch
 repairs the stack even when the target itself happened to match. Predictor flush

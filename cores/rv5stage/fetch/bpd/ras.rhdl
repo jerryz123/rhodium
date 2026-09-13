@@ -30,6 +30,17 @@ fun rv5stage_ras_action(instruction :: Bits(32)) :~ RV5StageRasAction:
     )
   )
 
+fun rv5stage_compressed_ras_action(instruction :: Bits(16)) :~ RV5StageRasAction:
+  def indirect = (instruction[0..2] === bits(2, 2)) & (instruction[13..16] === bits(4, 3)) & (instruction[2..7] === bits(0, 5)) & instruction[7..12].or_reduce()
+  def rs1 = instruction[7..12]
+  def rs1_link = rs1.is_one_of(bits(1, 5), bits(5, 5))
+  def link = instruction[12].into(Bool)
+  mux(
+    indirect,
+    mux(link, mux(rs1 === bits(5, 5), RV5StageRasAction.PopPush, RV5StageRasAction.Push), mux(rs1_link, RV5StageRasAction.Pop, RV5StageRasAction.None)),
+    RV5StageRasAction.None
+  )
+
 fun rv5stage_ras_writes(action :: RV5StageRasAction) :~ Bool:
   action.is_one_of(RV5StageRasAction.Push, RV5StageRasAction.PopPush)
 
@@ -126,4 +137,5 @@ sync_circuit RV5StageRas(xlen :: XLen, entry_count :: Nat = 6):
 
 export:
   rv5stage_ras_action
+  rv5stage_compressed_ras_action
   RV5StageRas

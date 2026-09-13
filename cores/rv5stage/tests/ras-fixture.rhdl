@@ -10,11 +10,13 @@ import:
 
 sync_circuit RV5StageRasFixture():
   input instruction: Bits(32)
+  input compressed_instruction: Bits(16)
   interface speculate(Valid(RV5StageRasUpdate(XLen.X64)), ~role: consumer)
   interface resolve(Valid(RV5StageRasResolution(XLen.X64)), ~role: consumer)
   interface restore(Pulse(), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
   output classification: RV5StageRasAction
+  output compressed_classification: RV5StageRasAction
   output head_valid: Bool
   output head: Bits(64)
 
@@ -24,6 +26,7 @@ sync_circuit RV5StageRasFixture():
   restore |> ras.restore
   clear |> ras.clear
   classification <== rv5stage_ras_action(instruction)
+  compressed_classification <== rv5stage_compressed_ras_action(compressed_instruction)
   head_valid <== ras.head_valid
   head <== ras.head
 

@@ -1,4 +1,4 @@
-// Compares alternating-call-site return prediction with the same BTB and with or without a RAS.
+// Compares alternating-call-site return prediction under the same two-entry BTB pressure.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_return_prediction_tb;
   typedef struct packed { logic ready; } ready_t;

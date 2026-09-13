@@ -22,14 +22,16 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
 
   def recovery = control.flush.valid ||| control.restart.valid ||| control.invalidate_all.valid
   inst repair(ValidPipe(RV5StageFetchRepair(xlen), 1, ~flushable: #true))
-  repair.flush <== recovery
   def command = recovery ||| repair.egress.valid
+  inst late_return(ValidPipe(RV5StagePrediction(xlen), 1, ~flushable: #true))
+  def fallback_redirect = late_return.egress |> filter_valid(_prediction => !command)
+  repair.flush <== recovery ||| fallback_redirect.valid
+  late_return.flush <== command
   inst source(RV5StageFetchSource(xlen, btb_entries, ras_entries))
   inst scan(RV5StageFetchScan(core_profile))
   inst queue(ShiftQueue(RV5StageFetchPacket(xlen), packet_capacity, ~flow: #true, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
   queue.flush <== recovery
-  s2.flush <== command
 
   scan.repair |> repair.ingress
   def Array(repair_restart, repair_invalidate) = repair.egress |> fork_valid(2)
@@ -42,8 +44,16 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
   source.active <== control.active
   // Prediction repair discards only younger attempts. The corrected S2 packet
   // and all older queue/residual contents remain part of the instruction stream.
-  scan.clear.valid <== recovery
+  scan.clear.valid <== recovery ||| fallback_redirect.valid
+  scan.ras_head_valid <== source.ras_head_valid
+  scan.ras_head <== source.ras_head
   queue.egress |> filter_flow(_packet => !recovery) |> packets
+  def accepted_fallback = scan.fallback |> filter_valid(_prediction => !command & queue.ingress.ready)
+  accepted_fallback |> late_return.ingress
+  def Array(fallback_target, fallback_discovery) = fallback_redirect |> fork_valid(2)
+  fallback_target |> map_valid(prediction => prediction.target) |> source.redirect
+  fallback_discovery |> source.btb_discover
+  s2.flush <== command ||| fallback_redirect.valid
 
   def occupied = queue.count.zext(4) + source.stage1.valid.as_bits().zext(4) + s2.egress.valid.as_bits().zext(4)
   assert(occupied <= bits(packet_capacity, 4), "fetch_packet_reservations_in_range")
@@ -52,18 +62,18 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
     address: attempt.pc.align_down(4)
   ) |> memory.request
 
-  def admitted = !command & memory.response.valid & !memory.response.bits.replay
+  def admitted = !command & !fallback_redirect.valid & memory.response.valid & !memory.response.bits.replay
   def outcome = s2.egress |> trace_valid_event("frontend/s2.outcome", ~fields: attempt):
     pc: attempt.pc
     replay: memory.response.bits.replay
     admitted: admitted
     page_fault: admitted & memory.response.bits.response.page_fault
     access_fault: admitted & memory.response.bits.response.access_fault
-  def replays = outcome |> filter_valid(_attempt => memory.response.valid & memory.response.bits.replay)
+  def replays = outcome |> filter_valid(_attempt => !fallback_redirect.valid & memory.response.valid & memory.response.bits.replay)
   replays |> source.replay
   def lookup = source.stage1 |> trace_valid_event("frontend/s1.lookup", ~fields: attempt):
     pc: attempt.pc
-  lookup |> filter_valid(_attempt => !command & !replays.valid) |> s2.ingress
+  lookup |> filter_valid(_attempt => !command & !replays.valid & !fallback_redirect.valid) |> s2.ingress
   (outcome |> filter_valid(_attempt => admitted)
     |> map_valid(attempt => RV5StageFetchPacket(xlen)):
          pc: attempt.pc
@@ -82,7 +92,7 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
   ) |> source.ras_speculate
   memory.flush <== command
   memory.invalidate_all <== control.invalidate_all.valid
-  memory.s1_kill <== command ||| replays.valid
+  memory.s1_kill <== command ||| replays.valid ||| fallback_redirect.valid
   when (s2.egress.valid & !command):
     assert(memory.response.valid, "fetch_s2_has_outcome")
 

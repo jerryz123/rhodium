@@ -1,8 +1,11 @@
 #lang rhodium
-// Checks S2 prediction cuts and repairs younger fetches without discarding older queued packets.
+// Validates S2 predictions and discovers return fallbacks without discarding older packets.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "bpd/protocol.rhdl" open
+  "bpd/ras.rhdl".rv5stage_compressed_ras_action
+  "bpd/ras.rhdl".rv5stage_ras_action
   "packet.rhdl" open
   "../profile.rhm".RVCoreProfile
   "../../../riscv/isa/c.rhm" open
@@ -16,8 +19,12 @@ sync_circuit RV5StageFetchScan(core_profile :: RVCoreProfile):
   interface ingress(Valid(RV5StageFetchPacket(xlen)), ~role: consumer)
   interface egress(Valid(RV5StageFetchPacket(xlen)), ~role: producer)
   interface repair(Valid(RV5StageFetchRepair(xlen)), ~role: producer)
+  interface fallback(Valid(RV5StagePrediction(xlen)), ~role: producer)
   interface clear(Pulse(), ~role: consumer)
+  input ras_head_valid: Bool
+  input ras_head: Bits(xlen.width)
   reg partial(~init: Bool(#false))
+  reg partial_halfword(Bits(16))
   def packet = ingress.bits
   def lower_compressed = if compressed_enabled | packet.word[0..2] =/= bits(3, 2) | Bool(#false)
   def upper_compressed = if compressed_enabled | packet.word[16..18] =/= bits(3, 2) | Bool(#false)
@@ -32,11 +39,40 @@ sync_circuit RV5StageFetchScan(core_profile :: RVCoreProfile):
   def boundary = mux(predicted_upper, upper_start, lower_start)
   def bad_prediction = packet.prediction.valid & !packet.page_fault & !packet.access_fault & (!boundary ||| (packet.prediction.compressed ^ predicted_compressed) ||| !control_flow)
   def prediction = packet.prediction.updated(~valid: packet.prediction.valid & !bad_prediction)
+  def first_upper = !partial & packet.pc[1].into(Bool)
+  def first_halfword = mux(partial, partial_halfword, mux(first_upper, packet.word[16..32], packet.word[0..16]))
+  def first_compressed = if compressed_enabled | first_halfword[0..2] =/= bits(3, 2) | Bool(#false)
+  def first_complete = first_compressed ||| partial ||| !first_upper
+  def first_instruction = mux(partial, packet.word[0..16] ++ partial_halfword, packet.word)
+  def first_action = mux(first_compressed, rv5stage_compressed_ras_action(first_halfword), rv5stage_ras_action(first_instruction))
+  def first_valid = mux(partial, packet.mask[0].into(Bool), mux(first_upper, packet.mask[1].into(Bool), packet.mask[0].into(Bool)))
+  def first_return = first_valid & first_complete & first_action.is_one_of(RV5StageRasAction.Pop, RV5StageRasAction.PopPush)
+  def first_compressed_direct = (first_halfword[0..2] === bits(1, 2)) & ((first_halfword[13..16] === bits(5, 3)) ||| (Bool(xlen == XLen.X32) & (first_halfword[13..16] === bits(1, 3))))
+  def first_compressed_conditional = (first_halfword[0..2] === bits(1, 2)) & first_halfword[13..16].is_one_of(bits(6, 3), bits(7, 3))
+  def first_compressed_indirect = (first_halfword[0..2] === bits(2, 2)) & (first_halfword[13..16] === bits(4, 3)) & (first_halfword[2..7] === bits(0, 5)) & first_halfword[7..12].or_reduce()
+  def first_compressed_control_flow = first_compressed & (first_compressed_direct ||| first_compressed_conditional ||| first_compressed_indirect)
+  def first_full_control_flow = !first_compressed & first_instruction[0..7].is_one_of(bits(0x63, 7), bits(0x6f, 7), bits(0x67, 7))
+  def second_follows = mux(partial, !first_full_control_flow, !first_upper & first_compressed & !first_compressed_control_flow)
+  def second_valid = packet.mask[1].into(Bool) & upper_compressed & second_follows
+  def second_action = rv5stage_compressed_ras_action(packet.word[16..32])
+  def second_return = second_valid & second_action.is_one_of(RV5StageRasAction.Pop, RV5StageRasAction.PopPush)
+  def fallback_valid = ingress.valid & !packet.prediction.valid & !packet.page_fault & !packet.access_fault & ras_head_valid & (first_return ||| second_return)
+  def fallback_pc = mux(first_return, mux(partial, packet.pc - bits(2, xlen.width), packet.pc), packet.pc.align_down(4) + bits(2, xlen.width))
+  def fallback_prediction = RV5StagePrediction(xlen):
+    valid: fallback_valid
+    pc: fallback_pc
+    target: ras_head
+    compressed: mux(first_return, first_compressed, Bool(#true))
+    ras_action: mux(first_return, first_action, second_action)
+  def effective_prediction = mux(fallback_valid, fallback_prediction, prediction)
   // A valid lower compressed prediction cuts the upper parcel. A stale cut
   // instead retains the complete word and restarts after it, not before it.
-  def cut_upper = prediction.valid & !predicted_upper & predicted_compressed
-  def mask = mux(cut_upper, bits(1, 2), packet.mask)
-  (ingress |> filter_valid(_packet => !clear.valid) |> map_valid(packet => packet.updated(~mask: mask, ~prediction: prediction))) |> egress
+  def cut_upper = effective_prediction.valid & !effective_prediction.pc[1].into(Bool) & effective_prediction.compressed
+  def cut_after_straddle = fallback_valid & partial & first_return
+  def mask = mux(cut_upper ||| cut_after_straddle, bits(1, 2), packet.mask)
+  (ingress |> filter_valid(_packet => !clear.valid) |> map_valid(packet => packet.updated(~mask: mask, ~prediction: effective_prediction))) |> egress
+  fallback.valid <== fallback_valid & !clear.valid
+  fallback.bits <== fallback_prediction
   (ingress |> filter_valid(_packet => !clear.valid & bad_prediction) |> map_valid(packet => RV5StageFetchRepair(xlen)):
     pc: packet.pc.align_down(4) + bits(4, xlen.width)
     entry: packet.prediction.pc
@@ -45,6 +81,7 @@ sync_circuit RV5StageFetchScan(core_profile :: RVCoreProfile):
     partial <== Bool(#false)
   elsewhen (ingress.valid):
     partial <== mask[1].into(Bool) & upper_start & !upper_compressed & !packet.page_fault & !packet.access_fault
+    partial_halfword <== packet.word[16..32]
 
 export:
   RV5StageFetchScan

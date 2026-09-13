@@ -1,4 +1,4 @@
-// Checks predicted streams, completed-word compaction, compressed cuts, stalls, and repair.
+// Checks early and late predicted streams, compressed cuts, stalls, faults, and repair.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_fetch_prediction_tb;
   typedef struct packed { logic [63:0] address; } request_bits_t;
@@ -46,7 +46,8 @@ module rv5stage_fetch_prediction_tb;
   ready_t fetched_in;
   fetched_out_t fetched_out;
   response_t response = '0, s2_response = '0;
-  bit request_ready = 1, output_ready = 1, fault_continuation = 0;
+  bit request_ready = 1, output_ready = 1;
+  logic [63:0] fault_address = '1;
   int mode = 0, cycle = 0, previous_request = -1, previous_output = -1;
   int request_checks = 0, output_checks = 0, local_flushes = 0;
   bit continuous_requests = 0, continuous_outputs = 0;
@@ -66,6 +67,35 @@ module rv5stage_fetch_prediction_tb;
         'h300: return 32'h006f0001; // 32-bit JAL starts at +2.
         'h304: return 32'h00010000; // Continuation, upper half must be discarded.
         'h400: return 32'ha0010001;
+        default: return 32'h00000013;
+      endcase
+      4: case (address)
+        'h100, 'h104: return 32'h000000ef; // Predicted JAL x1 call sites.
+        'h200, 'h204: return 32'h00008067; // BTB-missed JALR x0, x1 returns.
+        default: return 32'h00000013;
+      endcase
+      5: case (address)
+        'h100: return 32'h000000ef;
+        'h300: return 32'h80820001; // C.NOP followed by BTB-missed C.JR x1.
+        default: return 32'h00000013;
+      endcase
+      6: case (address)
+        'h100: return 32'h000000ef;
+        'h400: return 32'h80670001; // C.NOP followed by the first half of JALR x0, x1.
+        'h404: return 32'h00010000; // Return continuation followed by wrong-path C.NOP.
+        default: return 32'h00000013;
+      endcase
+      7: case (address)
+        'h100: return 32'h000000ef;
+        'h500: return 32'h00130001; // C.NOP followed by the first half of 32-bit NOP.
+        'h504: return 32'h80820000; // NOP continuation followed by BTB-missed C.JR x1.
+        default: return 32'h00000013;
+      endcase
+      8: case (address)
+        'h100: return 32'h000000ef;
+        'h600: return 32'h8082c001; // C.BEQZ followed by C.JR x1.
+        'h700: return 32'h00630001; // C.NOP followed by the first half of BEQ.
+        'h704: return 32'h80820000; // BEQ continuation followed by C.JR x1.
         default: return 32'h00000013;
       endcase
       default: return 32'h00000013;
@@ -92,7 +122,7 @@ module rv5stage_fetch_prediction_tb;
       s2_response <= memory_out.flush || memory_out.s1_kill ? '0 : response;
       response.valid <= 0;
       if (memory_out.request.valid && memory_in.request.ready)
-        response <= '{1'b1, '{word_at(memory_out.request.bits.address), fault_continuation && memory_out.request.bits.address == 'h304, 1'b0}};
+        response <= '{1'b1, '{word_at(memory_out.request.bits.address), memory_out.request.bits.address == fault_address, 1'b0}};
     end
     if (!reset && memory_out.flush && !restart_valid && !flush) local_flushes = local_flushes + 1;
     if (!reset && memory_out.request.valid && memory_in.request.ready && expected_requests.size() != 0) begin
@@ -114,7 +144,7 @@ module rv5stage_fetch_prediction_tb;
   task automatic initialize(input int next_mode);
     @(negedge clock);
     reset = 1; active = 0; mode = next_mode; output_ready = 1; request_ready = 1;
-    continuous_requests = 0; continuous_outputs = 0; fault_continuation = 0;
+    continuous_requests = 0; continuous_outputs = 0; fault_address = '1;
     expected_requests.delete(); previous_request = -1; previous_output = -1;
     request_checks = 0; output_checks = 0; local_flushes = 0;
     repeat (2) @(negedge clock);
@@ -133,13 +163,13 @@ module rv5stage_fetch_prediction_tb;
     @(negedge clock);
     restart_valid = 0; active = 1;
   endtask
-  task automatic expect_pc(input logic [63:0] pc, npc, input bit fault = 0);
+  task automatic expect_pc(input logic [63:0] pc, npc, input bit fault = 0, input logic [1:0] ras_action = 0, input logic [63:0] fault_pc = 'h304);
     @(negedge clock);
     while (!fetched_out.valid) @(negedge clock);
-    assert (fetched_out.bits.pc == pc && fetched_out.bits.predicted_next_pc == npc && fetched_out.bits.instruction_page_fault == fault)
-      else $fatal(1, "output pc=%h npc=%h fault=%b, expected pc=%h npc=%h fault=%b", fetched_out.bits.pc, fetched_out.bits.predicted_next_pc, fetched_out.bits.instruction_page_fault, pc, npc, fault);
+    assert (fetched_out.bits.pc == pc && fetched_out.bits.predicted_next_pc == npc && fetched_out.bits.predicted_ras_action == ras_action && fetched_out.bits.instruction_page_fault == fault)
+      else $fatal(1, "output pc=%h npc=%h ras=%0d fault=%b, expected pc=%h npc=%h ras=%0d fault=%b", fetched_out.bits.pc, fetched_out.bits.predicted_next_pc, fetched_out.bits.predicted_ras_action, fetched_out.bits.instruction_page_fault, pc, npc, ras_action, fault);
     if (fault)
-      assert (fetched_out.bits.instruction_fault_address == 'h304) else $fatal(1, "wrong continuation fault address");
+      assert (fetched_out.bits.instruction_fault_address == fault_pc) else $fatal(1, "wrong instruction fault address");
   endtask
   initial begin
     initialize(0);
@@ -232,7 +262,7 @@ module rv5stage_fetch_prediction_tb;
 
     initialize(2);
     train('h302, 'h402, 0);
-    fault_continuation = 1;
+    fault_address = 'h304;
     start('h302);
     expect_pc('h302, 'h306, 1);
 
@@ -244,6 +274,67 @@ module rv5stage_fetch_prediction_tb;
     @(negedge clock);
     restart_valid = 0;
     expect_pc('h700, 'h704);
+
+    initialize(4);
+    train('h100, 'h200, 0, 0, 1, 2'd1);
+    train('h104, 'h200, 0, 0, 1, 2'd1);
+    start('h100);
+    expect_pc('h100, 'h200, 0, 2'd1);
+    expect_pc('h200, 'h104, 0, 2'd2);
+    expect_pc('h104, 'h200, 0, 2'd1);
+    expect_pc('h200, 'h108, 0, 2'd2);
+    expect_pc('h108, 'h10c);
+    assert (local_flushes == 0) else $fatal(1, "late return prediction caused a local repair");
+
+    initialize(5);
+    train('h100, 'h302, 0, 0, 1, 2'd1);
+    start('h100);
+    expect_pc('h100, 'h302, 0, 2'd1);
+    expect_pc('h302, 'h104, 0, 2'd2);
+    expect_pc('h104, 'h108);
+
+    initialize(6);
+    train('h100, 'h402, 0, 0, 1, 2'd1);
+    start('h100);
+    expect_pc('h100, 'h402, 0, 2'd1);
+    expect_pc('h402, 'h104, 0, 2'd2);
+    expect_pc('h104, 'h108);
+
+    initialize(7);
+    train('h100, 'h502, 0, 0, 1, 2'd1);
+    start('h100);
+    expect_pc('h100, 'h502, 0, 2'd1);
+    expect_pc('h502, 'h506);
+    expect_pc('h506, 'h104, 0, 2'd2);
+    expect_pc('h104, 'h108);
+
+    // A return later in the packet cannot bypass an earlier conditional CFI.
+    initialize(8);
+    train('h100, 'h600, 0, 0, 1, 2'd1);
+    start('h100);
+    expect_pc('h100, 'h600, 0, 2'd1);
+    expect_pc('h600, 'h602);
+    expect_pc('h602, 'h604);
+
+    initialize(8);
+    train('h100, 'h702, 0, 0, 1, 2'd1);
+    start('h100);
+    expect_pc('h100, 'h702, 0, 2'd1);
+    expect_pc('h702, 'h706);
+    expect_pc('h706, 'h708);
+
+    initialize(4);
+    start('h200);
+    expect_pc('h200, 'h204); // An empty RAS cannot supply a fallback target.
+
+    initialize(4);
+    train('h100, 'h200, 0, 0, 1, 2'd1);
+    fault_address = 'h200;
+    start('h100);
+    expect_pc('h100, 'h200, 0, 2'd1);
+    expect_pc('h200, 'h204, 1, 0, 'h200); // A faulting return neither redirects nor pops.
+    fault_address = '1;
+    expect_pc('h204, 'h104, 0, 2'd2);
     $display("RV5Stage bubbleless predicted fetch, compressed streams, stalls and repair passed");
     $finish;
   end

@@ -9,7 +9,8 @@ module rv5stage_ras_tb;
   localparam logic [1:0] NONE = 0, PUSH = 1, POP = 2, POP_PUSH = 3;
   logic clock = 0, reset = 1;
   logic [31:0] instruction = 0;
-  logic [1:0] classification;
+  logic [15:0] compressed_instruction = 0;
+  logic [1:0] classification, compressed_classification;
   update_t speculate_in = '0;
   resolution_t resolve_in = '0;
   pulse_t restore_in = '0, clear_in = '0;
@@ -29,6 +30,12 @@ module rv5stage_ras_tb;
     #1;
     assert (classification == expected)
       else $fatal(1, "RAS classification=%0d expected=%0d instruction=%h", classification, expected, instruction);
+  endtask
+  task automatic check_compressed_classification(input logic [15:0] encoded, input logic [1:0] expected);
+    compressed_instruction = encoded;
+    #1;
+    assert (compressed_classification == expected)
+      else $fatal(1, "compressed RAS classification=%0d expected=%0d instruction=%h", compressed_classification, expected, compressed_instruction);
   endtask
 
   task automatic speculate(input logic [1:0] action, input logic [63:0] address = 0);
@@ -80,6 +87,11 @@ module rv5stage_ras_tb;
     check_classification(jalr(1, 5), POP_PUSH);
     check_classification(jalr(5, 1), POP_PUSH);
     check_classification(jalr(0, 2), NONE);
+    check_compressed_classification(16'h8082, POP);      // C.JR x1.
+    check_compressed_classification(16'h8282, POP);      // C.JR x5.
+    check_compressed_classification(16'h9082, PUSH);     // C.JALR x1.
+    check_compressed_classification(16'h9282, POP_PUSH); // C.JALR x5.
+    check_compressed_classification(16'h8102, NONE);     // C.JR x2.
 
     speculate(PUSH, 64'h100);
     speculate(PUSH, 64'h200);

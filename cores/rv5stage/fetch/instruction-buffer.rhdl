@@ -59,7 +59,8 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RVCoreProfile):
   def page_fault = (!residual_valid ||| straddle) & packets.bits.page_fault
   def access_fault = (!residual_valid ||| straddle) & packets.bits.access_fault
   def sequential_pc = pc + mux(instruction_is_compressed, bits(2, width), bits(4, width))
-  def prediction = mux(residual_valid, residual.prediction, packets.bits.prediction)
+  def continuation_prediction = residual_valid & packets.bits.prediction.valid & (packets.bits.prediction.pc === pc)
+  def prediction = mux(continuation_prediction, packets.bits.prediction, mux(residual_valid, residual.prediction, packets.bits.prediction))
   def predicted_taken = prediction.valid & (prediction.pc === pc) & !page_fault & !access_fault & !(instruction_is_compressed & !compressed_legal)
   fetched.valid <== available & !clear.valid
   fetched.bits <== FetchDecode(xlen):

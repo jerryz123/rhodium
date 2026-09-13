@@ -9,6 +9,7 @@ module rv5stage_btb_tb;
     logic [63:0] return_address;
   } update_bits_t;
   typedef struct packed { logic valid; update_bits_t bits; } update_t;
+  typedef struct packed { logic valid; prediction_t bits; } discovery_t;
   typedef struct packed { logic valid; logic [63:0] bits; } invalidate_t;
   typedef struct packed { logic valid; } pulse_t;
   logic clock = 0, reset = 1;
@@ -16,6 +17,7 @@ module rv5stage_btb_tb;
   prediction_t prediction;
   pulse_t invalidate_all_in = '0;
   update_t update_in = '0;
+  discovery_t discover_in = '0;
   invalidate_t invalidate_in = '0;
   RV5StageBtb dut (.*);
   always #5 clock = ~clock;
@@ -31,6 +33,12 @@ module rv5stage_btb_tb;
     #1;
     assert (prediction.valid == valid && (!valid || (prediction.target == target && prediction.ras_action == ras_action)))
       else $fatal(1, "BTB query %h valid=%b target=%h", pc, prediction.valid, prediction.target);
+  endtask
+  task automatic discover(input logic [63:0] pc, target, input bit compressed, input logic [1:0] ras_action);
+    @(negedge clock);
+    discover_in = '{1'b1, '{1'b1, pc, target, compressed, ras_action}};
+    @(negedge clock);
+    discover_in = '0;
   endtask
   initial begin
     repeat (2) @(negedge clock);
@@ -81,6 +89,16 @@ module rv5stage_btb_tb;
     check('h102, 1, 'h300);
     train('h10c, 'h700, 0, 1, 0, 1, 2'd2);
     check('h10c, 1, 'h700, 2'd2);
+    discover('h110, 'h900, 0, 2'd2);
+    check('h110, 1, 'h900, 2'd2);
+    @(negedge clock);
+    discover_in = '{1'b1, '{1'b1, 64'h114, 64'ha00, 1'b0, 2'd2}};
+    update_in = '{1'b1, '{64'h118, 64'hb00, 1'b1, 1'b0, 1'b1, 1'b0, 2'd0, 2'd0, 64'h11c}};
+    @(negedge clock);
+    discover_in = '0;
+    update_in = '0;
+    check('h118, 1, 'hb00);
+    check('h114, 0); // Resolved training wins over simultaneous discovery.
     invalidate_all_in.valid = 1;
     update_in = '{1'b1, '{64'h104, 64'h500, 1'b1, 1'b0, 1'b1, 1'b0, 2'd0, 2'd0, 64'h108}};
     @(negedge clock);
