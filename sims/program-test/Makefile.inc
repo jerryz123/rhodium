@@ -10,7 +10,7 @@ BENCHMARK_MODE ?= target
 ISA_SMOKE_DIR := $(PROGRAM_BUILD_ROOT)/$(SOC)/isa-smoke
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
-.PHONY: program-test-setup program-test-adapter-test program-target benchmark-simulator-attestation isa-elfs benchmark-elfs isa-test benchmark-test program-test
+.PHONY: program-test-setup program-test-adapter-test program-target simulator-attestation isa-elfs benchmark-elfs isa-test benchmark-test program-test
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
 program-target: $(PROGRAM_TARGET)
 
@@ -31,9 +31,10 @@ isa-smoke-elfs: isa-smoke-config
 	$(PYTHON) program-test/build.py --suite isa --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(ISA_SMOKE_DIR)" --compiler "$(RISCV_CC)" --target "$(ISA_SMOKE_DIR)/target.json"
 
-isa-smoke: isa-smoke-elfs simulator
+isa-smoke: isa-smoke-elfs simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(ISA_SMOKE_DIR)/manifest.json" \
-	  --simulator "$(SIMULATOR_BINARY)" --output "$(ISA_SMOKE_DIR)/results" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(ISA_SMOKE_DIR)/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
 program-test-setup:
 	git -C $(REPO_DIR) submodule update --init riscv/riscv-isa-tests
@@ -58,11 +59,11 @@ isa-test: isa-elfs simulator
 	  --simulator "$(SIMULATOR_BINARY)" --output "$(PROGRAM_BUILD_ROOT)/isa/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
 
-benchmark-simulator-attestation: simulator program-target
+simulator-attestation: simulator program-target
 	$(PYTHON) program-test/artifact.py $(if $(PREBUILT_SIMULATOR),verify,record) \
 	  --binary "$(SIMULATOR_BINARY)" --soc "$(SOC)" --target "$(PROGRAM_TARGET)"
 
-benchmark-test: benchmark-elfs benchmark-simulator-attestation
+benchmark-test: benchmark-elfs simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_BUILD_ROOT)/benchmark/manifest.json" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	  --output "$(PROGRAM_BUILD_ROOT)/benchmark/results" \
