@@ -69,7 +69,8 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   refill.node_id <== node_id
   def cache_flush = core.flush ||| core.invalidate_all
   inst array_read(ValidPipeAlwaysCapture(RV5StageL1ILookup(width), 1, ~flushable: #true))
-  inst lookup(ValidPipeAlwaysCapture(RV5StageL1IResolved(width, way_width), 1), ~reset_when: cache_flush)
+  inst lookup(ValidPipeAlwaysCapture(RV5StageL1IResolved(width, way_width), 1, ~flushable: #true))
+  lookup.flush <== cache_flush
 
   reg valid_lines(~init: vec(
     for List (_set in 0..sets): bits(0, ways).as_vec(Bool)

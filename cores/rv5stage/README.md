@@ -252,8 +252,8 @@ identity. Direct refill commands retain their S4 parent through the refill
 engine, including retry/credit waiting, and every accepted request attempt on
 `dcache/chi.txreq` points back to that same S4 occurrence. No extra stage event is
 inserted. Dirty-victim gathering, post-writeback refills, and maintenance requests
-remain explicitly detached. Response beats and completion do not yet inherit
-transaction ancestry; other outer CHI flit observations remain independent.
+remain explicitly detached. Refill completion and acknowledgement ownership
+remain separate from the network return ancestry described below.
 
 ### Private-cache outer traffic
 
@@ -287,9 +287,14 @@ source/transaction IDs, opcode, and return-to-source control. Opcode names come
 from the channel's hardware enum declaration, not a separate host table. Unknown
 encodings use hex slice names and retain their numeric opcode argument.
 
-D-cache requests inherit certified refill ownership, and incoming D-cache
+I-cache demand requests inherit the accepted `frontend/s0.request` occurrence
+through virtual lookup, miss selection, and retained line-read ownership. Every
+CHI retry preserves that original parent, even after a speculative flush;
+frontend replay attempts remain distinct requests. This adds no intermediate
+cache checkpoint and does not connect installation to a later successful fetch.
+D-cache requests inherit certified S4 refill ownership. Incoming I/D-cache
 RSP/DAT checkpoints inherit ancestry through modeled Flow and Home contracts.
-Other channels start independent observations but can supply parents to
+Outgoing RSP/DAT and snoop channels start independent observations but can supply parents to
 downstream checkpoints. Missing ownership contracts remain explicit gaps in
 partial tracing; see the [current integration limit](../../chi/home/README.md#inclusive-home-event-tracing).
 Transaction IDs can be reused and have channel-specific meaning; equality alone

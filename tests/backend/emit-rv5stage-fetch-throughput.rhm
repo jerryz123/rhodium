@@ -1,8 +1,18 @@
 #lang rhombus
-// Emits integrated cold-refill, compressed-stream, and backpressured fetch regressions.
+// Instruments integrated fetch throughput with accepted-request-to-I-cache-TXREQ lineage.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../cores/rv5stage/tests/fetch-throughput-fixture.rhdl".RV5StageFetchThroughput
   "../../rhodium/backend/circt.rhm".emit_circt
   "../../rhodium/frontend/kernel.rhm" as embedded
-print(emit_circt(embedded.run_elaboration(fun (): RV5StageFetchThroughput())))
+  "../../rhodium/event/main.rhm" open
+def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageFetchThroughput()), EventInstrumentationConfig(~partial: #true))
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace fetch_sites {\n" ++ String.join(
+  for List (label in ["frontend/s0.request", "icache/chi.txreq"], name in ["request", "txreq"]):
+    def indices = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
+    unless indices.length() == 1 | error("expected one fetch trace site: " ++ label)
+    "constexpr unsigned " ++ name ++ " = " ++ to_string(indices[0]) ++ ";\n",
+  ""
+) ++ "}\n"
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

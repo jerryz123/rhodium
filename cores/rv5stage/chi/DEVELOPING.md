@@ -71,7 +71,7 @@ packages and these transaction engines consume it.
 
 ## Change workflow
 
-The refill engine composes a retained transaction relation with ordinary Flow.
+The refill and instruction line-read engines compose a retained transaction relation with ordinary Flow.
 Its named contract covers only `command` to `control.attempt`, sampling command
 acceptance, completion acceptance, and controller active state. The compiler
 holds the parent across retry/credit waiting and every attempt, then traverses

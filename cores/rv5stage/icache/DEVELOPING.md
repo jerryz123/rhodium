@@ -59,6 +59,21 @@ separation.
 
 ## Focused validation
 
+Lookup stages use intrinsic flushable always-capture pipes. S2 clears on
+`core.flush ||| core.invalidate_all`; S1 preserves a simultaneously admitted
+replacement demand, otherwise clearing on that same condition. Preserve the global
+reset epoch and existing same-cycle kill filters. Ordinary Flow carries the
+accepted S0 parent through demand arbitration, both lookup stages, miss
+selection, and refill-command acceptance. The line-read engine retains that
+parent across CHI attempts; neither speculative flush nor invalidation cancels
+accepted transaction ownership. Prefetch input ancestry remains caller-owned.
+
+`rv5stage-fetch-throughput` instruments the production frontend/MMU/router/L1I
+composition. Its public-transfer scoreboard checks exact S0-to-TXREQ parents,
+delayed retry/credit and request backpressure, redirect during a retained miss,
+pending reset, and distinct repeated-PC occurrences, alongside cold/warm
+aligned, straddling, compressed, and stalled instruction delivery.
+
 The `rv5stage-icache-coherence` and `rv5stage-icache-coherence-flat`
 fixtures connect real I/D caches to the inclusive and noncaching Homes. They
 check dirty-code visibility after instruction invalidation and retention under

@@ -10,13 +10,14 @@ WITH events AS MATERIALIZED (
 )
 SELECT
   (SELECT count(*)>0 FROM edges WHERE src='dcache/chi.txreq' AND dst='dcache/chi.rxdat') AND
+  (SELECT count(*)>0 FROM edges WHERE src='icache/chi.txreq' AND dst='icache/chi.rxdat') AND
   -- Opaque branches may lack parents, but must explicitly report that gap.
-  (SELECT count(*)=0 FROM events e WHERE name IN ('dcache/chi.rxrsp','dcache/chi.rxdat')
+  (SELECT count(*)=0 FROM events e WHERE name IN ('icache/chi.rxrsp','icache/chi.rxdat','dcache/chi.rxrsp','dcache/chi.rxdat')
     AND ((SELECT count(*) FROM edges WHERE child=e.id)>1 OR
       ((SELECT count(*) FROM edges WHERE child=e.id)=0 AND
        COALESCE(EXTRACT_ARG(e.arg_set_id,'debug.ancestry_unknown'),'false')!='true'))) AND
   (SELECT count(*)=0 FROM edges WHERE
-    (dst IN ('dcache/chi.rxrsp','dcache/chi.rxdat') AND
-      (src!='dcache/chi.txreq' OR delay<10 OR
+    (dst IN ('icache/chi.rxrsp','icache/chi.rxdat','dcache/chi.rxrsp','dcache/chi.rxdat') AND
+      (src!=substr(dst,1,11)||'txreq' OR delay<10 OR
        EXTRACT_ARG(parent_args,'debug.txn_id')!=EXTRACT_ARG(child_args,'debug.txn_id') OR
        EXTRACT_ARG(parent_args,'debug.src_id')!=EXTRACT_ARG(child_args,'debug.tgt_id')))) AS ok

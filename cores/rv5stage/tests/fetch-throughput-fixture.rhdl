@@ -26,6 +26,8 @@ sync_circuit RV5StageFetchThroughput():
   output(valid, fault): Bool
   output pc: Bits(64)
   output instruction: Bits(32)
+  output(trace_admit, trace_clear, trace_kill, trace_outcome, trace_replay): Bool
+  output trace_address: Bits(64)
   interface chi(CHIRNIChannels(test_rv5stage_flit), ~role: node)
   inst fetch(RV5StageFetchFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
@@ -78,7 +80,20 @@ sync_circuit RV5StageFetchThroughput():
   cache.node_id <== bits(2, 7)
   cache.prefetch.valid <== Bool(#false)
   cache.prefetch.bits <== literal(CachePrefetchReq(64), 0)
-  cache.chi <=> chi
+  def requests = cache.chi.req |> trace_event("icache/chi.txreq", ~fields: flit):
+    address: flit.address
+    allow_retry: flit.allow_retry
+  requests |> chi.req
+  chi.rsp.response |> cache.chi.rsp.response
+  chi.dat.response |> cache.chi.dat.response
+  cache.chi.rsp.requester |> chi.rsp.requester
+  cache.chi.dat.request |> chi.dat.request
+  trace_admit <== fetch.memory.request.fire()
+  trace_address <== fetch.memory.request.bits.address
+  trace_clear <== cache.core.flush ||| cache.core.invalidate_all
+  trace_kill <== cache.core.s1_kill
+  trace_outcome <== cache.core.response.valid
+  trace_replay <== cache.core.response.bits.replay
 
 export:
   RV5StageFetchThroughput

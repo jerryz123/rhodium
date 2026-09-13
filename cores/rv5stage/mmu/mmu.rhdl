@@ -107,8 +107,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   prefetch_previous_mxr <== mxr
   def prefetch_context_changed = (prefetch_previous_privilege =/= data_privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= sum) ||| (prefetch_previous_mxr =/= mxr)
   def prefetch_flush = instruction.flush ||| invalidate_all ||| prefetch_context_changed
-  inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1), ~reset_when: prefetch_flush)
-  inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1), ~reset_when: prefetch_flush)
+  inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
+  inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
+  virtual_prefetch_pipe.flush <== prefetch_flush
+  physical_prefetch_pipe.flush <== prefetch_flush
   prefetch |> virtual_prefetch_pipe.ingress
 
   def prefetch_request = virtual_prefetch_pipe.egress.bits.into(CachePrefetchReq(width))

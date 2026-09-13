@@ -1,4 +1,4 @@
-// Checks cold-refill recovery and bubble-free aligned, straddling, and compressed fetch streams.
+// Checks fetch throughput and exact I-cache lineage across CHI retries, flushes, and reset.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_fetch_throughput_tb;
   typedef struct packed {logic ready;} ready_t;
@@ -14,17 +14,33 @@ module rv5stage_fetch_throughput_tb;
   logic clock=0, reset=1, active=0, restart=0, sink_ready=1;
   logic [63:0] start_pc=0, pc;
   logic valid, fault;
+  logic trace_admit, trace_clear, trace_kill, trace_outcome, trace_replay, done=0;
+  logic [63:0] trace_address;
   logic [31:0] instruction;
   chi_in_t chi_in;
   chi_out_t chi_out;
   RV5StageFetchThroughput dut(.*);
+  import "DPI-C" function void fetch_trace_init();
+  import "DPI-C" function void fetch_trace_sample(input int flags, input longint unsigned address, tx_address);
+  import "DPI-C" function void fetch_trace_check(input int done);
   always #5 clock=~clock;
+  always @(posedge clock) fetch_trace_sample(
+    int'(reset) | (int'(trace_admit)<<1) | (int'(trace_clear)<<2) | (int'(trace_kill)<<3) |
+    (int'(trace_outcome)<<4) | (int'(trace_replay)<<5) |
+    (int'(chi_out.req.valid && chi_in.req.ready)<<6) | (int'(chi_out.req.bits.allow_retry)<<7) |
+    (int'(chi_in.dat.response.valid && chi_out.dat.response.ready)<<8) |
+    (int'(chi_out.rsp.requester.valid && chi_in.rsp.requester.ready)<<9), trace_address, 64'(chi_out.req.bits.address));
+  always @(negedge clock) begin
+    fetch_trace_check(int'(done));
+    if(done) $finish;
+  end
   integer cycle=0, offset=0, requests=0, beat=0;
   bit compressed_mode=0, stall_mode=0;
   int line_requests[32];
   logic pending=0;
   logic [63:0] line_address;
   logic [11:0] transaction;
+  int retry_phase=0, retry_delay=0;
 
   function automatic logic [31:0] expected_instruction(input int index);
     if(compressed_mode) return 32'h13 | (32'((index%31)+1)<<7);
@@ -44,7 +60,13 @@ module rv5stage_fetch_throughput_tb;
   endfunction
   always_comb begin
     chi_in='0;
-    chi_in.req.ready=1;
+    chi_in.req.ready=cycle%4!=0;
+    chi_in.rsp.response.valid=retry_phase!=0 && retry_delay==0;
+    chi_in.rsp.response.bits.opcode=retry_phase==1 ? 5'h03 : 5'h07;
+    chi_in.rsp.response.bits.src_id=7'd1;
+    chi_in.rsp.response.bits.tgt_id=7'd2;
+    chi_in.rsp.response.bits.txn_id=transaction;
+    chi_in.rsp.response.bits.pcrd_type=4'd2;
     chi_in.rsp.requester.ready=1;
     chi_in.dat.request.ready=1;
     chi_in.dat.response.valid=pending && (!stall_mode || cycle%7>=3);
@@ -61,19 +83,27 @@ module rv5stage_fetch_throughput_tb;
   end
   always @(posedge clock) begin
     cycle<=cycle+1;
-    if(reset) begin pending<=0; beat<=0; requests<=0; foreach(line_requests[i]) line_requests[i]<=0; end
+    if(reset) begin pending<=0; beat<=0; requests<=0; retry_phase<=0; retry_delay<=0; foreach(line_requests[i]) line_requests[i]<=0; end
     else begin
       if(chi_out.req.valid && chi_in.req.ready) begin
         assert(!pending && chi_out.req.bits.opcode==7'h03) else $fatal(1,"unexpected refill request");
         assert(chi_out.req.bits.address>=44'h1000 && chi_out.req.bits.address<44'h1800)
           else $fatal(1,"fetch escaped the bounded instruction image");
-        assert(line_requests[5'((chi_out.req.bits.address-44'h1000)/64)]==0)
-          else $fatal(1,"frontend replay duplicated a line refill");
-        line_requests[5'((chi_out.req.bits.address-44'h1000)/64)]<=1;
         line_address<=64'(chi_out.req.bits.address);
         transaction<=chi_out.req.bits.txn_id;
-        pending<=1; beat<=0; requests<=requests+1;
+        if(chi_out.req.bits.allow_retry) begin
+          assert(line_requests[5'((chi_out.req.bits.address-44'h1000)/64)]==0)
+            else $fatal(1,"frontend replay duplicated a line refill");
+          line_requests[5'((chi_out.req.bits.address-44'h1000)/64)]<=1;
+          retry_phase<=1; retry_delay<=8; requests<=requests+1;
+        end else begin
+          assert(chi_out.req.bits.pcrd_type==2 && chi_out.req.bits.address==line_address[43:0])
+            else $fatal(1,"retry changed command or credit type");
+          pending<=1; beat<=0;
+        end
       end
+      if(retry_delay>0) retry_delay<=retry_delay-1;
+      if(chi_in.rsp.response.valid && chi_out.rsp.response.ready) retry_phase<=retry_phase==1 ? 2 : 0;
       if(chi_in.dat.response.valid && chi_out.dat.response.ready) begin
         if(beat==3) pending<=0;
         else beat<=beat+1;
@@ -135,6 +165,27 @@ module rv5stage_fetch_throughput_tb;
     repeat(100) tick();
   endtask
   initial begin
+    fetch_trace_init();
+    // Reset and redirect while a miss owns a backpressured/retrying transaction.
+    // A redirect must not discard that owner; reset must discard it.
+    start_pc=64'h1000;
+    repeat(4) tick(); reset=0; active=1; restart=1; tick(); restart=0;
+    begin
+      int elapsed;
+      elapsed=0;
+      while(retry_phase==0 && elapsed<200) begin tick(); elapsed++; end
+      assert(retry_phase!=0) else $fatal(1,"pending reset setup timed out");
+    end
+    reset=1; active=0; repeat(4) tick(); reset=0;
+    active=1; restart=1; tick(); restart=0;
+    begin
+      int elapsed;
+      elapsed=0;
+      while(retry_phase==0 && elapsed<200) begin tick(); elapsed++; end
+      assert(retry_phase!=0) else $fatal(1,"pending redirect setup timed out");
+    end
+    active=0; restart=1; tick(); restart=0;
+    repeat(100) tick();
     for(int mode=0;mode<4;mode++) begin
       compressed_mode=mode==2;
       stall_mode=mode==3;
@@ -145,6 +196,6 @@ module rv5stage_fetch_throughput_tb;
       if(!stall_mode) run_stream(1);
     end
     $display("RV5Stage integrated cold and warm fetch throughput passed");
-    $finish;
+    done=1;
   end
 endmodule

@@ -179,8 +179,12 @@ captured reasons on each coalesced stall slice.
 (the importer omits idle channels from its track table),
 exact named capture layouts, actual I/D request and refill-data activity, node
 identity, decoded opcode slice names against per-channel enum metadata, successful
-response status, byte-addressed snoops, and isolated event
-lineage at these opaque transaction boundaries. Keep scalar and external-memory
+response status, byte-addressed snoops, and certified event
+lineage at transaction boundaries. The demand-only smoke requires every I-cache
+TXREQ to have one S0 request parent and at least three cycles of delay; the
+integrated fetch fixture checks exact ownership independently of the exporter.
+`check-home-events.sql` checks both caches' request-to-return edges and requires
+unknown markers where an opaque branch lacks a parent. Keep scalar and external-memory
 checks scoped to their own tracks when adding cache channels. See the
 [RV5Stage annotation owner](../cores/rv5stage/DEVELOPING.md#pipeline-event-annotations).
 Validate cache stall slices on the original channel tracks, always named `stall`,

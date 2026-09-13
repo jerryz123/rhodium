@@ -107,6 +107,11 @@ admission, and retained S2-to-S3-to-S4 ancestry including direct-refill fields.
 The existing bench checks functional load timing and architectural results.
 Every refill receives RetryAck and PCrdGrant before retransmission, with request
 backpressure; both attempts must retain the same S4 occurrence.
+`rv5stage-fetch-throughput` similarly links RHEG for the real frontend/MMU/L1I
+path. A public admission/S1-kill/S2-outcome model identifies the exact S0 parent
+of each TXREQ, including delayed retries, request backpressure, redirect while
+the refill remains owned, and pending reset. Retain its cold/warm instruction
+throughput and payload checks alongside the lineage scoreboard.
 `event-retained` independently covers repeated output, release/replacement,
 pending reset, and parentless detached traffic selected beside traced traffic.
 Its scoped relation ends at an opaque child's attempt output before a normal

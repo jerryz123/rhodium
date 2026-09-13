@@ -228,8 +228,9 @@ a depth-one window using actual residual capture/release, clear, and independent
 resident/live contribution predicates. A word can parent two compressed
 instructions; a straddle has two word parents, including a faulting continuation.
 `core/s2.decode` inherits those
-parents instead of cutting ancestry. Retry attempts are new roots, and MMU,
-I-cache refill, predictor-training, and redirect causality remain separate.
+parents instead of cutting ancestry. Frontend replay attempts are new roots;
+I-cache TXREQ inherits the S0 occurrence that launched its refill. MMU walk,
+predictor-training, and redirect causality remain separate.
 Run `event-window`, `event-frontend`, `rv5stage-fetch-prediction`, and
 the host admission test for changes at this boundary.
 Later checkpoints must not become independent roots to hide an unsupported
@@ -276,9 +277,9 @@ hand-maintain REQ/RSP/DAT/SNP decoding tables in the exporter. Check decoded sli
 names independently of numeric opcode captures in the trace smoke.
 Do not infer CHI transaction ownership by matching TxnID/DBID values. Request
 checkpoints supply occurrence identities that Flow carries through network transit.
-D-cache incoming RSP/DAT observations inherit certified Home output ancestry;
+I/D-cache incoming RSP/DAT observations inherit certified Home output ancestry;
 the inclusive Home's retained request scope bridges its FSM. Outgoing RSP/DAT,
-snoops, and instruction-return channels remain independent observations.
+snoops remain independent observations.
 Refill acknowledgement/completion and backing-memory provenance remain separate.
 Enable stall companions without requiring activity on idle channels.
 After changing them, run the SimpleSoC trace smoke; its

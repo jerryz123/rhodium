@@ -453,7 +453,7 @@ verify_fixture() {
   fi
   if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
-  elif [[ "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial ]]; then
+  elif [[ "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == rv5stage-fetch-throughput ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -467,9 +467,9 @@ verify_fixture() {
     # Registered S2 replay feeds S0 through independent packed-interface leaves.
     # fetch-admission checks the actual leaf dependencies; match the SoC setting
     # without disabling assertions or runtime convergence checks.
-    # Instrumented occurrences use top-derived names, so these two fixtures
+    # Instrumented occurrences use top-derived names, so these fixtures
     # cannot be recognized by the original frontend module name.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit ]] || grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
+    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-fetch-throughput ]] || grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then

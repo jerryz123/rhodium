@@ -83,6 +83,8 @@ invalidate translations or cancel accepted page-table response ownership.
    Keep address, operation, and validity registered on both sides of the probe;
    cancellation is synchronous so demand squash cannot reach cache admission
    through a combinational prefetch-valid gate.
+   Use explicit flush ports on both always-capture prefetch pipes so event
+   lineage observes cancellation without introducing a separate reset epoch.
 7. Keep host checks to public translation contracts. Test walk, cancellation,
    fault, and invalidation behavior in compiled simulations, then update
    [README.md](README.md) for observable changes.

@@ -20,7 +20,7 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/protocol/channels.rhdl") open
 
-// Observe accepted flits at the private-cache boundary. D-cache requests inherit
+// Observe accepted flits at the private-cache boundary. Cache requests inherit
 // certified refill ownership and Home returns continue that ownership graph.
 // Transaction IDs are captures, not parent IDs.
 fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String, ~snoopable: snoopable :: Boolean = #true, ~request_root: request_root :: Boolean = #true):
@@ -149,7 +149,7 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
   mmu.ordered_busy <== memory_router.ordered_busy
-  connect_traced_cache_chi(l1i.chi, imem, "icache", ~snoopable: #false)
+  connect_traced_cache_chi(l1i.chi, imem, "icache", ~snoopable: #false, ~request_root: #false)
   connect_traced_cache_chi(l1d.chi, dmem, "dcache", ~request_root: #false)
   uncached.chi <=> umem
 
