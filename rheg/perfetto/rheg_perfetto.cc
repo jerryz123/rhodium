@@ -55,7 +55,28 @@ Json parse(const std::string& text) {
 void format(const Json& value, const char* name) {
   require(value.at("format") == name && number(value.at("version")) == 1, "unsupported trace format/version");
 }
-struct Site { std::string id, label, source, kind, observation_of; };
+struct Site { std::string id, label, source, kind, observation_of, group, track_name; };
+// Display paths are explicit labels, never hardware identities or filesystem paths.
+void display_path(Site& site, bool explicit_label) {
+  site.track_name = site.label;
+  if (!explicit_label) return;
+  std::size_t start = 0;
+  while (true) {
+    const auto slash = site.label.find('/', start);
+    const auto end = slash == std::string::npos ? site.label.size() : slash;
+    require(end > start, "event label has an empty hierarchy segment");
+    if (slash == std::string::npos) {
+      site.track_name = site.label.substr(start);
+      if (start) site.group = site.label.substr(0, start - 1);
+      return;
+    }
+    start = slash + 1;
+  }
+}
+std::string parent_path(const std::string& path) {
+  const auto slash = path.rfind('/');
+  return slash == std::string::npos ? std::string() : path.substr(0, slash);
+}
 struct Description {
   Manifest manifest;
   std::string top;
@@ -77,7 +98,8 @@ Description describe(const Json& json) {
     const auto id = site.at("id").get<std::string>();
     require(!id.empty() && ids.emplace(id, ids.size()).second, "duplicate or empty site identity");
     result.sites.push_back({id, site.value("label", id), site.value("source_location", std::string("<unknown>")),
-                           site.value("kind", std::string("transfer")), site.value("observation_of", std::string())});
+                           site.value("kind", std::string("transfer")), site.value("observation_of", std::string()), {}, {}});
+    display_path(result.sites.back(), site.contains("label"));
     const auto& display = result.sites.back();
     require(display.kind == "transfer" || display.kind == "stall", "unsupported event kind");
     require((display.kind == "stall") == !display.observation_of.empty(), "stall requires observation_of; transfer must not observe another site");
@@ -356,14 +378,33 @@ struct PerfettoWriter::Impl {
     }
     integer(metadata_packet, 10, 1); integer(metadata_packet, 13, 1); // Clear sequence state once.
     bytes(metadata_packet, 5, metadata); packet(stream, metadata_packet);
-    integer(descriptor, 1, description.sites.size() + 1);
+    const std::uint64_t root_track = description.sites.size() + 1;
+    // Reserve site UUIDs even for observers; groups never alias event tracks.
+    std::map<std::string, std::uint64_t> groups;
+    for (std::size_t i = 0; i < description.sites.size(); ++i) {
+      if (description.track_sites[i] != i) continue;
+      for (auto path = description.sites[i].group; !path.empty(); path = parent_path(path))
+        groups.emplace(path, 0);
+    }
+    auto next_track = root_track;
+    for (auto& entry : groups) entry.second = ++next_track;
+    integer(descriptor, 1, root_track);
     bytes(descriptor, 2, description.top);
     // A custom group honors child_ordering; process/thread tracks ignore it.
     integer(descriptor, 11, 1); // TrackDescriptor.child_ordering = LEXICOGRAPHIC.
     integer(descriptor, 15, 2); // SIBLING_MERGE_BEHAVIOR_NONE.
     bytes(p, 60, descriptor); packet(stream, p);
+    // Lexical prefix order emits parents before children, independently of site order.
+    for (const auto& [path, uuid] : groups) {
+      const auto parent = parent_path(path);
+      std::string group, pkt;
+      integer(group, 1, uuid); integer(group, 5, parent.empty() ? root_track : groups.at(parent));
+      bytes(group, 2, path.substr(parent.empty() ? 0 : parent.size() + 1));
+      integer(group, 11, 1); integer(group, 15, 2);
+      bytes(pkt, 60, group); packet(stream, pkt);
+    }
     const auto site_description = [&](std::size_t i) {
-      Json site = {{"site", i}, {"site_id", description.sites[i].id},
+      Json site = {{"site", i}, {"site_id", description.sites[i].id}, {"label", description.sites[i].label},
                    {"source_location", description.sites[i].source},
                    {"payload_width", description.manifest.payload_widths[i]}};
       site["kind"] = description.sites[i].kind;
@@ -389,8 +430,9 @@ struct PerfettoWriter::Impl {
     for (std::size_t i = 0; i < description.sites.size(); ++i) {
       if (description.track_sites[i] != i) continue;
       std::string track, pkt;
-      integer(track, 1, i + 1); integer(track, 5, description.sites.size() + 1);
-      bytes(track, 2, description.sites[i].label); integer(track, 15, 2);
+      const auto& display = description.sites[i];
+      integer(track, 1, i + 1); integer(track, 5, display.group.empty() ? root_track : groups.at(display.group));
+      bytes(track, 2, display.track_name); integer(track, 15, 2);
       auto site = site_description(i);
       if (description.shared_tracks[i]) {
         site["observations"] = Json::array();
@@ -568,7 +610,7 @@ struct PerfettoWriter::Impl {
         annotation(fields, interns, "payload_words_lsw_first", Json(words).dump());
       }
       // Shorten only default slice labels; tracks and decoded opcodes retain their names.
-      const auto& site_label = description.sites[ref.site].label;
+      const auto& site_label = description.sites[ref.site].track_name;
       const auto separator = site_label.rfind('.');
       const auto default_name = separator != std::string::npos && separator + 1 < site_label.size()
           ? site_label.substr(separator + 1) : site_label;

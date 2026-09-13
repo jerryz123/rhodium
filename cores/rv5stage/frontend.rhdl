@@ -52,7 +52,7 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
   ) |> memory.request
 
   def admitted = !command & memory.response.valid & !memory.response.bits.replay
-  def outcome = s2.egress |> trace_valid_event("frontend.s2.outcome", ~fields: attempt):
+  def outcome = s2.egress |> trace_valid_event("frontend/s2.outcome", ~fields: attempt):
     pc: attempt.pc
     replay: memory.response.bits.replay
     admitted: admitted
@@ -60,7 +60,7 @@ sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_e
     access_fault: admitted & memory.response.bits.response.access_fault
   def replays = outcome |> filter_valid(_attempt => memory.response.valid & memory.response.bits.replay)
   replays |> source.replay
-  def lookup = source.stage1 |> trace_valid_event("frontend.s1.lookup", ~fields: attempt):
+  def lookup = source.stage1 |> trace_valid_event("frontend/s1.lookup", ~fields: attempt):
     pc: attempt.pc
   lookup |> filter_valid(_attempt => !command & !replays.valid) |> s2.ingress
   (outcome |> filter_valid(_attempt => admitted)

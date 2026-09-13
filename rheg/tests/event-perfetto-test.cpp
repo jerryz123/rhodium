@@ -101,6 +101,67 @@ void qualified_labels(const std::string& path) {
   check(live.str() == replay.str(), "qualified label live/replay bytes differ");
   std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
 }
+void hierarchical_labels(const std::string& path) {
+  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Hierarchy","sites":[
+    {"id":"req","label":"dcache/chi.txreq","payload_width":0,"fields":[]},
+    {"id":"dat","label":"dcache/chi.rxdat","payload_width":0,"fields":[]},
+    {"id":"blocked","label":"ignored/group/stall","kind":"stall","observation_of":"dat","payload_width":0,"fields":[]},
+    {"id":"duplicate","label":"dcache/chi.rxdat","payload_width":0,"fields":[]},
+    {"id":"nested","label":"x/y.b/c","payload_width":0,"fields":[]},
+    {"id":"collision","label":"dcache","payload_width":0,"fields":[]},
+    {"id":"other","label":"other/y.b/c","payload_width":0,"fields":[]},
+    {"id":"physical/instance/event:7","payload_width":0,"fields":[]},
+    {"id":"trailing","label":"x/trailing.","payload_width":0,"fields":[]}
+  ],"dependencies":[{"parent":"req","child":"dat"},{"parent":"req","child":"blocked"}]})",
+    std::vector<std::uint32_t>(9,0), {{0,1},{0,2}}, std::vector<std::vector<Field>>(9)};
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
+  std::ostringstream live, zipped;
+  PerfettoWriter writer(live,descriptor,{100000000});
+  PerfettoWriter compressed(zipped,descriptor,{100000000},PerfettoCompression::Gzip);
+  for (unsigned cycle = 0; cycle < 5; ++cycle) {
+    if (cycle == 0) graph.record_node({0,0},cycle,0);
+    else if (cycle < 4) {
+      Ref ref = cycle < 3 ? Ref{2,cycle-1} : Ref{1,0};
+      graph.record_node(ref,cycle,0); graph.record_edge({0,0},ref);
+    } else for (unsigned site = 3; site < 9; ++site) graph.record_node({site,0},cycle,0);
+    auto settled = graph.finish_cycle(cycle); writer.write(settled); compressed.write(settled);
+    if (cycle == 2) {
+      std::ofstream prefix(path+".prefix",std::ios::binary); prefix << live.str(); prefix.close(); check(bool(prefix));
+    }
+  }
+  writer.finish(); compressed.finish();
+  std::istringstream input(graph.snapshot().json());
+  std::ostringstream replay; write_perfetto(replay,read_event_trace(input));
+  check(live.str() == replay.str(), "hierarchy live/replay differs");
+  check(live.str() == inflate_trace(zipped.str()), "hierarchy gzip differs");
+  // Parent descriptors must precede children, with disjoint UUIDs and no merging.
+  std::set<std::uint64_t> descriptors;
+  for (const auto& packet : wire_fields(live.str())) if (packet.tag == 1)
+    for (const auto& field : wire_fields(packet.bytes)) if (field.tag == 60) {
+      std::uint64_t uuid = 0, parent = 0, merging = 0;
+      for (const auto& item : wire_fields(field.bytes)) {
+        if (item.tag == 1) uuid = item.value;
+        if (item.tag == 5) parent = item.value;
+        if (item.tag == 15) merging = item.value;
+      }
+      check(uuid && (!parent || descriptors.count(parent)) && descriptors.insert(uuid).second && merging == 2);
+    }
+  check(descriptors.size() == 14, "unexpected hierarchy descriptor count");
+  std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
+  std::ofstream gzip(path+".gz",std::ios::binary); gzip << zipped.str(); gzip.close(); check(bool(gzip));
+  for (const auto& label : {"/x", "x/", "x//y", ""}) {
+    auto invalid = manifest();
+    const auto at = invalid.json.find("\"label\":\"accepted\"");
+    invalid.json.replace(at,18,std::string("\"label\":\"")+label+"\"");
+    for (auto mode : {PerfettoCompression::None, PerfettoCompression::Gzip}) {
+      std::ostringstream output;
+      rejects([&] { PerfettoWriter bad(output,invalid,{100000000},mode); }, "empty hierarchy segment");
+      check(output.str().empty(), "invalid hierarchy wrote output");
+    }
+    Graph saved; saved.bind_manifest(invalid); saved.bind_timing({100000000});
+    rejects([&] { std::istringstream source(saved.snapshot().json()); read_event_trace(source); }, "empty hierarchy segment");
+  }
+}
 void compression_contract(const std::string& path) {
   std::ostringstream raw, compressed;
   PerfettoWriter plain(raw, manifest(), {100000000});
@@ -423,6 +484,7 @@ int main(int argc, char** argv) {
     rejects([&] { std::istringstream bad(malformed); read_event_trace(bad); }, "ancestry_unknown must be boolean");
   }
   qualified_labels(std::string(argv[1]) + "/qualified-labels.pftrace");
+  hierarchical_labels(std::string(argv[1]) + "/hierarchy.pftrace");
   {
     Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"PartialStalls","sites":[{"id":"transfer","label":"issue","payload_width":false},{"id":"stall","label":"issue.stall","payload_width":false,"kind":"stall","observation_of":"transfer"}],"dependencies":[]})", {0,0}, {}};
     Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();

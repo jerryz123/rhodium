@@ -167,15 +167,15 @@ resident-line preservation, and outer-cache limits.
 
 ## Pipeline event tracing
 
-The core carries metadata-only checkpoints named `core.s2.decode`,
-`core.s3.execute`, `core.s4.memory`, and `core.s5.wb`. Ordinary elaboration does not add
+The core carries metadata-only checkpoints named `core/s2.decode`,
+`core/s3.execute`, `core/s4.memory`, and `core/s5.wb`. Ordinary elaboration does not add
 counters or DPI calls; the optional event compiler instruments a separate design.
 The [SimpleSoC trace build](../../sims/README.md#export-simplesoc-events-to-perfetto)
 includes these sites automatically. Stage-number prefixes keep their names in
 pipeline order when sorted lexicographically.
 
-Accepted `frontend.s0.request` events start lineage, followed by registered
-`frontend.s1.lookup` and `frontend.s2.outcome` events. Decode inherits the one
+Accepted `frontend/s0.request` events start lineage, followed by registered
+`frontend/s1.lookup` and `frontend/s2.outcome` events. Decode inherits the one
 or two admitted S2 packets that supply its instruction, including same-cycle
 queue bypass and retained halfwords. It records issue only when hazard and squash
 gating permit it. Raw-packet acceptance is not a separate instruction transfer.
@@ -221,12 +221,16 @@ the cache/MMU, or across a replay's subsequent refetch.
 
 Each numbered D-cache stage has one transfer event:
 
-| Track | Observation |
+| Label | Observation |
 | --- | --- |
-| `dcache.s1.access` | Memory instruction at core MEM; captures PC, instruction, effective address, and access kind. |
-| `dcache.s2.resp` | Captured result at core WB, one cycle after S1; captures PC, instruction, effective address, outcome, fault, replay, and slow-path `admitted`. |
-| `dcache.s3.lookup` | Retained slow-path lookup advances; captures physical address, access kind, and prefetch status. |
-| `dcache.s4.resolve` | Lookup result one cycle after S3; captures physical address, prefetch, hit, and direct-refill command acceptance. |
+| `dcache/s1.access` | Memory instruction at core MEM; captures PC, instruction, effective address, and access kind. |
+| `dcache/s2.resp` | Captured result at core WB, one cycle after S1; captures PC, instruction, effective address, outcome, fault, replay, and slow-path `admitted`. |
+| `dcache/s3.lookup` | Retained slow-path lookup advances; captures physical address, access kind, and prefetch status. |
+| `dcache/s4.resolve` | Lookup result one cycle after S3; captures physical address, prefetch, hit, and direct-refill command acceptance. |
+
+The slash selects the `dcache` display group; tracks retain the dotted leaf
+names such as `s1.access`. See the [display contract](../../rheg/README.md#perfetto-display-and-queries)
+for hierarchy, slice naming, and querying full labels.
 
 S1 and S2 are same-cycle children of their corresponding core MEM and WB
 occurrences. Their correspondence follows the core MEM-to-WB edge, rather
@@ -242,11 +246,11 @@ Admission is an S2 field, not a later pipeline stage. Likewise, S4's
 `refill_opcode` and `refill_address` are meaningful only when it is true.
 There is no separate same-cycle demand or refill stage.
 
-Prefetch admission (`dcache.prefetch`) and page-table requests (`mmu.pte.request`)
+Prefetch admission (`dcache/prefetch`) and page-table requests (`mmu/pte.request`)
 start explicit independent roots rather than borrowing a scalar instruction's
 identity. Direct refill commands retain their S4 parent through the refill
 engine, including retry/credit waiting, and every accepted request attempt on
-`dcache.txreq` points back to that same S4 occurrence. No extra stage event is
+`dcache/chi.txreq` points back to that same S4 occurrence. No extra stage event is
 inserted. Dirty-victim gathering, post-writeback refills, and maintenance requests
 remain explicitly detached. Response beats and completion do not yet inherit
 transaction ancestry; other outer CHI flit observations remain independent.
@@ -254,7 +258,8 @@ transaction ancestry; other outer CHI flit observations remain independent.
 ### Private-cache outer traffic
 
 The RV5Stage composition also annotates the L1I and L1D CHI interfaces, with
-`icache.*` and `dcache.*` tracks. Each event is one accepted flit (`valid & ready`),
+`icache/chi.*` and `dcache/chi.*` labels, displayed as `chi.*` tracks under their
+respective cache groups. Each event is one accepted flit (`valid & ready`),
 not an entire transaction or cache occupancy interval. Each channel also enables
 a `.stall` companion for `valid & !ready`, with the same opcode and named fields.
 These show blocked offers, not elapsed transaction latency or missing responses:
@@ -272,7 +277,7 @@ The instruction endpoint has no snoop channel; `rxsnp` is data-cache-only.
 Instruction snapshots emit `ReadOnce` requests and `CompAck`, with no outgoing data.
 
 Individual slices use the observed flit's CHI opcode name, such as `ReadClean`,
-`CompData`, or `CompAck`; track names stay `icache.*` and `dcache.*`.
+`CompData`, or `CompAck`; track names stay `chi.*` within `icache` and `dcache`.
 Captures include numeric CHI opcodes and transaction/source/target IDs where
 present. REQ captures address, size, and retry/ack controls; RSP captures
 DBID/group, response state/error, and credit type; DAT captures DBID/MECID,
@@ -505,8 +510,8 @@ for illegal-instruction trap values, reports second-word faults precisely, and
 flushes retained, queued, or outstanding wrong-path data on redirects.
 
 With [event instrumentation](../../rhodium/event/README.md), accepted fetch
-attempts connect through `frontend.s0.request`, `frontend.s1.lookup`,
-and `frontend.s2.outcome` to `core.s2.decode`. S2 has one event per outcome,
+attempts connect through `frontend/s0.request`, `frontend/s1.lookup`,
+and `frontend/s2.outcome` to `core/s2.decode`. S2 has one event per outcome,
 capturing `replay`, `admitted`, `page_fault`, and `access_fault`; fault flags are
 meaningful only for admitted outcomes and otherwise zero. Only admitted S2
 occurrences become instruction parents. Compressed instructions may share a word parent; a straddling

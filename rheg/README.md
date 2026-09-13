@@ -175,9 +175,9 @@ Without an explicit enum label, a site with exactly one `riscv` field names each
 transfer's Perfetto slice with its disassembled mnemonic (including aliases such as `li`
 and `j`), or raw hex for
 an unknown encoding. The full assembly remains in the field argument. Track
-names retain the site labels, such as `core.s1.fetch`; queries selecting stages
-should join `slice.track_id` to `track.id`. Sites with no instruction field or
-multiple instruction fields use the final dot-separated component of their site label.
+names retain the leaf labels, such as `s2.decode` under `core`; queries selecting
+stages should use the full label in the track description. Sites with no instruction
+field or multiple instruction fields use the final dot-separated component of their leaf label.
 
 ## Optional trace timing
 
@@ -333,25 +333,35 @@ supply the instrumentation's event-cycle count, not an unrelated harness tick.
 ## Perfetto display and queries
 
 Each transfer becomes a one-cycle slice spanning `[N, N+1)` on a track named
-with its annotated transfer label, without a synthetic thread-ID suffix. Each
+with the leaf of its annotated transfer label, without a synthetic thread-ID suffix. Each
 transfer site retains a separate track even when labels repeat; its stall
 observations share that track. These are non-thread tracks
-grouped under a custom track named for the top-level design. This group requests
-lexicographic child ordering, independent of site IDs or callback order; viewers
+grouped under a custom track named for the top-level design. Explicit labels use
+`/` to create nested groups: `x/y.b/c` places track `c` under groups `x` and `y.b`.
+Dots do not create groups. For example, `dcache/chi.txreq` creates a `chi.txreq`
+track under `dcache`, alongside `dcache/s1.access`'s `s1.access` track.
+Every group requests lexicographic child ordering, independent of site IDs or callback order; viewers
 may override this display hint. Occurrence arguments contain only exact
 cycle, sequence, and captured values (legacy snapshots retain their raw words).
-Slice names normally use the final dot-separated component of their site labels:
-`frontend.s0.request` displays as `request`, while the track retains its full name.
-Labels without dots or ending in a dot remain unchanged. A single tagged instruction uses
+Slice names normally use the final dot-separated component of their leaf labels:
+`frontend/s0.request` displays as `request`, while the track is `s0.request`.
+Leaf labels without dots or ending in a dot remain unchanged. A single tagged instruction uses
 its [disassembled mnemonic](#instruction-disassembly) instead. An explicitly
 selected [enum label](#enum-labels) takes precedence over both. Stall slices are
 always named `stall`, retaining disassembly, opcode, and other captures as arguments.
+Labels without slashes keep their previous display. Empty path segments (`/x`,
+`x/`, or `x//y`) are rejected before output; there is no escaping or path normalization.
+Only explicit labels are parsed: legacy sites without a label keep their entire
+hardware ID as a flat track name. Display groups do not imply RTL hierarchy or
+graph dependencies. Repeated complete labels remain separate event tracks;
+an event named `x` is distinct from the group used by `x/y`. Stall companions
+always use their transfer's track, regardless of their own label.
 Frequency and epoch are emitted once before occurrences as trace metadata,
 available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and
 `cr-rheg.epoch_id`, with exact decimal `str_value` values. Even an empty trace
 or the first flushed prefix contains these values.
 
-Each track's description is JSON containing numeric `site`, `site_id`,
+Each event track's description is JSON containing numeric `site`, `site_id`, full `label`,
 `source_location`, `payload_width`, `kind`, and, for named captures, the ordered
 `fields` layout of its transfer site. A shared track also has an `observations`
 array containing each companion's full site description, including `kind: "stall"`
@@ -405,11 +415,12 @@ graph lineage.
 Query stage identity through the track, independently of each slice's mnemonic:
 
 ```sql
-SELECT t.name AS stage, s.name AS mnemonic,
+SELECT json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.label') AS stage,
+       s.name AS mnemonic,
        EXTRACT_ARG(s.arg_set_id, 'debug.pc') AS pc,
        EXTRACT_ARG(s.arg_set_id, 'debug.instruction') AS instruction
 FROM slice s JOIN track t ON t.id = s.track_id
-WHERE t.name GLOB 'core.*';
+WHERE json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.label') GLOB 'core/*';
 ```
 
 ## Scope and compatibility

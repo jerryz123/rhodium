@@ -4,8 +4,8 @@ WITH pcs AS (
   SELECT s.id, t.name, s.name AS mnemonic, s.ts, s.arg_set_id,
     EXTRACT_ARG(s.arg_set_id, 'debug.pc') AS pc,
     EXTRACT_ARG(s.arg_set_id, 'debug.instruction') AS instruction
-  FROM slice s JOIN track t ON t.id=s.track_id
-  WHERE t.name GLOB 'core.*' AND json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.kind')='transfer'
+  FROM slice s JOIN rheg_tracks t ON t.id=s.track_id
+  WHERE t.name GLOB 'core/*' AND json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.kind')='transfer'
     AND s.name!='stall'
 ), edges AS (
   SELECT a.id AS parent, b.id AS child, a.name AS src, b.name AS dst,
@@ -19,13 +19,13 @@ SELECT
   (SELECT count(*)>0 FROM pcs WHERE instruction='csrr a0, mhartid') AND
   (SELECT count(*)=0 FROM pcs WHERE mnemonic!=substr(instruction||' ',1,instr(instruction||' ',' ')-1)) AND
   (SELECT count(*)=0 FROM args WHERE key IN ('debug.payload_width','debug.payload_words_lsw_first')) AND
-  (SELECT count(*)=0 FROM pcs WHERE name NOT IN ('core.s2.decode','core.s3.execute','core.s4.memory','core.s5.wb')) AND
+  (SELECT count(*)=0 FROM pcs WHERE name NOT IN ('core/s2.decode','core/s3.execute','core/s4.memory','core/s5.wb')) AND
   (SELECT count(DISTINCT src||'->'||dst)=3 FROM edges) AND
   (SELECT count(*)=0 FROM edges WHERE
-    (src||'->'||dst) NOT IN ('core.s2.decode->core.s3.execute','core.s3.execute->core.s4.memory','core.s4.memory->core.s5.wb') OR
+    (src||'->'||dst) NOT IN ('core/s2.decode->core/s3.execute','core/s3.execute->core/s4.memory','core/s4.memory->core/s5.wb') OR
     parent_pc!=child_pc OR parent_instruction!=child_instruction OR
     delay!=10) AND
-  (SELECT count(*)=0 FROM pcs c WHERE name!='core.s2.decode' AND (SELECT count(*) FROM edges WHERE child=c.id)!=1) AND
-  (SELECT count(*)=0 FROM pcs c WHERE c.name='core.s2.decode' AND (SELECT count(*) FROM flow WHERE slice_in=c.id) NOT BETWEEN 1 AND 2) AND
+  (SELECT count(*)=0 FROM pcs c WHERE name!='core/s2.decode' AND (SELECT count(*) FROM edges WHERE child=c.id)!=1) AND
+  (SELECT count(*)=0 FROM pcs c WHERE c.name='core/s2.decode' AND (SELECT count(*) FROM flow WHERE slice_in=c.id) NOT BETWEEN 1 AND 2) AND
   (SELECT count(*)=0 FROM (SELECT parent FROM edges GROUP BY parent HAVING count(*)>1)) AND
-  (SELECT count(*)>count(DISTINCT pc) FROM pcs WHERE name='core.s2.decode') AS ok
+  (SELECT count(*)>count(DISTINCT pc) FROM pcs WHERE name='core/s2.decode') AS ok

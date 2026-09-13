@@ -211,16 +211,16 @@ always-capture payload registers or derive controls from generated signal names.
 EX's payload is still computed unconditionally; its flow filter qualifies only
 token validity, preserving the feed-forward datapath and cancellation timing.
 
-Accepted `frontend.s0.request` occurrences are explicit roots. The intrinsic
-flushable pipes connect them through `frontend.s1.lookup` and
-`frontend.s2.outcome`, which captures replay, admission, and admitted fault flags.
+Accepted `frontend/s0.request` occurrences are explicit roots. The intrinsic
+flushable pipes connect them through `frontend/s1.lookup` and
+`frontend/s2.outcome`, which captures replay, admission, and admitted fault flags.
 Only admitted outcomes pass the Flow filter into packet storage; no
 additional checkpoint represents that same-cycle admission. ShiftQueue owns
 its shifting-window contract and explicit flush. Core-side assembly declares
 a depth-one window using actual residual capture/release, clear, and independent
 resident/live contribution predicates. A word can parent two compressed
 instructions; a straddle has two word parents, including a faulting continuation.
-`core.s2.decode` inherits those
+`core/s2.decode` inherits those
 parents instead of cutting ancestry. Retry attempts are new roots, and MMU,
 I-cache refill, predictor-training, and redirect causality remain separate.
 Run `event-window`, `event-frontend`, `rv5stage-fetch-prediction`, and
@@ -233,8 +233,8 @@ captured Boolean reason terms aligned with `pipeline_hazard`; do not impose
 priority on simultaneous reasons. Keep WB arrival distinct
 from architectural retirement and deferred completion.
 
-Fork the live MEM observation for `dcache.s1.access` and filter WB memory
-operations for `dcache.s2.resp`. Select by access kind, not the slow-request
+Fork the live MEM observation for `dcache/s1.access` and filter WB memory
+operations for `dcache/s2.resp`. Select by access kind, not the slow-request
 valid bit, so fast hits and replays remain visible. These observations retain
 their core-stage parents; do not add registers or override intrinsic storage
 contracts to manufacture a direct S1-to-S2 edge. WB uses `offer_decoupled()`

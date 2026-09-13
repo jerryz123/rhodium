@@ -38,6 +38,16 @@ assert_query() {
   fi
 }
 assert_query "$stream_test_dir/build/qualified-labels.pftrace" "WITH expected(track,label) AS (VALUES('frontend.s0.request','request'),('backend.s0.request','request'),('plain','plain'),('trailing.','trailing.')) SELECT count(*)=4 AND count(DISTINCT s.track_id)=4 AND sum(s.name=e.label AND s.dur=10)=4 AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN expected e ON e.track=t.name"
+for suffix in '' .gz; do
+  file="$stream_test_dir/build/hierarchy.pftrace$suffix"
+  assert_query "$file" "WITH RECURSIVE paths(id,path) AS (SELECT id,name FROM track WHERE parent_id IS NULL UNION ALL SELECT t.id,p.path||'/'||t.name FROM track t JOIN paths p ON p.id=t.parent_id) SELECT count(*)=8 AND sum(p.path='Hierarchy/'||json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.label'))=8 AS ok FROM track t JOIN paths p USING(id) WHERE EXTRACT_ARG(t.source_arg_set_id,'description') IS NOT NULL"
+  assert_query "$file" "SELECT count(*)=6 AND sum(EXTRACT_ARG(source_arg_set_id,'child_ordering')='lexicographic')=6 AND sum(name='y.b')=2 AND sum(name='dcache')=1 AS ok FROM track WHERE EXTRACT_ARG(source_arg_set_id,'description') IS NULL"
+  assert_query "$file" "SELECT count(*)=9 AND count(DISTINCT s.track_id)=8 AND sum(s.name='stall' AND s.dur=20 AND t.name='chi.rxdat')=1 AND sum(s.name='c')=2 AND sum(s.name='trailing.')=1 AND sum(t.name='physical/instance/event:7')=1 AS ok FROM slice s JOIN track t ON t.id=s.track_id"
+  assert_query "$file" "SELECT count(*)=2 AND count(DISTINCT id)=2 AS ok FROM track WHERE name='chi.rxdat'"
+  assert_query "$file" "SELECT count(*)=2 AND sum(pt.name='chi.txreq' AND ct.name='chi.rxdat')=2 AND sum(c.name='stall')=1 AS ok FROM flow f JOIN slice p ON p.id=f.slice_out JOIN track pt ON pt.id=p.track_id JOIN slice c ON c.id=f.slice_in JOIN track ct ON ct.id=c.track_id"
+  assert_query "$file" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
+done
+assert_query "$stream_test_dir/build/hierarchy.pftrace.prefix" "SELECT count(*)=2 AND sum(s.name='stall' AND s.dur=-1 AND t.name='chi.rxdat')=1 AND (SELECT count(*) FROM flow)=1 AS ok FROM slice s JOIN track t ON t.id=s.track_id"
 assert_query "$stream_test_dir/build/partial.pftrace" "SELECT count(*)=2 AND sum(COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown')='true',0))=1 AND (SELECT count(*) FROM flow)=1 AS ok FROM slice"
 assert_query "$stream_test_dir/build/partial.pftrace" "SELECT count(*)=1 AND min(json_extract(EXTRACT_ARG(source_arg_set_id,'description'),'$.ancestry_gaps[0].boundary'))='opaque.output' AS ok FROM track WHERE name='issued'"
 assert_query "$stream_test_dir/build/partial.pftrace" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"

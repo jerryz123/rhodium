@@ -57,7 +57,7 @@ sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 16):
   // The S1 lookup result is captured with this occurrence at the S2 boundary.
   (s1.egress |> map_valid(attempt => attempt.updated(~prediction: prediction))) |> stage1
   // Acceptance alone advances S1; an unaccepted offer owns no pipeline slot.
-  def accepted = offer.right |> trace_event("frontend.s0.request", ~root: #true, ~fields: attempt):
+  def accepted = offer.right |> trace_event("frontend/s0.request", ~root: #true, ~fields: attempt):
     pc: attempt.pc
   def Array(requests, contexts) = accepted |> atomic_fork(2)
   requests |> attempts

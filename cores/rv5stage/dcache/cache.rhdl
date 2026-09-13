@@ -321,7 +321,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   wire s4_refill_accepted: Bool
   wire s4_refill_opcode: CHIReqOpcode
   wire s4_refill_address: Bits(width)
-  def s4_observed = s4_result.egress |> trace_valid_event("dcache.s4.resolve", ~fields: result):
+  def s4_observed = s4_result.egress |> trace_valid_event("dcache/s4.resolve", ~fields: result):
     address: s4_context.request.address
     prefetch: s4_context.prefetch
     hit: result.hit
@@ -554,7 +554,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s3_can_advance = !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !s4_needs_refill & !local_mutation
   // Gating retains blocked requests; only admitted reads become Valid events.
   // Payload mapping remains unconditional at the always-captured S4 boundary.
-  def s3_observed = s3_lookup.egress |> trace_event("dcache.s3.lookup", ~stalls: #true, ~fields: lookup):
+  def s3_observed = s3_lookup.egress |> trace_event("dcache/s3.lookup", ~stalls: #true, ~fields: lookup):
     address: lookup.request.address
     prefetch: lookup.prefetch
     access(~format: "enum"): lookup.request.access
@@ -624,7 +624,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
           request: request
           prefetch: Bool(#true)
           prefetch_write: hint.operation === CachePrefetchOperation.Write
-  ) |> to_decoupled() |> trace_event("dcache.prefetch", ~root: #true)
+  ) |> to_decoupled() |> trace_event("dcache/prefetch", ~root: #true)
   Array(s2_demand, s2_hint) |> arbiter() |> gate_flow(s2_admit) |> s3_lookup.ingress
   def service_request_accept = core.request.fire()
   def s2_issue = s3_lookup.ingress.fire()

@@ -281,7 +281,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // observations, which drain the cache's nonbackpressured response stage.
   // The walker owns a separate transaction stream; do not attribute its PTE
   // reads to a simultaneously offered or replayed scalar memory instruction.
-  def walker_memory_request = walker.memory.request |> gate_flow(walk_active & walker_data_quiet_twice) |> trace_event("mmu.pte.request", ~root: #true)
+  def walker_memory_request = walker.memory.request |> gate_flow(walk_active & walker_data_quiet_twice) |> trace_event("mmu/pte.request", ~root: #true)
   def walk_uses_data_memory = walker_memory_request.valid
   def data_forwarding_enabled = !walk_active
   data_lookup.valid <== walk_uses_data_memory ||| (data.request.valid & data_forwarding_enabled)

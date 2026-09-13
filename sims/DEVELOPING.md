@@ -126,6 +126,11 @@ make -C sims trace-smoke TRACE_FILE=/tmp/simple-soc.pftrace \
 same-cycle edge families, paired payload/sequence equality, exact configured
 timestamps, one-cycle transfers, continuous stall ranges, readable track labels,
 and importer errors.
+It loads `tests/event-tracks.sql` first: the `rheg_tracks` view exposes full
+annotation labels as `name` and local display names as `leaf_name`. Load that
+preamble before running an individual `check-*-events.sql` query too. Groups have
+no event schema and are excluded from this view. Check visual parent chains and
+ordering against native `track`, not by assuming every event is a root child.
 It checks run timing once in the metadata table and site/capture context in
 track descriptions, with no redundant run metadata on occurrences. SimpleSoC
 instruction and CHI transfer names cannot equal `stall`, so these checks use

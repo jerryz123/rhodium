@@ -106,9 +106,16 @@ inline. These limits bound dictionary memory, not whole-epoch graph retention.
 
 Use non-thread tracks under a custom design group with
 `child_ordering = LEXICOGRAPHIC`; process/thread descriptors ignore that hint.
-Disable sibling merging to keep repeated labels distinct. Track labels remain
-site labels. Default slice names use only the final dot-separated component;
-retain the whole label if that component is empty. Apply this only to the site-label
+Disable sibling merging to keep repeated labels distinct. Parse explicit label
+paths once while describing the manifest, rejecting empty slash-separated segments
+before output. Keep hardware-ID fallbacks flat. Deduplicate transfer-track groups
+by full prefix, allocate their UUIDs above the site/root range in lexical order,
+and emit parent-first custom descriptors with lexicographic child ordering.
+Groups carry no occurrences; group/leaf name collisions must not alias UUIDs.
+Resolve observers through `track_sites`, never their own display path. Keep full
+labels in static track descriptions; track names contain only the leaf.
+Default slice names use only the final dot-separated component of that leaf;
+retain the whole leaf if that component is empty. Apply this only to the site-label
 fallback, never to enum symbols or dotted instruction mnemonics. An explicit enum label field uses the compiler-supplied symbol table,
 with fixed-width hex for unknown values and unchanged numeric capture arguments.
 Validate unique fitting symbol values/names and at most one selected label; include

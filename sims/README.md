@@ -178,9 +178,14 @@ the buffered packet/parcel assembly path; they are
 not connected through unmodeled cache/MMU transactions to the memory checkpoints.
 
 It also includes the [private-cache outer CHI channels](../cores/rv5stage/README.md#private-cache-outer-traffic)
-as `icache.*` and `dcache.*` tracks, including request, response, refill-data,
+as `icache/chi.*` and `dcache/chi.*` labels, including request, response, refill-data,
 writeback-data, and snoop transfers. These use compact named control fields,
 not full cache-line payloads, and do not infer transaction ancestry.
+
+Slash-separated annotations form collapsible groups: `core/s2.decode` appears as
+`s2.decode` under `core`, and `dcache/chi.txreq` as `chi.txreq` under `dcache`.
+Dots preserve ordering within a group rather than creating additional nesting.
+The complete label is retained in each event track's static description for queries.
 
 The trace uses the SoC's configured frequency (currently 100 MHz for SimpleSoC),
 not the testbench delay or timer timebase. Tracks identify stages; instruction
