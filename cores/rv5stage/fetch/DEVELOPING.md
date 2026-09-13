@@ -39,6 +39,15 @@ move so the directory boundary remains visible.
 
 ## Focused validation
 
+Scanner packet, repair, and fallback outputs derive from explicit ingress
+forks. Keep fallback qualification and payload unchanged when mapping its Flow
+branch: the existing late-redirect pipe and cursor retain the triggering S2
+occurrence. This identifies the fallback's triggering packet, not provenance
+of retained predictor/halfword state. No manual event edge or extra checkpoint
+is needed. `rv5stage-fetch-prediction` checks exact S2-to-S0 parent occurrences
+for direct/compressed jumps, returns, straddles, and blocked redirect issuance
+alongside ordinary S0-to-S0 successor ancestry and functional prediction checks.
+
 After changing layout or imports, run `make check-boundaries` and confirm no old
 paths remain. Fetch and predictor behavior is covered by the `rv5stage-btb`,
 `rv5stage-ras`, `rv5stage-instruction-buffer`, `rv5stage-fetch-prediction`,

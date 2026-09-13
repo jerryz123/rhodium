@@ -1,4 +1,4 @@
-// Checks early and S2-fallback predictions, compressed cuts, stalls, faults, and repair.
+// Checks prediction behavior and exact S2-to-S0 fallback lineage through stalls and recovery.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_fetch_prediction_tb;
   typedef struct packed { logic [63:0] address; } request_bits_t;
@@ -54,6 +54,19 @@ module rv5stage_fetch_prediction_tb;
   logic [63:0] expected_requests[$];
   RV5StageFetchFixture dut (.control_in, .*);
   always #5 clock = ~clock;
+  import "DPI-C" function void fallback_trace_bind();
+  import "DPI-C" function void fallback_trace_expect(longint unsigned source_word, target_pc, minimum_delay);
+  import "DPI-C" function void fallback_trace_sample(int unsigned reset, flush, kill, fire, response_valid, fault,
+      longint unsigned address);
+  import "DPI-C" function void fallback_trace_check();
+  import "DPI-C" function void fallback_trace_finish();
+  always @(posedge clock) begin
+    fallback_trace_sample(int'(reset), int'(memory_out.flush), int'(memory_out.s1_kill),
+        int'(memory_out.request.valid && memory_in.request.ready), int'(memory_in.response.valid),
+        int'(memory_in.response.bits.response.page_fault || memory_in.response.bits.response.access_fault),
+        memory_out.request.bits.address);
+    #1; fallback_trace_check();
+  end
 
   function automatic logic [31:0] word_at(input logic [63:0] address);
     case (mode)
@@ -192,6 +205,7 @@ module rv5stage_fetch_prediction_tb;
       assert (fetched_out.bits.instruction_fault_address == fault_pc) else $fatal(1, "wrong instruction fault address");
   endtask
   initial begin
+    fallback_trace_bind();
     initialize(0);
     train('h100, 'h200, 0);
     train('h200, 'h100, 0);
@@ -298,6 +312,7 @@ module rv5stage_fetch_prediction_tb;
     initialize(4);
     train('h100, 'h200, 0, 0, 1, 2'd1);
     train('h104, 'h200, 0, 0, 1, 2'd1);
+    fallback_trace_expect('h200, 'h104, 1);
     start('h100);
     expect_pc('h100, 'h200, 0, 2'd1);
     expect_pc('h200, 'h104, 0, 2'd2);
@@ -308,6 +323,7 @@ module rv5stage_fetch_prediction_tb;
 
     initialize(5);
     train('h100, 'h302, 0, 0, 1, 2'd1);
+    fallback_trace_expect('h300, 'h104, 1);
     start('h100);
     expect_pc('h100, 'h302, 0, 2'd1);
     expect_pc('h302, 'h104, 0, 2'd2);
@@ -315,6 +331,7 @@ module rv5stage_fetch_prediction_tb;
 
     initialize(6);
     train('h100, 'h402, 0, 0, 1, 2'd1);
+    fallback_trace_expect('h404, 'h104, 1);
     start('h100);
     expect_pc('h100, 'h402, 0, 2'd1);
     expect_pc('h402, 'h104, 0, 2'd2);
@@ -322,6 +339,7 @@ module rv5stage_fetch_prediction_tb;
 
     initialize(7);
     train('h100, 'h502, 0, 0, 1, 2'd1);
+    fallback_trace_expect('h504, 'h104, 1);
     start('h100);
     expect_pc('h100, 'h502, 0, 2'd1);
     expect_pc('h502, 'h506);
@@ -346,6 +364,7 @@ module rv5stage_fetch_prediction_tb;
     // Direct jumps use the same S2 fallback, learn in the BTB, and preserve
     // call/return RAS actions across repeated execution.
     initialize(9);
+    fallback_trace_expect('h800, 'h900, 1);
     start('h800);
     repeat (2) begin
       expect_pc('h800, 'h900, 0, 2'd1);
@@ -354,6 +373,7 @@ module rv5stage_fetch_prediction_tb;
     end
 
     initialize(10);
+    fallback_trace_expect('ha00, 'ha04, 1);
     start('ha00);
     repeat (2) begin
       expect_pc('ha00, 'ha04);
@@ -361,13 +381,17 @@ module rv5stage_fetch_prediction_tb;
     end
 
     initialize(11);
+    fallback_trace_expect('hb04, 'hc02, 1);
     start('hb02);
     expect_pc('hb02, 'hc02);
+    repeat (2) @(negedge clock); // Let the registered fallback target transfer before reset.
 
     initialize(12);
+    fallback_trace_expect('hd00, 'hd06, 1);
     start('hd00);
     expect_pc('hd00, 'hd02);
     expect_pc('hd02, 'hd06);
+    repeat (2) @(negedge clock);
 
     initialize(9);
     fault_address = 'h800;
@@ -386,6 +410,20 @@ module rv5stage_fetch_prediction_tb;
     expect_pc('h200, 'h204, 1, 0, 'h200); // A faulting return neither redirects nor pops.
     fault_address = '1;
     expect_pc('h204, 'h104, 0, 2'd2);
+    // The continuation triggers a fallback while its S0 target cannot transfer.
+    // Retaining that offer must retain the exact S2 cause, not the younger S1.
+    initialize(11);
+    output_ready = 0;
+    fallback_trace_expect('hb04, 'hc02, 3);
+    start('hb02);
+    while (!(memory_in.response.valid && memory_in.response.bits.response.word == 32'h00011000)) @(negedge clock);
+    request_ready = 0;
+    repeat (5) @(negedge clock);
+    request_ready = 1;
+    repeat (3) @(negedge clock);
+    output_ready = 1;
+    repeat (5) @(negedge clock);
+    fallback_trace_finish();
     $display("RV5Stage bubbleless predicted fetch, compressed streams, stalls and repair passed");
     $finish;
   end

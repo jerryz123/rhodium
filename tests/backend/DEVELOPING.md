@@ -127,6 +127,13 @@ throughput and payload checks alongside the lineage scoreboard.
 admission, and replacement priorities from public inputs. It compares inactive
 offer payloads as well as transfers, and checks exact restart/replay/successor/
 held parent occurrences with equal PCs, blocked replacements, clears, and reset.
+`rv5stage-fetch-prediction` instruments its existing production frontend fixture.
+Its public request/kill pipeline model identifies the precise S2 occurrence that
+triggers each selected fallback, then checks its S0 parent reference through the
+redirect pipe and blocked cursor. Direct/compressed jumps, returns, straddling
+instructions, and held redirects retain the existing functional scoreboard.
+The same monitor checks ordinary S1-selected successors against their original
+S0 occurrence, including BTB-predicted and sequential requests.
 Core CMO/WRS and FP/scalar regressions check the inline live/maintenance/WRS
 retirement flows, completion policy, and dispatch behavior at the core boundary.
 `event-offer-register` compares traced/untraced public outputs and exact captured

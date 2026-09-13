@@ -454,7 +454,7 @@ verify_fixture() {
   fi
   if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
-  elif [[ "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == event-offer-register || "$fixture" == event-parents || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-source || "$fixture" == rv5stage-compack ]]; then
+  elif [[ "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == event-offer-register || "$fixture" == event-parents || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-source || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-compack ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -470,7 +470,7 @@ verify_fixture() {
     # without disabling assertions or runtime convergence checks.
     # Instrumented occurrences use top-derived names, so these fixtures
     # cannot be recognized by the original frontend module name.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-fetch-throughput ]] || grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
+    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction ]] || grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
