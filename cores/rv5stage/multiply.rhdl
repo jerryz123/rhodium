@@ -4,6 +4,7 @@
 
 import:
   "../multiplier.rhdl" open
+  "integer-execution.rhdl" open
   "decode/multiply-ctrl.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
@@ -18,7 +19,12 @@ bundle RV5StageMultiplyCompletion(xlen :: XLen):
   rd: Bits(5)
   value: Bits(xlen.width)
 
-sync_circuit RV5StageMultiplier(xlen :: XLen):
+bundle RV5StageMultiplyTag():
+  rd: Bits(5)
+  high_result: Bool
+  word_result: Bool
+
+sync_circuit RV5StageMultiplyScalar(xlen :: XLen):
   def width = xlen.width
   def product_width = width * 2
 
@@ -26,39 +32,58 @@ sync_circuit RV5StageMultiplier(xlen :: XLen):
   interface completion(Irrevocable(RV5StageMultiplyCompletion(xlen)), ~role: producer)
   output available: Bool
 
-  inst multiplier(IterativeMultiplier(width))
-  reg destination(Bits(5))
-  reg high_result(Bool)
-  reg word_result(Bool)
+  def Request = RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag())
+  interface execution_request(Decoupled(Request), ~role: producer)
+  interface execution_result(Irrevocable(RV5StageExecutionResult(Bits(product_width), RV5StageMultiplyTag())), ~role: consumer)
+  // ID reserves this slot; only this scalar producer can occupy it before WB.
+  inst authorized(Queue(Request, 1))
 
-  available <== multiplier.request.ready
+  available <== authorized.ingress.ready
   (
     issue |> to_decoupled() |> map_flow(issued):
-      MultiplierRequest(width):
-        left: issued.left
-        right: issued.right
-        mode: issued.control.mode
-  ) |> multiplier.request
+      RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag()):
+        tag:
+          RV5StageMultiplyTag():
+            rd: issued.rd
+            high_result: issued.control.high_result
+            word_result: issued.control.word_result
+        operands:
+          MultiplierRequest(width):
+            left: issued.left
+            right: issued.right
+            mode: issued.control.mode
+  ) |> authorized.ingress
+  authorized.egress |> execution_request
+  when (issue.valid):
+    assert(available, "scalar_multiply_issue_has_reserved_slot")
 
-  def issue_fire = issue.valid
-  when issue_fire:
-    destination <== issue.bits.rd
-    high_result <== issue.bits.control.high_result
-    word_result <== issue.bits.control.word_result
-
-  def product = multiplier.response.bits
-  def full_result = mux(high_result, product[width..product_width], product[0..width])
+  def product = execution_result.bits.value
+  def full_result = mux(execution_result.bits.tag.high_result, product[width..product_width], product[0..width])
   def word_result_value = product[0..32].into(SInt(32)).sext(64).as_bits()
-  def selected_result = if xlen == XLen.X64 | mux(word_result, word_result_value, full_result) | full_result
+  def selected_result = if xlen == XLen.X64 | mux(execution_result.bits.tag.word_result, word_result_value, full_result) | full_result
 
   (
-    multiplier.response |> map_flow(~stable: #true, _product):
+    execution_result |> map_flow(~stable: #true, _product):
       RV5StageMultiplyCompletion(xlen):
-        rd: destination
+        rd: execution_result.bits.tag.rd
         value: selected_result
   ) |> completion
+
+sync_circuit RV5StageMultiplier(xlen :: XLen):
+  interface issue(Valid(RV5StageMultiplyIssue(xlen)), ~role: consumer)
+  interface completion(Irrevocable(RV5StageMultiplyCompletion(xlen)), ~role: producer)
+  output available: Bool
+  inst scalar(RV5StageMultiplyScalar(xlen))
+  inst execution(RV5StageMultiplyService(xlen.width, RV5StageMultiplyTag()))
+  issue |> scalar.issue
+  scalar.execution_request |> execution.request
+  execution.result |> scalar.execution_result
+  scalar.completion |> completion
+  available <== scalar.available
 
 export:
   RV5StageMultiplyIssue
   RV5StageMultiplyCompletion
   RV5StageMultiplier
+  RV5StageMultiplyScalar
+  RV5StageMultiplyTag

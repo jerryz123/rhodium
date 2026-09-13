@@ -58,6 +58,8 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   last: Bool
   memory: Bool
   floating_point: Bool
+  multiply_divide: Bool
+  divide: Bool
   store: Bool
   shift: Bits(6)
   write: VectorRegisterWrite(vlen)

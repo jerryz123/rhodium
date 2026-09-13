@@ -28,7 +28,9 @@ tagged completion slots and precise element restart. The host profile's
 `~vector_completion_slots` selects a power-of-two depth, default eight,
 independently of VLEN. RV64D also shares scalar FP execution for same-width
 FP32/FP64 vector add, subtract, and multiply, with WB-authorized operands and
-ordered VRF/flag completion. Other expensive vector execution is not integrated;
+ordered VRF/flag completion. RV64 vectors also share the iterative integer
+multiplier/divider for SEW8/16/32/64 `.vv` and `.vx` operations, with independent
+arbitration and WB-authorized completion ownership;
 no V/Zve/Zvbb extension is advertised.
 
 ## At a glance
@@ -479,7 +481,7 @@ this boundary does not introduce a reorder buffer or precise late bus faults.
 | Integer ALU, branch link, immediate, and ordinary CSR result | Scalar pipeline | Ordinary WB register-file port |
 | Integer load hit | EX request, parallel MEM lookup | Normal WB register-file port and bypass |
 | Missed/busy/uncached load or atomic result | Transaction and GPR reservation accepted at WB | L1D or uncached response to the deferred completion arbiter |
-| Multiply or divide | Execution resource reserved in Decode; GPR reserved and request issued at WB | Deferred completion arbiter |
+| Multiply or divide | Scalar request slot reserved in Decode; GPR reserved and request queued at WB; shared service arbitrates independently | Deferred completion arbiter |
 | FP result targeting an integer register | FP request and GPR reservation accepted at WB | FP completion to deferred completion arbiter |
 | FP result targeting an FP register | FP request and FPR reservation accepted at WB | FP pipeline's internal FP register-file port |
 | FP load hit | EX request, parallel MEM lookup | Scalar WB to FP load-hit port, without a deferred reservation |

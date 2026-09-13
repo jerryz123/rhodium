@@ -53,6 +53,23 @@ Use `rv5stage-vector-fp` and `rv5stage-vector-fp-one-slot` for instruction-to-me
 the scalar FP and existing vector memory/unroller fixtures when these shared
 boundaries change.
 
+`muldiv.rhdl` adapts singleton integer operands and width/result selectors to
+the tagged integer service contracts. `../integer-execution.rhdl` owns opaque
+tag retention around the reusable iterative units; scalar adapters in
+`../multiply.rhdl` and `../divide.rhdl` own W-result and GPR destination policy.
+The core owns separate round-robin scalar/vector arbiters for each unit. Keep
+the scalar one-entry WB queue independent of vector admission: Decode's
+reservation is for queue space, not an idle shared execution unit.
+
+Run `rv5stage-vector-muldiv` and `rv5stage-vector-muldiv-one-slot` for all sixteen
+encodings and four SEWs, scalar contention, masks, restart, empty bodies,
+in-place writes, branch squash, and slot reuse. Retain `rv5stage-multiply`,
+`rv5stage-divide`, and RV32/RV64 Zkt regressions when changing scalar adapters.
+`rv5stage-integer-execution` checks opaque owner tags, result backpressure,
+same-edge replacement, and reset with both services holding results.
+The control fixtures cover RV32/RV64 legality and register-group alignment;
+the unroller and FP fixtures cover the shared beat/completion layout.
+
 Memory beats use encoded EEW and singleton element positions. Keep their
 slot identifier in the `RV5StageMemoryWriteback.Vector` variant, and propagate
 the complete union opaquely through the LSU.

@@ -39,7 +39,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def descriptor = instruction.descriptor
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
   def sew = mux(descriptor.control.memory, descriptor.control.eew, geometry.sew)
-  def singleton = descriptor.control.memory ||| descriptor.control.floating_point
+  def singleton = descriptor.control.memory ||| descriptor.control.floating_point ||| descriptor.control.multiply_divide
   def format = sew.into(SimdElementWidth)
   def limit = descriptor.state.vl[0..index_width(vlen + 1)]
   def lanes = mux(singleton, bits(1, index_width(vlen + 1)), mux_lookup(format, ~default: bits(8, index_width(vlen + 1)), [[SimdElementWidth.E16, bits(4, index_width(vlen + 1))], [SimdElementWidth.E32, bits(2, index_width(vlen + 1))], [SimdElementWidth.E64, bits(1, index_width(vlen + 1))]]))
@@ -97,7 +97,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def memory_enabled = !response.bits.empty & (!descriptor.masked ||| (results[2].bits >> response.bits.first[0..6])[0].into(Bool))
   def operands = response.bits.updated(
     ~left: mux(singleton, results[0].bits >> memory_shift, packing.operands.left),
-    ~right: mux(descriptor.control.floating_point, results[1].bits >> memory_shift, packing.operands.right),
+    ~right: mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right),
     ~enabled: mux(singleton, memory_enabled.as_bits().zext(8).into(Mask(8)), mux(response.bits.empty, bits(0, 8).into(Mask(8)), packing.operands.enabled))
   )
   pending.flush <== clear
@@ -127,7 +127,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     occupied <== Bool(#true)
     instruction <== request.bits
     def start = request.bits.descriptor.state.vstart[0..index_width(vlen + 1)]
-    cursor <== mux(request.bits.descriptor.control.memory ||| request.bits.descriptor.control.floating_point, start, aligned_first(start, request.bits.descriptor.state.vtype[3..5]))
+    cursor <== mux(request.bits.descriptor.control.memory ||| request.bits.descriptor.control.floating_point ||| request.bits.descriptor.control.multiply_divide, start, aligned_first(start, request.bits.descriptor.state.vtype[3..5]))
     minimum <== start
     authorized <== start
     all_issued <== Bool(#false)

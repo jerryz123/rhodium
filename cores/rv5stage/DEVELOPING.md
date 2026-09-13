@@ -210,6 +210,13 @@ come directly from the normal WB pipeline token. Retained CMO and WRS retirement
 contexts must not select arithmetic operands. The reusable multiplier captures
 raw operands before its magnitude-preparation cycle; keep that register boundary
 between WB selection and full-width negation.
+Scalar adapters reserve a one-entry request queue in ID, enqueue at WB, and
+expose tagged requests/results without owning an execution unit. The standalone
+wrappers compose those adapters with one service; the core instead arbitrates
+them with vector requests around one service per operation. This queue-space
+reservation remains valid even if vector work wins the execution arbiter.
+Accepted requests are never killed, and result tags retain all selection and
+destination metadata until consumption.
 
 ## Pointer-masking ownership
 

@@ -47,6 +47,20 @@ check:
   value(field(control(VMAX_VV), "alu"), "maximum") ~is 1
   value(field(control(VMINU_VX), "alu"), "maximum") ~is 0
 
+for (instruction in VectorMultiplyDivideInstructions, index in 0..16):
+  def decoded = control(instruction)
+  def operation = index div 2
+  check:
+    value(decoded, "multiply_divide") ~is 1
+    value(decoded, "integer") ~is 0
+    value(decoded, "memory") ~is 0
+    value(decoded, "floating_point") ~is 0
+    value(decoded, "divide") ~is (if operation < 4 | 1 | 0)
+    value(decoded, "left_signed") ~is (if [1, 3, 6, 7].contains(operation) | 1 | 0)
+    value(decoded, "right_signed") ~is (if [1, 3, 7].contains(operation) | 1 | 0)
+    value(decoded, "upper_result") ~is (if [2, 3, 4, 6, 7].contains(operation) | 1 | 0)
+    value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
+
 for (instruction in VectorFloatingPointInstructions):
   def decoded = control(instruction)
   check:

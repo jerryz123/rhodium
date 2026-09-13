@@ -185,6 +185,26 @@
       end
     end
 
+    // Mul/div uses ordinary same-width groups; VX's rs1 is not a vector group.
+    for (int op = 32; op < 40; op++) begin
+      for (int sew = 0; sew < 4; sew++) begin
+        for (int lm = -3; lm <= 3; lm++) begin
+          for (int vx = 0; vx < 2; vx++) begin
+            for (int rd = 0; rd < 16; rd++) begin
+              automatic bit aligned = lm <= 0 || rd % (1 << lm) == 0;
+              automatic bit source_aligned = vx != 0 || lm <= 0;
+              automatic bit expected_legal = XLEN == 64 && sew <= lm + 3 && rd != 0 && aligned && source_aligned;
+              test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
+              instruction = {6'(op), 1'b0, 5'd16, 5'd3, vx != 0 ? 3'd6 : 3'd2, 5'(rd), 7'h57};
+              #1;
+              assert(decoded_valid && legal == expected_legal) else $fatal(1, "muldiv geometry op=%0d sew=%0d lm=%0d vx=%0d rd=%0d",op,sew,lm,vx,rd);
+              checks++;
+            end
+          end
+        end
+      end
+    end
+
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

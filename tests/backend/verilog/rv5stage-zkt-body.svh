@@ -209,13 +209,15 @@
         multiply_issue = 0;
         load_valid = 1;
         completion_ready = 0;
-        repeat (W+1) begin
-          assert (!multiply_valid[0] && !multiply_valid[1]) else $fatal(1, "operand-dependent/early multiply completion");
+        for (int waited = 0; !multiply_valid[0]; waited++) begin
+          assert (waited < W+4 && multiply_valid[0] == multiply_valid[1]) else $fatal(1, "operand-dependent multiply completion or timeout");
           tick();
         end
         repeat (3) begin
           for (int g=0; g<2; g++) begin
-            assert (multiply_valid[g] && !multiply_available[g] && completion_valid[g] && completion_chosen[g] == 0 && completion_value[g] == load_value[g])
+            // Availability now reserves the scalar WB queue, independently of
+            // a held execution result. Neither operand can affect that space.
+            assert (multiply_valid[g] && multiply_available[g] && completion_valid[g] && completion_chosen[g] == 0 && completion_value[g] == load_value[g])
               else $fatal(1, "stalled load/multiply completion priority or stability failed");
           end
           contended_cycles++;

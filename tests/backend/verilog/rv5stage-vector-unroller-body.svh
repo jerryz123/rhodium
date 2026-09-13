@@ -3,7 +3,7 @@
   localparam int CW = $clog2(VLEN + 1), AW = $clog2(32 * VLEN / 64), DEPTH = 32 * VLEN / 64;
   typedef struct packed { logic [AW-1:0] address; logic [63:0] data, mask; } write_t;
   typedef struct packed { logic valid; write_t bits; } write_port_t;
-  typedef struct packed { logic [CW-1:0] first, ending; logic last, memory, floating_point, store; logic [5:0] shift; write_t write; } result_t;
+  typedef struct packed { logic [CW-1:0] first, ending; logic last, memory, floating_point, multiply_divide, divide, store; logic [5:0] shift; write_t write; } result_t;
   logic clock = 0, reset = 1;
   logic [31:0] instruction;
   logic [XLEN-1:0] vtype, vl, vstart, scalar;

@@ -26,7 +26,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   packing.mask_destination <== beat.control.mask_destination
   packing.enabled <== beat.enabled
   packing.result <== alu.result.updated(~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
-  def singleton = beat.control.memory ||| beat.control.floating_point
+  def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide
   def singleton_width = mux(beat.control.memory, beat.control.eew, beat.element_width.into(Bits(2)))
   def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
@@ -40,6 +40,8 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     last: beat.last
     memory: beat.control.memory
     floating_point: beat.control.floating_point
+    multiply_divide: beat.control.multiply_divide
+    divide: beat.control.divide
     store: beat.control.store
     shift: element_shift
     write: mux(singleton, element_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask)))

@@ -4,6 +4,7 @@
 
 import:
   "../divider.rhdl" open
+  "integer-execution.rhdl" open
   "decode/divide-ctrl.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
@@ -18,17 +19,22 @@ bundle RV5StageDivideCompletion(xlen :: XLen):
   rd: Bits(5)
   value: Bits(xlen.width)
 
-sync_circuit RV5StageDivider(xlen :: XLen):
+bundle RV5StageDivideTag():
+  rd: Bits(5)
+  remainder: Bool
+  word_result: Bool
+
+sync_circuit RV5StageDivideScalar(xlen :: XLen):
   def width = xlen.width
 
   interface issue(Valid(RV5StageDivideIssue(xlen)), ~role: consumer)
   interface completion(Irrevocable(RV5StageDivideCompletion(xlen)), ~role: producer)
   output available: Bool
 
-  inst divider(IterativeDivider(width))
-  reg destination(Bits(5))
-  reg remainder_result(Bool)
-  reg word_result(Bool)
+  def Request = RV5StageExecutionRequest(DividerRequest(width), RV5StageDivideTag())
+  interface execution_request(Decoupled(Request), ~role: producer)
+  interface execution_result(Irrevocable(RV5StageExecutionResult(DividerResponse(width), RV5StageDivideTag())), ~role: consumer)
+  inst authorized(Queue(Request, 1))
 
   def signed_dividend = if xlen == XLen.X64 | issue.bits.dividend[0..32].into(SInt(32)).sext(64).as_bits() | issue.bits.dividend
   def unsigned_dividend = if xlen == XLen.X64 | issue.bits.dividend[0..32].zext(64) | issue.bits.dividend
@@ -39,32 +45,52 @@ sync_circuit RV5StageDivider(xlen :: XLen):
   def normalized_dividend = if xlen == XLen.X64 | mux(issue.bits.control.word_result, word_dividend, issue.bits.dividend) | issue.bits.dividend
   def normalized_divisor = if xlen == XLen.X64 | mux(issue.bits.control.word_result, word_divisor, issue.bits.divisor) | issue.bits.divisor
 
-  available <== divider.request.ready
+  available <== authorized.ingress.ready
   (
     issue |> to_decoupled() |> map_flow(issued):
-      DividerRequest(width):
-        dividend: normalized_dividend
-        divisor: normalized_divisor
-        signed_mode: issued.control.signed_mode
-  ) |> divider.request
+      RV5StageExecutionRequest(DividerRequest(width), RV5StageDivideTag()):
+        tag:
+          RV5StageDivideTag():
+            rd: issued.rd
+            remainder: issued.control.remainder
+            word_result: issued.control.word_result
+        operands:
+          DividerRequest(width):
+            dividend: normalized_dividend
+            divisor: normalized_divisor
+            signed_mode: issued.control.signed_mode
+  ) |> authorized.ingress
+  authorized.egress |> execution_request
 
   when (issue.valid):
-    destination <== issue.bits.rd
-    remainder_result <== issue.bits.control.remainder
-    word_result <== issue.bits.control.word_result
+    assert(available, "scalar_divide_issue_has_reserved_slot")
 
-  def result :: Bits(width) = mux(remainder_result, divider.response.bits.remainder, divider.response.bits.quotient)
+  def result :: Bits(width) = mux(execution_result.bits.tag.remainder, execution_result.bits.value.remainder, execution_result.bits.value.quotient)
   def word_result_value = if xlen == XLen.X64 | result[0..32].into(SInt(32)).sext(64).as_bits() | result
-  def selected_result = if xlen == XLen.X64 | mux(word_result, word_result_value, result) | result
+  def selected_result = if xlen == XLen.X64 | mux(execution_result.bits.tag.word_result, word_result_value, result) | result
 
   (
-    divider.response |> map_flow(~stable: #true, _result):
+    execution_result |> map_flow(~stable: #true, _result):
       RV5StageDivideCompletion(xlen):
-        rd: destination
+        rd: execution_result.bits.tag.rd
         value: selected_result
   ) |> completion
+
+sync_circuit RV5StageDivider(xlen :: XLen):
+  interface issue(Valid(RV5StageDivideIssue(xlen)), ~role: consumer)
+  interface completion(Irrevocable(RV5StageDivideCompletion(xlen)), ~role: producer)
+  output available: Bool
+  inst scalar(RV5StageDivideScalar(xlen))
+  inst execution(RV5StageDivideService(xlen.width, RV5StageDivideTag()))
+  issue |> scalar.issue
+  scalar.execution_request |> execution.request
+  execution.result |> scalar.execution_result
+  scalar.completion |> completion
+  available <== scalar.available
 
 export:
   RV5StageDivideIssue
   RV5StageDivideCompletion
   RV5StageDivider
+  RV5StageDivideScalar
+  RV5StageDivideTag

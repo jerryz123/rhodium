@@ -6,6 +6,10 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   "vector/bundles.rhdl" open
   "vector/fp.rhdl" open
+  "vector/muldiv.rhdl" open
+  "integer-execution.rhdl" open
+  "../multiplier.rhdl" open
+  "../divider.rhdl" open
   "fp/bundles.rhdl" open
   "../../riscv/isa/fp-profile.rhm" open
   lib("hardfloat/main.rhdl").RoundingMode
@@ -23,6 +27,13 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   interface fp_request(Decoupled(FpRequest), ~role: producer)
   interface fp_result(Irrevocable(FpResult), ~role: consumer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
+  def ArithmeticTag = RV5StageVectorArithmeticTag(vector_completion_slots)
+  def MultiplyRequest = RV5StageExecutionRequest(MultiplierRequest(xlen.width), ArithmeticTag)
+  def DivideRequest = RV5StageExecutionRequest(DividerRequest(xlen.width), ArithmeticTag)
+  interface multiply_request(Decoupled(MultiplyRequest), ~role: producer)
+  interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), ArithmeticTag)), ~role: consumer)
+  interface divide_request(Decoupled(DivideRequest), ~role: producer)
+  interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), ArithmeticTag)), ~role: consumer)
   input rounding_mode: RoundingMode
   reg captured_rounding(RoundingMode)
   interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
@@ -76,7 +87,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
     | ~else: position[0..tag_width]
 
   // Bookkeeping admission and private operand capture are one atomic transfer.
-  def available = !(unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point) ||| !allocated[slot_index(unroller.issue.bits.beat.first)]
+  def available = !(unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide) ||| !allocated[slot_index(unroller.issue.bits.beat.first)]
   def Array(token, operands) = unroller.issue |> gate_flow(available & !clear) |> atomic_fork(2)
   (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
@@ -101,6 +112,20 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   when (request.fire()):
     captured_rounding <== rounding_mode
 
+  inst multiply_operands(ValidPipe(MultiplyRequest, 2, ~flushable: #true))
+  inst divide_operands(ValidPipe(DivideRequest, 2, ~flushable: #true))
+  multiply_operands.flush <== clear
+  divide_operands.flush <== clear
+  ex_pipe.egress |> map_valid(operation => vector_multiply_request(xlen, vlen, vector_completion_slots, operation, slot_index(operation.first))) |> multiply_operands.ingress
+  ex_pipe.egress |> map_valid(operation => vector_divide_request(xlen, vlen, vector_completion_slots, operation, slot_index(operation.first))) |> divide_operands.ingress
+  // Accepted work survives cancellation; speculative operand pipes do not.
+  inst multiply_authorized(Queue(MultiplyRequest, vector_completion_slots))
+  inst divide_authorized(Queue(DivideRequest, vector_completion_slots))
+  multiply_authorized.egress |> multiply_request
+  divide_authorized.egress |> divide_request
+  multiply_result.ready <== Bool(#true)
+  divide_result.ready <== Bool(#true)
+
   // Cancellation drops future private results; a live older WB authorization
   // still takes effect on this edge. Results alone never authorize a write.
   when (commit.valid):
@@ -108,15 +133,23 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   def beat = wb_pipe.egress.bits
   def wb_tag = slot_index(beat.first)
   def successful = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Authorized)
-  def deferred_commit = successful & (beat.memory ||| beat.floating_point)
+  def deferred_commit = successful & (beat.memory ||| beat.floating_point ||| beat.multiply_divide)
   fp_authorized.ingress.valid <== successful & beat.floating_point & beat.write.mask.or_reduce()
   fp_authorized.ingress.bits <== fp_operands.egress.bits
   when (fp_authorized.ingress.valid):
     assert(fp_operands.egress.valid & fp_authorized.ingress.ready, "vector_fp_wb_has_reserved_request_space")
+  multiply_authorized.ingress.valid <== successful & beat.multiply_divide & !beat.divide & beat.write.mask.or_reduce()
+  multiply_authorized.ingress.bits <== multiply_operands.egress.bits
+  divide_authorized.ingress.valid <== successful & beat.multiply_divide & beat.divide & beat.write.mask.or_reduce()
+  divide_authorized.ingress.bits <== divide_operands.egress.bits
+  when (multiply_authorized.ingress.valid):
+    assert(multiply_operands.egress.valid & multiply_authorized.ingress.ready, "vector_multiply_wb_has_reserved_request_space")
+  when (divide_authorized.ingress.valid):
+    assert(divide_operands.egress.valid & divide_authorized.ingress.ready, "vector_divide_wb_has_reserved_request_space")
   def drain = authorized_slots[head] & completed[head]
   def result = entries[head]
   def drain_write = result.write.updated(~data: completion_data[head] << result.shift)
-  def integer_write = successful & !(beat.memory ||| beat.floating_point) & beat.write.mask.or_reduce()
+  def integer_write = successful & !(beat.memory ||| beat.floating_point ||| beat.multiply_divide) & beat.write.mask.or_reduce()
   registers.write.valid <== integer_write ||| (drain & result.write.mask.or_reduce())
   registers.write.bits <== mux(integer_write, beat.write, drain_write)
   assert(!(integer_write & drain), "vector_integer_and_memory_write_owners_exclusive")
@@ -124,7 +157,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   fp_update.bits <== completion_flags[head]
   fault_start.valid <== fault
   fault_start.bits <== beat.first.zext(xlen.width)
-  retire.valid <== (successful & !(beat.memory ||| beat.floating_point) & beat.last) ||| (drain & result.last)
+  retire.valid <== (successful & !(beat.memory ||| beat.floating_point ||| beat.multiply_divide) & beat.last) ||| (drain & result.last)
   (
     commit |> map_valid(event => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
       context: event.pc
@@ -135,7 +168,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
       fault_address: event.fault_address
   ) |> unroller.feedback
 
-  def deferred_issue = issue.fire() & (unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point)
+  def deferred_issue = issue.fire() & (unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide)
   when (request.fire()):
     head <== slot_index(request.bits.descriptor.state.vstart)
   elsewhen drain:
@@ -150,6 +183,12 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   when (fp_result.fire()):
     assert(authorized_slots[fp_result.bits.tag] & entries[fp_result.bits.tag].floating_point, "vector_fp_result_has_authorized_owner")
     assert(!completed[fp_result.bits.tag], "vector_fp_result_completes_once")
+  when (multiply_result.fire()):
+    assert(authorized_slots[multiply_result.bits.tag.slot] & entries[multiply_result.bits.tag.slot].multiply_divide & !entries[multiply_result.bits.tag.slot].divide, "vector_multiply_result_has_authorized_owner")
+    assert(!completed[multiply_result.bits.tag.slot], "vector_multiply_result_completes_once")
+  when (divide_result.fire()):
+    assert(authorized_slots[divide_result.bits.tag.slot] & entries[divide_result.bits.tag.slot].multiply_divide & entries[divide_result.bits.tag.slot].divide, "vector_divide_result_has_authorized_owner")
+    assert(!completed[divide_result.bits.tag.slot], "vector_divide_result_completes_once")
   // Independent slots absorb a hit and a delayed response on the same edge;
   // the single VRF write port drains them strictly in architectural order.
   for (slot in 0..vector_completion_slots):
@@ -178,10 +217,16 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
     elsewhen (fp_result.fire() & (fp_result.bits.tag === tag)):
       completed[slot] <== Bool(#true)
       completion_data[slot] <== if xlen == XLen.X64 | fp_result.bits.fp_value | fp_result.bits.fp_value.zext(64)
+    elsewhen (multiply_result.fire() & (multiply_result.bits.tag.slot === tag)):
+      completed[slot] <== Bool(#true)
+      completion_data[slot] <== vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits)
+    elsewhen (divide_result.fire() & (divide_result.bits.tag.slot === tag)):
+      completed[slot] <== Bool(#true)
+      completion_data[slot] <== vector_divide_value(xlen, vector_completion_slots, divide_result.bits)
     elsewhen (releasing ||| (deferred_issue & (issue.bits.completion_tag === tag))):
       completed[slot] <== Bool(#false)
     elsewhen authorizing:
-      completed[slot] <== mux(beat.floating_point, !beat.write.mask.or_reduce(), !commit.bits.slow)
+      completed[slot] <== mux(beat.floating_point ||| beat.multiply_divide, !beat.write.mask.or_reduce(), !commit.bits.slow)
       completion_data[slot] <== if xlen == XLen.X64 | commit.bits.data | commit.bits.data.zext(64)
 
 export:

@@ -1,0 +1,62 @@
+#lang rhodium
+// Carries opaque ownership through the shared iterative integer execution services.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../multiplier.rhdl" open
+  "../divider.rhdl" open
+  lib("flow/main.rhdl") open
+
+bundle RV5StageExecutionRequest(Operands :: DataType, Tag :: DataType):
+  tag: Tag
+  operands: Operands
+
+bundle RV5StageExecutionResult(Value :: DataType, Tag :: DataType):
+  tag: Tag
+  value: Value
+
+fun integer_request_with_tag(Operands :: DataType, From :: DataType, To :: DataType, request :: RV5StageExecutionRequest(Operands, From), tag :: Hardware.of(To)) :~ RV5StageExecutionRequest(Operands, To):
+  RV5StageExecutionRequest(Operands, To):
+    tag: tag
+    operands: request.operands
+
+fun integer_result_with_tag(Value :: DataType, From :: DataType, To :: DataType, result :: RV5StageExecutionResult(Value, From), tag :: Hardware.of(To)) :~ RV5StageExecutionResult(Value, To):
+  RV5StageExecutionResult(Value, To):
+    tag: tag
+    value: result.value
+
+sync_circuit RV5StageMultiplyService(width :: PosInt, Tag :: DataType):
+  interface request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
+  interface result(Irrevocable(RV5StageExecutionResult(Bits(width * 2), Tag)), ~role: producer)
+  inst execution(IterativeMultiplier(width))
+  reg owner(Tag)
+  request |> map_flow(operation => operation.operands) |> execution.request
+  when (request.fire()):
+    owner <== request.bits.tag
+  (
+    execution.response |> map_flow(~stable: #true, value => RV5StageExecutionResult(Bits(width * 2), Tag)):
+      tag: owner
+      value: value
+  ) |> result
+
+sync_circuit RV5StageDivideService(width :: PosInt, Tag :: DataType):
+  interface request(Decoupled(RV5StageExecutionRequest(DividerRequest(width), Tag)), ~role: consumer)
+  interface result(Irrevocable(RV5StageExecutionResult(DividerResponse(width), Tag)), ~role: producer)
+  inst execution(IterativeDivider(width))
+  reg owner(Tag)
+  request |> map_flow(operation => operation.operands) |> execution.request
+  when (request.fire()):
+    owner <== request.bits.tag
+  (
+    execution.response |> map_flow(~stable: #true, value => RV5StageExecutionResult(DividerResponse(width), Tag)):
+      tag: owner
+      value: value
+  ) |> result
+
+export:
+  RV5StageExecutionRequest
+  RV5StageExecutionResult
+  integer_request_with_tag
+  integer_result_with_tag
+  RV5StageMultiplyService
+  RV5StageDivideService

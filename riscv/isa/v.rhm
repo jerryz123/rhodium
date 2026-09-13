@@ -103,10 +103,45 @@ def VFADD_VV = vector_arithmetic("VFADD.VV", 0x00, VectorVVFormat, 1)
 def VFSUB_VV = vector_arithmetic("VFSUB.VV", 0x02, VectorVVFormat, 1)
 def VFMUL_VV = vector_arithmetic("VFMUL.VV", 0x24, VectorVVFormat, 1)
 def VectorFloatingPointInstructions = [VFADD_VV, VFSUB_VV, VFMUL_VV]
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions
+// Same-width OPMVV/OPMVX from https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_v.
+def VDIVU_VV = vector_arithmetic("VDIVU.VV", 32, VectorVVFormat, 2)
+def VDIVU_VX = vector_arithmetic("VDIVU.VX", 32, VectorVXFormat, 6)
+def VDIV_VV = vector_arithmetic("VDIV.VV", 33, VectorVVFormat, 2)
+def VDIV_VX = vector_arithmetic("VDIV.VX", 33, VectorVXFormat, 6)
+def VREMU_VV = vector_arithmetic("VREMU.VV", 34, VectorVVFormat, 2)
+def VREMU_VX = vector_arithmetic("VREMU.VX", 34, VectorVXFormat, 6)
+def VREM_VV = vector_arithmetic("VREM.VV", 35, VectorVVFormat, 2)
+def VREM_VX = vector_arithmetic("VREM.VX", 35, VectorVXFormat, 6)
+def VMULHU_VV = vector_arithmetic("VMULHU.VV", 36, VectorVVFormat, 2)
+def VMULHU_VX = vector_arithmetic("VMULHU.VX", 36, VectorVXFormat, 6)
+def VMUL_VV = vector_arithmetic("VMUL.VV", 37, VectorVVFormat, 2)
+def VMUL_VX = vector_arithmetic("VMUL.VX", 37, VectorVXFormat, 6)
+def VMULHSU_VV = vector_arithmetic("VMULHSU.VV", 38, VectorVVFormat, 2)
+def VMULHSU_VX = vector_arithmetic("VMULHSU.VX", 38, VectorVXFormat, 6)
+def VMULH_VV = vector_arithmetic("VMULH.VV", 39, VectorVVFormat, 2)
+def VMULH_VX = vector_arithmetic("VMULH.VX", 39, VectorVXFormat, 6)
+def VectorMultiplyDivideInstructions = [VDIVU_VV, VDIVU_VX, VDIV_VV, VDIV_VX, VREMU_VV, VREMU_VX, VREM_VV, VREM_VX, VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX, VMULHSU_VV, VMULHSU_VX, VMULH_VV, VMULH_VX]
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
+  VectorMultiplyDivideInstructions
+  VDIVU_VV
+  VDIVU_VX
+  VDIV_VV
+  VDIV_VX
+  VREMU_VV
+  VREMU_VX
+  VREM_VV
+  VREM_VX
+  VMULHU_VV
+  VMULHU_VX
+  VMUL_VV
+  VMUL_VX
+  VMULHSU_VV
+  VMULHSU_VX
+  VMULH_VV
+  VMULH_VX
   VFADD_VV
   VFSUB_VV
   VFMUL_VV

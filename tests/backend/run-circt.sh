@@ -213,7 +213,7 @@ fixture_in_group() {
     cores-components:simd-alu|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:iterative-divider|cores-components:riscv-counters-*|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
       return 0
       ;;
-    cores-execution:rv5stage-vector|cores-execution:rv5stage-vector-*|cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-atomic|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
+    cores-execution:rv5stage-vector|cores-execution:rv5stage-vector-*|cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-atomic|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-integer-execution|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
       return 0
       ;;
     cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
@@ -750,6 +750,8 @@ direct_fixture_specs=(
   'rv5stage-vector-control|rv5stage_vector_control_tb'
   'rv5stage-vector-config|rv5stage_vector_config_tb'
   'rv5stage-vector-fp|rv5stage_vector_fp_tb'
+  'rv5stage-vector-muldiv|rv5stage_vector_muldiv_tb'
+  'rv5stage-vector-muldiv-one-slot|rv5stage_vector_muldiv_tb'
   'rv5stage-vector-fp-one-slot|rv5stage_vector_fp_tb'
   'rv5stage-vector-memory|rv5stage_vector_memory_tb'
   'rv5stage-vector-memory-one-slot|rv5stage_vector_memory_tb'
@@ -809,6 +811,7 @@ direct_fixture_specs=(
   'rv5stage-io-mshr|rv5stage_io_mshr_tb'
   'rv5stage-io-boot|rv5stage_io_boot_tb'
   'rv5stage-multiply|rv5stage_multiply_tb'
+  'rv5stage-integer-execution|rv5stage_integer_execution_tb'
   'rv5stage-divide|rv5stage_divide_tb'
   'rv5stage-icache|rv5stage_icache_tb'
   'rv5stage-icache-coherence|rv5stage_icache_coherence_tb'

@@ -104,7 +104,30 @@ Fault feedback terminates issue and emits the failing element through
 This cut preserves inactive and tail contents, supports fractional LMUL and
 in-place same-width groups, sign-extends RV32 VX operands before SEW64
 broadcast, and packs comparison bits through the ordinary masked write port.
-Shared multiply/divide issue remains future integration work.
+
+## Shared integer multiply/divide
+
+RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,
+`vdiv`, `vdivu`, `vrem`, and `vremu` in `.vv` and `.vx` forms at SEW8/16/32/64.
+These are singleton operations, not packed SIMD operations. VX captures its
+scalar operand at macro admission. Signed operands extend from SEW before
+execution; high multiplication selects bits `[SEW, 2*SEW)`. Division truncates
+toward zero and preserves the architectural divide-by-zero and overflow results.
+
+Scalar and vector clients share one iterative multiplier and one iterative
+divider through independent round-robin request arbiters. An opaque owner tag
+routes each held result back to its client. Each scalar adapter has one reserved
+WB request slot, so vector contention cannot steal an ID admission reservation.
+Scalar GPR completion still uses the ordinary deferred writeback arbiter.
+
+Vector elements reserve completion slots before issue, enter request queues
+only when WB authorizes them, and drain through the single masked VRF write port
+in element order. Backpressure stops earlier issue; MEM/WB remains feed-forward.
+Cancellation discards only speculative work, never accepted requests or their
+response ownership. Masked and empty elements complete without execution.
+These iterative services do not promise one element per cycle. Widening
+multiplication, multiply-accumulate, RV32 vector mul/div, and V advertisement
+remain outside this cut.
 
 ## Shared floating point
 

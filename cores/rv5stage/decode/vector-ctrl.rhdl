@@ -28,6 +28,11 @@ bundle RV5StageVectorControl():
   configure: VectorConfigMode
   integer: Bool
   floating_point: Bool
+  multiply_divide: Bool
+  divide: Bool
+  left_signed: Bool
+  right_signed: Bool
+  upper_result: Bool
   fp_subtract: Bool
   fp_multiply: Bool
   memory: Bool
@@ -44,6 +49,7 @@ def NoVectorControl = partial_pattern(RV5StageVectorControl()):
   configure: VectorConfigMode.None
   integer: Bool(#false)
   floating_point: Bool(#false)
+  multiply_divide: Bool(#false)
   memory: Bool(#false)
 
 fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
@@ -53,6 +59,7 @@ fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
       configure: mode
       integer: Bool(#false)
       floating_point: Bool(#false)
+      multiply_divide: Bool(#false)
       memory: Bool(#false)
   )
 def VectorConfigurationCases = [
@@ -72,6 +79,7 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       configure: VectorConfigMode.None
       integer: Bool(#true)
       floating_point: Bool(#false)
+      multiply_divide: Bool(#false)
       memory: Bool(#false)
       operand: if form == VectorVVFormat | VectorOperandMode.Vector | (if form == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
       immediate_unsigned: Bool(form == VectorShiftVIFormat)
@@ -223,6 +231,7 @@ def VectorMemoryCases = for List (instruction in VectorMemoryInstructions, index
       configure: VectorConfigMode.None
       integer: Bool(#false)
       floating_point: Bool(#false)
+      multiply_divide: Bool(#false)
       memory: Bool(#true)
       store: Bool(index >= 4)
       eew: bits(index mod 4, 2)
@@ -235,6 +244,7 @@ def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstr
       configure: VectorConfigMode.None
       integer: Bool(#false)
       floating_point: Bool(#true)
+      multiply_divide: Bool(#false)
       memory: Bool(#false)
       store: Bool(#false)
       operand: VectorOperandMode.Vector
@@ -242,7 +252,27 @@ def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstr
       fp_subtract: Bool(instruction == VFSUB_VV)
       fp_multiply: Bool(instruction == VFMUL_VV)
   )
-def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMemoryCases ++ VectorFloatingPointCases
+def VectorMultiplyDivideCases = for List (instruction in VectorMultiplyDivideInstructions):
+  def is_divide = [VDIV_VV, VDIV_VX, VDIVU_VV, VDIVU_VX, VREM_VV, VREM_VX, VREMU_VV, VREMU_VX].contains(instruction)
+  def signed_left = [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
+  def signed_right = [VMULH_VV, VMULH_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
+  DecodeCase(
+    instruction_pattern(instruction),
+    partial_pattern(RV5StageVectorControl()):
+      configure: VectorConfigMode.None
+      integer: Bool(#false)
+      floating_point: Bool(#false)
+      multiply_divide: Bool(#true)
+      memory: Bool(#false)
+      store: Bool(#false)
+      operand: if instruction.format == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Vector
+      mask_destination: Bool(#false)
+      divide: Bool(is_divide)
+      left_signed: Bool(signed_left)
+      right_signed: Bool(signed_right)
+      upper_result: Bool(![VMUL_VV, VMUL_VX, VDIV_VV, VDIV_VX, VDIVU_VV, VDIVU_VX].contains(instruction))
+  )
+def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
 
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
@@ -278,7 +308,8 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def integer_legal = control.integer & source2_aligned & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
   def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())
-  legal <== !config.vill & (integer_legal ||| memory_legal ||| fp_legal)
+  def multiply_divide_legal = control.multiply_divide & Bool(xlen == XLen.X64) & source2_aligned & (!vector_operand ||| source1_aligned) & destination_aligned & !(masked & !destination.or_reduce())
+  legal <== !config.vill & (integer_legal ||| memory_legal ||| fp_legal ||| multiply_divide_legal)
 
 export:
   VectorConfigMode
@@ -289,6 +320,7 @@ export:
   VectorIntegerCases
   VectorMemoryCases
   VectorFloatingPointCases
+  VectorMultiplyDivideCases
   VectorControlCases
   RV5StageVectorLegality
   vector_configuration_request

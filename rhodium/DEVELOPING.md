@@ -173,6 +173,13 @@ protocols, and data IO-MSHR directly import `std/bits.rhdl` for the `Pow2Int`
 completion-depth annotation. Tag widths derive from the public `index_width`
 operation; memory engines retain the specialized union opaquely.
 
+`cores/rv5stage/integer-execution.rhdl` imports the reusable multiplier/divider
+and `flow/main.rhdl` for typed, owner-retaining execution services. Scalar
+`multiply.rhdl` and `divide.rhdl` use Flow queues for WB admission reservations;
+the core uses Flow arbitration and stable demultiplexing to share those services.
+`vector/muldiv.rhdl` imports the integer contracts, pure ISA geometry/XLEN, and
+`std/bits.rhdl` for `Pow2Int`, without depending on sibling decode columns.
+
 `cores/rv5stage/fp/execute.rhdl` directly imports `flow/main.rhdl` for
 operand routing, reserved fixed-latency completion buffering, round-robin
 completion arbitration, and output retention. The scalar `fp/pipeline.rhdl`
