@@ -1,4 +1,4 @@
-// Verifies commit-issued division, word projections, hazards, and independent progress.
+// Verifies early-out commit-issued division, word projections, hazards, and independent progress.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_divide_tb;
@@ -171,6 +171,8 @@ module rv5stage_divide_tb;
             assert (data_access_out.request.bits.address == 64'd56 &&
                     data_access_out.request.bits.data == -64'sd2)
               else $fatal(1, "REMW result was incorrect");
+            assert (cycles < 400)
+              else $fatal(1, "word division did not use normalized early-out latency");
             $display("RV5Stage commit-issued division passed");
             $finish;
           end

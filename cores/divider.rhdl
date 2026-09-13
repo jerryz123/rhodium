@@ -4,6 +4,7 @@
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/bits.rhdl").count_leading_zeros
 
 bundle DividerRequest(width :: PosInt):
   dividend: Bits(width)
@@ -14,10 +15,10 @@ bundle DividerResponse(width :: PosInt):
   quotient: Bits(width)
   remainder: Bits(width)
 
-// Accepts one request, resolves one quotient bit per cycle, finalizes signs on
-// a separate cycle, and returns both mathematical projections. Division by
-// zero returns an all-one quotient and the original dividend; signed overflow
-// wraps to the fixed-width minimum.
+// Accepts one request, skips leading-zero quotient work, resolves each remaining
+// quotient bit per cycle, and finalizes signs on a separate cycle. Trivial
+// operands complete directly. Division by zero returns an all-one quotient and
+// the original dividend; signed overflow wraps to the fixed-width minimum.
 sync_circuit IterativeDivider(width :: PosInt):
   def remainder_width = width + 1
   def count_width = index_width(width)
@@ -33,8 +34,6 @@ sync_circuit IterativeDivider(width :: PosInt):
   reg partial_remainder(Bits(remainder_width))
   reg negate_quotient(Bool)
   reg negate_remainder(Bool)
-  reg divide_by_zero(Bool)
-  reg original_dividend(Bits(width))
   reg response_valid(~init: Bool(#false))
   reg response_bits(DividerResponse(width))
 
@@ -48,6 +47,20 @@ sync_circuit IterativeDivider(width :: PosInt):
   def divisor_negative = request.bits.signed_mode & request.bits.divisor[width - 1].into(Bool)
   def dividend_magnitude = mux(dividend_negative, -request.bits.dividend, request.bits.dividend)
   def divisor_magnitude = mux(divisor_negative, -request.bits.divisor, request.bits.divisor)
+  def request_negate_quotient = dividend_negative ^ divisor_negative
+  def request_negate_remainder = dividend_negative
+  def divisor_zero = !divisor_magnitude.or_reduce()
+  def divisor_one = divisor_magnitude === bits(1, width)
+  def dividend_smaller = dividend_magnitude < divisor_magnitude
+  def dividend_equal = dividend_magnitude === divisor_magnitude
+  def direct_result = divisor_zero ||| divisor_one ||| dividend_smaller ||| dividend_equal
+  def signed_dividend_magnitude = mux(request_negate_quotient, -dividend_magnitude, dividend_magnitude)
+  def signed_one = mux(request_negate_quotient, -bits(1, width), bits(1, width))
+  def direct_quotient = mux(divisor_zero, !bits(0, width), mux(divisor_one, signed_dividend_magnitude, mux(dividend_equal, signed_one, bits(0, width))))
+  def direct_remainder = mux(divisor_zero ||| dividend_smaller, request.bits.dividend, bits(0, width))
+  def dividend_leading_zeros = count_leading_zeros(dividend_magnitude)
+  def initial_count = dividend_leading_zeros[0..count_width]
+  def aligned_dividend = dividend_magnitude << dividend_leading_zeros
   def shifted_remainder :: Bits(remainder_width) = (partial_remainder[0..width] ++ dividend[width - 1])
   def extended_divisor = divisor.zext(remainder_width)
   def difference :: Bits(remainder_width) = shifted_remainder - extended_divisor
@@ -57,21 +70,24 @@ sync_circuit IterativeDivider(width :: PosInt):
   def quotient_value = mux(negate_quotient, -dividend, dividend)
   def remainder_magnitude :: Bits(width) = partial_remainder[0..width]
   def remainder_value = mux(negate_remainder, -remainder_magnitude, remainder_magnitude)
-  def final_quotient = mux(divide_by_zero, !bits(0, width), quotient_value)
-  def final_remainder = mux(divide_by_zero, original_dividend, remainder_value)
   def last_iteration = count === bits(width - 1, count_width)
 
-  when request_fire:
+  when (request_fire & direct_result):
+    active <== Bool(#false)
+    finalizing <== Bool(#false)
+    response_valid <== Bool(#true)
+    response_bits <== DividerResponse(width):
+      quotient: direct_quotient
+      remainder: direct_remainder
+  elsewhen request_fire:
     active <== Bool(#true)
     finalizing <== Bool(#false)
-    count <== bits(0, count_width)
-    dividend <== dividend_magnitude
+    count <== initial_count
+    dividend <== aligned_dividend
     divisor <== divisor_magnitude
     partial_remainder <== bits(0, remainder_width)
-    negate_quotient <== dividend_negative ^ divisor_negative
-    negate_remainder <== dividend_negative
-    divide_by_zero <== !request.bits.divisor.or_reduce()
-    original_dividend <== request.bits.dividend
+    negate_quotient <== request_negate_quotient
+    negate_remainder <== request_negate_remainder
     response_valid <== Bool(#false)
   elsewhen (active & last_iteration):
     active <== Bool(#false)
@@ -82,8 +98,8 @@ sync_circuit IterativeDivider(width :: PosInt):
     finalizing <== Bool(#false)
     response_valid <== Bool(#true)
     response_bits <== DividerResponse(width):
-      quotient: final_quotient
-      remainder: final_remainder
+      quotient: quotient_value
+      remainder: remainder_value
   elsewhen active:
     count <== count + bits(1, count_width)
     dividend <== next_dividend
