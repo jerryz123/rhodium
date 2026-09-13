@@ -75,7 +75,9 @@ reissues the oldest failed PC; the MMU has no instruction request, retry, or
 owner FIFO.
 `s1_kill` cancels younger resolution and walk initiation without canceling an
 older S2 outcome or an accepted walk. `flush` also detaches speculative fault
-ownership.
+ownership. A request transferred together with `flush` belongs to the new
+fetch epoch: it launches the virtual lookup immediately and replaces, rather
+than clears, the MMU's S1 context.
 
 For authorized fallback transactions, `data_lookup` remains a Valid early index paired with data resolution at the same
 edge; walker ownership selects the physical PTE address on both data paths.
@@ -155,8 +157,10 @@ either TLB.
    The frontend kills younger S1 attempts when an older S2 attempt replays,
    preserving program order without an MMU response-owner queue.
 
-An instruction-path flush clears the attempt stages and discards the fetch's
+An instruction-path flush clears old attempt stages and discards the fetch's
 interest in an active instruction walk, but does not cancel the accepted walk.
+A simultaneous replacement request survives in S1 while the old S2 outcome is
+still discarded.
 The walk retains its PTE-response ownership and may still fill the ITLB, so
 refetch does not repeatedly restart the same translation. A fault from the
 discarded fetch is dropped rather than saved for replay. A flush does not cancel

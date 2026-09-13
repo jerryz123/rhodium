@@ -52,8 +52,10 @@ invalidate translations or cancel accepted page-table response ownership.
 2. Preserve address correlation for walk completions and faults. The instruction
    attempt is captured into S1 after S0 admission; the frontend may change its
    payload immediately. An unresolved attempt produces S2 replay, never a
-   retained request or local reread. Gate S1 walk initiation and physical
-   resolution with the frontend's younger-attempt kill.
+   retained request or local reread. A request transferred with instruction
+   flush replaces the old S1 context; a flush without transfer clears it. Gate
+   S1 walk initiation and physical resolution with the frontend's
+   younger-attempt kill.
 3. Keep page faults distinct from physical PTE access faults and suppress every
    rejected physical resolution before it reaches a cache or device. Early
    virtual SRAM reads are permitted, but cannot create a successful cache token

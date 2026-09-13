@@ -47,7 +47,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst itlb(RV5StageTlb(tlb_entries))
   inst dtlb(RV5StageTlb(tlb_entries))
   inst walker(RV5StagePageTableWalker())
-  inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1), ~reset_when: instruction.flush)
+  inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1, ~flushable: #true))
   inst instruction_s2(ValidPipeAlwaysCapture(RV5StageFetchResult(), 1), ~reset_when: instruction.flush)
   inst load_request(ValidPipeAlwaysCapture(RV5StagePipelineReq(xlen), 1))
   pipeline.request |> load_request.ingress
@@ -66,9 +66,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address
   // One accepted S0 request atomically launches the virtual lookup and
   // captures the MMU's S1 context. The frontend retains its own occurrence.
-  def Array(instruction_lookup_request, instruction_admission) = instruction.request |> gate_flow(!instruction.flush) |> atomic_fork(2)
+  def Array(instruction_lookup_request, instruction_admission) = instruction.request |> atomic_fork(2)
   instruction_lookup_request |> map_flow(request => request.address) |> instruction_lookup
   instruction_admission |> to_valid() |> instruction_s1.ingress
+  // A request transferred with flush starts the new fetch epoch and replaces
+  // the old S1 context; a flush without a transfer clears S1 normally.
+  instruction_s1.flush <== instruction.flush & !instruction_admission.valid
   def instruction_s1_valid = instruction_head.valid & !instruction.flush & !instruction.s1_kill
   def data_request :: RV5StageDataReq(xlen) = data.request.bits
   def data_memory_operation = data_request.access

@@ -112,12 +112,12 @@ module rv5stage_fetch_tb;
   end
 
   always_ff @(posedge clock) begin
-    if (reset || memory_out.flush) begin
+    if (reset) begin
       response_valid <= 1'b0;
       s2_response <= '0;
       response_bits <= '0;
     end else begin
-      s2_response <= memory_out.s1_kill ? '0 : '{response_valid, response_bits};
+      s2_response <= memory_out.flush || memory_out.s1_kill ? '0 : '{response_valid, response_bits};
       response_valid <= 1'b0;
       if (memory_out.request.valid && memory_in.request.ready) begin
         response_valid <= 1'b1;
@@ -201,6 +201,11 @@ module rv5stage_fetch_tb;
     stalled_requests = 0;
     restart_pc = 64'h200;
     restart_valid = 1'b1;
+    #1;
+    assert (memory_out.flush && memory_out.request.valid && memory_in.request.ready &&
+            memory_out.request.bits.address == 64'h200)
+      else $fatal(1, "restart did not transfer its S0 request in the recovery cycle");
+    stalled_requests = 1;
     @(posedge clock);
     #1 restart_valid = 1'b0;
     repeat (24) begin

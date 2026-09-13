@@ -101,7 +101,7 @@ module rv5stage_zawrs_tb;
 
   always_comb begin
     instruction_access_in = '0;
-    instruction_access_in.request.ready = !response_valid;
+    instruction_access_in.request.ready = instruction_access_out.flush || !response_valid;
     instruction_access_in.response.valid = response_valid;
     instruction_access_in.response.bits.word = response_word;
     data_access_in = '0;
@@ -120,15 +120,11 @@ module rv5stage_zawrs_tb;
       done <= 0;
     end else begin
       cycles <= cycles + 1;
-      if (instruction_access_out.flush)
-        response_valid <= 0;
-      else begin
-        if (response_valid && instruction_access_out.response.ready) response_valid <= 0;
-        if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
-          response_valid <= 1;
-          response_word <= instruction_at(instruction_access_out.request.bits.address);
-          if (instruction_access_out.request.bits.address == 64) saw_wrs <= 1;
-        end
+      if (instruction_access_out.flush || (response_valid && instruction_access_out.response.ready)) response_valid <= 0;
+      if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
+        response_valid <= 1;
+        response_word <= instruction_at(instruction_access_out.request.bits.address);
+        if (instruction_access_out.request.bits.address == 64) saw_wrs <= 1;
       end
       if (saw_wrs) wait_cycles <= wait_cycles + 1;
       if (data_access_out.request.valid) begin

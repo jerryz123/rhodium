@@ -109,7 +109,7 @@ module rv5stage_wfi_tb;
   endfunction
 
   always_comb begin
-    instruction_access_in.request.ready = !instruction_response_valid;
+    instruction_access_in.request.ready = instruction_access_out.flush || !instruction_response_valid;
     instruction_access_in.response.valid = instruction_response_valid;
     instruction_access_in.response.bits.word = instruction_response_bits;
     instruction_access_in.response.bits.page_fault = 1'b0;
@@ -133,15 +133,11 @@ module rv5stage_wfi_tb;
       cycles <= '0;
     end else begin
       cycles <= cycles + 1'b1;
-      if (instruction_access_out.flush)
+      if (instruction_access_out.flush || (instruction_response_valid && instruction_access_out.response.ready))
         instruction_response_valid <= 1'b0;
-      else begin
-        if (instruction_response_valid && instruction_access_out.response.ready)
-          instruction_response_valid <= 1'b0;
-        if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
-          instruction_response_valid <= 1'b1;
-          instruction_response_bits <= instruction_at(instruction_access_out.request.bits.address);
-        end
+      if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
+        instruction_response_valid <= 1'b1;
+        instruction_response_bits <= instruction_at(instruction_access_out.request.bits.address);
       end
 
       if (phase == MASKED_WAIT || phase == TRAPPING_WAIT) begin

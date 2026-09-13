@@ -44,11 +44,11 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
   reg response(RV5StageInstructionResp())
   def can_issue = !pending ||| (memory.response.valid & !slow)
   def completed_match = completed & (address === frontend.request.bits.address)
-  frontend.request.ready <== !frontend.flush & mux(completed, completed_match, can_issue & memory.request.ready)
+  frontend.request.ready <== mux(frontend.flush, memory.request.ready, mux(completed, completed_match, can_issue & memory.request.ready))
   def frontend_admitted = frontend.request.fire()
   memory.flush <== frontend.flush
   memory.invalidate_all <== frontend.invalidate_all
-  memory.request.valid <== frontend.request.valid & !frontend.flush & !completed & can_issue
+  memory.request.valid <== frontend.request.valid & mux(frontend.flush, Bool(#true), !completed & can_issue)
   memory.request.bits <== frontend.request.bits
   memory.response.ready <== pending & !frontend.flush
   def response_fire = memory.response.fire()
@@ -56,11 +56,15 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
   frontend.response.valid <== s2_valid & !frontend.flush
   frontend.response.bits <== s2_result
   when (frontend.flush):
-    s1_valid <== Bool(#false)
+    // A simultaneous request starts the replacement fetch epoch.
+    s1_valid <== frontend_admitted
     s2_valid <== Bool(#false)
-    pending <== Bool(#false)
+    s1_cached <== Bool(#false)
+    pending <== request_fire
     slow <== Bool(#false)
     completed <== Bool(#false)
+    when request_fire:
+      address <== memory.request.bits.address
   otherwise:
     s1_valid <== frontend_admitted
     s2_valid <== s1_valid & !frontend.s1_kill

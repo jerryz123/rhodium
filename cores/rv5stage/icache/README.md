@@ -45,7 +45,7 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 |---|---|---|
 | MMU → cache | `request: Valid(RV5StageInstructionReq)` | S1 permitted physical word address |
 | Frontend → cache | `s1_kill` | Cancel the younger S1 lookup, without canceling S2 or accepted refill work |
-| Frontend → cache | `flush` | Kill speculative lookups and detach the refill's fault consumer |
+| Frontend → cache | `flush` | Kill speculative lookups and detach the refill's fault consumer; a simultaneously accepted virtual lookup starts the new fetch epoch |
 | Frontend → cache | `invalidate_all` | Also invalidate resident lines and prevent old refill installation |
 | Cache → frontend | `response: Valid(RV5StageFetchResult)` | Registered S2 word, access fault, or replay; never backpressured |
 
@@ -104,14 +104,16 @@ The two controls deliberately have different residency effects:
 | Event | Lookup and response state | Active refill | Resident lines |
 |---|---|---|---|
 | `s1_kill` | Kill only the younger S1 lookup | Preserve ownership and fault consumer | Preserve |
-| `flush` | Kill lookup stages and retained fault | Drain and install, but discard a detached consumer's error | Preserve |
-| `invalidate_all` | Apply all flush behavior | Drain without installing or returning the pre-invalidation line | Invalidate all ways and reset replacement pointers |
+| `flush` | Kill old lookup stages and retained fault; preserve a simultaneous replacement lookup | Drain and install, but discard a detached consumer's error | Preserve |
+| `invalidate_all` | Apply all flush behavior while permitting a simultaneous replacement lookup | Drain without installing or returning the pre-invalidation line | Invalidate all ways and reset replacement pointers |
 | Reset | Clear lookup, fault, refill-tracking, and installation state | Reset transaction state | Invalidate all ways and reset replacement pointers |
 
 The parent core implements `FENCE.I` by first waiting for L1D quiescence, then
 asserting this local `invalidate_all` control and redirecting Fetch. A
 speculative redirect uses `flush` instead, so wrong-path activity does not
-silently become architectural invalidation.
+silently become architectural invalidation. In either case, a virtual lookup
+accepted with the control belongs to the new epoch; an invalidating lookup sees
+the cleared residency state when its translated S1 request arrives.
 
 ## Coherence and synchronization
 

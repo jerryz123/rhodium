@@ -124,7 +124,7 @@ module rv5stage_core_tb;
   endfunction
 
   always_comb begin
-    instruction_access_in.request.ready = !instruction_response_valid;
+    instruction_access_in.request.ready = instruction_access_out.flush || !instruction_response_valid;
     instruction_access_in.response.valid = instruction_response_valid;
     instruction_access_in.response.bits.word = instruction_response_bits;
     instruction_access_in.response.bits.page_fault = 1'b0;
@@ -174,36 +174,33 @@ module rv5stage_core_tb;
           saw_fence_i_invalidate <= 1'b1;
         if (saw_fence_i_refetch && !instruction_access_out.invalidate_all)
           saw_jal_flush <= 1'b1;
-      end else begin
-        if (instruction_response_valid && instruction_access_out.response.ready)
-          instruction_response_valid <= 1'b0;
-        if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
-          instruction_response_valid <= 1'b1;
-          instruction_response_bits <= instruction_at(instruction_access_out.request.bits.address);
-          if (instruction_access_out.request.bits.address == 64'h00000001_00000000 &&
-              rejected_first_load) begin
-            assert (fetch_flushes >= 1)
-              else $fatal(1, "replayed load was refetched without flushing younger work");
-            saw_replay_refetch <= 1'b1;
-          end
-          if (instruction_access_out.request.bits.address == 64'h00000001_00000040) begin
-            assert (saw_fetch_flush)
-              else $fatal(1, "branch target fetched without flushing wrong-path requests");
-            assert (first_response_sent && !second_response_sent)
-              else $fatal(1, "branch redirect did not pass only the deferred load");
-            assert (fetch_flushes >= 1)
-              else $fatal(1, "branch target was requested before MEM redirected Fetch");
-            saw_redirect <= 1'b1;
-          end
-          if (instruction_access_out.request.bits.address == 64'h00000001_0000004c &&
-              saw_fence_i_invalidate)
-            saw_fence_i_refetch <= 1'b1;
-          // Sequential lookahead may fetch this address before JAL resolves.
-          // Count only its re-fetch after the post-FENCE.I redirect.
-          if (instruction_access_out.request.bits.address == 64'h00000001_00000054 &&
-              saw_jal_flush) begin
-            saw_jal_redirect <= 1'b1;
-          end
+      end else if (instruction_response_valid && instruction_access_out.response.ready) begin
+        instruction_response_valid <= 1'b0;
+      end
+      if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
+        instruction_response_valid <= 1'b1;
+        instruction_response_bits <= instruction_at(instruction_access_out.request.bits.address);
+        if (instruction_access_out.request.bits.address == 64'h00000001_00000000 &&
+            (rejected_first_load || (data_access_out.request.valid && !data_access_in.request.ready))) begin
+          assert (instruction_access_out.flush || fetch_flushes >= 1)
+            else $fatal(1, "replayed load was refetched without flushing younger work");
+          saw_replay_refetch <= 1'b1;
+        end
+        if (instruction_access_out.request.bits.address == 64'h00000001_00000040) begin
+          assert (instruction_access_out.flush)
+            else $fatal(1, "branch target S0 request did not align with MEM recovery");
+          assert (first_response_sent && !second_response_sent)
+            else $fatal(1, "branch redirect did not pass only the deferred load");
+          saw_redirect <= 1'b1;
+        end
+        if (instruction_access_out.request.bits.address == 64'h00000001_0000004c &&
+            (saw_fence_i_invalidate || instruction_access_out.invalidate_all))
+          saw_fence_i_refetch <= 1'b1;
+        // Sequential lookahead may fetch this address before JAL resolves.
+        // Count only its re-fetch in the post-FENCE.I recovery cycle.
+        if (instruction_access_out.request.bits.address == 64'h00000001_00000054 &&
+            (saw_jal_flush || (instruction_access_out.flush && saw_fence_i_refetch && !instruction_access_out.invalidate_all))) begin
+          saw_jal_redirect <= 1'b1;
         end
       end
 
@@ -250,7 +247,10 @@ module rv5stage_core_tb;
       if (data_access_out.request.valid && data_access_in.request.ready) begin
         if (data_access_out.request.bits.access == MEMORY_LOAD) begin
           if (load_requests == 0) begin
-            assert (rejected_first_load && saw_replay_refetch)
+            assert (rejected_first_load && (saw_replay_refetch || (
+                    instruction_access_out.flush && instruction_access_out.request.valid &&
+                    instruction_access_in.request.ready &&
+                    instruction_access_out.request.bits.address == 64'h00000001_00000000)))
               else $fatal(1, "load was accepted without a WB replay and refetch");
             assert (data_access_out.request.bits.address == 64'd0 &&
                     data_access_out.request.bits.destination == DATA_DESTINATION_INTEGER &&

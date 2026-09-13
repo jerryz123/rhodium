@@ -100,7 +100,7 @@ module rv5stage_pointer_masking_tb;
 
   always_comb begin
     instruction_access_in = '0;
-    instruction_access_in.request.ready = !instruction_response.valid;
+    instruction_access_in.request.ready = instruction_access_out.flush || !instruction_response.valid;
     instruction_access_in.response = instruction_response;
     data_access_in = '0;
     data_access_in.request.ready = rejected || !data_access_out.request.valid || data_access_out.request.bits.address != 'h108;
@@ -123,12 +123,11 @@ module rv5stage_pointer_masking_tb;
       if (instruction_access_out.flush) begin
         instruction_response.valid <= 0;
         flushes <= flushes + 1;
-      end else begin
-        if (instruction_response.valid && instruction_access_out.response.ready) instruction_response.valid <= 0;
-        if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
-          assert (instruction_access_out.request.address < 'h2000) else $fatal(1, "fetch address changed");
-          instruction_response <= {1'b1, instruction_at(instruction_access_out.request.address), 2'b0};
-        end
+      end
+      else if (instruction_response.valid && instruction_access_out.response.ready) instruction_response.valid <= 0;
+      if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
+        assert (instruction_access_out.request.address < 'h2000) else $fatal(1, "fetch address changed");
+        instruction_response <= {1'b1, instruction_at(instruction_access_out.request.address), 2'b0};
       end
       data_response.valid <= 0;
       if (prefetch_out.valid) begin

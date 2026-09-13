@@ -499,9 +499,12 @@ The MMU and L1I do not queue ordinary requests or promise eventual responses:
 the frontend retries after an ITLB miss, refill, or resource conflict.
 See the [MMU guide](mmu/README.md#request-flow).
 Architectural flush/restart/invalidation clears the queue and core residual.
-A source clear without restart stops new requests until an explicit restart
-supplies the PC. Completed packets cannot be backpressured at S2 because their
-capacity was reserved before issue. A malformed prediction is corrected in S2;
+A restart is also the highest-priority S0 source: when instruction memory is
+ready, its target transfers in the recovery cycle while every request from the
+old fetch epoch is canceled. A stalled target is retained and retried. A source
+clear without restart stops new requests until an explicit restart supplies the
+PC. Completed packets cannot be backpressured at S2 because their capacity was
+reserved before issue. A malformed prediction is corrected in S2;
 a registered repair restarts only younger fetches, preserving older packets.
 With C enabled Fetch can reuse either halfword, assemble a
 32-bit instruction that straddles adjacent words, and expand legal compressed
@@ -548,6 +551,8 @@ repair while preserving older assembled instructions.
 
 EX computes the actual next PC; MEM recovers only when it differs from the
 captured predicted next PC, with older exceptions and replay retaining priority.
+An accepted MEM recovery can therefore coincide with the redirected S0 request;
+WB still retires the resolving instruction on the following pipeline stage.
 Live nonfaulting/nonreplaying MEM instructions train the predictor. Taken misses
 allocate weakly taken entries; conditional hits train on both outcomes. Resolved
 nonbranches remove stale matching entries. Reset, `FENCE.I`, translation flushes,

@@ -47,7 +47,7 @@ extern "C" void event_frontend_sample(unsigned reset, unsigned clear, unsigned r
   std::optional<Attempt> incoming, next_s2;
   const bool replaying = s2 && response_valid && replay;
   if (request_fire) {
-    const auto candidate = replaying ? s2->pc : next_attempt;
+    const auto candidate = restart ? restart_pc : replaying ? s2->pc : next_attempt;
     if ((candidate & ~3ULL) != request_address) fail("request occurrence PC mismatch");
     incoming = Attempt{candidate, node(frontend_s0_request, candidate)};
     next_attempt = (candidate & ~3ULL) + 4;
@@ -98,8 +98,11 @@ extern "C" void event_frontend_sample(unsigned reset, unsigned clear, unsigned r
   if (clear) {
     canceled += !words.empty() || bool(s1) || bool(s2);
     if (recovery) words.clear();
-    s1.reset(); s2.reset();
-    if (restart) { cursor = restart_pc; next_attempt = restart_pc; }
+    s1 = incoming; s2.reset();
+    if (restart) {
+      cursor = restart_pc;
+      if (!incoming) next_attempt = restart_pc;
+    }
   } else { s1 = incoming; s2 = next_s2; }
   ++cycle;
 }

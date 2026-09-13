@@ -771,20 +771,20 @@ module rv5stage_mmu_replay_tb;
       else $fatal(1, "ITLB miss waited for translation before presenting its index");
     instruction_flush = 1;
     #1;
-    assert (!instruction_lookup_out.valid)
-      else $fatal(1, "flushed fetch still presented a live virtual lookup");
+    assert (instruction_lookup_out.valid && instruction_out.request.ready)
+      else $fatal(1, "flush blocked a possible replacement S0 lookup");
     instruction_request_valid = 0;
     tick();
     @(negedge clock);
-    instruction_flush = 0;
     satp = 0;
     instruction_address = 64'h80000000_00000000;
     instruction_request_valid = 1;
     #1;
-    assert (instruction_lookup_out.valid && instruction_out.request.ready &&
+    assert (instruction_flush && instruction_lookup_out.valid && instruction_out.request.ready &&
             !instruction_memory_out.request.valid)
-      else $fatal(1, "PMA-denied fetch did not separate early read from physical resolution");
+      else $fatal(1, "replacement fetch did not separate early read from physical resolution");
     tick();
+    instruction_flush = 0;
     instruction_request_valid = 0;
     // Translation and fault classification use the admitted S1 address, not
     // the live S0 payload, and publish the fault through S2 ownership.

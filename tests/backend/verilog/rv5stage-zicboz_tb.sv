@@ -101,7 +101,7 @@ module rv5stage_zicboz_tb;
 
   always_comb begin
     instruction_access_in = '0;
-    instruction_access_in.request.ready = !instruction_response_valid;
+    instruction_access_in.request.ready = instruction_access_out.flush || !instruction_response_valid;
     instruction_access_in.response.valid = instruction_response_valid;
     instruction_access_in.response.bits.word = instruction_response_bits;
     data_access_in = '0;
@@ -123,15 +123,11 @@ module rv5stage_zicboz_tb;
       stores <= 0;
       done <= 0;
     end else begin
-      if (instruction_access_out.flush)
+      if (instruction_access_out.flush || (instruction_response_valid && instruction_access_out.response.ready))
         instruction_response_valid <= 0;
-      else begin
-        if (instruction_response_valid && instruction_access_out.response.ready)
-          instruction_response_valid <= 0;
-        if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
-          instruction_response_valid <= 1;
-          instruction_response_bits <= instruction_at(instruction_access_out.request.bits.address);
-        end
+      if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
+        instruction_response_valid <= 1;
+        instruction_response_bits <= instruction_at(instruction_access_out.request.bits.address);
       end
       if (pending_cycles != 0) pending_cycles <= pending_cycles - 1;
       if (data_access_out.request.valid && data_access_out.request.bits.access == 4'd6) begin

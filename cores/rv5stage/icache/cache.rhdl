@@ -68,7 +68,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   inst refill(RV5StageLineRead(RV5StageL1IRefillContext(width, way_width), width, config))
   refill.node_id <== node_id
   def cache_flush = core.flush ||| core.invalidate_all
-  inst array_read(ValidPipeAlwaysCapture(RV5StageL1ILookup(width), 1), ~reset_when: cache_flush)
+  inst array_read(ValidPipeAlwaysCapture(RV5StageL1ILookup(width), 1, ~flushable: #true))
   inst lookup(ValidPipeAlwaysCapture(RV5StageL1IResolved(width, way_width), 1), ~reset_when: cache_flush)
 
   reg valid_lines(~init: vec(
@@ -94,7 +94,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     address: address
     prefetch: Bool(#false)
   def hinted_lookup:
-    (prefetch |> filter_valid(request => request.into(CachePrefetchReq(width)).operation === CachePrefetchOperation.Instruction)
+    (prefetch |> filter_valid(request => !cache_flush & (request.into(CachePrefetchReq(width)).operation === CachePrefetchOperation.Instruction))
       |> map_valid(request => RV5StageL1ILookup(width)):
            address: request.address
            prefetch: Bool(#true)
@@ -136,10 +136,13 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def refill_completion_may_finish = refill_completion_discard ||| (refill_installing & refill_install_final)
   // S0 admission depends only on transaction/installation state, not S1 tags,
   // translation, or the consuming instruction pipeline.
-  def array_accepts_input = !cache_flush & refill.command.ready & !refill_installing
+  def array_accepts_input = refill.command.ready & !refill_installing
   def Array(array_contexts, tag_reads, line_reads) = Array(demand_lookup, hinted_lookup)
     |> arbiter() |> gate_flow(array_accepts_input) |> to_valid() |> fork_valid(3)
   array_contexts |> array_read.ingress
+  // A demand admitted with flush replaces the old virtual lookup at the edge.
+  // Prefetch cannot use this exception, and a stalled demand leaves the pipe clear.
+  array_read.flush <== cache_flush & !array_contexts.valid
   // S1 captures a physical lookup; local replay kills younger SRAM results.
   def lookup_issue = !cache_flush & !core.s1_kill & array_read.egress.valid & tags.port.response.valid & (core.request.valid ||| array_context.prefetch)
   def retained_error = refill_error_valid & !array_context.prefetch & (refill_error_address.align_down(RV5StageCacheLineBytes) === lookup_address.align_down(RV5StageCacheLineBytes))

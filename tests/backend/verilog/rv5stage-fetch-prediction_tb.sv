@@ -79,9 +79,11 @@ module rv5stage_fetch_prediction_tb;
   end
   always @(posedge clock) begin
     cycle = cycle + 1;
-    if (reset || memory_out.flush) begin response <= '0; s2_response <= '0; end
+    if (reset) begin response <= '0; s2_response <= '0; end
     else begin
-      s2_response <= memory_out.s1_kill ? '0 : response;
+      // Flush discards the prior epoch, but a request accepted on this edge is
+      // the replacement epoch's S0 request and must still reach S2.
+      s2_response <= memory_out.flush || memory_out.s1_kill ? '0 : response;
       response.valid <= 0;
       if (memory_out.request.valid && memory_in.request.ready)
         response <= '{1'b1, '{word_at(memory_out.request.bits.address), fault_continuation && memory_out.request.bits.address == 'h304, 1'b0}};
@@ -119,6 +121,9 @@ module rv5stage_fetch_prediction_tb;
   endtask
   task automatic start(input logic [63:0] pc);
     restart_valid = 1; restart_pc = pc;
+    #1;
+    assert (memory_out.flush && memory_out.request.valid && memory_out.request.bits.address == (pc & ~64'd3))
+      else $fatal(1, "restart did not offer its S0 request in the recovery cycle");
     @(negedge clock);
     restart_valid = 0; active = 1;
   endtask

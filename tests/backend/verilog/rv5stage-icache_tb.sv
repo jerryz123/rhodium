@@ -352,17 +352,31 @@ module rv5stage_icache_tb;
 
     // A speculative flush preserves residency, while architectural
     // invalidation forces the next request back through CHI.
+    probe_only = 1'b1;
+    core_in.request.bits.address = ADDRESS + 64'd4;
     core_in.flush = 1'b1;
+    #1;
+    assert (virtual_lookup_out.ready) else $fatal(1, "flush blocked the replacement S0 lookup");
     tick();
     core_in.flush = 1'b0;
-    send_core_request(ADDRESS + 64'd4);
+    probe_only = 1'b0;
+    core_in.request.valid = 1'b1;
+    tick();
+    core_in.request.valid = 1'b0;
     expect_instruction(32'h22222222);
+    probe_only = 1'b1;
+    core_in.request.bits.address = ADDRESS;
     core_in.invalidate_all = 1'b1;
+    #1;
+    assert (virtual_lookup_out.ready) else $fatal(1, "invalidation blocked the replacement S0 lookup");
     tick();
     core_in.invalidate_all = 1'b0;
+    probe_only = 1'b0;
+    core_in.request.valid = 1'b1;
+    tick();
+    core_in.request.valid = 1'b0;
     grant_req_credit();
     grant_rsp_credit();
-    send_core_request(ADDRESS);
     accept_read_request(ADDRESS);
     return_line(ADDRESS, LINE);
     accept_comp_ack();

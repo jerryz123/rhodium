@@ -100,6 +100,11 @@ refills. Neither retains an ordinary fetch request for later response.
 
 S0 reserves space from registered packet-queue occupancy plus S1/S2 validity.
 Never borrow same-cycle dequeue credit or feed Decode readiness into S0.
+Architectural restart is the one exception to old-epoch reservation gating: it
+offers the restart target in the recovery cycle, and a transfer atomically
+replaces the flushed S1 context. The MMU and L1I must preserve the same
+flush-plus-transfer epoch rule. If any downstream stage is not ready, retain
+the target and retry it instead of claiming an S0 occurrence.
 The fetch source forks accepted `RV5StageFetchAttempt` offers to memory and S1.
 BTB lookup uses the registered S1 PC, and its result travels with that occurrence
 into S2. Prediction chooses the next S0 PC; a stall retains that decision.
@@ -129,10 +134,12 @@ A source clear without restart stops admission until an explicit restart; never
 reconstruct recovery from the core's assembly cursor or speculative next PC.
 
 Frontend S1/S2 and the repair pipeline use flushable Valid pipes with explicit
-`flush` inputs. Recovery clears their validity at the edge while preserving
-the global reset domain and always-capture payload timing. Retain the existing
-same-cycle output filters: synchronous flush does not gate pre-edge transfers.
-The intrinsic pipe contract exposes flush to event lineage instrumentation.
+`flush` inputs. Recovery clears old validity at the edge while preserving the
+global reset domain and always-capture payload timing. A transferred restart
+replaces S1 rather than clearing it; S2 remains unconditionally cleared. Retain
+the existing same-cycle output filters so old pre-edge transfers cannot escape.
+The intrinsic pipe contract exposes flush or replacement to event lineage
+instrumentation.
 
 Keep flow conversions at their actual timing boundaries. MMU and L1I stage
 results derive from their existing Valid context through filters and maps;

@@ -67,7 +67,7 @@ module rv5stage_ntl_tb;
 
   always_comb begin
     instruction_access_in = '0;
-    instruction_access_in.request.ready = (!i_valid || instruction_access_out.response.ready) && !(scenario == 12 && hint_fetched && instruction_access_out.request.bits.address < 256);
+    instruction_access_in.request.ready = (instruction_access_out.flush || !i_valid || instruction_access_out.response.ready) && !(scenario == 12 && hint_fetched && instruction_access_out.request.bits.address < 256);
     instruction_access_in.response.valid = i_valid;
     instruction_access_in.response.bits.word = i_word;
     data_access_in = '0;
@@ -97,15 +97,12 @@ module rv5stage_ntl_tb;
       done <= 0;
     end else begin
       if (hint_fetched) irq_age <= irq_age + 1;
-      if (instruction_access_out.flush) i_valid <= 0;
-      else begin
-        if (instruction_access_out.response.ready) i_valid <= 0;
-        if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
-          assert (!i_valid || instruction_access_out.response.ready) else $fatal(1, "instruction response overflow");
-          i_valid <= 1;
-          i_word <= instruction_at(instruction_access_out.request.bits.address);
-          if (instruction_access_out.request.bits.address == 64) hint_fetched <= 1;
-        end
+      if (instruction_access_out.flush || instruction_access_out.response.ready) i_valid <= 0;
+      if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
+        assert (instruction_access_out.flush || !i_valid || instruction_access_out.response.ready) else $fatal(1, "instruction response overflow");
+        i_valid <= 1;
+        i_word <= instruction_at(instruction_access_out.request.bits.address);
+        if (instruction_access_out.request.bits.address == 64) hint_fetched <= 1;
       end
       d_valid <= 0;
       if (load_delay > 0) begin

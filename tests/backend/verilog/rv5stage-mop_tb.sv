@@ -81,7 +81,7 @@ module rv5stage_mop_tb;
   endfunction
 
   always_comb begin
-    instruction_access_in.request.ready = !instruction_response_valid;
+    instruction_access_in.request.ready = instruction_access_out.flush || !instruction_response_valid;
     instruction_access_in.response.valid = instruction_response_valid;
     instruction_access_in.response.bits.word = instruction_response_bits;
     instruction_access_in.response.bits.page_fault = 1'b0;
@@ -98,10 +98,8 @@ module rv5stage_mop_tb;
     if (reset) begin
       instruction_response_valid <= 1'b0;
       instruction_response_bits <= '0;
-    end else if (instruction_access_out.flush) begin
-      instruction_response_valid <= 1'b0;
     end else begin
-      if (instruction_response_valid && instruction_access_out.response.ready)
+      if (instruction_access_out.flush || (instruction_response_valid && instruction_access_out.response.ready))
         instruction_response_valid <= 1'b0;
       if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
         instruction_response_valid <= 1'b1;

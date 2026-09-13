@@ -76,7 +76,7 @@ module rv5stage_branch_prediction_tb;
   always_comb begin
     for (int i = 0; i < 2; i++) begin
       instruction_in[i] = '0;
-      instruction_in[i].request.ready = !response[i].valid || instruction_out[i].response.ready;
+      instruction_in[i].request.ready = instruction_out[i].flush || !response[i].valid || instruction_out[i].response.ready;
       instruction_in[i].response = response[i];
       data_in[i] = '0;
       data_in[i].request.ready = 1;
@@ -92,14 +92,12 @@ module rv5stage_branch_prediction_tb;
         last_request[i] = '1; last_request_cycle[i] = -1;
       end else if (completed[i] == 0) begin
         if (instruction_out[i].flush) begin response[i] <= '0; flushes[i]++; last_request[i] = '1; end
-        else begin
-          if (instruction_out[i].response.ready) response[i].valid <= 0;
-          if (instruction_out[i].request.valid && instruction_in[i].request.ready) begin
-            response[i] <= '{1'b1, '{instruction_at(instruction_out[i].request.bits.address), 1'b0, 1'b0}};
-            if (last_request[i] == 16 && instruction_out[i].request.bits.address == 8 && cycles == last_request_cycle[i] + 1) warm_pairs[i]++;
-            last_request[i] = instruction_out[i].request.bits.address;
-            last_request_cycle[i] = cycles;
-          end
+        else if (instruction_out[i].response.ready) response[i].valid <= 0;
+        if (instruction_out[i].request.valid && instruction_in[i].request.ready) begin
+          response[i] <= '{1'b1, '{instruction_at(instruction_out[i].request.bits.address), 1'b0, 1'b0}};
+          if (last_request[i] == 16 && instruction_out[i].request.bits.address == 8 && cycles == last_request_cycle[i] + 1) warm_pairs[i]++;
+          last_request[i] = instruction_out[i].request.bits.address;
+          last_request_cycle[i] = cycles;
         end
         if (data_out[i].request.valid) begin
           assert (data_out[i].request.bits.address == 64'(stores[i] * 8)) else $fatal(1, "core %0d wrong-path/duplicate store %h", i, data_out[i].request.bits.address);

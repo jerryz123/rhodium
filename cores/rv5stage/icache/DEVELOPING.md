@@ -47,6 +47,9 @@ separation.
    partial line cannot hit or satisfy a snoop.
 4. Keep speculative `flush` separate from architectural `invalidate_all`,
    including their different treatment of resident and in-flight refill state.
+   Either control clears old lookup contexts, but a simultaneous transferred
+   demand replaces S0 and must survive into S1. Never extend that exception to
+   a prefetch, and let SRAM installation backpressure retain the restart upstream.
 5. Keep lookup and refill installation mutually exclusive on SRAM ports. Preserve
    accepted CHI transaction ownership through flush and architectural invalidation.
 6. Keep a prefetch response-free and lower priority than a simultaneous demand;
