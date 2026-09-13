@@ -159,6 +159,9 @@ sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, conf
 
   describe_interface_retained_storage(command_fire, completion_fire, control.active)
   describe_interface_contract(command, control.attempt, "transaction-attempts", ~trace_model: interface_trace_retained())
+  // ROM reads have no acknowledgement; only coherent line completion owns CompAck.
+  describe_interface_retained_storage(coherent & data_fire & next_received_packets.and_reduce(), acknowledgement_fire, acknowledgements.valid, ~name: "compack")
+  describe_interface_contract(response_data, acknowledgements, "line-acknowledgement", ~trace_model: interface_trace_retained(~name: "compack"))
 
   when command_fire:
     received_packets <== vec(

@@ -185,7 +185,11 @@ lineage at transaction boundaries. The demand-only smoke requires every I-cache
 TXREQ to have one S0 request parent and at least three cycles of delay; the
 integrated fetch fixture checks exact ownership independently of the exporter.
 `check-home-events.sql` checks both caches' request-to-return edges and requires
-unknown markers where an opaque branch lacks a parent. Keep scalar and external-memory
+unknown markers where an opaque branch lacks a parent. It also requires one
+known RXDAT parent per CompAck, with matching DBID and requester identity,
+positive latency, and no later RXDAT before the acknowledgement. The engine
+fixture owns independent packet-set and reset checks, including ROM reads.
+Keep scalar and external-memory
 checks scoped to their own tracks when adding cache channels. See the
 [RV5Stage annotation owner](../cores/rv5stage/DEVELOPING.md#pipeline-event-annotations).
 Validate cache stall slices on the original channel tracks, always named `stall`,

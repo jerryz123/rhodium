@@ -117,6 +117,11 @@ pending reset, and unknown traffic selected beside traced traffic.
 Its scoped relation ends at an opaque child's attempt output before a normal
 Flow mapper. Host coverage also preserves a downstream checkpoint, permits an
 unrelated traced lane, and rejects summaries overlapping existing Flow.
+`rv5stage-compack` instruments both production line engines. Its independent
+public-transfer packet-set model checks exact RXDAT-to-CompAck parents with
+reordered/gapped packets, repeated IDs and payloads, request/acknowledgement/
+completion stalls, reset during collection and pending acknowledgement, and
+noncoherent instruction ROM reads interleaved with coherent requests.
 `event-crossbar` links RHEG and checks direct/configured grant-controlled
 crossbars with flow-through input queues. Its independent FIFO/transfer model
 checks exact parent occurrence IDs for equal payloads, all routes, simultaneous

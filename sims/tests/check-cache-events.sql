@@ -1,4 +1,4 @@
--- Checks private-cache CHI schemas, direct-refill requests, and certified Home returns.
+-- Checks private-cache CHI schemas, Home returns, and line-completing CompAck ancestry.
 -- SPDX-License-Identifier: Apache-2.0
 -- Materialize shared views so per-field checks also scale to full benchmark traces.
 WITH expected(suffix, fields) AS (
@@ -74,13 +74,18 @@ SELECT
    AND substr(EXTRACT_ARG(arg_set_id,'debug.address'),-1) NOT IN ('0','8')) AND
   (SELECT count(*)=0 FROM flow f JOIN events p ON p.id=f.slice_out
    JOIN slice c ON c.id=f.slice_in JOIN rheg_tracks t ON t.id=c.track_id
-   WHERE p.channel NOT IN ('icache/chi.txreq','dcache/chi.txreq') OR p.kind!='transfer'
-     OR t.name NOT IN (substr(p.channel,1,11)||'rxrsp',substr(p.channel,1,11)||'rxdat')) AND
+   WHERE p.kind!='transfer' OR NOT (
+     (p.channel IN ('icache/chi.txreq','dcache/chi.txreq') AND
+       t.name IN (substr(p.channel,1,11)||'rxrsp',substr(p.channel,1,11)||'rxdat')) OR
+     (p.channel IN ('icache/chi.rxdat','dcache/chi.rxdat') AND
+       t.name=substr(p.channel,1,11)||'txrsp' AND c.name='CompAck'))) AND
   (SELECT count(*)=0 FROM flow f JOIN events c ON c.id=f.slice_in
    JOIN slice p ON p.id=f.slice_out JOIN rheg_tracks t ON t.id=p.track_id
    WHERE c.channel NOT IN ('icache/chi.txreq','dcache/chi.txreq') AND
-     (c.channel NOT IN ('icache/chi.rxrsp','icache/chi.rxdat','dcache/chi.rxrsp','dcache/chi.rxdat') OR
-      t.name!=substr(c.channel,1,11)||'txreq')) AND
+     NOT ((c.channel IN ('icache/chi.rxrsp','icache/chi.rxdat','dcache/chi.rxrsp','dcache/chi.rxdat') AND
+       t.name=substr(c.channel,1,11)||'txreq') OR
+       (c.channel IN ('icache/chi.txrsp','dcache/chi.txrsp') AND c.name='CompAck' AND
+        t.name=substr(c.channel,1,11)||'rxdat'))) AND
   -- This demand-only workload must connect every instruction miss to its S0 occurrence.
   (SELECT count(*)=0 FROM events c WHERE c.channel='icache/chi.txreq' AND c.kind='transfer'
     AND ((SELECT count(*) FROM flow f WHERE f.slice_in=c.id)!=1 OR

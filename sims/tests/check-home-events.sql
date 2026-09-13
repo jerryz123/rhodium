@@ -1,4 +1,4 @@
--- Checks direct request ancestry across the unannotated Home and network return path.
+-- Checks request-to-return ancestry and the last RXDAT occurrence retained through CompAck.
 -- SPDX-License-Identifier: Apache-2.0
 WITH events AS MATERIALIZED (
   SELECT s.id, s.ts, s.arg_set_id, t.name, s.name AS opcode
@@ -11,6 +11,17 @@ WITH events AS MATERIALIZED (
 SELECT
   (SELECT count(*)>0 FROM edges WHERE src='dcache/chi.txreq' AND dst='dcache/chi.rxdat') AND
   (SELECT count(*)>0 FROM edges WHERE src='icache/chi.txreq' AND dst='icache/chi.rxdat') AND
+  (SELECT count(DISTINCT name)=2 FROM events WHERE name IN ('icache/chi.txrsp','dcache/chi.txrsp') AND opcode='CompAck') AND
+  (SELECT count(*)=0 FROM events e WHERE name IN ('icache/chi.txrsp','dcache/chi.txrsp') AND opcode='CompAck'
+    AND ((SELECT count(*) FROM edges WHERE child=e.id)!=1 OR
+      COALESCE(EXTRACT_ARG(e.arg_set_id,'debug.ancestry_unknown'),'false')!='false')) AND
+  (SELECT count(*)=0 FROM edges edge JOIN events ack ON ack.id=edge.child
+    JOIN events data ON data.id=edge.parent
+    WHERE ack.name IN ('icache/chi.txrsp','dcache/chi.txrsp') AND ack.opcode='CompAck' AND
+      (src!=substr(dst,1,11)||'rxdat' OR data.opcode!='CompData' OR delay<10 OR
+       EXTRACT_ARG(parent_args,'debug.tgt_id')!=EXTRACT_ARG(child_args,'debug.src_id') OR
+       (EXTRACT_ARG(parent_args,'debug.dbid_or_mecid') & 4095)!=EXTRACT_ARG(child_args,'debug.txn_id') OR
+       EXISTS (SELECT 1 FROM events later WHERE later.name=src AND later.ts>data.ts AND later.ts<ack.ts))) AND
   -- Opaque branches may lack parents, but must explicitly report that gap.
   (SELECT count(*)=0 FROM events e WHERE name IN ('icache/chi.rxrsp','icache/chi.rxdat','dcache/chi.rxrsp','dcache/chi.rxdat')
     AND ((SELECT count(*) FROM edges WHERE child=e.id)>1 OR

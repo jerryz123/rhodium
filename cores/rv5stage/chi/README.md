@@ -50,6 +50,12 @@ retains the selected Home and command context, accepts each `CompData` packet
 exactly once, and emits `CompAck`. It publishes a completed 64-byte line only
 after every packet has arrived and the acknowledgement has been accepted.
 
+Both line engines expose a tracing contract from the accepted `CompData` packet
+that completes the line to its later `CompAck`. That single parent survives
+acknowledgement backpressure; it does not represent all contributing packets.
+Noncoherent instruction reads emit no CompAck. The contracts add no visible
+events themselves; caller-owned channel checkpoints expose this relationship.
+
 ## Writes and dirty writeback
 
 `RV5StageWriteUnique` performs one retryable `WriteUniquePtl`, retaining its

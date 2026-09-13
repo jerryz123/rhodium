@@ -72,12 +72,19 @@ packages and these transaction engines consume it.
 ## Change workflow
 
 The refill and instruction line-read engines compose a retained transaction relation with ordinary Flow.
-Its named contract covers only `command` to `control.attempt`, sampling command
+Its transaction contract covers `command` to `control.attempt`, sampling command
 acceptance, completion acceptance, and controller active state. The compiler
 holds the parent across retry/credit waiting and every attempt, then traverses
 the existing `map_flow` request constructor. Do not summarize the whole engine
 or replace Flow wiring to accommodate tracing. Existing address, opcode, and
 context registers remain functional state, not trace bookkeeping.
+
+A separate `compack` scope captures `response_data` on the accepted packet that
+completes the received-packet set, stays active while `acknowledgements.valid`,
+and releases on acknowledgement acceptance. The instruction engine captures
+only coherent reads. This certifies one parent, the last arriving packet, not
+an accumulation of all line packets. Do not use packet index order as arrival
+order, or extend acknowledgement ownership through stalled line installation.
 
 1. Put configuration, capability descriptions, and flit construction shared by
    several engines in `foundation.rhdl`.
@@ -110,7 +117,9 @@ tools/run-racket-tests.sh \
 
 Use the `rv5stage-uncached`, `rv5stage-icache`, and `rv5stage-dcache` CIRCT
 fixtures for cycle-visible traffic, retry, refill, writeback, and snoop
-behavior. Include the composed RV5Stage or SoC owner when configuration or
+behavior. `rv5stage-compack` checks exact last-packet event ownership in both
+line engines through stalls, reordered packets, ROM reads, and pending reset.
+Include the composed RV5Stage or SoC owner when configuration or
 external endpoint integration changes. Run `make check-boundaries` after
 moving modules or changing dependency direction. The backend fixture
 [`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) owns runner modes and

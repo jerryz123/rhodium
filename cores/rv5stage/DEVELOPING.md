@@ -283,7 +283,9 @@ checkpoints supply occurrence identities that Flow carries through network trans
 I/D-cache incoming RSP/DAT observations inherit certified Home output ancestry;
 the inclusive Home's retained request scope bridges its FSM. Outgoing RSP/DAT
 and snoops also infer all available parents, reporting unmodeled owners as gaps.
-Refill acknowledgement/completion and backing-memory provenance remain separate.
+The line engines' [CompAck contract](chi/README.md#cache-line-refill) connects
+the line-completing RXDAT packet to its acknowledgement. Refill completion
+and backing-memory provenance remain separate.
 Enable stall companions without requiring activity on idle channels.
 After changing them, run the SimpleSoC trace smoke; its
 `check-cache-events.sql` checks schemas, real miss/refill traffic, endpoint IDs,

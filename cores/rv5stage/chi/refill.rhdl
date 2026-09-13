@@ -171,6 +171,9 @@ sync_circuit RV5StageLineRefill(Context :: DataType,
   control.external_progress <== data_fire
   describe_interface_retained_storage(command_fire, completion_fire, control.active)
   describe_interface_contract(command, control.attempt, "transaction-attempts", ~trace_model: interface_trace_retained())
+  // The packet completing the line owns CompAck until its accepted transfer.
+  describe_interface_retained_storage(data_fire & next_received_packets.and_reduce(), acknowledgement_fire, acknowledgements.valid, ~name: "compack")
+  describe_interface_contract(response_data, acknowledgements, "line-acknowledgement", ~trace_model: interface_trace_retained(~name: "compack"))
 
   when command_fire:
     received_packets <== vec(
