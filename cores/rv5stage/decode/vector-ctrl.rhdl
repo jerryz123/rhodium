@@ -392,9 +392,7 @@ def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstr
       floating_point: Bool(#true)
       multiply_divide: Bool(#false)
       memory: Bool(#false)
-      store: Bool(#false)
       operand: VectorOperandMode.Vector
-      mask_destination: Bool(#false)
       fp_subtract: Bool(instruction == VFSUB_VV)
       fp_multiply: Bool(instruction == VFMUL_VV)
   )
@@ -410,9 +408,7 @@ def VectorMultiplyDivideCases = for List (instruction in VectorMultiplyDivideIns
       floating_point: Bool(#false)
       multiply_divide: Bool(#true)
       memory: Bool(#false)
-      store: Bool(#false)
       operand: if instruction.format == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Vector
-      mask_destination: Bool(#false)
       divide: Bool(is_divide)
       left_signed: Bool(signed_left)
       right_signed: Bool(signed_right)

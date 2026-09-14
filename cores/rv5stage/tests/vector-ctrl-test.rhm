@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks initial vector control rows, scalar source metadata, and reusable unroller payload widths.
+// Checks vector control values, inactive-field care masks, and unroller payload widths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -24,8 +24,10 @@ fun field(record, name):
   selected
 fun value(record, name):
   field(record, name).packed_value()
+fun control_pattern(instruction):
+  VectorControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output
 fun control(instruction):
-  VectorControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
+  control_pattern(instruction).value
 fun core_control(instruction):
   VectorCoreControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 
@@ -125,6 +127,7 @@ for (instruction in VectorMaskLogicInstructions, index in 0..8):
 
 for (instruction in VectorMultiplyDivideInstructions, index in 0..16):
   def decoded = control(instruction)
+  def care = control_pattern(instruction).care
   def operation = index div 2
   check:
     value(decoded, "multiply_divide") ~is 1
@@ -136,15 +139,20 @@ for (instruction in VectorMultiplyDivideInstructions, index in 0..16):
     value(decoded, "right_signed") ~is (if [1, 3, 7].contains(operation) | 1 | 0)
     value(decoded, "upper_result") ~is (if [2, 3, 4, 6, 7].contains(operation) | 1 | 0)
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
+    value(care, "store") ~is 0
+    value(care, "mask_destination") ~is 0
 
 for (instruction in VectorFloatingPointInstructions):
   def decoded = control(instruction)
+  def care = control_pattern(instruction).care
   check:
     value(decoded, "floating_point") ~is 1
     value(decoded, "integer") ~is 0
     value(decoded, "memory") ~is 0
     value(decoded, "fp_subtract") ~is (if instruction == VFSUB_VV | 1 | 0)
     value(decoded, "fp_multiply") ~is (if instruction == VFMUL_VV | 1 | 0)
+    value(care, "store") ~is 0
+    value(care, "mask_destination") ~is 0
 
 for (instruction in VectorIntegerInstructions):
   def decoded = control(instruction)

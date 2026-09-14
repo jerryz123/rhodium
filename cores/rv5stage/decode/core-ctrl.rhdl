@@ -63,6 +63,24 @@ bundle RV5StageControl():
   floating_point: RV5StageFloatingPointControl()
   vector: RV5StageVectorControl()
 
+// Inactive resources constrain only the discriminator observed by the core.
+// Payload fields remain free behind that discriminator.
+def scalar_address_alu = component_output(RV64IAluCases, instruction_pattern(ADD))
+def unused_scalar_alu = pattern(AluControl(), _)
+def inactive_branch_control = partial_pattern(BranchControl()):
+  resolver:
+    partial_pattern(BranchResolverControl()):
+      enable: Bool(#false)
+def inactive_memory_control = partial_pattern(MemoryControl()):
+  access: MemoryOperation.None
+def inactive_writeback_control = partial_pattern(WritebackControl()):
+  enable: Bool(#false)
+def inactive_system_control = partial_pattern(SystemControl()):
+  csr: CsrOperation.None
+  action: SystemOperation.None
+def inactive_fence_control = pattern(FenceControl()):
+  action: FenceOperation.None
+
 // Ordinary host code adds independently authored control columns to one row
 // per instruction. The selected ISA still elaborates to one decode table.
 fun compose_control_cases(instructions :: List.of(InstructionSpec),
@@ -114,54 +132,47 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
       | load: ImmediateSelect.I
       | store: ImmediateSelect.S
       | ~else: ImmediateSelect.None
-      def memory_access = cond
-      | load: MemoryOperation.Load
-      | store: MemoryOperation.Store
-      | ~else: MemoryOperation.None
       def memory_width = cond
       | double: MemoryWidth.Double
       | half_load || [zfhmin.FSH].contains(instruction): MemoryWidth.Half
       | ~else: MemoryWidth.Word
-      def alu_control = partial_pattern(AluControl()):
-        result_select: AluResultSelect.Adder
-        subtract: Bool(#false)
-        unsigned_word: Bool(#false)
-        shift_add_amount: bits(0, 2)
-        word: Bool(#false)
-      def operand_control = pattern(OperandControl()):
-        uses_rs1: Bool(!integer_sources.is_empty())
-        uses_rs2: Bool(#false)
-        left: OperandASelect.Register
-        right: OperandBSelect.Immediate
-        immediate: immediate
-      def branch_control = partial_pattern(BranchControl()):
-        resolver:
-          partial_pattern(BranchResolverControl()):
-            enable: Bool(#false)
-      def memory_control = partial_pattern(MemoryControl()):
-        access: memory_access
-        width: memory_width
-        unsigned: Bool(#true)
-      def writeback_control = partial_pattern(WritebackControl()):
-        enable: Bool(#false)
-      def system_control = partial_pattern(SystemControl()):
-        csr: CsrOperation.None
-        action: SystemOperation.None
-      def fence_control = pattern(FenceControl()):
-        action: FenceOperation.None
+      def alu_control = if memory | scalar_address_alu | unused_scalar_alu
+      def operand_control:
+        if memory
+        | pattern(OperandControl()):
+            uses_rs1: Bool(#true)
+            uses_rs2: Bool(#false)
+            left: OperandASelect.Register
+            right: OperandBSelect.Immediate
+            immediate: immediate
+        | partial_pattern(OperandControl()):
+            uses_rs1: Bool(!integer_sources.is_empty())
+            uses_rs2: Bool(#false)
+      def memory_control:
+        cond
+        | load:
+            partial_pattern(MemoryControl()):
+              access: MemoryOperation.Load
+              width: memory_width
+              unsigned: Bool(#true)
+        | store:
+            partial_pattern(MemoryControl()):
+              access: MemoryOperation.Store
+              width: memory_width
+        | ~else: inactive_memory_control
       DecodeCase(
         input,
         pattern(RV5StageControl()):
           alu: alu_control
           operand: operand_control
-          branch: branch_control
+          branch: inactive_branch_control
           memory: memory_control
           prefetch: CachePrefetchOperation.None
           multiply: pattern(RV5StageMultiplyControl(), _)
           divide: pattern(RV5StageDivideControl(), _)
-          writeback: writeback_control
-          system: system_control
-          fence: fence_control
+          writeback: inactive_writeback_control
+          system: inactive_system_control
+          fence: inactive_fence_control
           hint: HintOperation.None
           floating_point_valid: Bool(#true)
           floating_point: component_output(floating_point_cases, input)
@@ -170,31 +181,12 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
 
 // Zicbop refines three ORI-to-x0 regions. Complete override rows are formed
 // after the ordinary scalar control columns have been composed.
-def zicbop_alu_control = partial_pattern(AluControl()):
-  result_select: AluResultSelect.Adder
-  subtract: Bool(#false)
-  unsigned_word: Bool(#false)
-  shift_add_amount: bits(0, 2)
-  word: Bool(#false)
 def zicbop_operand_control = pattern(OperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
   immediate: ImmediateSelect.Prefetch
-def inactive_branch_control = partial_pattern(BranchControl()):
-  resolver:
-    partial_pattern(BranchResolverControl()):
-      enable: Bool(#false)
-def inactive_memory_control = partial_pattern(MemoryControl()):
-  access: MemoryOperation.None
-def inactive_writeback_control = partial_pattern(WritebackControl()):
-  enable: Bool(#false)
-def inactive_system_control = partial_pattern(SystemControl()):
-  csr: CsrOperation.None
-  action: SystemOperation.None
-def inactive_fence_control = pattern(FenceControl()):
-  action: FenceOperation.None
 
 fun zicbop_operation(instruction :: InstructionSpec):
   cond
@@ -206,7 +198,7 @@ def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions)
   DecodeCase(
     instruction_pattern(instruction),
     pattern(RV5StageControl()):
-      alu: zicbop_alu_control
+      alu: scalar_address_alu
       operand: zicbop_operand_control
       branch: inactive_branch_control
       memory: inactive_memory_control
@@ -248,6 +240,7 @@ def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialIn
   def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
   def memory = vector_isa.VectorMemoryInstructions.contains(instruction)
   def store = instruction.format == vector_isa.VectorStoreFormat
+  def scalar_destination = [vector_isa.VMV_X_S, vector_isa.VCPOP_M, vector_isa.VFIRST_M].contains(instruction)
   def memory_width = cond
   | [vector_isa.VLE8_V, vector_isa.VSE8_V].contains(instruction): MemoryWidth.Byte
   | [vector_isa.VLE16_V, vector_isa.VSE16_V].contains(instruction): MemoryWidth.Half
@@ -255,33 +248,55 @@ def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialIn
   | ~else: MemoryWidth.Double
   def sources = instruction.operands.filter(~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer)
   def input = instruction_pattern(instruction)
+  def operand_control:
+    if memory
+    | partial_pattern(OperandControl()):
+        uses_rs1: Bool(#true)
+        uses_rs2: Bool(#false)
+        left: OperandASelect.Register
+        right: OperandBSelect.Immediate
+    | partial_pattern(OperandControl()):
+        uses_rs1: Bool(!sources.is_empty())
+        uses_rs2: Bool(instruction == vector_isa.VSETVL)
+  def memory_control:
+    cond
+    | !memory: inactive_memory_control
+    | store:
+        partial_pattern(MemoryControl()):
+          access: MemoryOperation.Store
+          width: memory_width
+    | ~else:
+        partial_pattern(MemoryControl()):
+          access: MemoryOperation.Load
+          width: memory_width
+          unsigned: Bool(#true)
+  def writeback_control:
+    cond
+    | configuration:
+        partial_pattern(WritebackControl()):
+          enable: Bool(#true)
+          source: WritebackSelect.Csr
+    | scalar_destination:
+        partial_pattern(WritebackControl()):
+          enable: Bool(#true)
+          source: WritebackSelect.Vector
+    | ~else: inactive_writeback_control
+  def system_control:
+    if configuration
+    | partial_pattern(SystemControl()):
+        csr: CsrOperation.None
+        action: SystemOperation.VectorConfig
+    | inactive_system_control
   DecodeCase(
     input,
     partial_pattern(RV5StageControl()):
-      alu: component_output(RV64IAluCases, instruction_pattern(ADD))
-      operand:
-        pattern(OperandControl()):
-          uses_rs1: Bool(!sources.is_empty())
-          uses_rs2: Bool(instruction == vector_isa.VSETVL)
-          left: OperandASelect.Register
-          right: if memory | OperandBSelect.Immediate | OperandBSelect.Register
-          immediate: ImmediateSelect.None
+      alu: if memory | scalar_address_alu | unused_scalar_alu
+      operand: operand_control
       branch: inactive_branch_control
-      memory:
-        partial_pattern(MemoryControl()):
-          access: if memory | (if store | MemoryOperation.Store | MemoryOperation.Load) | MemoryOperation.None
-          width: memory_width
-          unsigned: Bool(#true)
+      memory: memory_control
       prefetch: CachePrefetchOperation.None
-      writeback:
-        pattern(WritebackControl()):
-          enable: Bool(configuration || [vector_isa.VMV_X_S, vector_isa.VCPOP_M, vector_isa.VFIRST_M].contains(instruction))
-          source: if configuration | WritebackSelect.Csr | WritebackSelect.Vector
-      system:
-        pattern(SystemControl()):
-          csr: CsrOperation.None
-          immediate: Bool(#false)
-          action: if configuration | SystemOperation.VectorConfig | SystemOperation.None
+      writeback: writeback_control
+      system: system_control
       fence: inactive_fence_control
       hint: HintOperation.None
       floating_point_valid: Bool(#false)

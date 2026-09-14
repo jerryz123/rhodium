@@ -439,8 +439,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       wb_to_id_scoreboard_clear_link.right.valid & (wb_to_id_scoreboard_clear_link.right.bits === index)
     )
 
-  def id_ex_deferred = ex_input.valid & core_deferred_writeback(ex_input.bits.writeback_source)
-  def id_mem_deferred = mem_input.valid & core_deferred_writeback(mem_input.bits.writeback_source) & !mem_load_hit
+  def id_ex_deferred = ex_input.valid & ex_input.bits.writeback_enable & core_deferred_writeback(ex_input.bits.writeback_source)
+  def id_mem_deferred = mem_input.valid & mem_input.bits.writeback_enable & core_deferred_writeback(mem_input.bits.writeback_source) & !mem_load_hit
   fun id_conflicts_with_deferred(deferred_valid :: Bool,
                                  deferred_destination :: Bits(5)):
     deferred_valid & deferred_destination.or_reduce() & (

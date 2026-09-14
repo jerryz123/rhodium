@@ -1,9 +1,13 @@
 #lang rhombus
-// Checks base, A, B, M, Zicond, Zimop, CSR, and system controls in the decoder.
+// Checks integrated RV5Stage control domains, values, and inactive-field care masks.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus.bits.(<<) as <<
+  rhombus.bits.(>>) as >>
+  lib("rhodium/std/decode.rhdl") open
   "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../riscv/isa/rv32i.rhm" as rv32
@@ -18,6 +22,8 @@ import:
   "../../../riscv/isa/zifencei.rhm" open
   "../../../riscv/isa/zimop.rhm" as zimop
   "../../../riscv/isa/privileged.rhm" open
+  "../../../riscv/isa/d.rhm" as d
+  "../../../riscv/isa/v.rhm" as vector_isa
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../../alu.rhdl" as alu
   "../../branch-resolver.rhdl" as branches
@@ -114,6 +120,70 @@ fun has_rv32_rv5stage_domain(cases):
 
 fun record_field(record, name):
   record.fields.find(fun (field): field[0] == name)[1]
+
+fun field_pattern(cube :: Pattern, name :: String) :~ Pattern:
+  def mutable field = #false
+  def mutable lower_width = 0
+  for (declared in cube.type.fields):
+    cond
+    | field: lower_width := lower_width + declared.type.packed_width()
+    | declared.name == name: field := declared
+    | ~else: #void
+  unless field
+  | error(~who: #'field_pattern, "unknown record field")
+  def width = field.type.packed_width()
+  def mask = (1 << width) - 1
+  Pattern(
+    ~value: PackedLiteral(field.type, (cube.value_bits >> lower_width) bits.and mask),
+    ~care: PackedLiteral(field.type, (cube.care_bits >> lower_width) bits.and mask)
+  )
+
+fun field_is_free(cube :: Pattern, name :: String) :: Boolean:
+  field_pattern(cube, name).care_bits == 0
+
+fun fully_cared(cube :: Pattern) :: Boolean:
+  cube.care_bits == (1 << cube.width) - 1
+
+// Every inactive discriminator must remain explicit, while its payload is free.
+fun guarded_payloads_are_sparse(control :: Pattern) :: Boolean:
+  def branch = field_pattern(control, "branch")
+  def branch_resolver = field_pattern(branch, "resolver")
+  def memory = field_pattern(control, "memory")
+  def memory_access = field_pattern(memory, "access")
+  def memory_inactive = memory_access.value_bits == memory_controls.MemoryOperation.None.packed_value()
+  def writeback = field_pattern(control, "writeback")
+  def writeback_enable = field_pattern(writeback, "enable")
+  def writeback_inactive = writeback_enable.value_bits == 0
+  def system = field_pattern(control, "system")
+  def system_csr = field_pattern(system, "csr")
+  def csr_inactive = system_csr.value_bits == system_controls.CsrOperation.None.packed_value()
+  def floating_point_valid = field_pattern(control, "floating_point_valid")
+  def floating_point_inactive = floating_point_valid.value_bits == 0
+  def vector = field_pattern(control, "vector")
+  def guards_are_cared = for all (guard in [
+    field_pattern(branch_resolver, "enable"), memory_access, writeback_enable,
+    system_csr, field_pattern(system, "action"), field_pattern(control, "fence"),
+    field_pattern(control, "prefetch"), field_pattern(control, "hint"), floating_point_valid,
+    field_pattern(vector, "configure"), field_pattern(vector, "integer"),
+    field_pattern(vector, "floating_point"), field_pattern(vector, "multiply_divide"),
+    field_pattern(vector, "memory")
+  ]):
+    fully_cared(guard)
+  guards_are_cared && (
+    !memory_inactive || (field_is_free(memory, "atomic") && field_is_free(memory, "width") && field_is_free(memory, "unsigned"))
+  ) && (
+    !writeback_inactive || field_is_free(writeback, "source")
+  ) && (!csr_inactive || field_is_free(system, "immediate")) && (
+    !floating_point_inactive || field_is_free(control, "floating_point")
+  )
+
+def fp_add_control = control_for_instruction(controls.RV64DCoreControlCases, d.FADD_D)
+def fp_load_control = control_for_instruction(controls.RV64DCoreControlCases, d.FLD)
+def fp_store_control = control_for_instruction(controls.RV64DCoreControlCases, d.FSD)
+def vector_add_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VADD_VV)
+def vector_load_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VLE64_V)
+def vector_store_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VSE64_V)
+def vector_config_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VSETVLI)
 
 def addi_operand = operand_controls.OperandControl():
   uses_rs1: bool.Bool(#true)
@@ -305,6 +375,32 @@ check:
   record_field(control_for(alu_controls.RV64ICompleteAluCases, "LD").value, "result_select").packed_value() ~is alu.AluResultSelect.Adder.packed_value()
   record_field(control_for(alu_controls.RV64ICompleteAluCases, "LD").value, "subtract").packed_value() ~is 0
   control_for(alu_controls.RV64ICompleteAluCases, "BEQ").care_bits ~is 0
+  // Integrated FP and vector rows constrain scalar resources only when those
+  // resources are active. Their guards remain cared in every row.
+  (for all (control in controls.RV64DCoreControlCases ++ controls.VectorCoreControlCases):
+     guarded_payloads_are_sparse(control.output)) ~is #true
+  field_is_free(fp_add_control, "alu") ~is #true
+  field_is_free(field_pattern(fp_add_control, "operand"), "left") ~is #true
+  field_is_free(field_pattern(fp_add_control, "operand"), "right") ~is #true
+  field_is_free(field_pattern(fp_add_control, "operand"), "immediate") ~is #true
+  field_is_free(field_pattern(fp_add_control, "memory"), "width") ~is #true
+  field_pattern(fp_load_control, "alu").care_bits != 0 ~is #true
+  field_pattern(field_pattern(fp_load_control, "operand"), "immediate").care_bits != 0 ~is #true
+  field_pattern(field_pattern(fp_load_control, "memory"), "unsigned").care_bits != 0 ~is #true
+  field_is_free(field_pattern(fp_store_control, "memory"), "unsigned") ~is #true
+  field_is_free(vector_add_control, "alu") ~is #true
+  field_is_free(field_pattern(vector_add_control, "operand"), "left") ~is #true
+  field_is_free(field_pattern(vector_add_control, "memory"), "width") ~is #true
+  field_is_free(field_pattern(vector_add_control, "writeback"), "source") ~is #true
+  field_pattern(vector_load_control, "alu").care_bits != 0 ~is #true
+  field_pattern(field_pattern(vector_load_control, "operand"), "right").care_bits != 0 ~is #true
+  field_is_free(field_pattern(vector_load_control, "operand"), "immediate") ~is #true
+  field_pattern(field_pattern(vector_load_control, "memory"), "unsigned").care_bits != 0 ~is #true
+  field_is_free(field_pattern(vector_store_control, "memory"), "unsigned") ~is #true
+  field_is_free(vector_config_control, "alu") ~is #true
+  field_is_free(field_pattern(vector_config_control, "operand"), "left") ~is #true
+  field_pattern(field_pattern(vector_config_control, "writeback"), "source").care_bits != 0 ~is #true
+  field_is_free(field_pattern(vector_config_control, "system"), "immediate") ~is #true
   control_for(system_controls.RV64ISystemCases, "ECALL").matches(ecall_system) ~is #true
   control_for(system_controls.RV64ISystemCases, "FENCE").matches(ecall_system) ~is #false
   control_for_instruction(system_controls.RV64RV5StageSystemCases, CSRRW).matches(csrrw_system) ~is #true

@@ -164,6 +164,19 @@ software defaults:
 - A core row leaves the FP sub-bundle unconstrained behind
   `floating_point_valid == false`; an FP row leaves its multiply/divide columns
   and unused control subfields unconstrained.
+- An FP compute row leaves scalar address generation, operand routing, and
+  memory payloads unconstrained. FP loads and stores constrain only the scalar
+  address and memory fields that carry their request.
+- A non-memory vector row leaves the scalar ALU, scalar operand routing, and
+  inactive memory payload unconstrained. Vector memory rows constrain address
+  generation and width; stores leave load extension unconstrained.
+
+An omitted field is sound only when every downstream observation of that field
+is dominated by a cared discriminator such as `enable`, `access`, an execution
+class, or `floating_point_valid`. Register-use bits and effect selectors are
+therefore not defaults: they remain explicit even when their value is false or
+`None`. The decode tests audit this guard/payload contract across integrated FP
+and vector rows.
 
 `ValidDecodeGen` preserves those nested care masks while producing the single
 hardware relation. Its separate `valid` output distinguishes selected rows from
