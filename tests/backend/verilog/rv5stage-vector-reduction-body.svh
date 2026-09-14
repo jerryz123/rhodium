@@ -1,4 +1,4 @@
-// Models reductions, scans, slides, and gathers through public LSU readback and WB recovery.
+// Models reductions, scans, slides, gathers, and compression through public LSU readback and WB recovery.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN+1), CHUNKS = VLEN/64;
   typedef struct packed { logic [4:0] address; logic [XLEN-1:0] data; } scalar_write_t;
@@ -231,6 +231,29 @@
       for(int r=0;r<groups;r++) check_reg(24+r);
     end
   endtask
+  task automatic compress_case(input int sew, lm, length, pattern, input int retry_at = -1);
+    logic [63:0] expected [0:8*CHUNKS-1];
+    logic [63:0] value, lane_mask;
+    int width, exponent, groups, output_index, row, offset;
+    width=8<<sew; exponent=lm<4 ? lm : lm-8; groups=exponent>0 ? 1<<exponent : 1;
+    for(int r=0;r<groups;r++) for(int c=0;c<CHUNKS;c++) begin
+      model[8+r][c]=random_word(); model[24+r][c]=random_word();
+      expected[r*CHUNKS+c]=model[24+r][c];
+    end
+    for(int c=0;c<CHUNKS;c++) model[5][c]=pattern==0 ? 0 : pattern==1 ? '1 : random_word();
+    for(int r=0;r<groups;r++) begin load_reg(8+r); load_reg(24+r); end
+    load_reg(5);
+    output_index=0;
+    for(int i=0;i<length;i++) if(element(5,i,1)!=0) begin
+      value=element(8,i,width); row=output_index*width/64; offset=output_index*width%64;
+      lane_mask=('1>>(64-width))<<offset;
+      expected[row]=(expected[row]&~lane_mask)|((value<<offset)&lane_mask);
+      output_index++;
+    end
+    run(vec(23,24,8,5,2),sew,lm,length,0,retry_at);
+    for(int c=0;c<groups*CHUNKS;c++) model[24+c/CHUNKS][c%CHUNKS]=expected[c];
+    for(int r=0;r<groups;r++) check_reg(24+r);
+  endtask
   initial begin
     logic [63:0] acc, mask, old;
     int width, length, dest;
@@ -349,6 +372,16 @@
         end
       end
     end
-    $display("vector reductions/moves/scans/slides/gathers XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
+    // Compression streams its mask/data sources through the production bank,
+    // authorizes every packed destination write at WB, and preserves its tail.
+    for(int sew=0;sew<4;sew++) begin
+      int maximum;
+      maximum=VLEN/(8<<sew);
+      compress_case(sew,0,maximum,0);
+      compress_case(sew,0,maximum>0 ? maximum-1 : 0,1);
+      compress_case(sew,3,8*maximum,2,1);
+    end
+    compress_case(0,0,0,2);
+    $display("vector reductions/moves/scans/slides/gathers/compression XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
     $finish;
   end

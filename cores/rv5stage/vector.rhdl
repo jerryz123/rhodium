@@ -192,6 +192,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
       disposition: event.disposition
       cause: event.cause
       fault_address: event.fault_address
+      last: beat.last
+      compress_state: beat.compress_state
   ) |> unroller.feedback
 
   def deferred_issue = issue.fire() & (unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide)

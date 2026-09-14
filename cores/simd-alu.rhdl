@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements shared-width packed integer/bit-manipulation datapaths and widening operand preparation.
+// Implements shared-width packed integer, bit-manipulation, widening, and compaction datapaths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -297,6 +297,37 @@ circuit SimdWidenOperands():
       enabled: concat(enables.reverse()).into(Mask(8))
   operands <== mux_lookup(element_width, ~default: prepared[0], for List (format in 1..3): [widths[format], prepared[format]])
 
+// Packs enabled elements into consecutive low lanes. Architectural register
+// grouping, tails, restart, and cross-word accumulation remain caller policy.
+bundle SimdCompressed():
+  data: Bits(64)
+  count: Bits(4)
+
+circuit SimdCompress():
+  input data: Bits(64)
+  input element_width: SimdElementWidth
+  input selected: Mask(8)
+  output compressed: SimdCompressed()
+
+  def widths = SimdElementWidth.values()
+  def alternatives = for List (format in 0..4):
+    def element_bits = 8 * (2 ** format)
+    def lanes = 8 div (2 ** format)
+    def mutable prefix = bits(0, 4)
+    def ranked = for List (source in 0..lanes):
+      def rank :: Bits(4) = prefix
+      prefix := prefix + selected[source].as_bits().zext(4)
+      [rank, data[source * element_bits..(source + 1) * element_bits], selected[source]]
+    def packed = for List (destination in 0..lanes):
+      def mutable value = bits(0, element_bits)
+      for (source in 0..lanes):
+        value := mux(ranked[source][2] & (ranked[source][0] === bits(destination, 4)), ranked[source][1], value)
+      value
+    SimdCompressed():
+      data: if lanes == 1 | packed[0] | concat(packed.reverse())
+      count: prefix
+  compressed <== mux_lookup(element_width, ~default: alternatives[0], for List (format in 1..4): [widths[format], alternatives[format]])
+
 export:
   SimdElementWidth
   SimdResultSelect
@@ -310,3 +341,5 @@ export:
   SimdWidenElementWidth
   SimdWidenedOperands
   SimdWidenOperands
+  SimdCompressed
+  SimdCompress

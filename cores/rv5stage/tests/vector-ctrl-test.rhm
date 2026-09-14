@@ -55,6 +55,10 @@ check:
   value(field(control(VMSLT_VV), "alu"), "signed_compare") ~is 1
   value(field(control(VMAX_VV), "alu"), "maximum") ~is 1
   value(field(control(VMINU_VX), "alu"), "maximum") ~is 0
+  value(control(VCOMPRESS_VM), "compress") ~is 1
+  value(control(VCOMPRESS_VM), "operand") ~is VectorOperandMode.Vector.packed_value()
+  value(field(core_control(VCOMPRESS_VM), "operand"), "uses_rs1") ~is 0
+  value(field(core_control(VCOMPRESS_VM), "writeback"), "enable") ~is 0
 
 for (instruction in VectorGatherInstructions, index in 0..4):
   check:
@@ -164,3 +168,6 @@ for (vlen in [128, 256, 512, 65536]):
     feedback.field("context").type.packed_width() ~is 4
     (1 bits.(<<) beat.field("end").type.packed_width()) > vlen ~is #true
     beat.field("end").type.packed_width() ~is feedback.field("end").type.packed_width()
+    beat.field("destination_first").type.packed_width() ~is beat.field("end").type.packed_width()
+    beat.field("compress_state").type.field("destination").type.packed_width() ~is beat.field("end").type.packed_width()
+    feedback.field("compress_state").type.field("destination").type.packed_width() ~is beat.field("end").type.packed_width()

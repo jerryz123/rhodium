@@ -3,7 +3,7 @@
   localparam int CW = $clog2(VLEN + 1), AW = $clog2(32 * VLEN / 64), DEPTH = 32 * VLEN / 64;
   typedef struct packed { logic [AW-1:0] address; logic [63:0] data, mask; } write_t;
   typedef struct packed { logic valid; write_t bits; } write_port_t;
-  typedef struct packed { logic [CW-1:0] first, ending; logic last, reduction, scan; logic [63:0] scan_carry; logic scalar_destination; logic [4:0] destination; logic memory, floating_point, multiply_divide, divide, store; logic [5:0] shift; write_t write; } result_t;
+  typedef struct packed { logic [CW-1:0] first, ending; logic last, reduction, scan; logic [63:0] scan_carry; logic scalar_destination; logic [4:0] destination; logic memory, floating_point, multiply_divide, divide, store; logic [5:0] shift; write_t write; logic [63:0] compress_data; logic [3:0] compress_count; logic [CW-1:0] compress_destination; } result_t;
   logic clock = 0, reset = 1;
   logic [31:0] instruction;
   logic [XLEN-1:0] vtype, vl, vstart, scalar;
@@ -19,7 +19,9 @@
   int tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2;
   logic [63:0] tx_scalar, tx_distance;
   int tx_vlmax;
-  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, checking;
+  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, checking;
+  logic [127:0] tx_compress_buffer;
+  int tx_compress_count, tx_compress_destination;
   int tx_beats;
   int checks = 0, macros = 0, retries = 0, cycles = 0, last_commit_cycle, consecutive = 0;
 
@@ -35,7 +37,7 @@
   endfunction
   task automatic tick;
     logic [63:0] a, b, value, lane_mask, expected_data, expected_mask, broadcast_value;
-    int first, ending, address, bit_offset, position;
+    int first, ending, address, bit_offset, position, emitted;
     bit enabled, was_retry;
     @(negedge clock); #1;
     was_retry = retried;
@@ -52,7 +54,24 @@
         lane_mask = 64'hffffffffffffffff >> (64 - tx_width);
         broadcast_value = tx_scalar;
         if (tx_mode == 3) broadcast_value = (tx_opcode >= 37 && tx_opcode <= 41) ? 64'(tx_vs1) : {{59{tx_vs1[4]}}, 5'(tx_vs1)};
-        for (int lane = 0; lane < tx_lanes; lane++) begin
+        if (tx_compress) begin
+          if (first < tx_vl) begin
+            for (int lane = 0; lane < tx_lanes && first + lane < ending; lane++) begin
+              position = first + lane;
+              if (snapshot[tx_vs1 * VLEN / 64 + position / 64][position % 64]) begin
+                tx_compress_buffer |= 128'(element(tx_vs2, position, tx_width)) << (tx_compress_count * tx_width);
+                tx_compress_count++;
+              end
+            end
+          end
+          emitted = tx_compress_count >= tx_lanes ? tx_lanes : ending == tx_vl ? tx_compress_count : 0;
+          for (int lane = 0; lane < emitted; lane++) expected_mask |= lane_mask << (lane * tx_width);
+          expected_data = tx_compress_buffer[63:0] & expected_mask;
+          address = tx_vd * VLEN / 64 + tx_compress_destination * tx_width / 64;
+          tx_compress_buffer >>= emitted * tx_width;
+          tx_compress_count -= emitted;
+          tx_compress_destination += emitted;
+        end else for (int lane = 0; lane < tx_lanes; lane++) begin
           position = first + lane;
           enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || snapshot[position / 64][position % 64]);
           if (tx_opcode == 14 && tx_mode != 6 && !tx_gather && 64'(position) < tx_distance) enabled = 0;
@@ -109,13 +128,17 @@
             expected_mask |= (tx_compare ? 64'd1 : lane_mask) << bit_offset;
           end
         end
-        assert (int'(result.first) == first && int'(result.ending) == ending && result.last == (ending == tx_vl))
+        assert (int'(result.first) == first && int'(result.ending) == ending && result.last == (ending == tx_vl && (!tx_compress || tx_compress_count == 0)))
           else $fatal(1, "element progress first=%0d/%0d end=%0d/%0d", result.first, first, result.ending, ending);
         assert (result.write.mask == expected_mask && (result.write.data & expected_mask) == expected_data)
           else $fatal(1, "op=%0d SEW=%0d first=%0d data=%h/%h mask=%h/%h", tx_opcode, tx_width, first, result.write.data & expected_mask, expected_data, result.write.mask, expected_mask);
         if (expected_mask != 0) begin
           assert (int'(result.write.address) == address) else $fatal(1, "wrong destination row");
           memory[address] = (memory[address] & ~expected_mask) | expected_data;
+        end
+        if (tx_compress) begin
+          assert(result.compress_data == tx_compress_buffer[63:0] && result.compress_count == 4'(tx_compress_count) && int'(result.compress_destination) == tx_compress_destination)
+            else $fatal(1,"compress checkpoint data=%h/%h count=%0d/%0d destination=%0d/%0d",result.compress_data,tx_compress_buffer[63:0],result.compress_count,tx_compress_count,result.compress_destination,tx_compress_destination);
         end
         if (tx_dense && tx_beats != 0)
           assert (last_commit_cycle + (tx_gather_vector ? 2 : 1) == cycles) else $fatal(1, "bubble in an unstalled vector stream");
@@ -124,7 +147,7 @@
         last_commit_cycle = cycles;
         tx_first = ending;
         checks++;
-        if (ending == tx_vl) checking = 0;
+        if (result.last) checking = 0;
       end
     end
     @(posedge clock); #1;
@@ -136,13 +159,15 @@
                            input bit masked_op, inject_retry = 0, random_stalls = 1, input int retry_at = -1);
     int timeout;
     assert (!active && !checking) else $fatal(1, "previous macro did not drain");
-    tx_mask_logic = mode == 2;
+    tx_compress = op == 23 && mode == 2;
+    tx_mask_logic = mode == 2 && !tx_compress;
     tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
     tx_width = tx_mask_logic ? 1 : 8 << sew; tx_lanes = tx_gather_vector ? 1 : 64 / tx_width;
     tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
     tx_masked = masked_op; tx_compare = !tx_mask_logic && op >= 24 && op <= 31;
     tx_dense = !random_stalls && !inject_retry; tx_beats = 0;
+    tx_compress_buffer = 0; tx_compress_count = 0; tx_compress_destination = 0;
     tx_scalar = XLEN == 32 ? {{32{scalar[31]}}, scalar[31:0]} : 64'(scalar);
     tx_distance = mode == 6 ? 1 : mode == 3 ? 64'(source1) : 64'(scalar);
     tx_vlmax = lmul < 4 ? (VLEN / (8 << sew)) << lmul : (VLEN / (8 << sew)) >> (8-lmul);
@@ -336,6 +361,27 @@
         end
       end
     end
+    // Compress streams source chunks in order, checkpoints its packed suffix
+    // at WB, and writes consecutive destination chunks without extra VRF ports.
+    for(int sew=0;sew<4;sew++) begin
+      for(int lm=0;lm<8;lm++) begin
+        int exponent, maximum, lanes;
+        exponent=lm<4 ? lm : lm-8;
+        if(lm==4 || sew>exponent+3) continue;
+        maximum=exponent>=0 ? (VLEN/(8<<sew))<<exponent : (VLEN/(8<<sew))>>(-exponent);
+        lanes=8>>sew;
+        for(int pattern=0;pattern<4;pattern++) begin
+          for(int row=0;row<VLEN/64;row++) begin
+            logic [63:0] mask_data;
+            mask_data=pattern==0 ? 0 : pattern==1 ? '1 : pattern==2 ? 64'hd4924924a529294a : random_word();
+            initialize_in='{1'b1,'{AW'(5*VLEN/64+row),mask_data,64'hffffffffffffffff}}; tick();
+          end
+          initialize_in.valid=0;
+          run_macro(sew,lm,pattern==0 ? maximum : pattern==1 ? maximum-1 : maximum,0,23,2,24,5,8,0,pattern==3 && maximum>lanes,pattern!=2,pattern==3 ? lanes : -1);
+        end
+        run_macro(sew,lm,0,0,23,2,24,5,8,0);
+      end
+    end
     // Retry after an authorized in-place prefix and in its first partial row.
     for (int ones = 0; ones < 2; ones++) begin
       for (int row = 0; row < VLEN / 64; row++) begin
@@ -364,9 +410,9 @@
     assert (consecutive >= VLEN / 8 - 1 && retries > 0) else $fatal(1, "missing throughput/retry coverage");
     // Cancel at read, buffered-offer, and pre-WB boundaries. No killed token
     // may update the bank or be mistaken for the next macro's response.
-    for (int family = 0; family < 8; family++) begin
+    for (int family = 0; family < 9; family++) begin
       for (int delay = 0; delay < 4; delay++) begin
-      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : family == 3 ? 32'h6e72a1d7 : family == 4 ? 32'h3a81cc57 : family == 5 ? 32'h3e81e457 : family == 6 ? 32'h32880c57 : 32'h3a880c57;
+      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : family == 3 ? 32'h6e72a1d7 : family == 4 ? 32'h3a81cc57 : family == 5 ? 32'h3e81e457 : family == 6 ? 32'h32880c57 : family == 7 ? 32'h3a880c57 : 32'h5e82ac57;
       vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
       request_valid = 1; issue_ready = delay == 3; tick(); request_valid = 0;
       repeat (delay) tick(); cancel = 1; tick(); cancel = 0;

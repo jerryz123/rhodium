@@ -29,8 +29,8 @@ reads do not, and SD combines
 the FP and vector dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
-add/sub, logic, shifts, comparisons, and min/max using direct SIMD controls,
-operand selection, comparison inversion, and operand swapping. Runtime group
+add/sub, logic, shifts, comparisons, min/max, and compression using direct SIMD
+controls, operand selection, comparison inversion, and operand swapping. Runtime group
 checks cover alignment, fractional groups, masked data destinations, and
 mask-result overlap. Legal rows execute through the Decode-held integer
 unroller. VS Off, `vill`, and invalid register groups trap before unrolling.
@@ -234,6 +234,26 @@ their selected source word for each destination chunk and broadcast packed
 slot, with no extra slide shifter or full-vector crossbar. Only WB authorizes
 writes; retry restarts at the authorized destination frontier, and cancellation
 flushes both read contexts and speculative results. V remains unadvertised.
+
+## Vector compression
+
+The experimental RV32/RV64 path supports `vcompress.vm`. The fixed `vm=1`
+encoding uses `vs1` as an unmasked selection register and packs selected
+`vs2` elements, in source order, into consecutive destination elements
+starting at zero. The remainder of the destination group is preserved as the
+tail-policy choice. Nonzero `vstart` traps. Destination and data-source groups
+must be aligned and disjoint; the single-register selection mask must be
+disjoint from both data groups, including when VL is zero.
+
+The unroller reads one source chunk and its mask bits through the existing 3R1W
+bank. [`SimdCompress`](../../simd-alu.rhdl) compacts each 64-bit word without
+owning architectural state. A retained suffix joins the next compacted word;
+each issued beat carries its post-beat suffix, element count, and destination
+position as a speculative checkpoint. WB authorization advances the committed
+checkpoint, retry restores it, and cancellation discards only speculative
+state. A final flush beat writes a partial retained suffix when necessary.
+Every VRF write remains WB-authorized, and no extra read or write port is added.
+V remains unadvertised.
 
 ## Shared integer multiply/divide
 

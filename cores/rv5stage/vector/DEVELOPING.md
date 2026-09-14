@@ -190,6 +190,29 @@ reserved overlap. Keep the shared-FP fixture as a common-read-path regression.
 `rv5stage-vector-unroller-1024` checks valid scalar and EI16 indices above 255,
 which smaller legal EI16 groups cannot reach.
 
+Compression owns cross-word state in `unroller.rhdl`, not in the reusable SIMD
+component. `SimdCompress` returns only a compacted 64-bit word and selected
+element count. The unroller appends that word to a retained suffix and places
+at most one full destination chunk on each source-read beat. If the final
+source beat emits a full chunk and leaves a suffix, a backpressurable flush
+beat emits the remaining partial chunk without consuming another VRF read.
+
+Keep speculative and authorized compression checkpoints separate. Every beat
+carries its post-beat suffix, count, and destination element; only ordered WB
+feedback may advance the authorized copy. Retry restores the source frontier
+and compression state together, including a pending final flush. Do not derive
+progress from destination writes: a source beat can select no elements and
+still advance the architectural source frontier. Decode owns fixed-vm,
+nonzero-vstart, group alignment, and selection-mask disjointness.
+
+The direct SIMD fixture checks the word compactor against an independent lane
+oracle. The unroller fixtures cover every SEW/LMUL geometry, sparse/dense/empty
+masks, full and partial final chunks, stalls, retry, cancellation, and retained
+checkpoints. The production reduction fixtures initialize and read back the
+3R1W bank through public LSU traffic, while the full-core muldiv fixture checks
+decode, WB-authorized writes, tail preservation, squash, and illegal vstart.
+Run the RV32/RV64 control fixtures whenever compression legality changes.
+
 `packing.rhdl` handles runtime SEW, broadcasting, lane enables, widening halves,
 and destination packing. Global element position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`

@@ -391,7 +391,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_management = id_control.memory.access.is_cache_management()
   def id_cbo_permission :: CboManagementPermission() = wb_csrs.cbo_permission
   def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), MemoryOperation.CacheBlockFlush, id_control.memory.access)
-  def id_vector_requires_start_zero = id_control.vector.integer & (id_control.vector.reduction ||| (id_control.vector.scan & !id_control.vector.scan_control.index))
+  def id_vector_requires_start_zero = id_control.vector.integer & (id_control.vector.compress ||| id_control.vector.reduction ||| (id_control.vector.scan & !id_control.vector.scan_control.index))
   def id_illegal = (id_vector_requires_start_zero & wb_csrs.vector_state.vstart.or_reduce()) ||| id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (wb_csrs.frm > bits(4, 3))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| ((id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide) & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
     (id_control.system.action === SystemOperation.VectorConfig) & !wb_csrs.vector_enabled
   ) ||| (

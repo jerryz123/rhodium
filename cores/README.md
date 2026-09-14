@@ -26,6 +26,7 @@ architectural result selection.
 | [`ALU(xlen)`](alu.rhdl) | `XLen.X32` or `XLen.X64`; `left`, `right`, and `AluControl` to `result` | Combinational; no ready/valid state | Modular arithmetic, logic, shifts/rotates, comparisons, counts, unary transforms, RV64 word shaping, and the shared Zba/Zbb/Zbs/Zicond datapaths | Decode, operand routing, and result use |
 | [`SimdALU()`](simd-alu.rhdl) | Two 64-bit packed operands, runtime 8/16/32/64-bit elements, decoded controls, and lane masks | Combinational; no ready/valid state | Lane-isolated arithmetic, logic, shifts/rotates, counts, reversals, comparisons, min/max, selection, and result/write-mask packing | Instruction decode, operand extraction/broadcast, vector configuration, register preservation, scheduling, and writeback |
 | [`SimdWidenOperands()`](simd-alu.rhdl) | Two packed 64-bit source operands, 8/16/32-bit source elements, half selection, and element enables | Combinational; no ready/valid state | Zero-extension and enable remapping for one 64-bit destination group | Group sequencing, scalar/immediate broadcasting, register grouping, and architectural legality |
+| [`SimdCompress()`](simd-alu.rhdl) | One packed 64-bit word, runtime element width, and element-selection mask | Combinational; no ready/valid state | Stable-order compaction into consecutive low lanes and selected-element count | Cross-word accumulation, architectural register grouping, tails, restart, and writeback |
 | [`BranchResolver(width)`](branch-resolver.rhdl) | `Valid(BranchResolverRequest)` to `Valid(BranchResult)` | Combinational; output validity follows input validity, with no backpressure | Equal and signed/unsigned less-than comparison plus final `taken` selection | Encodings, target generation, PC state, and redirect timing |
 | [`LoadGen(xlen, beat_bytes = 8)`](load-store.rhdl) | Address, returned beat, `MemoryWidth`, and signedness to one XLEN value | Combinational; the power-of-two beat must contain an XLEN word | Addressed scalar extraction and sign/zero extension | Beat-address alignment, access validation, protocol, and ordering |
 | [`StoreGen(xlen, beat_bytes = 8)`](load-store.rhdl) | Address, XLEN value, and `MemoryWidth` to beat data and `Mask(beat_bytes)` | Combinational; the power-of-two beat must contain an XLEN word | Addressed scalar placement and byte-lane mask generation | Beat-address alignment, access validation, protocol, and ordering |
@@ -88,6 +89,12 @@ or an advertised ISA profile.
 
 The block is independent of RISC-V profiles and is not integrated into RV5Stage.
 It does not promise a clock frequency or provide a registered pipeline.
+
+`SimdCompress()` retains the input order of selected elements, places them in
+consecutive low lanes, clears unused output lanes, and reports a count from zero
+through the number of physical lanes. Selection bits above the active lane count
+are ignored. It is a stateless word-local primitive; a vector implementation
+must retain cross-word remnants and authorize destination writes itself.
 
 ### Scalar memory and iterative engines
 

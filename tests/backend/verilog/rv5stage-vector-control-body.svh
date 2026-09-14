@@ -326,6 +326,27 @@
         end
       end
     end
+    // Compress reads one ordinary data group and one single mask register.
+    // Its destination must be disjoint from both, and the differently sized
+    // source operands cannot alias each other.
+    for(int sew=0;sew<4;sew++) for(int lm=-3;lm<=3;lm++) begin
+      for(int d=0;d<32;d++) for(int s1=0;s1<32;s1++) begin
+        for(int variant=0;variant<4;variant++) begin
+          int s2, g;
+          bit expected, mask_disjoint;
+          s2=variant==0 ? 8 : variant==1 ? s1 : variant==2 ? d : 0;
+          g=lm>0 ? 1<<lm : 1;
+          mask_disjoint=(s1<d || s1>=d+g) && (s1<s2 || s1>=s2+g);
+          expected=sew<=lm+3 && d%g==0 && s2%g==0 && d!=s2 && mask_disjoint;
+          test_vtype=(word_t'(sew)<<3)|(word_t'(lm)&7);
+          instruction={6'h17,1'b1,5'(s2),5'(s1),3'd2,5'(d),7'h57}; #1;
+          assert(decoded_valid && legal==expected) else $fatal(1,"compress legality d%0d s1%0d s2%0d sew%0d lm%0d",d,s1,s2,sew,lm);
+          checks++;
+        end
+      end
+    end
+    instruction=32'h5c21a0d7; #1;
+    assert(!decoded_valid) else $fatal(1,"masked compress encoding accepted");
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

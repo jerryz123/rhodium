@@ -9,6 +9,8 @@ import:
   "../model/main.rhm" as model
 
 check:
+  VCOMPRESS_VM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x5e21a0d7
+  VectorInitial.matching(0x5c21a0d7) ~is #false
   VRGATHER_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x322180d7
   VRGATHEREI16_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(0)]) ~is 0x382180d7
   VRGATHER_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x3221c0d7

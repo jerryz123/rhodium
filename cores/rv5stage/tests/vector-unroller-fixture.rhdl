@@ -72,6 +72,8 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
     disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
     cause: bits(0, xlen.width)
     fault_address: bits(0, xlen.width)
+    last: pipeline.egress.bits.last
+    compress_state: pipeline.egress.bits.compress_state
   bank.write.valid <== initialize.valid ||| (authorization & pipeline.egress.bits.write.mask.or_reduce())
   bank.write.bits <== mux(initialize.valid, initialize.bits, pipeline.egress.bits.write)
   assert(!(initialize.valid & unroller.active), "vector_fixture_initialization_is_exclusive")

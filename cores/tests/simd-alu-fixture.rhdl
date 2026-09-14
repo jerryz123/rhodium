@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes shared SIMD datapaths and widening preparation for differential behavioral tests.
+// Exposes shared SIMD datapaths, widening, and compaction for differential behavioral tests.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,6 +22,8 @@ circuit SimdAluFixture():
   output prepared_enabled: Mask(8)
   output data: Bits(64)
   output(comparison, write_mask): Mask(8)
+  output compressed_data: Bits(64)
+  output compressed_count: Bits(4)
 
   inst widen(SimdWidenOperands())
   widen.left <== left
@@ -55,6 +57,12 @@ circuit SimdAluFixture():
   data <== alu.result.data
   comparison <== alu.result.comparison
   write_mask <== alu.result.write_mask
+  inst compress(SimdCompress())
+  compress.data <== left
+  compress.element_width <== element_width
+  compress.selected <== enabled
+  compressed_data <== compress.compressed.data
+  compressed_count <== compress.compressed.count
 
 export:
   SimdAluFixture

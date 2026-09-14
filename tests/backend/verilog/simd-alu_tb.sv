@@ -1,9 +1,9 @@
-// Checks shared SIMD bit operations and widening against independent per-element models.
+// Checks shared SIMD bit operations, widening, and compaction against independent models.
 // SPDX-License-Identifier: Apache-2.0
 module simd_alu_tb;
   localparam logic [2:0] ADDER = 0, LOGIC_OP = 1, SHIFT = 2,
                          COMPARE = 3, MINMAX = 4, SELECT_OP = 5, PERMUTE = 6, COUNT = 7;
-  logic [63:0] left, right, data;
+  logic [63:0] left, right, data, compressed_data;
   logic [1:0] element_width, logic_select, comparison_select;
   logic [1:0] permutation_select, count_select, widen_element_width, prepared_width;
   logic [2:0] result_select;
@@ -12,6 +12,7 @@ module simd_alu_tb;
   logic [63:0] prepared_left, prepared_right;
   logic [7:0] prepared_enabled;
   logic [7:0] enabled, select_right, comparison, write_mask;
+  logic [3:0] compressed_count;
   longint unsigned checks = 0;
   longint unsigned rng = 64'h9e3779b97f4a7c15;
 
@@ -25,8 +26,8 @@ module simd_alu_tb;
   endfunction
 
   task automatic check_result;
-    int width_bits, lane_count, amount, count;
-    logic [63:0] mask, a, b, logic_b, value, expected_data;
+    int width_bits, lane_count, amount, count, compressed_elements;
+    logic [63:0] mask, a, b, logic_b, value, expected_data, expected_compressed;
     logic signed [63:0] signed_a, signed_b;
     logic lt, eq, predicate;
     logic [7:0] expected_comparison, expected_write_mask;
@@ -36,6 +37,8 @@ module simd_alu_tb;
     expected_data = 0;
     expected_comparison = 0;
     expected_write_mask = 0;
+    expected_compressed = 0;
+    compressed_elements = 0;
     for (int lane = 0; lane < lane_count; lane++) begin
       a = (left >> (lane * width_bits)) & mask;
       b = (right >> (lane * width_bits)) & mask;
@@ -101,6 +104,8 @@ module simd_alu_tb;
         default: $fatal(1, "invalid test result selector");
       endcase
       if (enabled[lane]) begin
+        expected_compressed |= a << (compressed_elements * width_bits);
+        compressed_elements++;
         expected_data |= (value & mask) << (lane * width_bits);
         expected_comparison[lane] = predicate;
         for (int byte_index = 0; byte_index < width_bits / 8; byte_index++)
@@ -116,6 +121,10 @@ module simd_alu_tb;
                   subtract, signed_compare, maximum, shift_right, arithmetic_shift,
                   enabled, select_right, left, right, data, comparison, write_mask,
                   expected_data, expected_comparison, expected_write_mask);
+    assert (compressed_data === expected_compressed && compressed_count === 4'(compressed_elements))
+      else $fatal(1, "compress check %0d w=%0d en=%h a=%h got=%h/%0d expected=%h/%0d",
+                  checks, width_bits, enabled, left, compressed_data, compressed_count,
+                  expected_compressed, compressed_elements);
     checks++;
   endtask
 

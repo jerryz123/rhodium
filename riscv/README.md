@@ -64,6 +64,8 @@ mask generators, `viota.m`, and `vid.v`, with distinct scalar-query, unary-mask,
 and source-free index formats.
 `VectorGatherInstructions` contains `vrgather.vv/vx/vi` and `vrgatherei16.vv`;
 immediate indices use the unsigned five-bit format.
+`VectorCompressInstructions` contains the fixed-unmasked `vcompress.vm` form;
+its mask/data/destination overlap and restart restrictions remain core policy.
 `VectorSlideInstructions` contains `vslideup.vx/vi`, `vslidedown.vx/vi`,
 `vslide1up.vx`, and `vslide1down.vx`. Immediate offsets use the unsigned
 five-bit format; VX forms identify their scalar register source explicitly.
@@ -185,7 +187,7 @@ pure host code or be materialized by the Rhodium adapter.
 | Module | Public catalog or configuration | Coverage |
 |---|---|---|
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
-| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorIntegerReductionInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
+| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

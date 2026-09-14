@@ -26,6 +26,12 @@ bundle RV5StageVectorInstruction(xlen :: XLen, Context :: DataType):
   context: Context
   descriptor: RV5StageVectorDescriptor(xlen)
 
+// Compression checkpoints retain only the not-yet-written packed suffix.
+bundle RV5StageVectorCompressState(vlen :: VectorLength):
+  data: Bits(64)
+  count: Bits(4)
+  destination: Bits(index_width(vlen + 1))
+
 // Scalar stages retain only their original context and macro retirement marker.
 bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2Int):
   context: Context
@@ -39,6 +45,7 @@ bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2I
 bundle RV5StageVectorBeat(vlen :: VectorLength):
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
+  destination_first: Bits(index_width(vlen + 1))
   last: Bool
   empty: Bool
   left: Bits(64)
@@ -49,6 +56,7 @@ bundle RV5StageVectorBeat(vlen :: VectorLength):
   element_width: SimdElementWidth
   control: RV5StageVectorControl()
   destination: Bits(5)
+  compress_state: RV5StageVectorCompressState(vlen)
 
 bundle RV5StageVectorMicroOp(vlen :: VectorLength, Context :: DataType):
   context: Context
@@ -70,6 +78,7 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   store: Bool
   shift: Bits(6)
   write: VectorRegisterWrite(vlen)
+  compress_state: RV5StageVectorCompressState(vlen)
 
 // LSU tags name bounded completion slots, not scalar register destinations.
 bundle RV5StageVectorCommit(xlen :: XLen):
@@ -98,10 +107,13 @@ bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: Dat
   disposition: RV5StageVectorDisposition
   cause: Bits(xlen.width)
   fault_address: Bits(xlen.width)
+  last: Bool
+  compress_state: RV5StageVectorCompressState(vlen)
 
 export:
   RV5StageVectorDescriptor
   RV5StageVectorInstruction
+  RV5StageVectorCompressState
   RV5StageVectorToken
   RV5StageVectorBeat
   RV5StageVectorMicroOp

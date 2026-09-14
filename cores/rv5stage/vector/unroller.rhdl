@@ -37,6 +37,13 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   reg minimum(Count)
   reg authorized(Count)
   reg all_issued(~init: Bool(#false))
+  reg compress_data(~init: bits(0, 64))
+  reg compress_count(~init: bits(0, 4))
+  reg compress_destination(~init: bits(0, index_width(vlen + 1)))
+  reg authorized_compress_data(~init: bits(0, 64))
+  reg authorized_compress_count(~init: bits(0, 4))
+  reg authorized_compress_destination(~init: bits(0, index_width(vlen + 1)))
+  reg compress_flush(~init: Bool(#false))
   // Credits cover both the unbackpressurable read response and the output FIFO.
   reg reserved(~init: bits(0, 2))
   inst context_pipe(ValidPipe(ReadContext(), 1, ~flushable: #true))
@@ -53,6 +60,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def slide = descriptor.control.integer & descriptor.control.slide
   def gather = descriptor.control.integer & descriptor.control.gather
   def gather_vector = gather & (descriptor.control.operand === VectorOperandMode.Vector)
+  def compress = descriptor.control.integer & descriptor.control.compress
   def singleton = descriptor.control.memory ||| descriptor.control.floating_point ||| descriptor.control.multiply_divide ||| element_move ||| reduction ||| gather_vector
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
   def mask_word = mask_logic ||| scan_word
@@ -95,17 +103,16 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def scalar_index = mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
   def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
   def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
-  def addresses = Array(
-    mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width])),
-    mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector, index_chunk, source_chunk)[0..row_base_width])),
-    (cursor >> 6)[0..row_base_width]
-  )
+  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width]))
+  def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector, index_chunk, source_chunk)[0..row_base_width])))
+  def addresses = Array(first_address, second_address, (cursor >> 6)[0..row_base_width])
   context_pipe.flush <== clear
   context_pipe.ingress.valid <== launch
   context_pipe.ingress.bits.slide_valid <== slide_valid
   context_pipe.ingress.bits.beat <== RV5StageVectorBeat(vlen):
     first: cursor
     end: end
+    destination_first: cursor
     last: end === limit
     empty: empty
     left: bits(0, 64)
@@ -118,6 +125,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     element_width: format
     control: descriptor.control
     destination: descriptor.vd
+    compress_state:
+      RV5StageVectorCompressState(vlen):
+        data: bits(0, 64)
+        count: bits(0, 4)
+        destination: cursor
   def response = context_pipe.egress
   def read_beat = response.bits.beat
   def index_shift = (read_beat.first[0..3] << index_sew) ++ bits(0, 3)
@@ -175,21 +187,81 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     // its 64 independently writable architectural elements at the result port.
     ~enabled: mux(mask_logic, read_beat.mask_enabled.or_reduce().as_bits().zext(8).into(Mask(8)), mux(singleton, memory_enabled.as_bits().zext(8).into(Mask(8)), (mux(read_beat.empty, bits(0, 8), packing.operands.enabled.as_bits()) & mux(slide, slide_enabled, !bits(0, 8))).into(Mask(8))))
   )
+  inst compactor(SimdCompress())
+  def compress_mask = results[1].bits >> read_beat.first[0..6]
+  def compress_selected = vec(for List (lane in 0..8):
+                                def position = read_beat.first.zext(index_width(vlen + 1) + 1) + bits(lane, index_width(vlen + 1) + 1)
+                                (!read_beat.empty & (bits(lane, index_width(vlen + 1)) < lanes) & (position < read_beat.end.zext(index_width(vlen + 1) + 1)) & compress_mask[lane].into(Bool)).as_bits()).into(Mask(8))
+  compactor.data <== results[0].bits
+  compactor.element_width <== read_beat.element_width
+  compactor.selected <== compress_selected
+  def append_shift = mux_lookup(read_beat.element_width, ~default: compress_count.zext(7) << 3, [[SimdElementWidth.E16, compress_count.zext(7) << 4], [SimdElementWidth.E32, compress_count.zext(7) << 5], [SimdElementWidth.E64, compress_count.zext(7) << 6]])
+  def combined = compress_data.zext(128) ||| (compactor.compressed.data.zext(128) << append_shift)
+  def total_count = compress_count.zext(5) + compactor.compressed.count.zext(5)
+  def lane_count = lanes[0..5]
+  def compress_full = total_count >= lane_count
+  def remainder_count = mux(compress_full, total_count - lane_count, total_count)[0..4]
+  def source_final = read_beat.end === limit
+  def needs_flush = source_final & compress_full & remainder_count.or_reduce()
+  def emitted_count = mux(compress_full, lane_count, mux(source_final, total_count, bits(0, 5)))[0..4]
+  def emits_write = compress_full ||| (source_final & total_count.or_reduce())
+  def post_compress_state = RV5StageVectorCompressState(vlen):
+    data: mux(source_final & !needs_flush, bits(0, 64), mux(compress_full, combined[64..128], combined[0..64]))
+    count: mux(source_final & !needs_flush, bits(0, 4), remainder_count)
+    destination: compress_destination + emitted_count.zext(index_width(vlen + 1))
+  def compress_beat = read_beat.updated(
+    ~destination_first: compress_destination,
+    ~last: source_final & !needs_flush,
+    ~empty: !emits_write,
+    ~left: combined[0..64],
+    ~right: bits(0, 64),
+    ~enabled: vec(for List (lane in 0..8): (bits(lane, 4) < emitted_count).as_bits()).into(Mask(8)),
+    ~select_right: bits(0, 8).into(Mask(8)),
+    ~compress_state: post_compress_state
+  )
+  fun compression_flush_beat(state :: RV5StageVectorCompressState(vlen)) :~ RV5StageVectorBeat(vlen):
+    RV5StageVectorBeat(vlen):
+      first: limit
+      end: limit
+      destination_first: state.destination
+      last: Bool(#true)
+      empty: Bool(#false)
+      left: state.data
+      right: bits(0, 64)
+      enabled: vec(for List (lane in 0..8): (bits(lane, 4) < state.count).as_bits()).into(Mask(8))
+      select_right: bits(0, 8).into(Mask(8))
+      mask_enabled: bits(0, 64)
+      element_width: format
+      control: descriptor.control
+      destination: descriptor.vd
+      compress_state:
+        RV5StageVectorCompressState(vlen):
+          data: bits(0, 64)
+          count: bits(0, 4)
+          destination: state.destination + state.count.zext(index_width(vlen + 1))
   gather_pipe.flush <== clear
   gather_pipe.ingress.valid <== gather_data_read
   gather_pipe.ingress.bits <== GatherRead():
     beat: operands
     in_range: gather_in_range
   pending.flush <== clear
-  pending.ingress.valid <== (mux(gather_vector, gather_pipe.egress.valid, response.valid)) & !clear
+  def flush_offer = compress_flush & !clear
+  def read_offer = mux(gather_vector, gather_pipe.egress.valid, response.valid)
+  def flush_state = RV5StageVectorCompressState(vlen):
+    data: compress_data
+    count: compress_count
+    destination: compress_destination
+  pending.ingress.valid <== (flush_offer ||| read_offer) & !clear
   pending.ingress.bits <== RV5StageVectorMicroOp(vlen, Context):
     context: instruction.context
-    beat: mux(gather_vector, gather_pipe.egress.bits.beat.updated(~left: mux(gather_pipe.egress.bits.in_range, results[0].bits, bits(0, 64))), operands)
+    beat: mux(flush_offer, compression_flush_beat(flush_state), mux(gather_vector, gather_pipe.egress.bits.beat.updated(~left: mux(gather_pipe.egress.bits.in_range, results[0].bits, bits(0, 64))), mux(compress, compress_beat, operands)))
+  def flush_enqueue = flush_offer & pending.ingress.ready
+  def reserve_event = launch ||| flush_enqueue
   active <== occupied
   request.ready <== !occupied & !clear
   def accepted = request.fire()
   def authorized_event = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Authorized)
-  when (pending.ingress.valid):
+  when (read_offer & !clear):
     assert(pending.ingress.ready, "vector_read_has_reserved_output_slot")
   when (gather_pipe.egress.valid & !clear):
     assert(gather_pipe.egress.bits.beat.empty ||| results[0].valid, "vector_gather_data_matches_context")
@@ -199,13 +271,20 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   when (feedback.valid & !cancel.valid):
     assert(occupied, "vector_feedback_has_active_macro")
     assert(feedback.bits.context === descriptor.pc, "vector_feedback_matches_active_macro")
-    assert(empty ||| ((feedback.bits.first <= authorized) & (feedback.bits.end > authorized)), "vector_feedback_is_oldest_unauthorized_beat")
+    assert(empty ||| ((feedback.bits.first <= authorized) & (feedback.bits.end > authorized)) ||| (compress & feedback.bits.last & (feedback.bits.first === feedback.bits.end) & (feedback.bits.end === authorized)), "vector_feedback_is_oldest_unauthorized_beat")
   when (retry & !cancel.valid):
     assert(feedback.bits.end <= limit, "vector_retry_stays_within_active_body")
   when (cancel.valid ||| fault):
     occupied <== Bool(#false)
     all_issued <== Bool(#false)
     reserved <== bits(0, 2)
+    compress_data <== bits(0, 64)
+    compress_count <== bits(0, 4)
+    compress_destination <== bits(0, index_width(vlen + 1))
+    authorized_compress_data <== bits(0, 64)
+    authorized_compress_count <== bits(0, 4)
+    authorized_compress_destination <== bits(0, index_width(vlen + 1))
+    compress_flush <== Bool(#false)
   elsewhen accepted:
     occupied <== Bool(#true)
     instruction <== request.bits
@@ -217,20 +296,44 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     authorized <== start
     all_issued <== Bool(#false)
     reserved <== bits(0, 2)
+    compress_data <== bits(0, 64)
+    compress_count <== bits(0, 4)
+    compress_destination <== bits(0, index_width(vlen + 1))
+    authorized_compress_data <== bits(0, 64)
+    authorized_compress_count <== bits(0, 4)
+    authorized_compress_destination <== bits(0, index_width(vlen + 1))
+    compress_flush <== Bool(#false)
   elsewhen retry:
-    cursor <== mux(mask_word, authorized.align_down(64), mux(singleton, authorized, aligned_first(authorized, geometry.sew)))
+    cursor <== mux(compress, authorized, mux(mask_word, authorized.align_down(64), mux(singleton, authorized, aligned_first(authorized, geometry.sew))))
     minimum <== authorized
-    all_issued <== Bool(#false)
+    all_issued <== compress & (authorized === limit)
     reserved <== bits(0, 2)
+    compress_data <== authorized_compress_data
+    compress_count <== authorized_compress_count
+    compress_destination <== authorized_compress_destination
+    compress_flush <== compress & (authorized === limit) & authorized_compress_count.or_reduce()
   elsewhen occupied:
     when launch:
       cursor <== end
       all_issued <== end === limit
-    when (launch =/= issue.fire()):
-      reserved <== mux(launch, reserved + bits(1, 2), reserved - bits(1, 2))
+    when (reserve_event =/= issue.fire()):
+      reserved <== mux(reserve_event, reserved + bits(1, 2), reserved - bits(1, 2))
+    when (response.valid & compress & !clear):
+      compress_data <== post_compress_state.data
+      compress_count <== post_compress_state.count
+      compress_destination <== post_compress_state.destination
+      compress_flush <== needs_flush
+    elsewhen flush_enqueue:
+      compress_data <== bits(0, 64)
+      compress_count <== bits(0, 4)
+      compress_destination <== compress_destination + compress_count.zext(index_width(vlen + 1))
+      compress_flush <== Bool(#false)
     when authorized_event:
       authorized <== feedback.bits.end
-      when (feedback.bits.end === limit):
+      authorized_compress_data <== feedback.bits.compress_state.data
+      authorized_compress_count <== feedback.bits.compress_state.count
+      authorized_compress_destination <== feedback.bits.compress_state.destination
+      when (feedback.bits.last):
         occupied <== Bool(#false)
 
 export:

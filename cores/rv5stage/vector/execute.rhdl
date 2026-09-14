@@ -40,7 +40,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   alu.enabled <== mux(reduction ||| sliding ||| gathering, bits(1, 8).into(Mask(8)), beat.enabled)
   alu.select_right <== beat.select_right
   packing.destination <== beat.destination
-  packing.first_element <== beat.first
+  packing.first_element <== beat.destination_first
   packing.element_width <== beat.element_width
   packing.mask_destination <== beat.control.mask_destination
   packing.enabled <== beat.enabled
@@ -92,6 +92,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     store: beat.control.store
     shift: element_shift
     write: mux(scanning, scan_write, mux(reduction ||| element_move, element_zero_write, mux(singleton, element_write, mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))))))
+    compress_state: beat.compress_state
 
 export:
   RV5StageVectorExecute

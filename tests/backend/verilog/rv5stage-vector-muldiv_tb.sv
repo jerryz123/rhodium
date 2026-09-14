@@ -1,4 +1,4 @@
-// Checks shared mul-div and vector moves, masks, reductions, slides, and gathers through memory signatures.
+// Checks shared mul-div and vector moves, masks, reductions, slides, gathers, and compression through memory signatures.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_vector_muldiv_tb;
@@ -166,10 +166,17 @@ module rv5stage_vector_muldiv_tb;
   endtask
 
   initial begin
-    int address, left_address, right_address, width, code;
+    int address, left_address, right_address, width, code, compressed_count;
     logic [63:0] mask, a, b;
+    logic [15:0] compress_mask;
     for (int i = 0; i < 16384; i++) program_words[i] = 'h0000006f;
     for (int i = 0; i < 8192; i++) memory_words[i] = 0;
+    compress_mask=16'ha55a;
+    memory_words[13'(('h1e000-'h10000)>>3)]=64'(compress_mask);
+    for(int i=0;i<16;i++) begin
+      memory_element('h1e080+i,64'(i+1),0);
+      memory_element('h1e100+i,64'hee,0);
+    end
     li(1, 'hff00); emit('h30509073);
     li(1, 'h200); emit('h30009073); // VS Initial, no scalar FP required
     address = 'h20000;
@@ -436,6 +443,25 @@ module rv5stage_vector_muldiv_tb;
       address+=128;
       vset(sew,0,2); vec(12,8,8,0,0,4); expect_store('h2fff0,2,3);
     end
+    // vcompress.vm packs selected source elements, preserves destination tails,
+    // traps on nonzero vstart, and remains squashable before its first WB beat.
+    vset(3,2); vload(5,'h1e000,3);
+    vset(0,16); vload(8,'h1e080,0); vload(24,'h1e100,0);
+    vec(23,24,8,5,0,2); vstore(24,address,0);
+    compressed_count=0;
+    for(int i=0;i<16;i++) if(compress_mask[i]) begin
+      expect_store(address+compressed_count,64'(i+1),0); compressed_count++;
+    end
+    for(int i=compressed_count;i<16;i++) expect_store(address+i,64'hee,0);
+    address+=16;
+    vload(24,'h1e100,0); emit('h00000463); vec(23,24,8,5,0,2); vstore(24,address,0);
+    for(int i=0;i<16;i++) expect_store(address+i,64'hee,0);
+    address+=16;
+    li(1,1); emit('h00809073); vec(23,24,8,5,0,2); expect_store('h2fff0,2,3);
+    vstore(24,address,0);
+    for(int i=0;i<16;i++) expect_store(address+i,64'hee,0);
+    address+=16; signature('h008,address,0); address+=8;
+    vset(0,0); vec(23,8,8,5,0,2); expect_store('h2fff0,2,3);
     assert(pc < 'hff00/4) else $fatal(1,"program exceeds ROM");
     pc='hff00/4;
     emit('h342021f3); li(10,'h2fff0); emit('h00353023);
@@ -485,7 +511,7 @@ module rv5stage_vector_muldiv_tb;
             else $fatal(1, "signature %0d address %h value %h expected %h", stores, data_access_out.request.bits.address, data_access_out.request.bits.data, expected_data[stores]);
           stores <= stores + 1;
           if (stores + 1 == expected_count) begin
-            $display("rv5stage shared muldiv, vector moves/masks/reductions/slides/gathers passed: %0d stores, %0d cycles", expected_count, cycles);
+            $display("rv5stage shared muldiv, vector moves/masks/reductions/slides/gathers/compression passed: %0d stores, %0d cycles", expected_count, cycles);
             $finish;
           end
         end

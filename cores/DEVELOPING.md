@@ -83,12 +83,14 @@ instantiating full datapaths per width. These design techniques follow
 and [shift unit](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/ShiftPipe.scala);
 the public operation and widening contracts are in [README.md](README.md#packed-simd-integer-alu).
 `SimdWidenOperands` prepares one destination group without adding another ALU
-or coupling widening to instruction decode. Keep RVV register layout and
-architectural policy outside this reusable component. Its direct fixture
+or coupling widening to instruction decode. `SimdCompress` performs only
+stable word-local element compaction and returns its selected-element count;
+cross-word suffixes and architectural progress belong to the caller. Keep RVV
+register layout and architectural policy outside these reusable components. Their direct fixture
 checks exhaustive byte operand pairs and directed/random wider elements,
 including rotation with dirty fill controls, zero counts, byte permutations,
-both widening halves, and enable remapping against independent per-element
-models:
+both widening halves, compaction masks, and enable remapping against independent
+per-element models:
 
 ```sh
 FIXTURE=simd-alu bash tests/backend/run-circt.sh --simulate-only
