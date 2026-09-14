@@ -41,8 +41,9 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   alu.select_right <== beat.select_right
   packing.destination <== beat.destination
   packing.first_element <== beat.destination_first
-  packing.element_width <== beat.element_width
+  packing.element_width <== mux(beat.control.narrowing, (beat.element_width.as_bits() - bits(1, 2)).into(SimdElementWidth), beat.element_width)
   packing.mask_destination <== beat.control.mask_destination
+  packing.narrowing <== beat.control.narrowing
   packing.enabled <== beat.enabled
   def slide_bytes = vec(for List (byte in 0..8):
                           mux_lookup(beat.element_width, ~default: beat.enabled[byte], for List (format in 1..4): [SimdElementWidth.values()[format], beat.enabled[byte div (2 ** format)]])).as_bits().into(Mask(8))

@@ -29,8 +29,8 @@ reads do not, and SD combines
 the FP and vector dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
-add/sub, logic, shifts, comparisons, min/max, compression, and narrow-source
-widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
+add/sub, logic, shifts, comparisons, min/max, compression, narrowing shifts,
+and narrow-source widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
 signedness, comparison inversion, and operand swapping. Runtime group checks
 cover alignment, fractional groups, doubled widening EMUL, masked data
 destinations, mask-result overlap, and widening source/destination overlap.
@@ -126,6 +126,29 @@ corresponding half. Each destination-width beat remains its own WB authorization
 and retry boundary without retained speculative operand state. Mask, `vstart`,
 tail, and empty-body behavior use the ordinary packed-element rules. Writes
 remain WB-authorized, and retry resumes at the oldest unauthorized half-row.
+
+## Narrowing integer shifts
+
+The RV32/RV64 integer path executes `vnsrl` and `vnsra` in `.wv`, `.wx`, and
+`.wi` forms for destination SEW 8/16/32. `vs2` uses twice SEW and twice LMUL;
+the vector shift-amount source and destination use the configured SEW/LMUL.
+Shift amounts are reduced modulo twice SEW. Logical forms zero-fill and
+arithmetic forms sign-fill before the low SEW result is retained.
+
+One 64-bit wide-source row produces half of a 64-bit destination row. The
+operand adapter zero-extends the selected narrow shift amounts into the
+existing SIMD shifter's doubled-width lanes, and result packing places the
+narrow halves into the correct destination half-row. No second shifter or VRF
+port is added. Ascending execution permits `vd=vs2`: every wide source row is
+captured before its low-part destination bytes can overwrite it. Other overlap
+with the wide source is rejected, as is overlap between vector `vs1` and `vs2`
+at their different EEWs.
+
+Masks, `vstart`, tails, empty bodies, WB authorization, cancellation, and retry
+use the ordinary packed-integer rules. Retry resumes at the oldest unauthorized
+half-row; an authorized in-place prefix cannot overwrite a source element that
+the suffix still needs. Rounding `vssr*` and saturating `vnclip*` remain outside
+this cut.
 
 ## Moves, merge, and mask logic
 
@@ -403,8 +426,10 @@ bits; immediates select signed or unsigned extension explicitly.
 Widening reuses `SimdWidenOperands`: each invocation sign- or zero-extends
 either half of an 8/16/32-bit source chunk into one 64-bit output chunk. The
 returned first element and width describe that destination chunk. Both halves
-must use the appropriate source snapshot. Narrowing, saturation, reduction,
-and permutation scheduling are not supplied by this adapter.
+must use the appropriate source snapshot. Narrowing reuses the same adapter to
+pass one wide `vs2` row while zero-extending half of the narrow shift-amount
+row; the result adapter packs the low halves into one destination half-row.
+Saturation, reduction, and permutation scheduling are not supplied here.
 
 `RV5StageVectorResult(vlen)` converts a SIMD result into the bank write payload.
 Data destinations use the returned output element width; comparisons place one

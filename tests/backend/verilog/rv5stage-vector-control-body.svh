@@ -10,7 +10,7 @@
   word_t writeback_value, mstatus;
   vector_state_t state;
   logic [1:0] configuration, operand;
-  logic mask_destination, invert_comparison, swap_operands, widening, wide_vs2, left_signed, right_signed, subtract;
+  logic mask_destination, invert_comparison, swap_operands, widening, narrowing, wide_vs2, left_signed, right_signed, subtract;
   integer checks = 0, retired = 0;
   RV5StageVectorControlFixture dut (.*);
   always #5 clock = ~clock;
@@ -207,6 +207,31 @@
     assert (!legal) else $fatal(1, "wide-source form accepted low narrow-source overlap");
     instruction[19:15] = 9; #1;
     assert (legal) else $fatal(1, "wide-source form rejected high narrow-source overlap");
+    // Narrowing shifts read vs2 at twice SEW, reuse the existing wide shifter,
+    // and permit destination overlap only in the wide source's low part.
+    instruction = 32'hb3010457; #1; // vnsrl.wv v8,v16,v2, unmasked
+    assert (decoded_valid && legal && narrowing && wide_vs2 && !widening && operand == 0) else $fatal(1, "logical narrowing shift decode");
+    instruction = 32'hb6814457; #1; // vnsra.wx v8,v8,x2, unmasked
+    assert (decoded_valid && legal && narrowing && wide_vs2 && operand == 1) else $fatal(1, "arithmetic narrowing shift decode");
+    instruction[11:7] = 9; #1;
+    assert (!legal) else $fatal(1, "narrowing accepted high-part destination overlap");
+    instruction[11:7] = 16; #1;
+    assert (legal) else $fatal(1, "narrowing rejected disjoint destination");
+    instruction[24:20] = 9; #1;
+    assert (!legal) else $fatal(1, "narrowing accepted unaligned wide source");
+    instruction = 32'hb2848857; #1; // vnsrl.wv v16,v8,v9, unmasked
+    assert (!legal) else $fatal(1, "narrowing read one register at two EEWs");
+    instruction[19:15] = 10; #1;
+    assert (legal) else $fatal(1, "narrowing rejected disjoint narrow source");
+    test_vtype = 1; instruction = 32'hb081cc57; #1; // masked vnsrl.wx v24,v8,x3, LMUL=2
+    assert (legal) else $fatal(1, "narrowing treated a scalar register as an LMUL-aligned vector group");
+    test_vtype = 0;
+    instruction = 32'hb0080457; #1; // masked vnsrl.wv v8,v0,v16
+    assert (!legal) else $fatal(1, "narrowing read v0 as both mask and wide data");
+    test_vtype = 'h18; instruction = 32'hb3010457; #1;
+    assert (!legal) else $fatal(1, "SEW64 narrowing accepted");
+    test_vtype = 3; #1;
+    assert (!legal) else $fatal(1, "narrowing source exceeds EMUL8");
     test_vtype = 'h80; instruction = 32'h662180d7; #1;
     assert (decoded_valid && invert_comparison) else $fatal(1, "vmsne inversion");
     instruction = 32'h7a21c0d7; #1;

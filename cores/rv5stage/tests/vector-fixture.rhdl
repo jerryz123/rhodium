@@ -67,6 +67,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     operand_select: operand_select
     immediate_unsigned: immediate_unsigned
     widening: widening
+    narrowing: Bool(#false)
     upper_half: upper_half
     left_wide: left_wide
     left_signed: left_signed
@@ -116,6 +117,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   assemble.first_element <== prepare.operands.first_element
   assemble.element_width <== prepare.operands.element_width
   assemble.mask_destination <== c.mask_destination
+  assemble.narrowing <== c.control.narrowing
   assemble.enabled <== prepare.operands.enabled
   assemble.result <== alu.result
   result_valid <== context.egress.valid

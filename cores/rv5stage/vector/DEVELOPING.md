@@ -228,6 +228,18 @@ and in-place permission, and the narrow source's high-part-only overlap rule;
 packing owns per-source signed extension, already-wide left selection, and half
 selection.
 
+Narrowing shifts use the same half-row schedule in the opposite direction.
+Each beat reads one doubled-width `vs2` row and the corresponding half of a
+narrow shift-amount row, executes through the existing SIMD shifter at twice
+SEW, and writes one narrow destination half-row. Keep the architectural
+destination width distinct from the ALU execution width at result packing.
+Ascending issue makes low-part `vd=vs2` overlap replay-safe: an authorized
+prefix can overwrite only wide source elements that have already been read.
+Decode owns doubled source EMUL/alignment, low-part overlap, different-EEW
+source disjointness, and masked v0 restrictions. Run the RV32/RV64 control and
+unroller fixtures for all three forms, SEWs, masks, partial halves, in-place
+operation, stalls, retry, and cancellation.
+
 Keep execution enables separate from `select_right`: merge consumes `v0` as
 data while both selected alternatives remain writable. Move rows describe only
 their real source and select the existing SIMD right-input path. Mask-logic rows

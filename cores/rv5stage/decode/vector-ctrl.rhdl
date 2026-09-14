@@ -56,6 +56,7 @@ bundle RV5StageVectorControl():
   gather_index16: Bool
   compress: Bool
   widening: Bool
+  narrowing: Bool
   wide_vs2: Bool
   uses_vs2: Bool
   invert_logic_result: Bool
@@ -105,6 +106,7 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~gather_index16: gather_index16 :: Boolean = #false,
                  ~compress: compress :: Boolean = #false,
                  ~widening: widening :: Boolean = #false,
+                 ~narrowing: narrowing :: Boolean = #false,
                  ~wide_vs2: wide_vs2 :: Boolean = #false,
                  ~left_signed: left_signed :: Boolean = #false,
                  ~right_signed: right_signed :: Boolean = #false,
@@ -137,6 +139,7 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       gather_index16: Bool(gather_index16)
       compress: Bool(compress)
       widening: Bool(widening)
+      narrowing: Bool(narrowing)
       wide_vs2: Bool(wide_vs2)
       left_signed: Bool(left_signed)
       right_signed: Bool(right_signed)
@@ -325,7 +328,15 @@ def VectorWideningAddSubtractCases = [
   integer_case(VWSUB_WV, vsub_control, ~widening: #true, ~wide_vs2: #true, ~left_signed: #true, ~right_signed: #true),
   integer_case(VWSUB_WX, vsub_control, ~widening: #true, ~wide_vs2: #true, ~left_signed: #true, ~right_signed: #true)
 ]
-def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorWideningAddSubtractCases
+def VectorNarrowingShiftCases = [
+  integer_case(VNSRL_WV, vsrl_control, ~narrowing: #true, ~wide_vs2: #true),
+  integer_case(VNSRL_WX, vsrl_control, ~narrowing: #true, ~wide_vs2: #true),
+  integer_case(VNSRL_WI, vsrl_control, ~narrowing: #true, ~wide_vs2: #true),
+  integer_case(VNSRA_WV, vsra_control, ~narrowing: #true, ~wide_vs2: #true),
+  integer_case(VNSRA_WX, vsra_control, ~narrowing: #true, ~wide_vs2: #true),
+  integer_case(VNSRA_WI, vsra_control, ~narrowing: #true, ~wide_vs2: #true)
+]
+def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases
 def vselect_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Select
 def VectorCompressCases = [integer_case(VCOMPRESS_VM, vselect_control, ~compress: #true)]
@@ -437,8 +448,10 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def emul = config.lmul.into(SInt(3)).sext(5) + control.eew.zext(5).into(SInt(5)) - config.sew.zext(5).into(SInt(5))
   def widening_emul = config.lmul.into(SInt(3)).sext(5) + SInt(5)(1)
   def widening = control.integer & control.widening
+  def narrowing = control.integer & control.narrowing
   def group = mux(control.memory, emul.into(Bits(5))[0..3], config.lmul)
   def group_mask = mux_lookup(group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
+  def wide_group_mask = mux_lookup(widening_emul.into(Bits(5))[0..3], ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
   def destination_group = mux(widening, widening_emul.into(Bits(5))[0..3], group)
   def destination_group_mask = mux_lookup(destination_group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
   def destination = instruction_field(vd, instruction)
@@ -448,7 +461,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def destination_aligned = !(destination & destination_group_mask).or_reduce()
   def source1_aligned = !(source1 & group_mask).or_reduce()
   def source2_aligned = !(source2 & group_mask).or_reduce()
-  def wide_source2_aligned = !(source2 & destination_group_mask).or_reduce()
+  def wide_source2_aligned = !(source2 & wide_group_mask).or_reduce()
   fun mask_overlap_legal(source :: Bits(5)) :: Bool:
     ((destination & !group_mask) =/= source) ||| (destination === source)
   fun widening_overlap_legal(source :: Bits(5)) :: Bool:
@@ -456,6 +469,11 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
     def widened_end = destination.zext(6) + destination_group_mask.zext(6) + bits(1, 6)
     def disjoint = (destination.zext(6) >= source_end) ||| (source.zext(6) >= widened_end)
     disjoint ||| ((config.lmul.into(SInt(3)) >= SInt(3)(0)) & (source_end === widened_end))
+  fun narrowing_overlap_legal() :: Bool:
+    def source_end = source2.zext(6) + wide_group_mask.zext(6) + bits(1, 6)
+    def destination_end = destination.zext(6) + group_mask.zext(6) + bits(1, 6)
+    def disjoint = (destination.zext(6) >= source_end) ||| (source2.zext(6) >= destination_end)
+    disjoint ||| (destination === source2)
   def masked = !instruction_field(vm, instruction).or_reduce()
   // Merge reads v0 at EEW=1; the same register cannot also supply SEW data.
   def merge_sources_legal = !control.mask_select ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))
@@ -483,9 +501,13 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def narrow_source2_legal = source2_aligned & widening_overlap_legal(source2)
   def wide_source2_legal = wide_source2_aligned
   def widening_legal = !widening ||| ((config.sew =/= bits(3, 2)) & (widening_emul <= SInt(5)(3)) & mux(control.wide_vs2, wide_source2_legal, narrow_source2_legal) & (!vector_operand ||| widening_overlap_legal(source1)))
+  def source1_end = source1.zext(6) + group_mask.zext(6) + bits(1, 6)
+  def wide_source2_end = source2.zext(6) + wide_group_mask.zext(6) + bits(1, 6)
+  def narrowing_sources_disjoint = !vector_operand ||| (source1.zext(6) >= wide_source2_end) ||| (source2.zext(6) >= source1_end)
+  def narrowing_legal = !narrowing ||| ((config.sew =/= bits(3, 2)) & (widening_emul <= SInt(5)(3)) & wide_source2_aligned & (!vector_operand ||| source1_aligned) & narrowing_overlap_legal() & narrowing_sources_disjoint & (!masked ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))))
   // Mask logic always names single registers, regardless of the data LMUL.
   def integer_legal = control.integer & mux(control.compress, compress_legal, mux(control.gather, gather_legal, mux(control.scan, scan_legal, control.element_move ||| mux(control.reduction, reduction_sources_legal, control.mask_logic ||| (
-    slide_overlap_legal & merge_sources_legal & widening_legal & (!control.uses_vs2 ||| mux(widening & control.wide_vs2, wide_source2_aligned, source2_aligned)) & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+    slide_overlap_legal & merge_sources_legal & widening_legal & narrowing_legal & (!control.uses_vs2 ||| mux((widening ||| narrowing) & control.wide_vs2, wide_source2_aligned, source2_aligned)) & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
   )))))
   def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())
@@ -501,6 +523,7 @@ export:
   VectorConfigurationCases
   VectorIntegerCases
   VectorWideningAddSubtractCases
+  VectorNarrowingShiftCases
   VectorCompressCases
   VectorMemoryCases
   VectorFloatingPointCases

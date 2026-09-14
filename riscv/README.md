@@ -48,7 +48,8 @@ the three `vset*` forms, same-width integer add/sub, logic, shifts,
 comparisons, min/max, and ordinary unit-stride `vle8/16/32/64.v` and
 `vse8/16/32/64.v`. `VectorWideningAddSubtractInstructions` contains `vwaddu`,
 `vwadd`, `vwsubu`, and `vwsub` in both narrow-source `.vv`/`.vx` and
-wide-source `.wv`/`.wx` forms.
+wide-source `.wv`/`.wx` forms. `VectorNarrowingShiftInstructions` contains
+`vnsrl` and `vnsra` in `.wv`, `.wx`, and `.wi` forms.
 `VectorFloatingPointInstructions` contains same-width
 `vfadd.vv`, `vfsub.vv`, and `vfmul.vv`, matching the canonical
 [riscv-opcodes OPFVV encodings](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_v).
@@ -190,7 +191,7 @@ pure host code or be materialized by the Rhodium adapter.
 | Module | Public catalog or configuration | Coverage |
 |---|---|---|
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
-| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
+| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorNarrowingShiftInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

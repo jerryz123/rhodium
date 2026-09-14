@@ -55,6 +55,11 @@ check:
   value(control(VWADD_WX), "right_signed") ~is 1
   value(field(control(VWSUBU_WV), "alu"), "subtract") ~is 1
   value(field(control(VWADD_WV), "alu"), "subtract") ~is 0
+  value(control(VNSRL_WV), "narrowing") ~is 1
+  value(control(VNSRL_WV), "wide_vs2") ~is 1
+  value(field(control(VNSRL_WI), "alu"), "shift_right") ~is 1
+  value(field(control(VNSRL_WI), "alu"), "arithmetic_shift") ~is 0
+  value(field(control(VNSRA_WX), "alu"), "arithmetic_shift") ~is 1
   value(field(control(VAND_VI), "alu"), "logic_select") ~is SimdLogicSelect.And.packed_value()
   value(field(control(VOR_VV), "alu"), "logic_select") ~is SimdLogicSelect.Or.packed_value()
   value(field(control(VXOR_VX), "alu"), "logic_select") ~is SimdLogicSelect.Xor.packed_value()

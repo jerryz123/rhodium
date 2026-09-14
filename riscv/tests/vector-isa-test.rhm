@@ -78,9 +78,16 @@ check:
   VWSUBU_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xda21e0d7
   VWSUB_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xde21a0d7
   VWSUB_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xde21e0d7
+  VNSRL_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xb22180d7
+  VNSRL_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xb221c0d7
+  VNSRL_WI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0xb22fb0d7
+  VNSRA_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xb62180d7
+  VNSRA_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xb621c0d7
+  VNSRA_WI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0xb62fb0d7
   VADD_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~is 0x022fb0d7
   VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0x962fb0d7
   VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~throws ""
+  VNSRL_WI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 32) ~throws ""
   VLE8_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x02010087
   VLE16_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x02015087
   VSE64_V.encode([vs3.constrain(3), model.rs1.constrain(2), vm.constrain(0)]) ~is 0x000171a7

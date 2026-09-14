@@ -77,6 +77,12 @@ def VWSUBU_WV = vector_arithmetic("VWSUBU.WV", 0x36, VectorVVFormat, 2)
 def VWSUBU_WX = vector_arithmetic("VWSUBU.WX", 0x36, VectorVXFormat, 6)
 def VWSUB_WV = vector_arithmetic("VWSUB.WV", 0x37, VectorVVFormat, 2)
 def VWSUB_WX = vector_arithmetic("VWSUB.WX", 0x37, VectorVXFormat, 6)
+def VNSRL_WV = vector_arithmetic("VNSRL.WV", 0x2c, VectorVVFormat, 0)
+def VNSRL_WX = vector_arithmetic("VNSRL.WX", 0x2c, VectorVXFormat, 4)
+def VNSRL_WI = vector_arithmetic("VNSRL.WI", 0x2c, VectorShiftVIFormat, 3)
+def VNSRA_WV = vector_arithmetic("VNSRA.WV", 0x2d, VectorVVFormat, 0)
+def VNSRA_WX = vector_arithmetic("VNSRA.WX", 0x2d, VectorVXFormat, 4)
+def VNSRA_WI = vector_arithmetic("VNSRA.WI", 0x2d, VectorShiftVIFormat, 3)
 def VAND_VV = vector_arithmetic("VAND.VV", 9, VectorVVFormat, 0)
 def VAND_VX = vector_arithmetic("VAND.VX", 9, VectorVXFormat, 4)
 def VAND_VI = vector_arithmetic("VAND.VI", 9, VectorVIFormat, 3)
@@ -125,7 +131,8 @@ def VMAX_VV = vector_arithmetic("VMAX.VV", 7, VectorVVFormat, 0)
 def VMAX_VX = vector_arithmetic("VMAX.VX", 7, VectorVXFormat, 4)
 
 def VectorWideningAddSubtractInstructions = [VWADDU_VV, VWADDU_VX, VWADD_VV, VWADD_VX, VWSUBU_VV, VWSUBU_VX, VWSUB_VV, VWSUB_VX, VWADDU_WV, VWADDU_WX, VWADD_WV, VWADD_WX, VWSUBU_WV, VWSUBU_WX, VWSUB_WV, VWSUB_WX]
-def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorWideningAddSubtractInstructions
+def VectorNarrowingShiftInstructions = [VNSRL_WV, VNSRL_WX, VNSRL_WI, VNSRA_WV, VNSRA_WX, VNSRA_WI]
+def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions
 // Slides use unsigned XLEN offsets; slide1 instead inserts a scalar element.
 def VSLIDEUP_VX = vector_arithmetic("VSLIDEUP.VX", 0x0e, VectorVXFormat, 4)
 def VSLIDEUP_VI = vector_arithmetic("VSLIDEUP.VI", 0x0e, VectorShiftVIFormat, 3)
@@ -320,6 +327,7 @@ export:
   VectorConfigInstructions
   VectorIntegerInstructions
   VectorWideningAddSubtractInstructions
+  VectorNarrowingShiftInstructions
   VectorInitialInstructions
   VectorInitial
   VADD_VV
@@ -343,6 +351,12 @@ export:
   VWSUBU_WX
   VWSUB_WV
   VWSUB_WX
+  VNSRL_WV
+  VNSRL_WX
+  VNSRL_WI
+  VNSRA_WV
+  VNSRA_WX
+  VNSRA_WI
   VAND_VV
   VAND_VX
   VAND_VI

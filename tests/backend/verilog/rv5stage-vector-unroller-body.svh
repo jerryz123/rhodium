@@ -19,7 +19,7 @@
   int tx_source_width, tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2;
   logic [63:0] tx_scalar, tx_distance;
   int tx_vlmax;
-  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_wide_source, tx_widen_signed, checking;
+  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_wide_source, tx_widen_signed, checking;
   logic [127:0] tx_compress_buffer;
   int tx_compress_count, tx_compress_destination;
   int tx_beats;
@@ -37,7 +37,7 @@
   endfunction
   task automatic tick;
     logic [63:0] a, b, value, lane_mask, expected_data, expected_mask, broadcast_value;
-    int first, ending, address, bit_offset, position, emitted;
+    int first, ending, address, bit_offset, position, emitted, left_width;
     bit enabled, was_retry;
     @(negedge clock); #1;
     was_retry = retried;
@@ -53,7 +53,7 @@
         expected_data = 0; expected_mask = 0;
         lane_mask = 64'hffffffffffffffff >> (64 - tx_width);
         broadcast_value = tx_scalar;
-        if (tx_mode == 3) broadcast_value = (tx_opcode >= 37 && tx_opcode <= 41) ? 64'(tx_vs1) : {{59{tx_vs1[4]}}, 5'(tx_vs1)};
+        if (tx_mode == 3) broadcast_value = (tx_opcode >= 37 && tx_opcode <= 45) ? 64'(tx_vs1) : {{59{tx_vs1[4]}}, 5'(tx_vs1)};
         if (tx_compress) begin
           if (first < tx_vl) begin
             for (int lane = 0; lane < tx_lanes && first + lane < ending; lane++) begin
@@ -76,7 +76,8 @@
           enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || snapshot[position / 64][position % 64]);
           if (tx_opcode == 14 && tx_mode != 6 && !tx_gather && 64'(position) < tx_distance) enabled = 0;
           if (enabled) begin
-            a = element(tx_vs2, position, tx_wide_source ? tx_width : tx_source_width);
+            left_width = tx_narrowing ? 2 * tx_width : tx_wide_source ? tx_width : tx_source_width;
+            a = element(tx_vs2, position, left_width);
             b = tx_mode inside {0, 2} || tx_mask_logic ? element(tx_vs1, position, tx_source_width) : broadcast_value & (64'hffffffffffffffff >> (64 - tx_source_width));
             if (tx_widen_signed) begin
               a = signed_element(a, tx_wide_source ? tx_width : tx_source_width);
@@ -97,6 +98,9 @@
             end else if (tx_gather) begin
               b=tx_gather_vector ? element(tx_vs1,position,tx_opcode==14 ? 16 : tx_width) : tx_distance;
               value=b>=64'(tx_vlmax) ? 0 : element(tx_vs2,int'(b),tx_width);
+            end else if (tx_narrowing) begin
+              if (tx_opcode[0]) value = signed_element(a, left_width) >>> (b & 64'(left_width - 1));
+              else value = a >> (b & 64'(left_width - 1));
             end else if (tx_widening) begin
               value = tx_opcode[1] ? a - b : a + b;
             end else case (tx_opcode)
@@ -129,7 +133,7 @@
               41: value = signed_element(a, tx_width) >>> (b & 64'(tx_width - 1));
               default: $fatal(1, "bad reference opcode");
             endcase
-            bit_offset = tx_compare ? position % 64 : tx_gather_vector ? position*tx_width%64 : lane * tx_width;
+            bit_offset = tx_compare ? position % 64 : tx_gather_vector || tx_narrowing ? position*tx_width%64 : lane * tx_width;
             expected_data |= (value & (tx_compare ? 64'd1 : lane_mask)) << bit_offset;
             expected_mask |= (tx_compare ? 64'd1 : lane_mask) << bit_offset;
           end
@@ -165,11 +169,11 @@
                            input bit masked_op, inject_retry = 0, random_stalls = 1, input int retry_at = -1);
     int timeout;
     assert (!active && !checking) else $fatal(1, "previous macro did not drain");
-    tx_widening = op inside {[48:55]}; tx_wide_source = op inside {[52:55]}; tx_widen_signed = tx_widening && op[0];
+    tx_widening = op inside {[48:55]}; tx_narrowing = op inside {44, 45}; tx_wide_source = op inside {[52:55]} || tx_narrowing; tx_widen_signed = tx_widening && op[0];
     tx_compress = op == 23 && mode == 2;
-    tx_mask_logic = mode == 2 && !tx_compress && !tx_widening;
+    tx_mask_logic = mode == 2 && !tx_compress && !tx_widening && !tx_narrowing;
     tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
-    tx_source_width = tx_mask_logic ? 1 : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_source_width; tx_lanes = tx_gather_vector ? 1 : 64 / tx_width;
+    tx_source_width = tx_mask_logic ? 1 : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_source_width; tx_lanes = tx_gather_vector ? 1 : 64 / (tx_narrowing ? 2 * tx_width : tx_width);
     tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
     tx_masked = masked_op; tx_compare = !tx_mask_logic && op >= 24 && op <= 31;
@@ -266,6 +270,28 @@
       end
       // Equal-width destination/vs2 overlap and high-part narrow-vs1 overlap.
       run_macro(sew, 0, VLEN / (8 << sew), 0, 55, 2, 8, 9, 8, 0, 1, 0, 4 >> sew);
+    end
+    // Narrowing shifts consume one doubled-width source row and write one
+    // destination half-row per beat through the existing SIMD shifter.
+    for (int sew = 0; sew < 3; sew++) begin
+      for (int lm_index = 0; lm_index < 6; lm_index++) begin
+        int lm, exponent, maximum, lanes, count;
+        lm = lm_index < 3 ? lm_index : lm_index + 2;
+        exponent = lm < 4 ? lm : lm - 8;
+        if (sew > exponent + 3) continue;
+        maximum = exponent >= 0 ? (VLEN / (8 << sew)) << exponent : (VLEN / (8 << sew)) >> -exponent;
+        if (maximum == 0) continue;
+        lanes = 4 >> sew;
+        count = maximum < 2 * lanes + 1 ? maximum : 2 * lanes + 1;
+        for (int op = 44; op < 46; op++) begin
+          run_macro(sew, lm, count, op[0] ? 1 : 0, op, 0, 24, 16, 8, op[0], op == 44, 0, lanes);
+          scalar = XLEN'(-17);
+          run_macro(sew, lm, count - 1, count > 2 ? lanes - 1 : 0, op, 4, 24, 3, 8, !op[0]);
+          run_macro(sew, lm, count, 0, op, 3, 24, 31, 8, op[0]);
+        end
+      end
+      // Low-part in-place overlap remains safe across authorized-prefix retry.
+      run_macro(sew, 0, VLEN / (8 << sew), 0, 45, 0, 8, 16, 8, 0, 1, 0, 4 >> sew);
     end
     // Moves and merge share an encoding but not predication: a zero v0 bit
     // selects vs2; it must not disable the destination write.
