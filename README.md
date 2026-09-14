@@ -1,4 +1,4 @@
-<!-- Introduces Rhodium, its authoring model, quick start, public capabilities, and user-facing documentation. -->
+<!-- Introduces Rhodium, its authoring model, quick start, and user-facing documentation. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium
@@ -22,77 +22,9 @@ That shared foundation supports protocol-aware flow composition, transaction
 tracing, clock-crossing checks, and validated network generation. For RTL
 generation, Rhodium lowers through CIRCT to SystemVerilog.
 
-## Core principles that set Rhodium apart
-
-### Explicit hardware, simple IR
-
-Rhodium rejects last-connect and competing-driver semantics: every place has
-one effective driver, with priority represented directly in the hardware graph.
-`when` and `switch` lower to explicit selection and guarded drives, giving
-authors, verification, analysis, and backends the same dataflow graph. See the
-[IR contract](rhodium/core/README.md).
-
-### Language-oriented programming
-
-Rhodium builds its authoring surface from composable Rhombus layers, so syntax,
-types, and operations can grow together without a separate hardware model.
-Authors can follow an abstraction down to the public core IR; the
-[layered authoring examples](examples/lop/) show the same circuit at several
-language layers.
-
-### Extend the language with hardware types
-
-Equal widths do not imply semantic compatibility. Extensible hardware types let
-libraries enforce domain distinctions during elaboration, from `OneHot` and
-`Mask` values to nominal enums and tagged unions, while still lowering to the
-same core IR. See the [type extension surface](rhodium/frontend/layers/README.md#shared-extension-surface).
-
-## What layers and libraries make possible
-
-### Declarative decoding
-
-Typed decode tables preserve partially specified outputs, so synthesis can
-choose don't-care bits that simplify the circuit. Rhodium keeps the table as a
-non-overlapping relation and CIRCT lowers it to sparse `casez` logic. See
-[decode generation](rhodium/std/README.md) and the
-[lowering contract](rhodium/backend/README.md#selection-and-relations).
-
-### Domain-specific hardware vocabulary
-
-The libraries use that extensibility for domain vocabulary: CHI protocol fields
-and RISC-V page-table values become typed values with domain operations, not
-unstructured bit fields. See the [CHI types](chi/protocol/flits.rhdl) and
-[RISC-V translation types](riscv/rtl/sv39.rhdl).
-
-### Protocol-aware flow composition
-
-The [flow library](flow/README.md) composes buffers, arbitration, routing,
-joins, and splits with `|>`. Connections check payload, direction, and protocol
-compatibility across `Valid`, `Decoupled`, and `Irrevocable`, while composition
-keeps atomicity and backpressure guarantees explicit.
-
-### Transaction-aware Perfetto traces
-
-Annotate flow checkpoints and the [event compiler](rhodium/event/README.md)
-derives transaction ancestry from actual transfers through supported flow
-components, then exports the event graph to Perfetto. Unsupported ancestry is
-rejected rather than guessed, and tracing leaves synthesis unchanged.
-
-### Validated NoC generation
-
-The [NoC library](noc/README.md) analyzes symbolic topology and routing before
-RTL construction, checking reachability and deadlock under documented VC
-assumptions and retaining failure witnesses for the authored network. These
-guarantees do not imply fairness or whole-protocol correctness; validated plans
-feed [hardware generation](noc/rtl/README.md).
-
-### Clock-crossing safety from signal provenance
-
-Rhodium's [clock-crossing checker](rhodium/analysis/README.md#review-or-enforce-cdc-violations)
-traces signal provenance through logic, hierarchy, records, and vectors.
-Opt-in `elaborate_with_cdc` rejects unsafe or unknown-timing sampling unless
-verified crossing evidence permits it; it does not insert synchronizers or
-claim blanket safety for buses, handshakes, or reset crossings.
+The [comparison guide](docs/comparisons/README.md#core-principles-that-set-rhodium-apart)
+explains the principles that distinguish Rhodium, what its layers and libraries
+make possible, and how those choices compare with other hardware languages.
 
 ## Quick start
 

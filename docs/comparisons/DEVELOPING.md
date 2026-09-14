@@ -3,9 +3,9 @@
 
 # Developing the comparison suite
 
-Read the [comparison guide](README.md) for the reader paths, system map, shared
-Rhodium baseline, and cross-system conclusions. This guide owns how those
-claims are researched, reviewed, and kept current.
+Read the [comparison guide](README.md) for Rhodium's distinguishing choices,
+reader paths, system map, shared baseline, and cross-system conclusions. This
+guide owns how those claims are researched, reviewed, and kept current.
 
 ## Method and evidence discipline
 
@@ -80,7 +80,7 @@ unqualified claims about rapidly changing ecosystems.
 
 | Path | Responsibility |
 |---|---|
-| [`README.md`](README.md) | Reader paths, comparison inventory, shared baseline, and cross-system conclusions |
+| [`README.md`](README.md) | Rhodium differentiators, reader paths, comparison inventory, shared baseline, and cross-system conclusions |
 | Individual `*.md` essays | One source-grounded comparison and its references |
 | [`../../rhodium/README.md`](../../rhodium/README.md) | Public Rhodium package model |
 | [`../../rhodium/core/README.md`](../../rhodium/core/README.md) | Public core semantics |
