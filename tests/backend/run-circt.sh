@@ -24,7 +24,7 @@ while (( $# > 0 )); do
       shift
       ;;
     *)
-      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-memory|cores-cache|socs|rfpl] [--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
+      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-vector|cores-memory|cores-cache|socs|rfpl] [--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
       exit 2
       ;;
   esac
@@ -75,7 +75,7 @@ if [[ -n "$fixture_group" && ( -n "${FIXTURE:-}" || -n "${FIXTURES:-}" ) ]]; the
   exit 2
 fi
 case "$fixture_group" in
-  ""|language|std|protocols|cores|cores-components|cores-execution|cores-memory|cores-cache|socs|rfpl) ;;
+  ""|language|std|protocols|cores|cores-components|cores-execution|cores-vector|cores-memory|cores-cache|socs|rfpl) ;;
   *)
     echo "unknown CIRCT fixture group: $fixture_group" >&2
     exit 2
@@ -177,7 +177,7 @@ fixture_in_group() {
   local spec fixture top example design_export reference_export
 
   if [[ "$group" == cores ]]; then
-    for core_group in cores-components cores-execution cores-memory cores-cache; do
+    for core_group in cores-components cores-execution cores-vector cores-memory cores-cache; do
       fixture_in_group "$wanted" "$core_group" && return 0
     done
     return 1
@@ -213,7 +213,10 @@ fixture_in_group() {
     cores-components:simd-alu|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:iterative-divider|cores-components:riscv-counters-*|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
       return 0
       ;;
-    cores-execution:rv5stage-vector|cores-execution:rv5stage-vector-*|cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-atomic|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-integer-execution|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
+    cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-atomic|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-integer-execution|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
+      return 0
+      ;;
+    cores-vector:rv5stage-vector|cores-vector:rv5stage-vector-*)
       return 0
       ;;
     cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
@@ -885,7 +888,7 @@ for direct_spec in "${direct_fixture_specs[@]}"; do
   done
 done
 
-fixture_groups=(language std protocols cores-components cores-execution cores-memory cores-cache socs rfpl)
+fixture_groups=(language std protocols cores-components cores-execution cores-vector cores-memory cores-cache socs rfpl)
 for spec in "${fixture_specs[@]}" "${direct_fixture_specs[@]}"; do
   IFS='|' read -r fixture _ <<< "$spec"
   group_count=0

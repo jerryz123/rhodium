@@ -30,6 +30,11 @@ The [repository test-development guide](../DEVELOPING.md) owns test placement,
 authoring principles, and CI classification outside this backend-specific
 fixture boundary.
 
+RV5Stage vector fixtures belong to the `cores-vector` group rather than the
+scalar/frontend `cores-execution` group. The aggregate `cores` selector covers
+both along with the component, memory, and cache groups. HardFloat retains its
+package-owned runner and executes as an independent CI matrix job.
+
 ## Fixture and artifact ownership
 
 Example-backed entries name an example module, a concrete design export, an
