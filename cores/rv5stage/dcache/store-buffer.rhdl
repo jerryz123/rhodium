@@ -1,0 +1,77 @@
+#lang rhodium
+// Buffers committed owned-line stores with FIFO drain and physical-address hazards.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/reduction.rhdl").tree_reduce
+  lib("flow/main.rhdl") open
+
+bundle RV5StageStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes :: PosInt):
+  address: Bits(xlen.width)
+  way: Bits(way_width)
+  data: Bits(xlen.width)
+  mask: Bits(word_bytes)
+  mark_dirty: Bool
+
+sync_circuit RV5StageStoreBuffer(xlen :: XLen,
+                                 way_width :: PosInt,
+                                 depth :: Pow2Int = 4):
+  def T = RV5StageStoreBufferEntry(xlen, way_width, xlen.width / 8)
+  def pointer_width = index_width(depth)
+  def count_width = index_width(depth + 1)
+  def word_offset = alignment_bits(xlen.width / 8)
+  interface enqueue(Decoupled(T), ~role: consumer)
+  interface drain(Irrevocable(T), ~role: producer)
+  input full_drain: Bool
+  input query_address: Bits(xlen.width)
+  input query_mask: Bits(xlen.width / 8)
+  input probe_address: Bits(xlen.width)
+  output(word_hazard, line_hazard, queued_word_hazard, queued_line_hazard, empty, full, urgent): Bool
+  output count: Bits(count_width)
+  reg entries(Vec(depth, T))
+  reg occupied(~init: vec(for List (_ in 0..depth): Bool(#false)))
+  reg head(~init: bits(0, pointer_width))
+  reg tail(~init: bits(0, pointer_width))
+  reg age(~init: bits(0, 4))
+
+  empty <== !occupied.as_bits().or_reduce()
+  full <== occupied.as_bits().and_reduce()
+  drain.valid <== occupied[head]
+  drain.bits <== entries[head]
+  enqueue.ready <== !full ||| full_drain
+  when full_drain:
+    assert(full & drain.fire(), "store_buffer_full_drain_contract")
+  def count_bits = for List (index in 0..depth):
+    if depth == 1 | occupied[index].as_bits() | occupied[index].as_bits().zext(count_width)
+  count <== tree_reduce(count_bits, fun (left, right): left + right)
+  when (empty ||| drain.fire()):
+    age <== bits(0, 4)
+  elsewhen (age < bits(8, 4)):
+    age <== age + bits(1, 4)
+  urgent <== age >= bits(8, 4)
+
+  fun overlaps(store :: RV5StageStoreBufferEntry(xlen, way_width, xlen.width / 8)):
+    (store.address[word_offset..xlen.width] === query_address[word_offset..xlen.width]) & (store.mask & query_mask).or_reduce()
+  fun same_line(store :: RV5StageStoreBufferEntry(xlen, way_width, xlen.width / 8)):
+    store.address[6..xlen.width] === probe_address[6..xlen.width]
+  queued_word_hazard <== vec(for List (index in 0..depth): occupied[index] & overlaps(entries[index])).as_bits().or_reduce()
+  queued_line_hazard <== vec(for List (index in 0..depth): occupied[index] & same_line(entries[index])).as_bits().or_reduce()
+  word_hazard <== queued_word_hazard ||| (enqueue.fire() & overlaps(enqueue.bits))
+  line_hazard <== queued_line_hazard ||| (enqueue.fire() & same_line(enqueue.bits))
+
+  for (index in 0..depth):
+    when (enqueue.fire() & (tail === bits(index, pointer_width))):
+      entries[index] <== enqueue.bits
+      occupied[index] <== Bool(#true)
+    elsewhen (drain.fire() & (head === bits(index, pointer_width))):
+      occupied[index] <== Bool(#false)
+  when (enqueue.fire()):
+    tail <== if depth == 1 | bits(0, pointer_width) | tail + bits(1, pointer_width)
+  when (drain.fire()):
+    head <== if depth == 1 | bits(0, pointer_width) | head + bits(1, pointer_width)
+
+export:
+  RV5StageStoreBufferEntry
+  RV5StageStoreBuffer

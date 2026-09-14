@@ -848,7 +848,7 @@ A permitted physical request is paired with the read at the clock edge; only
 that resolved token can initiate an authorized transaction. For ordinary loads/stores,
 EX's `pipeline_access` launches the virtual read and MEM supplies the translated
 tag. Load hits return directly to MEM/WB; owned store hits retain a candidate
-that WB alone can enqueue into the two-entry committed-store buffer.
+that WB alone can enqueue into the four-entry committed-store buffer.
 Blocked lookups explicitly replay, while independent pending stores do not
 block a load hit. `RV5Stage` connects this path
 through the MMU to L1D alongside the authorized `data_access` transaction port.

@@ -18,7 +18,7 @@ Contributors changing the L1D implementation should read
 |---|---|
 | Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; one outstanding miss with load hit-under-miss |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
-| Core throughput | One uncontended load hit per cycle; owned store hits retire into two committed entries |
+| Core throughput | One uncontended load hit per cycle; owned store hits retire into four committed entries |
 | Core protocol | EX/MEM lookup and WB store authorization; ordered `Decoupled` slow transactions with `Valid` responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set round robin |
@@ -73,11 +73,15 @@ read/write permissions, alignment, and non-device cacheability before admission.
 
 ### Committed stores and SRAM arbitration
 
-Two FIFO entries retain positioned data, byte mask, physical address, selected
+Four FIFO entries retain positioned data, byte mask, physical address, selected
 way, and whether the coherence state needs marking dirty. Loads compare all
 older entries, including a same-cycle WB enqueue, by physical word and byte
 overlap. Different words, different physical tags, and disjoint bytes do not
 cause a dependency replay. There is no store merging or forwarding yet.
+
+A full buffer can replace its draining head on the same edge. This pipe-style
+replacement preserves capacity without replaying the committing store when the
+SRAM scheduler has already authorized that drain.
 
 The head drains in an idle data-read slot, including metadata-only store lookup
 cycles when no state write is needed. Capacity pressure, a byte dependency,

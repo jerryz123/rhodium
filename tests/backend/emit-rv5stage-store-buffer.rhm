@@ -5,7 +5,7 @@ import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../riscv/isa/xlen.rhm" open
-  "../../cores/rv5stage/dcache/pending-stores.rhdl" open
+  "../../cores/rv5stage/dcache/store-buffer.rhdl" open
 
-def design = embedded.run_elaboration(fun (): RV5StagePendingStores(XLen.X64, 1))
+def design = embedded.run_elaboration(fun (): RV5StageStoreBuffer(XLen.X64, 1))
 print(emit_circt(design))

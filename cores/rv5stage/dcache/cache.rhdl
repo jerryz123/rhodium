@@ -6,7 +6,7 @@ import:
   "../../cache-prefetch.rhdl" open
   "protocol.rhdl" open
   "arrays.rhdl" open
-  "pending-stores.rhdl" open
+  "store-buffer.rhdl" open
   "../fp/types.rhdl" open
   "../memory.rhdl" open
   "../cache.rhdl" open
@@ -91,9 +91,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   interface chi(CHIRNChannels(p), ~role: node)
 
   inst arrays(RV5StageDCacheArrays(xlen, cache))
-  inst stores(RV5StagePendingStores(xlen, way_width))
-  def PendingStore = RV5StagePendingStore(xlen, way_width, word_bytes)
-  inst s2_store_candidate(ValidPipeAlwaysCapture(PendingStore, 1))
+  inst stores(RV5StageStoreBuffer(xlen, way_width))
+  def StoreBufferEntry = RV5StageStoreBufferEntry(xlen, way_width, word_bytes)
+  inst s2_store_candidate(ValidPipeAlwaysCapture(StoreBufferEntry, 1))
   inst s1_store_gen(StoreGen(xlen, word_bytes))
   inst service_load_gen(LoadGen(xlen, word_bytes))
   inst s1_load_gen(LoadGen(xlen, word_bytes))
@@ -249,7 +249,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   (
     pipeline.request
       |> filter_valid(_request => s1_outcome === RV5StagePipelineOutcome.StoreHit)
-      |> map_valid(request => RV5StagePendingStore(xlen, way_width, word_bytes)):
+      |> map_valid(request => RV5StageStoreBufferEntry(xlen, way_width, word_bytes)):
         address: request.address
         way: s1_hit_way.index
         data: s1_store_gen.data
@@ -515,7 +515,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // do not occupy the SRAM ports. Serving snoops here prevents a Home waiting
   // on this RN-F from deadlocking behind this RN-F's queued request.
   stores.probe_address <== snoop.address
-  snoop.cache_ready <== !s3_read_valid & !s4_result.egress.valid & !pending_mutation_valid & gather_idle & !refill_installing & !stores.line_hazard
+  snoop.cache_ready <== !s3_read_valid & !s4_result.egress.valid & !pending_mutation_valid & gather_idle & !refill_installing & !stores.queued_line_hazard
   def snoop_address = snoop.address
   def snoop_set = snoop_address[offset_width..(offset_width + set_width)]
   def snoop_tag = snoop_address[(offset_width + set_width)..width]
@@ -591,8 +591,10 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   hit_path_available <== engines_idle & service_order_clear
   hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending
   def store_drain_available = engines_idle & !s3_read_valid & !s4_result.egress.valid & !snoop_metadata_pending & !snoop_lookup_start & !snoop.update.valid
-  def force_store_drain = stores.urgent ||| !stores.enqueue.ready ||| service_requests.egress.valid ||| management_waiting ||| (snoop_pending & stores.line_hazard) ||| (pipeline.request.valid & !s1_store & stores.word_hazard)
-  stores.drain.ready <== store_drain_available & (force_store_drain ||| !s0_load)
+  def full_store_drain = stores.full & store_drain_available
+  def force_store_drain = stores.urgent ||| service_requests.egress.valid ||| management_waiting ||| (snoop_pending & stores.queued_line_hazard) ||| (pipeline.request.valid & !s1_store & stores.queued_word_hazard)
+  stores.full_drain <== full_store_drain
+  stores.drain.ready <== full_store_drain ||| (store_drain_available & (force_store_drain ||| !s0_load))
   store_drain <== stores.drain.fire()
   def array_read_address = mux(s0_read_issue, pipeline_lookup.bits.address, mux(s2_retry, s3_lookup.egress.bits.request.address, s2_index_address))
   def array_read_set = array_read_address[offset_width..(offset_width + set_width)]

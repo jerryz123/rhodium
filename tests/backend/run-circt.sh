@@ -219,7 +219,7 @@ fixture_in_group() {
     cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
       return 0
       ;;
-    cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:rv5stage-pending-stores|cores-cache:rv5stage-lrsc-*)
+    cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:rv5stage-store-buffer|cores-cache:rv5stage-lrsc-*)
       return 0
       ;;
     *)
@@ -824,7 +824,7 @@ direct_fixture_specs=(
   'rv5stage-icache-coherence|rv5stage_icache_coherence_tb'
   'rv5stage-icache-coherence-flat|rv5stage_icache_coherence_tb'
   'rv5stage-dcache|rv5stage_dcache_tb'
-  'rv5stage-pending-stores|rv5stage_pending_stores_tb'
+  'rv5stage-store-buffer|rv5stage_store_buffer_tb'
   'rv5stage-dcache-rv32|rv5stage_dcache_rv32_tb'
   'rv5stage-lrsc-progress|rv5stage_lrsc_progress_tb'
   'rv5stage-lrsc-core-progress|rv5stage_lrsc_core_progress_tb'

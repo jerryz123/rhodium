@@ -27,7 +27,7 @@ importing the instruction-cache package.
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
 | One-entry uncached data admission, retained request, and completion lifetime | [`io-mshr.rhdl`](io-mshr.rhdl) |
 | Synchronous tag/state and byte-masked data storage | [`arrays.rhdl`](arrays.rhdl) |
-| Two committed entries, physical-byte/probe comparisons, FIFO order, and bounded age | [`pending-stores.rhdl`](pending-stores.rhdl) |
+| Parameterized committed-store capacity, physical-byte/probe comparisons, FIFO order, and bounded age | [`store-buffer.rhdl`](store-buffer.rhdl) |
 | Shared pipeline decisions, SRAM scheduling, prefetch admission, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
 | Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
@@ -169,7 +169,7 @@ tools/run-racket-tests.sh cores/rv5stage/tests/dcache-test.rhm
 Test cache, transaction, and atomic behavior through compiled fixtures:
 
 ```sh
-FIXTURES='rv5stage-pending-stores rv5stage-load-hit rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' \
+FIXTURES='rv5stage-store-buffer rv5stage-load-hit rv5stage-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' \
   bash tests/backend/run-circt.sh --simulate-only
 ```
 
