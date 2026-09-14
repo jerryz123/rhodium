@@ -83,6 +83,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   // The next index read can overlap the preceding data response, not its read.
   def launch = occupied & !all_issued & !clear & !(gather_vector & context_pipe.egress.valid) & ((reserved < bits(2, 2)) ||| issue.fire())
   def source_chunk = mux(mask_logic ||| scan, cursor >> 6, cursor >> (bits(3, 2) - sew))
+  def wide_source_chunk = cursor >> (bits(2, 2) - sew)
   def row_base_width = index_width(vector_depth(vlen))
   // Whole-element displacement stays at XLEN until bounds are checked. Extra
   // bits retain both unsigned overflow and the negative slide-up prefix.
@@ -104,7 +105,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def scalar_index = mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
   def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
   def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
-  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width]))
+  def first_source_chunk = mux(widening & descriptor.control.wide_vs2, wide_source_chunk, source_chunk)
+  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
   def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector, index_chunk, source_chunk)[0..row_base_width])))
   def addresses = Array(first_address, second_address, (cursor >> 6)[0..row_base_width])
   context_pipe.flush <== clear
@@ -159,6 +161,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     immediate_unsigned: descriptor.control.immediate_unsigned
     widening: widening
     upper_half: widening & (read_beat.first =/= aligned_first(read_beat.first, sew))
+    left_wide: descriptor.control.wide_vs2
     left_signed: descriptor.control.left_signed
     right_signed: descriptor.control.right_signed
   packing.left <== results[0].bits

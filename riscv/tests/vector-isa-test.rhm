@@ -70,6 +70,14 @@ check:
   VWSUBU_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xca21e0d7
   VWSUB_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xce21a0d7
   VWSUB_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xce21e0d7
+  VWADDU_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xd221a0d7
+  VWADDU_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xd221e0d7
+  VWADD_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xd621a0d7
+  VWADD_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xd621e0d7
+  VWSUBU_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xda21a0d7
+  VWSUBU_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xda21e0d7
+  VWSUB_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xde21a0d7
+  VWSUB_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xde21e0d7
   VADD_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~is 0x022fb0d7
   VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0x962fb0d7
   VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~throws ""

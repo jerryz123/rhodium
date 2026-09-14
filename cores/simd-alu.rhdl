@@ -276,6 +276,7 @@ circuit SimdWidenOperands():
   input(left, right): Bits(64)
   input element_width: SimdWidenElementWidth
   input upper_half: Bool
+  input left_wide: Bool
   input(left_signed, right_signed): Bool
   input enabled: Mask(8)
   output operands: SimdWidenedOperands()
@@ -296,7 +297,7 @@ circuit SimdWidenOperands():
     def enables = for List (lane in 0..8):
       if lane < count | mux(upper_half, enabled[lane + count], enabled[lane]).as_bits() | bits(0, 1)
     SimdWidenedOperands():
-      left: if count == 1 | a[0] | concat(a.reverse())
+      left: mux(left_wide, left, if count == 1 | a[0] | concat(a.reverse()))
       right: if count == 1 | b[0] | concat(b.reverse())
       element_width: destination_widths[format]
       enabled: concat(enables.reverse()).into(Mask(8))

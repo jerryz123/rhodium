@@ -24,6 +24,7 @@ bundle VectorPackingControl(vlen :: VectorLength):
   immediate_unsigned: Bool
   widening: Bool
   upper_half: Bool
+  left_wide: Bool
   left_signed: Bool
   right_signed: Bool
 
@@ -65,6 +66,7 @@ circuit RV5StageVectorOperands(vlen :: VectorLength):
   widen.right <== packed.right
   widen.enabled <== packed.enabled
   widen.upper_half <== control.upper_half
+  widen.left_wide <== control.left_wide
   widen.left_signed <== control.left_signed
   widen.right_signed <== control.right_signed
   widen.element_width <== control.element_width.as_bits().into(SimdWidenElementWidth)

@@ -30,7 +30,7 @@ the FP and vector dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
 add/sub, logic, shifts, comparisons, min/max, compression, and narrow-source
-widening add/sub using direct SIMD controls, operand selection, extension
+widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
 signedness, comparison inversion, and operand swapping. Runtime group checks
 cover alignment, fractional groups, doubled widening EMUL, masked data
 destinations, mask-result overlap, and widening source/destination overlap.
@@ -110,19 +110,22 @@ comparison bits through the ordinary masked write port.
 
 ## Widening integer add and subtract
 
-The RV32/RV64 integer path executes `vwaddu.vv/vx`, `vwadd.vv/vx`,
-`vwsubu.vv/vx`, and `vwsub.vv/vx` for source SEW 8/16/32. Both narrow operands
-are extended according to the instruction before the shared SIMD adder runs at
-twice SEW. Destination EMUL is twice LMUL and must remain representable through
-EMUL=8. A source may overlap the wider destination only in the architectural
-high-part case; other overlaps trap before any VRF read.
+The RV32/RV64 integer path executes `vwaddu`, `vwadd`, `vwsubu`, and `vwsub`
+in `.vv`/`.vx` and `.wv`/`.wx` forms for source SEW 8/16/32. The narrow-source
+forms extend both operands; the wide-source forms read `vs2` at twice SEW and
+extend only the vector or scalar `vs1`. Both use the shared SIMD adder at twice
+SEW. Destination and wide-source EMUL are twice LMUL and must remain
+representable through EMUL=8. A narrow vector source may overlap only the
+architectural high part of the destination. The wide `vs2` group may equal the
+destination group; misalignment and partial overlap trap before any VRF read.
 
-One unroller beat processes half of a 64-bit source row and produces one 64-bit
-destination row. Lower and upper beats reread the same source address, making
-each destination-width beat its own WB authorization and retry boundary without
-retaining speculative operand state. Mask, `vstart`, tail, and empty-body
-behavior use the ordinary packed-element rules. Writes remain WB-authorized,
-and retry resumes at the oldest unauthorized half-row.
+One unroller beat produces one 64-bit destination row. Narrow-source forms
+reread the same source row for its lower and upper halves. Wide-source forms
+advance the `vs2` row every beat while the narrow source still selects the
+corresponding half. Each destination-width beat remains its own WB authorization
+and retry boundary without retained speculative operand state. Mask, `vstart`,
+tail, and empty-body behavior use the ordinary packed-element rules. Writes
+remain WB-authorized, and retry resumes at the oldest unauthorized half-row.
 
 ## Moves, merge, and mask logic
 

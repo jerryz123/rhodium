@@ -8,7 +8,7 @@ module simd_alu_tb;
   logic [1:0] permutation_select, count_select, widen_element_width, prepared_width;
   logic [2:0] result_select;
   logic subtract, signed_compare, maximum, shift_right, arithmetic_shift;
-  logic rotate, invert_right, widening, upper_half, widen_left_signed, widen_right_signed;
+  logic rotate, invert_right, widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed;
   logic [63:0] prepared_left, prepared_right;
   logic [7:0] prepared_enabled;
   logic [7:0] enabled, select_right, comparison, write_mask;
@@ -190,9 +190,9 @@ module simd_alu_tb;
     expected_enabled = 0; expected_write_mask = 0;
     for (int lane = 0; lane < lanes; lane++) begin
       source_lane = lane + (upper_half ? lanes : 0);
-      a = (left >> (source_lane * source_bits)) & source_mask;
+      a = widen_left_wide ? (left >> (lane * destination_bits)) & destination_mask : (left >> (source_lane * source_bits)) & source_mask;
       b = (right >> (source_lane * source_bits)) & source_mask;
-      extended_a = widen_left_signed && a[source_bits-1] ? a | ~source_mask : a;
+      extended_a = widen_left_wide ? a : widen_left_signed && a[source_bits-1] ? a | ~source_mask : a;
       extended_b = widen_right_signed && b[source_bits-1] ? b | ~source_mask : b;
       expected_left |= (extended_a & destination_mask) << (lane * destination_bits);
       expected_right |= (extended_b & destination_mask) << (lane * destination_bits);
@@ -232,7 +232,7 @@ module simd_alu_tb;
     arithmetic_shift = 0;
     rotate = 0;
     invert_right = 0;
-    widening = 0; widen_left_signed = 0; widen_right_signed = 0;
+    widening = 0; widen_left_wide = 0; widen_left_signed = 0; widen_right_signed = 0;
     upper_half = 0;
     widen_element_width = 0;
     permutation_select = 0;
@@ -307,8 +307,11 @@ module simd_alu_tb;
           left = 64'hfedcba9876543210;
           right = 64'h0101010101010101 * 64'(amount);
           enabled = 8'(amount);
-          for (int signedness = 0; signedness < 4; signedness++) begin
-            widen_left_signed = signedness[0]; widen_right_signed = signedness[1]; check_widen();
+          for (int source_form = 0; source_form < 2; source_form++) begin
+            widen_left_wide = source_form[0];
+            for (int signedness = 0; signedness < 4; signedness++) begin
+              widen_left_signed = signedness[0]; widen_right_signed = signedness[1]; check_widen();
+            end
           end
           enabled = '1;
           check_widen();
@@ -319,6 +322,7 @@ module simd_alu_tb;
       left = random_word(); right = random_word(); enabled = 8'(random_word());
       widen_element_width = 2'(random_word() % 3);
       upper_half = 1'(random_word());
+      widen_left_wide = 1'(random_word());
       widen_left_signed = 1'(random_word()); widen_right_signed = 1'(random_word());
       check_widen();
     end

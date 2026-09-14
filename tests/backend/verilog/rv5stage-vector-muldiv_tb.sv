@@ -146,13 +146,14 @@ module rv5stage_vector_muldiv_tb;
     endcase
   endfunction
   function automatic logic [63:0] widening_value(input int op, input int width, input logic [63:0] a, b);
-    logic [63:0] source_mask, destination_mask;
+    logic [63:0] source_mask, left_mask, destination_mask;
     logic signed [63:0] signed_a, signed_b;
     source_mask = '1 >> (64-width); destination_mask = '1 >> (64-2*width);
-    signed_a = $signed((a & source_mask) << (64-width)) >>> (64-width);
+    left_mask = op >= 'h34 ? destination_mask : source_mask;
+    signed_a = $signed((a & left_mask) << (64-(op >= 'h34 ? 2*width : width))) >>> (64-(op >= 'h34 ? 2*width : width));
     signed_b = $signed((b & source_mask) << (64-width)) >>> (64-width);
-    if (op[0]) return (op >= 'h32 ? signed_a-signed_b : signed_a+signed_b) & destination_mask;
-    return (op >= 'h32 ? (a & source_mask)-(b & source_mask) : (a & source_mask)+(b & source_mask)) & destination_mask;
+    if (op[0]) return (op[1] ? signed_a-signed_b : signed_a+signed_b) & destination_mask;
+    return (op[1] ? (a & left_mask)-(b & source_mask) : (a & left_mask)+(b & source_mask)) & destination_mask;
   endfunction
   function automatic logic [63:0] right_value(input int lane);
     case (lane % 8)
@@ -257,6 +258,24 @@ module rv5stage_vector_muldiv_tb;
           vstore(24,address,sew+1);
           for (int lane=0;lane<16;lane++)
             expect_store(address+(lane<<(sew+1)),widening_value(op,width,left_value(lane,sew),vx != 0 ? -64'd3 : right_value(lane)),sew+1);
+          address+=128;
+        end
+      end
+    end
+    // Wide-source widening reads vs2 at the destination EEW while retaining
+    // a narrow vector/scalar second operand and the ordinary WB beat schedule.
+    for (int sew = 0; sew < 3; sew++) begin
+      int wide_address;
+      width = 8 << sew; wide_address = 'h11000 + sew*256;
+      for (int lane = 0; lane < 16; lane++) memory_element(wide_address+(lane<<(sew+1)),left_value(lane,sew+1),sew+1);
+      vset(sew,16,2); vload(8,wide_address,sew+1); vload(16,'h10080+sew*256,sew);
+      for (int op = 'h34; op <= 'h37; op++) begin
+        for (int wx = 0; wx < 2; wx++) begin
+          li(5,-3);
+          vec(op,24,8,wx != 0 ? 5 : 16,0,wx != 0 ? 6 : 2);
+          vstore(24,address,sew+1);
+          for (int lane=0;lane<16;lane++)
+            expect_store(address+(lane<<(sew+1)),widening_value(op,width,left_value(lane,sew+1),wx != 0 ? -64'd3 : right_value(lane)),sew+1);
           address+=128;
         end
       end

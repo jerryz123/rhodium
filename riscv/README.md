@@ -46,8 +46,9 @@ Its geometry follows
 [`isa/v.rhm`](isa/v.rhm) provides an explicitly partial RVV 1.0 catalog:
 the three `vset*` forms, same-width integer add/sub, logic, shifts,
 comparisons, min/max, and ordinary unit-stride `vle8/16/32/64.v` and
-`vse8/16/32/64.v`. `VectorWideningAddSubtractInstructions` contains the
-narrow-source `vwaddu`, `vwadd`, `vwsubu`, and `vwsub` `.vv`/`.vx` forms.
+`vse8/16/32/64.v`. `VectorWideningAddSubtractInstructions` contains `vwaddu`,
+`vwadd`, `vwsubu`, and `vwsub` in both narrow-source `.vv`/`.vx` and
+wide-source `.wv`/`.wx` forms.
 `VectorFloatingPointInstructions` contains same-width
 `vfadd.vv`, `vfsub.vv`, and `vfmul.vv`, matching the canonical
 [riscv-opcodes OPFVV encodings](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_v).

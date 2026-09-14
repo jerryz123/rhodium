@@ -48,6 +48,11 @@ check:
   value(control(VWADD_VX), "right_signed") ~is 1
   value(field(control(VWSUBU_VV), "alu"), "subtract") ~is 1
   value(field(control(VWADD_VV), "alu"), "subtract") ~is 0
+  value(control(VWADDU_WV), "wide_vs2") ~is 1
+  value(control(VWADDU_WV), "left_signed") ~is 0
+  value(control(VWADD_WX), "right_signed") ~is 1
+  value(field(control(VWSUBU_WV), "alu"), "subtract") ~is 1
+  value(field(control(VWADD_WV), "alu"), "subtract") ~is 0
   value(field(control(VAND_VI), "alu"), "logic_select") ~is SimdLogicSelect.And.packed_value()
   value(field(control(VOR_VV), "alu"), "logic_select") ~is SimdLogicSelect.Or.packed_value()
   value(field(control(VXOR_VX), "alu"), "logic_select") ~is SimdLogicSelect.Xor.packed_value()

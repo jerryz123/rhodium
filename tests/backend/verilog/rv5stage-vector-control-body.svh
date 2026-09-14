@@ -10,7 +10,7 @@
   word_t writeback_value, mstatus;
   vector_state_t state;
   logic [1:0] configuration, operand;
-  logic mask_destination, invert_comparison, swap_operands, widening, left_signed, right_signed, subtract;
+  logic mask_destination, invert_comparison, swap_operands, widening, wide_vs2, left_signed, right_signed, subtract;
   integer checks = 0, retired = 0;
   RV5StageVectorControlFixture dut (.*);
   always #5 clock = ~clock;
@@ -190,6 +190,23 @@
     assert (!legal) else $fatal(1, "SEW64 widening accepted");
     test_vtype = 3; #1; // e8,m8 -> destination EMUL16
     assert (!legal) else $fatal(1, "widening destination exceeds EMUL8");
+    // Wide-source forms align vs2 to the doubled EMUL, permit vd=vs2, and
+    // retain the narrow source's high-part-only overlap rule.
+    test_vtype = 0;
+    instruction = 32'hd3012457; #1; // vwaddu.wv v8,v16,v2, unmasked
+    assert (decoded_valid && legal && widening && wide_vs2 && !left_signed && !right_signed && !subtract) else $fatal(1, "unsigned wide-source add decode");
+    instruction = 32'hde816457; #1; // vwsub.wx v8,v8,x2, unmasked; in-place wide source
+    assert (decoded_valid && legal && widening && wide_vs2 && left_signed && right_signed && subtract && operand == 1) else $fatal(1, "signed wide-source subtract decode");
+    instruction[24:20] = 9; #1;
+    assert (!legal) else $fatal(1, "wide source accepted unaligned doubled group");
+    instruction = 32'hde916457; #1; // vd=v8, vs2=v9 is not a doubled-group base
+    assert (!legal) else $fatal(1, "wide source accepted partial destination overlap");
+    instruction = 32'hd688a457; #1; // vwadd.wv v8,v8,v17; narrow source disjoint
+    assert (decoded_valid && legal && wide_vs2) else $fatal(1, "wide source in-place operation rejected");
+    instruction[19:15] = 8; #1;
+    assert (!legal) else $fatal(1, "wide-source form accepted low narrow-source overlap");
+    instruction[19:15] = 9; #1;
+    assert (legal) else $fatal(1, "wide-source form rejected high narrow-source overlap");
     test_vtype = 'h80; instruction = 32'h662180d7; #1;
     assert (decoded_valid && invert_comparison) else $fatal(1, "vmsne inversion");
     instruction = 32'h7a21c0d7; #1;
