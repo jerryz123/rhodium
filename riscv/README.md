@@ -62,6 +62,9 @@ contains the eight same-width sum, logic, and signed/unsigned min/max reductions
 `VectorMaskScanInstructions` contains `vcpop.m`, `vfirst.m`, the three first-bit
 mask generators, `viota.m`, and `vid.v`, with distinct scalar-query, unary-mask,
 and source-free index formats.
+`VectorSlideInstructions` contains `vslideup.vx/vi`, `vslidedown.vx/vi`,
+`vslide1up.vx`, and `vslide1down.vx`. Immediate offsets use the unsigned
+five-bit format; VX forms identify their scalar register source explicitly.
 `VectorMemoryInstructions` excludes segmented,
 fault-only-first, mask-register, and whole-register transfers. Vector operands use `RegisterBank.Vector`, with
 named vector register, mask-enable, vtype, and AVL fields. The catalog is not

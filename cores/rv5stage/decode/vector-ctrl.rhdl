@@ -49,6 +49,9 @@ bundle RV5StageVectorControl():
   reduction: Bool
   scan: Bool
   scan_control: VectorMaskScanControl()
+  slide: Bool
+  slide_up: Bool
+  slide_one: Bool
   uses_vs2: Bool
   invert_logic_result: Bool
   invert_comparison: Bool
@@ -90,6 +93,9 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~scan_index: scan_index :: Boolean = #false,
                  ~include_first: include_first :: Boolean = #false,
                  ~only_first: only_first :: Boolean = #false,
+                 ~slide: slide :: Boolean = #false,
+                 ~slide_up: slide_up :: Boolean = #false,
+                 ~slide_one: slide_one :: Boolean = #false,
                  ~uses_vs2: uses_vs2 :: Boolean = #true,
                  ~invert_logic: invert_logic :: Boolean = #false,
                  ~invert: invert :: Boolean = #false,
@@ -112,6 +118,9 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       scalar_destination: Bool(scalar_destination)
       reduction: Bool(reduction)
       scan: Bool(scan)
+      slide: Bool(slide)
+      slide_up: Bool(slide_up)
+      slide_one: Bool(slide_one)
       scan_control:
         VectorMaskScanControl():
           result: scan_result
@@ -158,6 +167,19 @@ def vsra_control = partial_pattern(SimdAluControl()):
   shift_right: Bool(#true)
   arithmetic_shift: Bool(#true)
   rotate: Bool(#false)
+def vslide_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Shift
+  shift_right: Bool(#true)
+  arithmetic_shift: Bool(#false)
+  rotate: Bool(#true)
+def VectorSlideCases = [
+  integer_case(VSLIDEUP_VX, vslide_control, ~slide: #true, ~slide_up: #true),
+  integer_case(VSLIDEUP_VI, vslide_control, ~slide: #true, ~slide_up: #true),
+  integer_case(VSLIDEDOWN_VX, vslide_control, ~slide: #true),
+  integer_case(VSLIDEDOWN_VI, vslide_control, ~slide: #true),
+  integer_case(VSLIDE1UP_VX, vslide_control, ~slide: #true, ~slide_up: #true, ~slide_one: #true),
+  integer_case(VSLIDE1DOWN_VX, vslide_control, ~slide: #true, ~slide_one: #true)
+]
 def vmseq_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Compare
   comparison_select: SimdComparisonSelect.Equal
@@ -351,7 +373,7 @@ def VectorMultiplyDivideCases = for List (instruction in VectorMultiplyDivideIns
       right_signed: Bool(signed_right)
       upper_result: Bool(![VMUL_VV, VMUL_VX, VDIV_VV, VDIV_VX, VDIVU_VV, VDIVU_VX].contains(instruction))
   )
-def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorMoveMergeCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
+def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorSlideCases ++ VectorMoveMergeCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
 
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
@@ -390,9 +412,11 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def scan_mask = control.scan_control.result === VectorScanResult.Mask
   def scan_overlap = mux(scan_mask, destination === source2, (source2 & !group_mask) === destination)
   def scan_legal = control.scalar_destination ||| ((!masked ||| destination.or_reduce()) & mux(scan_mask, destination =/= source2, destination_aligned & (control.scan_control.index ||| !scan_overlap)))
+  // Aligned equal-size groups overlap exactly when their base registers match.
+  def slide_overlap_legal = !control.slide ||| ((!control.slide_up ||| (destination =/= source2)) & (!masked ||| source2.or_reduce()))
   // Mask logic always names single registers, regardless of the data LMUL.
   def integer_legal = control.integer & mux(control.scan, scan_legal, control.element_move ||| mux(control.reduction, reduction_sources_legal, control.mask_logic ||| (
-    merge_sources_legal & (!control.uses_vs2 ||| source2_aligned) & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
+    slide_overlap_legal & merge_sources_legal & (!control.uses_vs2 ||| source2_aligned) & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
   )))
   def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())

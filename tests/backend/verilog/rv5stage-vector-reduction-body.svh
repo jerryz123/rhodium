@@ -1,4 +1,4 @@
-// Models reduction and mask scans independently, including WB retry, cancellation, and scalar results.
+// Models reductions, scans, and slides through public LSU readback, WB replay, and cancellation.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN+1), CHUNKS = VLEN/64;
   typedef struct packed { logic [4:0] address; logic [XLEN-1:0] data; } scalar_write_t;
@@ -152,6 +152,33 @@
       for(int r=0;r<groups;r++) check_reg(dest+r);
     end
   endtask
+  task automatic slide_case(input int form, sew, length, start, input bit masked,
+                            input int retry_at = -1, kill_after = -1, input bit inplace = 0);
+    logic [63:0] expected [0:8*CHUNKS-1];
+    logic [63:0] value, lane_mask;
+    int width, lanes, dest, source, group_elements, count, written, row, offset;
+    bit up, one;
+    up=form inside {0,1,4}; one=form>=4; dest=inplace ? 8 : 16; source=8;
+    width=8<<sew; lanes=64/width; group_elements=VLEN*8/width;
+    count=one ? 1 : 3; scalar=one ? XLEN'(-19) : XLEN'(count);
+    for(int c=0;c<8*CHUNKS;c++) expected[c]=model[dest+c/CHUNKS][c%CHUNKS];
+    for(int i=start;i<length;i++) begin
+      if (masked && element(0,i,1)==0) continue;
+      if (up && !one && i<count) continue;
+      if (one && i==(up ? 0 : length-1)) value=sext(64'(scalar),XLEN);
+      else if (!up && i+count>=group_elements) value=0;
+      else value=element(source,up ? i-count : i+count,width);
+      row=i*width/64; offset=i*width%64; lane_mask=('1>>(64-width))<<offset;
+      expected[row]=(expected[row]&~lane_mask)|((value<<offset)&lane_mask);
+    end
+    run(vec(up ? 14 : 15,dest,source,form inside {1,3} ? count : 3,one ? 6 : form inside {1,3} ? 3 : 4,masked),sew,3,length,start,retry_at,kill_after);
+    written=kill_after<0 ? length : (start/lanes+commit_count)*lanes;
+    for(int i=start;i<length && i<written;i++) begin
+      row=i*width/64; offset=i*width%64; lane_mask=('1>>(64-width))<<offset;
+      model[dest+row/CHUNKS][row%CHUNKS]=(model[dest+row/CHUNKS][row%CHUNKS]&~lane_mask)|(expected[row]&lane_mask);
+    end
+    for(int r=0;r<8;r++) check_reg(dest+r);
+  endtask
   initial begin
     logic [63:0] acc, mask, old;
     int width, length, dest;
@@ -237,6 +264,20 @@
       scan_case(6,sew,3,VLEN/(8<<sew)*8,7,1,1,-1,3);
       scan_case(6,sew,3,1,7,0,0,-1,5);
     end
-    $display("vector reductions/moves/scans XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
+    // Production private-pipeline authorization, including partial-prefix
+    // cancellation followed by a nonzero-vstart reissue over preserved state.
+    for(int sew=0;sew<4;sew++) begin
+      for(int form=0;form<6;form++) begin
+        bit down;
+        down=form inside {2,3,5}; length=VLEN>>sew;
+        slide_case(form,sew,length,0,0,1,-1,down);
+        slide_case(form,sew,length-1,1,1,0,-1,down);
+        slide_case(form,sew,length,0,1,-1,1,down);
+        slide_case(form,sew,length,8>>sew,1,0,-1,down);
+        slide_case(form,sew,0,0,1,0);
+        slide_case(form,sew,1,0,0,0);
+      end
+    end
+    $display("vector reductions/moves/scans/slides XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
     $finish;
   end

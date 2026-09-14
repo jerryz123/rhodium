@@ -281,6 +281,28 @@
         end
       end
     end
+    // Slide-up groups may not overlap; down may be in-place. Scalar/unsigned
+    // immediate fields are never subject to vector source-group alignment.
+    for(int sew=0;sew<4;sew++) begin
+      for(int lm=-3;lm<=3;lm++) begin
+        for(int form=0;form<6;form++) begin
+          for(int dest=0;dest<32;dest++) begin
+            for(int source=0;source<32;source++) begin
+              for(int masked=0;masked<2;masked++) begin
+                int group, mode;
+                bit up, expected;
+                group=lm>0 ? 1<<lm : 1; up=form inside {0,1,4}; mode=form>=4 ? 6 : form inside {1,3} ? 3 : 4;
+                test_vtype=(word_t'(sew)<<3)|(word_t'(lm)&7);
+                instruction={6'(up ? 14 : 15),1'(masked==0),5'(source),5'd3,3'(mode),5'(dest),7'h57}; #1;
+                expected=sew<=lm+3 && dest%group==0 && source%group==0 && (!up || dest!=source) && (masked==0 || (dest!=0 && source!=0));
+                assert(decoded_valid && legal==expected) else $fatal(1,"slide legality form%0d dest%0d src%0d sew%0d lm%0d masked%0d",form,dest,source,sew,lm,masked);
+                checks++;
+              end
+            end
+          end
+        end
+      end
+    end
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

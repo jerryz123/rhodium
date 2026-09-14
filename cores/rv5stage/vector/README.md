@@ -184,6 +184,32 @@ Cancellation preserves authorized prefix writes while suppressing future writes
 and unfinished scalar answers. Index needs no carry dependency and retains the
 ordinary packed issue schedule. The bank remains 3R1W, and V remains unadvertised.
 
+## Packed integer slides
+
+The experimental RV32/RV64 path supports `vslideup.vx/vi`,
+`vslidedown.vx/vi`, `vslide1up.vx`, and `vslide1down.vx` at every supported
+SEW/LMUL. Ordinary slide offsets are unsigned XLEN values or unsigned five-bit
+immediates, not SEW-truncated shift amounts. Slide1 inserts a scalar at element
+zero or VL-1, sign-extending it when SEW exceeds XLEN.
+
+Upward slides preserve elements below the offset and require disjoint source
+and destination groups, including at VL zero. Downward slides permit in-place
+execution and read source elements up to VLMAX, even beyond VL; out-of-range
+source elements produce zero. Masking applies to destination elements. A masked
+slide cannot use v0 as either its data source or destination. Pre-vstart,
+inactive, and tail elements are preserved; an empty body performs no write.
+These rules follow the [RVV slide specification](https://github.com/riscv/riscv-v-spec/blob/master/v-spec.adoc#vector-slide-instructions).
+
+Slides read two adjacent source chunks and one mask word through the existing
+3R1W bank. Byte muxes form one input for the SIMD ALU's existing 64-bit rotate
+slot; no separate slide barrel shifter or full-vector crossbar is instantiated.
+The rotation operates as E64 while write enables retain architectural SEW.
+The packed schedule supplies 8/4/2/1 elements per beat, with one result per
+cycle in an unstalled stream after setup. WB alone authorizes writes. Retry
+resumes at the authorized destination frontier, and cancellation suppresses
+only speculative writes. FP scalar-insertion slides remain outside this cut;
+V remains unadvertised.
+
 ## Shared integer multiply/divide
 
 RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,

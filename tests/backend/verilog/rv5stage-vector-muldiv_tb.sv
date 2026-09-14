@@ -1,4 +1,4 @@
-// Checks shared mul-div, moves, masks, and reductions through architectural memory signatures.
+// Checks shared mul-div, moves, masks, reductions, and slides through architectural memory signatures.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_vector_muldiv_tb;
@@ -381,6 +381,38 @@ module rv5stage_vector_muldiv_tb;
         signature('h008,address,0); address+=8;
       end
     end
+    // Slides use captured scalar operands and survive scalar-LSU backpressure.
+    // Initialize beyond VL so slidedown must read source elements past VL.
+    for(int sew=0;sew<4;sew++) begin
+      for(int form=0;form<6;form++) begin
+        int dest, mode;
+        bit up, one, masked;
+        logic [63:0] value;
+        up=form inside {0,1,4}; one=form>=4; masked=form[0];
+        dest=up ? 16 : 8; mode=one ? 6 : form inside {1,3} ? 3 : 4;
+        width=8<<sew; mask='1>>(64-width);
+        vset(sew,16,3); vload(8,'h10000+sew*256,sew); vload(16,'h10080+sew*256,sew);
+        vec(30,0,8,0,0,3); // vmsgtu.vi v0,v8,0
+        vset(sew,13,3);
+        li(5,one ? -19 : 3);
+        if(mode==4) begin li(5,1); li(6,3); emit('h026282b3); end // deferred scalar producer
+        emit('h0080d073); // vstart=1 preserves the first destination element
+        vec(up ? 14 : 15,dest,8,mode==3 ? 3 : 5,masked,mode);
+        emit('h00000463); vec(15,dest,8,5,0,4); // squashed slide must preserve the observed destination
+        signature('h008,address,0); address+=8;
+        vset(sew,16,3); vstore(dest,address,sew);
+        for(int i=0;i<16;i++) begin
+          value=up ? right_value(i) : left_value(i,sew);
+          if(i>=1 && i<13 && (!masked || (left_value(i,sew)&mask)!=0) && (!up || one || i>=3)) begin
+            if(one && i==(up ? 0 : 12)) value=-64'd19;
+            else value=left_value(up ? i-(one ? 1 : 3) : i+(one ? 1 : 3),sew);
+          end
+          expect_store(address+(i<<sew),value&mask,sew);
+        end
+        address+=128;
+      end
+      vset(sew,0,3); vec(14,8,8,0,0,4); expect_store('h2fff0,2,3); // reserved overlap even with VL=0
+    end
     assert(pc < 'hff00/4) else $fatal(1,"program exceeds ROM");
     pc='hff00/4;
     emit('h342021f3); li(10,'h2fff0); emit('h00353023);
@@ -430,7 +462,7 @@ module rv5stage_vector_muldiv_tb;
             else $fatal(1, "signature %0d address %h value %h expected %h", stores, data_access_out.request.bits.address, data_access_out.request.bits.data, expected_data[stores]);
           stores <= stores + 1;
           if (stores + 1 == expected_count) begin
-            $display("rv5stage shared muldiv, vector moves/masks/reductions passed: %0d stores, %0d cycles", expected_count, cycles);
+            $display("rv5stage shared muldiv, vector moves/masks/reductions/slides passed: %0d stores, %0d cycles", expected_count, cycles);
             $finish;
           end
         end

@@ -9,6 +9,14 @@ import:
   "../model/main.rhm" as model
 
 check:
+  VSLIDEUP_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x3a21c0d7
+  VSLIDEUP_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(0)], ~immediate: 31) ~is 0x382fb0d7
+  VSLIDEDOWN_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(0)]) ~is 0x3c21c0d7
+  VSLIDEDOWN_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0x3e2fb0d7
+  VSLIDE1UP_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x3a21e0d7
+  VSLIDE1DOWN_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x3e21e0d7
+  VSLIDEUP_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~throws ""
+  VSLIDEDOWN_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 32) ~throws ""
   VCPOP_M.encode([model.rd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x422820d7
   VFIRST_M.encode([model.rd.constrain(1), vs2.constrain(2), vm.constrain(0)]) ~is 0x4028a0d7
   VMSBF_M.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x5220a0d7

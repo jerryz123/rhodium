@@ -17,7 +17,8 @@
   logic [63:0] memory [DEPTH], snapshot [DEPTH];
   logic [63:0] rng = 64'h713bfd9167c282c9;
   int tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2;
-  logic [63:0] tx_scalar;
+  logic [63:0] tx_scalar, tx_distance;
+  int tx_vlmax;
   bit tx_masked, tx_compare, tx_mask_logic, tx_dense, checking;
   int tx_beats;
   int checks = 0, macros = 0, retries = 0, cycles = 0, last_commit_cycle, consecutive = 0;
@@ -54,6 +55,7 @@
         for (int lane = 0; lane < tx_lanes; lane++) begin
           position = first + lane;
           enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || snapshot[position / 64][position % 64]);
+          if (tx_opcode == 14 && tx_mode != 6 && 64'(position) < tx_distance) enabled = 0;
           if (enabled) begin
             a = element(tx_vs2, position, tx_width);
             b = tx_mode == 0 || tx_mask_logic ? element(tx_vs1, position, tx_width) : broadcast_value & lane_mask;
@@ -79,6 +81,12 @@
               9: value = a & b;
               10: value = a | b;
               11: value = a ^ b;
+              14: value = tx_mode == 6 && position == 0 ? broadcast_value : element(tx_vs2,position-int'(tx_distance),tx_width);
+              15: begin
+                if (tx_mode == 6 && position == tx_vl-1) value = broadcast_value;
+                else if (tx_distance >= 64'(tx_vlmax) || 64'(position) >= 64'(tx_vlmax)-tx_distance) value = 0;
+                else value = element(tx_vs2,position+int'(tx_distance),tx_width);
+              end
               23: value = !tx_masked || snapshot[position / 64][position % 64] ? b : a;
               24: value = 64'(a == b);
               25: value = 64'(a != b);
@@ -132,6 +140,8 @@
     tx_masked = masked_op; tx_compare = !tx_mask_logic && op >= 24 && op <= 31;
     tx_dense = !random_stalls && !inject_retry; tx_beats = 0;
     tx_scalar = XLEN == 32 ? {{32{scalar[31]}}, scalar[31:0]} : 64'(scalar);
+    tx_distance = mode == 6 ? 1 : mode == 3 ? 64'(source1) : 64'(scalar);
+    tx_vlmax = lmul < 4 ? (VLEN / (8 << sew)) << lmul : (VLEN / (8 << sew)) >> (8-lmul);
     for (int row = 0; row < DEPTH; row++) snapshot[row] = memory[row];
     instruction = (32'(op) << 26) | (32'(!masked_op) << 25) | (32'(source2) << 20) | (32'(source1) << 15) | (32'(mode) << 12) | (32'(destination) << 7) | 32'h57;
     vtype = (XLEN'(sew) << 3) | XLEN'(lmul); vl = XLEN'(count); vstart = XLEN'(start);
@@ -140,7 +150,7 @@
     #1; assert (request_ready && legal) else $fatal(1, "illegal test instruction %h vtype %h", instruction, vtype);
     tick(); request_valid = 0;
     // Mutate live inputs immediately: all execution must use the captured descriptor.
-    instruction = 0; vtype = 0; vl = 0; vstart = 0;
+    instruction = 0; vtype = 0; vl = 0; vstart = 0; scalar = ~scalar;
     timeout = 0;
     while (active || checking) begin
       issue_ready = !random_stalls || (random_word() % 4 != 0);
@@ -217,6 +227,48 @@
       run_macro(sew, 0, 1, 7, 23, 4, 8, 3, 8, 1);
       run_macro(sew, 0, 0, 7, 31, 2, 0, 5, 7, 0);
     end
+    // Slides read across chunks/groups while rotating through the same E64
+    // SIMD slot. Golden values come from the original architectural snapshot.
+    for (int sew=0;sew<4;sew++) begin
+      for (int lm=0;lm<8;lm++) begin
+        int maximum, lanes;
+        if (lm==4 || (lm>=5 && sew>lm-5)) continue;
+        maximum=lm<4 ? (VLEN/(8<<sew))<<lm : (VLEN/(8<<sew))>>(8-lm);
+        lanes=8>>sew;
+        for (int form=0;form<6;form++) begin
+          int op, mode, dest;
+          op=form inside {0,1,4} ? 14 : 15;
+          mode=form>=4 ? 6 : form inside {1,3} ? 3 : 4;
+          for (int scenario=0;scenario<12;scenario++) begin
+            int amount, length, start;
+            bit masked;
+            amount=scenario<8 ? scenario : scenario==8 ? 31 : scenario==9 ? maximum-1 : scenario==10 ? maximum : maximum+1;
+            scalar=mode==6 ? XLEN'(-17) : XLEN'(amount);
+            dest=op==15 && scenario[0] ? 8 : 24;
+            length=scenario==2 ? 0 : scenario==3 ? 1 : scenario==4 ? maximum-1 : maximum;
+            start=scenario==5 ? 1 : scenario==6 ? lanes-1 : scenario==7 ? length : 0;
+            masked=scenario[0];
+            run_macro(sew,lm,length,start,op,mode,dest,mode==3 ? amount&31 : 3,8,masked,0,scenario!=0);
+          end
+          // Bit 8 and the XLEN sign bit must not truncate to SEW or an address.
+          if (mode==4) begin
+            scalar=XLEN'(256); run_macro(sew,lm,maximum,0,op,mode,24,3,8,0);
+            scalar=XLEN'(1)<<(XLEN-1); run_macro(sew,lm,maximum,0,op,mode,24,3,8,0);
+            scalar='1; run_macro(sew,lm,maximum,0,op,mode,24,3,8,0);
+          end
+          // Read-before-write ordering preserves an in-place downward suffix
+          // when the first partial chunk or a later chunk must be reread.
+          if (maximum>lanes) begin
+            scalar=mode==6 ? XLEN'(-37) : 1;
+            run_macro(sew,lm,maximum,lanes>1 ? 1 : 0,op,mode,op==15 ? 8 : 24,1,8,1,1,1,0);
+            scalar=mode==6 ? XLEN'(-37) : 1;
+            run_macro(sew,lm,maximum,lanes>1 ? 1 : 0,op,mode,op==15 ? 8 : 24,1,8,1,1,1,lanes);
+          end
+          scalar=mode==6 ? XLEN'(-17) : 3;
+          run_macro(sew,lm,maximum,0,op,mode,op==15 ? 8 : 24,3,8,0,0,0);
+        end
+      end
+    end
     // Retry after an authorized in-place prefix and in its first partial row.
     for (int ones = 0; ones < 2; ones++) begin
       for (int row = 0; row < VLEN / 64; row++) begin
@@ -225,6 +277,10 @@
       end
       initialize_in.valid = 0;
       run_macro(0,3,VLEN,0,23,0,8,16,8,1,0,0);
+      scalar=1; run_macro(0,3,VLEN,0,14,4,24,3,8,1,0,0);
+      scalar=1; run_macro(0,3,VLEN,0,15,4,8,3,8,1,0,0);
+      scalar=XLEN'(-17); run_macro(0,3,VLEN,0,14,6,24,3,8,1,0,0);
+      scalar=XLEN'(-17); run_macro(0,3,VLEN,0,15,6,8,3,8,1,0,0);
     end
     run_macro(0, 3, VLEN - 1, 3, 27, 2, 3, 5, 3, 0, 1, 1, 64);
     run_macro(0, 3, VLEN - 1, 3, 23, 0, 8, 16, 8, 1, 1, 1, 8);
@@ -239,9 +295,9 @@
     assert (consecutive >= VLEN / 8 - 1 && retries > 0) else $fatal(1, "missing throughput/retry coverage");
     // Cancel at read, buffered-offer, and pre-WB boundaries. No killed token
     // may update the bank or be mistaken for the next macro's response.
-    for (int family = 0; family < 4; family++) begin
+    for (int family = 0; family < 6; family++) begin
       for (int delay = 0; delay < 4; delay++) begin
-      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : 32'h6e72a1d7;
+      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : family == 3 ? 32'h6e72a1d7 : family == 4 ? 32'h3a81cc57 : 32'h3e81e457;
       vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
       request_valid = 1; issue_ready = delay == 3; tick(); request_valid = 0;
       repeat (delay) tick(); cancel = 1; tick(); cancel = 0;

@@ -17,6 +17,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def Address = Bits(index_width(vector_depth(vlen)))
   def Count = Bits(index_width(vlen + 1))
   def MicroOp = RV5StageVectorMicroOp(vlen, Context)
+  bundle ReadContext():
+    beat: RV5StageVectorBeat(vlen)
+    slide_valid: Bits(16)
   interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
   interface cancel(Pulse(), ~role: consumer)
   interface feedback(Valid(RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
@@ -33,7 +36,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   reg all_issued(~init: Bool(#false))
   // Credits cover both the unbackpressurable read response and the output FIFO.
   reg reserved(~init: bits(0, 2))
-  inst context_pipe(ValidPipe(RV5StageVectorBeat(vlen), 1, ~flushable: #true))
+  inst context_pipe(ValidPipe(ReadContext(), 1, ~flushable: #true))
   inst pending(ShiftQueue(MicroOp, 2, ~pipe: #true, ~flushable: #true))
   inst packing(RV5StageVectorOperands(vlen))
   def descriptor = instruction.descriptor
@@ -43,6 +46,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def reduction = descriptor.control.integer & descriptor.control.reduction
   def scan = descriptor.control.integer & descriptor.control.scan
   def scan_word = scan & (descriptor.control.scan_control.result =/= VectorScanResult.Elements)
+  def slide = descriptor.control.integer & descriptor.control.slide
   def singleton = descriptor.control.memory ||| descriptor.control.floating_point ||| descriptor.control.multiply_divide ||| element_move ||| reduction
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
   def mask_word = mask_logic ||| scan_word
@@ -63,9 +67,24 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def launch = occupied & !all_issued & !clear & ((reserved < bits(2, 2)) ||| issue.fire())
   def source_chunk = mux(mask_logic ||| scan, cursor >> 6, cursor >> (bits(3, 2) - sew))
   def row_base_width = index_width(vector_depth(vlen))
+  // Whole-element displacement stays at XLEN until bounds are checked. Extra
+  // bits retain both unsigned overflow and the negative slide-up prefix.
+  def slide_distance = mux(descriptor.control.slide_one, bits(1, xlen.width), mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(xlen.width), descriptor.scalar))
+  def slide_delta = mux(descriptor.control.slide_up, -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
+  def slide_origin = cursor.zext(xlen.width + 2) + slide_delta
+  def slide_chunk = slide_origin >> (bits(3, 2) - sew)
+  def slide_first = slide_origin & !(bits(7, xlen.width + 2) >> sew)
+  // Every destination cursor is chunk-aligned, including a restarted chunk,
+  // so this byte offset is constant throughout the retained macro.
+  def slide_offset = (slide_delta[0..3] << sew)
+  def slide_valid = vec(for List (byte in 0..16):
+                          def element = slide_first + (bits(byte, xlen.width + 2) >> sew)
+                          element < geometry.vlmax.zext(xlen.width + 2)).as_bits()
+  def slide_base = descriptor.vs2.zext(row_base_width) << index_width(vector_chunks(vlen))
+  def slide_address = slide_base + slide_chunk[0..row_base_width]
   def addresses = Array(
-    (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width],
-    (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), source_chunk[0..row_base_width]),
+    mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + source_chunk[0..row_base_width]),
+    mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), source_chunk[0..row_base_width])),
     (cursor >> 6)[0..row_base_width]
   )
   for (index in 0..3):
@@ -73,7 +92,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     reads[index].bits <== addresses[index]
   context_pipe.flush <== clear
   context_pipe.ingress.valid <== launch
-  context_pipe.ingress.bits <== RV5StageVectorBeat(vlen):
+  context_pipe.ingress.bits.slide_valid <== slide_valid
+  context_pipe.ingress.bits.beat <== RV5StageVectorBeat(vlen):
     first: cursor
     end: end
     last: end === limit
@@ -89,9 +109,10 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     control: descriptor.control
     destination: descriptor.vd
   def response = context_pipe.egress
+  def read_beat = response.bits.beat
   packing.control <== VectorPackingControl(vlen):
-    element_width: response.bits.element_width
-    first_element: response.bits.first
+    element_width: read_beat.element_width
+    first_element: read_beat.first
     vl: limit
     vstart: minimum
     vlmax: geometry.vlmax
@@ -105,16 +126,29 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   packing.mask_word <== results[2].bits
   packing.scalar <== if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.into(SInt(32)).sext(64).into(Bits(64))
   packing.immediate <== descriptor.vs1
-  def memory_shift = ((response.bits.first[0..3] << sew) ++ bits(0, 3))
-  def memory_enabled = !response.bits.empty & (!descriptor.masked ||| (results[2].bits >> response.bits.first[0..6])[0].into(Bool))
-  def operands = response.bits.updated(
-    ~left: mux(scan, results[0].bits >> response.bits.first[0..6], mux(singleton, results[0].bits >> memory_shift, packing.operands.left)),
-    ~right: mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)),
-    ~select_right: mux(mask_select, (results[2].bits >> response.bits.first[0..6])[0..8], !bits(0, 8)).into(Mask(8)),
-    ~mask_enabled: response.bits.mask_enabled & mux(scan & descriptor.masked, results[2].bits >> response.bits.first[0..6], !bits(0, 64)),
+  // Premerge bytes before the ALU's existing E64 rotate-right. Scalar insert
+  // bytes keep their element-local position because the offset is SEW-aligned.
+  def slide_source = vec(for List (byte in 0..8):
+                           def high = bits(byte, 3) < slide_offset
+                           def valid = mux(high, response.bits.slide_valid[byte + 8], response.bits.slide_valid[byte]).into(Bool)
+                           def source = mux(valid, mux(high, results[1].bits[byte * 8..byte * 8 + 8], results[0].bits[byte * 8..byte * 8 + 8]), bits(0, 8))
+                           def destination_byte = bits(byte, 3) - slide_offset
+                           def destination_element = read_beat.first + (destination_byte >> sew).zext(index_width(vlen + 1))
+                           def insert = descriptor.control.slide_one & (destination_element === mux(descriptor.control.slide_up, bits(0, index_width(vlen + 1)), limit - bits(1, index_width(vlen + 1))))
+                           def scalar_byte = mux_lookup(sew, ~default: packing.scalar[0..8], for List (format in 1..4): [format, packing.scalar[(byte mod (2 ** format)) * 8..(byte mod (2 ** format)) * 8 + 8]])
+                           mux(insert, scalar_byte, source)).as_bits()
+  def slide_enabled = vec(for List (lane in 0..8):
+                            !descriptor.control.slide_up ||| descriptor.control.slide_one ||| ((read_beat.first.zext(xlen.width + 2) + bits(lane, xlen.width + 2)) >= slide_distance.zext(xlen.width + 2))).as_bits()
+  def memory_shift = ((read_beat.first[0..3] << sew) ++ bits(0, 3))
+  def memory_enabled = !read_beat.empty & (!descriptor.masked ||| (results[2].bits >> read_beat.first[0..6])[0].into(Bool))
+  def operands = read_beat.updated(
+    ~left: mux(slide, slide_source, mux(scan, results[0].bits >> read_beat.first[0..6], mux(singleton, results[0].bits >> memory_shift, packing.operands.left))),
+    ~right: mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right))),
+    ~select_right: mux(mask_select, (results[2].bits >> read_beat.first[0..6])[0..8], !bits(0, 8)).into(Mask(8)),
+    ~mask_enabled: read_beat.mask_enabled & mux(scan & descriptor.masked, results[2].bits >> read_beat.first[0..6], !bits(0, 64)),
     // One physical 64-bit logic lane computes the word; mask_enabled controls
     // its 64 independently writable architectural elements at the result port.
-    ~enabled: mux(mask_logic, response.bits.mask_enabled.or_reduce().as_bits().zext(8).into(Mask(8)), mux(singleton, memory_enabled.as_bits().zext(8).into(Mask(8)), mux(response.bits.empty, bits(0, 8).into(Mask(8)), packing.operands.enabled)))
+    ~enabled: mux(mask_logic, read_beat.mask_enabled.or_reduce().as_bits().zext(8).into(Mask(8)), mux(singleton, memory_enabled.as_bits().zext(8).into(Mask(8)), (mux(read_beat.empty, bits(0, 8), packing.operands.enabled.as_bits()) & mux(slide, slide_enabled, !bits(0, 8))).into(Mask(8))))
   )
   pending.flush <== clear
   pending.ingress.valid <== response.valid & !clear
@@ -127,8 +161,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def authorized_event = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Authorized)
   when (response.valid & !clear):
     assert(pending.ingress.ready, "vector_read_has_reserved_output_slot")
-    assert(response.bits.empty ||| (results[0].valid & results[1].valid & results[2].valid), "vector_read_context_matches_all_ports")
-    assert(singleton ||| mask_word ||| response.bits.empty ||| packing.legal, "vector_packed_read_is_legal")
+    assert(read_beat.empty ||| (results[0].valid & results[1].valid & results[2].valid), "vector_read_context_matches_all_ports")
+    assert(singleton ||| mask_word ||| read_beat.empty ||| packing.legal, "vector_packed_read_is_legal")
   when (feedback.valid & !cancel.valid):
     assert(occupied, "vector_feedback_has_active_macro")
     assert(feedback.bits.context === descriptor.pc, "vector_feedback_matches_active_macro")

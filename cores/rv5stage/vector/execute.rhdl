@@ -20,6 +20,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def reduction = beat.control.integer & beat.control.reduction
   def element_move = beat.control.integer & beat.control.element_move
   def scanning = beat.control.integer & beat.control.scan
+  def sliding = beat.control.integer & beat.control.slide
   def scalar_destination = beat.control.integer & beat.control.scalar_destination & (element_move ||| (scanning & beat.last))
   scan.source <== beat.left
   scan.enabled <== beat.mask_enabled
@@ -30,15 +31,19 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   alu.left <== mux(beat.control.swap_operands, beat.right, beat.left)
   alu.right <== mux(beat.control.swap_operands, beat.left, beat.right)
   alu.control <== beat.control.alu
-  alu.element_width <== beat.element_width
-  alu.enabled <== mux(reduction, bits(1, 8).into(Mask(8)), beat.enabled)
+  // Slides premerge adjacent chunks into one rotate source. Only the existing
+  // 64-bit shift slot executes; destination SEW/masks remain with packing.
+  alu.element_width <== mux(sliding, SimdElementWidth.E64, beat.element_width)
+  alu.enabled <== mux(reduction ||| sliding, bits(1, 8).into(Mask(8)), beat.enabled)
   alu.select_right <== beat.select_right
   packing.destination <== beat.destination
   packing.first_element <== beat.first
   packing.element_width <== beat.element_width
   packing.mask_destination <== beat.control.mask_destination
   packing.enabled <== beat.enabled
-  packing.result <== alu.result.updated(~data: mux(scanning, scan.data, alu.result.data), ~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
+  def slide_bytes = vec(for List (byte in 0..8):
+                          mux_lookup(beat.element_width, ~default: beat.enabled[byte], for List (format in 1..4): [SimdElementWidth.values()[format], beat.enabled[byte div (2 ** format)]])).as_bits().into(Mask(8))
+  packing.result <== alu.result.updated(~data: mux(scanning, scan.data, alu.result.data), ~write_mask: mux(sliding, slide_bytes, alu.result.write_mask), ~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
   def scan_write = packing.write.updated(~data: scan.data, ~mask: mux(beat.control.scalar_destination, bits(0, 64), mux(beat.control.mask_destination, beat.mask_enabled, mux(beat.empty, bits(0, 64), packing.write.mask))))
   def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide
   // Mask logical operands are already packed one bit per element. Reuse the

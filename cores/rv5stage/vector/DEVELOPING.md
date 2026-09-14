@@ -135,6 +135,34 @@ WAW interlocks, x0, squash, empty-body moves, and illegal reduction `vstart`.
 Keep the existing unroller, control, scalar-core, and shared-FP fixtures when
 changing their common result/decode payloads.
 
+Slides retain destination-order progress while selecting source chunks from
+the signed displacement in `unroller.rhdl`. Keep full XLEN offset information
+until source bounds are checked; never wrap a large offset into VRF address
+bits. Per-byte validity handles both negative upward prefixes and fractional
+groups smaller than a physical row. Read context retains those bounds alongside
+the beat. The low byte offset depends only on the retained displacement because
+every issue/retry cursor is destination-chunk-aligned.
+
+Preselect the lower chunk's high bytes and upper chunk's low bytes, then use
+the existing SIMD E64 rotate-right path in `execute.rhdl`. Slide1 insertion
+happens before rotation: SEW-aligned displacement preserves each byte's
+element-local scalar position. Decode selects shift/rotate controls directly.
+Override the ALU's physical E64 write mask with byte enables derived from the
+architectural SEW, without changing ordinary SIMD shift behavior.
+Increasing destination order makes legal in-place downward slides replay-safe:
+committed writes cannot overwrite any later beat's needed source elements.
+Upward overlap rejection belongs in decode.
+
+The unroller fixtures compare slide writes against an architectural snapshot
+across all supported SEW/LMUL geometries, offsets, masks, partial chunks,
+in-place downward execution, stalls, initial/midstream replay, and cancellation.
+They require consecutive WB beats on dense slide streams. Reduction fixtures
+also exercise slides through the production vector pipeline, with public LSU
+initialization/readback and partial cancellation followed by restart. The core
+muldiv fixture covers scalar producers, nonzero vstart, branch squash, source
+reads beyond VL, and reserved overlap. Run the RV32/RV64 control fixtures for
+group/source/mask legality and the shared-FP fixture for common unroller changes.
+
 `packing.rhdl` handles runtime SEW, broadcasting, lane enables, widening halves,
 and destination packing. Global element position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`
