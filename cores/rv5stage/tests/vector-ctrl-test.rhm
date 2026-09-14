@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks vector control values, inactive-field care masks, and unroller payload widths.
+// Checks vector controls including rounding/clipping, inactive care masks, and payload widths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -60,6 +60,14 @@ check:
   value(field(control(VNSRL_WI), "alu"), "shift_right") ~is 1
   value(field(control(VNSRL_WI), "alu"), "arithmetic_shift") ~is 0
   value(field(control(VNSRA_WX), "alu"), "arithmetic_shift") ~is 1
+  value(control(VSSRL_VV), "rounding") ~is 1
+  value(control(VSSRL_VV), "narrowing") ~is 0
+  value(field(control(VSSRA_VI), "alu"), "arithmetic_shift") ~is 1
+  value(control(VNCLIPU_WV), "rounding") ~is 1
+  value(control(VNCLIPU_WV), "narrowing") ~is 1
+  value(control(VNCLIPU_WV), "clip") ~is 1
+  value(control(VNCLIPU_WV), "clip_unsigned") ~is 1
+  value(control(VNCLIP_WX), "clip_unsigned") ~is 0
   value(field(control(VAND_VI), "alu"), "logic_select") ~is SimdLogicSelect.And.packed_value()
   value(field(control(VOR_VV), "alu"), "logic_select") ~is SimdLogicSelect.Or.packed_value()
   value(field(control(VXOR_VX), "alu"), "logic_select") ~is SimdLogicSelect.Xor.packed_value()

@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes real decode, VRF reads, packed execution, and a cancelable three-stage WB test boundary.
+// Composes decode, captured vxrm, VRF reads, packed execution, and a cancelable WB test boundary.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,6 +17,7 @@ import:
 sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
   input instruction: Bits(32)
   input(vtype, vl, vstart, scalar): Bits(xlen.width)
+  input vxrm: Bits(2)
   input(request_valid, issue_ready, cancel, retry_enable): Bool
   input retry_first: Bits(index_width(vlen + 1))
   interface initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
@@ -45,7 +46,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
             vl: vl
             vtype: vtype
             vstart: vstart
-            vxrm: bits(0, 2)
+            vxrm: vxrm
             vxsat: Bool(#false)
         control: decode.control.vector
         scalar: scalar

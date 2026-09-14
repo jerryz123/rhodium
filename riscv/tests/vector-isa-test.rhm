@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks independent RVV opcode words, operand formats, CSR IDs, and all vtype encodings.
+// Checks RVV opcode words including fixed-point forms, operand formats, CSR IDs, and vtype.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -84,10 +84,24 @@ check:
   VNSRA_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xb62180d7
   VNSRA_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xb621c0d7
   VNSRA_WI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0xb62fb0d7
+  VSSRL_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xaa2180d7
+  VSSRL_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xaa21c0d7
+  VSSRL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0xaa2fb0d7
+  VSSRA_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xae2180d7
+  VSSRA_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xae21c0d7
+  VSSRA_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0xae2fb0d7
+  VNCLIPU_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xba2180d7
+  VNCLIPU_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xba21c0d7
+  VNCLIPU_WI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0xba2fb0d7
+  VNCLIP_WV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xbe2180d7
+  VNCLIP_WX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xbe21c0d7
+  VNCLIP_WI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0xbe2fb0d7
   VADD_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~is 0x022fb0d7
   VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0x962fb0d7
   VSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~throws ""
   VNSRL_WI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 32) ~throws ""
+  VSSRL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 32) ~throws ""
+  VNCLIP_WI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 32) ~throws ""
   VLE8_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x02010087
   VLE16_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x02015087
   VSE64_V.encode([vs3.constrain(3), model.rs1.constrain(2), vm.constrain(0)]) ~is 0x000171a7

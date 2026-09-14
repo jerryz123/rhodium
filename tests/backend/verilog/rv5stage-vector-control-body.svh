@@ -1,16 +1,16 @@
-// Exercises committed vector configuration, WARL CSR state, privilege gating, and decode legality.
+// Exercises vector configuration, sticky saturation state, privilege gating, and decode legality.
 // SPDX-License-Identifier: Apache-2.0
   typedef logic [XLEN-1:0] word_t;
   typedef struct packed { word_t vl, vtype, vstart; logic [1:0] vxrm; logic vxsat; } vector_state_t;
   logic clock = 0, reset = 1;
   logic [31:0] instruction = 0;
   word_t scalar1 = 0, scalar2 = 0, test_vtype = 0;
-  logic commit_valid = 0, exception_valid = 0;
+  logic commit_valid = 0, exception_valid = 0, saturate = 0;
   logic decoded_valid, legal, writeback_valid, redirect_valid;
   word_t writeback_value, mstatus;
   vector_state_t state;
   logic [1:0] configuration, operand;
-  logic mask_destination, invert_comparison, swap_operands, widening, narrowing, wide_vs2, left_signed, right_signed, subtract;
+  logic mask_destination, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract;
   integer checks = 0, retired = 0;
   RV5StageVectorControlFixture dut (.*);
   always #5 clock = ~clock;
@@ -35,10 +35,10 @@
 
   task automatic send(input logic [31:0] word, input word_t a, input word_t b,
                       input bit trap_expected, input bit wb_expected, input word_t expected_value,
-                      input bit explicit_fault = 0);
+                      input bit explicit_fault = 0, saturate_event = 0);
     @(negedge clock);
     instruction = word; scalar1 = a; scalar2 = b;
-    exception_valid = explicit_fault; commit_valid = 1;
+    exception_valid = explicit_fault; saturate = saturate_event; commit_valid = 1;
     #1;
     assert (decoded_valid && redirect_valid == trap_expected && writeback_valid == wb_expected)
       else $fatal(1, "RV%0d instruction %h trap=%b wb=%b", XLEN, word, redirect_valid, writeback_valid);
@@ -47,7 +47,7 @@
     @(posedge clock); #1;
     if (!trap_expected) retired++;
     checks++;
-    @(negedge clock); commit_valid = 0; exception_valid = 0;
+    @(negedge clock); commit_valid = 0; exception_valid = 0; saturate = 0;
   endtask
   task automatic read_csr(input int address, input word_t value);
     send(csr_word(address, 2, 0), 0, 0, 0, 1, value);
@@ -108,6 +108,10 @@
     write_csr('h00f, '1, 0);
     read_csr('h00a, 3); read_csr('h009, 1); read_csr('h00f, 7);
     write_csr('h009, 0, 1);
+    @(negedge clock); saturate = 1; @(posedge clock); #1; saturate = 0;
+    read_csr('h009, 1);
+    send(csr_word('h009, 1), 0, 0, 0, 1, 1, 0, 1); // explicit write wins over sticky set
+    read_csr('h009, 0);
     send(csr_word('h00a, 3), 1, 0, 0, 1, 3); // clear vxrm bit0
     read_csr('h00f, 4);
     send(vset(0, 0), 0, 0, 0, 1, 0);

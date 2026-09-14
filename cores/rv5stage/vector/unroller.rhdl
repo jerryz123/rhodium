@@ -128,6 +128,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
                         def element = cursor.zext(index_width(vlen + 1) + 1) + bits(bit_index, index_width(vlen + 1) + 1)
                         !empty & (element >= minimum.zext(index_width(vlen + 1) + 1)) & (element < end.zext(index_width(vlen + 1) + 1))).as_bits()
     element_width: format
+    rounding_mode: descriptor.state.vxrm.into(SimdRoundingMode)
     control: descriptor.control
     destination: descriptor.vd
     compress_state:
@@ -243,6 +244,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
       select_right: bits(0, 8).into(Mask(8))
       mask_enabled: bits(0, 64)
       element_width: format
+      rounding_mode: descriptor.state.vxrm.into(SimdRoundingMode)
       control: descriptor.control
       destination: descriptor.vd
       compress_state:

@@ -99,6 +99,8 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   alu.element_width <== prepare.operands.element_width
   alu.enabled <== prepare.operands.enabled
   alu.select_right <== bits(0, 8).into(Mask(8))
+  alu.rounding <== Bool(#false)
+  alu.rounding_mode <== SimdRoundingMode.NearestUp
   alu.control <== SimdAluControl():
     result_select: mux_lookup(c.operation, ~default: SimdResultSelect.Adder, [[2, SimdResultSelect.Logic], [3, SimdResultSelect.Compare], [4, SimdResultSelect.Shift]])
     logic_select: SimdLogicSelect.Xor
@@ -118,6 +120,8 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   assemble.element_width <== prepare.operands.element_width
   assemble.mask_destination <== c.mask_destination
   assemble.narrowing <== c.control.narrowing
+  assemble.clip <== Bool(#false)
+  assemble.clip_unsigned <== Bool(#false)
   assemble.enabled <== prepare.operands.enabled
   assemble.result <== alu.result
   result_valid <== context.egress.valid

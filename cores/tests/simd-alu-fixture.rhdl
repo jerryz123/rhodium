@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes shared SIMD datapaths, widening, and compaction for differential behavioral tests.
+// Exposes shared SIMD datapaths, fixed-point rounding, widening, and compaction for differential tests.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,7 +13,9 @@ circuit SimdAluFixture():
   input comparison_select: SimdComparisonSelect
   input permutation_select: SimdPermutationSelect
   input count_select: SimdCountSelect
+  input rounding_mode: SimdRoundingMode
   input(subtract, signed_compare, maximum, shift_right, arithmetic_shift, rotate, invert_right): Bool
+  input rounding: Bool
   input(enabled, select_right): Mask(8)
   input(widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed): Bool
   input widen_element_width: SimdWidenElementWidth
@@ -55,6 +57,8 @@ circuit SimdAluFixture():
     arithmetic_shift: arithmetic_shift
     rotate: rotate
     invert_right: invert_right
+  alu.rounding <== rounding
+  alu.rounding_mode <== rounding_mode
   alu.enabled <== mux(widening, widen.operands.enabled, enabled)
   alu.select_right <== select_right
   data <== alu.result.data

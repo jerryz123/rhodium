@@ -1,12 +1,13 @@
-// Models architectural elements independently of the packed datapath, including retry and cancellation.
+// Models vector elements, fixed-point rounding/clipping, retry, and cancellation independently.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN + 1), AW = $clog2(32 * VLEN / 64), DEPTH = 32 * VLEN / 64;
   typedef struct packed { logic [AW-1:0] address; logic [63:0] data, mask; } write_t;
   typedef struct packed { logic valid; write_t bits; } write_port_t;
-  typedef struct packed { logic [CW-1:0] first, ending; logic last, reduction, scan; logic [63:0] scan_carry; logic scalar_destination; logic [4:0] destination; logic memory, floating_point, multiply_divide, divide, store; logic [5:0] shift; write_t write; logic [63:0] compress_data; logic [3:0] compress_count; logic [CW-1:0] compress_destination; } result_t;
+  typedef struct packed { logic [CW-1:0] first, ending; logic last, reduction, scan; logic [63:0] scan_carry; logic scalar_destination; logic [4:0] destination; logic memory, floating_point, multiply_divide, divide, store, saturated; logic [5:0] shift; write_t write; logic [63:0] compress_data; logic [3:0] compress_count; logic [CW-1:0] compress_destination; } result_t;
   logic clock = 0, reset = 1;
   logic [31:0] instruction;
   logic [XLEN-1:0] vtype, vl, vstart, scalar;
+  logic [1:0] vxrm;
   logic request_valid, issue_ready, cancel, retry_enable;
   logic [CW-1:0] retry_first;
   write_port_t initialize_in;
@@ -16,10 +17,10 @@
   always #5 clock = ~clock;
   logic [63:0] memory [DEPTH], snapshot [DEPTH];
   logic [63:0] rng = 64'h713bfd9167c282c9;
-  int tx_source_width, tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2;
+  int tx_source_width, tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2, tx_vxrm;
   logic [63:0] tx_scalar, tx_distance;
   int tx_vlmax;
-  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_wide_source, tx_widen_signed, checking;
+  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_rounding, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
   logic [127:0] tx_compress_buffer;
   int tx_compress_count, tx_compress_destination;
   int tx_beats;
@@ -35,10 +36,29 @@
   function automatic logic signed [63:0] signed_element(input logic [63:0] value, input int width_bits);
     return $signed(value << (64 - width_bits)) >>> (64 - width_bits);
   endfunction
+  function automatic logic [63:0] rounded_shift(input logic [63:0] value, input int width_bits, input logic [63:0] raw_amount, input bit arithmetic, input logic [1:0] mode);
+    logic [63:0] mask, discarded_mask, shifted;
+    logic round_bit, lower_nonzero, discarded_nonzero, increment;
+    int amount;
+    mask = '1 >> (64 - width_bits);
+    amount = int'(raw_amount & 64'(width_bits - 1));
+    shifted = arithmetic ? 64'(signed_element(value, width_bits) >>> amount) : value >> amount;
+    round_bit = amount == 0 ? 0 : value[amount - 1];
+    discarded_mask = amount == 0 ? 0 : mask >> (width_bits - amount);
+    discarded_nonzero = (value & discarded_mask) != 0;
+    lower_nonzero = amount <= 1 ? 0 : (value & (discarded_mask >> 1)) != 0;
+    case (mode)
+      0: increment = round_bit;
+      1: increment = round_bit && (lower_nonzero || shifted[0]);
+      2: increment = 0;
+      3: increment = !shifted[0] && discarded_nonzero;
+    endcase
+    return (shifted + 64'(increment)) & mask;
+  endfunction
   task automatic tick;
     logic [63:0] a, b, value, lane_mask, expected_data, expected_mask, broadcast_value;
     int first, ending, address, bit_offset, position, emitted, left_width;
-    bit enabled, was_retry;
+    bit enabled, was_retry, expected_saturated, overflow, result_negative, low_negative;
     @(negedge clock); #1;
     was_retry = retried;
     if (!reset) begin
@@ -50,10 +70,10 @@
         first = tx_first;
         ending = tx_start >= tx_vl ? tx_vl : ((first + tx_lanes < tx_vl) ? first + tx_lanes : tx_vl);
         address = tx_vd * VLEN / 64 + (tx_compare || tx_mask_logic ? first / 64 : first * tx_width / 64);
-        expected_data = 0; expected_mask = 0;
+        expected_data = 0; expected_mask = 0; expected_saturated = 0;
         lane_mask = 64'hffffffffffffffff >> (64 - tx_width);
         broadcast_value = tx_scalar;
-        if (tx_mode == 3) broadcast_value = (tx_opcode >= 37 && tx_opcode <= 45) ? 64'(tx_vs1) : {{59{tx_vs1[4]}}, 5'(tx_vs1)};
+        if (tx_mode == 3) broadcast_value = (tx_opcode >= 37 && tx_opcode <= 47) ? 64'(tx_vs1) : {{59{tx_vs1[4]}}, 5'(tx_vs1)};
         if (tx_compress) begin
           if (first < tx_vl) begin
             for (int lane = 0; lane < tx_lanes && first + lane < ending; lane++) begin
@@ -99,8 +119,16 @@
               b=tx_gather_vector ? element(tx_vs1,position,tx_opcode==14 ? 16 : tx_width) : tx_distance;
               value=b>=64'(tx_vlmax) ? 0 : element(tx_vs2,int'(b),tx_width);
             end else if (tx_narrowing) begin
-              if (tx_opcode[0]) value = signed_element(a, left_width) >>> (b & 64'(left_width - 1));
-              else value = a >> (b & 64'(left_width - 1));
+              value = tx_rounding ? rounded_shift(a, left_width, b, tx_opcode[0], 2'(tx_vxrm)) : (tx_opcode[0] ? 64'(signed_element(a, left_width) >>> (b & 64'(left_width - 1))) : a >> (b & 64'(left_width - 1)));
+              if (tx_clip) begin
+                result_negative = value[left_width - 1];
+                low_negative = value[tx_width - 1];
+                overflow = tx_clip_unsigned ? (value >> tx_width) != 0 : (value >> tx_width) != (low_negative ? ('1 >> (64 - tx_width)) : 0);
+                if (overflow) begin
+                  value = tx_clip_unsigned ? ('1 >> (64 - tx_width)) : result_negative ? 64'(1) << (tx_width - 1) : (64'(1) << (tx_width - 1)) - 1;
+                  expected_saturated = 1;
+                end
+              end
             end else if (tx_widening) begin
               value = tx_opcode[1] ? a - b : a + b;
             end else case (tx_opcode)
@@ -131,6 +159,8 @@
               37: value = a << (b & 64'(tx_width - 1));
               40: value = a >> (b & 64'(tx_width - 1));
               41: value = signed_element(a, tx_width) >>> (b & 64'(tx_width - 1));
+              42: value = rounded_shift(a, tx_width, b, 0, 2'(tx_vxrm));
+              43: value = rounded_shift(a, tx_width, b, 1, 2'(tx_vxrm));
               default: $fatal(1, "bad reference opcode");
             endcase
             bit_offset = tx_compare ? position % 64 : tx_gather_vector || tx_narrowing ? position*tx_width%64 : lane * tx_width;
@@ -142,6 +172,8 @@
           else $fatal(1, "element progress first=%0d/%0d end=%0d/%0d", result.first, first, result.ending, ending);
         assert (result.write.mask == expected_mask && (result.write.data & expected_mask) == expected_data)
           else $fatal(1, "op=%0d SEW=%0d first=%0d data=%h/%h mask=%h/%h", tx_opcode, tx_width, first, result.write.data & expected_mask, expected_data, result.write.mask, expected_mask);
+        assert (result.saturated == expected_saturated)
+          else $fatal(1, "op=%0d SEW=%0d first=%0d saturation=%b/%b", tx_opcode, tx_width, first, result.saturated, expected_saturated);
         if (expected_mask != 0) begin
           assert (int'(result.write.address) == address) else $fatal(1, "wrong destination row");
           memory[address] = (memory[address] & ~expected_mask) | expected_data;
@@ -166,16 +198,17 @@
   endtask
 
   task automatic run_macro(input int sew, lmul, count, start, op, mode, destination, source1, source2,
-                           input bit masked_op, inject_retry = 0, random_stalls = 1, input int retry_at = -1);
+                           input bit masked_op, inject_retry = 0, random_stalls = 1, input int retry_at = -1, round_mode = 0);
     int timeout;
     assert (!active && !checking) else $fatal(1, "previous macro did not drain");
-    tx_widening = op inside {[48:55]}; tx_narrowing = op inside {44, 45}; tx_wide_source = op inside {[52:55]} || tx_narrowing; tx_widen_signed = tx_widening && op[0];
+    tx_widening = op inside {[48:55]}; tx_narrowing = op inside {[44:47]}; tx_rounding = op inside {[42:43], [46:47]}; tx_clip = op inside {[46:47]}; tx_clip_unsigned = op == 46; tx_wide_source = op inside {[52:55]} || tx_narrowing; tx_widen_signed = tx_widening && op[0];
     tx_compress = op == 23 && mode == 2;
     tx_mask_logic = mode == 2 && !tx_compress && !tx_widening && !tx_narrowing;
     tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
     tx_source_width = tx_mask_logic ? 1 : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_source_width; tx_lanes = tx_gather_vector ? 1 : 64 / (tx_narrowing ? 2 * tx_width : tx_width);
     tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
+    tx_vxrm = round_mode;
     tx_masked = masked_op; tx_compare = !tx_mask_logic && op >= 24 && op <= 31;
     tx_dense = !random_stalls && !inject_retry; tx_beats = 0;
     tx_compress_buffer = 0; tx_compress_count = 0; tx_compress_destination = 0;
@@ -184,13 +217,14 @@
     tx_vlmax = lmul < 4 ? (VLEN / (8 << sew)) << lmul : (VLEN / (8 << sew)) >> (8-lmul);
     for (int row = 0; row < DEPTH; row++) snapshot[row] = memory[row];
     instruction = (32'(op) << 26) | (32'(!masked_op) << 25) | (32'(source2) << 20) | (32'(source1) << 15) | (32'(mode) << 12) | (32'(destination) << 7) | 32'h57;
+    vxrm = 2'(round_mode);
     vtype = (XLEN'(sew) << 3) | XLEN'(lmul); vl = XLEN'(count); vstart = XLEN'(start);
     request_valid = 1; issue_ready = 1; retry_enable = inject_retry; retry_first = CW'(retry_at < 0 ? tx_lanes : retry_at);
     checking = 1;
     #1; assert (request_ready && legal) else $fatal(1, "illegal test instruction %h vtype %h", instruction, vtype);
     tick(); request_valid = 0;
     // Mutate live inputs immediately: all execution must use the captured descriptor.
-    instruction = 0; vtype = 0; vl = 0; vstart = 0; scalar = ~scalar;
+    instruction = 0; vtype = 0; vl = 0; vstart = 0; scalar = ~scalar; vxrm = ~vxrm;
     timeout = 0;
     while (active || checking) begin
       issue_ready = !random_stalls || (random_word() % 4 != 0);
@@ -202,7 +236,7 @@
   endtask
 
   initial begin
-    instruction = 0; vtype = 0; vl = 0; vstart = 0; scalar = XLEN'(-17);
+    instruction = 0; vtype = 0; vl = 0; vstart = 0; scalar = XLEN'(-17); vxrm = 0;
     request_valid = 0; issue_ready = 0; cancel = 0; retry_enable = 0; retry_first = 0;
     initialize_in = '0; checking = 0; last_commit_cycle = -100;
     repeat (3) tick(); reset = 0;
@@ -292,6 +326,35 @@
       end
       // Low-part in-place overlap remains safe across authorized-prefix retry.
       run_macro(sew, 0, VLEN / (8 << sew), 0, 45, 0, 8, 16, 8, 0, 1, 0, 4 >> sew);
+    end
+    // Scaling shifts use vxrm on equal-width elements. Narrowing clips round
+    // the doubled-width source first, then saturate each active lane and report
+    // a per-beat sticky-CSR contribution. Live vxrm changes after admission
+    // must not affect the captured macro.
+    for (int sew = 0; sew < 4; sew++) begin
+      int maximum;
+      maximum = VLEN / (8 << sew);
+      for (int round_mode = 0; round_mode < 4; round_mode++) begin
+        for (int op = 42; op < 44; op++) begin
+          run_macro(sew, 0, maximum, 0, op, 0, 24, 16, 8, round_mode[0], 0, 1, -1, round_mode);
+          scalar = XLEN'(sew * 7 + round_mode);
+          run_macro(sew, 0, maximum - 1, maximum > 2 ? 1 : 0, op, 4, 24, 3, 8, round_mode[0], 0, 1, -1, round_mode);
+          run_macro(sew, 0, maximum, 0, op, 3, 24, 31, 8, 0, 0, 1, -1, round_mode);
+        end
+      end
+    end
+    for (int sew = 0; sew < 3; sew++) begin
+      int maximum, lanes;
+      maximum = VLEN / (8 << sew);
+      lanes = 4 >> sew;
+      for (int round_mode = 0; round_mode < 4; round_mode++) begin
+        for (int op = 46; op < 48; op++) begin
+          run_macro(sew, 0, maximum, 0, op, 0, 24, 16, 8, round_mode[0], round_mode == 1, 1, lanes, round_mode);
+          scalar = XLEN'(sew * 5 + round_mode);
+          run_macro(sew, 0, maximum - 1, maximum > 2 ? 1 : 0, op, 4, 24, 3, 8, !round_mode[0], 0, 1, -1, round_mode);
+          run_macro(sew, 0, maximum, 0, op, 3, 24, 31, 8, 0, 0, 1, -1, round_mode);
+        end
+      end
     end
     // Moves and merge share an encoding but not predication: a zero v0 bit
     // selects vs2; it must not disable the destination write.

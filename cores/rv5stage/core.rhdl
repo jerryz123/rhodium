@@ -684,6 +684,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       ) |> id_vector.completion
       id_vector.fault_start |> wb_csrs.vector_fault_start
       id_vector.retire |> wb_csrs.vector_retire
+      id_vector.saturate |> wb_csrs.vector_saturate
       id_vector.scalar_result |> wb_vector_scalar_result_link.left
   | block:
       wb_vector_multiply_request_link.left.valid <== Bool(#false)
@@ -707,6 +708,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       wb_csrs.vector_fault_start.valid <== Bool(#false)
       wb_csrs.vector_fault_start.bits <== zero
       wb_csrs.vector_retire.valid <== Bool(#false)
+      wb_csrs.vector_saturate.valid <== Bool(#false)
       id_operation |> to_valid() |> id_ex_pipe.ingress
 
   // Stage 3: EX uses only registered selectors and data. A killed producer's younger

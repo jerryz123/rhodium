@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines partial RVV 1.0 configuration, integer, FP, and unit-stride memory catalogs.
+// Defines partial RVV 1.0 configuration, integer/fixed-point, FP, and unit-stride memory catalogs.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -83,6 +83,18 @@ def VNSRL_WI = vector_arithmetic("VNSRL.WI", 0x2c, VectorShiftVIFormat, 3)
 def VNSRA_WV = vector_arithmetic("VNSRA.WV", 0x2d, VectorVVFormat, 0)
 def VNSRA_WX = vector_arithmetic("VNSRA.WX", 0x2d, VectorVXFormat, 4)
 def VNSRA_WI = vector_arithmetic("VNSRA.WI", 0x2d, VectorShiftVIFormat, 3)
+def VSSRL_VV = vector_arithmetic("VSSRL.VV", 0x2a, VectorVVFormat, 0)
+def VSSRL_VX = vector_arithmetic("VSSRL.VX", 0x2a, VectorVXFormat, 4)
+def VSSRL_VI = vector_arithmetic("VSSRL.VI", 0x2a, VectorShiftVIFormat, 3)
+def VSSRA_VV = vector_arithmetic("VSSRA.VV", 0x2b, VectorVVFormat, 0)
+def VSSRA_VX = vector_arithmetic("VSSRA.VX", 0x2b, VectorVXFormat, 4)
+def VSSRA_VI = vector_arithmetic("VSSRA.VI", 0x2b, VectorShiftVIFormat, 3)
+def VNCLIPU_WV = vector_arithmetic("VNCLIPU.WV", 0x2e, VectorVVFormat, 0)
+def VNCLIPU_WX = vector_arithmetic("VNCLIPU.WX", 0x2e, VectorVXFormat, 4)
+def VNCLIPU_WI = vector_arithmetic("VNCLIPU.WI", 0x2e, VectorShiftVIFormat, 3)
+def VNCLIP_WV = vector_arithmetic("VNCLIP.WV", 0x2f, VectorVVFormat, 0)
+def VNCLIP_WX = vector_arithmetic("VNCLIP.WX", 0x2f, VectorVXFormat, 4)
+def VNCLIP_WI = vector_arithmetic("VNCLIP.WI", 0x2f, VectorShiftVIFormat, 3)
 def VAND_VV = vector_arithmetic("VAND.VV", 9, VectorVVFormat, 0)
 def VAND_VX = vector_arithmetic("VAND.VX", 9, VectorVXFormat, 4)
 def VAND_VI = vector_arithmetic("VAND.VI", 9, VectorVIFormat, 3)
@@ -132,7 +144,9 @@ def VMAX_VX = vector_arithmetic("VMAX.VX", 7, VectorVXFormat, 4)
 
 def VectorWideningAddSubtractInstructions = [VWADDU_VV, VWADDU_VX, VWADD_VV, VWADD_VX, VWSUBU_VV, VWSUBU_VX, VWSUB_VV, VWSUB_VX, VWADDU_WV, VWADDU_WX, VWADD_WV, VWADD_WX, VWSUBU_WV, VWSUBU_WX, VWSUB_WV, VWSUB_WX]
 def VectorNarrowingShiftInstructions = [VNSRL_WV, VNSRL_WX, VNSRL_WI, VNSRA_WV, VNSRA_WX, VNSRA_WI]
-def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions
+def VectorFixedPointShiftInstructions = [VSSRL_VV, VSSRL_VX, VSSRL_VI, VSSRA_VV, VSSRA_VX, VSSRA_VI]
+def VectorNarrowingClipInstructions = [VNCLIPU_WV, VNCLIPU_WX, VNCLIPU_WI, VNCLIP_WV, VNCLIP_WX, VNCLIP_WI]
+def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
 // Slides use unsigned XLEN offsets; slide1 instead inserts a scalar element.
 def VSLIDEUP_VX = vector_arithmetic("VSLIDEUP.VX", 0x0e, VectorVXFormat, 4)
 def VSLIDEUP_VI = vector_arithmetic("VSLIDEUP.VI", 0x0e, VectorShiftVIFormat, 3)
@@ -328,6 +342,8 @@ export:
   VectorIntegerInstructions
   VectorWideningAddSubtractInstructions
   VectorNarrowingShiftInstructions
+  VectorFixedPointShiftInstructions
+  VectorNarrowingClipInstructions
   VectorInitialInstructions
   VectorInitial
   VADD_VV
@@ -357,6 +373,18 @@ export:
   VNSRA_WV
   VNSRA_WX
   VNSRA_WI
+  VSSRL_VV
+  VSSRL_VX
+  VSSRL_VI
+  VSSRA_VV
+  VSSRA_VX
+  VSSRA_VI
+  VNCLIPU_WV
+  VNCLIPU_WX
+  VNCLIPU_WI
+  VNCLIP_WV
+  VNCLIP_WX
+  VNCLIP_WI
   VAND_VV
   VAND_VX
   VAND_VI

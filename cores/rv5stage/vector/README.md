@@ -24,12 +24,13 @@ The CSR bank exposes `vstart`, `vxrm`, `vxsat`, `vcsr`, `vl`, `vtype`, and
 `vlenb`. `vstart` retains enough low bits for VLEN-1; `vxrm` and `vxsat` alias
 `vcsr`. VL/type/VLENB are read-only. Reset starts with `vill=1`, VL=0, and
 `mstatus.VS=Off`; VS Off blocks vector CSR access and configuration. Successful
-configuration, vector CSR writes, vector completion, or a vector fault mark VS Dirty;
+configuration, vector CSR writes, vector completion, fixed-point saturation, or a vector fault mark VS Dirty;
 reads do not, and SD combines
 the FP and vector dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
-add/sub, logic, shifts, comparisons, min/max, compression, narrowing shifts,
+add/sub, logic, shifts, fixed-point scaling shifts and narrowing clips,
+comparisons, min/max, compression, narrowing shifts,
 and narrow-source widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
 signedness, comparison inversion, and operand swapping. Runtime group checks
 cover alignment, fractional groups, doubled widening EMUL, masked data
@@ -54,7 +55,11 @@ PC, authorization/retry/fault outcome, and hit data exactly three cycles after
 issue. No authorization
 means no write. `cancel: Pulse` discards speculative work and flushes private
 stage validity; it does not undo a live older WB authorization on that edge.
-The caller must suppress authorizations for squashed tokens. `retire: Pulse`
+The caller must suppress authorizations for squashed tokens. A clipping beat
+reports saturation with its private result, but only an authorized WB commit
+emits `saturate: Pulse`; retry, fault, and cancellation cannot set `vxsat`.
+The CSR bank ORs that pulse into sticky `vxsat`, with an explicit CSR write on
+the same edge taking priority. `retire: Pulse`
 reports the completed last beat. `active` includes accepted memory completion
 ownership; `unrolling` reports the separate issue/authorization lifetime.
 Integer results use fixed-cycle pairing; slow memory uses tagged completions.
@@ -429,7 +434,16 @@ returned first element and width describe that destination chunk. Both halves
 must use the appropriate source snapshot. Narrowing reuses the same adapter to
 pass one wide `vs2` row while zero-extending half of the narrow shift-amount
 row; the result adapter packs the low halves into one destination half-row.
-Saturation, reduction, and permutation scheduling are not supplied here.
+For `vnclipu` and `vnclip`, the shared SIMD datapath rounds the doubled-width
+source according to the captured `vxrm` value before this adapter clips each
+enabled lane to its unsigned or signed destination range. Disabled lanes never
+contribute saturation. The result carries the per-beat saturation indication
+to WB rather than mutating CSR state in the combinational adapter. Reduction
+and permutation scheduling are not supplied here.
+
+The fixed-point execution slice implements `vssrl`, `vssra`, `vnclipu`, and
+`vnclip` in their vector, scalar, and immediate forms. `vxrm` is captured with
+the macro descriptor, so later CSR changes cannot alter admitted work.
 
 `RV5StageVectorResult(vlen)` converts a SIMD result into the bank write payload.
 Data destinations use the returned output element width; comparisons place one

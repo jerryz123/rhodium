@@ -1,5 +1,5 @@
 #lang rhodium
-// Owns experimental vector configuration and writable CSR state under authorized commit events.
+// Owns vector configuration and writable CSR state, including WB-authorized sticky saturation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -27,6 +27,7 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
   input candidate: RiscvVectorConfigRequest(xlen)
   interface configure(Pulse(), ~role: consumer)
   interface retire(Pulse(), ~role: consumer)
+  interface saturate(Pulse(), ~role: consumer)
   interface fault_start(Valid(Bits(xlen.width)), ~role: consumer)
   interface write(Valid(RV5StageVectorCsrWrite(xlen)), ~role: consumer)
   interface status_write(Valid(Bits(2)), ~role: consumer)
@@ -65,9 +66,11 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
           vxrm <== write.bits.value[0..2]
         when (write.valid & (write.bits.address === csr_bits(CsrId.Vxsat))):
           vxsat <== write.bits.value[0].into(Bool)
+        elsewhen (saturate.valid):
+          vxsat <== Bool(#true)
       when (status_write.valid):
         vs <== status_write.bits
-      elsewhen (configuration_write ||| write.valid ||| retire.valid ||| fault_start.valid):
+      elsewhen (configuration_write ||| write.valid ||| retire.valid ||| fault_start.valid ||| saturate.valid):
         vs <== bits(3, 2)
       state <== RV5StageVectorState(xlen):
         vl: vl.zext(xlen.width)

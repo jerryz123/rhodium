@@ -1,5 +1,5 @@
 #lang rhodium
-// Owns vector issue, WB authorization, tagged memory/FP completions, and ordered VRF writes.
+// Owns vector issue, WB authorization, sticky saturation, completions, and ordered VRF writes.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -46,6 +46,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   interface completion(Valid(RV5StageVectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
   interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
   interface retire(Pulse(), ~role: producer)
+  interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   input memory_drained: Bool
   output active: Bool
@@ -183,6 +184,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   fp_update.bits <== completion_flags[head]
   fault_start.valid <== fault
   fault_start.bits <== beat.first.zext(xlen.width)
+  saturate.valid <== successful & beat.saturated
   retire.valid <== (successful & !(beat.memory ||| beat.floating_point ||| beat.multiply_divide) & beat.last) ||| (drain & result.last)
   (
     commit |> map_valid(event => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):

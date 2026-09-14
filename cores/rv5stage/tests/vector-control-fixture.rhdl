@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises real integrated decode, configuration extraction, CSR commit, and runtime vector legality.
+// Exercises integrated vector decode, configuration, sticky saturation CSR state, and legality.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,13 +20,14 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   input instruction: Bits(32)
   input(scalar1, scalar2): Bits(xlen.width)
   input(commit_valid, exception_valid): Bool
+  input saturate: Bool
   input test_vtype: Bits(xlen.width)
   output(decoded_valid, legal, writeback_valid, redirect_valid): Bool
   output writeback_value: Bits(xlen.width)
   output mstatus: Bits(xlen.width)
   output state: RV5StageVectorState(xlen)
   output(configuration, operand): Bits(2)
-  output(mask_destination, invert_comparison, swap_operands, widening, narrowing, wide_vs2, left_signed, right_signed, subtract): Bool
+  output(mask_destination, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract): Bool
   inst decoder(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
   inst csrs(RV5StageCsrFile(RVCoreProfile(~xlen: xlen, ~experimental_vector: vlen)))
   inst legality(RV5StageVectorLegality(xlen, vlen))
@@ -43,6 +44,9 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   swap_operands <== decoder.control.vector.swap_operands
   widening <== decoder.control.vector.widening
   narrowing <== decoder.control.vector.narrowing
+  rounding <== decoder.control.vector.rounding
+  clip <== decoder.control.vector.clip
+  clip_unsigned <== decoder.control.vector.clip_unsigned
   wide_vs2 <== decoder.control.vector.wide_vs2
   left_signed <== decoder.control.vector.left_signed
   right_signed <== decoder.control.vector.right_signed
@@ -51,6 +55,7 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   csrs.hart_id <== bits(0, xlen.width)
   csrs.time_counter <== bits(0, 64)
   csrs.vector_retire.valid <== Bool(#false)
+  csrs.vector_saturate.valid <== saturate
   csrs.vector_fault_start.valid <== Bool(#false)
   csrs.vector_fault_start.bits <== bits(0, xlen.width)
   csrs.interrupt_boundary <== Bool(#false)

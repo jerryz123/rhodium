@@ -1,5 +1,5 @@
 #lang rhodium
-// Decodes RVV integer and unit-stride memory controls with runtime register-group legality.
+// Decodes RVV integer, fixed-point, and memory controls with runtime register-group legality.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -57,6 +57,9 @@ bundle RV5StageVectorControl():
   compress: Bool
   widening: Bool
   narrowing: Bool
+  rounding: Bool
+  clip: Bool
+  clip_unsigned: Bool
   wide_vs2: Bool
   uses_vs2: Bool
   invert_logic_result: Bool
@@ -107,6 +110,9 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~compress: compress :: Boolean = #false,
                  ~widening: widening :: Boolean = #false,
                  ~narrowing: narrowing :: Boolean = #false,
+                 ~rounding: rounding :: Boolean = #false,
+                 ~clip: clip :: Boolean = #false,
+                 ~clip_unsigned: clip_unsigned :: Boolean = #false,
                  ~wide_vs2: wide_vs2 :: Boolean = #false,
                  ~left_signed: left_signed :: Boolean = #false,
                  ~right_signed: right_signed :: Boolean = #false,
@@ -140,6 +146,9 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       compress: Bool(compress)
       widening: Bool(widening)
       narrowing: Bool(narrowing)
+      rounding: Bool(rounding)
+      clip: Bool(clip)
+      clip_unsigned: Bool(clip_unsigned)
       wide_vs2: Bool(wide_vs2)
       left_signed: Bool(left_signed)
       right_signed: Bool(right_signed)
@@ -336,7 +345,23 @@ def VectorNarrowingShiftCases = [
   integer_case(VNSRA_WX, vsra_control, ~narrowing: #true, ~wide_vs2: #true),
   integer_case(VNSRA_WI, vsra_control, ~narrowing: #true, ~wide_vs2: #true)
 ]
-def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases
+def VectorFixedPointShiftCases = [
+  integer_case(VSSRL_VV, vsrl_control, ~rounding: #true),
+  integer_case(VSSRL_VX, vsrl_control, ~rounding: #true),
+  integer_case(VSSRL_VI, vsrl_control, ~rounding: #true),
+  integer_case(VSSRA_VV, vsra_control, ~rounding: #true),
+  integer_case(VSSRA_VX, vsra_control, ~rounding: #true),
+  integer_case(VSSRA_VI, vsra_control, ~rounding: #true)
+]
+def VectorNarrowingClipCases = [
+  integer_case(VNCLIPU_WV, vsrl_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~clip_unsigned: #true, ~wide_vs2: #true),
+  integer_case(VNCLIPU_WX, vsrl_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~clip_unsigned: #true, ~wide_vs2: #true),
+  integer_case(VNCLIPU_WI, vsrl_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~clip_unsigned: #true, ~wide_vs2: #true),
+  integer_case(VNCLIP_WV, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true),
+  integer_case(VNCLIP_WX, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true),
+  integer_case(VNCLIP_WI, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true)
+]
+def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases ++ VectorFixedPointShiftCases ++ VectorNarrowingClipCases
 def vselect_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Select
 def VectorCompressCases = [integer_case(VCOMPRESS_VM, vselect_control, ~compress: #true)]
@@ -524,6 +549,8 @@ export:
   VectorIntegerCases
   VectorWideningAddSubtractCases
   VectorNarrowingShiftCases
+  VectorFixedPointShiftCases
+  VectorNarrowingClipCases
   VectorCompressCases
   VectorMemoryCases
   VectorFloatingPointCases

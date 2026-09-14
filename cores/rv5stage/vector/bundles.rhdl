@@ -54,6 +54,7 @@ bundle RV5StageVectorBeat(vlen :: VectorLength):
   select_right: Mask(8)
   mask_enabled: Bits(64)
   element_width: SimdElementWidth
+  rounding_mode: SimdRoundingMode
   control: RV5StageVectorControl()
   destination: Bits(5)
   compress_state: RV5StageVectorCompressState(vlen)
@@ -76,6 +77,7 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   multiply_divide: Bool
   divide: Bool
   store: Bool
+  saturated: Bool
   shift: Bits(6)
   write: VectorRegisterWrite(vlen)
   compress_state: RV5StageVectorCompressState(vlen)

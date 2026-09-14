@@ -1,4 +1,4 @@
-// Checks shared SIMD bit operations, widening, and compaction against independent models.
+// Checks shared SIMD bit operations, fixed-point rounding, widening, and compaction against independent models.
 // SPDX-License-Identifier: Apache-2.0
 module simd_alu_tb;
   localparam logic [2:0] ADDER = 0, LOGIC_OP = 1, SHIFT = 2,
@@ -6,9 +6,10 @@ module simd_alu_tb;
   logic [63:0] left, right, data, compressed_data;
   logic [1:0] element_width, logic_select, comparison_select;
   logic [1:0] permutation_select, count_select, widen_element_width, prepared_width;
+  logic [1:0] rounding_mode;
   logic [2:0] result_select;
   logic subtract, signed_compare, maximum, shift_right, arithmetic_shift;
-  logic rotate, invert_right, widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed;
+  logic rotate, invert_right, rounding, widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed;
   logic [63:0] prepared_left, prepared_right;
   logic [7:0] prepared_enabled;
   logic [7:0] enabled, select_right, comparison, write_mask;
@@ -27,9 +28,9 @@ module simd_alu_tb;
 
   task automatic check_result;
     int width_bits, lane_count, amount, count, compressed_elements;
-    logic [63:0] mask, a, b, logic_b, value, expected_data, expected_compressed;
+    logic [63:0] mask, a, b, logic_b, value, expected_data, expected_compressed, discarded_mask;
     logic signed [63:0] signed_a, signed_b;
-    logic lt, eq, predicate;
+    logic lt, eq, predicate, round_bit, lower_nonzero, discarded_nonzero, increment;
     logic [7:0] expected_comparison, expected_write_mask;
     width_bits = 8 << element_width;
     lane_count = 64 / width_bits;
@@ -74,6 +75,20 @@ module simd_alu_tb;
           else if (!shift_right) value = a << amount;
           else if (arithmetic_shift) value = 64'(signed_a >>> amount);
           else value = a >> amount;
+          if (rounding) begin
+            round_bit = amount == 0 ? 0 : a[amount - 1];
+            discarded_mask = amount == 0 ? 0 : mask >> (width_bits - amount);
+            discarded_nonzero = (a & discarded_mask) != 0;
+            lower_nonzero = amount <= 1 ? 0 : (a & (discarded_mask >> 1)) != 0;
+            case (rounding_mode)
+              0: increment = round_bit;
+              1: increment = round_bit && (lower_nonzero || value[0]);
+              2: increment = 0;
+              3: increment = !value[0] && discarded_nonzero;
+              default: $fatal(1, "invalid rounding mode");
+            endcase
+            value += 64'(increment);
+          end
         end
         COMPARE: value = {63'b0, predicate};
         MINMAX: value = maximum ? (lt ? b : a) : (lt ? a : b);
@@ -130,6 +145,7 @@ module simd_alu_tb;
 
   task automatic exercise_operations;
     widening = 0;
+    rounding = 0;
     rotate = 0;
     invert_right = 0;
     result_select = ADDER;
@@ -205,6 +221,7 @@ module simd_alu_tb;
       end
     end
     widening = 1;
+    rounding = 0;
     result_select = SHIFT;
     rotate = 0; arithmetic_shift = 0; shift_right = 0;
     #1;
@@ -232,6 +249,8 @@ module simd_alu_tb;
     arithmetic_shift = 0;
     rotate = 0;
     invert_right = 0;
+    rounding = 0;
+    rounding_mode = 0;
     widening = 0; widen_left_wide = 0; widen_left_signed = 0; widen_right_signed = 0;
     upper_half = 0;
     widen_element_width = 0;
@@ -285,6 +304,24 @@ module simd_alu_tb;
         right = 64'hffffffffffffff00 | 64'(amount);
         exercise_operations();
       end
+      // Fixed-point scaling shifts reuse the tapered shifter and shared adder.
+      // Sweep every architectural rounding mode and all legal distances.
+      result_select = SHIFT; shift_right = 1; rotate = 0; rounding = 1;
+      for (int arithmetic = 0; arithmetic < 2; arithmetic++) begin
+        arithmetic_shift = 1'(arithmetic);
+        for (int mode = 0; mode < 4; mode++) begin
+          rounding_mode = 2'(mode);
+          for (int amount = 0; amount < (8 << size); amount++) begin
+            left = random_word();
+            right = 0;
+            for (int lane = 0; lane < (8 >> size); lane++)
+              right |= 64'(amount) << (lane * (8 << size));
+            enabled = 8'(random_word());
+            check_result();
+          end
+        end
+      end
+      rounding = 0;
     end
 
     // Change widths and all controls without reset; this is a stateless unit.

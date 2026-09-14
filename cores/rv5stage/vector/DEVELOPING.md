@@ -240,6 +240,13 @@ source disjointness, and masked v0 restrictions. Run the RV32/RV64 control and
 unroller fixtures for all three forms, SEWs, masks, partial halves, in-place
 operation, stalls, retry, and cancellation.
 
+Fixed-point scaling reuses the SIMD tapered right shifter and lane-isolated
+adder. Keep `vxrm` in the admitted macro snapshot, not as a live execution
+input. Narrowing clip policy belongs in the result packer because it sees the
+rounded doubled-width lane and the destination width together. Carry a
+per-beat saturation bit to WB; only authorized WB may pulse the CSR bank, and
+explicit CSR writes take priority over the sticky set.
+
 Keep execution enables separate from `select_right`: merge consumes `v0` as
 data while both selected alternatives remain writable. Move rows describe only
 their real source and select the existing SIMD right-input path. Mask-logic rows
@@ -292,9 +299,13 @@ The signature-memory model rejects each store once, then retains readiness
 until acceptance, exercising replay without periodic readiness/retry phase lock.
 The `rv5stage-vector-unroller` and `rv5stage-vector-unroller-rv32` fixtures
 compose real decode/VRF/execute with a flushable WB boundary. An independent
-element model checks all decoded integer operations, SEW/LMUL, partial bodies,
+element model checks all decoded integer operations, fixed-point rounding and
+clipping across every `vxrm` mode, SEW/LMUL, partial bodies,
 mask writes, in-place operations, randomized issue stalls, authorized-prefix
 retry, and cancellation. Keep the retry test's downstream flush explicit.
+The production reduction fixture uses guaranteed-overflow clips to prove that
+authorized beats pulse saturation once, replay does not duplicate the pulse,
+and cancellation exposes only its already-authorized prefix.
 Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 `rv5stage-zihpm-*` fixtures. These fixtures belong to `cores-execution`.
 

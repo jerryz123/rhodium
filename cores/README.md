@@ -24,7 +24,7 @@ architectural result selection.
 | Component | Interface and parameters | Timing contract | Component owns | Caller owns |
 |---|---|---|---|---|
 | [`ALU(xlen)`](alu.rhdl) | `XLen.X32` or `XLen.X64`; `left`, `right`, and `AluControl` to `result` | Combinational; no ready/valid state | Modular arithmetic, logic, shifts/rotates, comparisons, counts, unary transforms, RV64 word shaping, and the shared Zba/Zbb/Zbs/Zicond datapaths | Decode, operand routing, and result use |
-| [`SimdALU()`](simd-alu.rhdl) | Two 64-bit packed operands, runtime 8/16/32/64-bit elements, decoded controls, and lane masks | Combinational; no ready/valid state | Lane-isolated arithmetic, logic, shifts/rotates, counts, reversals, comparisons, min/max, selection, and result/write-mask packing | Instruction decode, operand extraction/broadcast, vector configuration, register preservation, scheduling, and writeback |
+| [`SimdALU()`](simd-alu.rhdl) | Two 64-bit packed operands, runtime 8/16/32/64-bit elements, decoded controls, fixed-point rounding mode, and lane masks | Combinational; no ready/valid state | Lane-isolated arithmetic, logic, shifts/rotates, fixed-point rounding, counts, reversals, comparisons, min/max, selection, and result/write-mask packing | Instruction decode, operand extraction/broadcast, clipping, vector configuration, register preservation, scheduling, and writeback |
 | [`SimdWidenOperands()`](simd-alu.rhdl) | Two packed 64-bit source operands, 8/16/32-bit source elements, optional already-wide left input, half selection, and element enables | Combinational; no ready/valid state | Per-source extension and enable remapping for one 64-bit destination group | Group sequencing, scalar/immediate broadcasting, register grouping, and architectural legality |
 | [`SimdCompress()`](simd-alu.rhdl) | One packed 64-bit word, runtime element width, and element-selection mask | Combinational; no ready/valid state | Stable-order compaction into consecutive low lanes and selected-element count | Cross-word accumulation, architectural register grouping, tails, restart, and writeback |
 | [`BranchResolver(width)`](branch-resolver.rhdl) | `Valid(BranchResolverRequest)` to `Valid(BranchResult)` | Combinational; output validity follows input validity, with no backpressure | Equal and signed/unsigned less-than comparison plus final `taken` selection | Encodings, target generation, PC state, and redirect timing |
@@ -52,6 +52,12 @@ AND-NOT (and OR-NOT/XNOR) without changing arithmetic operands.
 Comparisons support equality, less-than, and
 less-or-equal with signed or unsigned ordering. Min/max uses the same ordering;
 select chooses the right operand when that element's `select_right` bit is set.
+
+For a right shift, `rounding` selects RVV fixed-point rounding after the shared
+tapered shifter and before the existing lane-isolated adder. `SimdRoundingMode`
+uses the architectural `vxrm` order: nearest-up, nearest-even, down, and odd.
+Each lane derives its increment from its own discarded bits; a zero shift never
+increments. The ALU does not clip or retain a saturation flag.
 
 `SimdPermutationSelect` chooses `ReverseBits` within each element,
 `ReverseBitsInBytes` independently within each byte, or `ReverseBytes` within

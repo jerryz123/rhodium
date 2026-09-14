@@ -8,7 +8,7 @@
   logic [XLEN-1:0] vtype, vl, vstart, scalar, load_data;
   logic request_valid = 0, issue_ready = 1, cancel = 0, retry_enable = 0;
   logic [CW-1:0] retry_index = 0, wb_index;
-  logic active, request_ready, issued, committed, retried, retired;
+  logic active, request_ready, issued, committed, retried, retired, saturate;
   logic [63:0] store_data;
   scalar_port_t scalar_result_out;
   RV5StageVectorReductionFixture dut (.*);
@@ -16,7 +16,7 @@
   logic [63:0] model [0:31][0:CHUNKS-1];
   logic [63:0] rng = 64'h651b3c5defab7809, scalar_expected;
   int mode = 0, regno = 0, cycles = 0, checks = 0, macros = 0, retry_count = 0;
-  int retired_count, commit_count, scalar_count;
+  int retired_count, commit_count, scalar_count, saturate_count;
   function automatic logic [63:0] random_word();
     rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return rng;
   endfunction
@@ -53,6 +53,10 @@
             else $fatal(1,"VRF r%0d element%0d got%h expected%h macro%0d",regno,wb_index,store_data,element(regno,int'(wb_index),XLEN),macros);
           checks++;
         end
+      end
+      if (saturate) begin
+        assert (committed) else $fatal(1, "saturation escaped WB authorization");
+        saturate_count++;
       end
       if (scalar_result_out.valid) begin
         assert (mode == 3 && scalar_result_out.bits.address == 5 && scalar_result_out.bits.data == XLEN'(scalar_expected))
@@ -258,10 +262,25 @@
     logic [63:0] acc, mask, old;
     int width, length, dest;
     instruction=0; vtype=0; vl=0; vstart=0; scalar=0;
+    saturate_count=0;
     repeat (3) tick(); reset=0;
     for (int r=0;r<32;r++) begin
       for (int c=0;c<CHUNKS;c++) model[r][c]=random_word();
       load_reg(r);
+    end
+    // Guaranteed clipping checks that retry/cancel never create an extra
+    // sticky-CSR pulse beyond the authorized prefix.
+    for (int c=0;c<CHUNKS;c++) begin model[8][c]='1; model[9][c]='1; end
+    load_reg(8); load_reg(9);
+    begin
+      int prior_saturations, beats;
+      beats=(VLEN/8+3)/4;
+      prior_saturations=saturate_count; run(vec(46,24,8,0,3),0,0,VLEN/8);
+      assert(saturate_count-prior_saturations==beats) else $fatal(1,"authorized clip saturation count");
+      prior_saturations=saturate_count; run(vec(46,24,8,0,3),0,0,VLEN/8,0,0);
+      assert(saturate_count-prior_saturations==beats) else $fatal(1,"retry duplicated clip saturation");
+      prior_saturations=saturate_count; run(vec(46,24,8,0,3),0,0,VLEN/8,0,-1,1);
+      assert(saturate_count-prior_saturations==1) else $fatal(1,"cancel leaked clip saturation");
     end
     for (int sew=0;sew<4;sew++) begin
       width=8<<sew; mask='1>>(64-width);

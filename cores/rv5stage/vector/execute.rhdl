@@ -1,5 +1,5 @@
 #lang rhodium
-// Executes packed integer beats and prepares singleton memory/FP destination masks.
+// Executes packed integer/fixed-point beats and prepares singleton memory/FP destination masks.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -39,11 +39,15 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   alu.element_width <== mux(sliding ||| gathering, SimdElementWidth.E64, beat.element_width)
   alu.enabled <== mux(reduction ||| sliding ||| gathering, bits(1, 8).into(Mask(8)), beat.enabled)
   alu.select_right <== beat.select_right
+  alu.rounding <== beat.control.rounding
+  alu.rounding_mode <== beat.rounding_mode
   packing.destination <== beat.destination
   packing.first_element <== beat.destination_first
   packing.element_width <== mux(beat.control.narrowing, (beat.element_width.as_bits() - bits(1, 2)).into(SimdElementWidth), beat.element_width)
   packing.mask_destination <== beat.control.mask_destination
   packing.narrowing <== beat.control.narrowing
+  packing.clip <== beat.control.clip
+  packing.clip_unsigned <== beat.control.clip_unsigned
   packing.enabled <== beat.enabled
   def slide_bytes = vec(for List (byte in 0..8):
                           mux_lookup(beat.element_width, ~default: beat.enabled[byte], for List (format in 1..4): [SimdElementWidth.values()[format], beat.enabled[byte div (2 ** format)]])).as_bits().into(Mask(8))
@@ -91,6 +95,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     multiply_divide: beat.control.multiply_divide
     divide: beat.control.divide
     store: beat.control.store
+    saturated: beat.control.integer & beat.control.clip & packing.saturated
     shift: element_shift
     write: mux(scanning, scan_write, mux(reduction ||| element_move, element_zero_write, mux(singleton, element_write, mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))))))
     compress_state: beat.compress_state

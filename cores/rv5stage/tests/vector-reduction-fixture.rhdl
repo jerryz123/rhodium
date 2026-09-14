@@ -18,7 +18,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   input(vtype, vl, vstart, scalar, load_data): Bits(xlen.width)
   input(request_valid, issue_ready, cancel, retry_enable): Bool
   input retry_index: Bits(index_width(vlen + 1))
-  output(active, request_ready, issued, committed, retried, retired): Bool
+  output(active, request_ready, issued, committed, retried, retired, saturate): Bool
   output wb_index: Bits(index_width(vlen + 1))
   output store_data: Bits(64)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
@@ -79,6 +79,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   committed <== vector.commit.valid & !retry
   retried <== retry
   retired <== vector.retire.valid
+  saturate <== vector.saturate.valid
   wb_index <== index
   store_data <== tokens.egress.bits.store_data
   when (vector.request.fire()):
