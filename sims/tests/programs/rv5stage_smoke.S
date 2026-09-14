@@ -3,6 +3,10 @@
 .section .text
 .globl _start
 _start:
+#ifdef RHODIUM_SMOKE_COMPRESSED_SENTINEL
+  // Keep one explicit source encoding for the Perfetto disassembly regression.
+  c.nop
+#endif
   // HTIF failure codes identify the boot/assert, M claim, competing claim,
   // rearm, S claim, or final empty-claim stage (1 through 6).
   li s5, 1

@@ -17,6 +17,7 @@ SELECT
   (SELECT count(DISTINCT name)=4 FROM pcs) AND
   (SELECT count(*)=0 FROM pcs WHERE pc IS NULL OR instruction IS NULL OR length(pc)!=18 OR length(instruction)=0) AND
   (SELECT count(*)>0 FROM pcs WHERE instruction='csrr a0, mhartid') AND
+  (SELECT count(DISTINCT name)=4 FROM pcs WHERE instruction GLOB 'c.*') AND
   (SELECT count(*)=0 FROM pcs WHERE mnemonic!=substr(instruction||' ',1,instr(instruction||' ',' ')-1)) AND
   (SELECT count(*)=0 FROM args WHERE key IN ('debug.payload_width','debug.payload_words_lsw_first')) AND
   (SELECT count(*)=0 FROM pcs WHERE name NOT IN ('core/s2.decode','core/s3.execute','core/s4.memory','core/s5.wb')) AND

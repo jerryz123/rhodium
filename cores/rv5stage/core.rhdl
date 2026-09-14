@@ -239,7 +239,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wire wb_maintenance_accepted: Bool
   def wb_input = mem_wb_pipe.egress |> trace_valid_event("core/s5.wb", ~fields: operation):
     pc: operation.pc
-    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
   def Array(wb_retirement_path, wb_fp_path, wb_memory_path) = wb_input |> fork_valid(3)
   def Array(wb_live_path, wb_maintenance_path, wb_wait_path) = wb_retirement_path |> fork_valid(3)
   // WRS owns its retirement context outside the feed-forward pipeline. Wake
@@ -561,7 +561,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       |> filter_flow(_fetched => !if_squash)
       |> trace_event("core/s2.decode", ~stalls: #true, ~fields: operation):
            pc: operation.pc
-           instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+           instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
            deferred_dependency: id_hazard_reasons.deferred_dependency
            raw_hazard: id_hazard_reasons.scoreboard_raw
            waw_hazard: id_hazard_reasons.scoreboard_waw
@@ -889,7 +889,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
         ras_action: ex_ras_action
         predicted_ras_action: ex_input.bits.predicted_ras_action
         return_address: ex_input.bits.sequential_pc
-    instruction: ex_input.bits.instruction
+    raw_instruction: ex_input.bits.raw_instruction
     replay: ex_replay
     data_request_valid: ex_is_memory & !ex_request_fault & !ex_replay
     data_request: ex_data_request
@@ -915,14 +915,14 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def ex_traced = ex_input |> filter_valid(_operation => ex_transfer)
     |> trace_valid_event("core/s3.execute", ~fields: operation):
          pc: operation.pc
-         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
   ex_traced |> map_valid(_operation => ex_payload) |> ex_mem_pipe.ingress
 
   // Stage 4: MEM resolves the parallel DTLB/tag/data lookup. Capture successful load
   // data at the ordinary MEM/WB boundary, alongside pure integer results.
   def mem_live = mem_input |> filter_valid(_operation => mem_stage_valid) |> trace_valid_event("core/s4.memory", ~fields: operation):
     pc: operation.pc
-    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
     cache_outcome(~format: "enum"): mem_cache_outcome
     cache_reason(~format: "enum"): mux(pipeline_access.response.valid, pipeline_access.response.bits.reason, RV5StagePipelineReason.None)
   trace_parents(wb_input, [mem_live])
@@ -931,7 +931,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def mem_access = mem_access_path
     |> trace_valid_event("dcache/s1.access", ~when: mem_access_path.bits.data_request.access.into(MemoryOperation).is_memory(), ~fields: operation):
          pc: operation.pc
-         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
          address: operation.data_request.address
          access(~format: "enum"): operation.data_request.access
   mem_to_if_exception_path |> filter_valid(operation => operation.exception_valid & !operation.vector_valid)
@@ -949,7 +949,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     vector_last: operation.vector_last
     pc: operation.pc
     resume_pc: operation.resume_pc
-    instruction: operation.instruction
+    raw_instruction: operation.raw_instruction
     replay: operation.replay ||| mem_cache_replay
     load_hit: mem_load_hit
     cache_outcome: mem_cache_outcome
@@ -1011,7 +1011,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def wb_memory_response = wb_memory_path
     |> trace_valid_event("dcache/s2.resp", ~parents: [mem_access], ~when: wb_memory_path.bits.data_request.access.into(MemoryOperation).is_memory(), ~fields: operation):
          pc: operation.pc
-         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.instruction
+         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
          address: operation.data_request.address
          outcome(~format: "enum"): operation.cache_outcome
          fault: operation.exception_valid ||| operation.cache_outcome.is_one_of(RV5StagePipelineOutcome.PageFault, RV5StagePipelineOutcome.AccessFault) ||| (wb_memory_attempt & wb_data_fault)
@@ -1052,7 +1052,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     wb_exception <== RV5StageException(xlen):
       valid: Bool(#true)
       cause: exception_cause_bits(ExceptionCause.IllegalInstruction, width)
-      value: core_instruction_value(wb_offer_bits.instruction)
+      value: core_instruction_value(wb_offer_bits.raw_instruction)
   otherwise:
     wb_exception <== RV5StageException(xlen):
       valid: Bool(#false)
@@ -1099,7 +1099,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wb_csrs.commit.valid <== wb_pending_exception_ready ||| (wb_macro_retire & !wb_current_exception_wait)
   wb_csrs.commit.bits <== RV5StageCsrCommit(xlen):
     pc: wb_architectural_commit.pc
-    instruction: wb_architectural_commit.instruction
+    instruction: wb_architectural_commit.raw_instruction
     rd: wb_architectural_commit.rd
     system: wb_architectural_commit.system
     fence: wb_architectural_commit.fence

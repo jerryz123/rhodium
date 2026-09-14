@@ -270,7 +270,8 @@ endif
 
 $(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
                  tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
+	$(RISCV_CC) -march=rv64ic_zicsr -mabi=lp64 -nostdlib -nostartfiles \
+	  -DRHODIUM_SMOKE_COMPRESSED_SENTINEL=1 \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
 
 $(UART_PTY_BINARY): tests/programs/rv5stage_uart_pty.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)

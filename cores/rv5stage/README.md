@@ -217,9 +217,9 @@ separate observations, not synthetic ready signals.
 Each checkpoint captures named `pc` and `instruction` fields (XLEN + 32
 bits), not the complete stage bundle. Perfetto exposes `pc` as hexadecimal and
 `instruction` as host-disassembled RISC-V text, using the core profile's ISA.
-Raw instruction bits remain in the graph. These are already decompressed
-pipeline instructions, so compressed instructions display their expanded form,
-not the original `c.*` mnemonic.
+The instruction field carries the original architectural encoding: compressed
+instructions display their source `c.*` mnemonic, while execution continues to
+use the separately expanded 32-bit form through Execute.
 MEM additionally captures the three-bit `cache_outcome` and `cache_reason`
 enums, distinguishing hits, slow service, faults, and replay causes without
 changing instruction labels or pipeline ancestry.
