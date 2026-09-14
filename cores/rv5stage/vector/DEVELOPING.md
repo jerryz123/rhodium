@@ -163,6 +163,33 @@ muldiv fixture covers scalar producers, nonzero vstart, branch squash, source
 reads beyond VL, and reserved overlap. Run the RV32/RV64 control fixtures for
 group/source/mask legality and the shared-FP fixture for common unroller changes.
 
+Gather keeps index and destination geometry separate. Decode owns EEW16 index
+EMUL, group alignment, and physical interval overlap checks. The unroller
+retains the index-read beat and its mask through a second flushable Valid pipe;
+this context reserves the eventual issue slot before either read. Port zero
+belongs to the dependent data read in the index-response cycle, so the next
+index read may overlap the preceding data response but not its request.
+Retry/cancel flush both read contexts and the pending issue queue together.
+Never truncate an unsigned index before comparing it with data VLMAX.
+
+The vector gather beat carries the raw source word and a rotation displacement
+that places its selected element directly in its destination slot. Execute
+uses the existing E64 rotate path and singleton destination mask. Scalar and
+immediate gathers instead rotate to element zero, then replicate that SEW
+slice into the packed destination word. They use the normal packed schedule;
+their immutable source word can be reread without adding retained broadcast
+state. Do not add a VRF port or a full-vector permutation datapath.
+
+Run RV32/RV64 control/unroller fixtures for independent index/data geometry,
+full-width bounds, aliases, source reads beyond VL, masks, replay, and reset
+or cancellation in both read phases. The production reduction fixtures cover
+gather through public LSU initialization/readback, authorized-prefix retry,
+and partial cancellation followed by restart, at VLEN128/256/512. The core
+muldiv fixture covers index producers, scalar hazards, vstart, squash, and
+reserved overlap. Keep the shared-FP fixture as a common-read-path regression.
+`rv5stage-vector-unroller-1024` checks valid scalar and EI16 indices above 255,
+which smaller legal EI16 groups cannot reach.
+
 `packing.rhdl` handles runtime SEW, broadcasting, lane enables, widening halves,
 and destination packing. Global element position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`

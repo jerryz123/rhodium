@@ -210,6 +210,31 @@ resumes at the authorized destination frontier, and cancellation suppresses
 only speculative writes. FP scalar-insertion slides remain outside this cut;
 V remains unadvertised.
 
+## Register gather
+
+The experimental RV32/RV64 path supports `vrgather.vv`, `vrgatherei16.vv`,
+`vrgather.vx`, and `vrgather.vi`. Data uses SEW/LMUL; `vrgatherei16.vv`
+uses unsigned 16-bit indices with EMUL = LMUL * 16 / SEW. Other vector
+indices use unsigned SEW. Scalar indices retain all unsigned XLEN bits;
+immediates are unsigned five-bit indices. Indices below VLMAX can read beyond
+VL; indices at or above VLMAX produce zero, without wrapping into another
+register. These follow the [RVV gather specification](https://github.com/riscv/riscv-v-spec/blob/master/v-spec.adoc#vector-register-gather-instructions).
+
+Destination groups cannot overlap either vector source. Equal-EEW data/index
+sources may overlap each other; mixed-EEW source overlap is reserved. Masked
+data and index sources cannot also read v0 at another EEW. Index EMUL and
+alignment are checked independently, even for an empty body. Predication,
+nonzero vstart, and inactive/tail preservation follow ordinary integer writes.
+
+Vector-index gathers use two dependent synchronous reads: index/mask, then
+the addressed data word. The existing 3R1W bank supplies one element every
+two cycles in an unstalled stream after setup. Scalar/immediate forms read
+their selected source word for each destination chunk and broadcast packed
+8/4/2/1-element beats, one per cycle. Both use the existing SIMD 64-bit rotate
+slot, with no extra slide shifter or full-vector crossbar. Only WB authorizes
+writes; retry restarts at the authorized destination frontier, and cancellation
+flushes both read contexts and speculative results. V remains unadvertised.
+
 ## Shared integer multiply/divide
 
 RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,

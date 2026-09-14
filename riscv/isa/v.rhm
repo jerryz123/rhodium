@@ -117,6 +117,11 @@ def VSLIDEDOWN_VI = vector_arithmetic("VSLIDEDOWN.VI", 0x0f, VectorShiftVIFormat
 def VSLIDE1UP_VX = vector_arithmetic("VSLIDE1UP.VX", 0x0e, VectorVXFormat, 6)
 def VSLIDE1DOWN_VX = vector_arithmetic("VSLIDE1DOWN.VX", 0x0f, VectorVXFormat, 6)
 def VectorSlideInstructions = [VSLIDEUP_VX, VSLIDEUP_VI, VSLIDEDOWN_VX, VSLIDEDOWN_VI, VSLIDE1UP_VX, VSLIDE1DOWN_VX]
+def VRGATHER_VV = vector_arithmetic("VRGATHER.VV", 0x0c, VectorVVFormat, 0)
+def VRGATHEREI16_VV = vector_arithmetic("VRGATHEREI16.VV", 0x0e, VectorVVFormat, 0)
+def VRGATHER_VX = vector_arithmetic("VRGATHER.VX", 0x0c, VectorVXFormat, 4)
+def VRGATHER_VI = vector_arithmetic("VRGATHER.VI", 0x0c, VectorShiftVIFormat, 3)
+def VectorGatherInstructions = [VRGATHER_VV, VRGATHEREI16_VV, VRGATHER_VX, VRGATHER_VI]
 fun fixed_mask_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat, mask_bit :: Nat, ~move: move :: Boolean = #false):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code), vm.constrain(mask_bit)] ++ (if move | [vs2.constrain(0)] | []))
 def VMERGE_VVM = fixed_mask_arithmetic("VMERGE.VVM", 0x17, VectorFixedVVFormat, 0, 0)
@@ -180,10 +185,15 @@ def VMULHSU_VX = vector_arithmetic("VMULHSU.VX", 38, VectorVXFormat, 6)
 def VMULH_VV = vector_arithmetic("VMULH.VV", 39, VectorVVFormat, 2)
 def VMULH_VX = vector_arithmetic("VMULH.VX", 39, VectorVXFormat, 6)
 def VectorMultiplyDivideInstructions = [VDIVU_VV, VDIVU_VX, VDIV_VV, VDIV_VX, VREMU_VV, VREMU_VX, VREM_VV, VREM_VX, VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX, VMULHSU_VV, VMULHSU_VX, VMULH_VV, VMULH_VX]
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorSlideInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorSlideInstructions ++ VectorGatherInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
+  VectorGatherInstructions
+  VRGATHER_VV
+  VRGATHEREI16_VV
+  VRGATHER_VX
+  VRGATHER_VI
   VectorSlideInstructions
   VSLIDEUP_VX
   VSLIDEUP_VI

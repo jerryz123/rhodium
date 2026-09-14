@@ -1,4 +1,4 @@
-// Checks shared mul-div, moves, masks, reductions, and slides through architectural memory signatures.
+// Checks shared mul-div and vector moves, masks, reductions, slides, and gathers through memory signatures.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_vector_muldiv_tb;
@@ -413,6 +413,29 @@ module rv5stage_vector_muldiv_tb;
       end
       vset(sew,0,3); vec(14,8,8,0,0,4); expect_store('h2fff0,2,3); // reserved overlap even with VL=0
     end
+    // Gather index producers, deferred scalar index dependencies, nonzero
+    // restart, masking, and squash all cross the real scalar/vector boundary.
+    for(int sew=0;sew<4;sew++) for(int form=0;form<4;form++) begin
+      logic [63:0] value;
+      int iw;
+      width=8<<sew; mask='1>>(64-width); iw=form==1 ? 1 : sew;
+      vset(iw,8,2); vec(20,24,0,17,0,2); // vid.v supplies indices 0..7
+      vset(sew,8,2); vload(8,'h10000+sew*256,sew); vload(16,'h10080+sew*256,sew);
+      vec(30,0,8,0,0,3);
+      vset(sew,7,2); emit('h0080d073); // preserve destination element zero
+      li(5,1); li(6,7); emit('h026282b3); // gather must wait for deferred x5=7
+      vec(form==1 ? 14 : 12,16,8,form<2 ? 24 : form==3 ? 7 : 5,form[0],form<2 ? 0 : form==2 ? 4 : 3);
+      emit('h00000463); vec(12,16,8,0,0,4); // a squashed gather must not splat source zero
+      signature('h008,address,0); address+=8;
+      vset(sew,8,2); vstore(16,address,sew);
+      for(int i=0;i<8;i++) begin
+        value=right_value(i);
+        if(i>=1 && i<7 && (!form[0] || (left_value(i,sew)&mask)!=0)) value=left_value(form<2 ? i : 7,sew);
+        expect_store(address+(i<<sew),value&mask,sew);
+      end
+      address+=128;
+      vset(sew,0,2); vec(12,8,8,0,0,4); expect_store('h2fff0,2,3);
+    end
     assert(pc < 'hff00/4) else $fatal(1,"program exceeds ROM");
     pc='hff00/4;
     emit('h342021f3); li(10,'h2fff0); emit('h00353023);
@@ -462,7 +485,7 @@ module rv5stage_vector_muldiv_tb;
             else $fatal(1, "signature %0d address %h value %h expected %h", stores, data_access_out.request.bits.address, data_access_out.request.bits.data, expected_data[stores]);
           stores <= stores + 1;
           if (stores + 1 == expected_count) begin
-            $display("rv5stage shared muldiv, vector moves/masks/reductions/slides passed: %0d stores, %0d cycles", expected_count, cycles);
+            $display("rv5stage shared muldiv, vector moves/masks/reductions/slides/gathers passed: %0d stores, %0d cycles", expected_count, cycles);
             $finish;
           end
         end

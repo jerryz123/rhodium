@@ -1,4 +1,4 @@
-// Models reductions, scans, and slides through public LSU readback, WB replay, and cancellation.
+// Models reductions, scans, slides, and gathers through public LSU readback and WB recovery.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN+1), CHUNKS = VLEN/64;
   typedef struct packed { logic [4:0] address; logic [XLEN-1:0] data; } scalar_write_t;
@@ -179,6 +179,58 @@
     end
     for(int r=0;r<8;r++) check_reg(dest+r);
   endtask
+  task automatic gather_case(input int form, sew, lm, length, start, input bit masked,
+                             input int retry_at = -1, kill_after = -1);
+    logic [63:0] expected [0:8*CHUNKS-1];
+    logic [63:0] value, lane_mask, idx;
+    logic [31:0] insn;
+    int width, iw, groups, igroups, exponent, ie, maximum, lanes, row, offset, written;
+    width=8<<sew; iw=form==1 ? 16 : width; exponent=lm<4 ? lm : lm-8;
+    ie=exponent+(form==1 ? 1-sew : 0);
+    groups=exponent>0 ? 1<<exponent : 1; igroups=ie>0 ? 1<<ie : 1;
+    maximum=exponent>=0 ? (VLEN/width)<<exponent : (VLEN/width)>>(-exponent);
+    lanes=form<2 ? 1 : 64/width;
+    scalar=XLEN'(maximum-1);
+    for(int r=0;r<groups;r++) begin
+      for(int c=0;c<CHUNKS;c++) begin
+        model[8+r][c]=random_word(); model[24+r][c]=random_word();
+      end
+      load_reg(8+r); load_reg(24+r);
+    end
+    for(int c=0;c<CHUNKS;c++) model[0][c]=random_word();
+    load_reg(0);
+    if(form<2) begin
+      for(int i=0;i<maximum;i++) begin
+        idx=i%5==0 ? 64'(maximum) : i%5==1 ? 64'(maximum-1) : i%5==2 ? '1 : random_word()%64'(maximum);
+        row=i*iw/64; offset=i*iw%64; lane_mask=('1>>(64-iw))<<offset;
+        model[16+row/CHUNKS][row%CHUNKS]=(model[16+row/CHUNKS][row%CHUNKS]&~lane_mask)|((idx<<offset)&lane_mask);
+      end
+      for(int r=0;r<igroups;r++) load_reg(16+r);
+    end
+    for(int c=0;c<groups*CHUNKS;c++) expected[c]=model[24+c/CHUNKS][c%CHUNKS];
+    for(int i=start;i<length;i++) begin
+      if(masked && element(0,i,1)==0) continue;
+      idx=form<2 ? element(16,i,iw) : form==3 ? 31 : 64'(scalar);
+      value=idx>=64'(maximum) ? 0 : element(8,int'(idx),width);
+      row=i*width/64; offset=i*width%64; lane_mask=('1>>(64-width))<<offset;
+      expected[row]=(expected[row]&~lane_mask)|((value<<offset)&lane_mask);
+    end
+    insn=vec(form==1 ? 14 : 12,24,8,form<2 ? 16 : form==3 ? 31 : 3,form<2 ? 0 : form==2 ? 4 : 3,masked);
+    run(insn,sew,lm,length,start,retry_at,kill_after);
+    written=kill_after<0 ? length : (start/lanes+commit_count)*lanes;
+    for(int i=start;i<length && i<written;i++) begin
+      row=i*width/64; offset=i*width%64; lane_mask=('1>>(64-width))<<offset;
+      model[24+row/CHUNKS][row%CHUNKS]=(model[24+row/CHUNKS][row%CHUNKS]&~lane_mask)|(expected[row]&lane_mask);
+    end
+    for(int r=0;r<groups;r++) check_reg(24+r);
+    if(kill_after>=0) begin
+      // Restart precisely after the visible prefix, using the same index/data
+      // sources; stale second-read context must never write across this edge.
+      run(insn,sew,lm,length,written,0);
+      for(int c=0;c<groups*CHUNKS;c++) model[24+c/CHUNKS][c%CHUNKS]=expected[c];
+      for(int r=0;r<groups;r++) check_reg(24+r);
+    end
+  endtask
   initial begin
     logic [63:0] acc, mask, old;
     int width, length, dest;
@@ -278,6 +330,25 @@
         slide_case(form,sew,1,0,0,0);
       end
     end
-    $display("vector reductions/moves/scans/slides XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
+    for(int sew=0;sew<4;sew++) for(int lm=0;lm<8;lm++) begin
+      int exponent, maximum;
+      exponent=lm<4 ? lm : lm-8;
+      if(lm==4 || sew>exponent+3) continue;
+      maximum=exponent>=0 ? (VLEN/(8<<sew))<<exponent : (VLEN/(8<<sew))>>(-exponent);
+      for(int form=0;form<4;form++) begin
+        int ie, lanes;
+        ie=exponent+(form==1 ? 1-sew : 0); lanes=form<2 ? 1 : 8>>sew;
+        if(form==1 && (ie < -3 || ie > 3)) continue;
+        gather_case(form,sew,lm,maximum,0,0,0);
+        gather_case(form,sew,lm,maximum-1,1,1,0);
+        gather_case(form,sew,lm,0,0,1,0);
+        gather_case(form,sew,lm,1,3,0,0);
+        if(maximum>lanes) begin
+          gather_case(form,sew,lm,maximum,0,1,1);
+          gather_case(form,sew,lm,maximum,0,0,-1,1);
+        end
+      end
+    end
+    $display("vector reductions/moves/scans/slides/gathers XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
     $finish;
   end

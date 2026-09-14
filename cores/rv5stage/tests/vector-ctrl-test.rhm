@@ -56,6 +56,14 @@ check:
   value(field(control(VMAX_VV), "alu"), "maximum") ~is 1
   value(field(control(VMINU_VX), "alu"), "maximum") ~is 0
 
+for (instruction in VectorGatherInstructions, index in 0..4):
+  check:
+    value(control(instruction), "gather") ~is 1
+    value(control(instruction), "gather_index16") ~is (if index == 1 | 1 | 0)
+    value(control(instruction), "operand") ~is (if index < 2 | VectorOperandMode.Vector.packed_value() | (if index == 2 | VectorOperandMode.Scalar.packed_value() | VectorOperandMode.Immediate.packed_value()))
+    value(field(control(instruction), "alu"), "rotate") ~is 1
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is (if index == 2 | 1 | 0)
+    value(field(core_control(instruction), "writeback"), "enable") ~is 0
 for (instruction in VectorSlideInstructions, index in 0..6):
   check:
     value(control(instruction), "slide") ~is 1

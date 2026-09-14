@@ -303,6 +303,29 @@
         end
       end
     end
+    // Gather checks independent data/index groups, including fractional EMUL,
+    // mixed-EEW source aliases, masked v0, and full-register interval overlap.
+    for(int sew=0;sew<4;sew++) for(int lm=-3;lm<=3;lm++) begin
+      for(int form=0;form<4;form++) for(int d=0;d<32;d++) begin
+        for(int s1=0;s1<32;s1++) for(int variant=0;variant<4;variant++) begin
+          for(int masked=0;masked<2;masked++) begin
+            int s2, g, ig, ie;
+            bit expected, disjoint_indices, disjoint_sources;
+            s2=variant==0 ? 8 : variant==1 ? s1 : variant==2 ? d : 0;
+            g=lm>0 ? 1<<lm : 1; ie=lm+(form==1 ? 1-sew : 0); ig=ie>0 ? 1<<ie : 1;
+            disjoint_indices=d>=s1+ig || s1>=d+g;
+            disjoint_sources=s2>=s1+ig || s1>=s2+g;
+            expected=sew<=lm+3 && d%g==0 && s2%g==0 && d!=s2 && (masked==0 || (d!=0 && s2!=0));
+            if(form<2) expected &= s1%ig==0 && disjoint_indices && (masked==0 || s1!=0);
+            if(form==1) expected &= ie>=-3 && ie<=3 && (sew==1 || disjoint_sources);
+            test_vtype=(word_t'(sew)<<3)|(word_t'(lm)&7);
+            instruction={6'(form==1 ? 14 : 12),1'(masked==0),5'(s2),5'(s1),3'(form<2 ? 0 : form==2 ? 4 : 3),5'(d),7'h57}; #1;
+            assert(decoded_valid && legal==expected) else $fatal(1,"gather legality form%0d d%0d s1%0d s2%0d sew%0d lm%0d masked%0d",form,d,s1,s2,sew,lm,masked);
+            checks++;
+          end
+        end
+      end
+    end
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

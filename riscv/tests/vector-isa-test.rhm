@@ -9,6 +9,12 @@ import:
   "../model/main.rhm" as model
 
 check:
+  VRGATHER_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x322180d7
+  VRGATHEREI16_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(0)]) ~is 0x382180d7
+  VRGATHER_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x3221c0d7
+  VRGATHER_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0x322fb0d7
+  VRGATHER_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~throws ""
+  VRGATHER_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 32) ~throws ""
   VSLIDEUP_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x3a21c0d7
   VSLIDEUP_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(0)], ~immediate: 31) ~is 0x382fb0d7
   VSLIDEDOWN_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(0)]) ~is 0x3c21c0d7

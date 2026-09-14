@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../decode/vector-ctrl.rhdl".VectorOperandMode
   "bundles.rhdl" open
   "packing.rhdl" open
   "mask.rhdl" open
@@ -21,6 +22,8 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def element_move = beat.control.integer & beat.control.element_move
   def scanning = beat.control.integer & beat.control.scan
   def sliding = beat.control.integer & beat.control.slide
+  def gathering = beat.control.integer & beat.control.gather
+  def gather_vector = gathering & (beat.control.operand === VectorOperandMode.Vector)
   def scalar_destination = beat.control.integer & beat.control.scalar_destination & (element_move ||| (scanning & beat.last))
   scan.source <== beat.left
   scan.enabled <== beat.mask_enabled
@@ -33,8 +36,8 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   alu.control <== beat.control.alu
   // Slides premerge adjacent chunks into one rotate source. Only the existing
   // 64-bit shift slot executes; destination SEW/masks remain with packing.
-  alu.element_width <== mux(sliding, SimdElementWidth.E64, beat.element_width)
-  alu.enabled <== mux(reduction ||| sliding, bits(1, 8).into(Mask(8)), beat.enabled)
+  alu.element_width <== mux(sliding ||| gathering, SimdElementWidth.E64, beat.element_width)
+  alu.enabled <== mux(reduction ||| sliding ||| gathering, bits(1, 8).into(Mask(8)), beat.enabled)
   alu.select_right <== beat.select_right
   packing.destination <== beat.destination
   packing.first_element <== beat.first
@@ -43,9 +46,10 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   packing.enabled <== beat.enabled
   def slide_bytes = vec(for List (byte in 0..8):
                           mux_lookup(beat.element_width, ~default: beat.enabled[byte], for List (format in 1..4): [SimdElementWidth.values()[format], beat.enabled[byte div (2 ** format)]])).as_bits().into(Mask(8))
-  packing.result <== alu.result.updated(~data: mux(scanning, scan.data, alu.result.data), ~write_mask: mux(sliding, slide_bytes, alu.result.write_mask), ~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
+  def gather_broadcast = mux_lookup(beat.element_width, ~default: alu.result.data, for List (format in 0..3): [SimdElementWidth.values()[format], vec(for List (_ in 0..(8 >> format)): alu.result.data[0..(8 << format)]).as_bits()])
+  packing.result <== alu.result.updated(~data: mux(scanning, scan.data, mux(gathering & !gather_vector, gather_broadcast, alu.result.data)), ~write_mask: mux(sliding ||| gathering, slide_bytes, alu.result.write_mask), ~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
   def scan_write = packing.write.updated(~data: scan.data, ~mask: mux(beat.control.scalar_destination, bits(0, 64), mux(beat.control.mask_destination, beat.mask_enabled, mux(beat.empty, bits(0, 64), packing.write.mask))))
-  def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide
+  def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide ||| gather_vector
   // Mask logical operands are already packed one bit per element. Reuse the
   // ALU logic network, but write bits rather than repacking comparisons.
   def mask_write = packing.write.updated(
@@ -57,7 +61,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
   def element_write = VectorRegisterWrite(vlen):
     address: (beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (beat.first >> (bits(3, 2) - singleton_width))[0..index_width(vector_depth(vlen))]
-    data: bits(0, 64)
+    data: mux(gather_vector, alu.result.data, bits(0, 64))
     mask: mux(beat.enabled.as_bits()[0].into(Bool) & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, bits(0, 64))
   // Reduction input is one element plus the seed/committed accumulator. Masked
   // elements retain that accumulator; only the final beat writes element zero.

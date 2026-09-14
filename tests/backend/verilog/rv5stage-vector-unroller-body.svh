@@ -19,7 +19,7 @@
   int tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2;
   logic [63:0] tx_scalar, tx_distance;
   int tx_vlmax;
-  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, checking;
+  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, checking;
   int tx_beats;
   int checks = 0, macros = 0, retries = 0, cycles = 0, last_commit_cycle, consecutive = 0;
 
@@ -55,7 +55,7 @@
         for (int lane = 0; lane < tx_lanes; lane++) begin
           position = first + lane;
           enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || snapshot[position / 64][position % 64]);
-          if (tx_opcode == 14 && tx_mode != 6 && 64'(position) < tx_distance) enabled = 0;
+          if (tx_opcode == 14 && tx_mode != 6 && !tx_gather && 64'(position) < tx_distance) enabled = 0;
           if (enabled) begin
             a = element(tx_vs2, position, tx_width);
             b = tx_mode == 0 || tx_mask_logic ? element(tx_vs1, position, tx_width) : broadcast_value & lane_mask;
@@ -71,6 +71,9 @@
                 31: value = ~(a ^ b);
                 default: $fatal(1, "bad mask opcode");
               endcase
+            end else if (tx_gather) begin
+              b=tx_gather_vector ? element(tx_vs1,position,tx_opcode==14 ? 16 : tx_width) : tx_distance;
+              value=b>=64'(tx_vlmax) ? 0 : element(tx_vs2,int'(b),tx_width);
             end else case (tx_opcode)
               0: value = a + b;
               2: value = a - b;
@@ -101,7 +104,7 @@
               41: value = signed_element(a, tx_width) >>> (b & 64'(tx_width - 1));
               default: $fatal(1, "bad reference opcode");
             endcase
-            bit_offset = tx_compare ? position % 64 : lane * tx_width;
+            bit_offset = tx_compare ? position % 64 : tx_gather_vector ? position*tx_width%64 : lane * tx_width;
             expected_data |= (value & (tx_compare ? 64'd1 : lane_mask)) << bit_offset;
             expected_mask |= (tx_compare ? 64'd1 : lane_mask) << bit_offset;
           end
@@ -115,7 +118,7 @@
           memory[address] = (memory[address] & ~expected_mask) | expected_data;
         end
         if (tx_dense && tx_beats != 0)
-          assert (last_commit_cycle + 1 == cycles) else $fatal(1, "bubble in an unstalled packed stream");
+          assert (last_commit_cycle + (tx_gather_vector ? 2 : 1) == cycles) else $fatal(1, "bubble in an unstalled vector stream");
         tx_beats++;
         if (last_commit_cycle + 1 == cycles) consecutive++;
         last_commit_cycle = cycles;
@@ -134,7 +137,8 @@
     int timeout;
     assert (!active && !checking) else $fatal(1, "previous macro did not drain");
     tx_mask_logic = mode == 2;
-    tx_width = tx_mask_logic ? 1 : 8 << sew; tx_lanes = 64 / tx_width;
+    tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
+    tx_width = tx_mask_logic ? 1 : 8 << sew; tx_lanes = tx_gather_vector ? 1 : 64 / tx_width;
     tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
     tx_masked = masked_op; tx_compare = !tx_mask_logic && op >= 24 && op <= 31;
@@ -269,6 +273,69 @@
         end
       end
     end
+    // Gather reads arbitrary source positions, with a separate EEW16 index
+    // stream. Source values are modeled from the admission-time snapshot.
+    for(int sew=0;sew<4;sew++) begin
+      for(int lm=0;lm<8;lm++) begin
+        int maximum, exponent;
+        exponent=lm<4 ? lm : lm-8;
+        if(lm==4 || sew>exponent+3) continue;
+        maximum=exponent>=0 ? (VLEN/(8<<sew))<<exponent : (VLEN/(8<<sew))>>(-exponent);
+        for(int form=0;form<4;form++) begin
+          int iw, groups, ig, op, mode;
+          iw=form==1 ? 16 : 8<<sew; ig=exponent+(form==1 ? 1-sew : 0);
+          if(form==1 && (ig < -3 || ig > 3)) continue;
+          groups=ig>0 ? 1<<ig : 1; op=form==1 ? 14 : 12; mode=form<2 ? 0 : form==2 ? 4 : 3;
+          // Refresh data/destination after the preceding destructive slide
+          // sweeps, so indexed selection cannot pass on an all-zero source.
+          for(int r=8;r<32;r++) begin
+            if(r>=16 && r<24) continue;
+            for(int row=0;row<VLEN/64;row++) begin
+              initialize_in='{1'b1,'{AW'(r*VLEN/64+row),random_word(),64'hffffffffffffffff}}; tick();
+            end
+          end
+          initialize_in.valid=0;
+          if(form<2) begin
+            for(int row=0;row<groups*VLEN/64;row++) begin
+              logic [63:0] data, idx;
+              data=0;
+              for(int lane=0;lane<64/iw;lane++) begin
+                int i;
+                i=row*(64/iw)+lane;
+                case(i%8)
+                  0: idx=0;
+                  1: idx=64'(maximum-1);
+                  2: idx=64'(maximum);
+                  3: idx='1;
+                  4: idx=64'(256);
+                  default: idx=random_word()%64'(maximum);
+                endcase
+                data|=(idx & ('1>>(64-iw)))<<(lane*iw);
+              end
+              initialize_in='{1'b1,'{AW'(16*VLEN/64+row),data,64'hffffffffffffffff}}; tick();
+            end
+            initialize_in.valid=0;
+          end
+          for(int scenario=0;scenario<9;scenario++) begin
+            int length, start, lanes;
+            lanes=form<2 ? 1 : 8>>sew;
+            length=scenario==0 ? 0 : scenario==1 ? maximum-1 : maximum;
+            start=scenario==2 ? 1 : scenario==3 ? maximum : 0;
+            scalar=scenario==4 ? XLEN'(maximum-1) : scenario==5 ? XLEN'(maximum) : scenario==6 ? XLEN'(256) : scenario==7 ? XLEN'(1)<<(XLEN-1) : scenario==8 ? '1 : XLEN'(3);
+            run_macro(sew,lm,length,start,op,mode,24,form<2 ? 16 : form==3 ? 31 : 3,8,scenario[0],0,scenario!=4);
+            if(maximum>lanes && scenario==4) begin
+              scalar=XLEN'(maximum-1);
+              run_macro(sew,lm,maximum,0,op,mode,24,form<2 ? 16 : 3,8,1,1,1,lanes);
+              scalar=XLEN'(maximum-1);
+              run_macro(sew,lm,maximum,0,op,mode,24,form<2 ? 16 : 3,8,0,1,1,0);
+            end
+          end
+          // Equal-EEW source aliases are legal; the destination stays disjoint.
+          if(form==0 || (form==1 && sew==1))
+            run_macro(sew,lm,maximum,0,op,0,24,8,8,0);
+        end
+      end
+    end
     // Retry after an authorized in-place prefix and in its first partial row.
     for (int ones = 0; ones < 2; ones++) begin
       for (int row = 0; row < VLEN / 64; row++) begin
@@ -281,6 +348,8 @@
       scalar=1; run_macro(0,3,VLEN,0,15,4,8,3,8,1,0,0);
       scalar=XLEN'(-17); run_macro(0,3,VLEN,0,14,6,24,3,8,1,0,0);
       scalar=XLEN'(-17); run_macro(0,3,VLEN,0,15,6,8,3,8,1,0,0);
+      scalar=3; run_macro(0,3,VLEN,0,12,4,24,3,8,1,0,0);
+      run_macro(0,3,VLEN,0,12,0,24,16,8,1);
     end
     run_macro(0, 3, VLEN - 1, 3, 27, 2, 3, 5, 3, 0, 1, 1, 64);
     run_macro(0, 3, VLEN - 1, 3, 23, 0, 8, 16, 8, 1, 1, 1, 8);
@@ -295,19 +364,21 @@
     assert (consecutive >= VLEN / 8 - 1 && retries > 0) else $fatal(1, "missing throughput/retry coverage");
     // Cancel at read, buffered-offer, and pre-WB boundaries. No killed token
     // may update the bank or be mistaken for the next macro's response.
-    for (int family = 0; family < 6; family++) begin
+    for (int family = 0; family < 8; family++) begin
       for (int delay = 0; delay < 4; delay++) begin
-      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : family == 3 ? 32'h6e72a1d7 : family == 4 ? 32'h3a81cc57 : 32'h3e81e457;
+      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : family == 3 ? 32'h6e72a1d7 : family == 4 ? 32'h3a81cc57 : family == 5 ? 32'h3e81e457 : family == 6 ? 32'h32880c57 : 32'h3a880c57;
       vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
       request_valid = 1; issue_ready = delay == 3; tick(); request_valid = 0;
       repeat (delay) tick(); cancel = 1; tick(); cancel = 0;
       repeat (7) tick();
       end
     end
-    instruction = 32'h02880c57; vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
-    request_valid = 1; issue_ready = 0; tick(); request_valid = 0;
-    repeat (3) tick(); reset = 1; tick(); reset = 0;
-    repeat (7) tick();
+    for(int delay=1;delay<=3;delay++) begin
+      instruction = 32'h32880c57; vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
+      request_valid = 1; issue_ready = 0; tick(); request_valid = 0;
+      repeat (delay) tick(); reset = 1; tick(); reset = 0;
+      repeat (7) tick();
+    end
     run_macro(0, 0, VLEN / 8, 0, 11, 0, 8, 8, 8, 0);
     $display("vector unroller XLEN=%0d VLEN=%0d: %0d macros, %0d WB beats, %0d retries", XLEN, VLEN, macros, checks, retries);
     $finish;
