@@ -57,7 +57,7 @@ check_matrix_entry() {
 check_core_circt_matrix() {
   local path="$1"
   local target
-  for target in ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-test ci-circt-core-memory-test ci-circt-core-cache-test hardfloat-circt-test; do
+  for target in ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-functional-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test hardfloat-circt-test; do
     check_matrix_entry "$path" circt_matrix "$target"
   done
 }

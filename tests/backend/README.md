@@ -65,10 +65,12 @@ bash tests/backend/run-circt.sh --group std
 ```
 
 The accepted groups are `language`, `std`, `protocols`, `cores`,
-`cores-components`, `cores-execution`, `cores-vector`, `cores-memory`,
-`cores-cache`, `socs`, and `rfpl`. The `cores` group is the union of its five
-fixture shards; CI runs those shards and the separately owned HardFloat suite
-independently so one heavyweight build cannot consume another owner's budget.
+`cores-components`, `cores-execution`, `cores-vector`,
+`cores-vector-functional`, `cores-vector-configurations`, `cores-memory`,
+`cores-cache`, `socs`, and `rfpl`. The `cores-vector` group combines its two
+leaf shards, and `cores` combines the five subsystem groups. CI runs the leaf
+shards and the separately owned HardFloat suite independently so one
+heavyweight build cannot consume another owner's budget.
 A `std` selection includes both `rhodium/std` foundations and the root-level
 [`flow/` library](../../flow/README.md).
 A group selects every declared fixture in that group, not just the curated

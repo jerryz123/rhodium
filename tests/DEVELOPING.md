@@ -72,7 +72,7 @@ flowchart TD
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Host["Host matrix<br/>foundation, backend, models,<br/>protocols, cores, SoCs, hygiene"]
     Compile --> Examples["Example matrix<br/>one owning example group per shard"]
-    Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/vector/memory/caches,<br/>HardFloat, RFPL"]
+    Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/vector functional/vector configurations/<br/>memory/caches, HardFloat, RFPL"]
     Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
     Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
     Compile --> SimpleBuild["Build SimpleSoC once<br/>exact-commit executable artifact"]
@@ -90,10 +90,11 @@ changes select the backend host shard and every external CIRCT group. The
 simulation job remains independent from backend fixtures and owns the
 repository's full harness flow.
 
-Core CIRCT coverage gives scalar/frontend execution, vector execution, and
-HardFloat independent jobs and timeout budgets. The aggregate `cores` fixture
-selector still covers the five manifest-owned core groups; HardFloat retains its
-package-owned runner and target.
+Core CIRCT coverage gives scalar/frontend execution, functional vector,
+alternate vector configuration, and HardFloat independent jobs and timeout
+budgets. The aggregate `cores-vector` selector combines its two vector leaf
+groups, while `cores` still covers the five manifest-owned subsystem groups.
+HardFloat retains its package-owned runner and target.
 
 The stalled-memory TiledSoC specialization runs in its own job under the same
 simulation change selection. Its separate build and bounded execution cannot
