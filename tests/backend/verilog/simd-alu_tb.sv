@@ -8,7 +8,7 @@ module simd_alu_tb;
   logic [1:0] permutation_select, count_select, widen_element_width, prepared_width;
   logic [2:0] result_select;
   logic subtract, signed_compare, maximum, shift_right, arithmetic_shift;
-  logic rotate, invert_right, widening, upper_half;
+  logic rotate, invert_right, widening, upper_half, widen_left_signed, widen_right_signed;
   logic [63:0] prepared_left, prepared_right;
   logic [7:0] prepared_enabled;
   logic [7:0] enabled, select_right, comparison, write_mask;
@@ -178,7 +178,7 @@ module simd_alu_tb;
 
   task automatic check_widen;
     int source_bits, destination_bits, lanes, source_lane, amount;
-    logic [63:0] source_mask, destination_mask, a, b, expected_left, expected_right, expected_data;
+    logic [63:0] source_mask, destination_mask, a, b, extended_a, extended_b, expected_left, expected_right, expected_data;
     logic [7:0] expected_enabled, expected_write_mask;
     source_bits = 8 << widen_element_width;
     destination_bits = 2 * source_bits;
@@ -192,12 +192,14 @@ module simd_alu_tb;
       source_lane = lane + (upper_half ? lanes : 0);
       a = (left >> (source_lane * source_bits)) & source_mask;
       b = (right >> (source_lane * source_bits)) & source_mask;
-      expected_left |= a << (lane * destination_bits);
-      expected_right |= b << (lane * destination_bits);
+      extended_a = widen_left_signed && a[source_bits-1] ? a | ~source_mask : a;
+      extended_b = widen_right_signed && b[source_bits-1] ? b | ~source_mask : b;
+      expected_left |= (extended_a & destination_mask) << (lane * destination_bits);
+      expected_right |= (extended_b & destination_mask) << (lane * destination_bits);
       expected_enabled[lane] = enabled[source_lane];
-      amount = int'(b & 64'(destination_bits - 1));
+      amount = int'(extended_b & 64'(destination_bits - 1));
       if (enabled[source_lane]) begin
-        expected_data |= ((a << amount) & destination_mask) << (lane * destination_bits);
+        expected_data |= ((extended_a << amount) & destination_mask) << (lane * destination_bits);
         for (int byte_index = 0; byte_index < destination_bits / 8; byte_index++)
           expected_write_mask[lane * destination_bits / 8 + byte_index] = 1;
       end
@@ -230,7 +232,7 @@ module simd_alu_tb;
     arithmetic_shift = 0;
     rotate = 0;
     invert_right = 0;
-    widening = 0;
+    widening = 0; widen_left_signed = 0; widen_right_signed = 0;
     upper_half = 0;
     widen_element_width = 0;
     permutation_select = 0;
@@ -305,7 +307,9 @@ module simd_alu_tb;
           left = 64'hfedcba9876543210;
           right = 64'h0101010101010101 * 64'(amount);
           enabled = 8'(amount);
-          check_widen();
+          for (int signedness = 0; signedness < 4; signedness++) begin
+            widen_left_signed = signedness[0]; widen_right_signed = signedness[1]; check_widen();
+          end
           enabled = '1;
           check_widen();
         end
@@ -315,6 +319,7 @@ module simd_alu_tb;
       left = random_word(); right = random_word(); enabled = 8'(random_word());
       widen_element_width = 2'(random_word() % 3);
       upper_half = 1'(random_word());
+      widen_left_signed = 1'(random_word()); widen_right_signed = 1'(random_word());
       check_widen();
     end
     $display("simd-alu PASS: %0d per-element differential checks", checks);

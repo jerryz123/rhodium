@@ -39,6 +39,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   input immediate_unsigned: Bool
   input widening: Bool
   input upper_half: Bool
+  input(left_signed, right_signed): Bool
   input scalar: Bits(64)
   input immediate: Bits(5)
   input operation: Bits(3)
@@ -66,6 +67,8 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     immediate_unsigned: immediate_unsigned
     widening: widening
     upper_half: upper_half
+    left_signed: left_signed
+    right_signed: right_signed
   context.ingress.bits <== VectorFixtureContext(vlen):
     control: packing_control
     scalar: scalar
@@ -148,6 +151,7 @@ sync_circuit RV5StageVectorFixture():
   input immediate_unsigned: Bool
   input widening: Bool
   input upper_half: Bool
+  input(left_signed, right_signed): Bool
   input scalar: Bits(64)
   input immediate: Bits(5)
   input operation: Bits(3)
@@ -182,6 +186,8 @@ sync_circuit RV5StageVectorFixture():
     bank.immediate_unsigned <== immediate_unsigned
     bank.widening <== widening
     bank.upper_half <== upper_half
+    bank.left_signed <== left_signed
+    bank.right_signed <== right_signed
     bank.scalar <== scalar
     bank.immediate <== immediate
     bank.operation <== operation

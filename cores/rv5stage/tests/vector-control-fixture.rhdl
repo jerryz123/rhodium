@@ -26,7 +26,7 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   output mstatus: Bits(xlen.width)
   output state: RV5StageVectorState(xlen)
   output(configuration, operand): Bits(2)
-  output(mask_destination, invert_comparison, swap_operands): Bool
+  output(mask_destination, invert_comparison, swap_operands, widening, left_signed, right_signed, subtract): Bool
   inst decoder(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
   inst csrs(RV5StageCsrFile(RVCoreProfile(~xlen: xlen, ~experimental_vector: vlen)))
   inst legality(RV5StageVectorLegality(xlen, vlen))
@@ -41,6 +41,10 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   mask_destination <== decoder.control.vector.mask_destination
   invert_comparison <== decoder.control.vector.invert_comparison
   swap_operands <== decoder.control.vector.swap_operands
+  widening <== decoder.control.vector.widening
+  left_signed <== decoder.control.vector.left_signed
+  right_signed <== decoder.control.vector.right_signed
+  subtract <== decoder.control.vector.alu.subtract
   csrs.interrupts <== literal(RV5StageInterrupts(), 0)
   csrs.hart_id <== bits(0, xlen.width)
   csrs.time_counter <== bits(0, 64)

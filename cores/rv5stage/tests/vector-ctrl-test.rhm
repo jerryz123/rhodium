@@ -43,6 +43,11 @@ check:
   value(control(VSETVL), "configure") ~is VectorConfigMode.VtypeRegister.packed_value()
   value(field(control(VSUB_VV), "alu"), "subtract") ~is 1
   value(field(control(VADD_VX), "alu"), "subtract") ~is 0
+  value(control(VWADDU_VV), "widening") ~is 1
+  value(control(VWADDU_VV), "left_signed") ~is 0
+  value(control(VWADD_VX), "right_signed") ~is 1
+  value(field(control(VWSUBU_VV), "alu"), "subtract") ~is 1
+  value(field(control(VWADD_VV), "alu"), "subtract") ~is 0
   value(field(control(VAND_VI), "alu"), "logic_select") ~is SimdLogicSelect.And.packed_value()
   value(field(control(VOR_VV), "alu"), "logic_select") ~is SimdLogicSelect.Or.packed_value()
   value(field(control(VXOR_VX), "alu"), "logic_select") ~is SimdLogicSelect.Xor.packed_value()

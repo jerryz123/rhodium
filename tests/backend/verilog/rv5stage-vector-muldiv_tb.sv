@@ -1,4 +1,4 @@
-// Checks shared mul-div and vector moves, masks, reductions, slides, gathers, and compression through memory signatures.
+// Checks shared vector integer, mul-div, move, mask, reduction, slide, gather, and compression paths through memory signatures.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_vector_muldiv_tb;
@@ -145,6 +145,15 @@ module rv5stage_vector_muldiv_tb;
       default: return sa > sb ? a : b;
     endcase
   endfunction
+  function automatic logic [63:0] widening_value(input int op, input int width, input logic [63:0] a, b);
+    logic [63:0] source_mask, destination_mask;
+    logic signed [63:0] signed_a, signed_b;
+    source_mask = '1 >> (64-width); destination_mask = '1 >> (64-2*width);
+    signed_a = $signed((a & source_mask) << (64-width)) >>> (64-width);
+    signed_b = $signed((b & source_mask) << (64-width)) >>> (64-width);
+    if (op[0]) return (op >= 'h32 ? signed_a-signed_b : signed_a+signed_b) & destination_mask;
+    return (op >= 'h32 ? (a & source_mask)-(b & source_mask) : (a & source_mask)+(b & source_mask)) & destination_mask;
+  endfunction
   function automatic logic [63:0] right_value(input int lane);
     case (lane % 8)
       0: return '1; // minimum / -1, plus mixed-sign high multiplication
@@ -234,6 +243,23 @@ module rv5stage_vector_muldiv_tb;
       // VL=0 plus nonzero vstart emits exactly one empty macro completion.
       vset(sew,0,3); emit('h0083d073); vec('h27, 24, 8, 16, 0, 2);
       signature('h008,address,0); address += 8;
+    end
+    // Narrow-source widening uses the ordinary Decode/unroller/WB path and
+    // stores through doubled EEW/EMUL. A taken branch must squash a younger op.
+    for (int sew = 0; sew < 3; sew++) begin
+      width = 8 << sew;
+      vset(sew,16,2); vload(8,'h10000+sew*256,sew); vload(16,'h10080+sew*256,sew);
+      for (int op = 'h30; op <= 'h33; op++) begin
+        for (int vx = 0; vx < 2; vx++) begin
+          li(5,-3);
+          vec(op,24,8,vx != 0 ? 5 : 16,0,vx != 0 ? 6 : 2);
+          emit('h00000463); vec(op ^ 2,24,16,vx != 0 ? 5 : 8,0,vx != 0 ? 6 : 2);
+          vstore(24,address,sew+1);
+          for (int lane=0;lane<16;lane++)
+            expect_store(address+(lane<<(sew+1)),widening_value(op,width,left_value(lane,sew),vx != 0 ? -64'd3 : right_value(lane)),sew+1);
+          address+=128;
+        end
+      end
     end
     // Exercise the new cheap operations through Decode and real WB, not just
     // the standalone unroller. Older branches must squash each new family.
@@ -511,7 +537,7 @@ module rv5stage_vector_muldiv_tb;
             else $fatal(1, "signature %0d address %h value %h expected %h", stores, data_access_out.request.bits.address, data_access_out.request.bits.data, expected_data[stores]);
           stores <= stores + 1;
           if (stores + 1 == expected_count) begin
-            $display("rv5stage shared muldiv, vector moves/masks/reductions/slides/gathers/compression passed: %0d stores, %0d cycles", expected_count, cycles);
+            $display("rv5stage vector integer/shared execution paths passed: %0d stores, %0d cycles", expected_count, cycles);
             $finish;
           end
         end

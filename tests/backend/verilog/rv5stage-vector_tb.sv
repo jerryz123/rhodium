@@ -23,6 +23,7 @@ module rv5stage_vector_tb;
   logic immediate_unsigned;
   logic widening;
   logic upper_half;
+  logic left_signed, right_signed;
   logic [63:0] scalar;
   logic [4:0] immediate;
   logic [2:0] operation;
@@ -93,6 +94,8 @@ module rv5stage_vector_tb;
                   (!masked || m[position % 64]);
         x = (a >> (source_lane * width_bits)) & lane_mask;
         y = operand_select == 0 ? (b >> (source_lane * width_bits)) & lane_mask : broadcast_value & lane_mask;
+        if (widening && left_signed && x[width_bits-1]) x |= ~lane_mask;
+        if (widening && right_signed && y[width_bits-1]) y |= ~lane_mask;
         case (operation)
           0: value = x + y;
           1: value = x - y;
@@ -146,7 +149,7 @@ module rv5stage_vector_tb;
     destination = 0; mask_destination = 0; element_width = 0;
     first_element = 0; vl = 0; vstart = 0; vlmax = 1;
     masked = 0; operand_select = 0; immediate_unsigned = 0;
-    widening = 0; upper_half = 0; scalar = 0; immediate = 0; operation = 0;
+    widening = 0; upper_half = 0; left_signed = 0; right_signed = 0; scalar = 0; immediate = 0; operation = 0;
   endtask
 
   initial begin
@@ -227,6 +230,7 @@ module rv5stage_vector_tb;
         element_width = 2'(trial % 4);
         widening = trial % 5 == 0 && element_width != 3;
         upper_half = (trial & 1) != 0;
+        left_signed = (trial & 8) != 0; right_signed = (trial & 16) != 0;
         vlmax = 17'(vlen_bits / (8 << element_width));
         if (trial % 7 == 0 && element_width == 0) vlmax = 17'(vlen_bits / 64);
         first_element = 17'((trial % int'(vlmax)) / (8 >> element_width) * (8 >> element_width));

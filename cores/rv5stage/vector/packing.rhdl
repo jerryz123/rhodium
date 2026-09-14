@@ -24,6 +24,8 @@ bundle VectorPackingControl(vlen :: VectorLength):
   immediate_unsigned: Bool
   widening: Bool
   upper_half: Bool
+  left_signed: Bool
+  right_signed: Bool
 
 bundle VectorPackedOperands(vlen :: VectorLength):
   left: Bits(64)
@@ -63,6 +65,8 @@ circuit RV5StageVectorOperands(vlen :: VectorLength):
   widen.right <== packed.right
   widen.enabled <== packed.enabled
   widen.upper_half <== control.upper_half
+  widen.left_signed <== control.left_signed
+  widen.right_signed <== control.right_signed
   widen.element_width <== control.element_width.as_bits().into(SimdWidenElementWidth)
   def half_elements = mux_lookup(control.element_width, ~default: bits(4, count_width), [[SimdElementWidth.E16, bits(2, count_width)], [SimdElementWidth.E32, bits(1, count_width)]])
   def widened = VectorPackedOperands(vlen):

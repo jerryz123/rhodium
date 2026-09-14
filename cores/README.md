@@ -70,13 +70,16 @@ no architectural state or tail policy. Mask-register destinations use the
 element enables rather than the data byte mask.
 
 `SimdWidenOperands()` takes `SimdWidenElementWidth.E8/E16/E32`, two source
-words, `upper_half`, and source-element `enabled` bits. Its `operands` output
-contains zero-extended `left`/`right` values, destination `element_width`, and
+words, independent `left_signed`/`right_signed` controls, `upper_half`, and
+source-element `enabled` bits. Its `operands` output contains sign- or
+zero-extended `left`/`right` values, destination `element_width`, and
 destination-element `enabled`. The lower or upper 32 source bits become four
 16-bit, two 32-bit, or one 64-bit destination elements. Enables are selected
 from the corresponding source elements; unused high output enable bits are
 zero. Prepared data is not masked. Two invocations cover a complete source
-word, and the caller owns which group to issue and where to write it.
+word, and the caller owns which group to issue and where to write it. Independent
+signedness supports mixed-sign future operations without ISA recognition in
+the reusable adapter.
 
 Feeding these operands into an ordinary logical left shift implements the
 datapath for `vwsll`: sources are zero-extended before shifting, and shift

@@ -82,8 +82,9 @@ instantiating full datapaths per width. These design techniques follow
 [Saturn's integer unit](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/IntegerPipe.scala)
 and [shift unit](https://github.com/ucb-bar/saturn-vectors/blob/master/src/main/scala/exu/int/ShiftPipe.scala);
 the public operation and widening contracts are in [README.md](README.md#packed-simd-integer-alu).
-`SimdWidenOperands` prepares one destination group without adding another ALU
-or coupling widening to instruction decode. `SimdCompress` performs only
+`SimdWidenOperands` independently sign- or zero-extends two source halves into
+one destination group without adding another ALU or coupling widening to
+instruction decode. `SimdCompress` performs only
 stable word-local element compaction and returns its selected-element count;
 cross-word suffixes and architectural progress belong to the caller. Keep RVV
 register layout and architectural policy outside these reusable components. Their direct fixture

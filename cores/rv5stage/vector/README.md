@@ -4,7 +4,7 @@
 # Experimental vector path
 
 The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
-vector CSR state, the decoded same-width integer subset, and RV64 unit-stride
+vector CSR state, the decoded packed-integer subset, and RV64 unit-stride
 memory operations. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
@@ -29,10 +29,12 @@ reads do not, and SD combines
 the FP and vector dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
-add/sub, logic, shifts, comparisons, min/max, and compression using direct SIMD
-controls, operand selection, comparison inversion, and operand swapping. Runtime group
-checks cover alignment, fractional groups, masked data destinations, and
-mask-result overlap. Legal rows execute through the Decode-held integer
+add/sub, logic, shifts, comparisons, min/max, compression, and narrow-source
+widening add/sub using direct SIMD controls, operand selection, extension
+signedness, comparison inversion, and operand swapping. Runtime group checks
+cover alignment, fractional groups, doubled widening EMUL, masked data
+destinations, mask-result overlap, and widening source/destination overlap.
+Legal rows execute through the Decode-held integer
 unroller. VS Off, `vill`, and invalid register groups trap before unrolling.
 This is an initial subset of [RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext),
 not a complete vector ISA implementation.
@@ -101,9 +103,26 @@ WB feedback to the unroller and flushes its private speculative pipeline.
 Fault feedback terminates issue and emits the failing element through
 `fault_start`; accepted memory slots remain owned until drained.
 
-This cut preserves inactive and tail contents, supports fractional LMUL and
-in-place same-width groups, sign-extends RV32 VX operands before SEW64
-broadcast, and packs comparison bits through the ordinary masked write port.
+This cut preserves inactive and tail contents, supports fractional LMUL,
+in-place same-width groups, and the permitted high-part overlap for widening
+destinations. It sign-extends RV32 VX operands before SEW64 broadcast and packs
+comparison bits through the ordinary masked write port.
+
+## Widening integer add and subtract
+
+The RV32/RV64 integer path executes `vwaddu.vv/vx`, `vwadd.vv/vx`,
+`vwsubu.vv/vx`, and `vwsub.vv/vx` for source SEW 8/16/32. Both narrow operands
+are extended according to the instruction before the shared SIMD adder runs at
+twice SEW. Destination EMUL is twice LMUL and must remain representable through
+EMUL=8. A source may overlap the wider destination only in the architectural
+high-part case; other overlaps trap before any VRF read.
+
+One unroller beat processes half of a 64-bit source row and produces one 64-bit
+destination row. Lower and upper beats reread the same source address, making
+each destination-width beat its own WB authorization and retry boundary without
+retaining speculative operand state. Mask, `vstart`, tail, and empty-body
+behavior use the ordinary packed-element rules. Writes remain WB-authorized,
+and retry resumes at the oldest unauthorized half-row.
 
 ## Moves, merge, and mask logic
 
@@ -378,10 +397,10 @@ enabled element. The caller supplies the mask word containing that element
 than shifting their positions. Scalar/immediate broadcast uses the low SEW
 bits; immediates select signed or unsigned extension explicitly.
 
-Widening reuses `SimdWidenOperands`: each invocation zero-extends either half
-of an 8/16/32-bit source chunk into one 64-bit output chunk. The returned first
-element and width describe that destination chunk. Both halves must use the
-appropriate source snapshot. Signed widening, narrowing, saturation, reduction,
+Widening reuses `SimdWidenOperands`: each invocation sign- or zero-extends
+either half of an 8/16/32-bit source chunk into one 64-bit output chunk. The
+returned first element and width describe that destination chunk. Both halves
+must use the appropriate source snapshot. Narrowing, saturation, reduction,
 and permutation scheduling are not supplied by this adapter.
 
 `RV5StageVectorResult(vlen)` converts a SIMD result into the bank write payload.

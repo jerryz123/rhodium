@@ -276,6 +276,7 @@ circuit SimdWidenOperands():
   input(left, right): Bits(64)
   input element_width: SimdWidenElementWidth
   input upper_half: Bool
+  input(left_signed, right_signed): Bool
   input enabled: Mask(8)
   output operands: SimdWidenedOperands()
 
@@ -286,8 +287,12 @@ circuit SimdWidenOperands():
   def prepared = for List (format in 0..3):
     def source_bits = 8 * (2 ** format)
     def count = 32 div source_bits
-    def a = for List (lane in 0..count): source_left[lane * source_bits..(lane + 1) * source_bits].zext(2 * source_bits)
-    def b = for List (lane in 0..count): source_right[lane * source_bits..(lane + 1) * source_bits].zext(2 * source_bits)
+    def a = for List (lane in 0..count):
+      def source = source_left[lane * source_bits..(lane + 1) * source_bits]
+      mux(left_signed, source.into(SInt(source_bits)).sext(2 * source_bits).as_bits(), source.zext(2 * source_bits))
+    def b = for List (lane in 0..count):
+      def source = source_right[lane * source_bits..(lane + 1) * source_bits]
+      mux(right_signed, source.into(SInt(source_bits)).sext(2 * source_bits).as_bits(), source.zext(2 * source_bits))
     def enables = for List (lane in 0..8):
       if lane < count | mux(upper_half, enabled[lane + count], enabled[lane]).as_bits() | bits(0, 1)
     SimdWidenedOperands():

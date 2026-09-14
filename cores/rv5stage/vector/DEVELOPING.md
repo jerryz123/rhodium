@@ -218,6 +218,15 @@ and destination packing. Global element position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`
 outputs are not architectural group/overlap permission or WB authorization.
 
+Narrow-source widening schedules destination-width beats in `unroller.rhdl`.
+Each lower/upper pair rereads one 64-bit source row, and each half independently
+advances the exclusive WB frontier. Derive the source row from the aligned
+source-width position while retaining the actual destination element in the
+beat. This makes retry reconstructible from the authorized frontier and avoids
+a speculative source buffer. Decode owns doubled EMUL, SEW64 rejection, and the
+high-part-only overlap rule; packing owns only per-source signed extension and
+half selection.
+
 Keep execution enables separate from `select_right`: merge consumes `v0` as
 data while both selected alternatives remain writable. Move rows describe only
 their real source and select the existing SIMD right-input path. Mask-logic rows

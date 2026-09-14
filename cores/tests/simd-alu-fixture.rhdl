@@ -15,7 +15,7 @@ circuit SimdAluFixture():
   input count_select: SimdCountSelect
   input(subtract, signed_compare, maximum, shift_right, arithmetic_shift, rotate, invert_right): Bool
   input(enabled, select_right): Mask(8)
-  input(widening, upper_half): Bool
+  input(widening, upper_half, widen_left_signed, widen_right_signed): Bool
   input widen_element_width: SimdWidenElementWidth
   output(prepared_left, prepared_right): Bits(64)
   output prepared_width: SimdElementWidth
@@ -30,6 +30,8 @@ circuit SimdAluFixture():
   widen.right <== right
   widen.element_width <== widen_element_width
   widen.upper_half <== upper_half
+  widen.left_signed <== widen_left_signed
+  widen.right_signed <== widen_right_signed
   widen.enabled <== enabled
   prepared_left <== widen.operands.left
   prepared_right <== widen.operands.right

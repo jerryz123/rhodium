@@ -61,6 +61,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def gather = descriptor.control.integer & descriptor.control.gather
   def gather_vector = gather & (descriptor.control.operand === VectorOperandMode.Vector)
   def compress = descriptor.control.integer & descriptor.control.compress
+  def widening = descriptor.control.integer & descriptor.control.widening
   def singleton = descriptor.control.memory ||| descriptor.control.floating_point ||| descriptor.control.multiply_divide ||| element_move ||| reduction ||| gather_vector
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
   def mask_word = mask_logic ||| scan_word
@@ -68,7 +69,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def format = mux(mask_word, SimdElementWidth.E64, sew.into(SimdElementWidth))
   // Element moves have one bookkeeping beat, not a VL-sized iteration space.
   def limit = mux(element_move, bits(1, index_width(vlen + 1)), descriptor.state.vl[0..index_width(vlen + 1)])
-  def lanes = mux(mask_word, bits(64, index_width(vlen + 1)), mux(singleton, bits(1, index_width(vlen + 1)), mux_lookup(format, ~default: bits(8, index_width(vlen + 1)), [[SimdElementWidth.E16, bits(4, index_width(vlen + 1))], [SimdElementWidth.E32, bits(2, index_width(vlen + 1))], [SimdElementWidth.E64, bits(1, index_width(vlen + 1))]])))
+  def lanes = mux(mask_word, bits(64, index_width(vlen + 1)), mux(singleton, bits(1, index_width(vlen + 1)), mux_lookup(format, ~default: mux(widening, bits(4, index_width(vlen + 1)), bits(8, index_width(vlen + 1))), [[SimdElementWidth.E16, mux(widening, bits(2, index_width(vlen + 1)), bits(4, index_width(vlen + 1)))], [SimdElementWidth.E32, mux(widening, bits(1, index_width(vlen + 1)), bits(2, index_width(vlen + 1)))], [SimdElementWidth.E64, bits(1, index_width(vlen + 1))]])))
   fun aligned_first(first :: Bits(index_width(vlen + 1)), sew :: Bits(2)):
     mux_lookup(sew, ~default: first.align_down(8), [[1, first.align_down(4)], [2, first.align_down(2)], [3, first]])
   def retry = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Retry)
@@ -149,15 +150,17 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     reads[index].bits <== addresses[index]
   packing.control <== VectorPackingControl(vlen):
     element_width: read_beat.element_width
-    first_element: read_beat.first
+    first_element: mux(widening, aligned_first(read_beat.first, sew), read_beat.first)
     vl: limit
     vstart: minimum
     vlmax: geometry.vlmax
     masked: descriptor.masked & !mask_select
     operand_select: mux_lookup(descriptor.control.operand, ~default: VectorOperandSelect.Vector, [[VectorOperandMode.Scalar, VectorOperandSelect.Scalar], [VectorOperandMode.Immediate, VectorOperandSelect.Immediate]])
     immediate_unsigned: descriptor.control.immediate_unsigned
-    widening: Bool(#false)
-    upper_half: Bool(#false)
+    widening: widening
+    upper_half: widening & (read_beat.first =/= aligned_first(read_beat.first, sew))
+    left_signed: descriptor.control.left_signed
+    right_signed: descriptor.control.right_signed
   packing.left <== results[0].bits
   packing.right <== results[1].bits
   packing.mask_word <== results[2].bits
@@ -183,6 +186,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     ~right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)))),
     ~select_right: mux(mask_select, (results[2].bits >> read_beat.first[0..6])[0..8], !bits(0, 8)).into(Mask(8)),
     ~mask_enabled: read_beat.mask_enabled & mux(scan & descriptor.masked, results[2].bits >> read_beat.first[0..6], !bits(0, 64)),
+    ~destination_first: packing.operands.first_element,
+    ~element_width: packing.operands.element_width,
     // One physical 64-bit logic lane computes the word; mask_enabled controls
     // its 64 independently writable architectural elements at the result port.
     ~enabled: mux(mask_logic, read_beat.mask_enabled.or_reduce().as_bits().zext(8).into(Mask(8)), mux(singleton, memory_enabled.as_bits().zext(8).into(Mask(8)), (mux(read_beat.empty, bits(0, 8), packing.operands.enabled.as_bits()) & mux(slide, slide_enabled, !bits(0, 8))).into(Mask(8))))
@@ -291,7 +296,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     def start = mux(request.bits.descriptor.control.integer & request.bits.descriptor.control.element_move, bits(0, index_width(vlen + 1)), request.bits.descriptor.state.vstart[0..index_width(vlen + 1)])
     def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
     def single_schedule = request.bits.descriptor.control.memory ||| request.bits.descriptor.control.floating_point ||| request.bits.descriptor.control.multiply_divide ||| (request.bits.descriptor.control.integer & (request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.gather & (request.bits.descriptor.control.operand === VectorOperandMode.Vector))))
-    cursor <== mux(word_schedule, start.align_down(64), mux(single_schedule, start, aligned_first(start, request.bits.descriptor.state.vtype[3..5])))
+    def packed_start = aligned_first(start, request.bits.descriptor.state.vtype[3..5])
+    def widening_start = mux_lookup(request.bits.descriptor.state.vtype[3..5], ~default: start.align_down(4), [[1, start.align_down(2)], [2, start]])
+    cursor <== mux(word_schedule, start.align_down(64), mux(single_schedule, start, mux(request.bits.descriptor.control.widening, widening_start, packed_start)))
     minimum <== start
     authorized <== start
     all_issued <== Bool(#false)
@@ -304,7 +311,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     authorized_compress_destination <== bits(0, index_width(vlen + 1))
     compress_flush <== Bool(#false)
   elsewhen retry:
-    cursor <== mux(compress, authorized, mux(mask_word, authorized.align_down(64), mux(singleton, authorized, aligned_first(authorized, geometry.sew))))
+    def widening_restart = mux_lookup(geometry.sew, ~default: authorized.align_down(4), [[1, authorized.align_down(2)], [2, authorized]])
+    cursor <== mux(compress, authorized, mux(mask_word, authorized.align_down(64), mux(singleton, authorized, mux(widening, widening_restart, aligned_first(authorized, geometry.sew)))))
     minimum <== authorized
     all_issued <== compress & (authorized === limit)
     reserved <== bits(0, 2)
