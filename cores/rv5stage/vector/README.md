@@ -29,7 +29,7 @@ reads do not, and SD combines
 the FP and vector dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
-wrapping, saturating, and averaging add/sub; logic; shifts; fixed-point scaling shifts and narrowing clips;
+wrapping, saturating, averaging, and carry/borrow add/sub; logic; shifts; fixed-point scaling shifts and narrowing clips;
 comparisons, min/max, compression, narrowing shifts,
 and narrow-source widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
 signedness, comparison inversion, and operand swapping. Runtime group checks
@@ -90,6 +90,14 @@ beats even when issue stalls. Once filled, it supplies one packed 64-bit beat
 per cycle. A macro has setup/drain latency; this is not single-cycle vector
 instruction issue.
 
+The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
+element and execute every body element; `v0` is data, not predication. `vmadc`
+and `vmsbc` pack carry/borrow results into a mask destination and support both
+carry-input and no-carry forms. The fixed carry-input data-result encodings
+cannot write `v0`, and an instruction cannot also name `v0` as a SEW-wide
+source. All forms reuse the SIMD ALU's lane guard bits rather than a second
+adder.
+
 The vector pipeline's private EX stage uses
 [`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its MEM/WB
 registers retain the packed result; scalar WB authorization permits the VRF
@@ -114,7 +122,7 @@ Fault feedback terminates issue and emits the failing element through
 This cut preserves inactive and tail contents, supports fractional LMUL,
 in-place same-width groups, and the permitted high-part overlap for widening
 destinations. It sign-extends RV32 VX operands before SEW64 broadcast and packs
-comparison bits through the ordinary masked write port.
+comparison and carry/borrow bits through the ordinary masked write port.
 
 ## Widening integer add and subtract
 
@@ -488,9 +496,10 @@ work. Saturating operations report their result through WB-owned completion
 state before producing the sticky `vxsat` update.
 
 `RV5StageVectorResult(vlen)` converts a SIMD result into the bank write payload.
-Data destinations use the returned output element width; comparisons place one
-bit per element into the correct destination mask chunk. Disabled bytes/bits
-receive no write enable, preserving inactive and tail contents.
+Data destinations use the returned output element width; comparisons and
+carry/borrow results place one bit per element into the correct destination
+mask chunk. Disabled bytes/bits receive no write enable, preserving inactive
+and tail contents.
 
 Both adapters expose `legal` for their local chunk/alignment/bank bounds. The
 caller must gate writes with it and separately validate architectural register

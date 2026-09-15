@@ -93,6 +93,22 @@ check:
   value(field(core_control(VCOMPRESS_VM), "operand"), "uses_rs1") ~is 0
   value(field(core_control(VCOMPRESS_VM), "writeback"), "enable") ~is 0
 
+for (instruction in VectorCarryBorrowInstructions, index in 0..15):
+  def decoded = control(instruction)
+  def form = instruction.format
+  def carry_input = index < 6 || (index >= 9 && index < 13)
+  def mask_destination = (index >= 3 && index < 9) || index >= 11
+  check:
+    value(decoded, "integer") ~is 1
+    value(decoded, "carry_input") ~is (if carry_input | 1 | 0)
+    value(decoded, "mask_destination") ~is (if mask_destination | 1 | 0)
+    value(field(decoded, "alu"), "result_select") ~is SimdResultSelect.Adder.packed_value()
+    value(field(decoded, "alu"), "mask_result_select") ~is SimdMaskResultSelect.CarryBorrow.packed_value()
+    value(field(decoded, "alu"), "subtract") ~is (if index >= 9 | 1 | 0)
+    value(decoded, "operand") ~is (if form == VectorFixedVVFormat | VectorOperandMode.Vector.packed_value() | (if form == VectorFixedVXFormat | VectorOperandMode.Scalar.packed_value() | VectorOperandMode.Immediate.packed_value()))
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is (if form == VectorFixedVXFormat | 1 | 0)
+    value(field(core_control(instruction), "writeback"), "enable") ~is 0
+
 for (instruction in VectorGatherInstructions, index in 0..4):
   check:
     value(control(instruction), "gather") ~is 1
@@ -255,8 +271,8 @@ for (instruction in VectorFloatingPointInstructions):
 for (instruction in VectorIntegerInstructions):
   def decoded = control(instruction)
   def expected_operand = cond
-  | instruction.format == VectorVVFormat: VectorOperandMode.Vector
-  | instruction.format == VectorVXFormat: VectorOperandMode.Scalar
+  | [VectorVVFormat, VectorFixedVVFormat].contains(instruction.format): VectorOperandMode.Vector
+  | [VectorVXFormat, VectorFixedVXFormat].contains(instruction.format): VectorOperandMode.Scalar
   | ~else: VectorOperandMode.Immediate
   check:
     value(decoded, "integer") ~is 1
@@ -280,6 +296,7 @@ for (vlen in [128, 256, 512, 65536]):
   check:
     beat.field("left").type.packed_width() ~is 64
     beat.field("right").type.packed_width() ~is 64
+    beat.field("carry_in").type.packed_width() ~is 8
     micro.field("context").type.packed_width() ~is 4
     feedback.field("context").type.packed_width() ~is 4
     (1 bits.(<<) beat.field("end").type.packed_width()) > vlen ~is #true

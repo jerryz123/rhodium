@@ -1,4 +1,4 @@
-// Checks shared SIMD bit operations, fixed-point rounding, widening, and compaction against independent models.
+// Checks shared SIMD carry/borrow, bit operations, fixed-point, widening, and compaction against independent models.
 // SPDX-License-Identifier: Apache-2.0
 module simd_alu_tb;
   localparam logic [2:0] ADDER = 0, LOGIC_OP = 1, SHIFT = 2,
@@ -7,6 +7,7 @@ module simd_alu_tb;
                          AVERAGE_UNSIGNED = 3, AVERAGE_SIGNED = 4;
   logic [63:0] left, right, data, compressed_data;
   logic [1:0] element_width, logic_select, comparison_select;
+  logic mask_result_select;
   logic [1:0] permutation_select, count_select, widen_element_width, prepared_width;
   logic [1:0] rounding_mode;
   logic [2:0] result_select;
@@ -15,7 +16,7 @@ module simd_alu_tb;
   logic rotate, invert_right, rounding, saturated, widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed;
   logic [63:0] prepared_left, prepared_right;
   logic [7:0] prepared_enabled;
-  logic [7:0] enabled, select_right, comparison, write_mask;
+  logic [7:0] enabled, carry_in, select_right, mask_result, write_mask;
   logic [3:0] compressed_count;
   longint unsigned checks = 0;
   longint unsigned rng = 64'h9e3779b97f4a7c15;
@@ -32,16 +33,16 @@ module simd_alu_tb;
   task automatic check_result;
     int width_bits, lane_count, amount, count, compressed_elements;
     logic [63:0] mask, a, b, logic_b, value, expected_data, expected_compressed, discarded_mask;
-    logic [127:0] wide_result, average_base;
+    logic [127:0] wide_result, wide_right, average_base;
     logic signed [127:0] exact_result, extended_a, extended_b;
     logic signed [63:0] signed_a, signed_b;
-    logic lt, eq, predicate, round_bit, lower_nonzero, discarded_nonzero, increment, overflow, expected_saturated;
-    logic [7:0] expected_comparison, expected_write_mask;
+    logic lt, eq, predicate, carry_bit, carry_borrow, round_bit, lower_nonzero, discarded_nonzero, increment, overflow, expected_saturated;
+    logic [7:0] expected_mask_result, expected_write_mask;
     width_bits = 8 << element_width;
     lane_count = 64 / width_bits;
     mask = 64'hffffffffffffffff >> (64 - width_bits);
     expected_data = 0;
-    expected_comparison = 0;
+    expected_mask_result = 0;
     expected_write_mask = 0;
     expected_saturated = 0;
     expected_compressed = 0;
@@ -55,6 +56,10 @@ module simd_alu_tb;
       extended_b = {{64{signed_b[63]}}, signed_b};
       lt = signed_compare ? signed_a < signed_b : a < b;
       eq = a == b;
+      carry_bit = carry_in[lane];
+      wide_result = {64'b0, a} + {64'b0, b} + 128'(carry_bit);
+      wide_right = {64'b0, b} + 128'(carry_bit);
+      carry_borrow = subtract ? {64'b0, a} < wide_right : wide_result[width_bits];
       case (comparison_select)
         0: predicate = eq;
         1: predicate = lt;
@@ -65,10 +70,9 @@ module simd_alu_tb;
       logic_b = invert_right ? ~b : b;
       case (result_select)
         ADDER: begin
-          value = subtract ? a - b : a + b;
+          value = subtract ? a - b - 64'(carry_bit) : a + b + 64'(carry_bit);
           if (arithmetic_mode == SATURATE_UNSIGNED) begin
-            wide_result = {64'b0, a} + {64'b0, b};
-            overflow = subtract ? a < b : wide_result[width_bits];
+            overflow = carry_borrow;
             if (overflow) value = subtract ? 0 : mask;
             expected_saturated |= enabled[lane] && overflow;
           end else if (arithmetic_mode == SATURATE_SIGNED) begin
@@ -163,20 +167,20 @@ module simd_alu_tb;
         expected_compressed |= a << (compressed_elements * width_bits);
         compressed_elements++;
         expected_data |= (value & mask) << (lane * width_bits);
-        expected_comparison[lane] = predicate;
+        expected_mask_result[lane] = mask_result_select ? carry_borrow : predicate;
         for (int byte_index = 0; byte_index < width_bits / 8; byte_index++)
           expected_write_mask[lane * (width_bits / 8) + byte_index] = 1;
       end
     end
     #1;
-    assert (data === expected_data && comparison === expected_comparison &&
+    assert (data === expected_data && mask_result === expected_mask_result &&
             write_mask === expected_write_mask && saturated === expected_saturated)
       else $fatal(1, "check %0d w=%0d op=%0d logic=%0d cmp=%0d perm=%0d count=%0d rot=%b inv=%b sub=%0b signed=%0b max=%0b sr=%0b ar=%0b en=%h sel=%h a=%h b=%h got=%h/%h/%h expected=%h/%h/%h",
                   checks, width_bits, result_select, logic_select, comparison_select,
                   permutation_select, count_select, rotate, invert_right,
                   subtract, signed_compare, maximum, shift_right, arithmetic_shift,
-                  enabled, select_right, left, right, data, comparison, write_mask,
-                  expected_data, expected_comparison, expected_write_mask);
+                  enabled, select_right, left, right, data, mask_result, write_mask,
+                  expected_data, expected_mask_result, expected_write_mask);
     assert (compressed_data === expected_compressed && compressed_count === 4'(compressed_elements))
       else $fatal(1, "compress check %0d w=%0d en=%h a=%h got=%h/%0d expected=%h/%0d",
                   checks, width_bits, enabled, left, compressed_data, compressed_count,
@@ -185,6 +189,8 @@ module simd_alu_tb;
   endtask
 
   task automatic exercise_operations;
+    carry_in = 0;
+    mask_result_select = 0;
     widening = 0;
     rounding = 0;
     arithmetic_mode = WRAP;
@@ -232,6 +238,18 @@ module simd_alu_tb;
       result_select = COUNT;
       count_select = 2'(op); check_result();
     end
+  endtask
+
+  task automatic exercise_carry_borrow;
+    widening = 0;
+    rounding = 0;
+    arithmetic_mode = WRAP;
+    result_select = ADDER;
+    mask_result_select = 1;
+    subtract = 0; check_result();
+    subtract = 1; check_result();
+    mask_result_select = 0;
+    carry_in = 0;
   endtask
 
   task automatic check_widen;
@@ -284,6 +302,7 @@ module simd_alu_tb;
     result_select = ADDER;
     logic_select = 0;
     comparison_select = 0;
+    mask_result_select = 0;
     subtract = 0;
     signed_compare = 0;
     maximum = 0;
@@ -300,6 +319,7 @@ module simd_alu_tb;
     permutation_select = 0;
     count_select = 0;
     enabled = 8'hff;
+    carry_in = 0;
     select_right = 8'haa;
 
     // Exhaust every pair of byte values. Neighboring lanes use different
@@ -311,6 +331,8 @@ module simd_alu_tb;
           right[lane * 8 +: 8] = 8'(b ^ (lane * 53));
         end
         exercise_operations();
+        carry_in = 8'ha5;
+        exercise_carry_borrow();
       end
     end
 
@@ -341,6 +363,10 @@ module simd_alu_tb;
       right = left; exercise_operations();
       left = 0; right = 0; exercise_operations();
       left = '1; right = '1; exercise_operations();
+      for (int trial = 0; trial < 256; trial++) begin
+        left = random_word(); right = random_word(); enabled = 8'(random_word()); carry_in = 8'(random_word());
+        exercise_carry_borrow();
+      end
       // Test every low-byte shift pattern with dirty high operand bits.
       for (int amount = 0; amount < 256; amount++) begin
         left = 64'h8123456789abcdef;

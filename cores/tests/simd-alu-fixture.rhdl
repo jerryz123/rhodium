@@ -12,19 +12,20 @@ circuit SimdAluFixture():
   input arithmetic_mode: SimdArithmeticMode
   input logic_select: SimdLogicSelect
   input comparison_select: SimdComparisonSelect
+  input mask_result_select: SimdMaskResultSelect
   input permutation_select: SimdPermutationSelect
   input count_select: SimdCountSelect
   input rounding_mode: SimdRoundingMode
   input(subtract, signed_compare, maximum, shift_right, arithmetic_shift, rotate, invert_right): Bool
   input rounding: Bool
-  input(enabled, select_right): Mask(8)
+  input(enabled, carry_in, select_right): Mask(8)
   input(widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed): Bool
   input widen_element_width: SimdWidenElementWidth
   output(prepared_left, prepared_right): Bits(64)
   output prepared_width: SimdElementWidth
   output prepared_enabled: Mask(8)
   output data: Bits(64)
-  output(comparison, write_mask): Mask(8)
+  output(mask_result, write_mask): Mask(8)
   output saturated: Bool
   output compressed_data: Bits(64)
   output compressed_count: Bits(4)
@@ -51,6 +52,7 @@ circuit SimdAluFixture():
     arithmetic_mode: arithmetic_mode
     logic_select: logic_select
     comparison_select: comparison_select
+    mask_result_select: mask_result_select
     permutation_select: permutation_select
     count_select: count_select
     subtract: subtract
@@ -63,9 +65,10 @@ circuit SimdAluFixture():
   alu.rounding <== rounding
   alu.rounding_mode <== rounding_mode
   alu.enabled <== mux(widening, widen.operands.enabled, enabled)
+  alu.carry_in <== carry_in
   alu.select_right <== select_right
   data <== alu.result.data
-  comparison <== alu.result.comparison
+  mask_result <== alu.result.mask_result
   write_mask <== alu.result.write_mask
   saturated <== alu.result.saturated
   inst compress(SimdCompress())

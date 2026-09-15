@@ -12,7 +12,7 @@
   logic [1:0] configuration, operand;
   logic [2:0] arithmetic_mode;
   logic [1:0] multiply_result;
-  logic mask_destination, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder;
+  logic mask_destination, carry_input, mask_result_select, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder;
   integer checks = 0, retired = 0;
   RV5StageVectorControlFixture dut (.*);
   always #5 clock = ~clock;
@@ -177,6 +177,30 @@
     assert (!legal) else $fatal(1, "mask overlaps upper source register");
     instruction[11:7] = 2; #1;
     assert (legal) else $fatal(1, "mask may overlap low source register");
+    // Carry/borrow forms read v0 as ordinary EEW=1 input data, never as a
+    // predication mask. Data results cannot overwrite that input, while mask
+    // results can target v0 and the vm=1 forms omit carry-in.
+    test_vtype = 0;
+    instruction = 32'h40880c57; #1; // vadc.vvm v24,v8,v16,v0
+    assert (decoded_valid && legal && carry_input && mask_result_select && !mask_destination && !subtract) else $fatal(1, "vadc.vvm control");
+    instruction[11:7] = 0; #1;
+    assert (!legal) else $fatal(1, "vadc overwrote carry input");
+    instruction = 32'h40800c57; #1; // vadc.vvm with vs2=v0
+    assert (!legal) else $fatal(1, "vadc read v0 as carry and SEW source");
+    instruction = 32'h40800c57; instruction[24:20] = 8; instruction[19:15] = 0; #1;
+    assert (!legal) else $fatal(1, "vadc read v0 as carry and second vector source");
+    instruction = 32'h42880c57; #1; // reserved vm=1 vadc.vv spelling
+    assert (!decoded_valid) else $fatal(1, "vadc accepted vm=1");
+    instruction = 32'h44880057; #1; // vmadc.vvm v0,v8,v16,v0
+    assert (decoded_valid && legal && carry_input && mask_result_select && mask_destination && !subtract) else $fatal(1, "vmadc.vvm control");
+    instruction = 32'h46880057; #1; // vmadc.vv v0,v8,v16
+    assert (decoded_valid && legal && !carry_input && mask_result_select && mask_destination && !subtract) else $fatal(1, "vmadc.vv control");
+    instruction = 32'h48880c57; #1; // vsbc.vvm v24,v8,v16,v0
+    assert (decoded_valid && legal && carry_input && mask_result_select && !mask_destination && subtract) else $fatal(1, "vsbc.vvm control");
+    instruction = 32'h4c880057; #1; // vmsbc.vvm v0,v8,v16,v0
+    assert (decoded_valid && legal && carry_input && mask_result_select && mask_destination && subtract) else $fatal(1, "vmsbc.vvm control");
+    instruction = 32'h4e880057; #1; // vmsbc.vv v0,v8,v16
+    assert (decoded_valid && legal && !carry_input && mask_result_select && mask_destination && subtract) else $fatal(1, "vmsbc.vv control");
     // Widening doubles destination EMUL. A narrow source may overlap only the
     // highest-numbered portion of that group, and SEW64/LMUL8 are reserved.
     test_vtype = 0; // e8,m1

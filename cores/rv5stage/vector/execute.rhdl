@@ -38,6 +38,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   // 64-bit shift slot executes; destination SEW/masks remain with packing.
   alu.element_width <== mux(sliding ||| gathering, SimdElementWidth.E64, beat.element_width)
   alu.enabled <== mux(reduction ||| sliding ||| gathering, bits(1, 8).into(Mask(8)), beat.enabled)
+  alu.carry_in <== beat.carry_in
   alu.select_right <== beat.select_right
   alu.rounding <== beat.control.rounding
   alu.rounding_mode <== beat.rounding_mode
@@ -52,7 +53,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def slide_bytes = vec(for List (byte in 0..8):
                           mux_lookup(beat.element_width, ~default: beat.enabled[byte], for List (format in 1..4): [SimdElementWidth.values()[format], beat.enabled[byte div (2 ** format)]])).as_bits().into(Mask(8))
   def gather_broadcast = mux_lookup(beat.element_width, ~default: alu.result.data, for List (format in 0..3): [SimdElementWidth.values()[format], vec(for List (_ in 0..(8 >> format)): alu.result.data[0..(8 << format)]).as_bits()])
-  packing.result <== alu.result.updated(~data: mux(scanning, scan.data, mux(gathering & !gather_vector, gather_broadcast, alu.result.data)), ~write_mask: mux(sliding ||| gathering, slide_bytes, alu.result.write_mask), ~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
+  packing.result <== alu.result.updated(~data: mux(scanning, scan.data, mux(gathering & !gather_vector, gather_broadcast, alu.result.data)), ~write_mask: mux(sliding ||| gathering, slide_bytes, alu.result.write_mask), ~mask_result: mux(beat.control.invert_comparison, !alu.result.mask_result.as_bits(), alu.result.mask_result.as_bits()).into(Mask(8)))
   def scan_write = packing.write.updated(~data: scan.data, ~mask: mux(beat.control.scalar_destination, bits(0, 64), mux(beat.control.mask_destination, beat.mask_enabled, mux(beat.empty, bits(0, 64), packing.write.mask))))
   def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide ||| gather_vector
   def widening_multiply = beat.control.multiply_divide & beat.control.widening

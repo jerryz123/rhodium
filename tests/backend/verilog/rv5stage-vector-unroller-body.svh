@@ -1,4 +1,4 @@
-// Models vector elements, fixed-point rounding/clipping, retry, and cancellation independently.
+// Models vector elements, carry/borrow, fixed-point rounding/clipping, retry, and cancellation independently.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN + 1), AW = $clog2(32 * VLEN / 64), DEPTH = 32 * VLEN / 64;
   typedef struct packed { logic [AW-1:0] address; logic [63:0] data, mask; } write_t;
@@ -20,7 +20,7 @@
   int tx_source_width, tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2, tx_vxrm;
   logic [63:0] tx_scalar, tx_distance;
   int tx_vlmax;
-  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_rounding, tx_saturating, tx_average, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
+  bit tx_masked, tx_compare, tx_carry_family, tx_carry_input, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_rounding, tx_saturating, tx_average, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
   logic [127:0] tx_compress_buffer;
   int tx_compress_count, tx_compress_destination;
   int tx_beats;
@@ -88,7 +88,7 @@
     logic [63:0] a, b, value, lane_mask, expected_data, expected_mask, broadcast_value;
     logic [127:0] wide_result;
     int first, ending, address, bit_offset, position, emitted, left_width;
-    bit enabled, was_retry, expected_saturated, overflow, result_negative, low_negative;
+    bit enabled, carry_input, was_retry, expected_saturated, overflow, result_negative, low_negative;
     @(negedge clock); #1;
     was_retry = retried;
     if (!reset) begin
@@ -123,7 +123,7 @@
           tx_compress_destination += emitted;
         end else for (int lane = 0; lane < tx_lanes; lane++) begin
           position = first + lane;
-          enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || snapshot[position / 64][position % 64]);
+          enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || tx_carry_family || snapshot[position / 64][position % 64]);
           if (tx_opcode == 14 && tx_mode != 6 && !tx_gather && 64'(position) < tx_distance) enabled = 0;
           if (enabled) begin
             left_width = tx_narrowing ? 2 * tx_width : tx_wide_source ? tx_width : tx_source_width;
@@ -133,7 +133,16 @@
               a = signed_element(a, tx_wide_source ? tx_width : tx_source_width);
               b = signed_element(b, tx_source_width);
             end
-            if (tx_mask_logic) begin
+            if (tx_carry_family) begin
+              carry_input = tx_carry_input && snapshot[position / 64][position % 64];
+              if (!tx_opcode[1]) begin
+                wide_result = {64'b0, a} + {64'b0, b} + 128'(carry_input);
+                value = tx_opcode[0] ? 64'(wide_result[tx_width]) : wide_result[63:0];
+              end else begin
+                wide_result = {64'b0, b} + 128'(carry_input);
+                value = tx_opcode[0] ? 64'({64'b0, a} < wide_result) : a - b - 64'(carry_input);
+              end
+            end else if (tx_mask_logic) begin
               case (tx_opcode)
                 24: value = a & ~b;
                 25: value = a & b;
@@ -244,6 +253,7 @@
     int timeout;
     assert (!active && !checking) else $fatal(1, "previous macro did not drain");
     tx_widening = op inside {[48:55]}; tx_narrowing = op inside {[44:47]}; tx_saturating = op inside {[32:35]}; tx_average = op inside {[8:11]} && mode inside {2, 6}; tx_rounding = op inside {[42:43], [46:47]} || tx_average; tx_clip = op inside {[46:47]}; tx_clip_unsigned = op == 46; tx_wide_source = op inside {[52:55]} || tx_narrowing; tx_widen_signed = tx_widening && op[0];
+    tx_carry_family = op inside {[16:19]}; tx_carry_input = tx_carry_family && masked_op;
     tx_compress = op == 23 && mode == 2;
     tx_mask_logic = mode == 2 && !tx_compress && !tx_widening && !tx_narrowing && !tx_average;
     tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
@@ -251,7 +261,7 @@
     tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
     tx_vxrm = round_mode;
-    tx_masked = masked_op; tx_compare = !tx_mask_logic && op >= 24 && op <= 31;
+    tx_masked = masked_op; tx_compare = (!tx_mask_logic && op >= 24 && op <= 31) || (tx_carry_family && op[0]);
     tx_dense = !random_stalls && !inject_retry; tx_beats = 0;
     tx_compress_buffer = 0; tx_compress_count = 0; tx_compress_destination = 0;
     tx_scalar = XLEN == 32 ? {{32{scalar[31]}}, scalar[31:0]} : 64'(scalar);
@@ -312,6 +322,35 @@
       end
       run_macro(sew, 0, 0, 0, 0, 0, 24, 16, 8, 0);
       run_macro(sew, 0, 1, 7, 0, 0, 24, 16, 8, 0);
+    end
+    // Carry/borrow consumes v0 as operand data rather than predication. The
+    // mask-producing forms optionally consume carry-in and may write v0.
+    for (int sew = 0; sew < 4; sew++) begin
+      int maximum;
+      maximum = VLEN / (8 << sew);
+      for (int mode_index = 0; mode_index < 3; mode_index++) begin
+        int mode, source1;
+        mode = mode_index == 0 ? 0 : mode_index == 1 ? 4 : 3;
+        source1 = mode == 0 ? 16 : mode == 4 ? 3 : 31;
+        scalar = XLEN'(-17);
+        run_macro(sew, 0, maximum, 1, 16, mode, 24, source1, 8, 1);
+        run_macro(sew, 0, maximum - 1, 0, 17, mode, 0, source1, 8, 1, maximum > 8 >> sew, 1, 8 >> sew);
+        run_macro(sew, 0, maximum, 0, 17, mode, 3, source1, 8, 0);
+        if (mode != 3) begin
+          run_macro(sew, 0, maximum, 1, 18, mode, 24, source1, 8, 1);
+          run_macro(sew, 0, maximum - 1, 0, 19, mode, 0, source1, 8, 1);
+          run_macro(sew, 0, maximum, 0, 19, mode, 3, source1, 8, 0);
+        end
+      end
+    end
+    for (int sew = 0; sew < 4; sew++) begin
+      for (int lm = 0; lm < 8; lm++) begin
+        int maximum;
+        if (lm == 4 || (lm >= 5 && sew > lm - 5)) continue;
+        maximum = lm < 4 ? ((VLEN / (8 << sew)) << lm) : ((VLEN / (8 << sew)) >> (8 - lm));
+        run_macro(sew, lm, maximum, maximum > 2 ? 1 : 0, 16, 0, 24, 16, 8, 1, 0, lm != 0);
+        run_macro(sew, lm, maximum, 0, 19, 0, 3, 16, 8, 0, 0, lm != 0);
+      end
     end
     // Narrow+narrow widening add/sub uses one destination-width beat per
     // source half. Exercise every legal SEW/LMUL, signedness, form, masks,

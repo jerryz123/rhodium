@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RVV opcode words including fixed-point forms, operand formats, CSR IDs, and vtype.
+// Checks RVV opcode words including carry/borrow, fixed-point, operand formats, CSR IDs, and vtype.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -62,6 +62,23 @@ check:
   VSETVL.encode([model.rd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3)]) ~is 0x803170d7
   VADD_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x022180d7
   VSUB_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(0)]) ~is 0x0821c0d7
+  VADC_VVM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x402180d7
+  VADC_VXM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4021c0d7
+  VADC_VIM.encode([vd.constrain(1), vs2.constrain(2)], ~immediate: -1) ~is 0x402fb0d7
+  VMADC_VVM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x442180d7
+  VMADC_VXM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4421c0d7
+  VMADC_VIM.encode([vd.constrain(1), vs2.constrain(2)], ~immediate: -1) ~is 0x442fb0d7
+  VMADC_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x462180d7
+  VMADC_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4621c0d7
+  VMADC_VI.encode([vd.constrain(1), vs2.constrain(2)], ~immediate: -1) ~is 0x462fb0d7
+  VSBC_VVM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x482180d7
+  VSBC_VXM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4821c0d7
+  VMSBC_VVM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x4c2180d7
+  VMSBC_VXM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4c21c0d7
+  VMSBC_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x4e2180d7
+  VMSBC_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4e21c0d7
+  VectorInitial.matching(0x422180d7) ~is #false
+  VectorInitial.matching(0x4a2180d7) ~is #false
   VSADDU_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x822180d7
   VSADDU_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x8221c0d7
   VSADDU_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~is 0x822fb0d7

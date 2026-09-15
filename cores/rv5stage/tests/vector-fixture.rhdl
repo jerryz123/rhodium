@@ -103,6 +103,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   alu.right <== prepare.operands.right
   alu.element_width <== prepare.operands.element_width
   alu.enabled <== prepare.operands.enabled
+  alu.carry_in <== bits(0, 8).into(Mask(8))
   alu.select_right <== bits(0, 8).into(Mask(8))
   alu.rounding <== Bool(#false)
   alu.rounding_mode <== SimdRoundingMode.NearestUp
@@ -111,6 +112,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     arithmetic_mode: SimdArithmeticMode.Wrap
     logic_select: SimdLogicSelect.Xor
     comparison_select: SimdComparisonSelect.Less
+    mask_result_select: SimdMaskResultSelect.Comparison
     permutation_select: SimdPermutationSelect.ReverseBits
     count_select: SimdCountSelect.Population
     subtract: c.operation === bits(1, 3)

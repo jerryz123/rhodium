@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines partial RVV 1.0 configuration, integer/fixed-point, FP, and unit-stride memory catalogs.
+// Defines partial RVV 1.0 configuration, integer/carry/fixed-point, FP, and memory catalogs.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -55,12 +55,29 @@ def VectorMemoryInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VSE8_V, VSE16
 
 fun vector_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
+fun fixed_mask_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat, mask_bit :: Nat, ~move: move :: Boolean = #false):
+  InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code), vm.constrain(mask_bit)] ++ (if move | [vs2.constrain(0)] | []))
 
 def VADD_VV = vector_arithmetic("VADD.VV", 0, VectorVVFormat, 0)
 def VADD_VX = vector_arithmetic("VADD.VX", 0, VectorVXFormat, 4)
 def VADD_VI = vector_arithmetic("VADD.VI", 0, VectorVIFormat, 3)
 def VSUB_VV = vector_arithmetic("VSUB.VV", 2, VectorVVFormat, 0)
 def VSUB_VX = vector_arithmetic("VSUB.VX", 2, VectorVXFormat, 4)
+def VADC_VVM = fixed_mask_arithmetic("VADC.VVM", 0x10, VectorFixedVVFormat, 0, 0)
+def VADC_VXM = fixed_mask_arithmetic("VADC.VXM", 0x10, VectorFixedVXFormat, 4, 0)
+def VADC_VIM = fixed_mask_arithmetic("VADC.VIM", 0x10, VectorFixedVIFormat, 3, 0)
+def VMADC_VVM = fixed_mask_arithmetic("VMADC.VVM", 0x11, VectorFixedVVFormat, 0, 0)
+def VMADC_VXM = fixed_mask_arithmetic("VMADC.VXM", 0x11, VectorFixedVXFormat, 4, 0)
+def VMADC_VIM = fixed_mask_arithmetic("VMADC.VIM", 0x11, VectorFixedVIFormat, 3, 0)
+def VMADC_VV = fixed_mask_arithmetic("VMADC.VV", 0x11, VectorFixedVVFormat, 0, 1)
+def VMADC_VX = fixed_mask_arithmetic("VMADC.VX", 0x11, VectorFixedVXFormat, 4, 1)
+def VMADC_VI = fixed_mask_arithmetic("VMADC.VI", 0x11, VectorFixedVIFormat, 3, 1)
+def VSBC_VVM = fixed_mask_arithmetic("VSBC.VVM", 0x12, VectorFixedVVFormat, 0, 0)
+def VSBC_VXM = fixed_mask_arithmetic("VSBC.VXM", 0x12, VectorFixedVXFormat, 4, 0)
+def VMSBC_VVM = fixed_mask_arithmetic("VMSBC.VVM", 0x13, VectorFixedVVFormat, 0, 0)
+def VMSBC_VXM = fixed_mask_arithmetic("VMSBC.VXM", 0x13, VectorFixedVXFormat, 4, 0)
+def VMSBC_VV = fixed_mask_arithmetic("VMSBC.VV", 0x13, VectorFixedVVFormat, 0, 1)
+def VMSBC_VX = fixed_mask_arithmetic("VMSBC.VX", 0x13, VectorFixedVXFormat, 4, 1)
 def VSADDU_VV = vector_arithmetic("VSADDU.VV", 0x20, VectorVVFormat, 0)
 def VSADDU_VX = vector_arithmetic("VSADDU.VX", 0x20, VectorVXFormat, 4)
 def VSADDU_VI = vector_arithmetic("VSADDU.VI", 0x20, VectorVIFormat, 3)
@@ -166,7 +183,8 @@ def VectorSaturatingAddSubtractInstructions = [VSADDU_VV, VSADDU_VX, VSADDU_VI, 
 def VectorAveragingAddSubtractInstructions = [VAADDU_VV, VAADDU_VX, VAADD_VV, VAADD_VX, VASUBU_VV, VASUBU_VX, VASUB_VV, VASUB_VX]
 def VectorFixedPointShiftInstructions = [VSSRL_VV, VSSRL_VX, VSSRL_VI, VSSRA_VV, VSSRA_VX, VSSRA_VI]
 def VectorNarrowingClipInstructions = [VNCLIPU_WV, VNCLIPU_WX, VNCLIPU_WI, VNCLIP_WV, VNCLIP_WX, VNCLIP_WI]
-def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorSaturatingAddSubtractInstructions ++ VectorAveragingAddSubtractInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
+def VectorCarryBorrowInstructions = [VADC_VVM, VADC_VXM, VADC_VIM, VMADC_VVM, VMADC_VXM, VMADC_VIM, VMADC_VV, VMADC_VX, VMADC_VI, VSBC_VVM, VSBC_VXM, VMSBC_VVM, VMSBC_VXM, VMSBC_VV, VMSBC_VX]
+def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorCarryBorrowInstructions ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorSaturatingAddSubtractInstructions ++ VectorAveragingAddSubtractInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
 // Slides use unsigned XLEN offsets; slide1 instead inserts a scalar element.
 def VSLIDEUP_VX = vector_arithmetic("VSLIDEUP.VX", 0x0e, VectorVXFormat, 4)
 def VSLIDEUP_VI = vector_arithmetic("VSLIDEUP.VI", 0x0e, VectorShiftVIFormat, 3)
@@ -180,8 +198,6 @@ def VRGATHEREI16_VV = vector_arithmetic("VRGATHEREI16.VV", 0x0e, VectorVVFormat,
 def VRGATHER_VX = vector_arithmetic("VRGATHER.VX", 0x0c, VectorVXFormat, 4)
 def VRGATHER_VI = vector_arithmetic("VRGATHER.VI", 0x0c, VectorShiftVIFormat, 3)
 def VectorGatherInstructions = [VRGATHER_VV, VRGATHEREI16_VV, VRGATHER_VX, VRGATHER_VI]
-fun fixed_mask_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat, mask_bit :: Nat, ~move: move :: Boolean = #false):
-  InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code), vm.constrain(mask_bit)] ++ (if move | [vs2.constrain(0)] | []))
 def VCOMPRESS_VM = fixed_mask_arithmetic("VCOMPRESS.VM", 0x17, VectorFixedVVFormat, 2, 1)
 def VectorCompressInstructions = [VCOMPRESS_VM]
 def VMERGE_VVM = fixed_mask_arithmetic("VMERGE.VVM", 0x17, VectorFixedVVFormat, 0, 0)
@@ -278,6 +294,22 @@ def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstruc
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
+  VectorCarryBorrowInstructions
+  VADC_VVM
+  VADC_VXM
+  VADC_VIM
+  VMADC_VVM
+  VMADC_VXM
+  VMADC_VIM
+  VMADC_VV
+  VMADC_VX
+  VMADC_VI
+  VSBC_VVM
+  VSBC_VXM
+  VMSBC_VVM
+  VMSBC_VXM
+  VMSBC_VV
+  VMSBC_VX
   VectorCompressInstructions
   VCOMPRESS_VM
   VectorGatherInstructions

@@ -271,6 +271,15 @@ logic network and writes its packed data directly instead of comparison bits.
 The single-register legality rule belongs in decode, not generic VRF geometry.
 Do not make memory/FP scheduling depend on integer-only don't-care controls.
 
+Carry/borrow operations also consume the dedicated `v0` shadow as data. Their
+beat enables cover the complete body instead of applying predication, and the
+SIMD guard-bit adder injects the selected `v0` bit independently at each element
+boundary. Keep the architectural carry/borrow bit in `RV5StageVectorBeat`, not
+as hidden ALU state. `vmadc`/`vmsbc` select the ALU mask result and use ordinary
+mask write packing; `vadc`/`vsbc` select packed data. Decode must reject fixed
+carry-input data results that target `v0` and SEW-wide sources that also name
+`v0`. Retry rereads the retained macro's shadow data with the restarted beat.
+
 The RV32/RV64 unroller fixtures cover all fourteen move/merge/mask encodings,
 legal SEW/LMUL combinations, single-register mask addressing, overlaps, partial
 words, stalls, retries, cancellation, and empty bodies. The full-core
@@ -285,7 +294,7 @@ the bank read, executes the actual SIMD ALU, and optionally commits its result
 through the same masked port used for initialization. Its independent SV
 scoreboard checks public read/write behavior at VLEN 128, 256, and 512,
 including in-place operations, register boundaries, bit-granular forwarding,
-partial bodies, broadcasts, comparison packing, widening, and reset. Do not
+partial bodies, broadcasts, comparison/carry packing, widening, and reset. Do not
 replace this with internal register-shape assertions or elaboration-only tests.
 
 Run from the repository root with one fresh compiled root:

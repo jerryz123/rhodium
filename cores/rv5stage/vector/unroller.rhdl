@@ -70,6 +70,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
   def mask_word = mask_logic ||| scan_word
   def mask_select = descriptor.control.integer & descriptor.control.mask_select
+  def carry_input = descriptor.control.integer & descriptor.control.carry_input
   def format = mux(mask_word, SimdElementWidth.E64, sew.into(SimdElementWidth))
   // Element moves have one bookkeeping beat, not a VL-sized iteration space.
   def limit = mux(element_move, bits(1, index_width(vlen + 1)), descriptor.state.vl[0..index_width(vlen + 1)])
@@ -130,6 +131,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     right: bits(0, 64)
     destination_data: bits(0, 64)
     enabled: bits(0, 8).into(Mask(8))
+    carry_in: bits(0, 8).into(Mask(8))
     select_right: bits(0, 8).into(Mask(8))
     mask_enabled: vec(for List (bit_index in 0..64):
                         def element = cursor.zext(index_width(vlen + 1) + 1) + bits(bit_index, index_width(vlen + 1) + 1)
@@ -170,7 +172,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     vl: limit
     vstart: minimum
     vlmax: geometry.vlmax
-    masked: descriptor.masked & !mask_select
+    masked: descriptor.masked & !mask_select & !carry_input
     operand_select: mux_lookup(descriptor.control.operand, ~default: VectorOperandSelect.Vector, [[VectorOperandMode.Scalar, VectorOperandSelect.Scalar], [VectorOperandMode.Immediate, VectorOperandSelect.Immediate]])
     immediate_unsigned: descriptor.control.immediate_unsigned
     widening: widening
@@ -204,6 +206,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     ~left: mux(gather, mux(gather_in_range, results[0].bits, bits(0, 64)), mux(slide, slide_source, mux(scan, results[0].bits >> read_beat.first[0..6], mux(singleton, results[0].bits >> memory_shift, packing.operands.left)))),
     ~right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)))),
     ~destination_data: results[2].bits >> destination_shift,
+    ~carry_in: mux(carry_input, (mask_result.bits >> read_beat.first[0..6])[0..8], bits(0, 8)).into(Mask(8)),
     ~select_right: mux(mask_select, (mask_result.bits >> read_beat.first[0..6])[0..8], !bits(0, 8)).into(Mask(8)),
     ~mask_enabled: read_beat.mask_enabled & mux(scan & descriptor.masked, mask_result.bits >> read_beat.first[0..6], !bits(0, 64)),
     ~destination_first: packing.operands.first_element,
@@ -255,6 +258,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
       right: bits(0, 64)
       destination_data: bits(0, 64)
       enabled: vec(for List (lane in 0..8): (bits(lane, 4) < state.count).as_bits()).into(Mask(8))
+      carry_in: bits(0, 8).into(Mask(8))
       select_right: bits(0, 8).into(Mask(8))
       mask_enabled: bits(0, 64)
       element_width: format

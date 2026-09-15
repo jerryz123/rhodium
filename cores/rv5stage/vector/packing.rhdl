@@ -109,7 +109,7 @@ circuit RV5StageVectorResult(vlen :: VectorLength):
   def element = first_element.zext(calculation_width)
   def data_chunk = mux_lookup(element_width, ~default: element >> 3, [[SimdElementWidth.E16, element >> 2], [SimdElementWidth.E32, element >> 1], [SimdElementWidth.E64, element]])
   def address = base + mux(mask_destination, element >> 6, data_chunk)
-  def comparison_mask = enabled.as_bits().zext(64) << first_element[0..6]
+  def mask_write_mask = enabled.as_bits().zext(64) << first_element[0..6]
   def upper_half = mux_lookup(element_width, ~default: first_element[2].into(Bool), [[SimdElementWidth.E16, first_element[1].into(Bool)], [SimdElementWidth.E32, first_element[0].into(Bool)]])
   def narrowed_results = for List (format in 0..3):
     def element_bits = 8 * (2 ** format)
@@ -136,7 +136,7 @@ circuit RV5StageVectorResult(vlen :: VectorLength):
       result:
         SimdAluResult():
           data: mux(upper_half, low_data ++ bits(0, 32), bits(0, 32) ++ low_data)
-          comparison: result.comparison
+          mask_result: result.mask_result
           write_mask: mux(upper_half, low_mask.as_bits() ++ bits(0, 4), bits(0, 4) ++ low_mask.as_bits()).into(Mask(8))
           saturated: result.saturated
       saturated: saturation_bits.or_reduce()
@@ -145,8 +145,8 @@ circuit RV5StageVectorResult(vlen :: VectorLength):
   saturated <== result.saturated ||| (narrowing & narrowed.saturated)
   write <== VectorRegisterWrite(vlen):
     address: address[0..address_width]
-    data: mux(mask_destination, effective_result.comparison.as_bits().zext(64) << first_element[0..6], effective_result.data)
-    mask: mux(mask_destination, comparison_mask, expand_mask(effective_result.write_mask.as_bits(), 8))
+    data: mux(mask_destination, effective_result.mask_result.as_bits().zext(64) << first_element[0..6], effective_result.data)
+    mask: mux(mask_destination, mask_write_mask, expand_mask(effective_result.write_mask.as_bits(), 8))
   def aligned = mux_lookup(element_width, ~default: first_element.is_aligned(8), [[SimdElementWidth.E16, first_element.is_aligned(4)], [SimdElementWidth.E32, first_element.is_aligned(2)], [SimdElementWidth.E64, Bool(#true)]])
   def half_aligned = mux_lookup(element_width, ~default: first_element.is_aligned(4), [[SimdElementWidth.E16, first_element.is_aligned(2)], [SimdElementWidth.E32, Bool(#true)], [SimdElementWidth.E64, Bool(#false)]])
   legal <== mux(narrowing, half_aligned, aligned) & (address < bits(vector_depth(vlen), calculation_width)) & (!mask_destination ||| (first_element < bits(vlen, index_width(vlen + 1))))

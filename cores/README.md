@@ -24,7 +24,7 @@ architectural result selection.
 | Component | Interface and parameters | Timing contract | Component owns | Caller owns |
 |---|---|---|---|---|
 | [`ALU(xlen)`](alu.rhdl) | `XLen.X32` or `XLen.X64`; `left`, `right`, and `AluControl` to `result` | Combinational; no ready/valid state | Modular arithmetic, logic, shifts/rotates, comparisons, counts, unary transforms, RV64 word shaping, and the shared Zba/Zbb/Zbs/Zicond datapaths | Decode, operand routing, and result use |
-| [`SimdALU()`](simd-alu.rhdl) | Two 64-bit packed operands, runtime 8/16/32/64-bit elements, decoded controls, fixed-point rounding mode, and lane masks | Combinational; no ready/valid state | Lane-isolated wrapping, saturating, and averaging arithmetic; logic; shifts/rotates; fixed-point rounding; counts; reversals; comparisons; min/max; selection; and result/write-mask packing | Instruction decode, operand extraction/broadcast, clipping, vector configuration, register preservation, scheduling, and writeback |
+| [`SimdALU()`](simd-alu.rhdl) | Two 64-bit packed operands, runtime 8/16/32/64-bit elements, decoded controls, fixed-point rounding mode, carry/borrow inputs, and lane masks | Combinational; no ready/valid state | Lane-isolated wrapping, saturating, averaging, and carry/borrow arithmetic; logic; shifts/rotates; fixed-point rounding; counts; reversals; comparisons; min/max; selection; and result/write-mask packing | Instruction decode, operand extraction/broadcast, clipping, vector configuration, register preservation, scheduling, and writeback |
 | [`SimdWidenOperands()`](simd-alu.rhdl) | Two packed 64-bit source operands, 8/16/32-bit source elements, optional already-wide left input, half selection, and element enables | Combinational; no ready/valid state | Per-source extension and enable remapping for one 64-bit destination group | Group sequencing, scalar/immediate broadcasting, register grouping, and architectural legality |
 | [`SimdCompress()`](simd-alu.rhdl) | One packed 64-bit word, runtime element width, and element-selection mask | Combinational; no ready/valid state | Stable-order compaction into consecutive low lanes and selected-element count | Cross-word accumulation, architectural register grouping, tails, restart, and writeback |
 | [`BranchResolver(width)`](branch-resolver.rhdl) | `Valid(BranchResolverRequest)` to `Valid(BranchResult)` | Combinational; output validity follows input validity, with no backpressure | Equal and signed/unsigned less-than comparison plus final `taken` selection | Encodings, target generation, PC state, and redirect timing |
@@ -53,6 +53,9 @@ AND-NOT (and OR-NOT/XNOR) without changing arithmetic operands.
 Comparisons support equality, less-than, and
 less-or-equal with signed or unsigned ordering. Min/max uses the same ordering;
 select chooses the right operand when that element's `select_right` bit is set.
+`carry_in` supplies one low carry or borrow bit per active element. Add consumes
+that bit directly; subtract computes `left - right - carry_in`. The same
+guard-bit adder exposes the corresponding unsigned carry or borrow bits.
 
 For a right shift, `rounding` selects RVV fixed-point rounding after the shared
 tapered shifter and before the existing lane-isolated adder. `SimdRoundingMode`
@@ -70,11 +73,12 @@ leading/trailing-zero count equal to the element width. Counts and permutations
 operate on the left operand and ignore the right operand.
 
 `SimdAluResult.data` contains the selected packed values (comparison results are
-zero or one per element). `comparison` independently reports the configured
-predicate as one packed bit per enabled element, regardless of result selection.
+zero or one per element). `mask_result` reports either the configured comparison
+predicate or the adder's carry/borrow result, selected by `mask_result_select`,
+as one packed bit per enabled element regardless of ordinary data selection.
 `write_mask` expands enabled elements to their destination byte enables, and
 `saturated` reports whether an enabled lane saturated.
-Disabled elements produce zero data and comparison bits and no byte enables.
+Disabled elements produce zero data and mask-result bits and no byte enables.
 The caller uses those enables to preserve old register contents; the ALU has
 no architectural state or tail policy. Mask-register destinations use the
 element enables rather than the data byte mask.

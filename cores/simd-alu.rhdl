@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements shared-width packed integer, fixed-point arithmetic, widening, and compaction datapaths.
+// Implements packed integer, fixed-point, carry/borrow, widening, and compaction datapaths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -31,6 +31,10 @@ hardware_enum SimdComparisonSelect:
   Less
   LessEqual
 
+hardware_enum SimdMaskResultSelect:
+  Comparison
+  CarryBorrow
+
 hardware_enum SimdPermutationSelect:
   ReverseBits
   ReverseBitsInBytes
@@ -60,6 +64,7 @@ bundle SimdAluControl():
   arithmetic_mode: SimdArithmeticMode
   logic_select: SimdLogicSelect
   comparison_select: SimdComparisonSelect
+  mask_result_select: SimdMaskResultSelect
   permutation_select: SimdPermutationSelect
   count_select: SimdCountSelect
   subtract: Bool
@@ -72,7 +77,7 @@ bundle SimdAluControl():
 
 bundle SimdAluResult():
   data: Bits(64)
-  comparison: Mask(8)
+  mask_result: Mask(8)
   write_mask: Mask(8)
   saturated: Bool
 
@@ -94,6 +99,7 @@ bundle SimdFixedArithmetic():
   increment: Bits(64)
   saturated: Bits(64)
   saturation: Bool
+  carry_borrow: Mask(8)
 
 // Internal tapered-bank slice: one barrel shifter serves both directions and
 // every element width routed into this physical slot.
@@ -124,6 +130,7 @@ circuit SimdALU():
   input rounding: Bool
   input rounding_mode: SimdRoundingMode
   input enabled: Mask(8)
+  input carry_in: Mask(8)
   input select_right: Mask(8)
   output result: SimdAluResult()
 
@@ -294,12 +301,15 @@ circuit SimdALU():
   def adder_right = mux(shift_rounding, rounding_increment, right)
   def subtract = control.subtract & !shift_rounding
   def inverted_right = mux(subtract, !adder_right, adder_right)
+  def boundary_carries = for List (byte in 0..8):
+    def lane_carry = mux_lookup(element_width, ~default: carry_in[byte], [[SimdElementWidth.E16, carry_in[byte div 2]], [SimdElementWidth.E32, carry_in[byte div 4]], [SimdElementWidth.E64, carry_in[0]]])
+    mux(subtract, !lane_carry, lane_carry)
   def left_chunks = for List (byte in 0..8):
     def boundary :: Bool = boundaries[byte]
-    adder_left[byte * 8..(byte + 1) * 8] ++ (!boundary ||| subtract).as_bits()
+    adder_left[byte * 8..(byte + 1) * 8] ++ mux(boundary, boundary_carries[byte], Bool(#true)).as_bits()
   def right_chunks = for List (byte in 0..8):
     def boundary :: Bool = boundaries[byte]
-    inverted_right[byte * 8..(byte + 1) * 8] ++ (boundary & subtract).as_bits()
+    inverted_right[byte * 8..(byte + 1) * 8] ++ mux(boundary, boundary_carries[byte], Bool(#false)).as_bits()
   // The extra top bit retains E64 carry/borrow; internal element carries land
   // in the existing boundary guard bits.
   def sum = concat(left_chunks.reverse()).zext(73) + concat(right_chunks.reverse()).zext(73)
@@ -343,16 +353,22 @@ circuit SimdALU():
         [SimdRoundingMode.Down, Bool(#false)],
         [SimdRoundingMode.Odd, !average_base[0].into(Bool) & discarded]
       ])
-      [average_base, increment.as_bits().zext(element_bits), saturated_value, (enabled[lane] & saturating & overflow).as_bits()]
+      [average_base, increment.as_bits().zext(element_bits), saturated_value, (enabled[lane] & saturating & overflow).as_bits(), (enabled[lane] & mux(control.subtract, !carry, carry)).as_bits()]
     def average_data = if count == 1 | lanes[0][0] | concat(lanes.map(fun (lane :: List): lane[0]).reverse())
     def increments = if count == 1 | lanes[0][1] | concat(lanes.map(fun (lane :: List): lane[1]).reverse())
     def saturated_data = if count == 1 | lanes[0][2] | concat(lanes.map(fun (lane :: List): lane[2]).reverse())
     def saturation_bits :: Bits(count) = if count == 1 | lanes[0][3] | concat(lanes.map(fun (lane :: List): lane[3]).reverse())
+    def carry_borrow_bits :: Bits(8) = cond
+    | count == 1: bits(0, 7) ++ lanes[0][4]
+    | count == 2: bits(0, 6) ++ concat(lanes.map(fun (lane :: List): lane[4]).reverse())
+    | count == 4: bits(0, 4) ++ concat(lanes.map(fun (lane :: List): lane[4]).reverse())
+    | ~else: concat(lanes.map(fun (lane :: List): lane[4]).reverse())
     SimdFixedArithmetic():
       average: average_data
       increment: increments
       saturated: saturated_data
       saturation: saturation_bits.or_reduce()
+      carry_borrow: carry_borrow_bits.into(Mask(8))
   def fixed :: SimdFixedArithmetic() = mux_lookup(element_width, ~default: fixed_alternatives[0], for List (format in 1..4): [widths[format], fixed_alternatives[format]])
   def average_left_chunks = for List (byte in 0..8):
     def boundary :: Bool = boundaries[byte]
@@ -368,7 +384,7 @@ circuit SimdALU():
   def enabled_bytes = for List (byte in 0..8): mux(routing.enabled[byte], value[byte * 8..(byte + 1) * 8], bits(0, 8))
   result <== SimdAluResult():
     data: concat(enabled_bytes.reverse())
-    comparison: routing.comparison
+    mask_result: mux(control.mask_result_select === SimdMaskResultSelect.CarryBorrow, fixed.carry_borrow, routing.comparison)
     write_mask: routing.enabled
     saturated: (control.result_select === SimdResultSelect.Adder) & fixed.saturation
 
@@ -448,6 +464,7 @@ circuit SimdCompress():
   compressed <== mux_lookup(element_width, ~default: alternatives[0], for List (format in 1..4): [widths[format], alternatives[format]])
 
 export:
+  SimdMaskResultSelect
   SimdElementWidth
   SimdResultSelect
   SimdLogicSelect
