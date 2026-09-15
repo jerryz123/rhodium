@@ -188,6 +188,7 @@
             end else case (tx_opcode)
               0: value = a + b;
               2: value = a - b;
+              3: value = b - a;
               4: value = a < b ? a : b;
               5: value = signed_element(a, tx_width) < signed_element(b, tx_width) ? a : b;
               6: value = a > b ? a : b;
@@ -317,10 +318,11 @@
         run_macro(sew, lm, maximum - 1, maximum > 2 ? 1 : 0, 11, 4, 8, 3, 8, 1);
       end
       for (int op = 0; op < 42; op++) begin
-        if (!(op inside {0, 2, [4:7], [9:11], [24:31], 37, 40, 41})) continue;
+        if (!(op inside {0, [2:7], [9:11], [24:31], 37, 40, 41})) continue;
         for (int mode_index = 0; mode_index < 3; mode_index++) begin
           int mode;
           mode = mode_index == 0 ? 0 : mode_index == 1 ? 4 : 3;
+          if (op == 3 && mode == 0) continue;
           if ((op inside {30, 31}) && mode == 0) continue;
           if (mode == 3 && (op inside {2, [4:7], 26, 27})) continue;
           run_macro(sew, 0, VLEN / (8 << sew), 1, op, mode, op inside {[24:31]} ? 0 : 24, mode == 0 ? 16 : 31, 8, 0);

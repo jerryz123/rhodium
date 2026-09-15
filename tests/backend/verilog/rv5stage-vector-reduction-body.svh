@@ -103,6 +103,21 @@
     run(32'('h02000027 | ((XLEN==64 ? 7 : 6)<<12) | (r<<7)),XLEN==64 ? 3 : 2,0,VLEN/XLEN);
     mode = 0;
   endtask
+  task automatic widening_reduction_case(input bit signed_operation, input int sew, lm, length, dest, seed = 3, source = 8,
+                                          input bit masked = 0, input int retry_at = -1, kill_after = -1);
+    logic [63:0] acc, value, wide_mask;
+    int width, wide_width;
+    width=8<<sew; wide_width=2*width; wide_mask='1>>(64-wide_width);
+    acc=element(seed,0,wide_width);
+    for(int i=0;i<length;i++) if(!masked || element(0,i,1)!=0) begin
+      value=element(source,i,width);
+      if(signed_operation) value=sext(value,width);
+      acc=(acc+value)&wide_mask;
+    end
+    run(vec(signed_operation ? 49 : 48,dest,source,seed,0,masked),sew,lm,length,0,retry_at,kill_after);
+    if(kill_after<0 && length!=0) model[dest][0]=(model[dest][0]&~wide_mask)|(acc&wide_mask);
+    check_reg(dest);
+  endtask
   task automatic scan_case(input int op, sew, lm, length, pattern, input bit masked,
                            input int retry_at = -1, kill_after = -1, start = 0);
     logic [63:0] expected [0:8*CHUNKS-1];
@@ -335,6 +350,29 @@
         run(vec(16,5,3,0,2),sew,3,0,7,0);
         mode=0;
       end
+    end
+    // Widening reductions fold narrow LMUL-sized sources into a single wide
+    // seed/result element. Every accepted prefix remains retryable at WB.
+    for(int sew=0;sew<3;sew++) begin
+      for(int lm=0;lm<8;lm++) begin
+        int exponent, length;
+        exponent=lm<4 ? lm : lm-8;
+        if(lm==4 || sew>exponent+3) continue;
+        length=exponent>=0 ? (VLEN/(8<<sew))<<exponent : (VLEN/(8<<sew))>>(-exponent);
+        for(int c=0;c<CHUNKS;c++) model[0][c]=random_word();
+        load_reg(0);
+        widening_reduction_case(0,sew,lm,length,24,3,8,0,length>2 ? length/2 : 0);
+        widening_reduction_case(1,sew,lm,length,24,3,8,1,length>2 ? length/2 : 0);
+      end
+      // The scalar destination may overlap either data source or the mask;
+      // different-width source/source aliasing is rejected by decode instead.
+      widening_reduction_case(0,sew,0,VLEN/(8<<sew),8);
+      widening_reduction_case(1,sew,0,VLEN/(8<<sew),3);
+      for(int c=0;c<CHUNKS;c++) model[0][c]=0;
+      load_reg(0);
+      widening_reduction_case(0,sew,0,VLEN/(8<<sew),0,3,8,1);
+      widening_reduction_case(1,sew,0,0,7);
+      widening_reduction_case(1,sew,0,VLEN/(8<<sew),7,3,8,0,-1,2);
     end
     for(int sew=0;sew<4;sew++) begin
       for(int lm=0;lm<8;lm++) begin

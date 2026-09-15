@@ -181,7 +181,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     masked: descriptor.masked & !mask_select & !carry_input
     operand_select: mux_lookup(descriptor.control.operand, ~default: VectorOperandSelect.Vector, [[VectorOperandMode.Scalar, VectorOperandSelect.Scalar], [VectorOperandMode.Immediate, VectorOperandSelect.Immediate]])
     immediate_unsigned: descriptor.control.immediate_unsigned
-    widening: widening
+    widening: widening & !reduction
     narrowing: narrowing
     extension: extension
     extension_ratio: descriptor.control.extension_ratio

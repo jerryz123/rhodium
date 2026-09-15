@@ -348,6 +348,8 @@ def VectorSameWidthIntegerCases = [
   integer_case(VADD_VI, vadd_control),
   integer_case(VSUB_VV, vsub_control),
   integer_case(VSUB_VX, vsub_control),
+  integer_case(VRSUB_VX, vsub_control, ~swap: #true),
+  integer_case(VRSUB_VI, vsub_control, ~swap: #true),
   integer_case(VAND_VV, vand_control),
   integer_case(VAND_VX, vand_control),
   integer_case(VAND_VI, vand_control),
@@ -518,8 +520,13 @@ def VectorElementMoveCases = [
   integer_case(VMV_X_S, vselect_control, ~element_move: #true, ~scalar_destination: #true),
   integer_case(VMV_S_X, vselect_control, ~element_move: #true, ~uses_vs2: #false)
 ]
-def VectorIntegerReductionCases = for List (instruction in VectorIntegerReductionInstructions, alu in [vadd_control, vand_control, vor_control, vxor_control, vminu_control, vmin_control, vmaxu_control, vmax_control]):
+def VectorSameWidthIntegerReductionCases = for List (instruction in VectorSameWidthIntegerReductionInstructions, alu in [vadd_control, vand_control, vor_control, vxor_control, vminu_control, vmin_control, vmaxu_control, vmax_control]):
   integer_case(instruction, alu, ~reduction: #true)
+def VectorWideningIntegerReductionCases = [
+  integer_case(VWREDSUMU_VS, vadd_control, ~reduction: #true, ~widening: #true),
+  integer_case(VWREDSUM_VS, vadd_control, ~reduction: #true, ~widening: #true, ~right_signed: #true)
+]
+def VectorIntegerReductionCases = VectorSameWidthIntegerReductionCases ++ VectorWideningIntegerReductionCases
 def VectorMaskScanCases = [
   integer_case(VCPOP_M, vselect_control, ~scan: #true, ~scalar_destination: #true),
   integer_case(VFIRST_M, vselect_control, ~scan: #true, ~scalar_destination: #true, ~scan_result: VectorScanResult.First),
@@ -658,7 +665,10 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   // Carry-in uses v0 as EEW=1 data, so the same register cannot also supply a
   // SEW-wide source operand in that instruction.
   def carry_sources_legal = !control.carry_input ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))
-  def reduction_sources_legal = source2_aligned & (!masked ||| (source1.or_reduce() & source2.or_reduce()))
+  def reduction_source2_end = source2.zext(6) + group_mask.zext(6) + bits(1, 6)
+  def reduction_sources_disjoint = (source1.zext(6) < source2.zext(6)) ||| (source1.zext(6) >= reduction_source2_end)
+  def widening_reduction_legal = !widening ||| ((config.sew =/= bits(3, 2)) & reduction_sources_disjoint)
+  def reduction_sources_legal = source2_aligned & widening_reduction_legal & (!masked ||| (source1.or_reduce() & source2.or_reduce()))
   def scan_mask = control.scan_control.result === VectorScanResult.Mask
   def scan_overlap = mux(scan_mask, destination === source2, (source2 & !group_mask) === destination)
   def scan_legal = control.scalar_destination ||| ((!masked ||| destination.or_reduce()) & mux(scan_mask, destination =/= source2, destination_aligned & (control.scan_control.index ||| !scan_overlap)))
@@ -720,6 +730,9 @@ export:
   VectorAveragingAddSubtractCases
   VectorFixedPointShiftCases
   VectorNarrowingClipCases
+  VectorSameWidthIntegerReductionCases
+  VectorWideningIntegerReductionCases
+  VectorIntegerReductionCases
   VectorCompressCases
   VectorMemoryCases
   VectorFloatingPointCases

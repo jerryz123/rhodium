@@ -418,6 +418,27 @@
         end
       end
     end
+    // Widening reductions retain a single-register wide seed/result and a
+    // narrow LMUL-sized source. Different-EEW source aliases are reserved.
+    for (int sew=0;sew<4;sew++) begin
+      for (int lm=-3;lm<=3;lm++) begin
+        bit expected;
+        test_vtype=(word_t'(sew)<<3)|(word_t'(lm)&7);
+        expected=sew<3 && sew<=lm+3;
+        instruction={6'h30,1'b1,5'd8,5'd3,3'd0,5'd7,7'h57}; #1;
+        assert(decoded_valid && legal==expected && widening && !right_signed && !subtract)
+          else $fatal(1,"unsigned widening reduction geometry");
+        instruction[31:26]=6'h31; #1;
+        assert(decoded_valid && legal==expected && widening && right_signed && !subtract)
+          else $fatal(1,"signed widening reduction geometry");
+        instruction[19:15]=8; #1;
+        assert(!legal) else $fatal(1,"widening reduction read one register at two EEWs");
+        checks++;
+      end
+    end
+    test_vtype=0;
+    instruction={6'h30,1'b0,5'd8,5'd3,3'd0,5'd0,7'h57}; #1;
+    assert(decoded_valid && legal) else $fatal(1,"masked widening reduction rejected v0 destination");
     instruction=32'h402020d7; #1; assert(!decoded_valid) else $fatal(1,"masked extraction reserved");
     instruction=32'h400160d7; #1; assert(!decoded_valid) else $fatal(1,"masked insertion reserved");
     test_vtype=0;

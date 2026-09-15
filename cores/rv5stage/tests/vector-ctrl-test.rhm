@@ -44,6 +44,9 @@ check:
   value(control(VSETIVLI), "configure") ~is VectorConfigMode.AllImmediate.packed_value()
   value(control(VSETVL), "configure") ~is VectorConfigMode.VtypeRegister.packed_value()
   value(field(control(VSUB_VV), "alu"), "subtract") ~is 1
+  value(control(VRSUB_VX), "swap_operands") ~is 1
+  value(control(VRSUB_VI), "swap_operands") ~is 1
+  value(field(control(VRSUB_VI), "alu"), "subtract") ~is 1
   value(field(control(VADD_VX), "alu"), "subtract") ~is 0
   value(field(control(VSADDU_VI), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.SaturateUnsigned.packed_value()
   value(field(control(VSADD_VV), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.SaturateSigned.packed_value()
@@ -147,6 +150,11 @@ for (instruction in VectorIntegerReductionInstructions):
     value(control(instruction), "reduction") ~is 1
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
+for (instruction in VectorWideningIntegerReductionInstructions, index in 0..2):
+  check:
+    value(control(instruction), "widening") ~is 1
+    value(control(instruction), "right_signed") ~is index
+    value(field(control(instruction), "alu"), "result_select") ~is SimdResultSelect.Adder.packed_value()
 for (instruction in VectorMaskScanInstructions, index in 0..7):
   check:
     value(control(instruction), "scan") ~is 1

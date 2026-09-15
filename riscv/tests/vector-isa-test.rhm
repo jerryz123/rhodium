@@ -72,6 +72,8 @@ check:
   VSETVL.encode([model.rd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3)]) ~is 0x803170d7
   VADD_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x022180d7
   VSUB_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(0)]) ~is 0x0821c0d7
+  VRSUB_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x0e21c0d7
+  VRSUB_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~is 0x0e2fb0d7
   VADC_VVM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x402180d7
   VADC_VXM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4021c0d7
   VADC_VIM.encode([vd.constrain(1), vs2.constrain(2)], ~immediate: -1) ~is 0x402fb0d7
@@ -178,9 +180,12 @@ check:
   VectorVVFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Vector, model.RegisterBank.Vector]
   [CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_address) ~is [8, 9, 10, 15, 0xc20, 0xc21, 0xc22]
 
-for (instruction in VectorIntegerReductionInstructions, index in 0..8):
+for (instruction in VectorSameWidthIntegerReductionInstructions, index in 0..8):
   check:
     instruction.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is (0x0221a0d7 bits.or (index bits.(<<) 26))
+check:
+  VWREDSUMU_VS.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xc22180d7
+  VWREDSUM_VS.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xc62180d7
 for (instruction in VectorMaskLogicInstructions, index in 0..8):
   check:
     instruction.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is (0x6221a0d7 bits.or (index bits.(<<) 26))

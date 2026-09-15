@@ -64,6 +64,8 @@ def VADD_VX = vector_arithmetic("VADD.VX", 0, VectorVXFormat, 4)
 def VADD_VI = vector_arithmetic("VADD.VI", 0, VectorVIFormat, 3)
 def VSUB_VV = vector_arithmetic("VSUB.VV", 2, VectorVVFormat, 0)
 def VSUB_VX = vector_arithmetic("VSUB.VX", 2, VectorVXFormat, 4)
+def VRSUB_VX = vector_arithmetic("VRSUB.VX", 3, VectorVXFormat, 4)
+def VRSUB_VI = vector_arithmetic("VRSUB.VI", 3, VectorVIFormat, 3)
 def VADC_VVM = fixed_mask_arithmetic("VADC.VVM", 0x10, VectorFixedVVFormat, 0, 0)
 def VADC_VXM = fixed_mask_arithmetic("VADC.VXM", 0x10, VectorFixedVXFormat, 4, 0)
 def VADC_VIM = fixed_mask_arithmetic("VADC.VIM", 0x10, VectorFixedVIFormat, 3, 0)
@@ -194,7 +196,7 @@ def VSEXT_VF4 = vector_extension("VSEXT.VF4", 5)
 def VZEXT_VF2 = vector_extension("VZEXT.VF2", 6)
 def VSEXT_VF2 = vector_extension("VSEXT.VF2", 7)
 def VectorExtensionInstructions = [VZEXT_VF2, VZEXT_VF4, VZEXT_VF8, VSEXT_VF2, VSEXT_VF4, VSEXT_VF8]
-def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorCarryBorrowInstructions ++ VectorExtensionInstructions ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorSaturatingAddSubtractInstructions ++ VectorAveragingAddSubtractInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
+def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VRSUB_VX, VRSUB_VI, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorCarryBorrowInstructions ++ VectorExtensionInstructions ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorSaturatingAddSubtractInstructions ++ VectorAveragingAddSubtractInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
 // Slides use unsigned XLEN offsets; slide1 instead inserts a scalar element.
 def VSLIDEUP_VX = vector_arithmetic("VSLIDEUP.VX", 0x0e, VectorVXFormat, 4)
 def VSLIDEUP_VI = vector_arithmetic("VSLIDEUP.VI", 0x0e, VectorShiftVIFormat, 3)
@@ -247,7 +249,11 @@ def VREDMINU_VS = vector_arithmetic("VREDMINU.VS", 4, VectorVVFormat, 2)
 def VREDMIN_VS = vector_arithmetic("VREDMIN.VS", 5, VectorVVFormat, 2)
 def VREDMAXU_VS = vector_arithmetic("VREDMAXU.VS", 6, VectorVVFormat, 2)
 def VREDMAX_VS = vector_arithmetic("VREDMAX.VS", 7, VectorVVFormat, 2)
-def VectorIntegerReductionInstructions = [VREDSUM_VS, VREDAND_VS, VREDOR_VS, VREDXOR_VS, VREDMINU_VS, VREDMIN_VS, VREDMAXU_VS, VREDMAX_VS]
+def VWREDSUMU_VS = vector_arithmetic("VWREDSUMU.VS", 0x30, VectorVVFormat, 0)
+def VWREDSUM_VS = vector_arithmetic("VWREDSUM.VS", 0x31, VectorVVFormat, 0)
+def VectorSameWidthIntegerReductionInstructions = [VREDSUM_VS, VREDAND_VS, VREDOR_VS, VREDXOR_VS, VREDMINU_VS, VREDMIN_VS, VREDMAXU_VS, VREDMAX_VS]
+def VectorWideningIntegerReductionInstructions = [VWREDSUMU_VS, VWREDSUM_VS]
+def VectorIntegerReductionInstructions = VectorSameWidthIntegerReductionInstructions ++ VectorWideningIntegerReductionInstructions
 // Same-width OPFVV arithmetic from the canonical riscv-opcodes RVV 1.0 table.
 def VFADD_VV = vector_arithmetic("VFADD.VV", 0x00, VectorVVFormat, 1)
 def VFSUB_VV = vector_arithmetic("VFSUB.VV", 0x02, VectorVVFormat, 1)
@@ -355,6 +361,8 @@ export:
   VID_V
   VectorReadScalarFormat
   VectorElementMoveInstructions
+  VectorSameWidthIntegerReductionInstructions
+  VectorWideningIntegerReductionInstructions
   VectorIntegerReductionInstructions
   VMV_X_S
   VMV_S_X
@@ -366,6 +374,8 @@ export:
   VREDMIN_VS
   VREDMAXU_VS
   VREDMAX_VS
+  VWREDSUMU_VS
+  VWREDSUM_VS
   VectorFixedVVFormat
   VectorFixedVXFormat
   VectorFixedVIFormat
@@ -481,6 +491,8 @@ export:
   VADD_VI
   VSUB_VV
   VSUB_VX
+  VRSUB_VX
+  VRSUB_VI
   VSADDU_VV
   VSADDU_VX
   VSADDU_VI

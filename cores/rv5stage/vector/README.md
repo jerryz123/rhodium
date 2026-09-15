@@ -29,7 +29,7 @@ reads do not, and SD combines
 the FP and vector dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
-wrapping, saturating, averaging, and carry/borrow add/sub; logic; shifts; fixed-point scaling shifts and narrowing clips;
+wrapping, reverse, saturating, averaging, and carry/borrow add/sub; logic; shifts; fixed-point scaling shifts and narrowing clips;
 comparisons, min/max, compression, narrowing shifts,
 and narrow-source widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
 signedness, comparison inversion, and operand swapping. Runtime group checks
@@ -130,8 +130,9 @@ Fault feedback terminates issue and emits the failing element through
 
 This cut preserves inactive and tail contents, supports fractional LMUL,
 in-place same-width groups, and the permitted high-part overlap for widening
-destinations. It sign-extends RV32 VX operands before SEW64 broadcast and packs
-comparison and carry/borrow bits through the ordinary masked write port.
+destinations. `vrsub.vx` and `vrsub.vi` reuse the subtract datapath with swapped
+operands. RV32 VX operands are sign-extended before SEW64 broadcast, and
+comparison and carry/borrow bits use the ordinary masked write port.
 
 ## Widening integer add and subtract
 
@@ -205,7 +206,8 @@ cancellation suppresses speculative writes. This is still partial V coverage.
 
 The experimental RV32/RV64 path also executes `vmv.x.s`, `vmv.s.x`, and
 `vredsum.vs`, `vredand.vs`, `vredor.vs`, `vredxor.vs`, `vredminu.vs`,
-`vredmin.vs`, `vredmaxu.vs`, and `vredmax.vs` at SEW8/16/32/64.
+`vredmin.vs`, `vredmaxu.vs`, and `vredmax.vs` at SEW8/16/32/64, plus
+`vwredsumu.vs` and `vwredsum.vs` at source SEW8/16/32.
 Element moves ignore LMUL grouping. Extraction sign-extends or truncates to
 XLEN and executes even when VL is zero or `vstart >= vl`; insertion does not
 write when `vstart >= vl`. Both clear `vstart` on successful retirement.
@@ -220,6 +222,10 @@ the source group must be aligned. The destination may overlap sources or v0.
 Masked reductions cannot also use v0 as a SEW-sized data source.
 All-masked nonempty reductions copy the seed; VL zero leaves the destination
 unchanged. Nonzero `vstart` traps before issue. Destination tails are preserved.
+Widening sums read and write the seed/result at twice SEW, zero- or sign-extend
+each narrow source element, and reject SEW64. Their wide scalar operands retain
+EMUL=1; a widening seed cannot alias the narrow source group because that would
+read one register at two EEWs.
 
 This first implementation reuses the SIMD ALU with one reduction element in
 flight. Its accumulator advances only with WB authorization, so retries retain

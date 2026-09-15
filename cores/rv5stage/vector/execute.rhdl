@@ -25,18 +25,30 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def gathering = beat.control.integer & beat.control.gather
   def gather_vector = gathering & (beat.control.operand === VectorOperandMode.Vector)
   def scalar_destination = beat.control.integer & beat.control.scalar_destination & (element_move ||| (scanning & beat.last))
+  def widening_reduction = reduction & beat.control.widening
+  inst reduction_widen(SimdWidenOperands())
+  reduction_widen.left <== beat.right
+  reduction_widen.right <== beat.left
+  reduction_widen.element_width <== beat.element_width.as_bits().into(SimdWidenElementWidth)
+  reduction_widen.upper_half <== Bool(#false)
+  reduction_widen.left_wide <== Bool(#true)
+  reduction_widen.left_signed <== Bool(#false)
+  reduction_widen.right_signed <== beat.control.right_signed
+  reduction_widen.enabled <== beat.enabled
+  def alu_left = mux(widening_reduction, reduction_widen.operands.right, beat.left)
+  def alu_right = mux(widening_reduction, reduction_widen.operands.left, beat.right)
   scan.source <== beat.left
   scan.enabled <== beat.mask_enabled
   scan.first <== beat.first.zext(64)
   scan.carry <== scan_carry
   scan.element_width <== beat.element_width
   scan.control <== beat.control.scan_control
-  alu.left <== mux(beat.control.swap_operands, beat.right, beat.left)
-  alu.right <== mux(beat.control.swap_operands, beat.left, beat.right)
+  alu.left <== mux(beat.control.swap_operands, alu_right, alu_left)
+  alu.right <== mux(beat.control.swap_operands, alu_left, alu_right)
   alu.control <== beat.control.alu
   // Slides premerge adjacent chunks into one rotate source. Only the existing
   // 64-bit shift slot executes; destination SEW/masks remain with packing.
-  alu.element_width <== mux(sliding ||| gathering, SimdElementWidth.E64, beat.element_width)
+  alu.element_width <== mux(sliding ||| gathering, SimdElementWidth.E64, mux(widening_reduction, reduction_widen.operands.element_width, beat.element_width))
   alu.enabled <== mux(reduction ||| sliding ||| gathering, bits(1, 8).into(Mask(8)), beat.enabled)
   alu.carry_in <== beat.carry_in
   alu.select_right <== beat.select_right
@@ -44,7 +56,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   alu.rounding_mode <== beat.rounding_mode
   packing.destination <== beat.destination
   packing.first_element <== beat.destination_first
-  packing.element_width <== mux(beat.control.narrowing, (beat.element_width.as_bits() - bits(1, 2)).into(SimdElementWidth), beat.element_width)
+  packing.element_width <== mux(beat.control.narrowing, (beat.element_width.as_bits() - bits(1, 2)).into(SimdElementWidth), mux(widening_reduction, reduction_widen.operands.element_width, beat.element_width))
   packing.mask_destination <== beat.control.mask_destination
   packing.narrowing <== beat.control.narrowing
   packing.clip <== beat.control.clip
@@ -57,6 +69,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def scan_write = packing.write.updated(~data: scan.data, ~mask: mux(beat.control.scalar_destination, bits(0, 64), mux(beat.control.mask_destination, beat.mask_enabled, mux(beat.empty, bits(0, 64), packing.write.mask))))
   def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide ||| gather_vector
   def widening_multiply = beat.control.multiply_divide & beat.control.widening
+  def widening_singleton = widening_multiply ||| widening_reduction
   def multiply_accumulate = beat.control.multiply_divide & !beat.control.divide & beat.control.multiply_accumulate
   // Mask logical operands are already packed one bit per element. Reuse the
   // ALU logic network, but write bits rather than repacking comparisons.
@@ -64,7 +77,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     ~data: mux(beat.control.invert_logic_result, !alu.result.data, alu.result.data),
     ~mask: beat.mask_enabled
   )
-  def singleton_width = mux(beat.control.memory, beat.control.eew, beat.element_width.into(Bits(2)) + widening_multiply.as_bits().zext(2))
+  def singleton_width = mux(beat.control.memory, beat.control.eew, beat.element_width.into(Bits(2)) + widening_singleton.as_bits().zext(2))
   def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
   def element_write = VectorRegisterWrite(vlen):

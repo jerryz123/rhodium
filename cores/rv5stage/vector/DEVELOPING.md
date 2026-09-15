@@ -109,6 +109,10 @@ checks its architectural empty-body condition. Reduction rows use singleton
 source reads and a fixed seed address. The parent pipeline gates reduction
 issue until the preceding beat reaches WB, substitutes the authorized
 accumulator for subsequent seeds at EX, and updates it only on authorization.
+Widening reductions keep source addressing at SEW while the execute adapter
+extends that element into the twice-SEW accumulator width. The seed and result
+remain single-register scalars; do not route this form through doubled-EMUL
+destination scheduling. Decode rejects SEW64 and different-EEW source aliases.
 Do not move accumulation into read/issue time without a speculative checkpoint
 design. Final-only VRF writes make source, seed, and mask overlap safe.
 The `scalar_result` Valid output carries the existing integer register-write
@@ -137,7 +141,7 @@ transaction scoreboard with eight words per register to check SEW8 prefix
 count and element-index truncation beyond 255.
 
 Run `rv5stage-vector-reduction` and `rv5stage-vector-reduction-rv32` for
-production-pipeline tests of both scalar moves and eight integer reductions.
+production-pipeline tests of both scalar moves and ten integer reductions.
 They initialize/read storage through public LSU transactions (including a
 test-only RV32 initialization transport, not an RV32 memory-ISA claim), fold
 elements with an independent model, and cover SEW/LMUL, masks, aliases, tails,
