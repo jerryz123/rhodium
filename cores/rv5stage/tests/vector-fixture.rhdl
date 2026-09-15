@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes configurable vector banks, operand capture, packing, SIMD execution, and authorized writes for simulation.
+// Composes vector banks with general and mask-shadow reads, packing, SIMD execution, and writes for simulation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,6 +22,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   input read_a: Bits(16)
   input read_b: Bits(16)
   input read_c: Bits(16)
+  input mask_read_address: Bits(16)
   input write_valid: Bool
   input write_address: Bits(16)
   input write_data: Bits(64)
@@ -47,6 +48,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   output read_a_result: Bits(64)
   output read_b_result: Bits(64)
   output read_c_result: Bits(64)
+  output mask_read_result: Bits(64)
   output result_valid: Bool
   output result_legal: Bool
   output result_address: Bits(16)
@@ -82,15 +84,18 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   for (port in 0..3):
     bank.reads[port].valid <== read_valid
     bank.reads[port].bits <== [read_a, read_b, read_c][port][0..address_width]
+  bank.mask_read.valid <== read_valid
+  bank.mask_read.bits <== mask_read_address[0..index_width(vector_chunks(vlen))]
   read_a_result <== bank.results[0].bits
   read_b_result <== bank.results[1].bits
   read_c_result <== bank.results[2].bits
+  mask_read_result <== bank.mask_result.bits
   def c :: VectorFixtureContext(vlen) = context.egress.bits
   inst prepare(RV5StageVectorOperands(vlen))
   prepare.control <== c.control
   prepare.left <== bank.results[0].bits
   prepare.right <== bank.results[1].bits
-  prepare.mask_word <== bank.results[2].bits
+  prepare.mask_word <== bank.mask_result.bits
   prepare.scalar <== c.scalar
   prepare.immediate <== c.immediate
   inst alu(SimdALU())
@@ -143,6 +148,7 @@ sync_circuit RV5StageVectorFixture():
   input read_a: Bits(16)
   input read_b: Bits(16)
   input read_c: Bits(16)
+  input mask_read_address: Bits(16)
   input write_valid: Bool
   input write_address: Bits(16)
   input write_data: Bits(64)
@@ -168,6 +174,7 @@ sync_circuit RV5StageVectorFixture():
   output read_a_result: Vec(3, Bits(64))
   output read_b_result: Vec(3, Bits(64))
   output read_c_result: Vec(3, Bits(64))
+  output mask_read_result: Vec(3, Bits(64))
   output result_valid: Vec(3, Bool)
   output result_legal: Vec(3, Bool)
   output result_address: Vec(3, Bits(16))
@@ -179,6 +186,7 @@ sync_circuit RV5StageVectorFixture():
     bank.read_a <== read_a
     bank.read_b <== read_b
     bank.read_c <== read_c
+    bank.mask_read_address <== mask_read_address
     bank.write_valid <== write_valid
     bank.write_address <== write_address
     bank.write_data <== write_data
@@ -205,6 +213,7 @@ sync_circuit RV5StageVectorFixture():
     read_a_result[index] <== bank.read_a_result
     read_b_result[index] <== bank.read_b_result
     read_c_result[index] <== bank.read_c_result
+    mask_read_result[index] <== bank.mask_read_result
     result_valid[index] <== bank.result_valid
     result_legal[index] <== bank.result_legal
     result_address[index] <== bank.result_address

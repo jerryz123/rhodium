@@ -1,4 +1,4 @@
-// Differentially checks flat vector storage, masked forwarding, packing, and SIMD writes at three VLENs.
+// Differentially checks vector storage, v0 mask-shadow reads, forwarding, packing, and SIMD writes.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_tb;
   logic clock = 0, reset = 1;
@@ -6,6 +6,7 @@ module rv5stage_vector_tb;
   logic [15:0] read_a;
   logic [15:0] read_b;
   logic [15:0] read_c;
+  logic [15:0] mask_read_address;
   logic write_valid;
   logic [15:0] write_address;
   logic [63:0] write_data;
@@ -31,6 +32,7 @@ module rv5stage_vector_tb;
   logic [191:0] read_a_result;
   logic [191:0] read_b_result;
   logic [191:0] read_c_result;
+  logic [191:0] mask_read_result;
   logic [2:0] result_valid;
   logic [2:0] result_legal;
   logic [47:0] result_address;
@@ -40,7 +42,7 @@ module rv5stage_vector_tb;
   always #5 clock = ~clock;
   logic [63:0] memory [0:255];
   logic [63:0] pending_data, pending_mask;
-  logic [63:0] pending_reads [0:2];
+  logic [63:0] pending_reads [0:2], pending_mask_read;
   int pending_address;
   bit pending_valid, pending_legal;
   int bank_index, vlen_bits, depth, chunks;
@@ -63,7 +65,8 @@ module rv5stage_vector_tb;
     if (pending_valid) begin
       assert (read_a_result[bank_index*64 +: 64] == pending_reads[0] &&
               read_b_result[bank_index*64 +: 64] == pending_reads[1] &&
-              read_c_result[bank_index*64 +: 64] == pending_reads[2])
+              read_c_result[bank_index*64 +: 64] == pending_reads[2] &&
+              mask_read_result[bank_index*64 +: 64] == pending_mask_read)
         else $fatal(1, "later inputs changed an already captured read");
     end
     if (!reset) begin
@@ -73,7 +76,7 @@ module rv5stage_vector_tb;
         memory[int'(write_address) % depth] = (memory[int'(write_address) % depth] & ~write_mask) | (write_data & write_mask);
     end
     a = memory[int'(read_a) % depth]; b = memory[int'(read_b) % depth];
-    c = memory[int'(read_c) % depth]; m = c;
+    c = memory[int'(read_c) % depth]; m = memory[int'(mask_read_address) % chunks];
     width_bits = 8 << element_width;
     out_width = widening ? width_bits * 2 : width_bits;
     lanes = 64 / width_bits;
@@ -123,7 +126,8 @@ module rv5stage_vector_tb;
     if (expected_valid) begin
       assert (read_a_result[bank_index*64 +: 64] == a &&
               read_b_result[bank_index*64 +: 64] == b &&
-              read_c_result[bank_index*64 +: 64] == c)
+              read_c_result[bank_index*64 +: 64] == c &&
+              mask_read_result[bank_index*64 +: 64] == m)
         else $fatal(1, "read/forwarding vlen=%0d", vlen_bits);
       assert (result_legal[bank_index] == legal) else $fatal(1, "packing legality vlen=%0d first=%0d width=%0d", vlen_bits, first_element, width_bits);
       if (legal) begin
@@ -139,13 +143,14 @@ module rv5stage_vector_tb;
     end
     pending_data = data; pending_mask = mask_bits; pending_address = address;
     pending_reads[0] = a; pending_reads[1] = b; pending_reads[2] = c;
+    pending_mask_read = m;
     pending_valid = expected_valid; pending_legal = legal;
     @(negedge clock);
   endtask
 
   task automatic defaults;
     read_valid = 0; write_valid = 0; commit = 0;
-    read_a = 0; read_b = 0; read_c = 0;
+    read_a = 0; read_b = 0; read_c = 0; mask_read_address = 0;
     write_address = 0; write_data = 0; write_mask = 0;
     destination = 0; mask_destination = 0; element_width = 0;
     first_element = 0; vl = 0; vstart = 0; vlmax = 1;
@@ -175,10 +180,12 @@ module rv5stage_vector_tb;
       for (int address = 0; address < depth; address++) begin
         read_a = 16'(address); read_b = 16'((address + 1) % depth);
         read_c = 16'((address + depth - 1) % depth);
+        mask_read_address = 16'(address % chunks);
         step();
       end
-      // All three ports collide with masked writes; disjoint updates accumulate.
-      read_a = 0; read_b = 0; read_c = 0;
+      // All general ports and the mask shadow collide with v0 masked writes;
+      // disjoint updates accumulate and forward through both physical copies.
+      read_a = 0; read_b = 0; read_c = 0; mask_read_address = 0;
       write_address = 0; write_valid = 1;
       for (int bit_index = 0; bit_index < 64; bit_index++) begin
         write_mask = 64'b1 << bit_index; write_data = random_word();
@@ -193,7 +200,7 @@ module rv5stage_vector_tb;
         for (int chunk = 0; chunk < 2 * chunks; chunk++) begin
           first_element = 17'(chunk * (8 >> width_index));
           read_a = 16'(4 * chunks + chunk); read_b = 16'(8 * chunks + chunk);
-          read_c = 16'(first_element / 64);
+          read_c = 16'(16 * chunks + chunk); mask_read_address = 16'(first_element / 64);
           step();
         end
         read_valid = 0; step(); commit = 0; read_valid = 1;
@@ -216,13 +223,13 @@ module rv5stage_vector_tb;
       for (int element = 0; element < vlen_bits; element += 8) begin
         first_element = 17'(element);
         read_a = 16'(8 * chunks + element / 8); read_b = 16'(16 * chunks + element / 8);
-        read_c = 16'(element / 64);
+        read_c = 16'(24 * chunks + element / 8); mask_read_address = 16'(element / 64);
         step();
       end
       read_valid = 0; step(); commit = 0; read_valid = 1;
       // A fully masked body emits no writes, even when explicitly committed.
       write_valid = 1; write_address = 0; write_data = 0; write_mask = '1;
-      read_c = 0; first_element = 0; vstart = 0; vl = vlmax;
+      read_c = 0; mask_read_address = 0; first_element = 0; vstart = 0; vl = vlmax;
       step();
       assert (result_mask[bank_index*64 +: 64] == 0) else $fatal(1, "all-masked body wrote bits");
       write_valid = 0; commit = 1; step(); commit = 0;
@@ -244,6 +251,7 @@ module rv5stage_vector_tb;
         destination = 5'(trial % 24);
         read_a = 16'(trial % depth); read_b = 16'((trial * 13) % depth);
         read_c = 16'((trial * 7) % chunks);
+        mask_read_address = read_c;
         commit = (trial % 3) != 0; read_valid = (trial % 17) != 0;
         write_valid = !commit; write_address = read_a; write_mask = random_word(); write_data = random_word();
         step();

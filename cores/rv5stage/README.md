@@ -18,7 +18,8 @@ Contributors changing the core should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
 The experimental [vector path](vector/README.md) provides configurable VLEN,
-a flat 3R1W 64-bit register bank, SIMD packing, and opt-in WB-owned `vset*`/CSR
+a flat 64-bit register bank with three general reads and a dedicated `v0` mask
+shadow, SIMD packing, and opt-in WB-owned `vset*`/CSR
 and same-width integer execution. One Decode-held macro streams packed beats
 through a separate [`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
 SIMD datapath, and vector bank. Scalar EX/MEM/WB carries retirement bookkeeping

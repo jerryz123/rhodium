@@ -81,6 +81,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   cancel |> unroller.cancel
   unroller.reads <=> registers.reads
   registers.results <=> unroller.results
+  unroller.mask_read <=> registers.mask_read
+  registers.mask_result <=> unroller.mask_result
   active <== unroller.active ||| allocated.as_bits().or_reduce()
   unrolling <== unroller.active
   pending <== authorized_slots.as_bits().or_reduce()

@@ -42,8 +42,9 @@ not a complete vector ISA implementation.
 
 ## Integer pipeline and unroller boundary
 
-[`RV5StageVectorPipeline`](../vector.rhdl) contains the unroller, 3R1W vector
-register bank, packed SIMD execution, and private EX/MEM/WB data registers.
+[`RV5StageVectorPipeline`](../vector.rhdl) contains the unroller, a vector bank
+with three general read ports and a dedicated `v0` mask shadow, packed SIMD
+execution, and private EX/MEM/WB data registers.
 Its `request` accepts a legal macro snapshot. Each accepted `issue` emits
 the caller's context, a `last` marker, and scalar-LSU memory metadata when
 applicable, atomically capturing that beat's
@@ -205,7 +206,8 @@ This first implementation reuses the SIMD ALU with one reduction element in
 flight. Its accumulator advances only with WB authorization, so retries retain
 the authorized prefix without double counting. Cancellation cannot expose a
 partial reduction in the VRF. This is not a packed-per-cycle reduction tree;
-ordinary packed integer throughput is unchanged. The bank remains 3R1W.
+ordinary packed integer throughput is unchanged. The three general read ports
+remain available independently of the dedicated `v0` mask read.
 
 ## Mask queries and prefix/index generation
 
@@ -232,7 +234,8 @@ beat or 8/4/2/1 elements per iota beat. One dependent scan beat is in flight;
 its carry advances only at WB, and retries resume from the authorized frontier.
 Cancellation preserves authorized prefix writes while suppressing future writes
 and unfinished scalar answers. Index needs no carry dependency and retains the
-ordinary packed issue schedule. The bank remains 3R1W, and V remains unadvertised.
+ordinary packed issue schedule. The bank retains three general read ports plus
+the dedicated `v0` mask read, and V remains unadvertised.
 
 ## Packed integer slides
 
@@ -250,9 +253,10 @@ slide cannot use v0 as either its data source or destination. Pre-vstart,
 inactive, and tail elements are preserved; an empty body performs no write.
 These rules follow the [RVV slide specification](https://github.com/riscv/riscv-v-spec/blob/master/v-spec.adoc#vector-slide-instructions).
 
-Slides read two adjacent source chunks and one mask word through the existing
-3R1W bank. Byte muxes form one input for the SIMD ALU's existing 64-bit rotate
-slot; no separate slide barrel shifter or full-vector crossbar is instantiated.
+Slides read two adjacent source chunks through general ports while the `v0`
+shadow supplies predication. Byte muxes form one input for the SIMD ALU's
+existing 64-bit rotate slot; no separate slide barrel shifter or full-vector
+crossbar is instantiated.
 The rotation operates as E64 while write enables retain architectural SEW.
 The packed schedule supplies 8/4/2/1 elements per beat, with one result per
 cycle in an unstalled stream after setup. WB alone authorizes writes. Retry
@@ -276,8 +280,9 @@ data and index sources cannot also read v0 at another EEW. Index EMUL and
 alignment are checked independently, even for an empty body. Predication,
 nonzero vstart, and inactive/tail preservation follow ordinary integer writes.
 
-Vector-index gathers use two dependent synchronous reads: index/mask, then
-the addressed data word. The existing 3R1W bank supplies one element every
+Vector-index gathers use two dependent synchronous general reads: index, then
+the addressed data word; the `v0` shadow supplies predication alongside them.
+The bank supplies one element every
 two cycles in an unstalled stream after setup. Scalar/immediate forms read
 their selected source word for each destination chunk and broadcast packed
 8/4/2/1-element beats, one per cycle. Both use the existing SIMD 64-bit rotate
@@ -295,8 +300,8 @@ tail-policy choice. Nonzero `vstart` traps. Destination and data-source groups
 must be aligned and disjoint; the single-register selection mask must be
 disjoint from both data groups, including when VL is zero.
 
-The unroller reads one source chunk and its mask bits through the existing 3R1W
-bank. [`SimdCompress`](../../simd-alu.rhdl) compacts each 64-bit word without
+The unroller reads the data and selection-mask chunks through general ports.
+[`SimdCompress`](../../simd-alu.rhdl) compacts each 64-bit word without
 owning architectural state. A retained suffix joins the next compacted word;
 each issued beat carries its post-beat suffix, element count, and destination
 position as a speculative checkpoint. WB authorization advances the committed
@@ -351,11 +356,12 @@ FS and VS must be enabled and `frm` must select a supported rounding mode;
 the macro captures `frm` at admission. FP16, RV32 vector FP, scalar-FP vector
 operands, widening, and fused operations are outside this cut.
 
-The unroller reads one element from each vector source and its mask through
-the existing 3R1W bank. Narrow elements are NaN-boxed only at the shared
-execution-service boundary; VRF storage remains packed. Active elements queue
-for execution only when scalar WB authorizes them. Masked, tail, and pre-vstart
-elements never execute or contribute flags. Empty bodies still complete once.
+The unroller reads one element from each vector source through general ports;
+the dedicated `v0` shadow supplies predication. Narrow elements are NaN-boxed
+only at the shared execution-service boundary; VRF storage remains packed.
+Active elements queue for execution only when scalar WB authorizes them.
+Masked, tail, and pre-vstart elements never execute or contribute flags. Empty
+bodies still complete once.
 
 The core composes scalar and vector requests around one FP execution service
 using round-robin arbitration and an owner-tagged union. Scalar FPR state
@@ -405,21 +411,28 @@ store's ordered LSU drain. Interrupt entry waits for vector completion.
 
 ## Register bank
 
-`RV5StageVectorRegisterFile(vlen :: VectorLength)` is a **3R1W** bank with exactly
-`32 * VLEN / 64` entries of `Bits(64)`, with no reset value. VLEN is a host
+`RV5StageVectorRegisterFile(vlen :: VectorLength)` has exactly
+`32 * VLEN / 64` general entries of `Bits(64)`, with no reset value. VLEN is a host
 power of two from 128 through 65536 bits. The flat address is
 `register_number * (VLEN / 64) + chunk_number`; chunk zero holds the lowest bits.
-`v0` is writable, not a hardwired zero register.
+`v0` is writable, not a hardwired zero register. A physical shadow of its
+`VLEN / 64` chunks supplies the dedicated mask-read port; it is not separate
+architectural state.
 
 - Three independent `Valid(Address)` reads return `Valid(Bits(64))` exactly one
-  cycle later. Operand and mask reads share these three ports. There is
-  no backpressure; the caller must have space for every requested result.
+  cycle later for arbitrary vector rows.
+- One independent `Valid(MaskAddress)` read addresses a chunk within the `v0`
+  shadow and returns `Valid(Bits(64))` exactly one cycle later. It cannot name
+  another vector register. There is no read backpressure; the caller must have
+  space for every requested result.
 - One `Valid(VectorRegisterWrite(vlen))` write carries an address, 64-bit data,
   and **64 individual bit enables**. Ordinary byte enables are expanded by the
   result adapter. Mask results update individual bits through the same port.
+  Writes to `v0` update its general row and shadow atomically.
 - A read and write sampled at the same edge return the post-write value:
-  enabled bits forward new data, disabled bits retain their prior values.
-  Later writes cannot change an already captured read response.
+  enabled bits forward new data, disabled bits retain their prior values. This
+  applies identically to general and mask-shadow reads. Later writes cannot
+  change an already captured read response.
 - Synchronous reset clears response validity and suppresses writes. It does
   not initialize or erase architectural storage.
 
@@ -429,11 +442,11 @@ masked-write semantics without depending on an unspecified SRAM collision mode.
 
 ## Packing boundary
 
-`RV5StageVectorOperands(vlen)` takes two source chunks, one mask chunk, a scalar,
-a five-bit immediate, and `VectorPackingControl(vlen)`. It emits SIMD operands,
-element enables, and the first output element. This two-source ALU path uses
-the third bank read for the mask. A future masked three-source operation must
-schedule mask capture through the same three ports, not add a fourth port.
+`RV5StageVectorOperands(vlen)` takes two source chunks, one `v0` shadow chunk, a
+scalar, a five-bit immediate, and `VectorPackingControl(vlen)`. It emits SIMD
+operands, element enables, and the first output element. Two-source operations
+therefore leave the third general read port free, and masked three-source
+operations can consume all three general ports without a mask-capture phase.
 
 `first_element` denotes the start of an aligned **source** chunk, not the next
 enabled element. The caller supplies the mask word containing that element

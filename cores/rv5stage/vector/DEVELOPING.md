@@ -91,12 +91,15 @@ must explicitly produce zero and hold the drain head at zero; `index_width(1)`
 still represents a one-bit hardware value. Keep the count on public token,
 completion, and data-protocol types, not just on the private register arrays.
 
-`register-file.rhdl` is 3R1W, stores a flat `Vec(32 * VLEN / 64, Bits(64))`, and uses
-Flow `map_valid`/`valid_pipe` to snapshot each read. Forward the bit-merged value
-at the read edge, not a live write mux after the response register. Otherwise
-a later completion could alter a prior read or create an in-place ALU loop.
-One write port uses row-local masked hold feedback, never a destination snapshot
-captured by an earlier micro-op or an extra indexed read port for write merging.
+`register-file.rhdl` stores a flat `Vec(32 * VLEN / 64, Bits(64))` behind three
+general read ports and mirrors the `VLEN / 64` physical chunks of `v0` into a
+dedicated address-only mask shadow. Both paths use Flow
+`map_valid`/`valid_pipe` to snapshot each read. Forward the bit-merged value at
+the read edge, not a live write mux after the response register. Otherwise a
+later completion could alter a prior read or create an in-place ALU loop. The
+sole write port updates general `v0` storage and its shadow atomically using the
+same bit mask. It uses row-local masked hold feedback, never a destination
+snapshot captured by an earlier micro-op or an indexed read port for merging.
 
 Element moves use a one-token schedule independent of VL; insertion separately
 checks its architectural empty-body condition. Reduction rows use singleton
@@ -215,8 +218,9 @@ The direct SIMD fixture checks the word compactor against an independent lane
 oracle. The unroller fixtures cover every SEW/LMUL geometry, sparse/dense/empty
 masks, full and partial final chunks, stalls, retry, cancellation, and retained
 checkpoints. The production reduction fixtures initialize and read back the
-3R1W bank through public LSU traffic, while the full-core muldiv fixture checks
-decode, WB-authorized writes, tail preservation, squash, and illegal vstart.
+vector bank through public LSU traffic and exercise the `v0` shadow through
+predication, while the full-core muldiv fixture checks decode, WB-authorized
+writes, tail preservation, squash, and illegal vstart.
 Run the RV32/RV64 control fixtures whenever compression legality changes.
 
 `packing.rhdl` handles runtime SEW, broadcasting, lane enables, widening halves,

@@ -56,6 +56,8 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
         masked: !instruction[25].into(Bool)
   unroller.reads <=> bank.reads
   bank.results <=> unroller.results
+  unroller.mask_read <=> bank.mask_read
+  bank.mask_result <=> unroller.mask_result
   unroller.cancel.valid <== cancel
   unroller.issue.ready <== issue_ready
   execute.beat <== unroller.issue.bits.beat
