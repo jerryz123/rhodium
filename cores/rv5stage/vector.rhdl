@@ -29,13 +29,14 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   interface fp_request(Decoupled(FpRequest), ~role: producer)
   interface fp_result(Irrevocable(FpResult), ~role: consumer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
-  def ArithmeticTag = RV5StageVectorArithmeticTag(vector_completion_slots)
-  def MultiplyRequest = RV5StageExecutionRequest(MultiplierRequest(xlen.width), ArithmeticTag)
-  def DivideRequest = RV5StageExecutionRequest(DividerRequest(xlen.width), ArithmeticTag)
+  def MultiplyTag = RV5StageVectorMultiplyTag(vector_completion_slots)
+  def DivideTag = RV5StageVectorDivideTag(vector_completion_slots)
+  def MultiplyRequest = RV5StageExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)
+  def DivideRequest = RV5StageExecutionRequest(DividerRequest(xlen.width), DivideTag)
   interface multiply_request(Decoupled(MultiplyRequest), ~role: producer)
-  interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), ArithmeticTag)), ~role: consumer)
+  interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
   interface divide_request(Decoupled(DivideRequest), ~role: producer)
-  interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), ArithmeticTag)), ~role: consumer)
+  interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
   input rounding_mode: RoundingMode
   reg captured_rounding(RoundingMode)
   interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
@@ -67,6 +68,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   reg entries(Vec(vector_completion_slots, RV5StageVectorResultBeat(vlen)))
   reg completion_flags(Vec(vector_completion_slots, Bits(5)))
   reg completion_data(Vec(vector_completion_slots, Bits(64)))
+  reg completion_saturated(~init: bits(0, vector_completion_slots).as_vec(Bool))
   reg head(Bits(index_width(vector_completion_slots)))
   reg store_barrier(~init: Bool(#false))
   reg fold_inflight(~init: Bool(#false))
@@ -184,7 +186,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   fp_update.bits <== completion_flags[head]
   fault_start.valid <== fault
   fault_start.bits <== beat.first.zext(xlen.width)
-  saturate.valid <== successful & beat.saturated
+  saturate.valid <== (successful & beat.saturated) ||| (drain & completion_saturated[head])
   retire.valid <== (successful & !(beat.memory ||| beat.floating_point ||| beat.multiply_divide) & beat.last) ||| (drain & result.last)
   (
     commit |> map_valid(event => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
@@ -199,6 +201,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   ) |> unroller.feedback
 
   def deferred_issue = issue.fire() & (unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide)
+  def multiply_completion = vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits)
   when (request.fire()):
     head <== slot_index(request.bits.descriptor.state.vstart)
   elsewhen drain:
@@ -240,6 +243,10 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
       completion_flags[slot] <== mux(fp_result.bits.exception_flags_valid, fp_result.bits.exception_flags, bits(0, 5))
     elsewhen authorizing:
       completion_flags[slot] <== bits(0, 5)
+    when (multiply_result.fire() & (multiply_result.bits.tag.slot === tag)):
+      completion_saturated[slot] <== multiply_completion.saturated
+    elsewhen (releasing ||| authorizing ||| (deferred_issue & (issue.bits.completion_tag === tag))):
+      completion_saturated[slot] <== Bool(#false)
     // Completion writes have independent priority from speculative slot clear.
     when (completion.valid & (completion.bits.tag === tag)):
       completed[slot] <== Bool(#true)
@@ -249,7 +256,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
       completion_data[slot] <== if xlen == XLen.X64 | fp_result.bits.fp_value | fp_result.bits.fp_value.zext(64)
     elsewhen (multiply_result.fire() & (multiply_result.bits.tag.slot === tag)):
       completed[slot] <== Bool(#true)
-      completion_data[slot] <== vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits)
+      completion_data[slot] <== multiply_completion.data
     elsewhen (divide_result.fire() & (divide_result.bits.tag.slot === tag)):
       completed[slot] <== Bool(#true)
       completion_data[slot] <== vector_divide_value(xlen, vector_completion_slots, divide_result.bits)

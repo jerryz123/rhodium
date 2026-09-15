@@ -1,4 +1,4 @@
-// Checks shared vector integer, mul-div, move, mask, reduction, slide, gather, and compression paths through memory signatures.
+// Checks shared vector integer, fixed-point multiply, mul-div, move, mask, and permutation paths through memory signatures.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_vector_muldiv_tb;
@@ -96,6 +96,9 @@ module rv5stage_vector_muldiv_tb;
     emit(32'h00353023); // sd x3,0(x10)
     expect_store(address, value, 3);
   endtask
+  task automatic write_vector_csr(input integer csr, input integer value);
+    emit(32'((csr << 20) | (value << 15) | 'h5073));
+  endtask
 
   // Independent integer oracle; no iteration or RTL selection logic is mirrored.
   function automatic logic [63:0] arithmetic(input int code, input int sew, input logic [63:0] left, right);
@@ -115,6 +118,30 @@ module rv5stage_vector_muldiv_tb;
       'h25: return 64'(product) & mask;
       default: return 64'(product >> width) & mask;
     endcase
+  endfunction
+  function automatic logic [63:0] fractional_multiply(input int sew, mode, input logic [63:0] left, right);
+    logic [63:0] mask, a, b;
+    logic signed [127:0] sa, sb, product, shifted;
+    logic [127:0] discarded_mask;
+    logic round_bit, lower_nonzero, discarded_nonzero, increment;
+    int width, distance;
+    width = 8 << sew; distance = width - 1; mask = '1 >> (64-width); a = left & mask; b = right & mask;
+    sa = $signed({64'b0, a}); sb = $signed({64'b0, b});
+    if (a[width-1]) sa -= 128'sd1 << width;
+    if (b[width-1]) sb -= 128'sd1 << width;
+    product = sa * sb; shifted = product >>> distance;
+    round_bit = product[distance-1];
+    discarded_mask = (128'd1 << distance) - 1;
+    lower_nonzero = (product & (discarded_mask >> 1)) != 0;
+    discarded_nonzero = (product & discarded_mask) != 0;
+    case (mode)
+      0: increment = round_bit;
+      1: increment = round_bit && (lower_nonzero || shifted[0]);
+      2: increment = 0;
+      3: increment = !shifted[0] && discarded_nonzero;
+    endcase
+    if (a == (64'd1 << (width-1)) && b == (64'd1 << (width-1))) return mask >> 1;
+    return 64'(shifted + 128'(increment)) & mask;
   endfunction
   function automatic logic [63:0] left_value(input int lane, input int sew);
     logic [63:0] sign_bit;
@@ -217,6 +244,20 @@ module rv5stage_vector_muldiv_tb;
             expect_store(address+(lane << sew), arithmetic(code,sew,left_value(lane,sew),vx != 0 ? -64'd3 : right_value(lane)),sew);
           address += 128;
         end
+      end
+      // Fractional multiply reuses the shared iterative multiplier, then
+      // rounds its full product and reports delayed saturation at ordered drain.
+      for (int round_mode = 0; round_mode < 4; round_mode++) begin
+        write_vector_csr('h009,0); write_vector_csr('h00a,round_mode);
+        vec('h27,24,8,8,0,0);
+        vstore(24,address,sew);
+        for (int lane=0;lane<16;lane++) expect_store(address+(lane<<sew),fractional_multiply(sew,round_mode,left_value(lane,sew),left_value(lane,sew)),sew);
+        address+=128; signature('h009,address,1); address+=8;
+        write_vector_csr('h009,0); write_vector_csr('h00a,round_mode); li(5,-3);
+        vec('h27,24,8,5,0,4);
+        vstore(24,address,sew);
+        for (int lane=0;lane<16;lane++) expect_store(address+(lane<<sew),fractional_multiply(sew,round_mode,left_value(lane,sew),-64'd3),sew);
+        address+=128; signature('h009,address,0); address+=8;
       end
       // In-place, masked, restarted operations preserve disabled and prestart lanes.
       emit('h00000463); vec('h25, 8, 8, 16, 0, 2); // older branch squashes vector execution before WB

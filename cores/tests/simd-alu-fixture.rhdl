@@ -9,6 +9,7 @@ circuit SimdAluFixture():
   input(left, right): Bits(64)
   input element_width: SimdElementWidth
   input result_select: SimdResultSelect
+  input arithmetic_mode: SimdArithmeticMode
   input logic_select: SimdLogicSelect
   input comparison_select: SimdComparisonSelect
   input permutation_select: SimdPermutationSelect
@@ -24,6 +25,7 @@ circuit SimdAluFixture():
   output prepared_enabled: Mask(8)
   output data: Bits(64)
   output(comparison, write_mask): Mask(8)
+  output saturated: Bool
   output compressed_data: Bits(64)
   output compressed_count: Bits(4)
 
@@ -46,6 +48,7 @@ circuit SimdAluFixture():
   alu.element_width <== mux(widening, widen.operands.element_width, element_width)
   alu.control <== SimdAluControl():
     result_select: result_select
+    arithmetic_mode: arithmetic_mode
     logic_select: logic_select
     comparison_select: comparison_select
     permutation_select: permutation_select
@@ -64,6 +67,7 @@ circuit SimdAluFixture():
   data <== alu.result.data
   comparison <== alu.result.comparison
   write_mask <== alu.result.write_mask
+  saturated <== alu.result.saturated
   inst compress(SimdCompress())
   compress.data <== left
   compress.element_width <== element_width

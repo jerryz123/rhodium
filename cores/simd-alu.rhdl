@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements shared-width packed integer, fixed-point rounding, widening, and compaction datapaths.
+// Implements shared-width packed integer, fixed-point arithmetic, widening, and compaction datapaths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -48,8 +48,16 @@ hardware_enum SimdRoundingMode:
   Down
   Odd
 
+hardware_enum SimdArithmeticMode:
+  Wrap
+  SaturateUnsigned
+  SaturateSigned
+  AverageUnsigned
+  AverageSigned
+
 bundle SimdAluControl():
   result_select: SimdResultSelect
+  arithmetic_mode: SimdArithmeticMode
   logic_select: SimdLogicSelect
   comparison_select: SimdComparisonSelect
   permutation_select: SimdPermutationSelect
@@ -66,6 +74,7 @@ bundle SimdAluResult():
   data: Bits(64)
   comparison: Mask(8)
   write_mask: Mask(8)
+  saturated: Bool
 
 // Internal routing metadata expands element predicates into byte-level controls.
 bundle SimdRouting():
@@ -77,6 +86,14 @@ bundle SimdRouting():
   shift_data: Bits(64)
   permutation_data: Bits(64)
   count_data: Bits(64)
+
+// Internal arithmetic routing retains the extended per-lane sum while one
+// shared incrementer applies fixed-point averaging modes.
+bundle SimdFixedArithmetic():
+  average: Bits(64)
+  increment: Bits(64)
+  saturated: Bits(64)
+  saturation: Bool
 
 // Internal tapered-bank slice: one barrel shifter serves both directions and
 // every element width routed into this physical slot.
@@ -272,9 +289,10 @@ circuit SimdALU():
       mux_lookup(amount, ~default: bits(0, element_bits), cases)
     if count == 1 | increments[0] | concat(increments.reverse())
   def rounding_increment :: Bits(64) = mux_lookup(element_width, ~default: rounding_alternatives[0], for List (format in 1..4): [widths[format], rounding_alternatives[format]])
-  def adder_left = mux(rounding, routing.shift_data, left)
-  def adder_right = mux(rounding, rounding_increment, right)
-  def subtract = control.subtract & !rounding
+  def shift_rounding = rounding & (control.result_select === SimdResultSelect.Shift)
+  def adder_left = mux(shift_rounding, routing.shift_data, left)
+  def adder_right = mux(shift_rounding, rounding_increment, right)
+  def subtract = control.subtract & !shift_rounding
   def inverted_right = mux(subtract, !adder_right, adder_right)
   def left_chunks = for List (byte in 0..8):
     def boundary :: Bool = boundaries[byte]
@@ -282,17 +300,77 @@ circuit SimdALU():
   def right_chunks = for List (byte in 0..8):
     def boundary :: Bool = boundaries[byte]
     inverted_right[byte * 8..(byte + 1) * 8] ++ (boundary & subtract).as_bits()
-  def sum = concat(left_chunks.reverse()) + concat(right_chunks.reverse())
+  // The extra top bit retains E64 carry/borrow; internal element carries land
+  // in the existing boundary guard bits.
+  def sum = concat(left_chunks.reverse()).zext(73) + concat(right_chunks.reverse()).zext(73)
   def sum_bytes = for List (byte in 0..8): sum[byte * 9 + 1..byte * 9 + 9]
   def added = concat(sum_bytes.reverse())
+  def saturating_unsigned = control.arithmetic_mode === SimdArithmeticMode.SaturateUnsigned
+  def saturating_signed = control.arithmetic_mode === SimdArithmeticMode.SaturateSigned
+  def average_unsigned = control.arithmetic_mode === SimdArithmeticMode.AverageUnsigned
+  def average_signed = control.arithmetic_mode === SimdArithmeticMode.AverageSigned
+  def saturating = saturating_unsigned ||| saturating_signed
+  def averaging = average_unsigned ||| average_signed
+  def fixed_alternatives = for List (format in 0..4):
+    def element_bits = 8 * (2 ** format)
+    def element_bytes = 2 ** format
+    def count = 8 div element_bytes
+    def lanes = for List (lane in 0..count):
+      def low = lane * element_bits
+      def high = (lane + 1) * element_bits
+      def a = left[low..high]
+      def b = right[low..high]
+      def wrapped = added[low..high]
+      def carry = sum[(lane + 1) * element_bytes * 9].into(Bool)
+      def left_negative = a[element_bits - 1].into(Bool)
+      def right_negative = b[element_bits - 1].into(Bool)
+      def result_negative = wrapped[element_bits - 1].into(Bool)
+      def unsigned_overflow = mux(control.subtract, !carry, carry)
+      def signed_overflow = (left_negative ^ result_negative) & mux(control.subtract, left_negative ^ right_negative, !(left_negative ^ right_negative))
+      def overflow = mux(saturating_unsigned, unsigned_overflow, signed_overflow)
+      def unsigned_limit = mux(control.subtract, bits(0, element_bits), !bits(0, element_bits))
+      def signed_limit = mux(left_negative, bits(1 << (element_bits - 1), element_bits), bits((1 << (element_bits - 1)) - 1, element_bits))
+      def saturated_value = mux(overflow, mux(saturating_unsigned, unsigned_limit, signed_limit), wrapped)
+      // The high bit completes the infinite-precision add/subtract before its
+      // divide-by-two. Unsigned subtraction uses a sign extension so a
+      // negative exact difference wraps only after rounding.
+      def signed_high = mux(control.subtract, left_negative ^ !right_negative ^ carry, left_negative ^ right_negative ^ carry)
+      def average_high = mux(average_unsigned, mux(control.subtract, !carry, carry), signed_high)
+      def average_base = average_high.as_bits() ++ wrapped[1..element_bits]
+      def discarded = wrapped[0].into(Bool)
+      def increment = mux_lookup(rounding_mode, ~default: discarded, [
+        [SimdRoundingMode.NearestEven, discarded & average_base[0].into(Bool)],
+        [SimdRoundingMode.Down, Bool(#false)],
+        [SimdRoundingMode.Odd, !average_base[0].into(Bool) & discarded]
+      ])
+      [average_base, increment.as_bits().zext(element_bits), saturated_value, (enabled[lane] & saturating & overflow).as_bits()]
+    def average_data = if count == 1 | lanes[0][0] | concat(lanes.map(fun (lane :: List): lane[0]).reverse())
+    def increments = if count == 1 | lanes[0][1] | concat(lanes.map(fun (lane :: List): lane[1]).reverse())
+    def saturated_data = if count == 1 | lanes[0][2] | concat(lanes.map(fun (lane :: List): lane[2]).reverse())
+    def saturation_bits :: Bits(count) = if count == 1 | lanes[0][3] | concat(lanes.map(fun (lane :: List): lane[3]).reverse())
+    SimdFixedArithmetic():
+      average: average_data
+      increment: increments
+      saturated: saturated_data
+      saturation: saturation_bits.or_reduce()
+  def fixed :: SimdFixedArithmetic() = mux_lookup(element_width, ~default: fixed_alternatives[0], for List (format in 1..4): [widths[format], fixed_alternatives[format]])
+  def average_left_chunks = for List (byte in 0..8):
+    def boundary :: Bool = boundaries[byte]
+    fixed.average[byte * 8..(byte + 1) * 8] ++ (!boundary).as_bits()
+  def average_right_chunks = for List (byte in 0..8): fixed.increment[byte * 8..(byte + 1) * 8] ++ bits(0, 1)
+  def average_sum = concat(average_left_chunks.reverse()) + concat(average_right_chunks.reverse())
+  def average_bytes = for List (byte in 0..8): average_sum[byte * 9 + 1..byte * 9 + 9]
+  def averaged = concat(average_bytes.reverse())
+  def arithmetic_value = mux(averaging, averaged, mux(saturating, fixed.saturated, added))
   def minmax_bytes = for List (byte in 0..8): mux(routing.select_left[byte], left[byte * 8..(byte + 1) * 8], right[byte * 8..(byte + 1) * 8])
   def select_bytes = for List (byte in 0..8): mux(routing.select_right[byte], right[byte * 8..(byte + 1) * 8], left[byte * 8..(byte + 1) * 8])
-  def value = mux_lookup(control.result_select, ~default: added, [[SimdResultSelect.Logic, logic_value], [SimdResultSelect.Shift, mux(rounding, added, routing.shift_data)], [SimdResultSelect.Compare, routing.compare_data], [SimdResultSelect.MinMax, concat(minmax_bytes.reverse())], [SimdResultSelect.Select, concat(select_bytes.reverse())], [SimdResultSelect.Permute, routing.permutation_data], [SimdResultSelect.Count, routing.count_data]])
+  def value = mux_lookup(control.result_select, ~default: arithmetic_value, [[SimdResultSelect.Logic, logic_value], [SimdResultSelect.Shift, mux(shift_rounding, added, routing.shift_data)], [SimdResultSelect.Compare, routing.compare_data], [SimdResultSelect.MinMax, concat(minmax_bytes.reverse())], [SimdResultSelect.Select, concat(select_bytes.reverse())], [SimdResultSelect.Permute, routing.permutation_data], [SimdResultSelect.Count, routing.count_data]])
   def enabled_bytes = for List (byte in 0..8): mux(routing.enabled[byte], value[byte * 8..(byte + 1) * 8], bits(0, 8))
   result <== SimdAluResult():
     data: concat(enabled_bytes.reverse())
     comparison: routing.comparison
     write_mask: routing.enabled
+    saturated: (control.result_select === SimdResultSelect.Adder) & fixed.saturation
 
 // Widening prepares one 64-bit destination group from either source half.
 // The closed source-width set cannot request an unsupported 64-to-128 result.
@@ -377,6 +455,7 @@ export:
   SimdPermutationSelect
   SimdCountSelect
   SimdRoundingMode
+  SimdArithmeticMode
   SimdAluControl
   SimdAluResult
   SimdALU

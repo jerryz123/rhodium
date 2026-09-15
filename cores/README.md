@@ -24,7 +24,7 @@ architectural result selection.
 | Component | Interface and parameters | Timing contract | Component owns | Caller owns |
 |---|---|---|---|---|
 | [`ALU(xlen)`](alu.rhdl) | `XLen.X32` or `XLen.X64`; `left`, `right`, and `AluControl` to `result` | Combinational; no ready/valid state | Modular arithmetic, logic, shifts/rotates, comparisons, counts, unary transforms, RV64 word shaping, and the shared Zba/Zbb/Zbs/Zicond datapaths | Decode, operand routing, and result use |
-| [`SimdALU()`](simd-alu.rhdl) | Two 64-bit packed operands, runtime 8/16/32/64-bit elements, decoded controls, fixed-point rounding mode, and lane masks | Combinational; no ready/valid state | Lane-isolated arithmetic, logic, shifts/rotates, fixed-point rounding, counts, reversals, comparisons, min/max, selection, and result/write-mask packing | Instruction decode, operand extraction/broadcast, clipping, vector configuration, register preservation, scheduling, and writeback |
+| [`SimdALU()`](simd-alu.rhdl) | Two 64-bit packed operands, runtime 8/16/32/64-bit elements, decoded controls, fixed-point rounding mode, and lane masks | Combinational; no ready/valid state | Lane-isolated wrapping, saturating, and averaging arithmetic; logic; shifts/rotates; fixed-point rounding; counts; reversals; comparisons; min/max; selection; and result/write-mask packing | Instruction decode, operand extraction/broadcast, clipping, vector configuration, register preservation, scheduling, and writeback |
 | [`SimdWidenOperands()`](simd-alu.rhdl) | Two packed 64-bit source operands, 8/16/32-bit source elements, optional already-wide left input, half selection, and element enables | Combinational; no ready/valid state | Per-source extension and enable remapping for one 64-bit destination group | Group sequencing, scalar/immediate broadcasting, register grouping, and architectural legality |
 | [`SimdCompress()`](simd-alu.rhdl) | One packed 64-bit word, runtime element width, and element-selection mask | Combinational; no ready/valid state | Stable-order compaction into consecutive low lanes and selected-element count | Cross-word accumulation, architectural register grouping, tails, restart, and writeback |
 | [`BranchResolver(width)`](branch-resolver.rhdl) | `Valid(BranchResolverRequest)` to `Valid(BranchResult)` | Combinational; output validity follows input validity, with no backpressure | Equal and signed/unsigned less-than comparison plus final `taken` selection | Encodings, target generation, PC state, and redirect timing |
@@ -42,8 +42,9 @@ significant bits. `enabled` and `select_right` are `Mask(8)` values indexed by
 element, not byte; unused high mask bits are ignored at wider element sizes.
 
 `SimdAluControl` chooses an adder, logic, shift, comparison, min/max, select,
-permutation, or count
-result. Add/subtract wrap independently at element width. Shifts use the low
+permutation, or count result. `SimdArithmeticMode` makes add/subtract wrap or
+saturate independently at element width, or compute an infinite-precision
+average before rounding and truncation. Shifts use the low
 log2(element-width) bits of each element's right operand; arithmetic fill
 applies only to nonrotating right shifts. `rotate` changes the shared shift path
 to element-local rotation and ignores `arithmetic_shift`; direction still comes
@@ -57,7 +58,9 @@ For a right shift, `rounding` selects RVV fixed-point rounding after the shared
 tapered shifter and before the existing lane-isolated adder. `SimdRoundingMode`
 uses the architectural `vxrm` order: nearest-up, nearest-even, down, and odd.
 Each lane derives its increment from its own discarded bits; a zero shift never
-increments. The ALU does not clip or retain a saturation flag.
+increments. Averaging arithmetic uses the same rounding modes with one
+discarded bit. Saturating arithmetic returns an enabled-lane reduction in
+`SimdAluResult.saturated`; the ALU does not clip or retain architectural state.
 
 `SimdPermutationSelect` chooses `ReverseBits` within each element,
 `ReverseBitsInBytes` independently within each byte, or `ReverseBytes` within
@@ -69,7 +72,8 @@ operate on the left operand and ignore the right operand.
 `SimdAluResult.data` contains the selected packed values (comparison results are
 zero or one per element). `comparison` independently reports the configured
 predicate as one packed bit per enabled element, regardless of result selection.
-`write_mask` expands enabled elements to their destination byte enables.
+`write_mask` expands enabled elements to their destination byte enables, and
+`saturated` reports whether an enabled lane saturated.
 Disabled elements produce zero data and comparison bits and no byte enables.
 The caller uses those enables to preserve old register contents; the ALU has
 no architectural state or tail policy. Mask-register destinations use the

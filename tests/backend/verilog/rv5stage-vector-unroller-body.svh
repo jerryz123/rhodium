@@ -20,7 +20,7 @@
   int tx_source_width, tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2, tx_vxrm;
   logic [63:0] tx_scalar, tx_distance;
   int tx_vlmax;
-  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_rounding, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
+  bit tx_masked, tx_compare, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_rounding, tx_saturating, tx_average, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
   logic [127:0] tx_compress_buffer;
   int tx_compress_count, tx_compress_destination;
   int tx_beats;
@@ -55,8 +55,38 @@
     endcase
     return (shifted + 64'(increment)) & mask;
   endfunction
+  function automatic logic [63:0] rounded_average(input logic [63:0] a, b, input int width_bits, input bit signed_operation, subtract, input logic [1:0] mode);
+    logic [63:0] mask;
+    logic [127:0] wide, base;
+    logic signed [63:0] signed_a, signed_b;
+    logic signed [127:0] exact, extended_a, extended_b;
+    logic discarded, increment;
+    mask = '1 >> (64 - width_bits);
+    signed_a = $signed(a << (64 - width_bits)) >>> (64 - width_bits);
+    signed_b = $signed(b << (64 - width_bits)) >>> (64 - width_bits);
+    extended_a = {{64{signed_a[63]}}, signed_a};
+    extended_b = {{64{signed_b[63]}}, signed_b};
+    if (!signed_operation && !subtract) begin
+      wide = {64'b0, a} + {64'b0, b};
+      base = wide >> 1;
+      discarded = wide[0];
+    end else begin
+      exact = signed_operation ? extended_a : $signed({64'b0, a});
+      exact = subtract ? exact - (signed_operation ? extended_b : $signed({64'b0, b})) : exact + extended_b;
+      base = exact >>> 1;
+      discarded = exact[0];
+    end
+    case (mode)
+      0: increment = discarded;
+      1: increment = discarded && base[0];
+      2: increment = 0;
+      3: increment = !base[0] && discarded;
+    endcase
+    return (base[63:0] + 64'(increment)) & mask;
+  endfunction
   task automatic tick;
     logic [63:0] a, b, value, lane_mask, expected_data, expected_mask, broadcast_value;
+    logic [127:0] wide_result;
     int first, ending, address, bit_offset, position, emitted, left_width;
     bit enabled, was_retry, expected_saturated, overflow, result_negative, low_negative;
     @(negedge clock); #1;
@@ -131,6 +161,18 @@
               end
             end else if (tx_widening) begin
               value = tx_opcode[1] ? a - b : a + b;
+            end else if (tx_saturating) begin
+              value = tx_opcode[1] ? a - b : a + b;
+              wide_result = {64'b0, a} + {64'b0, b};
+              overflow = tx_opcode[0] ? (a[tx_width-1] != value[tx_width-1]) && (tx_opcode[1] ? a[tx_width-1] != b[tx_width-1] : a[tx_width-1] == b[tx_width-1])
+                                      : tx_opcode[1] ? a < b : wide_result[tx_width];
+              if (overflow) begin
+                value = tx_opcode[0] ? a[tx_width-1] ? 64'(1) << (tx_width - 1) : (64'(1) << (tx_width - 1)) - 1
+                                     : tx_opcode[1] ? 0 : lane_mask;
+                expected_saturated = 1;
+              end
+            end else if (tx_average) begin
+              value = rounded_average(a, b, tx_width, tx_opcode[0], tx_opcode[1], 2'(tx_vxrm));
             end else case (tx_opcode)
               0: value = a + b;
               2: value = a - b;
@@ -201,9 +243,9 @@
                            input bit masked_op, inject_retry = 0, random_stalls = 1, input int retry_at = -1, round_mode = 0);
     int timeout;
     assert (!active && !checking) else $fatal(1, "previous macro did not drain");
-    tx_widening = op inside {[48:55]}; tx_narrowing = op inside {[44:47]}; tx_rounding = op inside {[42:43], [46:47]}; tx_clip = op inside {[46:47]}; tx_clip_unsigned = op == 46; tx_wide_source = op inside {[52:55]} || tx_narrowing; tx_widen_signed = tx_widening && op[0];
+    tx_widening = op inside {[48:55]}; tx_narrowing = op inside {[44:47]}; tx_saturating = op inside {[32:35]}; tx_average = op inside {[8:11]} && mode inside {2, 6}; tx_rounding = op inside {[42:43], [46:47]} || tx_average; tx_clip = op inside {[46:47]}; tx_clip_unsigned = op == 46; tx_wide_source = op inside {[52:55]} || tx_narrowing; tx_widen_signed = tx_widening && op[0];
     tx_compress = op == 23 && mode == 2;
-    tx_mask_logic = mode == 2 && !tx_compress && !tx_widening && !tx_narrowing;
+    tx_mask_logic = mode == 2 && !tx_compress && !tx_widening && !tx_narrowing && !tx_average;
     tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
     tx_source_width = tx_mask_logic ? 1 : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_source_width; tx_lanes = tx_gather_vector ? 1 : 64 / (tx_narrowing ? 2 * tx_width : tx_width);
     tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
@@ -326,6 +368,25 @@
       end
       // Low-part in-place overlap remains safe across authorized-prefix retry.
       run_macro(sew, 0, VLEN / (8 << sew), 0, 45, 0, 8, 16, 8, 0, 1, 0, 4 >> sew);
+    end
+    // Saturating add/sub uses the packed adder's lane carry/sign results;
+    // averaging retains the infinite-precision extension through vxrm rounding.
+    for (int sew = 0; sew < 4; sew++) begin
+      int maximum;
+      maximum = VLEN / (8 << sew);
+      for (int op = 32; op < 36; op++) begin
+        run_macro(sew, 0, maximum, int'(op[0]), op, 0, 24, 16, 8, op[0], op == 32, 0, 64 / (8 << sew));
+        scalar = XLEN'(-17);
+        run_macro(sew, 0, maximum - 1, maximum > 2 ? 1 : 0, op, 4, 24, 3, 8, !op[0]);
+        if (!op[1]) run_macro(sew, 0, maximum, 0, op, 3, 24, 31, 8, 0);
+      end
+      for (int round_mode = 0; round_mode < 4; round_mode++) begin
+        for (int op = 8; op < 12; op++) begin
+          run_macro(sew, 0, maximum, int'(round_mode[0]), op, 2, 24, 16, 8, round_mode[1], op == 8, 0, 64 / (8 << sew), round_mode);
+          scalar = XLEN'(sew * 11) - XLEN'(round_mode) - XLEN'(9);
+          run_macro(sew, 0, maximum - 1, maximum > 2 ? 1 : 0, op, 6, 24, 3, 8, !round_mode[0], 0, 1, -1, round_mode);
+        end
+      end
     end
     // Scaling shifts use vxrm on equal-width elements. Narrowing clips round
     // the doubled-width source first, then saturate each active lane and report

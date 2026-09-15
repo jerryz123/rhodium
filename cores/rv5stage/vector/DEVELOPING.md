@@ -54,16 +54,20 @@ the scalar FP and existing vector memory/unroller fixtures when these shared
 boundaries change.
 
 `muldiv.rhdl` adapts singleton integer operands and width/result selectors to
-the tagged integer service contracts. `../integer-execution.rhdl` owns opaque
-tag retention around the reusable iterative units; scalar adapters in
+the tagged integer service contracts. Its multiply tag separately retains
+ordinary low/high selection and `vsmul` rounding mode; the completion slot
+retains fractional-multiply saturation until ordered drain can update `vxsat`.
+`../integer-execution.rhdl` owns opaque tag retention around the reusable
+iterative units; scalar adapters in
 `../multiply.rhdl` and `../divide.rhdl` own W-result and GPR destination policy.
 The core owns separate round-robin scalar/vector arbiters for each unit. Keep
 the scalar one-entry WB queue independent of vector admission: Decode's
 reservation is for queue space, not an idle shared execution unit.
 
-Run `rv5stage-vector-muldiv` and `rv5stage-vector-muldiv-one-slot` for all sixteen
-encodings and four SEWs, scalar contention, masks, restart, empty bodies,
-in-place writes, branch squash, and slot reuse. Retain `rv5stage-multiply`,
+Run `rv5stage-vector-muldiv` and `rv5stage-vector-muldiv-one-slot` for all eighteen
+encodings and four SEWs, every `vxrm` mode, fractional saturation, scalar
+contention, masks, restart, empty bodies, in-place writes, branch squash, and
+slot reuse. Retain `rv5stage-multiply`,
 `rv5stage-divide`, and RV32/RV64 Zkt regressions when changing scalar adapters.
 `rv5stage-integer-execution` checks opaque owner tags, result backpressure,
 same-edge replacement, and reset with both services holding results.
@@ -240,12 +244,14 @@ source disjointness, and masked v0 restrictions. Run the RV32/RV64 control and
 unroller fixtures for all three forms, SEWs, masks, partial halves, in-place
 operation, stalls, retry, and cancellation.
 
-Fixed-point scaling reuses the SIMD tapered right shifter and lane-isolated
+Fixed-point scaling and averaging reuse the SIMD tapered shifter and
+lane-isolated adder. Saturating add/sub also reports overflow from that physical
 adder. Keep `vxrm` in the admitted macro snapshot, not as a live execution
 input. Narrowing clip policy belongs in the result packer because it sees the
 rounded doubled-width lane and the destination width together. Carry a
-per-beat saturation bit to WB; only authorized WB may pulse the CSR bank, and
-explicit CSR writes take priority over the sticky set.
+per-beat saturation bit from either arithmetic saturation or clipping to WB;
+only authorized WB may pulse the CSR bank, and explicit CSR writes take
+priority over the sticky set.
 
 Keep execution enables separate from `select_right`: merge consumes `v0` as
 data while both selected alternatives remain writable. Move rows describe only
@@ -299,8 +305,8 @@ The signature-memory model rejects each store once, then retains readiness
 until acceptance, exercising replay without periodic readiness/retry phase lock.
 The `rv5stage-vector-unroller` and `rv5stage-vector-unroller-rv32` fixtures
 compose real decode/VRF/execute with a flushable WB boundary. An independent
-element model checks all decoded integer operations, fixed-point rounding and
-clipping across every `vxrm` mode, SEW/LMUL, partial bodies,
+element model checks all decoded packed integer operations, fixed-point averaging,
+saturation, rounding, and clipping across every `vxrm` mode, SEW/LMUL, partial bodies,
 mask writes, in-place operations, randomized issue stalls, authorized-prefix
 retry, and cancellation. Keep the retry test's downstream flush explicit.
 The production reduction fixture uses guaranteed-overflow clips to prove that

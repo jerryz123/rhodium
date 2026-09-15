@@ -187,39 +187,40 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       wb_vector_fp_result_link.left.valid <== Bool(#false)
       wb_vector_fp_result_link.left.bits <== dont_care(RV5StageFpExecutionResult(xlen, effective_fp_profile, wb_vector_fp_tag))
 
-  def wb_vector_arithmetic_tag = RV5StageVectorArithmeticTag(vector_completion_slots)
-  def wb_vector_multiply_request_link :: Handle = interface_link(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), wb_vector_arithmetic_tag)))
-  def wb_vector_multiply_result_link :: Handle = interface_link(Irrevocable(RV5StageExecutionResult(Bits(width * 2), wb_vector_arithmetic_tag)))
+  def wb_vector_multiply_tag = RV5StageVectorMultiplyTag(vector_completion_slots)
+  def wb_vector_divide_tag = RV5StageVectorDivideTag(vector_completion_slots)
+  def wb_vector_multiply_request_link :: Handle = interface_link(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag)))
+  def wb_vector_multiply_result_link :: Handle = interface_link(Irrevocable(RV5StageExecutionResult(Bits(width * 2), wb_vector_multiply_tag)))
   tagged_union MultiplyOwner():
     Scalar(RV5StageMultiplyTag())
-    Vector(wb_vector_arithmetic_tag)
+    Vector(wb_vector_multiply_tag)
   inst wb_multiply_execution(RV5StageMultiplyService(width, MultiplyOwner()))
   Array(
     wb_multiplier.execution_request |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), RV5StageMultiplyTag(), MultiplyOwner(), request, MultiplyOwner().Scalar(request.tag))),
-    wb_vector_multiply_request_link.right |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), wb_vector_arithmetic_tag, MultiplyOwner(), request, MultiplyOwner().Vector(request.tag)))
+    wb_vector_multiply_request_link.right |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), wb_vector_multiply_tag, MultiplyOwner(), request, MultiplyOwner().Vector(request.tag)))
   ) |> rr_arbiter() |> queue(2) |> wb_multiply_execution.request
   (
     wb_multiply_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(MultiplyOwner().Vector).into(Bool))
       |> parallel(
            map_flow(~stable: #true, result => integer_result_with_tag(Bits(width * 2), MultiplyOwner(), RV5StageMultiplyTag(), result, result.tag.view(MultiplyOwner().Scalar).payload)),
-           map_flow(~stable: #true, result => integer_result_with_tag(Bits(width * 2), MultiplyOwner(), wb_vector_arithmetic_tag, result, result.tag.view(MultiplyOwner().Vector).payload))
+           map_flow(~stable: #true, result => integer_result_with_tag(Bits(width * 2), MultiplyOwner(), wb_vector_multiply_tag, result, result.tag.view(MultiplyOwner().Vector).payload))
          )
   ) <=> Array(wb_multiplier.execution_result, wb_vector_multiply_result_link.left)
-  def wb_vector_divide_request_link :: Handle = interface_link(Decoupled(RV5StageExecutionRequest(DividerRequest(width), wb_vector_arithmetic_tag)))
-  def wb_vector_divide_result_link :: Handle = interface_link(Irrevocable(RV5StageExecutionResult(DividerResponse(width), wb_vector_arithmetic_tag)))
+  def wb_vector_divide_request_link :: Handle = interface_link(Decoupled(RV5StageExecutionRequest(DividerRequest(width), wb_vector_divide_tag)))
+  def wb_vector_divide_result_link :: Handle = interface_link(Irrevocable(RV5StageExecutionResult(DividerResponse(width), wb_vector_divide_tag)))
   tagged_union DivideOwner():
     Scalar(RV5StageDivideTag())
-    Vector(wb_vector_arithmetic_tag)
+    Vector(wb_vector_divide_tag)
   inst wb_divide_execution(RV5StageDivideService(width, DivideOwner()))
   Array(
     wb_divider.execution_request |> map_flow(request => integer_request_with_tag(DividerRequest(width), RV5StageDivideTag(), DivideOwner(), request, DivideOwner().Scalar(request.tag))),
-    wb_vector_divide_request_link.right |> map_flow(request => integer_request_with_tag(DividerRequest(width), wb_vector_arithmetic_tag, DivideOwner(), request, DivideOwner().Vector(request.tag)))
+    wb_vector_divide_request_link.right |> map_flow(request => integer_request_with_tag(DividerRequest(width), wb_vector_divide_tag, DivideOwner(), request, DivideOwner().Vector(request.tag)))
   ) |> rr_arbiter() |> queue(2) |> wb_divide_execution.request
   (
     wb_divide_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(DivideOwner().Vector).into(Bool))
       |> parallel(
            map_flow(~stable: #true, result => integer_result_with_tag(DividerResponse(width), DivideOwner(), RV5StageDivideTag(), result, result.tag.view(DivideOwner().Scalar).payload)),
-           map_flow(~stable: #true, result => integer_result_with_tag(DividerResponse(width), DivideOwner(), wb_vector_arithmetic_tag, result, result.tag.view(DivideOwner().Vector).payload))
+           map_flow(~stable: #true, result => integer_result_with_tag(DividerResponse(width), DivideOwner(), wb_vector_divide_tag, result, result.tag.view(DivideOwner().Vector).payload))
          )
   ) <=> Array(wb_divider.execution_result, wb_vector_divide_result_link.left)
 
@@ -688,10 +689,10 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       id_vector.scalar_result |> wb_vector_scalar_result_link.left
   | block:
       wb_vector_multiply_request_link.left.valid <== Bool(#false)
-      wb_vector_multiply_request_link.left.bits <== dont_care(RV5StageExecutionRequest(MultiplierRequest(width), wb_vector_arithmetic_tag))
+      wb_vector_multiply_request_link.left.bits <== dont_care(RV5StageExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag))
       wb_vector_multiply_result_link.right.ready <== Bool(#true)
       wb_vector_divide_request_link.left.valid <== Bool(#false)
-      wb_vector_divide_request_link.left.bits <== dont_care(RV5StageExecutionRequest(DividerRequest(width), wb_vector_arithmetic_tag))
+      wb_vector_divide_request_link.left.bits <== dont_care(RV5StageExecutionRequest(DividerRequest(width), wb_vector_divide_tag))
       wb_vector_divide_result_link.right.ready <== Bool(#true)
       wb_vector_fp_request_link.left.valid <== Bool(#false)
       wb_vector_fp_request_link.left.bits <== dont_care(RV5StageFpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag))

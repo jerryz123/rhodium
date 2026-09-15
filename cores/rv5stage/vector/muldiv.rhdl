@@ -4,31 +4,44 @@
 
 import:
   "bundles.rhdl" open
+  "../decode/vector-ctrl.rhdl".VectorMultiplyResult
   "../integer-execution.rhdl" open
+  "../../simd-alu.rhdl".SimdRoundingMode
   "../../multiplier.rhdl" open
   "../../divider.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
 
-bundle RV5StageVectorArithmeticTag(slots :: Pow2Int):
+bundle RV5StageVectorMultiplyTag(slots :: Pow2Int):
   slot: Bits(index_width(slots))
   sew: Bits(2)
-  upper: Bool
+  result: VectorMultiplyResult
+  rounding_mode: SimdRoundingMode
+
+bundle RV5StageVectorDivideTag(slots :: Pow2Int):
+  slot: Bits(index_width(slots))
+  sew: Bits(2)
+  remainder: Bool
+
+bundle RV5StageVectorMultiplyValue():
+  data: Bits(64)
+  saturated: Bool
 
 fun vector_integer_operand(xlen :: XLen, value :: Bits(64), sew :: Bits(2), signed_mode :: Bool) :~ Bits(xlen.width):
   def cases = for List (width in [8, 16, 32], code in 0..3):
     [code, if width == xlen.width | value[0..width] | mux(signed_mode, value[0..width].into(SInt(width)).sext(xlen.width).as_bits(), value[0..width].zext(xlen.width))]
   mux_lookup(sew, ~default: value[0..xlen.width], cases)
 
-fun vector_multiply_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), slot :: Bits(index_width(slots))) :~ RV5StageExecutionRequest(MultiplierRequest(xlen.width), RV5StageVectorArithmeticTag(slots)):
+fun vector_multiply_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), slot :: Bits(index_width(slots))) :~ RV5StageExecutionRequest(MultiplierRequest(xlen.width), RV5StageVectorMultiplyTag(slots)):
   def sew = beat.element_width.into(Bits(2))
-  RV5StageExecutionRequest(MultiplierRequest(xlen.width), RV5StageVectorArithmeticTag(slots)):
+  RV5StageExecutionRequest(MultiplierRequest(xlen.width), RV5StageVectorMultiplyTag(slots)):
     tag:
-      RV5StageVectorArithmeticTag(slots):
+      RV5StageVectorMultiplyTag(slots):
         slot: slot
         sew: sew
-        upper: beat.control.upper_result
+        result: beat.control.multiply_result
+        rounding_mode: beat.rounding_mode
     operands:
       MultiplierRequest(xlen.width):
         left: vector_integer_operand(xlen, beat.left, sew, beat.control.left_signed)
@@ -38,35 +51,68 @@ fun vector_multiply_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int
             left_signed: beat.control.left_signed
             right_signed: beat.control.right_signed
 
-fun vector_divide_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), slot :: Bits(index_width(slots))) :~ RV5StageExecutionRequest(DividerRequest(xlen.width), RV5StageVectorArithmeticTag(slots)):
+fun vector_divide_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), slot :: Bits(index_width(slots))) :~ RV5StageExecutionRequest(DividerRequest(xlen.width), RV5StageVectorDivideTag(slots)):
   def sew = beat.element_width.into(Bits(2))
-  RV5StageExecutionRequest(DividerRequest(xlen.width), RV5StageVectorArithmeticTag(slots)):
+  RV5StageExecutionRequest(DividerRequest(xlen.width), RV5StageVectorDivideTag(slots)):
     tag:
-      RV5StageVectorArithmeticTag(slots):
+      RV5StageVectorDivideTag(slots):
         slot: slot
         sew: sew
-        upper: beat.control.upper_result
+        remainder: beat.control.remainder
     operands:
       DividerRequest(xlen.width):
         dividend: vector_integer_operand(xlen, beat.left, sew, beat.control.left_signed)
         divisor: vector_integer_operand(xlen, beat.right, sew, beat.control.left_signed)
         signed_mode: beat.control.left_signed
 
-fun vector_multiply_value(xlen :: XLen, slots :: Pow2Int, result :: RV5StageExecutionResult(Bits(xlen.width * 2), RV5StageVectorArithmeticTag(slots))) :~ Bits(64):
+fun fractional_multiply_value(width :: PosInt, product :: Bits(width * 2), rounding_mode :: SimdRoundingMode) :~ RV5StageVectorMultiplyValue():
+  def distance = width - 1
+  def round_bit = product[distance - 1].into(Bool)
+  def lower_nonzero = product[0..distance - 1].or_reduce()
+  def discarded_nonzero = product[0..distance].or_reduce()
+  def shifted = (product.into(SInt(width * 2)) >> distance).as_bits()
+  def increment = mux_lookup(rounding_mode, ~default: round_bit, [
+    [SimdRoundingMode.NearestEven, round_bit & (lower_nonzero ||| shifted[0].into(Bool))],
+    [SimdRoundingMode.Down, Bool(#false)],
+    [SimdRoundingMode.Odd, !shifted[0].into(Bool) & discarded_nonzero]
+  ])
+  def rounded = shifted + increment.as_bits().zext(width * 2)
+  def low = rounded[0..width]
+  def negative = rounded[width * 2 - 1].into(Bool)
+  def low_negative = low[width - 1].into(Bool)
+  def expected_high = mux(low_negative, !bits(0, width), bits(0, width))
+  def saturated = rounded[width..width * 2] =/= expected_high
+  def limit = mux(negative, bits(1 << (width - 1), width), bits((1 << (width - 1)) - 1, width))
+  def selected = mux(saturated, limit, low)
+  RV5StageVectorMultiplyValue():
+    data: if width == 64 | selected | selected.zext(64)
+    saturated: saturated
+
+fun vector_multiply_value(xlen :: XLen, slots :: Pow2Int, result :: RV5StageExecutionResult(Bits(xlen.width * 2), RV5StageVectorMultiplyTag(slots))) :~ RV5StageVectorMultiplyValue():
   // High multiplication is relative to SEW, not to the physical multiplier width.
   def cases = for List (width in [8, 16, 32], code in 0..3):
     [code, result.value[width..width * 2].zext(64)]
   def full_high = result.value[xlen.width..xlen.width * 2]
   def low = result.value[0..xlen.width]
   def high = mux_lookup(result.tag.sew, ~default: (if xlen == XLen.X64 | full_high | full_high.zext(64)), cases)
-  mux(result.tag.upper, high, if xlen == XLen.X64 | low | low.zext(64))
+  def ordinary = mux(result.tag.result === VectorMultiplyResult.High, high, if xlen == XLen.X64 | low | low.zext(64))
+  def widths = if xlen == XLen.X64 | [8, 16, 32, 64] | [8, 16, 32]
+  def fractional_cases = for List (width in widths, code in 0..widths.length()):
+    [code, fractional_multiply_value(width, result.value[0..width * 2], result.tag.rounding_mode)]
+  def fractional :: RV5StageVectorMultiplyValue() = mux_lookup(result.tag.sew, ~default: fractional_cases[fractional_cases.length() - 1][1], fractional_cases)
+  def ordinary_result = RV5StageVectorMultiplyValue():
+    data: ordinary
+    saturated: Bool(#false)
+  mux(result.tag.result === VectorMultiplyResult.Fractional, fractional, ordinary_result)
 
-fun vector_divide_value(xlen :: XLen, slots :: Pow2Int, result :: RV5StageExecutionResult(DividerResponse(xlen.width), RV5StageVectorArithmeticTag(slots))) :~ Bits(64):
-  def value = mux(result.tag.upper, result.value.remainder, result.value.quotient)
+fun vector_divide_value(xlen :: XLen, slots :: Pow2Int, result :: RV5StageExecutionResult(DividerResponse(xlen.width), RV5StageVectorDivideTag(slots))) :~ Bits(64):
+  def value = mux(result.tag.remainder, result.value.remainder, result.value.quotient)
   if xlen == XLen.X64 | value | value.zext(64)
 
 export:
-  RV5StageVectorArithmeticTag
+  RV5StageVectorMultiplyTag
+  RV5StageVectorDivideTag
+  RV5StageVectorMultiplyValue
   vector_integer_operand
   vector_multiply_request
   vector_divide_request

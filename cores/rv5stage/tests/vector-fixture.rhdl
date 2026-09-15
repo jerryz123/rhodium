@@ -103,6 +103,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   alu.rounding_mode <== SimdRoundingMode.NearestUp
   alu.control <== SimdAluControl():
     result_select: mux_lookup(c.operation, ~default: SimdResultSelect.Adder, [[2, SimdResultSelect.Logic], [3, SimdResultSelect.Compare], [4, SimdResultSelect.Shift]])
+    arithmetic_mode: SimdArithmeticMode.Wrap
     logic_select: SimdLogicSelect.Xor
     comparison_select: SimdComparisonSelect.Less
     permutation_select: SimdPermutationSelect.ReverseBits

@@ -10,7 +10,9 @@
   word_t writeback_value, mstatus;
   vector_state_t state;
   logic [1:0] configuration, operand;
-  logic mask_destination, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract;
+  logic [2:0] arithmetic_mode;
+  logic [1:0] multiply_result;
+  logic mask_destination, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder;
   integer checks = 0, retired = 0;
   RV5StageVectorControlFixture dut (.*);
   always #5 clock = ~clock;
@@ -236,6 +238,19 @@
     assert (!legal) else $fatal(1, "SEW64 narrowing accepted");
     test_vtype = 3; #1;
     assert (!legal) else $fatal(1, "narrowing source exceeds EMUL8");
+    // Fixed-point add/sub variants select physical arithmetic modes without
+    // changing ordinary same-width register-group legality.
+    test_vtype = 0;
+    instruction = 32'h822180d7; #1; // vsaddu.vv v1,v2,v3
+    assert (decoded_valid && legal && arithmetic_mode == 1 && !rounding && !subtract) else $fatal(1, "unsigned saturating add decode");
+    instruction = 32'h8e2180d7; #1; // vssub.vv v1,v2,v3
+    assert (decoded_valid && legal && arithmetic_mode == 2 && !rounding && subtract) else $fatal(1, "signed saturating subtract decode");
+    instruction = 32'h2221a0d7; #1; // vaaddu.vv v1,v2,v3
+    assert (decoded_valid && legal && arithmetic_mode == 3 && rounding && !subtract) else $fatal(1, "unsigned averaging add decode");
+    instruction = 32'h2e21a0d7; #1; // vasub.vv v1,v2,v3
+    assert (decoded_valid && legal && arithmetic_mode == 4 && rounding && subtract) else $fatal(1, "signed averaging subtract decode");
+    instruction = 32'h9e2180d7; #1; // vsmul.vv v1,v2,v3
+    assert (decoded_valid && legal == (XLEN == 64) && !divide && left_signed && right_signed && multiply_result == 2) else $fatal(1, "fractional multiply decode");
     test_vtype = 'h80; instruction = 32'h662180d7; #1;
     assert (decoded_valid && invert_comparison) else $fatal(1, "vmsne inversion");
     instruction = 32'h7a21c0d7; #1;

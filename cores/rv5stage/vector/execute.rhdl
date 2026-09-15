@@ -95,7 +95,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     multiply_divide: beat.control.multiply_divide
     divide: beat.control.divide
     store: beat.control.store
-    saturated: beat.control.integer & beat.control.clip & packing.saturated
+    saturated: beat.control.integer & packing.saturated
     shift: element_shift
     write: mux(scanning, scan_write, mux(reduction ||| element_move, element_zero_write, mux(singleton, element_write, mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))))))
     compress_state: beat.compress_state

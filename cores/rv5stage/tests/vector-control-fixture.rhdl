@@ -27,7 +27,9 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   output mstatus: Bits(xlen.width)
   output state: RV5StageVectorState(xlen)
   output(configuration, operand): Bits(2)
-  output(mask_destination, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract): Bool
+  output arithmetic_mode: Bits(3)
+  output multiply_result: Bits(2)
+  output(mask_destination, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder): Bool
   inst decoder(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
   inst csrs(RV5StageCsrFile(RVCoreProfile(~xlen: xlen, ~experimental_vector: vlen)))
   inst legality(RV5StageVectorLegality(xlen, vlen))
@@ -39,6 +41,8 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   decoded_valid <== decoder.valid
   configuration <== decoder.control.vector.configure.as_bits()
   operand <== decoder.control.vector.operand.as_bits()
+  arithmetic_mode <== decoder.control.vector.alu.arithmetic_mode.as_bits()
+  multiply_result <== decoder.control.vector.multiply_result.as_bits()
   mask_destination <== decoder.control.vector.mask_destination
   invert_comparison <== decoder.control.vector.invert_comparison
   swap_operands <== decoder.control.vector.swap_operands
@@ -51,6 +55,8 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   left_signed <== decoder.control.vector.left_signed
   right_signed <== decoder.control.vector.right_signed
   subtract <== decoder.control.vector.alu.subtract
+  divide <== decoder.control.vector.divide
+  remainder <== decoder.control.vector.remainder
   csrs.interrupts <== literal(RV5StageInterrupts(), 0)
   csrs.hart_id <== bits(0, xlen.width)
   csrs.time_counter <== bits(0, 64)

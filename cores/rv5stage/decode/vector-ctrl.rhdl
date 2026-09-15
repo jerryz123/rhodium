@@ -25,6 +25,11 @@ hardware_enum VectorOperandMode:
   Scalar
   Immediate
 
+hardware_enum VectorMultiplyResult:
+  Low
+  High
+  Fractional
+
 bundle RV5StageVectorControl():
   configure: VectorConfigMode
   integer: Bool
@@ -33,7 +38,8 @@ bundle RV5StageVectorControl():
   divide: Bool
   left_signed: Bool
   right_signed: Bool
-  upper_result: Bool
+  multiply_result: VectorMultiplyResult
+  remainder: Bool
   fp_subtract: Bool
   fp_multiply: Bool
   memory: Bool
@@ -167,9 +173,43 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
 
 def vadd_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.Wrap
   subtract: Bool(#false)
 def vsub_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.Wrap
+  subtract: Bool(#true)
+def vsaddu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.SaturateUnsigned
+  subtract: Bool(#false)
+def vsadd_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.SaturateSigned
+  subtract: Bool(#false)
+def vssubu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.SaturateUnsigned
+  subtract: Bool(#true)
+def vssub_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.SaturateSigned
+  subtract: Bool(#true)
+def vaaddu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.AverageUnsigned
+  subtract: Bool(#false)
+def vaadd_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.AverageSigned
+  subtract: Bool(#false)
+def vasubu_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.AverageUnsigned
+  subtract: Bool(#true)
+def vasub_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Adder
+  arithmetic_mode: SimdArithmeticMode.AverageSigned
   subtract: Bool(#true)
 def vand_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
@@ -345,6 +385,28 @@ def VectorNarrowingShiftCases = [
   integer_case(VNSRA_WX, vsra_control, ~narrowing: #true, ~wide_vs2: #true),
   integer_case(VNSRA_WI, vsra_control, ~narrowing: #true, ~wide_vs2: #true)
 ]
+def VectorSaturatingAddSubtractCases = [
+  integer_case(VSADDU_VV, vsaddu_control),
+  integer_case(VSADDU_VX, vsaddu_control),
+  integer_case(VSADDU_VI, vsaddu_control),
+  integer_case(VSADD_VV, vsadd_control),
+  integer_case(VSADD_VX, vsadd_control),
+  integer_case(VSADD_VI, vsadd_control),
+  integer_case(VSSUBU_VV, vssubu_control),
+  integer_case(VSSUBU_VX, vssubu_control),
+  integer_case(VSSUB_VV, vssub_control),
+  integer_case(VSSUB_VX, vssub_control)
+]
+def VectorAveragingAddSubtractCases = [
+  integer_case(VAADDU_VV, vaaddu_control, ~rounding: #true),
+  integer_case(VAADDU_VX, vaaddu_control, ~rounding: #true),
+  integer_case(VAADD_VV, vaadd_control, ~rounding: #true),
+  integer_case(VAADD_VX, vaadd_control, ~rounding: #true),
+  integer_case(VASUBU_VV, vasubu_control, ~rounding: #true),
+  integer_case(VASUBU_VX, vasubu_control, ~rounding: #true),
+  integer_case(VASUB_VV, vasub_control, ~rounding: #true),
+  integer_case(VASUB_VX, vasub_control, ~rounding: #true)
+]
 def VectorFixedPointShiftCases = [
   integer_case(VSSRL_VV, vsrl_control, ~rounding: #true),
   integer_case(VSSRL_VX, vsrl_control, ~rounding: #true),
@@ -361,7 +423,7 @@ def VectorNarrowingClipCases = [
   integer_case(VNCLIP_WX, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true),
   integer_case(VNCLIP_WI, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true)
 ]
-def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases ++ VectorFixedPointShiftCases ++ VectorNarrowingClipCases
+def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases ++ VectorSaturatingAddSubtractCases ++ VectorAveragingAddSubtractCases ++ VectorFixedPointShiftCases ++ VectorNarrowingClipCases
 def vselect_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Select
 def VectorCompressCases = [integer_case(VCOMPRESS_VM, vselect_control, ~compress: #true)]
@@ -432,8 +494,7 @@ def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstr
       fp_subtract: Bool(instruction == VFSUB_VV)
       fp_multiply: Bool(instruction == VFMUL_VV)
   )
-def VectorMultiplyDivideCases = for List (instruction in VectorMultiplyDivideInstructions):
-  def is_divide = [VDIV_VV, VDIV_VX, VDIVU_VV, VDIVU_VX, VREM_VV, VREM_VX, VREMU_VV, VREMU_VX].contains(instruction)
+def VectorDivideCases = for List (instruction in VectorDivideInstructions):
   def signed_left = [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
   def signed_right = [VMULH_VV, VMULH_VX, VDIV_VV, VDIV_VX, VREM_VV, VREM_VX].contains(instruction)
   DecodeCase(
@@ -445,11 +506,30 @@ def VectorMultiplyDivideCases = for List (instruction in VectorMultiplyDivideIns
       multiply_divide: Bool(#true)
       memory: Bool(#false)
       operand: if instruction.format == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Vector
-      divide: Bool(is_divide)
+      divide: Bool(#true)
       left_signed: Bool(signed_left)
       right_signed: Bool(signed_right)
-      upper_result: Bool(![VMUL_VV, VMUL_VX, VDIV_VV, VDIV_VX, VDIVU_VV, VDIVU_VX].contains(instruction))
+      remainder: Bool([VREM_VV, VREM_VX, VREMU_VV, VREMU_VX].contains(instruction))
   )
+def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions):
+  def fractional = VectorFractionalMultiplyInstructions.contains(instruction)
+  def signed_left = fractional || [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX].contains(instruction)
+  def signed_right = fractional || [VMULH_VV, VMULH_VX].contains(instruction)
+  DecodeCase(
+    instruction_pattern(instruction),
+    partial_pattern(RV5StageVectorControl()):
+      configure: VectorConfigMode.None
+      integer: Bool(#false)
+      floating_point: Bool(#false)
+      multiply_divide: Bool(#true)
+      memory: Bool(#false)
+      operand: if instruction.format == VectorVXFormat | VectorOperandMode.Scalar | VectorOperandMode.Vector
+      divide: Bool(#false)
+      left_signed: Bool(signed_left)
+      right_signed: Bool(signed_right)
+      multiply_result: if fractional | VectorMultiplyResult.Fractional | (if [VMUL_VV, VMUL_VX].contains(instruction) | VectorMultiplyResult.Low | VectorMultiplyResult.High)
+  )
+def VectorMultiplyDivideCases = VectorDivideCases ++ VectorMultiplyCases
 def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorSlideCases ++ VectorGatherCases ++ VectorCompressCases ++ VectorMoveMergeCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
 
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
@@ -543,17 +623,22 @@ export:
   VectorScanResult
   VectorConfigMode
   VectorOperandMode
+  VectorMultiplyResult
   RV5StageVectorControl
   NoVectorControl
   VectorConfigurationCases
   VectorIntegerCases
   VectorWideningAddSubtractCases
   VectorNarrowingShiftCases
+  VectorSaturatingAddSubtractCases
+  VectorAveragingAddSubtractCases
   VectorFixedPointShiftCases
   VectorNarrowingClipCases
   VectorCompressCases
   VectorMemoryCases
   VectorFloatingPointCases
+  VectorDivideCases
+  VectorMultiplyCases
   VectorMultiplyDivideCases
   VectorControlCases
   RV5StageVectorLegality

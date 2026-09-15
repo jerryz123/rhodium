@@ -274,6 +274,10 @@
     load_reg(8); load_reg(9);
     begin
       int prior_saturations, beats;
+      prior_saturations=saturate_count; run(vec(32,24,8,9,0),0,0,VLEN/8);
+      assert(saturate_count-prior_saturations==CHUNKS) else $fatal(1,"saturating add did not pulse once per authorized beat");
+      for (int c=0;c<CHUNKS;c++) model[24][c]='1;
+      check_reg(24);
       beats=(VLEN/8+3)/4;
       prior_saturations=saturate_count; run(vec(46,24,8,0,3),0,0,VLEN/8);
       assert(saturate_count-prior_saturations==beats) else $fatal(1,"authorized clip saturation count");

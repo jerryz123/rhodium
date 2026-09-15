@@ -45,6 +45,14 @@ check:
   value(control(VSETVL), "configure") ~is VectorConfigMode.VtypeRegister.packed_value()
   value(field(control(VSUB_VV), "alu"), "subtract") ~is 1
   value(field(control(VADD_VX), "alu"), "subtract") ~is 0
+  value(field(control(VSADDU_VI), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.SaturateUnsigned.packed_value()
+  value(field(control(VSADD_VV), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.SaturateSigned.packed_value()
+  value(field(control(VSSUBU_VX), "alu"), "subtract") ~is 1
+  value(field(control(VSSUB_VV), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.SaturateSigned.packed_value()
+  value(field(control(VAADDU_VV), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.AverageUnsigned.packed_value()
+  value(field(control(VAADD_VX), "alu"), "arithmetic_mode") ~is SimdArithmeticMode.AverageSigned.packed_value()
+  value(field(control(VASUBU_VV), "alu"), "subtract") ~is 1
+  value(control(VASUB_VX), "rounding") ~is 1
   value(control(VWADDU_VV), "widening") ~is 1
   value(control(VWADDU_VV), "left_signed") ~is 0
   value(control(VWADD_VX), "right_signed") ~is 1
@@ -138,7 +146,7 @@ for (instruction in VectorMaskLogicInstructions, index in 0..8):
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
     value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
 
-for (instruction in VectorMultiplyDivideInstructions, index in 0..16):
+for (instruction in VectorDivideInstructions, index in 0..8):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care
   def operation = index div 2
@@ -147,13 +155,34 @@ for (instruction in VectorMultiplyDivideInstructions, index in 0..16):
     value(decoded, "integer") ~is 0
     value(decoded, "memory") ~is 0
     value(decoded, "floating_point") ~is 0
-    value(decoded, "divide") ~is (if operation < 4 | 1 | 0)
-    value(decoded, "left_signed") ~is (if [1, 3, 6, 7].contains(operation) | 1 | 0)
-    value(decoded, "right_signed") ~is (if [1, 3, 7].contains(operation) | 1 | 0)
-    value(decoded, "upper_result") ~is (if [2, 3, 4, 6, 7].contains(operation) | 1 | 0)
+    value(decoded, "divide") ~is 1
+    value(decoded, "left_signed") ~is (if [1, 3].contains(operation) | 1 | 0)
+    value(decoded, "right_signed") ~is (if [1, 3].contains(operation) | 1 | 0)
+    value(decoded, "remainder") ~is (if operation >= 2 | 1 | 0)
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
     value(care, "store") ~is 0
     value(care, "mask_destination") ~is 0
+
+for (instruction in VectorMultiplyInstructions, index in 0..8):
+  def decoded = control(instruction)
+  def operation = index div 2
+  check:
+    value(decoded, "multiply_divide") ~is 1
+    value(decoded, "divide") ~is 0
+    value(decoded, "left_signed") ~is (if operation >= 2 | 1 | 0)
+    value(decoded, "right_signed") ~is (if operation == 3 | 1 | 0)
+    value(decoded, "multiply_result") ~is (if operation == 1 | VectorMultiplyResult.Low.packed_value() | VectorMultiplyResult.High.packed_value())
+    value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
+
+for (instruction in VectorFractionalMultiplyInstructions, index in 0..2):
+  def decoded = control(instruction)
+  check:
+    value(decoded, "multiply_divide") ~is 1
+    value(decoded, "divide") ~is 0
+    value(decoded, "left_signed") ~is 1
+    value(decoded, "right_signed") ~is 1
+    value(decoded, "multiply_result") ~is VectorMultiplyResult.Fractional.packed_value()
+    value(decoded, "operand") ~is (if index == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
 for (instruction in VectorFloatingPointInstructions):
   def decoded = control(instruction)

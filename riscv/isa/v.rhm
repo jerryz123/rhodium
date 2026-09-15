@@ -61,6 +61,24 @@ def VADD_VX = vector_arithmetic("VADD.VX", 0, VectorVXFormat, 4)
 def VADD_VI = vector_arithmetic("VADD.VI", 0, VectorVIFormat, 3)
 def VSUB_VV = vector_arithmetic("VSUB.VV", 2, VectorVVFormat, 0)
 def VSUB_VX = vector_arithmetic("VSUB.VX", 2, VectorVXFormat, 4)
+def VSADDU_VV = vector_arithmetic("VSADDU.VV", 0x20, VectorVVFormat, 0)
+def VSADDU_VX = vector_arithmetic("VSADDU.VX", 0x20, VectorVXFormat, 4)
+def VSADDU_VI = vector_arithmetic("VSADDU.VI", 0x20, VectorVIFormat, 3)
+def VSADD_VV = vector_arithmetic("VSADD.VV", 0x21, VectorVVFormat, 0)
+def VSADD_VX = vector_arithmetic("VSADD.VX", 0x21, VectorVXFormat, 4)
+def VSADD_VI = vector_arithmetic("VSADD.VI", 0x21, VectorVIFormat, 3)
+def VSSUBU_VV = vector_arithmetic("VSSUBU.VV", 0x22, VectorVVFormat, 0)
+def VSSUBU_VX = vector_arithmetic("VSSUBU.VX", 0x22, VectorVXFormat, 4)
+def VSSUB_VV = vector_arithmetic("VSSUB.VV", 0x23, VectorVVFormat, 0)
+def VSSUB_VX = vector_arithmetic("VSSUB.VX", 0x23, VectorVXFormat, 4)
+def VAADDU_VV = vector_arithmetic("VAADDU.VV", 0x08, VectorVVFormat, 2)
+def VAADDU_VX = vector_arithmetic("VAADDU.VX", 0x08, VectorVXFormat, 6)
+def VAADD_VV = vector_arithmetic("VAADD.VV", 0x09, VectorVVFormat, 2)
+def VAADD_VX = vector_arithmetic("VAADD.VX", 0x09, VectorVXFormat, 6)
+def VASUBU_VV = vector_arithmetic("VASUBU.VV", 0x0a, VectorVVFormat, 2)
+def VASUBU_VX = vector_arithmetic("VASUBU.VX", 0x0a, VectorVXFormat, 6)
+def VASUB_VV = vector_arithmetic("VASUB.VV", 0x0b, VectorVVFormat, 2)
+def VASUB_VX = vector_arithmetic("VASUB.VX", 0x0b, VectorVXFormat, 6)
 def VWADDU_VV = vector_arithmetic("VWADDU.VV", 0x30, VectorVVFormat, 2)
 def VWADDU_VX = vector_arithmetic("VWADDU.VX", 0x30, VectorVXFormat, 6)
 def VWADD_VV = vector_arithmetic("VWADD.VV", 0x31, VectorVVFormat, 2)
@@ -144,9 +162,11 @@ def VMAX_VX = vector_arithmetic("VMAX.VX", 7, VectorVXFormat, 4)
 
 def VectorWideningAddSubtractInstructions = [VWADDU_VV, VWADDU_VX, VWADD_VV, VWADD_VX, VWSUBU_VV, VWSUBU_VX, VWSUB_VV, VWSUB_VX, VWADDU_WV, VWADDU_WX, VWADD_WV, VWADD_WX, VWSUBU_WV, VWSUBU_WX, VWSUB_WV, VWSUB_WX]
 def VectorNarrowingShiftInstructions = [VNSRL_WV, VNSRL_WX, VNSRL_WI, VNSRA_WV, VNSRA_WX, VNSRA_WI]
+def VectorSaturatingAddSubtractInstructions = [VSADDU_VV, VSADDU_VX, VSADDU_VI, VSADD_VV, VSADD_VX, VSADD_VI, VSSUBU_VV, VSSUBU_VX, VSSUB_VV, VSSUB_VX]
+def VectorAveragingAddSubtractInstructions = [VAADDU_VV, VAADDU_VX, VAADD_VV, VAADD_VX, VASUBU_VV, VASUBU_VX, VASUB_VV, VASUB_VX]
 def VectorFixedPointShiftInstructions = [VSSRL_VV, VSSRL_VX, VSSRL_VI, VSSRA_VV, VSSRA_VX, VSSRA_VI]
 def VectorNarrowingClipInstructions = [VNCLIPU_WV, VNCLIPU_WX, VNCLIPU_WI, VNCLIP_WV, VNCLIP_WX, VNCLIP_WI]
-def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
+def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorSaturatingAddSubtractInstructions ++ VectorAveragingAddSubtractInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
 // Slides use unsigned XLEN offsets; slide1 instead inserts a scalar element.
 def VSLIDEUP_VX = vector_arithmetic("VSLIDEUP.VX", 0x0e, VectorVXFormat, 4)
 def VSLIDEUP_VI = vector_arithmetic("VSLIDEUP.VI", 0x0e, VectorShiftVIFormat, 3)
@@ -224,7 +244,12 @@ def VMULHSU_VV = vector_arithmetic("VMULHSU.VV", 38, VectorVVFormat, 2)
 def VMULHSU_VX = vector_arithmetic("VMULHSU.VX", 38, VectorVXFormat, 6)
 def VMULH_VV = vector_arithmetic("VMULH.VV", 39, VectorVVFormat, 2)
 def VMULH_VX = vector_arithmetic("VMULH.VX", 39, VectorVXFormat, 6)
-def VectorMultiplyDivideInstructions = [VDIVU_VV, VDIVU_VX, VDIV_VV, VDIV_VX, VREMU_VV, VREMU_VX, VREM_VV, VREM_VX, VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX, VMULHSU_VV, VMULHSU_VX, VMULH_VV, VMULH_VX]
+def VSMUL_VV = vector_arithmetic("VSMUL.VV", 39, VectorVVFormat, 0)
+def VSMUL_VX = vector_arithmetic("VSMUL.VX", 39, VectorVXFormat, 4)
+def VectorDivideInstructions = [VDIVU_VV, VDIVU_VX, VDIV_VV, VDIV_VX, VREMU_VV, VREMU_VX, VREM_VV, VREM_VX]
+def VectorMultiplyInstructions = [VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX, VMULHSU_VV, VMULHSU_VX, VMULH_VV, VMULH_VX]
+def VectorFractionalMultiplyInstructions = [VSMUL_VV, VSMUL_VX]
+def VectorMultiplyDivideInstructions = VectorDivideInstructions ++ VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions
 def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorSlideInstructions ++ VectorGatherInstructions ++ VectorCompressInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
@@ -289,6 +314,9 @@ export:
   VMNAND_MM
   VMNOR_MM
   VMXNOR_MM
+  VectorDivideInstructions
+  VectorMultiplyInstructions
+  VectorFractionalMultiplyInstructions
   VectorMultiplyDivideInstructions
   VDIVU_VV
   VDIVU_VX
@@ -306,6 +334,8 @@ export:
   VMULHSU_VX
   VMULH_VV
   VMULH_VX
+  VSMUL_VV
+  VSMUL_VX
   VFADD_VV
   VFSUB_VV
   VFMUL_VV
@@ -342,6 +372,8 @@ export:
   VectorIntegerInstructions
   VectorWideningAddSubtractInstructions
   VectorNarrowingShiftInstructions
+  VectorSaturatingAddSubtractInstructions
+  VectorAveragingAddSubtractInstructions
   VectorFixedPointShiftInstructions
   VectorNarrowingClipInstructions
   VectorInitialInstructions
@@ -351,6 +383,24 @@ export:
   VADD_VI
   VSUB_VV
   VSUB_VX
+  VSADDU_VV
+  VSADDU_VX
+  VSADDU_VI
+  VSADD_VV
+  VSADD_VX
+  VSADD_VI
+  VSSUBU_VV
+  VSSUBU_VX
+  VSSUB_VV
+  VSSUB_VX
+  VAADDU_VV
+  VAADDU_VX
+  VAADD_VV
+  VAADD_VX
+  VASUBU_VV
+  VASUBU_VX
+  VASUB_VV
+  VASUB_VX
   VWADDU_VV
   VWADDU_VX
   VWADD_VV

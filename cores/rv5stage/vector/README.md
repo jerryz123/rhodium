@@ -29,7 +29,7 @@ reads do not, and SD combines
 the FP and vector dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
-add/sub, logic, shifts, fixed-point scaling shifts and narrowing clips,
+wrapping, saturating, and averaging add/sub; logic; shifts; fixed-point scaling shifts and narrowing clips;
 comparisons, min/max, compression, narrowing shifts,
 and narrow-source widening plus wide-source widening add/sub using direct SIMD controls, operand selection, extension
 signedness, comparison inversion, and operand swapping. Runtime group checks
@@ -55,8 +55,8 @@ PC, authorization/retry/fault outcome, and hit data exactly three cycles after
 issue. No authorization
 means no write. `cancel: Pulse` discards speculative work and flushes private
 stage validity; it does not undo a live older WB authorization on that edge.
-The caller must suppress authorizations for squashed tokens. A clipping beat
-reports saturation with its private result, but only an authorized WB commit
+The caller must suppress authorizations for squashed tokens. A saturating or
+clipping beat reports saturation with its private result, but only an authorized WB commit
 emits `saturate: Pulse`; retry, fault, and cancellation cannot set `vxsat`.
 The CSR bank ORs that pulse into sticky `vxsat`, with an explicit CSR write on
 the same edge taking priority. `retire: Pulse`
@@ -152,8 +152,8 @@ at their different EEWs.
 Masks, `vstart`, tails, empty bodies, WB authorization, cancellation, and retry
 use the ordinary packed-integer rules. Retry resumes at the oldest unauthorized
 half-row; an authorized in-place prefix cannot overwrite a source element that
-the suffix still needs. Rounding `vssr*` and saturating `vnclip*` remain outside
-this cut.
+the suffix still needs. Fixed-point scaling shifts and narrowing clips reuse
+the same execution and recovery rules.
 
 ## Moves, merge, and mask logic
 
@@ -308,11 +308,14 @@ V remains unadvertised.
 ## Shared integer multiply/divide
 
 RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,
-`vdiv`, `vdivu`, `vrem`, and `vremu` in `.vv` and `.vx` forms at SEW8/16/32/64.
-These are singleton operations, not packed SIMD operations. VX captures its
-scalar operand at macro admission. Signed operands extend from SEW before
-execution; high multiplication selects bits `[SEW, 2*SEW)`. Division truncates
-toward zero and preserves the architectural divide-by-zero and overflow results.
+`vsmul`, `vdiv`, `vdivu`, `vrem`, and `vremu` in `.vv` and `.vx` forms at
+SEW8/16/32/64. These are singleton operations, not packed SIMD operations. VX
+captures its scalar operand at macro admission. Signed operands extend from SEW
+before execution; high multiplication selects bits `[SEW, 2*SEW)`. `vsmul`
+rounds the signed double-width product after shifting it right by `SEW - 1`,
+using the `vxrm` value captured with the macro, then saturates to signed SEW.
+Division truncates toward zero and preserves the architectural divide-by-zero
+and overflow results.
 
 Scalar and vector clients share one iterative multiplier and one iterative
 divider through independent round-robin request arbiters. An opaque owner tag
@@ -324,7 +327,10 @@ Vector elements reserve completion slots before issue, enter request queues
 only when WB authorizes them, and drain through the single masked VRF write port
 in element order. Backpressure stops earlier issue; MEM/WB remains feed-forward.
 Cancellation discards only speculative work, never accepted requests or their
-response ownership. Masked and empty elements complete without execution.
+response ownership. The multiply completion tag retains the `vsmul` rounding
+mode and result selection; its slot retains saturation until ordered drain, when
+`vxsat` is pulsed exactly once. Masked and empty elements complete without
+execution.
 These iterative services do not promise one element per cycle. Widening
 multiplication, multiply-accumulate, RV32 vector mul/div, and V advertisement
 remain outside this cut.
@@ -441,9 +447,13 @@ contribute saturation. The result carries the per-beat saturation indication
 to WB rather than mutating CSR state in the combinational adapter. Reduction
 and permutation scheduling are not supplied here.
 
-The fixed-point execution slice implements `vssrl`, `vssra`, `vnclipu`, and
-`vnclip` in their vector, scalar, and immediate forms. `vxrm` is captured with
-the macro descriptor, so later CSR changes cannot alter admitted work.
+The fixed-point execution slice implements saturating `vsaddu`, `vsadd`,
+`vssubu`, and `vssub`; averaging `vaaddu`, `vaadd`, `vasubu`, and `vasub`;
+scaling shifts `vssrl` and `vssra`; narrowing clips `vnclipu` and `vnclip`; and
+signed fractional multiply `vsmul` in their architectural forms. `vxrm` is
+captured with the macro descriptor, so later CSR changes cannot alter admitted
+work. Saturating operations report their result through WB-owned completion
+state before producing the sticky `vxsat` update.
 
 `RV5StageVectorResult(vlen)` converts a SIMD result into the bank write payload.
 Data destinations use the returned output element width; comparisons place one

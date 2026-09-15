@@ -138,10 +138,11 @@ circuit RV5StageVectorResult(vlen :: VectorLength):
           data: mux(upper_half, low_data ++ bits(0, 32), bits(0, 32) ++ low_data)
           comparison: result.comparison
           write_mask: mux(upper_half, low_mask.as_bits() ++ bits(0, 4), bits(0, 4) ++ low_mask.as_bits()).into(Mask(8))
+          saturated: result.saturated
       saturated: saturation_bits.or_reduce()
   def narrowed :: VectorNarrowedResult() = mux_lookup(element_width, ~default: narrowed_results[0], [[SimdElementWidth.E16, narrowed_results[1]], [SimdElementWidth.E32, narrowed_results[2]]])
   def effective_result :: SimdAluResult() = mux(narrowing, narrowed.result, result)
-  saturated <== narrowing & narrowed.saturated
+  saturated <== result.saturated ||| (narrowing & narrowed.saturated)
   write <== VectorRegisterWrite(vlen):
     address: address[0..address_width]
     data: mux(mask_destination, effective_result.comparison.as_bits().zext(64) << first_element[0..6], effective_result.data)

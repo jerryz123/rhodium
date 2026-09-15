@@ -3,13 +3,16 @@
 module simd_alu_tb;
   localparam logic [2:0] ADDER = 0, LOGIC_OP = 1, SHIFT = 2,
                          COMPARE = 3, MINMAX = 4, SELECT_OP = 5, PERMUTE = 6, COUNT = 7;
+  localparam logic [2:0] WRAP = 0, SATURATE_UNSIGNED = 1, SATURATE_SIGNED = 2,
+                         AVERAGE_UNSIGNED = 3, AVERAGE_SIGNED = 4;
   logic [63:0] left, right, data, compressed_data;
   logic [1:0] element_width, logic_select, comparison_select;
   logic [1:0] permutation_select, count_select, widen_element_width, prepared_width;
   logic [1:0] rounding_mode;
   logic [2:0] result_select;
+  logic [2:0] arithmetic_mode;
   logic subtract, signed_compare, maximum, shift_right, arithmetic_shift;
-  logic rotate, invert_right, rounding, widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed;
+  logic rotate, invert_right, rounding, saturated, widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed;
   logic [63:0] prepared_left, prepared_right;
   logic [7:0] prepared_enabled;
   logic [7:0] enabled, select_right, comparison, write_mask;
@@ -29,8 +32,10 @@ module simd_alu_tb;
   task automatic check_result;
     int width_bits, lane_count, amount, count, compressed_elements;
     logic [63:0] mask, a, b, logic_b, value, expected_data, expected_compressed, discarded_mask;
+    logic [127:0] wide_result, average_base;
+    logic signed [127:0] exact_result, extended_a, extended_b;
     logic signed [63:0] signed_a, signed_b;
-    logic lt, eq, predicate, round_bit, lower_nonzero, discarded_nonzero, increment;
+    logic lt, eq, predicate, round_bit, lower_nonzero, discarded_nonzero, increment, overflow, expected_saturated;
     logic [7:0] expected_comparison, expected_write_mask;
     width_bits = 8 << element_width;
     lane_count = 64 / width_bits;
@@ -38,6 +43,7 @@ module simd_alu_tb;
     expected_data = 0;
     expected_comparison = 0;
     expected_write_mask = 0;
+    expected_saturated = 0;
     expected_compressed = 0;
     compressed_elements = 0;
     for (int lane = 0; lane < lane_count; lane++) begin
@@ -45,6 +51,8 @@ module simd_alu_tb;
       b = (right >> (lane * width_bits)) & mask;
       signed_a = $signed(a << (64 - width_bits)) >>> (64 - width_bits);
       signed_b = $signed(b << (64 - width_bits)) >>> (64 - width_bits);
+      extended_a = {{64{signed_a[63]}}, signed_a};
+      extended_b = {{64{signed_b[63]}}, signed_b};
       lt = signed_compare ? signed_a < signed_b : a < b;
       eq = a == b;
       case (comparison_select)
@@ -56,7 +64,40 @@ module simd_alu_tb;
       amount = int'(b & 64'(width_bits - 1));
       logic_b = invert_right ? ~b : b;
       case (result_select)
-        ADDER: value = subtract ? a - b : a + b;
+        ADDER: begin
+          value = subtract ? a - b : a + b;
+          if (arithmetic_mode == SATURATE_UNSIGNED) begin
+            wide_result = {64'b0, a} + {64'b0, b};
+            overflow = subtract ? a < b : wide_result[width_bits];
+            if (overflow) value = subtract ? 0 : mask;
+            expected_saturated |= enabled[lane] && overflow;
+          end else if (arithmetic_mode == SATURATE_SIGNED) begin
+            overflow = (a[width_bits-1] != value[width_bits-1]) &&
+                       (subtract ? a[width_bits-1] != b[width_bits-1] : a[width_bits-1] == b[width_bits-1]);
+            if (overflow) value = a[width_bits-1] ? 64'h1 << (width_bits - 1) : (64'h1 << (width_bits - 1)) - 1;
+            expected_saturated |= enabled[lane] && overflow;
+          end else if (arithmetic_mode == AVERAGE_UNSIGNED || arithmetic_mode == AVERAGE_SIGNED) begin
+            if (arithmetic_mode == AVERAGE_UNSIGNED && !subtract) begin
+              wide_result = {64'b0, a} + {64'b0, b};
+              average_base = wide_result >> 1;
+              round_bit = wide_result[0];
+            end else begin
+              exact_result = arithmetic_mode == AVERAGE_SIGNED ? extended_a : $signed({64'b0, a});
+              exact_result = subtract ? exact_result - (arithmetic_mode == AVERAGE_SIGNED ? extended_b : $signed({64'b0, b}))
+                                      : exact_result + extended_b;
+              average_base = exact_result >>> 1;
+              round_bit = exact_result[0];
+            end
+            case (rounding_mode)
+              0: increment = round_bit;
+              1: increment = round_bit && average_base[0];
+              2: increment = 0;
+              3: increment = !average_base[0] && round_bit;
+              default: $fatal(1, "invalid averaging mode");
+            endcase
+            value = average_base[63:0] + 64'(increment);
+          end
+        end
         LOGIC_OP: begin
           case (logic_select)
             0: value = a & logic_b;
@@ -129,7 +170,7 @@ module simd_alu_tb;
     end
     #1;
     assert (data === expected_data && comparison === expected_comparison &&
-            write_mask === expected_write_mask)
+            write_mask === expected_write_mask && saturated === expected_saturated)
       else $fatal(1, "check %0d w=%0d op=%0d logic=%0d cmp=%0d perm=%0d count=%0d rot=%b inv=%b sub=%0b signed=%0b max=%0b sr=%0b ar=%0b en=%h sel=%h a=%h b=%h got=%h/%h/%h expected=%h/%h/%h",
                   checks, width_bits, result_select, logic_select, comparison_select,
                   permutation_select, count_select, rotate, invert_right,
@@ -146,6 +187,7 @@ module simd_alu_tb;
   task automatic exercise_operations;
     widening = 0;
     rounding = 0;
+    arithmetic_mode = WRAP;
     rotate = 0;
     invert_right = 0;
     result_select = ADDER;
@@ -251,6 +293,7 @@ module simd_alu_tb;
     invert_right = 0;
     rounding = 0;
     rounding_mode = 0;
+    arithmetic_mode = WRAP;
     widening = 0; widen_left_wide = 0; widen_left_signed = 0; widen_right_signed = 0;
     upper_half = 0;
     widen_element_width = 0;
@@ -322,6 +365,22 @@ module simd_alu_tb;
         end
       end
       rounding = 0;
+      // Saturating and averaging arithmetic shares the packed add/subtract
+      // result. Sweep signedness, both directions, and every rounding mode.
+      result_select = ADDER;
+      for (int fixed_mode = int'(SATURATE_UNSIGNED); fixed_mode <= int'(AVERAGE_SIGNED); fixed_mode++) begin
+        arithmetic_mode = 3'(fixed_mode);
+        for (int direction = 0; direction < 2; direction++) begin
+          subtract = 1'(direction);
+          for (int mode = 0; mode < 4; mode++) begin
+            rounding_mode = 2'(mode);
+            for (int trial = 0; trial < 256; trial++) begin
+              left = random_word(); right = random_word(); enabled = 8'(random_word()); check_result();
+            end
+          end
+        end
+      end
+      arithmetic_mode = WRAP;
     end
 
     // Change widths and all controls without reset; this is a stateless unit.
