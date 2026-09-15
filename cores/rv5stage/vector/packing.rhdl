@@ -1,5 +1,5 @@
 #lang rhodium
-// Adapts vector chunks and performs destination packing plus lane-local fixed-point clipping.
+// Adapts vector chunks for extension/widening and packs lane-local fixed-point results.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -24,6 +24,10 @@ bundle VectorPackingControl(vlen :: VectorLength):
   immediate_unsigned: Bool
   widening: Bool
   narrowing: Bool
+  extension: Bool
+  extension_ratio: SimdExtensionRatio
+  extension_signed: Bool
+  extension_part: Bits(3)
   upper_half: Bool
   left_wide: Bool
   left_signed: Bool
@@ -68,6 +72,13 @@ circuit RV5StageVectorOperands(vlen :: VectorLength):
         enabled: enabled.as_bits().into(Mask(8))
         first_element: control.first_element
   def packed :: VectorPackedOperands(vlen) = mux_lookup(control.element_width, ~default: alternatives[0], for List (format in 1..4): [widths[format], alternatives[format]])
+  inst extend(SimdExtend())
+  extend.source <== packed.left
+  extend.destination_width <== control.element_width
+  extend.ratio <== control.extension_ratio
+  extend.part <== control.extension_part
+  extend.signed <== control.extension_signed
+  def extended = packed.updated(~left: extend.data)
   inst widen(SimdWidenOperands())
   widen.left <== packed.left
   widen.right <== packed.right
@@ -84,9 +95,9 @@ circuit RV5StageVectorOperands(vlen :: VectorLength):
     element_width: widen.operands.element_width
     enabled: widen.operands.enabled
     first_element: control.first_element + mux(control.upper_half, half_elements, bits(0, count_width))
-  operands <== mux(control.widening ||| control.narrowing, widened, packed)
+  operands <== mux(control.extension, extended, mux(control.widening ||| control.narrowing, widened, packed))
   def aligned = mux_lookup(control.element_width, ~default: control.first_element.is_aligned(8), [[SimdElementWidth.E16, control.first_element.is_aligned(4)], [SimdElementWidth.E32, control.first_element.is_aligned(2)], [SimdElementWidth.E64, Bool(#true)]])
-  legal <== aligned & (control.vl <= control.vlmax) & (control.vlmax <= bits(vlen, count_width)) & control.vlmax.or_reduce() & (control.first_element < control.vlmax) & !((control.widening ||| control.narrowing) & (control.element_width === SimdElementWidth.E64))
+  legal <== aligned & (control.vl <= control.vlmax) & (control.vlmax <= bits(vlen, count_width)) & control.vlmax.or_reduce() & (control.first_element < control.vlmax) & !((control.widening ||| control.narrowing) & (control.element_width === SimdElementWidth.E64)) & (!control.extension ||| extend.legal)
 
 circuit RV5StageVectorResult(vlen :: VectorLength):
   input destination: Bits(5)

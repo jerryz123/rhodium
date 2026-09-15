@@ -1,4 +1,4 @@
-// Exercises vector configuration, sticky saturation state, privilege gating, and decode legality.
+// Exercises vector configuration, extension geometry, vector CSR state, privilege, and decode legality.
 // SPDX-License-Identifier: Apache-2.0
   typedef logic [XLEN-1:0] word_t;
   typedef struct packed { word_t vl, vtype, vstart; logic [1:0] vxrm; logic vxsat; } vector_state_t;
@@ -9,10 +9,10 @@
   logic decoded_valid, legal, writeback_valid, redirect_valid;
   word_t writeback_value, mstatus;
   vector_state_t state;
-  logic [1:0] configuration, operand;
+  logic [1:0] configuration, operand, extension_ratio;
   logic [2:0] arithmetic_mode;
   logic [1:0] multiply_result;
-  logic mask_destination, carry_input, mask_result_select, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder;
+  logic mask_destination, carry_input, extension, extension_signed, mask_result_select, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder;
   integer checks = 0, retired = 0;
   RV5StageVectorControlFixture dut (.*);
   always #5 clock = ~clock;
@@ -33,6 +33,9 @@
     if (lm >= 4) lm -= 8;
     if ((raw_type >> 8) != 0 || sew > 3 || lm == -4 || sew > lm + 3) return 0;
     return lm >= 0 ? ((VLEN / (8 << sew)) << lm) : ((VLEN / (8 << sew)) >> -lm);
+  endfunction
+  function automatic logic [31:0] vector_extension(input int selector, source, destination, input bit masked = 0);
+    return (32'd18 << 26) | (32'(!masked) << 25) | (32'(source) << 20) | (32'(selector) << 15) | (32'd2 << 12) | (32'(destination) << 7) | 32'h57;
   endfunction
 
   task automatic send(input logic [31:0] word, input word_t a, input word_t b,
@@ -201,6 +204,39 @@
     assert (decoded_valid && legal && carry_input && mask_result_select && mask_destination && subtract) else $fatal(1, "vmsbc.vvm control");
     instruction = 32'h4e880057; #1; // vmsbc.vv v0,v8,v16
     assert (decoded_valid && legal && !carry_input && mask_result_select && mask_destination && subtract) else $fatal(1, "vmsbc.vv control");
+    // Unary extension reads source elements at SEW/2, /4, or /8 and writes an
+    // ordinary LMUL destination group. Unsupported EEW/EMUL pairs are illegal.
+    for (int ratio_index = 0; ratio_index < 3; ratio_index++) begin
+      for (int sew = 0; sew < 4; sew++) begin
+        for (int lm = -3; lm <= 3; lm++) begin
+          automatic int power = ratio_index + 1;
+          automatic bit expected_legal = sew <= lm + 3 && sew >= power && lm - power >= -3;
+          test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
+          instruction = vector_extension(6 - 2 * ratio_index, 8, 16); #1;
+          assert (decoded_valid && extension && !extension_signed && int'(extension_ratio) == ratio_index && operand == 2 && legal == expected_legal)
+            else $fatal(1, "zero extension geometry ratio=%0d sew=%0d lm=%0d legal=%b", power, sew, lm, legal);
+          instruction[19:15] = 5'(7 - 2 * ratio_index); #1;
+          assert (decoded_valid && extension_signed && legal == expected_legal)
+            else $fatal(1, "sign extension geometry ratio=%0d sew=%0d lm=%0d legal=%b", power, sew, lm, legal);
+          checks += 2;
+        end
+      end
+    end
+    test_vtype = 'h13; // e32,m8: vf4 source EMUL2 occupies the high destination quarter.
+    instruction = vector_extension(4, 6, 0); #1;
+    assert (legal) else $fatal(1, "extension rejected legal highest-part overlap");
+    for (int source = 0; source <= 4; source += 2) begin
+      instruction[24:20] = 5'(source); #1;
+      assert (!legal) else $fatal(1, "extension accepted non-high destination overlap source=%0d", source);
+    end
+    instruction = vector_extension(4, 8, 1); #1;
+    assert (!legal) else $fatal(1, "extension accepted unaligned LMUL8 destination");
+    test_vtype = 'h18; instruction = vector_extension(6, 8, 16, 1); #1;
+    assert (legal) else $fatal(1, "masked extension rejected disjoint v0");
+    instruction[11:7] = 0; #1;
+    assert (!legal) else $fatal(1, "masked extension overwrote v0");
+    instruction = vector_extension(6, 0, 16, 1); #1;
+    assert (!legal) else $fatal(1, "masked extension read v0 as data and mask");
     // Widening doubles destination EMUL. A narrow source may overlap only the
     // highest-numbered portion of that group, and SEW64/LMUL8 are reserved.
     test_vtype = 0; // e8,m1

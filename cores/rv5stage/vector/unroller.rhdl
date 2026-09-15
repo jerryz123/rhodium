@@ -1,5 +1,5 @@
 #lang rhodium
-// Streams packed integer or singleton memory/FP operands with ordered WB progress.
+// Streams packed integer, extension, or singleton memory/FP operands with ordered WB progress.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -65,6 +65,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def compress = descriptor.control.integer & descriptor.control.compress
   def widening = descriptor.control.integer & descriptor.control.widening
   def narrowing = descriptor.control.integer & descriptor.control.narrowing
+  def extension = descriptor.control.integer & descriptor.control.extension
+  def extension_power = descriptor.control.extension_ratio.as_bits() + bits(1, 2)
+  def source_sew = sew - extension_power
   def width_change = widening ||| narrowing
   def singleton = descriptor.control.memory ||| descriptor.control.floating_point ||| descriptor.control.multiply_divide ||| element_move ||| reduction ||| gather_vector
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
@@ -88,6 +91,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   // The next index read can overlap the preceding data response, not its read.
   def launch = occupied & !all_issued & !clear & !(gather_vector & context_pipe.egress.valid) & ((reserved < bits(2, 2)) ||| issue.fire())
   def source_chunk = mux(mask_logic ||| scan, cursor >> 6, cursor >> (bits(3, 2) - sew))
+  def extension_source_chunk = cursor >> (bits(3, 2) - source_sew)
   def wide_source_chunk = cursor >> (bits(2, 2) - sew)
   def multiply_accumulate = descriptor.control.multiply_divide & descriptor.control.multiply_accumulate
   def destination_width = sew + (descriptor.control.widening & multiply_accumulate).as_bits().zext(2)
@@ -113,7 +117,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def scalar_index = mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
   def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
   def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
-  def first_source_chunk = mux(width_change & descriptor.control.wide_vs2, wide_source_chunk, source_chunk)
+  def first_source_chunk = mux(extension, extension_source_chunk, mux(width_change & descriptor.control.wide_vs2, wide_source_chunk, source_chunk))
   def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
   def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector, index_chunk, source_chunk)[0..row_base_width])))
   def destination_address = (descriptor.vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
@@ -147,6 +151,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
         destination: cursor
   def response = context_pipe.egress
   def read_beat = response.bits.beat
+  def read_destination_chunk = read_beat.first >> (bits(3, 2) - destination_width)
+  def extension_part = mux_lookup(descriptor.control.extension_ratio, ~default: read_destination_chunk[0].as_bits().zext(3), [[SimdExtensionRatio.By4, read_destination_chunk[0..2].zext(3)], [SimdExtensionRatio.By8, read_destination_chunk[0..3]]])
   def index_shift = (read_beat.first[0..3] << index_sew) ++ bits(0, 3)
   def index_word = results[1].bits >> index_shift
   def vector_index = mux_lookup(index_sew, ~default: index_word[0..8].zext(64), [[1, index_word[0..16].zext(64)], [2, index_word[0..32].zext(64)], [3, index_word]])
@@ -177,6 +183,10 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     immediate_unsigned: descriptor.control.immediate_unsigned
     widening: widening
     narrowing: narrowing
+    extension: extension
+    extension_ratio: descriptor.control.extension_ratio
+    extension_signed: descriptor.control.extension_signed
+    extension_part: extension_part
     upper_half: width_change & (read_beat.first =/= aligned_first(read_beat.first, sew))
     left_wide: descriptor.control.wide_vs2
     left_signed: descriptor.control.left_signed
@@ -207,7 +217,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     ~right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)))),
     ~destination_data: results[2].bits >> destination_shift,
     ~carry_in: mux(carry_input, (mask_result.bits >> read_beat.first[0..6])[0..8], bits(0, 8)).into(Mask(8)),
-    ~select_right: mux(mask_select, (mask_result.bits >> read_beat.first[0..6])[0..8], !bits(0, 8)).into(Mask(8)),
+    ~select_right: mux(mask_select, (mask_result.bits >> read_beat.first[0..6])[0..8], mux(extension, bits(0, 8), !bits(0, 8))).into(Mask(8)),
     ~mask_enabled: read_beat.mask_enabled & mux(scan & descriptor.masked, mask_result.bits >> read_beat.first[0..6], !bits(0, 64)),
     ~destination_first: packing.operands.first_element,
     ~element_width: packing.operands.element_width,

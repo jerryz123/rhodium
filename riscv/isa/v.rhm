@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines partial RVV 1.0 configuration, integer/carry/fixed-point, FP, and memory catalogs.
+// Defines partial RVV 1.0 configuration, integer/extension/fixed-point, FP, and memory catalogs.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -30,6 +30,7 @@ def VectorMoveIFormat = InstructionFormat("immediate broadcast", [vector_destina
 def VectorReadScalarFormat = InstructionFormat("vector element to integer", [RegisterOperand("rd", rd, "destination"), vector_source])
 def VectorMaskScalarFormat = InstructionFormat("mask to integer", VectorReadScalarFormat.operands, #false, [vm])
 def VectorMaskUnaryFormat = InstructionFormat("unary mask", [vector_destination, vector_source], #false, [vm])
+def VectorExtensionFormat = InstructionFormat("vector extension", [vector_destination, vector_source], #false, [vm])
 def VectorIndexFormat = InstructionFormat("element index", [vector_destination], #false, [vm])
 def VsetvliFormat = InstructionFormat("vsetvli", [RegisterOperand("rd", rd, "destination"), RegisterOperand("rs1", rs1, "source")], #false, [vtype11])
 def VsetivliFormat = InstructionFormat("vsetivli", [RegisterOperand("rd", rd, "destination")], #false, [avl5, vtype10])
@@ -184,7 +185,16 @@ def VectorAveragingAddSubtractInstructions = [VAADDU_VV, VAADDU_VX, VAADD_VV, VA
 def VectorFixedPointShiftInstructions = [VSSRL_VV, VSSRL_VX, VSSRL_VI, VSSRA_VV, VSSRA_VX, VSSRA_VI]
 def VectorNarrowingClipInstructions = [VNCLIPU_WV, VNCLIPU_WX, VNCLIPU_WI, VNCLIP_WV, VNCLIP_WX, VNCLIP_WI]
 def VectorCarryBorrowInstructions = [VADC_VVM, VADC_VXM, VADC_VIM, VMADC_VVM, VMADC_VXM, VMADC_VIM, VMADC_VV, VMADC_VX, VMADC_VI, VSBC_VVM, VSBC_VXM, VMSBC_VVM, VMSBC_VXM, VMSBC_VV, VMSBC_VX]
-def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorCarryBorrowInstructions ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorSaturatingAddSubtractInstructions ++ VectorAveragingAddSubtractInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
+fun vector_extension(name :: String, selector :: Nat):
+  InstructionSpec(name, VectorExtensionFormat, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(0x12), vs1.constrain(selector)])
+def VZEXT_VF8 = vector_extension("VZEXT.VF8", 2)
+def VSEXT_VF8 = vector_extension("VSEXT.VF8", 3)
+def VZEXT_VF4 = vector_extension("VZEXT.VF4", 4)
+def VSEXT_VF4 = vector_extension("VSEXT.VF4", 5)
+def VZEXT_VF2 = vector_extension("VZEXT.VF2", 6)
+def VSEXT_VF2 = vector_extension("VSEXT.VF2", 7)
+def VectorExtensionInstructions = [VZEXT_VF2, VZEXT_VF4, VZEXT_VF8, VSEXT_VF2, VSEXT_VF4, VSEXT_VF8]
+def VectorIntegerInstructions = [VADD_VV, VADD_VX, VADD_VI, VSUB_VV, VSUB_VX, VAND_VV, VAND_VX, VAND_VI, VOR_VV, VOR_VX, VOR_VI, VXOR_VV, VXOR_VX, VXOR_VI, VSLL_VV, VSLL_VX, VSLL_VI, VSRL_VV, VSRL_VX, VSRL_VI, VSRA_VV, VSRA_VX, VSRA_VI, VMSEQ_VV, VMSEQ_VX, VMSEQ_VI, VMSNE_VV, VMSNE_VX, VMSNE_VI, VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX, VMSLEU_VV, VMSLEU_VX, VMSLEU_VI, VMSLE_VV, VMSLE_VX, VMSLE_VI, VMSGTU_VX, VMSGTU_VI, VMSGT_VX, VMSGT_VI, VMINU_VV, VMINU_VX, VMIN_VV, VMIN_VX, VMAXU_VV, VMAXU_VX, VMAX_VV, VMAX_VX] ++ VectorCarryBorrowInstructions ++ VectorExtensionInstructions ++ VectorWideningAddSubtractInstructions ++ VectorNarrowingShiftInstructions ++ VectorSaturatingAddSubtractInstructions ++ VectorAveragingAddSubtractInstructions ++ VectorFixedPointShiftInstructions ++ VectorNarrowingClipInstructions
 // Slides use unsigned XLEN offsets; slide1 instead inserts a scalar element.
 def VSLIDEUP_VX = vector_arithmetic("VSLIDEUP.VX", 0x0e, VectorVXFormat, 4)
 def VSLIDEUP_VI = vector_arithmetic("VSLIDEUP.VI", 0x0e, VectorShiftVIFormat, 3)
@@ -295,6 +305,13 @@ def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory
 
 export:
   VectorCarryBorrowInstructions
+  VectorExtensionInstructions
+  VZEXT_VF2
+  VZEXT_VF4
+  VZEXT_VF8
+  VSEXT_VF2
+  VSEXT_VF4
+  VSEXT_VF8
   VADC_VVM
   VADC_VXM
   VADC_VIM
@@ -326,6 +343,7 @@ export:
   VSLIDE1DOWN_VX
   VectorMaskScalarFormat
   VectorMaskUnaryFormat
+  VectorExtensionFormat
   VectorIndexFormat
   VectorMaskScanInstructions
   VCPOP_M

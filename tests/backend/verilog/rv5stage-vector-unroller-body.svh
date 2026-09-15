@@ -1,4 +1,4 @@
-// Models vector elements, carry/borrow, fixed-point rounding/clipping, retry, and cancellation independently.
+// Models vector elements, extension, carry/borrow, fixed-point, retry, and cancellation independently.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN + 1), AW = $clog2(32 * VLEN / 64), DEPTH = 32 * VLEN / 64;
   typedef struct packed { logic [AW-1:0] address; logic [63:0] data, mask; } write_t;
@@ -20,7 +20,8 @@
   int tx_source_width, tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2, tx_vxrm;
   logic [63:0] tx_scalar, tx_distance;
   int tx_vlmax;
-  bit tx_masked, tx_compare, tx_carry_family, tx_carry_input, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_rounding, tx_saturating, tx_average, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
+  bit tx_masked, tx_compare, tx_extension, tx_extension_signed, tx_carry_family, tx_carry_input, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_rounding, tx_saturating, tx_average, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
+  int tx_extension_ratio;
   logic [127:0] tx_compress_buffer;
   int tx_compress_count, tx_compress_destination;
   int tx_beats;
@@ -133,7 +134,9 @@
               a = signed_element(a, tx_wide_source ? tx_width : tx_source_width);
               b = signed_element(b, tx_source_width);
             end
-            if (tx_carry_family) begin
+            if (tx_extension) begin
+              value = tx_extension_signed ? signed_element(a, tx_source_width) : a;
+            end else if (tx_carry_family) begin
               carry_input = tx_carry_input && snapshot[position / 64][position % 64];
               if (!tx_opcode[1]) begin
                 wide_result = {64'b0, a} + {64'b0, b} + 128'(carry_input);
@@ -222,7 +225,7 @@
         assert (int'(result.first) == first && int'(result.ending) == ending && result.last == (ending == tx_vl && (!tx_compress || tx_compress_count == 0)))
           else $fatal(1, "element progress first=%0d/%0d end=%0d/%0d", result.first, first, result.ending, ending);
         assert (result.write.mask == expected_mask && (result.write.data & expected_mask) == expected_data)
-          else $fatal(1, "op=%0d SEW=%0d first=%0d data=%h/%h mask=%h/%h", tx_opcode, tx_width, first, result.write.data & expected_mask, expected_data, result.write.mask, expected_mask);
+          else $fatal(1, "op=%0d SEW=%0d first=%0d data=%h/%h mask=%h/%h source=%h ratio=%0d", tx_opcode, tx_width, first, result.write.data & expected_mask, expected_data, result.write.mask, expected_mask, snapshot[tx_vs2 * VLEN / 64 + first * tx_source_width / 64], tx_extension_ratio);
         assert (result.saturated == expected_saturated)
           else $fatal(1, "op=%0d SEW=%0d first=%0d saturation=%b/%b", tx_opcode, tx_width, first, result.saturated, expected_saturated);
         if (expected_mask != 0) begin
@@ -253,11 +256,14 @@
     int timeout;
     assert (!active && !checking) else $fatal(1, "previous macro did not drain");
     tx_widening = op inside {[48:55]}; tx_narrowing = op inside {[44:47]}; tx_saturating = op inside {[32:35]}; tx_average = op inside {[8:11]} && mode inside {2, 6}; tx_rounding = op inside {[42:43], [46:47]} || tx_average; tx_clip = op inside {[46:47]}; tx_clip_unsigned = op == 46; tx_wide_source = op inside {[52:55]} || tx_narrowing; tx_widen_signed = tx_widening && op[0];
-    tx_carry_family = op inside {[16:19]}; tx_carry_input = tx_carry_family && masked_op;
+    tx_extension = op == 18 && mode == 2 && source1 inside {[2:7]};
+    tx_extension_signed = tx_extension && source1[0];
+    tx_extension_ratio = tx_extension ? 8 >> ((source1 - 2) / 2) : 1;
+    tx_carry_family = op inside {[16:19]} && !tx_extension; tx_carry_input = tx_carry_family && masked_op;
     tx_compress = op == 23 && mode == 2;
-    tx_mask_logic = mode == 2 && !tx_compress && !tx_widening && !tx_narrowing && !tx_average;
+    tx_mask_logic = mode == 2 && !tx_extension && !tx_compress && !tx_widening && !tx_narrowing && !tx_average;
     tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
-    tx_source_width = tx_mask_logic ? 1 : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_source_width; tx_lanes = tx_gather_vector ? 1 : 64 / (tx_narrowing ? 2 * tx_width : tx_width);
+    tx_source_width = tx_mask_logic ? 1 : tx_extension ? (8 << sew) / tx_extension_ratio : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_extension ? 8 << sew : tx_source_width; tx_lanes = tx_gather_vector ? 1 : 64 / (tx_narrowing ? 2 * tx_width : tx_width);
     tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
     tx_vxrm = round_mode;
@@ -322,6 +328,23 @@
       end
       run_macro(sew, 0, 0, 0, 0, 0, 24, 16, 8, 0);
       run_macro(sew, 0, 1, 7, 0, 0, 24, 16, 8, 0);
+    end
+    // Extension reads a smaller-EEW/EMUL source while retaining destination
+    // SEW/LMUL scheduling. Cover every legal ratio, geometry, sign, and retry.
+    for (int ratio_index = 0; ratio_index < 3; ratio_index++) begin
+      int power;
+      power = ratio_index + 1;
+      for (int sew = power; sew < 4; sew++) begin
+        for (int lm = 0; lm < 8; lm++) begin
+          int signed_lm, maximum, lanes;
+          signed_lm = lm < 4 ? lm : lm - 8;
+          if (lm == 4 || sew > signed_lm + 3 || signed_lm - power < -3) continue;
+          maximum = lm < 4 ? ((VLEN / (8 << sew)) << lm) : ((VLEN / (8 << sew)) >> (8 - lm));
+          lanes = 64 / (8 << sew);
+          for (int signedness = 0; signedness < 2; signedness++)
+            run_macro(sew, lm, maximum, maximum > 2 ? 1 : 0, 18, 2, 24, 6 - 2 * ratio_index + signedness, 8, 1'(signedness), maximum > lanes, 1'(signedness), lanes);
+        end
+      end
     end
     // Carry/borrow consumes v0 as operand data rather than predication. The
     // mask-producing forms optionally consume carry-in and may write v0.

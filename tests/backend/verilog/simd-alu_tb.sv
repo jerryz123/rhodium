@@ -1,19 +1,20 @@
-// Checks shared SIMD carry/borrow, bit operations, fixed-point, widening, and compaction against independent models.
+// Checks shared SIMD carry/borrow, bit operations, extension, fixed-point, widening, and compaction against models.
 // SPDX-License-Identifier: Apache-2.0
 module simd_alu_tb;
   localparam logic [2:0] ADDER = 0, LOGIC_OP = 1, SHIFT = 2,
                          COMPARE = 3, MINMAX = 4, SELECT_OP = 5, PERMUTE = 6, COUNT = 7;
   localparam logic [2:0] WRAP = 0, SATURATE_UNSIGNED = 1, SATURATE_SIGNED = 2,
                          AVERAGE_UNSIGNED = 3, AVERAGE_SIGNED = 4;
-  logic [63:0] left, right, data, compressed_data;
+  logic [63:0] left, right, data, compressed_data, extension_data;
   logic [1:0] element_width, logic_select, comparison_select;
   logic mask_result_select;
-  logic [1:0] permutation_select, count_select, widen_element_width, prepared_width;
+  logic [1:0] permutation_select, count_select, widen_element_width, prepared_width, extension_ratio;
+  logic [2:0] extension_part;
   logic [1:0] rounding_mode;
   logic [2:0] result_select;
   logic [2:0] arithmetic_mode;
   logic subtract, signed_compare, maximum, shift_right, arithmetic_shift;
-  logic rotate, invert_right, rounding, saturated, widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed;
+  logic rotate, invert_right, rounding, saturated, widening, upper_half, widen_left_wide, widen_left_signed, widen_right_signed, extension_signed, extension_legal;
   logic [63:0] prepared_left, prepared_right;
   logic [7:0] prepared_enabled;
   logic [7:0] enabled, carry_in, select_right, mask_result, write_mask;
@@ -295,6 +296,34 @@ module simd_alu_tb;
     checks++;
   endtask
 
+  task automatic check_extend;
+    int ratio_value, destination_bits, source_bits, lanes, source_offset;
+    logic expected_legal;
+    logic [63:0] source_mask, destination_mask, value, expected;
+    ratio_value = 2 << extension_ratio;
+    destination_bits = 8 << element_width;
+    source_bits = destination_bits / ratio_value;
+    expected_legal = element_width >= extension_ratio + 1 && int'(extension_part) < ratio_value;
+    #1;
+    assert (extension_legal === expected_legal)
+      else $fatal(1, "extension legality ratio=%0d width=%0d part=%0d", ratio_value, destination_bits, extension_part);
+    if (expected_legal) begin
+      lanes = 64 / destination_bits;
+      source_offset = int'(extension_part) * (64 / ratio_value);
+      source_mask = '1 >> (64 - source_bits);
+      destination_mask = '1 >> (64 - destination_bits);
+      expected = 0;
+      for (int lane = 0; lane < lanes; lane++) begin
+        value = (left >> (source_offset + lane * source_bits)) & source_mask;
+        if (extension_signed && value[source_bits-1]) value |= ~source_mask;
+        expected |= (value & destination_mask) << (lane * destination_bits);
+      end
+      assert (extension_data === expected)
+        else $fatal(1, "extension data ratio=%0d width=%0d part=%0d signed=%b source=%h got=%h expected=%h", ratio_value, destination_bits, extension_part, extension_signed, left, extension_data, expected);
+    end
+    checks++;
+  endtask
+
   initial begin
     left = 0;
     right = 0;
@@ -316,6 +345,7 @@ module simd_alu_tb;
     widening = 0; widen_left_wide = 0; widen_left_signed = 0; widen_right_signed = 0;
     upper_half = 0;
     widen_element_width = 0;
+    extension_ratio = 0; extension_part = 0; extension_signed = 0;
     permutation_select = 0;
     count_select = 0;
     enabled = 8'hff;
@@ -447,6 +477,21 @@ module simd_alu_tb;
       widen_left_wide = 1'(random_word());
       widen_left_signed = 1'(random_word()); widen_right_signed = 1'(random_word());
       check_widen();
+    end
+    // Every legal ratio/width/fragment/sign combination plus invalid geometry.
+    for (int ratio_index = 0; ratio_index < 3; ratio_index++) begin
+      extension_ratio = 2'(ratio_index);
+      for (int width = 0; width < 4; width++) begin
+        element_width = 2'(width);
+        for (int part = 0; part < 8; part++) begin
+          extension_part = 3'(part);
+          for (int signedness = 0; signedness < 2; signedness++) begin
+            extension_signed = 1'(signedness);
+            left = random_word();
+            check_extend();
+          end
+        end
+      end
     end
     $display("simd-alu PASS: %0d per-element differential checks", checks);
     $finish;

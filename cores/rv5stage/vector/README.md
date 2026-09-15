@@ -98,6 +98,15 @@ cannot write `v0`, and an instruction cannot also name `v0` as a SEW-wide
 source. All forms reuse the SIMD ALU's lane guard bits rather than a second
 adder.
 
+The six `vzext.vf2/vf4/vf8` and `vsext.vf2/vf4/vf8` forms retain destination
+SEW/LMUL scheduling while reading `vs2` at EEW `SEW/2`, `SEW/4`, or `SEW/8`.
+The unroller selects the corresponding narrow source fragment and
+[`SimdExtend`](../../simd-alu.rhdl) directly wires its elements into one 64-bit
+destination beat. Legality rejects unsupported source EEW, source EMUL below
+1/8, misaligned groups, masked `v0` conflicts, and destination overlap except
+when an integral source group occupies the highest-numbered part of the
+destination group.
+
 The vector pipeline's private EX stage uses
 [`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its MEM/WB
 registers retain the packed result; scalar WB authorization permits the VRF

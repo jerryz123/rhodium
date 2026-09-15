@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements packed integer, fixed-point, carry/borrow, widening, and compaction datapaths.
+// Implements packed integer, fixed-point, extension, widening, and compaction datapaths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -432,6 +432,46 @@ circuit SimdWidenOperands():
       enabled: concat(enables.reverse()).into(Mask(8))
   operands <== mux_lookup(element_width, ~default: prepared[0], for List (format in 1..3): [widths[format], prepared[format]])
 
+// Expands one selected narrow source fragment into a 64-bit destination beat.
+// Ratio and part choose wiring only; extension does not cascade widening lanes.
+hardware_enum SimdExtensionRatio:
+  By2
+  By4
+  By8
+
+circuit SimdExtend():
+  input source: Bits(64)
+  input destination_width: SimdElementWidth
+  input ratio: SimdExtensionRatio
+  input part: Bits(3)
+  input signed: Bool
+  output data: Bits(64)
+  output legal: Bool
+
+  def ratios = [2, 4, 8]
+  def widths = SimdElementWidth.values()
+  def by_ratio:
+    for List (ratio_index in 0..3):
+      def ratio_value = ratios[ratio_index]
+      def by_width:
+        for List (destination_format in 0..4):
+          if destination_format <= ratio_index
+          | bits(0, 64)
+          | block:
+              def destination_bits = 8 * (2 ** destination_format)
+              def source_bits = destination_bits div ratio_value
+              def lanes = 64 div destination_bits
+              def fragment = source >> (part ++ bits(0, 5 - ratio_index))
+              def elements = for List (lane in 0..lanes):
+                def element = fragment[lane * source_bits..(lane + 1) * source_bits]
+                mux(signed, element.into(SInt(source_bits)).sext(destination_bits).as_bits(), element.zext(destination_bits))
+              if lanes == 1 | elements[0] | concat(elements.reverse())
+      mux_lookup(destination_width, ~default: by_width[0], for List (format in 1..4): [widths[format], by_width[format]])
+  data <== mux_lookup(ratio, ~default: by_ratio[0], for List (ratio_index in 1..3): [SimdExtensionRatio.values()[ratio_index], by_ratio[ratio_index]])
+  def minimum_width = ratio.as_bits() + bits(1, 2)
+  def part_limit = mux_lookup(ratio, ~default: bits(2, 4), [[SimdExtensionRatio.By4, bits(4, 4)], [SimdExtensionRatio.By8, bits(8, 4)]])
+  legal <== (destination_width.as_bits() >= minimum_width) & (part.zext(4) < part_limit)
+
 // Packs enabled elements into consecutive low lanes. Architectural register
 // grouping, tails, restart, and cross-word accumulation remain caller policy.
 bundle SimdCompressed():
@@ -479,5 +519,7 @@ export:
   SimdWidenElementWidth
   SimdWidenedOperands
   SimdWidenOperands
+  SimdExtensionRatio
+  SimdExtend
   SimdCompressed
   SimdCompress

@@ -226,8 +226,9 @@ predication, while the full-core muldiv fixture checks decode, WB-authorized
 writes, tail preservation, squash, and illegal vstart.
 Run the RV32/RV64 control fixtures whenever compression legality changes.
 
-`packing.rhdl` handles runtime SEW, broadcasting, lane enables, widening halves,
-and destination packing. Global element position is distinct from enabled-lane
+`packing.rhdl` handles runtime SEW, broadcasting, lane enables, direct unary
+2x/4x/8x extension, widening halves, and destination packing. Global element
+position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`
 outputs are not architectural group/overlap permission or WB authorization.
 

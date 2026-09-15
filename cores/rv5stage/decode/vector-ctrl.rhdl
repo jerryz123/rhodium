@@ -1,5 +1,5 @@
 #lang rhodium
-// Decodes RVV integer, carry/borrow, fixed-point, and memory controls with register-group legality.
+// Decodes RVV integer, extension, fixed-point, and memory controls with register-group legality.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -52,6 +52,9 @@ bundle RV5StageVectorControl():
   operand: VectorOperandMode
   immediate_unsigned: Bool
   carry_input: Bool
+  extension: Bool
+  extension_ratio: SimdExtensionRatio
+  extension_signed: Bool
   mask_destination: Bool
   mask_logic: Bool
   mask_select: Bool
@@ -128,6 +131,9 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~left_signed: left_signed :: Boolean = #false,
                  ~right_signed: right_signed :: Boolean = #false,
                  ~carry_input: carry_input :: Boolean = #false,
+                 ~extension: extension :: Boolean = #false,
+                 ~extension_ratio: extension_ratio :: SimdExtensionRatio = SimdExtensionRatio.By2,
+                 ~extension_signed: extension_signed :: Boolean = #false,
                  ~uses_vs2: uses_vs2 :: Boolean = #true,
                  ~invert_logic: invert_logic :: Boolean = #false,
                  ~invert: invert :: Boolean = #false,
@@ -144,6 +150,9 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       operand: if [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat, VectorReadScalarFormat, VectorMaskScalarFormat, VectorMaskUnaryFormat, VectorIndexFormat].contains(form) | VectorOperandMode.Vector | (if [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form) | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
       immediate_unsigned: Bool(form == VectorShiftVIFormat)
       carry_input: Bool(carry_input)
+      extension: Bool(extension)
+      extension_ratio: if extension | extension_ratio | pattern(SimdExtensionRatio, _)
+      extension_signed: if extension | Bool(extension_signed) | pattern(Bool, _)
       mask_destination: Bool(mask)
       mask_logic: Bool(mask_logic)
       mask_select: Bool(mask_select)
@@ -196,6 +205,8 @@ def vborrow_control = partial_pattern(SimdAluControl()):
   arithmetic_mode: SimdArithmeticMode.Wrap
   mask_result_select: SimdMaskResultSelect.CarryBorrow
   subtract: Bool(#true)
+def vextension_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Select
 def vsaddu_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Adder
   arithmetic_mode: SimdArithmeticMode.SaturateUnsigned
@@ -401,6 +412,14 @@ def VectorCarryBorrowCases = [
   integer_case(VMSBC_VV, vborrow_control, ~mask: #true),
   integer_case(VMSBC_VX, vborrow_control, ~mask: #true)
 ]
+def VectorExtensionCases = [
+  integer_case(VZEXT_VF2, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By2),
+  integer_case(VZEXT_VF4, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By4),
+  integer_case(VZEXT_VF8, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By8),
+  integer_case(VSEXT_VF2, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By2, ~extension_signed: #true),
+  integer_case(VSEXT_VF4, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By4, ~extension_signed: #true),
+  integer_case(VSEXT_VF8, vextension_control, ~extension: #true, ~extension_ratio: SimdExtensionRatio.By8, ~extension_signed: #true)
+]
 def VectorWideningAddSubtractCases = [
   integer_case(VWADDU_VV, vadd_control, ~widening: #true),
   integer_case(VWADDU_VX, vadd_control, ~widening: #true),
@@ -465,7 +484,7 @@ def VectorNarrowingClipCases = [
   integer_case(VNCLIP_WX, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true),
   integer_case(VNCLIP_WI, vsra_control, ~narrowing: #true, ~rounding: #true, ~clip: #true, ~wide_vs2: #true)
 ]
-def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorCarryBorrowCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases ++ VectorSaturatingAddSubtractCases ++ VectorAveragingAddSubtractCases ++ VectorFixedPointShiftCases ++ VectorNarrowingClipCases
+def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorCarryBorrowCases ++ VectorExtensionCases ++ VectorWideningAddSubtractCases ++ VectorNarrowingShiftCases ++ VectorSaturatingAddSubtractCases ++ VectorAveragingAddSubtractCases ++ VectorFixedPointShiftCases ++ VectorNarrowingClipCases
 def vselect_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Select
 def VectorCompressCases = [integer_case(VCOMPRESS_VM, vselect_control, ~compress: #true)]
@@ -603,6 +622,11 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def widening_emul = config.lmul.into(SInt(3)).sext(5) + SInt(5)(1)
   def widening = control.widening
   def narrowing = control.integer & control.narrowing
+  def extension = control.integer & control.extension
+  def extension_power = control.extension_ratio.as_bits().zext(5) + bits(1, 5)
+  def extension_emul = config.lmul.into(SInt(3)).sext(5) - extension_power.into(SInt(5))
+  def extension_group = extension_emul.into(Bits(5))[0..3]
+  def extension_group_mask = mux_lookup(extension_group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
   def group = mux(control.memory, emul.into(Bits(5))[0..3], config.lmul)
   def group_mask = mux_lookup(group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
   def wide_group_mask = mux_lookup(widening_emul.into(Bits(5))[0..3], ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
@@ -662,10 +686,17 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def wide_source2_end = source2.zext(6) + wide_group_mask.zext(6) + bits(1, 6)
   def narrowing_sources_disjoint = !vector_operand ||| (source1.zext(6) >= wide_source2_end) ||| (source2.zext(6) >= source1_end)
   def narrowing_legal = !narrowing ||| ((config.sew =/= bits(3, 2)) & (widening_emul <= SInt(5)(3)) & wide_source2_aligned & (!vector_operand ||| source1_aligned) & narrowing_overlap_legal() & narrowing_sources_disjoint & (!masked ||| (source2.or_reduce() & (!vector_operand ||| source1.or_reduce()))))
+  def extension_source_aligned = !(source2 & extension_group_mask).or_reduce()
+  def extension_source_end = source2.zext(6) + extension_group_mask.zext(6) + bits(1, 6)
+  def extension_destination_end = destination.zext(6) + destination_group_mask.zext(6) + bits(1, 6)
+  def extension_disjoint = (destination.zext(6) >= extension_source_end) ||| (source2.zext(6) >= extension_destination_end)
+  def extension_overlap_legal = extension_disjoint ||| ((extension_emul >= SInt(5)(0)) & (extension_source_end === extension_destination_end))
+  def extension_width_legal = config.sew.zext(5) >= extension_power
+  def extension_legal = extension_width_legal & (extension_emul >= SInt(5)(-3)) & extension_source_aligned & destination_aligned & extension_overlap_legal & (!masked ||| (source2.or_reduce() & destination.or_reduce()))
   // Mask logic always names single registers, regardless of the data LMUL.
-  def integer_legal = control.integer & mux(control.compress, compress_legal, mux(control.gather, gather_legal, mux(control.scan, scan_legal, control.element_move ||| mux(control.reduction, reduction_sources_legal, control.mask_logic ||| (
+  def integer_legal = control.integer & mux(extension, extension_legal, mux(control.compress, compress_legal, mux(control.gather, gather_legal, mux(control.scan, scan_legal, control.element_move ||| mux(control.reduction, reduction_sources_legal, control.mask_logic ||| (
     slide_overlap_legal & merge_sources_legal & carry_sources_legal & widening_legal & narrowing_legal & (!control.uses_vs2 ||| mux((widening ||| narrowing) & control.wide_vs2, wide_source2_aligned, source2_aligned)) & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
-  )))))
+  ))))))
   def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())
   def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
@@ -682,6 +713,7 @@ export:
   VectorConfigurationCases
   VectorIntegerCases
   VectorCarryBorrowCases
+  VectorExtensionCases
   VectorWideningAddSubtractCases
   VectorNarrowingShiftCases
   VectorSaturatingAddSubtractCases

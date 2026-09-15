@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes vector banks with general and mask-shadow reads, packing, SIMD execution, and writes for simulation.
+// Composes vector banks with general/mask reads, extension-aware packing, SIMD execution, and writes.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -70,6 +70,10 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     immediate_unsigned: immediate_unsigned
     widening: widening
     narrowing: Bool(#false)
+    extension: Bool(#false)
+    extension_ratio: SimdExtensionRatio.By2
+    extension_signed: Bool(#false)
+    extension_part: bits(0, 3)
     upper_half: upper_half
     left_wide: left_wide
     left_signed: left_signed

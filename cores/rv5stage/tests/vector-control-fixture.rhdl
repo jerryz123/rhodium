@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises integrated vector decode, configuration, sticky saturation CSR state, and legality.
+// Exercises integrated vector decode, extension geometry, vector CSR state, and legality.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -29,7 +29,8 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   output(configuration, operand): Bits(2)
   output arithmetic_mode: Bits(3)
   output multiply_result: Bits(2)
-  output(mask_destination, carry_input, mask_result_select, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder): Bool
+  output extension_ratio: Bits(2)
+  output(mask_destination, carry_input, extension, extension_signed, mask_result_select, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder): Bool
   inst decoder(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
   inst csrs(RV5StageCsrFile(RVCoreProfile(~xlen: xlen, ~experimental_vector: vlen)))
   inst legality(RV5StageVectorLegality(xlen, vlen))
@@ -45,6 +46,9 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   multiply_result <== decoder.control.vector.multiply_result.as_bits()
   mask_destination <== decoder.control.vector.mask_destination
   carry_input <== decoder.control.vector.carry_input
+  extension <== decoder.control.vector.extension
+  extension_ratio <== decoder.control.vector.extension_ratio.as_bits()
+  extension_signed <== decoder.control.vector.extension_signed
   mask_result_select <== decoder.control.vector.alu.mask_result_select.as_bits()[0].into(Bool)
   invert_comparison <== decoder.control.vector.invert_comparison
   swap_operands <== decoder.control.vector.swap_operands

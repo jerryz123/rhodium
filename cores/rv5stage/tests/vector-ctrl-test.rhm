@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks vector controls including rounding/clipping, inactive care masks, and payload widths.
+// Checks vector controls including extension, rounding/clipping, inactive care masks, and widths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -107,6 +107,19 @@ for (instruction in VectorCarryBorrowInstructions, index in 0..15):
     value(field(decoded, "alu"), "subtract") ~is (if index >= 9 | 1 | 0)
     value(decoded, "operand") ~is (if form == VectorFixedVVFormat | VectorOperandMode.Vector.packed_value() | (if form == VectorFixedVXFormat | VectorOperandMode.Scalar.packed_value() | VectorOperandMode.Immediate.packed_value()))
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is (if form == VectorFixedVXFormat | 1 | 0)
+    value(field(core_control(instruction), "writeback"), "enable") ~is 0
+
+for (instruction in VectorExtensionInstructions, index in 0..6):
+  def decoded = control(instruction)
+  check:
+    value(decoded, "integer") ~is 1
+    value(decoded, "extension") ~is 1
+    value(decoded, "extension_ratio") ~is (index mod 3)
+    value(decoded, "extension_signed") ~is (if index >= 3 | 1 | 0)
+    value(decoded, "operand") ~is VectorOperandMode.Immediate.packed_value()
+    value(field(decoded, "alu"), "result_select") ~is SimdResultSelect.Select.packed_value()
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
+    value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
     value(field(core_control(instruction), "writeback"), "enable") ~is 0
 
 for (instruction in VectorGatherInstructions, index in 0..4):

@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RVV opcode words including carry/borrow, fixed-point, operand formats, CSR IDs, and vtype.
+// Checks RVV opcode words including carry/borrow, extension, fixed-point, operand formats, CSRs, and vtype.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,16 @@ import:
   "../model/main.rhm" as model
 
 check:
+  VZEXT_VF8.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2120d7
+  VSEXT_VF8.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a21a0d7
+  VZEXT_VF4.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2220d7
+  VSEXT_VF4.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a22a0d7
+  VZEXT_VF2.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2320d7
+  VSEXT_VF2.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a23a0d7
+  VectorExtensionFormat.operands.map(fun (operand): operand.name) ~is ["vd", "vs2"]
+  VectorInitial.matching(0x4a2020d7) ~is #false
+  VectorInitial.matching(0x4a20a0d7) ~is #false
+  VectorInitial.matching(0x4a2420d7) ~is #false
   VCOMPRESS_VM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x5e21a0d7
   VectorInitial.matching(0x5c21a0d7) ~is #false
   VRGATHER_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x322180d7
