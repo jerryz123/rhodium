@@ -239,12 +239,13 @@ def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, HintOperation.Pause)
 def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialInstructions):
   def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
   def memory = vector_isa.VectorMemoryInstructions.contains(instruction)
-  def store = instruction.format == vector_isa.VectorStoreFormat
+  def store = vector_isa.VectorStoreInstructions.contains(instruction)
+  def strided = vector_isa.VectorStridedMemoryInstructions.contains(instruction)
   def scalar_destination = [vector_isa.VMV_X_S, vector_isa.VCPOP_M, vector_isa.VFIRST_M].contains(instruction)
   def memory_width = cond
-  | [vector_isa.VLE8_V, vector_isa.VSE8_V].contains(instruction): MemoryWidth.Byte
-  | [vector_isa.VLE16_V, vector_isa.VSE16_V].contains(instruction): MemoryWidth.Half
-  | [vector_isa.VLE32_V, vector_isa.VSE32_V].contains(instruction): MemoryWidth.Word
+  | [vector_isa.VLE8_V, vector_isa.VSE8_V, vector_isa.VLSE8_V, vector_isa.VSSE8_V].contains(instruction): MemoryWidth.Byte
+  | [vector_isa.VLE16_V, vector_isa.VSE16_V, vector_isa.VLSE16_V, vector_isa.VSSE16_V].contains(instruction): MemoryWidth.Half
+  | [vector_isa.VLE32_V, vector_isa.VSE32_V, vector_isa.VLSE32_V, vector_isa.VSSE32_V].contains(instruction): MemoryWidth.Word
   | ~else: MemoryWidth.Double
   def sources = instruction.operands.filter(~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer)
   def input = instruction_pattern(instruction)
@@ -252,7 +253,7 @@ def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialIn
     if memory
     | partial_pattern(OperandControl()):
         uses_rs1: Bool(#true)
-        uses_rs2: Bool(#false)
+        uses_rs2: Bool(strided)
         left: OperandASelect.Register
         right: OperandBSelect.Immediate
     | partial_pattern(OperandControl()):

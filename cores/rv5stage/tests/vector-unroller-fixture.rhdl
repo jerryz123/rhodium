@@ -50,6 +50,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
             vxsat: Bool(#false)
         control: decode.control.vector
         scalar: scalar
+        stride: bits(0, xlen.width)
         vd: instruction[7..12]
         vs1: instruction[15..20]
         vs2: instruction[20..25]

@@ -534,6 +534,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_local_resource_hazard = id_multiply_resource_hazard ||| id_divide_resource_hazard ||| id_fp_store_resource_hazard
   // VX captures a scalar value once in ID, not a selector for next cycle's EX.
   def id_vector_scalar_wait = (id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide) & (id_control.vector.operand === VectorOperandMode.Scalar) & id_rs1.or_reduce() & ((ex_input.valid & ex_input.bits.writeback_enable & (ex_input.bits.rd === id_rs1)) ||| (mem_input.valid & mem_input.bits.writeback_enable & (mem_input.bits.rd === id_rs1)))
+  // Strided memory captures rs2 once in ID alongside the base in rs1.
+  def id_vector_stride_wait = id_control.vector.memory & (id_control.vector.memory_addressing === VectorMemoryAddressing.Strided) & id_rs2.or_reduce() & ((ex_input.valid & ex_input.bits.writeback_enable & (ex_input.bits.rd === id_rs2)) ||| (mem_input.valid & mem_input.bits.writeback_enable & (mem_input.bits.rd === id_rs2)))
   // Independent scalar work may pass a load tail; stores and vector/state
   // observers wait. Store ordering extends through the LSU's ordered drain.
   def id_vector_wait = id_vector_unrolling ||| (id_vector_active & (id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide ||| core_serializing_operation(id_control.system, id_control.fence) ||| id_memory_operation.needs_unique())) ||| (wb_vector_stores_pending & id_memory_operation.is_memory())
@@ -543,7 +545,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     scoreboard_waw: id_scoreboard_waw_hazard
     fp_source: id_fp_source_hazard
     fp_destination: id_fp_destination_hazard
-    resource: id_local_resource_hazard ||| id_vector_wait ||| id_vector_scalar_wait
+    resource: id_local_resource_hazard ||| id_vector_wait ||| id_vector_scalar_wait ||| id_vector_stride_wait
     pause: id_pause_in_flight ||| if_pause_active
     serialization: id_serializing_in_flight ||| id_serializing_waits_for_older
     wfi: if_waiting_for_interrupt
@@ -655,6 +657,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
                    state: wb_csrs.vector_state
                    control: operation.vector_control
                    scalar: id_registers.read_data_1
+                   stride: id_registers.read_data_2
                    vd: operation.rd
                    vs1: operation.rs1
                    vs2: operation.rs2
@@ -663,9 +666,9 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       def id_vector_operation = id_vector.issue |> map_flow(operation => operation.context.updated(
         ~vector_last: operation.last,
         ~vector_tag: operation.completion_tag,
-        ~immediate: mux(operation.memory, operation.offset[0..width], operation.context.immediate),
+        ~immediate: mux(operation.memory, operation.address[0..width], operation.context.immediate),
         ~memory_operation: mux(operation.memory & !operation.enabled, MemoryOperation.None, operation.context.memory_operation),
-        ~operand_rs1: operation.context.operand_rs1.updated(~stage_sel: mux(operation.memory, RV5StageBypassStage.RegisterFile, operation.context.operand_rs1.stage_sel)),
+        ~operand_rs1: operation.context.operand_rs1.updated(~stage_sel: mux(operation.memory, RV5StageBypassStage.RegisterFile, operation.context.operand_rs1.stage_sel), ~value: mux(operation.memory, bits(0, width), operation.context.operand_rs1.value)),
         ~operand_rs2: operation.context.operand_rs2.updated(~stage_sel: mux(operation.memory, RV5StageBypassStage.RegisterFile, operation.context.operand_rs2.stage_sel), ~value: mux(operation.memory, operation.store_data[0..width], operation.context.operand_rs2.value))
       )) |> to_valid()
       Array(id_scalar |> to_valid(), id_vector_operation) |> valid_arbiter() |> id_ex_pipe.ingress

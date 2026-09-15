@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines partial RVV 1.0 configuration, integer/extension/fixed-point, FP, and memory catalogs.
+// Defines partial RVV 1.0 configuration, integer/extension/fixed-point, FP, and vector-memory catalogs.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -42,8 +42,12 @@ def VectorConfigInstructions = [VSETVLI, VSETIVLI, VSETVL]
 def vs3 = BitField("vs3", 11, 7)
 def VectorLoadFormat = InstructionFormat("vector-load", [vector_destination, RegisterOperand("rs1", rs1, "source")], #false, [vm])
 def VectorStoreFormat = InstructionFormat("vector-store", [RegisterOperand("vs3", vs3, "source", RegisterBank.Vector), RegisterOperand("rs1", rs1, "source")], #false, [vm])
+def VectorStridedLoadFormat = InstructionFormat("vector-strided-load", [vector_destination, RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")], #false, [vm])
+def VectorStridedStoreFormat = InstructionFormat("vector-strided-store", [RegisterOperand("vs3", vs3, "source", RegisterBank.Vector), RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")], #false, [vm])
 fun unit_stride(name :: String, store :: Boolean, width :: Nat):
   InstructionSpec(name, if store | VectorStoreFormat | VectorLoadFormat, [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), BitField("nf/mew/mop", 31, 26).constrain(0), BitField("lumop/sumop", 24, 20).constrain(0)])
+fun strided(name :: String, store :: Boolean, width :: Nat):
+  InstructionSpec(name, if store | VectorStridedStoreFormat | VectorStridedLoadFormat, [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), BitField("nf/mew", 31, 28).constrain(0), BitField("mop", 27, 26).constrain(2)])
 def VLE8_V = unit_stride("VLE8.V", #false, 0)
 def VLE16_V = unit_stride("VLE16.V", #false, 5)
 def VLE32_V = unit_stride("VLE32.V", #false, 6)
@@ -52,7 +56,19 @@ def VSE8_V = unit_stride("VSE8.V", #true, 0)
 def VSE16_V = unit_stride("VSE16.V", #true, 5)
 def VSE32_V = unit_stride("VSE32.V", #true, 6)
 def VSE64_V = unit_stride("VSE64.V", #true, 7)
-def VectorMemoryInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VSE8_V, VSE16_V, VSE32_V, VSE64_V]
+def VLSE8_V = strided("VLSE8.V", #false, 0)
+def VLSE16_V = strided("VLSE16.V", #false, 5)
+def VLSE32_V = strided("VLSE32.V", #false, 6)
+def VLSE64_V = strided("VLSE64.V", #false, 7)
+def VSSE8_V = strided("VSSE8.V", #true, 0)
+def VSSE16_V = strided("VSSE16.V", #true, 5)
+def VSSE32_V = strided("VSSE32.V", #true, 6)
+def VSSE64_V = strided("VSSE64.V", #true, 7)
+def VectorUnitStrideMemoryInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VSE8_V, VSE16_V, VSE32_V, VSE64_V]
+def VectorStridedMemoryInstructions = [VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V, VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V]
+def VectorLoadInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V]
+def VectorStoreInstructions = [VSE8_V, VSE16_V, VSE32_V, VSE64_V, VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V]
+def VectorMemoryInstructions = VectorUnitStrideMemoryInstructions ++ VectorStridedMemoryInstructions
 
 fun vector_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
@@ -451,6 +467,12 @@ export:
   vs3
   VectorLoadFormat
   VectorStoreFormat
+  VectorStridedLoadFormat
+  VectorStridedStoreFormat
+  VectorUnitStrideMemoryInstructions
+  VectorStridedMemoryInstructions
+  VectorLoadInstructions
+  VectorStoreInstructions
   VectorMemoryInstructions
   VLE8_V
   VLE16_V
@@ -460,6 +482,14 @@ export:
   VSE16_V
   VSE32_V
   VSE64_V
+  VLSE8_V
+  VLSE16_V
+  VLSE32_V
+  VLSE64_V
+  VSSE8_V
+  VSSE16_V
+  VSSE32_V
+  VSSE64_V
   vd
   vs1
   vs2

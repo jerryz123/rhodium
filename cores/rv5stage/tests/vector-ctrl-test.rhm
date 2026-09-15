@@ -302,13 +302,17 @@ for (instruction in VectorIntegerInstructions):
     value(decoded, "operand") ~is expected_operand.packed_value()
     value(decoded, "immediate_unsigned") ~is (if instruction.format == VectorShiftVIFormat | 1 | 0)
 
-for (instruction in VectorMemoryInstructions, index in 0..8):
-  def decoded = control(instruction)
-  check:
-    value(decoded, "integer") ~is 0
-    value(decoded, "memory") ~is 1
-    value(decoded, "store") ~is (if index >= 4 | 1 | 0)
-    value(decoded, "eew") ~is index mod 4
+for (instructions in [VectorUnitStrideMemoryInstructions, VectorStridedMemoryInstructions], addressing in [VectorMemoryAddressing.UnitStride, VectorMemoryAddressing.Strided]):
+  for (instruction in instructions, index in 0..8):
+    def decoded = control(instruction)
+    check:
+      value(decoded, "integer") ~is 0
+      value(decoded, "memory") ~is 1
+      value(decoded, "store") ~is (if index >= 4 | 1 | 0)
+      value(decoded, "eew") ~is index mod 4
+      value(decoded, "memory_addressing") ~is addressing.packed_value()
+      value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1
+      value(field(core_control(instruction), "operand"), "uses_rs2") ~is (if addressing == VectorMemoryAddressing.Strided | 1 | 0)
 
 for (vlen in [128, 256, 512, 65536]):
   def micro = RV5StageVectorMicroOp(vlen, Bits(4))
@@ -317,6 +321,7 @@ for (vlen in [128, 256, 512, 65536]):
   check:
     beat.field("left").type.packed_width() ~is 64
     beat.field("right").type.packed_width() ~is 64
+    beat.field("address").type.packed_width() ~is 64
     beat.field("carry_in").type.packed_width() ~is 8
     micro.field("context").type.packed_width() ~is 4
     feedback.field("context").type.packed_width() ~is 4

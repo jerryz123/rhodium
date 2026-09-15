@@ -46,7 +46,10 @@ Its geometry follows
 [`isa/v.rhm`](isa/v.rhm) provides an explicitly partial RVV 1.0 catalog:
 the three `vset*` forms, same-width integer add/sub, logic, shifts,
 comparisons, min/max, and ordinary unit-stride `vle8/16/32/64.v` and
-`vse8/16/32/64.v`. `VectorWideningAddSubtractInstructions` contains `vwaddu`,
+`vse8/16/32/64.v`, plus strided `vlse8/16/32/64.v` and
+`vsse8/16/32/64.v`. `VectorUnitStrideMemoryInstructions` and
+`VectorStridedMemoryInstructions` expose the two memory subcatalogs.
+`VectorWideningAddSubtractInstructions` contains `vwaddu`,
 `vwadd`, `vwsubu`, and `vwsub` in both narrow-source `.vv`/`.vx` and
 wide-source `.wv`/`.wx` forms. `VectorNarrowingShiftInstructions` contains
 `vnsrl` and `vnsra` in `.wv`, `.wx`, and `.wi` forms.
@@ -95,7 +98,7 @@ its mask/data/destination overlap and restart restrictions remain core policy.
 `VectorSlideInstructions` contains `vslideup.vx/vi`, `vslidedown.vx/vi`,
 `vslide1up.vx`, and `vslide1down.vx`. Immediate offsets use the unsigned
 five-bit format; VX forms identify their scalar register source explicitly.
-`VectorMemoryInstructions` excludes segmented,
+`VectorMemoryInstructions` excludes indexed, segmented,
 fault-only-first, mask-register, and whole-register transfers. Vector operands use `RegisterBank.Vector`, with
 named vector register, mask-enable, vtype, and AVL fields. The catalog is not
 a full V-extension claim. [`rtl/vector.rhdl`](rtl/vector.rhdl) materializes
@@ -213,7 +216,7 @@ pure host code or be materialized by the Rhodium adapter.
 | Module | Public catalog or configuration | Coverage |
 |---|---|---|
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
-| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorCarryBorrowInstructions`, `VectorExtensionInstructions`, `VectorNarrowingShiftInstructions`, `VectorFixedPointShiftInstructions`, `VectorNarrowingClipInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorSameWidthIntegerReductionInstructions`, `VectorWideningIntegerReductionInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorDivideInstructions`, `VectorMultiplyInstructions`, `VectorFractionalMultiplyInstructions`, `VectorWideningMultiplyInstructions`, `VectorMultiplyAccumulateInstructions`, `VectorWideningMultiplyAccumulateInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
+| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorCarryBorrowInstructions`, `VectorExtensionInstructions`, `VectorNarrowingShiftInstructions`, `VectorFixedPointShiftInstructions`, `VectorNarrowingClipInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorSameWidthIntegerReductionInstructions`, `VectorWideningIntegerReductionInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorUnitStrideMemoryInstructions`, `VectorStridedMemoryInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorDivideInstructions`, `VectorMultiplyInstructions`, `VectorFractionalMultiplyInstructions`, `VectorWideningMultiplyInstructions`, `VectorMultiplyAccumulateInstructions`, `VectorWideningMultiplyAccumulateInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

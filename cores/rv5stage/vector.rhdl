@@ -106,7 +106,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
       last: operation.beat.last
       memory: operation.beat.control.memory
       enabled: operation.beat.enabled.as_bits()[0].into(Bool)
-      offset: operation.beat.first.zext(64) << operation.beat.control.eew
+      address: operation.beat.address
       store_data: operation.beat.left
       completion_tag: slot_index(operation.beat.first)
   ) |> issue

@@ -82,6 +82,13 @@ the unroller and FP fixtures cover the shared beat/completion layout.
 Memory beats use encoded EEW and singleton element positions. Keep their
 slot identifier in the `RV5StageMemoryWriteback.Vector` variant, and propagate
 the complete union opaquely through the LSU.
+The unroller owns full speculative and WB-authorized memory addresses. Capture
+the base and step once, warm the address from the base through `vstart` with
+one addition per skipped element, advance on issue and authorization, and
+restore the authorized address on retry. Do not reintroduce an element-index
+multiplier or reconstruct the address in the scalar pipeline. Unit-stride and
+signed strided accesses share this sequencer; masking changes the memory
+operation, not address progression.
 The private pipeline retains destination mask/shift and element range; the
 profile's power-of-two `vector_completion_slots` reserved slots absorb hit and slow completions independently before ordered
 VRF drain. Reserve on issue, authorize only at WB, and clear only unauthorized
@@ -340,8 +347,9 @@ Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 
 For vector memory, run `rv5stage-vector-memory` through the shared real
 core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer
-regression. The memory bench covers all four EEWs, an EEW/SEW mismatch, masks,
-empty bodies, in-order device stores, request/CHI backpressure, and a Sv39
+regression. The memory bench covers all four EEWs, an EEW/SEW mismatch,
+positive/negative/zero stride, additive `vstart` warm-up, masks, empty bodies,
+in-order device stores, request/CHI backpressure, and a Sv39
 page-boundary fault repaired and restarted from `vstart`. It also requires
 warm-hit throughput, hits completing ahead of a delayed miss, scalar-load
 overlap with a vector-load tail, and both asymmetric scalar/store barriers. Keep ordinary

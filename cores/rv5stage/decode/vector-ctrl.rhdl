@@ -31,6 +31,10 @@ hardware_enum VectorMultiplyResult:
   Fractional
   Widened
 
+hardware_enum VectorMemoryAddressing:
+  UnitStride
+  Strided
+
 bundle RV5StageVectorControl():
   configure: VectorConfigMode
   integer: Bool
@@ -49,6 +53,7 @@ bundle RV5StageVectorControl():
   memory: Bool
   store: Bool
   eew: Bits(2)
+  memory_addressing: VectorMemoryAddressing
   operand: VectorOperandMode
   immediate_unsigned: Bool
   carry_input: Bool
@@ -536,19 +541,24 @@ def VectorMaskScanCases = [
   integer_case(VIOTA_M, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements),
   integer_case(VID_V, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements, ~scan_index: #true, ~uses_vs2: #false)
 ]
-def VectorMemoryCases = for List (instruction in VectorMemoryInstructions, index in 0..8):
-  DecodeCase(
-    instruction_pattern(instruction),
-    partial_pattern(RV5StageVectorControl()):
-      configure: VectorConfigMode.None
-      integer: Bool(#false)
-      floating_point: Bool(#false)
-      multiply_divide: Bool(#false)
-      memory: Bool(#true)
-      store: Bool(index >= 4)
-      eew: bits(index mod 4, 2)
-      operand: VectorOperandMode.Scalar
-  )
+fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
+  for List (instruction in instructions, index in 0..8):
+    DecodeCase(
+      instruction_pattern(instruction),
+      partial_pattern(RV5StageVectorControl()):
+        configure: VectorConfigMode.None
+        integer: Bool(#false)
+        floating_point: Bool(#false)
+        multiply_divide: Bool(#false)
+        memory: Bool(#true)
+        store: Bool(index >= 4)
+        eew: bits(index mod 4, 2)
+        memory_addressing: addressing
+        operand: VectorOperandMode.Scalar
+    )
+def VectorUnitStrideMemoryCases = memory_cases(VectorUnitStrideMemoryInstructions, VectorMemoryAddressing.UnitStride)
+def VectorStridedMemoryCases = memory_cases(VectorStridedMemoryInstructions, VectorMemoryAddressing.Strided)
+def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases
 def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstructions):
   DecodeCase(
     instruction_pattern(instruction),
@@ -718,6 +728,7 @@ export:
   VectorConfigMode
   VectorOperandMode
   VectorMultiplyResult
+  VectorMemoryAddressing
   RV5StageVectorControl
   NoVectorControl
   VectorConfigurationCases
@@ -735,6 +746,8 @@ export:
   VectorIntegerReductionCases
   VectorCompressCases
   VectorMemoryCases
+  VectorUnitStrideMemoryCases
+  VectorStridedMemoryCases
   VectorFloatingPointCases
   VectorDivideCases
   VectorMultiplyCases

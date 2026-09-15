@@ -17,6 +17,7 @@ bundle RV5StageVectorDescriptor(xlen :: XLen):
   state: RV5StageVectorState(xlen)
   control: RV5StageVectorControl()
   scalar: Bits(xlen.width)
+  stride: Bits(xlen.width)
   vd: Bits(5)
   vs1: Bits(5)
   vs2: Bits(5)
@@ -38,7 +39,7 @@ bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2I
   last: Bool
   memory: Bool
   enabled: Bool
-  offset: Bits(64)
+  address: Bits(64)
   store_data: Bits(64)
   completion_tag: Bits(index_width(vector_completion_slots))
 
@@ -48,6 +49,7 @@ bundle RV5StageVectorBeat(vlen :: VectorLength):
   destination_first: Bits(index_width(vlen + 1))
   last: Bool
   empty: Bool
+  address: Bits(64)
   left: Bits(64)
   right: Bits(64)
   destination_data: Bits(64)

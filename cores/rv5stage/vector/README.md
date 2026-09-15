@@ -4,8 +4,8 @@
 # Experimental vector path
 
 The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
-vector CSR state, the decoded packed-integer subset, and RV64 unit-stride
-memory operations. The default is `#false`. Neither setting advertises `V`,
+vector CSR state, the decoded packed-integer subset, and RV64 unit-stride and
+strided memory operations. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
@@ -89,6 +89,16 @@ window reserves space before every read, covering read latency and buffered
 beats even when issue stalls. Once filled, it supplies one packed 64-bit beat
 per cycle. A macro has setup/drain latency; this is not single-cycle vector
 instruction issue.
+
+For unit-stride and strided element memory, the unroller captures the full
+base address and an address step. Unit-stride uses `1 << EEW`; strided forms
+use the sign-extended `rs2` value, including negative and zero strides. The
+sequencer initializes at the base and advances once for each skipped `vstart`
+element before issue, so it uses only addition rather than a multiplier. Each
+issued element advances the speculative address, while WB authorization
+advances a separate checkpoint. Retry restores that checkpoint, preserving
+the address of the oldest unauthorized element. Masked-off elements still
+advance the sequence; empty bodies neither warm up nor access memory.
 
 The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
 element and execute every body element; `v0` is data, not predication. `vmadc`

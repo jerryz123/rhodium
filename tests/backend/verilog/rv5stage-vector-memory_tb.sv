@@ -70,8 +70,8 @@ module rv5stage_vector_memory_tb;
   function automatic logic [31:0] csr(input int address, rd, rs, op = 1);
     return {12'(address), 5'(rs), 3'(op), 5'(rd), 7'h73};
   endfunction
-  function automatic logic [31:0] vmem(input bit store, input int width, regno, base, input bit masked = 0);
-    return {6'b0, !masked, 5'b0, 5'(base), 3'(width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
+  function automatic logic [31:0] vmem(input bit store, input int width, regno, base, input bit masked = 0, strided = 0, input int stride = 0);
+    return {4'b0, strided ? 2'b10 : 2'b00, !masked, 5'(strided ? stride : 0), 5'(base), 3'(width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
   endfunction
   function automatic logic [31:0] vint(input int op, vd, vs2, vs1, mode = 0);
     return {6'(op), 1'b1, 5'(vs2), 5'(vs1), 3'(mode), 5'(vd), 7'h57};
@@ -105,6 +105,13 @@ module rv5stage_vector_memory_tb;
     li(9, base);
     for (int wordno = 0; wordno < bytes/8; wordno++) begin
       emit({12'(wordno*8), 5'd9, 3'b011, 5'd7, 7'h03});
+      signature(7, values[wordno]);
+    end
+  endtask
+  task automatic check_strided_memory(input int base, stride, count, input logic [63:0] values[]);
+    li(9, base);
+    for (int wordno = 0; wordno < count; wordno++) begin
+      emit({12'(wordno*stride), 5'd9, 3'b011, 5'd7, 7'h03});
       signature(7, values[wordno]);
     end
   endtask
@@ -225,7 +232,7 @@ module rv5stage_vector_memory_tb;
           if (signatures + 1 == expected_count) begin
             assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
-            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; masked/EEW/vstart/device/fault restart passed",
+            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/masked/EEW/vstart/device/fault restart passed",
                      COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
             $finish;
           end
@@ -277,6 +284,27 @@ module rv5stage_vector_memory_tb;
     li(9,'h2400); emit(vmem(1,0,16,9));
     values = new[2]; values[0]=64'h0807060504555555; values[1]=64'h5555555555555555;
     check_memory('h2400,16,values);
+    // Strided memory advances a captured full address. Positive, negative,
+    // zero, and nonzero-vstart cases exercise the incremental sequencer.
+    values = new[4];
+    for (int i = 0; i < 4; i++) begin values[i] = 64'('h301+i); write_word('h2800+i*16,values[i]); end
+    configure(3,1,4); li(8,'h2800); li(9,'h2a00); li(10,16);
+    emit(vmem(0,3,8,8,0,1,10)); emit(vmem(1,3,8,9));
+    check_memory('h2a00,32,values);
+    li(9,'h2b00); li(10,16); emit(vmem(1,3,8,9,0,1,10));
+    check_strided_memory('h2b00,16,4,values);
+    for (int i = 0; i < 4; i++) values[i] = 64'('h304-i);
+    li(8,'h2830); li(9,'h2a40); li(10,-16);
+    emit(vmem(0,3,8,8,0,1,10)); emit(vmem(1,3,8,9));
+    check_memory('h2a40,32,values);
+    for (int i = 0; i < 4; i++) values[i] = 64'h301;
+    li(8,'h2800); li(9,'h2a80); emit(vmem(0,3,8,8,0,1,0)); emit(vmem(1,3,8,9));
+    check_memory('h2a80,32,values);
+    emit(vint(11,16,16,16)); li(7,'h55); emit(vint(0,16,16,7,4));
+    emit(csr(8,0,2,5));
+    li(8,'h2800); li(9,'h2ac0); li(10,16); emit(vmem(0,3,16,8,0,1,10)); emit(vmem(1,3,16,9));
+    values[0]=64'h55; values[1]=64'h55; values[2]=64'h303; values[3]=64'h304;
+    check_memory('h2ac0,32,values);
     // Empty and fully masked bodies must not touch an unmapped address.
     li(8,'h10000); emit(csr(8,0,20,5)); emit(vmem(0,0,16,8));
     emit(vint(25,0,8,8)); // vmsne.vv v0,v8,v8
