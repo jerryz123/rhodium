@@ -92,16 +92,19 @@ fun vector_multiply_value(xlen :: XLen, slots :: Pow2Int, result :: RV5StageExec
   // High multiplication is relative to SEW, not to the physical multiplier width.
   def cases = for List (width in [8, 16, 32], code in 0..3):
     [code, result.value[width..width * 2].zext(64)]
+  def widened_cases = for List (width in [8, 16, 32], code in 0..3):
+    [code, if width == 32 | result.value[0..64] | result.value[0..width * 2].zext(64)]
   def full_high = result.value[xlen.width..xlen.width * 2]
   def low = result.value[0..xlen.width]
   def high = mux_lookup(result.tag.sew, ~default: (if xlen == XLen.X64 | full_high | full_high.zext(64)), cases)
   def ordinary = mux(result.tag.result === VectorMultiplyResult.High, high, if xlen == XLen.X64 | low | low.zext(64))
+  def widened = mux_lookup(result.tag.sew, ~default: widened_cases[2][1], widened_cases)
   def widths = if xlen == XLen.X64 | [8, 16, 32, 64] | [8, 16, 32]
   def fractional_cases = for List (width in widths, code in 0..widths.length()):
     [code, fractional_multiply_value(width, result.value[0..width * 2], result.tag.rounding_mode)]
   def fractional :: RV5StageVectorMultiplyValue() = mux_lookup(result.tag.sew, ~default: fractional_cases[fractional_cases.length() - 1][1], fractional_cases)
   def ordinary_result = RV5StageVectorMultiplyValue():
-    data: ordinary
+    data: mux(result.tag.result === VectorMultiplyResult.Widened, widened, ordinary)
     saturated: Bool(#false)
   mux(result.tag.result === VectorMultiplyResult.Fractional, fractional, ordinary_result)
 

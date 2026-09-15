@@ -55,13 +55,14 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   packing.result <== alu.result.updated(~data: mux(scanning, scan.data, mux(gathering & !gather_vector, gather_broadcast, alu.result.data)), ~write_mask: mux(sliding ||| gathering, slide_bytes, alu.result.write_mask), ~comparison: mux(beat.control.invert_comparison, !alu.result.comparison.as_bits(), alu.result.comparison.as_bits()).into(Mask(8)))
   def scan_write = packing.write.updated(~data: scan.data, ~mask: mux(beat.control.scalar_destination, bits(0, 64), mux(beat.control.mask_destination, beat.mask_enabled, mux(beat.empty, bits(0, 64), packing.write.mask))))
   def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide ||| gather_vector
+  def widening_multiply = beat.control.multiply_divide & beat.control.widening
   // Mask logical operands are already packed one bit per element. Reuse the
   // ALU logic network, but write bits rather than repacking comparisons.
   def mask_write = packing.write.updated(
     ~data: mux(beat.control.invert_logic_result, !alu.result.data, alu.result.data),
     ~mask: beat.mask_enabled
   )
-  def singleton_width = mux(beat.control.memory, beat.control.eew, beat.element_width.into(Bits(2)))
+  def singleton_width = mux(beat.control.memory, beat.control.eew, beat.element_width.into(Bits(2)) + widening_multiply.as_bits().zext(2))
   def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
   def element_write = VectorRegisterWrite(vlen):

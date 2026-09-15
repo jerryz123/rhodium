@@ -251,6 +251,29 @@
     assert (decoded_valid && legal && arithmetic_mode == 4 && rounding && subtract) else $fatal(1, "signed averaging subtract decode");
     instruction = 32'h9e2180d7; #1; // vsmul.vv v1,v2,v3
     assert (decoded_valid && legal == (XLEN == 64) && !divide && left_signed && right_signed && multiply_result == 2) else $fatal(1, "fractional multiply decode");
+    // Widening multiply shares doubled-EMUL alignment and overlap policy with
+    // widening add/sub while retaining singleton shared-multiplier execution.
+    test_vtype = 0;
+    instruction = 32'he3012457; #1; // vwmulu.vv v8,v16,v2, unmasked
+    assert (decoded_valid && legal == (XLEN == 64) && widening && !divide && !left_signed && !right_signed && multiply_result == 3) else $fatal(1, "unsigned widening multiply decode");
+    instruction = 32'hee916457; #1; // vwmul.vx v8,v9,x2, unmasked; high-source overlap
+    assert (decoded_valid && legal == (XLEN == 64) && widening && left_signed && right_signed && operand == 1) else $fatal(1, "signed widening multiply decode");
+    instruction[24:20] = 8; #1;
+    assert (!legal) else $fatal(1, "widening multiply accepted low-source overlap");
+    instruction[24:20] = 16; instruction[11:7] = 9; #1;
+    assert (!legal) else $fatal(1, "widening multiply accepted unaligned destination");
+    instruction[11:7] = 8; instruction[25] = 0; #1;
+    assert (legal == (XLEN == 64)) else $fatal(1, "masked widening multiply legality");
+    instruction[11:7] = 0; #1;
+    assert (!legal) else $fatal(1, "masked widening multiply destination overlaps v0");
+    test_vtype = 7; instruction = 32'he3012457; #1; // e8,mf2 -> widened EMUL1
+    assert (legal == (XLEN == 64)) else $fatal(1, "fractional-LMUL widening multiply legality");
+    instruction[24:20] = 8; #1;
+    assert (!legal) else $fatal(1, "fractional-LMUL widening multiply overlap");
+    test_vtype = 'h18; instruction = 32'he3012457; #1;
+    assert (!legal) else $fatal(1, "SEW64 widening multiply accepted");
+    test_vtype = 3; #1;
+    assert (!legal) else $fatal(1, "widening multiply destination exceeds EMUL8");
     test_vtype = 'h80; instruction = 32'h662180d7; #1;
     assert (decoded_valid && invert_comparison) else $fatal(1, "vmsne inversion");
     instruction = 32'h7a21c0d7; #1;

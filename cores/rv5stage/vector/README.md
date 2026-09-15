@@ -309,13 +309,21 @@ V remains unadvertised.
 
 RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,
 `vsmul`, `vdiv`, `vdivu`, `vrem`, and `vremu` in `.vv` and `.vx` forms at
-SEW8/16/32/64. These are singleton operations, not packed SIMD operations. VX
-captures its scalar operand at macro admission. Signed operands extend from SEW
-before execution; high multiplication selects bits `[SEW, 2*SEW)`. `vsmul`
-rounds the signed double-width product after shifting it right by `SEW - 1`,
-using the `vxrm` value captured with the macro, then saturates to signed SEW.
-Division truncates toward zero and preserves the architectural divide-by-zero
-and overflow results.
+SEW8/16/32/64. `vwmulu`, `vwmulsu`, and `vwmul` execute at SEW8/16/32 and
+produce 2*SEW destinations. These are singleton operations, not packed SIMD
+operations. VX captures its scalar operand at macro admission. Signed operands
+extend from source SEW before execution; high multiplication selects bits
+`[SEW, 2*SEW)`, while widening multiplication retains all `2*SEW` product bits.
+`vsmul` rounds the signed double-width product after shifting it right by
+`SEW - 1`, using the `vxrm` value captured with the macro, then saturates to
+signed SEW. Division truncates toward zero and preserves the architectural
+divide-by-zero and overflow results.
+
+Widening multiplication doubles destination EMUL and rejects SEW64 or EMUL16.
+Its destination and narrow vector sources use the same alignment and
+high-part-only overlap policy as widening add/sub, including fractional LMUL.
+The source SEW remains in the multiplier tag while the WB-owned destination
+metadata independently carries doubled EEW, address, and mask placement.
 
 Scalar and vector clients share one iterative multiplier and one iterative
 divider through independent round-robin request arbiters. An opaque owner tag
@@ -331,9 +339,9 @@ response ownership. The multiply completion tag retains the `vsmul` rounding
 mode and result selection; its slot retains saturation until ordered drain, when
 `vxsat` is pulsed exactly once. Masked and empty elements complete without
 execution.
-These iterative services do not promise one element per cycle. Widening
-multiplication, multiply-accumulate, RV32 vector mul/div, and V advertisement
-remain outside this cut.
+These iterative services do not promise one element per cycle.
+Multiply-accumulate, RV32 vector mul/div, and V advertisement remain outside
+this cut.
 
 ## Shared floating point
 

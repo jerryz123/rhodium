@@ -184,6 +184,18 @@ for (instruction in VectorFractionalMultiplyInstructions, index in 0..2):
     value(decoded, "multiply_result") ~is VectorMultiplyResult.Fractional.packed_value()
     value(decoded, "operand") ~is (if index == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
+for (instruction in VectorWideningMultiplyInstructions, index in 0..6):
+  def decoded = control(instruction)
+  def operation = index div 2
+  check:
+    value(decoded, "multiply_divide") ~is 1
+    value(decoded, "divide") ~is 0
+    value(decoded, "widening") ~is 1
+    value(decoded, "left_signed") ~is (if operation >= 1 | 1 | 0)
+    value(decoded, "right_signed") ~is (if operation == 2 | 1 | 0)
+    value(decoded, "multiply_result") ~is VectorMultiplyResult.Widened.packed_value()
+    value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
+
 for (instruction in VectorFloatingPointInstructions):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care

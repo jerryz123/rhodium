@@ -29,6 +29,7 @@ hardware_enum VectorMultiplyResult:
   Low
   High
   Fractional
+  Widened
 
 bundle RV5StageVectorControl():
   configure: VectorConfigMode
@@ -511,10 +512,11 @@ def VectorDivideCases = for List (instruction in VectorDivideInstructions):
       right_signed: Bool(signed_right)
       remainder: Bool([VREM_VV, VREM_VX, VREMU_VV, VREMU_VX].contains(instruction))
   )
-def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions):
+def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions ++ VectorWideningMultiplyInstructions):
   def fractional = VectorFractionalMultiplyInstructions.contains(instruction)
-  def signed_left = fractional || [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX].contains(instruction)
-  def signed_right = fractional || [VMULH_VV, VMULH_VX].contains(instruction)
+  def widened = VectorWideningMultiplyInstructions.contains(instruction)
+  def signed_left = fractional || [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VWMULSU_VV, VWMULSU_VX, VWMUL_VV, VWMUL_VX].contains(instruction)
+  def signed_right = fractional || [VMULH_VV, VMULH_VX, VWMUL_VV, VWMUL_VX].contains(instruction)
   DecodeCase(
     instruction_pattern(instruction),
     partial_pattern(RV5StageVectorControl()):
@@ -527,7 +529,8 @@ def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++
       divide: Bool(#false)
       left_signed: Bool(signed_left)
       right_signed: Bool(signed_right)
-      multiply_result: if fractional | VectorMultiplyResult.Fractional | (if [VMUL_VV, VMUL_VX].contains(instruction) | VectorMultiplyResult.Low | VectorMultiplyResult.High)
+      widening: Bool(widened)
+      multiply_result: if fractional | VectorMultiplyResult.Fractional | (if widened | VectorMultiplyResult.Widened | (if [VMUL_VV, VMUL_VX].contains(instruction) | VectorMultiplyResult.Low | VectorMultiplyResult.High))
   )
 def VectorMultiplyDivideCases = VectorDivideCases ++ VectorMultiplyCases
 def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorSlideCases ++ VectorGatherCases ++ VectorCompressCases ++ VectorMoveMergeCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
@@ -552,7 +555,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   // LMUL is a signed power-of-two exponent; EMUL = LMUL * EEW / SEW.
   def emul = config.lmul.into(SInt(3)).sext(5) + control.eew.zext(5).into(SInt(5)) - config.sew.zext(5).into(SInt(5))
   def widening_emul = config.lmul.into(SInt(3)).sext(5) + SInt(5)(1)
-  def widening = control.integer & control.widening
+  def widening = control.widening
   def narrowing = control.integer & control.narrowing
   def group = mux(control.memory, emul.into(Bits(5))[0..3], config.lmul)
   def group_mask = mux_lookup(group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
@@ -616,7 +619,8 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   )))))
   def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & (control.store ||| !(masked & !destination.or_reduce()))
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())
-  def multiply_divide_legal = control.multiply_divide & Bool(xlen == XLen.X64) & source2_aligned & (!vector_operand ||| source1_aligned) & destination_aligned & !(masked & !destination.or_reduce())
+  def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
+  def multiply_divide_legal = control.multiply_divide & Bool(xlen == XLen.X64) & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.or_reduce())
   legal <== !config.vill & (integer_legal ||| memory_legal ||| fp_legal ||| multiply_divide_legal)
 
 export:

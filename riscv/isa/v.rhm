@@ -246,10 +246,17 @@ def VMULH_VV = vector_arithmetic("VMULH.VV", 39, VectorVVFormat, 2)
 def VMULH_VX = vector_arithmetic("VMULH.VX", 39, VectorVXFormat, 6)
 def VSMUL_VV = vector_arithmetic("VSMUL.VV", 39, VectorVVFormat, 0)
 def VSMUL_VX = vector_arithmetic("VSMUL.VX", 39, VectorVXFormat, 4)
+def VWMULU_VV = vector_arithmetic("VWMULU.VV", 56, VectorVVFormat, 2)
+def VWMULU_VX = vector_arithmetic("VWMULU.VX", 56, VectorVXFormat, 6)
+def VWMULSU_VV = vector_arithmetic("VWMULSU.VV", 58, VectorVVFormat, 2)
+def VWMULSU_VX = vector_arithmetic("VWMULSU.VX", 58, VectorVXFormat, 6)
+def VWMUL_VV = vector_arithmetic("VWMUL.VV", 59, VectorVVFormat, 2)
+def VWMUL_VX = vector_arithmetic("VWMUL.VX", 59, VectorVXFormat, 6)
 def VectorDivideInstructions = [VDIVU_VV, VDIVU_VX, VDIV_VV, VDIV_VX, VREMU_VV, VREMU_VX, VREM_VV, VREM_VX]
 def VectorMultiplyInstructions = [VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX, VMULHSU_VV, VMULHSU_VX, VMULH_VV, VMULH_VX]
 def VectorFractionalMultiplyInstructions = [VSMUL_VV, VSMUL_VX]
-def VectorMultiplyDivideInstructions = VectorDivideInstructions ++ VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions
+def VectorWideningMultiplyInstructions = [VWMULU_VV, VWMULU_VX, VWMULSU_VV, VWMULSU_VX, VWMUL_VV, VWMUL_VX]
+def VectorMultiplyDivideInstructions = VectorDivideInstructions ++ VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions ++ VectorWideningMultiplyInstructions
 def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorSlideInstructions ++ VectorGatherInstructions ++ VectorCompressInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
@@ -317,6 +324,7 @@ export:
   VectorDivideInstructions
   VectorMultiplyInstructions
   VectorFractionalMultiplyInstructions
+  VectorWideningMultiplyInstructions
   VectorMultiplyDivideInstructions
   VDIVU_VV
   VDIVU_VX
@@ -336,6 +344,12 @@ export:
   VMULH_VX
   VSMUL_VV
   VSMUL_VX
+  VWMULU_VV
+  VWMULU_VX
+  VWMULSU_VV
+  VWMULSU_VX
+  VWMUL_VV
+  VWMUL_VX
   VFADD_VV
   VFSUB_VV
   VFMUL_VV

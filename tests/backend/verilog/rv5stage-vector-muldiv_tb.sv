@@ -57,8 +57,8 @@ module rv5stage_vector_muldiv_tb;
   logic [31:0] response_word;
   logic [31:0] program_words [0:16383];
   logic [63:0] memory_words [0:8191];
-  logic [63:0] expected_data [0:4095], expected_address [0:4095];
-  integer expected_width [0:4095];
+  logic [63:0] expected_data [0:8191], expected_address [0:8191];
+  integer expected_width [0:8191];
   integer pc = 0, expected_count = 0, stores = 0, cycles = 0, load_delay = 0;
   data_resp_bits_t pending_load;
   RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
@@ -182,6 +182,16 @@ module rv5stage_vector_muldiv_tb;
     if (op[0]) return (op[1] ? signed_a-signed_b : signed_a+signed_b) & destination_mask;
     return (op[1] ? (a & left_mask)-(b & source_mask) : (a & left_mask)+(b & source_mask)) & destination_mask;
   endfunction
+  function automatic logic [63:0] widening_multiply_value(input int op, input int width, input logic [63:0] a, b);
+    logic [63:0] source_mask, destination_mask;
+    logic signed [127:0] signed_a, signed_b, product;
+    source_mask = '1 >> (64-width); destination_mask = '1 >> (64-2*width);
+    signed_a = $signed({64'b0,a & source_mask}); signed_b = $signed({64'b0,b & source_mask});
+    if (op != 'h38 && a[width-1]) signed_a -= 128'sd1 << width;
+    if (op == 'h3b && b[width-1]) signed_b -= 128'sd1 << width;
+    product = signed_a * signed_b;
+    return 64'(product) & destination_mask;
+  endfunction
   function automatic logic [63:0] right_value(input int lane);
     case (lane % 8)
       0: return '1; // minimum / -1, plus mixed-sign high multiplication
@@ -302,6 +312,36 @@ module rv5stage_vector_muldiv_tb;
           address+=128;
         end
       end
+    end
+    // Widening multiply keeps source SEW in the shared request while its
+    // completion writes a doubled-width destination element and EMUL group.
+    for (int sew = 0; sew < 3; sew++) begin
+      width = 8 << sew;
+      vset(sew,16,2); vload(8,'h10000+sew*256,sew); vload(16,'h10080+sew*256,sew);
+      for (int operation = 0; operation < 3; operation++) begin
+        code = operation == 0 ? 'h38 : 'h39 + operation;
+        for (int vx = 0; vx < 2; vx++) begin
+          li(5,-3);
+          vec(code,24,8,vx != 0 ? 5 : 16,0,vx != 0 ? 6 : 2);
+          li(5,9);
+          emit('h00000463); vec(code,24,16,vx != 0 ? 5 : 8,0,vx != 0 ? 6 : 2);
+          vstore(24,address,sew+1);
+          for (int lane=0;lane<16;lane++)
+            expect_store(address+(lane<<(sew+1)),widening_multiply_value(code,width,left_value(lane,sew),vx != 0 ? -64'd3 : right_value(lane)),sew+1);
+          address+=128;
+        end
+      end
+    end
+    // Fractional source LMUL widens into one full destination register.
+    for (int sew = 0; sew < 3; sew++) begin
+      int element_count;
+      width = 8 << sew; element_count = 8 >> sew;
+      vset(sew,element_count,7); vload(8,'h10000+sew*256,sew); vload(16,'h10080+sew*256,sew);
+      vec('h3a,24,8,16,0,2);
+      vstore(24,address,sew+1);
+      for (int lane=0;lane<element_count;lane++)
+        expect_store(address+(lane<<(sew+1)),widening_multiply_value('h3a,width,left_value(lane,sew),right_value(lane)),sew+1);
+      address+=128;
     end
     // Wide-source widening reads vs2 at the destination EEW while retaining
     // a narrow vector/scalar second operand and the ordinary WB beat schedule.
