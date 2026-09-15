@@ -88,6 +88,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def launch = occupied & !all_issued & !clear & !(gather_vector & context_pipe.egress.valid) & ((reserved < bits(2, 2)) ||| issue.fire())
   def source_chunk = mux(mask_logic ||| scan, cursor >> 6, cursor >> (bits(3, 2) - sew))
   def wide_source_chunk = cursor >> (bits(2, 2) - sew)
+  def multiply_accumulate = descriptor.control.multiply_divide & descriptor.control.multiply_accumulate
+  def destination_width = sew + (descriptor.control.widening & multiply_accumulate).as_bits().zext(2)
+  def destination_chunk = cursor >> (bits(3, 2) - destination_width)
   def row_base_width = index_width(vector_depth(vlen))
   // Whole-element displacement stays at XLEN until bounds are checked. Extra
   // bits retain both unsigned overflow and the negative slide-up prefix.
@@ -112,7 +115,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def first_source_chunk = mux(width_change & descriptor.control.wide_vs2, wide_source_chunk, source_chunk)
   def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
   def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector, index_chunk, source_chunk)[0..row_base_width])))
-  def addresses = Array(first_address, second_address)
+  def destination_address = (descriptor.vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
+  def addresses = Array(first_address, second_address, destination_address)
   context_pipe.flush <== clear
   context_pipe.ingress.valid <== launch
   context_pipe.ingress.bits.slide_valid <== slide_valid
@@ -124,6 +128,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     empty: empty
     left: bits(0, 64)
     right: bits(0, 64)
+    destination_data: bits(0, 64)
     enabled: bits(0, 8).into(Mask(8))
     select_right: bits(0, 8).into(Mask(8))
     mask_enabled: vec(for List (bit_index in 0..64):
@@ -155,8 +160,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   for (index in 1..2):
     reads[index].valid <== launch & !empty
     reads[index].bits <== addresses[index]
-  reads[2].valid <== Bool(#false)
-  reads[2].bits <== bits(0, row_base_width)
+  reads[2].valid <== launch & !empty & multiply_accumulate
+  reads[2].bits <== addresses[2]
   mask_read.valid <== launch & !empty
   mask_read.bits <== (cursor >> 6)[0..index_width(vector_chunks(vlen))]
   packing.control <== VectorPackingControl(vlen):
@@ -193,10 +198,12 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def slide_enabled = vec(for List (lane in 0..8):
                             !descriptor.control.slide_up ||| descriptor.control.slide_one ||| ((read_beat.first.zext(xlen.width + 2) + bits(lane, xlen.width + 2)) >= slide_distance.zext(xlen.width + 2))).as_bits()
   def memory_shift = ((read_beat.first[0..3] << sew) ++ bits(0, 3))
+  def destination_shift = ((read_beat.first[0..3] << destination_width) ++ bits(0, 3))
   def memory_enabled = !read_beat.empty & (!descriptor.masked ||| (mask_result.bits >> read_beat.first[0..6])[0].into(Bool))
   def operands = read_beat.updated(
     ~left: mux(gather, mux(gather_in_range, results[0].bits, bits(0, 64)), mux(slide, slide_source, mux(scan, results[0].bits >> read_beat.first[0..6], mux(singleton, results[0].bits >> memory_shift, packing.operands.left)))),
     ~right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)))),
+    ~destination_data: results[2].bits >> destination_shift,
     ~select_right: mux(mask_select, (mask_result.bits >> read_beat.first[0..6])[0..8], !bits(0, 8)).into(Mask(8)),
     ~mask_enabled: read_beat.mask_enabled & mux(scan & descriptor.masked, mask_result.bits >> read_beat.first[0..6], !bits(0, 64)),
     ~destination_first: packing.operands.first_element,
@@ -246,6 +253,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
       empty: Bool(#false)
       left: state.data
       right: bits(0, 64)
+      destination_data: bits(0, 64)
       enabled: vec(for List (lane in 0..8): (bits(lane, 4) < state.count).as_bits()).into(Mask(8))
       select_right: bits(0, 8).into(Mask(8))
       mask_enabled: bits(0, 64)
@@ -285,7 +293,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   when (gather_pipe.egress.valid & !clear):
     assert(gather_pipe.egress.bits.beat.empty ||| results[0].valid, "vector_gather_data_matches_context")
   when (response.valid & !clear):
-    assert(read_beat.empty ||| (results[0].valid & results[1].valid & mask_result.valid), "vector_read_context_matches_data_and_mask_ports")
+    assert(read_beat.empty ||| (results[0].valid & results[1].valid & mask_result.valid & (!multiply_accumulate ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
     assert(singleton ||| mask_word ||| read_beat.empty ||| packing.legal, "vector_packed_read_is_legal")
   when (feedback.valid & !cancel.valid):
     assert(occupied, "vector_feedback_has_active_macro")

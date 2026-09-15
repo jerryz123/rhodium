@@ -50,6 +50,7 @@ bundle RV5StageVectorBeat(vlen :: VectorLength):
   empty: Bool
   left: Bits(64)
   right: Bits(64)
+  destination_data: Bits(64)
   enabled: Mask(8)
   select_right: Mask(8)
   mask_enabled: Bits(64)
@@ -76,6 +77,8 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   floating_point: Bool
   multiply_divide: Bool
   divide: Bool
+  multiply_accumulate: Bool
+  multiply_subtract: Bool
   store: Bool
   saturated: Bool
   shift: Bits(6)

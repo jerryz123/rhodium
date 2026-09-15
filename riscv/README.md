@@ -64,9 +64,12 @@ rounding, clipping, and sticky saturation remain core policy.
 `vremu`; `VectorMultiplyInstructions` contains `vmul`, `vmulh`, `vmulhu`, and
 `vmulhsu`; and `VectorFractionalMultiplyInstructions` contains fixed-point
 `vsmul`. `VectorWideningMultiplyInstructions` contains `vwmulu`, `vwmulsu`, and
-`vwmul`. Each operation has `.vv` and `.vx` forms using the canonical
-OPMVV/OPMVX encodings. `VectorMultiplyDivideInstructions` composes those four
-catalogs; result shaping, rounding, and sticky saturation remain core policy.
+`vwmul`. `VectorMultiplyAccumulateInstructions` contains `vmacc`, `vnmsac`,
+`vmadd`, and `vnmsub`; `VectorWideningMultiplyAccumulateInstructions` contains
+`vwmaccu`, `vwmacc`, `vwmaccsu`, and the scalar-only `vwmaccus.vx`. Other
+operations have `.vv` and `.vx` forms using the canonical OPMVV/OPMVX
+encodings. `VectorMultiplyDivideInstructions` composes all six catalogs;
+result shaping, accumulation, rounding, and sticky saturation remain core policy.
 `VectorMoveMergeInstructions` contains `vmv.v.v/v.x/v.i` and
 `vmerge.vvm/vxm/vim`; `VectorMaskLogicInstructions` contains the eight `.mm`
 logical operations. Their formats distinguish fixed `vm` and reserved fields
@@ -202,7 +205,7 @@ pure host code or be materialized by the Rhodium adapter.
 | Module | Public catalog or configuration | Coverage |
 |---|---|---|
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
-| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorNarrowingShiftInstructions`, `VectorFixedPointShiftInstructions`, `VectorNarrowingClipInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorDivideInstructions`, `VectorMultiplyInstructions`, `VectorFractionalMultiplyInstructions`, `VectorWideningMultiplyInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
+| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorNarrowingShiftInstructions`, `VectorFixedPointShiftInstructions`, `VectorNarrowingClipInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorDivideInstructions`, `VectorMultiplyInstructions`, `VectorFractionalMultiplyInstructions`, `VectorWideningMultiplyInstructions`, `VectorMultiplyAccumulateInstructions`, `VectorWideningMultiplyAccumulateInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

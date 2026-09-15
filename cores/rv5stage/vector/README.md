@@ -82,7 +82,9 @@ from result completion, and accepted side effects must never be retried.
 [`RV5StageVectorUnroller`](unroller.rhdl) retains one macro descriptor and its
 scalar/configuration snapshot. Younger instructions wait in Decode until its
 last WB beat; older scalar instructions can finish or squash it normally.
-Three synchronous VRF reads supply `vs2` (or store `vs3`), `vs1`, and `v0`. A two-slot credit
+Three synchronous general VRF reads supply `vs2` (or store `vs3`), `vs1`, and
+the old destination for multiply-accumulate operations; a dedicated `v0`
+shadow supplies predication concurrently. A two-slot credit
 window reserves space before every read, covering read latency and buffered
 beats even when issue stalls. Once filled, it supplies one packed 64-bit beat
 per cycle. A macro has setup/drain latency; this is not single-cycle vector
@@ -324,6 +326,16 @@ extend from source SEW before execution; high multiplication selects bits
 signed SEW. Division truncates toward zero and preserves the architectural
 divide-by-zero and overflow results.
 
+The same service executes `vmacc`, `vnmsac`, `vmadd`, and `vnmsub` in `.vv`
+and `.vx` forms. A third general read captures old `vd` in parallel with the
+two source reads. `vmacc`/`vnmsac` use it as the addend; `vmadd`/`vnmsub` use it
+as a multiplicand and retain `vs2` as the addend. `vwmaccu`, `vwmacc`, and
+`vwmaccsu` support `.vv` and `.vx`; `vwmaccus` supports its architectural `.vx`
+form. Their old destination is read at 2*SEW and their signedness follows each
+mnemonic. The completion slot retains the selected addend and add/subtract
+policy until the tagged product returns, so the shared multiplier interface
+does not carry a wide accumulator.
+
 Widening multiplication doubles destination EMUL and rejects SEW64 or EMUL16.
 Its destination and narrow vector sources use the same alignment and
 high-part-only overlap policy as widening add/sub, including fractional LMUL.
@@ -345,8 +357,7 @@ mode and result selection; its slot retains saturation until ordered drain, when
 `vxsat` is pulsed exactly once. Masked and empty elements complete without
 execution.
 These iterative services do not promise one element per cycle.
-Multiply-accumulate, RV32 vector mul/div, and V advertisement remain outside
-this cut.
+RV32 vector mul/div and V advertisement remain outside this cut.
 
 ## Shared floating point
 

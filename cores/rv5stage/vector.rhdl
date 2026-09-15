@@ -203,7 +203,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   ) |> unroller.feedback
 
   def deferred_issue = issue.fire() & (unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide)
-  def multiply_completion = vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits)
+  def multiply_entry = entries[multiply_result.bits.tag.slot]
+  def multiply_completion = vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits, multiply_entry.write.data, multiply_entry.multiply_accumulate, multiply_entry.multiply_subtract)
   when (request.fire()):
     head <== slot_index(request.bits.descriptor.state.vstart)
   elsewhen drain:

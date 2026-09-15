@@ -56,6 +56,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def scan_write = packing.write.updated(~data: scan.data, ~mask: mux(beat.control.scalar_destination, bits(0, 64), mux(beat.control.mask_destination, beat.mask_enabled, mux(beat.empty, bits(0, 64), packing.write.mask))))
   def singleton = beat.control.memory ||| beat.control.floating_point ||| beat.control.multiply_divide ||| gather_vector
   def widening_multiply = beat.control.multiply_divide & beat.control.widening
+  def multiply_accumulate = beat.control.multiply_divide & !beat.control.divide & beat.control.multiply_accumulate
   // Mask logical operands are already packed one bit per element. Reuse the
   // ALU logic network, but write bits rather than repacking comparisons.
   def mask_write = packing.write.updated(
@@ -67,7 +68,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
   def element_write = VectorRegisterWrite(vlen):
     address: (beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (beat.first >> (bits(3, 2) - singleton_width))[0..index_width(vector_depth(vlen))]
-    data: mux(gather_vector, alu.result.data, bits(0, 64))
+    data: mux(multiply_accumulate, mux(beat.control.multiply_destination, beat.left, beat.destination_data), mux(gather_vector, alu.result.data, bits(0, 64)))
     mask: mux(beat.enabled.as_bits()[0].into(Bool) & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, bits(0, 64))
   // Reduction input is one element plus the seed/committed accumulator. Masked
   // elements retain that accumulator; only the final beat writes element zero.
@@ -95,6 +96,8 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     floating_point: beat.control.floating_point
     multiply_divide: beat.control.multiply_divide
     divide: beat.control.divide
+    multiply_accumulate: multiply_accumulate
+    multiply_subtract: multiply_accumulate & beat.control.multiply_subtract
     store: beat.control.store
     saturated: beat.control.integer & packing.saturated
     shift: element_shift

@@ -156,6 +156,7 @@ for (instruction in VectorDivideInstructions, index in 0..8):
     value(decoded, "memory") ~is 0
     value(decoded, "floating_point") ~is 0
     value(decoded, "divide") ~is 1
+    value(decoded, "multiply_accumulate") ~is 0
     value(decoded, "left_signed") ~is (if [1, 3].contains(operation) | 1 | 0)
     value(decoded, "right_signed") ~is (if [1, 3].contains(operation) | 1 | 0)
     value(decoded, "remainder") ~is (if operation >= 2 | 1 | 0)
@@ -165,6 +166,7 @@ for (instruction in VectorDivideInstructions, index in 0..8):
 
 for (instruction in VectorMultiplyInstructions, index in 0..8):
   def decoded = control(instruction)
+  def care = control_pattern(instruction).care
   def operation = index div 2
   check:
     value(decoded, "multiply_divide") ~is 1
@@ -172,20 +174,28 @@ for (instruction in VectorMultiplyInstructions, index in 0..8):
     value(decoded, "left_signed") ~is (if operation >= 2 | 1 | 0)
     value(decoded, "right_signed") ~is (if operation == 3 | 1 | 0)
     value(decoded, "multiply_result") ~is (if operation == 1 | VectorMultiplyResult.Low.packed_value() | VectorMultiplyResult.High.packed_value())
+    value(decoded, "multiply_accumulate") ~is 0
+    value(care, "multiply_destination") ~is 0
+    value(care, "multiply_subtract") ~is 0
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
 for (instruction in VectorFractionalMultiplyInstructions, index in 0..2):
   def decoded = control(instruction)
+  def care = control_pattern(instruction).care
   check:
     value(decoded, "multiply_divide") ~is 1
     value(decoded, "divide") ~is 0
     value(decoded, "left_signed") ~is 1
     value(decoded, "right_signed") ~is 1
     value(decoded, "multiply_result") ~is VectorMultiplyResult.Fractional.packed_value()
+    value(decoded, "multiply_accumulate") ~is 0
+    value(care, "multiply_destination") ~is 0
+    value(care, "multiply_subtract") ~is 0
     value(decoded, "operand") ~is (if index == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
 for (instruction in VectorWideningMultiplyInstructions, index in 0..6):
   def decoded = control(instruction)
+  def care = control_pattern(instruction).care
   def operation = index div 2
   check:
     value(decoded, "multiply_divide") ~is 1
@@ -194,7 +204,41 @@ for (instruction in VectorWideningMultiplyInstructions, index in 0..6):
     value(decoded, "left_signed") ~is (if operation >= 1 | 1 | 0)
     value(decoded, "right_signed") ~is (if operation == 2 | 1 | 0)
     value(decoded, "multiply_result") ~is VectorMultiplyResult.Widened.packed_value()
+    value(decoded, "multiply_accumulate") ~is 0
+    value(care, "multiply_destination") ~is 0
+    value(care, "multiply_subtract") ~is 0
     value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
+
+for (instruction in VectorMultiplyAccumulateInstructions, index in 0..8):
+  def decoded = control(instruction)
+  def care = control_pattern(instruction).care
+  def operation = index div 2
+  check:
+    value(decoded, "multiply_divide") ~is 1
+    value(decoded, "divide") ~is 0
+    value(decoded, "widening") ~is 0
+    value(decoded, "multiply_accumulate") ~is 1
+    value(decoded, "multiply_destination") ~is (if operation >= 2 | 1 | 0)
+    value(decoded, "multiply_subtract") ~is (if operation mod 2 == 1 | 1 | 0)
+    value(care, "left_signed") ~is 0
+    value(care, "right_signed") ~is 0
+    value(care, "multiply_result") ~is 0
+    value(decoded, "operand") ~is (if index mod 2 == 0 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
+
+for (instruction in VectorWideningMultiplyAccumulateInstructions, index in 0..7):
+  def decoded = control(instruction)
+  def care = control_pattern(instruction).care
+  check:
+    value(decoded, "multiply_divide") ~is 1
+    value(decoded, "divide") ~is 0
+    value(decoded, "widening") ~is 1
+    value(decoded, "multiply_accumulate") ~is 1
+    value(decoded, "multiply_destination") ~is 0
+    value(decoded, "multiply_subtract") ~is 0
+    value(decoded, "left_signed") ~is (if index >= 2 && index < 6 | 1 | 0)
+    value(decoded, "right_signed") ~is (if index == 2 || index == 3 || index == 6 | 1 | 0)
+    value(care, "multiply_result") ~is 0
+    value(decoded, "operand") ~is (if index mod 2 == 0 && index < 6 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
 for (instruction in VectorFloatingPointInstructions):
   def decoded = control(instruction)

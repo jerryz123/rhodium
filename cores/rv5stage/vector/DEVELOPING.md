@@ -57,8 +57,11 @@ boundaries change.
 the tagged integer service contracts. Its multiply tag separately retains
 ordinary low/high/widened selection and `vsmul` rounding mode. Widening result
 placement comes from the WB-owned result beat rather than changing source SEW
-in that tag. The completion slot retains fractional-multiply saturation until
-ordered drain can update `vxsat`.
+in that tag. For multiply-accumulate, the third general VRF read captures old
+`vd`; the WB-owned completion entry retains the selected addend and add/subtract
+policy rather than widening the shared multiplier tag. The completion slot
+also retains fractional-multiply saturation until ordered drain can update
+`vxsat`.
 `../integer-execution.rhdl` owns opaque tag retention around the reusable
 iterative units; scalar adapters in
 `../multiply.rhdl` and `../divide.rhdl` own W-result and GPR destination policy.
@@ -66,10 +69,10 @@ The core owns separate round-robin scalar/vector arbiters for each unit. Keep
 the scalar one-entry WB queue independent of vector admission: Decode's
 reservation is for queue space, not an idle shared execution unit.
 
-Run `rv5stage-vector-muldiv` and `rv5stage-vector-muldiv-one-slot` for all 24
+Run `rv5stage-vector-muldiv` and `rv5stage-vector-muldiv-one-slot` for all 39
 encodings, supported source/result widths, every `vxrm` mode, fractional LMUL,
 fractional saturation, scalar contention, masks, restart, empty bodies,
-in-place writes, branch squash, and slot reuse. Retain `rv5stage-multiply`,
+in-place and three-source writes, widening signedness, branch squash, and slot reuse. Retain `rv5stage-multiply`,
 `rv5stage-divide`, and RV32/RV64 Zkt regressions when changing scalar adapters.
 `rv5stage-integer-execution` checks opaque owner tags, result backpressure,
 same-edge replacement, and reset with both services holding results.

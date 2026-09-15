@@ -192,6 +192,23 @@ module rv5stage_vector_muldiv_tb;
     product = signed_a * signed_b;
     return 64'(product) & destination_mask;
   endfunction
+  function automatic logic [63:0] multiply_accumulate_value(input int op, input int width, input logic [63:0] a, b, addend);
+    logic [63:0] source_mask, destination_mask;
+    logic signed [127:0] signed_a, signed_b, product, result;
+    source_mask = '1 >> (64-width);
+    destination_mask = op >= 'h3c ? '1 >> (64-2*width) : source_mask;
+    signed_a = $signed({64'b0,a & source_mask}); signed_b = $signed({64'b0,b & source_mask});
+    if ((op == 'h3d || op == 'h3f) && a[width-1]) signed_a -= 128'sd1 << width;
+    if ((op == 'h3d || op == 'h3e) && b[width-1]) signed_b -= 128'sd1 << width;
+    product = signed_a * signed_b;
+    case (op)
+      'h29: result = signed_a + signed_b * $signed({64'b0,addend & source_mask});
+      'h2b: result = signed_a - signed_b * $signed({64'b0,addend & source_mask});
+      'h2f: result = $signed({64'b0,addend & source_mask}) - product;
+      default: result = $signed({64'b0,addend & destination_mask}) + product;
+    endcase
+    return 64'(result) & destination_mask;
+  endfunction
   function automatic logic [63:0] right_value(input int lane);
     case (lane % 8)
       0: return '1; // minimum / -1, plus mixed-sign high multiplication
@@ -269,6 +286,27 @@ module rv5stage_vector_muldiv_tb;
         for (int lane=0;lane<16;lane++) expect_store(address+(lane<<sew),fractional_multiply(sew,round_mode,left_value(lane,sew),-64'd3),sew);
         address+=128; signature('h009,address,0); address+=8;
       end
+      // The third general VRF port supplies old vd while the dedicated v0
+      // shadow remains available for predication. VMADD/VNMSUB instead use vd
+      // as a multiplicand and retain vs2 as the addend.
+      for (int operation = 0; operation < 4; operation++) begin
+        code = 'h29 + 2*operation;
+        for (int vx = 0; vx < 2; vx++) begin
+          vload(24,right_address,sew); li(5,-3);
+          vec(code,24,8,vx != 0 ? 5 : 16,0,vx != 0 ? 6 : 2);
+          vstore(24,address,sew);
+          for (int lane=0;lane<16;lane++)
+            expect_store(address+(lane<<sew),multiply_accumulate_value(code,width,left_value(lane,sew),vx != 0 ? -64'd3 : right_value(lane),right_value(lane)),sew);
+          address+=128;
+        end
+      end
+      vload(24,right_address,sew); vec('h1f,0,8,0,0,3); emit('h0081d073);
+      vec('h2d,24,8,16,1,2); vstore(24,address,sew);
+      for (int lane=0;lane<16;lane++) begin
+        a = left_value(lane,sew) & mask; b = right_value(lane) & mask;
+        expect_store(address+(lane<<sew),lane >= 3 && a != 0 && !a[width-1] ? multiply_accumulate_value('h2d,width,a,b,b) : b,sew);
+      end
+      address+=128; signature('h008,address,0); address+=8;
       // In-place, masked, restarted operations preserve disabled and prestart lanes.
       emit('h00000463); vec('h25, 8, 8, 16, 0, 2); // older branch squashes vector execution before WB
       vec('h1f, 0, 8, 0, 0, 3); // vmsgt.vi v0,v8,0
@@ -309,6 +347,24 @@ module rv5stage_vector_muldiv_tb;
           vstore(24,address,sew+1);
           for (int lane=0;lane<16;lane++)
             expect_store(address+(lane<<(sew+1)),widening_value(op,width,left_value(lane,sew),vx != 0 ? -64'd3 : right_value(lane)),sew+1);
+          address+=128;
+        end
+      end
+    end
+    // Widening accumulate retains a doubled-width old destination while both
+    // narrow multiplicands continue through the shared scalar multiplier.
+    for (int sew = 0; sew < 3; sew++) begin
+      int wide_address;
+      width = 8 << sew; wide_address = 'h11000 + sew*256;
+      vset(sew,16,2); vload(8,'h10000+sew*256,sew); vload(16,'h10080+sew*256,sew);
+      for (int operation = 0; operation < 4; operation++) begin
+        code = 'h3c + operation;
+        for (int vx = (code == 'h3e ? 1 : 0); vx < 2; vx++) begin
+          vload(24,wide_address,sew+1); li(5,-3);
+          vec(code,24,8,vx != 0 ? 5 : 16,0,vx != 0 ? 6 : 2);
+          vstore(24,address,sew+1);
+          for (int lane=0;lane<16;lane++)
+            expect_store(address+(lane<<(sew+1)),multiply_accumulate_value(code,width,left_value(lane,sew),vx != 0 ? -64'd3 : right_value(lane),left_value(lane,sew+1)),sew+1);
           address+=128;
         end
       end
@@ -642,7 +698,7 @@ module rv5stage_vector_muldiv_tb;
           end
         end
       end
-      if (cycles > 300000) $fatal(1, "vector muldiv timeout stores=%0d fetch=%h", stores, instruction_access_out.request.bits.address);
+      if (cycles > 400000) $fatal(1, "vector muldiv timeout stores=%0d fetch=%h", stores, instruction_access_out.request.bits.address);
     end
   end
 endmodule
