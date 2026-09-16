@@ -98,13 +98,16 @@ Zero-extend the offset, add it to the captured base, and reread it after retry
 from the authorized element cursor. Ordered and unordered forms may share
 element-order issue until an explicitly unordered scheduler is introduced.
 Keep indexed-load destination/index groups disjoint until the unroller has a
-source-preservation strategy for legal overlap.
+source-preservation strategy for legal overlap. Indexed segments reuse the
+same offset while the field cursor adds `field << SEW`; do not add another
+address register or advance the element cursor before the final field.
 Unit- and constant-stride segments retain separate speculative and authorized
 field cursors. Form each access as `element_base + (field << EEW)`, and advance
 the element base only after its final field. Unit stride steps the base by
 `NFIELDS << EEW`; constant stride uses the captured signed `rs2`, including
-negative, zero, and overlapping strides. Warm-up skips one whole segment per
-addition. Destination/source field groups start at
+negative, zero, and overlapping strides. Indexed segments instead retain the
+scalar base and reread the current element's index for each field. Warm-up
+skips one whole segment per addition for nonindexed forms. Destination/source field groups start at
 `vd/vs3 + field * ceil(EMUL)`. A macro-local operation sequence,
 not the architectural element, selects completion slots and ordered drain, so
 several fields of one segment cannot alias the same slot. On retry, restore the
@@ -370,10 +373,11 @@ Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 For vector memory, run `rv5stage-vector-memory` through the shared real
 core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer
 regression. The memory bench covers all four EEWs, an EEW/SEW mismatch,
-positive/negative/zero stride, indexed and three-field unit- and constant-stride
-operations, field/register mapping, additive segment-aware `vstart` warm-up,
-masks, empty bodies, in-order device stores, request/CHI backpressure, and a
-segmented Sv39 page-boundary fault repaired and restarted from `vstart`. It also requires
+positive/negative/zero stride, indexed and three-field unit-stride,
+constant-stride, and indexed segment operations, field/register mapping, additive segment-aware
+`vstart` warm-up, masks, empty bodies, in-order device stores, request/CHI
+backpressure, and an indexed segmented Sv39 page-boundary fault repaired and
+restarted from `vstart`. It also requires
 warm-hit throughput, hits completing ahead of a delayed miss, scalar-load
 overlap with a vector-load tail, and both asymmetric scalar/store barriers. Keep ordinary
 scalar and RV32F/RV64D core regressions when shared LSU metadata changes.

@@ -387,7 +387,7 @@
     instruction = {4'b0,2'b01,1'b1,5'd8,5'd1,3'd6,5'd8,7'h07}; #1;
     assert(!legal) else $fatal(1,"indexed load accepted destination/index overlap");
     instruction[6:0] = 7'h27; #1;
-    assert(legal) else $fatal(1,"same-EEW indexed store overlap rejected");
+    assert(legal == (XLEN == 64)) else $fatal(1,"same-EEW indexed store overlap legality");
     instruction[14:12] = 3'd5; #1;
     assert(!legal) else $fatal(1,"different-EEW indexed store overlap accepted");
     test_vtype = 0; instruction = {4'b0,2'b11,1'b0,5'd0,5'd1,3'd0,5'd8,7'h07}; #1;
@@ -415,6 +415,42 @@
                 assert(decoded_valid && legal == expected_legal)
                   else $fatal(1,"segment memory legality strided=%0d sew=%0d lm=%0d eew=%0d nf=%0d reg=%0d",strided,sew,lm,eew,nf,regno);
                 checks++;
+              end
+            end
+          end
+        end
+      end
+    end
+
+    // Indexed segments use SEW/LMUL for every data field and the encoded EEW
+    // for one shared index group. Loads require the complete data footprint to
+    // be disjoint from that index group; same-EEW stores may alias it.
+    for (int ordered = 0; ordered < 2; ordered++) begin
+      for (int store = 0; store < 2; store++) begin
+        for (int sew = 0; sew < 4; sew++) begin
+          for (int lm = -3; lm <= 3; lm++) begin
+            for (int index_eew = 0; index_eew < 4; index_eew++) begin
+              for (int nf = 1; nf < 8; nf++) begin
+                for (int regno = 0; regno < 32; regno++) begin
+                  for (int index_choice = 0; index_choice < 5; index_choice++) begin
+                    automatic int index_emul = lm + index_eew - sew;
+                    automatic int data_registers = lm <= 0 ? 1 : 1 << lm;
+                    automatic int index_registers = index_emul <= 0 ? 1 : 1 << index_emul;
+                    automatic int footprint = data_registers * (nf + 1);
+                    automatic int index_reg = index_choice == 0 ? 0 : index_choice == 1 ? 1 : index_choice == 2 ? regno : index_choice == 3 ? (regno + data_registers < 32 ? regno + data_registers : 31) : 31;
+                    automatic bit data_aligned = regno % data_registers == 0;
+                    automatic bit index_aligned = index_reg % index_registers == 0;
+                    automatic bit disjoint = regno >= index_reg + index_registers || index_reg >= regno + footprint;
+                    automatic bit overlap_legal = store != 0 ? index_eew == sew || disjoint : disjoint;
+                    automatic bit expected_legal = XLEN == 64 && sew <= lm + 3 && index_emul >= -3 && index_emul <= 3 && data_aligned && index_aligned && footprint <= 8 && regno + footprint <= 32 && overlap_legal;
+                    test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
+                    instruction = {3'(nf),1'b0,ordered != 0 ? 2'b11 : 2'b01,1'b1,5'(index_reg),5'd1,3'(index_eew == 0 ? 0 : index_eew+4),5'(regno),store != 0 ? 7'h27 : 7'h07};
+                    #1;
+                    assert(decoded_valid && legal == expected_legal)
+                      else $fatal(1,"indexed segment legality ordered=%0d store=%0d sew=%0d lm=%0d index_eew=%0d nf=%0d reg=%0d index=%0d",ordered,store,sew,lm,index_eew,nf,regno,index_reg);
+                    checks++;
+                  end
+                end
               end
             end
           end
@@ -611,4 +647,4 @@
     $display("RV%0d VLEN=%0d vector configuration/CSR/decode passed %0d commits", XLEN, VLEN, checks);
     $finish;
   end
-  initial begin #2000000; $fatal(1, "vector control timeout"); end
+  initial begin #4000000; $fatal(1, "vector control timeout"); end

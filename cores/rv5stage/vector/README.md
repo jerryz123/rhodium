@@ -4,8 +4,9 @@
 # Experimental vector path
 
 The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
-vector CSR state, the decoded packed-integer subset, and RV64 unit-stride,
-strided, indexed, and unit-/constant-stride segmented memory operations. The default is `#false`. Neither setting advertises `V`,
+vector CSR state, the decoded packed-integer subset, and RV64 vector memory
+operations using unit-stride, constant-stride, indexed, unit-stride segment,
+constant-stride segment, and indexed segment addressing. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
@@ -110,10 +111,12 @@ offset, while `vtype.SEW` and LMUL describe the transferred data. Each offset
 is zero-extended and added directly to the base; it is never scaled by the data
 width. Ordered and unordered encodings currently share conservative
 element-order issue. Retry returns to the WB-authorized element and rereads its
-offset. The initial implementation requires an indexed load destination to be
-disjoint from its index group; indexed stores may overlap data and indices only
-when they use the same EEW. This restriction avoids completion writes changing
-offsets that have not yet been read.
+offset. Indexed segments reuse that offset for every contiguous field at the
+element, adding `field << SEW` before moving to the next index. The initial
+implementation requires an indexed load's complete NFIELDS destination footprint
+to be disjoint from its index group; indexed stores may overlap data and indices
+only when they use the same EEW. This restriction avoids completion writes
+changing offsets that have not yet been read.
 
 Unit-stride `vlseg2-8e*.v`/`vsseg2-8e*.v` and constant-stride
 `vlsseg2-8e*.v`/`vssseg2-8e*.v` walk fields inside each segment before
@@ -129,6 +132,10 @@ the same element can remain outstanding and still drain in issue order. Retry
 restores both element and field cursors plus the authorized address. A fault
 reports the containing segment through `vstart`; fields already performed in
 that segment follow RVV's implementation-defined partial-segment rule.
+Indexed segments use the same field/register sequencing and retry checkpoints,
+but form each segment base as `rs1 + vs2[element]`. Ordered and unordered forms
+currently share conservative element-order issue; neither form promises an
+order among fields within one segment.
 
 The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
 element and execute every body element; `v0` is data, not predication. `vmadc`

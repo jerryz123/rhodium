@@ -79,6 +79,9 @@ module rv5stage_vector_memory_tb;
   function automatic logic [31:0] segment_vmem(input bit store, input int width, fields, regno, base, input bit masked = 0, strided = 0, input int stride = 0);
     return {3'(fields-1), 1'b0, strided ? 2'b10 : 2'b00, !masked, 5'(strided ? stride : 0), 5'(base), 3'(width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
   endfunction
+  function automatic logic [31:0] indexed_segment_vmem(input bit store, ordered, input int index_width, fields, regno, base, index_reg, input bit masked = 0);
+    return {3'(fields-1), 1'b0, ordered ? 2'b11 : 2'b01, !masked, 5'(index_reg), 5'(base), 3'(index_width == 0 ? 0 : index_width + 4), 5'(regno), store ? 7'h27 : 7'h07};
+  endfunction
   function automatic logic [31:0] vint(input int op, vd, vs2, vs1, mode = 0);
     return {6'(op), 1'b1, 5'(vs2), 5'(vs1), 3'(mode), 5'(vd), 7'h57};
   endfunction
@@ -238,7 +241,7 @@ module rv5stage_vector_memory_tb;
           if (signatures + 1 == expected_count) begin
             assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
-            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/masked/EEW/vstart/device/fault restart passed",
+            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/indexed-segmented/masked/EEW/vstart/device/fault restart passed",
                      COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
             $finish;
           end
@@ -250,7 +253,7 @@ module rv5stage_vector_memory_tb;
 
   initial begin
     logic [63:0] values[], field_values[];
-    int fault_pc, continuation, before_handler;
+    int fault_pc, continuation, before_handler, offsets[4];
     for (int i = 0; i < 2048; i++) program_words[i] = 32'h0000006f;
     for (int i = 0; i < 32768; i++) memory[i] = 8'h55;
     li(20, 'h8000); li(1, 'h600); emit(csr('h300,0,1)); li(1,'h1000); emit(csr('h305,0,1));
@@ -389,11 +392,50 @@ module rv5stage_vector_memory_tb;
       check_strided_memory('h3a00+field*8,32,4,field_values);
     end
     emit(csr(8,7,0,2)); signature(7,0);
+    // Indexed segments combine one vector byte offset per segment with
+    // contiguous SEW-sized fields. Exercise mixed index/data EEW, both
+    // ordering encodings, repeated ordered offsets, and segment-granular vstart.
+    offsets[0]=72; offsets[1]=0; offsets[2]=48; offsets[3]=24;
+    values = new[12];
+    for (int element = 0; element < 4; element++) begin
+      memory['h3b00+element*2] = 8'(offsets[element]);
+      memory['h3b01+element*2] = 8'(offsets[element] >> 8);
+      for (int field = 0; field < 3; field++) begin
+        values[element*3+field] = 64'('h700 + element*16 + field);
+        write_word('h3c00+offsets[element]+field*8,values[element*3+field]);
+      end
+    end
+    configure(3,1,4); li(8,'h3b00); emit(vmem(0,1,16,8));
+    li(8,'h3c00); emit(indexed_segment_vmem(0,0,1,3,8,8,16));
+    for (int field = 0; field < 3; field++) begin
+      field_values = new[4];
+      for (int element = 0; element < 4; element++) field_values[element] = values[element*3+field];
+      li(9,'h3d00+field*64); emit(vmem(1,3,8+field*2,9));
+      check_memory('h3d00+field*64,32,field_values);
+    end
+    li(9,'h3e00); emit(indexed_segment_vmem(1,1,1,3,8,9,16));
+    for (int element = 0; element < 4; element++) begin
+      field_values = new[3];
+      for (int field = 0; field < 3; field++) field_values[field] = values[element*3+field];
+      check_memory('h3e00+offsets[element],24,field_values);
+    end
+    emit(vint(11,16,16,16)); li(9,'h3f00); emit(indexed_segment_vmem(1,1,1,3,8,9,16));
+    field_values = new[3];
+    for (int field = 0; field < 3; field++) field_values[field] = values[9+field];
+    check_memory('h3f00,24,field_values);
+    li(8,'h3b00); emit(vmem(0,1,16,8)); emit(csr(8,0,1,5)); li(9,'h3f80); emit(indexed_segment_vmem(1,1,1,3,8,9,16));
+    for (int element = 0; element < 4; element++) begin
+      field_values = new[3];
+      for (int field = 0; field < 3; field++) field_values[field] = element == 0 ? 64'h5555555555555555 : values[element*3+field];
+      check_memory('h3f80+offsets[element],24,field_values);
+    end
+    emit(csr(8,7,0,2)); signature(7,0);
     // Empty and fully masked bodies must not touch an unmapped address.
     li(8,'h10000); emit(csr(8,0,20,5)); emit(vmem(0,0,16,8));
     emit(vint(25,0,8,8)); // vmsne.vv v0,v8,v8
     emit(vmem(0,0,16,8,1)); emit(vmem(1,0,16,8,1));
     li(10,32); emit(segment_vmem(0,3,3,16,8,1,1,10)); emit(segment_vmem(1,3,3,16,8,1,1,10));
+    emit(indexed_segment_vmem(0,1,1,3,8,8,16,1)); emit(indexed_segment_vmem(1,1,1,3,8,8,16,1));
     emit(csr(8,7,0,2)); signature(7,0);
     // A scalar load may pass an older vector load's delayed completion, but
     // the following scalar store must wait for that vector load to drain.
@@ -405,14 +447,19 @@ module rv5stage_vector_memory_tb;
     // Exactly-once vector stores through the uncached/device LSU path.
     configure(3,1,4); li(8,'h1300); emit(vmem(0,3,8,8)); li(9,'h9000); emit(vmem(1,3,8,9));
     emit({12'd8,5'd8,3'b011,5'd7,7'h03}); signature(7,2);
-    // A segmented load crosses an Sv39 leaf boundary after one whole segment.
+    // An indexed segmented load crosses an Sv39 leaf boundary after one whole segment.
+    for (int element = 0; element < 4; element++) begin
+      memory['h2f00+element*2] = 8'(element*16);
+      memory['h2f01+element*2] = 0;
+    end
+    li(8,'h2f00); emit(vmem(0,1,16,8));
     write_word('h3000,64'h1001); write_word('h4000,64'h1401);
     write_word('h5020,64'h4c7); write_word('h5028,0);
     write_word('h1ff0,64'h21); write_word('h1ff8,64'h22);
     for (int i = 0; i < 6; i++) write_word('h6000+i*8,64'('h23+i));
     li(7,1); emit({6'b0,6'd63,5'd7,3'b001,5'd7,7'h13}); emit(addi(7,7,3)); emit(csr('h180,0,7));
     li(8,'h4ff0); li(1,'h20e00); emit(csr('h300,0,1));
-    fault_pc=pc*4; emit(segment_vmem(0,3,2,8,8)); continuation=pc;
+    fault_pc=pc*4; emit(indexed_segment_vmem(0,1,1,2,8,8,16)); continuation=pc;
     li(1,'h600); emit(csr('h300,0,1));
     li(9,'h2500); emit(vmem(1,3,8,9)); li(9,'h2540); emit(vmem(1,3,10,9));
     // Handler signatures precede these continuation signatures.
