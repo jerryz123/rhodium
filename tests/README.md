@@ -77,13 +77,22 @@ backend-manifest coverage; that check does not invoke CIRCT or Verilator.
 ### Host and model checks
 
 For one Racket or Rhombus test, use the repository wrapper so the run receives
-the required isolated compiled root:
+the required isolated compiled root. The first successful local test batch for
+a Racket and package environment prepares an external-dependency bytecode
+cache; later invocations copy that cache into a new root before running the
+test. Set `RHODIUM_RACKET_CACHE_DIR` to relocate this disposable cache.
 
 ```sh
 tools/run-racket-tests.sh tests/core/verify-test.rhm
 tools/run-racket-tests.sh tests/frontend/interface-test.rhm
 tools/run-racket-tests.sh tests/backend/circt-test.rhm
 ```
+
+The cache never contains bytecode built from the Rhodium checkout, so changing
+branches or worktrees cannot reuse stale project code. The direct Racket runner
+can consume the cache but does not publish it, preventing a trivial script from
+creating an under-populated entry. Supplying `PLTCOMPILEDROOTS` explicitly
+bypasses the local cache and uses that exact root.
 
 Then move to the owning target from the tables above. Add
 `make check-boundaries` after moving modules or changing dependency direction.

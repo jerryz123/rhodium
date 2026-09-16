@@ -60,6 +60,16 @@ When it selects any downstream work, CI compiles the positive Racket entrypoint
 manifest once for reuse by the selected jobs. Pull requests and pushes classify
 the changed paths; manual dispatch selects every matrix shard.
 
+Local runner scripts preserve the same freshness boundary in a different way.
+Each invocation creates a new compiled root, seeds it from a cache keyed by the
+Racket version, installed package checksums, operating system, and architecture,
+and deletes it after the command. A successful test batch publishes the cache;
+the direct Racket runner only consumes it so a trivial script cannot create an
+under-populated entry. Publication removes the current repository subtree and
+therefore retains external dependency bytecode only. Callers that provide
+`PLTCOMPILEDROOTS` retain full ownership of that root, and CI continues to use
+its separately verified exact-commit bytecode artifact.
+
 ```mermaid
 flowchart TD
     Changes["Pull request or push paths"] --> Classifier["Change classifier"]

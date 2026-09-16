@@ -15,8 +15,7 @@ fi
 if [[ -z "$compiled_root" ]]; then
   compiled_root="$(mktemp -d /tmp/rhodium-racket-compiled.XXXXXX)"
   trap 'rm -rf "$compiled_root"' EXIT
-  env PLTCOMPILEDROOTS="$compiled_root" "$racket_command" -y "$@"
-  exit
+  "$repo_dir/tools/racket-dependency-cache.sh" seed "$compiled_root" || true
 fi
 
-exec "$racket_command" -y "$@"
+env PLTCOMPILEDROOTS="$compiled_root" "$racket_command" -y "$@"
