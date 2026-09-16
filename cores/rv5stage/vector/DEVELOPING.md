@@ -99,6 +99,16 @@ from the authorized element cursor. Ordered and unordered forms may share
 element-order issue until an explicitly unordered scheduler is introduced.
 Keep indexed-load destination/index groups disjoint until the unroller has a
 source-preservation strategy for legal overlap.
+Unit-stride segments retain separate speculative and authorized field cursors.
+Advance the element only after its final field, but advance the memory address
+after every field. Warm-up skips `vstart` whole segments by iterating fields;
+do not introduce an element-by-NFIELDS multiplier. Destination/source field
+groups start at `vd/vs3 + field * ceil(EMUL)`. A macro-local operation sequence,
+not the architectural element, selects completion slots and ordered drain, so
+several fields of one segment cannot alias the same slot. On retry, restore the
+operation sequence, element, field, and address checkpoints together. Fault
+reporting remains element-granular because architectural `vstart` counts whole
+segments.
 The private pipeline retains destination mask/shift and element range; the
 profile's power-of-two `vector_completion_slots` reserved slots absorb hit and slow completions independently before ordered
 VRF drain. Reserve on issue, authorize only at WB, and clear only unauthorized
@@ -106,7 +116,7 @@ slots on retry/cancel. Retry flushes younger scalar EX/MEM tokens without
 redirecting fetch to the macro PC. Faults update `vstart` and keep accepted
 response ownership alive through precise-trap draining.
 
-Slot selection is the element index modulo the configured depth. Depth one
+Slot selection is the macro-local operation sequence modulo the configured depth. Depth one
 must explicitly produce zero and hold the drain head at zero; `index_width(1)`
 still represents a one-bit hardware value. Keep the count on public token,
 completion, and data-protocol types, not just on the private register arrays.
@@ -358,7 +368,8 @@ Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 For vector memory, run `rv5stage-vector-memory` through the shared real
 core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer
 regression. The memory bench covers all four EEWs, an EEW/SEW mismatch,
-positive/negative/zero stride, additive `vstart` warm-up, masks, empty bodies,
+positive/negative/zero stride, indexed and three-field unit-stride operations,
+field/register mapping, additive segment-aware `vstart` warm-up, masks, empty bodies,
 in-order device stores, request/CHI backpressure, and a Sv39
 page-boundary fault repaired and restarted from `vstart`. It also requires
 warm-hit throughput, hits completing ahead of a delayed miss, scalar-load

@@ -71,6 +71,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
   unroller.feedback.valid <== pipeline.egress.valid & !cancel
   unroller.feedback.bits <== RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width)):
     context: bits(0x100, xlen.width)
+    sequence: pipeline.egress.bits.sequence
     first: pipeline.egress.bits.first
     end: pipeline.egress.bits.end
     disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)

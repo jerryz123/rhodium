@@ -395,6 +395,31 @@
     instruction = {4'b0,2'b11,1'b0,5'd8,5'd1,3'd0,5'd0,7'h27}; #1;
     assert(!legal) else $fatal(1,"masked indexed store read v0 as data");
 
+    // Unit-stride segment groups use ceil(EMUL) registers per field. Every
+    // field group is aligned, the total footprint is at most eight registers,
+    // and the final field cannot wrap past v31.
+    for (int sew = 0; sew < 4; sew++) begin
+      for (int lm = -3; lm <= 3; lm++) begin
+        for (int eew = 0; eew < 4; eew++) begin
+          for (int nf = 1; nf < 8; nf++) begin
+            for (int regno = 0; regno < 32; regno++) begin
+              automatic int emul = lm + eew - sew;
+              automatic int registers = emul <= 0 ? 1 : 1 << emul;
+              automatic int footprint = registers * (nf + 1);
+              automatic bit aligned = regno % registers == 0;
+              automatic bit expected_legal = XLEN == 64 && sew <= lm + 3 && emul >= -3 && emul <= 3 && aligned && footprint <= 8 && regno + footprint <= 32;
+              test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
+              instruction = {3'(nf),1'b0,2'b00,1'b1,5'b0,5'd1,3'(eew == 0 ? 0 : eew+4),5'(regno),7'h07};
+              #1;
+              assert(decoded_valid && legal == expected_legal)
+                else $fatal(1,"segment memory legality sew=%0d lm=%0d eew=%0d nf=%0d reg=%0d",sew,lm,eew,nf,regno);
+              checks++;
+            end
+          end
+        end
+      end
+    end
+
     // The initial FP subset admits aligned same-width FP32/64 groups on RV64.
     for (int op = 0; op < 3; op++) begin
       for (int sew = 0; sew < 4; sew++) begin

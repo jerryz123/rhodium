@@ -5,7 +5,7 @@
 
 The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
 vector CSR state, the decoded packed-integer subset, and RV64 unit-stride,
-strided, and indexed memory operations. The default is `#false`. Neither setting advertises `V`,
+strided, indexed, and unit-stride segmented memory operations. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
@@ -114,6 +114,18 @@ offset. The initial implementation requires an indexed load destination to be
 disjoint from its index group; indexed stores may overlap data and indices only
 when they use the same EEW. This restriction avoids completion writes changing
 offsets that have not yet been read.
+
+Unit-stride `vlseg2-8e*.v` and `vsseg2-8e*.v` walk fields inside each segment
+before advancing the architectural element. The address sequencer adds EEW
+once per field; its `vstart` warm-up repeats that addition NFIELDS times per
+skipped segment, without a multiplier. Each field maps to the next EMUL-sized
+register group. Decode enforces aligned field groups, `ceil(EMUL) * NFIELDS <= 8`,
+and no register wrap past `v31`. Masking applies to the whole segment.
+Completion slots use a separate macro-local operation sequence, so fields at
+the same element can remain outstanding and still drain in issue order. Retry
+restores both element and field cursors plus the authorized address. A fault
+reports the containing segment through `vstart`; fields already performed in
+that segment follow RVV's implementation-defined partial-segment rule.
 
 The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
 element and execute every body element; `v0` is data, not predication. `vmadc`

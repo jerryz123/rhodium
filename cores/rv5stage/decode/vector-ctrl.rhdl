@@ -56,6 +56,7 @@ bundle RV5StageVectorControl():
   store: Bool
   memory_data_eew: Bits(2)
   memory_index_eew: Bits(2)
+  memory_nf: Bits(3)
   memory_addressing: VectorMemoryAddressing
   operand: VectorOperandMode
   immediate_unsigned: Bool
@@ -556,6 +557,7 @@ fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorM
         memory: Bool(#true)
         store: Bool(index >= 4)
         memory_data_eew: bits(index mod 4, 2)
+        memory_nf: bits(0, 3)
         memory_addressing: addressing
         operand: VectorOperandMode.Scalar
     )
@@ -571,15 +573,33 @@ fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         memory: Bool(#true)
         store: Bool(index >= 4)
         memory_index_eew: bits(index mod 4, 2)
+        memory_nf: bits(0, 3)
         memory_addressing: addressing
         operand: VectorOperandMode.Vector
+    )
+fun segment_memory_cases(instructions :: List.of(InstructionSpec)):
+  for List (instruction in instructions, index in 0..56):
+    DecodeCase(
+      instruction_pattern(instruction),
+      partial_pattern(RV5StageVectorControl()):
+        configure: VectorConfigMode.None
+        integer: Bool(#false)
+        floating_point: Bool(#false)
+        multiply_divide: Bool(#false)
+        memory: Bool(#true)
+        store: Bool(index >= 28)
+        memory_data_eew: bits(index mod 4, 2)
+        memory_nf: bits(((index mod 28) div 4) + 1, 3)
+        memory_addressing: VectorMemoryAddressing.UnitStride
+        operand: VectorOperandMode.Scalar
     )
 def VectorUnitStrideMemoryCases = memory_cases(VectorUnitStrideMemoryInstructions, VectorMemoryAddressing.UnitStride)
 def VectorStridedMemoryCases = memory_cases(VectorStridedMemoryInstructions, VectorMemoryAddressing.Strided)
 def VectorIndexedUnorderedMemoryCases = indexed_memory_cases(VectorIndexedUnorderedMemoryInstructions, VectorMemoryAddressing.IndexedUnordered)
 def VectorIndexedOrderedMemoryCases = indexed_memory_cases(VectorIndexedOrderedMemoryInstructions, VectorMemoryAddressing.IndexedOrdered)
 def VectorIndexedMemoryCases = VectorIndexedUnorderedMemoryCases ++ VectorIndexedOrderedMemoryCases
-def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases
+def VectorUnitStrideSegmentMemoryCases = segment_memory_cases(VectorUnitStrideSegmentMemoryInstructions)
+def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases
 def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstructions):
   DecodeCase(
     instruction_pattern(instruction),
@@ -656,6 +676,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   output legal: Bool
   def config = vector_type(xlen, vlen, vtype)
   def indexed_memory = control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
+  def segmented_memory = control.memory & control.memory_nf.or_reduce()
   // LMUL is a signed power-of-two exponent; EMUL = LMUL * EEW / SEW.
   // Indexed memory uses SEW/LMUL for data and the encoded EEW for offsets.
   def data_eew = mux(indexed_memory, config.sew, control.memory_data_eew)
@@ -671,6 +692,9 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def extension_group_mask = mux_lookup(extension_group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
   def group = mux(control.memory, emul.into(Bits(5))[0..3], config.lmul)
   def group_mask = mux_lookup(group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
+  def memory_group_shift = mux(emul < SInt(5)(0), bits(0, 3), emul.into(Bits(5))[0..3])
+  def memory_fields = control.memory_nf.zext(4) + bits(1, 4)
+  def memory_register_count = memory_fields.zext(7) << memory_group_shift
   def memory_index_group = memory_index_emul.into(Bits(5))[0..3]
   def memory_index_group_mask = mux_lookup(memory_index_group, ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
   def wide_group_mask = mux_lookup(widening_emul.into(Bits(5))[0..3], ~default: bits(0, 5), [[1, bits(1, 5)], [2, bits(3, 5)], [3, bits(7, 5)]])
@@ -753,7 +777,8 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   // may alias only when both operands use the same EEW.
   def indexed_overlap_legal = mux(control.store, (control.memory_index_eew === config.sew) ||| memory_groups_disjoint, memory_groups_disjoint)
   def indexed_memory_legal = !indexed_memory ||| ((memory_index_emul >= SInt(5)(-3)) & (memory_index_emul <= SInt(5)(3)) & memory_index_aligned & indexed_overlap_legal & (!masked ||| source2.or_reduce()))
-  def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & indexed_memory_legal & (control.store ||| !(masked & !destination.or_reduce())) & (!control.store ||| !masked ||| destination.or_reduce())
+  def segment_memory_legal = !segmented_memory ||| ((memory_register_count <= bits(8, 7)) & (destination.zext(7) + memory_register_count <= bits(32, 7)))
+  def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & indexed_memory_legal & segment_memory_legal & (control.store ||| !(masked & !destination.or_reduce())) & (!control.store ||| !masked ||| destination.or_reduce())
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())
   def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
   def multiply_divide_legal = control.multiply_divide & Bool(xlen == XLen.X64) & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.or_reduce())
@@ -787,6 +812,7 @@ export:
   VectorIndexedUnorderedMemoryCases
   VectorIndexedOrderedMemoryCases
   VectorIndexedMemoryCases
+  VectorUnitStrideSegmentMemoryCases
   VectorFloatingPointCases
   VectorDivideCases
   VectorMultiplyCases

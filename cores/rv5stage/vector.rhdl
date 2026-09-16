@@ -98,7 +98,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
     | ~else: position[0..tag_width]
 
   // Bookkeeping admission and private operand capture are one atomic transfer.
-  def available = !(unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide) ||| !allocated[slot_index(unroller.issue.bits.beat.first)]
+  def available = !(unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide) ||| !allocated[slot_index(unroller.issue.bits.beat.sequence)]
   def Array(token, operands) = unroller.issue |> gate_flow(available & !clear & !fold_inflight) |> atomic_fork(2)
   (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
@@ -109,7 +109,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
       enabled: operation.beat.enabled.as_bits()[0].into(Bool)
       address: operation.beat.address
       store_data: operation.beat.left
-      completion_tag: slot_index(operation.beat.first)
+      completion_tag: slot_index(operation.beat.sequence)
   ) |> issue
   operands |> map_flow(operation => operation.beat) |> to_valid() |> ex_pipe.ingress
   def ex_beat = ex_pipe.egress.bits
@@ -119,7 +119,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
 
   inst fp_operands(ValidPipe(FpRequest, 2, ~flushable: #true))
   fp_operands.flush <== clear
-  ex_pipe.egress |> map_valid(operation => vector_fp_request(xlen, vlen, vector_completion_slots, operation, slot_index(operation.first), captured_rounding)) |> fp_operands.ingress
+  ex_pipe.egress |> map_valid(operation => vector_fp_request(xlen, vlen, vector_completion_slots, operation, slot_index(operation.sequence), captured_rounding)) |> fp_operands.ingress
   inst fp_authorized(Queue(FpRequest, vector_completion_slots))
   fp_authorized.egress |> fp_request
   fp_result.ready <== Bool(#true)
@@ -130,8 +130,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   inst divide_operands(ValidPipe(DivideRequest, 2, ~flushable: #true))
   multiply_operands.flush <== clear
   divide_operands.flush <== clear
-  ex_pipe.egress |> map_valid(operation => vector_multiply_request(xlen, vlen, vector_completion_slots, operation, slot_index(operation.first))) |> multiply_operands.ingress
-  ex_pipe.egress |> map_valid(operation => vector_divide_request(xlen, vlen, vector_completion_slots, operation, slot_index(operation.first))) |> divide_operands.ingress
+  ex_pipe.egress |> map_valid(operation => vector_multiply_request(xlen, vlen, vector_completion_slots, operation, slot_index(operation.sequence))) |> multiply_operands.ingress
+  ex_pipe.egress |> map_valid(operation => vector_divide_request(xlen, vlen, vector_completion_slots, operation, slot_index(operation.sequence))) |> divide_operands.ingress
   // Accepted work survives cancellation; speculative operand pipes do not.
   inst multiply_authorized(Queue(MultiplyRequest, vector_completion_slots))
   inst divide_authorized(Queue(DivideRequest, vector_completion_slots))
@@ -145,7 +145,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   when (commit.valid):
     assert(wb_pipe.egress.valid, "vector_commit_has_aligned_result")
   def beat = wb_pipe.egress.bits
-  def wb_tag = slot_index(beat.first)
+  def wb_tag = slot_index(beat.sequence)
   def successful = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Authorized)
   // Keep the accumulator at the authorized frontier. A retry never folds an
   // element twice, and an overlapping destination is written only at the end.
@@ -194,6 +194,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   (
     commit |> map_valid(event => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
       context: event.pc
+      sequence: beat.sequence
       first: beat.first
       end: beat.end
       disposition: event.disposition
@@ -207,7 +208,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   def multiply_entry = entries[multiply_result.bits.tag.slot]
   def multiply_completion = vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits, multiply_entry.write.data, multiply_entry.multiply_accumulate, multiply_entry.multiply_subtract)
   when (request.fire()):
-    head <== slot_index(request.bits.descriptor.state.vstart)
+    head <== bits(0, tag_width)
   elsewhen drain:
     head <== if vector_completion_slots == 1 | bits(0, tag_width) | head + bits(1, tag_width)
   when (request.fire() & request.bits.descriptor.control.memory & request.bits.descriptor.control.store):

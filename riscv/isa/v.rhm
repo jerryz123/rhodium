@@ -40,6 +40,7 @@ def VSETVL = InstructionSpec("VSETVL", RFormat, [opcode.constrain(0x57), funct3.
 def VectorConfigInstructions = [VSETVLI, VSETIVLI, VSETVL]
 
 def vs3 = BitField("vs3", 11, 7)
+def nf = BitField("nf", 31, 29)
 def VectorLoadFormat = InstructionFormat("vector-load", [vector_destination, RegisterOperand("rs1", rs1, "source")], #false, [vm])
 def VectorStoreFormat = InstructionFormat("vector-store", [RegisterOperand("vs3", vs3, "source", RegisterBank.Vector), RegisterOperand("rs1", rs1, "source")], #false, [vm])
 def VectorStridedLoadFormat = InstructionFormat("vector-strided-load", [vector_destination, RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")], #false, [vm])
@@ -52,6 +53,12 @@ fun strided(name :: String, store :: Boolean, width :: Nat):
   InstructionSpec(name, if store | VectorStridedStoreFormat | VectorStridedLoadFormat, [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), BitField("nf/mew", 31, 28).constrain(0), BitField("mop", 27, 26).constrain(2)])
 fun indexed(name :: String, store :: Boolean, width :: Nat, ordered :: Boolean):
   InstructionSpec(name, if store | VectorIndexedStoreFormat | VectorIndexedLoadFormat, [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), BitField("nf/mew", 31, 28).constrain(0), BitField("mop", 27, 26).constrain(if ordered | 3 | 1)])
+fun unit_stride_segment(fields :: PosInt, store :: Boolean, width :: Nat, width_bits :: PosInt):
+  InstructionSpec(
+    (if store | "VSSEG" | "VLSEG") ++ to_string(fields) ++ "E" ++ to_string(width_bits) ++ ".V",
+    if store | VectorStoreFormat | VectorLoadFormat,
+    [opcode.constrain(if store | 0x27 | 0x07), funct3.constrain(width), nf.constrain(fields - 1), BitField("mew/mop", 28, 26).constrain(0), BitField("lumop/sumop", 24, 20).constrain(0)]
+  )
 def VLE8_V = unit_stride("VLE8.V", #false, 0)
 def VLE16_V = unit_stride("VLE16.V", #false, 5)
 def VLE32_V = unit_stride("VLE32.V", #false, 6)
@@ -89,9 +96,18 @@ def VectorStridedMemoryInstructions = [VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V, VS
 def VectorIndexedUnorderedMemoryInstructions = [VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V, VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V]
 def VectorIndexedOrderedMemoryInstructions = [VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V, VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V]
 def VectorIndexedMemoryInstructions = VectorIndexedUnorderedMemoryInstructions ++ VectorIndexedOrderedMemoryInstructions
-def VectorLoadInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V, VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V, VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V]
-def VectorStoreInstructions = [VSE8_V, VSE16_V, VSE32_V, VSE64_V, VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V, VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V, VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V]
-def VectorMemoryInstructions = VectorUnitStrideMemoryInstructions ++ VectorStridedMemoryInstructions ++ VectorIndexedMemoryInstructions
+fun unit_stride_segments(store :: Boolean):
+  def mutable instructions = []
+  for (fields in 2..9):
+    for (width in [0, 5, 6, 7], width_bits in [8, 16, 32, 64]):
+      instructions := instructions ++ [unit_stride_segment(fields, store, width, width_bits)]
+  instructions
+def VectorUnitStrideSegmentLoadInstructions = unit_stride_segments(#false)
+def VectorUnitStrideSegmentStoreInstructions = unit_stride_segments(#true)
+def VectorUnitStrideSegmentMemoryInstructions = VectorUnitStrideSegmentLoadInstructions ++ VectorUnitStrideSegmentStoreInstructions
+def VectorLoadInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V, VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V, VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V] ++ VectorUnitStrideSegmentLoadInstructions
+def VectorStoreInstructions = [VSE8_V, VSE16_V, VSE32_V, VSE64_V, VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V, VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V, VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V] ++ VectorUnitStrideSegmentStoreInstructions
+def VectorMemoryInstructions = VectorUnitStrideMemoryInstructions ++ VectorStridedMemoryInstructions ++ VectorIndexedMemoryInstructions ++ VectorUnitStrideSegmentMemoryInstructions
 
 fun vector_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
@@ -488,6 +504,7 @@ export:
   VFMUL_VV
   VectorFloatingPointInstructions
   vs3
+  nf
   VectorLoadFormat
   VectorStoreFormat
   VectorStridedLoadFormat
@@ -499,6 +516,9 @@ export:
   VectorIndexedUnorderedMemoryInstructions
   VectorIndexedOrderedMemoryInstructions
   VectorIndexedMemoryInstructions
+  VectorUnitStrideSegmentLoadInstructions
+  VectorUnitStrideSegmentStoreInstructions
+  VectorUnitStrideSegmentMemoryInstructions
   VectorLoadInstructions
   VectorStoreInstructions
   VectorMemoryInstructions

@@ -76,6 +76,9 @@ module rv5stage_vector_memory_tb;
   function automatic logic [31:0] indexed_vmem(input bit store, ordered, input int index_width, regno, base, index_reg, input bit masked = 0);
     return {4'b0, ordered ? 2'b11 : 2'b01, !masked, 5'(index_reg), 5'(base), 3'(index_width == 0 ? 0 : index_width + 4), 5'(regno), store ? 7'h27 : 7'h07};
   endfunction
+  function automatic logic [31:0] segment_vmem(input bit store, input int width, fields, regno, base, input bit masked = 0);
+    return {3'(fields-1), 1'b0, 2'b00, !masked, 5'b0, 5'(base), 3'(width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
+  endfunction
   function automatic logic [31:0] vint(input int op, vd, vs2, vs1, mode = 0);
     return {6'(op), 1'b1, 5'(vs2), 5'(vs1), 3'(mode), 5'(vd), 7'h57};
   endfunction
@@ -235,7 +238,7 @@ module rv5stage_vector_memory_tb;
           if (signatures + 1 == expected_count) begin
             assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
-            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/masked/EEW/vstart/device/fault restart passed",
+            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/masked/EEW/vstart/device/fault restart passed",
                      COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
             $finish;
           end
@@ -246,7 +249,7 @@ module rv5stage_vector_memory_tb;
   end
 
   initial begin
-    logic [63:0] values[];
+    logic [63:0] values[], field_values[];
     int fault_pc, continuation, before_handler;
     for (int i = 0; i < 2048; i++) program_words[i] = 32'h0000006f;
     for (int i = 0; i < 32768; i++) memory[i] = 8'h55;
@@ -324,6 +327,29 @@ module rv5stage_vector_memory_tb;
     li(9,'h2e40); emit(indexed_vmem(1,1,1,8,9,16));
     values[0]=64'h401; values[1]=64'h402; values[2]=64'h403; values[3]=64'h404;
     check_memory('h2e40,32,values);
+    // Unit-stride segments pipeline distinct field operations through the
+    // completion window, map fields to consecutive EMUL groups, and advance
+    // vstart in whole-segment units.
+    values = new[12];
+    for (int element = 0; element < 4; element++) begin
+      for (int field = 0; field < 3; field++) begin
+        values[element*3+field] = 64'('h500 + element*16 + field);
+        write_word('h3100+(element*3+field)*8,values[element*3+field]);
+      end
+    end
+    configure(2,0,4); li(8,'h3100); emit(segment_vmem(0,3,3,8,8));
+    for (int field = 0; field < 3; field++) begin
+      field_values = new[4];
+      for (int element = 0; element < 4; element++) field_values[element] = values[element*3+field];
+      li(9,'h3200+field*64); emit(vmem(1,3,8+field*2,9));
+      check_memory('h3200+field*64,32,field_values);
+    end
+    li(9,'h3300); emit(segment_vmem(1,3,3,8,9));
+    check_memory('h3300,96,values);
+    emit(csr(8,0,1,5)); li(9,'h3400); emit(segment_vmem(1,3,3,8,9));
+    values[0]=64'h5555555555555555; values[1]=64'h5555555555555555; values[2]=64'h5555555555555555;
+    check_memory('h3400,96,values);
+    emit(csr(8,7,0,2)); signature(7,0);
     // Empty and fully masked bodies must not touch an unmapped address.
     li(8,'h10000); emit(csr(8,0,20,5)); emit(vmem(0,0,16,8));
     emit(vint(25,0,8,8)); // vmsne.vv v0,v8,v8

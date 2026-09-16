@@ -327,6 +327,18 @@ for (instructions in [VectorIndexedUnorderedMemoryInstructions, VectorIndexedOrd
       value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1
       value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
 
+for (instruction in VectorUnitStrideSegmentMemoryInstructions, index in 0..56):
+  def decoded = control(instruction)
+  check:
+    value(decoded, "integer") ~is 0
+    value(decoded, "memory") ~is 1
+    value(decoded, "store") ~is (if index >= 28 | 1 | 0)
+    value(decoded, "memory_data_eew") ~is index mod 4
+    value(decoded, "memory_nf") ~is ((index mod 28) div 4) + 1
+    value(decoded, "memory_addressing") ~is VectorMemoryAddressing.UnitStride.packed_value()
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1
+    value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
+
 for (vlen in [128, 256, 512, 65536]):
   def micro = RV5StageVectorMicroOp(vlen, Bits(4))
   def feedback = RV5StageVectorFeedback(XLen.X64, vlen, Bits(4))
@@ -341,5 +353,7 @@ for (vlen in [128, 256, 512, 65536]):
     (1 bits.(<<) beat.field("end").type.packed_width()) > vlen ~is #true
     beat.field("end").type.packed_width() ~is feedback.field("end").type.packed_width()
     beat.field("destination_first").type.packed_width() ~is beat.field("end").type.packed_width()
+    beat.field("sequence").type.packed_width() ~is vector_sequence_width(vlen)
+    feedback.field("sequence").type.packed_width() ~is beat.field("sequence").type.packed_width()
     beat.field("compress_state").type.field("destination").type.packed_width() ~is beat.field("end").type.packed_width()
     feedback.field("compress_state").type.field("destination").type.packed_width() ~is beat.field("end").type.packed_width()

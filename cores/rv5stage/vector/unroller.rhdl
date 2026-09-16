@@ -16,6 +16,7 @@ import:
 sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   def Address = Bits(index_width(vector_depth(vlen)))
   def Count = Bits(index_width(vlen + 1))
+  def Sequence = Bits(vector_sequence_width(vlen))
   def MicroOp = RV5StageVectorMicroOp(vlen, Context)
   bundle ReadContext():
     beat: RV5StageVectorBeat(vlen)
@@ -36,12 +37,17 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   reg occupied(~init: Bool(#false))
   reg instruction(RV5StageVectorInstruction(xlen, Context))
   reg cursor(Count)
+  reg field(Bits(3))
+  reg sequence(Sequence)
   reg minimum(Count)
   reg authorized(Count)
+  reg authorized_field(Bits(3))
+  reg authorized_sequence(Sequence)
   reg memory_address(~init: bits(0, 64))
   reg authorized_memory_address(~init: bits(0, 64))
   reg memory_step(~init: bits(0, 64))
   reg memory_setup_remaining(~init: bits(0, index_width(vlen + 1)))
+  reg memory_setup_field(~init: bits(0, 3))
   reg all_issued(~init: Bool(#false))
   reg compress_data(~init: bits(0, 64))
   reg compress_count(~init: bits(0, 4))
@@ -59,6 +65,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def descriptor = instruction.descriptor
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
   def indexed_memory = descriptor.control.memory & descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
+  def segmented_memory = descriptor.control.memory & descriptor.control.memory_nf.or_reduce()
   def memory_data_eew = mux(indexed_memory, geometry.sew, descriptor.control.memory_data_eew)
   def sew = mux(descriptor.control.memory, memory_data_eew, geometry.sew)
   def element_move = descriptor.control.integer & descriptor.control.element_move
@@ -93,6 +100,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def empty = mux(element_move, !descriptor.control.scalar_destination & (descriptor.state.vstart >= descriptor.state.vl), minimum >= limit)
   def next_cursor = cursor.zext(index_width(vlen + 1) + 1) + lanes.zext(index_width(vlen + 1) + 1)
   def end = mux(empty ||| (next_cursor >= limit.zext(index_width(vlen + 1) + 1)), limit, next_cursor[0..index_width(vlen + 1)])
+  def last_field = !segmented_memory ||| (field === descriptor.control.memory_nf)
+  def beat_last = empty ||| ((end === limit) & last_field)
   // A vector gather's second read owns port zero in the index-response cycle.
   // The next index read can overlap the preceding data response, not its read.
   def launch = occupied & !all_issued & !clear & !memory_setup_remaining.or_reduce() & !(gather_vector & context_pipe.egress.valid) & ((reserved < bits(2, 2)) ||| issue.fire())
@@ -103,6 +112,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def destination_width = sew + (descriptor.control.widening & multiply_accumulate).as_bits().zext(2)
   def destination_chunk = cursor >> (bits(3, 2) - destination_width)
   def row_base_width = index_width(vector_depth(vlen))
+  def memory_emul = geometry.lmul.into(SInt(3)).sext(5) + memory_data_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
+  def memory_group_shift = mux(memory_emul < SInt(5)(0), bits(0, 3), memory_emul.into(Bits(5))[0..3])
+  def memory_register = descriptor.vd + (field.zext(5) << memory_group_shift)
   // Whole-element displacement stays at XLEN until bounds are checked. Extra
   // bits retain both unsigned overflow and the negative slide-up prefix.
   def slide_distance = mux(descriptor.control.slide_one, bits(1, xlen.width), mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(xlen.width), descriptor.scalar))
@@ -124,7 +136,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
   def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
   def first_source_chunk = mux(extension, extension_source_chunk, mux(width_change & descriptor.control.wide_vs2, wide_source_chunk, source_chunk))
-  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
+  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
   def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, descriptor.vs2, descriptor.vs1).zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
   def destination_address = (descriptor.vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
   def addresses = Array(first_address, second_address, destination_address)
@@ -132,10 +144,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   context_pipe.ingress.valid <== launch
   context_pipe.ingress.bits.slide_valid <== slide_valid
   context_pipe.ingress.bits.beat <== RV5StageVectorBeat(vlen):
+    sequence: sequence
     first: cursor
     end: end
     destination_first: cursor
-    last: end === limit
+    last: beat_last
     empty: empty
     address: memory_address
     left: bits(0, 64)
@@ -150,7 +163,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     element_width: format
     rounding_mode: descriptor.state.vxrm.into(SimdRoundingMode)
     control: descriptor.control
-    destination: descriptor.vd
+    destination: mux(segmented_memory, memory_register, descriptor.vd)
     compress_state:
       RV5StageVectorCompressState(vlen):
         data: bits(0, 64)
@@ -268,6 +281,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   )
   fun compression_flush_beat(state :: RV5StageVectorCompressState(vlen)) :~ RV5StageVectorBeat(vlen):
     RV5StageVectorBeat(vlen):
+      sequence: sequence
       first: limit
       end: limit
       destination_first: state.destination
@@ -322,6 +336,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   when (feedback.valid & !cancel.valid):
     assert(occupied, "vector_feedback_has_active_macro")
     assert(feedback.bits.context === descriptor.pc, "vector_feedback_matches_active_macro")
+    assert(feedback.bits.sequence === authorized_sequence, "vector_feedback_is_oldest_unauthorized_operation")
     assert(empty ||| ((feedback.bits.first <= authorized) & (feedback.bits.end > authorized)) ||| (compress & feedback.bits.last & (feedback.bits.first === feedback.bits.end) & (feedback.bits.end === authorized)), "vector_feedback_is_oldest_unauthorized_beat")
   when (retry & !cancel.valid):
     assert(feedback.bits.end <= limit, "vector_retry_stays_within_active_body")
@@ -329,6 +344,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     occupied <== Bool(#false)
     all_issued <== Bool(#false)
     memory_setup_remaining <== bits(0, index_width(vlen + 1))
+    memory_setup_field <== bits(0, 3)
+    field <== bits(0, 3)
+    sequence <== bits(0, vector_sequence_width(vlen))
+    authorized_field <== bits(0, 3)
+    authorized_sequence <== bits(0, vector_sequence_width(vlen))
     reserved <== bits(0, 2)
     compress_data <== bits(0, 64)
     compress_count <== bits(0, 4)
@@ -349,13 +369,18 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     def packed_start = aligned_first(start, request.bits.descriptor.state.vtype[3..5])
     def width_change_start = mux_lookup(request.bits.descriptor.state.vtype[3..5], ~default: start.align_down(4), [[1, start.align_down(2)], [2, start]])
     cursor <== mux(word_schedule, start.align_down(64), mux(single_schedule, start, mux(request.bits.descriptor.control.widening ||| request.bits.descriptor.control.narrowing, width_change_start, packed_start)))
+    field <== bits(0, 3)
+    sequence <== bits(0, vector_sequence_width(vlen))
     minimum <== start
     authorized <== start
+    authorized_field <== bits(0, 3)
+    authorized_sequence <== bits(0, vector_sequence_width(vlen))
     memory_address <== base
     authorized_memory_address <== base
     memory_step <== step
     def indexed = request.bits.descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
     memory_setup_remaining <== mux(request.bits.descriptor.control.memory & !indexed & (start < request.bits.descriptor.state.vl[0..index_width(vlen + 1)]), start, bits(0, index_width(vlen + 1)))
+    memory_setup_field <== bits(0, 3)
     all_issued <== Bool(#false)
     reserved <== bits(0, 2)
     compress_data <== bits(0, 64)
@@ -368,9 +393,12 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   elsewhen retry:
     def width_change_restart = mux_lookup(geometry.sew, ~default: authorized.align_down(4), [[1, authorized.align_down(2)], [2, authorized]])
     cursor <== mux(compress, authorized, mux(mask_word, authorized.align_down(64), mux(singleton, authorized, mux(width_change, width_change_restart, aligned_first(authorized, geometry.sew)))))
+    field <== authorized_field
+    sequence <== authorized_sequence
     minimum <== authorized
     memory_address <== authorized_memory_address
     memory_setup_remaining <== bits(0, index_width(vlen + 1))
+    memory_setup_field <== bits(0, 3)
     all_issued <== compress & (authorized === limit)
     reserved <== bits(0, 2)
     compress_data <== authorized_compress_data
@@ -380,7 +408,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   elsewhen occupied:
     when (memory_setup_remaining.or_reduce()):
       memory_address <== memory_address + memory_step
-      memory_setup_remaining <== memory_setup_remaining - bits(1, index_width(vlen + 1))
+      when (memory_setup_field === descriptor.control.memory_nf):
+        memory_setup_remaining <== memory_setup_remaining - bits(1, index_width(vlen + 1))
+        memory_setup_field <== bits(0, 3)
+      elsewhen (memory_setup_field =/= descriptor.control.memory_nf):
+        memory_setup_field <== memory_setup_field + bits(1, 3)
     elsewhen (launch & descriptor.control.memory & !indexed_memory):
       memory_address <== memory_address + memory_step
     when (memory_setup_remaining.or_reduce()):
@@ -388,8 +420,13 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     elsewhen (authorized_event & descriptor.control.memory & !indexed_memory):
       authorized_memory_address <== authorized_memory_address + memory_step
     when launch:
-      cursor <== end
-      all_issued <== end === limit
+      sequence <== sequence + bits(1, vector_sequence_width(vlen))
+      when (!empty & segmented_memory & !last_field):
+        field <== field + bits(1, 3)
+      elsewhen (empty ||| !segmented_memory ||| last_field):
+        cursor <== end
+        field <== bits(0, 3)
+      all_issued <== beat_last
     when (reserve_event =/= issue.fire()):
       reserved <== mux(reserve_event, reserved + bits(1, 2), reserved - bits(1, 2))
     when (response.valid & compress & !clear):
@@ -403,7 +440,12 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
       compress_destination <== compress_destination + compress_count.zext(index_width(vlen + 1))
       compress_flush <== Bool(#false)
     when authorized_event:
-      authorized <== feedback.bits.end
+      authorized_sequence <== authorized_sequence + bits(1, vector_sequence_width(vlen))
+      when (!feedback.bits.last & segmented_memory & (authorized_field =/= descriptor.control.memory_nf)):
+        authorized_field <== authorized_field + bits(1, 3)
+      elsewhen (feedback.bits.last ||| !segmented_memory ||| (authorized_field === descriptor.control.memory_nf)):
+        authorized <== feedback.bits.end
+        authorized_field <== bits(0, 3)
       authorized_compress_data <== feedback.bits.compress_state.data
       authorized_compress_count <== feedback.bits.compress_state.count
       authorized_compress_destination <== feedback.bits.compress_state.destination

@@ -98,6 +98,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     data: mux(reduction, reduced, extended_scalar)
     mask: mux(!beat.empty & beat.last & !scalar_destination, element_mask, bits(0, 64))
   result <== RV5StageVectorResultBeat(vlen):
+    sequence: beat.sequence
     first: beat.first
     end: beat.end
     last: beat.last

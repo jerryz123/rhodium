@@ -11,6 +11,9 @@ import:
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
 
+fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
+  index_width(vlen + 1) + 3
+
 bundle RV5StageVectorDescriptor(xlen :: XLen):
   pc: Bits(xlen.width)
   instruction: Bits(32)
@@ -45,6 +48,7 @@ bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2I
   completion_tag: Bits(index_width(vector_completion_slots))
 
 bundle RV5StageVectorBeat(vlen :: VectorLength):
+  sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   destination_first: Bits(index_width(vlen + 1))
@@ -69,6 +73,7 @@ bundle RV5StageVectorMicroOp(vlen :: VectorLength, Context :: DataType):
   beat: RV5StageVectorBeat(vlen)
 
 bundle RV5StageVectorResultBeat(vlen :: VectorLength):
+  sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   last: Bool
@@ -111,6 +116,7 @@ hardware_enum RV5StageVectorDisposition:
 // Authorized is not a result completion; accepted effects must never be retried.
 bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   context: Context
+  sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   disposition: RV5StageVectorDisposition
@@ -120,6 +126,7 @@ bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: Dat
   compress_state: RV5StageVectorCompressState(vlen)
 
 export:
+  vector_sequence_width
   RV5StageVectorDescriptor
   RV5StageVectorInstruction
   RV5StageVectorCompressState
