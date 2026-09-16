@@ -4,8 +4,8 @@
 # Experimental vector path
 
 The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
-vector CSR state, the decoded packed-integer subset, and RV64 unit-stride and
-strided memory operations. The default is `#false`. Neither setting advertises `V`,
+vector CSR state, the decoded packed-integer subset, and RV64 unit-stride,
+strided, and indexed memory operations. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
@@ -103,6 +103,17 @@ issued element advances the speculative address, while WB authorization
 advances a separate checkpoint. Retry restores that checkpoint, preserving
 the address of the oldest unauthorized element. Masked-off elements still
 advance the sequence; empty bodies neither warm up nor access memory.
+
+Indexed loads and stores capture the scalar base but read one unsigned byte
+offset from `vs2` for every active element. The encoded EEW describes that
+offset, while `vtype.SEW` and LMUL describe the transferred data. Each offset
+is zero-extended and added directly to the base; it is never scaled by the data
+width. Ordered and unordered encodings currently share conservative
+element-order issue. Retry returns to the WB-authorized element and rereads its
+offset. The initial implementation requires an indexed load destination to be
+disjoint from its index group; indexed stores may overlap data and indices only
+when they use the same EEW. This restriction avoids completion writes changing
+offsets that have not yet been read.
 
 The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
 element and execute every body element; `v0` is data, not predication. `vmadc`

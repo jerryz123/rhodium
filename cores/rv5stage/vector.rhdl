@@ -105,6 +105,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
       context: operation.context
       last: operation.beat.last
       memory: operation.beat.control.memory
+      memory_width: operation.beat.element_width.into(Bits(2))
       enabled: operation.beat.enabled.as_bits()[0].into(Bool)
       address: operation.beat.address
       store_data: operation.beat.left

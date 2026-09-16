@@ -38,6 +38,7 @@ bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2I
   context: Context
   last: Bool
   memory: Bool
+  memory_width: Bits(2)
   enabled: Bool
   address: Bits(64)
   store_data: Bits(64)

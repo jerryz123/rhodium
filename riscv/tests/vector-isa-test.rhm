@@ -178,11 +178,17 @@ check:
   VLSE8_V.encode([vd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3), vm.constrain(1)]) ~is 0x0a310087
   VLSE16_V.encode([vd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3), vm.constrain(0)]) ~is 0x08315087
   VSSE64_V.encode([vs3.constrain(3), model.rs1.constrain(2), model.rs2.constrain(4), vm.constrain(0)]) ~is 0x084171a7
+  VLUXEI8_V.encode([vd.constrain(1), model.rs1.constrain(2), vs2.constrain(3), vm.constrain(1)]) ~is 0x06310087
+  VLOXEI16_V.encode([vd.constrain(1), model.rs1.constrain(2), vs2.constrain(3), vm.constrain(0)]) ~is 0x0c315087
+  VSUXEI32_V.encode([vs3.constrain(3), model.rs1.constrain(2), vs2.constrain(4), vm.constrain(1)]) ~is 0x064161a7
+  VSOXEI64_V.encode([vs3.constrain(3), model.rs1.constrain(2), vs2.constrain(4), vm.constrain(0)]) ~is 0x0c4171a7
   VectorLoadFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer]
   VectorStoreFormat.operands.map(fun (operand): operand.role) ~is ["source", "source"]
   VectorStridedLoadFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer, model.RegisterBank.Integer]
   VectorStridedStoreFormat.operands.map(fun (operand): operand.name) ~is ["vs3", "rs1", "rs2"]
-  VectorInitial.matching(0x06310087) ~is #false
+  VectorIndexedLoadFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer, model.RegisterBank.Vector]
+  VectorIndexedStoreFormat.operands.map(fun (operand): operand.name) ~is ["vs3", "rs1", "vs2"]
+  VectorInitial.matching(0x06310087).name ~is "VLUXEI8.V"
   VectorVVFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Vector, model.RegisterBank.Vector]
   [CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_address) ~is [8, 9, 10, 15, 0xc20, 0xc21, 0xc22]
 

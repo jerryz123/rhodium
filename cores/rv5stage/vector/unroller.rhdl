@@ -58,7 +58,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   inst packing(RV5StageVectorOperands(vlen))
   def descriptor = instruction.descriptor
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
-  def sew = mux(descriptor.control.memory, descriptor.control.eew, geometry.sew)
+  def indexed_memory = descriptor.control.memory & descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
+  def memory_data_eew = mux(indexed_memory, geometry.sew, descriptor.control.memory_data_eew)
+  def sew = mux(descriptor.control.memory, memory_data_eew, geometry.sew)
   def element_move = descriptor.control.integer & descriptor.control.element_move
   def reduction = descriptor.control.integer & descriptor.control.reduction
   def scan = descriptor.control.integer & descriptor.control.scan
@@ -116,14 +118,14 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
                           element < geometry.vlmax.zext(xlen.width + 2)).as_bits()
   def slide_base = descriptor.vs2.zext(row_base_width) << index_width(vector_chunks(vlen))
   def slide_address = slide_base + slide_chunk[0..row_base_width]
-  def index_sew = mux(descriptor.control.gather_index16, bits(1, 2), sew)
+  def index_sew = mux(indexed_memory, descriptor.control.memory_index_eew, mux(descriptor.control.gather_index16, bits(1, 2), sew))
   def index_chunk = cursor >> (bits(3, 2) - index_sew)
   def scalar_index = mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
   def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
   def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
   def first_source_chunk = mux(extension, extension_source_chunk, mux(width_change & descriptor.control.wide_vs2, wide_source_chunk, source_chunk))
   def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, descriptor.vd, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
-  def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector, index_chunk, source_chunk)[0..row_base_width])))
+  def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, descriptor.vs2, descriptor.vs1).zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
   def destination_address = (descriptor.vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
   def addresses = Array(first_address, second_address, destination_address)
   context_pipe.flush <== clear
@@ -215,9 +217,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def slide_enabled = vec(for List (lane in 0..8):
                             !descriptor.control.slide_up ||| descriptor.control.slide_one ||| ((read_beat.first.zext(xlen.width + 2) + bits(lane, xlen.width + 2)) >= slide_distance.zext(xlen.width + 2))).as_bits()
   def memory_shift = ((read_beat.first[0..3] << sew) ++ bits(0, 3))
+  def indexed_address = read_beat.address + vector_index
   def destination_shift = ((read_beat.first[0..3] << destination_width) ++ bits(0, 3))
   def memory_enabled = !read_beat.empty & (!descriptor.masked ||| (mask_result.bits >> read_beat.first[0..6])[0].into(Bool))
   def operands = read_beat.updated(
+    ~address: mux(indexed_memory, indexed_address, read_beat.address),
     ~left: mux(gather, mux(gather_in_range, results[0].bits, bits(0, 64)), mux(slide, slide_source, mux(scan, results[0].bits >> read_beat.first[0..6], mux(singleton, results[0].bits >> memory_shift, packing.operands.left)))),
     ~right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)))),
     ~destination_data: results[2].bits >> destination_shift,
@@ -339,7 +343,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     def start = mux(request.bits.descriptor.control.integer & request.bits.descriptor.control.element_move, bits(0, index_width(vlen + 1)), request.bits.descriptor.state.vstart[0..index_width(vlen + 1)])
     def base = if xlen == XLen.X64 | request.bits.descriptor.scalar | request.bits.descriptor.scalar.zext(64)
     def stride = if xlen == XLen.X64 | request.bits.descriptor.stride | request.bits.descriptor.stride.into(SInt(32)).sext(64).into(Bits(64))
-    def step = mux(request.bits.descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, stride, bits(1, 64) << request.bits.descriptor.control.eew)
+    def step = mux(request.bits.descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, stride, bits(1, 64) << request.bits.descriptor.control.memory_data_eew)
     def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
     def single_schedule = request.bits.descriptor.control.memory ||| request.bits.descriptor.control.floating_point ||| request.bits.descriptor.control.multiply_divide ||| (request.bits.descriptor.control.integer & (request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.gather & (request.bits.descriptor.control.operand === VectorOperandMode.Vector))))
     def packed_start = aligned_first(start, request.bits.descriptor.state.vtype[3..5])
@@ -350,7 +354,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     memory_address <== base
     authorized_memory_address <== base
     memory_step <== step
-    memory_setup_remaining <== mux(request.bits.descriptor.control.memory & (start < request.bits.descriptor.state.vl[0..index_width(vlen + 1)]), start, bits(0, index_width(vlen + 1)))
+    def indexed = request.bits.descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
+    memory_setup_remaining <== mux(request.bits.descriptor.control.memory & !indexed & (start < request.bits.descriptor.state.vl[0..index_width(vlen + 1)]), start, bits(0, index_width(vlen + 1)))
     all_issued <== Bool(#false)
     reserved <== bits(0, 2)
     compress_data <== bits(0, 64)
@@ -376,11 +381,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     when (memory_setup_remaining.or_reduce()):
       memory_address <== memory_address + memory_step
       memory_setup_remaining <== memory_setup_remaining - bits(1, index_width(vlen + 1))
-    elsewhen (launch & descriptor.control.memory):
+    elsewhen (launch & descriptor.control.memory & !indexed_memory):
       memory_address <== memory_address + memory_step
     when (memory_setup_remaining.or_reduce()):
       authorized_memory_address <== authorized_memory_address + memory_step
-    elsewhen (authorized_event & descriptor.control.memory):
+    elsewhen (authorized_event & descriptor.control.memory & !indexed_memory):
       authorized_memory_address <== authorized_memory_address + memory_step
     when launch:
       cursor <== end

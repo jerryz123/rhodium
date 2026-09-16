@@ -667,6 +667,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
         ~vector_tag: operation.completion_tag,
         ~immediate: mux(operation.memory, operation.address[0..width], operation.context.immediate),
         ~memory_operation: mux(operation.memory & !operation.enabled, MemoryOperation.None, operation.context.memory_operation),
+        ~memory_width: mux(operation.memory, operation.memory_width.into(MemoryWidth), operation.context.memory_width),
         ~operand_rs1: operation.context.operand_rs1.updated(~stage_sel: mux(operation.memory, RV5StageBypassStage.RegisterFile, operation.context.operand_rs1.stage_sel), ~value: mux(operation.memory, bits(0, width), operation.context.operand_rs1.value)),
         ~operand_rs2: operation.context.operand_rs2.updated(~stage_sel: mux(operation.memory, RV5StageBypassStage.RegisterFile, operation.context.operand_rs2.stage_sel), ~value: mux(operation.memory, operation.store_data[0..width], operation.context.operand_rs2.value))
       )) |> to_valid()

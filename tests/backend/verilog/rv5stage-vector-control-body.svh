@@ -350,7 +350,7 @@
             for (int regno = 0; regno < 32; regno++) begin
               automatic int emul = lm + eew - sew;
               automatic bit aligned = emul <= 0 ? 1 : (regno % (1 << emul)) == 0;
-              automatic bit expected_legal = XLEN == 64 && sew <= lm + 3 && emul >= -3 && emul <= 3 && aligned && (store != 0 || regno != 0);
+              automatic bit expected_legal = XLEN == 64 && sew <= lm + 3 && emul >= -3 && emul <= 3 && aligned && regno != 0;
               test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
               instruction = {6'b0,1'b0,5'b0,5'd1,3'(eew == 0 ? 0 : eew+4),5'(regno),store != 0 ? 7'h27 : 7'h07};
               #1;
@@ -362,6 +362,38 @@
         end
       end
     end
+    // Indexed memory takes data geometry from vtype and offset geometry from
+    // the encoded EEW. Both addressing modes use the same conservative
+    // element-order implementation.
+    for (int sew = 0; sew < 4; sew++) begin
+      for (int lm = -3; lm <= 3; lm++) begin
+        for (int index_eew = 0; index_eew < 4; index_eew++) begin
+          for (int store = 0; store < 2; store++) begin
+            for (int ordered = 0; ordered < 2; ordered++) begin
+              automatic int index_emul = lm + index_eew - sew;
+              automatic bit expected_legal = XLEN == 64 && sew <= lm + 3 && index_emul >= -3 && index_emul <= 3;
+              test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
+              instruction = {4'b0,ordered != 0 ? 2'b11 : 2'b01,1'b1,5'd24,5'd1,3'(index_eew == 0 ? 0 : index_eew+4),5'd8,store != 0 ? 7'h27 : 7'h07};
+              #1;
+              assert(decoded_valid && legal == expected_legal)
+                else $fatal(1,"indexed memory legality sew=%0d lm=%0d index_eew=%0d store=%0d ordered=%0d",sew,lm,index_eew,store,ordered);
+              checks++;
+            end
+          end
+        end
+      end
+    end
+    test_vtype = 'h10; // e32,m1
+    instruction = {4'b0,2'b01,1'b1,5'd8,5'd1,3'd6,5'd8,7'h07}; #1;
+    assert(!legal) else $fatal(1,"indexed load accepted destination/index overlap");
+    instruction[6:0] = 7'h27; #1;
+    assert(legal) else $fatal(1,"same-EEW indexed store overlap rejected");
+    instruction[14:12] = 3'd5; #1;
+    assert(!legal) else $fatal(1,"different-EEW indexed store overlap accepted");
+    test_vtype = 0; instruction = {4'b0,2'b11,1'b0,5'd0,5'd1,3'd0,5'd8,7'h07}; #1;
+    assert(!legal) else $fatal(1,"masked indexed load read v0 as offsets");
+    instruction = {4'b0,2'b11,1'b0,5'd8,5'd1,3'd0,5'd0,7'h27}; #1;
+    assert(!legal) else $fatal(1,"masked indexed store read v0 as data");
 
     // The initial FP subset admits aligned same-width FP32/64 groups on RV64.
     for (int op = 0; op < 3; op++) begin

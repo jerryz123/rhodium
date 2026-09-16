@@ -73,6 +73,9 @@ module rv5stage_vector_memory_tb;
   function automatic logic [31:0] vmem(input bit store, input int width, regno, base, input bit masked = 0, strided = 0, input int stride = 0);
     return {4'b0, strided ? 2'b10 : 2'b00, !masked, 5'(strided ? stride : 0), 5'(base), 3'(width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
   endfunction
+  function automatic logic [31:0] indexed_vmem(input bit store, ordered, input int index_width, regno, base, index_reg, input bit masked = 0);
+    return {4'b0, ordered ? 2'b11 : 2'b01, !masked, 5'(index_reg), 5'(base), 3'(index_width == 0 ? 0 : index_width + 4), 5'(regno), store ? 7'h27 : 7'h07};
+  endfunction
   function automatic logic [31:0] vint(input int op, vd, vs2, vs1, mode = 0);
     return {6'(op), 1'b1, 5'(vs2), 5'(vs1), 3'(mode), 5'(vd), 7'h57};
   endfunction
@@ -232,7 +235,7 @@ module rv5stage_vector_memory_tb;
           if (signatures + 1 == expected_count) begin
             assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
-            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/masked/EEW/vstart/device/fault restart passed",
+            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/masked/EEW/vstart/device/fault restart passed",
                      COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
             $finish;
           end
@@ -305,6 +308,22 @@ module rv5stage_vector_memory_tb;
     li(8,'h2800); li(9,'h2ac0); li(10,16); emit(vmem(0,3,16,8,0,1,10)); emit(vmem(1,3,16,9));
     values[0]=64'h55; values[1]=64'h55; values[2]=64'h303; values[3]=64'h304;
     check_memory('h2ac0,32,values);
+    // Indexed memory uses encoded index EEW but vtype SEW for transferred data.
+    // Nonmonotonic offsets also prove that addresses are base+offset, not scaled.
+    values = new[4];
+    for (int i = 0; i < 4; i++) write_word('h2d00+i*8,64'('h401+i));
+    memory['h2c00] = 24; memory['h2c01] = 0;
+    memory['h2c02] = 0;  memory['h2c03] = 0;
+    memory['h2c04] = 16; memory['h2c05] = 0;
+    memory['h2c06] = 8;  memory['h2c07] = 0;
+    configure(3,1,4); li(8,'h2c00); emit(vmem(0,1,16,8));
+    li(8,'h2d00); emit(indexed_vmem(0,0,1,8,8,16));
+    li(9,'h2e00); emit(vmem(1,3,8,9));
+    values[0]=64'h404; values[1]=64'h401; values[2]=64'h403; values[3]=64'h402;
+    check_memory('h2e00,32,values);
+    li(9,'h2e40); emit(indexed_vmem(1,1,1,8,9,16));
+    values[0]=64'h401; values[1]=64'h402; values[2]=64'h403; values[3]=64'h404;
+    check_memory('h2e40,32,values);
     // Empty and fully masked bodies must not touch an unmapped address.
     li(8,'h10000); emit(csr(8,0,20,5)); emit(vmem(0,0,16,8));
     emit(vint(25,0,8,8)); // vmsne.vv v0,v8,v8

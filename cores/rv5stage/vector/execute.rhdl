@@ -77,7 +77,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     ~data: mux(beat.control.invert_logic_result, !alu.result.data, alu.result.data),
     ~mask: beat.mask_enabled
   )
-  def singleton_width = mux(beat.control.memory, beat.control.eew, beat.element_width.into(Bits(2)) + widening_singleton.as_bits().zext(2))
+  def singleton_width = beat.element_width.into(Bits(2)) + widening_singleton.as_bits().zext(2)
   def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
   def element_write = VectorRegisterWrite(vlen):

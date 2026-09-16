@@ -82,7 +82,7 @@ same-edge replacement, and reset with both services holding results.
 The control fixtures cover RV32/RV64 legality and register-group alignment;
 the unroller and FP fixtures cover the shared beat/completion layout.
 
-Memory beats use encoded EEW and singleton element positions. Keep their
+Memory beats use their resolved data EEW and singleton element positions. Keep their
 slot identifier in the `RV5StageMemoryWriteback.Vector` variant, and propagate
 the complete union opaquely through the LSU.
 The unroller owns full speculative and WB-authorized memory addresses. Capture
@@ -91,7 +91,14 @@ one addition per skipped element, advance on issue and authorization, and
 restore the authorized address on retry. Do not reintroduce an element-index
 multiplier or reconstruct the address in the scalar pipeline. Unit-stride and
 signed strided accesses share this sequencer; masking changes the memory
-operation, not address progression.
+operation, not address progression. Indexed memory instead reads one `vs2`
+offset through the ordinary second VRF port. Retain index EEW separately from
+data EEW: the instruction encodes the former, while `vtype` supplies the latter.
+Zero-extend the offset, add it to the captured base, and reread it after retry
+from the authorized element cursor. Ordered and unordered forms may share
+element-order issue until an explicitly unordered scheduler is introduced.
+Keep indexed-load destination/index groups disjoint until the unroller has a
+source-preservation strategy for legal overlap.
 The private pipeline retains destination mask/shift and element range; the
 profile's power-of-two `vector_completion_slots` reserved slots absorb hit and slow completions independently before ordered
 VRF drain. Reserve on issue, authorize only at WB, and clear only unauthorized
