@@ -388,6 +388,9 @@ element model checks all decoded packed integer operations, fixed-point averagin
 saturation, rounding, and clipping across every `vxrm` mode, SEW/LMUL, partial bodies,
 mask writes, in-place operations, randomized issue stalls, authorized-prefix
 retry, and cancellation. Keep the retry test's downstream flush explicit.
+Whole-register move coverage must include every NREG and SEW, independence from
+`vl` and LMUL, nonzero `vstart`, register-boundary crossing, equal source and
+destination groups, retry, cancellation, and writes to the `v0` shadow.
 The production reduction fixture uses guaranteed-overflow clips to prove that
 authorized beats pulse saturation once, replay does not duplicate the pulse,
 and cancellation exposes only its already-authorized prefix.

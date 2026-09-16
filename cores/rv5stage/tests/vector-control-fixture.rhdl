@@ -21,7 +21,7 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   input(scalar1, scalar2): Bits(xlen.width)
   input(commit_valid, exception_valid): Bool
   input saturate: Bool
-  input test_vtype: Bits(xlen.width)
+  input(test_vtype, test_vstart): Bits(xlen.width)
   output(decoded_valid, legal, writeback_valid, redirect_valid): Bool
   output writeback_value: Bits(xlen.width)
   output mstatus: Bits(xlen.width)
@@ -38,6 +38,7 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   legality.instruction <== instruction
   legality.control <== decoder.control.vector
   legality.vtype <== test_vtype
+  legality.vstart <== test_vstart
   legal <== decoder.valid & legality.legal
   decoded_valid <== decoder.valid
   configuration <== decoder.control.vector.configure.as_bits()

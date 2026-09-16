@@ -60,6 +60,14 @@ check:
   VectorInitial.matching(0x5e2180d7) ~is #false
   VectorMoveVFormat.operands.map(fun (operand): operand.name) ~is ["vd", "vs1"]
   VectorMoveXFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer]
+  VMV1R_V.encode([vd.constrain(1), vs2.constrain(2)]) ~is 0x9e2030d7
+  VMV2R_V.encode([vd.constrain(10), vs2.constrain(12)]) ~is 0x9ec0b557
+  VMV4R_V.encode([vd.constrain(4), vs2.constrain(8)]) ~is 0x9e81b257
+  VMV8R_V.encode([vd.constrain(0), vs2.constrain(8)]) ~is 0x9e83b057
+  VectorWholeRegisterMoveFormat.operands.map(fun (operand): operand.name) ~is ["vd", "vs2"]
+  VectorWholeRegisterMoveInstructions.length() ~is 4
+  VectorInitial.matching(0x9e2130d7) ~is #false
+  VectorInitial.matching(0x9c2030d7) ~is #false
   VMUL_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x9621a0d7
   VMULHSU_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(0)]) ~is 0x9821e0d7
   VDIV_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x8621a0d7

@@ -637,6 +637,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       id_vector_legality.instruction <== id_instruction
       id_vector_legality.control <== id_control.vector
       id_vector_legality.vtype <== wb_csrs.vector_state.vtype
+      id_vector_legality.vstart <== wb_csrs.vector_state.vstart
       id_vector_legal <== id_vector_legality.legal
       wb_vector_active <== wb_vector.active
       wb_vector_unrolling <== wb_vector.unrolling

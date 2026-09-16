@@ -7,7 +7,8 @@ The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
 vector CSR state, the decoded packed-integer subset, and RV64 vector memory
 operations using unit-stride, constant-stride, indexed, unit-stride segment,
 constant-stride segment, indexed segment, and unit-stride fault-only-first
-addressing, plus mask-register and whole-register loads and stores. The default is `#false`. Neither setting advertises `V`,
+addressing, plus mask-register and whole-register loads and stores and
+whole-register moves. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
@@ -264,6 +265,15 @@ selected value within the body. Merge cannot target `v0`; unmasked moves can.
 Merge vector data sources also cannot overlap `v0`, since an instruction may
 not read the same register at both mask EEW=1 and data SEW. Scalar `x0` and an
 immediate zero remain valid merge inputs.
+
+Whole-register `vmv1r.v`, `vmv2r.v`, `vmv4r.v`, and `vmv8r.v` copy one
+aligned register group through the same 64-bit packed datapath. Their effective
+length is `NREG * VLEN / SEW`, independent of `vl` and LMUL but still dependent
+on a legal `vtype`; `vstart` identifies the first SEW-wide element to copy.
+Decode rejects misaligned or wrapping source and destination groups. Equal
+source and destination groups are a legal no-op. The unroller naturally crosses
+VRF row and register boundaries, preserves the pre-`vstart` prefix, and keeps
+the ordinary WB authorization, replay, cancellation, and `v0`-shadow rules.
 
 `vmandn.mm`, `vmand.mm`, `vmor.mm`, `vmxor.mm`, `vmorn.mm`, `vmnand.mm`,
 `vmnor.mm`, and `vmxnor.mm` operate on packed one-bit elements. Each operand

@@ -27,6 +27,7 @@ def VectorFixedVIFormat = InstructionFormat("vector-immediate fixed vm", VectorV
 def VectorMoveVFormat = InstructionFormat("vector move", [vector_destination, RegisterOperand("vs1", vs1, "source", RegisterBank.Vector)])
 def VectorMoveXFormat = InstructionFormat("scalar broadcast", [vector_destination, RegisterOperand("rs1", rs1, "source")])
 def VectorMoveIFormat = InstructionFormat("immediate broadcast", [vector_destination], VectorImmediate)
+def VectorWholeRegisterMoveFormat = InstructionFormat("whole vector register move", [vector_destination, vector_source])
 def VectorReadScalarFormat = InstructionFormat("vector element to integer", [RegisterOperand("rd", rd, "destination"), vector_source])
 def VectorMaskScalarFormat = InstructionFormat("mask to integer", VectorReadScalarFormat.operands, #false, [vm])
 def VectorMaskUnaryFormat = InstructionFormat("unary mask", [vector_destination, vector_source], #false, [vm])
@@ -365,6 +366,17 @@ def VMERGE_VIM = fixed_mask_arithmetic("VMERGE.VIM", 0x17, VectorFixedVIFormat, 
 def VMV_V_V = fixed_mask_arithmetic("VMV.V.V", 0x17, VectorMoveVFormat, 0, 1, ~move: #true)
 def VMV_V_X = fixed_mask_arithmetic("VMV.V.X", 0x17, VectorMoveXFormat, 4, 1, ~move: #true)
 def VMV_V_I = fixed_mask_arithmetic("VMV.V.I", 0x17, VectorMoveIFormat, 3, 1, ~move: #true)
+fun whole_register_move(registers :: PosInt):
+  InstructionSpec(
+    "VMV" ++ to_string(registers) ++ "R.V",
+    VectorWholeRegisterMoveFormat,
+    [opcode.constrain(0x57), funct3.constrain(3), funct6.constrain(0x27), vm.constrain(1), vs1.constrain(registers - 1)]
+  )
+def VMV1R_V = whole_register_move(1)
+def VMV2R_V = whole_register_move(2)
+def VMV4R_V = whole_register_move(4)
+def VMV8R_V = whole_register_move(8)
+def VectorWholeRegisterMoveInstructions = [VMV1R_V, VMV2R_V, VMV4R_V, VMV8R_V]
 def VMANDN_MM = fixed_mask_arithmetic("VMANDN.MM", 0x18, VectorFixedVVFormat, 2, 1)
 def VMAND_MM = fixed_mask_arithmetic("VMAND.MM", 0x19, VectorFixedVVFormat, 2, 1)
 def VMOR_MM = fixed_mask_arithmetic("VMOR.MM", 0x1a, VectorFixedVVFormat, 2, 1)
@@ -453,7 +465,7 @@ def VectorWideningMultiplyInstructions = [VWMULU_VV, VWMULU_VX, VWMULSU_VV, VWMU
 def VectorMultiplyAccumulateInstructions = [VMACC_VV, VMACC_VX, VNMSAC_VV, VNMSAC_VX, VMADD_VV, VMADD_VX, VNMSUB_VV, VNMSUB_VX]
 def VectorWideningMultiplyAccumulateInstructions = [VWMACCU_VV, VWMACCU_VX, VWMACC_VV, VWMACC_VX, VWMACCSU_VV, VWMACCSU_VX, VWMACCUS_VX]
 def VectorMultiplyDivideInstructions = VectorDivideInstructions ++ VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions ++ VectorWideningMultiplyInstructions ++ VectorMultiplyAccumulateInstructions ++ VectorWideningMultiplyAccumulateInstructions
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorSlideInstructions ++ VectorGatherInstructions ++ VectorCompressInstructions ++ VectorMoveMergeInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
+def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorSlideInstructions ++ VectorGatherInstructions ++ VectorCompressInstructions ++ VectorMoveMergeInstructions ++ VectorWholeRegisterMoveInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
 def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
 
 export:
@@ -529,7 +541,9 @@ export:
   VectorMoveVFormat
   VectorMoveXFormat
   VectorMoveIFormat
+  VectorWholeRegisterMoveFormat
   VectorMoveMergeInstructions
+  VectorWholeRegisterMoveInstructions
   VectorMaskLogicInstructions
   VMERGE_VVM
   VMERGE_VXM
@@ -537,6 +551,10 @@ export:
   VMV_V_V
   VMV_V_X
   VMV_V_I
+  VMV1R_V
+  VMV2R_V
+  VMV4R_V
+  VMV8R_V
   VMANDN_MM
   VMAND_MM
   VMOR_MM

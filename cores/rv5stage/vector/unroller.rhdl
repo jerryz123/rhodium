@@ -70,6 +70,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def memory_data_eew = mux(indexed_memory, geometry.sew, descriptor.control.memory_data_eew)
   def sew = mux(descriptor.control.memory, memory_data_eew, geometry.sew)
   def element_move = descriptor.control.integer & descriptor.control.element_move
+  def whole_register_move = descriptor.control.integer & descriptor.control.whole_register_move
   def reduction = descriptor.control.integer & descriptor.control.reduction
   def scan = descriptor.control.integer & descriptor.control.scan
   def scan_word = scan & (descriptor.control.scan_control.result =/= VectorScanResult.Elements)
@@ -94,9 +95,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def whole_register_group_shift = mux_lookup(descriptor.control.memory_nf, ~default: bits(0, 2), [[1, bits(1, 2)], [3, bits(2, 2)], [7, bits(3, 2)]])
   def whole_register_elements = bits(vlen / 8, index_width(vlen + 1)) >> descriptor.control.memory_data_eew
   def whole_register_limit = whole_register_elements << whole_register_group_shift
+  def whole_register_move_shift = mux_lookup(descriptor.control.whole_register_count, ~default: bits(0, 2), [[2, bits(1, 2)], [4, bits(2, 2)], [8, bits(3, 2)]])
+  def whole_register_move_limit = (bits(vlen / 8, index_width(vlen + 1)) >> geometry.sew) << whole_register_move_shift
   def mask_memory_limit = (descriptor.state.vl[0..index_width(vlen + 1)] + bits(7, index_width(vlen + 1))) >> 3
   // Element moves have one bookkeeping beat, not a VL-sized iteration space.
-  def limit = mux(element_move, bits(1, index_width(vlen + 1)), mux(whole_register_memory, whole_register_limit, mux(mask_memory, mask_memory_limit, descriptor.state.vl[0..index_width(vlen + 1)])))
+  def limit = mux(element_move, bits(1, index_width(vlen + 1)), mux(whole_register_move, whole_register_move_limit, mux(whole_register_memory, whole_register_limit, mux(mask_memory, mask_memory_limit, descriptor.state.vl[0..index_width(vlen + 1)]))))
   def lanes = mux(mask_word, bits(64, index_width(vlen + 1)), mux(singleton, bits(1, index_width(vlen + 1)), mux_lookup(format, ~default: mux(width_change, bits(4, index_width(vlen + 1)), bits(8, index_width(vlen + 1))), [[SimdElementWidth.E16, mux(width_change, bits(2, index_width(vlen + 1)), bits(4, index_width(vlen + 1)))], [SimdElementWidth.E32, mux(width_change, bits(1, index_width(vlen + 1)), bits(2, index_width(vlen + 1)))], [SimdElementWidth.E64, bits(1, index_width(vlen + 1))]])))
   fun aligned_first(first :: Bits(index_width(vlen + 1)), sew :: Bits(2)):
     mux_lookup(sew, ~default: first.align_down(8), [[1, first.align_down(4)], [2, first.align_down(2)], [3, first]])
@@ -208,7 +211,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     first_element: mux(width_change, aligned_first(read_beat.first, sew), read_beat.first)
     vl: limit
     vstart: minimum
-    vlmax: geometry.vlmax
+    vlmax: mux(whole_register_move, limit, geometry.vlmax)
     masked: descriptor.masked & !mask_select & !carry_input
     operand_select: mux_lookup(descriptor.control.operand, ~default: VectorOperandSelect.Vector, [[VectorOperandMode.Scalar, VectorOperandSelect.Scalar], [VectorOperandMode.Immediate, VectorOperandSelect.Immediate]])
     immediate_unsigned: descriptor.control.immediate_unsigned
@@ -250,7 +253,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     ~right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)))),
     ~destination_data: results[2].bits >> destination_shift,
     ~carry_in: mux(carry_input, (mask_result.bits >> read_beat.first[0..6])[0..8], bits(0, 8)).into(Mask(8)),
-    ~select_right: mux(mask_select, (mask_result.bits >> read_beat.first[0..6])[0..8], mux(extension, bits(0, 8), !bits(0, 8))).into(Mask(8)),
+    ~select_right: mux(mask_select, (mask_result.bits >> read_beat.first[0..6])[0..8], mux(extension ||| whole_register_move, bits(0, 8), !bits(0, 8))).into(Mask(8)),
     ~mask_enabled: read_beat.mask_enabled & mux(scan & descriptor.masked, mask_result.bits >> read_beat.first[0..6], !bits(0, 64)),
     ~destination_first: packing.operands.first_element,
     ~element_width: packing.operands.element_width,

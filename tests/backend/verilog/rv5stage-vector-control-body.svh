@@ -4,7 +4,7 @@
   typedef struct packed { word_t vl, vtype, vstart; logic [1:0] vxrm; logic vxsat; } vector_state_t;
   logic clock = 0, reset = 1;
   logic [31:0] instruction = 0;
-  word_t scalar1 = 0, scalar2 = 0, test_vtype = 0;
+  word_t scalar1 = 0, scalar2 = 0, test_vtype = 0, test_vstart = 0;
   logic commit_valid = 0, exception_valid = 0, saturate = 0;
   logic decoded_valid, legal, writeback_valid, redirect_valid;
   word_t writeback_value, mstatus;
@@ -39,6 +39,9 @@
   endfunction
   function automatic logic [31:0] whole_register_vmem(input bit store, input int width, registers, regno, base);
     return {3'(registers-1), 1'b0, 2'b00, 1'b1, 5'd8, 5'(base), 3'(store || width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
+  endfunction
+  function automatic logic [31:0] whole_register_move(input int registers, destination, source);
+    return {6'h27, 1'b1, 5'(source), 5'(registers-1), 3'd3, 5'(destination), 7'h57};
   endfunction
 
   task automatic send(input logic [31:0] word, input word_t a, input word_t b,
@@ -638,6 +641,30 @@
     end
     instruction=32'h5c21a0d7; #1;
     assert(!decoded_valid) else $fatal(1,"masked compress encoding accepted");
+    // Whole-register moves use their encoded NREG rather than LMUL, but use
+    // SEW to interpret vstart and therefore still require a legal vtype.
+    test_vtype=0; test_vstart=0;
+    for(int registers=1;registers<=8;registers*=2) begin
+      for(int destination=0;destination<32;destination++) begin
+        for(int source=0;source<32;source++) begin
+          bit expected=destination%registers==0 && destination+registers<=32 && source%registers==0 && source+registers<=32;
+          instruction=whole_register_move(registers,destination,source); #1;
+          assert(decoded_valid && legal==expected) else $fatal(1,"whole-register move legality nreg%0d vd%0d vs2%0d",registers,destination,source);
+          checks++;
+        end
+      end
+      test_vtype='h18;
+      test_vstart=word_t'(registers*VLEN/64-1);
+      instruction=whole_register_move(registers,0,8); #1;
+      assert(decoded_valid && legal) else $fatal(1,"whole-register move rejected final element nreg%0d",registers);
+      test_vstart=word_t'(registers*VLEN/64); #1;
+      assert(!legal) else $fatal(1,"whole-register move accepted vstart at evl nreg%0d",registers);
+      test_vtype=0; test_vstart=0;
+    end
+    instruction=whole_register_move(1,1,2); instruction[25]=0; #1;
+    assert(!decoded_valid) else $fatal(1,"masked whole-register move encoding accepted");
+    test_vtype='1; instruction=whole_register_move(1,1,2); #1;
+    assert(decoded_valid && !legal) else $fatal(1,"whole-register move ignored vill");
     // Whole-register legality is independent of vl/vtype, but NREG still
     // constrains base-register alignment and forbids wrapping past v31.
     test_vtype='1;

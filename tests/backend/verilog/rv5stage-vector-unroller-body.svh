@@ -20,7 +20,7 @@
   int tx_source_width, tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2, tx_vxrm;
   logic [63:0] tx_scalar, tx_distance;
   int tx_vlmax;
-  bit tx_masked, tx_compare, tx_extension, tx_extension_signed, tx_carry_family, tx_carry_input, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_widening, tx_narrowing, tx_rounding, tx_saturating, tx_average, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
+  bit tx_masked, tx_compare, tx_extension, tx_extension_signed, tx_carry_family, tx_carry_input, tx_mask_logic, tx_dense, tx_gather, tx_gather_vector, tx_compress, tx_whole_move, tx_widening, tx_narrowing, tx_rounding, tx_saturating, tx_average, tx_clip, tx_clip_unsigned, tx_wide_source, tx_widen_signed, checking;
   int tx_extension_ratio;
   logic [127:0] tx_compress_buffer;
   int tx_compress_count, tx_compress_destination;
@@ -212,6 +212,7 @@
               30: value = 64'(a > b);
               31: value = 64'(signed_element(a, tx_width) > signed_element(b, tx_width));
               37: value = a << (b & 64'(tx_width - 1));
+              39: value = a;
               40: value = a >> (b & 64'(tx_width - 1));
               41: value = signed_element(a, tx_width) >>> (b & 64'(tx_width - 1));
               42: value = rounded_shift(a, tx_width, b, 0, 2'(tx_vxrm));
@@ -262,10 +263,11 @@
     tx_extension_ratio = tx_extension ? 8 >> ((source1 - 2) / 2) : 1;
     tx_carry_family = op inside {[16:19]} && !tx_extension; tx_carry_input = tx_carry_family && masked_op;
     tx_compress = op == 23 && mode == 2;
+    tx_whole_move = op == 39 && mode == 3 && source1 inside {0, 1, 3, 7};
     tx_mask_logic = mode == 2 && !tx_extension && !tx_compress && !tx_widening && !tx_narrowing && !tx_average;
     tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
     tx_source_width = tx_mask_logic ? 1 : tx_extension ? (8 << sew) / tx_extension_ratio : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_extension ? 8 << sew : tx_source_width; tx_lanes = tx_gather_vector ? 1 : 64 / (tx_narrowing ? 2 * tx_width : tx_width);
-    tx_vl = count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
+    tx_vl = tx_whole_move ? (source1 + 1) * VLEN / (8 << sew) : count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
     tx_vxrm = round_mode;
     tx_masked = masked_op; tx_compare = (!tx_mask_logic && op >= 24 && op <= 31) || (tx_carry_family && op[0]);
@@ -273,7 +275,7 @@
     tx_compress_buffer = 0; tx_compress_count = 0; tx_compress_destination = 0;
     tx_scalar = XLEN == 32 ? {{32{scalar[31]}}, scalar[31:0]} : 64'(scalar);
     tx_distance = mode == 6 ? 1 : mode == 3 ? 64'(source1) : 64'(scalar);
-    tx_vlmax = lmul < 4 ? (VLEN / (8 << sew)) << lmul : (VLEN / (8 << sew)) >> (8-lmul);
+    tx_vlmax = tx_whole_move ? tx_vl : lmul < 4 ? (VLEN / (8 << sew)) << lmul : (VLEN / (8 << sew)) >> (8-lmul);
     for (int row = 0; row < DEPTH; row++) snapshot[row] = memory[row];
     instruction = (32'(op) << 26) | (32'(!masked_op) << 25) | (32'(source2) << 20) | (32'(source1) << 15) | (32'(mode) << 12) | (32'(destination) << 7) | 32'h57;
     vxrm = 2'(round_mode);
@@ -511,6 +513,18 @@
       run_macro(sew, 0, 1, 7, 23, 4, 8, 3, 8, 1);
       run_macro(sew, 0, 0, 7, 31, 2, 0, 5, 7, 0);
     end
+    // Whole-register moves ignore vl and LMUL, copy NREG complete registers,
+    // honor SEW-granular vstart, and naturally update the dedicated v0 shadow.
+    for(int sew=0;sew<4;sew++) begin
+      for(int registers=1;registers<=8;registers*=2) begin
+        int effective, lanes;
+        effective=registers*VLEN/(8<<sew); lanes=8>>sew;
+        run_macro(sew,0,0,0,39,3,16,registers-1,8,0,1,0,lanes);
+        run_macro(sew,0,1,1,39,3,0,registers-1,8,0,registers==8,1,lanes);
+        run_macro(sew,3,VLEN,0,39,3,8,registers-1,8,0);
+        assert(effective>lanes) else $fatal(1,"whole-register move expected multiple rows");
+      end
+    end
     // Slides read across chunks/groups while rotating through the same E64
     // SIMD slot. Golden values come from the original architectural snapshot.
     for (int sew=0;sew<4;sew++) begin
@@ -665,9 +679,9 @@
     assert (consecutive >= VLEN / 8 - 1 && retries > 0) else $fatal(1, "missing throughput/retry coverage");
     // Cancel at read, buffered-offer, and pre-WB boundaries. No killed token
     // may update the bank or be mistaken for the next macro's response.
-    for (int family = 0; family < 10; family++) begin
+    for (int family = 0; family < 11; family++) begin
       for (int delay = 0; delay < 4; delay++) begin
-      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : family == 3 ? 32'h6e72a1d7 : family == 4 ? 32'h3a81cc57 : family == 5 ? 32'h3e81e457 : family == 6 ? 32'h32880c57 : family == 7 ? 32'h3a880c57 : family == 8 ? 32'h5e82ac57 : 32'hce816457;
+      instruction = family == 0 ? 32'h02880c57 : family == 1 ? 32'h5c880c57 : family == 2 ? 32'h5e080c57 : family == 3 ? 32'h6e72a1d7 : family == 4 ? 32'h3a81cc57 : family == 5 ? 32'h3e81e457 : family == 6 ? 32'h32880c57 : family == 7 ? 32'h3a880c57 : family == 8 ? 32'h5e82ac57 : family == 9 ? 32'hce816457 : 32'h9e83b857;
       vtype = 0; vl = XLEN'(VLEN / 8); vstart = 0;
       request_valid = 1; issue_ready = delay == 3; tick(); request_valid = 0;
       repeat (delay) tick(); cancel = 1; tick(); cancel = 0;

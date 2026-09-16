@@ -33,6 +33,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
   legality.instruction <== instruction
   legality.control <== decode.control.vector
   legality.vtype <== vtype
+  legality.vstart <== vstart
   legal <== decode.valid & legality.legal
   unroller.request.valid <== request_valid
   unroller.request.bits <== RV5StageVectorInstruction(xlen, Bits(xlen.width)):

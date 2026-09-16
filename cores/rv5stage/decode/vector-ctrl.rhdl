@@ -75,6 +75,8 @@ bundle RV5StageVectorControl():
   mask_logic: Bool
   mask_select: Bool
   element_move: Bool
+  whole_register_move: Bool
+  whole_register_count: Bits(4)
   scalar_destination: Bool
   reduction: Bool
   scan: Bool
@@ -125,6 +127,8 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~mask_logic: mask_logic :: Boolean = #false,
                  ~mask_select: mask_select :: Boolean = #false,
                  ~element_move: element_move :: Boolean = #false,
+                 ~whole_register_move: whole_register_move :: Boolean = #false,
+                 ~whole_register_count: whole_register_count :: PosInt = 1,
                  ~scalar_destination: scalar_destination :: Boolean = #false,
                  ~reduction: reduction :: Boolean = #false,
                  ~scan: scan :: Boolean = #false,
@@ -163,7 +167,7 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       floating_point: Bool(#false)
       multiply_divide: Bool(#false)
       memory: Bool(#false)
-      operand: if [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat, VectorReadScalarFormat, VectorMaskScalarFormat, VectorMaskUnaryFormat, VectorIndexFormat].contains(form) | VectorOperandMode.Vector | (if [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form) | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
+      operand: if [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat, VectorWholeRegisterMoveFormat, VectorReadScalarFormat, VectorMaskScalarFormat, VectorMaskUnaryFormat, VectorIndexFormat].contains(form) | VectorOperandMode.Vector | (if [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form) | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
       immediate_unsigned: Bool(form == VectorShiftVIFormat)
       carry_input: Bool(carry_input)
       extension: Bool(extension)
@@ -173,6 +177,8 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       mask_logic: Bool(mask_logic)
       mask_select: Bool(mask_select)
       element_move: Bool(element_move)
+      whole_register_move: Bool(whole_register_move)
+      whole_register_count: if whole_register_move | bits(whole_register_count, 4) | pattern(Bits(4), _)
       scalar_destination: Bool(scalar_destination)
       reduction: Bool(reduction)
       scan: Bool(scan)
@@ -522,6 +528,8 @@ def VectorMoveMergeCases = [
   integer_case(VMV_V_X, vselect_control, ~uses_vs2: #false),
   integer_case(VMV_V_I, vselect_control, ~uses_vs2: #false)
 ]
+def VectorWholeRegisterMoveCases = for List (instruction in VectorWholeRegisterMoveInstructions, register_count in [1, 2, 4, 8]):
+  integer_case(instruction, vselect_control, ~whole_register_move: #true, ~whole_register_count: register_count)
 def VectorMaskLogicCases = [
   integer_case(VMANDN_MM, vandn_control, ~mask: #true, ~mask_logic: #true),
   integer_case(VMAND_MM, vand_control, ~mask: #true, ~mask_logic: #true),
@@ -742,7 +750,7 @@ def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++
       multiply_result: if accumulate | pattern(VectorMultiplyResult, _) | (if fractional | VectorMultiplyResult.Fractional | (if widened | VectorMultiplyResult.Widened | (if [VMUL_VV, VMUL_VX].contains(instruction) | VectorMultiplyResult.Low | VectorMultiplyResult.High)))
   )
 def VectorMultiplyDivideCases = VectorDivideCases ++ VectorMultiplyCases
-def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorSlideCases ++ VectorGatherCases ++ VectorCompressCases ++ VectorMoveMergeCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
+def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorSlideCases ++ VectorGatherCases ++ VectorCompressCases ++ VectorMoveMergeCases ++ VectorWholeRegisterMoveCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorMultiplyDivideCases
 
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
@@ -759,6 +767,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   input instruction: Bits(32)
   input control: RV5StageVectorControl()
   input vtype: Bits(xlen.width)
+  input vstart: Bits(xlen.width)
   output legal: Bool
   def config = vector_type(xlen, vlen, vtype)
   def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
@@ -774,6 +783,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def widening = control.widening
   def narrowing = control.integer & control.narrowing
   def extension = control.integer & control.extension
+  def whole_register_move = control.integer & control.whole_register_move
   def extension_power = control.extension_ratio.as_bits().zext(5) + bits(1, 5)
   def extension_emul = config.lmul.into(SInt(3)).sext(5) - extension_power.into(SInt(5))
   def extension_group = extension_emul.into(Bits(5))[0..3]
@@ -795,6 +805,12 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def destination_aligned = !(destination & destination_group_mask).or_reduce()
   def source1_aligned = !(source1 & group_mask).or_reduce()
   def source2_aligned = !(source2 & group_mask).or_reduce()
+  def whole_register_mask = (control.whole_register_count - bits(1, 4)).zext(5)
+  def whole_register_destination_end = destination.zext(7) + control.whole_register_count.zext(7)
+  def whole_register_source_end = source2.zext(7) + control.whole_register_count.zext(7)
+  def whole_register_shift = mux_lookup(control.whole_register_count, ~default: bits(0, 2), [[2, bits(1, 2)], [4, bits(2, 2)], [8, bits(3, 2)]])
+  def whole_register_limit = (bits(vlen / 8, index_width(vlen + 1)) >> config.sew) << whole_register_shift
+  def whole_register_move_legal = control.whole_register_count.is_one_of(bits(1, 4), bits(2, 4), bits(4, 4), bits(8, 4)) & !(destination & whole_register_mask).or_reduce() & !(source2 & whole_register_mask).or_reduce() & (whole_register_destination_end <= bits(32, 7)) & (whole_register_source_end <= bits(32, 7)) & (vstart < whole_register_limit.zext(xlen.width))
   def memory_index_aligned = !(source2 & memory_index_group_mask).or_reduce()
   def wide_source2_aligned = !(source2 & wide_group_mask).or_reduce()
   fun mask_overlap_legal(source :: Bits(5)) :: Bool:
@@ -854,9 +870,9 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def extension_width_legal = config.sew.zext(5) >= extension_power
   def extension_legal = extension_width_legal & (extension_emul >= SInt(5)(-3)) & extension_source_aligned & destination_aligned & extension_overlap_legal & (!masked ||| (source2.or_reduce() & destination.or_reduce()))
   // Mask logic always names single registers, regardless of the data LMUL.
-  def integer_legal = control.integer & mux(extension, extension_legal, mux(control.compress, compress_legal, mux(control.gather, gather_legal, mux(control.scan, scan_legal, control.element_move ||| mux(control.reduction, reduction_sources_legal, control.mask_logic ||| (
+  def integer_legal = control.integer & mux(whole_register_move, whole_register_move_legal, mux(extension, extension_legal, mux(control.compress, compress_legal, mux(control.gather, gather_legal, mux(control.scan, scan_legal, control.element_move ||| mux(control.reduction, reduction_sources_legal, control.mask_logic ||| (
     slide_overlap_legal & merge_sources_legal & carry_sources_legal & widening_legal & narrowing_legal & (!control.uses_vs2 ||| mux((widening ||| narrowing) & control.wide_vs2, wide_source2_aligned, source2_aligned)) & (!vector_operand ||| source1_aligned) & mux(control.mask_destination, mask_overlap_legal(source2) & (!vector_operand ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
-  ))))))
+  )))))))
   def memory_data_register_count = mux(segmented_memory, memory_register_count, group_mask.zext(7) + bits(1, 7))
   def memory_data_end = destination.zext(7) + memory_data_register_count
   def memory_index_end = source2.zext(7) + memory_index_group_mask.zext(7) + bits(1, 7)
@@ -900,6 +916,7 @@ export:
   VectorWideningIntegerReductionCases
   VectorIntegerReductionCases
   VectorCompressCases
+  VectorWholeRegisterMoveCases
   VectorMemoryCases
   VectorUnitStrideMemoryCases
   VectorStridedMemoryCases
