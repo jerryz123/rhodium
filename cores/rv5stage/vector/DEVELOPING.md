@@ -85,13 +85,13 @@ the unroller and FP fixtures cover the shared beat/completion layout.
 Memory beats use their resolved data EEW and singleton element positions. Keep their
 slot identifier in the `RV5StageMemoryWriteback.Vector` variant, and propagate
 the complete union opaquely through the LSU.
-The unroller owns full speculative and WB-authorized memory addresses. Capture
-the base and step once, warm the address from the base through `vstart` with
-one addition per skipped element, advance on issue and authorization, and
-restore the authorized address on retry. Do not reintroduce an element-index
-multiplier or reconstruct the address in the scalar pipeline. Unit-stride and
-signed strided accesses share this sequencer; masking changes the memory
-operation, not address progression. Indexed memory instead reads one `vs2`
+The unroller owns full speculative and WB-authorized memory element bases.
+Capture the base and element step once, warm the base through `vstart` with one
+addition per skipped element or segment, advance on final-field issue and
+authorization, and restore the authorized base on retry. Do not reintroduce an
+element-index multiplier or reconstruct the address in the scalar pipeline.
+Unit-stride and signed strided accesses share this sequencer; masking changes
+the memory operation, not address progression. Indexed memory instead reads one `vs2`
 offset through the ordinary second VRF port. Retain index EEW separately from
 data EEW: the instruction encodes the former, while `vtype` supplies the latter.
 Zero-extend the offset, add it to the captured base, and reread it after retry
@@ -99,11 +99,13 @@ from the authorized element cursor. Ordered and unordered forms may share
 element-order issue until an explicitly unordered scheduler is introduced.
 Keep indexed-load destination/index groups disjoint until the unroller has a
 source-preservation strategy for legal overlap.
-Unit-stride segments retain separate speculative and authorized field cursors.
-Advance the element only after its final field, but advance the memory address
-after every field. Warm-up skips `vstart` whole segments by iterating fields;
-do not introduce an element-by-NFIELDS multiplier. Destination/source field
-groups start at `vd/vs3 + field * ceil(EMUL)`. A macro-local operation sequence,
+Unit- and constant-stride segments retain separate speculative and authorized
+field cursors. Form each access as `element_base + (field << EEW)`, and advance
+the element base only after its final field. Unit stride steps the base by
+`NFIELDS << EEW`; constant stride uses the captured signed `rs2`, including
+negative, zero, and overlapping strides. Warm-up skips one whole segment per
+addition. Destination/source field groups start at
+`vd/vs3 + field * ceil(EMUL)`. A macro-local operation sequence,
 not the architectural element, selects completion slots and ordered drain, so
 several fields of one segment cannot alias the same slot. On retry, restore the
 operation sequence, element, field, and address checkpoints together. Fault
@@ -368,10 +370,10 @@ Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 For vector memory, run `rv5stage-vector-memory` through the shared real
 core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer
 regression. The memory bench covers all four EEWs, an EEW/SEW mismatch,
-positive/negative/zero stride, indexed and three-field unit-stride operations,
-field/register mapping, additive segment-aware `vstart` warm-up, masks, empty bodies,
-in-order device stores, request/CHI backpressure, and a Sv39
-page-boundary fault repaired and restarted from `vstart`. It also requires
+positive/negative/zero stride, indexed and three-field unit- and constant-stride
+operations, field/register mapping, additive segment-aware `vstart` warm-up,
+masks, empty bodies, in-order device stores, request/CHI backpressure, and a
+segmented Sv39 page-boundary fault repaired and restarted from `vstart`. It also requires
 warm-hit throughput, hits completing ahead of a delayed miss, scalar-load
 overlap with a vector-load tail, and both asymmetric scalar/store barriers. Keep ordinary
 scalar and RV32F/RV64D core regressions when shared LSU metadata changes.

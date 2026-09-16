@@ -240,7 +240,7 @@ def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialIn
   def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
   def memory = vector_isa.VectorMemoryInstructions.contains(instruction)
   def store = vector_isa.VectorStoreInstructions.contains(instruction)
-  def strided = vector_isa.VectorStridedMemoryInstructions.contains(instruction)
+  def strided = vector_isa.VectorStridedMemoryInstructions.contains(instruction) || vector_isa.VectorStridedSegmentMemoryInstructions.contains(instruction)
   def scalar_destination = [vector_isa.VMV_X_S, vector_isa.VCPOP_M, vector_isa.VFIRST_M].contains(instruction)
   def memory_width = cond
   | [vector_isa.VLE8_V, vector_isa.VSE8_V, vector_isa.VLSE8_V, vector_isa.VSSE8_V].contains(instruction): MemoryWidth.Byte

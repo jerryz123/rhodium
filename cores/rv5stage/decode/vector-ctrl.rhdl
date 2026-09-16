@@ -577,7 +577,7 @@ fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         memory_addressing: addressing
         operand: VectorOperandMode.Vector
     )
-fun segment_memory_cases(instructions :: List.of(InstructionSpec)):
+fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..56):
     DecodeCase(
       instruction_pattern(instruction),
@@ -590,7 +590,7 @@ fun segment_memory_cases(instructions :: List.of(InstructionSpec)):
         store: Bool(index >= 28)
         memory_data_eew: bits(index mod 4, 2)
         memory_nf: bits(((index mod 28) div 4) + 1, 3)
-        memory_addressing: VectorMemoryAddressing.UnitStride
+        memory_addressing: addressing
         operand: VectorOperandMode.Scalar
     )
 def VectorUnitStrideMemoryCases = memory_cases(VectorUnitStrideMemoryInstructions, VectorMemoryAddressing.UnitStride)
@@ -598,8 +598,9 @@ def VectorStridedMemoryCases = memory_cases(VectorStridedMemoryInstructions, Vec
 def VectorIndexedUnorderedMemoryCases = indexed_memory_cases(VectorIndexedUnorderedMemoryInstructions, VectorMemoryAddressing.IndexedUnordered)
 def VectorIndexedOrderedMemoryCases = indexed_memory_cases(VectorIndexedOrderedMemoryInstructions, VectorMemoryAddressing.IndexedOrdered)
 def VectorIndexedMemoryCases = VectorIndexedUnorderedMemoryCases ++ VectorIndexedOrderedMemoryCases
-def VectorUnitStrideSegmentMemoryCases = segment_memory_cases(VectorUnitStrideSegmentMemoryInstructions)
-def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases
+def VectorUnitStrideSegmentMemoryCases = segment_memory_cases(VectorUnitStrideSegmentMemoryInstructions, VectorMemoryAddressing.UnitStride)
+def VectorStridedSegmentMemoryCases = segment_memory_cases(VectorStridedSegmentMemoryInstructions, VectorMemoryAddressing.Strided)
+def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases ++ VectorStridedSegmentMemoryCases
 def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstructions):
   DecodeCase(
     instruction_pattern(instruction),
@@ -813,6 +814,7 @@ export:
   VectorIndexedOrderedMemoryCases
   VectorIndexedMemoryCases
   VectorUnitStrideSegmentMemoryCases
+  VectorStridedSegmentMemoryCases
   VectorFloatingPointCases
   VectorDivideCases
   VectorMultiplyCases

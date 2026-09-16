@@ -327,17 +327,18 @@ for (instructions in [VectorIndexedUnorderedMemoryInstructions, VectorIndexedOrd
       value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1
       value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
 
-for (instruction in VectorUnitStrideSegmentMemoryInstructions, index in 0..56):
-  def decoded = control(instruction)
-  check:
-    value(decoded, "integer") ~is 0
-    value(decoded, "memory") ~is 1
-    value(decoded, "store") ~is (if index >= 28 | 1 | 0)
-    value(decoded, "memory_data_eew") ~is index mod 4
-    value(decoded, "memory_nf") ~is ((index mod 28) div 4) + 1
-    value(decoded, "memory_addressing") ~is VectorMemoryAddressing.UnitStride.packed_value()
-    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1
-    value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
+for (instructions in [VectorUnitStrideSegmentMemoryInstructions, VectorStridedSegmentMemoryInstructions], addressing in [VectorMemoryAddressing.UnitStride, VectorMemoryAddressing.Strided]):
+  for (instruction in instructions, index in 0..56):
+    def decoded = control(instruction)
+    check:
+      value(decoded, "integer") ~is 0
+      value(decoded, "memory") ~is 1
+      value(decoded, "store") ~is (if index >= 28 | 1 | 0)
+      value(decoded, "memory_data_eew") ~is index mod 4
+      value(decoded, "memory_nf") ~is ((index mod 28) div 4) + 1
+      value(decoded, "memory_addressing") ~is addressing.packed_value()
+      value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1
+      value(field(core_control(instruction), "operand"), "uses_rs2") ~is (if addressing == VectorMemoryAddressing.Strided | 1 | 0)
 
 for (vlen in [128, 256, 512, 65536]):
   def micro = RV5StageVectorMicroOp(vlen, Bits(4))
