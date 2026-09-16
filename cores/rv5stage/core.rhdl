@@ -152,6 +152,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wire wb_vector_unrolling: Bool
   wire wb_vector_pending: Bool
   wire wb_vector_stores_pending: Bool
+  wire ex_vector_resolved_rs1: Bits(width)
+  wire ex_vector_resolved_rs2: Bits(width)
   def wb_vector_scalar_result_link :: Handle = interface_link(Valid(RegisterFileWrite(xlen)))
   wire wb_memory_accepted: Bool
   wb_csrs.interrupts <== interrupts
@@ -310,6 +312,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def mem_exception_event = mem_to_if_exception_link.right.valid
   def mem_replay_event = mem_to_if_replay_link.right.valid
   def mem_redirect = mem_to_if_redirect_link.right.valid
+  def ex_older_squash = mem_exception_event ||| mem_replay_event ||| mem_redirect ||| wb_commit_redirect
+  def ex_transfer = ex_input.valid & !ex_older_squash
   def Array(wb_trap_restart, wb_trap_predictor_flush) = wb_csrs.redirect |> fork_valid(2)
   def wb_serializing_redirect = wb_serializing_path |> filter_valid(_operation => wb_serializing_resume) |> map_valid(operation => operation.resume_pc)
   def Array(wb_serializing_restart, wb_serializing_invalidate) = wb_serializing_redirect |> fork_valid(2)
@@ -624,6 +628,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   if vector_enabled
   | block:
       inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, DecodeExecute(xlen, vector_completion_slots), ~vector_completion_slots: vector_completion_slots))
+      reg wb_vector_context(DecodeExecute(xlen, vector_completion_slots))
       inst id_vector_legality(RV5StageVectorLegality(xlen, vector_length))
       id_vector_legality.instruction <== id_instruction
       id_vector_legality.control <== id_control.vector
@@ -646,19 +651,19 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       wb_vector.cancel.valid <== if_squash & !(mem_redirect & mem_input.bits.vector_valid & mem_input.bits.vector_last)
       def wb_vector_launch = wb_vector_launch_path |> filter_valid(operation => operation.vector_launch)
         |> map_valid(operation => RV5StageVectorInstruction(xlen, DecodeExecute(xlen, vector_completion_slots))):
-             context: operation.vector_launch_bits.context
+             context: wb_vector_context
              descriptor:
                RV5StageVectorDescriptor(xlen):
                  pc: operation.pc
-                 instruction: operation.vector_launch_bits.context.instruction
+                 instruction: wb_vector_context.instruction
                  state: wb_csrs.vector_state
-                 control: operation.vector_launch_bits.context.vector_control
-                 scalar: operation.vector_launch_bits.scalar
-                 stride: operation.vector_launch_bits.stride
-                 vd: operation.vector_launch_bits.context.rd
-                 vs1: operation.vector_launch_bits.context.rs1
-                 vs2: operation.vector_launch_bits.context.rs2
-                 masked: !operation.vector_launch_bits.context.instruction[25].into(Bool)
+                 control: wb_vector_context.vector_control
+                 scalar: wb_vector_context.operand_rs1.value
+                 stride: wb_vector_context.operand_rs2.value
+                 vd: wb_vector_context.rd
+                 vs1: wb_vector_context.rs1
+                 vs2: wb_vector_context.rs2
+                 masked: !wb_vector_context.instruction[25].into(Bool)
       wb_vector_launch |> to_decoupled() |> wb_vector.request
       when (wb_vector_launch.valid):
         assert(wb_vector.request.ready, "rv5stage_vector_launch_reserved")
@@ -690,6 +695,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       wb_vector.retire |> wb_csrs.vector_retire
       wb_vector.saturate |> wb_csrs.vector_saturate
       wb_vector.scalar_result |> wb_vector_scalar_result_link.left
+      when (ex_transfer & ex_input.bits.vector_launch):
+        wb_vector_context <== ex_input.bits.updated(
+          ~vector_launch: Bool(#false),
+          ~vector_valid: Bool(#true),
+          ~operand_rs1: ex_input.bits.operand_rs1.updated(~stage_sel: RV5StageBypassStage.RegisterFile, ~value: ex_vector_resolved_rs1),
+          ~operand_rs2: ex_input.bits.operand_rs2.updated(~stage_sel: RV5StageBypassStage.RegisterFile, ~value: ex_vector_resolved_rs2)
+        )
   | block:
       wb_vector_multiply_request_link.left.valid <== Bool(#false)
       wb_vector_multiply_request_link.left.bits <== dont_care(RV5StageExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag))
@@ -728,6 +740,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   assert(enum_valid(ex_input.bits.operand_rs2.stage_sel), "rv5stage_rs2_bypass_stage_is_one_hot")
   def ex_forwarded_rs1 = ex_forwarded_register_value(ex_input.bits.operand_rs1)
   def ex_forwarded_rs2 = ex_forwarded_register_value(ex_input.bits.operand_rs2)
+  ex_vector_resolved_rs1 <== ex_forwarded_rs1
+  ex_vector_resolved_rs2 <== ex_forwarded_rs2
 
   ex_alu.left <== mux_lookup(
     ex_input.bits.operand_left,
@@ -813,8 +827,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     divisor: ex_forwarded_rs2
     control: ex_input.bits.divide_control
     rd: ex_input.bits.rd
-  def ex_older_squash = mem_exception_event ||| mem_replay_event ||| mem_redirect ||| wb_commit_redirect
-
   def ex_fp_issue = RV5StageFpIssue(xlen, effective_fp_profile, Bits(width)):
     context: ex_input.bits.pc
     control: ex_input.bits.floating_point_control
@@ -826,7 +838,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     rounding_mode: ex_input.bits.floating_point_rounding_mode
   // EX only prepares operands. A missing store-read result becomes a replay;
   // execution and all architectural effects require WB authorization.
-  def ex_transfer = ex_input.valid & !ex_older_squash
   def ex_prefetch_request = CachePrefetchReq(width):
     address: ex_memory_address
     operation: ex_input.bits.prefetch_operation
@@ -878,18 +889,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def ex_ras_action = rv5stage_ras_action(ex_input.bits.instruction)
   def ex_ras_mispredicted = ex_ras_action =/= ex_input.bits.predicted_ras_action
   def ex_redirect_valid = !ex_input.bits.vector_launch & ((ex_resume_pc =/= ex_input.bits.predicted_next_pc) ||| ex_ras_mispredicted) & !ex_exception.valid & (!ex_input.bits.vector_valid ||| ex_input.bits.vector_last)
-  def ex_vector_launch = RV5StageVectorLaunch(xlen, vector_completion_slots):
-    context: ex_input.bits.updated(
-      ~vector_launch: Bool(#false),
-      ~vector_valid: Bool(#true),
-      ~operand_rs1: ex_input.bits.operand_rs1.updated(~stage_sel: RV5StageBypassStage.RegisterFile, ~value: ex_forwarded_rs1),
-      ~operand_rs2: ex_input.bits.operand_rs2.updated(~stage_sel: RV5StageBypassStage.RegisterFile, ~value: ex_forwarded_rs2)
-    )
-    scalar: ex_forwarded_rs1
-    stride: ex_forwarded_rs2
   def ex_payload = ExecuteMemory(xlen, vector_completion_slots):
     vector_launch: ex_input.bits.vector_launch
-    vector_launch_bits: ex_vector_launch
     vector_valid: ex_input.bits.vector_valid
     vector_last: ex_input.bits.vector_last
     pc: ex_input.bits.pc
@@ -963,7 +964,6 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   mem_training_path |> filter_valid(operation => !operation.vector_launch) |> map_valid(operation => operation.branch_update) |> frontend_control.branch_update
   def mem_to_wb = mem_access |> map_valid(operation => MemoryWriteback(xlen, vector_completion_slots)):
     vector_launch: operation.vector_launch
-    vector_launch_bits: operation.vector_launch_bits
     vector_valid: operation.vector_valid
     vector_last: operation.vector_last
     pc: operation.pc

@@ -36,10 +36,13 @@ vector CSR completion waits for VRF drain. Cancellation flushes speculative priv
 must exempt a vector's own last-beat prediction repair from owner cancellation.
 The original vector macro crosses the scalar pipeline as a side-effect-free
 launch token. Resolve its scalar, base, and stride operands through the ordinary
-EX bypass selectors, retain that resolved launch payload through MEM, and admit
-it to the unroller only at WB. A launch in EX/MEM/WB blocks younger Decode so
-WB request readiness is reserved without making WB elastic. Keep issue occupancy
-distinct from accepted memory completion ownership.
+EX bypass selectors and capture the decoded macro in one vector-only retained
+context at the accepted EX occurrence. The generic EX/MEM and MEM/WB payloads
+carry only the launch token; WB combines that token with the retained context
+before admitting the macro to the unroller. A launch in EX/MEM/WB blocks younger
+Decode, so the context cannot be replaced and WB request readiness is reserved
+without making WB elastic. Keep issue occupancy distinct from accepted memory
+completion ownership.
 Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
 Do not turn the experimental VLEN option into a public ISA/profile claim.
