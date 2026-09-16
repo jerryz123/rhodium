@@ -35,8 +35,8 @@ and narrow-source widening plus wide-source widening add/sub using direct SIMD c
 signedness, comparison inversion, and operand swapping. Runtime group checks
 cover alignment, fractional groups, doubled widening EMUL, masked data
 destinations, mask-result overlap, and widening source/destination overlap.
-Legal rows execute through the Decode-held integer
-unroller. VS Off, `vill`, and invalid register groups trap before unrolling.
+Legal rows reach WB as side-effect-free launch tokens, then execute through the
+integer unroller. VS Off, `vill`, and invalid register groups trap before launch.
 This is an initial subset of [RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext),
 not a complete vector ISA implementation.
 
@@ -45,7 +45,8 @@ not a complete vector ISA implementation.
 [`RV5StageVectorPipeline`](../vector.rhdl) contains the unroller, a vector bank
 with three general read ports and a dedicated `v0` mask shadow, packed SIMD
 execution, and private EX/MEM/WB data registers.
-Its `request` accepts a legal macro snapshot. Each accepted `issue` emits
+Its `request` accepts a legal macro snapshot only at nonspeculative WB. Each
+accepted `issue` emits
 the caller's context, a `last` marker, and scalar-LSU memory metadata when
 applicable, atomically capturing that beat's
 operands in the private pipeline. Scalar stages carry bookkeeping and singleton
@@ -80,8 +81,11 @@ is an exclusive architectural element range, independent of masked-off lanes;
 caller-defined context identifies outstanding work. Authorization is distinct
 from result completion, and accepted side effects must never be retried.
 [`RV5StageVectorUnroller`](unroller.rhdl) retains one macro descriptor and its
-scalar/configuration snapshot. Younger instructions wait in Decode until its
-last WB beat; older scalar instructions can finish or squash it normally.
+scalar/configuration snapshot. The original macro crosses ID/EX, EX/MEM, and
+MEM/WB without executing scalar side effects; EX forwarding resolves its scalar
+base and stride before WB launches the unroller. Younger instructions wait in
+Decode from launch admission until the last WB beat, while older scalar
+instructions can finish or squash the launch normally.
 Three synchronous general VRF reads supply `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
 shadow supplies predication concurrently. A two-slot credit
@@ -351,7 +355,7 @@ RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,
 `vsmul`, `vdiv`, `vdivu`, `vrem`, and `vremu` in `.vv` and `.vx` forms at
 SEW8/16/32/64. `vwmulu`, `vwmulsu`, and `vwmul` execute at SEW8/16/32 and
 produce 2*SEW destinations. These are singleton operations, not packed SIMD
-operations. VX captures its scalar operand at macro admission. Signed operands
+operations. VX captures its EX-forwarded scalar operand at WB launch. Signed operands
 extend from source SEW before execution; high multiplication selects bits
 `[SEW, 2*SEW)`, while widening multiplication retains all `2*SEW` product bits.
 `vsmul` rounds the signed double-width product after shifting it right by
@@ -397,7 +401,7 @@ RV32 vector mul/div and V advertisement remain outside this cut.
 The experimental RV64D path executes same-width `vfadd.vv`, `vfsub.vv`, and
 `vfmul.vv` at SEW32 or SEW64. This is a subset, not an advertised V extension.
 FS and VS must be enabled and `frm` must select a supported rounding mode;
-the macro captures `frm` at admission. FP16, RV32 vector FP, scalar-FP vector
+the macro captures `frm` at WB launch. FP16, RV32 vector FP, scalar-FP vector
 operands, widening, and fused operations are outside this cut.
 
 The unroller reads one element from each vector source through general ports;

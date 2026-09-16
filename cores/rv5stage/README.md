@@ -20,8 +20,9 @@ Contributors changing the core should read
 The experimental [vector path](vector/README.md) provides configurable VLEN,
 a flat 64-bit register bank with three general reads and a dedicated `v0` mask
 shadow, SIMD packing, and opt-in WB-owned `vset*`/CSR
-and same-width integer execution. One Decode-held macro streams packed beats
-through a separate [`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
+and same-width integer execution. One macro travels through the scalar pipeline
+as a side-effect-free launch token, then WB starts a separate
+[`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
 SIMD datapath, and vector bank. Scalar EX/MEM/WB carries retirement bookkeeping
 and singleton LSU operands, and authorizes the parallel pipeline's writes at WB.
 RV64 unit-stride vector memory shares scalar lookup and WB dispatch, with
@@ -393,6 +394,9 @@ flowchart LR
     LSU -->|"FP load completion"| FP
     FP -->|"integer result"| COMPLETE
     FP --> FPR["FP register file"]
+
+    WB -->|"launch vector macro"| VECTOR["Vector unroller<br/>SIMD + VRF"]
+    VECTOR -->|"generated beat"| ID
 
     WB -->|"ordinary result"| GPR["Integer register file"]
     COMPLETE --> GPR

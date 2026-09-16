@@ -34,9 +34,12 @@ The vector pipeline asserts result alignment and returns a last-completion pulse
 Only the last authorized beat updates scalar retirement/PC/NTL macro state;
 vector CSR completion waits for VRF drain. Cancellation flushes speculative private validity, and the core
 must exempt a vector's own last-beat prediction repair from owner cancellation.
-The scalar VX snapshot must wait for older EX/MEM GPR producers, because the
-ordinary scalar bypass selector describes next-cycle EX, not a retained ID
-value. Keep issue occupancy distinct from accepted memory completion ownership.
+The original vector macro crosses the scalar pipeline as a side-effect-free
+launch token. Resolve its scalar, base, and stride operands through the ordinary
+EX bypass selectors, retain that resolved launch payload through MEM, and admit
+it to the unroller only at WB. A launch in EX/MEM/WB blocks younger Decode so
+WB request readiness is reserved without making WB elastic. Keep issue occupancy
+distinct from accepted memory completion ownership.
 Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
 Do not turn the experimental VLEN option into a public ISA/profile claim.
@@ -45,7 +48,7 @@ Do not turn the experimental VLEN option into a public ISA/profile claim.
 shared FP request. It imports the named FP contracts, FP controls, RISC-V
 boxing helpers, and HardFloat types; none of those modules imports vector
 execution. The parent pipeline reserves completion slots for both memory and
-FP, captures rounding at macro admission, and queues operands only at WB.
+FP, captures rounding at WB macro launch, and queues operands only at WB.
 The core composes `RV5StageFpScalar` and vector requests around one execution
 service. Keep scalar FPR ownership separate from vector slot ownership, and
 merge simultaneous architectural flag pulses without arbitration loss.

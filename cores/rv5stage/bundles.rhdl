@@ -68,6 +68,7 @@ bundle RV5StageOperand(xlen :: XLen):
   value: Bits(xlen.width)
 
 bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int):
+  vector_launch: Bool
   vector_valid: Bool
   vector_last: Bool
   vector_tag: Bits(index_width(vector_completion_slots))
@@ -112,12 +113,21 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int):
   rd: Bits(5)
   frs3: Bits(5)
 
+// Carries one decoded vector macro to the nonspeculative WB launch point.
+// Scalar operands are resolved through the ordinary EX bypass network.
+bundle RV5StageVectorLaunch(xlen :: XLen, vector_completion_slots :: Pow2Int):
+  context: DecodeExecute(xlen, vector_completion_slots)
+  scalar: Bits(xlen.width)
+  stride: Bits(xlen.width)
+
 bundle RV5StageException(xlen :: XLen):
   valid: Bool
   cause: Bits(xlen.width)
   value: Bits(xlen.width)
 
 bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
+  vector_launch: Bool
+  vector_launch_bits: RV5StageVectorLaunch(xlen, vector_completion_slots)
   vector_valid: Bool
   vector_last: Bool
   pc: Bits(xlen.width)
@@ -148,6 +158,8 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
   exception_value: Bits(xlen.width)
 
 bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
+  vector_launch: Bool
+  vector_launch_bits: RV5StageVectorLaunch(xlen, vector_completion_slots)
   vector_valid: Bool
   vector_last: Bool
   pc: Bits(xlen.width)
@@ -184,6 +196,7 @@ export:
   RV5StageHazardReasons
   RV5StageOperand
   DecodeExecute
+  RV5StageVectorLaunch
   RV5StageException
   ExecuteMemory
   MemoryWriteback
