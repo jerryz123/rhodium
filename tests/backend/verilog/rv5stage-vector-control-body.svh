@@ -654,6 +654,23 @@
         checks++;
       end
     end
+    // Mask transfers use one register and byte-granular EVL regardless of
+    // SEW/LMUL, but still depend on a non-vill vtype and RV64 memory support.
+    for (int sew=0;sew<4;sew++) begin
+      for (int lm=-3;lm<=3;lm++) begin
+        test_vtype=(word_t'(sew)<<3)|(word_t'(lm)&7);
+        for (int destination=0;destination<32;destination++) begin
+          instruction={3'b0,1'b0,2'b00,1'b1,5'd11,5'd8,3'd0,5'(destination),7'h07}; #1;
+          assert(decoded_valid && legal==(XLEN==64 && sew<=lm+3)) else $fatal(1,"mask load legality sew%0d lm%0d vd%0d",sew,lm,destination);
+          instruction[6:0]=7'h27; #1;
+          assert(decoded_valid && legal==(XLEN==64 && sew<=lm+3)) else $fatal(1,"mask store legality sew%0d lm%0d vs3%0d",sew,lm,destination);
+          checks+=2;
+        end
+      end
+    end
+    test_vtype='1;
+    instruction=32'h02b10087; #1;
+    assert(decoded_valid && !legal) else $fatal(1,"mask load ignored vill");
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);

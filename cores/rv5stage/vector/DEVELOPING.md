@@ -137,6 +137,13 @@ calculation selects successive registers. Unit-stride address setup, authorized
 retry checkpoints, LSU completion slots, and precise `vstart` faults remain
 shared with ordinary vector memory. Do not apply fault-only-first serialization
 or truncation to this mode.
+Mask-register transfers also remain a distinct memory mode. Iterate
+`ceil(vl/8)` byte operations in one register, interpret `vstart` in bytes, and
+keep their geometry independent of SEW/LMUL while still rejecting `vill`.
+Reuse singleton E8 address, extraction, completion, and restart machinery; do
+not expand the transfer into one LSU operation per mask bit. Loads into `v0`
+must pass through the sole bit-enabled write port so the general row and mask
+shadow stay atomic.
 
 Slot selection is the macro-local operation sequence modulo the configured depth. Depth one
 must explicitly produce zero and hold the drain head at zero; `index_width(1)`
@@ -390,6 +397,7 @@ Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 For vector memory, run `rv5stage-vector-memory` through the shared real
 core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer
 regression. The memory bench covers all four EEWs, an EEW/SEW mismatch,
+mask-register byte-count boundaries and `v0` shadow use,
 whole-register transfer across a register boundary with `vl` independence and
 an Sv39 fault repaired and restarted at the next register,
 positive/negative/zero stride, indexed and three-field unit-stride,

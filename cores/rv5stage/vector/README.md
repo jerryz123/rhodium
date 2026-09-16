@@ -7,7 +7,7 @@ The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
 vector CSR state, the decoded packed-integer subset, and RV64 vector memory
 operations using unit-stride, constant-stride, indexed, unit-stride segment,
 constant-stride segment, indexed segment, and unit-stride fault-only-first
-addressing, plus whole-register loads and stores. The default is `#false`. Neither setting advertises `V`,
+addressing, plus mask-register and whole-register loads and stores. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
@@ -156,6 +156,15 @@ element. The unroller walks one continuous register group, so its existing
 datapath. Decode enforces NREG alignment and rejects register wrap past `v31`.
 The fixed-unmasked forms leave `vl` and `vtype` unchanged, and precise faults
 reuse the ordinary authorized cursor and address checkpoint.
+
+Mask-register `vlm.v` and `vsm.v` transfers are fixed-unmasked byte streams
+through one named vector register. Their effective length is `ceil(vl/8)`, and
+`vstart` is a byte cursor. They require a legal `vtype` because their length
+depends on `vl`, but ignore SEW and LMUL for register geometry. Loads write each
+complete transferred byte through the ordinary bit-enabled VRF port; a load to
+`v0` updates its dedicated mask shadow atomically. Retry, precise faults,
+ordering, completion slots, and successful `vstart` clearing remain the same as
+ordinary unit-stride memory.
 
 The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
 element and execute every body element; `v0` is data, not predication. `vmadc`

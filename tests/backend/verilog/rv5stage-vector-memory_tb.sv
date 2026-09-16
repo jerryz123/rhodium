@@ -49,13 +49,13 @@ module rv5stage_vector_memory_tb;
   RV5StageLoadHit dut(.*);
   always #5 clock = ~clock;
 
-  logic [31:0] program_words[2048];
+  logic [31:0] program_words[4096];
   byte unsigned memory[32768];
-  logic [63:0] expected[256];
+  logic [63:0] expected[512];
   int pc = 0, expected_count = 0, signatures = 0, cycles = 0;
   int hits = 0, warm_run = 0, longest_warm_run = 0, rejections = 0;
   int overlapping_hits = 0, scalar_overlap = 0;
-  int refills = 0, copybacks = 0, fault_signature = 0, whole_fault_signature = 0, whole_fault_reset_signature = 0, device_elements = 0;
+  int refills = 0, copybacks = 0, fault_signature = 0, fault_reset_signature = 0, whole_fault_signature = 0, whole_fault_reset_signature = 0, mask_fault_signature = 0, mask_fault_reset_signature = 0, device_elements = 0;
   bit instruction_valid = 0, uncached_pending = 0, returning = 0, writing_back = 0;
   logic [31:0] instruction_word;
   response_bits_t uncached_response;
@@ -87,6 +87,9 @@ module rv5stage_vector_memory_tb;
   endfunction
   function automatic logic [31:0] whole_register_vmem(input bit store, input int width, registers, regno, base);
     return {3'(registers-1), 1'b0, 2'b00, 1'b1, 5'd8, 5'(base), 3'(store || width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
+  endfunction
+  function automatic logic [31:0] mask_vmem(input bit store, input int regno, base);
+    return {3'b0, 1'b0, 2'b00, 1'b1, 5'd11, 5'(base), 3'b000, 5'(regno), store ? 7'h27 : 7'h07};
   endfunction
   function automatic logic [31:0] vint(input int op, vd, vs2, vs1, mode = 0);
     return {6'(op), 1'b1, 5'(vs2), 5'(vs1), 3'(mode), 5'(vd), 7'h57};
@@ -180,7 +183,7 @@ module rv5stage_vector_memory_tb;
       else if (instruction_in.response.valid && instruction_out.response.ready) instruction_valid <= 0;
       if (instruction_out.request.valid && instruction_in.request.ready) begin
         instruction_valid <= 1;
-        instruction_word <= program_words[int'(instruction_out.request.bits.address / 4) % 2048];
+        instruction_word <= program_words[int'(instruction_out.request.bits.address / 4) % 4096];
       end
       if (load_hit) begin
         if (returning && line_address == 64'h1540) overlapping_hits <= overlapping_hits + 1;
@@ -243,25 +246,25 @@ module rv5stage_vector_memory_tb;
             else $fatal(1, "signature %0d addr=%h got=%h expected=%h", signatures,
                         uncached_out.request.bits.request.address, uncached_out.request.bits.request.data, expected[signatures]);
           signatures <= signatures + 1;
-          if (signatures == whole_fault_reset_signature) resumed <= 0;
-          if (signatures == fault_signature + 3 || signatures == whole_fault_signature + 3) resumed <= 1;
+          if (signatures == fault_reset_signature || signatures == whole_fault_reset_signature || signatures == mask_fault_reset_signature) resumed <= 0;
+          if (signatures == fault_signature + 3 || signatures == whole_fault_signature + 3 || signatures == mask_fault_signature + 3) resumed <= 1;
           if (signatures + 1 == expected_count) begin
             assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
-            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/whole-register/fault-only-first/masked/EEW/vstart/device/fault restart passed",
+            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/mask/whole-register/fault-only-first/masked/EEW/vstart/device/fault restart passed",
                      COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
             $finish;
           end
         end
       end
-      assert (cycles < 60000) else $fatal(1, "vector memory timeout: signatures=%0d/%0d hits=%0d", signatures,expected_count,hits);
+      assert (cycles < 80000) else $fatal(1, "vector memory timeout: signatures=%0d/%0d hits=%0d", signatures,expected_count,hits);
     end
   end
 
   initial begin
     logic [63:0] values[], field_values[];
-    int fault_pc, continuation, before_handler, fof_fault_pc, fof_continuation, before_fof_handler, whole_fault_pc, whole_continuation, before_whole_handler, offsets[4];
-    for (int i = 0; i < 2048; i++) program_words[i] = 32'h0000006f;
+    int fault_pc, continuation, before_handler, fof_fault_pc, fof_continuation, before_fof_handler, whole_fault_pc, whole_continuation, before_whole_handler, mask_fault_pc, before_mask_handler, offsets[4], mask_lengths[5];
+    for (int i = 0; i < 4096; i++) program_words[i] = 32'h0000006f;
     for (int i = 0; i < 32768; i++) memory[i] = 8'h55;
     li(20, 'h8000); li(1, 'h600); emit(csr('h300,0,1)); li(1,'h1c00); emit(csr('h305,0,1));
     for (int sew = 0; sew < 4; sew++) begin
@@ -448,6 +451,31 @@ module rv5stage_vector_memory_tb;
     li(9,'h4200); emit(whole_register_vmem(1,0,2,8,9));
     check_memory('h4200,32,values);
     emit(csr('hc20,7,0,2)); signature(7,1);
+    // Mask loads/stores transfer ceil(vl/8) bytes in one register regardless
+    // of SEW/LMUL. Exercise both sides of each byte boundary and full VLEN.
+    write_word('h4400,64'hfedcba9876543210); write_word('h4408,64'h0123456789abcdef);
+    mask_lengths='{1,7,8,9,128};
+    for (int test=0;test<5;test++) begin
+      automatic int transferred=(mask_lengths[test]+7)/8;
+      automatic int checked_words=(transferred+7)/8;
+      configure(0,3,mask_lengths[test]); li(8,'h4400); emit(mask_vmem(0,8,8));
+      li(9,'h4600+test*32); emit(mask_vmem(1,8,9));
+      values=new[checked_words];
+      for (int word=0;word<checked_words;word++) values[word]=64'h5555555555555555;
+      for (int byte_index=0;byte_index<transferred;byte_index++) values[byte_index/8][(byte_index%8)*8+:8]=memory['h4400+byte_index];
+      check_memory('h4600+test*32,checked_words*8,values);
+    end
+    // A load into v0 must update the dedicated predicate shadow used by the
+    // following ordinary masked store, while vsm reads the same packed bytes.
+    memory['h44c0]=8'ha5; memory['h44c1]=8'h01;
+    for (int element=0;element<9;element++) memory['h44e0+element]=8'('h80+element);
+    configure(0,0,9); li(8,'h44c0); emit(mask_vmem(0,0,8));
+    li(8,'h44e0); emit(vmem(0,0,16,8)); li(9,'h4500); emit(vmem(1,0,16,9,1));
+    values=new[2]; values[0]=64'h5555555555555555; values[1]=64'h5555555555555555;
+    for (int element=0;element<9;element++)
+      if ((((element<8 ? 8'ha5 : 8'h01) >> (element%8)) & 1) != 0) values[element/8][(element%8)*8+:8]=8'('h80+element);
+    check_memory('h4500,16,values);
+    li(9,'h4520); emit(mask_vmem(1,0,9)); values=new[1]; values[0]=64'h55555555555501a5; check_memory('h4520,8,values);
     configure(3,1,4);
     // Empty and fully masked bodies must not touch an unmapped address.
     li(8,'h10000); emit(csr(8,0,20,5)); emit(vmem(0,0,16,8));
@@ -457,6 +485,7 @@ module rv5stage_vector_memory_tb;
     emit(indexed_segment_vmem(0,1,1,3,8,8,16,1)); emit(indexed_segment_vmem(1,1,1,3,8,8,16,1));
     emit(fault_only_first_vmem(3,1,8,8,1)); emit(fault_only_first_vmem(3,3,8,8,1));
     emit(csr(8,7,0,2)); signature(7,0);
+    configure(0,3,0); li(8,'h10000); emit(mask_vmem(0,0,8)); emit(mask_vmem(1,0,8)); emit(csr(8,7,0,2)); signature(7,0);
     // A scalar load may pass an older vector load's delayed completion, but
     // the following scalar store must wait for that vector load to drain.
     configure(3,0,1); li(8,'ha000); li(9,'h1300); li(10,'h2700);
@@ -518,7 +547,7 @@ module rv5stage_vector_memory_tb;
     values=new[4]; values[0]=64'h21; values[1]=64'h23; values[2]=64'h25; values[3]=64'h27; check_memory('h2500,32,values);
     values[0]=64'h22; values[1]=64'h24; values[2]=64'h26; values[3]=64'h28; check_memory('h2540,32,values);
     emit(csr(8,7,0,2)); signature(7,0);
-    whole_fault_reset_signature=expected_count-1;
+    fault_reset_signature=expected_count-1;
     // A whole-register load faults at the first element of its second
     // register, reports that encoded-EEW position, and resumes from it after
     // the handler repairs the leaf mapping.
@@ -541,8 +570,27 @@ module rv5stage_vector_memory_tb;
     values=new[4]; values[0]=64'h21; values[1]=64'h22; values[2]=64'h23; values[3]=64'h24;
     check_memory('h4300,32,values);
     emit(csr(8,7,0,2)); signature(7,0);
+    whole_fault_reset_signature=expected_count-1;
+    // A mask load uses byte-granular vstart. Fault after eight accepted bytes,
+    // repair the leaf, then resume at byte eight without repeating the prefix.
+    li(9,'h5028); emit({7'b0,5'd0,5'd9,3'b011,5'b0,7'h23}); emit(32'h0ff0000f); emit(32'h12000073);
+    li(1,'h2100); emit(csr('h305,0,1)); configure(0,3,128);
+    li(8,'h4ff8); li(1,'h20e00); emit(csr('h300,0,1));
+    mask_fault_pc=pc*4; emit(mask_vmem(0,0,8));
+    before_mask_handler=pc; pc=2112;
+    li(1,'h600); emit(csr('h300,0,1));
+    mask_fault_signature=expected_count;
+    emit(csr('h342,7,0,2)); signature(7,13);
+    emit(csr('h343,7,0,2)); signature(7,'h5000);
+    emit(csr(8,7,0,2)); signature(7,8);
+    emit(csr('h341,10,0,2)); signature(10,64'(mask_fault_pc));
+    li(9,'h5028); li(7,'h18c7); emit({7'b0,5'd7,5'd9,3'b011,5'b0,7'h23});
+    emit(32'h0ff0000f); emit(32'h12000073);
+    li(8,'h4ff8); li(1,'h20e00); emit(csr('h300,0,1)); emit({12'b0,5'd10,3'b0,5'd0,7'h67});
+    pc=before_mask_handler;
+    li(1,'h600); emit(csr('h300,0,1)); emit(csr(8,7,0,2)); mask_fault_reset_signature=expected_count; signature(7,0);
     emit(32'h0000006f);
-    assert(continuation < 1792 && whole_continuation < 1856) else $fatal(1,"program overlaps handler");
+    assert(continuation < 1792 && whole_continuation < 1856 && before_mask_handler < 2112) else $fatal(1,"program overlaps handler");
     repeat(4) @(negedge clock);
     reset=0;
   end
