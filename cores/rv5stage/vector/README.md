@@ -7,7 +7,7 @@ The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
 vector CSR state, the decoded packed-integer subset, and RV64 vector memory
 operations using unit-stride, constant-stride, indexed, unit-stride segment,
 constant-stride segment, indexed segment, and unit-stride fault-only-first
-addressing. The default is `#false`. Neither setting advertises `V`,
+addressing, plus whole-register loads and stores. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
@@ -147,6 +147,15 @@ the trap, sets `vl` to that element index, clears `vstart`, marks VS Dirty,
 retires the macro once, and redirects fetch to its successor. Segmented forms
 truncate at the containing segment; fields completed within that segment use
 RVV's implementation-defined partial-segment behavior.
+
+Whole-register `vl1/2/4/8re8/16/32/64.v` and `vs1/2/4/8r.v` transfers use the
+same singleton LSU path. Their effective length is `NREG * VLEN / EEW`,
+independent of `vl` and `vtype`; `vstart` still identifies the next encoded-EEW
+element. The unroller walks one continuous register group, so its existing
+64-bit VRF row address naturally crosses register boundaries without another
+datapath. Decode enforces NREG alignment and rejects register wrap past `v31`.
+The fixed-unmasked forms leave `vl` and `vtype` unchanged, and precise faults
+reuse the ordinary authorized cursor and address checkpoint.
 
 The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
 element and execute every body element; `v0` is data, not predication. `vmadc`

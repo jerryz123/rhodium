@@ -37,6 +37,12 @@ hardware_enum VectorMemoryAddressing:
   IndexedUnordered
   IndexedOrdered
 
+hardware_enum VectorMemoryMode:
+  Ordinary
+  FaultOnlyFirst
+  WholeRegister
+  Mask
+
 bundle RV5StageVectorControl():
   configure: VectorConfigMode
   integer: Bool
@@ -54,7 +60,7 @@ bundle RV5StageVectorControl():
   fp_multiply: Bool
   memory: Bool
   store: Bool
-  fault_only_first: Bool
+  memory_mode: VectorMemoryMode
   memory_data_eew: Bits(2)
   memory_index_eew: Bits(2)
   memory_nf: Bits(3)
@@ -557,7 +563,7 @@ fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorM
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 4)
-        fault_only_first: Bool(#false)
+        memory_mode: VectorMemoryMode.Ordinary
         memory_data_eew: bits(index mod 4, 2)
         memory_nf: bits(0, 3)
         memory_addressing: addressing
@@ -574,7 +580,7 @@ fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 4)
-        fault_only_first: Bool(#false)
+        memory_mode: VectorMemoryMode.Ordinary
         memory_index_eew: bits(index mod 4, 2)
         memory_nf: bits(0, 3)
         memory_addressing: addressing
@@ -591,7 +597,7 @@ fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 28)
-        fault_only_first: Bool(#false)
+        memory_mode: VectorMemoryMode.Ordinary
         memory_data_eew: bits(index mod 4, 2)
         memory_nf: bits(((index mod 28) div 4) + 1, 3)
         memory_addressing: addressing
@@ -608,7 +614,7 @@ fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addre
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 28)
-        fault_only_first: Bool(#false)
+        memory_mode: VectorMemoryMode.Ordinary
         memory_index_eew: bits(index mod 4, 2)
         memory_nf: bits(((index mod 28) div 4) + 1, 3)
         memory_addressing: addressing
@@ -625,9 +631,27 @@ fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(#false)
-        fault_only_first: Bool(#true)
+        memory_mode: VectorMemoryMode.FaultOnlyFirst
         memory_data_eew: bits(index mod 4, 2)
         memory_nf: bits(if index < 4 | 0 | ((index - 4) div 4) + 1, 3)
+        memory_addressing: VectorMemoryAddressing.UnitStride
+        operand: VectorOperandMode.Scalar
+    )
+fun whole_register_memory_cases(instructions :: List.of(InstructionSpec)):
+  for List (instruction in instructions, index in 0..20):
+    def register_index = if index < 16 | index div 4 | index - 16
+    DecodeCase(
+      instruction_pattern(instruction),
+      partial_pattern(RV5StageVectorControl()):
+        configure: VectorConfigMode.None
+        integer: Bool(#false)
+        floating_point: Bool(#false)
+        multiply_divide: Bool(#false)
+        memory: Bool(#true)
+        store: Bool(index >= 16)
+        memory_mode: VectorMemoryMode.WholeRegister
+        memory_data_eew: bits(if index < 16 | index mod 4 | 0, 2)
+        memory_nf: bits([0, 1, 3, 7][register_index], 3)
         memory_addressing: VectorMemoryAddressing.UnitStride
         operand: VectorOperandMode.Scalar
     )
@@ -642,7 +666,8 @@ def VectorIndexedUnorderedSegmentMemoryCases = indexed_segment_memory_cases(Vect
 def VectorIndexedOrderedSegmentMemoryCases = indexed_segment_memory_cases(VectorIndexedOrderedSegmentMemoryInstructions, VectorMemoryAddressing.IndexedOrdered)
 def VectorIndexedSegmentMemoryCases = VectorIndexedUnorderedSegmentMemoryCases ++ VectorIndexedOrderedSegmentMemoryCases
 def VectorFaultOnlyFirstMemoryCases = fault_only_first_memory_cases(VectorFaultOnlyFirstLoadInstructions)
-def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases ++ VectorStridedSegmentMemoryCases ++ VectorIndexedSegmentMemoryCases ++ VectorFaultOnlyFirstMemoryCases
+def VectorWholeRegisterMemoryCases = whole_register_memory_cases(VectorWholeRegisterMemoryInstructions)
+def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases ++ VectorStridedSegmentMemoryCases ++ VectorIndexedSegmentMemoryCases ++ VectorFaultOnlyFirstMemoryCases ++ VectorWholeRegisterMemoryCases
 def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstructions):
   DecodeCase(
     instruction_pattern(instruction),
@@ -718,6 +743,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   input vtype: Bits(xlen.width)
   output legal: Bool
   def config = vector_type(xlen, vlen, vtype)
+  def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
   def indexed_memory = control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
   def segmented_memory = control.memory & control.memory_nf.or_reduce()
   // LMUL is a signed power-of-two exponent; EMUL = LMUL * EEW / SEW.
@@ -822,11 +848,14 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def indexed_overlap_legal = mux(control.store, (control.memory_index_eew === config.sew) ||| memory_groups_disjoint, memory_groups_disjoint)
   def indexed_memory_legal = !indexed_memory ||| ((memory_index_emul >= SInt(5)(-3)) & (memory_index_emul <= SInt(5)(3)) & memory_index_aligned & indexed_overlap_legal & (!masked ||| source2.or_reduce()))
   def segment_memory_legal = !segmented_memory ||| ((memory_register_count <= bits(8, 7)) & (memory_data_end <= bits(32, 7)))
-  def memory_legal = control.memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & indexed_memory_legal & segment_memory_legal & (control.store ||| !(masked & !destination.or_reduce())) & (!control.store ||| !masked ||| destination.or_reduce())
+  def ordinary_memory_legal = control.memory & !whole_register_memory & Bool(xlen == XLen.X64) & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & indexed_memory_legal & segment_memory_legal & (control.store ||| !(masked & !destination.or_reduce())) & (!control.store ||| !masked ||| destination.or_reduce())
+  def whole_register_count = control.memory_nf.zext(7) + bits(1, 7)
+  def whole_register_end = destination.zext(7) + whole_register_count
+  def whole_register_legal = whole_register_memory & Bool(xlen == XLen.X64) & control.memory_nf.is_one_of(bits(0, 3), bits(1, 3), bits(3, 3), bits(7, 3)) & !(destination & control.memory_nf.zext(5)).or_reduce() & (whole_register_end <= bits(32, 7))
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & (config.sew >= bits(2, 2)) & source1_aligned & source2_aligned & destination_aligned & !(masked & !destination.or_reduce())
   def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
   def multiply_divide_legal = control.multiply_divide & Bool(xlen == XLen.X64) & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.or_reduce())
-  legal <== !config.vill & (integer_legal ||| memory_legal ||| fp_legal ||| multiply_divide_legal)
+  legal <== whole_register_legal ||| (!config.vill & (integer_legal ||| ordinary_memory_legal ||| fp_legal ||| multiply_divide_legal))
 
 export:
   VectorScanResult
@@ -834,6 +863,7 @@ export:
   VectorOperandMode
   VectorMultiplyResult
   VectorMemoryAddressing
+  VectorMemoryMode
   RV5StageVectorControl
   NoVectorControl
   VectorConfigurationCases
@@ -862,6 +892,7 @@ export:
   VectorIndexedOrderedSegmentMemoryCases
   VectorIndexedSegmentMemoryCases
   VectorFaultOnlyFirstMemoryCases
+  VectorWholeRegisterMemoryCases
   VectorFloatingPointCases
   VectorDivideCases
   VectorMultiplyCases

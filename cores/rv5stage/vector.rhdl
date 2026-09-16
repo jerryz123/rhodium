@@ -17,6 +17,7 @@ import:
   "vector/execute.rhdl" open
   "vector/mask.rhdl".VectorScanResult
   "vector/register-file.rhdl" open
+  "decode/vector-ctrl.rhdl".VectorMemoryMode
   "register-file.rhdl".RegisterFileWrite
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
@@ -101,14 +102,14 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
 
   // Bookkeeping admission and private operand capture are one atomic transfer.
   def deferred = unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide
-  def fault_only_first = unroller.issue.bits.beat.control.memory & unroller.issue.bits.beat.control.fault_only_first
+  def fault_only_first = unroller.issue.bits.beat.control.memory & (unroller.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def available = !deferred ||| (!allocated[slot_index(unroller.issue.bits.beat.sequence)] & (!fault_only_first ||| !allocated.as_bits().or_reduce()))
   def Array(token, operands) = unroller.issue |> gate_flow(available & !clear & !fold_inflight) |> atomic_fork(2)
   (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
       context: operation.context
       last: operation.beat.last
-      truncate_on_fault: operation.beat.control.fault_only_first & operation.beat.first.or_reduce()
+      truncate_on_fault: (operation.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst) & operation.beat.first.or_reduce()
       memory: operation.beat.control.memory
       memory_width: operation.beat.element_width.into(Bits(2))
       enabled: operation.beat.enabled.as_bits()[0].into(Bool)

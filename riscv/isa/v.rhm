@@ -43,6 +43,8 @@ def vs3 = BitField("vs3", 11, 7)
 def nf = BitField("nf", 31, 29)
 def VectorLoadFormat = InstructionFormat("vector-load", [vector_destination, RegisterOperand("rs1", rs1, "source")], #false, [vm])
 def VectorStoreFormat = InstructionFormat("vector-store", [RegisterOperand("vs3", vs3, "source", RegisterBank.Vector), RegisterOperand("rs1", rs1, "source")], #false, [vm])
+def VectorWholeRegisterLoadFormat = InstructionFormat("vector whole-register load", VectorLoadFormat.operands)
+def VectorWholeRegisterStoreFormat = InstructionFormat("vector whole-register store", VectorStoreFormat.operands)
 def VectorStridedLoadFormat = InstructionFormat("vector-strided-load", [vector_destination, RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")], #false, [vm])
 def VectorStridedStoreFormat = InstructionFormat("vector-strided-store", [RegisterOperand("vs3", vs3, "source", RegisterBank.Vector), RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")], #false, [vm])
 def VectorIndexedLoadFormat = InstructionFormat("vector-indexed-load", [vector_destination, RegisterOperand("rs1", rs1, "source"), RegisterOperand("vs2", vs2, "source", RegisterBank.Vector)], #false, [vm])
@@ -76,6 +78,18 @@ fun fault_only_first(fields :: PosInt, width :: Nat, width_bits :: PosInt):
     (if fields == 1 | "VLE" | "VLSEG" ++ to_string(fields) ++ "E") ++ to_string(width_bits) ++ "FF.V",
     VectorLoadFormat,
     [opcode.constrain(0x07), funct3.constrain(width), nf.constrain(fields - 1), BitField("mew/mop", 28, 26).constrain(0), BitField("lumop", 24, 20).constrain(16)]
+  )
+fun whole_register_load(registers :: PosInt, width :: Nat, width_bits :: PosInt):
+  InstructionSpec(
+    "VL" ++ to_string(registers) ++ "RE" ++ to_string(width_bits) ++ ".V",
+    VectorWholeRegisterLoadFormat,
+    [opcode.constrain(0x07), funct3.constrain(width), nf.constrain(registers - 1), BitField("mew/mop", 28, 26).constrain(0), vm.constrain(1), BitField("lumop", 24, 20).constrain(8)]
+  )
+fun whole_register_store(registers :: PosInt):
+  InstructionSpec(
+    "VS" ++ to_string(registers) ++ "R.V",
+    VectorWholeRegisterStoreFormat,
+    [opcode.constrain(0x27), funct3.constrain(0), nf.constrain(registers - 1), BitField("mew/mop", 28, 26).constrain(0), vm.constrain(1), BitField("sumop", 24, 20).constrain(8)]
   )
 def VLE8_V = unit_stride("VLE8.V", #false, 0)
 def VLE16_V = unit_stride("VLE16.V", #false, 5)
@@ -145,6 +159,16 @@ fun fault_only_first_segments():
   instructions
 def VectorUnitStrideFaultOnlyFirstSegmentLoadInstructions = fault_only_first_segments()
 def VectorFaultOnlyFirstLoadInstructions = VectorUnitStrideFaultOnlyFirstLoadInstructions ++ VectorUnitStrideFaultOnlyFirstSegmentLoadInstructions
+fun whole_register_loads():
+  def mutable instructions = []
+  for (registers in [1, 2, 4, 8]):
+    for (width in [0, 5, 6, 7], width_bits in [8, 16, 32, 64]):
+      instructions := instructions ++ [whole_register_load(registers, width, width_bits)]
+  instructions
+def VectorWholeRegisterLoadInstructions = whole_register_loads()
+def VectorWholeRegisterStoreInstructions = for List (registers in [1, 2, 4, 8]):
+  whole_register_store(registers)
+def VectorWholeRegisterMemoryInstructions = VectorWholeRegisterLoadInstructions ++ VectorWholeRegisterStoreInstructions
 def VectorUnitStrideSegmentLoadInstructions = unit_stride_segments(#false)
 def VectorUnitStrideSegmentStoreInstructions = unit_stride_segments(#true)
 def VectorUnitStrideSegmentMemoryInstructions = VectorUnitStrideSegmentLoadInstructions ++ VectorUnitStrideSegmentStoreInstructions
@@ -160,9 +184,9 @@ def VectorIndexedOrderedSegmentMemoryInstructions = VectorIndexedOrderedSegmentL
 def VectorIndexedSegmentLoadInstructions = VectorIndexedUnorderedSegmentLoadInstructions ++ VectorIndexedOrderedSegmentLoadInstructions
 def VectorIndexedSegmentStoreInstructions = VectorIndexedUnorderedSegmentStoreInstructions ++ VectorIndexedOrderedSegmentStoreInstructions
 def VectorIndexedSegmentMemoryInstructions = VectorIndexedUnorderedSegmentMemoryInstructions ++ VectorIndexedOrderedSegmentMemoryInstructions
-def VectorLoadInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V, VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V, VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V] ++ VectorUnitStrideSegmentLoadInstructions ++ VectorStridedSegmentLoadInstructions ++ VectorIndexedSegmentLoadInstructions ++ VectorFaultOnlyFirstLoadInstructions
-def VectorStoreInstructions = [VSE8_V, VSE16_V, VSE32_V, VSE64_V, VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V, VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V, VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V] ++ VectorUnitStrideSegmentStoreInstructions ++ VectorStridedSegmentStoreInstructions ++ VectorIndexedSegmentStoreInstructions
-def VectorMemoryInstructions = VectorUnitStrideMemoryInstructions ++ VectorStridedMemoryInstructions ++ VectorIndexedMemoryInstructions ++ VectorUnitStrideSegmentMemoryInstructions ++ VectorStridedSegmentMemoryInstructions ++ VectorIndexedSegmentMemoryInstructions ++ VectorFaultOnlyFirstLoadInstructions
+def VectorLoadInstructions = [VLE8_V, VLE16_V, VLE32_V, VLE64_V, VLSE8_V, VLSE16_V, VLSE32_V, VLSE64_V, VLUXEI8_V, VLUXEI16_V, VLUXEI32_V, VLUXEI64_V, VLOXEI8_V, VLOXEI16_V, VLOXEI32_V, VLOXEI64_V] ++ VectorUnitStrideSegmentLoadInstructions ++ VectorStridedSegmentLoadInstructions ++ VectorIndexedSegmentLoadInstructions ++ VectorFaultOnlyFirstLoadInstructions ++ VectorWholeRegisterLoadInstructions
+def VectorStoreInstructions = [VSE8_V, VSE16_V, VSE32_V, VSE64_V, VSSE8_V, VSSE16_V, VSSE32_V, VSSE64_V, VSUXEI8_V, VSUXEI16_V, VSUXEI32_V, VSUXEI64_V, VSOXEI8_V, VSOXEI16_V, VSOXEI32_V, VSOXEI64_V] ++ VectorUnitStrideSegmentStoreInstructions ++ VectorStridedSegmentStoreInstructions ++ VectorIndexedSegmentStoreInstructions ++ VectorWholeRegisterStoreInstructions
+def VectorMemoryInstructions = VectorUnitStrideMemoryInstructions ++ VectorStridedMemoryInstructions ++ VectorIndexedMemoryInstructions ++ VectorUnitStrideSegmentMemoryInstructions ++ VectorStridedSegmentMemoryInstructions ++ VectorIndexedSegmentMemoryInstructions ++ VectorFaultOnlyFirstLoadInstructions ++ VectorWholeRegisterMemoryInstructions
 
 fun vector_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
@@ -562,6 +586,8 @@ export:
   nf
   VectorLoadFormat
   VectorStoreFormat
+  VectorWholeRegisterLoadFormat
+  VectorWholeRegisterStoreFormat
   VectorStridedLoadFormat
   VectorStridedStoreFormat
   VectorIndexedLoadFormat
@@ -589,6 +615,9 @@ export:
   VectorUnitStrideFaultOnlyFirstLoadInstructions
   VectorUnitStrideFaultOnlyFirstSegmentLoadInstructions
   VectorFaultOnlyFirstLoadInstructions
+  VectorWholeRegisterLoadInstructions
+  VectorWholeRegisterStoreInstructions
+  VectorWholeRegisterMemoryInstructions
   VectorLoadInstructions
   VectorStoreInstructions
   VectorMemoryInstructions

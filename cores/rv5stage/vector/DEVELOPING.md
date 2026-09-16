@@ -129,6 +129,14 @@ use truncation feedback, discard speculative younger beats, update `vl` from
 the vector pipeline's private element position, and retire without entering a
 trap handler. Keep the scalar stage payload to the one-bit truncation policy;
 do not expose the element cursor outside the vector pipeline.
+Whole-register transfers remain a distinct memory mode, not a segment or an
+ordinary unit-stride special case. Derive EVL from NREG, VLEN, and encoded EEW;
+do not consult `vl` or decoded `vtype` geometry. Keep the global encoded-EEW
+cursor continuous across the aligned register group so the existing VRF row
+calculation selects successive registers. Unit-stride address setup, authorized
+retry checkpoints, LSU completion slots, and precise `vstart` faults remain
+shared with ordinary vector memory. Do not apply fault-only-first serialization
+or truncation to this mode.
 
 Slot selection is the macro-local operation sequence modulo the configured depth. Depth one
 must explicitly produce zero and hold the drain head at zero; `index_width(1)`
@@ -382,6 +390,8 @@ Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 For vector memory, run `rv5stage-vector-memory` through the shared real
 core/MMU/router/L1D fixture, plus `rv5stage-vector-config` for packed integer
 regression. The memory bench covers all four EEWs, an EEW/SEW mismatch,
+whole-register transfer across a register boundary with `vl` independence and
+an Sv39 fault repaired and restarted at the next register,
 positive/negative/zero stride, indexed and three-field unit-stride,
 constant-stride, and indexed segment operations, field/register mapping, additive segment-aware
 `vstart` warm-up, masks, empty bodies, in-order device stores, request/CHI

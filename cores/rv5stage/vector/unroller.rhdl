@@ -63,8 +63,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   inst packing(RV5StageVectorOperands(vlen))
   def descriptor = instruction.descriptor
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
+  def whole_register_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
   def indexed_memory = descriptor.control.memory & descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
-  def segmented_memory = descriptor.control.memory & descriptor.control.memory_nf.or_reduce()
+  def segmented_memory = descriptor.control.memory & !whole_register_memory & descriptor.control.memory_nf.or_reduce()
   def memory_data_eew = mux(indexed_memory, geometry.sew, descriptor.control.memory_data_eew)
   def sew = mux(descriptor.control.memory, memory_data_eew, geometry.sew)
   def element_move = descriptor.control.integer & descriptor.control.element_move
@@ -87,8 +88,13 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def mask_select = descriptor.control.integer & descriptor.control.mask_select
   def carry_input = descriptor.control.integer & descriptor.control.carry_input
   def format = mux(mask_word, SimdElementWidth.E64, sew.into(SimdElementWidth))
+  // Whole-register transfers count encoded-EEW elements across NREG registers;
+  // they deliberately ignore the active vl and vtype geometry.
+  def whole_register_group_shift = mux_lookup(descriptor.control.memory_nf, ~default: bits(0, 2), [[1, bits(1, 2)], [3, bits(2, 2)], [7, bits(3, 2)]])
+  def whole_register_elements = bits(vlen / 8, index_width(vlen + 1)) >> descriptor.control.memory_data_eew
+  def whole_register_limit = whole_register_elements << whole_register_group_shift
   // Element moves have one bookkeeping beat, not a VL-sized iteration space.
-  def limit = mux(element_move, bits(1, index_width(vlen + 1)), descriptor.state.vl[0..index_width(vlen + 1)])
+  def limit = mux(element_move, bits(1, index_width(vlen + 1)), mux(whole_register_memory, whole_register_limit, descriptor.state.vl[0..index_width(vlen + 1)]))
   def lanes = mux(mask_word, bits(64, index_width(vlen + 1)), mux(singleton, bits(1, index_width(vlen + 1)), mux_lookup(format, ~default: mux(width_change, bits(4, index_width(vlen + 1)), bits(8, index_width(vlen + 1))), [[SimdElementWidth.E16, mux(width_change, bits(2, index_width(vlen + 1)), bits(4, index_width(vlen + 1)))], [SimdElementWidth.E32, mux(width_change, bits(1, index_width(vlen + 1)), bits(2, index_width(vlen + 1)))], [SimdElementWidth.E64, bits(1, index_width(vlen + 1))]])))
   fun aligned_first(first :: Bits(index_width(vlen + 1)), sew :: Bits(2)):
     mux_lookup(sew, ~default: first.align_down(8), [[1, first.align_down(4)], [2, first.align_down(2)], [3, first]])
@@ -367,7 +373,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     def stride = if xlen == XLen.X64 | request.bits.descriptor.stride | request.bits.descriptor.stride.into(SInt(32)).sext(64).into(Bits(64))
     def field_bytes = bits(1, 64) << request.bits.descriptor.control.memory_data_eew
     def fields = request.bits.descriptor.control.memory_nf.zext(64) + bits(1, 64)
-    def unit_stride_step = mux(request.bits.descriptor.control.memory_nf.or_reduce(), fields << request.bits.descriptor.control.memory_data_eew, field_bytes)
+    def request_whole_register_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
+    def unit_stride_step = mux(request_whole_register_memory, field_bytes, mux(request.bits.descriptor.control.memory_nf.or_reduce(), fields << request.bits.descriptor.control.memory_data_eew, field_bytes))
     def element_step = mux(request.bits.descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, stride, unit_stride_step)
     def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
     def single_schedule = request.bits.descriptor.control.memory ||| request.bits.descriptor.control.floating_point ||| request.bits.descriptor.control.multiply_divide ||| (request.bits.descriptor.control.integer & (request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.gather & (request.bits.descriptor.control.operand === VectorOperandMode.Vector))))
@@ -384,7 +391,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     authorized_memory_element_address <== base
     memory_element_step <== element_step
     def indexed = request.bits.descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
-    memory_setup_remaining <== mux(request.bits.descriptor.control.memory & !indexed & (start < request.bits.descriptor.state.vl[0..index_width(vlen + 1)]), start, bits(0, index_width(vlen + 1)))
+    def request_whole_register_group_shift = mux_lookup(request.bits.descriptor.control.memory_nf, ~default: bits(0, 2), [[1, bits(1, 2)], [3, bits(2, 2)], [7, bits(3, 2)]])
+    def request_whole_register_elements = bits(vlen / 8, index_width(vlen + 1)) >> request.bits.descriptor.control.memory_data_eew
+    def request_whole_register_limit = request_whole_register_elements << request_whole_register_group_shift
+    def request_limit = mux(request_whole_register_memory, request_whole_register_limit, request.bits.descriptor.state.vl[0..index_width(vlen + 1)])
+    memory_setup_remaining <== mux(request.bits.descriptor.control.memory & !indexed & (start < request_limit), start, bits(0, index_width(vlen + 1)))
     all_issued <== Bool(#false)
     reserved <== bits(0, 2)
     compress_data <== bits(0, 64)

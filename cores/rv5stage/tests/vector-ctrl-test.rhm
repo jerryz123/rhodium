@@ -309,7 +309,7 @@ for (instructions in [VectorUnitStrideMemoryInstructions, VectorStridedMemoryIns
       value(decoded, "integer") ~is 0
       value(decoded, "memory") ~is 1
       value(decoded, "store") ~is (if index >= 4 | 1 | 0)
-      value(decoded, "fault_only_first") ~is 0
+      value(decoded, "memory_mode") ~is VectorMemoryMode.Ordinary.packed_value()
       value(decoded, "memory_data_eew") ~is index mod 4
       value(decoded, "memory_addressing") ~is addressing.packed_value()
       value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1
@@ -322,7 +322,7 @@ for (instructions in [VectorIndexedUnorderedMemoryInstructions, VectorIndexedOrd
       value(decoded, "integer") ~is 0
       value(decoded, "memory") ~is 1
       value(decoded, "store") ~is (if index >= 4 | 1 | 0)
-      value(decoded, "fault_only_first") ~is 0
+      value(decoded, "memory_mode") ~is VectorMemoryMode.Ordinary.packed_value()
       value(decoded, "memory_index_eew") ~is index mod 4
       value(decoded, "memory_addressing") ~is addressing.packed_value()
       value(decoded, "operand") ~is VectorOperandMode.Vector.packed_value()
@@ -336,7 +336,7 @@ for (instructions in [VectorUnitStrideSegmentMemoryInstructions, VectorStridedSe
       value(decoded, "integer") ~is 0
       value(decoded, "memory") ~is 1
       value(decoded, "store") ~is (if index >= 28 | 1 | 0)
-      value(decoded, "fault_only_first") ~is 0
+      value(decoded, "memory_mode") ~is VectorMemoryMode.Ordinary.packed_value()
       value(decoded, "memory_data_eew") ~is index mod 4
       value(decoded, "memory_nf") ~is ((index mod 28) div 4) + 1
       value(decoded, "memory_addressing") ~is addressing.packed_value()
@@ -350,7 +350,7 @@ for (instructions in [VectorIndexedUnorderedSegmentMemoryInstructions, VectorInd
       value(decoded, "integer") ~is 0
       value(decoded, "memory") ~is 1
       value(decoded, "store") ~is (if index >= 28 | 1 | 0)
-      value(decoded, "fault_only_first") ~is 0
+      value(decoded, "memory_mode") ~is VectorMemoryMode.Ordinary.packed_value()
       value(decoded, "memory_index_eew") ~is index mod 4
       value(decoded, "memory_nf") ~is ((index mod 28) div 4) + 1
       value(decoded, "memory_addressing") ~is addressing.packed_value()
@@ -364,9 +364,24 @@ for (instruction in VectorFaultOnlyFirstLoadInstructions, index in 0..32):
     value(decoded, "integer") ~is 0
     value(decoded, "memory") ~is 1
     value(decoded, "store") ~is 0
-    value(decoded, "fault_only_first") ~is 1
+    value(decoded, "memory_mode") ~is VectorMemoryMode.FaultOnlyFirst.packed_value()
     value(decoded, "memory_data_eew") ~is index mod 4
     value(decoded, "memory_nf") ~is (if index < 4 | 0 | ((index - 4) div 4) + 1)
+    value(decoded, "memory_addressing") ~is VectorMemoryAddressing.UnitStride.packed_value()
+    value(decoded, "operand") ~is VectorOperandMode.Scalar.packed_value()
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1
+    value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
+
+for (instruction in VectorWholeRegisterMemoryInstructions, index in 0..20):
+  def decoded = control(instruction)
+  def register_index = if index < 16 | index div 4 | index - 16
+  check:
+    value(decoded, "integer") ~is 0
+    value(decoded, "memory") ~is 1
+    value(decoded, "store") ~is (if index >= 16 | 1 | 0)
+    value(decoded, "memory_mode") ~is VectorMemoryMode.WholeRegister.packed_value()
+    value(decoded, "memory_data_eew") ~is (if index < 16 | index mod 4 | 0)
+    value(decoded, "memory_nf") ~is [0, 1, 3, 7][register_index]
     value(decoded, "memory_addressing") ~is VectorMemoryAddressing.UnitStride.packed_value()
     value(decoded, "operand") ~is VectorOperandMode.Scalar.packed_value()
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 1

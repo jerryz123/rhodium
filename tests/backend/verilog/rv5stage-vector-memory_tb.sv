@@ -55,7 +55,7 @@ module rv5stage_vector_memory_tb;
   int pc = 0, expected_count = 0, signatures = 0, cycles = 0;
   int hits = 0, warm_run = 0, longest_warm_run = 0, rejections = 0;
   int overlapping_hits = 0, scalar_overlap = 0;
-  int refills = 0, copybacks = 0, fault_signature = 0, device_elements = 0;
+  int refills = 0, copybacks = 0, fault_signature = 0, whole_fault_signature = 0, whole_fault_reset_signature = 0, device_elements = 0;
   bit instruction_valid = 0, uncached_pending = 0, returning = 0, writing_back = 0;
   logic [31:0] instruction_word;
   response_bits_t uncached_response;
@@ -84,6 +84,9 @@ module rv5stage_vector_memory_tb;
   endfunction
   function automatic logic [31:0] fault_only_first_vmem(input int width, fields, regno, base, input bit masked = 0);
     return {3'(fields-1), 1'b0, 2'b00, !masked, 5'd16, 5'(base), 3'(width == 0 ? 0 : width + 4), 5'(regno), 7'h07};
+  endfunction
+  function automatic logic [31:0] whole_register_vmem(input bit store, input int width, registers, regno, base);
+    return {3'(registers-1), 1'b0, 2'b00, 1'b1, 5'd8, 5'(base), 3'(store || width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
   endfunction
   function automatic logic [31:0] vint(input int op, vd, vs2, vs1, mode = 0);
     return {6'(op), 1'b1, 5'(vs2), 5'(vs1), 3'(mode), 5'(vd), 7'h57};
@@ -240,11 +243,12 @@ module rv5stage_vector_memory_tb;
             else $fatal(1, "signature %0d addr=%h got=%h expected=%h", signatures,
                         uncached_out.request.bits.request.address, uncached_out.request.bits.request.data, expected[signatures]);
           signatures <= signatures + 1;
-          if (signatures == fault_signature + 3) resumed <= 1;
+          if (signatures == whole_fault_reset_signature) resumed <= 0;
+          if (signatures == fault_signature + 3 || signatures == whole_fault_signature + 3) resumed <= 1;
           if (signatures + 1 == expected_count) begin
             assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
-            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/fault-only-first/masked/EEW/vstart/device/fault restart passed",
+            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/whole-register/fault-only-first/masked/EEW/vstart/device/fault restart passed",
                      COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
             $finish;
           end
@@ -256,10 +260,10 @@ module rv5stage_vector_memory_tb;
 
   initial begin
     logic [63:0] values[], field_values[];
-    int fault_pc, continuation, before_handler, fof_fault_pc, fof_continuation, before_fof_handler, offsets[4];
+    int fault_pc, continuation, before_handler, fof_fault_pc, fof_continuation, before_fof_handler, whole_fault_pc, whole_continuation, before_whole_handler, offsets[4];
     for (int i = 0; i < 2048; i++) program_words[i] = 32'h0000006f;
     for (int i = 0; i < 32768; i++) memory[i] = 8'h55;
-    li(20, 'h8000); li(1, 'h600); emit(csr('h300,0,1)); li(1,'h1800); emit(csr('h305,0,1));
+    li(20, 'h8000); li(1, 'h600); emit(csr('h300,0,1)); li(1,'h1c00); emit(csr('h305,0,1));
     for (int sew = 0; sew < 4; sew++) begin
       values = new[2 << sew];
       for (int i = 0; i < 16; i++) begin
@@ -433,6 +437,18 @@ module rv5stage_vector_memory_tb;
       check_memory('h3f80+offsets[element],24,field_values);
     end
     emit(csr(8,7,0,2)); signature(7,0);
+    // Whole-register transfers ignore vl/vtype geometry, stream encoded-EEW
+    // elements across consecutive registers, and preserve the current vl.
+    values = new[4];
+    for (int word = 0; word < 4; word++) begin
+      values[word] = 64'('h8100 + word);
+      write_word('h4100+word*8,values[word]);
+    end
+    configure(0,0,1); li(8,'h4100); emit(whole_register_vmem(0,1,2,8,8));
+    li(9,'h4200); emit(whole_register_vmem(1,0,2,8,9));
+    check_memory('h4200,32,values);
+    emit(csr('hc20,7,0,2)); signature(7,1);
+    configure(3,1,4);
     // Empty and fully masked bodies must not touch an unmapped address.
     li(8,'h10000); emit(csr(8,0,20,5)); emit(vmem(0,0,16,8));
     emit(vint(25,0,8,8)); // vmsne.vv v0,v8,v8
@@ -465,15 +481,15 @@ module rv5stage_vector_memory_tb;
     li(1,'h600); emit(csr('h300,0,1)); emit(csr('hc20,7,0,2)); signature(7,2); emit(csr(8,7,0,2)); signature(7,0);
     li(9,'h2820); emit(vmem(1,3,8,9)); values=new[2]; values[0]=64'h31; values[1]=64'h33; check_memory('h2820,16,values);
     li(9,'h2840); emit(vmem(1,3,10,9)); values[0]=64'h32; values[1]=64'h21; check_memory('h2840,16,values);
-    configure(3,1,4); li(1,'h1a00); emit(csr('h305,0,1)); li(8,'h5000); li(1,'h20e00); emit(csr('h300,0,1));
+    configure(3,1,4); li(1,'h1e00); emit(csr('h305,0,1)); li(8,'h5000); li(1,'h20e00); emit(csr('h300,0,1));
     fof_fault_pc=pc*4; emit(fault_only_first_vmem(3,1,8,8)); fof_continuation=pc;
-    before_fof_handler=pc; pc=1664;
+    before_fof_handler=pc; pc=1920;
     li(1,'h600); emit(csr('h300,0,1));
     emit(csr('h341,7,0,2)); signature(7,64'(fof_fault_pc));
     emit(csr('h342,7,0,2)); signature(7,13); emit(csr('h343,7,0,2)); signature(7,'h5000);
     emit(csr('hc20,7,0,2)); signature(7,4); emit(csr(8,7,0,2)); signature(7,0);
     li(10,fof_continuation*4); emit({12'b0,5'd10,3'b0,5'd0,7'h67});
-    pc=before_fof_handler; li(1,'h1800); emit(csr('h305,0,1));
+    pc=before_fof_handler; li(1,'h1c00); emit(csr('h305,0,1));
     // An indexed segmented load crosses an Sv39 leaf boundary after one whole segment.
     for (int element = 0; element < 4; element++) begin
       memory['h2f00+element*2] = 8'(element*16);
@@ -488,7 +504,7 @@ module rv5stage_vector_memory_tb;
     li(1,'h600); emit(csr('h300,0,1));
     li(9,'h2500); emit(vmem(1,3,8,9)); li(9,'h2540); emit(vmem(1,3,10,9));
     // Handler signatures precede these continuation signatures.
-    before_handler=pc; pc=1536;
+    before_handler=pc; pc=1792;
     li(1,'h600); emit(csr('h300,0,1));
     fault_signature=expected_count;
     emit(csr('h342,7,0,2)); signature(7,13);
@@ -502,8 +518,31 @@ module rv5stage_vector_memory_tb;
     values=new[4]; values[0]=64'h21; values[1]=64'h23; values[2]=64'h25; values[3]=64'h27; check_memory('h2500,32,values);
     values[0]=64'h22; values[1]=64'h24; values[2]=64'h26; values[3]=64'h28; check_memory('h2540,32,values);
     emit(csr(8,7,0,2)); signature(7,0);
+    whole_fault_reset_signature=expected_count-1;
+    // A whole-register load faults at the first element of its second
+    // register, reports that encoded-EEW position, and resumes from it after
+    // the handler repairs the leaf mapping.
+    li(9,'h5028); emit({7'b0,5'd0,5'd9,3'b011,5'b0,7'h23}); emit(32'h0ff0000f); emit(32'h12000073);
+    li(1,'h1d00); emit(csr('h305,0,1)); configure(0,0,1);
+    li(8,'h4ff0); li(1,'h20e00); emit(csr('h300,0,1));
+    whole_fault_pc=pc*4; emit(whole_register_vmem(0,3,2,8,8)); whole_continuation=pc;
+    li(1,'h600); emit(csr('h300,0,1)); li(9,'h4300); emit(whole_register_vmem(1,0,2,8,9));
+    before_whole_handler=pc; pc=1856;
+    li(1,'h600); emit(csr('h300,0,1));
+    whole_fault_signature=expected_count;
+    emit(csr('h342,7,0,2)); signature(7,13);
+    emit(csr('h343,7,0,2)); signature(7,'h5000);
+    emit(csr(8,7,0,2)); signature(7,2);
+    emit(csr('h341,10,0,2)); signature(10,64'(whole_fault_pc));
+    li(9,'h5028); li(7,'h18c7); emit({7'b0,5'd7,5'd9,3'b011,5'b0,7'h23});
+    emit(32'h0ff0000f); emit(32'h12000073);
+    li(8,'h4ff0); li(1,'h20e00); emit(csr('h300,0,1)); emit({12'b0,5'd10,3'b0,5'd0,7'h67});
+    pc=before_whole_handler;
+    values=new[4]; values[0]=64'h21; values[1]=64'h22; values[2]=64'h23; values[3]=64'h24;
+    check_memory('h4300,32,values);
+    emit(csr(8,7,0,2)); signature(7,0);
     emit(32'h0000006f);
-    assert(continuation < 1536) else $fatal(1,"program overlaps handler");
+    assert(continuation < 1792 && whole_continuation < 1856) else $fatal(1,"program overlaps handler");
     repeat(4) @(negedge clock);
     reset=0;
   end

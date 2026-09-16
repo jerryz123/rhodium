@@ -176,6 +176,8 @@ check:
   VLE16_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x02015087
   VLE8FF_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x03010087
   VLE16FF_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x03015087
+  VectorInitial.find("VL2RE16.V").encode([vd.constrain(8), model.rs1.constrain(9)]) ~is 0x2284d407
+  VectorInitial.find("VS8R.V").encode([vs3.constrain(24), model.rs1.constrain(10)]) ~is 0xe2850c27
   VSE64_V.encode([vs3.constrain(3), model.rs1.constrain(2), vm.constrain(0)]) ~is 0x000171a7
   VLSE8_V.encode([vd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3), vm.constrain(1)]) ~is 0x0a310087
   VLSE16_V.encode([vd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3), vm.constrain(0)]) ~is 0x08315087
@@ -206,6 +208,9 @@ check:
   VectorUnitStrideFaultOnlyFirstLoadInstructions.length() ~is 4
   VectorUnitStrideFaultOnlyFirstSegmentLoadInstructions.length() ~is 28
   VectorFaultOnlyFirstLoadInstructions.length() ~is 32
+  VectorWholeRegisterLoadInstructions.length() ~is 16
+  VectorWholeRegisterStoreInstructions.length() ~is 4
+  VectorWholeRegisterMemoryInstructions.length() ~is 20
   VectorLoadFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer]
   VectorStoreFormat.operands.map(fun (operand): operand.role) ~is ["source", "source"]
   VectorStridedLoadFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer, model.RegisterBank.Integer]
@@ -218,8 +223,13 @@ check:
   VectorInitial.matching(0x44b3d807).name ~is "VLUXSEG3EI16.V"
   VectorInitial.matching(0x03010087).name ~is "VLE8FF.V"
   VectorInitial.matching(0x4103d807).name ~is "VLSEG3E16FF.V"
+  VectorInitial.matching(0x2284d407).name ~is "VL2RE16.V"
+  VectorInitial.matching(0xe2850c27).name ~is "VS8R.V"
   VectorVVFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Vector, model.RegisterBank.Vector]
   [CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_address) ~is [8, 9, 10, 15, 0xc20, 0xc21, 0xc22]
+for (instruction in VectorWholeRegisterMemoryInstructions):
+  check:
+    VectorInitial.matching(instruction.encoding.value bits.xor (1 bits.(<<) 25)) ~is #false
 
 for (instruction in VectorSameWidthIntegerReductionInstructions, index in 0..8):
   check:

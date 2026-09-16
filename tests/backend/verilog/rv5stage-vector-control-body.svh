@@ -37,6 +37,9 @@
   function automatic logic [31:0] vector_extension(input int selector, source, destination, input bit masked = 0);
     return (32'd18 << 26) | (32'(!masked) << 25) | (32'(source) << 20) | (32'(selector) << 15) | (32'd2 << 12) | (32'(destination) << 7) | 32'h57;
   endfunction
+  function automatic logic [31:0] whole_register_vmem(input bit store, input int width, registers, regno, base);
+    return {3'(registers-1), 1'b0, 2'b00, 1'b1, 5'd8, 5'(base), 3'(store || width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
+  endfunction
 
   task automatic send(input logic [31:0] word, input word_t a, input word_t b,
                       input bit trap_expected, input bit wb_expected, input word_t expected_value,
@@ -635,6 +638,22 @@
     end
     instruction=32'h5c21a0d7; #1;
     assert(!decoded_valid) else $fatal(1,"masked compress encoding accepted");
+    // Whole-register legality is independent of vl/vtype, but NREG still
+    // constrains base-register alignment and forbids wrapping past v31.
+    test_vtype='1;
+    for (int registers=1; registers<=8; registers*=2) begin
+      for (int destination=0; destination<32; destination++) begin
+        bit expected=XLEN==64 && destination%registers==0 && destination+registers<=32;
+        for (int width=0; width<4; width++) begin
+          instruction=whole_register_vmem(0,width,registers,destination,8); #1;
+          assert(decoded_valid && legal==expected) else $fatal(1,"whole-register load legality nreg%0d vd%0d eew%0d",registers,destination,width);
+          checks++;
+        end
+        instruction=whole_register_vmem(1,0,registers,destination,8); #1;
+        assert(decoded_valid && legal==expected) else $fatal(1,"whole-register store legality nreg%0d vd%0d",registers,destination);
+        checks++;
+      end
+    end
     // Sstatus aliases VS; reads do not dirty it, writes to vector state do.
     @(negedge clock); instruction = csr_word('h300, 2, 0); #1; saved_type = mstatus;
     write_csr('h300, word_t'('h400), saved_type);
