@@ -422,6 +422,15 @@
       end
     end
 
+    // Fault-only-first forms share ordinary unit-stride geometry. NFIELDS
+    // changes only the complete destination footprint.
+    test_vtype = 'h19; // e64,m2
+    instruction = 32'h03047407; #1;
+    assert(decoded_valid && legal == (XLEN == 64)) else $fatal(1,"fault-only-first load legality");
+    instruction = 32'h23047407; #1;
+    assert(decoded_valid && legal == (XLEN == 64)) else $fatal(1,"fault-only-first segment legality");
+    checks += 2;
+
     // Indexed segments use SEW/LMUL for every data field and the encoded EEW
     // for one shared index group. Loads require the complete data footprint to
     // be disjoint from that index group; same-EEW stores may alias it.

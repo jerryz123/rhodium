@@ -53,10 +53,12 @@ unit-stride `vlseg2-8e*.v`/`vsseg2-8e*.v` and constant-stride
 `vlsseg2-8e*.v`/`vssseg2-8e*.v` forms cover every NFIELDS value and
 8/16/32/64-bit EEW. Ordered and unordered indexed segment
 `vluxseg*`/`vloxseg*`/`vsuxseg*`/`vsoxseg*` forms cover every NFIELDS value
-and 8/16/32/64-bit index EEW.
+and 8/16/32/64-bit index EEW. Unit-stride fault-only-first loads include
+`vle8/16/32/64ff.v` and every `vlseg2-8e8/16/32/64ff.v` form.
 `VectorUnitStrideMemoryInstructions`, `VectorStridedMemoryInstructions`, and
 the ordered/unordered indexed, unit-stride segment, constant-stride segment,
-and ordered/unordered indexed segment catalogs expose the memory subgroups.
+ordered/unordered indexed segment, and fault-only-first catalogs expose the
+memory subgroups.
 `VectorWideningAddSubtractInstructions` contains `vwaddu`,
 `vwadd`, `vwsubu`, and `vwsub` in both narrow-source `.vv`/`.vx` and
 wide-source `.wv`/`.wx` forms. `VectorNarrowingShiftInstructions` contains
@@ -106,8 +108,8 @@ its mask/data/destination overlap and restart restrictions remain core policy.
 `VectorSlideInstructions` contains `vslideup.vx/vi`, `vslidedown.vx/vi`,
 `vslide1up.vx`, and `vslide1down.vx`. Immediate offsets use the unsigned
 five-bit format; VX forms identify their scalar register source explicitly.
-`VectorMemoryInstructions` excludes fault-only-first, mask-register, and
-whole-register transfers. Vector operands use `RegisterBank.Vector`, with
+`VectorMemoryInstructions` excludes mask-register and whole-register
+transfers. Vector operands use `RegisterBank.Vector`, with
 named vector register, mask-enable, vtype, and AVL fields. The catalog is not
 a full V-extension claim. [`rtl/vector.rhdl`](rtl/vector.rhdl) materializes
 stateless vtype/VL selection for a core-owned configuration unit.
@@ -224,7 +226,7 @@ pure host code or be materialized by the Rhodium adapter.
 | Module | Public catalog or configuration | Coverage |
 |---|---|---|
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
-| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorCarryBorrowInstructions`, `VectorExtensionInstructions`, `VectorNarrowingShiftInstructions`, `VectorFixedPointShiftInstructions`, `VectorNarrowingClipInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorSameWidthIntegerReductionInstructions`, `VectorWideningIntegerReductionInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorUnitStrideMemoryInstructions`, `VectorStridedMemoryInstructions`, `VectorIndexedUnorderedMemoryInstructions`, `VectorIndexedOrderedMemoryInstructions`, `VectorIndexedMemoryInstructions`, `VectorUnitStrideSegmentLoadInstructions`, `VectorUnitStrideSegmentStoreInstructions`, `VectorUnitStrideSegmentMemoryInstructions`, `VectorStridedSegmentLoadInstructions`, `VectorStridedSegmentStoreInstructions`, `VectorStridedSegmentMemoryInstructions`, `VectorIndexedUnorderedSegmentLoadInstructions`, `VectorIndexedUnorderedSegmentStoreInstructions`, `VectorIndexedUnorderedSegmentMemoryInstructions`, `VectorIndexedOrderedSegmentLoadInstructions`, `VectorIndexedOrderedSegmentStoreInstructions`, `VectorIndexedOrderedSegmentMemoryInstructions`, `VectorIndexedSegmentLoadInstructions`, `VectorIndexedSegmentStoreInstructions`, `VectorIndexedSegmentMemoryInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorDivideInstructions`, `VectorMultiplyInstructions`, `VectorFractionalMultiplyInstructions`, `VectorWideningMultiplyInstructions`, `VectorMultiplyAccumulateInstructions`, `VectorWideningMultiplyAccumulateInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
+| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, `VectorConfigInstructions`, `VectorIntegerInstructions`, `VectorCarryBorrowInstructions`, `VectorExtensionInstructions`, `VectorNarrowingShiftInstructions`, `VectorFixedPointShiftInstructions`, `VectorNarrowingClipInstructions`, `VectorMoveMergeInstructions`, `VectorMaskLogicInstructions`, `VectorElementMoveInstructions`, `VectorSameWidthIntegerReductionInstructions`, `VectorWideningIntegerReductionInstructions`, `VectorIntegerReductionInstructions`, `VectorGatherInstructions`, `VectorSlideInstructions`, `VectorCompressInstructions`, `VectorUnitStrideMemoryInstructions`, `VectorStridedMemoryInstructions`, `VectorIndexedUnorderedMemoryInstructions`, `VectorIndexedOrderedMemoryInstructions`, `VectorIndexedMemoryInstructions`, `VectorUnitStrideSegmentLoadInstructions`, `VectorUnitStrideSegmentStoreInstructions`, `VectorUnitStrideSegmentMemoryInstructions`, `VectorStridedSegmentLoadInstructions`, `VectorStridedSegmentStoreInstructions`, `VectorStridedSegmentMemoryInstructions`, `VectorIndexedUnorderedSegmentLoadInstructions`, `VectorIndexedUnorderedSegmentStoreInstructions`, `VectorIndexedUnorderedSegmentMemoryInstructions`, `VectorIndexedOrderedSegmentLoadInstructions`, `VectorIndexedOrderedSegmentStoreInstructions`, `VectorIndexedOrderedSegmentMemoryInstructions`, `VectorIndexedSegmentLoadInstructions`, `VectorIndexedSegmentStoreInstructions`, `VectorIndexedSegmentMemoryInstructions`, `VectorUnitStrideFaultOnlyFirstLoadInstructions`, `VectorUnitStrideFaultOnlyFirstSegmentLoadInstructions`, `VectorFaultOnlyFirstLoadInstructions`, `VectorMemoryInstructions`, `VectorFloatingPointInstructions`, `VectorDivideInstructions`, `VectorMultiplyInstructions`, `VectorFractionalMultiplyInstructions`, `VectorWideningMultiplyInstructions`, `VectorMultiplyAccumulateInstructions`, `VectorWideningMultiplyAccumulateInstructions`, `VectorMultiplyDivideInstructions` | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

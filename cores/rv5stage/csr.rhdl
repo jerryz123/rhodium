@@ -313,6 +313,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   interface vector_retire(Pulse(), ~role: consumer)
   interface vector_saturate(Pulse(), ~role: consumer)
   interface vector_fault_start(Valid(Bits(xlen.width)), ~role: consumer)
+  interface vector_truncate(Valid(Bits(xlen.width)), ~role: consumer)
   output cbo_zero_enabled: Bool
   input cbo_operation: CboManagementOperation
   output cbo_permission: CboManagementPermission()
@@ -331,6 +332,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   vector_retire |> vector_csrs.retire
   vector_saturate |> vector_csrs.saturate
   vector_fault_start |> vector_csrs.fault_start
+  vector_truncate |> vector_csrs.truncate
   fp_update |> fp_csrs.update
 
   fun flag_value(original :: Bits(width),

@@ -46,6 +46,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   interface commit(Valid(RV5StageVectorCommit(xlen)), ~role: consumer)
   interface completion(Valid(RV5StageVectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
   interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
+  interface truncate(Valid(Bits(xlen.width)), ~role: producer)
   interface retire(Pulse(), ~role: producer)
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
@@ -76,7 +77,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   reg scan_carry(Bits(64))
   def retry = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Retry)
   def fault = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Fault)
-  def clear = cancel.valid ||| retry ||| fault
+  def truncating = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Truncate)
+  def clear = cancel.valid ||| retry ||| fault ||| truncating
   request |> gate_flow(!allocated.as_bits().or_reduce()) |> unroller.request
   cancel |> unroller.cancel
   unroller.reads <=> registers.reads
@@ -98,12 +100,15 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
     | ~else: position[0..tag_width]
 
   // Bookkeeping admission and private operand capture are one atomic transfer.
-  def available = !(unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide) ||| !allocated[slot_index(unroller.issue.bits.beat.sequence)]
+  def deferred = unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.floating_point ||| unroller.issue.bits.beat.control.multiply_divide
+  def fault_only_first = unroller.issue.bits.beat.control.memory & unroller.issue.bits.beat.control.fault_only_first
+  def available = !deferred ||| (!allocated[slot_index(unroller.issue.bits.beat.sequence)] & (!fault_only_first ||| !allocated.as_bits().or_reduce()))
   def Array(token, operands) = unroller.issue |> gate_flow(available & !clear & !fold_inflight) |> atomic_fork(2)
   (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
       context: operation.context
       last: operation.beat.last
+      truncate_on_fault: operation.beat.control.fault_only_first & operation.beat.first.or_reduce()
       memory: operation.beat.control.memory
       memory_width: operation.beat.element_width.into(Bits(2))
       enabled: operation.beat.enabled.as_bits()[0].into(Bool)
@@ -189,8 +194,12 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
   fp_update.bits <== completion_flags[head]
   fault_start.valid <== fault
   fault_start.bits <== beat.first.zext(xlen.width)
+  truncate.valid <== truncating
+  truncate.bits <== beat.first.zext(xlen.width)
   saturate.valid <== (successful & beat.saturated) ||| (drain & completion_saturated[head])
-  retire.valid <== (successful & !(beat.memory ||| beat.floating_point ||| beat.multiply_divide) & beat.last) ||| (drain & result.last)
+  retire.valid <== truncating ||| (successful & !(beat.memory ||| beat.floating_point ||| beat.multiply_divide) & beat.last) ||| (drain & result.last)
+  when truncating:
+    assert(!authorized_slots.as_bits().or_reduce(), "vector_truncate_has_no_older_completion")
   (
     commit |> map_valid(event => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
       context: event.pc

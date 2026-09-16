@@ -6,7 +6,8 @@
 The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
 vector CSR state, the decoded packed-integer subset, and RV64 vector memory
 operations using unit-stride, constant-stride, indexed, unit-stride segment,
-constant-stride segment, and indexed segment addressing. The default is `#false`. Neither setting advertises `V`,
+constant-stride segment, indexed segment, and unit-stride fault-only-first
+addressing. The default is `#false`. Neither setting advertises `V`,
 Zve, or Zvbb; the remaining vector instruction families are not implemented.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
@@ -136,6 +137,16 @@ Indexed segments use the same field/register sequencing and retry checkpoints,
 but form each segment base as `rs1 + vs2[element]`. Ordered and unordered forms
 currently share conservative element-order issue; neither form promises an
 order among fields within one segment.
+
+Unit-stride `vle8/16/32/64ff.v` and `vlseg2-8e*.v` fault-only-first loads use
+the same address, mask, field, and completion machinery. Only one such access
+may remain unresolved: a successful element drains before the next element is
+issued. A synchronous exception at element zero follows the ordinary precise
+trap path and leaves `vl` unchanged. An exception at a later element suppresses
+the trap, sets `vl` to that element index, clears `vstart`, marks VS Dirty,
+retires the macro once, and redirects fetch to its successor. Segmented forms
+truncate at the containing segment; fields completed within that segment use
+RVV's implementation-defined partial-segment behavior.
 
 The `vadc`/`vsbc` forms consume the `v0` shadow as one carry/borrow bit per
 element and execute every body element; `v0` is data, not predication. `vmadc`

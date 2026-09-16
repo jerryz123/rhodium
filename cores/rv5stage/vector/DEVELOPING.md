@@ -123,6 +123,12 @@ VRF drain. Reserve on issue, authorize only at WB, and clear only unauthorized
 slots on retry/cancel. Retry flushes younger scalar EX/MEM tokens without
 redirecting fetch to the macro PC. Faults update `vstart` and keep accepted
 response ownership alive through precise-trap draining.
+Fault-only-first loads additionally require at most one unresolved issued
+access. Element-zero faults use ordinary fault feedback; later-element faults
+use truncation feedback, discard speculative younger beats, update `vl` from
+the vector pipeline's private element position, and retire without entering a
+trap handler. Keep the scalar stage payload to the one-bit truncation policy;
+do not expose the element cursor outside the vector pipeline.
 
 Slot selection is the macro-local operation sequence modulo the configured depth. Depth one
 must explicitly produce zero and hold the drain head at zero; `index_width(1)`
@@ -379,8 +385,9 @@ regression. The memory bench covers all four EEWs, an EEW/SEW mismatch,
 positive/negative/zero stride, indexed and three-field unit-stride,
 constant-stride, and indexed segment operations, field/register mapping, additive segment-aware
 `vstart` warm-up, masks, empty bodies, in-order device stores, request/CHI
-backpressure, and an indexed segmented Sv39 page-boundary fault repaired and
-restarted from `vstart`. It also requires
+backpressure, ordinary and segmented fault-only-first truncation, an
+element-zero fault-only-first precise trap, and an indexed segmented Sv39
+page-boundary fault repaired and restarted from `vstart`. It also requires
 warm-hit throughput, hits completing ahead of a delayed miss, scalar-load
 overlap with a vector-load tail, and both asymmetric scalar/store barriers. Keep ordinary
 scalar and RV32F/RV64D core regressions when shared LSU metadata changes.

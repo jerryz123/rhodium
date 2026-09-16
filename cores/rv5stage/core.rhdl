@@ -280,11 +280,12 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb.bits
   wire wb_commit_result: MemoryWriteback(xlen, vector_completion_slots)
   def wb_commit = wb_commit_path |> filter_valid(operation => !operation.vector_launch & !wb_maintenance_accepted & !wb_pending_exception_valid) |> map_valid(_operation => wb_commit_result)
-  def Array(wb_serializing_path, wb_replay_path, wb_prefetch_path, wb_vector_path, wb_scoreboard_path, wb_register_path, wb_multiply_path, wb_divide_path) = wb_commit |> fork_valid(8)
+  def Array(wb_serializing_path, wb_replay_path, wb_prefetch_path, wb_vector_path, wb_vector_redirect_path, wb_scoreboard_path, wb_register_path, wb_multiply_path, wb_divide_path) = wb_commit |> fork_valid(9)
   def wb_commit_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb_commit.bits
   def wb_commit_replay = wb_commit.valid & wb_commit_bits.replay
   def wb_commit_valid = wb_commit.valid & !wb_commit_bits.replay
-  def wb_macro_retire = wb_commit_valid & (!wb_commit_bits.vector_valid ||| wb_commit_bits.vector_last ||| wb_commit_bits.exception_valid)
+  wire wb_vector_truncate: Bool
+  def wb_macro_retire = wb_commit_valid & (!wb_commit_bits.vector_valid ||| wb_commit_bits.vector_last ||| wb_commit_bits.exception_valid ||| wb_vector_truncate)
   def Array(wb_commit_write :: Endpoint, wb_deferred_completion_write :: Endpoint) = id_registers.writes
 
   privilege <== wb_csrs.privilege
@@ -307,7 +308,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // Restart after a PMM change to discard younger context and queued prefetches,
   // without conflating pointer policy with translation invalidation.
   def wb_serializing_resume = fence_i_commit ||| wb_csrs.translation_flush ||| wb_csrs.pointer_masking_changed
-  def wb_commit_redirect = wb_csrs.redirect.valid ||| wb_serializing_resume ||| wb_commit_replay
+  def wb_commit_redirect = wb_csrs.redirect.valid ||| wb_serializing_resume ||| wb_commit_replay ||| wb_vector_truncate
   def mem_stage_valid = mem_input.valid & !wb_commit_redirect & !wb_pending_exception_valid & !(wb_commit_valid & wb_commit_bits.exception_valid)
   def mem_exception_event = mem_to_if_exception_link.right.valid
   def mem_replay_event = mem_to_if_replay_link.right.valid
@@ -316,11 +317,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def ex_transfer = ex_input.valid & !ex_older_squash
   def Array(wb_trap_restart, wb_trap_predictor_flush) = wb_csrs.redirect |> fork_valid(2)
   def wb_serializing_redirect = wb_serializing_path |> filter_valid(_operation => wb_serializing_resume) |> map_valid(operation => operation.resume_pc)
+  def wb_vector_truncate_redirect = wb_vector_redirect_path |> filter_valid(_operation => wb_vector_truncate) |> map_valid(operation => operation.resume_pc)
   def Array(wb_serializing_restart, wb_serializing_invalidate) = wb_serializing_redirect |> fork_valid(2)
   def wb_commit_replay_redirect = wb_replay_path |> filter_valid(operation => operation.replay & !operation.vector_valid) |> map_valid(operation => operation.pc)
   def if_redirect_sources = Array(
     wb_trap_restart,
     wb_serializing_restart,
+    wb_vector_truncate_redirect,
     wb_commit_replay_redirect,
     mem_to_if_redirect_link.right
   )
@@ -584,6 +587,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           vector_launch: id_vector_instruction & !id_fault
           vector_valid: Bool(#false)
           vector_last: Bool(#false)
+          vector_truncate_on_fault: Bool(#false)
           vector_tag: bits(0, index_width(vector_completion_slots))
           pc: fetched.pc
           instruction: fetched.instruction
@@ -669,6 +673,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
         assert(wb_vector.request.ready, "rv5stage_vector_launch_reserved")
       def id_vector_operation = wb_vector.issue |> map_flow(operation => operation.context.updated(
         ~vector_last: operation.last,
+        ~vector_truncate_on_fault: operation.truncate_on_fault,
         ~vector_tag: operation.completion_tag,
         ~immediate: mux(operation.memory, operation.address[0..width], operation.context.immediate),
         ~memory_operation: mux(operation.memory & !operation.enabled, MemoryOperation.None, operation.context.memory_operation),
@@ -680,7 +685,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       (
         wb_vector_path |> filter_valid(operation => operation.vector_valid) |> map_valid(operation => RV5StageVectorCommit(xlen)):
           pc: operation.pc
-          disposition: mux(operation.exception_valid, RV5StageVectorDisposition.Fault, mux(operation.replay, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized))
+          disposition: mux(wb_vector_truncate, RV5StageVectorDisposition.Truncate, mux(operation.exception_valid, RV5StageVectorDisposition.Fault, mux(operation.replay, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)))
           slow: wb_memory_accepted
           data: operation.value
           cause: operation.exception_cause
@@ -692,6 +697,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           data: response.data
       ) |> wb_vector.completion
       wb_vector.fault_start |> wb_csrs.vector_fault_start
+      wb_vector.truncate |> wb_csrs.vector_truncate
       wb_vector.retire |> wb_csrs.vector_retire
       wb_vector.saturate |> wb_csrs.vector_saturate
       wb_vector.scalar_result |> wb_vector_scalar_result_link.left
@@ -723,6 +729,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       wb_vector_scalar_result_link.left.bits <== dont_care(RegisterFileWrite(xlen))
       wb_csrs.vector_fault_start.valid <== Bool(#false)
       wb_csrs.vector_fault_start.bits <== zero
+      wb_csrs.vector_truncate.valid <== Bool(#false)
+      wb_csrs.vector_truncate.bits <== zero
       wb_csrs.vector_retire.valid <== Bool(#false)
       wb_csrs.vector_saturate.valid <== Bool(#false)
       id_operation |> to_valid() |> id_ex_pipe.ingress
@@ -893,6 +901,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     vector_launch: ex_input.bits.vector_launch
     vector_valid: ex_input.bits.vector_valid
     vector_last: ex_input.bits.vector_last
+    vector_truncate_on_fault: ex_input.bits.vector_truncate_on_fault
     pc: ex_input.bits.pc
     resume_pc: ex_resume_pc
     redirect_valid: ex_redirect_valid
@@ -966,6 +975,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     vector_launch: operation.vector_launch
     vector_valid: operation.vector_valid
     vector_last: operation.vector_last
+    vector_truncate_on_fault: operation.vector_truncate_on_fault
     pc: operation.pc
     resume_pc: operation.resume_pc
     raw_instruction: operation.raw_instruction
@@ -1077,10 +1087,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       valid: Bool(#false)
       cause: dont_care(Bits(width))
       value: dont_care(Bits(width))
+  wb_vector_truncate <== wb_commit.valid & !wb_replay & wb_offer_bits.vector_valid & wb_offer_bits.vector_truncate_on_fault & wb_exception.valid
   wb_commit_result <== wb_offer_bits.updated(
     ~replay: wb_replay,
     ~write_enable: wb_offer_bits.write_enable & !wb_exception.valid & !wb_replay,
-    ~exception_valid: wb_exception.valid,
+    ~exception_valid: wb_exception.valid & !wb_vector_truncate,
     ~exception_cause: wb_exception.cause,
     ~exception_value: wb_exception.value
   )

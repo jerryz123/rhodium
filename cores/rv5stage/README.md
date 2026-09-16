@@ -25,8 +25,9 @@ as a side-effect-free launch token, then WB starts a separate
 [`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
 SIMD datapath, and vector bank. Scalar EX/MEM/WB carries retirement bookkeeping
 and singleton LSU operands, and authorizes the parallel pipeline's writes at WB.
-RV64 unit-stride vector memory shares scalar lookup and WB dispatch, with
-tagged completion slots and precise element restart. The host profile's
+RV64 vector memory shares scalar lookup and WB dispatch across unit-stride,
+strided, indexed, segmented, and fault-only-first forms, with tagged
+completion slots, precise element restart, and fault-only-first VL truncation. The host profile's
 `~vector_completion_slots` selects a power-of-two depth, default eight,
 independently of VLEN. RV64D also shares scalar FP execution for same-width
 FP32/FP64 vector add, subtract, and multiply, with WB-authorized operands and

@@ -29,6 +29,7 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
   interface retire(Pulse(), ~role: consumer)
   interface saturate(Pulse(), ~role: consumer)
   interface fault_start(Valid(Bits(xlen.width)), ~role: consumer)
+  interface truncate(Valid(Bits(xlen.width)), ~role: consumer)
   interface write(Valid(RV5StageVectorCsrWrite(xlen)), ~role: consumer)
   interface status_write(Valid(Bits(2)), ~role: consumer)
   output state: RV5StageVectorState(xlen)
@@ -50,6 +51,9 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
       def configuration_write = configure.valid & !next_config.illegal
       when (fault_start.valid):
         vstart <== fault_start.bits[0..index_width(vlen)]
+      elsewhen (truncate.valid):
+        vl <== truncate.bits[0..index_width(vlen + 1)]
+        vstart <== bits(0, index_width(vlen))
       elsewhen configuration_write:
         vl <== next_config.vl
         vtype <== next_config.vtype
@@ -70,7 +74,7 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
           vxsat <== Bool(#true)
       when (status_write.valid):
         vs <== status_write.bits
-      elsewhen (configuration_write ||| write.valid ||| retire.valid ||| fault_start.valid ||| saturate.valid):
+      elsewhen (configuration_write ||| write.valid ||| retire.valid ||| fault_start.valid ||| truncate.valid ||| saturate.valid):
         vs <== bits(3, 2)
       state <== RV5StageVectorState(xlen):
         vl: vl.zext(xlen.width)

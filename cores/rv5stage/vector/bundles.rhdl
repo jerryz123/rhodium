@@ -40,6 +40,7 @@ bundle RV5StageVectorCompressState(vlen :: VectorLength):
 bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2Int):
   context: Context
   last: Bool
+  truncate_on_fault: Bool
   memory: Bool
   memory_width: Bits(2)
   enabled: Bool
@@ -111,6 +112,7 @@ hardware_enum RV5StageVectorDisposition:
   Authorized
   Retry
   Fault
+  Truncate
 
 // end is exclusive architectural position, not the number of active lanes.
 // Authorized is not a result completion; accepted effects must never be retried.

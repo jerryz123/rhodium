@@ -54,6 +54,7 @@ bundle RV5StageVectorControl():
   fp_multiply: Bool
   memory: Bool
   store: Bool
+  fault_only_first: Bool
   memory_data_eew: Bits(2)
   memory_index_eew: Bits(2)
   memory_nf: Bits(3)
@@ -556,6 +557,7 @@ fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorM
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 4)
+        fault_only_first: Bool(#false)
         memory_data_eew: bits(index mod 4, 2)
         memory_nf: bits(0, 3)
         memory_addressing: addressing
@@ -572,6 +574,7 @@ fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 4)
+        fault_only_first: Bool(#false)
         memory_index_eew: bits(index mod 4, 2)
         memory_nf: bits(0, 3)
         memory_addressing: addressing
@@ -588,6 +591,7 @@ fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 28)
+        fault_only_first: Bool(#false)
         memory_data_eew: bits(index mod 4, 2)
         memory_nf: bits(((index mod 28) div 4) + 1, 3)
         memory_addressing: addressing
@@ -604,10 +608,28 @@ fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addre
         multiply_divide: Bool(#false)
         memory: Bool(#true)
         store: Bool(index >= 28)
+        fault_only_first: Bool(#false)
         memory_index_eew: bits(index mod 4, 2)
         memory_nf: bits(((index mod 28) div 4) + 1, 3)
         memory_addressing: addressing
         operand: VectorOperandMode.Vector
+    )
+fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
+  for List (instruction in instructions, index in 0..32):
+    DecodeCase(
+      instruction_pattern(instruction),
+      partial_pattern(RV5StageVectorControl()):
+        configure: VectorConfigMode.None
+        integer: Bool(#false)
+        floating_point: Bool(#false)
+        multiply_divide: Bool(#false)
+        memory: Bool(#true)
+        store: Bool(#false)
+        fault_only_first: Bool(#true)
+        memory_data_eew: bits(index mod 4, 2)
+        memory_nf: bits(if index < 4 | 0 | ((index - 4) div 4) + 1, 3)
+        memory_addressing: VectorMemoryAddressing.UnitStride
+        operand: VectorOperandMode.Scalar
     )
 def VectorUnitStrideMemoryCases = memory_cases(VectorUnitStrideMemoryInstructions, VectorMemoryAddressing.UnitStride)
 def VectorStridedMemoryCases = memory_cases(VectorStridedMemoryInstructions, VectorMemoryAddressing.Strided)
@@ -619,7 +641,8 @@ def VectorStridedSegmentMemoryCases = segment_memory_cases(VectorStridedSegmentM
 def VectorIndexedUnorderedSegmentMemoryCases = indexed_segment_memory_cases(VectorIndexedUnorderedSegmentMemoryInstructions, VectorMemoryAddressing.IndexedUnordered)
 def VectorIndexedOrderedSegmentMemoryCases = indexed_segment_memory_cases(VectorIndexedOrderedSegmentMemoryInstructions, VectorMemoryAddressing.IndexedOrdered)
 def VectorIndexedSegmentMemoryCases = VectorIndexedUnorderedSegmentMemoryCases ++ VectorIndexedOrderedSegmentMemoryCases
-def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases ++ VectorStridedSegmentMemoryCases ++ VectorIndexedSegmentMemoryCases
+def VectorFaultOnlyFirstMemoryCases = fault_only_first_memory_cases(VectorFaultOnlyFirstLoadInstructions)
+def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases ++ VectorStridedSegmentMemoryCases ++ VectorIndexedSegmentMemoryCases ++ VectorFaultOnlyFirstMemoryCases
 def VectorFloatingPointCases = for List (instruction in VectorFloatingPointInstructions):
   DecodeCase(
     instruction_pattern(instruction),
@@ -838,6 +861,7 @@ export:
   VectorIndexedUnorderedSegmentMemoryCases
   VectorIndexedOrderedSegmentMemoryCases
   VectorIndexedSegmentMemoryCases
+  VectorFaultOnlyFirstMemoryCases
   VectorFloatingPointCases
   VectorDivideCases
   VectorMultiplyCases

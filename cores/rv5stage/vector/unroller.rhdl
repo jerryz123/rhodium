@@ -94,7 +94,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     mux_lookup(sew, ~default: first.align_down(8), [[1, first.align_down(4)], [2, first.align_down(2)], [3, first]])
   def retry = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Retry)
   def fault = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Fault)
-  def clear = cancel.valid ||| retry ||| fault
+  def truncate = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Truncate)
+  def clear = cancel.valid ||| retry ||| fault ||| truncate
   pending.egress |> gate_flow(!clear) |> issue
   def empty = mux(element_move, !descriptor.control.scalar_destination & (descriptor.state.vstart >= descriptor.state.vl), minimum >= limit)
   def next_cursor = cursor.zext(index_width(vlen + 1) + 1) + lanes.zext(index_width(vlen + 1) + 1)
@@ -342,7 +343,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     assert(empty ||| ((feedback.bits.first <= authorized) & (feedback.bits.end > authorized)) ||| (compress & feedback.bits.last & (feedback.bits.first === feedback.bits.end) & (feedback.bits.end === authorized)), "vector_feedback_is_oldest_unauthorized_beat")
   when (retry & !cancel.valid):
     assert(feedback.bits.end <= limit, "vector_retry_stays_within_active_body")
-  when (cancel.valid ||| fault):
+  when (cancel.valid ||| fault ||| truncate):
     occupied <== Bool(#false)
     all_issued <== Bool(#false)
     memory_setup_remaining <== bits(0, index_width(vlen + 1))

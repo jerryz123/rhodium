@@ -70,6 +70,8 @@ sync_circuit RV5StageVectorControlFixture(xlen :: XLen, vlen :: VectorLength):
   csrs.vector_saturate.valid <== saturate
   csrs.vector_fault_start.valid <== Bool(#false)
   csrs.vector_fault_start.bits <== bits(0, xlen.width)
+  csrs.vector_truncate.valid <== Bool(#false)
+  csrs.vector_truncate.bits <== bits(0, xlen.width)
   csrs.interrupt_boundary <== Bool(#false)
   csrs.interrupt_pc <== bits(0, xlen.width)
   csrs.fp_update.valid <== Bool(#false)
