@@ -96,6 +96,16 @@ module rv5stage_vector_fp_tb;
     emit(32'h00353023); // sd x3,0(x10)
     expect_store(address, value, 3);
   endtask
+  task automatic widening_conversion(input integer selector, rd, vs2, address, input logic [63:0] first, second);
+    vset(2, 2); vec('h12, rd, vs2, selector);
+    vset(3, 2, 1); vstore(rd, address, 3);
+    expect_store(address, first, 3); expect_store(address + 8, second, 3);
+  endtask
+  task automatic narrowing_conversion(input integer selector, rd, vs2, address, input logic [31:0] first, second);
+    vset(2, 2); vec('h12, rd, vs2, selector);
+    vstore(rd, address, 2);
+    expect_store(address, 64'(first), 2); expect_store(address + 4, 64'(second), 2);
+  endtask
 
   initial begin
     for (int i = 0; i < 512; i++) begin program_words[i] = 'h0000006f; memory_words[i] = 0; end
@@ -123,8 +133,128 @@ module rv5stage_vector_fp_tb;
     vstore(12, 'h2030, 2);
     expect_store('h2030, 'h3f000000, 2); expect_store('h2034, 64'hc0000000, 2);
     expect_store('h2038, 'h40c00000, 2); expect_store('h203c, 64'hc1000000, 2);
+    // The same shared service handles variable-latency, sign/minmax, fused,
+    // and mask-producing vector-vector operations in ordered completion slots.
+    vec('h20, 13, 8, 9); vstore(13, 'h2300, 2);
+    expect_store('h2300, 'h40000000, 2); expect_store('h2304, 64'hc0000000, 2);
+    expect_store('h2308, 'h3fc00000, 2); expect_store('h230c, 64'hc0000000, 2);
+    memory_words[18] = 'h408000003f800000; memory_words[19] = 'h4180000041100000;
+    vload(14, 'h1090, 2); vec('h13, 15, 14, 0); vstore(15, 'h2310, 2);
+    expect_store('h2310, 'h3f800000, 2); expect_store('h2314, 'h40000000, 2);
+    expect_store('h2318, 'h40400000, 2); expect_store('h231c, 'h40800000, 2);
+    vec('h09, 16, 8, 9); vec('h04, 17, 8, 9); vec('h06, 18, 8, 9);
+    vstore(16, 'h2320, 2);
+    expect_store('h2320, 64'hbf800000, 2); expect_store('h2324, 'h40000000, 2);
+    expect_store('h2328, 64'hc0400000, 2); expect_store('h232c, 'h40800000, 2);
+    vstore(17, 'h2330, 2);
+    expect_store('h2330, 'h3f000000, 2); expect_store('h2334, 64'hbf800000, 2);
+    expect_store('h2338, 'h40000000, 2); expect_store('h233c, 64'hc0000000, 2);
+    vstore(18, 'h2340, 2);
+    expect_store('h2340, 'h3f800000, 2); expect_store('h2344, 'h40000000, 2);
+    expect_store('h2348, 'h40400000, 2); expect_store('h234c, 'h40800000, 2);
+    vec('h17, 19, 0, 10, 0, 0); vec('h2c, 19, 8, 9); vstore(19, 'h2350, 2);
+    expect_store('h2350, 'h40000000, 2); expect_store('h2354, 64'hbf800000, 2);
+    expect_store('h2358, 'h41300000, 2); expect_store('h235c, 64'hc0c00000, 2);
+    vec('h17, 20, 0, 11, 0, 0); vec('h28, 20, 8, 9); vstore(20, 'h2360, 2);
+    expect_store('h2360, 'h3fa00000, 2); expect_store('h2364, 64'hbf800000, 2);
+    expect_store('h2368, 'h40a00000, 2); expect_store('h236c, 64'hc1000000, 2);
+    memory_words[20] = 'hbf8000003f800000; memory_words[21] = 'h4080000000000000;
+    vload(21, 'h10a0, 2); vec('h18, 0, 8, 21); // vmfeq.vv selects lanes 0 and 3
+    vec('h17, 22, 0, 8, 0, 0); vec(0, 22, 8, 9, 1); vstore(22, 'h2370, 2);
+    expect_store('h2370, 'h3fc00000, 2); expect_store('h2374, 'h40000000, 2);
+    expect_store('h2378, 'h40400000, 2); expect_store('h237c, 'h40000000, 2);
+    // Vector-scalar FP snapshots the forwarded architectural FPR at WB, then
+    // broadcasts it without consuming a general VRF read port.
+    li(5, 'h3f800000); emit('hf0028453); // fmv.w.x f8,x5
+    vec(0, 23, 8, 8, 0, 5);
+    li(5, 'h40000000); emit('hf0028453); // younger overwrite must not change the admitted macro
+    vec('h27, 24, 8, 1, 0, 5);
+    emit('h0010f2d3); // fadd.s f5,f1,f1,dyn; the adjacent .vf must wait and forward
+    vec(0, 25, 8, 5, 0, 5);
+    vec('h17, 26, 0, 8, 0, 0); vec('h2c, 26, 8, 1, 0, 5);
+    memory_words[23] = 'h000000003f800000;
+    li(10, 'h10b8); emit('h00053307); // fld f6,0(x10): invalid FP32 NaN box
+    vec(0, 27, 8, 6, 0, 5);
+    vec('h1d, 0, 8, 1, 0, 5); // vmfgt.vf: lanes 1..3
+    vec('h17, 28, 0, 8, 0, 0); emit('h00815073); // csrwi vstart,2
+    vec(0, 28, 8, 1, 1, 5);
+    vstore(23, 'h2380, 2);
+    expect_store('h2380, 'h40000000, 2); expect_store('h2384, 'h40400000, 2);
+    expect_store('h2388, 'h40800000, 2); expect_store('h238c, 'h40a00000, 2);
+    vstore(24, 'h2390, 2);
+    expect_store('h2390, 'h00000000, 2); expect_store('h2394, 64'hbf800000, 2);
+    expect_store('h2398, 64'hc0000000, 2); expect_store('h239c, 64'hc0400000, 2);
+    vstore(25, 'h23a0, 2);
+    expect_store('h23a0, 'h40400000, 2); expect_store('h23a4, 'h40800000, 2);
+    expect_store('h23a8, 'h40a00000, 2); expect_store('h23ac, 'h40c00000, 2);
+    vstore(26, 'h23b0, 2);
+    expect_store('h23b0, 'h40000000, 2); expect_store('h23b4, 'h40800000, 2);
+    expect_store('h23b8, 'h40c00000, 2); expect_store('h23bc, 'h41000000, 2);
+    vstore(27, 'h23c0, 2);
+    for (int i = 0; i < 4; i++) expect_store('h23c0 + i*4, 'h7fc00000, 2);
+    vstore(28, 'h23d0, 2);
+    expect_store('h23d0, 'h3f800000, 2); expect_store('h23d4, 'h40000000, 2);
+    expect_store('h23d8, 'h40800000, 2); expect_store('h23dc, 'h40a00000, 2);
+    // Same-width conversions choose integer or FP completion data explicitly;
+    // fixed-RTZ ignores frm while ordinary conversion uses dynamic RNE.
+    emit('h00105073); // clear fflags
+    vec('h12, 29, 10, 1); vec('h12, 30, 10, 7);
+    vstore(29, 'h2400, 2);
+    expect_store('h2400, 2, 2); expect_store('h2404, 1, 2);
+    expect_store('h2408, 5, 2); expect_store('h240c, 2, 2);
+    vstore(30, 'h2410, 2);
+    expect_store('h2410, 1, 2); expect_store('h2414, 1, 2);
+    expect_store('h2418, 5, 2); expect_store('h241c, 2, 2);
+    memory_words[25] = 'hfffffffe00000001; memory_words[26] = 'hfffffffc00000003;
+    vload(31, 'h10c8, 2); vec('h12, 29, 31, 3); vstore(29, 'h2420, 2);
+    expect_store('h2420, 'h3f800000, 2); expect_store('h2424, 64'hc0000000, 2);
+    expect_store('h2428, 'h40400000, 2); expect_store('h242c, 64'hc0800000, 2);
+    vec('h12, 30, 31, 2); vstore(30, 'h2470, 2);
+    expect_store('h2470, 'h3f800000, 2); expect_store('h2474, 'h4f800000, 2);
+    expect_store('h2478, 'h40400000, 2); expect_store('h247c, 'h4f800000, 2);
+    vec('h12, 31, 9, 0); vstore(31, 'h2480, 2);
+    expect_store('h2480, 0, 2); expect_store('h2484, 0, 2);
+    expect_store('h2488, 2, 2); expect_store('h248c, 0, 2);
+    signature('h001, 'h2490, 17); emit('h00105073);
+    // Widening conversions read E32/LMUL1 and write E64/LMUL2. Every result
+    // domain and fixed/dynamic rounding form is observed through vector stores.
+    memory_words[29] = 'hc03000003fc00000; // 1.5,-2.75
+    memory_words[30] = 'hfffffffc00000003; // 3,-4
+    memory_words[31] = 'h00000005ffffffff; // 2^32-1,5
+    vset(2, 2); vload(8, 'h10e8, 2); vload(9, 'h10f0, 2); vload(10, 'h10f8, 2);
+    widening_conversion(8, 16, 8, 'h2500, 2, 0);
+    widening_conversion(9, 18, 8, 'h2510, 2, -3);
+    widening_conversion(10, 20, 10, 'h2520, 64'h41efffffffe00000, 64'h4014000000000000);
+    widening_conversion(11, 22, 9, 'h2530, 64'h4008000000000000, 64'hc010000000000000);
+    widening_conversion(12, 24, 8, 'h2540, 64'h3ff8000000000000, 64'hc006000000000000);
+    widening_conversion(14, 26, 8, 'h2550, 1, 0);
+    widening_conversion(15, 28, 8, 'h2560, 1, -2);
+    // Narrowing applies doubled EMUL to its E64 source and writes E32/LMUL1.
+    memory_words[32] = 'h3ff8000000000000; memory_words[33] = 'hc006000000000000;
+    memory_words[34] = 64'd16777217; memory_words[35] = 64'h00000000ffffffff;
+    memory_words[36] = 3; memory_words[37] = -4;
+    memory_words[38] = 'h3ff0000010000000; memory_words[39] = 'hbff0000010000000;
+    vset(3, 2, 1); vload(8, 'h1100, 3); vload(10, 'h1110, 3); vload(12, 'h1120, 3); vload(14, 'h1130, 3);
+    narrowing_conversion(16, 16, 8, 'h2580, 2, 0);
+    narrowing_conversion(17, 17, 8, 'h2590, 2, -3);
+    narrowing_conversion(18, 18, 10, 'h25a0, 32'h4b800000, 32'h4f800000);
+    narrowing_conversion(19, 19, 12, 'h25b0, 32'h40400000, 32'hc0800000);
+    narrowing_conversion(20, 20, 8, 'h25c0, 32'h3fc00000, 32'hc0300000);
+    narrowing_conversion(21, 21, 14, 'h25d0, 32'h3f800001, 32'hbf800001);
+    narrowing_conversion(22, 22, 8, 'h25e0, 1, 0);
+    narrowing_conversion(23, 23, 8, 'h25f0, 1, -2);
+    signature('h001, 'h2600, 17); emit('h00105073);
+    // A restarted, masked widening singleton preserves distinct pre-vstart and
+    // masked-off E64 destinations while converting the later enabled element.
+    memory_words[40] = 1; memory_words[41] = 1; // E32 mask source: 1,0,1
+    memory_words[42] = 11; memory_words[43] = 22; memory_words[44] = 33;
+    vset(3, 3, 1); vload(30, 'h1150, 3);
+    vset(2, 3); vload(8, 'h1000, 2); vload(29, 'h1140, 2);
+    vec('h1f, 0, 29, 0, 0, 3); emit('h0080d073); vec('h12, 30, 8, 12, 1);
+    vset(3, 3, 1); vstore(30, 'h2610, 3);
+    expect_store('h2610, 11, 3); expect_store('h2618, 22, 3); expect_store('h2620, 64'h4008000000000000, 3);
     // In-place singleton writes must preserve the other FP32 half and pre-vstart lane.
-    emit('h0080d073); // csrwi vstart,1
+    vset(2, 4); vload(8, 'h1000, 2); vload(9, 'h1010, 2); emit('h0080d073); // csrwi vstart,1
     vec(0, 8, 8, 9);
     vstore(8, 'h2040, 2);
     expect_store('h2040, 'h3f800000, 2); expect_store('h2044, 'h3f800000, 2);
@@ -145,6 +275,16 @@ module rv5stage_vector_fp_tb;
     vstore(10, 'h2060, 3); expect_store('h2060, 'h3ff8000000000000, 3); expect_store('h2068, 'h3ff0000000000000, 3);
     vstore(11, 'h2070, 3); expect_store('h2070, 'h3fe0000000000000, 3); expect_store('h2078, 'h4008000000000000, 3);
     vstore(12, 'h2080, 3); expect_store('h2080, 'h3fe0000000000000, 3); expect_store('h2088, 'hc000000000000000, 3);
+    memory_words[24] = 'h3fe0000000000000;
+    li(10, 'h10c0); emit('h00053387); // fld f7,0(x10)
+    vec(0, 13, 8, 7, 0, 5); vstore(13, 'h23e0, 3);
+    expect_store('h23e0, 'h3ff8000000000000, 3); expect_store('h23e8, 'h4004000000000000, 3);
+    vec('h12, 14, 9, 1); vstore(14, 'h2440, 3);
+    expect_store('h2440, 0, 3); expect_store('h2448, 64'hffffffffffffffff, 3);
+    memory_words[27] = 1; memory_words[28] = 64'hfffffffffffffffe;
+    vload(15, 'h10d8, 3); vec('h12, 16, 15, 3); vstore(16, 'h2450, 3);
+    expect_store('h2450, 'h3ff0000000000000, 3); expect_store('h2458, 'hc000000000000000, 3);
+    signature('h001, 'h2460, 1); emit('h00105073);
     // Masked-off signaling NaNs neither execute nor contribute NV.
     vset(2, 4);
     memory_words[12] = 'h7f8000017f800001; memory_words[13] = 'h7f8000017f800001;

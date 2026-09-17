@@ -20,6 +20,7 @@ bundle RV5StageVectorDescriptor(xlen :: XLen):
   state: RV5StageVectorState(xlen)
   control: RV5StageVectorControl()
   scalar: Bits(xlen.width)
+  floating_scalar: Bits(64)
   stride: Bits(xlen.width)
   vd: Bits(5)
   vs1: Bits(5)
@@ -64,6 +65,8 @@ bundle RV5StageVectorBeat(vlen :: VectorLength):
   select_right: Mask(8)
   mask_enabled: Bits(64)
   element_width: SimdElementWidth
+  fp_source_width: SimdElementWidth
+  fp_result_width: SimdElementWidth
   rounding_mode: SimdRoundingMode
   control: RV5StageVectorControl()
   destination: Bits(5)
@@ -85,6 +88,8 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   destination: Bits(5)
   memory: Bool
   floating_point: Bool
+  mask_destination: Bool
+  fp_result: VectorFloatResult
   multiply_divide: Bool
   divide: Bool
   multiply_accumulate: Bool

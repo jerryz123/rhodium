@@ -77,13 +77,14 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     ~data: mux(beat.control.invert_logic_result, !alu.result.data, alu.result.data),
     ~mask: beat.mask_enabled
   )
-  def singleton_width = beat.element_width.into(Bits(2)) + widening_singleton.as_bits().zext(2)
+  def singleton_width = mux(beat.control.floating_point, beat.fp_result_width.into(Bits(2)), beat.element_width.into(Bits(2)) + widening_singleton.as_bits().zext(2))
   def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
   def element_write = VectorRegisterWrite(vlen):
     address: (beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (beat.first >> (bits(3, 2) - singleton_width))[0..index_width(vector_depth(vlen))]
     data: mux(multiply_accumulate, mux(beat.control.multiply_destination, beat.left, beat.destination_data), mux(gather_vector, alu.result.data, bits(0, 64)))
     mask: mux(beat.enabled.as_bits()[0].into(Bool) & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, bits(0, 64))
+  def fp_mask_destination = beat.control.floating_point & beat.control.mask_destination
   // Reduction input is one element plus the seed/committed accumulator. Masked
   // elements retain that accumulator; only the final beat writes element zero.
   def reduced = mux(beat.enabled.as_bits()[0].into(Bool), alu.result.data, beat.right)
@@ -109,14 +110,16 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     destination: beat.destination
     memory: beat.control.memory
     floating_point: beat.control.floating_point
+    mask_destination: fp_mask_destination
+    fp_result: beat.control.fp_result
     multiply_divide: beat.control.multiply_divide
     divide: beat.control.divide
     multiply_accumulate: multiply_accumulate
     multiply_subtract: multiply_accumulate & beat.control.multiply_subtract
     store: beat.control.store
     saturated: beat.control.integer & packing.saturated
-    shift: element_shift
-    write: mux(scanning, scan_write, mux(reduction ||| element_move, element_zero_write, mux(singleton, element_write, mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))))))
+    shift: mux(fp_mask_destination, beat.first[0..6], element_shift)
+    write: mux(scanning, scan_write, mux(reduction ||| element_move, element_zero_write, mux(singleton, mux(fp_mask_destination, packing.write, element_write), mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))))))
     compress_state: beat.compress_state
 
 export:

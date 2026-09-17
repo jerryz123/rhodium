@@ -401,7 +401,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), MemoryOperation.CacheBlockFlush, id_control.memory.access)
   def id_vector_instruction = id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide
   def id_vector_requires_start_zero = id_control.vector.integer & (id_control.vector.compress ||| id_control.vector.reduction ||| (id_control.vector.scan & !id_control.vector.scan_control.index))
-  def id_illegal = (id_vector_requires_start_zero & wb_csrs.vector_state.vstart.or_reduce()) ||| id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (wb_csrs.frm > bits(4, 3))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
+  def id_illegal = (id_vector_requires_start_zero & wb_csrs.vector_state.vstart.or_reduce()) ||| id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > bits(4, 3)))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
     (id_control.system.action === SystemOperation.VectorConfig) & !wb_csrs.vector_enabled
   ) ||| (
     id_control.memory.access.is_cache_block_zero() & !wb_csrs.cbo_zero_enabled
@@ -500,6 +500,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       id_control.floating_point.registers.uses_frs3 & id_fp_register_busy(id_frs3)
     )
   )
+  def id_vector_fp_source_hazard = id_control.vector.floating_point & (id_control.vector.operand === VectorOperandMode.FloatingScalar) & id_fp_register_busy(id_rs1)
   def id_fp_destination_hazard = id_control.floating_point_valid & (
     id_control.floating_point.registers.destination === RV5StageFloatDestination.FloatingPoint
   ) & id_fp_register_busy(id_rd)
@@ -548,7 +549,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     deferred_dependency: id_deferred_dependency_hazard
     scoreboard_raw: id_scoreboard_raw_hazard
     scoreboard_waw: id_scoreboard_waw_hazard
-    fp_source: id_fp_source_hazard
+    fp_source: id_fp_source_hazard ||| id_vector_fp_source_hazard
     fp_destination: id_fp_destination_hazard
     resource: id_local_resource_hazard ||| id_vector_wait
     pause: id_pause_in_flight ||| if_pause_active
@@ -633,6 +634,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   | block:
       inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, DecodeExecute(xlen, vector_completion_slots), ~vector_completion_slots: vector_completion_slots))
       reg wb_vector_context(DecodeExecute(xlen, vector_completion_slots))
+      wb_fp.snapshot_read_address <== wb_vector_context.rs1
       inst id_vector_legality(RV5StageVectorLegality(xlen, vector_length))
       id_vector_legality.instruction <== id_instruction
       id_vector_legality.control <== id_control.vector
@@ -664,6 +666,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
                  state: wb_csrs.vector_state
                  control: wb_vector_context.vector_control
                  scalar: wb_vector_context.operand_rs1.value
+                 floating_scalar: wb_fp.snapshot_read_data
                  stride: wb_vector_context.operand_rs2.value
                  vd: wb_vector_context.rd
                  vs1: wb_vector_context.rs1
@@ -710,6 +713,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           ~operand_rs2: ex_input.bits.operand_rs2.updated(~stage_sel: RV5StageBypassStage.RegisterFile, ~value: ex_vector_resolved_rs2)
         )
   | block:
+      wb_fp.snapshot_read_address <== bits(0, 5)
       wb_vector_multiply_request_link.left.valid <== Bool(#false)
       wb_vector_multiply_request_link.left.bits <== dont_care(RV5StageExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag))
       wb_vector_multiply_result_link.right.ready <== Bool(#true)

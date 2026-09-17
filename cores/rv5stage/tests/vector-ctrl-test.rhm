@@ -5,13 +5,17 @@
 import:
   "../../../riscv/isa/v.rhm" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
   "../decode/vector-ctrl.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../decode/writeback-ctrl.rhdl".WritebackSelect
+  "../fp/types.rhdl" open
   "../vector/bundles.rhdl" open
   "../../simd-alu.rhdl" open
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
+  lib("hardfloat/main.rhdl").MulAddOperation
+  lib("hardfloat/main.rhdl").MinMaxOperation
 
 fun field(record, name):
   def mutable offset = record.literal_type().packed_width()
@@ -295,10 +299,59 @@ for (instruction in VectorFloatingPointInstructions):
     value(decoded, "floating_point") ~is 1
     value(decoded, "integer") ~is 0
     value(decoded, "memory") ~is 0
-    value(decoded, "fp_subtract") ~is (if instruction == VFSUB_VV | 1 | 0)
-    value(decoded, "fp_multiply") ~is (if instruction == VFMUL_VV | 1 | 0)
+    value(decoded, "fp_uses_vs1") ~is (if instruction.format == VectorUnaryFormat || instruction.format == VectorVFFormat | 0 | 1)
+    value(decoded, "operand") ~is (if instruction.format == VectorVFFormat | VectorOperandMode.FloatingScalar.packed_value() | VectorOperandMode.Vector.packed_value())
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
+    value(decoded, "mask_destination") ~is (if VectorFloatingPointCompareInstructions.contains(instruction) | 1 | 0)
+    value(decoded, "multiply_destination") ~is (if [VFMADD_VV, VFMSUB_VV, VFNMADD_VV, VFNMSUB_VV, VFMADD_VF, VFMSUB_VF, VFNMADD_VF, VFNMSUB_VF].contains(instruction) | 1 | 0)
     value(care, "store") ~is 0
-    value(care, "mask_destination") ~is 0
+    value(care, "mask_destination") ~is 1
+
+for (instruction in VectorFloatingPointAddSubtractInstructions):
+  check value(field(control(instruction), "fp_execution"), "unit") ~is RV5StageFloatUnit.Add.packed_value()
+for (instruction in VectorFloatingPointMultiplyDivideInstructions):
+  check value(field(control(instruction), "fp_execution"), "unit") ~is (if [VFMUL_VV, VFMUL_VF].contains(instruction) | RV5StageFloatUnit.Multiply | RV5StageFloatUnit.DivideSquareRoot).packed_value()
+for (instruction in VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions):
+  check value(field(control(instruction), "fp_execution"), "uses_rounding_mode") ~is 1
+check:
+  value(field(control(VFSUB_VV), "fp_execution"), "add_operation") ~is RV5StageFloatAddOperation.Subtract.packed_value()
+  value(field(control(VFSQRT_V), "fp_execution"), "divide_operation") ~is RV5StageFloatDivideOperation.SquareRoot.packed_value()
+  value(field(control(VMFNE_VV), "fp_execution"), "comparison") ~is RV5StageFloatComparison.NotEqual.packed_value()
+  value(field(control(VMFLT_VV), "fp_execution"), "comparison_signaling") ~is 1
+  value(control(VFRSUB_VF), "swap_operands") ~is 1
+  value(control(VFRDIV_VF), "swap_operands") ~is 1
+  value(control(VMFGT_VF), "swap_operands") ~is 1
+  value(control(VMFGE_VF), "swap_operands") ~is 1
+for (instruction in VectorFloatingPointSignInjectInstructions, index in 0..6):
+  def operation = [FloatSignOperation.Copy, FloatSignOperation.Negate, FloatSignOperation.Xor][index mod 3]
+  check value(field(control(instruction), "fp_execution"), "sign_operation") ~is operation.packed_value()
+for (instruction in VectorFloatingPointMinMaxInstructions, index in 0..4):
+  def operation = [MinMaxOperation.MinimumNumber, MinMaxOperation.MaximumNumber][index mod 2]
+  check value(field(control(instruction), "fp_execution"), "minmax_operation") ~is operation.packed_value()
+for (instruction in VectorFloatingPointFusedMultiplyAddInstructions, index in 0..16):
+  def execution = field(control(instruction), "fp_execution")
+  check:
+    value(execution, "unit") ~is RV5StageFloatUnit.FusedMultiplyAdd.packed_value()
+    value(execution, "fused_operation") ~is [MulAddOperation.MultiplyAdd, MulAddOperation.MultiplyAdd, MulAddOperation.MultiplySubtract, MulAddOperation.MultiplySubtract, MulAddOperation.NegatedMultiplySubtract, MulAddOperation.NegatedMultiplySubtract, MulAddOperation.NegatedMultiplyAdd, MulAddOperation.NegatedMultiplyAdd][index mod 8].packed_value()
+def VectorIntegerToFloatingConversions = [VFCVT_F_XU_V, VFCVT_F_X_V, VFWCVT_F_XU_V, VFWCVT_F_X_V, VFNCVT_F_XU_W, VFNCVT_F_X_W]
+def VectorFloatingResultConversions = VectorIntegerToFloatingConversions ++ [VFWCVT_F_F_V, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W]
+def VectorRtzConversions = [VFCVT_RTZ_XU_F_V, VFCVT_RTZ_X_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]
+def VectorUnsignedConversions = [VFCVT_XU_F_V, VFCVT_F_XU_V, VFCVT_RTZ_XU_F_V, VFWCVT_XU_F_V, VFWCVT_F_XU_V, VFWCVT_RTZ_XU_F_V, VFNCVT_XU_F_W, VFNCVT_F_XU_W, VFNCVT_RTZ_XU_F_W]
+def VectorWideningFloatingPointConversions = [VFWCVT_XU_F_V, VFWCVT_X_F_V, VFWCVT_F_XU_V, VFWCVT_F_X_V, VFWCVT_F_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V]
+def VectorNarrowingFloatingPointConversions = [VFNCVT_XU_F_W, VFNCVT_X_F_W, VFNCVT_F_XU_W, VFNCVT_F_X_W, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]
+for (instruction in VectorFloatingPointConversionInstructions):
+  def decoded = control(instruction)
+  def execution = field(decoded, "fp_execution")
+  def fixed_rounding = VectorRtzConversions.contains(instruction) || instruction == VFNCVT_ROD_F_F_W
+  check:
+    value(execution, "unit") ~is RV5StageFloatUnit.Convert.packed_value()
+    value(decoded, "fp_source") ~is (if VectorIntegerToFloatingConversions.contains(instruction) | VectorFloatSource.Integer | VectorFloatSource.Floating).packed_value()
+    value(decoded, "fp_result") ~is (if VectorFloatingResultConversions.contains(instruction) | VectorFloatResult.Floating | VectorFloatResult.Integer).packed_value()
+    value(decoded, "fp_rounding") ~is (if instruction == VFNCVT_ROD_F_F_W | VectorFloatRounding.RoundToOdd | (if VectorRtzConversions.contains(instruction) | VectorFloatRounding.TowardZero | VectorFloatRounding.Dynamic)).packed_value()
+    value(decoded, "widening") ~is (if VectorWideningFloatingPointConversions.contains(instruction) | 1 | 0)
+    value(decoded, "narrowing") ~is (if VectorNarrowingFloatingPointConversions.contains(instruction) | 1 | 0)
+    value(execution, "uses_rounding_mode") ~is (if fixed_rounding | 0 | 1)
+    value(execution, "integer_unsigned") ~is (if VectorUnsignedConversions.contains(instruction) | 1 | 0)
 
 for (instruction in VectorIntegerInstructions):
   def decoded = control(instruction)
@@ -421,6 +474,8 @@ for (vlen in [128, 256, 512, 65536]):
     beat.field("right").type.packed_width() ~is 64
     beat.field("address").type.packed_width() ~is 64
     beat.field("carry_in").type.packed_width() ~is 8
+    beat.field("fp_source_width").type ~is SimdElementWidth
+    beat.field("fp_result_width").type ~is SimdElementWidth
     micro.field("context").type.packed_width() ~is 4
     feedback.field("context").type.packed_width() ~is 4
     (1 bits.(<<) beat.field("end").type.packed_width()) > vlen ~is #true

@@ -4,6 +4,8 @@
 
 import:
   "bundles.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
+  "../../simd-alu.rhdl".SimdElementWidth
   "../fp/bundles.rhdl" open
   "../decode/fp-ctrl.rhdl" open
   "../../../riscv/isa/vector.rhm" open
@@ -16,31 +18,38 @@ import:
 fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), tag :: Bits(index_width(slots)), rounding :: RoundingMode) :~ RV5StageFpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
   def profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def flen = floating_point_register_width(profile)
-  def single = beat.element_width.into(Bits(2)) === bits(2, 2)
-  def precision = mux(single, RV5StageFloatPrecision.Single, RV5StageFloatPrecision.Double)
-  // Materialize a typed base, specifying only controls consumed by add/multiply.
+  def source_single = beat.fp_source_width === SimdElementWidth.E32
+  def result_single = beat.fp_result_width === SimdElementWidth.E32
+  def source_precision = mux(source_single, RV5StageFloatPrecision.Single, RV5StageFloatPrecision.Double)
+  def result_precision = mux(result_single, RV5StageFloatPrecision.Single, RV5StageFloatPrecision.Double)
+  // The decoder selects a physical FP operation; SEW supplies its dynamic format.
   wire unused: RV5StageFloatingPointControl()
   unused <== dont_care(RV5StageFloatingPointControl())
+  def fp_source = beat.control.fp_source === VectorFloatSource.Floating
+  def fp_destination = beat.control.fp_result === VectorFloatResult.Floating
+  def integer_single = mux(fp_source, result_single, source_single)
   def control = unused.updated(
-    ~registers: unused.registers.updated(~destination: RV5StageFloatDestination.FloatingPoint, ~uses_frs1: Bool(#true)),
-    ~execution: unused.execution.updated(
-      ~unit: mux(beat.control.fp_multiply, RV5StageFloatUnit.Multiply, RV5StageFloatUnit.Add),
-      ~source_precision: precision, ~destination_precision: precision,
-      ~add_operation: mux(beat.control.fp_subtract, RV5StageFloatAddOperation.Subtract, RV5StageFloatAddOperation.Add)
-    )
+    ~registers: unused.registers.updated(~destination: mux(fp_destination, RV5StageFloatDestination.FloatingPoint, RV5StageFloatDestination.Integer), ~uses_frs1: fp_source),
+    ~execution: beat.control.fp_execution.updated(~source_precision: source_precision, ~destination_precision: result_precision, ~integer_width: mux(integer_single, RV5StageFloatIntegerWidth.Word, RV5StageFloatIntegerWidth.Long))
   )
   fun operand(value :: Bits(64)) :~ Bits(flen):
     def boxed = riscv_nan_box(FloatFormat.F32, value[0..32].into(IEEEFloat(FloatFormat.F32)), flen)
-    if xlen == XLen.X32 | boxed | mux(single, boxed, value)
+    if xlen == XLen.X32 | boxed | mux(source_single, boxed, value)
+  def floating_scalar = beat.control.operand === VectorOperandMode.FloatingScalar
+  def scalar_operand = if xlen == XLen.X32 | beat.right[0..32] | beat.right
+  def vector_left = operand(beat.left)
+  def source_right = mux(floating_scalar, scalar_operand, operand(beat.right))
+  def ordered_left = mux(beat.control.swap_operands, source_right, vector_left)
+  def ordered_right = mux(beat.control.swap_operands, vector_left, source_right)
   RV5StageFpExecutionRequest(xlen, profile, Bits(index_width(slots))):
     tag: tag
     control: control
-    left: operand(beat.left)
-    right: operand(beat.right)
-    third: dont_care(Bits(flen))
-    integer_operand: dont_care(Bits(xlen.width))
+    left: mux(beat.control.multiply_destination, operand(beat.destination_data), ordered_left)
+    right: ordered_right
+    third: mux(beat.control.multiply_destination, vector_left, operand(beat.destination_data))
+    integer_operand: beat.left[0..xlen.width]
     immediate_index: dont_care(Bits(5))
-    rounding_mode: rounding
+    rounding_mode: mux_lookup(beat.control.fp_rounding, ~default: rounding, [[VectorFloatRounding.TowardZero, RoundingMode.MinMagnitude], [VectorFloatRounding.RoundToOdd, RoundingMode.Odd]])
 
 export:
   vector_fp_request

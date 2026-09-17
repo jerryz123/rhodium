@@ -18,6 +18,7 @@ import:
   "vector/mask.rhdl".VectorScanResult
   "vector/register-file.rhdl" open
   "decode/vector-ctrl.rhdl".VectorMemoryMode
+  "decode/vector-ctrl.rhdl".VectorFloatResult
   "register-file.rhdl".RegisterFileWrite
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
@@ -268,7 +269,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
       completion_data[slot] <== if xlen == XLen.X64 | completion.bits.data | completion.bits.data.zext(64)
     elsewhen (fp_result.fire() & (fp_result.bits.tag === tag)):
       completed[slot] <== Bool(#true)
-      completion_data[slot] <== if xlen == XLen.X64 | fp_result.bits.fp_value | fp_result.bits.fp_value.zext(64)
+      completion_data[slot] <== mux(entries[slot].mask_destination, fp_result.bits.integer_value[0].as_bits().zext(64), mux(entries[slot].fp_result === VectorFloatResult.Integer, if xlen == XLen.X64 | fp_result.bits.integer_value | fp_result.bits.integer_value.zext(64), if xlen == XLen.X64 | fp_result.bits.fp_value | fp_result.bits.fp_value.zext(64)))
     elsewhen (multiply_result.fire() & (multiply_result.bits.tag.slot === tag)):
       completed[slot] <== Bool(#true)
       completion_data[slot] <== multiply_completion.data

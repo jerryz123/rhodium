@@ -156,6 +156,7 @@ circuit RV5StageFpFormatDatapath(
     control.comparison,
     ~default: compare.eq,
     [
+      [RV5StageFloatComparison.NotEqual, !compare.eq],
       [RV5StageFloatComparison.Less, compare.lt],
       [RV5StageFloatComparison.LessEqual, compare.lt ||| compare.eq]
     ]

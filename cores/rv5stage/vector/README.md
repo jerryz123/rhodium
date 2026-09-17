@@ -470,22 +470,45 @@ RV32 vector mul/div and V advertisement remain outside this cut.
 
 ## Shared floating point
 
-The experimental RV64D path executes same-width `vfadd.vv`, `vfsub.vv`, and
-`vfmul.vv` at SEW32 or SEW64. This is a subset, not an advertised V extension.
-FS and VS must be enabled and `frm` must select a supported rounding mode;
-the macro captures `frm` at WB launch. FP16, RV32 vector FP, scalar-FP vector
-operands, widening, and fused operations are outside this cut.
+The experimental RV64D path executes same-width vector-vector and
+vector-floating-scalar add/subtract, multiply/divide, sign injection, min/max,
+comparisons, and all eight fused multiply-add/subtract forms at SEW32 or SEW64;
+vector-vector also includes square root. Same-width conversions cover signed
+and unsigned integer-to-float, dynamic-rounding float-to-integer, and fixed-RTZ
+float-to-integer forms. All fifteen widening/narrowing conversion forms execute
+at SEW32, crossing between 32- and 64-bit integer or FP elements; narrowing
+FP-to-FP additionally supports its fixed round-to-odd form. Comparisons produce
+packed mask destinations, while fused operations consume old `vd` through the
+third general VRF port. This is a subset, not an advertised V extension. FS
+and VS must be enabled. Operations that round require a supported `frm`, which
+the macro captures at WB launch; exact sign, min/max, and comparison operations
+do not depend on `frm`; fixed-RTZ conversions also ignore it. FP16, RV32 vector
+FP, scalar moves, widening/narrowing arithmetic, and FP reductions are outside
+this cut. Width-changing conversion at SEW64 is illegal because this profile
+does not provide 128-bit elements.
 
 The unroller reads one element from each vector source through general ports;
-the dedicated `v0` shadow supplies predication. Narrow elements are NaN-boxed
+fused operations additionally read old `vd`, while square root and `.vf` leave
+`vs1` free. The dedicated `v0` shadow supplies predication. A `.vf` instruction
+waits for its scalar FPR producer in Decode and snapshots the forwarded
+architectural value at nonspeculative WB launch. That snapshot is broadcast to
+each element; invalid SEW32 NaN boxes become canonical NaNs at the shared scalar
+datapath boundary. Narrow vector elements are NaN-boxed
 only at the shared execution-service boundary; VRF storage remains packed.
+Conversion controls explicitly select floating or integer source and result
+domains, source and result widths, and dynamic, RTZ, or round-to-odd policy.
+Integer elements use the service's integer operand/result path, while FP results
+return through the boxed FP path before their destination-width bits are packed.
+Widening doubles destination EMUL; narrowing doubles source EMUL. Both retain
+singleton execution and reuse the shared scalar service's cross-precision path.
 Active elements queue for execution only when scalar WB authorizes them.
 Masked, tail, and pre-vstart elements never execute or contribute flags. Empty
 bodies still complete once.
 
 The core composes scalar and vector requests around one FP execution service
 using round-robin arbitration and an owner-tagged union. Scalar FPR state
-remains in its architectural adapter; vector operands never pass through it.
+remains in its architectural adapter; only the WB `.vf` source snapshot crosses
+into the vector descriptor.
 Each vector element reserves a completion slot before issue. A bounded
 WB-authorized request queue absorbs service backpressure, while slot exhaustion
 stops earlier issue, keeping MEM/WB feed-forward. Results can return out of

@@ -19,43 +19,10 @@ import:
   lib("hardfloat/main.rhdl").MinMaxOperation
   lib("rhodium/std/decode.rhdl") open
 
-hardware_enum RV5StageFloatUnit:
-  Memory
-  FusedMultiplyAdd
-  Add
-  Multiply
-  DivideSquareRoot
-  SignInject
-  MinMax
-  Compare
-  Convert
-  Move
-  Classify
-  Immediate
-  RoundToIntegral
-  IntegerModulo
-
 hardware_enum RV5StageFloatDestination:
   None
   Integer
   FloatingPoint
-
-hardware_enum RV5StageFloatAddOperation:
-  Add
-  Subtract
-
-hardware_enum RV5StageFloatDivideOperation:
-  Divide
-  SquareRoot
-
-hardware_enum RV5StageFloatComparison:
-  Equal
-  Less
-  LessEqual
-
-hardware_enum RV5StageFloatIntegerWidth:
-  Word
-  Long
 
 bundle RV5StageFloatRegisterControl():
   uses_integer_rs1: Bool
@@ -63,23 +30,6 @@ bundle RV5StageFloatRegisterControl():
   uses_frs2: Bool
   uses_frs3: Bool
   destination: RV5StageFloatDestination
-
-bundle RV5StageFloatExecutionControl():
-  unit: RV5StageFloatUnit
-  source_precision: RV5StageFloatPrecision
-  destination_precision: RV5StageFloatPrecision
-  uses_rounding_mode: Bool
-  memory_write: Bool
-  fused_operation: MulAddOperation
-  add_operation: RV5StageFloatAddOperation
-  divide_operation: RV5StageFloatDivideOperation
-  sign_operation: FloatSignOperation
-  minmax_operation: MinMaxOperation
-  comparison: RV5StageFloatComparison
-  comparison_signaling: Bool
-  round_raise_inexact: Bool
-  integer_width: RV5StageFloatIntegerWidth
-  integer_unsigned: Bool
 
 bundle RV5StageFloatingPointControl():
   registers: RV5StageFloatRegisterControl()

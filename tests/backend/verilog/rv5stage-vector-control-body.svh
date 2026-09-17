@@ -37,6 +37,9 @@
   function automatic logic [31:0] vector_extension(input int selector, source, destination, input bit masked = 0);
     return (32'd18 << 26) | (32'(!masked) << 25) | (32'(source) << 20) | (32'(selector) << 15) | (32'd2 << 12) | (32'(destination) << 7) | 32'h57;
   endfunction
+  function automatic logic [31:0] vector_fp_conversion(input int selector, source, destination, input bit masked = 0);
+    return (32'd18 << 26) | (32'(!masked) << 25) | (32'(source) << 20) | (32'(selector) << 15) | (32'd1 << 12) | (32'(destination) << 7) | 32'h57;
+  endfunction
   function automatic logic [31:0] whole_register_vmem(input bit store, input int width, registers, regno, base);
     return {3'(registers-1), 1'b0, 2'b00, 1'b1, 5'd8, 5'(base), 3'(store || width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
   endfunction
@@ -473,7 +476,7 @@
       end
     end
 
-    // The initial FP subset admits aligned same-width FP32/64 groups on RV64.
+    // Same-width FP admits aligned FP32/64 groups on RV64.
     for (int op = 0; op < 3; op++) begin
       for (int sew = 0; sew < 4; sew++) begin
         for (int lm = -3; lm <= 3; lm++) begin
@@ -488,6 +491,36 @@
         end
       end
     end
+
+    // Width-changing FP conversions are the RV64D E32<->E64 forms. Widening
+    // doubles destination EMUL; narrowing doubles source EMUL.
+    for (int narrow = 0; narrow < 2; narrow++) begin
+      for (int sew = 0; sew < 4; sew++) begin
+        for (int lm = -3; lm <= 3; lm++) begin
+          automatic bit expected_legal = XLEN == 64 && sew == 2 && lm >= -1 && lm <= 2;
+          test_vtype = (word_t'(sew) << 3) | (word_t'(lm) & 7);
+          instruction = vector_fp_conversion(narrow != 0 ? 16 : 8, 16, 8); #1;
+          assert (decoded_valid && widening == (narrow == 0) && narrowing == (narrow != 0) && legal == expected_legal)
+            else $fatal(1, "FP width-change geometry narrow=%0d sew=%0d lm=%0d", narrow, sew, lm);
+          checks++;
+        end
+      end
+    end
+    test_vtype = 'h10; // e32,m1
+    instruction = vector_fp_conversion(8, 9, 8); #1;
+    assert (legal) else $fatal(1, "FP widening rejected high source overlap");
+    instruction[24:20] = 8; #1;
+    assert (!legal) else $fatal(1, "FP widening accepted low source overlap");
+    instruction = vector_fp_conversion(8, 16, 9); #1;
+    assert (!legal) else $fatal(1, "FP widening accepted unaligned destination");
+    instruction = vector_fp_conversion(16, 8, 8); #1;
+    assert (legal) else $fatal(1, "FP narrowing rejected in-place low destination");
+    instruction[11:7] = 9; #1;
+    assert (!legal) else $fatal(1, "FP narrowing accepted high destination overlap");
+    instruction = vector_fp_conversion(16, 9, 16); #1;
+    assert (!legal) else $fatal(1, "FP narrowing accepted unaligned wide source");
+    instruction = vector_fp_conversion(16, 8, 0, 1); #1;
+    assert (!legal) else $fatal(1, "masked FP narrowing overwrote v0");
 
     // Mul/div uses ordinary same-width groups; VX's rs1 is not a vector group.
     for (int op = 32; op < 40; op++) begin

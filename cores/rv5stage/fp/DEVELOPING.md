@@ -9,7 +9,7 @@ implementation structure, dependency boundary, and focused validation.
 
 ## Architecture and dependency boundary
 
-The package may depend on RV5Stage FP decode controls, the RISC-V FP model and
+The package may depend on RV5Stage FP controls, the RISC-V FP model and
 RTL helpers, HardFloat, and public Rhodium libraries. It must not import
 `core.rhdl`, caches, the MMU, backends, examples, or tests. The decode package
 may import [`types.rhdl`](types.rhdl), but not FP execution modules.
@@ -24,22 +24,22 @@ import `types.rhdl` only to preserve FP precision metadata.
 
 | File | Ownership |
 |---|---|
-| [`types.rhdl`](types.rhdl) | Precision tags shared with decode and memory paths |
+| [`types.rhdl`](types.rhdl) | Precision, operation, and execution-control types shared by scalar/vector decode and memory paths |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar issue/completion/LSU payloads and opaque-tag operand requests/results |
-| [`register-file.rhdl`](register-file.rhdl) | Three-read, two-write architectural FP register bank |
+| [`register-file.rhdl`](register-file.rhdl) | Three-read, two-write architectural FP register bank with same-cycle write forwarding |
 | [`datapath.rhdl`](datapath.rhdl) | Fixed-latency F, D, optional half-precision, and Zfa execution |
 | [`div-sqrt.rhdl`](div-sqrt.rhdl) | Buffered HardFloat division and square-root lanes |
 | [`execute.rhdl`](execute.rhdl) | Operand-only execution service, profile specialization, reserved buffering, and fair completion arbitration |
 | [`pipeline.rhdl`](pipeline.rhdl) | Scalar register state, scoreboard, service tag adaptation, LSU bridges, and architectural completion |
 
-Keep `types.rhdl` dependency-light because decode and memory paths import it.
+Keep `types.rhdl` dependency-light because scalar/vector decode and memory paths import it.
 The payload definitions may depend on decode controls; datapaths and the
 register file feed the pipeline composition. Keep profile specialization at
 host elaboration so disabled formats and units do not become runtime hardware.
 
 ## Change workflow
 
-1. Put shared precision tags in `types.rhdl` and cross-boundary payloads in
+1. Put shared precision and physical execution controls in `types.rhdl` and cross-boundary payloads in
    `bundles.rhdl`.
 2. Keep combinational format operations in `datapath.rhdl`; put retained or
    variable-latency divide/square-root behavior in `div-sqrt.rhdl`.
@@ -51,7 +51,9 @@ host elaboration so disabled formats and units do not become runtime hardware.
 4. Update the package README when supported profiles or observable flow,
    ownership, timing, or failure contracts change.
 5. Preserve the common architectural enabled/disabled interface shape used by
-   `core.rhdl`; only the enabled scalar adapter exposes operand service ports.
+   `core.rhdl`. The first read port serves scalar issue or, when issue is idle,
+   the WB vector-scalar snapshot address; keep that snapshot read-only and
+   preserve the common enabled/disabled 64-bit output shape.
    Keep the standalone adapter-plus-service composition for independent users.
 
 ## Focused validation

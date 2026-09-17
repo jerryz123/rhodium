@@ -47,15 +47,33 @@ Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
 Do not turn the experimental VLEN option into a public ISA/profile claim.
 
-`fp.rhdl` adapts singleton operands and the vector control modifiers to the
-shared FP request. It imports the named FP contracts, FP controls, RISC-V
+`fp.rhdl` adapts singleton operands and the shared physical execution control to the
+shared FP request. It imports the named FP contracts, RISC-V
 boxing helpers, and HardFloat types; none of those modules imports vector
 execution. The parent pipeline reserves completion slots for both memory and
 FP, captures rounding at WB macro launch, and queues operands only at WB.
+Fused operations reuse the third general VRF read for old `vd`; comparisons
+retain a mask-destination bit beside their completion slot and write the shared
+`v0` shadow through the sole ordered VRF write port. Vector-scalar FP checks the
+FPR scoreboard in Decode, selects the scalar source on the FP adapter's first
+read port at WB launch, and retains the forwarded 64-bit value in the admitted
+descriptor. It must not consume a general VRF read port. Do not add vector-only
+FP datapaths or reinterpret scalar register controls as vector source metadata.
+Conversion rows carry explicit source/result domains, source/result element
+widths, and dynamic, RTZ, or round-to-odd selection. Width-changing FP remains
+singleton: reuse the register-group overlap helpers, but do not route it through
+the packed integer half-word schedule. Keep the result domain and destination
+shift/mask in the completion entry; selecting integer versus boxed FP data or
+reconstructing destination width from an opcode at drain would make ownership
+implicit.
 The core composes `RV5StageFpScalar` and vector requests around one execution
 service. Keep scalar FPR ownership separate from vector slot ownership, and
 merge simultaneous architectural flag pulses without arbitration loss.
-Use `rv5stage-vector-fp` and `rv5stage-vector-fp-one-slot` for instruction-to-memory-result coverage, alongside
+Use `rv5stage-vector-fp` and `rv5stage-vector-fp-one-slot` for vector-vector and
+vector-scalar add/multiply,
+divide/square-root latency, sign/minmax, fused-source topology, comparison-mask,
+FPR producer forwarding, NaN-box validation, same- and mixed-width conversions,
+RTZ/round-to-odd, rounding, flag, cancellation, and ordered instruction-to-memory-result coverage, alongside
 the scalar FP and existing vector memory/unroller fixtures when these shared
 boundaries change.
 

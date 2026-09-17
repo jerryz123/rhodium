@@ -1,11 +1,73 @@
 #lang rhodium
-// Defines floating-point precision tags shared by RV5Stage decode and memory paths.
+// Defines floating-point execution controls shared by RV5Stage scalar and vector decode.
 // SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
+  lib("hardfloat/main.rhdl").MulAddOperation
+  lib("hardfloat/main.rhdl").MinMaxOperation
 
 hardware_enum RV5StageFloatPrecision:
   Half
   Single
   Double
 
+hardware_enum RV5StageFloatUnit:
+  Memory
+  FusedMultiplyAdd
+  Add
+  Multiply
+  DivideSquareRoot
+  SignInject
+  MinMax
+  Compare
+  Convert
+  Move
+  Classify
+  Immediate
+  RoundToIntegral
+  IntegerModulo
+
+hardware_enum RV5StageFloatAddOperation:
+  Add
+  Subtract
+
+hardware_enum RV5StageFloatDivideOperation:
+  Divide
+  SquareRoot
+
+hardware_enum RV5StageFloatComparison:
+  Equal
+  NotEqual
+  Less
+  LessEqual
+
+hardware_enum RV5StageFloatIntegerWidth:
+  Word
+  Long
+
+bundle RV5StageFloatExecutionControl():
+  unit: RV5StageFloatUnit
+  source_precision: RV5StageFloatPrecision
+  destination_precision: RV5StageFloatPrecision
+  uses_rounding_mode: Bool
+  memory_write: Bool
+  fused_operation: MulAddOperation
+  add_operation: RV5StageFloatAddOperation
+  divide_operation: RV5StageFloatDivideOperation
+  sign_operation: FloatSignOperation
+  minmax_operation: MinMaxOperation
+  comparison: RV5StageFloatComparison
+  comparison_signaling: Bool
+  round_raise_inexact: Bool
+  integer_width: RV5StageFloatIntegerWidth
+  integer_unsigned: Bool
+
 export:
   RV5StageFloatPrecision
+  RV5StageFloatUnit
+  RV5StageFloatAddOperation
+  RV5StageFloatDivideOperation
+  RV5StageFloatComparison
+  RV5StageFloatIntegerWidth
+  RV5StageFloatExecutionControl
