@@ -84,12 +84,16 @@ Operand overlap, execution, and packed-mask policy remain core-owned.
 vector-floating-scalar add/subtract, multiply/divide, sign injection, min/max,
 comparisons, and fused multiply-add/subtract families, plus vector square root,
 same-width and widening/narrowing signed/unsigned integer conversions,
-FP32/FP64 conversions, fixed-RTZ integer conversions, and narrowing round-to-odd,
-and all widening add/subtract, multiply, and fused-accumulate forms,
+FP32/FP64 conversions, fixed-RTZ integer conversions, narrowing round-to-odd,
+all widening add/subtract, multiply, and fused-accumulate forms, and the six
+same-width and widening floating-point reductions. Its movement catalogs add
+`vfmv.v.f`, `vfmerge.vfm`, `vfmv.f.s`, `vfmv.s.f`, `vfslide1up.vf`, and
+`vfslide1down.vf`,
 matching the canonical OPFVV and OPFVF encodings in
 [riscv-opcodes](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_v).
 Its operation-family subcatalogs preserve the architectural grouping, including
-separate widening add/subtract, multiply, and fused-accumulate catalogs;
+separate widening add/subtract, multiply, fused-accumulate, reduction, move,
+and slide catalogs;
 execution precision, rounding, mask packing, and old-destination sourcing remain
 core policy.
 `VectorDivideInstructions` contains same-width `vdiv`, `vdivu`, `vrem`, and

@@ -486,9 +486,14 @@ the other arithmetic forms exactly promote narrow operands before one FP64
 operation, including a wide old-`vd` fused addend. This is a subset, not an advertised V extension. FS
 and VS must be enabled. Operations that round require a supported `frm`, which
 the macro captures at WB launch; exact sign, min/max, and comparison operations
-do not depend on `frm`; fixed-RTZ conversions also ignore it. FP16, RV32 vector
-FP, scalar moves, and FP reductions are outside
-this cut. Width-changing conversion at SEW64 is illegal because this profile
+do not depend on `frm`; fixed-RTZ conversions also ignore it. FP16 and RV32
+vector FP remain outside this cut. `vfredusum.vs`, `vfredosum.vs`,
+`vfredmin.vs`, and `vfredmax.vs` fold FP32 or FP64 elements through the shared
+service in element order. `vfwredusum.vs` and `vfwredosum.vs` exactly promote
+FP32 inputs and fold them into an FP64 seed. Only the final accumulator writes
+element zero; masked elements do not execute, and an all-masked nonzero body
+copies the seed exactly without raising flags. At `vl=0`, the destination is
+unchanged. Width-changing conversion at SEW64 is illegal because this profile
 does not provide 128-bit elements.
 
 The unroller reads one element from each vector source through general ports;
@@ -509,7 +514,27 @@ precision so a widening operation can combine a wide `vs2` or old `vd` with a
 narrow vector or scalar source without inventing a vector-only arithmetic lane.
 Active elements queue for execution only when scalar WB authorizes them.
 Masked, tail, and pre-vstart elements never execute or contribute flags. Empty
-bodies still complete once.
+bodies still complete once. Floating-point reductions additionally hold the
+next element behind the prior service result, preserving the ordered-fold
+implementation used for both ordered and unordered sums. Every active fold
+contributes its exception flags, while inactive folds retain the accumulator
+without entering the service.
+
+Scalar/vector movement supports `vfmv.v.f`, `vfmerge.vfm`, `vfmv.f.s`,
+`vfmv.s.f`, `vfslide1up.vf`, and `vfslide1down.vf`. Broadcast and merge reuse
+the packed operand path, while the slide forms reuse the ordinary 64-bit slide
+datapath; none enters the FP arithmetic service or updates `fflags`.
+An SEW32 scalar FPR source is NaN-box checked before its payload enters the
+vector path, so an invalid box supplies the canonical FP32 NaN. Vector-to-FPR
+movement preserves the selected element's raw bits and applies the required
+SEW32 NaN box only at architectural writeback. `vfmv.f.s` reads element zero
+even when `vl=0`; `vfmv.s.f` and the FP slide forms leave the destination
+unchanged when their body is empty.
+
+The scalar FP wrapper reserves a vector-to-FPR destination before the vector
+macro launches. Only an authorized vector WB commit emits the corresponding
+architectural write; retry, fault, redirect, and cancellation cannot alter the
+FPR. Until that write completes, scalar FP issue is held behind the reservation.
 
 The core composes scalar and vector requests around one FP execution service
 using round-robin arbitration and an owner-tagged union. Scalar FPR state

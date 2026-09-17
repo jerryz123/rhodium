@@ -189,7 +189,14 @@ Element moves use a one-token schedule independent of VL; insertion separately
 checks its architectural empty-body condition. Reduction rows use singleton
 source reads and a fixed seed address. The parent pipeline gates reduction
 issue until the preceding beat reaches WB, substitutes the authorized
-accumulator for subsequent seeds at EX, and updates it only on authorization.
+accumulator for subsequent seeds at EX, and updates integer reductions only on
+authorization. Floating-point reductions retain that gate until an active fold
+drains from the shared FP service, then advance the accumulator from the
+ordered result. Inactive folds bypass the service and retain the accumulator;
+active intermediate folds update `fflags` but only the final fold carries a VRF
+write mask. This implements both sum variants as the permitted ordered fold and
+gives an all-masked nonzero body an exact seed copy with no FP exception
+activity. A zero-length body remains the ordinary no-write vector case.
 Widening reductions keep source addressing at SEW while the execute adapter
 extends that element into the twice-SEW accumulator width. The seed and result
 remain single-register scalars; do not route this form through doubled-EMUL
@@ -200,6 +207,15 @@ The `scalar_result` Valid output carries the existing integer register-write
 type at WB; the core composes it with normal writeback through Flow. Decode
 owns the scalar destination/source metadata and rejects nonzero reduction
 `vstart` before the unroller can launch a read.
+The `floating_result` Valid output analogously carries a
+`FloatingPointRegisterWrite` for `vfmv.f.s`. The scalar FP wrapper reserves the
+destination before vector launch and consumes this output only for an
+authorized WB commit. Keep raw vector element bits through the unroller and
+NaN-box an SEW32 result only at this architectural boundary. Conversely,
+validate an SEW32 scalar FPR box before packing its payload for `vfmv.v.f`,
+`vfmerge.vfm`, `vfmv.s.f`, or the FP slide forms. These movement operations
+reuse packed merge/slide hardware and must not allocate a shared FP-service
+completion slot or contribute `fflags`.
 
 `mask.rhdl` owns decoded scan controls and a combinational parallel prefix
 network. Decode selects count/first/mask/element results and prefix/index
@@ -227,7 +243,12 @@ They initialize/read storage through public LSU transactions (including a
 test-only RV32 initialization transport, not an RV32 memory-ISA claim), fold
 elements with an independent model, and cover SEW/LMUL, masks, aliases, tails,
 empty bodies, issue stalls, initial/midstream retry, and partial cancellation.
-The full-core `rv5stage-vector-muldiv` program covers GPR consumers, deferred
+The full-core `rv5stage-vector-fp` program covers all six FP reductions,
+same-width and widening folds, masks, empty vectors, exact seed retention, and
+per-fold exception accumulation. It also covers the six scalar/vector FP
+movement forms, merge masks, slide boundaries, invalid source NaN boxes, raw
+NaN payload preservation, immediate scalar consumers, empty bodies, and
+branch-squashed FPR writes. The full-core `rv5stage-vector-muldiv` program covers GPR consumers, deferred
 WAW interlocks, x0, squash, empty-body moves, and illegal reduction `vstart`.
 Keep the existing unroller, control, scalar-core, and shared-FP fixtures when
 changing their common result/decode payloads.

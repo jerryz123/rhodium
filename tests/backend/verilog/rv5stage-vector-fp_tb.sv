@@ -265,6 +265,37 @@ module rv5stage_vector_fp_tb;
     vset(3, 2, 1); vstore(18, 'h26d0, 3);
     expect_store('h26d0, 'h7ff8000000000000, 3); expect_store('h26d8, 'h4014000000000000, 3);
     signature('h001, 'h26e0, 16); emit('h00105073);
+    // Floating-point reductions serialize active elements through the shared
+    // service, retain only their accumulator, and write vector element zero.
+    memory_words[52] = 'h400000003f800000; memory_words[53] = 'h4080000040400000; // 1,2,3,4
+    memory_words[54] = 'h0000000041200000; // FP32 seed 10
+    memory_words[55] = 'h4024000000000000; // FP64 seed 10
+    vset(2, 4); vload(8, 'h11a0, 2); vload(9, 'h11b0, 2);
+    vec('h01, 10, 8, 9); vec('h03, 11, 8, 9); vec('h05, 12, 8, 9); vec('h07, 13, 8, 9);
+    vset(2, 1); vstore(10, 'h26f0, 2); vstore(11, 'h26f8, 2); vstore(12, 'h2700, 2); vstore(13, 'h2708, 2);
+    expect_store('h26f0, 'h41a00000, 2); expect_store('h26f8, 'h41a00000, 2);
+    expect_store('h2700, 'h3f800000, 2); expect_store('h2708, 'h41200000, 2);
+    vset(3, 1); vload(14, 'h11b8, 3); vset(2, 4);
+    vec('h31, 16, 8, 14); vec('h33, 18, 8, 14);
+    vset(3, 1); vstore(16, 'h2710, 3); vstore(18, 'h2718, 3);
+    expect_store('h2710, 'h4034000000000000, 3); expect_store('h2718, 'h4034000000000000, 3);
+    // With no active elements the seed is copied exactly and no exception is
+    // raised, even when the source and seed contain signaling NaNs.
+    emit('h00105073); memory_words[56] = 'h7f8000017f800001; memory_words[57] = 'h000000007f800001;
+    vset(2, 4); vload(20, 'h11c0, 2); vload(21, 'h11c8, 2);
+    vec('h19, 0, 20, 20, 0, 0); // vmsne.vv v0,v20,v20: all disabled
+    vec('h03, 22, 20, 21, 1); vset(2, 1); vstore(22, 'h2720, 2);
+    expect_store('h2720, 'h7f800001, 2); signature('h001, 'h2728, 0);
+    // An active signaling NaN in a non-final fold contributes NV and yields
+    // the canonical NaN only when the ordered reduction reaches its final beat.
+    emit('h00105073); memory_words[58] = 'h7f8000013f800000; memory_words[59] = 'h4040000040000000;
+    memory_words[60] = 0; vset(2, 4); vload(24, 'h11d0, 2); vload(25, 'h11e0, 2);
+    vec('h03, 26, 24, 25); vset(2, 1); vstore(26, 'h2730, 2);
+    expect_store('h2730, 'h7fc00000, 2); signature('h001, 'h2738, 16); emit('h00105073);
+    // VL=0 performs no fold and leaves the destination untouched.
+    memory_words[61] = 'h0000000040e00000; vset(2, 1); vload(28, 'h11e8, 2);
+    vset(2, 0); vec('h01, 28, 8, 9); vset(2, 1); vstore(28, 'h2740, 2);
+    expect_store('h2740, 'h40e00000, 2); signature('h001, 'h2748, 0);
     // Narrowing applies doubled EMUL to its E64 source and writes E32/LMUL1.
     memory_words[32] = 'h3ff8000000000000; memory_words[33] = 'hc006000000000000;
     memory_words[34] = 64'd16777217; memory_words[35] = 64'h00000000ffffffff;
@@ -358,6 +389,54 @@ module rv5stage_vector_fp_tb;
     for (int i = 0; i < 31; i++) expect_store('h2200 + i*4, 'h7fc00000, 2);
     emit('he00181d3); li(10, 'h2280); emit('h00353023); expect_store('h2280, 'h3eaaaaab, 3);
     signature('h001, 'h2288, 17);
+    // FP movement stays on the packed merge/slide datapath. Scalar sources
+    // are NaN-box checked, while vector-to-FPR E32 results are NaN-boxed at WB.
+    memory_words[62] = 'h400000003f800000; memory_words[63] = 'h4080000040400000;
+    memory_words[65] = 'h0000000200000001; memory_words[66] = 'h0000000400000003;
+    vset(2, 4); vload(8, 'h11f0, 2); vload(19, 'h1208, 2);
+    li(5, 'h3f000000); emit('hf0028453); // fmv.w.x f8,x5: 0.5
+    vec('h17, 10, 0, 8, 0, 5); // vfmv.v.f
+    vec('h1f, 0, 19, 2, 0, 3); // vmsgt.vi: lanes 2 and 3
+    vec('h17, 11, 8, 8, 1, 5); // vfmerge.vfm
+    vec('h0e, 12, 8, 8, 0, 5); // vfslide1up.vf
+    vec('h0f, 13, 8, 8, 0, 5); // vfslide1down.vf
+    vload(14, 'h11f0, 2); vec('h10, 14, 0, 8, 0, 5); // vfmv.s.f
+    vstore(10, 'h2750, 2); vstore(11, 'h2760, 2); vstore(12, 'h2770, 2);
+    vstore(13, 'h2780, 2); vstore(14, 'h2790, 2);
+    for (int i = 0; i < 4; i++) expect_store('h2750 + i*4, 'h3f000000, 2);
+    expect_store('h2760, 'h3f800000, 2); expect_store('h2764, 'h40000000, 2);
+    expect_store('h2768, 'h3f000000, 2); expect_store('h276c, 'h3f000000, 2);
+    expect_store('h2770, 'h3f000000, 2); expect_store('h2774, 'h3f800000, 2);
+    expect_store('h2778, 'h40000000, 2); expect_store('h277c, 'h40400000, 2);
+    expect_store('h2780, 'h40000000, 2); expect_store('h2784, 'h40400000, 2);
+    expect_store('h2788, 'h40800000, 2); expect_store('h278c, 'h3f000000, 2);
+    expect_store('h2790, 'h3f000000, 2); expect_store('h2794, 'h40000000, 2);
+    expect_store('h2798, 'h40400000, 2); expect_store('h279c, 'h40800000, 2);
+    // vfmv.f.s is independent of vl and immediately feeds a younger scalar
+    // observer only after its WB-owned FPR reservation has completed.
+    vset(2, 0); vec('h10, 9, 8, 0, 0, 1); // vfmv.f.s f9,v8
+    emit(32'('he2000053 | (9 << 15) | (3 << 7))); // fmv.x.d x3,f9
+    li(10, 'h27a0); emit('h00353023); expect_store('h27a0, 'hffffffff3f800000, 3);
+    emit('h0080006f); vec('h10, 9, 9, 0, 0, 1); // squashed vector-to-FPR write
+    emit(32'('he2000053 | (9 << 15) | (3 << 7)));
+    li(10, 'h27a8); emit('h00353023); expect_store('h27a8, 'hffffffff3f800000, 3);
+    memory_words[64] = 'h000000007f800001; vset(2, 1); vload(18, 'h1200, 2);
+    vset(2, 0); vec('h10, 10, 18, 0, 0, 1); // a moved signaling-NaN payload is not canonicalized
+    emit(32'('he2000053 | (10 << 15) | (3 << 7)));
+    li(10, 'h27e0); emit('h00353023); expect_store('h27e0, 'hffffffff7f800001, 3);
+    li(10, 'h10b8); emit('h00053307); // fld f6,0(x10): invalid FP32 NaN box
+    vset(2, 4); vec('h17, 18, 0, 6, 0, 5); vstore(18, 'h27f0, 2);
+    for (int i = 0; i < 4; i++) expect_store('h27f0 + i*4, 'h7fc00000, 2);
+    // Vector destinations are unchanged at vl=0 for insertion and FP slides.
+    vset(2, 4); vload(15, 'h11f0, 2); vload(16, 'h11f0, 2); vload(17, 'h11f0, 2);
+    vset(2, 0); vec('h10, 15, 0, 8, 0, 5); vec('h0e, 16, 8, 8, 0, 5); vec('h0f, 17, 8, 8, 0, 5);
+    vset(2, 4); vstore(15, 'h27b0, 2); vstore(16, 'h27c0, 2); vstore(17, 'h27d0, 2);
+    for (int destination = 0; destination < 3; destination++) begin
+      expect_store('h27b0 + destination*16, 'h3f800000, 2);
+      expect_store('h27b4 + destination*16, 'h40000000, 2);
+      expect_store('h27b8 + destination*16, 'h40400000, 2);
+      expect_store('h27bc + destination*16, 'h40800000, 2);
+    end
     // Empty macro clears vstart without executing or modifying flags.
     vset(2, 0); emit('h0083d073); vec(0, 10, 8, 8);
     signature('h008, 'h20e0, 0); signature('h001, 'h20e8, 17);

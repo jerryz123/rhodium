@@ -292,11 +292,14 @@ for (instruction in VectorWideningMultiplyAccumulateInstructions, index in 0..7)
     value(care, "multiply_result") ~is 0
     value(decoded, "operand") ~is (if index mod 2 == 0 && index < 6 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 
-for (instruction in VectorFloatingPointInstructions):
+def VectorFloatingPointMovementInstructions = VectorFloatingPointMoveInstructions ++ VectorFloatingPointSlideInstructions
+def VectorFloatingPointServiceInstructions = VectorFloatingPointInstructions.filter(~keep: fun (instruction): !VectorFloatingPointMovementInstructions.contains(instruction))
+for (instruction in VectorFloatingPointServiceInstructions):
   def decoded = control(instruction)
   def care = control_pattern(instruction).care
   check:
     value(decoded, "floating_point") ~is 1
+    value(decoded, "fp_service") ~is 1
     value(decoded, "integer") ~is 0
     value(decoded, "memory") ~is 0
     value(decoded, "fp_uses_vs1") ~is (if instruction.format == VectorUnaryFormat || instruction.format == VectorVFFormat | 0 | 1)
@@ -304,8 +307,30 @@ for (instruction in VectorFloatingPointInstructions):
     value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
     value(decoded, "mask_destination") ~is (if VectorFloatingPointCompareInstructions.contains(instruction) | 1 | 0)
     value(decoded, "multiply_destination") ~is (if [VFMADD_VV, VFMSUB_VV, VFNMADD_VV, VFNMSUB_VV, VFMADD_VF, VFMSUB_VF, VFNMADD_VF, VFNMSUB_VF].contains(instruction) | 1 | 0)
+    value(decoded, "reduction") ~is (if VectorFloatingPointReductionInstructions.contains(instruction) | 1 | 0)
     value(care, "store") ~is 0
     value(care, "mask_destination") ~is 1
+
+for (instruction in VectorFloatingPointMovementInstructions):
+  def decoded = control(instruction)
+  check:
+    value(decoded, "floating_point") ~is 1
+    value(decoded, "fp_service") ~is 0
+    value(decoded, "integer") ~is 0
+    value(decoded, "memory") ~is 0
+    value(decoded, "fp_uses_vs1") ~is 0
+    value(decoded, "operand") ~is (if instruction == VFMV_F_S | VectorOperandMode.Vector | VectorOperandMode.FloatingScalar).packed_value()
+    value(field(core_control(instruction), "operand"), "uses_rs1") ~is 0
+    value(field(core_control(instruction), "writeback"), "enable") ~is 0
+check:
+  value(control(VFMERGE_VFM), "mask_select") ~is 1
+  value(control(VFMV_V_F), "uses_vs2") ~is 0
+  value(control(VFMV_F_S), "element_move") ~is 1
+  value(control(VFMV_F_S), "floating_scalar_destination") ~is 1
+  value(control(VFMV_S_F), "element_move") ~is 1
+  value(control(VFSLIDE1UP_VF), "slide") ~is 1
+  value(control(VFSLIDE1UP_VF), "slide_up") ~is 1
+  value(control(VFSLIDE1DOWN_VF), "slide") ~is 1
 
 for (instruction in VectorFloatingPointAddSubtractInstructions):
   check value(field(control(instruction), "fp_execution"), "unit") ~is RV5StageFloatUnit.Add.packed_value()
@@ -313,6 +338,13 @@ for (instruction in VectorFloatingPointMultiplyDivideInstructions):
   check value(field(control(instruction), "fp_execution"), "unit") ~is (if [VFMUL_VV, VFMUL_VF].contains(instruction) || VectorWideningFloatingPointMultiplyInstructions.contains(instruction) | RV5StageFloatUnit.Multiply | RV5StageFloatUnit.DivideSquareRoot).packed_value()
 for (instruction in VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions):
   check value(field(control(instruction), "fp_execution"), "uses_rounding_mode") ~is 1
+for (instruction in VectorFloatingPointReductionInstructions):
+  def execution = field(control(instruction), "fp_execution")
+  check:
+    value(control(instruction), "reduction") ~is 1
+    value(execution, "unit") ~is (if [VFREDMIN_VS, VFREDMAX_VS].contains(instruction) | RV5StageFloatUnit.MinMax | RV5StageFloatUnit.Add).packed_value()
+    value(execution, "uses_rounding_mode") ~is (if [VFREDMIN_VS, VFREDMAX_VS].contains(instruction) | 0 | 1)
+    value(field(core_control(instruction), "writeback"), "enable") ~is 0
 check:
   value(field(control(VFSUB_VV), "fp_execution"), "add_operation") ~is RV5StageFloatAddOperation.Subtract.packed_value()
   value(field(control(VFSQRT_V), "fp_execution"), "divide_operation") ~is RV5StageFloatDivideOperation.SquareRoot.packed_value()
@@ -325,7 +357,7 @@ check:
 for (instruction in VectorFloatingPointSignInjectInstructions, index in 0..6):
   def operation = [FloatSignOperation.Copy, FloatSignOperation.Negate, FloatSignOperation.Xor][index mod 3]
   check value(field(control(instruction), "fp_execution"), "sign_operation") ~is operation.packed_value()
-for (instruction in VectorFloatingPointMinMaxInstructions, index in 0..4):
+for (instruction in VectorFloatingPointMinMaxInstructions ++ [VFREDMIN_VS, VFREDMAX_VS], index in 0..6):
   def operation = [MinMaxOperation.MinimumNumber, MinMaxOperation.MaximumNumber][index mod 2]
   check value(field(control(instruction), "fp_execution"), "minmax_operation") ~is operation.packed_value()
 for (instruction in VectorFloatingPointFusedMultiplyAddInstructions):
@@ -338,7 +370,7 @@ for (instruction in VectorFloatingPointFusedMultiplyAddInstructions):
   check:
     value(execution, "unit") ~is RV5StageFloatUnit.FusedMultiplyAdd.packed_value()
     value(execution, "fused_operation") ~is operation.packed_value()
-for (instruction in VectorWideningFloatingPointAddSubtractInstructions ++ VectorWideningFloatingPointMultiplyInstructions ++ VectorWideningFloatingPointFusedMultiplyAddInstructions):
+for (instruction in VectorWideningFloatingPointAddSubtractInstructions ++ VectorWideningFloatingPointMultiplyInstructions ++ VectorWideningFloatingPointFusedMultiplyAddInstructions ++ VectorWideningFloatingPointReductionInstructions):
   check:
     value(control(instruction), "widening") ~is 1
     value(control(instruction), "wide_vs2") ~is (if [VFWADD_WV, VFWADD_WF, VFWSUB_WV, VFWSUB_WF].contains(instruction) | 1 | 0)

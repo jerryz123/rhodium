@@ -85,9 +85,12 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   scan: Bool
   scan_carry: Bits(64)
   scalar_destination: Bool
+  floating_scalar_destination: Bool
   destination: Bits(5)
+  element_width: SimdElementWidth
   memory: Bool
   floating_point: Bool
+  fp_execute: Bool
   mask_destination: Bool
   fp_result: VectorFloatResult
   multiply_divide: Bool

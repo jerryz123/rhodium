@@ -56,6 +56,14 @@ completion, a separate WB `Valid` load-hit input, one-cycle `Valid` store reques
 architectural-state update, the FPR busy mask, and a drained indicator. The
 disabled implementation rejects FP work and reports itself drained.
 
+The common interface also exposes a `Decoupled` vector-destination reservation
+and a `Valid` vector write. A reservation marks one FPR busy before a vector
+macro launches and excludes concurrent scalar FP work until the vector result
+is written at authorized WB. The write clears the reservation and marks FS
+dirty. It is an architectural raw-bit transfer rather than an arithmetic-service
+completion, and it cannot feed its own WB disposition through a combinational
+ready path.
+
 `RV5StageFpScalar` owns the scalar FPR bank, scoreboard, load/store bridges,
 and architectural completion/state updates, exposing operand execution ports.
 `RV5StageFpPipeline` is its standalone composition with one execution service.
@@ -63,7 +71,8 @@ Scalar context, destination kind, and register number travel through execution
 only as an opaque wrapper-owned tag. Its external issue/completion interfaces
 are unchanged. The core instead connects the scalar adapter and the
 [experimental vector caller](../vector/README.md#shared-floating-point) to
-one service with ordinary Flow arbitration and owner-tag routing.
+one service with ordinary Flow arbitration and owner-tag routing. Scalar/vector
+movement bypasses that service and uses the reservation/write pair above.
 
 Drained describes accepted execution and load reservations, not speculative
 store-operand probes. Those read-only probes may repeat while Decode waits;

@@ -23,6 +23,7 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
   def source_precision = mux(source_single, RV5StageFloatPrecision.Single, RV5StageFloatPrecision.Double)
   def result_precision = mux(result_single, RV5StageFloatPrecision.Single, RV5StageFloatPrecision.Double)
   def left_precision = mux(beat.control.wide_vs2, result_precision, source_precision)
+  def right_precision = mux(beat.control.reduction & beat.control.widening, result_precision, source_precision)
   // The decoder selects a physical FP operation; SEW supplies its dynamic format.
   wire unused: RV5StageFloatingPointControl()
   unused <== dont_care(RV5StageFloatingPointControl())
@@ -39,7 +40,7 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
   def floating_scalar = beat.control.operand === VectorOperandMode.FloatingScalar
   def scalar_operand = if xlen == XLen.X32 | beat.right[0..32] | beat.right
   def vector_left = operand(beat.left, left_precision === RV5StageFloatPrecision.Single)
-  def source_right = mux(floating_scalar, scalar_operand, operand(beat.right, source_single))
+  def source_right = mux(floating_scalar, scalar_operand, operand(beat.right, right_precision === RV5StageFloatPrecision.Single))
   def destination_operand = operand(beat.destination_data, result_single)
   def ordered_left = mux(beat.control.swap_operands, source_right, vector_left)
   def ordered_right = mux(beat.control.swap_operands, vector_left, source_right)
@@ -47,9 +48,9 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
     tag: tag
     control: control
     left: mux(beat.control.multiply_destination, destination_operand, ordered_left)
-    left_precision: mux(beat.control.multiply_destination, result_precision, mux(beat.control.swap_operands, source_precision, left_precision))
+    left_precision: mux(beat.control.multiply_destination, result_precision, mux(beat.control.swap_operands, right_precision, left_precision))
     right: ordered_right
-    right_precision: mux(beat.control.swap_operands, left_precision, source_precision)
+    right_precision: mux(beat.control.swap_operands, left_precision, right_precision)
     third: mux(beat.control.multiply_destination, vector_left, destination_operand)
     third_precision: mux(beat.control.multiply_destination, left_precision, result_precision)
     integer_operand: beat.left[0..xlen.width]

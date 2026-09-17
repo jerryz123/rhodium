@@ -25,12 +25,15 @@ def VectorShiftVIFormat = InstructionFormat("vector-shift-immediate", [vector_de
 // Fixed-vm forms keep selection/mask operands distinct from execution predication.
 def VectorFixedVVFormat = InstructionFormat("vector-vector fixed vm", VectorVVFormat.operands)
 def VectorFixedVXFormat = InstructionFormat("vector-scalar fixed vm", VectorVXFormat.operands)
+def VectorFixedVFFormat = InstructionFormat("vector-floating-scalar fixed vm", VectorVFFormat.operands)
 def VectorFixedVIFormat = InstructionFormat("vector-immediate fixed vm", VectorVIFormat.operands, VectorImmediate)
 def VectorMoveVFormat = InstructionFormat("vector move", [vector_destination, RegisterOperand("vs1", vs1, "source", RegisterBank.Vector)])
 def VectorMoveXFormat = InstructionFormat("scalar broadcast", [vector_destination, RegisterOperand("rs1", rs1, "source")])
+def VectorMoveFFormat = InstructionFormat("floating scalar broadcast", [vector_destination, RegisterOperand("frs1", rs1, "source", RegisterBank.FloatingPoint)])
 def VectorMoveIFormat = InstructionFormat("immediate broadcast", [vector_destination], VectorImmediate)
 def VectorWholeRegisterMoveFormat = InstructionFormat("whole vector register move", [vector_destination, vector_source])
 def VectorReadScalarFormat = InstructionFormat("vector element to integer", [RegisterOperand("rd", rd, "destination"), vector_source])
+def VectorReadFloatingScalarFormat = InstructionFormat("vector element to floating scalar", [RegisterOperand("frd", rd, "destination", RegisterBank.FloatingPoint), vector_source])
 def VectorMaskScalarFormat = InstructionFormat("mask to integer", VectorReadScalarFormat.operands, #false, [vm])
 def VectorMaskUnaryFormat = InstructionFormat("unary mask", [vector_destination, vector_source], #false, [vm])
 def VectorIndexFormat = InstructionFormat("element index", [vector_destination], #false, [vm])
@@ -354,6 +357,9 @@ def VSLIDEDOWN_VI = vector_arithmetic("VSLIDEDOWN.VI", 0x0f, VectorShiftVIFormat
 def VSLIDE1UP_VX = vector_arithmetic("VSLIDE1UP.VX", 0x0e, VectorVXFormat, 6)
 def VSLIDE1DOWN_VX = vector_arithmetic("VSLIDE1DOWN.VX", 0x0f, VectorVXFormat, 6)
 def VectorSlideInstructions = [VSLIDEUP_VX, VSLIDEUP_VI, VSLIDEDOWN_VX, VSLIDEDOWN_VI, VSLIDE1UP_VX, VSLIDE1DOWN_VX]
+def VFSLIDE1UP_VF = vector_arithmetic("VFSLIDE1UP.VF", 0x0e, VectorVFFormat, 5)
+def VFSLIDE1DOWN_VF = vector_arithmetic("VFSLIDE1DOWN.VF", 0x0f, VectorVFFormat, 5)
+def VectorFloatingPointSlideInstructions = [VFSLIDE1UP_VF, VFSLIDE1DOWN_VF]
 def VRGATHER_VV = vector_arithmetic("VRGATHER.VV", 0x0c, VectorVVFormat, 0)
 def VRGATHEREI16_VV = vector_arithmetic("VRGATHEREI16.VV", 0x0e, VectorVVFormat, 0)
 def VRGATHER_VX = vector_arithmetic("VRGATHER.VX", 0x0c, VectorVXFormat, 4)
@@ -391,6 +397,11 @@ def VectorMaskLogicInstructions = [VMANDN_MM, VMAND_MM, VMOR_MM, VMXOR_MM, VMORN
 def VMV_X_S = InstructionSpec("VMV.X.S", VectorReadScalarFormat, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(0x10), vm.constrain(1), vs1.constrain(0)])
 def VMV_S_X = fixed_mask_arithmetic("VMV.S.X", 0x10, VectorMoveXFormat, 6, 1, ~move: #true)
 def VectorElementMoveInstructions = [VMV_X_S, VMV_S_X]
+def VFMERGE_VFM = fixed_mask_arithmetic("VFMERGE.VFM", 0x17, VectorFixedVFFormat, 5, 0)
+def VFMV_V_F = fixed_mask_arithmetic("VFMV.V.F", 0x17, VectorMoveFFormat, 5, 1, ~move: #true)
+def VFMV_F_S = InstructionSpec("VFMV.F.S", VectorReadFloatingScalarFormat, [opcode.constrain(0x57), funct3.constrain(1), funct6.constrain(0x10), vm.constrain(1), vs1.constrain(0)])
+def VFMV_S_F = fixed_mask_arithmetic("VFMV.S.F", 0x10, VectorMoveFFormat, 5, 1, ~move: #true)
+def VectorFloatingPointMoveInstructions = [VFMERGE_VFM, VFMV_V_F, VFMV_F_S, VFMV_S_F]
 fun mask_unary(name :: String, code :: Nat, selector :: Nat, form :: InstructionFormat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(code), vs1.constrain(selector)] ++ (if form == VectorIndexFormat | [vs2.constrain(0)] | []))
 def VCPOP_M = mask_unary("VCPOP.M", 0x10, 0x10, VectorMaskScalarFormat)
@@ -462,6 +473,10 @@ def VFNMACC_VF = vector_arithmetic("VFNMACC.VF", 0x2d, VectorVFFormat, 5)
 def VFNMADD_VF = vector_arithmetic("VFNMADD.VF", 0x29, VectorVFFormat, 5)
 def VFNMSAC_VF = vector_arithmetic("VFNMSAC.VF", 0x2f, VectorVFFormat, 5)
 def VFNMSUB_VF = vector_arithmetic("VFNMSUB.VF", 0x2b, VectorVFFormat, 5)
+def VFREDUSUM_VS = vector_arithmetic("VFREDUSUM.VS", 0x01, VectorVVFormat, 1)
+def VFREDOSUM_VS = vector_arithmetic("VFREDOSUM.VS", 0x03, VectorVVFormat, 1)
+def VFREDMIN_VS = vector_arithmetic("VFREDMIN.VS", 0x05, VectorVVFormat, 1)
+def VFREDMAX_VS = vector_arithmetic("VFREDMAX.VS", 0x07, VectorVVFormat, 1)
 // Widening OPFVV and OPFVF arithmetic produces 2*SEW results. The .w forms
 // retain a 2*SEW vs2 while their other source remains SEW-wide.
 def VFWADD_VV = vector_arithmetic("VFWADD.VV", 0x30, VectorVVFormat, 1)
@@ -482,6 +497,8 @@ def VFWMSAC_VV = vector_arithmetic("VFWMSAC.VV", 0x3e, VectorVVFormat, 1)
 def VFWMSAC_VF = vector_arithmetic("VFWMSAC.VF", 0x3e, VectorVFFormat, 5)
 def VFWNMSAC_VV = vector_arithmetic("VFWNMSAC.VV", 0x3f, VectorVVFormat, 1)
 def VFWNMSAC_VF = vector_arithmetic("VFWNMSAC.VF", 0x3f, VectorVFFormat, 5)
+def VFWREDUSUM_VS = vector_arithmetic("VFWREDUSUM.VS", 0x31, VectorVVFormat, 1)
+def VFWREDOSUM_VS = vector_arithmetic("VFWREDOSUM.VS", 0x33, VectorVVFormat, 1)
 fun vector_fp_conversion(name :: String, selector :: Nat):
   InstructionSpec(name, VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(1), funct6.constrain(0x12), vs1.constrain(selector)])
 def VFCVT_XU_F_V = vector_fp_conversion("VFCVT.XU.F.V", 0)
@@ -514,8 +531,11 @@ def VectorFloatingPointSignInjectInstructions = [VFSGNJ_VV, VFSGNJN_VV, VFSGNJX_
 def VectorFloatingPointMinMaxInstructions = [VFMIN_VV, VFMAX_VV, VFMIN_VF, VFMAX_VF]
 def VectorFloatingPointCompareInstructions = [VMFEQ_VV, VMFNE_VV, VMFLT_VV, VMFLE_VV, VMFEQ_VF, VMFNE_VF, VMFLT_VF, VMFLE_VF, VMFGT_VF, VMFGE_VF]
 def VectorFloatingPointFusedMultiplyAddInstructions = [VFMACC_VV, VFMADD_VV, VFMSAC_VV, VFMSUB_VV, VFNMACC_VV, VFNMADD_VV, VFNMSAC_VV, VFNMSUB_VV, VFMACC_VF, VFMADD_VF, VFMSAC_VF, VFMSUB_VF, VFNMACC_VF, VFNMADD_VF, VFNMSAC_VF, VFNMSUB_VF] ++ VectorWideningFloatingPointFusedMultiplyAddInstructions
+def VectorSameWidthFloatingPointReductionInstructions = [VFREDUSUM_VS, VFREDOSUM_VS, VFREDMIN_VS, VFREDMAX_VS]
+def VectorWideningFloatingPointReductionInstructions = [VFWREDUSUM_VS, VFWREDOSUM_VS]
+def VectorFloatingPointReductionInstructions = VectorSameWidthFloatingPointReductionInstructions ++ VectorWideningFloatingPointReductionInstructions
 def VectorFloatingPointConversionInstructions = [VFCVT_XU_F_V, VFCVT_X_F_V, VFCVT_F_XU_V, VFCVT_F_X_V, VFCVT_RTZ_XU_F_V, VFCVT_RTZ_X_F_V, VFWCVT_XU_F_V, VFWCVT_X_F_V, VFWCVT_F_XU_V, VFWCVT_F_X_V, VFWCVT_F_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V, VFNCVT_XU_F_W, VFNCVT_X_F_W, VFNCVT_F_XU_W, VFNCVT_F_X_W, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]
-def VectorFloatingPointInstructions = VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions ++ VectorFloatingPointSignInjectInstructions ++ VectorFloatingPointMinMaxInstructions ++ VectorFloatingPointCompareInstructions ++ VectorFloatingPointFusedMultiplyAddInstructions ++ VectorFloatingPointConversionInstructions
+def VectorFloatingPointInstructions = VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions ++ VectorFloatingPointSignInjectInstructions ++ VectorFloatingPointMinMaxInstructions ++ VectorFloatingPointCompareInstructions ++ VectorFloatingPointFusedMultiplyAddInstructions ++ VectorFloatingPointReductionInstructions ++ VectorFloatingPointConversionInstructions ++ VectorFloatingPointSlideInstructions ++ VectorFloatingPointMoveInstructions
 // Same-width OPMVV/OPMVX from https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_v.
 def VDIVU_VV = vector_arithmetic("VDIVU.VV", 32, VectorVVFormat, 2)
 def VDIVU_VX = vector_arithmetic("VDIVU.VX", 32, VectorVXFormat, 6)
@@ -604,6 +624,9 @@ export:
   VSLIDEDOWN_VI
   VSLIDE1UP_VX
   VSLIDE1DOWN_VX
+  VectorFloatingPointSlideInstructions
+  VFSLIDE1UP_VF
+  VFSLIDE1DOWN_VF
   VectorMaskScalarFormat
   VectorMaskUnaryFormat
   VectorIndexFormat
@@ -616,6 +639,7 @@ export:
   VIOTA_M
   VID_V
   VectorReadScalarFormat
+  VectorReadFloatingScalarFormat
   VectorElementMoveInstructions
   VectorSameWidthIntegerReductionInstructions
   VectorWideningIntegerReductionInstructions
@@ -634,9 +658,11 @@ export:
   VWREDSUM_VS
   VectorFixedVVFormat
   VectorFixedVXFormat
+  VectorFixedVFFormat
   VectorFixedVIFormat
   VectorMoveVFormat
   VectorMoveXFormat
+  VectorMoveFFormat
   VectorMoveIFormat
   VectorWholeRegisterMoveFormat
   VectorMoveMergeInstructions
@@ -648,6 +674,11 @@ export:
   VMV_V_V
   VMV_V_X
   VMV_V_I
+  VectorFloatingPointMoveInstructions
+  VFMERGE_VFM
+  VFMV_V_F
+  VFMV_F_S
+  VFMV_S_F
   VMV1R_V
   VMV2R_V
   VMV4R_V
@@ -753,6 +784,10 @@ export:
   VFNMADD_VF
   VFNMSAC_VF
   VFNMSUB_VF
+  VFREDUSUM_VS
+  VFREDOSUM_VS
+  VFREDMIN_VS
+  VFREDMAX_VS
   VFWADD_VV
   VFWADD_VF
   VFWADD_WV
@@ -771,6 +806,8 @@ export:
   VFWMSAC_VF
   VFWNMSAC_VV
   VFWNMSAC_VF
+  VFWREDUSUM_VS
+  VFWREDOSUM_VS
   VFCVT_XU_F_V
   VFCVT_X_F_V
   VFCVT_F_XU_V
@@ -801,6 +838,9 @@ export:
   VectorFloatingPointMinMaxInstructions
   VectorFloatingPointCompareInstructions
   VectorFloatingPointFusedMultiplyAddInstructions
+  VectorSameWidthFloatingPointReductionInstructions
+  VectorWideningFloatingPointReductionInstructions
+  VectorFloatingPointReductionInstructions
   VectorFloatingPointConversionInstructions
   VectorFloatingPointInstructions
   vs3

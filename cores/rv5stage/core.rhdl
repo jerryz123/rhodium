@@ -34,6 +34,7 @@ import:
   "../divider.rhdl" open
   "divide.rhdl" open
   "fp/pipeline.rhdl" open
+  "fp/register-file.rhdl".FloatingPointRegisterWrite
   "fp/execute.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
   "fp/bundles.rhdl" open
@@ -152,6 +153,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   wire wb_vector_unrolling: Bool
   wire wb_vector_pending: Bool
   wire wb_vector_stores_pending: Bool
+  wire wb_vector_fp_write_pending: Bool
   wire ex_vector_resolved_rs1: Bits(width)
   wire ex_vector_resolved_rs2: Bits(width)
   def wb_vector_scalar_result_link :: Handle = interface_link(Valid(RegisterFileWrite(xlen)))
@@ -400,8 +402,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_cbo_permission :: CboManagementPermission() = wb_csrs.cbo_permission
   def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), MemoryOperation.CacheBlockFlush, id_control.memory.access)
   def id_vector_instruction = id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide
-  def id_vector_requires_start_zero = id_control.vector.integer & (id_control.vector.compress ||| id_control.vector.reduction ||| (id_control.vector.scan & !id_control.vector.scan_control.index))
-  def id_illegal = (id_vector_requires_start_zero & wb_csrs.vector_state.vstart.or_reduce()) ||| id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > bits(4, 3)))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
+  def id_vector_requires_start_zero = id_control.vector.reduction ||| (id_control.vector.integer & (id_control.vector.compress ||| (id_control.vector.scan & !id_control.vector.scan_control.index)))
+  def id_illegal = (id_vector_requires_start_zero & wb_csrs.vector_state.vstart.or_reduce()) ||| id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_service & id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > bits(4, 3)))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
     (id_control.system.action === SystemOperation.VectorConfig) & !wb_csrs.vector_enabled
   ) ||| (
     id_control.memory.access.is_cache_block_zero() & !wb_csrs.cbo_zero_enabled
@@ -504,6 +506,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_fp_destination_hazard = id_control.floating_point_valid & (
     id_control.floating_point.registers.destination === RV5StageFloatDestination.FloatingPoint
   ) & id_fp_register_busy(id_rd)
+  def id_vector_fp_destination_hazard = id_control.vector.floating_point & id_control.vector.floating_scalar_destination & (id_fp_register_busy(id_rd) ||| !wb_fp.drained)
   def id_ex_serializing = ex_input.valid & (core_serializing_operation(ex_input.bits.system, ex_input.bits.fence) ||| ex_input.bits.memory_operation.into(MemoryOperation).is_cache_management())
   def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence) ||| mem_input.bits.data_request.access.into(MemoryOperation).is_cache_management())
   def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence)
@@ -544,13 +547,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_vector_launch_in_flight = (ex_input.valid & ex_input.bits.vector_launch) ||| (mem_input.valid & mem_input.bits.vector_launch) ||| (wb_input.valid & wb_input.bits.vector_launch)
   // Independent scalar work may pass a load tail; stores and vector/state
   // observers wait. Store ordering extends through the LSU's ordered drain.
-  def id_vector_wait = id_vector_launch_in_flight ||| wb_vector_unrolling ||| (wb_vector_active & (id_vector_instruction ||| core_serializing_operation(id_control.system, id_control.fence) ||| id_memory_operation.needs_unique())) ||| (wb_vector_stores_pending & id_memory_operation.is_memory())
+  def id_vector_wait = id_vector_launch_in_flight ||| wb_vector_unrolling ||| (wb_vector_active & (id_vector_instruction ||| core_serializing_operation(id_control.system, id_control.fence) ||| id_memory_operation.needs_unique())) ||| (wb_vector_stores_pending & id_memory_operation.is_memory()) ||| (wb_vector_fp_write_pending & id_control.floating_point_valid)
   def id_hazard_reasons = RV5StageHazardReasons():
     deferred_dependency: id_deferred_dependency_hazard
     scoreboard_raw: id_scoreboard_raw_hazard
     scoreboard_waw: id_scoreboard_waw_hazard
     fp_source: id_fp_source_hazard ||| id_vector_fp_source_hazard
-    fp_destination: id_fp_destination_hazard
+    fp_destination: id_fp_destination_hazard ||| id_vector_fp_destination_hazard
     resource: id_local_resource_hazard ||| id_vector_wait
     pause: id_pause_in_flight ||| if_pause_active
     serialization: id_serializing_in_flight ||| id_serializing_waits_for_older
@@ -645,6 +648,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       wb_vector_unrolling <== wb_vector.unrolling
       wb_vector_pending <== wb_vector.pending
       wb_vector_stores_pending <== wb_vector.stores_pending
+      wb_vector_fp_write_pending <== wb_vector_active & wb_vector_context.vector_control.floating_scalar_destination
       wb_vector.multiply_request |> wb_vector_multiply_request_link.left
       wb_vector_multiply_result_link.right |> wb_vector.multiply_result
       wb_vector.divide_request |> wb_vector_divide_request_link.left
@@ -673,8 +677,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
                  vs2: wb_vector_context.rs2
                  masked: !wb_vector_context.instruction[25].into(Bool)
       wb_vector_launch |> to_decoupled() |> wb_vector.request
+      wb_fp.vector_reserve.valid <== wb_vector_launch.valid & wb_vector_launch.bits.descriptor.control.floating_scalar_destination
+      wb_fp.vector_reserve.bits <== wb_vector_launch.bits.descriptor.vd
+      wb_vector.floating_result |> wb_fp.vector_write
       when (wb_vector_launch.valid):
         assert(wb_vector.request.ready, "rv5stage_vector_launch_reserved")
+      when (wb_fp.vector_reserve.valid):
+        assert(wb_fp.vector_reserve.ready, "rv5stage_vector_fp_destination_reserved")
       def id_vector_operation = wb_vector.issue |> map_flow(operation => operation.context.updated(
         ~vector_last: operation.last,
         ~vector_truncate_on_fault: operation.truncate_on_fault,
@@ -730,6 +739,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       wb_vector_unrolling <== Bool(#false)
       wb_vector_pending <== Bool(#false)
       wb_vector_stores_pending <== Bool(#false)
+      wb_vector_fp_write_pending <== Bool(#false)
+      wb_fp.vector_reserve.valid <== Bool(#false)
+      wb_fp.vector_reserve.bits <== bits(0, 5)
+      wb_fp.vector_write.valid <== Bool(#false)
+      wb_fp.vector_write.bits <== dont_care(FloatingPointRegisterWrite(effective_fp_profile))
       wb_vector_scalar_result_link.left.valid <== Bool(#false)
       wb_vector_scalar_result_link.left.bits <== dont_care(RegisterFileWrite(xlen))
       wb_csrs.vector_fault_start.valid <== Bool(#false)

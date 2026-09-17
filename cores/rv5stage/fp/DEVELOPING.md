@@ -55,6 +55,11 @@ host elaboration so disabled formats and units do not become runtime hardware.
    `core.rhdl`. The first read port serves scalar issue or, when issue is idle,
    the WB vector-scalar snapshot address; keep that snapshot read-only and
    preserve the common enabled/disabled 64-bit output shape.
+   The vector reservation/write pair belongs to `pipeline.rhdl`: reserve an FPR
+   before vector launch, block scalar FP work while it is pending, and clear it
+   only with the authorized vector WB write. Do not route this raw-bit movement
+   through the operand execution service or create completion-to-reservation
+   combinational feedback.
    Keep the standalone adapter-plus-service composition for independent users.
 
 ## Focused validation
@@ -87,4 +92,5 @@ simultaneous issue/completion, bounded drain, and reset with pending work.
 The scalar fixtures retain F/D/Zfh/Zfa arithmetic, FPR hazards, LSU bridges,
 WB authorization, and flag retirement coverage.
 Include `rv5stage-vector-fp` when changing shared scalar/vector arbitration,
-retagging, or flag-update composition in the core.
+retagging, flag-update composition, vector FPR reservation, or scalar/vector
+movement in the core.
