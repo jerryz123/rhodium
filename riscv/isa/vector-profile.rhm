@@ -46,13 +46,13 @@ fun vector_length_extension_name(vlen :: VectorLength) :: String:
 fun vector_profile_isa_extensions(profile :: VectorProfile, vlen :: VectorLength) :: List.of(String):
   if !vector_profile_enabled(profile)
   | []
-  | (if vector_profile_is_v(profile) | ["v"] | []) ++
-    ["zve32x"] ++
-    (if vector_profile_supports_fp32(profile) | ["zve32f"] | []) ++
-    (if vector_profile_supports_integer64(profile) | ["zve64x"] | []) ++
-    (if vector_profile_supports_integer64(profile) && vector_profile_supports_fp32(profile) | ["zve64f"] | []) ++
-    (if vector_profile_supports_fp64(profile) | ["zve64d"] | []) ++
-    [vector_length_extension_name(vlen)]
+  | block:
+      def base_extensions = if vector_profile_is_v(profile) | ["v", "zve32x"] | ["zve32x"]
+      def fp32_extensions = if vector_profile_supports_fp32(profile) | ["zve32f"] | []
+      def integer64_extensions = if vector_profile_supports_integer64(profile) | ["zve64x"] | []
+      def fp64_extensions = if vector_profile_supports_integer64(profile) && vector_profile_supports_fp32(profile) | ["zve64f"] | []
+      def double_extensions = if vector_profile_supports_fp64(profile) | ["zve64d"] | []
+      base_extensions ++ fp32_extensions ++ integer64_extensions ++ fp64_extensions ++ double_extensions ++ [vector_length_extension_name(vlen)]
 
 export:
   VectorProfile
