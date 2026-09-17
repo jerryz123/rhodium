@@ -31,8 +31,11 @@ sync_circuit RV5StageFpServiceFixture():
             token: issued.tag
         control: issued.control
         left: issued.left
+        left_precision: issued.left_precision
         right: issued.right
+        right_precision: issued.right_precision
         third: issued.third
+        third_precision: issued.third_precision
         integer_operand: issued.integer_operand
         immediate_index: issued.immediate_index
         rounding_mode: issued.rounding_mode

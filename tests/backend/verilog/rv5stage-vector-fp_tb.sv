@@ -55,7 +55,7 @@ module rv5stage_vector_fp_tb;
   logic response_valid = 0;
   logic reject_request = 1;
   logic [31:0] response_word;
-  logic [31:0] program_words [0:511];
+  logic [31:0] program_words [0:1023];
   logic [63:0] memory_words [0:511];
   logic [63:0] expected_data [0:511], expected_address [0:511];
   integer expected_width [0:511];
@@ -108,8 +108,9 @@ module rv5stage_vector_fp_tb;
   endtask
 
   initial begin
-    for (int i = 0; i < 512; i++) begin program_words[i] = 'h0000006f; memory_words[i] = 0; end
-    li(1, 'h700); emit('h30509073); // trap vector: timeout reports a precise unexpected fault
+    for (int i = 0; i < 1024; i++) program_words[i] = 'h0000006f;
+    for (int i = 0; i < 512; i++) memory_words[i] = 0;
+    li(1, 'hf00); emit('h30509073); // trap vector: timeout reports a precise unexpected fault
     li(1, 'h2200); emit('h30009073); // FS and VS Initial
     vset(2, 4);
     memory_words[0] = 'h400000003f800000; // 1,2
@@ -229,6 +230,41 @@ module rv5stage_vector_fp_tb;
     widening_conversion(12, 24, 8, 'h2540, 64'h3ff8000000000000, 64'hc006000000000000);
     widening_conversion(14, 26, 8, 'h2550, 1, 0);
     widening_conversion(15, 28, 8, 'h2560, 1, -2);
+    // Widening arithmetic exactly promotes each E32 operand at the shared FP
+    // boundary. The .w forms retain a wide vs2, and fused forms retain wide vd.
+    memory_words[45] = 'hc00000003fc00000; // 1.5,-2
+    memory_words[46] = 'h4080000040000000; // 2,4
+    memory_words[47] = 'h4024000000000000; memory_words[48] = 'hc034000000000000; // 10,-20
+    memory_words[49] = 'h3ff0000000000000; memory_words[50] = 'h4000000000000000; // 1,2
+    vset(2, 2); vload(8, 'h1168, 2); vload(9, 'h1170, 2);
+    li(5, 'h3f000000); emit('hf0028453); // fmv.w.x f8,x5: 0.5
+    vec('h30, 18, 8, 9); vset(3, 2, 1); vstore(18, 'h2630, 3);
+    expect_store('h2630, 'h400c000000000000, 3); expect_store('h2638, 'h4000000000000000, 3);
+    vset(2, 2); vec('h30, 20, 8, 8, 0, 5); vset(3, 2, 1); vstore(20, 'h2640, 3);
+    expect_store('h2640, 'h4000000000000000, 3); expect_store('h2648, 'hbff8000000000000, 3);
+    vload(16, 'h1178, 3); vset(2, 2); vec('h34, 16, 16, 9); vset(3, 2, 1); vstore(16, 'h2650, 3);
+    expect_store('h2650, 'h4028000000000000, 3); expect_store('h2658, 'hc030000000000000, 3);
+    vload(16, 'h1178, 3); vset(2, 2); vec('h36, 16, 16, 8, 0, 5); vset(3, 2, 1); vstore(16, 'h2660, 3);
+    expect_store('h2660, 'h4023000000000000, 3); expect_store('h2668, 'hc034800000000000, 3);
+    vset(2, 2); vec('h38, 22, 8, 9); vec('h38, 24, 8, 8, 0, 5);
+    vset(3, 2, 1); vstore(22, 'h2670, 3); vstore(24, 'h2680, 3);
+    expect_store('h2670, 'h4008000000000000, 3); expect_store('h2678, 'hc020000000000000, 3);
+    expect_store('h2680, 'h3fe8000000000000, 3); expect_store('h2688, 'hbff0000000000000, 3);
+    vload(30, 'h1188, 3); vset(2, 2); vec('h3c, 30, 8, 9); vset(3, 2, 1); vstore(30, 'h2690, 3);
+    expect_store('h2690, 'h4010000000000000, 3); expect_store('h2698, 'hc018000000000000, 3);
+    vload(30, 'h1188, 3); vset(2, 2); vec('h3d, 30, 8, 8, 0, 5); vset(3, 2, 1); vstore(30, 'h26a0, 3);
+    expect_store('h26a0, 'hbffc000000000000, 3); expect_store('h26a8, 'hbff0000000000000, 3);
+    vload(30, 'h1188, 3); vset(2, 2); vec('h3e, 30, 8, 9); vset(3, 2, 1); vstore(30, 'h26b0, 3);
+    expect_store('h26b0, 'h4000000000000000, 3); expect_store('h26b8, 'hc024000000000000, 3);
+    vload(30, 'h1188, 3); vset(2, 2); vec('h3f, 30, 8, 8, 0, 5); vset(3, 2, 1); vstore(30, 'h26c0, 3);
+    expect_store('h26c0, 'h3fd0000000000000, 3); expect_store('h26c8, 'h4008000000000000, 3);
+    // A signaling narrow input raises NV during exact widening even though the
+    // wide arithmetic lane subsequently receives a quiet NaN.
+    emit('h00105073); memory_words[51] = 'h3f8000007f800001;
+    vset(2, 2); vload(8, 'h1198, 2); vec('h30, 18, 8, 9);
+    vset(3, 2, 1); vstore(18, 'h26d0, 3);
+    expect_store('h26d0, 'h7ff8000000000000, 3); expect_store('h26d8, 'h4014000000000000, 3);
+    signature('h001, 'h26e0, 16); emit('h00105073);
     // Narrowing applies doubled EMUL to its E64 source and writes E32/LMUL1.
     memory_words[32] = 'h3ff8000000000000; memory_words[33] = 'hc006000000000000;
     memory_words[34] = 64'd16777217; memory_words[35] = 64'h00000000ffffffff;
@@ -325,8 +361,8 @@ module rv5stage_vector_fp_tb;
     // Empty macro clears vstart without executing or modifying flags.
     vset(2, 0); emit('h0083d073); vec(0, 10, 8, 8);
     signature('h008, 'h20e0, 0); signature('h001, 'h20e8, 17);
-    program_words['h700/4] = 'h342021f3; // expose unexpected mcause through the public memory port
-    program_words['h704/4] = 'h00303023;
+    program_words['hf00/4] = 'h342021f3; // expose unexpected mcause through the public memory port
+    program_words['hf04/4] = 'h00303023;
     repeat (4) @(posedge clock);
     @(negedge clock); reset = 0;
   end
@@ -352,8 +388,8 @@ module rv5stage_vector_fp_tb;
       if (instruction_access_out.flush || (response_valid && instruction_access_out.response.ready)) response_valid <= 0;
       if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
         response_valid <= 1;
-        assert (instruction_access_out.request.bits.address < 'h800) else $fatal(1, "fetch escaped test ROM");
-        response_word <= program_words[instruction_access_out.request.bits.address[10:2]];
+        assert (instruction_access_out.request.bits.address < 'h1000) else $fatal(1, "fetch escaped test ROM");
+        response_word <= program_words[instruction_access_out.request.bits.address[11:2]];
       end
       if (data_access_out.request.valid && data_access_in.request.ready) begin
         // The shared LSU returns a tagged completion for stores as well as loads.

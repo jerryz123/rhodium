@@ -194,8 +194,11 @@ sync_circuit RV5StageFpScalar(
             rd: issued.frd
         control: issued.control
         left: registers.read_data_1
+        left_precision: issued.control.execution.source_precision
         right: registers.read_data_2
+        right_precision: issued.control.execution.source_precision
         third: registers.read_data_3
+        third_precision: issued.control.execution.source_precision
         integer_operand: issued.integer_operand
         immediate_index: issued.frs1
         rounding_mode: issued.rounding_mode

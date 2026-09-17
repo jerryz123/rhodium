@@ -37,6 +37,9 @@ module rv5stage_fp_service_tb;
     req.control.execution.unit = 4'd2;
     req.control.execution.source_precision = 2'd2;
     req.control.execution.destination_precision = 2'd2;
+    req.left_precision = 2'd2;
+    req.right_precision = 2'd2;
+    req.third_precision = 2'd2;
     req.left = 64'h3ff0000000000000;
     req.right = 64'h4000000000000000;
     // Identical token numbers in both clients deliberately require owner tagging.
@@ -65,6 +68,9 @@ module rv5stage_fp_service_tb;
       5: begin // boxed single 1 + 2
         req.control.execution.source_precision = 2'd1;
         req.control.execution.destination_precision = 2'd1;
+        req.left_precision = 2'd1;
+        req.right_precision = 2'd1;
+        req.third_precision = 2'd1;
         req.left = 64'hffffffff3f800000;
         req.right = 64'hffffffff40000000;
       end
@@ -85,6 +91,9 @@ module rv5stage_fp_service_tb;
       9: begin // incorrectly boxed single operand becomes canonical NaN
         req.control.execution.source_precision = 2'd1;
         req.control.execution.destination_precision = 2'd1;
+        req.left_precision = 2'd1;
+        req.right_precision = 2'd1;
+        req.third_precision = 2'd1;
         req.left = 64'h000000003f800000;
         req.right = 64'hffffffff40000000;
       end

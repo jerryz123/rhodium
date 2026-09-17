@@ -23,8 +23,11 @@ bundle RV5StageFpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile,
   tag: Tag
   control: RV5StageFloatingPointControl()
   left: Bits(floating_point_register_width(profile))
+  left_precision: RV5StageFloatPrecision
   right: Bits(floating_point_register_width(profile))
+  right_precision: RV5StageFloatPrecision
   third: Bits(floating_point_register_width(profile))
+  third_precision: RV5StageFloatPrecision
   integer_operand: Bits(xlen.width)
   immediate_index: Bits(5)
   rounding_mode: RoundingMode
@@ -76,8 +79,11 @@ fun fp_request_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: D
     tag: tag
     control: request.control
     left: request.left
+    left_precision: request.left_precision
     right: request.right
+    right_precision: request.right_precision
     third: request.third
+    third_precision: request.third_precision
     integer_operand: request.integer_operand
     immediate_index: request.immediate_index
     rounding_mode: request.rounding_mode

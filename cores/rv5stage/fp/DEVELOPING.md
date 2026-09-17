@@ -40,7 +40,8 @@ host elaboration so disabled formats and units do not become runtime hardware.
 ## Change workflow
 
 1. Put shared precision and physical execution controls in `types.rhdl` and cross-boundary payloads in
-   `bundles.rhdl`.
+   `bundles.rhdl`. Preserve per-operand precision through retagging; the fixed
+   D lane owns exact narrow-operand promotion and its exception flags.
 2. Keep combinational format operations in `datapath.rhdl`; put retained or
    variable-latency divide/square-root behavior in `div-sqrt.rhdl`.
 3. Keep lane composition in `execute.rhdl`. Carry caller-selected tags opaquely

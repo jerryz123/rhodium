@@ -479,11 +479,15 @@ float-to-integer forms. All fifteen widening/narrowing conversion forms execute
 at SEW32, crossing between 32- and 64-bit integer or FP elements; narrowing
 FP-to-FP additionally supports its fixed round-to-odd form. Comparisons produce
 packed mask destinations, while fused operations consume old `vd` through the
-third general VRF port. This is a subset, not an advertised V extension. FS
+third general VRF port. Widening FP arithmetic includes all `vfwadd`, `vfwsub`,
+`vfwmul`, `vfwmacc`, `vfwnmacc`, `vfwmsac`, and `vfwnmsac` vector-vector and
+vector-scalar forms at SEW32. The `.wv` and `.wf` forms retain a wide `vs2`;
+the other arithmetic forms exactly promote narrow operands before one FP64
+operation, including a wide old-`vd` fused addend. This is a subset, not an advertised V extension. FS
 and VS must be enabled. Operations that round require a supported `frm`, which
 the macro captures at WB launch; exact sign, min/max, and comparison operations
 do not depend on `frm`; fixed-RTZ conversions also ignore it. FP16, RV32 vector
-FP, scalar moves, widening/narrowing arithmetic, and FP reductions are outside
+FP, scalar moves, and FP reductions are outside
 this cut. Width-changing conversion at SEW64 is illegal because this profile
 does not provide 128-bit elements.
 
@@ -499,8 +503,10 @@ Conversion controls explicitly select floating or integer source and result
 domains, source and result widths, and dynamic, RTZ, or round-to-odd policy.
 Integer elements use the service's integer operand/result path, while FP results
 return through the boxed FP path before their destination-width bits are packed.
-Widening doubles destination EMUL; narrowing doubles source EMUL. Both retain
-singleton execution and reuse the shared scalar service's cross-precision path.
+Widening doubles destination EMUL; narrowing doubles source EMUL. Width-changing
+operations retain singleton execution. Each FP request carries per-operand
+precision so a widening operation can combine a wide `vs2` or old `vd` with a
+narrow vector or scalar source without inventing a vector-only arithmetic lane.
 Active elements queue for execution only when scalar WB authorizes them.
 Masked, tail, and pre-vstart elements never execute or contribute flags. Empty
 bodies still complete once.

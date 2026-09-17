@@ -310,7 +310,7 @@ for (instruction in VectorFloatingPointInstructions):
 for (instruction in VectorFloatingPointAddSubtractInstructions):
   check value(field(control(instruction), "fp_execution"), "unit") ~is RV5StageFloatUnit.Add.packed_value()
 for (instruction in VectorFloatingPointMultiplyDivideInstructions):
-  check value(field(control(instruction), "fp_execution"), "unit") ~is (if [VFMUL_VV, VFMUL_VF].contains(instruction) | RV5StageFloatUnit.Multiply | RV5StageFloatUnit.DivideSquareRoot).packed_value()
+  check value(field(control(instruction), "fp_execution"), "unit") ~is (if [VFMUL_VV, VFMUL_VF].contains(instruction) || VectorWideningFloatingPointMultiplyInstructions.contains(instruction) | RV5StageFloatUnit.Multiply | RV5StageFloatUnit.DivideSquareRoot).packed_value()
 for (instruction in VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions):
   check value(field(control(instruction), "fp_execution"), "uses_rounding_mode") ~is 1
 check:
@@ -328,11 +328,22 @@ for (instruction in VectorFloatingPointSignInjectInstructions, index in 0..6):
 for (instruction in VectorFloatingPointMinMaxInstructions, index in 0..4):
   def operation = [MinMaxOperation.MinimumNumber, MinMaxOperation.MaximumNumber][index mod 2]
   check value(field(control(instruction), "fp_execution"), "minmax_operation") ~is operation.packed_value()
-for (instruction in VectorFloatingPointFusedMultiplyAddInstructions, index in 0..16):
+for (instruction in VectorFloatingPointFusedMultiplyAddInstructions):
   def execution = field(control(instruction), "fp_execution")
+  def operation = cond
+  | [VFMSAC_VV, VFMSUB_VV, VFMSAC_VF, VFMSUB_VF, VFWMSAC_VV, VFWMSAC_VF].contains(instruction): MulAddOperation.MultiplySubtract
+  | [VFNMACC_VV, VFNMADD_VV, VFNMACC_VF, VFNMADD_VF, VFWNMACC_VV, VFWNMACC_VF].contains(instruction): MulAddOperation.NegatedMultiplySubtract
+  | [VFNMSAC_VV, VFNMSUB_VV, VFNMSAC_VF, VFNMSUB_VF, VFWNMSAC_VV, VFWNMSAC_VF].contains(instruction): MulAddOperation.NegatedMultiplyAdd
+  | ~else: MulAddOperation.MultiplyAdd
   check:
     value(execution, "unit") ~is RV5StageFloatUnit.FusedMultiplyAdd.packed_value()
-    value(execution, "fused_operation") ~is [MulAddOperation.MultiplyAdd, MulAddOperation.MultiplyAdd, MulAddOperation.MultiplySubtract, MulAddOperation.MultiplySubtract, MulAddOperation.NegatedMultiplySubtract, MulAddOperation.NegatedMultiplySubtract, MulAddOperation.NegatedMultiplyAdd, MulAddOperation.NegatedMultiplyAdd][index mod 8].packed_value()
+    value(execution, "fused_operation") ~is operation.packed_value()
+for (instruction in VectorWideningFloatingPointAddSubtractInstructions ++ VectorWideningFloatingPointMultiplyInstructions ++ VectorWideningFloatingPointFusedMultiplyAddInstructions):
+  check:
+    value(control(instruction), "widening") ~is 1
+    value(control(instruction), "wide_vs2") ~is (if [VFWADD_WV, VFWADD_WF, VFWSUB_WV, VFWSUB_WF].contains(instruction) | 1 | 0)
+for (instruction in [VFWSUB_VV, VFWSUB_VF, VFWSUB_WV, VFWSUB_WF]):
+  check value(field(control(instruction), "fp_execution"), "add_operation") ~is RV5StageFloatAddOperation.Subtract.packed_value()
 def VectorIntegerToFloatingConversions = [VFCVT_F_XU_V, VFCVT_F_X_V, VFWCVT_F_XU_V, VFWCVT_F_X_V, VFNCVT_F_XU_W, VFNCVT_F_X_W]
 def VectorFloatingResultConversions = VectorIntegerToFloatingConversions ++ [VFWCVT_F_F_V, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W]
 def VectorRtzConversions = [VFCVT_RTZ_XU_F_V, VFCVT_RTZ_X_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]

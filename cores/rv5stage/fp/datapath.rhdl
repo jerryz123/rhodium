@@ -320,6 +320,18 @@ circuit RV5StageFpFixedF(xlen :: XLen,
   single.request <== request
   completion <== single.completion
 
+circuit RV5StageFpWidenSingle():
+  input value: Bits(64)
+  output widened: Bits(64)
+  output exception_flags: Bits(5)
+
+  inst convert(RecFNToRecFN(FloatFormat.F32, FloatFormat.F64))
+  convert.value <== riscv_unbox(FloatFormat.F32, 64, value).to_recoded()
+  convert.rounding_mode <== RoundingMode.NearEven
+  convert.tininess_mode <== TininessMode.AfterRounding
+  widened <== riscv_nan_box(FloatFormat.F64, convert.out.to_ieee(), 64)
+  exception_flags <== riscv_exception_flags(convert.exception_flags)
+
 circuit RV5StageFpFixedD(xlen :: XLen,
                          Tag :: DataType,
                          ~zfa: zfa_enabled :: Boolean = #false):
@@ -341,12 +353,26 @@ circuit RV5StageFpFixedD(xlen :: XLen,
     ~zfa: zfa_enabled,
     ~zfa_modulo: #true
   ))
-  single.request <== request
-  double.request <== request
-
   def control = request.control.execution
   def source_single = control.source_precision === RV5StageFloatPrecision.Single
   def floating_point_destination = request.control.registers.destination === RV5StageFloatDestination.FloatingPoint
+  def widening_arithmetic = floating_point_destination & (control.destination_precision === RV5StageFloatPrecision.Double) & control.unit.is_one_of(RV5StageFloatUnit.Add, RV5StageFloatUnit.Multiply, RV5StageFloatUnit.FusedMultiplyAdd) & (
+    (request.left_precision === RV5StageFloatPrecision.Single) ||| (request.right_precision === RV5StageFloatPrecision.Single) ||| ((control.unit === RV5StageFloatUnit.FusedMultiplyAdd) & (request.third_precision === RV5StageFloatPrecision.Single))
+  )
+  inst widen_left(RV5StageFpWidenSingle())
+  inst widen_right(RV5StageFpWidenSingle())
+  inst widen_third(RV5StageFpWidenSingle())
+  widen_left.value <== request.left
+  widen_right.value <== request.right
+  widen_third.value <== request.third
+  def widened_request = request.updated(
+    ~left: mux(request.left_precision === RV5StageFloatPrecision.Single, widen_left.widened, request.left),
+    ~right: mux(request.right_precision === RV5StageFloatPrecision.Single, widen_right.widened, request.right),
+    ~third: mux(request.third_precision === RV5StageFloatPrecision.Single, widen_third.widened, request.third)
+  )
+  single.request <== request
+  double.request <== mux(widening_arithmetic, widened_request, request)
+
   def ordinary_single = mux(floating_point_destination, control.destination_precision === RV5StageFloatPrecision.Single, source_single)
   def cross_precision = floating_point_destination & request.control.registers.uses_frs1 & (
     control.unit === RV5StageFloatUnit.Convert
@@ -385,9 +411,17 @@ circuit RV5StageFpFixedD(xlen :: XLen,
     riscv_exception_flags(single_to_double.exception_flags),
     riscv_exception_flags(double_to_single.exception_flags)
   )
+  def left_widening_flags = mux(request.left_precision === RV5StageFloatPrecision.Single, widen_left.exception_flags, bits(0, 5))
+  def right_widening_flags = mux(request.right_precision === RV5StageFloatPrecision.Single, widen_right.exception_flags, bits(0, 5))
+  def third_widening_flags = mux(request.third_precision === RV5StageFloatPrecision.Single, widen_third.exception_flags, bits(0, 5))
+  def widening_flags = mux(
+    control.unit === RV5StageFloatUnit.FusedMultiplyAdd,
+    left_widening_flags ||| right_widening_flags ||| third_widening_flags,
+    left_widening_flags ||| right_widening_flags
+  )
   completion <== ordinary.updated(
     ~fp_value: mux(cross_precision, converted_value, ordinary.fp_value),
-    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags)
+    ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, bits(0, 5)))
   )
 
 circuit RV5StageFpFixedFHalf(xlen :: XLen,

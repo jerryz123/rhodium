@@ -156,7 +156,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def scalar_index = mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
   def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
   def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
-  def first_source_chunk = mux(extension, extension_source_chunk, mux((width_change & descriptor.control.wide_vs2) ||| fp_narrowing, wide_source_chunk, source_chunk))
+  def first_source_chunk = mux(extension, extension_source_chunk, mux(descriptor.control.wide_vs2 ||| fp_narrowing, wide_source_chunk, source_chunk))
   def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
   def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, descriptor.vs2, descriptor.vs1).zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
   def destination_address = (descriptor.vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
@@ -253,12 +253,14 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
                             !descriptor.control.slide_up ||| descriptor.control.slide_one ||| ((read_beat.first.zext(xlen.width + 2) + bits(lane, xlen.width + 2)) >= slide_distance.zext(xlen.width + 2))).as_bits()
   def memory_shift_width = mux(descriptor.control.floating_point, read_beat.fp_source_width.into(Bits(2)), sew)
   def memory_shift = ((read_beat.first[0..3] << memory_shift_width) ++ bits(0, 3))
+  def first_shift_width = mux(descriptor.control.floating_point & descriptor.control.wide_vs2, read_beat.fp_result_width.into(Bits(2)), memory_shift_width)
+  def first_shift = ((read_beat.first[0..3] << first_shift_width) ++ bits(0, 3))
   def indexed_address = read_beat.address + vector_index
   def destination_shift = ((read_beat.first[0..3] << destination_width) ++ bits(0, 3))
   def memory_enabled = !read_beat.empty & (!descriptor.masked ||| (mask_result.bits >> read_beat.first[0..6])[0].into(Bool))
   def operands = read_beat.updated(
     ~address: mux(indexed_memory, indexed_address, read_beat.address),
-    ~left: mux(gather, mux(gather_in_range, results[0].bits, bits(0, 64)), mux(slide, slide_source, mux(scan, results[0].bits >> read_beat.first[0..6], mux(singleton, results[0].bits >> memory_shift, packing.operands.left)))),
+    ~left: mux(gather, mux(gather_in_range, results[0].bits, bits(0, 64)), mux(slide, slide_source, mux(scan, results[0].bits >> read_beat.first[0..6], mux(singleton, results[0].bits >> first_shift, packing.operands.left)))),
     ~right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(floating_scalar_operand, descriptor.floating_scalar, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right))))),
     ~destination_data: results[2].bits >> destination_shift,
     ~carry_in: mux(carry_input, (mask_result.bits >> read_beat.first[0..6])[0..8], bits(0, 8)).into(Mask(8)),

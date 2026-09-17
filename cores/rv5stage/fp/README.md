@@ -19,7 +19,11 @@ The selected operation determines which result lane is meaningful. Control
 register-use/destination fields select numeric conversion direction; they do
 not name, read, reserve, or write an architectural register.
 
-FP operands use the existing FLEN-wide NaN-boxed representation. Results retain
+FP operands use the existing FLEN-wide NaN-boxed representation and carry an
+independent precision tag for each of the left, right, and third operands.
+Scalar requests normally give all three operands one source precision; widening
+vector arithmetic can mix exactly promoted narrow operands with a wide source
+or fused addend. Results retain
 the same boxing, canonical-NaN, resolved-rounding, and flag behavior as scalar
 execution. The packed vector caller boxes narrow elements on entry and
 extract the selected element width on return. The service does not resolve

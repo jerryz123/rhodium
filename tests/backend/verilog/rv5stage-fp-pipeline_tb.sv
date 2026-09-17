@@ -31,6 +31,8 @@ module rv5stage_fp_pipeline_tb;
   struct packed {logic ready;} load_reserve_out;
   struct packed {logic valid; RV5StageFpStoreResponse bits;} store_response_out;
   struct packed {logic valid; logic [4:0] bits;} state_update_out;
+  logic [4:0] snapshot_read_address = 0;
+  logic [63:0] snapshot_read_data;
   logic [31:0] busy;
   logic drained;
 
@@ -479,7 +481,7 @@ module rv5stage_fp_pipeline_tb;
     issue_in.bits.control.registers.destination = 2'd1;
     issue_in.bits.control.execution.unit = 4'd7;
     issue_in.bits.control.execution.source_precision = 2'd2;
-    issue_in.bits.control.execution.comparison = 2'd1;
+    issue_in.bits.control.execution.comparison = 2'd2;
     issue_in.bits.control.execution.comparison_signaling = 1'b0;
     issue_in.bits.frs1 = 5'd18;
     issue_in.bits.frs2 = 5'd1;

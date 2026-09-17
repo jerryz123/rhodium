@@ -462,6 +462,26 @@ def VFNMACC_VF = vector_arithmetic("VFNMACC.VF", 0x2d, VectorVFFormat, 5)
 def VFNMADD_VF = vector_arithmetic("VFNMADD.VF", 0x29, VectorVFFormat, 5)
 def VFNMSAC_VF = vector_arithmetic("VFNMSAC.VF", 0x2f, VectorVFFormat, 5)
 def VFNMSUB_VF = vector_arithmetic("VFNMSUB.VF", 0x2b, VectorVFFormat, 5)
+// Widening OPFVV and OPFVF arithmetic produces 2*SEW results. The .w forms
+// retain a 2*SEW vs2 while their other source remains SEW-wide.
+def VFWADD_VV = vector_arithmetic("VFWADD.VV", 0x30, VectorVVFormat, 1)
+def VFWADD_VF = vector_arithmetic("VFWADD.VF", 0x30, VectorVFFormat, 5)
+def VFWADD_WV = vector_arithmetic("VFWADD.WV", 0x34, VectorVVFormat, 1)
+def VFWADD_WF = vector_arithmetic("VFWADD.WF", 0x34, VectorVFFormat, 5)
+def VFWSUB_VV = vector_arithmetic("VFWSUB.VV", 0x32, VectorVVFormat, 1)
+def VFWSUB_VF = vector_arithmetic("VFWSUB.VF", 0x32, VectorVFFormat, 5)
+def VFWSUB_WV = vector_arithmetic("VFWSUB.WV", 0x36, VectorVVFormat, 1)
+def VFWSUB_WF = vector_arithmetic("VFWSUB.WF", 0x36, VectorVFFormat, 5)
+def VFWMUL_VV = vector_arithmetic("VFWMUL.VV", 0x38, VectorVVFormat, 1)
+def VFWMUL_VF = vector_arithmetic("VFWMUL.VF", 0x38, VectorVFFormat, 5)
+def VFWMACC_VV = vector_arithmetic("VFWMACC.VV", 0x3c, VectorVVFormat, 1)
+def VFWMACC_VF = vector_arithmetic("VFWMACC.VF", 0x3c, VectorVFFormat, 5)
+def VFWNMACC_VV = vector_arithmetic("VFWNMACC.VV", 0x3d, VectorVVFormat, 1)
+def VFWNMACC_VF = vector_arithmetic("VFWNMACC.VF", 0x3d, VectorVFFormat, 5)
+def VFWMSAC_VV = vector_arithmetic("VFWMSAC.VV", 0x3e, VectorVVFormat, 1)
+def VFWMSAC_VF = vector_arithmetic("VFWMSAC.VF", 0x3e, VectorVFFormat, 5)
+def VFWNMSAC_VV = vector_arithmetic("VFWNMSAC.VV", 0x3f, VectorVVFormat, 1)
+def VFWNMSAC_VF = vector_arithmetic("VFWNMSAC.VF", 0x3f, VectorVFFormat, 5)
 fun vector_fp_conversion(name :: String, selector :: Nat):
   InstructionSpec(name, VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(1), funct6.constrain(0x12), vs1.constrain(selector)])
 def VFCVT_XU_F_V = vector_fp_conversion("VFCVT.XU.F.V", 0)
@@ -485,12 +505,15 @@ def VFNCVT_F_F_W = vector_fp_conversion("VFNCVT.F.F.W", 20)
 def VFNCVT_ROD_F_F_W = vector_fp_conversion("VFNCVT.ROD.F.F.W", 21)
 def VFNCVT_RTZ_XU_F_W = vector_fp_conversion("VFNCVT.RTZ.XU.F.W", 22)
 def VFNCVT_RTZ_X_F_W = vector_fp_conversion("VFNCVT.RTZ.X.F.W", 23)
-def VectorFloatingPointAddSubtractInstructions = [VFADD_VV, VFSUB_VV, VFADD_VF, VFSUB_VF, VFRSUB_VF]
-def VectorFloatingPointMultiplyDivideInstructions = [VFMUL_VV, VFDIV_VV, VFSQRT_V, VFMUL_VF, VFDIV_VF, VFRDIV_VF]
+def VectorWideningFloatingPointAddSubtractInstructions = [VFWADD_VV, VFWADD_VF, VFWADD_WV, VFWADD_WF, VFWSUB_VV, VFWSUB_VF, VFWSUB_WV, VFWSUB_WF]
+def VectorWideningFloatingPointMultiplyInstructions = [VFWMUL_VV, VFWMUL_VF]
+def VectorWideningFloatingPointFusedMultiplyAddInstructions = [VFWMACC_VV, VFWMACC_VF, VFWNMACC_VV, VFWNMACC_VF, VFWMSAC_VV, VFWMSAC_VF, VFWNMSAC_VV, VFWNMSAC_VF]
+def VectorFloatingPointAddSubtractInstructions = [VFADD_VV, VFSUB_VV, VFADD_VF, VFSUB_VF, VFRSUB_VF] ++ VectorWideningFloatingPointAddSubtractInstructions
+def VectorFloatingPointMultiplyDivideInstructions = [VFMUL_VV, VFDIV_VV, VFSQRT_V, VFMUL_VF, VFDIV_VF, VFRDIV_VF] ++ VectorWideningFloatingPointMultiplyInstructions
 def VectorFloatingPointSignInjectInstructions = [VFSGNJ_VV, VFSGNJN_VV, VFSGNJX_VV, VFSGNJ_VF, VFSGNJN_VF, VFSGNJX_VF]
 def VectorFloatingPointMinMaxInstructions = [VFMIN_VV, VFMAX_VV, VFMIN_VF, VFMAX_VF]
 def VectorFloatingPointCompareInstructions = [VMFEQ_VV, VMFNE_VV, VMFLT_VV, VMFLE_VV, VMFEQ_VF, VMFNE_VF, VMFLT_VF, VMFLE_VF, VMFGT_VF, VMFGE_VF]
-def VectorFloatingPointFusedMultiplyAddInstructions = [VFMACC_VV, VFMADD_VV, VFMSAC_VV, VFMSUB_VV, VFNMACC_VV, VFNMADD_VV, VFNMSAC_VV, VFNMSUB_VV, VFMACC_VF, VFMADD_VF, VFMSAC_VF, VFMSUB_VF, VFNMACC_VF, VFNMADD_VF, VFNMSAC_VF, VFNMSUB_VF]
+def VectorFloatingPointFusedMultiplyAddInstructions = [VFMACC_VV, VFMADD_VV, VFMSAC_VV, VFMSUB_VV, VFNMACC_VV, VFNMADD_VV, VFNMSAC_VV, VFNMSUB_VV, VFMACC_VF, VFMADD_VF, VFMSAC_VF, VFMSUB_VF, VFNMACC_VF, VFNMADD_VF, VFNMSAC_VF, VFNMSUB_VF] ++ VectorWideningFloatingPointFusedMultiplyAddInstructions
 def VectorFloatingPointConversionInstructions = [VFCVT_XU_F_V, VFCVT_X_F_V, VFCVT_F_XU_V, VFCVT_F_X_V, VFCVT_RTZ_XU_F_V, VFCVT_RTZ_X_F_V, VFWCVT_XU_F_V, VFWCVT_X_F_V, VFWCVT_F_XU_V, VFWCVT_F_X_V, VFWCVT_F_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V, VFNCVT_XU_F_W, VFNCVT_X_F_W, VFNCVT_F_XU_W, VFNCVT_F_X_W, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]
 def VectorFloatingPointInstructions = VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions ++ VectorFloatingPointSignInjectInstructions ++ VectorFloatingPointMinMaxInstructions ++ VectorFloatingPointCompareInstructions ++ VectorFloatingPointFusedMultiplyAddInstructions ++ VectorFloatingPointConversionInstructions
 // Same-width OPMVV/OPMVX from https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_v.
@@ -730,6 +753,24 @@ export:
   VFNMADD_VF
   VFNMSAC_VF
   VFNMSUB_VF
+  VFWADD_VV
+  VFWADD_VF
+  VFWADD_WV
+  VFWADD_WF
+  VFWSUB_VV
+  VFWSUB_VF
+  VFWSUB_WV
+  VFWSUB_WF
+  VFWMUL_VV
+  VFWMUL_VF
+  VFWMACC_VV
+  VFWMACC_VF
+  VFWNMACC_VV
+  VFWNMACC_VF
+  VFWMSAC_VV
+  VFWMSAC_VF
+  VFWNMSAC_VV
+  VFWNMSAC_VF
   VFCVT_XU_F_V
   VFCVT_X_F_V
   VFCVT_F_XU_V
@@ -751,6 +792,9 @@ export:
   VFNCVT_ROD_F_F_W
   VFNCVT_RTZ_XU_F_W
   VFNCVT_RTZ_X_F_W
+  VectorWideningFloatingPointAddSubtractInstructions
+  VectorWideningFloatingPointMultiplyInstructions
+  VectorWideningFloatingPointFusedMultiplyAddInstructions
   VectorFloatingPointAddSubtractInstructions
   VectorFloatingPointMultiplyDivideInstructions
   VectorFloatingPointSignInjectInstructions

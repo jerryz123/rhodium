@@ -66,6 +66,12 @@ the packed integer half-word schedule. Keep the result domain and destination
 shift/mask in the completion entry; selecting integer versus boxed FP data or
 reconstructing destination width from an opcode at drain would make ownership
 implicit.
+Widening arithmetic also remains singleton. Carry each operand's precision in
+the shared request: `.wv/.wf` reads `vs2` at the result width, ordinary widening
+reads both multiplicands at source width, and fused widening reads old `vd` at
+result width. Exact promotion and signaling-NaN flags belong to the shared FP
+datapath before its FP64 add, multiply, or fused operation; do not duplicate
+those numeric units in the vector package.
 The core composes `RV5StageFpScalar` and vector requests around one execution
 service. Keep scalar FPR ownership separate from vector slot ownership, and
 merge simultaneous architectural flag pulses without arbitration loss.
@@ -73,7 +79,8 @@ Use `rv5stage-vector-fp` and `rv5stage-vector-fp-one-slot` for vector-vector and
 vector-scalar add/multiply,
 divide/square-root latency, sign/minmax, fused-source topology, comparison-mask,
 FPR producer forwarding, NaN-box validation, same- and mixed-width conversions,
-RTZ/round-to-odd, rounding, flag, cancellation, and ordered instruction-to-memory-result coverage, alongside
+widening arithmetic source topologies, RTZ/round-to-odd, rounding, flag,
+cancellation, and ordered instruction-to-memory-result coverage, alongside
 the scalar FP and existing vector memory/unroller fixtures when these shared
 boundaries change.
 
