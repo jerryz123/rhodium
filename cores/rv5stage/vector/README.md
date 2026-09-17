@@ -1,24 +1,31 @@
-<!-- Defines experimental vector configuration, decode, storage, and execution-boundary contracts. -->
+<!-- Defines RV5Stage vector configuration, decode, storage, and execution-boundary contracts. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Experimental vector path
+# RV64 vector path
 
-The opt-in `RVCoreProfile(~experimental_vector: vlen)` enables configuration,
-vector CSR state, the decoded packed-integer subset, and RV64 vector memory
+The opt-in `RVCoreProfile(~vector: profile, ~vector_length: vlen)` enables one
+of the standard Zve profiles or V 1.0, vector CSR state, and RV64 vector memory
 operations using unit-stride, constant-stride, indexed, unit-stride segment,
 constant-stride segment, indexed segment, and unit-stride fault-only-first
 addressing, plus mask-register and whole-register loads and stores and
-whole-register moves. The default is `#false`. Neither setting advertises `V`,
-Zve, or Zvbb; the remaining vector instruction families are not implemented.
+whole-register moves. The default profile is `VectorProfile.None` with a
+separate default VLEN of 128 bits. Every enabled profile advertises its implied
+Zve closure and exact `Zvl<N>b`. Zve32 profiles select ELEN=32; Zve64 profiles
+and V select ELEN=64. FP32 profiles require scalar FP support, while Zve64d and
+V require scalar D. RV5Stage currently integrates these profiles only with
+RV64 and supports scalar FP there only as D, so every FP-capable vector profile
+uses the RV64D scalar specialization. Only V advertises `V 1.0` and `misa.V`;
+it does not imply Zvbb.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
 ## Configuration and decode
 
-The experimental core executes `vsetvli`, `vsetivli`, and `vsetvl` through the
+The vector core executes `vsetvli`, `vsetivli`, and `vsetvl` through the
 existing serializing system-instruction path. Only WB updates `vl`, `vtype`,
 and `vstart`; scalar `rd` receives the new VL. Squashed or faulting operations
-do not update this state. Supported geometry is ELEN=64, SEW 8/16/32/64,
-LMUL 1/8 through 8, subject to SEW <= LMUL * ELEN. Unsupported configurations
+do not update this state. Supported physical geometry is SEW 8/16/32/64 and
+LMUL 1/8 through 8, with the selected profile limiting architectural ELEN to
+32 or 64, subject to SEW <= LMUL * ELEN. Unsupported configurations
 set `vill` and zero VL. Ordinary AVL selection uses `min(AVL, VLMAX)`;
 `rs1=x0,rd!=x0` selects VLMAX, while `rs1=rd=x0` preserves VL only when the
 old/new types are legal and VLMAX is unchanged. Reserved keep-VL uses trap.
@@ -27,9 +34,9 @@ The CSR bank exposes `vstart`, `vxrm`, `vxsat`, `vcsr`, `vl`, `vtype`, and
 `vlenb`. `vstart` retains enough low bits for VLEN-1; `vxrm` and `vxsat` alias
 `vcsr`. VL/type/VLENB are read-only. Reset starts with `vill=1`, VL=0, and
 `mstatus.VS=Off`; VS Off blocks vector CSR access and configuration. Successful
-configuration, vector CSR writes, vector completion, fixed-point saturation, or a vector fault mark VS Dirty;
-reads do not, and SD combines
-the FP and vector dirty states. Software may manage VS through M/S status.
+configuration, vector CSR writes, vector completion, fixed-point saturation, or
+a vector fault mark VS Dirty; reads do not, and SD combines the FP and vector
+dirty states. Software may manage VS through M/S status.
 
 The [vector control column](../decode/vector-ctrl.rhdl) describes same-width
 wrapping, reverse, saturating, averaging, and carry/borrow add/sub; logic; shifts; fixed-point scaling shifts and narrowing clips;
@@ -40,8 +47,10 @@ cover alignment, fractional groups, doubled widening EMUL, masked data
 destinations, mask-result overlap, and widening source/destination overlap.
 Legal rows reach WB as side-effect-free launch tokens, then execute through the
 integer unroller. VS Off, `vill`, and invalid register groups trap before launch.
-This is an initial subset of [RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext),
-not a complete vector ISA implementation.
+The profile-specific legality boundary follows [RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext):
+Zve32 profiles reject SEW64, integer-only profiles reject vector FP, Zve FP
+profiles admit only their supported FP widths, and the Zve64 profiles reject
+the EEW64 high-half and fractional multiply operations reserved for full V.
 
 ## Integer pipeline and unroller boundary
 
@@ -255,7 +264,7 @@ the same execution and recovery rules.
 
 ## Moves, merge, and mask logic
 
-The experimental RV32/RV64 integer path supports `vmv.v.v`, `vmv.v.x`, and
+The reusable RV32/RV64 integer path supports `vmv.v.v`, `vmv.v.x`, and
 `vmv.v.i`, plus `vmerge.vvm`, `vmerge.vxm`, and `vmerge.vim`, at every supported
 SEW/LMUL. Moves copy or broadcast their sole source; the reserved `vs2` field
 must be zero. Scalar and signed immediate broadcasts use the ordinary captured
@@ -286,11 +295,11 @@ All these operations preserve pre-`vstart` and tail contents, including partial
 mask words. Preserving mask tails is a permitted choice for tail-agnostic mask
 results. Empty bodies perform no write but still retire once and clear `vstart`.
 Writes remain WB-authorized; retry resumes at the authorized frontier and
-cancellation suppresses speculative writes. This is still partial V coverage.
+cancellation suppresses speculative writes.
 
 ## Element moves and integer reductions
 
-The experimental RV32/RV64 path also executes `vmv.x.s`, `vmv.s.x`, and
+The reusable RV32/RV64 path also executes `vmv.x.s`, `vmv.s.x`, and
 `vredsum.vs`, `vredand.vs`, `vredor.vs`, `vredxor.vs`, `vredminu.vs`,
 `vredmin.vs`, `vredmaxu.vs`, and `vredmax.vs` at SEW8/16/32/64, plus
 `vwredsumu.vs` and `vwredsum.vs` at source SEW8/16/32.
@@ -322,7 +331,7 @@ remain available independently of the dedicated `v0` mask read.
 
 ## Mask queries and prefix/index generation
 
-The experimental RV32/RV64 path executes `vcpop.m`, `vfirst.m`, `vmsbf.m`,
+The reusable RV32/RV64 path executes `vcpop.m`, `vfirst.m`, `vmsbf.m`,
 `vmsif.m`, `vmsof.m`, `viota.m`, and `vid.v`. Queries count active source mask
 bits or return the first active set-bit index through the WB-aligned scalar
 result interface. VL zero still writes a scalar result: zero for population
@@ -346,11 +355,11 @@ its carry advances only at WB, and retries resume from the authorized frontier.
 Cancellation preserves authorized prefix writes while suppressing future writes
 and unfinished scalar answers. Index needs no carry dependency and retains the
 ordinary packed issue schedule. The bank retains three general read ports plus
-the dedicated `v0` mask read, and V remains unadvertised.
+the dedicated `v0` mask read.
 
 ## Packed integer slides
 
-The experimental RV32/RV64 path supports `vslideup.vx/vi`,
+The reusable RV32/RV64 datapath supports `vslideup.vx/vi`,
 `vslidedown.vx/vi`, `vslide1up.vx`, and `vslide1down.vx` at every supported
 SEW/LMUL. Ordinary slide offsets are unsigned XLEN values or unsigned five-bit
 immediates, not SEW-truncated shift amounts. Slide1 inserts a scalar at element
@@ -372,11 +381,11 @@ The rotation operates as E64 while write enables retain architectural SEW.
 The packed schedule supplies 8/4/2/1 elements per beat, with one result per
 cycle in an unstalled stream after setup. WB alone authorizes writes. Retry
 resumes at the authorized destination frontier, and cancellation suppresses
-only speculative writes. V remains unadvertised.
+only speculative writes.
 
 ## Register gather
 
-The experimental RV32/RV64 path supports `vrgather.vv`, `vrgatherei16.vv`,
+The reusable RV32/RV64 datapath supports `vrgather.vv`, `vrgatherei16.vv`,
 `vrgather.vx`, and `vrgather.vi`. Data uses SEW/LMUL; `vrgatherei16.vv`
 uses unsigned 16-bit indices with EMUL = LMUL * 16 / SEW. Other vector
 indices use unsigned SEW. Scalar indices retain all unsigned XLEN bits;
@@ -398,11 +407,11 @@ their selected source word for each destination chunk and broadcast packed
 8/4/2/1-element beats, one per cycle. Both use the existing SIMD 64-bit rotate
 slot, with no extra slide shifter or full-vector crossbar. Only WB authorizes
 writes; retry restarts at the authorized destination frontier, and cancellation
-flushes both read contexts and speculative results. V remains unadvertised.
+flushes both read contexts and speculative results.
 
 ## Vector compression
 
-The experimental RV32/RV64 path supports `vcompress.vm`. The fixed `vm=1`
+The reusable RV32/RV64 datapath supports `vcompress.vm`. The fixed `vm=1`
 encoding uses `vs1` as an unmasked selection register and packs selected
 `vs2` elements, in source order, into consecutive destination elements
 starting at zero. The remainder of the destination group is preserved as the
@@ -418,11 +427,10 @@ position as a speculative checkpoint. WB authorization advances the committed
 checkpoint, retry restores it, and cancellation discards only speculative
 state. A final flush beat writes a partial retained suffix when necessary.
 Every VRF write remains WB-authorized, and no extra read or write port is added.
-V remains unadvertised.
 
 ## Shared integer multiply/divide
 
-RV64 experimental vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,
+RV64 vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,
 `vsmul`, `vdiv`, `vdivu`, `vrem`, and `vremu` in `.vv` and `.vx` forms at
 SEW8/16/32/64. `vwmulu`, `vwmulsu`, and `vwmul` execute at SEW8/16/32 and
 produce 2*SEW destinations. These are singleton operations, not packed SIMD
@@ -464,12 +472,12 @@ response ownership. The multiply completion tag retains the `vsmul` rounding
 mode and result selection; its slot retains saturation until ordered drain, when
 `vxsat` is pulsed exactly once. Masked and empty elements complete without
 execution.
-These iterative services do not promise one element per cycle.
-RV32 vector mul/div and V advertisement remain outside this cut.
+These iterative services do not promise one element per cycle. RV32 vector
+mul/div remains outside the supported public profile.
 
 ## Shared floating point
 
-The experimental RV64D path executes same-width vector-vector and
+The RV64D vector path executes same-width vector-vector and
 vector-floating-scalar add/subtract, multiply/divide, sign injection, min/max,
 classification, reciprocal estimates, reciprocal-square-root estimates,
 comparisons, and all eight fused multiply-add/subtract forms at SEW32 or SEW64;
@@ -483,8 +491,8 @@ third general VRF port. Widening FP arithmetic includes all `vfwadd`, `vfwsub`,
 `vfwmul`, `vfwmacc`, `vfwnmacc`, `vfwmsac`, and `vfwnmsac` vector-vector and
 vector-scalar forms at SEW32. The `.wv` and `.wf` forms retain a wide `vs2`;
 the other arithmetic forms exactly promote narrow operands before one FP64
-operation, including a wide old-`vd` fused addend. This is a subset, not an advertised V extension. FS
-and VS must be enabled. Operations that round require a supported `frm`, which
+operation, including a wide old-`vd` fused addend. FS and VS must be enabled.
+Operations that round require a supported `frm`, which
 the macro captures at WB launch; exact sign, min/max, and comparison operations
 do not depend on `frm`; fixed-RTZ conversions also ignore it. FP16 and RV32
 vector FP remain outside this cut. `vfredusum.vs`, `vfredosum.vs`,
@@ -553,7 +561,7 @@ Final completion clears `vstart`; inactive and tail bits remain undisturbed.
 
 ## Unit-stride memory
 
-The RV64 experimental path executes naturally aligned `vle8/16/32/64.v` and
+The public RV64 vector path executes naturally aligned `vle8/16/32/64.v` and
 `vse8/16/32/64.v`, one element per micro-op. Encoded EEW determines both the
 address increment and EMUL (`LMUL * EEW / SEW`); legality checks the effective
 group and rejects masked load overlap with `v0`. RV32 memory execution is not

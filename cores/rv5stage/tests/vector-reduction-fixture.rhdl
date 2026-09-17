@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../../riscv/isa/vector-profile.rhm" open
   "../vector.rhdl" open
   "../vector/bundles.rhdl" open
   "../vector/csr.rhdl" open
@@ -22,7 +23,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   output wb_index: Bits(index_width(vlen + 1))
   output store_data: Bits(64)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
-  inst decode(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
+  inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorPipeline(xlen, vlen, Bits(32)))
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(32), 8), 3, ~flushable: #true))
   reg index(~init: bits(0, index_width(vlen + 1)))

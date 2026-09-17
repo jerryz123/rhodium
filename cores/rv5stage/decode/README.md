@@ -3,12 +3,13 @@
 
 # RV5Stage decode
 
-`~experimental_vector: #true` adds the initial RVV configuration/integer rows
-to the same decoder. The vector column directly selects SIMD controls and
-operand routing; scalar `vset*` effects are composed only in `core-ctrl.rhdl`.
-This is decode coverage, not full vector execution. See the
-[experimental vector contract](../vector/README.md) for WB-owned configuration,
-legality, and the deliberately unimplemented unroller.
+`~vector: VectorProfile...` selects the standard Zve or V 1.0 rows in the same
+decoder. Integer-only Zve profiles omit floating-point rows; FP-capable profiles
+retain them and rely on the profile-aware legality boundary for supported
+element widths. The vector column directly selects SIMD controls and operand
+routing; scalar `vset*` effects are composed only in `core-ctrl.rhdl`. See the
+[vector contract](../vector/README.md) for WB-owned configuration, legality,
+unrolling, and execution.
 
 `~zihintpause: #true` overlays the exact PAUSE word on the existing FENCE row
 in the same combined decoder. Its hint selector enables bounded throttling at
@@ -40,9 +41,10 @@ Contributors changing decode ownership or instruction coverage should read
 
 ## Select a decode specialization
 
-`RV5StageInstructionDecoder` accepts `xlen`, `profile`, `half_precision`, and
-the default-disabled `zfa`, `zicbop`, `zicboz`, `zicbom`, and `zawrs` switches as host parameters. They
-select the instruction catalogs before hardware is generated:
+`RV5StageInstructionDecoder` accepts `xlen`, the scalar `profile`,
+`half_precision`, and the default-disabled `zfa`, `zicbop`, `zicboz`,
+`zicbom`, and `zawrs` switches plus a `VectorProfile`. They select the
+instruction catalogs before hardware is generated:
 
 | Specialization | Selected rows |
 |---|---|
@@ -50,6 +52,12 @@ select the instruction catalogs before hardware is generated:
 | RV64, FP disabled | RV64I plus the RV64 forms of M, A, and B, followed by Zicond, Zimop, Zicsr, Zifencei, and the supported privileged instructions |
 | RV32F | The RV32 core rows plus the RV32F catalog |
 | RV64D | The RV64 core rows plus the RV64F and RV64D catalogs |
+| RV64 Zve32x/Zve64x | The selected scalar rows plus integer, memory, mask, and permutation vector rows |
+| RV64 Zve32f/Zve64f/Zve64d/V | The selected scalar rows plus the complete vector rows; runtime legality enforces the profile's ELEN and FP widths |
+
+This low-level decoder parameter selects rows; it is not by itself an
+architectural claim. `RVCoreProfile` validates RV5Stage's supported XLEN and
+scalar-FP dependencies before a complete core can advertise a vector profile.
 
 Enabling Zicbop overlays its three prefetch rows on any of these selections.
 Zicboz instead appends one ordinary composed row: rs1 address generation,

@@ -1,0 +1,68 @@
+#lang rhombus
+// Defines the host-side standard vector specialization selected by a core.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "vector.rhm" open
+
+enum VectorProfile
+| None
+| Zve32x
+| Zve32f
+| Zve64x
+| Zve64f
+| Zve64d
+| V
+
+def DefaultVectorProfile = VectorProfile.None
+
+fun vector_profile_enabled(profile :: VectorProfile) :: Boolean:
+  profile != VectorProfile.None
+
+fun vector_profile_supports_fp32(profile :: VectorProfile) :: Boolean:
+  [VectorProfile.Zve32f, VectorProfile.Zve64f, VectorProfile.Zve64d, VectorProfile.V].contains(profile)
+
+fun vector_profile_supports_integer64(profile :: VectorProfile) :: Boolean:
+  [VectorProfile.Zve64x, VectorProfile.Zve64f, VectorProfile.Zve64d, VectorProfile.V].contains(profile)
+
+fun vector_profile_supports_fp64(profile :: VectorProfile) :: Boolean:
+  [VectorProfile.Zve64d, VectorProfile.V].contains(profile)
+
+fun vector_profile_is_v(profile :: VectorProfile) :: Boolean:
+  profile == VectorProfile.V
+
+fun vector_profile_elen(profile :: VectorProfile) :: VectorSEW:
+  cond
+  | vector_profile_supports_integer64(profile): VectorSEW.E64
+  | vector_profile_enabled(profile): VectorSEW.E32
+  | ~else: error(~who: #'vector_profile_elen, "the None profile has no ELEN")
+
+fun vector_profile_elen_bits(profile :: VectorProfile) :: PosInt:
+  vector_element_bits(vector_profile_elen(profile))
+
+fun vector_length_extension_name(vlen :: VectorLength) :: String:
+  "zvl" ++ String.from_int(vlen) ++ "b"
+
+fun vector_profile_isa_extensions(profile :: VectorProfile, vlen :: VectorLength) :: List.of(String):
+  if !vector_profile_enabled(profile)
+  | []
+  | (if vector_profile_is_v(profile) | ["v"] | []) ++
+    ["zve32x"] ++
+    (if vector_profile_supports_fp32(profile) | ["zve32f"] | []) ++
+    (if vector_profile_supports_integer64(profile) | ["zve64x"] | []) ++
+    (if vector_profile_supports_integer64(profile) && vector_profile_supports_fp32(profile) | ["zve64f"] | []) ++
+    (if vector_profile_supports_fp64(profile) | ["zve64d"] | []) ++
+    [vector_length_extension_name(vlen)]
+
+export:
+  VectorProfile
+  DefaultVectorProfile
+  vector_profile_enabled
+  vector_profile_supports_fp32
+  vector_profile_supports_integer64
+  vector_profile_supports_fp64
+  vector_profile_is_v
+  vector_profile_elen
+  vector_profile_elen_bits
+  vector_length_extension_name
+  vector_profile_isa_extensions

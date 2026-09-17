@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../../riscv/isa/vector-profile.rhm" open
   "../vector/bundles.rhdl" open
   "../vector/csr.rhdl" open
   "../vector/unroller.rhdl" open
@@ -23,7 +24,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
   interface initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
   output(active, request_ready, legal, issued, committed, retried): Bool
   output result: RV5StageVectorResultBeat(vlen)
-  inst decode(RV5StageInstructionDecoder(xlen, ~experimental_vector: #true))
+  inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst legality(RV5StageVectorLegality(xlen, vlen))
   inst unroller(RV5StageVectorUnroller(xlen, vlen, Bits(xlen.width)))
   inst bank(RV5StageVectorRegisterFile(vlen))

@@ -4,6 +4,7 @@
 
 import:
   "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/csr.rhm" open
   "../../../riscv/rtl/csr.rhdl" open
@@ -22,7 +23,7 @@ bundle RV5StageVectorState(xlen :: XLen):
   vxrm: Bits(2)
   vxsat: Bool
 
-sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
+sync_circuit RV5StageVectorCsrs(xlen :: XLen, profile :: VectorProfile, vlen :: VectorLength):
   // Preview is independent of WB authorization; an illegal candidate cannot authorize itself.
   input candidate: RiscvVectorConfigRequest(xlen)
   interface configure(Pulse(), ~role: consumer)
@@ -37,7 +38,7 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
   output configuration_illegal: Bool
   output configuration_vl: Bits(xlen.width)
 
-  if vlen
+  if vector_profile_enabled(profile)
   | block:
       reg vl(~init: bits(0, index_width(vlen + 1)))
       reg vtype(~init: bits(1 << (xlen.width - 1), xlen.width))
@@ -45,7 +46,7 @@ sync_circuit RV5StageVectorCsrs(xlen :: XLen, vlen :: False || VectorLength):
       reg vxrm(~init: bits(0, 2))
       reg vxsat(~init: Bool(#false))
       reg vs(~init: bits(0, 2))
-      def next_config = vector_configure(xlen, vlen, candidate, vtype, vl)
+      def next_config = vector_configure(xlen, vlen, candidate, vtype, vl, ~elen: vector_profile_elen(profile))
       configuration_illegal <== next_config.illegal
       configuration_vl <== next_config.vl.zext(xlen.width)
       def configuration_write = configure.valid & !next_config.illegal

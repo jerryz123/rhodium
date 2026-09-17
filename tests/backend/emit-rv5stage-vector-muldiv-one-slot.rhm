@@ -7,7 +7,9 @@ import:
   "../../rhodium/frontend/kernel.rhm" as embedded
   "../../cores/rv5stage/tests/core-fixture.rhdl" open
   "../../cores/rv5stage/profile.rhm" open
+  "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/isa/xlen.rhm" open
 
-def design = embedded.run_elaboration(fun (): RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~experimental_vector: 128, ~vector_completion_slots: 1), ~reset_address: 0))
+def design = embedded.run_elaboration(fun (): RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: 128, ~vector_completion_slots: 1), ~reset_address: 0))
 print(emit_circt(design))

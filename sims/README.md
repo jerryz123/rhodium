@@ -310,7 +310,9 @@ mode lets the compiler use every extension that the concrete system advertises;
 it does not imply that every benchmark contains an instruction from every
 extension. Use `BENCHMARK_MODE=baseline` to reproduce the former
 `rv64imafdc_zicsr_zifencei`/`lp64d` compiler target for historical comparisons.
-Multihart, vector, and PMP benchmarks require capabilities outside this platform.
+Multihart and PMP benchmarks require capabilities outside this platform. The
+default SimpleSoC profile advertises V with VLEN 128, but the current benchmark
+catalog does not yet include a vector workload.
 These are compatibility selections, not a list of tests proven to pass. Any
 selected workload failure fails its suite; there are no expected-failure masks.
 

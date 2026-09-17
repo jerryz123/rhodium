@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines partial RVV 1.0 configuration, integer/extension/fixed-point, FP, and vector-memory catalogs.
+// Defines the complete RVV 1.0 configuration, integer, floating-point, and vector-memory catalog.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -588,8 +588,8 @@ def VectorWideningMultiplyInstructions = [VWMULU_VV, VWMULU_VX, VWMULSU_VV, VWMU
 def VectorMultiplyAccumulateInstructions = [VMACC_VV, VMACC_VX, VNMSAC_VV, VNMSAC_VX, VMADD_VV, VMADD_VX, VNMSUB_VV, VNMSUB_VX]
 def VectorWideningMultiplyAccumulateInstructions = [VWMACCU_VV, VWMACCU_VX, VWMACC_VV, VWMACC_VX, VWMACCSU_VV, VWMACCSU_VX, VWMACCUS_VX]
 def VectorMultiplyDivideInstructions = VectorDivideInstructions ++ VectorMultiplyInstructions ++ VectorFractionalMultiplyInstructions ++ VectorWideningMultiplyInstructions ++ VectorMultiplyAccumulateInstructions ++ VectorWideningMultiplyAccumulateInstructions
-def VectorInitialInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorSlideInstructions ++ VectorGatherInstructions ++ VectorCompressInstructions ++ VectorMoveMergeInstructions ++ VectorWholeRegisterMoveInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
-def VectorInitial = InstructionCatalog("RVV initial configuration/integer/memory/FP subset", "V 1.0 (partial)", VectorInitialInstructions)
+def VectorVInstructions = VectorConfigInstructions ++ VectorIntegerInstructions ++ VectorSlideInstructions ++ VectorGatherInstructions ++ VectorCompressInstructions ++ VectorMoveMergeInstructions ++ VectorWholeRegisterMoveInstructions ++ VectorMaskLogicInstructions ++ VectorElementMoveInstructions ++ VectorMaskScanInstructions ++ VectorIntegerReductionInstructions ++ VectorMemoryInstructions ++ VectorFloatingPointInstructions ++ VectorMultiplyDivideInstructions
+def VectorV = InstructionCatalog("RVV standard vector extension", "V 1.0", VectorVInstructions)
 
 export:
   VectorCarryBorrowInstructions
@@ -961,8 +961,8 @@ export:
   VectorAveragingAddSubtractInstructions
   VectorFixedPointShiftInstructions
   VectorNarrowingClipInstructions
-  VectorInitialInstructions
-  VectorInitial
+  VectorVInstructions
+  VectorV
   VADD_VV
   VADD_VX
   VADD_VI

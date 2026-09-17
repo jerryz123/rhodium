@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../cores/rv5stage/tests/load-hit-fixture.rhdl".RV5StageLoadHit
+  "../../riscv/isa/vector-profile.rhm" open
   "../../rhodium/backend/circt.rhm".emit_circt
   "../../rhodium/frontend/kernel.rhm" as embedded
-print(emit_circt(embedded.run_elaboration(fun (): RV5StageLoadHit(~experimental_vector: 128))))
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageLoadHit(~vector: VectorProfile.V, ~vector_length: 128))))

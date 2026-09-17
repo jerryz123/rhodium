@@ -15,6 +15,7 @@ import:
   "vector/bundles.rhdl" open
   "vector.rhdl" open
   "../../riscv/isa/vector.rhm" open
+  "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/rtl/vector.rhdl" open
   "decode/operand-ctrl.rhdl" open
   "decode/branch-ctrl.rhdl" open
@@ -73,8 +74,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def compressed_extensions = extensions.compressed
   def width = xlen.width
   def vector_completion_slots = core_profile.vector_completion_slots
-  def vector_enabled = core_profile.experimental_vector != #false
-  def vector_length = if vector_enabled | core_profile.experimental_vector | 128
+  def vector_enabled = vector_profile_enabled(core_profile.vector)
+  def vector_length = core_profile.vector_length
   def trace_isa = "rv" ++ to_string(width) ++ String.join(core_profile.isa_extensions.filter(~keep: fun (name): name.length() == 1), "") ++ "_" ++ String.join(core_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
@@ -137,7 +138,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen, vector_completion_slots), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen, vector_completion_slots), 1))
 
-  inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~experimental_vector: vector_enabled))
+  inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~vector: core_profile.vector))
   inst id_registers(RV5StageRegisterFile(xlen))
   inst ex_alu(ALU(xlen))
   inst ex_branch_resolver(BranchResolver(width))
@@ -638,7 +639,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, DecodeExecute(xlen, vector_completion_slots), ~vector_completion_slots: vector_completion_slots))
       reg wb_vector_context(DecodeExecute(xlen, vector_completion_slots))
       wb_fp.snapshot_read_address <== wb_vector_context.rs1
-      inst id_vector_legality(RV5StageVectorLegality(xlen, vector_length))
+      inst id_vector_legality(RV5StageVectorLegality(xlen, vector_length, core_profile.vector))
       id_vector_legality.instruction <== id_instruction
       id_vector_legality.control <== id_control.vector
       id_vector_legality.vtype <== wb_csrs.vector_state.vtype

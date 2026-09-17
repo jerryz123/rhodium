@@ -35,7 +35,7 @@ cacheable coherent RAM.
 
 | System | Default processors | Normal-memory termination | Coherence structure | Default core specialization | Best fit |
 | --- | ---: | --- | --- | --- | --- |
-| `SimpleSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router | RV64IMAFDC plus B, Zicond, and Zicbop; full C composition | Primary single-core coherent system and external-memory integration |
+| `SimpleSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router | RV64IMAFDCV plus B, Zicond, Zicbop, and Zvl128b; full C composition | Primary single-core coherent system and external-memory integration |
 | `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only with Zicbop; compressed instructions disabled | Compact RTL and physical-design experiments |
 | `TiledSoC` | 8 in the default 5x4 layout | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
 
@@ -43,8 +43,11 @@ All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
 non-caching RN-F port for coherent RAM and non-snooping MMIO access.
 Each author-facing SoC parameter object owns one
 `RVCoreProfile`, and the same profile specializes the instantiated core and its
-architectural description. `SimpleSoC` defaults to RV64D and the full C
-composition, `MiniSoC` to integer-only RV64 with 2 KiB direct-mapped L1s, and
+architectural description. `SimpleSoC` defaults to RV64D, V 1.0 with VLEN 128,
+and the full C composition; its device tree and UDB configuration advertise
+`V`, the implied Zve32x/Zve32f/Zve64x/Zve64f/Zve64d closure, `Zvl128b`, and
+`misa.V` from that same profile. `MiniSoC` defaults to
+integer-only RV64 with 2 KiB direct-mapped L1s, and
 `TiledSoC` to integer-only RV64 with the C composition. SimpleSoC and TiledSoC
 also enable Zcmop; MiniSoC keeps compressed instructions disabled. All three select Sv39;
 Zicbop and Zicboz are enabled in each default profile, while half precision and Zfa remain

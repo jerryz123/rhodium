@@ -1,12 +1,14 @@
 #lang rhombus/and_meta
-// Models ELEN=64 vector configurations, register groups, and 64-bit chunk locations without hardware dependencies.
+// Models ELEN=32/64 vector configurations, register groups, and 64-bit chunk locations without hardware dependencies.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open
 
+def VectorLengths = [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+
 fun vector_length(value :: PosInt):
-  128 <= value && value <= 65536 && (value bits.and (value - 1)) == 0
+  VectorLengths.contains(value)
 
 annot.macro 'VectorLength':
   'PosInt && satisfying(vector_length)'
@@ -54,7 +56,8 @@ fun vector_depth(vlen :: VectorLength) :: PosInt:
 
 class VectorLocation(chunk :: Nat, bit_offset :: Nat)
 
-// This ELEN=64 model supports fractional LMUL through SEW <= LMUL*ELEN.
+// The geometry supports fractional LMUL through SEW <= LMUL*64; profile ELEN
+// independently limits the largest legal SEW.
 // It describes a decoded legal configuration, not the vtype CSR's vill state.
 class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
   constructor (vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
@@ -115,13 +118,13 @@ fun vector_lmul_encoding(lmul :: VectorLMUL) :: Nat:
   | VectorLMUL.MF2: 7
 
 // Unsupported runtime encodings become vill; they are not host contract errors.
-fun vector_vtype_config(vlen :: VectorLength, raw :: Nat) :: False || VectorConfig:
+fun vector_vtype_config(vlen :: VectorLength, raw :: Nat, ~elen: elen :: VectorSEW = VectorSEW.E64) :: False || VectorConfig:
   def sew = bits.field(raw, 3, 6)
   def lmul = bits.field(raw, 0, 3)
   def groups = VectorRegisterGroups.filter(~keep: fun (group): vector_lmul_encoding(group) == lmul)
   if raw >= 256 || sew >= 4 || groups.is_empty()
   | #false
-  | if vector_element_bits(VectorElementWidths[sew]) > 64 * vector_lmul(groups[0])
+  | if vector_element_bits(VectorElementWidths[sew]) > vector_element_bits(elen) * vector_lmul(groups[0])
     | #false
     | VectorConfig(vlen, VectorElementWidths[sew], groups[0])
 
@@ -142,6 +145,7 @@ fun vector_data_overlap_legal(source :: VectorConfig, source_base :: Nat,
   | ~else: vector_lmul(source.lmul) >= 1 && source_end == destination_end
 
 export:
+  VectorLengths
   VectorLength
   VectorSEW
   VectorLMUL

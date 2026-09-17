@@ -17,7 +17,7 @@ caches live here. Reusable execution components remain directly under
 Contributors changing the core should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
-The experimental [vector path](vector/README.md) provides configurable VLEN,
+The opt-in [vector path](vector/README.md) provides configurable VLEN,
 a flat 64-bit register bank with three general reads and a dedicated `v0` mask
 shadow, SIMD packing, and opt-in WB-owned `vset*`/CSR
 and same-width integer execution. One macro travels through the scalar pipeline
@@ -33,8 +33,12 @@ independently of VLEN. RV64D also shares scalar FP execution for same-width
 FP32/FP64 vector add, subtract, and multiply, with WB-authorized operands and
 ordered VRF/flag completion. RV64 vectors also share the iterative integer
 multiplier/divider for SEW8/16/32/64 `.vv` and `.vx` operations, with independent
-arbitration and WB-authorized completion ownership;
-no V/Zve/Zvbb extension is advertised.
+arbitration and WB-authorized completion ownership. `VectorProfile` selects
+one of the five standard Zve profiles or complete V 1.0, advertises its implied
+Zve closure and matching `Zvl<N>b` minimum length, and constrains ELEN and FP
+legality accordingly. Only `VectorProfile.V` advertises `V` and sets `misa.V`.
+The default remains `VectorProfile.None`; the implementation does not claim
+Zvbb.
 
 ## At a glance
 
@@ -46,6 +50,7 @@ no V/Zve/Zvbb extension is advertised.
 | Deferred work | Loads, atomics, multiply, divide, and FP results may complete after their scalar token retires |
 | Integer widths | RV32 and RV64 selected by `XLen.X32` or `XLen.X64` |
 | Floating point | Disabled by default; RV32F or RV64D, with optional Zfhmin, Zfh, or Zfa |
+| Vector | Disabled by default; opt-in RV64 Zve32x/f, Zve64x/f/d, or V 1.0 with configurable power-of-two VLEN from 128 through 65536 bits |
 | Address translation | Bare for RV32; Bare or Sv39 for RV64 |
 | Private caches | Separate configurable L1I and single-miss write-back L1D with independent load hit-under-miss; fixed 64-byte lines; demand-priority Zicbop admission |
 | External memory | Instruction RN-I snapshot reads, data RN-F coherence, and a separate shared uncached RN-I channel |
@@ -740,6 +745,9 @@ specialization input to `RV5Stage` and `RV5StageCore`.
 |---|---|
 | `profile.xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
 | `profile.extensions` | Floating-point, half-precision, Zfa, Zicbop, Zicboz, and compressed-extension selection; Zicbop and Zicboz default to disabled |
+| `profile.vector` | `VectorProfile.None` by default, or `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, or `V`; the current RV64-only integration pairs FP-capable vector profiles with scalar D |
+| `profile.vector_length` | VLEN in bits; a power of two from 128 through 65536, independent of whether the vector profile is enabled |
+| `profile.vector_completion_slots` | Power-of-two capacity for deferred vector memory and execution completions; defaults to eight |
 | `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
 | `profile.cache_geometry` | Independent L1I and L1D set and way geometry |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |

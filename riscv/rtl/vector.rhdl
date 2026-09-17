@@ -1,5 +1,5 @@
 #lang rhodium
-// Materializes ELEN=64 vtype legality and vset AVL selection without owning architectural state.
+// Materializes profile-selected ELEN=32/64 vtype legality and vset AVL selection without owning architectural state.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -25,10 +25,10 @@ bundle RiscvVectorConfiguration(xlen :: XLen, vlen :: VectorLength):
   vl: Bits(index_width(vlen + 1))
   illegal: Bool
 
-fun vector_type(xlen :: XLen, vlen :: VectorLength, value :: Bits(xlen.width)) :~ RiscvVectorType(xlen, vlen):
+fun vector_type(xlen :: XLen, vlen :: VectorLength, value :: Bits(xlen.width), ~elen: elen :: VectorSEW = VectorSEW.E64) :~ RiscvVectorType(xlen, vlen):
   def count_width = index_width(vlen + 1)
   def cases = for List (encoding in 0..64):
-    def config = vector_vtype_config(vlen, encoding)
+    def config = vector_vtype_config(vlen, encoding, ~elen: elen)
     [encoding, bits(if config | config.vlmax | 0, count_width)]
   def maximum = mux_lookup(value[0..6], ~default: bits(0, count_width), cases)
   def illegal = value[8..xlen.width].or_reduce() ||| !maximum.or_reduce()
@@ -39,9 +39,9 @@ fun vector_type(xlen :: XLen, vlen :: VectorLength, value :: Bits(xlen.width)) :
     lmul: value[0..3]
     vlmax: mux(illegal, bits(0, count_width), maximum)
 
-fun vector_configure(xlen :: XLen, vlen :: VectorLength, request :: RiscvVectorConfigRequest(xlen), old_type :: Bits(xlen.width), old_vl :: Bits(index_width(vlen + 1))) :~ RiscvVectorConfiguration(xlen, vlen):
-  def previous = vector_type(xlen, vlen, old_type)
-  def next_type = vector_type(xlen, vlen, request.vtype)
+fun vector_configure(xlen :: XLen, vlen :: VectorLength, request :: RiscvVectorConfigRequest(xlen), old_type :: Bits(xlen.width), old_vl :: Bits(index_width(vlen + 1)), ~elen: elen :: VectorSEW = VectorSEW.E64) :~ RiscvVectorConfiguration(xlen, vlen):
+  def previous = vector_type(xlen, vlen, old_type, ~elen: elen)
+  def next_type = vector_type(xlen, vlen, request.vtype, ~elen: elen)
   def maximum = next_type.vlmax.zext(xlen.width)
   def avl = mux(request.keep_vl, old_vl.zext(xlen.width), request.avl)
   def selected = mux(request.maximum ||| (avl > maximum), maximum, avl)

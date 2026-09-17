@@ -16,11 +16,11 @@ check:
   VZEXT_VF2.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2320d7
   VSEXT_VF2.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a23a0d7
   VectorUnaryFormat.operands.map(fun (operand): operand.name) ~is ["vd", "vs2"]
-  VectorInitial.matching(0x4a2020d7) ~is #false
-  VectorInitial.matching(0x4a20a0d7) ~is #false
-  VectorInitial.matching(0x4a2420d7) ~is #false
+  VectorV.matching(0x4a2020d7) ~is #false
+  VectorV.matching(0x4a20a0d7) ~is #false
+  VectorV.matching(0x4a2420d7) ~is #false
   VCOMPRESS_VM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x5e21a0d7
-  VectorInitial.matching(0x5c21a0d7) ~is #false
+  VectorV.matching(0x5c21a0d7) ~is #false
   VRGATHER_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x322180d7
   VRGATHEREI16_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(0)]) ~is 0x382180d7
   VRGATHER_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x3221c0d7
@@ -46,15 +46,15 @@ check:
   VID_V.encode([vd.constrain(1), vm.constrain(1)]) ~is 0x5208a0d7
   VectorMaskScalarFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Integer, model.RegisterBank.Vector]
   VectorIndexFormat.operands.map(fun (operand): operand.name) ~is ["vd"]
-  VectorInitial.matching(0x5218a0d7) ~is #false
+  VectorV.matching(0x5218a0d7) ~is #false
   VMV_X_S.encode([model.rd.constrain(1), vs2.constrain(2)]) ~is 0x422020d7
   VMV_S_X.encode([vd.constrain(1), model.rs1.constrain(3)]) ~is 0x4201e0d7
   VFMV_F_S.encode([model.rd.constrain(1), vs2.constrain(2)]) ~is 0x422010d7
   VFMV_S_F.encode([vd.constrain(1), model.rs1.constrain(3)]) ~is 0x4201d0d7
   VectorReadScalarFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Integer, model.RegisterBank.Vector]
-  VectorInitial.matching(0x402020d7) ~is #false
-  VectorInitial.matching(0x4220a0d7) ~is #false
-  VectorInitial.matching(0x4221e0d7) ~is #false
+  VectorV.matching(0x402020d7) ~is #false
+  VectorV.matching(0x4220a0d7) ~is #false
+  VectorV.matching(0x4221e0d7) ~is #false
   VMERGE_VVM.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x5c2180d7
   VMERGE_VXM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x5c21c0d7
   VMERGE_VIM.encode([vd.constrain(1), vs2.constrain(2)], ~immediate: -1) ~is 0x5c2fb0d7
@@ -63,7 +63,7 @@ check:
   VMV_V_I.encode([vd.constrain(1)], ~immediate: -1) ~is 0x5e0fb0d7
   VFMERGE_VFM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x5c21d0d7
   VFMV_V_F.encode([vd.constrain(1), model.rs1.constrain(3)]) ~is 0x5e01d0d7
-  VectorInitial.matching(0x5e2180d7) ~is #false
+  VectorV.matching(0x5e2180d7) ~is #false
   VectorMoveVFormat.operands.map(fun (operand): operand.name) ~is ["vd", "vs1"]
   VectorMoveXFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer]
   VMV1R_V.encode([vd.constrain(1), vs2.constrain(2)]) ~is 0x9e2030d7
@@ -72,8 +72,8 @@ check:
   VMV8R_V.encode([vd.constrain(0), vs2.constrain(8)]) ~is 0x9e83b057
   VectorWholeRegisterMoveFormat.operands.map(fun (operand): operand.name) ~is ["vd", "vs2"]
   VectorWholeRegisterMoveInstructions.length() ~is 4
-  VectorInitial.matching(0x9e2130d7) ~is #false
-  VectorInitial.matching(0x9c2030d7) ~is #false
+  VectorV.matching(0x9e2130d7) ~is #false
+  VectorV.matching(0x9c2030d7) ~is #false
   VMUL_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x9621a0d7
   VMULHSU_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(0)]) ~is 0x9821e0d7
   VDIV_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x8621a0d7
@@ -161,8 +161,8 @@ check:
   VMSBC_VXM.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4c21c0d7
   VMSBC_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is 0x4e2180d7
   VMSBC_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3)]) ~is 0x4e21c0d7
-  VectorInitial.matching(0x422180d7) ~is #false
-  VectorInitial.matching(0x4a2180d7) ~is #false
+  VectorV.matching(0x422180d7) ~is #false
+  VectorV.matching(0x4a2180d7) ~is #false
   VSADDU_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x822180d7
   VSADDU_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x8221c0d7
   VSADDU_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: -1) ~is 0x822fb0d7
@@ -250,8 +250,8 @@ check:
   VLE16FF_V.encode([vd.constrain(1), model.rs1.constrain(2), vm.constrain(1)]) ~is 0x03015087
   VLM_V.encode([vd.constrain(1), model.rs1.constrain(2)]) ~is 0x02b10087
   VSM_V.encode([vs3.constrain(3), model.rs1.constrain(2)]) ~is 0x02b101a7
-  VectorInitial.find("VL2RE16.V").encode([vd.constrain(8), model.rs1.constrain(9)]) ~is 0x2284d407
-  VectorInitial.find("VS8R.V").encode([vs3.constrain(24), model.rs1.constrain(10)]) ~is 0xe2850c27
+  VectorV.find("VL2RE16.V").encode([vd.constrain(8), model.rs1.constrain(9)]) ~is 0x2284d407
+  VectorV.find("VS8R.V").encode([vs3.constrain(24), model.rs1.constrain(10)]) ~is 0xe2850c27
   VSE64_V.encode([vs3.constrain(3), model.rs1.constrain(2), vm.constrain(0)]) ~is 0x000171a7
   VLSE8_V.encode([vd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3), vm.constrain(1)]) ~is 0x0a310087
   VLSE16_V.encode([vd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3), vm.constrain(0)]) ~is 0x08315087
@@ -260,15 +260,15 @@ check:
   VLOXEI16_V.encode([vd.constrain(1), model.rs1.constrain(2), vs2.constrain(3), vm.constrain(0)]) ~is 0x0c315087
   VSUXEI32_V.encode([vs3.constrain(3), model.rs1.constrain(2), vs2.constrain(4), vm.constrain(1)]) ~is 0x064161a7
   VSOXEI64_V.encode([vs3.constrain(3), model.rs1.constrain(2), vs2.constrain(4), vm.constrain(0)]) ~is 0x0c4171a7
-  VectorInitial.find("VLSEG2E8.V").encode([vd.constrain(8), model.rs1.constrain(9), vm.constrain(1)]) ~is 0x22048407
-  VectorInitial.find("VLSEG3E16.V").encode([vd.constrain(16), model.rs1.constrain(7), vm.constrain(0)]) ~is 0x4003d807
-  VectorInitial.find("VSSEG8E32.V").encode([vs3.constrain(24), model.rs1.constrain(10), vm.constrain(1)]) ~is 0xe2056c27
-  VectorInitial.find("VSSEG4E64.V").encode([vs3.constrain(8), model.rs1.constrain(11), vm.constrain(0)]) ~is 0x6005f427
-  VectorInitial.find("VLSSEG3E16.V").encode([vd.constrain(16), model.rs1.constrain(7), model.rs2.constrain(11), vm.constrain(0)]) ~is 0x48b3d807
-  VectorInitial.find("VSSSEG8E32.V").encode([vs3.constrain(24), model.rs1.constrain(10), model.rs2.constrain(12), vm.constrain(1)]) ~is 0xeac56c27
-  VectorInitial.find("VLUXSEG3EI16.V").encode([vd.constrain(16), model.rs1.constrain(7), vs2.constrain(11), vm.constrain(0)]) ~is 0x44b3d807
-  VectorInitial.find("VSOXSEG8EI32.V").encode([vs3.constrain(24), model.rs1.constrain(10), vs2.constrain(12), vm.constrain(1)]) ~is 0xeec56c27
-  VectorInitial.find("VLSEG3E16FF.V").encode([vd.constrain(16), model.rs1.constrain(7), vm.constrain(0)]) ~is 0x4103d807
+  VectorV.find("VLSEG2E8.V").encode([vd.constrain(8), model.rs1.constrain(9), vm.constrain(1)]) ~is 0x22048407
+  VectorV.find("VLSEG3E16.V").encode([vd.constrain(16), model.rs1.constrain(7), vm.constrain(0)]) ~is 0x4003d807
+  VectorV.find("VSSEG8E32.V").encode([vs3.constrain(24), model.rs1.constrain(10), vm.constrain(1)]) ~is 0xe2056c27
+  VectorV.find("VSSEG4E64.V").encode([vs3.constrain(8), model.rs1.constrain(11), vm.constrain(0)]) ~is 0x6005f427
+  VectorV.find("VLSSEG3E16.V").encode([vd.constrain(16), model.rs1.constrain(7), model.rs2.constrain(11), vm.constrain(0)]) ~is 0x48b3d807
+  VectorV.find("VSSSEG8E32.V").encode([vs3.constrain(24), model.rs1.constrain(10), model.rs2.constrain(12), vm.constrain(1)]) ~is 0xeac56c27
+  VectorV.find("VLUXSEG3EI16.V").encode([vd.constrain(16), model.rs1.constrain(7), vs2.constrain(11), vm.constrain(0)]) ~is 0x44b3d807
+  VectorV.find("VSOXSEG8EI32.V").encode([vs3.constrain(24), model.rs1.constrain(10), vs2.constrain(12), vm.constrain(1)]) ~is 0xeec56c27
+  VectorV.find("VLSEG3E16FF.V").encode([vd.constrain(16), model.rs1.constrain(7), vm.constrain(0)]) ~is 0x4103d807
   VectorUnitStrideSegmentLoadInstructions.length() ~is 28
   VectorUnitStrideSegmentStoreInstructions.length() ~is 28
   VectorStridedSegmentLoadInstructions.length() ~is 28
@@ -294,24 +294,24 @@ check:
   VectorStridedStoreFormat.operands.map(fun (operand): operand.name) ~is ["vs3", "rs1", "rs2"]
   VectorIndexedLoadFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Integer, model.RegisterBank.Vector]
   VectorIndexedStoreFormat.operands.map(fun (operand): operand.name) ~is ["vs3", "rs1", "vs2"]
-  VectorInitial.matching(0x06310087).name ~is "VLUXEI8.V"
-  VectorInitial.matching(0x22048407).name ~is "VLSEG2E8.V"
-  VectorInitial.matching(0x48b3d807).name ~is "VLSSEG3E16.V"
-  VectorInitial.matching(0x44b3d807).name ~is "VLUXSEG3EI16.V"
-  VectorInitial.matching(0x03010087).name ~is "VLE8FF.V"
-  VectorInitial.matching(0x4103d807).name ~is "VLSEG3E16FF.V"
-  VectorInitial.matching(0x02b10087).name ~is "VLM.V"
-  VectorInitial.matching(0x02b101a7).name ~is "VSM.V"
-  VectorInitial.matching(0x2284d407).name ~is "VL2RE16.V"
-  VectorInitial.matching(0xe2850c27).name ~is "VS8R.V"
+  VectorV.matching(0x06310087).name ~is "VLUXEI8.V"
+  VectorV.matching(0x22048407).name ~is "VLSEG2E8.V"
+  VectorV.matching(0x48b3d807).name ~is "VLSSEG3E16.V"
+  VectorV.matching(0x44b3d807).name ~is "VLUXSEG3EI16.V"
+  VectorV.matching(0x03010087).name ~is "VLE8FF.V"
+  VectorV.matching(0x4103d807).name ~is "VLSEG3E16FF.V"
+  VectorV.matching(0x02b10087).name ~is "VLM.V"
+  VectorV.matching(0x02b101a7).name ~is "VSM.V"
+  VectorV.matching(0x2284d407).name ~is "VL2RE16.V"
+  VectorV.matching(0xe2850c27).name ~is "VS8R.V"
   VectorVVFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Vector, model.RegisterBank.Vector]
   [CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_address) ~is [8, 9, 10, 15, 0xc20, 0xc21, 0xc22]
 for (instruction in VectorWholeRegisterMemoryInstructions):
   check:
-    VectorInitial.matching(instruction.encoding.value bits.xor (1 bits.(<<) 25)) ~is #false
+    VectorV.matching(instruction.encoding.value bits.xor (1 bits.(<<) 25)) ~is #false
 for (instruction in VectorMaskMemoryInstructions):
   check:
-    VectorInitial.matching(instruction.encoding.value bits.xor (1 bits.(<<) 25)) ~is #false
+    VectorV.matching(instruction.encoding.value bits.xor (1 bits.(<<) 25)) ~is #false
 
 for (instruction in VectorSameWidthIntegerReductionInstructions, index in 0..8):
   check:
@@ -322,7 +322,7 @@ check:
 for (instruction in VectorMaskLogicInstructions, index in 0..8):
   check:
     instruction.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3)]) ~is (0x6221a0d7 bits.or (index bits.(<<) 26))
-    VectorInitial.matching(instruction.encoding.value bits.xor (1 bits.(<<) 25)) ~is #false
+    VectorV.matching(instruction.encoding.value bits.xor (1 bits.(<<) 25)) ~is #false
 
 for (vlen in [128, 256, 512, 65536]):
   for (encoding in 0..512):
@@ -338,6 +338,6 @@ for (vlen in [128, 256, 512, 65536]):
         decoded.vlmax ~is vlen * (2 ** exponent) / (8 * (2 ** sew))
         vector_sew_encoding(decoded.sew) ~is sew
         vector_lmul_encoding(decoded.lmul) ~is lm
-for (instruction in VectorInitialInstructions):
+for (instruction in VectorVInstructions):
   check:
-    VectorInitial.matching(instruction.encoding.value) === instruction ~is #true
+    VectorV.matching(instruction.encoding.value) === instruction ~is #true

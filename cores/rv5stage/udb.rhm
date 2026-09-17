@@ -7,6 +7,7 @@ import:
   "../../riscv/udb.rhm" open
   "../../riscv/isa/c.rhm" open
   "../../riscv/isa/fp-profile.rhm" open
+  "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/isa/zkt.rhm".ZktVersion
   "profile.rhm" open
@@ -90,6 +91,20 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
   | result := result ++ [extension("Zcf", "1.0.0")]
   when (selected.compressed.contains(CompressedExtension.C) && floating_point_supports_d(selected.floating_point)) || selected.compressed.contains(CompressedExtension.Zcd)
   | result := result ++ [extension("Zcd", "1.0.0")]
+  when vector_profile_enabled(profile.vector)
+  | block:
+      when vector_profile_is_v(profile.vector)
+      | result := result ++ [extension("V", "1.0")]
+      result := result ++ [extension("Zve32x", "1.0.0")]
+      when vector_profile_supports_fp32(profile.vector)
+      | result := result ++ [extension("Zve32f", "1.0.0")]
+      when vector_profile_supports_integer64(profile.vector)
+      | result := result ++ [extension("Zve64x", "1.0.0")]
+      when vector_profile_supports_integer64(profile.vector) && vector_profile_supports_fp32(profile.vector)
+      | result := result ++ [extension("Zve64f", "1.0.0")]
+      when vector_profile_supports_fp64(profile.vector)
+      | result := result ++ [extension("Zve64d", "1.0.0")]
+      result := result ++ [extension("Zvl" ++ String.from_int(profile.vector_length) ++ "b", "1.0.0")]
   result := result ++ [
     extension("Zicntr", "2.0"),
     extension("Zicond", "1.0.0"),
@@ -192,7 +207,7 @@ fun rv5stage_udb_parameters(profile :: RVCoreProfile,
     natural_list_parameter("STVEC_MODES", [0]),
     boolean_parameter("SATP_MODE_BARE", #true),
     boolean_parameter("TRAP_ON_ECALL_FROM_S", #true),
-    natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", [0]),
+    natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", if vector_profile_enabled(profile.vector) | [0, 1, 2, 3] | [0]),
     natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", if floating_point_supports_f(selected.floating_point) | [0, 1, 2, 3] | [0])
   ]
   when profile.mmu_mode == RV5StageMmuMode.Bare
@@ -210,6 +225,16 @@ fun rv5stage_udb_parameters(profile :: RVCoreProfile,
   | result := result ++ [boolean_parameter("MUTABLE_MISA_D", #false)]
   when selected.compressed_misa_c(profile.xlen)
   | result := result ++ [boolean_parameter("MUTABLE_MISA_C", #false)]
+  when vector_profile_enabled(profile.vector)
+  | result := result ++ [
+      natural_parameter("VLEN", profile.vector_length),
+      natural_parameter("ELEN", vector_profile_elen_bits(profile.vector)),
+      natural_parameter("SEW_MIN", 8),
+      boolean_parameter("VILL_SET_ON_RESERVED_VTYPE", #true),
+      string_parameter("HW_MSTATUS_VS_DIRTY_UPDATE", "precise")
+    ]
+  when vector_profile_is_v(profile.vector)
+  | result := result ++ [boolean_parameter("MUTABLE_MISA_V", #false)]
   result
 
 fun rv5stage_udb_configuration(profile :: RVCoreProfile,

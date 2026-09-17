@@ -45,7 +45,9 @@ without making WB elastic. Keep issue occupancy distinct from accepted memory
 completion ownership.
 Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
-Do not turn the experimental VLEN option into a public ISA/profile claim.
+Keep every public `VectorProfile` claim coupled to its ELEN/FP legality, implied
+Zve closure, selected VLEN, UDB parameters, and SoC architectural description.
+Only full V may set `misa.V`.
 
 `fp.rhdl` adapts singleton operands and the shared physical execution control to the
 shared FP request. It imports the named FP contracts, RISC-V
@@ -417,10 +419,9 @@ make check-boundaries
 
 For configuration, run `riscv/tests/vector-isa-test.rhm`,
 `riscv/tests/csr-test.rhm`, `cores/rv5stage/tests/vector-ctrl-test.rhm`,
-and the `rv5stage-vector-control`,
-`rv5stage-vector-control-rv32`, and `rv5stage-vector-config` backend fixtures.
-The first two compose real decode/CSR state with independent RV32/RV64 SV
-checks. The last executes configuration, dependent scalar results, CSR reads,
+and the `rv5stage-vector-control` and `rv5stage-vector-config` backend fixtures.
+The first composes real RV64V decode and CSR state. The last executes
+configuration, dependent scalar results, CSR reads,
 branch squash, integer writes, macro-only `minstret`, VS Dirty, empty-body
 retirement, and illegal register groups through the real core/frontend. Its
 SV observer binds only to the reusable VRF's public write port, never storage.

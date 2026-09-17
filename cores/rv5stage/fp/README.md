@@ -70,7 +70,7 @@ and architectural completion/state updates, exposing operand execution ports.
 Scalar context, destination kind, and register number travel through execution
 only as an opaque wrapper-owned tag. Its external issue/completion interfaces
 are unchanged. The core instead connects the scalar adapter and the
-[experimental vector caller](../vector/README.md#shared-floating-point) to
+[vector caller](../vector/README.md#shared-floating-point) to
 one service with ordinary Flow arbitration and owner-tag routing. Scalar/vector
 movement bypasses that service and uses the reservation/write pair above.
 

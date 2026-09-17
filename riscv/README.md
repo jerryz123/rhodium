@@ -28,8 +28,9 @@ Contributors extending the model or catalogs should read
 
 ## Vector geometry
 
-[`isa/vector.rhm`](isa/vector.rhm) is a pure ELEN=64 geometry model, not a
-vector instruction catalog. `VectorLength` admits power-of-two VLEN values
+[`isa/vector.rhm`](isa/vector.rhm) is a pure ELEN=32/64 geometry model, not a
+vector instruction catalog. `VectorLengths` enumerates and `VectorLength`
+admits power-of-two VLEN values
 128..65536; `VectorConfig` describes supported decoded SEW/LMUL combinations,
 VLMAX, aligned register groups, deterministic `min(AVL, VLMAX)` length selection,
 element/chunk locations, and EEW-to-EMUL conversion. Fractional LMUL uses the
@@ -43,7 +44,15 @@ this geometry; architectural state and VS tracking remain core-owned.
 Its geometry follows
 [RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext).
 
-[`isa/v.rhm`](isa/v.rhm) provides an explicitly partial RVV 1.0 catalog:
+[`isa/vector-profile.rhm`](isa/vector-profile.rhm) defines the host
+`VectorProfile.None`, `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, and
+`V` choices. It derives each profile's implied Zve extension closure, ELEN,
+floating-point capabilities, and the `Zvl<N>b` extension for the selected
+VLEN. Concrete cores own the supported XLEN/FP combinations and physical
+implementation. Only `VectorProfile.V` represents the single-letter V
+extension or sets `misa.V`.
+
+[`isa/v.rhm`](isa/v.rhm) provides the complete RVV 1.0 `VectorV` catalog:
 the three `vset*` forms, same-width integer add/sub, logic, shifts,
 comparisons, min/max, and ordinary unit-stride `vle8/16/32/64.v` and
 `vse8/16/32/64.v`, plus strided `vlse8/16/32/64.v` and
@@ -131,9 +140,11 @@ its mask/data/destination overlap and restart restrictions remain core policy.
 five-bit format; VX forms identify their scalar register source explicitly.
 `VectorMemoryInstructions` includes mask-register transfers. Vector operands
 use `RegisterBank.Vector`, with
-named vector register, mask-enable, vtype, and AVL fields. The catalog is not
-a full V-extension claim. [`rtl/vector.rhdl`](rtl/vector.rhdl) materializes
-stateless vtype/VL selection for a core-owned configuration unit.
+named vector register, mask-enable, vtype, and AVL fields. `VectorV` is the
+complete V 1.0 instruction catalog; selecting a Zve or V architectural claim
+remains the concrete core profile's responsibility. [`rtl/vector.rhdl`](rtl/vector.rhdl)
+materializes stateless, profile-ELEN-aware vtype/VL selection for a core-owned
+configuration unit.
 
 ## Dependency boundary
 
@@ -247,7 +258,8 @@ pure host code or be materialized by the Rhodium adapter.
 | Module | Public catalog or configuration | Coverage |
 |---|---|---|
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
-| [`isa/v.rhm`](isa/v.rhm) | `VectorInitial`, vector configuration/integer/fixed-point/move/mask/reduction/memory catalogs, `VectorFloatingPoint*Instructions`, and vector multiply/divide catalogs | Partial RVV 1.0 catalog; see [vector geometry](#vector-geometry) |
+| [`isa/vector-profile.rhm`](isa/vector-profile.rhm) | `VectorProfile.None`, the five Zve profiles, and `VectorProfile.V` | Host selection and implication closure for standard vector extensions |
+| [`isa/v.rhm`](isa/v.rhm) | `VectorV`, vector configuration/integer/fixed-point/move/mask/reduction/memory catalogs, `VectorFloatingPoint*Instructions`, and vector multiply/divide catalogs | Standard V 1.0 catalog; see [vector geometry](#vector-geometry) |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

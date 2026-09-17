@@ -24,6 +24,7 @@ import:
   "fp-ctrl.rhdl" open
   "vector-ctrl.rhdl" open
   "../../../riscv/isa/v.rhm" as vector_isa
+  "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/f.rhm" as f
@@ -236,73 +237,76 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: HintOperation):
 def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, HintOperation.Pause)]
 
 // Scalar effects for vector rows live only at this composition boundary.
-def VectorCoreControlCases = for List (instruction in vector_isa.VectorInitialInstructions):
-  def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
-  def memory = vector_isa.VectorMemoryInstructions.contains(instruction)
-  def store = vector_isa.VectorStoreInstructions.contains(instruction)
-  def strided = vector_isa.VectorStridedMemoryInstructions.contains(instruction) || vector_isa.VectorStridedSegmentMemoryInstructions.contains(instruction)
-  def scalar_destination = [vector_isa.VMV_X_S, vector_isa.VCPOP_M, vector_isa.VFIRST_M].contains(instruction)
-  def memory_width = cond
-  | [vector_isa.VLE8_V, vector_isa.VSE8_V, vector_isa.VLSE8_V, vector_isa.VSSE8_V].contains(instruction): MemoryWidth.Byte
-  | [vector_isa.VLE16_V, vector_isa.VSE16_V, vector_isa.VLSE16_V, vector_isa.VSSE16_V].contains(instruction): MemoryWidth.Half
-  | [vector_isa.VLE32_V, vector_isa.VSE32_V, vector_isa.VLSE32_V, vector_isa.VSSE32_V].contains(instruction): MemoryWidth.Word
-  | ~else: MemoryWidth.Double
-  def sources = instruction.operands.filter(~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer)
-  def input = instruction_pattern(instruction)
-  def operand_control:
-    if memory
-    | partial_pattern(OperandControl()):
-        uses_rs1: Bool(#true)
-        uses_rs2: Bool(strided)
-        left: OperandASelect.Register
-        right: OperandBSelect.Immediate
-    | partial_pattern(OperandControl()):
-        uses_rs1: Bool(!sources.is_empty())
-        uses_rs2: Bool(instruction == vector_isa.VSETVL)
-  def memory_control:
-    cond
-    | !memory: inactive_memory_control
-    | store:
-        partial_pattern(MemoryControl()):
-          access: MemoryOperation.Store
-          width: memory_width
-    | ~else:
-        partial_pattern(MemoryControl()):
-          access: MemoryOperation.Load
-          width: memory_width
-          unsigned: Bool(#true)
-  def writeback_control:
-    cond
-    | configuration:
-        partial_pattern(WritebackControl()):
-          enable: Bool(#true)
-          source: WritebackSelect.Csr
-    | scalar_destination:
-        partial_pattern(WritebackControl()):
-          enable: Bool(#true)
-          source: WritebackSelect.Vector
-    | ~else: inactive_writeback_control
-  def system_control:
-    if configuration
-    | partial_pattern(SystemControl()):
-        csr: CsrOperation.None
-        action: SystemOperation.VectorConfig
-    | inactive_system_control
-  DecodeCase(
-    input,
-    partial_pattern(RV5StageControl()):
-      alu: if memory | scalar_address_alu | unused_scalar_alu
-      operand: operand_control
-      branch: inactive_branch_control
-      memory: memory_control
-      prefetch: CachePrefetchOperation.None
-      writeback: writeback_control
-      system: system_control
-      fence: inactive_fence_control
-      hint: HintOperation.None
-      floating_point_valid: Bool(#false)
-      vector: component_output(VectorControlCases, input)
-  )
+fun vector_core_control_cases(instructions :: List.of(InstructionSpec)):
+  for List (instruction in instructions):
+    def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
+    def memory = vector_isa.VectorMemoryInstructions.contains(instruction)
+    def store = vector_isa.VectorStoreInstructions.contains(instruction)
+    def strided = vector_isa.VectorStridedMemoryInstructions.contains(instruction) || vector_isa.VectorStridedSegmentMemoryInstructions.contains(instruction)
+    def scalar_destination = [vector_isa.VMV_X_S, vector_isa.VCPOP_M, vector_isa.VFIRST_M].contains(instruction)
+    def memory_width = cond
+    | [vector_isa.VLE8_V, vector_isa.VSE8_V, vector_isa.VLSE8_V, vector_isa.VSSE8_V].contains(instruction): MemoryWidth.Byte
+    | [vector_isa.VLE16_V, vector_isa.VSE16_V, vector_isa.VLSE16_V, vector_isa.VSSE16_V].contains(instruction): MemoryWidth.Half
+    | [vector_isa.VLE32_V, vector_isa.VSE32_V, vector_isa.VLSE32_V, vector_isa.VSSE32_V].contains(instruction): MemoryWidth.Word
+    | ~else: MemoryWidth.Double
+    def sources = instruction.operands.filter(~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer)
+    def input = instruction_pattern(instruction)
+    def operand_control:
+      if memory
+      | partial_pattern(OperandControl()):
+          uses_rs1: Bool(#true)
+          uses_rs2: Bool(strided)
+          left: OperandASelect.Register
+          right: OperandBSelect.Immediate
+      | partial_pattern(OperandControl()):
+          uses_rs1: Bool(!sources.is_empty())
+          uses_rs2: Bool(instruction == vector_isa.VSETVL)
+    def memory_control:
+      cond
+      | !memory: inactive_memory_control
+      | store:
+          partial_pattern(MemoryControl()):
+            access: MemoryOperation.Store
+            width: memory_width
+      | ~else:
+          partial_pattern(MemoryControl()):
+            access: MemoryOperation.Load
+            width: memory_width
+            unsigned: Bool(#true)
+    def writeback_control:
+      cond
+      | configuration:
+          partial_pattern(WritebackControl()):
+            enable: Bool(#true)
+            source: WritebackSelect.Csr
+      | scalar_destination:
+          partial_pattern(WritebackControl()):
+            enable: Bool(#true)
+            source: WritebackSelect.Vector
+      | ~else: inactive_writeback_control
+    def system_control:
+      if configuration
+      | partial_pattern(SystemControl()):
+          csr: CsrOperation.None
+          action: SystemOperation.VectorConfig
+      | inactive_system_control
+    DecodeCase(
+      input,
+      partial_pattern(RV5StageControl()):
+        alu: if memory | scalar_address_alu | unused_scalar_alu
+        operand: operand_control
+        branch: inactive_branch_control
+        memory: memory_control
+        prefetch: CachePrefetchOperation.None
+        writeback: writeback_control
+        system: system_control
+        fence: inactive_fence_control
+        hint: HintOperation.None
+        floating_point_valid: Bool(#false)
+        vector: component_output(VectorControlCases, input)
+    )
+def VectorCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions)
+def VectorIntegerCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions.filter(~keep: fun (instruction): !vector_isa.VectorFloatingPointInstructions.contains(instruction)))
 def ZihintntlCoreControlCases = [
   hint_control_case(NTL_P1, HintOperation.NtlP1),
   hint_control_case(NTL_PALL, HintOperation.NtlPall),
@@ -447,7 +451,7 @@ circuit RV5StageInstructionDecoder(
   ~zihintntl: zihintntl_enabled :: Boolean = #false,
   ~zicbom: zicbom_enabled :: Boolean = #false,
   ~zicboz: zicboz_enabled :: Boolean = #false,
-  ~experimental_vector: vector_enabled :: Boolean = #false
+  ~vector: vector_profile :: VectorProfile = DefaultVectorProfile
 ):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   input instruction: Bits(32)
@@ -465,12 +469,14 @@ circuit RV5StageInstructionDecoder(
         rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled),
         rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled)
       )
-  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases ++ (if vector_enabled | VectorCoreControlCases | []))(instruction)
+  def vector_cases = if !vector_profile_enabled(vector_profile) | [] | (if vector_profile_supports_fp32(vector_profile) | VectorCoreControlCases | VectorIntegerCoreControlCases)
+  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases ++ vector_cases)(instruction)
   valid <== decoded.valid
   control <== decoded.value
 
 export:
   VectorCoreControlCases
+  VectorIntegerCoreControlCases
   ZihintntlCoreControlCases
   ZihintpauseCoreControlCases
   ZawrsCoreControlCases
