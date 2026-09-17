@@ -4,6 +4,7 @@
 
 import:
   "../../rhodium/core/main.rhm" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
   "../main.rhdl" as hardfloat
 def raw_type = hardfloat.RawFloat(5, 11)
 def flags_type = hardfloat.ExceptionFlags()
@@ -25,6 +26,7 @@ check:
   hardfloat.FloatFormat(3, 6) ~throws "significand width exceeds the HardFloat format limit"
   hardfloat.RoundingMode.packed_width() ~is 3
   hardfloat.TininessMode.packed_width() ~is 1
+  hardfloat.Estimate7Operation.packed_width() ~is 1
   ieee_type.packed_width() ~is 16
   recoded_type.packed_width() ~is 17
   type_equal(ieee_type, hardfloat.IEEEFloat(hardfloat.FloatFormat(5, 11))) ~is #true
@@ -36,3 +38,6 @@ check:
   flags_type.packed_width() ~is 5
   hardfloat.IntegerExceptionFlags().packed_width() ~is 3
   hardfloat.FloatClass.packed_width() ~is 10
+  embedded.run_elaboration(
+    fun (): hardfloat.Estimate7(hardfloat.FloatFormat(5, 7))
+  ) ~throws "at least seven fraction bits"

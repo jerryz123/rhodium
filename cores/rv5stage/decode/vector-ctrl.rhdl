@@ -16,6 +16,7 @@ import:
   "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
   lib("hardfloat/main.rhdl").MulAddOperation
   lib("hardfloat/main.rhdl").MinMaxOperation
+  lib("hardfloat/main.rhdl").Estimate7Operation
   lib("rhodium/std/decode.rhdl") open
 
 hardware_enum VectorConfigMode:
@@ -762,6 +763,7 @@ fun fp_unit(unit :: RV5StageFloatUnit,
             ~divide: divide :: RV5StageFloatDivideOperation = RV5StageFloatDivideOperation.Divide,
             ~sign: sign :: FloatSignOperation = FloatSignOperation.Copy,
             ~minmax: minmax :: MinMaxOperation = MinMaxOperation.MinimumNumber,
+            ~estimate: estimate :: Estimate7Operation = Estimate7Operation.Reciprocal,
             ~comparison: comparison :: RV5StageFloatComparison = RV5StageFloatComparison.Equal,
             ~signaling: signaling :: Boolean = #false,
             ~unsigned: unsigned :: Boolean = #false):
@@ -773,6 +775,7 @@ fun fp_unit(unit :: RV5StageFloatUnit,
     divide_operation: if unit == RV5StageFloatUnit.DivideSquareRoot | divide | pattern(RV5StageFloatDivideOperation, _)
     sign_operation: if unit == RV5StageFloatUnit.SignInject | sign | pattern(FloatSignOperation, _)
     minmax_operation: if unit == RV5StageFloatUnit.MinMax | minmax | pattern(MinMaxOperation, _)
+    estimate_operation: if unit == RV5StageFloatUnit.Estimate | estimate | pattern(Estimate7Operation, _)
     comparison: if unit == RV5StageFloatUnit.Compare | comparison | pattern(RV5StageFloatComparison, _)
     comparison_signaling: if unit == RV5StageFloatUnit.Compare | Bool(signaling) | pattern(Bool, _)
     integer_unsigned: if unit == RV5StageFloatUnit.Convert | Bool(unsigned) | pattern(Bool, _)
@@ -782,6 +785,9 @@ def VectorFloatingPointCases = [
   floating_point_case(VFMUL_VV, fp_unit(RV5StageFloatUnit.Multiply, ~rounding: #true)),
   floating_point_case(VFDIV_VV, fp_unit(RV5StageFloatUnit.DivideSquareRoot, ~rounding: #true)),
   floating_point_case(VFSQRT_V, fp_unit(RV5StageFloatUnit.DivideSquareRoot, ~rounding: #true, ~divide: RV5StageFloatDivideOperation.SquareRoot), ~uses_vs1: #false),
+  floating_point_case(VFRSQRT7_V, fp_unit(RV5StageFloatUnit.Estimate, ~estimate: Estimate7Operation.ReciprocalSquareRoot), ~uses_vs1: #false),
+  floating_point_case(VFREC7_V, fp_unit(RV5StageFloatUnit.Estimate, ~rounding: #true), ~uses_vs1: #false),
+  floating_point_case(VFCLASS_V, fp_unit(RV5StageFloatUnit.Classify), ~uses_vs1: #false, ~result: VectorFloatResult.Integer),
   floating_point_case(VFSGNJ_VV, fp_unit(RV5StageFloatUnit.SignInject)),
   floating_point_case(VFSGNJN_VV, fp_unit(RV5StageFloatUnit.SignInject, ~sign: FloatSignOperation.Negate)),
   floating_point_case(VFSGNJX_VV, fp_unit(RV5StageFloatUnit.SignInject, ~sign: FloatSignOperation.Xor)),

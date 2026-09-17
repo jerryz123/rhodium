@@ -83,6 +83,7 @@ Operand overlap, execution, and packed-mask policy remain core-owned.
 `VectorFloatingPointInstructions` contains same-width vector-vector and
 vector-floating-scalar add/subtract, multiply/divide, sign injection, min/max,
 comparisons, and fused multiply-add/subtract families, plus vector square root,
+classification, seven-bit reciprocal and reciprocal-square-root estimates,
 same-width and widening/narrowing signed/unsigned integer conversions,
 FP32/FP64 conversions, fixed-RTZ integer conversions, narrowing round-to-odd,
 all widening add/subtract, multiply, and fused-accumulate forms, and the six

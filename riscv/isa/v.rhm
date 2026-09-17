@@ -431,6 +431,9 @@ def VFSUB_VV = vector_arithmetic("VFSUB.VV", 0x02, VectorVVFormat, 1)
 def VFMUL_VV = vector_arithmetic("VFMUL.VV", 0x24, VectorVVFormat, 1)
 def VFDIV_VV = vector_arithmetic("VFDIV.VV", 0x20, VectorVVFormat, 1)
 def VFSQRT_V = InstructionSpec("VFSQRT.V", VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(1), funct6.constrain(0x13), vs1.constrain(0)])
+def VFRSQRT7_V = InstructionSpec("VFRSQRT7.V", VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(1), funct6.constrain(0x13), vs1.constrain(4)])
+def VFREC7_V = InstructionSpec("VFREC7.V", VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(1), funct6.constrain(0x13), vs1.constrain(5)])
+def VFCLASS_V = InstructionSpec("VFCLASS.V", VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(1), funct6.constrain(0x13), vs1.constrain(16)])
 def VFSGNJ_VV = vector_arithmetic("VFSGNJ.VV", 0x08, VectorVVFormat, 1)
 def VFSGNJN_VV = vector_arithmetic("VFSGNJN.VV", 0x09, VectorVVFormat, 1)
 def VFSGNJX_VV = vector_arithmetic("VFSGNJX.VV", 0x0a, VectorVVFormat, 1)
@@ -527,6 +530,8 @@ def VectorWideningFloatingPointMultiplyInstructions = [VFWMUL_VV, VFWMUL_VF]
 def VectorWideningFloatingPointFusedMultiplyAddInstructions = [VFWMACC_VV, VFWMACC_VF, VFWNMACC_VV, VFWNMACC_VF, VFWMSAC_VV, VFWMSAC_VF, VFWNMSAC_VV, VFWNMSAC_VF]
 def VectorFloatingPointAddSubtractInstructions = [VFADD_VV, VFSUB_VV, VFADD_VF, VFSUB_VF, VFRSUB_VF] ++ VectorWideningFloatingPointAddSubtractInstructions
 def VectorFloatingPointMultiplyDivideInstructions = [VFMUL_VV, VFDIV_VV, VFSQRT_V, VFMUL_VF, VFDIV_VF, VFRDIV_VF] ++ VectorWideningFloatingPointMultiplyInstructions
+def VectorFloatingPointEstimateInstructions = [VFRSQRT7_V, VFREC7_V]
+def VectorFloatingPointClassifyInstructions = [VFCLASS_V]
 def VectorFloatingPointSignInjectInstructions = [VFSGNJ_VV, VFSGNJN_VV, VFSGNJX_VV, VFSGNJ_VF, VFSGNJN_VF, VFSGNJX_VF]
 def VectorFloatingPointMinMaxInstructions = [VFMIN_VV, VFMAX_VV, VFMIN_VF, VFMAX_VF]
 def VectorFloatingPointCompareInstructions = [VMFEQ_VV, VMFNE_VV, VMFLT_VV, VMFLE_VV, VMFEQ_VF, VMFNE_VF, VMFLT_VF, VMFLE_VF, VMFGT_VF, VMFGE_VF]
@@ -535,7 +540,7 @@ def VectorSameWidthFloatingPointReductionInstructions = [VFREDUSUM_VS, VFREDOSUM
 def VectorWideningFloatingPointReductionInstructions = [VFWREDUSUM_VS, VFWREDOSUM_VS]
 def VectorFloatingPointReductionInstructions = VectorSameWidthFloatingPointReductionInstructions ++ VectorWideningFloatingPointReductionInstructions
 def VectorFloatingPointConversionInstructions = [VFCVT_XU_F_V, VFCVT_X_F_V, VFCVT_F_XU_V, VFCVT_F_X_V, VFCVT_RTZ_XU_F_V, VFCVT_RTZ_X_F_V, VFWCVT_XU_F_V, VFWCVT_X_F_V, VFWCVT_F_XU_V, VFWCVT_F_X_V, VFWCVT_F_F_V, VFWCVT_RTZ_XU_F_V, VFWCVT_RTZ_X_F_V, VFNCVT_XU_F_W, VFNCVT_X_F_W, VFNCVT_F_XU_W, VFNCVT_F_X_W, VFNCVT_F_F_W, VFNCVT_ROD_F_F_W, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]
-def VectorFloatingPointInstructions = VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions ++ VectorFloatingPointSignInjectInstructions ++ VectorFloatingPointMinMaxInstructions ++ VectorFloatingPointCompareInstructions ++ VectorFloatingPointFusedMultiplyAddInstructions ++ VectorFloatingPointReductionInstructions ++ VectorFloatingPointConversionInstructions ++ VectorFloatingPointSlideInstructions ++ VectorFloatingPointMoveInstructions
+def VectorFloatingPointInstructions = VectorFloatingPointAddSubtractInstructions ++ VectorFloatingPointMultiplyDivideInstructions ++ VectorFloatingPointEstimateInstructions ++ VectorFloatingPointClassifyInstructions ++ VectorFloatingPointSignInjectInstructions ++ VectorFloatingPointMinMaxInstructions ++ VectorFloatingPointCompareInstructions ++ VectorFloatingPointFusedMultiplyAddInstructions ++ VectorFloatingPointReductionInstructions ++ VectorFloatingPointConversionInstructions ++ VectorFloatingPointSlideInstructions ++ VectorFloatingPointMoveInstructions
 // Same-width OPMVV/OPMVX from https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_v.
 def VDIVU_VV = vector_arithmetic("VDIVU.VV", 32, VectorVVFormat, 2)
 def VDIVU_VX = vector_arithmetic("VDIVU.VX", 32, VectorVXFormat, 6)
@@ -742,6 +747,9 @@ export:
   VFMUL_VV
   VFDIV_VV
   VFSQRT_V
+  VFRSQRT7_V
+  VFREC7_V
+  VFCLASS_V
   VFSGNJ_VV
   VFSGNJN_VV
   VFSGNJX_VV
@@ -834,6 +842,8 @@ export:
   VectorWideningFloatingPointFusedMultiplyAddInstructions
   VectorFloatingPointAddSubtractInstructions
   VectorFloatingPointMultiplyDivideInstructions
+  VectorFloatingPointEstimateInstructions
+  VectorFloatingPointClassifyInstructions
   VectorFloatingPointSignInjectInstructions
   VectorFloatingPointMinMaxInstructions
   VectorFloatingPointCompareInstructions

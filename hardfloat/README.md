@@ -12,6 +12,11 @@ the derived algorithms. See [`LICENSE.md`](LICENSE.md) for the applicable
 upstream BSD-style licenses. This project is not endorsed by the University
 of California, SiFive, or the upstream contributors.
 
+`Estimate7` is a supplemental component derived from Spike's SoftFloat
+implementation at commit
+[`d68db5ba0c3069665684e8c3efbdf1262d9a5753`](https://github.com/riscv-software-src/riscv-isa-sim/commit/d68db5ba0c3069665684e8c3efbdf1262d9a5753),
+with its separate BSD notice preserved in [`LICENSE.md`](LICENSE.md).
+
 The port is ordinary Rhodium: it elaborates into the public core IR and lowers
 through the existing CIRCT backend. It neither adds floating-point operations
 to Rhodium core nor imports Chisel or wraps generated Verilog.
@@ -38,6 +43,7 @@ Then choose a path by task:
 | Convert floating point to a saturating or modulo integer | `RecFNToInteger(format, integer_width)` or `RecFNToIntegerModulo(format, integer_width)` |
 | Widen or narrow between floating-point formats | `RecFNToRecFN(input_format, output_format)` |
 | Compare or select an IEEE minimum/maximum variant | `CompareRecFN` or `MinMaxRecFN` |
+| Compute a seven-bit reciprocal or reciprocal-square-root estimate | `Estimate7(format)` |
 | Round to an integral value in the same format | `RoundToIntegralRecFN` |
 | Add/subtract, multiply, or fuse multiply-add | `AddRecFN`, `MulRecFN`, or `MulAddRecFN` |
 | Divide or take square root for any supported format | `DivSqrtRecFN(format, options)` |
@@ -93,10 +99,11 @@ A `FloatFormat` is accepted when:
 - `significand_width >= 3`; and
 - `significand_width <= 2^(exponent_width - 2) + 3`.
 
-These are the upstream HardFloat parameter limits. All generic representation,
+These are the upstream HardFloat parameter limits. Generic representation,
 conversion, comparison, arithmetic, rounding, and iterative divide/square-root
-components accept any format in this domain. BF16 retains IEEE-style subnormal
-support, as in upstream HardFloat.
+components accept any format in this domain. `Estimate7` additionally requires
+at least seven fraction bits (`significand_width >= 8`). BF16 retains IEEE-style
+subnormal support, as in upstream HardFloat.
 
 | Name | Exponent | Significand | IEEE width | Recoded width |
 |---|---:|---:|---:|---:|
@@ -145,6 +152,7 @@ flowchart TD
 | `CompareRecFN` | Any supported | `a`, `b`, `signaling` -> `lt`, `eq`, `gt`, flags | Combinational | Ordered comparison and signaling/quiet NaN policy |
 | `MinMaxRecFN` | Any supported | `a`, `b`, `MinMaxOperation` -> result, flags | Combinational | IEEE minimum, maximum, minimumNumber, or maximumNumber selection |
 | `RoundToIntegralRecFN` | Any supported | value, rounding mode, inexact-enable -> same-format result, flags | Combinational | Round without changing the floating-point format |
+| `Estimate7` | At least seven fraction bits | IEEE value, `Estimate7Operation`, rounding mode -> IEEE result, flags | Combinational | RISC-V-compatible `rec7` and `rsqrt7` estimates |
 | `AddRecFN` | Any supported | `subtract`, `a`, `b`, rounding, tininess -> result, flags | Combinational | Addition or subtraction |
 | `MulRecFN` | Any supported | `a`, `b`, rounding, tininess -> result, flags | Combinational | Rounded multiplication |
 | `MulAddRecFN` | Any supported | operation, `a`, `b`, `c`, rounding, tininess -> result, flags | Combinational, one final rounding | IEEE-style fused multiply-add/subtract variants |
@@ -167,6 +175,13 @@ protocol event rather than assuming one constant latency.
 one rounding step. `FloatClass` is a ten-bit one-hot result.
 `MultiplyAddPipelineUsage` names four independently occupied stages and is not
 one-hot.
+
+`Estimate7Operation` selects reciprocal or reciprocal-square-root estimation.
+The lookup and exceptional-value behavior follows the RISC-V seven-bit estimate
+algorithms. Reciprocal overflow honors the supplied rounding mode; ordinary
+estimate results do not round. The component consumes and produces IEEE images
+because the architectural algorithm is defined directly over exponent and
+fraction fields.
 
 ### Sequential divide/square-root protocols
 

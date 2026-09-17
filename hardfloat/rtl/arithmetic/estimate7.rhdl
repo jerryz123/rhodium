@@ -1,0 +1,150 @@
+#lang rhodium
+// Computes the RISC-V-compatible seven-bit reciprocal and reciprocal-square-root estimates.
+// Derived from riscv-isa-sim/softfloat/fall_reciprocal.c at upstream commit d68db5ba0c3069665684e8c3efbdf1262d9a5753.
+// Copyright 2011-2016 The Regents of the University of California.
+// SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
+
+import:
+  "../types.rhdl" open
+  "../recode.rhdl" open
+  "../classify.rhdl" open
+  lib("rhodium/std/bits.rhdl").count_leading_zeros
+
+def ReciprocalEstimate7Table = [
+  127, 125, 123, 121, 119, 117, 116, 114,
+  112, 110, 109, 107, 105, 104, 102, 100,
+  99, 97, 96, 94, 93, 91, 90, 88,
+  87, 85, 84, 83, 81, 80, 79, 77,
+  76, 75, 74, 72, 71, 70, 69, 68,
+  66, 65, 64, 63, 62, 61, 60, 59,
+  58, 57, 56, 55, 54, 53, 52, 51,
+  50, 49, 48, 47, 46, 45, 44, 43,
+  42, 41, 40, 40, 39, 38, 37, 36,
+  35, 35, 34, 33, 32, 31, 31, 30,
+  29, 28, 28, 27, 26, 25, 25, 24,
+  23, 23, 22, 21, 21, 20, 19, 19,
+  18, 17, 17, 16, 15, 15, 14, 14,
+  13, 12, 12, 11, 11, 10, 9, 9,
+  8, 8, 7, 7, 6, 5, 5, 4,
+  4, 3, 3, 2, 2, 1, 1, 0
+]
+
+def ReciprocalSquareRootEstimate7Table = [
+  52, 51, 50, 48, 47, 46, 44, 43,
+  42, 41, 40, 39, 38, 36, 35, 34,
+  33, 32, 31, 30, 30, 29, 28, 27,
+  26, 25, 24, 23, 23, 22, 21, 20,
+  19, 19, 18, 17, 16, 16, 15, 14,
+  14, 13, 12, 12, 11, 10, 10, 9,
+  9, 8, 7, 7, 6, 6, 5, 4,
+  4, 3, 3, 2, 2, 1, 1, 0,
+  127, 125, 123, 121, 119, 118, 116, 114,
+  113, 111, 109, 108, 106, 105, 103, 102,
+  100, 99, 97, 96, 95, 93, 92, 91,
+  90, 88, 87, 86, 85, 84, 83, 82,
+  80, 79, 78, 77, 76, 75, 74, 73,
+  72, 71, 70, 70, 69, 68, 67, 66,
+  65, 64, 63, 63, 62, 61, 60, 59,
+  59, 58, 57, 56, 56, 55, 54, 53
+]
+
+circuit Estimate7(format :: FloatFormat):
+  def exponent_width = format.exponent_width
+  def fraction_width = format.significand_width - 1
+  unless fraction_width >= 7
+  | error(~who: #'Estimate7, "format must provide at least seven fraction bits")
+
+  input value: IEEEFloat(format)
+  input operation: Estimate7Operation
+  input rounding_mode: RoundingMode
+  output out: IEEEFloat(format)
+  output exception_flags: ExceptionFlags()
+
+  def packed = value.as_bits()
+  def sign = packed[format.ieee_width - 1].into(Bool)
+  def exponent = packed[fraction_width..(fraction_width + exponent_width)]
+  def fraction = packed[0..fraction_width]
+  def classes = value.to_recoded().classify()
+  def is_zero = classes.is_one_of(FloatClass.NegativeZero, FloatClass.PositiveZero)
+  def is_infinite = classes.is_one_of(FloatClass.NegativeInfinity, FloatClass.PositiveInfinity)
+  def is_nan = classes.is_one_of(FloatClass.SignalingNaN, FloatClass.QuietNaN)
+  def is_signaling_nan = classes === FloatClass.SignalingNaN
+  def subnormal = classes.is_one_of(FloatClass.NegativeSubnormal, FloatClass.PositiveSubnormal)
+  def negative_nonzero = sign & !is_zero & !is_nan
+  def distance = fraction.count_leading_zeros()
+  def normalized_fraction = mux(
+    subnormal,
+    fraction << (distance + bits(1, distance.type.packed_width())),
+    fraction
+  )
+  def signed_width = exponent_width + 2
+  def normalized_exponent :: SInt(signed_width) = mux(
+    subnormal,
+    -distance.zext(signed_width).into(SInt(signed_width)),
+    exponent.zext(signed_width).into(SInt(signed_width))
+  )
+  def exponent_ones = bits((1 << exponent_width) - 1, exponent_width)
+  def zero_fraction = bits(0, fraction_width)
+  def canonical_nan = canonical_recoded_nan(format).to_ieee()
+  def signed_zero = concat(sign, bits(0, exponent_width), zero_fraction).into(IEEEFloat(format))
+  def signed_infinity = concat(sign, exponent_ones, zero_fraction).into(IEEEFloat(format))
+
+  def reciprocal_table = vec(ReciprocalEstimate7Table.map(fun (entry): bits(entry, 7)))
+  def reciprocal_index = normalized_fraction[(fraction_width - 7)..fraction_width]
+  def reciprocal_lookup = reciprocal_table[reciprocal_index]
+  def reciprocal_fraction_base = reciprocal_lookup.zext(fraction_width) << (fraction_width - 7)
+  def reciprocal_exponent :: SInt(signed_width) = sint((1 << exponent_width) - 3, signed_width) - normalized_exponent
+  def reciprocal_fraction = mux(
+    reciprocal_exponent === sint(-1, signed_width),
+    (reciprocal_fraction_base >> 2) ||| bits(1 << (fraction_width - 2), fraction_width),
+    mux(reciprocal_exponent === sint(0, signed_width),
+        (reciprocal_fraction_base >> 1) ||| bits(1 << (fraction_width - 1), fraction_width),
+        reciprocal_fraction_base)
+  )
+  def reciprocal_exponent_bits = mux(
+    reciprocal_exponent <= sint(0, signed_width),
+    bits(0, exponent_width),
+    reciprocal_exponent.as_bits()[0..exponent_width]
+  )
+  def reciprocal_ordinary = concat(sign, reciprocal_exponent_bits, reciprocal_fraction).into(IEEEFloat(format))
+  def reciprocal_abnormal = subnormal & (distance > bits(1, distance.type.packed_width()))
+  def reciprocal_rounds_to_maximum = (rounding_mode === RoundingMode.MinMagnitude) ||| (
+    (rounding_mode === RoundingMode.Minimum) & !sign
+  ) ||| ((rounding_mode === RoundingMode.Maximum) & sign)
+  def maximum_finite = concat(sign, bits((1 << exponent_width) - 2, exponent_width), bits((1 << fraction_width) - 1, fraction_width)).into(IEEEFloat(format))
+  def reciprocal_overflow = mux(reciprocal_rounds_to_maximum, maximum_finite, signed_infinity)
+  def reciprocal_result = mux(
+    is_nan,
+    canonical_nan,
+    mux(is_infinite,
+        signed_zero,
+        mux(is_zero,
+            signed_infinity,
+            mux(reciprocal_abnormal, reciprocal_overflow, reciprocal_ordinary)))
+  )
+
+  def square_root_table = vec(ReciprocalSquareRootEstimate7Table.map(fun (entry): bits(entry, 7)))
+  def square_root_index = concat(normalized_exponent.as_bits()[0], normalized_fraction[(fraction_width - 6)..fraction_width])
+  def square_root_fraction = square_root_table[square_root_index].zext(fraction_width) << (fraction_width - 7)
+  def square_root_exponent :: SInt(signed_width) = (sint(3 * ((1 << (exponent_width - 1)) - 1), signed_width) - sint(1, signed_width) - normalized_exponent) >> 1
+  def square_root_ordinary = concat(bits(0, 1), square_root_exponent.as_bits()[0..exponent_width], square_root_fraction).into(IEEEFloat(format))
+  def square_root_result = mux(
+    is_nan ||| negative_nonzero,
+    canonical_nan,
+    mux(is_infinite, signed_zero, mux(is_zero, signed_infinity, square_root_ordinary))
+  )
+  def reciprocal = operation === Estimate7Operation.Reciprocal
+  def invalid = is_signaling_nan ||| (!reciprocal & negative_nonzero)
+  def infinite = is_zero
+  def overflow = reciprocal & reciprocal_abnormal
+
+  out <== mux(reciprocal, reciprocal_result, square_root_result)
+  exception_flags <== ExceptionFlags():
+    invalid: invalid
+    infinite: infinite
+    overflow: overflow
+    underflow: Bool(#false)
+    inexact: overflow
+
+export:
+  Estimate7

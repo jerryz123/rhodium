@@ -17,6 +17,7 @@ import:
   "rtl/arithmetic/compare.rhdl" open
   "rtl/arithmetic/min-max.rhdl" open
   "rtl/arithmetic/round-to-integral.rhdl" open
+  "rtl/arithmetic/estimate7.rhdl" open
   "rtl/arithmetic/add.rhdl" open
   "rtl/arithmetic/multiply.rhdl" open
   "rtl/arithmetic/multiply-add.rhdl" open
@@ -32,6 +33,7 @@ export:
   TininessMode
   MulAddOperation
   MinMaxOperation
+  Estimate7Operation
   FloatClass
   ExceptionFlags
   IntegerExceptionFlags
@@ -56,6 +58,7 @@ export:
   CompareRecFN
   MinMaxRecFN
   RoundToIntegralRecFN
+  Estimate7
   AddRecFN
   MulRecFN
   MulAddRecFN

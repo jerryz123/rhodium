@@ -94,6 +94,10 @@ hardware_enum MinMaxOperation(~width: 2):
   MinimumNumber = 2
   MaximumNumber = 3
 
+hardware_enum Estimate7Operation:
+  Reciprocal
+  ReciprocalSquareRoot
+
 hardware_enum FloatClass(~encoding: one_hot):
   NegativeInfinity
   NegativeNormal
@@ -151,6 +155,7 @@ export:
   TininessMode
   MulAddOperation
   MinMaxOperation
+  Estimate7Operation
   FloatClass
   ExceptionFlags
   IntegerExceptionFlags

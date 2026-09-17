@@ -16,6 +16,7 @@ import:
   "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
   lib("hardfloat/main.rhdl").MulAddOperation
   lib("hardfloat/main.rhdl").MinMaxOperation
+  lib("hardfloat/main.rhdl").Estimate7Operation
 
 fun field(record, name):
   def mutable offset = record.literal_type().packed_width()
@@ -348,6 +349,12 @@ for (instruction in VectorFloatingPointReductionInstructions):
 check:
   value(field(control(VFSUB_VV), "fp_execution"), "add_operation") ~is RV5StageFloatAddOperation.Subtract.packed_value()
   value(field(control(VFSQRT_V), "fp_execution"), "divide_operation") ~is RV5StageFloatDivideOperation.SquareRoot.packed_value()
+  value(field(control(VFRSQRT7_V), "fp_execution"), "unit") ~is RV5StageFloatUnit.Estimate.packed_value()
+  value(field(control(VFRSQRT7_V), "fp_execution"), "estimate_operation") ~is Estimate7Operation.ReciprocalSquareRoot.packed_value()
+  value(field(control(VFREC7_V), "fp_execution"), "unit") ~is RV5StageFloatUnit.Estimate.packed_value()
+  value(field(control(VFREC7_V), "fp_execution"), "uses_rounding_mode") ~is 1
+  value(field(control(VFCLASS_V), "fp_execution"), "unit") ~is RV5StageFloatUnit.Classify.packed_value()
+  value(control(VFCLASS_V), "fp_result") ~is VectorFloatResult.Integer.packed_value()
   value(field(control(VMFNE_VV), "fp_execution"), "comparison") ~is RV5StageFloatComparison.NotEqual.packed_value()
   value(field(control(VMFLT_VV), "fp_execution"), "comparison_signaling") ~is 1
   value(control(VFRSUB_VF), "swap_operands") ~is 1

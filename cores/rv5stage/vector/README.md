@@ -372,8 +372,7 @@ The rotation operates as E64 while write enables retain architectural SEW.
 The packed schedule supplies 8/4/2/1 elements per beat, with one result per
 cycle in an unstalled stream after setup. WB alone authorizes writes. Retry
 resumes at the authorized destination frontier, and cancellation suppresses
-only speculative writes. FP scalar-insertion slides remain outside this cut;
-V remains unadvertised.
+only speculative writes. V remains unadvertised.
 
 ## Register gather
 
@@ -472,6 +471,7 @@ RV32 vector mul/div and V advertisement remain outside this cut.
 
 The experimental RV64D path executes same-width vector-vector and
 vector-floating-scalar add/subtract, multiply/divide, sign injection, min/max,
+classification, reciprocal estimates, reciprocal-square-root estimates,
 comparisons, and all eight fused multiply-add/subtract forms at SEW32 or SEW64;
 vector-vector also includes square root. Same-width conversions cover signed
 and unsigned integer-to-float, dynamic-rounding float-to-integer, and fixed-RTZ

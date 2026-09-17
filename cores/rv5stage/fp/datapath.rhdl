@@ -167,6 +167,11 @@ circuit RV5StageFpFormatDatapath(
   minmax.b <== right_recoded
   minmax.operation <== control.minmax_operation
 
+  inst estimate(Estimate7(format))
+  estimate.value <== left
+  estimate.operation <== control.estimate_operation
+  estimate.rounding_mode <== request.rounding_mode
+
   def ZfaModule = if zfa_enabled | RV5StageZfaFormatDatapath(format, ~modulo: zfa_modulo_enabled) | RV5StageDisabledZfaFormatDatapath(format)
   inst zfa(ZfaModule)
   zfa.value <== left_recoded
@@ -230,6 +235,7 @@ circuit RV5StageFpFormatDatapath(
       [RV5StageFloatUnit.SignInject, sign_value],
       [RV5StageFloatUnit.MinMax,
        riscv_canonicalize_nan(format, minmax.out.to_ieee())],
+      [RV5StageFloatUnit.Estimate, estimate.out],
       [RV5StageFloatUnit.Convert, converted_fp],
       [RV5StageFloatUnit.Move, fp_move_value],
       [RV5StageFloatUnit.Immediate, zfa.immediate],
@@ -260,6 +266,8 @@ circuit RV5StageFpFormatDatapath(
        riscv_exception_flags(multiply.exception_flags)],
       [RV5StageFloatUnit.MinMax,
        riscv_exception_flags(minmax.exception_flags)],
+      [RV5StageFloatUnit.Estimate,
+       riscv_exception_flags(estimate.exception_flags)],
       [RV5StageFloatUnit.Compare,
        riscv_exception_flags(compare.exception_flags)],
       [RV5StageFloatUnit.Convert,
@@ -275,6 +283,7 @@ circuit RV5StageFpFormatDatapath(
     RV5StageFloatUnit.Add,
     RV5StageFloatUnit.Multiply,
     RV5StageFloatUnit.MinMax,
+    RV5StageFloatUnit.Estimate,
     RV5StageFloatUnit.Compare,
     RV5StageFloatUnit.Convert,
     RV5StageFloatUnit.RoundToIntegral,

@@ -7,6 +7,9 @@ module hardfloat_numeric_tb;
   logic [15:0] a;
   logic [15:0] b;
   logic [63:0] wide_value;
+  logic [31:0] estimate32_value;
+  logic [63:0] estimate64_value;
+  logic estimate_operation;
   logic [1:0] min_max_operation;
   logic [2:0] rounding_mode;
   logic raise_inexact;
@@ -23,11 +26,18 @@ module hardfloat_numeric_tb;
   logic [2:0] wide_modulo_flags;
   logic [63:0] wide_integral;
   logic [4:0] wide_integral_flags;
+  logic [31:0] estimate32;
+  logic [4:0] estimate32_flags;
+  logic [63:0] estimate64;
+  logic [4:0] estimate64_flags;
 
   HardFloatNumeric dut (
     .a(a),
     .b(b),
     .wide_value(wide_value),
+    .estimate32_value(estimate32_value),
+    .estimate64_value(estimate64_value),
+    .estimate_operation(estimate_operation),
     .min_max_operation(min_max_operation),
     .rounding_mode(rounding_mode),
     .raise_inexact(raise_inexact),
@@ -43,7 +53,11 @@ module hardfloat_numeric_tb;
     .wide_modulo_integer(wide_modulo_integer),
     .wide_modulo_flags(wide_modulo_flags),
     .wide_integral(wide_integral),
-    .wide_integral_flags(wide_integral_flags)
+    .wide_integral_flags(wide_integral_flags),
+    .estimate32(estimate32),
+    .estimate32_flags(estimate32_flags),
+    .estimate64(estimate64),
+    .estimate64_flags(estimate64_flags)
   );
 
   function automatic logic f16_nan(input logic [15:0] value);
@@ -280,6 +294,40 @@ module hardfloat_numeric_tb;
     end
   endtask
 
+  task automatic check_estimate32(
+    input logic [31:0] value,
+    input logic operation,
+    input logic [2:0] mode,
+    input logic [31:0] expected_value,
+    input logic [4:0] expected_flags
+  );
+    begin
+      estimate32_value = value;
+      estimate_operation = operation;
+      rounding_mode = mode;
+      #1;
+      if ((estimate32 !== expected_value) || (estimate32_flags !== expected_flags))
+        $fatal(1, "binary32 estimate mismatch: input=%h operation=%b mode=%h output=%h flags=%h expected=%h/%h", value, operation, mode, estimate32, estimate32_flags, expected_value, expected_flags);
+    end
+  endtask
+
+  task automatic check_estimate64(
+    input logic [63:0] value,
+    input logic operation,
+    input logic [2:0] mode,
+    input logic [63:0] expected_value,
+    input logic [4:0] expected_flags
+  );
+    begin
+      estimate64_value = value;
+      estimate_operation = operation;
+      rounding_mode = mode;
+      #1;
+      if ((estimate64 !== expected_value) || (estimate64_flags !== expected_flags))
+        $fatal(1, "binary64 estimate mismatch: input=%h operation=%b mode=%h output=%h flags=%h expected=%h/%h", value, operation, mode, estimate64, estimate64_flags, expected_value, expected_flags);
+    end
+  endtask
+
   initial begin
     a = 16'h0000;
     b = 16'h0000;
@@ -288,6 +336,27 @@ module hardfloat_numeric_tb;
     raise_inexact = 1'b1;
     signed_output = 1'b1;
     wide_value = 64'h0000000000000000;
+    estimate32_value = 32'h00000000;
+    estimate64_value = 64'h0000000000000000;
+    estimate_operation = 1'b0;
+
+    check_estimate32(32'h00718abc, 1'b0, 3'b000, 32'h7e900000, 5'b00000);
+    check_estimate32(32'h7f765432, 1'b0, 3'b000, 32'h00214000, 5'b00000);
+    check_estimate32(32'h00718abc, 1'b1, 3'b000, 32'h5f080000, 5'b00000);
+    check_estimate32(32'h7f765432, 1'b1, 3'b000, 32'h1f820000, 5'b00000);
+    check_estimate32(32'h00000000, 1'b0, 3'b000, 32'h7f800000, 5'b01000);
+    check_estimate32(32'h80000000, 1'b1, 3'b000, 32'hff800000, 5'b01000);
+    check_estimate32(32'h7f800000, 1'b0, 3'b000, 32'h00000000, 5'b00000);
+    check_estimate32(32'hff800000, 1'b1, 3'b000, 32'h7fc00000, 5'b10000);
+    check_estimate32(32'h7fc00001, 1'b0, 3'b000, 32'h7fc00000, 5'b00000);
+    check_estimate32(32'h7f800001, 1'b1, 3'b000, 32'h7fc00000, 5'b10000);
+    check_estimate32(32'h00000001, 1'b0, 3'b001, 32'h7f7fffff, 5'b00101);
+    check_estimate32(32'h80000001, 1'b0, 3'b011, 32'hff7fffff, 5'b00101);
+    check_estimate32(32'h00000001, 1'b0, 3'b000, 32'h7f800000, 5'b00101);
+
+    check_estimate64(64'h3ff0000000000000, 1'b0, 3'b000, 64'h3fefe00000000000, 5'b00000);
+    check_estimate64(64'h4000000000000000, 1'b1, 3'b000, 64'h3fe6800000000000, 5'b00000);
+    check_estimate64(64'hbff0000000000000, 1'b1, 3'b000, 64'h7ff8000000000000, 5'b10000);
 
     check_min_max_range(16'h3c00);
     check_min_max_range(16'h0000);

@@ -6,6 +6,7 @@ import:
   "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
   lib("hardfloat/main.rhdl").MulAddOperation
   lib("hardfloat/main.rhdl").MinMaxOperation
+  lib("hardfloat/main.rhdl").Estimate7Operation
 
 hardware_enum RV5StageFloatPrecision:
   Half
@@ -24,6 +25,7 @@ hardware_enum RV5StageFloatUnit:
   Convert
   Move
   Classify
+  Estimate
   Immediate
   RoundToIntegral
   IntegerModulo
@@ -57,6 +59,7 @@ bundle RV5StageFloatExecutionControl():
   divide_operation: RV5StageFloatDivideOperation
   sign_operation: FloatSignOperation
   minmax_operation: MinMaxOperation
+  estimate_operation: Estimate7Operation
   comparison: RV5StageFloatComparison
   comparison_signaling: Bool
   round_raise_inexact: Bool

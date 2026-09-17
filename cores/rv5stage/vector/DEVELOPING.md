@@ -244,6 +244,8 @@ test-only RV32 initialization transport, not an RV32 memory-ISA claim), fold
 elements with an independent model, and cover SEW/LMUL, masks, aliases, tails,
 empty bodies, issue stalls, initial/midstream retry, and partial cancellation.
 The full-core `rv5stage-vector-fp` program covers all six FP reductions,
+unary classification and seven-bit reciprocal/reciprocal-square-root estimates,
+their active-element exception behavior, masking, restart, replay, and squash,
 same-width and widening folds, masks, empty vectors, exact seed retention, and
 per-fold exception accumulation. It also covers the six scalar/vector FP
 movement forms, merge masks, slide boundaries, invalid source NaN boxes, raw

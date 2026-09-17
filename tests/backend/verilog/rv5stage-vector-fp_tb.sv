@@ -437,9 +437,43 @@ module rv5stage_vector_fp_tb;
       expect_store('h27b8 + destination*16, 'h40400000, 2);
       expect_store('h27bc + destination*16, 'h40800000, 2);
     end
+    // Unary FP classification and estimates share the fixed-latency FP
+    // service. Special values contribute flags only for active elements.
+    memory_words[67] = 'hbf80000000000000; memory_words[68] = 'h7fc000007f800000;
+    vset(2, 4); vload(8, 'h1218, 2); vec('h13, 10, 8, 16); vstore(10, 'h2800, 2);
+    expect_store('h2800, 'h00000010, 2); expect_store('h2804, 'h00000002, 2);
+    expect_store('h2808, 'h00000080, 2); expect_store('h280c, 'h00000200, 2);
+    memory_words[69] = 'h7f76543200718abc; memory_words[70] = 'h7f80000100000000;
+    emit('h00105073); vload(8, 'h1228, 2); vec('h13, 11, 8, 5); vstore(11, 'h2810, 2);
+    expect_store('h2810, 'h7e900000, 2); expect_store('h2814, 'h00214000, 2);
+    expect_store('h2818, 'h7f800000, 2); expect_store('h281c, 'h7fc00000, 2);
+    signature('h001, 'h2820, 24); emit('h00105073);
+    memory_words[71] = 'h7f76543200718abc; memory_words[72] = 'h7f800000bf800000;
+    vload(8, 'h1238, 2); vec('h13, 12, 8, 4); vstore(12, 'h2830, 2);
+    expect_store('h2830, 'h5f080000, 2); expect_store('h2834, 'h1f820000, 2);
+    expect_store('h2838, 'h7fc00000, 2); expect_store('h283c, 'h00000000, 2);
+    signature('h001, 'h2840, 16); emit('h00105073);
+    // Restart and mask suppression preserve old lanes and suppress a masked
+    // signaling NaN while the memory interface continues to reject once.
+    memory_words[73] = 'h2222222211111111; memory_words[74] = 'h4444444433333333;
+    memory_words[75] = 'h0000000000000001; memory_words[76] = 'h0000000100000001;
+    memory_words[77] = 'h7f80000100000000; memory_words[78] = 'h400000003f800000;
+    vload(13, 'h1248, 2); vload(9, 'h1258, 2); vload(8, 'h1268, 2);
+    vec('h1f, 0, 9, 0, 0, 3); emit('h0080d073); vec('h13, 13, 8, 5, 1);
+    vstore(13, 'h2850, 2);
+    expect_store('h2850, 'h11111111, 2); expect_store('h2854, 'h22222222, 2);
+    expect_store('h2858, 'h3f7f0000, 2); expect_store('h285c, 'h3eff0000, 2);
+    signature('h008, 'h2860, 0); signature('h001, 'h2868, 0);
+    // A younger, branch-squashed negative reciprocal-square-root neither
+    // writes its destination nor raises invalid.
+    emit('h0080006f); vec('h13, 14, 8, 4);
+    signature('h001, 'h2870, 0);
+    memory_words[79] = 'h3ff0000000000000; memory_words[80] = 'h4000000000000000;
+    vset(3, 2); vload(8, 'h1278, 3); vec('h13, 15, 8, 5); vstore(15, 'h2880, 3);
+    expect_store('h2880, 'h3fefe00000000000, 3); expect_store('h2888, 'h3fdfe00000000000, 3);
     // Empty macro clears vstart without executing or modifying flags.
     vset(2, 0); emit('h0083d073); vec(0, 10, 8, 8);
-    signature('h008, 'h20e0, 0); signature('h001, 'h20e8, 17);
+    signature('h008, 'h20e0, 0); signature('h001, 'h20e8, 0);
     program_words['hf00/4] = 'h342021f3; // expose unexpected mcause through the public memory port
     program_words['hf04/4] = 'h00303023;
     repeat (4) @(posedge clock);

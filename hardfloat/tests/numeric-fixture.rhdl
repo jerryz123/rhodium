@@ -10,6 +10,9 @@ circuit HardFloatNumeric():
   input a: IEEEFloat(format)
   input b: IEEEFloat(format)
   input wide_value: IEEEFloat(FloatFormat.F64)
+  input estimate32_value: IEEEFloat(FloatFormat.F32)
+  input estimate64_value: IEEEFloat(FloatFormat.F64)
+  input estimate_operation: Estimate7Operation
   input min_max_operation: MinMaxOperation
   input rounding_mode: RoundingMode
   input raise_inexact: Bool
@@ -26,6 +29,10 @@ circuit HardFloatNumeric():
   output wide_modulo_flags: IntegerExceptionFlags()
   output wide_integral: IEEEFloat(FloatFormat.F64)
   output wide_integral_flags: ExceptionFlags()
+  output estimate32: IEEEFloat(FloatFormat.F32)
+  output estimate32_flags: ExceptionFlags()
+  output estimate64: IEEEFloat(FloatFormat.F64)
+  output estimate64_flags: ExceptionFlags()
 
   def recoded_a = a.to_recoded()
   inst min_max_operation_unit(MinMaxRecFN(format))
@@ -69,6 +76,20 @@ circuit HardFloatNumeric():
   wide_round_to_integral.raise_inexact <== raise_inexact
   wide_integral <== wide_round_to_integral.out.to_ieee()
   wide_integral_flags <== wide_round_to_integral.exception_flags
+
+  inst estimate32_unit(Estimate7(FloatFormat.F32))
+  estimate32_unit.value <== estimate32_value
+  estimate32_unit.operation <== estimate_operation
+  estimate32_unit.rounding_mode <== rounding_mode
+  estimate32 <== estimate32_unit.out
+  estimate32_flags <== estimate32_unit.exception_flags
+
+  inst estimate64_unit(Estimate7(FloatFormat.F64))
+  estimate64_unit.value <== estimate64_value
+  estimate64_unit.operation <== estimate_operation
+  estimate64_unit.rounding_mode <== rounding_mode
+  estimate64 <== estimate64_unit.out
+  estimate64_flags <== estimate64_unit.exception_flags
 
 def design = elaborate(HardFloatNumeric())
 def minimum_integral_design = elaborate(RoundToIntegralRecFN(FloatFormat(3, 3)))

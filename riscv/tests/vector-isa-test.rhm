@@ -83,6 +83,9 @@ check:
   VFMUL_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x922190d7
   VFDIV_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x822190d7
   VFSQRT_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4e2010d7
+  VFRSQRT7_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4e2210d7
+  VFREC7_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4e2290d7
+  VFCLASS_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4e2810d7
   VFSGNJX_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x2a2190d7
   VFMAX_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x1a2190d7
   VMFNE_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x722190d7
@@ -135,7 +138,7 @@ check:
   VFNCVT_RTZ_XU_F_W.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2b10d7
   VFNCVT_RTZ_X_F_W.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2b90d7
   VectorVFFormat.operands.map(fun (operand): operand.bank) ~is [model.RegisterBank.Vector, model.RegisterBank.Vector, model.RegisterBank.FloatingPoint]
-  VectorFloatingPointInstructions.length() ~is 98
+  VectorFloatingPointInstructions.length() ~is 101
   VSETVLI.encode([model.rd.constrain(1), model.rs1.constrain(2), vtype11.constrain(0xd0)]) ~is 0x0d0170d7
   VSETIVLI.encode([model.rd.constrain(1), avl5.constrain(7), vtype10.constrain(0xd0)]) ~is 0xcd03f0d7
   VSETVL.encode([model.rd.constrain(1), model.rs1.constrain(2), model.rs2.constrain(3)]) ~is 0x803170d7

@@ -36,6 +36,7 @@ rounding-mode selection, CSR policy, register state, and retirement belong in
 | [`rtl/arithmetic/compare.rhdl`](rtl/arithmetic/compare.rhdl) | Ordered comparison and invalid-operation flagging |
 | [`rtl/arithmetic/min-max.rhdl`](rtl/arithmetic/min-max.rhdl) | IEEE minimum, maximum, minimumNumber, and maximumNumber variants |
 | [`rtl/arithmetic/round-to-integral.rhdl`](rtl/arithmetic/round-to-integral.rhdl) | Same-format integral rounding with optional inexact reporting |
+| [`rtl/arithmetic/estimate7.rhdl`](rtl/arithmetic/estimate7.rhdl) | Seven-bit reciprocal and reciprocal-square-root estimates with RISC-V exceptional behavior |
 | [`rtl/arithmetic/add.rhdl`](rtl/arithmetic/add.rhdl) | Close/far add/subtract paths and rounding |
 | [`rtl/arithmetic/multiply.rhdl`](rtl/arithmetic/multiply.rhdl) | Raw product, sticky compression, and rounding |
 | [`rtl/arithmetic/multiply-add.rhdl`](rtl/arithmetic/multiply-add.rhdl) | Fused pre-multiply, post-multiply, normalization, and final rounding |
@@ -46,7 +47,8 @@ rounding-mode selection, CSR policy, register state, and retirement belong in
 ## Translation and provenance policy
 
 Every derived Rhodium source names its corresponding upstream Scala source and
-the pinned commit. Keep the package-level pin and license notice in
+the pinned commit. The supplemental estimate component instead names its exact
+Spike SoftFloat source and revision. Keep the package-level pins and license notices in
 [README.md](README.md) synchronized with those source headers.
 
 Translate Chisel width inference into explicit Rhodium widths. Pure
@@ -105,8 +107,9 @@ binary64 admission, multiplier integration, exceptional results, rounding, and
 ordered overlapping division completion. The numeric-extension fixture also
 checks every binary16 encoding across the four minimum/maximum variants and six
 rounding modes, including modulo conversion, signed zero, NaN behavior,
-optional inexact reporting, and agreement with ordinary integer conversion for
-in-range results.
+optional inexact reporting, agreement with ordinary integer conversion for
+in-range results, and directed binary32/binary64 estimate results, flags, and
+rounding-sensitive reciprocal overflow.
 
 ## Follow-up work
 
