@@ -978,7 +978,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength):
   def emul = config.lmul.into(SInt(3)).sext(5) + data_eew.zext(5).into(SInt(5)) - config.sew.zext(5).into(SInt(5))
   def memory_index_emul = config.lmul.into(SInt(3)).sext(5) + control.memory_index_eew.zext(5).into(SInt(5)) - config.sew.zext(5).into(SInt(5))
   def widening_emul = config.lmul.into(SInt(3)).sext(5) + SInt(5)(1)
-  def widening = (control.integer ||| control.fp_service) & control.widening
+  def widening = (control.integer ||| control.fp_service ||| control.multiply_divide) & control.widening
   def narrowing = control.integer & control.narrowing
   def fp_widening = control.fp_service & control.widening
   def fp_narrowing = control.fp_service & control.narrowing

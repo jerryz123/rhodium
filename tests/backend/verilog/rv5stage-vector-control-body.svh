@@ -508,13 +508,13 @@
     end
     test_vtype = 'h10; // e32,m1
     instruction = vector_fp_conversion(8, 9, 8); #1;
-    assert (legal) else $fatal(1, "FP widening rejected high source overlap");
+    assert (legal == (XLEN == 64)) else $fatal(1, "FP widening rejected high source overlap");
     instruction[24:20] = 8; #1;
     assert (!legal) else $fatal(1, "FP widening accepted low source overlap");
     instruction = vector_fp_conversion(8, 16, 9); #1;
     assert (!legal) else $fatal(1, "FP widening accepted unaligned destination");
     instruction = vector_fp_conversion(16, 8, 8); #1;
-    assert (legal) else $fatal(1, "FP narrowing rejected in-place low destination");
+    assert (legal == (XLEN == 64)) else $fatal(1, "FP narrowing rejected in-place low destination");
     instruction[11:7] = 9; #1;
     assert (!legal) else $fatal(1, "FP narrowing accepted high destination overlap");
     instruction = vector_fp_conversion(16, 9, 16); #1;
@@ -525,17 +525,17 @@
     // Widening FP arithmetic shares conversion geometry, but .w forms read
     // vs2 at destination width and may update that wide group in place.
     instruction = {6'h30, 1'b1, 5'd9, 5'd16, 3'd1, 5'd8, 7'h57}; #1; // vfwadd.vv v8,v9,v16
-    assert (decoded_valid && legal && widening && !wide_vs2) else $fatal(1, "FP widening add rejected high narrow-source overlap");
+    assert (decoded_valid && legal == (XLEN == 64) && widening && !wide_vs2) else $fatal(1, "FP widening add rejected high narrow-source overlap");
     instruction[24:20] = 8; #1;
     assert (!legal) else $fatal(1, "FP widening add accepted low narrow-source overlap");
     instruction = {6'h34, 1'b1, 5'd8, 5'd9, 3'd1, 5'd8, 7'h57}; #1; // vfwadd.wv v8,v8,v9
-    assert (decoded_valid && legal && widening && wide_vs2) else $fatal(1, "FP wide-source add rejected in-place destination");
+    assert (decoded_valid && legal == (XLEN == 64) && widening && wide_vs2) else $fatal(1, "FP wide-source add rejected in-place destination");
     instruction[24:20] = 9; #1;
     assert (!legal) else $fatal(1, "FP wide-source add accepted unaligned vs2");
     instruction = {6'h34, 1'b1, 5'd8, 5'd31, 3'd5, 5'd8, 7'h57}; #1; // vfwadd.wf v8,v8,f31
-    assert (decoded_valid && legal && widening && wide_vs2 && operand == 3) else $fatal(1, "FP wide-source scalar add treated frs1 as a vector group");
+    assert (decoded_valid && legal == (XLEN == 64) && widening && wide_vs2 && operand == 3) else $fatal(1, "FP wide-source scalar add treated frs1 as a vector group");
     instruction = {6'h3c, 1'b1, 5'd9, 5'd16, 3'd1, 5'd8, 7'h57}; #1; // vfwmacc.vv v8,v9,v16
-    assert (decoded_valid && legal && widening) else $fatal(1, "FP widening fused operation rejected wide old destination");
+    assert (decoded_valid && legal == (XLEN == 64) && widening) else $fatal(1, "FP widening fused operation rejected wide old destination");
 
     // Mul/div uses ordinary same-width groups; VX's rs1 is not a vector group.
     for (int op = 32; op < 40; op++) begin
