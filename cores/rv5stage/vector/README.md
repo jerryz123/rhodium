@@ -18,6 +18,12 @@ uses the RV64D scalar specialization. Only V advertises `V 1.0` and `misa.V`;
 it does not imply Zvbb. Selecting `VectorExtension.Zvbb` independently enables
 the ratified vector basic bit-manipulation instruction set for any enabled
 vector profile.
+Every enabled RV5Stage vector profile also advertises `Zvkt`; this is the core's
+intrinsic data-independent execution-latency contract, not another
+`VectorExtension` selection. The exact architectural scope and control-operand
+exemptions live in [`riscv/isa/zvkt.rhm`](../../../riscv/isa/zvkt.rhm), while
+the core-level guarantee and limits are documented in the
+[RV5Stage contract](../README.md#vector-data-independent-timing-zvkt).
 `~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)` independently
 adds the standard F16-to-F32 `vfwcvt.f.f.v` and F32-to-F16 `vfncvt.f.f.w`
 forms; it does not enable other FP16 vector operations or scalar `Zfhmin`.

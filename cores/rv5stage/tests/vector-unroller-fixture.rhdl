@@ -15,17 +15,18 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
+sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
   input instruction: Bits(32)
   input(vtype, vl, vstart, scalar): Bits(xlen.width)
+  input floating_scalar: Bits(64)
   input vxrm: Bits(2)
   input(request_valid, issue_ready, cancel, retry_enable): Bool
   input retry_first: Bits(index_width(vlen + 1))
   interface initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
   output(active, request_ready, legal, issued, committed, retried): Bool
   output result: RV5StageVectorResultBeat(vlen)
-  inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
-  inst legality(RV5StageVectorLegality(xlen, vlen))
+  inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V, ~vector_extensions: vector_extensions))
+  inst legality(RV5StageVectorLegality(xlen, vlen, VectorProfile.V, vector_extensions))
   inst unroller(RV5StageVectorUnroller(xlen, vlen, Bits(xlen.width)))
   inst bank(RV5StageVectorRegisterFile(vlen))
   inst execute(RV5StageVectorExecute(vlen))
@@ -52,7 +53,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength):
             vxsat: Bool(#false)
         control: decode.control.vector
         scalar: scalar
-        floating_scalar: bits(0, 64)
+        floating_scalar: floating_scalar
         stride: bits(0, xlen.width)
         vd: instruction[7..12]
         vs1: instruction[15..20]

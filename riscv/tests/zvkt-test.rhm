@@ -1,0 +1,32 @@
+#lang rhombus
+// Checks the ratified Zvkt timing scope, exclusions, uniqueness, and control operands.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/zvkt.rhm" open
+
+def names = zvkt_instruction_names()
+
+check:
+  ZvktVersion ~is "1.0.0"
+  names.length() ~is 167
+  names.contains("VANDN.VV") ~is #true
+  names.contains("VCLMULH.VX") ~is #true
+  names.contains("VWMACCUS.VX") ~is #true
+  names.contains("VFSLIDE1DOWN.VF") ~is #true
+  names.contains("VRSUB.VX") ~is #true
+  names.contains("VRSUB.VI") ~is #false
+  names.contains("VSMUL.VV") ~is #false
+  names.contains("VCOMPRESS.VM") ~is #false
+  names.contains("VDIV.VV") ~is #false
+  names.contains("VSETVLI") ~is #false
+  zvkt_control_operands("VRGATHER.VV") ~is [ZvktControlOperand.Vs1]
+  zvkt_control_operands("VRGATHEREI16.VV") ~is [ZvktControlOperand.Vs1]
+  zvkt_control_operands("VRGATHER.VX") ~is [ZvktControlOperand.Rs1]
+  zvkt_control_operands("VSLIDEUP.VX") ~is [ZvktControlOperand.Rs1]
+  zvkt_control_operands("VSLIDE1UP.VX") ~is []
+  zvkt_control_operands("VADD.VV") ~is []
+
+for (name in names):
+  check:
+    names.filter(~keep: fun (candidate): candidate == name).length() ~is 1

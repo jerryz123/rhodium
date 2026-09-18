@@ -554,6 +554,30 @@ Review operand-to-control dependencies whenever changing forwarding, hazard
 gating, iteration termination, or completion selection. In particular, a
 zero-operand early exit in the multiplier must fail this regression.
 
+For Zvkt, run the pure scope, probe-coverage, profile/UDB, and differential
+vector timing checks:
+
+```sh
+export PLTCOMPILEDROOTS="$(mktemp -d)"
+tools/run-racket-tests.sh riscv/tests/zvkt-test.rhm riscv/tests/gnu-toolchain-test.rhm tests/backend/rv5stage-zvkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
+FIXTURE=rv5stage-zvkt bash tests/backend/run-circt.sh --simulate-only
+bash socs/tests/run-device-tree.sh
+```
+
+The probe generator intersects the exact architecture-owned Zvkt list with the
+implemented V and Zvbb catalogs and encodes both unmasked and available masked
+forms through their descriptors. Twin unrollers receive identical instruction,
+execution-mask, vector-control, retry, and stall inputs but distinct active,
+inactive, tail, old-destination, carry-mask, and merge-mask data. Compare
+admission, issue, result-control, and authorization timing; do not compare
+architectural result data. The explicit
+gather indices and variable slide distances are control operands and must remain
+equal between lanes. Retain the vector mul/div fixture and scalar Zkt multiplier
+contention regression as the fixed-latency evidence for the shared iterative
+multiplier. This is differential RTL qualification plus a source-level timing
+argument, not exhaustive formal noninterference or physical side-channel
+certification.
+
 For NTL WB association and request propagation, select `rv5stage-ntl`,
 `rv5stage-mmu-replay`, `rv5stage-memory-router`, and `rv5stage-dcache`.
 The core bench checks all four selectors, non-memory consumption, replacement,

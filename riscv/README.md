@@ -216,6 +216,14 @@ has a separate entropy-timing requirement. The scope follows the
 [RISC-V Zkt definition](https://github.com/riscv/riscv-unified-db/blob/main/spec/std/isa/ext/Zkt.yaml).
 Concrete cores own the timing proof, regressions, and advertisement.
 
+[`isa/zvkt.rhm`](isa/zvkt.rhm) similarly supplies the exact ratified Zvkt 1.0.0
+instruction-name scope and the explicit gather/slide control-operand exemptions.
+It is architectural metadata, not an opcode catalog or a selectable decoder
+feature. Implementations intersect the names with their instruction catalogs
+and own the data-independent-latency qualification for that intersection. The
+scope follows section 2.15 of the
+[RISC-V Vector Cryptography specification](https://docs.riscv.org/reference/isa/extensions/crypto-vector/_attachments/riscv-crypto-spec-vector.pdf).
+
 ## Pure model
 
 [`model/main.rhm`](model/main.rhm) re-exports the complete pure model. Import a
@@ -273,6 +281,7 @@ pure host code or be materialized by the Rhodium adapter.
 | [`isa/zvfhmin.rhm`](isa/zvfhmin.rhm) | `Zvfhmin` and its two existing V conversion instructions | Minimal vector half-precision catalog |
 | [`isa/zvfh.rhm`](isa/zvfh.rhm) | `Zvfh`, the V FP catalog, and its six SEW=8 conversion forms | Full vector half-precision catalog |
 | [`isa/zvbb.rhm`](isa/zvbb.rhm) | `Zvbb` and its 16 vector bit-manipulation forms | Vector basic bit-manipulation catalog |
+| [`isa/zvkt.rhm`](isa/zvkt.rhm) | `ZvktVersion`, the exact DIEL instruction-name scope, and control-operand exemptions | Vector timing-contract metadata; no opcode catalog |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

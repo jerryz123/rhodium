@@ -14,7 +14,7 @@ def GnuMultiLetterExtensions = [
   "zic64b", "zicbop", "zicboz", "ziccamoa", "ziccif", "ziccrse",
   "zawrs", "zihintpause", "zihintntl", "zicntr", "zicond", "zicsr",
   "zifencei", "zihpm", "zimop", "zkt",
-  "zfa", "zfh", "zfhmin", "zvbb", "zvfh", "zvfhmin", "zve32x", "zve32f", "zve64x", "zve64f",
+  "zfa", "zfh", "zfhmin", "zvbb", "zvfh", "zvfhmin", "zvkt", "zve32x", "zve32f", "zve64x", "zve64f",
   "zve64d", "ssnpm"
 ] ++ GnuVectorLengthExtensions
 

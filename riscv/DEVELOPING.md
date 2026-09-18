@@ -44,6 +44,7 @@ architectural state, and retirement in concrete cores. The package-local
 | Zvfhmin conversion subset | [`isa/zvfhmin.rhm`](isa/zvfhmin.rhm), tested by [`tests/vector-isa-test.rhm`](tests/vector-isa-test.rhm) |
 | Full Zvfh catalog and SEW=8 conversion subset | [`isa/zvfh.rhm`](isa/zvfh.rhm), tested by [`tests/vector-isa-test.rhm`](tests/vector-isa-test.rhm) |
 | Zvbb vector basic bit-manipulation catalog | [`isa/zvbb.rhm`](isa/zvbb.rhm), tested by [`tests/vector-isa-test.rhm`](tests/vector-isa-test.rhm) |
+| Zvkt vector data-independent timing scope | [`isa/zvkt.rhm`](isa/zvkt.rhm), tested by [`tests/zvkt-test.rhm`](tests/zvkt-test.rhm) |
 | GNU compiler target projection | [`gnu-toolchain.rhm`](gnu-toolchain.rhm) |
 | Typed UDB document values and deterministic YAML serialization | [`udb.rhm`](udb.rhm) |
 | Hardware materialization | [`rtl/DEVELOPING.md`](rtl/DEVELOPING.md) |

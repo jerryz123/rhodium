@@ -196,7 +196,8 @@ class RVCoreProfile(xlen :: XLen,
     if xlen == XLen.X32 | "rv32i" | "rv64i"
 
   property isa_extensions :: NonemptyList.of(String):
-    extensions.names(xlen, mmu_mode) ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions)
+    def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)
+    extensions.names(xlen, mmu_mode) ++ selected_vector ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
 
   property misa_extension_bits :: Nat:
     def fixed = (1 << 0) + (1 << 1) + (1 << 8) + (1 << 12) + (1 << 18) + (1 << 20)

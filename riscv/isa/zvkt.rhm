@@ -1,0 +1,78 @@
+#lang rhombus
+// Defines Zvkt's architectural timing scope and explicit control-operand exemptions.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "v.rhm" open
+  "zvbb.rhm".ZvbbInstructions
+
+// Ratified Vector Cryptography v1.0.0, section 2.15:
+// https://docs.riscv.org/reference/isa/extensions/crypto-vector/_attachments/riscv-crypto-spec-vector.pdf
+def ZvktVersion = "1.0.0"
+
+enum ZvktControlOperand
+| Vs1
+| Rs1
+
+def ZvktCarrylessMultiplyNames = [
+  "VCLMUL.VV", "VCLMUL.VX", "VCLMULH.VV", "VCLMULH.VX"
+]
+
+// This list deliberately selects the ratified DIEL surface instead of deriving
+// it by subtracting exclusions from V. A newly added V instruction therefore
+// cannot silently become part of the contract.
+def ZvktBaseInstructions = [
+  VRSUB_VX,
+  VADD_VI, VADD_VV, VADD_VX, VSUB_VV, VSUB_VX,
+  VADC_VIM, VADC_VVM, VADC_VXM,
+  VMADC_VI, VMADC_VV, VMADC_VX, VMADC_VIM, VMADC_VVM, VMADC_VXM,
+  VSBC_VVM, VSBC_VXM, VMSBC_VV, VMSBC_VX, VMSBC_VVM, VMSBC_VXM,
+  VMSEQ_VI, VMSEQ_VV, VMSEQ_VX,
+  VMSGTU_VI, VMSGTU_VX, VMSGT_VI, VMSGT_VX,
+  VMSLEU_VI, VMSLEU_VV, VMSLEU_VX, VMSLE_VI, VMSLE_VV, VMSLE_VX,
+  VMSLTU_VV, VMSLTU_VX, VMSLT_VV, VMSLT_VX,
+  VMSNE_VI, VMSNE_VV, VMSNE_VX,
+  VMV_S_X, VMV_V_I, VMV_V_V, VMV_V_X,
+  VMV1R_V, VMV2R_V, VMV4R_V, VMV8R_V,
+  VSEXT_VF2, VSEXT_VF4, VSEXT_VF8, VZEXT_VF2, VZEXT_VF4, VZEXT_VF8,
+  VAND_VI, VAND_VV, VAND_VX,
+  VMANDN_MM, VMAND_MM, VMOR_MM, VMXOR_MM,
+  VMORN_MM, VMNAND_MM, VMNOR_MM, VMXNOR_MM,
+  VOR_VI, VOR_VV, VOR_VX, VXOR_VI, VXOR_VV, VXOR_VX,
+  VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX,
+  VMULHU_VV, VMULHU_VX, VMUL_VV, VMUL_VX,
+  VWMUL_VV, VWMUL_VX, VWMULSU_VV, VWMULSU_VX, VWMULU_VV, VWMULU_VX,
+  VMACC_VV, VMACC_VX, VMADD_VV, VMADD_VX,
+  VNMSAC_VV, VNMSAC_VX, VNMSUB_VV, VNMSUB_VX,
+  VWMACC_VV, VWMACC_VX, VWMACCSU_VV, VWMACCSU_VX,
+  VWMACCU_VV, VWMACCU_VX, VWMACCUS_VX,
+  VMERGE_VIM, VMERGE_VVM, VMERGE_VXM,
+  VRGATHER_VI, VRGATHER_VV, VRGATHER_VX, VRGATHEREI16_VV,
+  VNSRA_WI, VNSRA_WV, VNSRA_WX, VNSRL_WI, VNSRL_WV, VNSRL_WX,
+  VSLL_VI, VSLL_VV, VSLL_VX,
+  VSRA_VI, VSRA_VV, VSRA_VX, VSRL_VI, VSRL_VV, VSRL_VX,
+  VSLIDE1UP_VX, VSLIDE1DOWN_VX, VFSLIDE1UP_VF, VFSLIDE1DOWN_VF,
+  VSLIDEUP_VI, VSLIDEUP_VX, VSLIDEDOWN_VI, VSLIDEDOWN_VX
+] ++ VectorWideningAddSubtractInstructions
+
+def ZvktInstructionNames = ZvbbInstructions.map(fun (instruction): instruction.name) ++ (
+  ZvktCarrylessMultiplyNames ++ ZvktBaseInstructions.map(fun (instruction): instruction.name)
+)
+
+fun zvkt_instruction_names() :: NonemptyList.of(String):
+  ZvktInstructionNames
+
+fun zvkt_control_operands(name :: String) :: List.of(ZvktControlOperand):
+  cond
+  | ["VRGATHER.VV", "VRGATHEREI16.VV"].contains(name): [ZvktControlOperand.Vs1]
+  | ["VRGATHER.VX", "VSLIDEUP.VX", "VSLIDEDOWN.VX"].contains(name): [ZvktControlOperand.Rs1]
+  | ~else: []
+
+export:
+  ZvktVersion
+  ZvktControlOperand
+  ZvktCarrylessMultiplyNames
+  ZvktBaseInstructions
+  ZvktInstructionNames
+  zvkt_instruction_names
+  zvkt_control_operands

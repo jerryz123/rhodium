@@ -168,6 +168,32 @@ It is not a guarantee against cache-address leakage, speculation attacks, power,
 or electromagnetic side channels. See the
 [RISC-V Zkt definition](https://github.com/riscv/riscv-unified-db/blob/main/spec/std/isa/ext/Zkt.yaml).
 
+## Vector data-independent timing (Zvkt)
+
+Every enabled vector profile additionally advertises **Zvkt 1.0.0**. Like Zkt,
+this is an intrinsic RV5Stage timing guarantee rather than an instruction-set
+switch: it adds no opcode, CSR, control field, or `misa` bit. Profiles with
+`VectorProfile.None` do not advertise it.
+
+For every implemented instruction in the
+[architectural Zvkt scope](../../riscv/isa/zvkt.rhm), vector admission, beat
+issue, deferred-service latency, completion, and retirement do not depend on
+data operands. The guarantee includes data in masked-off, pre-`vstart`, and tail
+elements. `vl`, `vtype`, the execution mask, immediates, and the specification's
+explicit gather/slide index operands remain control inputs and may affect
+latency. The packed integer datapath is combinational; multiply uses the same
+fixed-iteration service qualified by Zkt; the unroller schedules from decoded
+metadata and architectural vector control rather than result data.
+
+The contract covers only the instructions named by Zvkt. In particular, vector
+memory, general FP arithmetic, divide/remainder, saturating/averaging/fixed-point
+operations, compression, reductions, min/max, mask scans, and vector
+configuration are outside it. The two FP slide forms explicitly named by Zvkt
+remain covered because they use the ordinary slide datapath. This is an RTL
+execution-latency contract, not a claim about cache-address leakage, physical
+power or electromagnetic leakage, or speculation attacks. See section 2.15 of
+the [RISC-V Vector Cryptography specification](https://docs.riscv.org/reference/isa/extensions/crypto-vector/_attachments/riscv-crypto-spec-vector.pdf).
+
 ## Non-temporal locality hints
 
 `RV5StageExtensions(~zihintntl: #true)` enables the four NTL hints and their

@@ -1,0 +1,59 @@
+#lang rhombus
+// Builds legal probe encodings for RV5Stage's implemented intersection with Zvkt.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../riscv/isa/v.rhm" open
+  "../../../riscv/isa/zvbb.rhm".ZvbbInstructions
+  "../../../riscv/isa/zvkt.rhm" open
+  "../../../riscv/model/main.rhm".InstructionSpec
+
+class ZvktProbe(name :: String,
+                word :: Nat,
+                masked :: Boolean,
+                sew64 :: Boolean,
+                v0_data :: Boolean,
+                control_vs1 :: Boolean,
+                control_rs1 :: Boolean)
+
+fun zvkt_probe_word(instruction :: InstructionSpec, ~masked: masked :: Boolean = #false) :: Nat:
+  def fields = instruction.operands.map(
+    fun (operand):
+      def field = operand.field
+      def value = if field.name == "vd" | 24 | (if field.name == "vs2" | 8 | (if field.name == "vs1" | 16 | (if field.name == "rs1" | 16 | 1)))
+      field.constrain(value)
+  )
+  def auxiliary = instruction.format.auxiliary_fields.map(fun (field): field.constrain(if field.name == "vm" | (if masked | 0 | 1) | 0))
+  instruction.encode(fields ++ auxiliary, ~immediate: if instruction.immediate | 1 | #false)
+
+fun zvkt_probes() :: NonemptyList.of(ZvktProbe):
+  def names = zvkt_instruction_names()
+  def implemented = (VectorVInstructions ++ ZvbbInstructions).filter(~keep: fun (instruction): names.contains(instruction.name))
+  def mutable probes = []
+  for (instruction in implemented):
+    def controls = zvkt_control_operands(instruction.name)
+    def v0_data = [
+      "VADC.VVM", "VADC.VXM", "VADC.VIM",
+      "VMADC.VVM", "VMADC.VXM", "VMADC.VIM",
+      "VSBC.VVM", "VSBC.VXM", "VMSBC.VVM", "VMSBC.VXM",
+      "VMERGE.VVM", "VMERGE.VXM", "VMERGE.VIM"
+    ].contains(instruction.name)
+    fun probe(masked):
+      ZvktProbe(
+        instruction.name,
+        zvkt_probe_word(instruction, ~masked: masked),
+        masked,
+        ["VZEXT.VF8", "VSEXT.VF8"].contains(instruction.name),
+        v0_data,
+        controls.contains(ZvktControlOperand.Vs1),
+        controls.contains(ZvktControlOperand.Rs1)
+      )
+    probes := probes ++ [probe(#false)]
+    when instruction.format.auxiliary_fields.filter(~keep: fun (field): field.name == "vm").length() != 0
+    | probes := probes ++ [probe(#true)]
+  probes
+
+export:
+  ZvktProbe
+  zvkt_probe_word
+  zvkt_probes

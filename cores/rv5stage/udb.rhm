@@ -10,6 +10,7 @@ import:
   "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/isa/zkt.rhm".ZktVersion
+  "../../riscv/isa/zvkt.rhm".ZvktVersion
   "profile.rhm" open
 
 fun extension(name :: NonemptyString, version :: NonemptyString):
@@ -110,6 +111,7 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
       | result := result ++ [extension("Zvfh", "1.0.0")]
       when vector_extension_enabled(profile.vector_extensions, VectorExtension.Zvbb)
       | result := result ++ [extension("Zvbb", "1.0.0")]
+      result := result ++ [extension("Zvkt", ZvktVersion)]
       result := result ++ [extension("Zvl" ++ String.from_int(profile.vector_length) ++ "b", "1.0.0")]
   result := result ++ [
     extension("Zicntr", "2.0"),

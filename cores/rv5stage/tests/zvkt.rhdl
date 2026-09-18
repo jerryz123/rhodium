@@ -1,0 +1,101 @@
+#lang rhodium
+// Compares vector issue and writeback timing across distinct data operands for every implemented Zvkt form.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "zvkt-program.rhm" open
+  "vector-unroller-fixture.rhdl" open
+  "../../../riscv/isa/vector-profile.rhm" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../vector/bundles.rhdl" open
+  "../vector/register-file.rhdl".VectorRegisterWrite
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
+  def probes = zvkt_probes()
+  input probe: Bits(index_width(probes.length()))
+  input(vtype, vl, vstart): Bits(64)
+  input(left_scalar, right_scalar): Bits(64)
+  input(left_floating_scalar, right_floating_scalar): Bits(64)
+  input vxrm: Bits(2)
+  input(request_valid, issue_ready, cancel, retry_enable): Bool
+  input retry_first: Bits(index_width(vlen + 1))
+  interface left_initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
+  interface right_initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
+  output(active, request_ready, legal, issued, committed, retried, data_differed): Bool
+  output probe_count: Bits(16)
+  output(control_vs1, control_rs1, sew64, v0_data): Bool
+  def instruction = mux_lookup(probe, ~default: bits(probes[0].word, 32), for List (index in 0..probes.length()): [index, bits(probes[index].word, 32)])
+  def vs1_control = mux_lookup(probe, ~default: Bool(probes[0].control_vs1), for List (index in 0..probes.length()): [index, Bool(probes[index].control_vs1)])
+  def rs1_control = mux_lookup(probe, ~default: Bool(probes[0].control_rs1), for List (index in 0..probes.length()): [index, Bool(probes[index].control_rs1)])
+  def use_sew64 = mux_lookup(probe, ~default: Bool(probes[0].sew64), for List (index in 0..probes.length()): [index, Bool(probes[index].sew64)])
+  def use_v0_data = mux_lookup(probe, ~default: Bool(probes[0].v0_data), for List (index in 0..probes.length()): [index, Bool(probes[index].v0_data)])
+  inst left(RV5StageVectorUnrollerFixture(XLen.X64, vlen, vector_extensions(VectorExtension.Zvbb)))
+  inst right(RV5StageVectorUnrollerFixture(XLen.X64, vlen, vector_extensions(VectorExtension.Zvbb)))
+  left.instruction <== instruction
+  left.vtype <== vtype
+  left.vl <== vl
+  left.vstart <== vstart
+  left.scalar <== left_scalar
+  left.floating_scalar <== left_floating_scalar
+  left.vxrm <== vxrm
+  left.request_valid <== request_valid
+  left.issue_ready <== issue_ready
+  left.cancel <== cancel
+  left.retry_enable <== retry_enable
+  left.retry_first <== retry_first
+  right.instruction <== instruction
+  right.vtype <== vtype
+  right.vl <== vl
+  right.vstart <== vstart
+  right.scalar <== right_scalar
+  right.floating_scalar <== right_floating_scalar
+  right.vxrm <== vxrm
+  right.request_valid <== request_valid
+  right.issue_ready <== issue_ready
+  right.cancel <== cancel
+  right.retry_enable <== retry_enable
+  right.retry_first <== retry_first
+  left.initialize <=> left_initialize
+  right.initialize <=> right_initialize
+  def position_equal = (left.result.sequence === right.result.sequence) & (left.result.first === right.result.first) & (left.result.end === right.result.end)
+  def kind_equal = (left.result.last === right.result.last) & (left.result.reduction === right.result.reduction) & (left.result.scan === right.result.scan)
+  def destination_equal = (left.result.scalar_destination === right.result.scalar_destination) & (
+    left.result.floating_scalar_destination === right.result.floating_scalar_destination
+  ) & (left.result.destination === right.result.destination)
+  def execution_equal = (left.result.element_width === right.result.element_width) & (left.result.memory === right.result.memory) & (
+    left.result.floating_point === right.result.floating_point
+  ) & (left.result.fp_execute === right.result.fp_execute)
+  def service_equal = (left.result.mask_destination === right.result.mask_destination) & (left.result.fp_result === right.result.fp_result) & (
+    left.result.multiply_divide === right.result.multiply_divide
+  ) & (left.result.divide === right.result.divide)
+  def multiply_equal = (left.result.multiply_accumulate === right.result.multiply_accumulate) & (
+    left.result.multiply_subtract === right.result.multiply_subtract
+  ) & (left.result.store === right.result.store) & (left.result.saturated === right.result.saturated)
+  def write_control_equal = (left.result.shift === right.result.shift) & (
+    left.result.write.address === right.result.write.address
+  ) & (left.result.write.mask === right.result.write.mask)
+  def result_control_equal = position_equal & kind_equal & destination_equal & execution_equal & service_equal & multiply_equal & write_control_equal
+  assert(left.active === right.active, "zvkt_active_is_data_independent")
+  assert(left.request_ready === right.request_ready, "zvkt_admission_is_data_independent")
+  assert(left.legal === right.legal, "zvkt_legality_is_data_independent")
+  assert(left.issued === right.issued, "zvkt_issue_is_data_independent")
+  assert(left.committed === right.committed, "zvkt_commit_is_data_independent")
+  assert(left.retried === right.retried, "zvkt_retry_is_data_independent")
+  assert(!left.committed ||| result_control_equal, "zvkt_result_control_is_data_independent")
+  active <== left.active
+  request_ready <== left.request_ready
+  legal <== left.legal
+  issued <== left.issued
+  committed <== left.committed
+  retried <== left.retried
+  data_differed <== left.committed & (left.result.write.data =/= right.result.write.data)
+  probe_count <== bits(probes.length(), 16)
+  control_vs1 <== vs1_control
+  control_rs1 <== rs1_control
+  sew64 <== use_sew64
+  v0_data <== use_v0_data
+
+export:
+  RV5StageZvkt

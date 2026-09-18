@@ -88,12 +88,20 @@ case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
   *) echo "simple DTB does not advertise Zvfh" >&2; exit 1 ;;
 esac
 case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+  *" zvkt "*) ;;
+  *) echo "simple DTB does not advertise Zvkt" >&2; exit 1 ;;
+esac
+case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
   *" zfh "*) ;;
   *) echo "simple DTB does not advertise Zfh" >&2; exit 1 ;;
 esac
 for name in mini tiled; do
   case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" zvfh "*) echo "$name DTB unexpectedly advertises Zvfh" >&2; exit 1 ;;
+    *) ;;
+  esac
+  case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+    *" zvkt "*) echo "$name DTB unexpectedly advertises Zvkt" >&2; exit 1 ;;
     *) ;;
   esac
 done

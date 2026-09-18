@@ -45,13 +45,13 @@ Each author-facing SoC parameter object owns one
 `RVCoreProfile`, and the same profile specializes the instantiated core and its
 architectural description. `SimpleSoC` defaults to RV64D, V 1.0 with VLEN 128,
 and the full C composition; its device tree and UDB configuration advertise
-`V`, the implied Zve32x/Zve32f/Zve64x/Zve64f/Zve64d closure, `Zfh`, `Zvfh`, `Zvbb`, `Zvl128b`, and
+`V`, the implied Zve32x/Zve32f/Zve64x/Zve64f/Zve64d closure, `Zfh`, `Zvfh`, `Zvbb`, `Zvkt`, `Zvl128b`, and
 `misa.V` from that same profile. `MiniSoC` defaults to
 integer-only RV64 with 2 KiB direct-mapped L1s, and
 `TiledSoC` to integer-only RV64 with the C composition. SimpleSoC and TiledSoC
 also enable Zcmop; MiniSoC keeps compressed instructions disabled. All three select Sv39;
 Zicbop and Zicboz are enabled in each default profile. SimpleSoC also enables
-scalar `Zfh`, vector `Zvfh`, and vector `Zvbb`; Zfa remains disabled. Supply an alternate `RVCoreProfile` through the owning SoC parameter
+scalar `Zfh`, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee `Zvkt`; Zfa remains disabled. Supply an alternate `RVCoreProfile` through the owning SoC parameter
 object to change those selections.
 Zicboz-capable CPU nodes advertise `riscv,cboz-block-size = 64`; normal RAM
 permits block zero, while ROM and peripheral regions reject it.

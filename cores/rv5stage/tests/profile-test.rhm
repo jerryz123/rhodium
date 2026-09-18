@@ -45,6 +45,8 @@ check:
   RVCoreProfile(~xlen: XLen.X64, ~vector_length: 65536).vector_length ~is 65536
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("v") ~is #true
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvl128b") ~is #true
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvkt") ~is #true
+  RVCoreProfile(~xlen: XLen.X64).isa_extensions.contains("zvkt") ~is #false
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)).isa_extensions.contains("zvfhmin") ~is #true
   rv5stage_execution_half_precision(HalfPrecisionProfile.None, vector_extensions(VectorExtension.Zvfhmin)) ~is HalfPrecisionProfile.Zfhmin
   rv5stage_execution_half_precision(HalfPrecisionProfile.Zfh, NoVectorExtensions) ~is HalfPrecisionProfile.Zfh

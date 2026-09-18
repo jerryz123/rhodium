@@ -7,6 +7,7 @@
   logic clock = 0, reset = 1;
   logic [31:0] instruction;
   logic [XLEN-1:0] vtype, vl, vstart, scalar;
+  logic [63:0] floating_scalar;
   logic [1:0] vxrm;
   logic request_valid, issue_ready, cancel, retry_enable;
   logic [CW-1:0] retry_first;
@@ -297,7 +298,7 @@
   endtask
 
   initial begin
-    instruction = 0; vtype = 0; vl = 0; vstart = 0; scalar = XLEN'(-17); vxrm = 0;
+    instruction = 0; vtype = 0; vl = 0; vstart = 0; scalar = XLEN'(-17); floating_scalar = 0; vxrm = 0;
     request_valid = 0; issue_ready = 0; cancel = 0; retry_enable = 0; retry_first = 0;
     initialize_in = '0; checking = 0; last_commit_cycle = -100;
     repeat (3) tick(); reset = 0;
