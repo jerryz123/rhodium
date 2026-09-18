@@ -5,6 +5,7 @@
 import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/v.rhm" open
+  "../../../riscv/isa/zvbb.rhm" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
@@ -12,6 +13,7 @@ import:
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   "../../../riscv/model/instruction.rhm".InstructionSpec
   "../fp/types.rhdl" open
+  "../vector/packing.rhdl" open
   "../../simd-alu.rhdl" open
   "../vector/mask.rhdl" open
   "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
@@ -93,7 +95,7 @@ bundle RV5StageVectorControl():
   memory_nf: Bits(3)
   memory_addressing: VectorMemoryAddressing
   operand: VectorOperandMode
-  immediate_unsigned: Bool
+  immediate_kind: VectorImmediateKind
   carry_input: Bool
   extension: Bool
   extension_ratio: SimdExtensionRatio
@@ -196,7 +198,7 @@ fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
       multiply_divide: Bool(#false)
       memory: Bool(#false)
       operand: if [VectorVVFormat, VectorFixedVVFormat, VectorMoveVFormat, VectorWholeRegisterMoveFormat, VectorReadScalarFormat, VectorMaskScalarFormat, VectorMaskUnaryFormat, VectorIndexFormat].contains(form) | VectorOperandMode.Vector | (if [VectorVXFormat, VectorFixedVXFormat, VectorMoveXFormat].contains(form) | VectorOperandMode.Scalar | VectorOperandMode.Immediate)
-      immediate_unsigned: Bool(form == VectorShiftVIFormat)
+      immediate_kind: if !form.immediate | pattern(VectorImmediateKind, _) | (if form.immediate.width == 6 | VectorImmediateKind.Unsigned6 | (if form.immediate.signed | VectorImmediateKind.Signed5 | VectorImmediateKind.Unsigned5))
       carry_input: Bool(carry_input)
       extension: Bool(extension)
       extension_ratio: if extension | extension_ratio | pattern(SimdExtensionRatio, _)
@@ -293,6 +295,10 @@ def vand_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.And
   invert_right: Bool(#false)
+def vandn_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Logic
+  logic_select: SimdLogicSelect.And
+  invert_right: Bool(#true)
 def vor_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.Or
@@ -321,6 +327,52 @@ def vslide_control = partial_pattern(SimdAluControl()):
   shift_right: Bool(#true)
   arithmetic_shift: Bool(#false)
   rotate: Bool(#true)
+def vrol_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Shift
+  shift_right: Bool(#false)
+  arithmetic_shift: Bool(#false)
+  rotate: Bool(#true)
+def vror_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Shift
+  shift_right: Bool(#true)
+  arithmetic_shift: Bool(#false)
+  rotate: Bool(#true)
+def vbrev_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Permute
+  permutation_select: SimdPermutationSelect.ReverseBits
+def vbrev8_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Permute
+  permutation_select: SimdPermutationSelect.ReverseBitsInBytes
+def vrev8_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Permute
+  permutation_select: SimdPermutationSelect.ReverseBytes
+def vclz_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Count
+  count_select: SimdCountSelect.LeadingZeros
+def vctz_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Count
+  count_select: SimdCountSelect.TrailingZeros
+def vcpop_control = partial_pattern(SimdAluControl()):
+  result_select: SimdResultSelect.Count
+  count_select: SimdCountSelect.Population
+def VectorZvbbCases = [
+  integer_case(VANDN_VV, vandn_control),
+  integer_case(VANDN_VX, vandn_control),
+  integer_case(VBREV_V, vbrev_control),
+  integer_case(VBREV8_V, vbrev8_control),
+  integer_case(VREV8_V, vrev8_control),
+  integer_case(VCLZ_V, vclz_control),
+  integer_case(VCTZ_V, vctz_control),
+  integer_case(VCPOP_V, vcpop_control),
+  integer_case(VROL_VV, vrol_control),
+  integer_case(VROL_VX, vrol_control),
+  integer_case(VROR_VV, vror_control),
+  integer_case(VROR_VX, vror_control),
+  integer_case(VROR_VI, vror_control),
+  integer_case(VWSLL_VV, vsll_control, ~widening: #true),
+  integer_case(VWSLL_VX, vsll_control, ~widening: #true),
+  integer_case(VWSLL_VI, vsll_control, ~widening: #true)
+]
 def VectorSlideCases = [
   integer_case(VSLIDEUP_VX, vslide_control, ~slide: #true, ~slide_up: #true),
   integer_case(VSLIDEUP_VI, vslide_control, ~slide: #true, ~slide_up: #true),
@@ -540,10 +592,6 @@ def VectorIntegerCases = VectorSameWidthIntegerCases ++ VectorCarryBorrowCases +
 def vselect_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Select
 def VectorCompressCases = [integer_case(VCOMPRESS_VM, vselect_control, ~compress: #true)]
-def vandn_control = partial_pattern(SimdAluControl()):
-  result_select: SimdResultSelect.Logic
-  logic_select: SimdLogicSelect.And
-  invert_right: Bool(#true)
 def vorn_control = partial_pattern(SimdAluControl()):
   result_select: SimdResultSelect.Logic
   logic_select: SimdLogicSelect.Or
@@ -1133,6 +1181,7 @@ export:
   VectorScanResult
   VectorConfigMode
   VectorOperandMode
+  VectorImmediateKind
   VectorFloatSource
   VectorFloatResult
   VectorFloatRounding
@@ -1151,6 +1200,7 @@ export:
   VectorAveragingAddSubtractCases
   VectorFixedPointShiftCases
   VectorNarrowingClipCases
+  VectorZvbbCases
   VectorSameWidthIntegerReductionCases
   VectorWideningIntegerReductionCases
   VectorIntegerReductionCases

@@ -21,13 +21,13 @@ module rv5stage_vector_tb;
   logic [16:0] vlmax;
   logic masked;
   logic [1:0] operand_select;
-  logic immediate_unsigned;
+  logic [1:0] immediate_kind;
   logic widening;
   logic upper_half;
   logic left_wide;
   logic left_signed, right_signed;
   logic [63:0] scalar;
-  logic [4:0] immediate;
+  logic [5:0] immediate;
   logic [2:0] operation;
   logic [191:0] read_a_result;
   logic [191:0] read_b_result;
@@ -87,8 +87,13 @@ module rv5stage_vector_tb;
             address < depth && (!mask_destination || first < vlen_bits);
     data = 0; mask_bits = 0;
     broadcast_value = scalar;
-    if (operand_select == 2)
-      broadcast_value = immediate_unsigned ? {59'b0, immediate} : {{59{immediate[4]}}, immediate};
+    if (operand_select == 2) begin
+      case (immediate_kind)
+        1: broadcast_value = {59'b0, immediate[4:0]};
+        2: broadcast_value = {58'b0, immediate};
+        default: broadcast_value = {{59{immediate[4]}}, immediate[4:0]};
+      endcase
+    end
     if (out_width <= 64) begin
       lane_mask = 64'hffffffffffffffff >> (64 - width_bits);
       for (int lane = 0; lane < 64 / out_width; lane++) begin
@@ -154,7 +159,7 @@ module rv5stage_vector_tb;
     write_address = 0; write_data = 0; write_mask = 0;
     destination = 0; mask_destination = 0; element_width = 0;
     first_element = 0; vl = 0; vstart = 0; vlmax = 1;
-    masked = 0; operand_select = 0; immediate_unsigned = 0;
+    masked = 0; operand_select = 0; immediate_kind = 0;
     widening = 0; upper_half = 0; left_wide = 0; left_signed = 0; right_signed = 0; scalar = 0; immediate = 0; operation = 0;
   endtask
 
@@ -246,8 +251,8 @@ module rv5stage_vector_tb;
         vl = 17'(trial % (int'(vlmax) + 1));
         vstart = 17'((trial * 3) % (int'(vlmax) + 1));
         masked = (trial & 2) != 0; mask_destination = (trial % 9) == 0;
-        operand_select = 2'(trial % 3); immediate_unsigned = (trial & 4) != 0;
-        immediate = 5'(trial); scalar = random_word(); operation = 3'(trial % 5);
+        operand_select = 2'(trial % 3); immediate_kind = 2'(trial % 3);
+        immediate = 6'(trial); scalar = random_word(); operation = 3'(trial % 5);
         destination = 5'(trial % 24);
         read_a = 16'(trial % depth); read_b = 16'((trial * 13) % depth);
         read_c = 16'((trial * 7) % chunks);

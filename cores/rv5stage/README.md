@@ -40,9 +40,10 @@ legality accordingly. Only `VectorProfile.V` advertises `V` and sets `misa.V`.
 `profile.vector_extensions` independently enables `Zvfhmin`, which admits only
 the standard F16-to-F32 widening and F32-to-F16 narrowing conversions, or full
 `Zvfh`, which admits the standard FP vector surface at SEW=16 plus its six
-SEW=8 widening/narrowing integer conversions. The
-default remains `VectorProfile.None`; the implementation does not claim
-Zvbb.
+SEW=8 widening/narrowing integer conversions. `Zvbb` independently enables
+the vector basic bit-manipulation operations through the shared packed SIMD
+datapath. The default remains `VectorProfile.None` with no orthogonal vector
+extensions.
 
 ## At a glance
 
@@ -750,7 +751,7 @@ specialization input to `RV5Stage` and `RV5StageCore`.
 | `profile.xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
 | `profile.extensions` | Floating-point, half-precision, Zfa, Zicbop, Zicboz, and compressed-extension selection; Zicbop and Zicboz default to disabled |
 | `profile.vector` | `VectorProfile.None` by default, or `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, or `V`; the current RV64-only integration pairs FP-capable vector profiles with scalar D |
-| `profile.vector_extensions` | Orthogonal vector extensions; empty by default, with `Zvfhmin` enabling two SEW=16 conversions and `Zvfh` enabling full vector half precision |
+| `profile.vector_extensions` | Orthogonal vector extensions; empty by default, with `Zvfhmin` enabling two SEW=16 conversions, `Zvfh` enabling full vector half precision, and `Zvbb` enabling vector basic bit manipulation |
 | `profile.vector_length` | VLEN in bits; a power of two from 128 through 65536, independent of whether the vector profile is enabled |
 | `profile.vector_completion_slots` | Power-of-two capacity for deferred vector memory and execution completions; defaults to eight |
 | `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |

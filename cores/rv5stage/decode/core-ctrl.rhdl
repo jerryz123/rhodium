@@ -24,6 +24,7 @@ import:
   "fp-ctrl.rhdl" open
   "vector-ctrl.rhdl" open
   "../../../riscv/isa/v.rhm" as vector_isa
+  "../../../riscv/isa/zvbb.rhm" as vector_bitmanip
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
@@ -237,7 +238,8 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: HintOperation):
 def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, HintOperation.Pause)]
 
 // Scalar effects for vector rows live only at this composition boundary.
-fun vector_core_control_cases(instructions :: List.of(InstructionSpec)):
+fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
+                              vector_controls :: List.of(DecodeCase)):
   for List (instruction in instructions):
     def configuration = vector_isa.VectorConfigInstructions.contains(instruction)
     def memory = vector_isa.VectorMemoryInstructions.contains(instruction)
@@ -303,10 +305,11 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec)):
         fence: inactive_fence_control
         hint: HintOperation.None
         floating_point_valid: Bool(#false)
-        vector: component_output(VectorControlCases, input)
+        vector: component_output(vector_controls, input)
     )
-def VectorCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions)
-def VectorIntegerCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions.filter(~keep: fun (instruction): !vector_isa.VectorFloatingPointInstructions.contains(instruction)))
+def VectorCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions, VectorControlCases)
+def VectorIntegerCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions.filter(~keep: fun (instruction): !vector_isa.VectorFloatingPointInstructions.contains(instruction)), VectorControlCases)
+def VectorZvbbCoreControlCases = vector_core_control_cases(vector_bitmanip.ZvbbInstructions, VectorZvbbCases)
 def ZihintntlCoreControlCases = [
   hint_control_case(NTL_P1, HintOperation.NtlP1),
   hint_control_case(NTL_PALL, HintOperation.NtlPall),
@@ -452,9 +455,10 @@ circuit RV5StageInstructionDecoder(
   ~zicbom: zicbom_enabled :: Boolean = #false,
   ~zicboz: zicboz_enabled :: Boolean = #false,
   ~vector: vector_profile :: VectorProfile = DefaultVectorProfile,
-  ~zvfh: zvfh_enabled :: Boolean = #false
+  ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions
 ):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  validate_vector_extensions(vector_profile, vector_extensions)
   input instruction: Bits(32)
   output valid: Bool
   output control: RV5StageControl()
@@ -463,6 +467,7 @@ circuit RV5StageInstructionDecoder(
   def integer_cases = (if zicbop_enabled | overlay_decode_cases(base_integer_cases, ZicbopCoreControlCases) | base_integer_cases) ++ (if zicboz_enabled | ZicbozCoreControlCases | []) ++ (if zicbom_enabled | ZicbomCoreControlCases | []) ++ (if zawrs_enabled | ZawrsCoreControlCases | [])
   def hint_overrides = (if zihintpause_enabled | ZihintpauseCoreControlCases | []) ++ (if zihintntl_enabled | ZihintntlCoreControlCases | [])
   def hinted_cases = if hint_overrides.is_empty() | integer_cases | overlay_decode_cases(integer_cases, hint_overrides)
+  def zvfh_enabled = vector_extensions_support_zvfh(vector_extensions)
   def selected_cases:
     if profile == FloatingPointProfile.None
     | hinted_cases
@@ -470,7 +475,8 @@ circuit RV5StageInstructionDecoder(
         rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zvfh_enabled),
         rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zvfh_enabled)
       )
-  def vector_cases = if !vector_profile_enabled(vector_profile) | [] | (if vector_profile_supports_fp32(vector_profile) | VectorCoreControlCases | VectorIntegerCoreControlCases)
+  def base_vector_cases = if !vector_profile_enabled(vector_profile) | [] | (if vector_profile_supports_fp32(vector_profile) | VectorCoreControlCases | VectorIntegerCoreControlCases)
+  def vector_cases = base_vector_cases ++ (if vector_extensions_support_zvbb(vector_extensions) | VectorZvbbCoreControlCases | [])
   def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases ++ vector_cases)(instruction)
   valid <== decoded.valid
   control <== decoded.value
@@ -478,6 +484,7 @@ circuit RV5StageInstructionDecoder(
 export:
   VectorCoreControlCases
   VectorIntegerCoreControlCases
+  VectorZvbbCoreControlCases
   ZihintntlCoreControlCases
   ZihintpauseCoreControlCases
   ZawrsCoreControlCases

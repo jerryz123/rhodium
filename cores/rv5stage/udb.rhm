@@ -108,6 +108,8 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
       | result := result ++ [extension("Zvfhmin", "1.0.0")]
       when vector_extension_enabled(profile.vector_extensions, VectorExtension.Zvfh)
       | result := result ++ [extension("Zvfh", "1.0.0")]
+      when vector_extension_enabled(profile.vector_extensions, VectorExtension.Zvbb)
+      | result := result ++ [extension("Zvbb", "1.0.0")]
       result := result ++ [extension("Zvl" ++ String.from_int(profile.vector_length) ++ "b", "1.0.0")]
   result := result ++ [
     extension("Zicntr", "2.0"),

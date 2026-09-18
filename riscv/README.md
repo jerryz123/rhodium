@@ -53,7 +53,14 @@ implementation. Only `VectorProfile.V` represents the single-letter V
 extension or sets `misa.V`. Orthogonal `VectorExtension` selections add
 capabilities without multiplying base profiles; `Zvfhmin` extends only
 `vfwcvt.f.f.v` and `vfncvt.f.f.w` to SEW=16, while `Zvfh` adds full vector
-half precision and its defined SEW=8 integer conversions.
+half precision and its defined SEW=8 integer conversions. `Zvbb` adds the
+ratified vector basic bit-manipulation catalog independently of base V.
+
+[`isa/zvbb.rhm`](isa/zvbb.rhm) provides the complete ratified Zvbb 1.0.0
+catalog: vector/scalar and-not, element and byte reversal, leading/trailing-zero
+and population counts, vector/scalar/immediate rotations, and widening logical
+left shifts. `vror.vi` uses its architectural split six-bit unsigned immediate;
+execution, register-group legality, masking, and scheduling remain core-owned.
 
 [`isa/v.rhm`](isa/v.rhm) provides the complete RVV 1.0 `VectorV` catalog:
 the three `vset*` forms, same-width integer add/sub, logic, shifts,
@@ -265,6 +272,7 @@ pure host code or be materialized by the Rhodium adapter.
 | [`isa/v.rhm`](isa/v.rhm) | `VectorV`, vector configuration/integer/fixed-point/move/mask/reduction/memory catalogs, `VectorFloatingPoint*Instructions`, and vector multiply/divide catalogs | Standard V 1.0 catalog; see [vector geometry](#vector-geometry) |
 | [`isa/zvfhmin.rhm`](isa/zvfhmin.rhm) | `Zvfhmin` and its two existing V conversion instructions | Minimal vector half-precision catalog |
 | [`isa/zvfh.rhm`](isa/zvfh.rhm) | `Zvfh`, the V FP catalog, and its six SEW=8 conversion forms | Full vector half-precision catalog |
+| [`isa/zvbb.rhm`](isa/zvbb.rhm) | `Zvbb` and its 16 vector bit-manipulation forms | Vector basic bit-manipulation catalog |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

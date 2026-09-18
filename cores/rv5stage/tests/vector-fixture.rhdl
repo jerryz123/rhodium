@@ -12,7 +12,7 @@ import:
 bundle VectorFixtureContext(vlen :: VectorLength):
   control: VectorPackingControl(vlen)
   scalar: Bits(64)
-  immediate: Bits(5)
+  immediate: Bits(6)
   operation: Bits(3)
   destination: Bits(5)
   mask_destination: Bool
@@ -37,13 +37,13 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   input vlmax: Bits(17)
   input masked: Bool
   input operand_select: VectorOperandSelect
-  input immediate_unsigned: Bool
+  input immediate_kind: VectorImmediateKind
   input widening: Bool
   input upper_half: Bool
   input left_wide: Bool
   input(left_signed, right_signed): Bool
   input scalar: Bits(64)
-  input immediate: Bits(5)
+  input immediate: Bits(6)
   input operation: Bits(3)
   output read_a_result: Bits(64)
   output read_b_result: Bits(64)
@@ -67,7 +67,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     vlmax: vlmax[0..count_width]
     masked: masked
     operand_select: operand_select
-    immediate_unsigned: immediate_unsigned
+    immediate_kind: immediate_kind
     widening: widening
     narrowing: Bool(#false)
     extension: Bool(#false)
@@ -169,13 +169,13 @@ sync_circuit RV5StageVectorFixture():
   input vlmax: Bits(17)
   input masked: Bool
   input operand_select: VectorOperandSelect
-  input immediate_unsigned: Bool
+  input immediate_kind: VectorImmediateKind
   input widening: Bool
   input upper_half: Bool
   input left_wide: Bool
   input(left_signed, right_signed): Bool
   input scalar: Bits(64)
-  input immediate: Bits(5)
+  input immediate: Bits(6)
   input operation: Bits(3)
   output read_a_result: Vec(3, Bits(64))
   output read_b_result: Vec(3, Bits(64))
@@ -207,7 +207,7 @@ sync_circuit RV5StageVectorFixture():
     bank.vlmax <== vlmax
     bank.masked <== masked
     bank.operand_select <== operand_select
-    bank.immediate_unsigned <== immediate_unsigned
+    bank.immediate_kind <== immediate_kind
     bank.widening <== widening
     bank.upper_half <== upper_half
     bank.left_wide <== left_wide

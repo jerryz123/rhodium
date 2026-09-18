@@ -8,6 +8,7 @@ import:
 
 def zvfhmin = vector_extensions(VectorExtension.Zvfhmin)
 def zvfh = vector_extensions(VectorExtension.Zvfh)
+def zvbb = vector_extensions(VectorExtension.Zvbb)
 
 check:
   vector_profile_isa_extensions(VectorProfile.V, 128, zvfhmin).contains("zvfhmin") ~is #true
@@ -21,6 +22,10 @@ check:
   vector_extensions_support_zvfhmin(zvfh) ~is #true
   vector_extensions_support_zvfh(zvfh) ~is #true
   validate_vector_extensions(VectorProfile.Zve32x, zvfh) ~throws ""
+  vector_profile_isa_extensions(VectorProfile.V, 128, zvbb).contains("zvbb") ~is #true
+  vector_profile_isa_extensions(VectorProfile.Zve32x, 128, zvbb).contains("zvbb") ~is #true
+  vector_extensions_support_zvbb(zvbb) ~is #true
+  validate_vector_extensions(VectorProfile.None, zvbb) ~throws ""
 
 for (vlen in [128, 256, 512, 1024, 65536]):
   check:

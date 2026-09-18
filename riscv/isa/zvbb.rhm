@@ -1,0 +1,81 @@
+#lang rhombus
+// Defines the ratified Zvbb vector basic bit-manipulation instruction catalog.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../model/main.rhm" open
+  "v.rhm" open
+
+def rotate_immediate_high = BitField("rotate immediate bit 5", 26, 26)
+def VectorRotateImmediate = ImmediateLayout(
+  "vector rotate immediate",
+  6,
+  #false,
+  [ImmediatePiece(rotate_immediate_high, 5, 5), ImmediatePiece(vs1, 4, 0)]
+)
+def VectorRotateVIFormat = InstructionFormat(
+  "vector rotate immediate",
+  VectorShiftVIFormat.operands,
+  VectorRotateImmediate,
+  [vm]
+)
+
+fun zvbb_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
+  InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
+
+fun zvbb_unary(name :: String, selector :: Nat):
+  InstructionSpec(name, VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(0x12), vs1.constrain(selector)])
+
+def VANDN_VV = zvbb_arithmetic("VANDN.VV", 0x01, VectorVVFormat, 0)
+def VANDN_VX = zvbb_arithmetic("VANDN.VX", 0x01, VectorVXFormat, 4)
+def VBREV8_V = zvbb_unary("VBREV8.V", 0x08)
+def VREV8_V = zvbb_unary("VREV8.V", 0x09)
+def VBREV_V = zvbb_unary("VBREV.V", 0x0a)
+def VCLZ_V = zvbb_unary("VCLZ.V", 0x0c)
+def VCTZ_V = zvbb_unary("VCTZ.V", 0x0d)
+def VCPOP_V = zvbb_unary("VCPOP.V", 0x0e)
+def VROL_VV = zvbb_arithmetic("VROL.VV", 0x15, VectorVVFormat, 0)
+def VROL_VX = zvbb_arithmetic("VROL.VX", 0x15, VectorVXFormat, 4)
+def VROR_VV = zvbb_arithmetic("VROR.VV", 0x14, VectorVVFormat, 0)
+def VROR_VX = zvbb_arithmetic("VROR.VX", 0x14, VectorVXFormat, 4)
+def VROR_VI = InstructionSpec("VROR.VI", VectorRotateVIFormat, [opcode.constrain(0x57), funct3.constrain(3), funct5.constrain(0x0a)])
+def VWSLL_VV = zvbb_arithmetic("VWSLL.VV", 0x35, VectorVVFormat, 0)
+def VWSLL_VX = zvbb_arithmetic("VWSLL.VX", 0x35, VectorVXFormat, 4)
+def VWSLL_VI = zvbb_arithmetic("VWSLL.VI", 0x35, VectorShiftVIFormat, 3)
+
+def ZvbbInstructions = [
+  VANDN_VV, VANDN_VX,
+  VBREV_V, VBREV8_V, VREV8_V,
+  VCLZ_V, VCTZ_V, VCPOP_V,
+  VROL_VV, VROL_VX,
+  VROR_VV, VROR_VX, VROR_VI,
+  VWSLL_VV, VWSLL_VX, VWSLL_VI
+]
+def ZvbbRevision = "Zvbb 1.0.0"
+def Zvbb = InstructionCatalog("Zvbb", ZvbbRevision, ZvbbInstructions)
+
+fun zvbb_instruction(name :: String): Zvbb.find(name)
+
+export:
+  VectorRotateImmediate
+  VectorRotateVIFormat
+  VANDN_VV
+  VANDN_VX
+  VBREV_V
+  VBREV8_V
+  VREV8_V
+  VCLZ_V
+  VCTZ_V
+  VCPOP_V
+  VROL_VV
+  VROL_VX
+  VROR_VV
+  VROR_VX
+  VROR_VI
+  VWSLL_VV
+  VWSLL_VX
+  VWSLL_VI
+  ZvbbInstructions
+  ZvbbRevision
+  Zvbb
+  zvbb_instruction

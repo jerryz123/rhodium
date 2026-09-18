@@ -45,6 +45,7 @@ for (name in ["simple-soc", "tiled-soc"]):
 
 check:
   riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("mini-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
   riscv_udb_configuration("tiled-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
   RiscvUdbConfigurationNames ~is ["simple-soc", "mini-soc", "tiled-soc"]

@@ -141,7 +141,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen, vector_completion_slots), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen, vector_completion_slots), 1))
 
-  inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~vector: core_profile.vector, ~zvfh: vector_extensions_support_zvfh(vector_extensions)))
+  inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~vector: core_profile.vector, ~vector_extensions: vector_extensions))
   inst id_registers(RV5StageRegisterFile(xlen))
   inst ex_alu(ALU(xlen))
   inst ex_branch_resolver(BranchResolver(width))

@@ -17,6 +17,7 @@ enum VectorProfile
 enum VectorExtension
 | Zvfhmin
 | Zvfh
+| Zvbb
 
 def DefaultVectorProfile = VectorProfile.None
 def NoVectorExtensions :: List.of(VectorExtension) = []
@@ -29,13 +30,15 @@ fun validate_vector_extensions(profile :: VectorProfile,
     | error(~who: #'vector_extensions, "duplicate vector extension")
   when extensions.filter(~keep: fun (extension): [VectorExtension.Zvfhmin, VectorExtension.Zvfh].contains(extension)).length() != 0 && !vector_profile_supports_fp32(profile)
   | error(~who: #'vector_extensions, "Zvfhmin and Zvfh require Zve32f, Zve64f, Zve64d, or V")
+  when extensions.contains(VectorExtension.Zvbb) && !vector_profile_enabled(profile)
+  | error(~who: #'vector_extensions, "Zvbb requires an enabled vector profile")
   extensions
 
 fun vector_extensions(extension :: VectorExtension, ...):
   def supplied = [extension, ...]
   validate_vector_extensions(VectorProfile.V, supplied)
   def mutable normalized = []
-  for (candidate in [VectorExtension.Zvfhmin, VectorExtension.Zvfh]):
+  for (candidate in [VectorExtension.Zvfhmin, VectorExtension.Zvfh, VectorExtension.Zvbb]):
     when supplied.contains(candidate)
     | normalized := normalized ++ [candidate]
   normalized
@@ -49,6 +52,9 @@ fun vector_extensions_support_zvfhmin(extensions :: List.of(VectorExtension)) ::
 
 fun vector_extensions_support_zvfh(extensions :: List.of(VectorExtension)) :: Boolean:
   extensions.contains(VectorExtension.Zvfh)
+
+fun vector_extensions_support_zvbb(extensions :: List.of(VectorExtension)) :: Boolean:
+  extensions.contains(VectorExtension.Zvbb)
 
 fun vector_profile_enabled(profile :: VectorProfile) :: Boolean:
   profile != VectorProfile.None
@@ -89,8 +95,8 @@ fun vector_profile_isa_extensions(profile :: VectorProfile,
       def integer64_extensions = if vector_profile_supports_integer64(profile) | ["zve64x"] | []
       def fp64_extensions = if vector_profile_supports_integer64(profile) && vector_profile_supports_fp32(profile) | ["zve64f"] | []
       def double_extensions = if vector_profile_supports_fp64(profile) | ["zve64d"] | []
-      def half_extensions = (if vector_extension_enabled(extensions, VectorExtension.Zvfhmin) | ["zvfhmin"] | []) ++ (if vector_extension_enabled(extensions, VectorExtension.Zvfh) | ["zvfh"] | [])
-      base_extensions ++ fp32_extensions ++ integer64_extensions ++ fp64_extensions ++ double_extensions ++ half_extensions ++ [vector_length_extension_name(vlen)]
+      def selected_extensions = (if vector_extension_enabled(extensions, VectorExtension.Zvfhmin) | ["zvfhmin"] | []) ++ (if vector_extension_enabled(extensions, VectorExtension.Zvfh) | ["zvfh"] | []) ++ (if vector_extension_enabled(extensions, VectorExtension.Zvbb) | ["zvbb"] | [])
+      base_extensions ++ fp32_extensions ++ integer64_extensions ++ fp64_extensions ++ double_extensions ++ selected_extensions ++ [vector_length_extension_name(vlen)]
 
 export:
   VectorProfile
@@ -103,6 +109,7 @@ export:
   vector_extension_enabled
   vector_extensions_support_zvfhmin
   vector_extensions_support_zvfh
+  vector_extensions_support_zvbb
   vector_profile_enabled
   vector_profile_supports_fp32
   vector_profile_supports_integer64

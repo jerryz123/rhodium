@@ -6,7 +6,7 @@
   logic [31:0] instruction = 0;
   word_t scalar1 = 0, scalar2 = 0, test_vtype = 0, test_vstart = 0;
   logic commit_valid = 0, exception_valid = 0, saturate = 0;
-  logic decoded_valid, legal, full_half_legal, writeback_valid, redirect_valid;
+  logic decoded_valid, base_decoded_valid, legal, full_half_legal, writeback_valid, redirect_valid;
   word_t writeback_value, mstatus;
   vector_state_t state;
   logic [1:0] configuration, operand, extension_ratio;
@@ -177,6 +177,19 @@
       instruction[11:7] = 0; #1;
       assert (!legal) else $fatal(1, "merge overwrote its selection mask");
     end
+    // Zvbb remains extension-gated while reusing ordinary vector legality.
+    test_vtype = 0;
+    instruction = 32'h062180d7; #1; // vandn.vv v1,v2,v3
+    assert (decoded_valid && !base_decoded_valid && legal && operand == 0) else $fatal(1, "Zvbb vandn decode/profile gating");
+    instruction = 32'h4a2520d7; #1; // vbrev.v v1,v2
+    assert (decoded_valid && !base_decoded_valid && legal) else $fatal(1, "Zvbb unary decode/profile gating");
+    instruction = 32'h562fb0d7; #1; // vror.vi v1,v2,63
+    assert (decoded_valid && !base_decoded_valid && legal && operand == 2) else $fatal(1, "Zvbb six-bit rotate immediate decode");
+    instruction = {6'h35, 1'b1, 5'd16, 5'd2, 3'd0, 5'd8, 7'h57}; #1; // vwsll.vv v8,v16,v2
+    assert (decoded_valid && !base_decoded_valid && legal && widening && operand == 0) else $fatal(1, "Zvbb widening shift decode");
+    test_vtype = 'h18; #1; // e64,m1 cannot produce EEW=128
+    assert (decoded_valid && !legal) else $fatal(1, "Zvbb widening shift admitted EEW above ELEN");
+
     // Same-width data groups and mask destinations have different overlap rules.
     @(negedge clock);
     test_vtype = 1; // e8,m2

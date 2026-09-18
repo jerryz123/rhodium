@@ -104,11 +104,12 @@ amounts are reduced modulo the destination width (twice the source width).
 Together with the ALU's logic, rotation, reversal, and count paths, this provides
 the execution operations required by [Zvbb](https://docs.riscv.org/reference/isa/v20250508/unpriv/vector-crypto.html).
 Instruction forms, vector masks/tails, `vl`/`vstart`, register-group legality,
-and scheduling remain caller policy; this is not architectural Zvbb support
-or an advertised ISA profile.
+and scheduling remain caller policy. The reusable block does not advertise an
+ISA; RV5Stage owns its architectural Zvbb integration and profile selection.
 
-The block is independent of RISC-V profiles and is not integrated into RV5Stage.
-It does not promise a clock frequency or provide a registered pipeline.
+The block remains independent of RISC-V profiles: RV5Stage supplies the decode,
+legality, and scheduling around it. It does not promise a clock frequency or
+provide a registered pipeline.
 
 `SimdCompress()` retains the input order of selected elements, places them in
 consecutive low lanes, clears unused output lanes, and reports a count from zero

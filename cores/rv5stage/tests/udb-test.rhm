@@ -55,6 +55,18 @@ def rv64_vector_full_half_yaml = rv5stage_udb_configuration(
   44
 ).to_yaml()
 
+def rv64_vector_bitmanip_yaml = rv5stage_udb_configuration(
+  RVCoreProfile(
+    ~xlen: XLen.X64,
+    ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D),
+    ~vector: VectorProfile.V,
+    ~vector_extensions: vector_extensions(VectorExtension.Zvbb)
+  ),
+  "rhodium-rv5stage-rv64dv-zvbb",
+  "RV5Stage RV64D+V+Zvbb configuration",
+  44
+).to_yaml()
+
 def no_hpm_values = for List (_index in 0..32): "false"
 
 for (xlen in [XLen.X32, XLen.X64]):
@@ -73,6 +85,7 @@ check:
   rv64_vector_half_yaml.contains("{ name: \"Zfhmin\",") ~is #false
   rv64_vector_full_half_yaml.contains("{ name: \"Zfh\", version: \"= 1.0.0\" }") ~is #true
   rv64_vector_full_half_yaml.contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
+  rv64_vector_bitmanip_yaml.contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zkt\", version: \"= 1.0.1\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zihintntl\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zihintpause\", version: \"= 2.0.0\" }") ~is #true

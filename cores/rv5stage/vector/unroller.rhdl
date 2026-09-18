@@ -229,7 +229,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     vlmax: mux(whole_register_move, limit, geometry.vlmax)
     masked: descriptor.masked & !mask_select & !carry_input
     operand_select: mux_lookup(descriptor.control.operand, ~default: VectorOperandSelect.Vector, [[VectorOperandMode.Scalar, VectorOperandSelect.Scalar], [VectorOperandMode.FloatingScalar, VectorOperandSelect.Scalar], [VectorOperandMode.Immediate, VectorOperandSelect.Immediate]])
-    immediate_unsigned: descriptor.control.immediate_unsigned
+    immediate_kind: descriptor.control.immediate_kind
     widening: widening & !reduction
     narrowing: narrowing
     extension: extension
@@ -244,7 +244,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   packing.right <== mux(second_source, results[1].bits, bits(0, 64))
   packing.mask_word <== mask_result.bits
   packing.scalar <== mux(floating_scalar_operand, floating_scalar, if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.into(SInt(32)).sext(64).into(Bits(64)))
-  packing.immediate <== descriptor.vs1
+  packing.immediate <== concat(descriptor.instruction[26], descriptor.vs1)
   // Premerge bytes before the ALU's existing E64 rotate-right. Scalar insert
   // bytes keep their element-local position because the offset is SEW-aligned.
   def slide_source = vec(for List (byte in 0..8):

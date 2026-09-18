@@ -13,6 +13,7 @@ def rv64 = gnu_isa_target(
 def rv32 = gnu_isa_target(XLen.X32, ["i", "m", "f", "zicsr"])
 def rv64_vector_half = gnu_isa_target(XLen.X64, ["i", "m", "a", "f", "d", "v", "zvfhmin"])
 def rv64_vector_full_half = gnu_isa_target(XLen.X64, ["i", "m", "a", "f", "d", "v", "zvfh"])
+def rv64_vector_bitmanip = gnu_isa_target(XLen.X64, ["i", "m", "a", "v", "zvbb"])
 
 check:
   rv64.march ~is "rv64imafdcb_zba_zicond_zicsr"
@@ -21,5 +22,6 @@ check:
   rv32.mabi ~is "ilp32f"
   rv64_vector_half.march ~is "rv64imafdv_zvfhmin"
   rv64_vector_full_half.march ~is "rv64imafdv_zvfh"
+  rv64_vector_bitmanip.march ~is "rv64imav_zvbb"
   gnu_isa_target(XLen.X64, ["m"]) ~throws "base I"
   gnu_isa_target(XLen.X64, ["i", "future_extension"]) ~throws "no GNU toolchain spelling"

@@ -53,7 +53,9 @@ service specialization. `Zvfhmin` must remain independent of scalar `Zfhmin`
 and must not admit any SEW=16 FP instruction beyond its two conversion forms.
 Full `Zvfh` requires scalar `Zfhmin` or `Zfh`, admits the standard vector FP
 surface at SEW=16, and admits only its six defined integer conversions at
-SEW=8. Keep those legality classes explicit in decode.
+SEW=8. `Zvbb` remains independently selected, adds only its extension-specific
+decode rows, and reuses the packed integer controls. Keep those legality classes
+explicit in decode and never merge extension instructions into base V.
 
 `fp.rhdl` adapts singleton operands and the shared physical execution control to the
 shared FP request. It imports the named FP contracts, RISC-V

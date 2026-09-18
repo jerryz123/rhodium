@@ -15,7 +15,9 @@ and V select ELEN=64. FP32 profiles require scalar FP support, while Zve64d and
 V require scalar D. RV5Stage currently integrates these profiles only with
 RV64 and supports scalar FP there only as D, so every FP-capable vector profile
 uses the RV64D scalar specialization. Only V advertises `V 1.0` and `misa.V`;
-it does not imply Zvbb.
+it does not imply Zvbb. Selecting `VectorExtension.Zvbb` independently enables
+the ratified vector basic bit-manipulation instruction set for any enabled
+vector profile.
 `~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)` independently
 adds the standard F16-to-F32 `vfwcvt.f.f.v` and F32-to-F16 `vfncvt.f.f.w`
 forms; it does not enable other FP16 vector operations or scalar `Zfhmin`.
@@ -638,17 +640,20 @@ masked-write semantics without depending on an unspecified SRAM collision mode.
 ## Packing boundary
 
 `RV5StageVectorOperands(vlen)` takes two source chunks, one `v0` shadow chunk, a
-scalar, a five-bit immediate, and `VectorPackingControl(vlen)`. It emits SIMD
-operands, element enables, and the first output element. Two-source operations
-therefore leave the third general read port free, and masked three-source
-operations can consume all three general ports without a mask-capture phase.
+scalar, a six-bit immediate container, and `VectorPackingControl(vlen)`. It
+emits SIMD operands, element enables, and the first output element. Two-source
+operations therefore leave the third general read port free, and masked
+three-source operations can consume all three general ports without a
+mask-capture phase.
 
 `first_element` denotes the start of an aligned **source** chunk, not the next
 enabled element. The caller supplies the mask word containing that element
 (`v0` chunk `first_element / 64`). Enables intersect `vstart <= i < vl`,
 `i < vlmax`, and the architectural mask. Nonzero `vstart` suppresses lanes rather
 than shifting their positions. Scalar/immediate broadcast uses the low SEW
-bits; immediates select signed or unsigned extension explicitly.
+bits; `VectorImmediateKind` distinguishes signed five-bit, unsigned five-bit,
+and unsigned six-bit values. The six-bit form supplies `vror.vi`; other vector
+immediates retain their architectural five-bit interpretation.
 
 Widening reuses `SimdWidenOperands`: each invocation sign- or zero-extends
 either half of an 8/16/32-bit source chunk into one 64-bit output chunk. The
@@ -660,8 +665,9 @@ For `vnclipu` and `vnclip`, the shared SIMD datapath rounds the doubled-width
 source according to the captured `vxrm` value before this adapter clips each
 enabled lane to its unsigned or signed destination range. Disabled lanes never
 contribute saturation. The result carries the per-beat saturation indication
-to WB rather than mutating CSR state in the combinational adapter. Reduction
-and permutation scheduling are not supplied here.
+to WB rather than mutating CSR state in the combinational adapter. Cross-beat
+reduction and permutation scheduling are not supplied here; element-local Zvbb
+reversals use the ordinary packed execution schedule.
 
 The fixed-point execution slice implements saturating `vsaddu`, `vsadd`,
 `vssubu`, and `vssub`; averaging `vaaddu`, `vaadd`, `vasubu`, and `vasub`;

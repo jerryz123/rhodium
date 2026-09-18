@@ -6,11 +6,33 @@ import:
   "../isa/v.rhm" open
   "../isa/zvfhmin.rhm" open
   "../isa/zvfh.rhm" open
+  "../isa/zvbb.rhm" open
   "../isa/vector.rhm" open
   "../isa/csr.rhm" open
   "../model/main.rhm" as model
 
 check:
+  ZvbbInstructions.length() ~is 16
+  zvbb_instruction("VROR.VI") ~is VROR_VI
+  VANDN_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x062180d7
+  VANDN_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x0621c0d7
+  VBREV_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2520d7
+  VBREV8_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2420d7
+  VREV8_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a24a0d7
+  VCLZ_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2620d7
+  VCTZ_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a26a0d7
+  VCPOP_V.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2720d7
+  VROL_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x562180d7
+  VROL_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x5621c0d7
+  VROR_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0x522180d7
+  VROR_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0x5221c0d7
+  VROR_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 31) ~is 0x522fb0d7
+  VROR_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 63) ~is 0x562fb0d7
+  VROR_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 64) ~throws ""
+  VWSLL_VV.encode([vd.constrain(1), vs2.constrain(2), vs1.constrain(3), vm.constrain(1)]) ~is 0xd62180d7
+  VWSLL_VX.encode([vd.constrain(1), vs2.constrain(2), model.rs1.constrain(3), vm.constrain(1)]) ~is 0xd621c0d7
+  VWSLL_VI.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)], ~immediate: 3) ~is 0xd621b0d7
+  VectorV.matching(0x062180d7) ~is #false
   ZvfhminInstructions ~is [VFWCVT_F_F_V, VFNCVT_F_F_W]
   zvfhmin_instruction("VFWCVT.F.F.V") ~is VFWCVT_F_F_V
   ZvfhInstructions ~is VectorFloatingPointInstructions

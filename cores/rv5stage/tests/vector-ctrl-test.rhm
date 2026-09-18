@@ -4,6 +4,7 @@
 
 import:
   "../../../riscv/isa/v.rhm" open
+  "../../../riscv/isa/zvbb.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
   "../decode/vector-ctrl.rhdl" open
@@ -33,8 +34,12 @@ fun control_pattern(instruction):
   VectorControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output
 fun control(instruction):
   control_pattern(instruction).value
+fun zvbb_control(instruction):
+  VectorZvbbCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 fun core_control(instruction):
   VectorCoreControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
+fun zvbb_core_control(instruction):
+  VectorZvbbCoreControlCases.find(fun (row): row.input.value_bits == instruction.encoding.value && row.input.care_bits == instruction.encoding.care).output.value
 
 check:
   value(control(VMV_X_S), "scalar_destination") ~is 1
@@ -50,6 +55,8 @@ check:
   value(field(core_control(VMV_X_S), "operand"), "uses_rs1") ~is 0
   VectorControlCases.length() ~is VectorVInstructions.length()
   VectorCoreControlCases.length() ~is VectorVInstructions.length()
+  VectorZvbbCases.length() ~is ZvbbInstructions.length()
+  VectorZvbbCoreControlCases.length() ~is ZvbbInstructions.length()
   value(control(VSETVLI), "configure") ~is VectorConfigMode.VtypeImmediate.packed_value()
   value(control(VSETIVLI), "configure") ~is VectorConfigMode.AllImmediate.packed_value()
   value(control(VSETVL), "configure") ~is VectorConfigMode.VtypeRegister.packed_value()
@@ -105,6 +112,23 @@ check:
   value(control(VCOMPRESS_VM), "operand") ~is VectorOperandMode.Vector.packed_value()
   value(field(core_control(VCOMPRESS_VM), "operand"), "uses_rs1") ~is 0
   value(field(core_control(VCOMPRESS_VM), "writeback"), "enable") ~is 0
+  value(field(zvbb_control(VANDN_VV), "alu"), "logic_select") ~is SimdLogicSelect.And.packed_value()
+  value(field(zvbb_control(VANDN_VV), "alu"), "invert_right") ~is 1
+  value(field(zvbb_control(VBREV_V), "alu"), "permutation_select") ~is SimdPermutationSelect.ReverseBits.packed_value()
+  value(field(zvbb_control(VBREV8_V), "alu"), "permutation_select") ~is SimdPermutationSelect.ReverseBitsInBytes.packed_value()
+  value(field(zvbb_control(VREV8_V), "alu"), "permutation_select") ~is SimdPermutationSelect.ReverseBytes.packed_value()
+  value(field(zvbb_control(VCLZ_V), "alu"), "count_select") ~is SimdCountSelect.LeadingZeros.packed_value()
+  value(field(zvbb_control(VCTZ_V), "alu"), "count_select") ~is SimdCountSelect.TrailingZeros.packed_value()
+  value(field(zvbb_control(VCPOP_V), "alu"), "count_select") ~is SimdCountSelect.Population.packed_value()
+  value(field(zvbb_control(VROL_VV), "alu"), "shift_right") ~is 0
+  value(field(zvbb_control(VROL_VV), "alu"), "rotate") ~is 1
+  value(field(zvbb_control(VROR_VX), "alu"), "shift_right") ~is 1
+  value(field(zvbb_control(VROR_VX), "alu"), "rotate") ~is 1
+  value(zvbb_control(VROR_VI), "immediate_kind") ~is VectorImmediateKind.Unsigned6.packed_value()
+  value(zvbb_control(VWSLL_VI), "immediate_kind") ~is VectorImmediateKind.Unsigned5.packed_value()
+  value(zvbb_control(VWSLL_VV), "widening") ~is 1
+  value(field(zvbb_core_control(VANDN_VX), "operand"), "uses_rs1") ~is 1
+  value(field(zvbb_core_control(VBREV_V), "operand"), "uses_rs1") ~is 0
 
 for (instruction in VectorCarryBorrowInstructions, index in 0..15):
   def decoded = control(instruction)
@@ -419,7 +443,9 @@ for (instruction in VectorIntegerInstructions):
     value(decoded, "memory") ~is 0
     value(decoded, "configure") ~is VectorConfigMode.None.packed_value()
     value(decoded, "operand") ~is expected_operand.packed_value()
-    value(decoded, "immediate_unsigned") ~is (if instruction.format == VectorShiftVIFormat | 1 | 0)
+  when instruction.format.immediate
+  | check:
+      value(decoded, "immediate_kind") ~is (if instruction.format.immediate.signed | VectorImmediateKind.Signed5 | VectorImmediateKind.Unsigned5).packed_value()
 
 for (instructions in [VectorUnitStrideMemoryInstructions, VectorStridedMemoryInstructions], addressing in [VectorMemoryAddressing.UnitStride, VectorMemoryAddressing.Strided]):
   for (instruction in instructions, index in 0..8):
