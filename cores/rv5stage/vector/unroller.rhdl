@@ -133,7 +133,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def second_source = slide ||| !descriptor.control.floating_point ||| descriptor.control.fp_uses_vs1
   def floating_scalar_operand = descriptor.control.floating_point & (descriptor.control.operand === VectorOperandMode.FloatingScalar)
   def fp_service_scalar_operand = descriptor.control.fp_service & floating_scalar_operand
-  def checked_floating_scalar = mux(sew === bits(2, 2), riscv_unbox(FloatFormat.F32, 64, descriptor.floating_scalar).as_bits().zext(64), descriptor.floating_scalar)
+  def checked_floating_scalar = mux_lookup(sew, ~default: descriptor.floating_scalar, [[1, riscv_unbox(FloatFormat.F16, 64, descriptor.floating_scalar).as_bits().zext(64)], [2, riscv_unbox(FloatFormat.F32, 64, descriptor.floating_scalar).as_bits().zext(64)]])
   def floating_scalar = mux(descriptor.control.fp_service, descriptor.floating_scalar, checked_floating_scalar)
   def destination_width = sew + ((descriptor.control.widening & multiply_accumulate) ||| fp_widening).as_bits().zext(2)
   def destination_chunk = cursor >> (bits(3, 2) - destination_width)

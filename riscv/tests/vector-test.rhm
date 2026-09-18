@@ -1,9 +1,26 @@
 #lang rhombus
-// Checks configurable vector geometry, fractional groups, chunk mapping, masks, and ordinary data overlap rules.
+// Checks vector profiles, extensions, geometry, fractional groups, chunk mapping, masks, and data overlap.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/vector.rhm" open
+  "../isa/vector-profile.rhm" open
+
+def zvfhmin = vector_extensions(VectorExtension.Zvfhmin)
+def zvfh = vector_extensions(VectorExtension.Zvfh)
+
+check:
+  vector_profile_isa_extensions(VectorProfile.V, 128, zvfhmin).contains("zvfhmin") ~is #true
+  vector_profile_isa_extensions(VectorProfile.Zve32f, 128, zvfhmin).contains("zvfhmin") ~is #true
+  vector_profile_isa_extensions(VectorProfile.V, 128).contains("zvfhmin") ~is #false
+  validate_vector_extensions(VectorProfile.Zve32x, zvfhmin) ~throws ""
+  validate_vector_extensions(VectorProfile.None, zvfhmin) ~throws ""
+  vector_extensions(VectorExtension.Zvfhmin, VectorExtension.Zvfhmin) ~throws ""
+  vector_profile_isa_extensions(VectorProfile.V, 128, zvfh).contains("zvfh") ~is #true
+  vector_profile_isa_extensions(VectorProfile.V, 128, zvfh).contains("zvfhmin") ~is #false
+  vector_extensions_support_zvfhmin(zvfh) ~is #true
+  vector_extensions_support_zvfh(zvfh) ~is #true
+  validate_vector_extensions(VectorProfile.Zve32x, zvfh) ~throws ""
 
 for (vlen in [128, 256, 512, 1024, 65536]):
   check:

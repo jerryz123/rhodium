@@ -38,6 +38,11 @@ fun core_control(instruction):
 
 check:
   value(control(VMV_X_S), "scalar_destination") ~is 1
+  value(control(VFWCVT_F_F_V), "fp_zvfhmin_e16") ~is 1
+  value(control(VFNCVT_F_F_W), "fp_zvfhmin_e16") ~is 1
+  value(control(VFWCVT_XU_F_V), "fp_zvfhmin_e16") ~is 0
+  value(control(VFWCVT_F_XU_V), "fp_zvfh_e8") ~is 1
+  value(control(VFNCVT_XU_F_W), "fp_zvfh_e8") ~is 1
   value(control(VMV_S_X), "element_move") ~is 1
   value(field(core_control(VMV_X_S), "writeback"), "enable") ~is 1
   value(field(core_control(VMV_X_S), "writeback"), "source") ~is WritebackSelect.Vector.packed_value()

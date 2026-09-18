@@ -7,6 +7,7 @@ import:
   "../../chi/protocol/coherence.rhdl".chi_rnf_snoop_opcodes
   "../../chi/protocol/link.rhdl".CHINodeKind
   "../../chi/noc/noc-adapter.rhdl".CHIChannelAdapterPlan
+  "../../riscv/isa/fp-profile.rhm".HalfPrecisionProfile
   "../../socs/simple-soc.rhdl" as soc
 
 def snp_adapters :: CHIChannelAdapterPlan = soc.simple_soc_adapter_plans.snp
@@ -24,6 +25,8 @@ for (cache in [description.core_profile.cache_geometry.instruction,
     cache.capacity_bytes ~is 16384
 check:
   soc.simple_soc_core_profile.extensions.zicbop ~is #true
+  soc.simple_soc_core_profile.isa_extensions.contains("zvfh") ~is #true
+  soc.simple_soc_core_profile.extensions.half_precision ~is HalfPrecisionProfile.Zfh
   soc.simple_soc_topology.injections ~is []
   soc.simple_soc_topology.ejections ~is []
   soc.simple_soc_home_map.entry(0x1000).home === soc.simple_soc_device_home ~is #true

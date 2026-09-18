@@ -27,6 +27,7 @@ import:
   "bundles.rhdl" open
   "csr.rhdl" open
   "profile.rhm".RVCoreProfile
+  "profile.rhm".rv5stage_execution_half_precision
   "interrupt.rhdl" open
   "multiply.rhdl" open
   "integer-execution.rhdl" open
@@ -64,6 +65,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def extensions = core_profile.extensions
   def profile = extensions.floating_point
   def half_precision = extensions.half_precision
+  def vector_extensions = core_profile.vector_extensions
+  def execution_half_precision = rv5stage_execution_half_precision(half_precision, vector_extensions)
   def zfa_enabled = extensions.zfa
   def zicbop_enabled = extensions.zicbop
   def zicboz_enabled = extensions.zicboz
@@ -138,7 +141,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst ex_mem_pipe(ValidPipeAlwaysCapture(ExecuteMemory(xlen, vector_completion_slots), 1))
   inst mem_wb_pipe(ValidPipeAlwaysCapture(MemoryWriteback(xlen, vector_completion_slots), 1))
 
-  inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~vector: core_profile.vector))
+  inst id_decoder(RV5StageInstructionDecoder(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zicbop: zicbop_enabled, ~zicboz: zicboz_enabled, ~zicbom: zicbom_enabled, ~zawrs: zawrs_enabled, ~zihintpause: zihintpause_enabled, ~zihintntl: zihintntl_enabled, ~vector: core_profile.vector, ~zvfh: vector_extensions_support_zvfh(vector_extensions)))
   inst id_registers(RV5StageRegisterFile(xlen))
   inst ex_alu(ALU(xlen))
   inst ex_branch_resolver(BranchResolver(width))
@@ -146,7 +149,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   inst wb_divider(RV5StageDivideScalar(xlen))
   inst wb_scoreboard(Scoreboard(register_count))
   inst wb_fp_integer_scoreboard(Scoreboard(register_count))
-  def wb_fp_module = if floating_point_supports_f(profile) | RV5StageFpScalar(xlen, effective_fp_profile, Bits(width), ~half_precision: half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
+  def wb_fp_module = if floating_point_supports_f(profile) | RV5StageFpScalar(xlen, effective_fp_profile, Bits(width), ~half_precision: execution_half_precision, ~zfa: zfa_enabled) | RV5StageDisabledFpPipeline(xlen, effective_fp_profile, Bits(width))
   inst wb_fp(wb_fp_module)
   inst wb_csrs(RV5StageCsrFile(core_profile))
   wire wb_vector_active: Bool
@@ -175,7 +178,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       tagged_union FpOwner():
         Scalar(wb_scalar_fp_tag)
         Vector(wb_vector_fp_tag)
-      inst wb_fp_execution(RV5StageFpExecutionService(xlen, effective_fp_profile, FpOwner(), ~half_precision: half_precision, ~zfa: zfa_enabled))
+      inst wb_fp_execution(RV5StageFpExecutionService(xlen, effective_fp_profile, FpOwner(), ~half_precision: execution_half_precision, ~zfa: zfa_enabled))
       Array(
         wb_fp.execution_request |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_scalar_fp_tag, FpOwner(), request, FpOwner().Scalar(request.tag))),
         wb_vector_fp_request_link.right |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_vector_fp_tag, FpOwner(), request, FpOwner().Vector(request.tag)))
@@ -639,7 +642,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
       inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, DecodeExecute(xlen, vector_completion_slots), ~vector_completion_slots: vector_completion_slots))
       reg wb_vector_context(DecodeExecute(xlen, vector_completion_slots))
       wb_fp.snapshot_read_address <== wb_vector_context.rs1
-      inst id_vector_legality(RV5StageVectorLegality(xlen, vector_length, core_profile.vector))
+      inst id_vector_legality(RV5StageVectorLegality(xlen, vector_length, core_profile.vector, vector_extensions))
       id_vector_legality.instruction <== id_instruction
       id_vector_legality.control <== id_control.vector
       id_vector_legality.vtype <== wb_csrs.vector_state.vtype

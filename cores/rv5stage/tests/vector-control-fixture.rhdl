@@ -19,12 +19,14 @@ import:
 
 sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   def xlen = XLen.X64
+  def selected_vector_extensions = vector_extensions(VectorExtension.Zvfhmin)
+  def full_half_vector_extensions = vector_extensions(VectorExtension.Zvfh)
   input instruction: Bits(32)
   input(scalar1, scalar2): Bits(xlen.width)
   input(commit_valid, exception_valid): Bool
   input saturate: Bool
   input(test_vtype, test_vstart): Bits(xlen.width)
-  output(decoded_valid, legal, writeback_valid, redirect_valid): Bool
+  output(decoded_valid, legal, full_half_legal, writeback_valid, redirect_valid): Bool
   output writeback_value: Bits(xlen.width)
   output mstatus: Bits(xlen.width)
   output state: RV5StageVectorState(xlen)
@@ -32,16 +34,22 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   output arithmetic_mode: Bits(3)
   output multiply_result: Bits(2)
   output extension_ratio: Bits(2)
-  output(mask_destination, carry_input, extension, extension_signed, mask_result_select, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder): Bool
+  output(mask_destination, carry_input, extension, extension_signed, mask_result_select, invert_comparison, swap_operands, widening, narrowing, fp_zvfhmin_e16, fp_zvfh_e8, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder): Bool
   inst decoder(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
-  inst csrs(RV5StageCsrFile(RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: vlen)))
-  inst legality(RV5StageVectorLegality(xlen, vlen))
+  inst csrs(RV5StageCsrFile(RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions, ~vector_length: vlen)))
+  inst legality(RV5StageVectorLegality(xlen, vlen, VectorProfile.V, selected_vector_extensions))
+  inst full_half_legality(RV5StageVectorLegality(xlen, vlen, VectorProfile.V, full_half_vector_extensions))
   decoder.instruction <== instruction
   legality.instruction <== instruction
   legality.control <== decoder.control.vector
   legality.vtype <== test_vtype
   legality.vstart <== test_vstart
+  full_half_legality.instruction <== instruction
+  full_half_legality.control <== decoder.control.vector
+  full_half_legality.vtype <== test_vtype
+  full_half_legality.vstart <== test_vstart
   legal <== decoder.valid & legality.legal
+  full_half_legal <== decoder.valid & full_half_legality.legal
   decoded_valid <== decoder.valid
   configuration <== decoder.control.vector.configure.as_bits()
   operand <== decoder.control.vector.operand.as_bits()
@@ -57,6 +65,8 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   swap_operands <== decoder.control.vector.swap_operands
   widening <== decoder.control.vector.widening
   narrowing <== decoder.control.vector.narrowing
+  fp_zvfhmin_e16 <== decoder.control.vector.fp_zvfhmin_e16
+  fp_zvfh_e8 <== decoder.control.vector.fp_zvfh_e8
   rounding <== decoder.control.vector.rounding
   clip <== decoder.control.vector.clip
   clip_unsigned <== decoder.control.vector.clip_unsigned

@@ -50,7 +50,10 @@ Its geometry follows
 floating-point capabilities, and the `Zvl<N>b` extension for the selected
 VLEN. Concrete cores own the supported XLEN/FP combinations and physical
 implementation. Only `VectorProfile.V` represents the single-letter V
-extension or sets `misa.V`.
+extension or sets `misa.V`. Orthogonal `VectorExtension` selections add
+capabilities without multiplying base profiles; `Zvfhmin` extends only
+`vfwcvt.f.f.v` and `vfncvt.f.f.w` to SEW=16, while `Zvfh` adds full vector
+half precision and its defined SEW=8 integer conversions.
 
 [`isa/v.rhm`](isa/v.rhm) provides the complete RVV 1.0 `VectorV` catalog:
 the three `vset*` forms, same-width integer add/sub, logic, shifts,
@@ -260,6 +263,8 @@ pure host code or be materialized by the Rhodium adapter.
 | [`isa/xlen.rhm`](isa/xlen.rhm) | `XLen.X32`, `XLen.X64` | Closed host-side architectural width selection |
 | [`isa/vector-profile.rhm`](isa/vector-profile.rhm) | `VectorProfile.None`, the five Zve profiles, and `VectorProfile.V` | Host selection and implication closure for standard vector extensions |
 | [`isa/v.rhm`](isa/v.rhm) | `VectorV`, vector configuration/integer/fixed-point/move/mask/reduction/memory catalogs, `VectorFloatingPoint*Instructions`, and vector multiply/divide catalogs | Standard V 1.0 catalog; see [vector geometry](#vector-geometry) |
+| [`isa/zvfhmin.rhm`](isa/zvfhmin.rhm) | `Zvfhmin` and its two existing V conversion instructions | Minimal vector half-precision catalog |
+| [`isa/zvfh.rhm`](isa/zvfh.rhm) | `Zvfh`, the V FP catalog, and its six SEW=8 conversion forms | Full vector half-precision catalog |
 | [`isa/integer-common.rhm`](isa/integer-common.rhm) | `RVIntegerCommonInstructions` | 37 immutable encodings shared by RV32I and RV64I |
 | [`isa/rv32i.rhm`](isa/rv32i.rhm) | `RV32I` | 40 architectural instructions, RV32I 2.1 |
 | [`isa/rv64i.rhm`](isa/rv64i.rhm) | `RV64I` | 52 architectural instructions, RV64I 2.1 over RV32I 2.1 |

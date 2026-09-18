@@ -45,6 +45,8 @@ hardware_enum RV5StageFloatComparison:
   LessEqual
 
 hardware_enum RV5StageFloatIntegerWidth:
+  Byte
+  Half
   Word
   Long
 

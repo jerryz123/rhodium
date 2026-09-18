@@ -1,0 +1,25 @@
+#lang rhombus
+// Identifies the vector instructions whose additional SEW=8 forms comprise Zvfh.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../model/main.rhm" open
+  "v.rhm" open
+
+def ZvfhInteger8Instructions = [
+  VFWCVT_F_XU_V, VFWCVT_F_X_V,
+  VFNCVT_XU_F_W, VFNCVT_X_F_W,
+  VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W
+]
+def ZvfhInstructions = VectorFloatingPointInstructions
+def ZvfhRevision = "Zvfh 1.0"
+def Zvfh = InstructionCatalog("Zvfh", ZvfhRevision, ZvfhInstructions)
+
+fun zvfh_instruction(name :: String): Zvfh.find(name)
+
+export:
+  ZvfhInteger8Instructions
+  ZvfhInstructions
+  ZvfhRevision
+  Zvfh
+  zvfh_instruction

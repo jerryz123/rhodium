@@ -44,6 +44,9 @@ for (name in ["simple-soc", "tiled-soc"]):
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zcmop\", version: \"= 1.0.0\" }") ~is #true
 
 check:
+  riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("mini-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
+  riscv_udb_configuration("tiled-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
   RiscvUdbConfigurationNames ~is ["simple-soc", "mini-soc", "tiled-soc"]
   riscv_udb_configuration("simple-soc").name ~is "rhodium-rv5stage-simple-rv64"
   riscv_udb_configuration("mini-soc").name ~is "rhodium-rv5stage-mini-rv64"

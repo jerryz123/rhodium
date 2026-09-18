@@ -18,10 +18,12 @@ import:
 fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), tag :: Bits(index_width(slots)), rounding :: RoundingMode) :~ RV5StageFpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
   def profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def flen = floating_point_register_width(profile)
-  def source_single = beat.fp_source_width === SimdElementWidth.E32
-  def result_single = beat.fp_result_width === SimdElementWidth.E32
-  def source_precision = mux(source_single, RV5StageFloatPrecision.Single, RV5StageFloatPrecision.Double)
-  def result_precision = mux(result_single, RV5StageFloatPrecision.Single, RV5StageFloatPrecision.Double)
+  fun precision(width :: SimdElementWidth) :~ RV5StageFloatPrecision:
+    mux_lookup(width, ~default: RV5StageFloatPrecision.Double, [[SimdElementWidth.E16, RV5StageFloatPrecision.Half], [SimdElementWidth.E32, RV5StageFloatPrecision.Single]])
+  fun integer_width(width :: SimdElementWidth) :~ RV5StageFloatIntegerWidth:
+    mux_lookup(width, ~default: RV5StageFloatIntegerWidth.Long, [[SimdElementWidth.E8, RV5StageFloatIntegerWidth.Byte], [SimdElementWidth.E16, RV5StageFloatIntegerWidth.Half], [SimdElementWidth.E32, RV5StageFloatIntegerWidth.Word]])
+  def source_precision = precision(beat.fp_source_width)
+  def result_precision = precision(beat.fp_result_width)
   def left_precision = mux(beat.control.wide_vs2, result_precision, source_precision)
   def right_precision = mux(beat.control.reduction & beat.control.widening, result_precision, source_precision)
   // The decoder selects a physical FP operation; SEW supplies its dynamic format.
@@ -29,19 +31,21 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
   unused <== dont_care(RV5StageFloatingPointControl())
   def fp_source = beat.control.fp_source === VectorFloatSource.Floating
   def fp_destination = beat.control.fp_result === VectorFloatResult.Floating
-  def integer_single = mux(fp_source, result_single, source_single)
   def control = unused.updated(
     ~registers: unused.registers.updated(~destination: mux(fp_destination, RV5StageFloatDestination.FloatingPoint, RV5StageFloatDestination.Integer), ~uses_frs1: fp_source),
-    ~execution: beat.control.fp_execution.updated(~source_precision: source_precision, ~destination_precision: result_precision, ~integer_width: mux(integer_single, RV5StageFloatIntegerWidth.Word, RV5StageFloatIntegerWidth.Long))
+    ~execution: beat.control.fp_execution.updated(~source_precision: source_precision, ~destination_precision: result_precision, ~integer_width: mux(fp_source, integer_width(beat.fp_result_width), integer_width(beat.fp_source_width)))
   )
-  fun operand(value :: Bits(64), single :: Bool) :~ Bits(flen):
-    def boxed = riscv_nan_box(FloatFormat.F32, value[0..32].into(IEEEFloat(FloatFormat.F32)), flen)
-    if xlen == XLen.X32 | boxed | mux(single, boxed, value)
+  fun operand(value :: Bits(64), precision :: RV5StageFloatPrecision) :~ Bits(flen):
+    def half = riscv_nan_box(FloatFormat.F16, value[0..16].into(IEEEFloat(FloatFormat.F16)), flen)
+    def single = riscv_nan_box(FloatFormat.F32, value[0..32].into(IEEEFloat(FloatFormat.F32)), flen)
+    if xlen == XLen.X32
+    | mux(precision === RV5StageFloatPrecision.Half, half, single)
+    | mux_lookup(precision, ~default: value, [[RV5StageFloatPrecision.Half, half], [RV5StageFloatPrecision.Single, single]])
   def floating_scalar = beat.control.operand === VectorOperandMode.FloatingScalar
   def scalar_operand = if xlen == XLen.X32 | beat.right[0..32] | beat.right
-  def vector_left = operand(beat.left, left_precision === RV5StageFloatPrecision.Single)
-  def source_right = mux(floating_scalar, scalar_operand, operand(beat.right, right_precision === RV5StageFloatPrecision.Single))
-  def destination_operand = operand(beat.destination_data, result_single)
+  def vector_left = operand(beat.left, left_precision)
+  def source_right = mux(floating_scalar, scalar_operand, operand(beat.right, right_precision))
+  def destination_operand = operand(beat.destination_data, result_precision)
   def ordered_left = mux(beat.control.swap_operands, source_right, vector_left)
   def ordered_right = mux(beat.control.swap_operands, vector_left, source_right)
   RV5StageFpExecutionRequest(xlen, profile, Bits(index_width(slots))):

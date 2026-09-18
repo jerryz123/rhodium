@@ -14,7 +14,41 @@ enum VectorProfile
 | Zve64d
 | V
 
+enum VectorExtension
+| Zvfhmin
+| Zvfh
+
 def DefaultVectorProfile = VectorProfile.None
+def NoVectorExtensions :: List.of(VectorExtension) = []
+def DefaultVectorExtensions = NoVectorExtensions
+
+fun validate_vector_extensions(profile :: VectorProfile,
+                               extensions :: List.of(VectorExtension)):
+  for (extension in extensions):
+    when extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
+    | error(~who: #'vector_extensions, "duplicate vector extension")
+  when extensions.filter(~keep: fun (extension): [VectorExtension.Zvfhmin, VectorExtension.Zvfh].contains(extension)).length() != 0 && !vector_profile_supports_fp32(profile)
+  | error(~who: #'vector_extensions, "Zvfhmin and Zvfh require Zve32f, Zve64f, Zve64d, or V")
+  extensions
+
+fun vector_extensions(extension :: VectorExtension, ...):
+  def supplied = [extension, ...]
+  validate_vector_extensions(VectorProfile.V, supplied)
+  def mutable normalized = []
+  for (candidate in [VectorExtension.Zvfhmin, VectorExtension.Zvfh]):
+    when supplied.contains(candidate)
+    | normalized := normalized ++ [candidate]
+  normalized
+
+fun vector_extension_enabled(extensions :: List.of(VectorExtension),
+                             extension :: VectorExtension) :: Boolean:
+  extensions.contains(extension)
+
+fun vector_extensions_support_zvfhmin(extensions :: List.of(VectorExtension)) :: Boolean:
+  extensions.contains(VectorExtension.Zvfhmin) || extensions.contains(VectorExtension.Zvfh)
+
+fun vector_extensions_support_zvfh(extensions :: List.of(VectorExtension)) :: Boolean:
+  extensions.contains(VectorExtension.Zvfh)
 
 fun vector_profile_enabled(profile :: VectorProfile) :: Boolean:
   profile != VectorProfile.None
@@ -43,7 +77,10 @@ fun vector_profile_elen_bits(profile :: VectorProfile) :: PosInt:
 fun vector_length_extension_name(vlen :: VectorLength) :: String:
   "zvl" ++ String.from_int(vlen) ++ "b"
 
-fun vector_profile_isa_extensions(profile :: VectorProfile, vlen :: VectorLength) :: List.of(String):
+fun vector_profile_isa_extensions(profile :: VectorProfile,
+                                  vlen :: VectorLength,
+                                  extensions :: List.of(VectorExtension) = DefaultVectorExtensions) :: List.of(String):
+  validate_vector_extensions(profile, extensions)
   if !vector_profile_enabled(profile)
   | []
   | block:
@@ -52,11 +89,20 @@ fun vector_profile_isa_extensions(profile :: VectorProfile, vlen :: VectorLength
       def integer64_extensions = if vector_profile_supports_integer64(profile) | ["zve64x"] | []
       def fp64_extensions = if vector_profile_supports_integer64(profile) && vector_profile_supports_fp32(profile) | ["zve64f"] | []
       def double_extensions = if vector_profile_supports_fp64(profile) | ["zve64d"] | []
-      base_extensions ++ fp32_extensions ++ integer64_extensions ++ fp64_extensions ++ double_extensions ++ [vector_length_extension_name(vlen)]
+      def half_extensions = (if vector_extension_enabled(extensions, VectorExtension.Zvfhmin) | ["zvfhmin"] | []) ++ (if vector_extension_enabled(extensions, VectorExtension.Zvfh) | ["zvfh"] | [])
+      base_extensions ++ fp32_extensions ++ integer64_extensions ++ fp64_extensions ++ double_extensions ++ half_extensions ++ [vector_length_extension_name(vlen)]
 
 export:
   VectorProfile
+  VectorExtension
   DefaultVectorProfile
+  NoVectorExtensions
+  DefaultVectorExtensions
+  validate_vector_extensions
+  vector_extensions
+  vector_extension_enabled
+  vector_extensions_support_zvfhmin
+  vector_extensions_support_zvfh
   vector_profile_enabled
   vector_profile_supports_fp32
   vector_profile_supports_integer64

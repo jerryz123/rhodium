@@ -40,14 +40,22 @@ check:
   RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 0) ~throws "Pow2Int"
   RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 3) ~throws "Pow2Int"
   RVCoreProfile(~xlen: XLen.X64).vector ~is VectorProfile.None
+  RVCoreProfile(~xlen: XLen.X64).vector_extensions ~is NoVectorExtensions
   RVCoreProfile(~xlen: XLen.X64).vector_length ~is 128
   RVCoreProfile(~xlen: XLen.X64, ~vector_length: 65536).vector_length ~is 65536
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("v") ~is #true
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvl128b") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).misa_extension_bits ~is 0x34112f
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)).isa_extensions.contains("zvfhmin") ~is #true
+  rv5stage_execution_half_precision(HalfPrecisionProfile.None, vector_extensions(VectorExtension.Zvfhmin)) ~is HalfPrecisionProfile.Zfhmin
+  rv5stage_execution_half_precision(HalfPrecisionProfile.Zfh, NoVectorExtensions) ~is HalfPrecisionProfile.Zfh
+  rv5stage_execution_half_precision(HalfPrecisionProfile.Zfhmin, vector_extensions(VectorExtension.Zvfh)) ~is HalfPrecisionProfile.Zfh
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).misa_extension_bits ~is 0x34112b
   RVCoreProfile(~xlen: XLen.X64, ~vector_length: 192) ~throws "VectorLength"
   RVCoreProfile(~xlen: XLen.X64, ~vector: VectorProfile.V) ~throws "require scalar D"
   RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F), ~vector: VectorProfile.V) ~throws "require RV64"
+  RVCoreProfile(~xlen: XLen.X64, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)) ~throws ""
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)) ~throws "Zvfh requires scalar Zfhmin or Zfh"
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)).isa_extensions.contains("zvfh") ~is #true
   RV5StageExtensions().ssnpm ~is #false
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)).extensions.ssnpm ~is #true
   RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~ssnpm: #true)) ~throws "RV64"

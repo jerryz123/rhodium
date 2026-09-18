@@ -451,7 +451,8 @@ circuit RV5StageInstructionDecoder(
   ~zihintntl: zihintntl_enabled :: Boolean = #false,
   ~zicbom: zicbom_enabled :: Boolean = #false,
   ~zicboz: zicboz_enabled :: Boolean = #false,
-  ~vector: vector_profile :: VectorProfile = DefaultVectorProfile
+  ~vector: vector_profile :: VectorProfile = DefaultVectorProfile,
+  ~zvfh: zvfh_enabled :: Boolean = #false
 ):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   input instruction: Bits(32)
@@ -466,8 +467,8 @@ circuit RV5StageInstructionDecoder(
     if profile == FloatingPointProfile.None
     | hinted_cases
     | hinted_cases ++ floating_point_core_control_cases(
-        rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled),
-        rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled)
+        rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zvfh_enabled),
+        rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zvfh_enabled)
       )
   def vector_cases = if !vector_profile_enabled(vector_profile) | [] | (if vector_profile_supports_fp32(vector_profile) | VectorCoreControlCases | VectorIntegerCoreControlCases)
   def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases ++ vector_cases)(instruction)

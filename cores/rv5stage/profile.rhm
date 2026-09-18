@@ -140,19 +140,32 @@ fun check_rv5stage_floating_point_profile(xlen :: XLen,
 
 fun check_rv5stage_vector_profile(xlen :: XLen,
                                   floating_point :: FloatingPointProfile,
-                                  vector :: VectorProfile):
+                                  half_precision :: HalfPrecisionProfile,
+                                  vector :: VectorProfile,
+                                  vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
+  validate_vector_extensions(vector, vector_extensions)
   when vector_profile_enabled(vector) && xlen != XLen.X64
   | error(~who: #'check_rv5stage_vector_profile, "RV5Stage vector profiles require RV64")
   when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
   | error(~who: #'check_rv5stage_vector_profile, "Zve64d and V require scalar D")
   when vector_profile_supports_fp32(vector) && !floating_point_supports_f(floating_point)
   | error(~who: #'check_rv5stage_vector_profile, "floating-point vector profiles require scalar F or D")
+  when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
+  | error(~who: #'check_rv5stage_vector_profile, "Zvfh requires scalar Zfhmin or Zfh")
+
+fun rv5stage_execution_half_precision(half_precision :: HalfPrecisionProfile,
+                                      vector_extensions :: List.of(VectorExtension)) :: HalfPrecisionProfile:
+  cond
+  | half_precision_supports_zfh(half_precision) || vector_extensions_support_zvfh(vector_extensions): HalfPrecisionProfile.Zfh
+  | half_precision_supports_zfhmin(half_precision) || vector_extensions_support_zvfhmin(vector_extensions): HalfPrecisionProfile.Zfhmin
+  | ~else: HalfPrecisionProfile.None
 
 class RVCoreProfile(xlen :: XLen,
                     extensions :: RV5StageExtensions,
                     mmu_mode :: RV5StageMmuMode,
                     cache_geometry :: RV5StageCacheGeometry,
                     vector :: VectorProfile,
+                    vector_extensions :: List.of(VectorExtension),
                     vector_length :: VectorLength,
                     vector_completion_slots :: Pow2Int):
   implements StableCircuitParam
@@ -162,6 +175,7 @@ class RVCoreProfile(xlen :: XLen,
                ~mmu_mode: mmu_mode :: RV5StageMmuMode = RV5StageMmuMode.Bare,
                ~cache_geometry: cache_geometry :: RV5StageCacheGeometry = RV5StageCacheGeometry(),
                ~vector: vector :: VectorProfile = DefaultVectorProfile,
+               ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions,
                ~vector_length: vector_length :: VectorLength = 128,
                ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
     check_rv5stage_floating_point_profile(
@@ -175,14 +189,14 @@ class RVCoreProfile(xlen :: XLen,
     | error(~who: #'RVCoreProfile, "Ssnpm requires RV64")
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RVCoreProfile, "RV32 profiles support only Bare translation")
-    check_rv5stage_vector_profile(xlen, extensions.floating_point, vector)
-    super(xlen, extensions, mmu_mode, cache_geometry, vector, vector_length, vector_completion_slots)
+    check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
+    super(xlen, extensions, mmu_mode, cache_geometry, vector, vector_extensions, vector_length, vector_completion_slots)
 
   property isa_base :: String:
     if xlen == XLen.X32 | "rv32i" | "rv64i"
 
   property isa_extensions :: NonemptyList.of(String):
-    extensions.names(xlen, mmu_mode) ++ vector_profile_isa_extensions(vector, vector_length)
+    extensions.names(xlen, mmu_mode) ++ vector_profile_isa_extensions(vector, vector_length, vector_extensions)
 
   property misa_extension_bits :: Nat:
     def fixed = (1 << 0) + (1 << 1) + (1 << 8) + (1 << 12) + (1 << 18) + (1 << 20)
@@ -207,3 +221,4 @@ export:
   rv5stage_floating_point_profile_supported
   check_rv5stage_floating_point_profile
   check_rv5stage_vector_profile
+  rv5stage_execution_half_precision

@@ -79,7 +79,7 @@ module rv5stage_vector_fp_tb;
   endtask
   task automatic vload(input integer rd, input integer address, input integer width);
     li(10, address);
-    emit(32'('h02050007 | ((width == 2 ? 6 : 7) << 12) | (rd << 7)));
+    emit(32'('h02050007 | ((width == 0 ? 0 : width == 1 ? 5 : width == 2 ? 6 : 7) << 12) | (rd << 7)));
   endtask
   task automatic expect_store(input integer address, input logic [63:0] value, input integer width);
     expected_address[expected_count] = 64'(address);
@@ -88,7 +88,7 @@ module rv5stage_vector_fp_tb;
   endtask
   task automatic vstore(input integer rd, input integer address, input integer width);
     li(10, address);
-    emit(32'('h02050027 | ((width == 2 ? 6 : 7) << 12) | (rd << 7)));
+    emit(32'('h02050027 | ((width == 0 ? 0 : width == 1 ? 5 : width == 2 ? 6 : 7) << 12) | (rd << 7)));
   endtask
   task automatic signature(input integer csr, input integer address, input logic [63:0] value);
     emit(32'((csr << 20) | 'h000021f3)); // csrr x3,csr; all state observers must drain FP
@@ -471,6 +471,41 @@ module rv5stage_vector_fp_tb;
     memory_words[79] = 'h3ff0000000000000; memory_words[80] = 'h4000000000000000;
     vset(3, 2); vload(8, 'h1278, 3); vec('h13, 15, 8, 5); vstore(15, 'h2880, 3);
     expect_store('h2880, 'h3fefe00000000000, 3); expect_store('h2888, 'h3fdfe00000000000, 3);
+    // Zvfh includes the Zvfhmin F16<->F32 conversions. A signaling half NaN
+    // canonicalizes and raises invalid; narrowing reports inexact rounding.
+    emit('h00105073); memory_words[81] = 'h00007c01c0003c00;
+    vset(1, 4); vload(8, 'h1288, 1); vec('h12, 16, 8, 12);
+    vset(2, 4); vstore(16, 'h2890, 2);
+    expect_store('h2890, 64'h3f800000, 2); expect_store('h2894, 64'hc0000000, 2);
+    expect_store('h2898, 64'h7fc00000, 2); expect_store('h289c, 0, 2);
+    signature('h001, 'h28a0, 16); emit('h00105073); emit('h00205073);
+    memory_words[82] = 'hc00000003f800000; memory_words[83] = 'h000000003f801000;
+    vset(2, 4, 1); vload(18, 'h1290, 2);
+    vset(1, 4); vec('h12, 20, 18, 20); vstore(20, 'h28b0, 1);
+    expect_store('h28b0, 64'h3c00, 1); expect_store('h28b2, 64'hc000, 1);
+    expect_store('h28b4, 64'h3c00, 1); expect_store('h28b6, 0, 1);
+    signature('h001, 'h28c0, 1); emit('h00105073);
+    // Full Zvfh admits same-width FP16 arithmetic and FP scalar moves, widens
+    // half operands through the shared FP32 lane, and implements the six
+    // additional SEW=8 integer conversion forms with exact 8-bit widths.
+    memory_words[84] = 'h4400420040003c00; // 1,2,3,4
+    memory_words[85] = 'hc0004000bc003800; // .5,-1,2,-2
+    vset(1, 4); vload(8, 'h12a0, 1); vload(9, 'h12a8, 1); vec(0, 10, 8, 9); vstore(10, 'h28d0, 1);
+    expect_store('h28d0, 'h3e00, 1); expect_store('h28d2, 'h3c00, 1);
+    expect_store('h28d4, 'h4500, 1); expect_store('h28d6, 'h4000, 1);
+    vec('h30, 12, 8, 9); vset(2, 4, 1); vstore(12, 'h28e0, 2);
+    expect_store('h28e0, 'h3fc00000, 2); expect_store('h28e4, 'h3f800000, 2);
+    expect_store('h28e8, 'h40a00000, 2); expect_store('h28ec, 'h40000000, 2);
+    vset(1, 0); vec('h10, 9, 8, 0, 0, 1); emit(32'('he2000053 | (9 << 15) | (3 << 7)));
+    li(10, 'h28f0); emit('h00353023); expect_store('h28f0, 'hffffffffffff3c00, 3);
+    memory_words[86] = 64'h00000000fc03fe01; // signed bytes 1,-2,3,-4
+    vset(0, 4); vload(8, 'h12b0, 0); vec('h12, 10, 8, 11); vset(1, 4, 1); vstore(10, 'h2900, 1);
+    expect_store('h2900, 'h3c00, 1); expect_store('h2902, 'hc000, 1);
+    expect_store('h2904, 'h4200, 1); expect_store('h2906, 'hc400, 1);
+    memory_words[87] = 'hc4004200c0003c00;
+    vset(0, 4); vload(12, 'h12b8, 1); vec('h12, 14, 12, 17); vstore(14, 'h2910, 0);
+    expect_store('h2910, 1, 0); expect_store('h2911, 'hfe, 0);
+    expect_store('h2912, 3, 0); expect_store('h2913, 'hfc, 0);
     // Empty macro clears vstart without executing or modifying flags.
     vset(2, 0); emit('h0083d073); vec(0, 10, 8, 8);
     signature('h008, 'h20e0, 0); signature('h001, 'h20e8, 0);
@@ -516,7 +551,7 @@ module rv5stage_vector_fp_tb;
         end else begin
           assert (stores < expected_count && data_access_out.request.bits.access == 2) else $fatal(1, "unexpected store");
           assert (data_access_out.request.bits.address == expected_address[stores] && int'(data_access_out.request.bits.width) == expected_width[stores] &&
-            (data_access_out.request.bits.data & (expected_width[stores] == 2 ? 64'hffffffff : 64'hffffffffffffffff)) == expected_data[stores])
+            (data_access_out.request.bits.data & (expected_width[stores] == 0 ? 64'hff : expected_width[stores] == 1 ? 64'hffff : expected_width[stores] == 2 ? 64'hffffffff : 64'hffffffffffffffff)) == expected_data[stores])
             else $fatal(1, "signature %0d address %h value %h expected %h", stores, data_access_out.request.bits.address, data_access_out.request.bits.data, expected_data[stores]);
           stores <= stores + 1;
           if (stores + 1 == expected_count) begin

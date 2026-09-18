@@ -64,6 +64,8 @@ def half_add_execution = field_pattern(control_for(zfh_cases, zfh.FADD_H), "exec
 def half_load_execution = field_pattern(control_for(zfhmin_cases, zfhmin.FLH), "execution")
 def zfa_f_cases = controls.rv5stage_floating_point_control_cases(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.None, ~zfa: #true)
 def zfa_d_half_cases = controls.rv5stage_floating_point_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true)
+def zfa_d_zvfh_instructions = controls.rv5stage_floating_point_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zfa_half_immediate: #true)
+def zfa_d_zvfh_cases = controls.rv5stage_floating_point_control_cases(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfhmin, ~zfa: #true, ~zfa_half_immediate: #true)
 def fli_registers = field_pattern(control_for(zfa_f_cases, zfa.FLI_S), "registers")
 def fli_execution = field_pattern(control_for(zfa_f_cases, zfa.FLI_S), "execution")
 def minm_execution = field_pattern(control_for(zfa_f_cases, zfa.FMINM_S), "execution")
@@ -94,6 +96,9 @@ check:
   zfa_d_half_cases.length() ~is 118
   has_domain(zfa_f_cases, controls.rv5stage_floating_point_instructions(XLen.X32, FloatingPointProfile.F, HalfPrecisionProfile.None, ~zfa: #true)) ~is #true
   has_domain(zfa_d_half_cases, controls.rv5stage_floating_point_instructions(XLen.X64, FloatingPointProfile.D, HalfPrecisionProfile.Zfh, ~zfa: #true)) ~is #true
+  has_domain(zfa_d_zvfh_cases, zfa_d_zvfh_instructions) ~is #true
+  zfa_d_zvfh_instructions.contains(zfa.FLI_H) ~is #true
+  zfa_d_zvfh_instructions.contains(zfa.FMINM_H) ~is #false
   field_pattern(half_load_execution, "destination_precision").matches(controls.RV5StageFloatPrecision.Half) ~is #true
   field_pattern(half_add_execution, "unit").matches(controls.RV5StageFloatUnit.Add) ~is #true
   field_pattern(half_add_execution, "source_precision").matches(controls.RV5StageFloatPrecision.Half) ~is #true

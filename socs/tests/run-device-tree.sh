@@ -83,6 +83,21 @@ for name in simple tiled; do
   esac
 done
 
+case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+  *" zvfh "*) ;;
+  *) echo "simple DTB does not advertise Zvfh" >&2; exit 1 ;;
+esac
+case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+  *" zfh "*) ;;
+  *) echo "simple DTB does not advertise Zfh" >&2; exit 1 ;;
+esac
+for name in mini tiled; do
+  case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+    *" zvfh "*) echo "$name DTB unexpectedly advertises Zvfh" >&2; exit 1 ;;
+    *) ;;
+  esac
+done
+
 [[ "$(fdtget "$fixture_dir/simple.dtb" / model)" == "Rhodium SimpleSoC" ]]
 [[ "$(fdtget "$fixture_dir/mini.dtb" / model)" == "Rhodium MiniSoC" ]]
 [[ "$(fdtget "$fixture_dir/tiled.dtb" / model)" == "Rhodium TiledSoC" ]]

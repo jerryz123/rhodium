@@ -41,6 +41,8 @@ architectural state, and retirement in concrete cores. The package-local
 | Pure vector geometry and data-overlap model | [`isa/vector.rhm`](isa/vector.rhm), tested by [`tests/vector-test.rhm`](tests/vector-test.rhm) |
 | Standard vector profile selection | [`isa/vector-profile.rhm`](isa/vector-profile.rhm) |
 | RVV 1.0 instruction catalog and fields | [`isa/v.rhm`](isa/v.rhm), tested by [`tests/vector-isa-test.rhm`](tests/vector-isa-test.rhm) |
+| Zvfhmin conversion subset | [`isa/zvfhmin.rhm`](isa/zvfhmin.rhm), tested by [`tests/vector-isa-test.rhm`](tests/vector-isa-test.rhm) |
+| Full Zvfh catalog and SEW=8 conversion subset | [`isa/zvfh.rhm`](isa/zvfh.rhm), tested by [`tests/vector-isa-test.rhm`](tests/vector-isa-test.rhm) |
 | GNU compiler target projection | [`gnu-toolchain.rhm`](gnu-toolchain.rhm) |
 | Typed UDB document values and deterministic YAML serialization | [`udb.rhm`](udb.rhm) |
 | Hardware materialization | [`rtl/DEVELOPING.md`](rtl/DEVELOPING.md) |

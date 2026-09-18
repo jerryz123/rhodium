@@ -48,6 +48,12 @@ uses the asymmetric barriers documented in the README.
 Keep every public `VectorProfile` claim coupled to its ELEN/FP legality, implied
 Zve closure, selected VLEN, UDB parameters, and SoC architectural description.
 Only full V may set `misa.V`.
+Keep orthogonal `VectorExtension` claims equally coupled to legality and shared
+service specialization. `Zvfhmin` must remain independent of scalar `Zfhmin`
+and must not admit any SEW=16 FP instruction beyond its two conversion forms.
+Full `Zvfh` requires scalar `Zfhmin` or `Zfh`, admits the standard vector FP
+surface at SEW=16, and admits only its six defined integer conversions at
+SEW=8. Keep those legality classes explicit in decode.
 
 `fp.rhdl` adapts singleton operands and the shared physical execution control to the
 shared FP request. It imports the named FP contracts, RISC-V

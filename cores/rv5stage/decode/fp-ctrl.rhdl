@@ -835,47 +835,51 @@ fun rv5stage_half_execution_cases(xlen :: XLen, profile :: FloatingPointProfile,
 
 fun rv5stage_zfa_instructions(profile :: FloatingPointProfile,
                               half_precision :: HalfPrecisionProfile,
-                              enabled :: Boolean) :: List.of(InstructionSpec):
+                              enabled :: Boolean,
+                              ~half_immediate: half_immediate_enabled :: Boolean = #false) :: List.of(InstructionSpec):
   if !enabled
   | []
   | zfa.ZfaSingleInstructions ++ (
       if profile == FloatingPointProfile.D | zfa.ZfaDoubleInstructions | []
     ) ++ (
-      if half_precision == HalfPrecisionProfile.Zfh | zfa.ZfaHalfInstructions | []
+      if half_precision == HalfPrecisionProfile.Zfh | zfa.ZfaHalfInstructions | (if half_immediate_enabled | [zfa.FLI_H] | [])
     )
 
 fun rv5stage_zfa_execution_cases(profile :: FloatingPointProfile,
                                  half_precision :: HalfPrecisionProfile,
-                                 enabled :: Boolean) :: List.of(DecodeCase):
+                                 enabled :: Boolean,
+                                 ~half_immediate: half_immediate_enabled :: Boolean = #false) :: List.of(DecodeCase):
   if !enabled
   | []
   | SingleZfaExecutionCases ++ (
       if profile == FloatingPointProfile.D | DoubleZfaExecutionCases | []
     ) ++ (
-      if half_precision == HalfPrecisionProfile.Zfh | HalfZfaExecutionCases | []
+      if half_precision == HalfPrecisionProfile.Zfh | HalfZfaExecutionCases | (if half_immediate_enabled | [HalfZfaExecutionCases[0]] | [])
     )
 
 fun rv5stage_floating_point_instructions(xlen :: XLen,
                                          profile :: FloatingPointProfile,
                                          half_precision :: HalfPrecisionProfile,
-                                         ~zfa: zfa_enabled :: Boolean = #false) :: List.of(InstructionSpec):
+                                         ~zfa: zfa_enabled :: Boolean = #false,
+                                         ~zfa_half_immediate: zfa_half_immediate_enabled :: Boolean = #false) :: List.of(InstructionSpec):
   def base = cond
   | profile == FloatingPointProfile.None: []
   | xlen == XLen.X32: RV32FFloatingPointInstructions
   | ~else: RV64FDFloatingPointInstructions
-  base ++ rv5stage_half_instructions(xlen, profile, half_precision) ++ rv5stage_zfa_instructions(profile, half_precision, zfa_enabled)
+  base ++ rv5stage_half_instructions(xlen, profile, half_precision) ++ rv5stage_zfa_instructions(profile, half_precision, zfa_enabled, ~half_immediate: zfa_half_immediate_enabled)
 
 fun rv5stage_floating_point_control_cases(xlen :: XLen,
                                           profile :: FloatingPointProfile,
                                           half_precision :: HalfPrecisionProfile,
-                                          ~zfa: zfa_enabled :: Boolean = #false) :: List.of(DecodeCase):
+                                          ~zfa: zfa_enabled :: Boolean = #false,
+                                          ~zfa_half_immediate: zfa_half_immediate_enabled :: Boolean = #false) :: List.of(DecodeCase):
   def base_execution = cond
   | profile == FloatingPointProfile.None: []
   | xlen == XLen.X32: SingleExecutionCases
   | ~else: RV64SingleExecutionCases ++ RV64DoubleExecutionCases
-  def execution = base_execution ++ rv5stage_half_execution_cases(xlen, profile, half_precision) ++ rv5stage_zfa_execution_cases(profile, half_precision, zfa_enabled)
+  def execution = base_execution ++ rv5stage_half_execution_cases(xlen, profile, half_precision) ++ rv5stage_zfa_execution_cases(profile, half_precision, zfa_enabled, ~half_immediate: zfa_half_immediate_enabled)
   compose_floating_point_control_cases(
-    rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled),
+    rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zfa_half_immediate_enabled),
     execution
   )
 
@@ -883,7 +887,8 @@ circuit RV5StageFloatingPointInstructionDecoder(
   xlen :: XLen,
   profile :: FloatingPointProfile,
   half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-  ~zfa: zfa_enabled :: Boolean = #false
+  ~zfa: zfa_enabled :: Boolean = #false,
+  ~zfa_half_immediate: zfa_half_immediate_enabled :: Boolean = #false
 ):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   input instruction: Bits(32)
@@ -897,7 +902,7 @@ circuit RV5StageFloatingPointInstructionDecoder(
     if profile == FloatingPointProfile.None
     | disabled
     | ValidDecodeGen(
-        rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled)
+        rv5stage_floating_point_control_cases(xlen, profile, half_precision, ~zfa: zfa_enabled, ~zfa_half_immediate: zfa_half_immediate_enabled)
       )(instruction)
   valid <== decoded.valid
   control <== decoded.value

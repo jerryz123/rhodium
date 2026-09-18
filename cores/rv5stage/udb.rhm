@@ -104,6 +104,10 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
       | result := result ++ [extension("Zve64f", "1.0.0")]
       when vector_profile_supports_fp64(profile.vector)
       | result := result ++ [extension("Zve64d", "1.0.0")]
+      when vector_extension_enabled(profile.vector_extensions, VectorExtension.Zvfhmin)
+      | result := result ++ [extension("Zvfhmin", "1.0.0")]
+      when vector_extension_enabled(profile.vector_extensions, VectorExtension.Zvfh)
+      | result := result ++ [extension("Zvfh", "1.0.0")]
       result := result ++ [extension("Zvl" ++ String.from_int(profile.vector_length) ++ "b", "1.0.0")]
   result := result ++ [
     extension("Zicntr", "2.0"),

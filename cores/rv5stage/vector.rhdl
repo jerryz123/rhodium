@@ -185,7 +185,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, Context 
     commit |> filter_valid(event => (event.disposition === RV5StageVectorDisposition.Authorized) & beat.floating_scalar_destination)
       |> map_valid(_event => FloatingPointRegisterWrite(fp_profile)):
            address: beat.destination
-           data: if xlen == XLen.X32 | beat.write.data[0..32] | mux(beat.element_width === SimdElementWidth.E32, (!bits(0, 32)) ++ beat.write.data[0..32], beat.write.data)
+           data: if xlen == XLen.X32 | mux(beat.element_width === SimdElementWidth.E16, (!bits(0, 16)) ++ beat.write.data[0..16], beat.write.data[0..32]) | mux_lookup(beat.element_width, ~default: beat.write.data, [[SimdElementWidth.E16, (!bits(0, 48)) ++ beat.write.data[0..16]], [SimdElementWidth.E32, (!bits(0, 32)) ++ beat.write.data[0..32]]])
   ) |> floating_result
   def deferred_commit = successful & (beat.memory ||| beat.floating_point ||| beat.multiply_divide)
   fp_authorized.ingress.valid <== successful & beat.fp_execute

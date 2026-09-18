@@ -16,6 +16,12 @@ V require scalar D. RV5Stage currently integrates these profiles only with
 RV64 and supports scalar FP there only as D, so every FP-capable vector profile
 uses the RV64D scalar specialization. Only V advertises `V 1.0` and `misa.V`;
 it does not imply Zvbb.
+`~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)` independently
+adds the standard F16-to-F32 `vfwcvt.f.f.v` and F32-to-F16 `vfncvt.f.f.w`
+forms; it does not enable other FP16 vector operations or scalar `Zfhmin`.
+Selecting `VectorExtension.Zvfh` with scalar `Zfhmin` or `Zfh` instead enables
+the complete vector FP surface at SEW=16 and the standard six SEW=8 widening
+and narrowing integer-conversion forms.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
 
 ## Configuration and decode
@@ -494,8 +500,11 @@ the other arithmetic forms exactly promote narrow operands before one FP64
 operation, including a wide old-`vd` fused addend. FS and VS must be enabled.
 Operations that round require a supported `frm`, which
 the macro captures at WB launch; exact sign, min/max, and comparison operations
-do not depend on `frm`; fixed-RTZ conversions also ignore it. FP16 and RV32
-vector FP remain outside this cut. `vfredusum.vs`, `vfredosum.vs`,
+do not depend on `frm`; fixed-RTZ conversions also ignore it. `Zvfhmin`
+restricts SEW16 to its two FP-to-FP conversions; full `Zvfh` admits same-width
+FP16 arithmetic, comparisons, reductions, moves, slides, and all applicable
+widening/narrowing forms. RV32 vector FP remains outside this cut.
+`vfredusum.vs`, `vfredosum.vs`,
 `vfredmin.vs`, and `vfredmax.vs` fold FP32 or FP64 elements through the shared
 service in element order. `vfwredusum.vs` and `vfwredosum.vs` exactly promote
 FP32 inputs and fold them into an FP64 seed. Only the final accumulator writes
@@ -520,6 +529,10 @@ Widening doubles destination EMUL; narrowing doubles source EMUL. Width-changing
 operations retain singleton execution. Each FP request carries per-operand
 precision so a widening operation can combine a wide `vs2` or old `vd` with a
 narrow vector or scalar source without inventing a vector-only arithmetic lane.
+With `Zvfhmin` or `Zvfh`, the same adapter NaN-boxes F16 elements into the
+shared FP service and carries Half/Single precision through ordered vector
+completion. Full `Zvfh` also selects exact 8- and 16-bit integer converter
+widths and promotes widening half arithmetic into the shared FP32 lane.
 Active elements queue for execution only when scalar WB authorizes them.
 Masked, tail, and pre-vstart elements never execute or contribute flags. Empty
 bodies still complete once. Floating-point reductions additionally hold the

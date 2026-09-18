@@ -4,11 +4,18 @@
 
 import:
   "../isa/v.rhm" open
+  "../isa/zvfhmin.rhm" open
+  "../isa/zvfh.rhm" open
   "../isa/vector.rhm" open
   "../isa/csr.rhm" open
   "../model/main.rhm" as model
 
 check:
+  ZvfhminInstructions ~is [VFWCVT_F_F_V, VFNCVT_F_F_W]
+  zvfhmin_instruction("VFWCVT.F.F.V") ~is VFWCVT_F_F_V
+  ZvfhInstructions ~is VectorFloatingPointInstructions
+  ZvfhInteger8Instructions ~is [VFWCVT_F_XU_V, VFWCVT_F_X_V, VFNCVT_XU_F_W, VFNCVT_X_F_W, VFNCVT_RTZ_XU_F_W, VFNCVT_RTZ_X_F_W]
+  zvfh_instruction("VFADD.VV") ~is VFADD_VV
   VZEXT_VF8.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2120d7
   VSEXT_VF8.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a21a0d7
   VZEXT_VF4.encode([vd.constrain(1), vs2.constrain(2), vm.constrain(1)]) ~is 0x4a2220d7

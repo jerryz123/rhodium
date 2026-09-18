@@ -6,13 +6,13 @@
   logic [31:0] instruction = 0;
   word_t scalar1 = 0, scalar2 = 0, test_vtype = 0, test_vstart = 0;
   logic commit_valid = 0, exception_valid = 0, saturate = 0;
-  logic decoded_valid, legal, writeback_valid, redirect_valid;
+  logic decoded_valid, legal, full_half_legal, writeback_valid, redirect_valid;
   word_t writeback_value, mstatus;
   vector_state_t state;
   logic [1:0] configuration, operand, extension_ratio;
   logic [2:0] arithmetic_mode;
   logic [1:0] multiply_result;
-  logic mask_destination, carry_input, extension, extension_signed, mask_result_select, invert_comparison, swap_operands, widening, narrowing, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder;
+  logic mask_destination, carry_input, extension, extension_signed, mask_result_select, invert_comparison, swap_operands, widening, narrowing, fp_zvfhmin_e16, fp_zvfh_e8, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder;
   integer checks = 0, retired = 0;
   RV5StageVectorControlFixture dut (.*);
   always #5 clock = ~clock;
@@ -39,6 +39,9 @@
   endfunction
   function automatic logic [31:0] vector_fp_conversion(input int selector, source, destination, input bit masked = 0);
     return (32'd18 << 26) | (32'(!masked) << 25) | (32'(source) << 20) | (32'(selector) << 15) | (32'd1 << 12) | (32'(destination) << 7) | 32'h57;
+  endfunction
+  function automatic int zvfh_e8_selector(input int index);
+    return index < 2 ? 10 + index : index < 4 ? 14 + index : 18 + index;
   endfunction
   function automatic logic [31:0] whole_register_vmem(input bit store, input int width, registers, regno, base);
     return {3'(registers-1), 1'b0, 2'b00, 1'b1, 5'd8, 5'(base), 3'(store || width == 0 ? 0 : width + 4), 5'(regno), store ? 7'h27 : 7'h07};
@@ -486,14 +489,15 @@
             instruction = {6'(op == 0 ? 0 : op == 1 ? 2 : 36), 1'b0, 5'd16, 5'd24, 3'd1, 5'(rd), 7'h57};
             #1;
             assert (decoded_valid && legal == expected_legal) else $fatal(1, "FP vector geometry sew=%0d lm=%0d rd=%0d", sew, lm, rd);
+            assert (full_half_legal == (XLEN == 64 && sew >= 1 && sew <= lm + 3 && rd != 0 && (lm <= 0 || rd % (1 << lm) == 0))) else $fatal(1, "Zvfh FP vector geometry sew=%0d lm=%0d rd=%0d", sew, lm, rd);
             checks++;
           end
         end
       end
     end
 
-    // Width-changing FP conversions are the RV64D E32<->E64 forms. Widening
-    // doubles destination EMUL; narrowing doubles source EMUL.
+    // Width-changing FP conversions normally use RV64D E32<->E64. Zvfhmin
+    // additionally admits only the FP-to-FP E16<->E32 pair.
     for (int narrow = 0; narrow < 2; narrow++) begin
       for (int sew = 0; sew < 4; sew++) begin
         for (int lm = -3; lm <= 3; lm++) begin
@@ -506,6 +510,25 @@
         end
       end
     end
+    test_vtype = 'h08; // e16,m1
+    instruction = vector_fp_conversion(12, 16, 8); #1; // vfwcvt.f.f.v
+    assert (decoded_valid && legal && widening && fp_zvfhmin_e16) else $fatal(1, "Zvfhmin widening conversion rejected");
+    instruction = vector_fp_conversion(20, 16, 8); #1; // vfncvt.f.f.w
+    assert (decoded_valid && legal && narrowing && fp_zvfhmin_e16) else $fatal(1, "Zvfhmin narrowing conversion rejected");
+    instruction = vector_fp_conversion(8, 16, 8); #1; // vfwcvt.xu.f.v
+    assert (decoded_valid && !legal && full_half_legal && !fp_zvfhmin_e16) else $fatal(1, "full/minimal Zvfh E16 conversion distinction failed");
+    instruction = {6'd0, 1'b1, 5'd16, 5'd24, 3'd1, 5'd8, 7'h57}; #1; // vfadd.vv
+    assert (decoded_valid && !legal && full_half_legal) else $fatal(1, "full/minimal Zvfh FP16 arithmetic distinction failed");
+    checks += 4;
+    test_vtype = 'h00; // e8,m1
+    for (int index = 0; index < 6; index++) begin
+      instruction = vector_fp_conversion(zvfh_e8_selector(index), 16, 8); #1;
+      assert (decoded_valid && !legal && full_half_legal && fp_zvfh_e8) else $fatal(1, "Zvfh SEW8 conversion selector=%0d rejected", zvfh_e8_selector(index));
+      checks++;
+    end
+    instruction = vector_fp_conversion(8, 16, 8); #1;
+    assert (decoded_valid && !legal && !full_half_legal && !fp_zvfh_e8) else $fatal(1, "Zvfh admitted an undefined SEW8 conversion");
+    checks++;
     test_vtype = 'h10; // e32,m1
     instruction = vector_fp_conversion(8, 9, 8); #1;
     assert (legal == (XLEN == 64)) else $fatal(1, "FP widening rejected high source overlap");

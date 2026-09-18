@@ -69,6 +69,8 @@ bundle RV5StageVectorControl():
   integer: Bool
   floating_point: Bool
   fp_service: Bool
+  fp_zvfhmin_e16: Bool
+  fp_zvfh_e8: Bool
   multiply_divide: Bool
   divide: Bool
   left_signed: Bool
@@ -732,6 +734,8 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
                         ~reduction: reduction :: Boolean = #false,
                         ~widening: widening :: Boolean = #false,
                         ~narrowing: narrowing :: Boolean = #false,
+                        ~zvfhmin_e16: zvfhmin_e16 :: Boolean = #false,
+                        ~zvfh_e8: zvfh_e8 :: Boolean = #false,
                         ~wide_vs2: wide_vs2 :: Boolean = #false):
   DecodeCase(
     instruction_pattern(instruction),
@@ -740,6 +744,8 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
       integer: Bool(#false)
       floating_point: Bool(#true)
       fp_service: Bool(#true)
+      fp_zvfhmin_e16: Bool(zvfhmin_e16)
+      fp_zvfh_e8: Bool(zvfh_e8)
       multiply_divide: Bool(#false)
       memory: Bool(#false)
       operand: operand
@@ -863,19 +869,19 @@ def VectorFloatingPointCases = [
   floating_point_case(VFCVT_RTZ_X_F_V, fp_unit(RV5StageFloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero),
   floating_point_case(VFWCVT_XU_F_V, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
   floating_point_case(VFWCVT_X_F_V, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~widening: #true),
-  floating_point_case(VFWCVT_F_XU_V, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true),
-  floating_point_case(VFWCVT_F_X_V, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true),
-  floating_point_case(VFWCVT_F_F_V, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~widening: #true),
+  floating_point_case(VFWCVT_F_XU_V, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~zvfh_e8: #true),
+  floating_point_case(VFWCVT_F_X_V, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~widening: #true, ~zvfh_e8: #true),
+  floating_point_case(VFWCVT_F_F_V, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~widening: #true, ~zvfhmin_e16: #true),
   floating_point_case(VFWCVT_RTZ_XU_F_V, fp_unit(RV5StageFloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
   floating_point_case(VFWCVT_RTZ_X_F_V, fp_unit(RV5StageFloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~widening: #true),
-  floating_point_case(VFNCVT_XU_F_W, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true),
-  floating_point_case(VFNCVT_X_F_W, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true),
+  floating_point_case(VFNCVT_XU_F_W, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~zvfh_e8: #true),
+  floating_point_case(VFNCVT_X_F_W, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~narrowing: #true, ~zvfh_e8: #true),
   floating_point_case(VFNCVT_F_XU_W, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true, ~unsigned: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
   floating_point_case(VFNCVT_F_X_W, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~source: VectorFloatSource.Integer, ~narrowing: #true),
-  floating_point_case(VFNCVT_F_F_W, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~narrowing: #true),
+  floating_point_case(VFNCVT_F_F_W, fp_unit(RV5StageFloatUnit.Convert, ~rounding: #true), ~uses_vs1: #false, ~narrowing: #true, ~zvfhmin_e16: #true),
   floating_point_case(VFNCVT_ROD_F_F_W, fp_unit(RV5StageFloatUnit.Convert), ~uses_vs1: #false, ~rounding: VectorFloatRounding.RoundToOdd, ~narrowing: #true),
-  floating_point_case(VFNCVT_RTZ_XU_F_W, fp_unit(RV5StageFloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true),
-  floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(RV5StageFloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true)
+  floating_point_case(VFNCVT_RTZ_XU_F_W, fp_unit(RV5StageFloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~zvfh_e8: #true),
+  floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(RV5StageFloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~zvfh_e8: #true)
 ]
 fun floating_move_case(instruction :: InstructionSpec,
                        ~mask_select: mask_select :: Boolean = #false,
@@ -891,6 +897,8 @@ fun floating_move_case(instruction :: InstructionSpec,
       integer: Bool(#false)
       floating_point: Bool(#true)
       fp_service: Bool(#false)
+      fp_zvfhmin_e16: Bool(#false)
+      fp_zvfh_e8: Bool(#false)
       multiply_divide: Bool(#false)
       memory: Bool(#false)
       operand: if floating_scalar_destination | VectorOperandMode.Vector | VectorOperandMode.FloatingScalar
@@ -968,12 +976,13 @@ fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruc
     keep_vl: !immediate_avl & source_zero & destination_zero
 
 // Runtime legality covers equal-width groups, widening overlap, and memory EMUL.
-circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength, profile :: VectorProfile = VectorProfile.V):
+circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength, profile :: VectorProfile = VectorProfile.V, extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
   input instruction: Bits(32)
   input control: RV5StageVectorControl()
   input vtype: Bits(xlen.width)
   input vstart: Bits(xlen.width)
   output legal: Bool
+  validate_vector_extensions(profile, extensions)
   def config = vector_type(xlen, vlen, vtype, ~elen: vector_profile_elen(profile))
   def elen = bits(if vector_profile_supports_integer64(profile) | 3 | 2, 2)
   def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
@@ -1102,12 +1111,17 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength, profile :: Ve
   def fp_sources_legal = mux(fp_reduction, reduction_sources_legal, mux(fp_narrowing ||| (fp_widening & control.wide_vs2), wide_source2_aligned, source2_aligned) & (!control.fp_uses_vs1 ||| source1_aligned))
   def fp_destination_legal = fp_reduction ||| mux(control.mask_destination, mask_overlap_legal(source2) & (!control.fp_uses_vs1 ||| mask_overlap_legal(source1)), destination_aligned & !(masked & !destination.or_reduce()))
   def fp_widening_overlap_legal = mux(control.wide_vs2, Bool(#true), widening_overlap_legal(source2)) & (!control.fp_uses_vs1 ||| widening_overlap_legal(source1))
-  def fp_width_change_legal = fp_reduction ||| !fp_width_change ||| ((config.sew === bits(2, 2)) & (widening_emul <= SInt(5)(3)) & mux(fp_widening, fp_widening_overlap_legal, narrowing_overlap_legal()))
+  def fp_zvfhmin = Bool(vector_extensions_support_zvfhmin(extensions))
+  def fp_zvfh = Bool(vector_extensions_support_zvfh(extensions))
+  def fp_e8_legal = (config.sew === bits(0, 2)) & control.fp_zvfh_e8 & fp_zvfh
+  def fp_e16_legal = (config.sew === bits(1, 2)) & (fp_zvfh ||| (control.fp_zvfhmin_e16 & fp_zvfhmin))
+  def fp_width_change_profile_legal = mux_lookup(config.sew, ~default: Bool(vector_profile_supports_fp64(profile)), [[0, fp_e8_legal], [1, fp_e16_legal]])
+  def fp_width_change_legal = fp_reduction ||| !fp_width_change ||| ((config.sew <= bits(2, 2)) & (widening_emul <= SInt(5)(3)) & mux(fp_widening, fp_widening_overlap_legal, narrowing_overlap_legal()))
   def fp_move_sources_legal = (!control.uses_vs2 ||| source2_aligned) & (!control.slide ||| slide_overlap_legal)
   def fp_move_destination_legal = control.floating_scalar_destination ||| control.element_move ||| (destination_aligned & !(masked & !destination.or_reduce()))
-  def fp_service_legal = !(fp_widening & fp_narrowing) & (!fp_width_change ||| Bool(vector_profile_supports_fp64(profile))) & fp_sources_legal & fp_destination_legal & fp_width_change_legal
+  def fp_service_legal = !(fp_widening & fp_narrowing) & (!fp_width_change ||| fp_width_change_profile_legal) & fp_sources_legal & fp_destination_legal & fp_width_change_legal
   def fp_move_legal = fp_move_sources_legal & fp_move_destination_legal & (!control.mask_select ||| merge_sources_legal)
-  def fp_width_legal = Bool(vector_profile_supports_fp32(profile)) & mux(Bool(vector_profile_supports_fp64(profile)), config.sew >= bits(2, 2), config.sew === bits(2, 2))
+  def fp_width_legal = Bool(vector_profile_supports_fp32(profile)) & (fp_e8_legal ||| fp_e16_legal ||| mux(Bool(vector_profile_supports_fp64(profile)), config.sew >= bits(2, 2), config.sew === bits(2, 2)))
   def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & fp_width_legal & mux(control.fp_service, fp_service_legal, fp_move_legal)
   def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
   def restricted_elen64_multiply = !control.divide & !control.multiply_accumulate & control.multiply_result.is_one_of(VectorMultiplyResult.High, VectorMultiplyResult.Fractional)
