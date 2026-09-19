@@ -1,0 +1,6 @@
+# Applies Rhodium's canonical vector test-generation support in order.
+# SPDX-License-Identifier: Apache-2.0
+0001-generalize-canonical-vector-test-generation.patch
+0002-add-canonical-vector-floating-point-generation.patch
+0003-add-canonical-vector-crypto-generation.patch
+0004-enable-canonical-vector-suite-expansion.patch

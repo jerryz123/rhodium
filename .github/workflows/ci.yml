@@ -504,7 +504,7 @@ jobs:
             .tools/act-bundle
             .tools/act-cache
             .tools/act-data
-            .tools/sail-0.14
+            .tools/sail-0.14.1
           key: "${{ runner.os }}-${{ runner.arch }}-act-${{ steps.sources.outputs.revision }}-${{ hashFiles('sims/arch-test/setup.sh') }}"
       - name: Set up ACT and generate platform configuration
         id: act-config

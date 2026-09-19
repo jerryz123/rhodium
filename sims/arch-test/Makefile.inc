@@ -5,14 +5,19 @@ PYTHON ?= python3
 ACT_DIR ?= $(REPO_DIR)/riscv/riscv-arch-test
 ACT_VENV ?= $(REPO_DIR)/.tools/act-venv
 ACT_PYTHON := $(ACT_VENV)/bin/python
-ACT_SAIL ?= $(REPO_DIR)/.tools/sail-0.14/bin/sail_riscv_sim
+ACT_TESTGEN ?= $(ACT_VENV)/bin/testgen
+ACT_SAIL ?= $(REPO_DIR)/.tools/sail-0.14.1/bin/sail_riscv_sim
 ACT_OBJDUMP ?= riscv64-unknown-elf-objdump
 ACT_BUILD_ROOT ?= /tmp/rhodium-arch-test
 ACT_CONFIG_DIR := $(ACT_BUILD_ROOT)/configs/$(ACT_CONFIGURATION)
 ACT_WORKDIR := $(ACT_BUILD_ROOT)/work/$(ACT_CONFIGURATION)
+ACT_SOURCE_DIR := $(ACT_BUILD_ROOT)/source/riscv-arch-test
+ACT_TEST_DIR := $(ACT_BUILD_ROOT)/tests
+ACT_PATCH_SERIES ?= $(CURDIR)/arch-test/patches/riscv-arch-test/series
 ACT_BUNDLE_PATH ?= $(REPO_DIR)/.tools/act-bundle
 ACT_JOBS ?= 1
 ACT_BUILD_JOBS ?= 2
+ACT_TESTGEN_JOBS ?= 0
 ACT_FAST ?= 0
 ACT_SHARD ?= 0
 ACT_SHARDS ?= 1
@@ -24,9 +29,12 @@ ACT_SIMULATOR = $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(BU
 ACT_PLATFORM := $(CURDIR)/arch-test/configs/$(ACT_CONFIGURATION).mk
 -include $(ACT_PLATFORM)
 
-.PHONY: arch-test-setup arch-test-config arch-test-elfs arch-test arch-test-run arch-test-adapter-test
+.PHONY: arch-test-setup arch-test-source arch-test-config arch-test-tests arch-test-elfs arch-test arch-test-run arch-test-adapter-test
 arch-test-setup:
 	PYTHON="$(PYTHON)" ACT_VENV="$(ACT_VENV)" ACT_BUNDLE_PATH="$(ACT_BUNDLE_PATH)" bash arch-test/setup.sh
+
+arch-test-source:
+	$(PYTHON) arch-test/prepare-source.py --source "$(ACT_DIR)" --output "$(ACT_SOURCE_DIR)" --series "$(ACT_PATCH_SERIES)"
 
 arch-test-config:
 	@test -f "$(ACT_PLATFORM)" || (echo "Unknown ACT configuration: $(ACT_CONFIGURATION)" >&2; exit 2)
@@ -35,13 +43,18 @@ arch-test-config:
 	  --name $(ACT_CONFIGURATION) --compiler $(RISCV_CC) --objdump $(ACT_OBJDUMP) --sail $(ACT_SAIL) \
 	  --ram-origin $(ACT_RAM_ORIGIN) --ram-bytes $(ACT_RAM_BYTES) --test-base $(ACT_TEST_BASE)
 
-arch-test-elfs: arch-test-config
+arch-test-tests: arch-test-source
+	rm -rf "$(ACT_TEST_DIR)"
+	cp -R "$(ACT_SOURCE_DIR)/tests" "$(ACT_TEST_DIR)"
+	cd "$(ACT_SOURCE_DIR)" && PYTHONPATH="$(ACT_SOURCE_DIR)/generators/testgen/src" "$(ACT_TESTGEN)" testplans -o "$(ACT_TEST_DIR)" --extensions all --jobs $(ACT_TESTGEN_JOBS)
+
+arch-test-elfs: arch-test-config arch-test-tests
 	@if test -d "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs"; then \
 	  find "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" -type f -name '*.elf' -delete; \
 	fi
-	cd "$(ACT_DIR)" && XDG_CACHE_HOME="$(REPO_DIR)/.tools/act-cache" XDG_DATA_HOME="$(REPO_DIR)/.tools/act-data" \
+	cd "$(ACT_SOURCE_DIR)" && XDG_CACHE_HOME="$(REPO_DIR)/.tools/act-cache" XDG_DATA_HOME="$(REPO_DIR)/.tools/act-data" \
 	  BUNDLE_PATH="$(ACT_BUNDLE_PATH)" "$(ACT_PYTHON)" "$(CURDIR)/arch-test/build.py" \
-	  "$(ACT_CONFIG_DIR)/test_config.yaml" --workdir "$(ACT_WORKDIR)" --test-dir tests --extensions all --keep-going --jobs $(ACT_BUILD_JOBS) $(if $(filter 1,$(ACT_FAST)),--fast)
+	  "$(ACT_CONFIG_DIR)/test_config.yaml" --workdir "$(ACT_WORKDIR)" --test-dir "$(ACT_TEST_DIR)" --extensions all --keep-going --jobs $(ACT_BUILD_JOBS) $(if $(filter 1,$(ACT_FAST)),--fast)
 
 arch-test: arch-test-elfs
 	$(MAKE) arch-test-run

@@ -1,0 +1,41 @@
+<!-- Documents the Rhodium-owned patch series layered over the pinned ACT submodule. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# RISC-V architectural-test patches
+
+The `riscv/riscv-arch-test` submodule remains an unmodified upstream checkout.
+The ordered [`series`](series) file lists the Rhodium-owned changes needed to
+generate the complete vector inventory through ACT's canonical `testgen`
+command. The simulator flow copies the pinned checkout into its build root and
+applies this series there; generated and patched trees are never committed.
+
+Each patch must apply cleanly to the pinned submodule revision. When advancing
+the submodule, remove changes that have landed upstream, rebase the remaining
+patches, and run `make -C sims arch-test-tests` before updating this document.
+The queue is deliberately ordered so each prefix can be proposed and reviewed
+upstream independently:
+
+1. `0001-generalize-canonical-vector-test-generation.patch` generalizes shared
+   vector generation, data, formatting, and test-plan infrastructure without
+   enabling additional suites.
+2. `0002-add-canonical-vector-floating-point-generation.patch` adds vector FP
+   formatters, helpers, and coverpoints on top of the generalized machinery.
+3. `0003-add-canonical-vector-crypto-generation.patch` adds vector crypto
+   formatting and canonical GCM test data.
+4. `0004-enable-canonical-vector-suite-expansion.patch` removes the legacy suite
+   restriction only after all required generators exist.
+
+Keep activation last: the first three patches expand capability while retaining
+ACT's existing active suite inventory, and the fourth makes the complete vector
+inventory visible to canonical `testgen` invocations.
+
+To inspect the patched source without generating tests, run:
+
+```sh
+make -C sims arch-test-source
+```
+
+The materialized source defaults to
+`/tmp/rhodium-arch-test/source/riscv-arch-test`. A patch can also be inspected
+directly against the clean submodule with `git apply --check`; the build never
+applies it to the submodule working tree itself.

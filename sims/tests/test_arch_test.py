@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 RUNNER = Path(__file__).resolve().parents[1] / "arch-test" / "run.py"
+SOURCE_PREPARER = RUNNER.with_name("prepare-source.py")
 VECTOR_PARAMETERS = {
     "FOLLOW_VTYPE_RESET_RECOMMENDATION": True,
     "IMPRECISE_VECTOR_TRAP_SETTABLE": False,
@@ -222,6 +223,39 @@ class ArchTestConfigTest(unittest.TestCase):
 
 
 class ArchTestGenerationTest(unittest.TestCase):
+    def test_materializes_patch_series_without_modifying_upstream(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "upstream"
+            source.mkdir()
+            (source / "value.txt").write_text("before\n")
+            (source / ".git").mkdir()
+            (source / ".git/metadata").write_text("not copied\n")
+            patches = root / "patches"
+            patches.mkdir()
+            (patches / "series").write_text(
+                "# Applies the fixture patch.\n"
+                "0001-change-value.patch\n"
+            )
+            (patches / "0001-change-value.patch").write_text(
+                "diff --git a/value.txt b/value.txt\n"
+                "--- a/value.txt\n"
+                "+++ b/value.txt\n"
+                "@@ -1 +1 @@\n"
+                "-before\n"
+                "+after\n"
+            )
+            output = root / "build/source"
+            result = subprocess.run(
+                [sys.executable, str(SOURCE_PREPARER), "--source", str(source),
+                 "--output", str(output), "--series", str(patches / "series")],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((source / "value.txt").read_text(), "before\n")
+            self.assertEqual((output / "value.txt").read_text(), "after\n")
+            self.assertFalse((output / ".git").exists())
+
     def test_shards_cover_inventory_exactly_once_and_replace_stale_links(self):
         spec = importlib.util.spec_from_file_location('act_shard', RUNNER.with_name('shard.py'))
         sharder = importlib.util.module_from_spec(spec)
@@ -247,9 +281,9 @@ class ArchTestGenerationTest(unittest.TestCase):
                 sharder.partition(elfs, foreign, 0, 4)
             self.assertTrue((foreign / 'keep.elf').is_symlink())
 
-    def test_entry_point_requires_sail_014_without_replacing_version_check(self):
+    def test_entry_point_preserves_upstream_sail_version_check(self):
         config = ModuleType("act.config")
-        config.REQUIRED_SAIL_VERSION = "0.13.1"
+        config.REQUIRED_SAIL_VERSION = "0.14.1"
         config.check_ref_model_version = Mock()
         version_check = config.check_ref_model_version
         act = ModuleType("act")
@@ -258,22 +292,42 @@ class ArchTestGenerationTest(unittest.TestCase):
         cli.main = Mock()
         with patch.dict(sys.modules, {"act": act, "act.config": config, "act.act": cli}):
             runpy.run_path(str(RUNNER.with_name("build.py")), run_name="__main__")
-        self.assertEqual(config.REQUIRED_SAIL_VERSION, "0.14")
+        self.assertEqual(config.REQUIRED_SAIL_VERSION, "0.14.1")
         self.assertIs(config.check_ref_model_version, version_check)
         cli.main.assert_called_once_with()
 
     def test_generates_all_supported_tests_and_replaces_only_elf_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            elf_dir = root / "work/simple-soc/simple-soc/elfs"
+            upstream = root / "upstream"
+            source_tests = upstream / "tests"
+            source_tests.mkdir(parents=True)
+            (source_tests / "handwritten.S").write_text("# Handwritten ACT test retained during staging.\n")
+            (upstream / "testplans").mkdir()
+            series = root / "series"
+            series.write_text("# No downstream patches are needed by this fixture.\n")
+            build_root = root / "build"
+            elf_dir = build_root / "work/simple-soc/simple-soc/elfs"
             elf_dir.mkdir(parents=True)
             (elf_dir / "old.elf").touch()
             (elf_dir / "old.elf.objdump").touch()
-            other_elf = root / "work/other/keep.elf"
+            other_elf = build_root / "work/other/keep.elf"
             other_elf.parent.mkdir(parents=True)
             other_elf.touch()
             act = root / "venv/bin/python"
             act.parent.mkdir(parents=True)
+            testgen = root / "venv/bin/testgen"
+            testgen.write_text(
+                f"#!{sys.executable}\n"
+                "# Emulates canonical test generation into the staged ACT test tree.\n"
+                "import sys\nfrom pathlib import Path\n"
+                "assert Path(sys.argv[1]).name == 'testplans'\n"
+                "output = Path(sys.argv[sys.argv.index('-o') + 1])\n"
+                "assert (output / 'handwritten.S').is_file()\n"
+                "assert sys.argv[sys.argv.index('--extensions') + 1] == 'all'\n"
+                "(output / 'vector-generated.S').touch()\n"
+            )
+            testgen.chmod(0o755)
             act.write_text(
                 f"#!{sys.executable}\n"
                 "# Emulates ACT generation to check the Make-to-ACT contract.\n"
@@ -281,6 +335,9 @@ class ArchTestGenerationTest(unittest.TestCase):
                 "assert Path(sys.argv[1]).name == 'build.py'\n"
                 "assert sys.argv[sys.argv.index('--extensions') + 1] == 'all'\n"
                 "assert '--keep-going' in sys.argv\n"
+                "test_dir = Path(sys.argv[sys.argv.index('--test-dir') + 1])\n"
+                "assert (test_dir / 'handwritten.S').is_file()\n"
+                "assert (test_dir / 'vector-generated.S').is_file()\n"
                 f"elf_dir = Path({str(elf_dir)!r})\n"
                 "assert not list(elf_dir.rglob('*.elf'))\n"
                 "(elf_dir / 'selected.elf').touch()\n"
@@ -288,7 +345,8 @@ class ArchTestGenerationTest(unittest.TestCase):
             act.chmod(0o755)
             result = subprocess.run(
                 ["make", "-o", "arch-test-config", "arch-test-elfs",
-                 f"ACT_DIR={root}", f"ACT_VENV={root / 'venv'}", f"ACT_BUILD_ROOT={root}"],
+                 f"ACT_DIR={upstream}", f"ACT_VENV={root / 'venv'}", f"ACT_BUILD_ROOT={build_root}",
+                 f"ACT_PATCH_SERIES={series}"],
                 cwd=RUNNER.parents[1], capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

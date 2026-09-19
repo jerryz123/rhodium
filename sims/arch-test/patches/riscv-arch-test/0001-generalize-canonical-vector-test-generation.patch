@@ -1,0 +1,874 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sat, 19 Sep 2026 11:03:39 -0700
+Subject: [PATCH 1/4] Generalize canonical vector test generation
+
+---
+ .../testgen/src/testgen/asm/vector_helpers.py | 13 +++++-
+ .../coverpoints/vector/cmp_overlaps.py        | 12 +++---
+ .../testgen/coverpoints/vector/cp_imm_5bit.py | 20 ++++++---
+ .../coverpoints/vector/cp_masking_edges.py    |  6 ++-
+ .../testgen/coverpoints/vector/cp_vs_edges.py | 18 +++++---
+ .../testgen/coverpoints/vector/cr_vl_lmul.py  |  9 ++--
+ .../coverpoints/vector/cr_vs_reg_edges.py     | 31 ++++++++++----
+ .../coverpoints/vector/cr_vtype_agnostic.py   |  6 ++-
+ .../vector/cr_vxrm_vs_reg_edges.py            |  5 ++-
+ .../src/testgen/coverpoints/vector/helpers.py | 41 +++++++++++++++++++
+ generators/testgen/src/testgen/data/edges.py  | 16 +++++---
+ .../src/testgen/formatters/registry.py        |  2 +
+ .../formatters/types/mask_prod_type.py        |  3 ++
+ .../src/testgen/formatters/types/vv_type.py   | 24 ++++++++---
+ .../src/testgen/formatters/types/vvi_type.py  | 23 +++++++++++
+ .../testgen/src/testgen/generate/unpriv.py    | 12 +++---
+ .../src/testgen/instructions/vector.py        | 21 +++++++++-
+ .../src/testgen/instructions/vector_params.py | 10 +++--
+ .../testgen/src/testgen/io/templates.py       | 20 ++++++---
+ generators/testgen/src/testgen/io/writer.py   | 10 ++++-
+ testplans/Zvbb.csv                            |  2 +-
+ testplans/Zvkb.csv                            |  2 +-
+ 22 files changed, 246 insertions(+), 60 deletions(-)
+
+diff --git a/generators/testgen/src/testgen/asm/vector_helpers.py b/generators/testgen/src/testgen/asm/vector_helpers.py
+index c065b29ea1519b9ce3b687f20742afeec8b3d4bb..1341daedcd91ca175cd6e34f20cb40adcfe612d3 100644
+--- a/generators/testgen/src/testgen/asm/vector_helpers.py
++++ b/generators/testgen/src/testgen/asm/vector_helpers.py
+@@ -8,6 +8,7 @@
+ 
+ from collections import defaultdict
+ from dataclasses import dataclass
++import math
+ from typing import Literal
+ 
+ from testgen.constants import VLEN_MAX
+@@ -553,7 +554,17 @@ def generate_random_vl(params: InstructionParams, test_data: TestData) -> tuple[
+     )
+ 
+     if params.egs != 1 and params.egs is not None:
+-        raise NotImplementedError("Handle egs != 1 vl=random")
++        shift = int(math.log2(params.egs))
++        if 1 << shift != params.egs:
++            raise ValueError(f"element group size must be a power of two, got {params.egs}")
++        code.extend(
++            [
++                f"srli x{params.temp_reg}, x{params.temp_reg}, {shift}",
++                f"remu x{temp_reg}, x{temp_reg}, x{params.temp_reg}",
++                f"addi x{temp_reg}, x{temp_reg}, 1",
++                f"slli x{temp_reg}, x{temp_reg}, {shift}",
++            ]
++        )
+     else:
+         code.append(f"ori x{temp_reg}, x{temp_reg}, 0x2")
+ 
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cmp_overlaps.py b/generators/testgen/src/testgen/coverpoints/vector/cmp_overlaps.py
+index 66eec6765336d2f1f072fa5031740b6702a759d3..0d6bf15cf91b9ac8f07f7ef0cf96d6d2eea23f10 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cmp_overlaps.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cmp_overlaps.py
+@@ -79,8 +79,7 @@ def make_two_way_cmp(instr_name: str, instr_type: str, coverpoint: str, test_dat
+         upper_bound = int(lte_match.group(1)) + 1
+ 
+     egs_match = re.search(r"egs(\d)", suffix)
+-    if egs_match is not None:
+-        raise NotImplementedError("Handle EGS")
++    egs = int(egs_match.group(1)) if egs_match is not None else 1
+ 
+     test_chunks = []
+     lmul = get_base_lmul(instr_name, instr_type, test_data.config.sew)
+@@ -100,7 +99,7 @@ def make_two_way_cmp(instr_name: str, instr_type: str, coverpoint: str, test_dat
+             test_data.config.sew,
+             instr_type_config.vector_data.scalar_regs,
+             instr_type_config.vector_data.mask_regs,
+-            instr_type_config.vector_data.widened_regs,
++            instr_type_config.vector_data.widened_regs | info.widened_regs,
+         ):
+             continue
+ 
+@@ -114,6 +113,8 @@ def make_two_way_cmp(instr_name: str, instr_type: str, coverpoint: str, test_dat
+             additional_no_overlap=set(),
+             suite="base",
+             masked=False,
++            egs=egs,
++            vl=egs,
+             **presets,
+         )
+ 
+@@ -146,8 +147,7 @@ def make_three_way_cmp(instr_name: str, instr_type: str, coverpoint: str, test_d
+         lower_bound = 1
+ 
+     egs_match = re.search(r"egs(\d)", suffix)
+-    if egs_match is not None:
+-        raise NotImplementedError("Handle EGS")
++    egs = int(egs_match.group(1)) if egs_match is not None else 1
+ 
+     test_chunks = []
+     lmul = get_base_lmul(instr_name, instr_type, test_data.config.sew)
+@@ -165,6 +165,8 @@ def make_three_way_cmp(instr_name: str, instr_type: str, coverpoint: str, test_d
+             additional_no_overlap=set(),
+             suite="base",
+             masked=False,
++            egs=egs,
++            vl=egs,
+             **presets,
+         )
+ 
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cp_imm_5bit.py b/generators/testgen/src/testgen/coverpoints/vector/cp_imm_5bit.py
+index 1d0b2f282fe864881442e329305d6b149dad8299..41fd49d0de805b12525c483cad98f9faecd4ba98 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cp_imm_5bit.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cp_imm_5bit.py
+@@ -9,20 +9,26 @@
+ from testgen.coverpoints.registry import add_coverpoint_generator
+ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+-from testgen.formatters import format_single_testcase
++from testgen.formatters import format_single_testcase, get_instruction_type_config
++from testgen.instructions.vector import parse_vector_instruction_info
+ from testgen.instructions.vector_params import generate_random_vector_params
+ 
+ 
+ @add_coverpoint_generator("cp_imm_5bit")
+ def make_imm_5bit(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
+     """
+-    Generate tests covering all values of the 5-bit immediate in a vector instruction.
++    Generate tests covering every value of the formatter-declared vector immediate.
+     """
+ 
+-    imm_vals = range(32) if coverpoint.endswith("_u") else range(-16, 16)
++    config = get_instruction_type_config(instr_type)
++    assert isinstance(config.imm_bits, int), "vector immediate width must be a fixed integer"
++    if config.imm_signed:
++        imm_vals = range(-(2 ** (config.imm_bits - 1)), 2 ** (config.imm_bits - 1))
++    else:
++        imm_vals = range(2**config.imm_bits)
+ 
+-    # TODO: These should depend on egs
+-    vl = 1
++    egs = parse_vector_instruction_info(instr_name, instr_type).element_group_size
++    vl = egs
+     lmul = 1
+ 
+     test_chunks = []
+@@ -30,7 +36,9 @@ def make_imm_5bit(instr_name: str, instr_type: str, coverpoint: str, test_data:
+         desc = f"{coverpoint} (Test imm={imm})"
+         bin_name = f"imm{imm}"
+ 
+-        params = generate_random_vector_params(test_data, instr_name, instr_type, lmul=lmul, vl=vl, immval=imm)
++        params = generate_random_vector_params(
++            test_data, instr_name, instr_type, lmul=lmul, vl=vl, egs=egs, immval=imm
++        )
+         tc = format_single_testcase(instr_name, instr_type, test_data, params, desc, bin_name, coverpoint)
+ 
+         test_chunks.append(tc)
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cp_masking_edges.py b/generators/testgen/src/testgen/coverpoints/vector/cp_masking_edges.py
+index cb07574b856f98733d9b5d835b8d6d81ba0d4a7b..d63cd10d83f9adffe172461c68efc86219d4b2f6 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cp_masking_edges.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cp_masking_edges.py
+@@ -12,7 +12,7 @@ from testgen.data.params import PresetMask
+ from testgen.data.random import random_range
+ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+-from testgen.formatters import format_single_testcase
++from testgen.formatters import format_single_testcase, get_instruction_type_config
+ from testgen.instructions.vector import get_base_lmul
+ from testgen.instructions.vector_params import generate_random_vector_params
+ 
+@@ -24,6 +24,10 @@ def make_mask_edges(instr_name: str, instr_type: str, coverpoint: str, test_data
+     VLMAX/2 + 1 Ones, and a random mask
+     """
+     assert test_data.config.sew is not None, "SEW must be set for vector tests"
++    config = get_instruction_type_config(instr_type)
++    assert config.vector_data is not None
++    if not config.vector_data.maskable:
++        return []
+ 
+     cp_masking_edges_data = [
+         PresetMask.ONES,
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cp_vs_edges.py b/generators/testgen/src/testgen/coverpoints/vector/cp_vs_edges.py
+index 9fb80e50ed3b27f934c6905970adb658915a1fe8..975e5ff67a193a48b67d6ea080f93de0ba26ea50 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cp_vs_edges.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cp_vs_edges.py
+@@ -8,7 +8,11 @@
+ 
+ from testgen.asm.vector_helpers import get_lmul_flag
+ from testgen.coverpoints.registry import add_coverpoint_generator
+-from testgen.coverpoints.vector.helpers import make_and_register_edge_label
++from testgen.coverpoints.vector.helpers import (
++    crypto_edge_names,
++    make_and_register_crypto_edge_label,
++    make_and_register_edge_label,
++)
+ from testgen.data.edges import VECTOR_EDGES
+ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+@@ -26,8 +30,6 @@ def make_vs_edges(instr_name: str, instr_type: str, coverpoint: str, test_data:
+     Generate edge values in any vector register. Supports integer, load-store, and fp edges.
+     """
+ 
+-    # TODO: EGS4
+-
+     assert test_data.config.sew is not None, "SEW must be set for vector tests"
+     sew = test_data.config.sew
+ 
+@@ -54,11 +56,16 @@ def make_vs_edges(instr_name: str, instr_type: str, coverpoint: str, test_data:
+         elif suffix == "eew1":
+             vl = 8
+         elif suffix.startswith("egs"):
+-            raise NotImplementedError("Crypto Edges are not yet Supported")
++            edges = crypto_edge_names(suffix)
++            egs = parse_vector_instruction_info(instr_name, instr_type).element_group_size
++            vl = egs
+ 
+     test_chunks = []
+     for edge in edges:
+-        label = make_and_register_edge_label(register, edge, suffix, test_data)
++        if suffix.startswith("egs"):
++            label = make_and_register_crypto_edge_label(register, edge, suffix, test_data)
++        else:
++            label = make_and_register_edge_label(register, edge, suffix, test_data)
+ 
+         presets = {f"{register}_val_pointer": label}
+ 
+@@ -71,6 +78,7 @@ def make_vs_edges(instr_name: str, instr_type: str, coverpoint: str, test_data:
+             additional_no_overlap=additional_no_overlap,
+             masked=False,
+             suite="base",
++            egs=parse_vector_instruction_info(instr_name, instr_type).element_group_size,
+             **presets,
+         )
+ 
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cr_vl_lmul.py b/generators/testgen/src/testgen/coverpoints/vector/cr_vl_lmul.py
+index e9421335621e6fdbc2c6b8e38893487a0cc1ca1c..070ed7559a08ee4513cfcfe1335bebcff632361a 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cr_vl_lmul.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cr_vl_lmul.py
+@@ -13,7 +13,7 @@ from testgen.data.params import PresetMask
+ from testgen.data.random import random_range
+ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+-from testgen.formatters import format_single_testcase
++from testgen.formatters import format_single_testcase, get_instruction_type_config
+ from testgen.instructions.vector import get_legal_lmuls
+ from testgen.instructions.vector_params import generate_random_vector_params
+ 
+@@ -31,7 +31,9 @@ def make_vl_lmul(instr_name: str, instr_type: str, coverpoint: str, test_data: T
+     eew = None
+     max_emul = 8
+     egs = 1
+-    can_mask = True
++    config = get_instruction_type_config(instr_type)
++    assert config.vector_data is not None
++    can_mask = config.vector_data.maskable
+     if coverpoint.startswith("cr_vl_lmul_"):
+         suffix = coverpoint[len("cr_vl_lmul_") :]
+ 
+@@ -68,7 +70,7 @@ def make_vl_lmul(instr_name: str, instr_type: str, coverpoint: str, test_data: T
+     vl_options = ["vlmax", egs, "random"]
+ 
+     if egs != 1:
+-        raise NotImplementedError("EGS If Defs are Not in cr_vl_lmul.py")
++        lmul_exponents = [exponent for exponent in lmul_exponents if exponent >= 0]
+ 
+     test_chunks = []
+     for l in lmul_exponents:
+@@ -92,6 +94,7 @@ def make_vl_lmul(instr_name: str, instr_type: str, coverpoint: str, test_data: T
+                 vl=vl,
+                 ta=vta,
+                 ma=vma,
++                egs=egs,
+             )
+ 
+             desc = f"cr_vl_lmul (Test lmul = {lmul}, vl = {vl})"
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cr_vs_reg_edges.py b/generators/testgen/src/testgen/coverpoints/vector/cr_vs_reg_edges.py
+index 486532577b7ea52252822f0f350d9822f557e080..a657a8dab91f1b56f4986fbe520b2e3cc0509550 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cr_vs_reg_edges.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cr_vs_reg_edges.py
+@@ -10,11 +10,16 @@
+ import re
+ 
+ from testgen.coverpoints.registry import add_coverpoint_generator
+-from testgen.coverpoints.vector.helpers import make_and_register_edge_label
++from testgen.coverpoints.vector.helpers import (
++    crypto_edge_names,
++    make_and_register_crypto_edge_label,
++    make_and_register_edge_label,
++)
+ from testgen.data.edges import IMMEDIATE_EDGES, VECTOR_EDGES, get_general_edges
+ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+ from testgen.formatters import format_single_testcase, get_instruction_type_config
++from testgen.instructions.vector import parse_vector_instruction_info
+ from testgen.instructions.vector_params import generate_random_vector_params
+ 
+ _KNOWN_REGS = ["vs3", "vs2", "vs1", "vd"]
+@@ -22,7 +27,7 @@ _KNOWN_REGS = ["vs3", "vs2", "vs1", "vd"]
+ 
+ def _parse_cross_regs(coverpoint: str) -> tuple[str, str]:
+     """Parse 'cr_vs2_vs1_edges' -> ('vs2', 'vs1')."""
+-    match_pair = re.search(r"cr_(vs\d)_(vs\d)_edges", coverpoint)
++    match_pair = re.search(r"cr_(vs[123]|vd)_(vs[123]|vd)_edges", coverpoint)
+     if not match_pair:
+         raise ValueError(f"Cannot parse register pair from coverpoint: {coverpoint}")
+ 
+@@ -68,15 +73,22 @@ def make_cross_edges(instr_name: str, instr_type: str, coverpoint: str, test_dat
+         suffix1 = "f"
+         suffix2 = "f_emul2"
+         edges1 = edges2 = VECTOR_EDGES.vf_edges
+-    elif coverpoint.endswith("egs"):
+-        raise ValueError("Vector Crypto Edges are not yet implemented")
++    elif "egs" in coverpoint:
++        suffix1 = suffix2 = coverpoint[coverpoint.index("egs") :]
++        edges1 = edges2 = crypto_edge_names(suffix1)
+ 
+     test_chunks = []
+     for r1_edge in edges1:
+-        r1_label = make_and_register_edge_label(r1_name, r1_edge, suffix1, test_data)
++        if suffix1.startswith("egs"):
++            r1_label = make_and_register_crypto_edge_label(r1_name, r1_edge, suffix1, test_data)
++        else:
++            r1_label = make_and_register_edge_label(r1_name, r1_edge, suffix1, test_data)
+ 
+         for r2_edge in edges2:
+-            r2_label = make_and_register_edge_label(r2_name, r2_edge, suffix2, test_data)
++            if suffix2.startswith("egs"):
++                r2_label = make_and_register_crypto_edge_label(r2_name, r2_edge, suffix2, test_data)
++            else:
++                r2_label = make_and_register_edge_label(r2_name, r2_edge, suffix2, test_data)
+ 
+             params = generate_random_vector_params(
+                 test_data,
+@@ -86,6 +98,8 @@ def make_cross_edges(instr_name: str, instr_type: str, coverpoint: str, test_dat
+                 additional_no_overlap={(r1_name, r2_name)},
+                 masked=False,
+                 suite="base",
++                vl=parse_vector_instruction_info(instr_name, instr_type).element_group_size,
++                egs=parse_vector_instruction_info(instr_name, instr_type).element_group_size,
+                 **{f"{r1_name}_val_pointer": r1_label, f"{r2_name}_val_pointer": r2_label},
+             )
+ 
+@@ -145,7 +159,10 @@ def make_vs2_imm_edges(instr_name: str, instr_type: str, coverpoint: str, test_d
+     suffix = "emul2" if coverpoint.endswith(("wi", "wiu")) else "emul1"
+ 
+     config = get_instruction_type_config(instr_type)
+-    imm_edges = IMMEDIATE_EDGES.imm_5bit if config.imm_signed else IMMEDIATE_EDGES.imm_5bit_u
++    if config.imm_bits == 6 and not config.imm_signed:
++        imm_edges = IMMEDIATE_EDGES.imm_6bit_u
++    else:
++        imm_edges = IMMEDIATE_EDGES.imm_5bit if config.imm_signed else IMMEDIATE_EDGES.imm_5bit_u
+ 
+     test_chunks = []
+     for vs2_edge in vs2_edges:
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cr_vtype_agnostic.py b/generators/testgen/src/testgen/coverpoints/vector/cr_vtype_agnostic.py
+index 3d343b4e1f717ee8f0ca31e74625b02435acb4a2..45d0b102f9faaeda4971d9c19ff40ee451023255 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cr_vtype_agnostic.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cr_vtype_agnostic.py
+@@ -13,7 +13,7 @@ from testgen.coverpoints.registry import add_coverpoint_generator
+ from testgen.data.params import PresetMask
+ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+-from testgen.formatters import format_single_testcase
++from testgen.formatters import format_single_testcase, get_instruction_type_config
+ from testgen.instructions.vector import get_legal_lmuls
+ from testgen.instructions.vector_params import generate_random_vector_params
+ 
+@@ -31,7 +31,9 @@ def make_vtype_agnostic(instr_name: str, instr_type: str, coverpoint: str, test_
+     eew = None
+     max_emul = 8
+     egs = 1
+-    masked = True
++    config = get_instruction_type_config(instr_type)
++    assert config.vector_data is not None
++    masked = config.vector_data.maskable
+     if coverpoint.startswith("cr_vtype_agnostic_"):
+         suffix = coverpoint[len("cr_vtype_agnostic_") :]
+ 
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cr_vxrm_vs_reg_edges.py b/generators/testgen/src/testgen/coverpoints/vector/cr_vxrm_vs_reg_edges.py
+index 60bafc9e853af4514cf64c9468eeebb32d526de2..0329486d0b781c5a5c1cb2618f2c34062789ceb4 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cr_vxrm_vs_reg_edges.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cr_vxrm_vs_reg_edges.py
+@@ -115,7 +115,10 @@ def make_vxrm_vs2_imm_cross(instr_name: str, instr_type: str, coverpoint: str, t
+     # "_wi" suffix: vs2 is the widened source (VWI type, emul2)
+     suffix = "emul2" if coverpoint.endswith("_wi") else "emul1"
+     config = get_instruction_type_config(instr_type)
+-    imm_edges = IMMEDIATE_EDGES.imm_5bit if config.imm_signed else IMMEDIATE_EDGES.imm_5bit_u
++    if config.imm_bits == 6 and not config.imm_signed:
++        imm_edges = IMMEDIATE_EDGES.imm_6bit_u
++    else:
++        imm_edges = IMMEDIATE_EDGES.imm_5bit if config.imm_signed else IMMEDIATE_EDGES.imm_5bit_u
+ 
+     test_chunks = []
+     for vxrm_mode in _VXRM_MODES:
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/helpers.py b/generators/testgen/src/testgen/coverpoints/vector/helpers.py
+index b421c2bd2481ca95c1cae7da5190f4627fc22ec4..679d6615f6f1b8aa2385d2e7da380704d27772c8 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/helpers.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/helpers.py
+@@ -6,9 +6,50 @@ import re
+ 
+ from testgen.constants import VLEN_MAX
+ from testgen.data.edges import get_vector_edge
++from testgen.data.random import random_int
+ from testgen.data.state import TestData
+ 
+ 
++def crypto_edge_names(suffix: str) -> tuple[str, ...]:
++    """Return element-group edge names for a vector-crypto coverpoint suffix."""
++    if "subbytes" in suffix:
++        return tuple(f"subbytes_{index}" for index in range(16))
++    return ("zero", "ones", "walkeven", "walkodd", "random")
++
++
++def make_and_register_crypto_edge_label(
++    reg_name: str, edge_name: str, suffix: str, test_data: TestData
++) -> str:
++    """Register one EGS-wide vector-crypto edge as SEW-sized elements."""
++    assert test_data.config.sew is not None
++    sew = test_data.config.sew
++    match = re.search(r"egs(\d+)", suffix)
++    if match is None:
++        raise ValueError(f"missing EGS in crypto edge suffix {suffix}")
++    egs = int(match.group(1))
++    width = sew * egs
++    if edge_name.startswith("subbytes_"):
++        block = int(edge_name.removeprefix("subbytes_")) * 16
++        value = sum((block + index) << (8 * index) for index in range(16))
++    elif edge_name == "zero":
++        value = 0
++    elif edge_name == "ones":
++        value = (1 << width) - 1
++    elif edge_name == "walkeven":
++        value = sum(1 << index for index in range(0, width, 2))
++    elif edge_name == "walkodd":
++        value = sum(1 << index for index in range(1, width, 2))
++    elif edge_name == "random":
++        value = random_int(width)
++    else:
++        raise ValueError(f"unknown vector-crypto edge {edge_name}")
++    elements = [(value >> (sew * index)) & ((1 << sew) - 1) for index in range(egs)]
++    label = f"{reg_name}_edge_{edge_name}_{suffix}"
++    if label not in test_data.vector_labels:
++        test_data.register_vector_data(label, sew, elements=elements)
++    return label
++
++
+ def make_and_register_edge_label(reg_name: str, edge_name: str, suffix: str, test_data: TestData) -> str:
+     """
+     Makes an edge data label out of the reg_name, edge_name, and suffix in the form of
+diff --git a/generators/testgen/src/testgen/data/edges.py b/generators/testgen/src/testgen/data/edges.py
+index c1c7c55b25f080e687082a87dd409c6bb30f3bca..0726abfe57198593d20156bfddbeb51a32b4cae8 100644
+--- a/generators/testgen/src/testgen/data/edges.py
++++ b/generators/testgen/src/testgen/data/edges.py
+@@ -77,6 +77,9 @@ class IMMEDIATE_EDGES:
+     # 5-bit Unsigned Immediates (Vector Instructions)
+     imm_5bit_u = (0, 1, 2, 15, 16, 30, 31)
+ 
++    # 6-bit Unsigned Immediates (Vector Instructions)
++    imm_6bit_u = (0, 1, 2, 31, 32, 62, 63)
++
+ 
+ # ==============================================================================
+ # Integer Register Values
+@@ -696,26 +699,27 @@ def get_vector_edge(edge: str, suffix: str, sew: int) -> int:
+     """
+     Look up the value of a vector edge for a given name, suffix, and sew
+     """
++    fp_edge = edge.removeprefix("vs_edge_f_")
+     if suffix == "f":
+         if sew == 16:
+-            return VECTOR_EDGES.f16[edge]
++            return VECTOR_EDGES.f16[fp_edge]
+         elif sew == 32:
+-            return VECTOR_EDGES.f32[edge]
++            return VECTOR_EDGES.f32[fp_edge]
+         elif sew == 64:
+-            return VECTOR_EDGES.f64[edge]
++            return VECTOR_EDGES.f64[fp_edge]
+         else:
+             raise ValueError(f"Unsupported Floating Point SEW={sew}")
+ 
+     if suffix == "f_emul2":
+         if sew == 16:
+-            return VECTOR_EDGES.f32[edge]
++            return VECTOR_EDGES.f32[fp_edge]
+         elif sew == 32:
+-            return VECTOR_EDGES.f64[edge]
++            return VECTOR_EDGES.f64[fp_edge]
+         else:
+             raise ValueError(f"Unsupported EMUL2 Floating Point SEW={sew}")
+ 
+     if suffix == "f_bf16":
+-        return VECTOR_EDGES.bf16[edge]
++        return VECTOR_EDGES.bf16[fp_edge]
+ 
+     if suffix == "eew1":
+         return VECTOR_EDGES.edge_value(edge, 8)
+diff --git a/generators/testgen/src/testgen/formatters/registry.py b/generators/testgen/src/testgen/formatters/registry.py
+index ef0f9602a7ad870e6afd03d79029e8779f1d35f1..4ff5281662fb3919f500376683af899068767c9e 100644
+--- a/generators/testgen/src/testgen/formatters/registry.py
++++ b/generators/testgen/src/testgen/formatters/registry.py
+@@ -50,6 +50,7 @@ class VectorTypeConfig:
+         mask_regs: Set of registers used as mask registers
+         scalar_regs: Set of registers used as scalar registers
+         widened_regs: Set of registers that are widened
++        maskable: Whether the instruction admits the optional v0.t operand
+         random_element_generator: Add custom random element generation (used in unordered operations)
+     """
+ 
+@@ -58,6 +59,7 @@ class VectorTypeConfig:
+     mask_regs: set[str] = field(default_factory=set)
+     scalar_regs: set[str] = field(default_factory=set)
+     widened_regs: set[str] = field(default_factory=set)
++    maskable: bool = True
+     random_element_generator: Callable[[int, int], list[int]] | None = None
+ 
+ 
+diff --git a/generators/testgen/src/testgen/formatters/types/mask_prod_type.py b/generators/testgen/src/testgen/formatters/types/mask_prod_type.py
+index 7799e36a048227af6bfede2f0654a72849eb924b..04b6939f070164f565c0344445614947e8d7f6cd 100644
+--- a/generators/testgen/src/testgen/formatters/types/mask_prod_type.py
++++ b/generators/testgen/src/testgen/formatters/types/mask_prod_type.py
+@@ -265,6 +265,9 @@ def format_mask_producing_type(
+         )
+         setup.append(f"LI (x{params.rs1}, {params.rs1val})")
+         testline += f", x{params.rs1}"
++    elif "fs1" in registers:
++        assert params.fs1 is not None, f"fs1 must be provided for {type_name}-type instructions"
++        testline += f", f{params.fs1}"
+     elif "immval" in registers:
+         assert params.immval is not None, f"immval must be provided for {type_name}-type instructions"
+         testline += f", {params.immval}"
+diff --git a/generators/testgen/src/testgen/formatters/types/vv_type.py b/generators/testgen/src/testgen/formatters/types/vv_type.py
+index e3ad4a121cb8649fc2de4543ae5a48467a941ae4..2001f71678e8b28fba872eb3ca643c432919dd7f 100644
+--- a/generators/testgen/src/testgen/formatters/types/vv_type.py
++++ b/generators/testgen/src/testgen/formatters/types/vv_type.py
+@@ -20,6 +20,7 @@ from testgen.formatters.registry import InstructionTypeConfig, VectorTypeConfig,
+ from testgen.instructions.vector import parse_vector_instruction_info
+ 
+ vmvr_config = InstructionTypeConfig(required_params={"vd", "vs2"}, vector_data=VectorTypeConfig())
++vv_config = InstructionTypeConfig(required_params={"vd", "vs2"}, vector_data=VectorTypeConfig())
+ vext_config = InstructionTypeConfig(
+     required_params={"vd", "vs2"},
+     vector_data=VectorTypeConfig(overlap_constraints={("vd_bottom", "vs2")}),
+@@ -42,6 +43,13 @@ def format_vmvr_type(
+     return format_vv_like_type(instr_str, test_data, params, "VMVR", lmul_override=n_registers, preload_vs2=True)
+ 
+ 
++@add_instruction_formatter("VV", vv_config)
++def format_vv_type(
++    instr_str: str, test_data: TestData, params: InstructionParams
++) -> tuple[list[str], list[str], list[str]]:
++    return format_vv_like_type(instr_str, test_data, params, "VV")
++
++
+ @add_instruction_formatter("VEXT", vext_config)
+ def format_vext_type(
+     instr_str: str, test_data: TestData, params: InstructionParams
+@@ -68,6 +76,7 @@ def format_vv_like_type(
+     vs2_lmul_multiplier: float = 1,
+     vs2_mask: bool = False,
+     preload_vs2: bool = False,
++    widen: set[str] | None = None,
+ ) -> tuple[list[str], list[str], list[str]]:
+     assert params.vs2 is not None and params.vs2_val_pointer is not None, (
+         f"vs2 and vs2_val_pointer must be provided for {type_name}-type instructions"
+@@ -82,6 +91,9 @@ def format_vv_like_type(
+     )
+     assert test_data.test_chunk is not None, f"format_{type_name.lower()}_type must be used with an active TestChunk"
+ 
++    if widen is None:
++        widen = set()
++
+     test_data.test_chunk.vector_labels.extend(
+         [
+             (params.vs2_val_pointer, *test_data.vector_labels[params.vs2_val_pointer]),
+@@ -102,11 +114,12 @@ def format_vv_like_type(
+ 
+     vd_vl = params.vl if params.vector_suite == "base" else "vlmax"
+     vs2_vl = params.vl if params.vector_suite == "base" or not preload_vs2 else "vlmax"
+-    vs2_lmul = max(lmul * vs2_lmul_multiplier, 1) if not vs2_mask else 1
+-    vs2_sew = int(params.sew * vs2_lmul_multiplier)
++    vs2_multiplier = 2 if "vs2" in widen else vs2_lmul_multiplier
++    vs2_lmul = max(lmul * vs2_multiplier, 1) if not vs2_mask else 1
++    vs2_sew = int(params.sew * vs2_multiplier)
+ 
+     to_load = [
+-        VectorLoad(reg="vd", vl=vd_vl, lmul=lmul, no_fractional_load=True),
++        VectorLoad(reg="vd", widen="vd" in widen, vl=vd_vl, lmul=lmul, no_fractional_load=True),
+         VectorLoad(reg="vs2", vl=vs2_vl, lmul=vs2_lmul, sew=vs2_sew),
+     ]
+ 
+@@ -124,9 +137,10 @@ def format_vv_like_type(
+         test = [f"{instr_str} v{params.vd}, v{params.vs2}"]
+ 
+     if params.vector_suite == "length":
+-        check = [*write_sigupd_v_len(test_data, params, lmul)]
++        sig_lmul = lmul * (2 if "vd" in widen else 1)
++        check = [*write_sigupd_v_len(test_data, params, sig_lmul, widen_vd="vd" in widen)]
+     else:
+-        check = [*write_sigupd_v(test_data, params)]
++        check = [*write_sigupd_v(test_data, params, widen_vd="vd" in widen)]
+ 
+     # This can only be released after sigupd
+     if params.maskval:
+diff --git a/generators/testgen/src/testgen/formatters/types/vvi_type.py b/generators/testgen/src/testgen/formatters/types/vvi_type.py
+index 458cceb00548d554d7726b479a3ca72da961aaf6..d43d7148711424614a704543705f507c074cb704 100644
+--- a/generators/testgen/src/testgen/formatters/types/vvi_type.py
++++ b/generators/testgen/src/testgen/formatters/types/vvi_type.py
+@@ -24,12 +24,21 @@ vvi_config = InstructionTypeConfig(required_params={"vd", "immval", "vs2"}, imm_
+ vviu_config = InstructionTypeConfig(
+     required_params={"vd", "immval", "vs2"}, imm_bits=5, imm_signed=False, vector_data=VectorTypeConfig()
+ )
++vvi6u_config = InstructionTypeConfig(
++    required_params={"vd", "immval", "vs2"}, imm_bits=6, imm_signed=False, vector_data=VectorTypeConfig()
++)
+ vwi_config = InstructionTypeConfig(
+     required_params={"vd", "immval", "vs2"},
+     imm_bits=5,
+     imm_signed=False,
+     vector_data=VectorTypeConfig(overlap_constraints={("vd", "vs2_top")}, widened_regs={"vs2"}),
+ )
++wvi_config = InstructionTypeConfig(
++    required_params={"vd", "immval", "vs2"},
++    imm_bits=5,
++    imm_signed=False,
++    vector_data=VectorTypeConfig(overlap_constraints={("vd_bottom", "vs2")}, widened_regs={"vd"}),
++)
+ vvim_config = InstructionTypeConfig(
+     required_params={"vd", "immval", "vs2", "maskval"},
+     imm_bits=5,
+@@ -63,6 +72,13 @@ def format_vviu(
+     return format_vvi_like_type(instr_str, test_data, params, "VVIU")
+ 
+ 
++@add_instruction_formatter("VVI6U", vvi6u_config)
++def format_vvi6u(
++    instr_str: str, test_data: TestData, params: InstructionParams
++) -> tuple[list[str], list[str], list[str]]:
++    return format_vvi_like_type(instr_str, test_data, params, "VVI6U")
++
++
+ @add_instruction_formatter("VWI", vwi_config)
+ def format_vwi(
+     instr_str: str, test_data: TestData, params: InstructionParams
+@@ -70,6 +86,13 @@ def format_vwi(
+     return format_vvi_like_type(instr_str, test_data, params, "VWI", widen={"vs2"})
+ 
+ 
++@add_instruction_formatter("WVI", wvi_config)
++def format_wvi(
++    instr_str: str, test_data: TestData, params: InstructionParams
++) -> tuple[list[str], list[str], list[str]]:
++    return format_vvi_like_type(instr_str, test_data, params, "WVI", widen={"vd"})
++
++
+ @add_instruction_formatter("VVIM", vvim_config)
+ def format_vvim(
+     instr_str: str, test_data: TestData, params: InstructionParams
+diff --git a/generators/testgen/src/testgen/generate/unpriv.py b/generators/testgen/src/testgen/generate/unpriv.py
+index 3de78f6d83a240311a97ae59d0e26caa4a23a3dc..6758965dceb7ebbe4f959f01c126b1499ad2e6d2 100644
+--- a/generators/testgen/src/testgen/generate/unpriv.py
++++ b/generators/testgen/src/testgen/generate/unpriv.py
+@@ -59,10 +59,12 @@ def generate_unpriv_extension_tests(
+     """
+     # Read testplan for this testsuite
+     if is_vector:
+-        match = re.search(r"([^0-9]*)\d*$", testsuite)
+-        assert match is not None, f"Unable to Parse Vector Extension {testsuite} into a Testplan and SEW Pair"
+-
+-        testplan = match.group(1)
++        if (testplan_dir / f"{testsuite}.csv").exists():
++            testplan = testsuite
++        else:
++            match = re.search(r"([^0-9]*)\d+$", testsuite)
++            assert match is not None, f"Unable to Parse Vector Extension {testsuite} into a Testplan and SEW Pair"
++            testplan = match.group(1)
+         sew = _detect_sew(testsuite)
+     else:
+         testplan = testsuite
+@@ -173,7 +175,7 @@ def _generate_unpriv_tests_for_instruction(
+             assert instr_type_config.vector_data is not None, "vector_data must be provided for all vector instructions"
+ 
+             vdsew = sew
+-            if "vd" in instr_type_config.vector_data.widened_regs:
++            if "vd" in instr_type_config.vector_data.widened_regs or "vd" in info.widened_regs:
+                 vdsew *= 2
+             elif info.load_store_eew == 64:
+                 vdsew = 64
+diff --git a/generators/testgen/src/testgen/instructions/vector.py b/generators/testgen/src/testgen/instructions/vector.py
+index 6b65f177f850bea7451acd0dac2f7577da3d294b..7643c760b6384dd301126a5ff8d8118c67387ea8 100644
+--- a/generators/testgen/src/testgen/instructions/vector.py
++++ b/generators/testgen/src/testgen/instructions/vector.py
+@@ -37,6 +37,8 @@ class VectorInstructionInfo:
+     index_eew: int | None
+     vext_multiplier: float | None
+     whole_registers: int | None
++    element_group_size: int
++    widened_regs: set[str]
+ 
+     def get_size_multiplier(self, register: str, sew: int, widened_regs: set[str]) -> int | float:
+         """Return a register's size multiplier relative to SEW."""
+@@ -46,7 +48,7 @@ class VectorInstructionInfo:
+             return self.index_eew / sew
+         if self.load_store_eew and register in ["vs3", "vd"]:
+             return self.load_store_eew / sew
+-        if register in widened_regs:
++        if register in widened_regs or register in self.widened_regs:
+             return 2
+         return 1
+ 
+@@ -79,6 +81,21 @@ def parse_vector_instruction_info(instruction: str, instruction_type: str) -> Ve
+ 
+     whole_register_match = re.search(r"v[ls](\d)r", instruction)
+     whole_registers = int(whole_register_match.group(1)) if whole_register_match else None
++    egs_match = re.search(r"_EGS(\d+)$", instruction_type)
++    element_group_size = int(egs_match.group(1)) if egs_match else 1
++
++    inferred_widened_regs: set[str] = set()
++    if instruction_type in {"FWVF", "FWVF_ACC", "FWVV", "FWVV_ACC"}:
++        inferred_widened_regs.add("vd")
++    elif instruction_type in {"FWWFM", "FWWVM"}:
++        inferred_widened_regs.update({"vd", "vs2"})
++    elif instruction_type == "FWVWSR":
++        inferred_widened_regs.update({"vd", "vs1"})
++    elif instruction_type == "FVV":
++        if instruction.startswith("vfw"):
++            inferred_widened_regs.add("vd")
++        elif instruction.startswith("vfn"):
++            inferred_widened_regs.add("vs2")
+ 
+     return VectorInstructionInfo(
+         segments=segments,
+@@ -86,6 +103,8 @@ def parse_vector_instruction_info(instruction: str, instruction_type: str) -> Ve
+         index_eew=index_eew,
+         vext_multiplier=vext_multiplier,
+         whole_registers=whole_registers,
++        element_group_size=element_group_size,
++        widened_regs=inferred_widened_regs,
+     )
+ 
+ 
+diff --git a/generators/testgen/src/testgen/instructions/vector_params.py b/generators/testgen/src/testgen/instructions/vector_params.py
+index 5500f64becbb7bd727749c7dd72ad4e4a395dced..2de75ddda99ca7fb274bf25052f8b9bdff0736e9 100644
+--- a/generators/testgen/src/testgen/instructions/vector_params.py
++++ b/generators/testgen/src/testgen/instructions/vector_params.py
+@@ -177,7 +177,7 @@ def randomize_registers(
+ 
+     if "fs1" in registers:
+         new_params.fs1 = randomize_register("fs1", test_data, instr_type_config, lmul, info, new_params.fs1)
+-        if new_params.fs1val is not None:
++        if new_params.fs1val is None:
+             new_params.fs1val = random_int(test_data.config.flen)
+     if "fd" in registers:
+         new_params.fd = randomize_register("fd", test_data, instr_type_config, lmul, info, new_params.fd)
+@@ -392,7 +392,11 @@ def generate_random_vector_params(
+     assert instr_type_config.vector_data is not None, (
+         f"Vector Data must be provided for vector instruction type {instr_type}"
+     )
++    if masked and not instr_type_config.vector_data.maskable:
++        raise ValueError(f"vector instruction type {instr_type} is not maskable")
+     info = parse_vector_instruction_info(instruction, instr_type)
++    if preset_params.egs is None:
++        preset_params.egs = info.element_group_size
+ 
+     no_overlap = get_overlap_constraints(info, instr_type_config, masked, sew)
+     if additional_no_overlap is not None:
+@@ -400,7 +404,7 @@ def generate_random_vector_params(
+ 
+     mask_vector_regs = instr_type_config.vector_data.mask_regs
+     scalar_vector_regs = instr_type_config.vector_data.scalar_regs
+-    widened_regs = instr_type_config.vector_data.widened_regs
++    widened_regs = instr_type_config.vector_data.widened_regs | info.widened_regs
+ 
+     preset_params.lmul = lmul
+     # These are effective lmuls for the operation, but we still must respect the callers choice of lmul
+@@ -516,6 +520,6 @@ def generate_random_vector_params(
+     params.sew = sew
+     params.vector_suite = suite
+     if params.vl is None:
+-        params.vl = 1
++        params.vl = info.element_group_size
+ 
+     return params
+diff --git a/generators/testgen/src/testgen/io/templates.py b/generators/testgen/src/testgen/io/templates.py
+index 2f489b037c3fdd670b2a44247285f8b0be7d7017..50af25f0e50a2943c8a36e883348d5d140919dcb 100644
+--- a/generators/testgen/src/testgen/io/templates.py
++++ b/generators/testgen/src/testgen/io/templates.py
+@@ -140,7 +140,7 @@ def canonicalize_extensions(
+             # Our tests run some vector tests with the test SEW as a suffix. These suffixes are not part of
+             # extension names, so they need to be dropped from the extensions list
+             no_sew_suffix = re.sub(r"\d+$", "", testsuite)
+-            if no_sew_suffix in ext_components:
++            if no_sew_suffix in {"Vx", "Vls", "Vf"} and no_sew_suffix in ext_components:
+                 ext_components.remove(no_sew_suffix)
+ 
+     if any(ext.startswith(("V", "Zv")) for ext in ext_components):
+@@ -172,10 +172,14 @@ def get_vector_base_extension(testsuite: str, instr_name: str, xlen: int, sew: i
+         "Vf64": ["Zve64d"],
+     }
+ 
+-    if testsuite not in vector_map:
+-        return
+-
+-    mapped = vector_map[testsuite]
++    if testsuite in vector_map:
++        mapped = vector_map[testsuite].copy()
++    elif testsuite.startswith(("Zvfh", "Zvfbf")):
++        mapped = ["Zve32f"]
++    elif testsuite.startswith("Zv"):
++        mapped = ["Zve64x" if sew == 64 else "Zve32x"]
++    else:
++        return None
+ 
+     for zve_ext in ["Zve64x", "Zve64f", "Zve64d"]:
+         # All Zve* extensions support all vector load and store instructions (31.1.7. Vector Loads and Stores),
+@@ -217,6 +221,12 @@ def get_vector_base_extension(testsuite: str, instr_name: str, xlen: int, sew: i
+         mapped.remove("Zve32x")
+         mapped.append("Zve64x")
+ 
++    if "Zve32f" in mapped and instr_name.startswith(("vfw", "vfn")) and sew == 32:
++        # Widening and narrowing FP operations at SEW=32 consume or produce
++        # 64-bit FP elements and therefore need the Zve64d execution profile.
++        mapped.remove("Zve32f")
++        mapped.append("Zve64d")
++
+     if mapped == []:
+         return ["V"]
+ 
+diff --git a/generators/testgen/src/testgen/io/writer.py b/generators/testgen/src/testgen/io/writer.py
+index 8b006502b26ebaf610d63a1385ec695b5e454269..5ee8e06d7390043e76130611c2fba8c000ea03b7 100644
+--- a/generators/testgen/src/testgen/io/writer.py
++++ b/generators/testgen/src/testgen/io/writer.py
+@@ -117,8 +117,14 @@ def write_test_file(
+         body += "\n".join(indent_asm(line) for line in "\n".join(tc.code).split("\n"))
+ 
+     # Test footer
+-    test_data_section = generate_test_data_section(data_values, test_config.xlen, test_config.flen)
+-    test_data_section += generate_vector_data_section(vector_data_labels)
++    test_data_section = "\n".join(
++        section
++        for section in (
++            generate_test_data_section(data_values, test_config.xlen, test_config.flen),
++            generate_vector_data_section(vector_data_labels),
++        )
++        if section
++    )
+     if raw_data:
+         raw_data_lines = "\n".join(raw_data).splitlines()
+         test_data_section += "\n" + "\n".join(indent_asm(line) for line in raw_data_lines)
+diff --git a/testplans/Zvbb.csv b/testplans/Zvbb.csv
+index 13f3499fadc01a000086480a97b8134e62f43f08..cf030cc34149983633f8ad648eedd06d120c1b13 100644
+--- a/testplans/Zvbb.csv
++++ b/testplans/Zvbb.csv
+@@ -11,7 +11,7 @@ vrol.vv,VVV,x,x,x,x,x,x,x,x,,x,,x,,,,x,x,x,x,x,x,x,,,,,,,x,x,x,x,,
+ vrol.vx,VVX,x,x,x,x,x,x,x,x,,x,,,x,,,x,,,,x,,,,x,x,,,,x,x,x,x,,
+ vror.vv,VVV,x,x,x,x,x,x,x,x,,x,,x,,,,x,x,x,x,x,x,x,,,,,,,x,x,x,x,,
+ vror.vx,VVX,x,x,x,x,x,x,x,x,,x,,,x,,,x,,,,x,,,,x,x,,,,x,x,x,x,,
+-vror.vi,VVI,x,x,x,x,x,x,x,x,,x,,,,u,,x,,,,x,,,,,,,u,,x,x,x,x,,
++vror.vi,VVI6U,x,x,x,x,x,x,x,x,,x,,,,u,,x,,,,x,,,,,,,u,,x,x,x,x,,
+ vwsll.vv,WVV,x,x,x,x,x,,x,emul2,,x,,x,,,,,,x,,x,x,x,,,,,,,x,lmul4max,lmul4max,x,x,wvv_all
+ vwsll.vx,WVX,x,x,x,x,x,,x,emul2,,x,,,x,,,,,,,x,,,,x,x,,,,x,lmul4max,lmul4max,x,x,wvx_all
+ vwsll.vi,WVI,x,x,x,x,x,,x,emul2,,x,,,,u,,,,,,x,,,,,,,u,,x,lmul4max,lmul4max,x,x,wvx_all
+diff --git a/testplans/Zvkb.csv b/testplans/Zvkb.csv
+index cf777a3a1104366b66a4be563389738877ebc31b..021307460e3cc4b0d9e996d9b57f6d88d3a63d17 100644
+--- a/testplans/Zvkb.csv
++++ b/testplans/Zvkb.csv
+@@ -7,4 +7,4 @@ vrol.vv,VVV,x,x,x,x,x,x,x,x,,x,,x,,,,x,x,x,x,x,x,x,,,,,,,x,x,x,x,
+ vrol.vx,VVX,x,x,x,x,x,x,x,x,,x,,,x,,,x,,,,x,,,,x,x,,,,x,x,x,x,
+ vror.vv,VVV,x,x,x,x,x,x,x,x,,x,,x,,,,x,x,x,x,x,x,x,,,,,,,x,x,x,x,
+ vror.vx,VVX,x,x,x,x,x,x,x,x,,x,,,x,,,x,,,,x,,,,x,x,,,,x,x,x,x,
+-vror.vi,VVI,x,x,x,x,x,x,x,x,,x,,,,u,,x,,,,x,,,,,,,u,,x,x,x,x,
++vror.vi,VVI6U,x,x,x,x,x,x,x,x,,x,,,,u,,x,,,,x,,,,,,,u,,x,x,x,x,

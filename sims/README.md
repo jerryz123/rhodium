@@ -361,23 +361,30 @@ make -C sims arch-test ACT_CONFIGURATION=simple-soc
 
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
 initializes the pinned `riscv/riscv-arch-test` submodule, installs Python and
-Ruby dependencies under `.tools/`, and downloads checksum-verified Sail 0.14
+Ruby dependencies under `.tools/`, and downloads checksum-verified Sail 0.14.1
 for Apple Silicon macOS or x86-64/AArch64 Linux. Normal simulator dependencies
 are still required; see [Build a simulator](#build-a-simulator).
 On Apple Silicon it also installs native Z3 5.0.0 in the local UDB cache,
 working around the pinned UDB installer's Linux-only library download.
 
-`arch-test-config` only prepares and validates the Sail/platform files;
-`arch-test-elfs` also validates UDB through ACT and generates self-checking
-ELFs for every test matching the generated UDB configuration. It replaces the
-configuration's generated ELF files before building, so an older core profile
-cannot leave stale tests in the suite; reference intermediates remain cached.
+`arch-test-config` only prepares and validates the Sail/platform files.
+`arch-test-source` copies the clean pinned ACT checkout into the build root and
+applies Rhodium's ordered ACT patch series there. `arch-test-tests` stages the
+handwritten tests from that materialized tree and runs ACT's canonical generator
+into the same build-root tree, including vector suites whose generated assembly
+is intentionally not tracked. The upstream submodule remains unmodified.
+`arch-test-elfs` does both before validating UDB through ACT and generating
+self-checking ELFs for every test matching the generated UDB configuration. It
+replaces the configuration's generated ELF files before building, so an older
+core profile cannot leave stale tests in the suite; reference intermediates
+remain cached.
 `arch-test` builds the selected simulator and executes those ELFs through ACT's
 upstream runner. After a successful build, `arch-test-run` reruns the existing
 ELFs without regenerating the bundle. An empty ELF directory is an error.
 Outputs and per-test logs live under
 `/tmp/rhodium-arch-test`; set `ACT_BUILD_ROOT` to change that location.
-`ACT_SAIL`, `ACT_VENV`, and `ACT_BUNDLE_PATH` select installed tool locations.
+`ACT_SAIL`, `ACT_VENV`, `ACT_TESTGEN`, `ACT_PATCH_SERIES`, and
+`ACT_BUNDLE_PATH` select installed tool locations or inputs.
 The adapter also writes `results.json` and `junit.xml` beside ACT's `summary.log`,
 accounting for every generated ELF and rejecting missing results.
 For distributed execution, `arch-test-run ACT_SHARDS=4 ACT_SHARD=0` runs the

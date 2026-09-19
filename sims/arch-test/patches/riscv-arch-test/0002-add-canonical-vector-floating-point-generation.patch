@@ -1,0 +1,756 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sat, 19 Sep 2026 11:03:50 -0700
+Subject: [PATCH 2/4] Add canonical vector floating-point generation
+
+---
+ .../src/testgen/coverpoints/cp_csr_frm.py     |   8 +-
+ .../testgen/coverpoints/cp_fp_reg_edges.py    |  20 +-
+ .../src/testgen/coverpoints/cp_fp_regs.py     |  13 +-
+ .../coverpoints/vector/cr_vs2_fs1_edges.py    |  36 +++
+ .../testgen/coverpoints/vector/fp_custom.py   | 254 ++++++++++++++++
+ .../testgen/coverpoints/vector/fp_helpers.py  |  26 ++
+ .../formatters/types/fp_vector_type.py        | 278 ++++++++++++++++++
+ 7 files changed, 622 insertions(+), 13 deletions(-)
+ create mode 100644 generators/testgen/src/testgen/coverpoints/vector/cr_vs2_fs1_edges.py
+ create mode 100644 generators/testgen/src/testgen/coverpoints/vector/fp_custom.py
+ create mode 100644 generators/testgen/src/testgen/coverpoints/vector/fp_helpers.py
+ create mode 100644 generators/testgen/src/testgen/formatters/types/fp_vector_type.py
+
+diff --git a/generators/testgen/src/testgen/coverpoints/cp_csr_frm.py b/generators/testgen/src/testgen/coverpoints/cp_csr_frm.py
+index 234cb16774727b1b7e7f4d6e026e337c8e5b6436..02c9cc767052e7939192acfba5b9239a03ea63b5 100644
+--- a/generators/testgen/src/testgen/coverpoints/cp_csr_frm.py
++++ b/generators/testgen/src/testgen/coverpoints/cp_csr_frm.py
+@@ -12,19 +12,23 @@ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+ from testgen.formatters import format_single_testcase
+ from testgen.instructions.params import generate_random_params
++from testgen.coverpoints.vector.fp_helpers import generate_vector_fp_params
+ 
+ 
+ @add_coverpoint_generator("cp_csr_frm")
+ def make_frm(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
+     """Generate tests for frm values."""
+-    if coverpoint != "cp_csr_frm":
++    if not coverpoint.startswith("cp_csr_frm"):
+         raise ValueError(f"Unknown cp_csr_frm coverpoint variant: {coverpoint} for {instr_name}")
+ 
+     # Test each valid fcsr.frm value (0-4) via dynamic rounding mode (rm=111 in the encoding).
+     frm_modes = (("rne", 0), ("rtz", 1), ("rdn", 2), ("rup", 3), ("rmm", 4))
+     test_chunks: list[TestChunk] = []
+     for frm_name, frm_val in frm_modes:
+-        params = generate_random_params(test_data, instr_type, exclude_regs=[0], frm="dyn", csr_frm_val=frm_val)
++        if test_data.config.sew is None:
++            params = generate_random_params(test_data, instr_type, exclude_regs=[0], frm="dyn", csr_frm_val=frm_val)
++        else:
++            params = generate_vector_fp_params(test_data, instr_name, instr_type, frm="dyn", csr_frm_val=frm_val)
+         desc = f"{coverpoint} (Test dynamic frm, fcsr.frm = {frm_val})"
+         tc = format_single_testcase(instr_name, instr_type, test_data, params, desc, frm_name, coverpoint)
+         test_chunks.append(tc)
+diff --git a/generators/testgen/src/testgen/coverpoints/cp_fp_reg_edges.py b/generators/testgen/src/testgen/coverpoints/cp_fp_reg_edges.py
+index fa18c003e4c0ad4f890f99b4d1930fef07aac69f..a66b19a7263363c1fef010cdf8ac87fe67f60c9b 100644
+--- a/generators/testgen/src/testgen/coverpoints/cp_fp_reg_edges.py
++++ b/generators/testgen/src/testgen/coverpoints/cp_fp_reg_edges.py
+@@ -13,13 +13,16 @@ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+ from testgen.formatters import format_single_testcase
+ from testgen.instructions.params import generate_random_params
++from testgen.coverpoints.vector.fp_helpers import generate_vector_fp_params, vector_fp_edges
+ 
+ 
+ def _make_fs_edges(
+     operand: str, instr_name: str, instr_type: str, coverpoint: str, test_data: TestData
+ ) -> list[TestChunk]:
+     """Shared body for cp_fs1_edges / cp_fs2_edges / cp_fs3_edges."""
+-    if coverpoint.endswith("_D"):
++    if test_data.config.sew is not None:
++        edges = vector_fp_edges(test_data, wide="_emul2" in coverpoint)
++    elif coverpoint.endswith("_D"):
+         edges = FLOAT_EDGES.double
+     elif coverpoint.endswith("_H"):
+         edges = FLOAT_EDGES.half
+@@ -35,13 +38,14 @@ def _make_fs_edges(
+     test_chunks: list[TestChunk] = []
+     for edge_val in edges:
+         for frm_mode in frm_modes:
+-            params = generate_random_params(
+-                test_data,
+-                instr_type,
+-                exclude_regs=[0],
+-                **{val_key: edge_val},
+-                frm=frm_mode,
+-            )
++            if test_data.config.sew is None:
++                params = generate_random_params(
++                    test_data, instr_type, exclude_regs=[0], **{val_key: edge_val}, frm=frm_mode
++                )
++            else:
++                params = generate_vector_fp_params(
++                    test_data, instr_name, instr_type, **{val_key: edge_val}, frm=frm_mode
++                )
+             bin_name = f"b{edge_val:#x}{f'_{frm_mode}' if frm_mode is not None else ''}"
+             desc = f"{coverpoint} (Test source {operand} value = {test_data.flen_format_str.format(edge_val)}{f', frm = {frm_mode}' if frm_mode is not None else ''})"
+             tc = format_single_testcase(instr_name, instr_type, test_data, params, desc, bin_name, coverpoint)
+diff --git a/generators/testgen/src/testgen/coverpoints/cp_fp_regs.py b/generators/testgen/src/testgen/coverpoints/cp_fp_regs.py
+index 1a5ddf31b699cda502ea9e312f3addacf762096b..e49aa7259f84996ef0e4445e773510e1c9b55205 100644
+--- a/generators/testgen/src/testgen/coverpoints/cp_fp_regs.py
++++ b/generators/testgen/src/testgen/coverpoints/cp_fp_regs.py
+@@ -12,6 +12,7 @@ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+ from testgen.formatters import format_single_testcase
+ from testgen.instructions.params import generate_random_params
++from testgen.coverpoints.vector.fp_helpers import generate_vector_fp_params
+ 
+ 
+ @add_coverpoint_generator("cp_fd")
+@@ -30,7 +31,10 @@ def make_fd(instr_name: str, instr_type: str, coverpoint: str, test_data: TestDa
+     # Generate tests
+     for fd in fd_regs:
+         test_data.float_regs.consume_registers([fd])
+-        params = generate_random_params(test_data, instr_type, fd=fd)
++        if test_data.config.sew is None:
++            params = generate_random_params(test_data, instr_type, fd=fd)
++        else:
++            params = generate_vector_fp_params(test_data, instr_name, instr_type, fd=fd)
+         desc = f"{coverpoint} (Test destination fd = f{fd})"
+         tc = format_single_testcase(instr_name, instr_type, test_data, params, desc, f"b{fd}", coverpoint)
+         test_chunks.append(tc)
+@@ -43,7 +47,7 @@ def make_fd(instr_name: str, instr_type: str, coverpoint: str, test_data: TestDa
+ def make_fs1(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
+     """Generate tests for source floating-point register 1 coverpoints."""
+     # Determine which fs1 registers to test based on coverpoint variant
+-    if coverpoint == "cp_fs1":
++    if coverpoint == "cp_fs1" or (test_data.config.sew is not None and coverpoint.startswith("cp_fs1_")):
+         fs1_regs = range(test_data.float_regs.reg_count)
+     elif coverpoint.endswith("_p"):
+         fs1_regs = range(8, 16)  # f8-f15 for compressed instructions
+@@ -55,7 +59,10 @@ def make_fs1(instr_name: str, instr_type: str, coverpoint: str, test_data: TestD
+     # Generate tests
+     for fs1 in fs1_regs:
+         test_data.float_regs.consume_registers([fs1])
+-        params = generate_random_params(test_data, instr_type, fs1=fs1)
++        if test_data.config.sew is None:
++            params = generate_random_params(test_data, instr_type, fs1=fs1)
++        else:
++            params = generate_vector_fp_params(test_data, instr_name, instr_type, fs1=fs1)
+         desc = f"{coverpoint} (Test source fs1 = f{fs1})"
+         tc = format_single_testcase(instr_name, instr_type, test_data, params, desc, f"b{fs1}", coverpoint)
+         test_chunks.append(tc)
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cr_vs2_fs1_edges.py b/generators/testgen/src/testgen/coverpoints/vector/cr_vs2_fs1_edges.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..fa2d2ff907c33192f5604f2248a4495182b38ae9
+--- /dev/null
++++ b/generators/testgen/src/testgen/coverpoints/vector/cr_vs2_fs1_edges.py
+@@ -0,0 +1,36 @@
++# Generates vector-versus-scalar floating-point edge cross products.
++# SPDX-License-Identifier: Apache-2.0
++
++from testgen.coverpoints.registry import add_coverpoint_generator
++from testgen.coverpoints.vector.fp_helpers import vector_fp_edges
++from testgen.data.state import TestData, return_testcase_registers
++from testgen.data.test_chunk import TestChunk
++from testgen.formatters import format_single_testcase
++from testgen.instructions.vector_params import generate_random_vector_params
++
++
++@add_coverpoint_generator("cr_vs2_fs1_edges")
++def make_vs2_fs1_edges(
++    instr_name: str, instr_type: str, coverpoint: str, test_data: TestData
++) -> list[TestChunk]:
++    """Cross every architectural FP edge in vs2 with every edge in fs1."""
++    assert test_data.config.sew is not None
++    vs2_wide = coverpoint.endswith("_wf")
++    vs2_edges = vector_fp_edges(test_data, wide=vs2_wide)
++    fs1_edges = vector_fp_edges(test_data)
++    vs2_sew = test_data.config.sew * (2 if vs2_wide else 1)
++    chunks = []
++    for vs2_index, vs2_value in enumerate(vs2_edges):
++        label = f"vs2_fs1_edge_{vs2_index}_{'wide' if vs2_wide else 'same'}"
++        test_data.register_vector_data(label, vs2_sew, elements=[vs2_value])
++        for fs1_index, fs1_value in enumerate(fs1_edges):
++            params = generate_random_vector_params(
++                test_data, instr_name, instr_type, lmul=1, vs2_val_pointer=label, fs1val=fs1_value
++            )
++            desc = f"{coverpoint} (vs2 edge {vs2_index}, fs1 edge {fs1_index})"
++            tc = format_single_testcase(
++                instr_name, instr_type, test_data, params, desc, f"b{vs2_index}_{fs1_index}", coverpoint
++            )
++            chunks.append(tc)
++            return_testcase_registers(test_data, params)
++    return chunks
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/fp_custom.py b/generators/testgen/src/testgen/coverpoints/vector/fp_custom.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..53dd9c625a1e110349c023fa860e48d6019087f6
+--- /dev/null
++++ b/generators/testgen/src/testgen/coverpoints/vector/fp_custom.py
+@@ -0,0 +1,254 @@
++# Generates directed vector floating-point cases that are not expressible as generic edge crosses.
++# SPDX-License-Identifier: Apache-2.0
++
++from collections.abc import Iterable
++
++from testgen.coverpoints.registry import add_coverpoint_generator
++from testgen.data.params import PresetMask
++from testgen.data.state import TestData, return_testcase_registers
++from testgen.data.test_chunk import TestChunk
++from testgen.formatters import format_single_testcase
++from testgen.formatters.registry import get_instruction_type_config
++from testgen.instructions.vector_params import generate_random_vector_params
++
++
++FP = {
++    16: {"zero": 0x0000, "one": 0x3C00, "three": 0x4200, "qnan": 0x7E00, "snan": 0x7D00,
++         "max": 0x7BFF, "neg_max": 0xFBFF, "tiny": 0x0001, "min_norm": 0x0400, "inf": 0x7C00},
++    32: {"zero": 0x00000000, "one": 0x3F800000, "three": 0x40400000, "qnan": 0x7FC00000,
++         "snan": 0x7FA00000, "max": 0x7F7FFFFF, "neg_max": 0xFF7FFFFF, "tiny": 0x00000001,
++         "min_norm": 0x00800000, "inf": 0x7F800000},
++    64: {"zero": 0x0000000000000000, "one": 0x3FF0000000000000, "three": 0x4008000000000000,
++         "qnan": 0x7FF8000000000000, "snan": 0x7FF0000000000001, "max": 0x7FEFFFFFFFFFFFFF,
++         "neg_max": 0xFFEFFFFFFFFFFFFF, "tiny": 0x0000000000000001, "min_norm": 0x0010000000000000,
++         "inf": 0x7FF0000000000000},
++}
++
++
++def _emit(
++    instr_name: str,
++    instr_type: str,
++    coverpoint: str,
++    test_data: TestData,
++    desc: str,
++    *,
++    lmul: float = 1,
++    vl: int = 1,
++    vs2: Iterable[int] | None = None,
++    vs2_sew: int | None = None,
++    vs1: Iterable[int] | None = None,
++    vs1_sew: int | None = None,
++    fs1val: int | None = None,
++    frm: str | None = None,
++    vd: int | None = None,
++    vs2_reg: int | None = None,
++    maskval: PresetMask | None = None,
++    pre_test: list[str] | None = None,
++) -> TestChunk:
++    assert test_data.config.sew is not None
++    sew = test_data.config.sew
++    fixed: dict[str, object] = {"vl": vl}
++    suffix = f"{test_data.test_count:04d}"
++    if vs2 is not None:
++        label = f"custom_{coverpoint}_{suffix}_vs2"
++        test_data.register_vector_data(label, vs2_sew or sew, elements=list(vs2))
++        fixed["vs2_val_pointer"] = label
++    if vs1 is not None:
++        label = f"custom_{coverpoint}_{suffix}_vs1"
++        test_data.register_vector_data(label, vs1_sew or sew, elements=list(vs1))
++        fixed["vs1_val_pointer"] = label
++    if fs1val is not None:
++        fixed["fs1val"] = fs1val
++    if frm is not None:
++        fixed["frm"] = frm
++    if vd is not None:
++        test_data.vec_regs.allocate_operand("vd", vd, 1)
++        fixed["vd"] = vd
++    if vs2_reg is not None:
++        test_data.vec_regs.allocate_operand("vs2", vs2_reg, 1)
++        fixed["vs2"] = vs2_reg
++    if maskval is not None:
++        fixed["maskval"] = maskval
++    params = generate_random_vector_params(
++        test_data,
++        instr_name,
++        instr_type,
++        lmul=lmul,
++        masked=maskval is not None,
++        suite="base",
++        **fixed,
++    )
++    tc = format_single_testcase(instr_name, instr_type, test_data, params, desc, suffix, coverpoint)
++    if pre_test:
++        tc.code[-1:-1] = pre_test
++    return_testcase_registers(test_data, params)
++    return tc
++
++
++@add_coverpoint_generator("cp_custom_vfp_NaN_input")
++def make_nan_inputs(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    values = FP[test_data.config.sew]
++    return [
++        _emit(instr_name, instr_type, coverpoint, test_data, f"{coverpoint} ({name})", vs2=[values[name]])
++        for name in ("snan", "qnan")
++    ]
++
++
++@add_coverpoint_generator("cp_custom_vfclass_onehot")
++def make_vfclass(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    values = {
++        16: [0xFC00, 0xBC00, 0x8001, 0x8000, 0x0000, 0x0001, 0x3C00, 0x7C00, 0x7D01, 0x7E00],
++        32: [0xFF800000, 0xBF800000, 0x80000001, 0x80000000, 0x00000000, 0x00000001,
++             0x3F800000, 0x7F800000, 0x7F800001, 0x7FC00000],
++        64: [0xFFF0000000000000, 0xBFF0000000000000, 0x8000000000000001, 0x8000000000000000,
++             0x0000000000000000, 0x0000000000000001, 0x3FF0000000000000, 0x7FF0000000000000,
++             0x7FF0000000000001, 0x7FF8000000000000],
++    }[test_data.config.sew]
++    return [
++        _emit(instr_name, instr_type, coverpoint, test_data, f"{coverpoint} (class {index})", vs2=[value])
++        for index, value in enumerate(values)
++    ]
++
++
++@add_coverpoint_generator("cp_custom_vfncvt_rup_overflow")
++@add_coverpoint_generator("cp_custom_vfncvt_rod_overflow")
++def make_narrow_overflow(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    if test_data.config.sew != 32:
++        return []
++    values = [0x47F0000000000000, 0xC7F0000000000000]
++    frm = "rup" if coverpoint.endswith("rup_overflow") else None
++    return [
++        _emit(instr_name, instr_type, coverpoint, test_data, f"{coverpoint} ({index})", vs2=[value], vs2_sew=64, frm=frm)
++        for index, value in enumerate(values)
++    ]
++
++
++ALL_LMULS = (0.125, 0.25, 0.5, 1, 2, 4, 8)
++
++
++@add_coverpoint_generator("cp_custom_fmv_sf_vd_all_lmul")
++def make_fmv_sf(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    minimum = test_data.config.sew / 64
++    chunks = []
++    for lmul in (value for value in ALL_LMULS if value >= minimum):
++        for vd in (range(32) if lmul == 1 else (0,)):
++            chunks.append(_emit(instr_name, instr_type, coverpoint, test_data, f"{coverpoint} (vd={vd}, lmul={lmul})", lmul=lmul, vd=vd))
++    return chunks
++
++
++@add_coverpoint_generator("cp_custom_fmv_fs_vs2_all_lmul")
++def make_fmv_fs(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    minimum = test_data.config.sew / 64
++    chunks = []
++    for lmul in (value for value in ALL_LMULS if value >= minimum):
++        for vs2 in (range(32) if lmul == 1 else (0,)):
++            chunks.append(_emit(instr_name, instr_type, coverpoint, test_data, f"{coverpoint} (vs2={vs2}, lmul={lmul})", lmul=lmul, vs2_reg=vs2))
++    return chunks
++
++
++def _estimate_value(sew: int, index: int, *, sqrt: bool) -> int:
++    if sqrt:
++        exp_lsb, mantissa = (index >> 6) & 1, index & 0x3F
++        exp_bits, fraction_bits = {16: (5, 10), 32: (8, 23), 64: (11, 52)}[sew]
++        exponent = (1 << (exp_bits - 1)) | exp_lsb
++        return (exponent << fraction_bits) | (mantissa << (fraction_bits - 6))
++    exp_bits, fraction_bits = {16: (5, 10), 32: (8, 23), 64: (11, 52)}[sew]
++    return (1 << (exp_bits - 1) << fraction_bits) | (index << (fraction_bits - 7))
++
++
++@add_coverpoint_generator("cp_custom_FpRecSqrtEst_edges")
++@add_coverpoint_generator("cp_custom_FpRecipEst_edges")
++def make_estimate_edges(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    sqrt = "Sqrt" in coverpoint
++    return [
++        _emit(instr_name, instr_type, coverpoint, test_data, f"{coverpoint} ({index})",
++              vs2=[_estimate_value(test_data.config.sew, index, sqrt=sqrt)])
++        for index in range(128)
++    ]
++
++
++@add_coverpoint_generator("cp_custom_FpRecSqrtEst_flag_edges")
++@add_coverpoint_generator("cp_custom_FpRecipEst_flag_edges")
++def make_estimate_flag_edges(
++    instr_name: str, instr_type: str, coverpoint: str, test_data: TestData
++) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    sew = test_data.config.sew
++    values = FP[sew]
++    ordered = [values["zero"], 1 << (sew - 1), values["tiny"], values["min_norm"], values["one"],
++               values["max"], values["inf"], values["qnan"], values["snan"]]
++    return [
++        _emit(instr_name, instr_type, coverpoint, test_data, f"{coverpoint} ({index})", vs2=[value])
++        for index, value in enumerate(ordered)
++    ]
++
++
++@add_coverpoint_generator("cp_custom_vfredosum_ordered_sum")
++def make_ordered_sum(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    values = FP[test_data.config.sew]
++    return [_emit(instr_name, instr_type, coverpoint, test_data, coverpoint, lmul=2, vl=2,
++                  vs1=[values["max"]], vs2=[values["neg_max"], values["one"]])]
++
++
++@add_coverpoint_generator("cp_custom_vfredosum_NAN_vl0")
++def make_nan_vl0(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    vs1_sew = test_data.config.sew * (2 if instr_name.startswith("vfw") else 1)
++    if vs1_sew not in FP:
++        return []
++    return [_emit(instr_name, instr_type, coverpoint, test_data, coverpoint, vl=0,
++                  vs1=[FP[vs1_sew]["qnan"]], vs1_sew=vs1_sew)]
++
++
++@add_coverpoint_generator("cp_custom_vfp_state")
++def make_fp_state(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    pre_test = ["li x6, 0x6000", "csrrc x0, mstatus, x6", "li x6, 0x4000", "csrrs x0, mstatus, x6"]
++    return [_emit(instr_name, instr_type, coverpoint, test_data, coverpoint, pre_test=pre_test)]
++
++
++FLAG_VALUES = {
++    "nv": "snan",
++    "dz": "zero",
++    "of": "max",
++    "uf": "min_norm",
++    "nx": "three",
++}
++
++
++@add_coverpoint_generator("cp_custom_vfp_flags_inactive_not_set")
++def make_inactive_flags(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    if instr_name != "vfrsqrt7.v":
++        return []
++    assert test_data.config.sew is not None
++    return [_emit(instr_name, instr_type, coverpoint, test_data, coverpoint,
++                  vs2=[FP[test_data.config.sew]["zero"]], maskval=PresetMask.ZEROS)]
++
++
++@add_coverpoint_generator("cp_custom_vfp_flags")
++def make_fp_flags(instr_name: str, instr_type: str, coverpoint: str, test_data: TestData) -> list[TestChunk]:
++    assert test_data.config.sew is not None
++    if instr_name in {"vfmerge.vfm", "vfmv.v.f", "vfmv.f.s", "vfmv.s.f", "vfclass.v"}:
++        return []
++    values = FP[test_data.config.sew]
++    flags = [flag for flag in FLAG_VALUES if flag in coverpoint.removeprefix("cp_custom_vfp_flags_").split("_")]
++    if not flags:
++        flags = ["nv"]
++    config = get_instruction_type_config(instr_type)
++    required = config.required_params or set()
++    chunks = []
++    for flag in flags:
++        key = FLAG_VALUES[flag]
++        value = values[key]
++        fixed: dict[str, object] = {"vs2": [value]}
++        if "vs1" in required:
++            fixed["vs1"] = [values["zero"] if flag == "dz" else value]
++        if "fs1" in required:
++            fixed["fs1val"] = values["zero"] if flag == "dz" else value
++        chunks.append(_emit(instr_name, instr_type, coverpoint, test_data, f"{coverpoint} ({flag})", **fixed))
++    return chunks
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/fp_helpers.py b/generators/testgen/src/testgen/coverpoints/vector/fp_helpers.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..ce9816ece3a3dd9401a4ace8042b83a3abea815e
+--- /dev/null
++++ b/generators/testgen/src/testgen/coverpoints/vector/fp_helpers.py
+@@ -0,0 +1,26 @@
++# Selects canonical parameter generation and edge sets for vector floating-point coverpoints.
++# SPDX-License-Identifier: Apache-2.0
++
++from typing import Any
++
++from testgen.data.edges import FLOAT_EDGES
++from testgen.data.params import InstructionParams
++from testgen.data.state import TestData
++from testgen.instructions.vector import get_base_lmul
++from testgen.instructions.vector_params import generate_random_vector_params
++
++
++def vector_fp_edges(test_data: TestData, *, wide: bool = False) -> tuple[int, ...]:
++    """Return floating-point edges matching the vector element width."""
++    assert test_data.config.sew is not None
++    sew = test_data.config.sew * (2 if wide else 1)
++    return {16: FLOAT_EDGES.half, 32: FLOAT_EDGES.single, 64: FLOAT_EDGES.double}[sew]
++
++
++def generate_vector_fp_params(
++    test_data: TestData, instr_name: str, instr_type: str, **fixed_params: Any
++) -> InstructionParams:
++    """Generate vector parameters for a floating-point coverpoint."""
++    assert test_data.config.sew is not None
++    lmul = get_base_lmul(instr_name, instr_type, test_data.config.sew)
++    return generate_random_vector_params(test_data, instr_name, instr_type, lmul=lmul, **fixed_params)
+diff --git a/generators/testgen/src/testgen/formatters/types/fp_vector_type.py b/generators/testgen/src/testgen/formatters/types/fp_vector_type.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..105f6055d59d24ba4159ffe0a37ed015e7d0e288
+--- /dev/null
++++ b/generators/testgen/src/testgen/formatters/types/fp_vector_type.py
+@@ -0,0 +1,278 @@
++# Formats vector floating-point instructions with the canonical vector helpers.
++# SPDX-License-Identifier: Apache-2.0
++
++from collections.abc import Callable
++
++from testgen.asm.helpers import load_float_reg, write_sigupd
++from testgen.asm.vector_helpers import (
++    VectorLoad,
++    handle_parameter_exclusions,
++    load_test_vtype,
++    load_vec_regs,
++    prep_mask_v,
++    write_sigupd_v,
++    write_sigupd_v_len,
++)
++from testgen.data.params import InstructionParams
++from testgen.data.state import TestData
++from testgen.formatters.registry import InstructionTypeConfig, VectorTypeConfig, add_instruction_formatter
++from testgen.formatters.types.mask_prod_type import format_mask_producing_type
++from testgen.formatters.types.vv_type import format_vv_like_type
++from testgen.formatters.types.vvsr_type import format_vvsr_like_type
++from testgen.formatters.types.vvv_type import format_vvv_like_type
++from testgen.instructions.vector import parse_vector_instruction_info
++
++
++def _fp_load_type(sew: int) -> str:
++    try:
++        return {16: "half", 32: "single", 64: "double"}[sew]
++    except KeyError as exc:
++        raise ValueError(f"unsupported vector floating-point SEW {sew}") from exc
++
++
++def _with_fp_state(
++    formatter: Callable[[], tuple[list[str], list[str], list[str]]],
++    test_data: TestData,
++    params: InstructionParams,
++) -> tuple[list[str], list[str], list[str]]:
++    setup, test, check = formatter()
++    setup.insert(0, "fsflagsi 0b00000 # clear all fflags")
++    if params.frm is not None:
++        frm = params.csr_frm_val if params.frm == "dyn" else {"rne": 0, "rtz": 1, "rdn": 2, "rup": 3, "rmm": 4}[params.frm]
++        assert frm is not None
++        setup.append(f"fsrmi {frm}")
++        check.append("fsrmi 0x0")
++    check.append(write_sigupd(None, test_data, "fflags"))
++    return setup, test, check
++
++
++def _vector_float_config(
++    required: set[str],
++    *,
++    overlap: set[tuple[str, str]] | None = None,
++    masked: set[tuple[str, str]] | None = None,
++    mask_regs: set[str] | None = None,
++    scalar_regs: set[str] | None = None,
++    widened: set[str] | None = None,
++) -> InstructionTypeConfig:
++    return InstructionTypeConfig(
++        required_params=required,
++        vector_data=VectorTypeConfig(
++            overlap_constraints=overlap or set(),
++            masked_constraints=masked,
++            mask_regs=mask_regs or set(),
++            scalar_regs=scalar_regs or set(),
++            widened_regs=widened or set(),
++        ),
++    )
++
++
++fvv_config = _vector_float_config({"vd", "vs2"})
++fvvv_config = _vector_float_config({"vd", "vs1", "vs2"})
++fvvv_acc_config = _vector_float_config({"vd", "vs1", "vs2"})
++fwvv_config = _vector_float_config(
++    {"vd", "vs1", "vs2"}, overlap={("vd_bottom", "vs1"), ("vd_bottom", "vs2")}, widened={"vd"}
++)
++fwvv_acc_config = _vector_float_config(
++    {"vd", "vs1", "vs2"}, overlap={("vd", "vs1"), ("vd", "vs2")}, widened={"vd"}
++)
++fwwvm_config = _vector_float_config(
++    {"vd", "vs1", "vs2"}, overlap={("vd_bottom", "vs1"), ("vs1", "vs2")}, widened={"vd", "vs2"}
++)
++fvvf_config = _vector_float_config({"vd", "vs2", "fs1"})
++fvvf_acc_config = _vector_float_config({"vd", "vs2", "fs1"})
++fwvf_config = _vector_float_config(
++    {"vd", "vs2", "fs1"}, overlap={("vd_bottom", "vs2")}, widened={"vd"}
++)
++fwvf_acc_config = _vector_float_config({"vd", "vs2", "fs1"}, overlap={("vd", "vs2")}, widened={"vd"})
++fwwfm_config = _vector_float_config(
++    {"vd", "vs2", "fs1"}, overlap={("vd_bottom", "vs2")}, widened={"vd", "vs2"}
++)
++fvvfm_config = _vector_float_config(
++    {"vd", "vs2", "fs1", "maskval"}, overlap={("vd", "v0"), ("vs2", "v0")}
++)
++fmvv_config = _vector_float_config(
++    {"vd", "vs1", "vs2"}, mask_regs={"vd"}, masked={("vs1", "v0"), ("vs2", "v0")}
++)
++fmvf_config = _vector_float_config(
++    {"vd", "vs2", "fs1"}, mask_regs={"vd"}, masked={("vs2", "v0")}
++)
++fvsr_config = _vector_float_config({"vd", "vs1", "vs2"}, scalar_regs={"vd", "vs1"})
++fwvsr_config = _vector_float_config(
++    {"vd", "vs1", "vs2"}, overlap={("vs2", "vs1")}, scalar_regs={"vd", "vs1"}, widened={"vd", "vs1"}
++)
++ffv_config = _vector_float_config({"fd", "vs2"}, scalar_regs={"vs2"})
++fvf_config = _vector_float_config({"vd", "fs1"}, scalar_regs={"vd"})
++
++
++@add_instruction_formatter("FVV", fvv_config)
++def format_fvv(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    info = parse_vector_instruction_info(instr, "FVV")
++    return _with_fp_state(lambda: format_vv_like_type(instr, test_data, params, "FVV", widen=info.widened_regs), test_data, params)
++
++
++def _format_vector_vector(
++    instr: str,
++    instr_type: str,
++    test_data: TestData,
++    params: InstructionParams,
++    *,
++    accumulator_order: bool = False,
++) -> tuple[list[str], list[str], list[str]]:
++    info = parse_vector_instruction_info(instr, instr_type)
++    setup, test, check = format_vvv_like_type(instr, test_data, params, instr_type, widen=info.widened_regs)
++    if accumulator_order:
++        mask = ", v0.t" if params.maskval else ""
++        test = [f"{instr} v{params.vd}, v{params.vs1}, v{params.vs2}{mask}"]
++    return _with_fp_state(lambda: (setup, test, check), test_data, params)
++
++
++@add_instruction_formatter("FVVV", fvvv_config)
++def format_fvvv(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_vector(instr, "FVVV", test_data, params)
++
++
++@add_instruction_formatter("FVVV_ACC", fvvv_acc_config)
++def format_fvvv_acc(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_vector(instr, "FVVV_ACC", test_data, params, accumulator_order=True)
++
++
++@add_instruction_formatter("FWVV", fwvv_config)
++def format_fwvv(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_vector(instr, "FWVV", test_data, params)
++
++
++@add_instruction_formatter("FWVV_ACC", fwvv_acc_config)
++def format_fwvv_acc(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_vector(instr, "FWVV_ACC", test_data, params, accumulator_order=True)
++
++
++@add_instruction_formatter("FWWVM", fwwvm_config)
++def format_fwwvm(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_vector(instr, "FWWVM", test_data, params)
++
++
++def _format_vector_scalar(
++    instr: str,
++    instr_type: str,
++    test_data: TestData,
++    params: InstructionParams,
++    *,
++    accumulator_order: bool = False,
++    merge_mask: bool = False,
++) -> tuple[list[str], list[str], list[str]]:
++    assert params.fs1 is not None and params.fs1val is not None and params.sew is not None
++    info = parse_vector_instruction_info(instr, instr_type)
++    setup, _test, check = format_vv_like_type(instr, test_data, params, instr_type, widen=info.widened_regs)
++    setup.insert(0, load_float_reg("fs1", params.fs1, params.fs1val, test_data, _fp_load_type(params.sew)))
++    mask = ", v0" if merge_mask else (", v0.t" if params.maskval else "")
++    operands = f"v{params.vd}, f{params.fs1}, v{params.vs2}" if accumulator_order else f"v{params.vd}, v{params.vs2}, f{params.fs1}"
++    return _with_fp_state(lambda: (setup, [f"{instr} {operands}{mask}"], check), test_data, params)
++
++
++@add_instruction_formatter("FVVF", fvvf_config)
++def format_fvvf(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_scalar(instr, "FVVF", test_data, params)
++
++
++@add_instruction_formatter("FVVF_ACC", fvvf_acc_config)
++def format_fvvf_acc(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_scalar(instr, "FVVF_ACC", test_data, params, accumulator_order=True)
++
++
++@add_instruction_formatter("FWVF", fwvf_config)
++def format_fwvf(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_scalar(instr, "FWVF", test_data, params)
++
++
++@add_instruction_formatter("FWVF_ACC", fwvf_acc_config)
++def format_fwvf_acc(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_scalar(instr, "FWVF_ACC", test_data, params, accumulator_order=True)
++
++
++@add_instruction_formatter("FWWFM", fwwfm_config)
++def format_fwwfm(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_vector_scalar(instr, "FWWFM", test_data, params)
++
++
++@add_instruction_formatter("FVVFM", fvvfm_config)
++def format_fvvfm(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    assert params.maskval is not None
++    return _format_vector_scalar(instr, "FVVFM", test_data, params, merge_mask=True)
++
++
++@add_instruction_formatter("FMVV", fmvv_config)
++def format_fmvv(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _with_fp_state(
++        lambda: format_mask_producing_type(instr, test_data, params, "FMVV", {"vd", "vs1", "vs2"}, {"vd"}),
++        test_data,
++        params,
++    )
++
++
++@add_instruction_formatter("FMVF", fmvf_config)
++def format_fmvf(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    assert params.fs1 is not None and params.fs1val is not None and params.sew is not None
++    setup, test, check = format_mask_producing_type(instr, test_data, params, "FMVF", {"vd", "vs2", "fs1"}, {"vd"})
++    setup.insert(0, load_float_reg("fs1", params.fs1, params.fs1val, test_data, _fp_load_type(params.sew)))
++    return _with_fp_state(lambda: (setup, test, check), test_data, params)
++
++
++def _format_reduction(
++    instr: str, instr_type: str, test_data: TestData, params: InstructionParams
++) -> tuple[list[str], list[str], list[str]]:
++    info = parse_vector_instruction_info(instr, instr_type)
++    return _with_fp_state(
++        lambda: format_vvsr_like_type(instr, test_data, params, instr_type, widen=info.widened_regs), test_data, params
++    )
++
++
++@add_instruction_formatter("FVVSR", fvsr_config)
++def format_fvvsr(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_reduction(instr, "FVVSR", test_data, params)
++
++
++@add_instruction_formatter("FWVWSR", fwvsr_config)
++def format_fwvwsr(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    return _format_reduction(instr, "FWVWSR", test_data, params)
++
++
++@add_instruction_formatter("FFV", ffv_config)
++def format_ffv(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    assert params.fd is not None and params.vs2 is not None and params.sew is not None and params.lmul is not None
++    assert params.vs2_val_pointer is not None and test_data.test_chunk is not None
++    test_data.test_chunk.vector_labels.append((params.vs2_val_pointer, *test_data.vector_labels[params.vs2_val_pointer]))
++    setup, random_vl_reg = load_vec_regs([VectorLoad("vs2", vl=1, lmul=1)], params, test_data)
++    setup.append(load_test_vtype(params, random_vl_reg))
++    if random_vl_reg.startswith("x"):
++        test_data.int_regs.return_register(int(random_vl_reg[1:]))
++    check = [write_sigupd(params.fd, test_data, "float")]
++    handle_parameter_exclusions(params.lmul, setup, check)
++    return _with_fp_state(lambda: (setup, [f"{instr} f{params.fd}, v{params.vs2}"], check), test_data, params)
++
++
++@add_instruction_formatter("FVF", fvf_config)
++def format_fvf(instr: str, test_data: TestData, params: InstructionParams) -> tuple[list[str], list[str], list[str]]:
++    assert params.vd is not None and params.fs1 is not None and params.fs1val is not None
++    assert params.sew is not None and params.lmul is not None and test_data.test_chunk is not None
++    assert params.vd_val_pointer is not None
++    test_data.test_chunk.vector_labels.append((params.vd_val_pointer, *test_data.vector_labels[params.vd_val_pointer]))
++    setup = [load_float_reg("fs1", params.fs1, params.fs1val, test_data, _fp_load_type(params.sew))]
++    check: list[str]
++    if instr == "vfmv.s.f":
++        load, random_vl_reg = load_vec_regs([VectorLoad("vd", vl=1, lmul=1)], params, test_data)
++        setup.extend(load)
++        setup.append(load_test_vtype(params, random_vl_reg))
++        check = write_sigupd_v(test_data, params)
++    else:
++        load, random_vl_reg = load_vec_regs([VectorLoad("vd", vl=params.vl)], params, test_data)
++        setup.extend(load)
++        setup.append(load_test_vtype(params, random_vl_reg))
++        if params.vector_suite == "length":
++            check = write_sigupd_v_len(test_data, params, params.lmul)
++        else:
++            check = write_sigupd_v(test_data, params)
++    if random_vl_reg.startswith("x"):
++        test_data.int_regs.return_register(int(random_vl_reg[1:]))
++    handle_parameter_exclusions(params.lmul, setup, check)
++    return _with_fp_state(lambda: (setup, [f"{instr} v{params.vd}, f{params.fs1}"], check), test_data, params)

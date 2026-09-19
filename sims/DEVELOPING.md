@@ -220,6 +220,16 @@ ELF outputs before each build so changes to core support cannot leave stale
 tests for the upstream runner; preserve cached reference intermediates.
 Reference/harness limitations remain distinct from core extension support;
 extend and validate the projection as newly selected suites expose gaps.
+
+`arch-test-source` copies the clean upstream checkout into the build root and
+applies the ordered series under `arch-test/patches/riscv-arch-test/`.
+`arch-test-tests` copies the handwritten inventory from that materialized tree
+and populates it with the canonical `testgen` command. Vector assembly is not
+checked into the upstream test tree, so it must be generated through this same
+path instead of a separate generator or manual prerequisite. Keep the pinned
+submodule pristine; the patch series, not a dirty submodule checkout, is the
+reviewable source of downstream changes.
+
 Always enable privileged tests as well; missing platform hooks and reference
 model mismatches must surface as build or execution failures, not suite exclusions.
 Use ACT's keep-going mode to attempt every selected build even when others fail;
@@ -232,10 +242,9 @@ optional vector extensions as ordinary Sail feature switches. Profile closure
 belongs to the owning RISC-V/core generators; the ACT adapter must diagnose a
 missing implication rather than silently synthesize one.
 
-`arch-test/build.py` invokes the upstream CLI with its required Sail version
-set to 0.14; the pinned ACT still requires 0.13.1. This keeps the upstream
-version check active without modifying the submodule. Remove this compatibility
-entry point when ACT adopts our Sail pin. The 0.14 projection also uses the
+`arch-test/build.py` invokes the upstream CLI without replacing its required
+Sail version. Keep the setup pin synchronized with that native check whenever
+the ACT submodule advances. The Sail 0.14.1 projection also uses the
 optional LR/SC exception encoding and clears H-only delegation bits when H is
 disabled in UDB.
 
@@ -247,12 +256,14 @@ access-sized LR.W reservation. `Zic64b` projects and checks a 64-byte cache bloc
 even when CBO instruction extensions are disabled. Keep these cases in the
 adapter tests so profile guarantees cannot silently bypass platform validation.
 
-Generated YAML, Sail JSON, linker scripts, headers, ELFs, and logs stay in the
-ACT build root. Keep the upstream submodule unmodified. When updating its
-revision, check the required Sail version, bundled UDB gems, and header/runner
-contracts together. The shared linker layout keeps test data addresses equal
-between Sail signature payloads and self-checking DUT payloads; model-specific
-text and HTIF mailboxes follow test data and stack.
+Generated YAML, Sail JSON, linker scripts, headers, ELFs, patched ACT source,
+and logs stay in the ACT build root. Keep downstream canonical-generator changes
+as ordered parent-repository patches until they land upstream. When updating
+the pinned upstream revision, remove landed changes, rebase the remaining
+series, and check the required Sail version, bundled UDB gems, generator output,
+and header/runner contracts together. The shared linker layout keeps test data
+addresses equal between Sail signature payloads and self-checking DUT payloads;
+model-specific text and HTIF mailboxes follow test data and stack.
 
 Run `make -C sims arch-test-adapter-test program-test-adapter-test` for generation,
 completion, deadlines, artifact identity, and complete-result checks using system

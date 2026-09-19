@@ -57,7 +57,7 @@ VECTOR_PARAMETER_VALUES = {
 
 
 def validate_reservation_bounds(reservation, extensions):
-    # Sail 0.14 has naturally aligned, fixed-size reservation sets, not switches
+    # Sail 0.14.1 has naturally aligned, fixed-size reservation sets, not switches
     # for these guarantees. Retain its chosen size; the extensions are bounds,
     # not requests to enlarge reservations to a cache line.
     for name, maximum_exp in RESERVATION_BOUNDS.items():
@@ -173,7 +173,7 @@ def sail_config(default, udb, origin, size):
     base["E"] = False
     base["writable_misa"] = any(value for key, value in params.items() if key.startswith("MUTABLE_MISA_"))
     base["privileged_isa_version"] = "Privileged_ISA_" + "_".join(str(extensions["Sm"]).split(".")[:2])
-    # Sail 0.14 defaults include H; its exception codes are reserved without H.
+    # Sail 0.14.1 defaults include H; its exception codes are reserved without H.
     if "H" not in extensions:
         delegatable = base["medeleg"]["delegatable_bits"]
         delegatable["value"] = hex(int(delegatable["value"], 0) & ~((1 << 10) | (0xF << 20)))
@@ -260,8 +260,8 @@ def main():
     if not sail:
         parser.error(f"Sail executable not found: {args.sail}; run arch-test-setup")
     version = subprocess.check_output([sail, "--version"], text=True).strip()
-    if version != "0.14":
-        parser.error(f"expected Sail 0.14, got {version}")
+    if version != "0.14.1":
+        parser.error(f"expected Sail 0.14.1, got {version}")
     default = pyjson5.decode(subprocess.check_output([sail, "--print-default-config"], text=True))
     udb = YAML(typ="safe").load(args.udb)
     config = sail_config(default, udb, args.ram_origin, args.ram_bytes)
