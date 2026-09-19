@@ -5,3 +5,4 @@
 0003-add-canonical-vector-crypto-generation.patch
 0004-enable-canonical-vector-suite-expansion.patch
 0005-avoid-reserved-vsetvl-when-forcing-vill.patch
+0006-align-ordered-index-overlap-data.patch

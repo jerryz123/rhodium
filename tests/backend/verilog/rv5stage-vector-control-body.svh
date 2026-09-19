@@ -408,13 +408,35 @@
         end
       end
     end
+    // Non-segment indexed loads follow the architectural destination/source
+    // overlap rules. Equal EEWs may overlap anywhere in aligned groups.
     test_vtype = 'h10; // e32,m1
     instruction = {4'b0,2'b01,1'b1,5'd8,5'd1,3'd6,5'd8,7'h07}; #1;
-    assert(!legal) else $fatal(1,"indexed load accepted destination/index overlap");
+    assert(legal == (XLEN == 64)) else $fatal(1,"same-EEW indexed load overlap legality");
     instruction[6:0] = 7'h27; #1;
     assert(legal == (XLEN == 64)) else $fatal(1,"same-EEW indexed store overlap legality");
     instruction[14:12] = 3'd5; #1;
     assert(!legal) else $fatal(1,"different-EEW indexed store overlap accepted");
+    // A narrower destination may overlap only the low part of the index group.
+    test_vtype = 'h08; // e16,m1
+    instruction = {4'b0,2'b01,1'b1,5'd8,5'd1,3'd6,5'd8,7'h07}; #1;
+    assert(legal == (XLEN == 64)) else $fatal(1,"narrow indexed load low overlap legality");
+    instruction[11:7] = 5'd9; #1;
+    assert(!legal) else $fatal(1,"narrow indexed load high overlap accepted");
+    // A wider destination may overlap an integer-EMUL index group only at the
+    // high end of the destination group.
+    test_vtype = 'h11; // e32,m2
+    instruction = {4'b0,2'b01,1'b1,5'd9,5'd1,3'd5,5'd8,7'h07}; #1;
+    assert(legal == (XLEN == 64)) else $fatal(1,"wide indexed load high overlap legality");
+    instruction[24:20] = 5'd8; #1;
+    assert(!legal) else $fatal(1,"wide indexed load low overlap accepted");
+    test_vtype = 'h10; // e32,m1; e16 index has fractional EMUL
+    instruction = {4'b0,2'b01,1'b1,5'd8,5'd1,3'd5,5'd8,7'h07}; #1;
+    assert(!legal) else $fatal(1,"wide indexed load fractional-EMUL overlap accepted");
+    // Indexed segment loads always require disjoint destination and index groups.
+    test_vtype = 'h10; // e32,m1
+    instruction = {3'd1,1'b0,2'b01,1'b1,5'd8,5'd1,3'd6,5'd8,7'h07}; #1;
+    assert(!legal) else $fatal(1,"indexed segment load overlap accepted");
     test_vtype = 0; instruction = {4'b0,2'b11,1'b0,5'd0,5'd1,3'd0,5'd8,7'h07}; #1;
     assert(!legal) else $fatal(1,"masked indexed load read v0 as offsets");
     instruction = {4'b0,2'b11,1'b0,5'd8,5'd1,3'd0,5'd0,7'h27}; #1;

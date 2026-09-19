@@ -1142,10 +1142,9 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength, profile :: Ve
   def memory_data_end = destination.zext(7) + memory_data_register_count
   def memory_index_end = source2.zext(7) + memory_index_group_mask.zext(7) + bits(1, 7)
   def memory_groups_disjoint = (destination.zext(7) >= memory_index_end) ||| (source2.zext(7) >= memory_data_end)
-  // Indexed loads require disjoint index/destination groups in this initial
-  // implementation so completion writes cannot destroy unread offsets. Stores
-  // may alias only when both operands use the same EEW.
-  def indexed_overlap_legal = mux(control.store, (control.memory_index_eew === config.sew) ||| memory_groups_disjoint, memory_groups_disjoint)
+  def indexed_load_overlap_legal = memory_groups_disjoint ||| (!segmented_memory & ((control.memory_index_eew === config.sew) ||| ((config.sew < control.memory_index_eew) & (destination === source2)) ||| ((config.sew > control.memory_index_eew) & (memory_index_emul >= SInt(5)(0)) & (memory_data_end === memory_index_end))))
+  def indexed_store_overlap_legal = (control.memory_index_eew === config.sew) ||| memory_groups_disjoint
+  def indexed_overlap_legal = mux(control.store, indexed_store_overlap_legal, indexed_load_overlap_legal)
   def indexed_memory_legal = !indexed_memory ||| ((memory_index_emul >= SInt(5)(-3)) & (memory_index_emul <= SInt(5)(3)) & memory_index_aligned & indexed_overlap_legal & (!masked ||| source2.or_reduce()))
   def segment_memory_legal = !segmented_memory ||| ((memory_register_count <= bits(8, 7)) & (memory_data_end <= bits(32, 7)))
   def memory_eew_legal = (indexed_memory ||| (control.memory_data_eew <= elen)) & (!indexed_memory ||| (control.memory_index_eew <= elen))

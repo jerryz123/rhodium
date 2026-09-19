@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sat, 19 Sep 2026 15:30:00 -0700
+Subject: [PATCH 6/6] Align ordered index overlap data to index EEW
+
+The ordered indexed-segment overlap coverpoint initializes the index vector
+with an index-width load. Register its backing data at that index EEW so the
+setup load is naturally aligned even when SEW is narrower.
+
+---
+ .../src/testgen/coverpoints/vector/cp_custom_vls.py        | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py b/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
+index 495894bd..429dc5e7 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
+@@ -324,7 +324,9 @@ def make_cp_custom_ordered_index_overlap(
+ 
+     assert test_data.config.sew is not None, "SEW must be set for vector instructions"
++    info = parse_vector_instruction_info(instr_name, instr_type)
++    assert info.index_eew is not None, f"Could not extract index EEW from {instr_name}"
+     label = "custom_index_overlap"
+-    test_data.register_vector_data(label, test_data.config.sew, elements=[0, 0])
++    test_data.register_vector_data(label, info.index_eew, elements=[0, 0])
+ 
+     desc = "Data Overlap of Index Elements"
+     bin_name = "zeros"
+-- 
+2.51.0

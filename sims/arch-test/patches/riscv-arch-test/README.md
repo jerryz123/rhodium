@@ -27,10 +27,12 @@ upstream independently:
 5. `0005-avoid-reserved-vsetvl-when-forcing-vill.patch` makes the
    whole-register `vill` coverpoint use an ordinary AVL form instead of the
    reserved keep-`vl` form.
+6. `0006-align-ordered-index-overlap-data.patch` aligns the ordered indexed
+   segment overlap fixture to the encoded index EEW used by its setup load.
 
 The first three patches expand capability while retaining ACT's existing active
 suite inventory, the fourth makes the complete vector inventory visible to
-canonical `testgen` invocations, and the fifth is an independent semantic fix
+canonical `testgen` invocations, and the last two are independent semantic fixes
 for that generated inventory.
 
 To inspect the patched source without generating tests, run:
