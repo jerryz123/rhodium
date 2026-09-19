@@ -24,10 +24,14 @@ upstream independently:
    formatting and canonical GCM test data.
 4. `0004-enable-canonical-vector-suite-expansion.patch` removes the legacy suite
    restriction only after all required generators exist.
+5. `0005-avoid-reserved-vsetvl-when-forcing-vill.patch` makes the
+   whole-register `vill` coverpoint use an ordinary AVL form instead of the
+   reserved keep-`vl` form.
 
-Keep activation last: the first three patches expand capability while retaining
-ACT's existing active suite inventory, and the fourth makes the complete vector
-inventory visible to canonical `testgen` invocations.
+The first three patches expand capability while retaining ACT's existing active
+suite inventory, the fourth makes the complete vector inventory visible to
+canonical `testgen` invocations, and the fifth is an independent semantic fix
+for that generated inventory.
 
 To inspect the patched source without generating tests, run:
 

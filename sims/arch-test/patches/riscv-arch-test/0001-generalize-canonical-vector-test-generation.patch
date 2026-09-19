@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jerry Zhao <jerryz123@berkeley.edu>
 Date: Sat, 19 Sep 2026 11:03:39 -0700
-Subject: [PATCH 1/4] Generalize canonical vector test generation
+Subject: [PATCH 1/5] Generalize canonical vector test generation
 
 ---
  .../testgen/src/testgen/asm/vector_helpers.py | 13 +++++-

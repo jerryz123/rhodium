@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sat, 19 Sep 2026 13:15:00 -0700
+Subject: [PATCH 5/5] Avoid reserved vsetvl when forcing vill
+
+The whole-register load/store vill coverpoint used the rd=x0, rs1=x0
+form of vsetvl while selecting an unsupported vtype. That keep-vl form is
+reserved when VLMAX changes, so a conforming implementation can reject it
+before the whole-register instruction under test executes.
+
+Use the saved nonzero vl register as AVL. This selects the ordinary vsetvl
+form, which sets vill for the unsupported vtype without relying on reserved
+behavior. The existing restore still reinstates the saved vl and vtype.
+
+---
+ .../src/testgen/coverpoints/vector/cp_custom_vls.py        | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py b/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
+index 2b185813..495894bd 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
+@@ -365,7 +365,7 @@ def make_cp_custom_vwholeRegLS_vill(
+             f"csrr x{vl_reg}, vl",
+             f"csrr x{vtype_reg}, vtype",
+             f"LI (x{params.temp_reg}, {1 << (test_data.xlen - 1)})",
+-            f"vsetvl x0, x0, x{params.temp_reg}",
++            f"vsetvl x0, x{vl_reg}, x{params.temp_reg}",
+         ]
+     )
+     reset_vtype = f"vsetvl x0, x{vl_reg}, x{vtype_reg}"
+-- 
+2.51.0

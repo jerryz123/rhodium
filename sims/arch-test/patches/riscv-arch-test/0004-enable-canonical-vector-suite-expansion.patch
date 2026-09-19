@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jerry Zhao <jerryz123@berkeley.edu>
 Date: Sat, 19 Sep 2026 11:04:02 -0700
-Subject: [PATCH 4/4] Enable canonical vector suite expansion
+Subject: [PATCH 4/5] Enable canonical vector suite expansion
 
 ---
  generators/testgen/src/testgen/io/testplans.py | 4 ----
