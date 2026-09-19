@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sat, 19 Sep 2026 16:10:01 -0700
+Subject: [PATCH 8/8] Reserve the vfmv broadcast destination group
+
+The FVF formatter serves both scalar-element vfmv.s.f and whole-group
+vfmv.v.f. Marking vd as scalar under-reserves the broadcast destination, so
+the length-suite checker can allocate its mask temporaries inside registers
+that vfmv.v.f just wrote. The resulting checker instruction is illegal.
+
+Reserve the complete LMUL-sized destination group for FVF. This is
+conservative for vfmv.s.f and correct for the broadcast operation; its
+dedicated all-register coverpoint continues to exercise every scalar
+destination at LMUL=1.
+
+---
+ .../testgen/src/testgen/formatters/types/fp_vector_type.py      | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/generators/testgen/src/testgen/formatters/types/fp_vector_type.py b/generators/testgen/src/testgen/formatters/types/fp_vector_type.py
+index 105f6055..90ce764d 100644
+--- a/generators/testgen/src/testgen/formatters/types/fp_vector_type.py
++++ b/generators/testgen/src/testgen/formatters/types/fp_vector_type.py
+@@ -102,7 +102,7 @@ fwvsr_config = _vector_float_config(
+     {"vd", "vs1", "vs2"}, overlap={("vs2", "vs1")}, scalar_regs={"vd", "vs1"}, widened={"vd", "vs1"}
+ )
+ ffv_config = _vector_float_config({"fd", "vs2"}, scalar_regs={"vs2"})
+-fvf_config = _vector_float_config({"vd", "fs1"}, scalar_regs={"vd"})
++fvf_config = _vector_float_config({"vd", "fs1"})
+ 
+ 
+ @add_instruction_formatter("FVV", fvv_config)
+-- 
+2.50.1

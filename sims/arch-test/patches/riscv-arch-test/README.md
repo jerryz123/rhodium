@@ -29,11 +29,15 @@ upstream independently:
    reserved keep-`vl` form.
 6. `0006-align-ordered-index-overlap-data.patch` aligns the ordered indexed
    segment overlap fixture to the encoded index EEW used by its setup load.
+7. `0007-align-vector-fp-wide-source-data.patch` records custom vector-FP
+   source fixtures at the effective source EEW used by their setup loads.
+8. `0008-reserve-vfmv-broadcast-destination-group.patch` reserves the complete
+   LMUL-sized destination of `vfmv.v.f` so its checker cannot overwrite it.
 
 The first three patches expand capability while retaining ACT's existing active
 suite inventory, the fourth makes the complete vector inventory visible to
-canonical `testgen` invocations, and the last two are independent semantic fixes
-for that generated inventory.
+canonical `testgen` invocations, and the remaining patches are independent
+semantic fixes for that generated inventory.
 
 To inspect the patched source without generating tests, run:
 

@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sat, 19 Sep 2026 16:10:00 -0700
+Subject: [PATCH 7/8] Align vector FP custom data to source EEW
+
+Custom vector-FP coverpoints record source fixtures at the destination SEW.
+Narrowing conversions and widening arithmetic can load vs1 or vs2 at twice
+that width, so their generated setup can issue a naturally misaligned wide
+load.
+
+Derive each source fixture's default element width from the instruction's
+widened-register metadata. Explicit source-width overrides remain available
+to coverpoints with a different architectural width.
+
+---
+ .../testgen/coverpoints/vector/fp_custom.py   | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/fp_custom.py b/generators/testgen/src/testgen/coverpoints/vector/fp_custom.py
+index 53dd9c62..de98762e 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/fp_custom.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/fp_custom.py
+@@ -9,6 +9,7 @@ from testgen.data.state import TestData, return_testcase_registers
+ from testgen.data.test_chunk import TestChunk
+ from testgen.formatters import format_single_testcase
+ from testgen.formatters.registry import get_instruction_type_config
++from testgen.instructions.vector import parse_vector_instruction_info
+ from testgen.instructions.vector_params import generate_random_vector_params
+ 
+ 
+@@ -47,15 +48,18 @@ def _emit(
+ ) -> TestChunk:
+     assert test_data.config.sew is not None
+     sew = test_data.config.sew
++    info = parse_vector_instruction_info(instr_name, instr_type)
+     fixed: dict[str, object] = {"vl": vl}
+     suffix = f"{test_data.test_count:04d}"
+     if vs2 is not None:
+         label = f"custom_{coverpoint}_{suffix}_vs2"
+-        test_data.register_vector_data(label, vs2_sew or sew, elements=list(vs2))
++        source_sew = sew * (2 if "vs2" in info.widened_regs else 1)
++        test_data.register_vector_data(label, vs2_sew or source_sew, elements=list(vs2))
+         fixed["vs2_val_pointer"] = label
+     if vs1 is not None:
+         label = f"custom_{coverpoint}_{suffix}_vs1"
+-        test_data.register_vector_data(label, vs1_sew or sew, elements=list(vs1))
++        source_sew = sew * (2 if "vs1" in info.widened_regs else 1)
++        test_data.register_vector_data(label, vs1_sew or source_sew, elements=list(vs1))
+         fixed["vs1_val_pointer"] = label
+     if fs1val is not None:
+         fixed["fs1val"] = fs1val
+-- 
+2.50.1
