@@ -13,6 +13,89 @@ import unittest
 from unittest.mock import Mock, patch
 
 RUNNER = Path(__file__).resolve().parents[1] / "arch-test" / "run.py"
+VECTOR_PARAMETERS = {
+    "FOLLOW_VTYPE_RESET_RECOMMENDATION": True,
+    "IMPRECISE_VECTOR_TRAP_SETTABLE": False,
+    "LEGAL_VSTART": "1_stride",
+    "RESERVED_VSET_X0X0_VILL_SET": "never",
+    "RESERVED_VSET_X0X0_VLMAX_CHANGE": "never",
+    "RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX": "VLMAX",
+    "SUPPORT_FRACTIONAL_LMUL_BEYOND_REQUIRED": "no_unrequired_supported",
+    "VECTOR_FF_NO_EXCEPTION_TRIM": False,
+    "VECTOR_FF_SEG_EXCEPTION_PARTIAL_LOAD": "custom",
+    "VECTOR_FF_UPDATE_PAST_TRIM": "update_none",
+    "VECTOR_LOAD_PAST_TRAP": False,
+    "VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT": "no_overwrite",
+    "VECTOR_LS_INDEX_MAX_EEW": "64",
+    "VECTOR_LS_MISALIGNED_LEGAL": False,
+    "VECTOR_LS_SEG_PARTIAL_ACCESS": True,
+    "VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL": False,
+    "VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR": "copy",
+    "VFREDUSUM_INACTIVE_NODE_ELEMENT_BEHAVIOR": "copy",
+    "VFREDUSUM_NAN": "no_change",
+    "VFREDUSUM_NODE_ROUNDING_BEHAVIOR": "SEW_precision",
+    "VSSTATUS_VS_EXISTS": False,
+}
+
+
+def sail_default():
+    return {
+        "extensions": {
+            "F": {"supported": False}, "D": {"supported": False},
+            "Svade": {"supported": False},
+            "V": {
+                "support_level": "Disabled", "vlen_exp": 3, "elen_exp": 3,
+                "reserved_behavior": {"illegal_vtype": "IllegalVtype_SetVill",
+                                      "vstart_out_of_bounds": "Vstart_Illegal"},
+                "vl_use_ceil": False, "max_index_eew_exp": 3,
+                "vstart": {"zero_required": {"arith": True, "scalar_move": True}},
+            },
+            "Zvfh": {"supported": False}, "Zvbb": {"supported": False},
+            "Zvkb": {"supported": False}, "Zvkt": {"supported": False},
+            "Zic64b": {"supported": False}, "Zicboz": {"supported": False},
+            "Zicbom": {"supported": False}, "Zicbop": {"supported": False},
+            "Stateen": {"Smstateen": {"supported": False}, "Ssstateen": {"supported": False}},
+        },
+        "base": {
+            "mtvec": {"direct": {}, "vectored": {}}, "stvec": {"direct": {}, "vectored": {}},
+            "mstatus": {}, "xtval_nonzero": {},
+            "medeleg": {"delegatable_bits": {"len": 64, "value": "0xfc_b7ff"}},
+        },
+        "memory": {"asidlen": 16, "pmp": {}, "misaligned": {"exceptions": {}}, "regions": [
+            {"attributes": {"mem_type": "MainMemory", "cacheable": True, "supports_cbo_zero": False}},
+            {"attributes": {"mem_type": "IO", "cacheable": False, "supports_cbo_zero": True}},
+        ]},
+        "platform": {"reservation": {"reservation_set_size_exp": 3}, "cache_block_size_exp": 9},
+    }
+
+
+def architecture_params(asid_width=0):
+    params = dict(MXLEN=64, NUM_PMP_ENTRIES=0, MISALIGNED_LDST=False,
+                  MISALIGNED_LDST_EXCEPTION_PRIORITY="high", M_MODE_ENDIANNESS="little",
+                  HPM_COUNTER_EN=[False] * 32, MCOUNTENABLE_EN=[False] * 32,
+                  SCOUNTENABLE_EN=[False] * 32, MTVEC_MODES=[0, 1], STVEC_MODES=[0, 1],
+                  MTVEC_BASE_ALIGNMENT_DIRECT=4, MSTATUS_FS_LEGAL_VALUES=[0],
+                  MSTATUS_VS_LEGAL_VALUES=[0], PHYS_ADDR_WIDTH=44, ASID_WIDTH=asid_width,
+                  LRSC_FAIL_ON_NON_EXACT_LRSC=True)
+    for parameter in ("REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION",
+                      "REPORT_VA_IN_MTVAL_ON_BREAKPOINT", "REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED",
+                      "REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED",
+                      "REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED"):
+        params[parameter] = True
+    return params
+
+
+def vector_udb():
+    params = architecture_params()
+    params.update(VLEN=128, ELEN=64, SEW_MIN=8, VILL_SET_ON_RESERVED_VTYPE=True,
+                  HW_MSTATUS_VS_DIRTY_UPDATE="precise", MSTATUS_FS_LEGAL_VALUES=[0, 1, 2, 3],
+                  MSTATUS_VS_LEGAL_VALUES=[0, 1, 2, 3])
+    params.update(VECTOR_PARAMETERS)
+    names = ["F", "D", "V", "Zve32x", "Zve32f", "Zve64x", "Zve64f", "Zve64d",
+             "Zvfh", "Zvkb", "Zvbb", "Zvkt", "Zvl32b", "Zvl64b", "Zvl128b"]
+    extensions = [{"name": "Sm", "version": "= 1.12.0"}]
+    extensions += [{"name": name, "version": "= 1.0.0"} for name in names]
+    return {"params": params, "implemented_extensions": extensions}
 
 
 class ArchTestConfigTest(unittest.TestCase):
@@ -35,32 +118,8 @@ class ArchTestConfigTest(unittest.TestCase):
         for (width, version, svade), (cache_extension, block_size) in product(architectures, cache_blocks):
             with self.subTest(asid_width=width, privileged_version=version, svade=svade,
                               cache_extension=cache_extension, block_size=block_size):
-                params = dict(MXLEN=64, NUM_PMP_ENTRIES=0, MISALIGNED_LDST=False,
-                              MISALIGNED_LDST_EXCEPTION_PRIORITY="high", M_MODE_ENDIANNESS="little",
-                              HPM_COUNTER_EN=[False] * 32, MCOUNTENABLE_EN=[False] * 32,
-                              SCOUNTENABLE_EN=[False] * 32, MTVEC_MODES=[0, 1], STVEC_MODES=[0, 1],
-                              MTVEC_BASE_ALIGNMENT_DIRECT=4, MSTATUS_FS_LEGAL_VALUES=[0],
-                              MSTATUS_VS_LEGAL_VALUES=[0], PHYS_ADDR_WIDTH=44, ASID_WIDTH=width,
-                              LRSC_FAIL_ON_NON_EXACT_LRSC=True)
-                for parameter in ("REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION",
-                                  "REPORT_VA_IN_MTVAL_ON_BREAKPOINT", "REPORT_VA_IN_MTVAL_ON_LOAD_MISALIGNED",
-                                  "REPORT_VA_IN_MTVAL_ON_STORE_AMO_MISALIGNED",
-                                  "REPORT_VA_IN_MTVAL_ON_INSTRUCTION_MISALIGNED"):
-                    params[parameter] = True
-                default = {
-                    "extensions": {"Svade": {"supported": not svade}, "V": {},
-                                   "Zic64b": {"supported": False},
-                                   "Zicboz": {"supported": False}, "Zicbom": {"supported": False}, "Zicbop": {"supported": False},
-                                   "Stateen": {"Smstateen": {}, "Ssstateen": {}}},
-                    "base": {"mtvec": {"direct": {}, "vectored": {}},
-                             "stvec": {"direct": {}, "vectored": {}}, "mstatus": {}, "xtval_nonzero": {},
-                             "medeleg": {"delegatable_bits": {"len": 64, "value": "0xfc_b7ff"}}},
-                    "memory": {"asidlen": 16, "pmp": {}, "misaligned": {"exceptions": {}}, "regions": [
-                        {"attributes": {"mem_type": "MainMemory", "cacheable": True, "supports_cbo_zero": False}},
-                        {"attributes": {"mem_type": "IO", "cacheable": False, "supports_cbo_zero": True}},
-                    ]},
-                    "platform": {"reservation": {"reservation_set_size_exp": 3}, "cache_block_size_exp": 9},
-                }
+                params = architecture_params(width)
+                default = sail_default()
                 extensions = [{"name": "Sm", "version": version},
                               {"name": "Za64rs", "version": "= 1.0.0"},
                               {"name": "Za128rs", "version": "1.0.0"}]
@@ -90,6 +149,58 @@ class ArchTestConfigTest(unittest.TestCase):
                 self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"],
                                  {"Some": "AlignmentException"})
                 self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0xcb3ff)
+
+    def test_vector_settings_come_from_core_profile(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        config = configure["sail_config"](sail_default(), vector_udb(), 0x80000000, 0x40000000)
+        vector = config["extensions"]["V"]
+        self.assertEqual(vector["support_level"], "Full")
+        self.assertEqual(vector["vlen_exp"], 7)
+        self.assertEqual(vector["elen_exp"], 6)
+        self.assertEqual(vector["max_index_eew_exp"], 6)
+        self.assertIs(vector["vl_use_ceil"], False)
+        self.assertEqual(vector["reserved_behavior"], {
+            "illegal_vtype": "IllegalVtype_SetVill", "vstart_out_of_bounds": "Vstart_Ignore",
+        })
+        self.assertEqual(vector["vstart"]["zero_required"], {"arith": False, "scalar_move": False})
+        self.assertEqual(config["base"]["mstatus"]["vs_legal_states"], "ExtContext_FourState")
+        for name in ("Zvfh", "Zvkb", "Zvbb", "Zvkt"):
+            self.assertIs(config["extensions"][name]["supported"], True)
+
+    def test_vector_projection_rejects_inconsistent_profiles(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        project = configure["sail_config"]
+        cases = []
+        invalid_vlen = vector_udb()
+        invalid_vlen["params"]["VLEN"] = 96
+        cases.append((invalid_vlen, "VLEN must be a positive power of two"))
+        missing_closure = vector_udb()
+        missing_closure["implemented_extensions"] = [
+            extension for extension in missing_closure["implemented_extensions"]
+            if extension["name"] != "Zve64d"
+        ]
+        cases.append((missing_closure, "V UDB closure is missing"))
+        missing_length = vector_udb()
+        missing_length["implemented_extensions"] = [
+            extension for extension in missing_length["implemented_extensions"]
+            if extension["name"] != "Zvl128b"
+        ]
+        cases.append((missing_length, "VLEN=128 requires"))
+        missing_zvkb = vector_udb()
+        missing_zvkb["implemented_extensions"] = [
+            extension for extension in missing_zvkb["implemented_extensions"]
+            if extension["name"] != "Zvkb"
+        ]
+        cases.append((missing_zvkb, "Zvbb UDB closure is missing Zvkb"))
+        stateen = vector_udb()
+        stateen["implemented_extensions"].append({"name": "Smstateen", "version": "= 1.0.0"})
+        cases.append((stateen, "state-enable configurations"))
+        wrong_behavior = vector_udb()
+        wrong_behavior["params"]["VECTOR_LS_MISALIGNED_LEGAL"] = True
+        cases.append((wrong_behavior, "VECTOR_LS_MISALIGNED_LEGAL=False"))
+        for udb, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                project(sail_default(), udb, 0x80000000, 0x40000000)
 
     def test_reservation_guarantees_validate_sail_platform(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))

@@ -47,14 +47,15 @@ Its geometry follows
 [`isa/vector-profile.rhm`](isa/vector-profile.rhm) defines the host
 `VectorProfile.None`, `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, and
 `V` choices. It derives each profile's implied Zve extension closure, ELEN,
-floating-point capabilities, and the `Zvl<N>b` extension for the selected
-VLEN. Concrete cores own the supported XLEN/FP combinations and physical
-implementation. Only `VectorProfile.V` represents the single-letter V
+floating-point capabilities, and the cumulative `Zvl<N>b` closure through the
+selected VLEN. Concrete cores own the supported XLEN/FP combinations and
+physical implementation. Only `VectorProfile.V` represents the single-letter V
 extension or sets `misa.V`. Orthogonal `VectorExtension` selections add
 capabilities without multiplying base profiles; `Zvfhmin` extends only
 `vfwcvt.f.f.v` and `vfncvt.f.f.w` to SEW=16, while `Zvfh` adds full vector
 half precision and its defined SEW=8 integer conversions. `Zvbb` adds the
-ratified vector basic bit-manipulation catalog independently of base V.
+ratified vector basic bit-manipulation catalog independently of base V and
+advertises its required `Zvkb` subset.
 
 [`isa/zvbb.rhm`](isa/zvbb.rhm) provides the complete ratified Zvbb 1.0.0
 catalog: vector/scalar and-not, element and byte reversal, leading/trailing-zero

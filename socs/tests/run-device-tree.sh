@@ -91,6 +91,12 @@ case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
   *" zvkt "*) ;;
   *) echo "simple DTB does not advertise Zvkt" >&2; exit 1 ;;
 esac
+for extension in zvkb zvl32b zvl64b zvl128b; do
+  case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+    *" $extension "*) ;;
+    *) echo "simple DTB does not advertise $extension" >&2; exit 1 ;;
+  esac
+done
 case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
   *" zfh "*) ;;
   *) echo "simple DTB does not advertise Zfh" >&2; exit 1 ;;

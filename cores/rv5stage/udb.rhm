@@ -95,7 +95,7 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
   when vector_profile_enabled(profile.vector)
   | block:
       when vector_profile_is_v(profile.vector)
-      | result := result ++ [extension("V", "1.0")]
+      | result := result ++ [extension("V", "1.0.0")]
       result := result ++ [extension("Zve32x", "1.0.0")]
       when vector_profile_supports_fp32(profile.vector)
       | result := result ++ [extension("Zve32f", "1.0.0")]
@@ -110,9 +110,10 @@ fun rv5stage_udb_extensions(profile :: RVCoreProfile) :: NonemptyList.of(UdbExte
       when vector_extension_enabled(profile.vector_extensions, VectorExtension.Zvfh)
       | result := result ++ [extension("Zvfh", "1.0.0")]
       when vector_extension_enabled(profile.vector_extensions, VectorExtension.Zvbb)
-      | result := result ++ [extension("Zvbb", "1.0.0")]
+      | result := result ++ [extension("Zvkb", "1.0.0"), extension("Zvbb", "1.0.0")]
       result := result ++ [extension("Zvkt", ZvktVersion)]
-      result := result ++ [extension("Zvl" ++ String.from_int(profile.vector_length) ++ "b", "1.0.0")]
+      for (length in vector_length_extension_lengths(profile.vector_length)):
+        result := result ++ [extension("Zvl" ++ String.from_int(length) ++ "b", "1.0.0")]
   result := result ++ [
     extension("Zicntr", "2.0"),
     extension("Zicond", "1.0.0"),
@@ -238,8 +239,29 @@ fun rv5stage_udb_parameters(profile :: RVCoreProfile,
       natural_parameter("VLEN", profile.vector_length),
       natural_parameter("ELEN", vector_profile_elen_bits(profile.vector)),
       natural_parameter("SEW_MIN", 8),
+      boolean_parameter("FOLLOW_VTYPE_RESET_RECOMMENDATION", #true),
+      boolean_parameter("IMPRECISE_VECTOR_TRAP_SETTABLE", #false),
+      string_parameter("LEGAL_VSTART", "1_stride"),
+      string_parameter("RESERVED_VSET_X0X0_VILL_SET", "never"),
+      string_parameter("RESERVED_VSET_X0X0_VLMAX_CHANGE", "never"),
+      string_parameter("RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX", "VLMAX"),
+      string_parameter("SUPPORT_FRACTIONAL_LMUL_BEYOND_REQUIRED", "no_unrequired_supported"),
       boolean_parameter("VILL_SET_ON_RESERVED_VTYPE", #true),
-      string_parameter("HW_MSTATUS_VS_DIRTY_UPDATE", "precise")
+      string_parameter("HW_MSTATUS_VS_DIRTY_UPDATE", "precise"),
+      boolean_parameter("VECTOR_FF_NO_EXCEPTION_TRIM", #false),
+      string_parameter("VECTOR_FF_SEG_EXCEPTION_PARTIAL_LOAD", "custom"),
+      string_parameter("VECTOR_FF_UPDATE_PAST_TRIM", "update_none"),
+      boolean_parameter("VECTOR_LOAD_PAST_TRAP", #false),
+      string_parameter("VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT", "no_overwrite"),
+      string_parameter("VECTOR_LS_INDEX_MAX_EEW", "64"),
+      boolean_parameter("VECTOR_LS_MISALIGNED_LEGAL", #false),
+      boolean_parameter("VECTOR_LS_SEG_PARTIAL_ACCESS", #true),
+      boolean_parameter("VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL", #false),
+      string_parameter("VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR", "copy"),
+      string_parameter("VFREDUSUM_INACTIVE_NODE_ELEMENT_BEHAVIOR", "copy"),
+      string_parameter("VFREDUSUM_NAN", "no_change"),
+      string_parameter("VFREDUSUM_NODE_ROUNDING_BEHAVIOR", "SEW_precision"),
+      boolean_parameter("VSSTATUS_VS_EXISTS", #false)
     ]
   when vector_profile_is_v(profile.vector)
   | result := result ++ [boolean_parameter("MUTABLE_MISA_V", #false)]

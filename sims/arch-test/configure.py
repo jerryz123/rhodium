@@ -5,6 +5,7 @@ import argparse
 import json
 import math
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -14,6 +15,45 @@ def bits(value, width=64):
 
 
 RESERVATION_BOUNDS = {"Za64rs": 6, "Za128rs": 7}
+VECTOR_BASE_VERSIONS = {
+    "V": "1.0.0",
+    "Zve32x": "1.0.0",
+    "Zve32f": "1.0.0",
+    "Zve64x": "1.0.0",
+    "Zve64f": "1.0.0",
+    "Zve64d": "1.0.0",
+}
+VECTOR_CLOSURES = {
+    "V": {"V", "Zve32x", "Zve32f", "Zve64x", "Zve64f", "Zve64d"},
+    "Zve64d": {"Zve32x", "Zve32f", "Zve64x", "Zve64f", "Zve64d"},
+    "Zve64f": {"Zve32x", "Zve32f", "Zve64x", "Zve64f"},
+    "Zve64x": {"Zve32x", "Zve64x"},
+    "Zve32f": {"Zve32x", "Zve32f"},
+    "Zve32x": {"Zve32x"},
+}
+VECTOR_PARAMETER_VALUES = {
+    "FOLLOW_VTYPE_RESET_RECOMMENDATION": True,
+    "IMPRECISE_VECTOR_TRAP_SETTABLE": False,
+    "LEGAL_VSTART": "1_stride",
+    "RESERVED_VSET_X0X0_VILL_SET": "never",
+    "RESERVED_VSET_X0X0_VLMAX_CHANGE": "never",
+    "RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX": "VLMAX",
+    "SUPPORT_FRACTIONAL_LMUL_BEYOND_REQUIRED": "no_unrequired_supported",
+    "VECTOR_FF_NO_EXCEPTION_TRIM": False,
+    "VECTOR_FF_SEG_EXCEPTION_PARTIAL_LOAD": "custom",
+    "VECTOR_FF_UPDATE_PAST_TRIM": "update_none",
+    "VECTOR_LOAD_PAST_TRAP": False,
+    "VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT": "no_overwrite",
+    "VECTOR_LS_INDEX_MAX_EEW": "64",
+    "VECTOR_LS_MISALIGNED_LEGAL": False,
+    "VECTOR_LS_SEG_PARTIAL_ACCESS": True,
+    "VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL": False,
+    "VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR": "copy",
+    "VFREDUSUM_INACTIVE_NODE_ELEMENT_BEHAVIOR": "copy",
+    "VFREDUSUM_NAN": "no_change",
+    "VFREDUSUM_NODE_ROUNDING_BEHAVIOR": "SEW_precision",
+    "VSSTATUS_VS_EXISTS": False,
+}
 
 
 def validate_reservation_bounds(reservation, extensions):
@@ -30,6 +70,82 @@ def validate_reservation_bounds(reservation, extensions):
             raise ValueError(f"{name} requires an RV64 Sail reservation size between 8 and {1 << maximum_exp} bytes")
 
 
+def power_of_two_exp(name, value):
+    if type(value) is not int or value <= 0 or value & (value - 1):
+        raise ValueError(f"{name} must be a positive power of two")
+    exponent = value.bit_length() - 1
+    if not 3 <= exponent <= 16:
+        raise ValueError(f"{name} must be between 8 and 65536")
+    return exponent
+
+
+def project_vector(model_extensions, extensions, params):
+    """Project UDB's vector profile and implied extension closure into Sail."""
+    names = extensions.keys()
+    selected = names & VECTOR_BASE_VERSIONS.keys()
+    zvl = {name for name in names if re.fullmatch(r"Zvl[0-9]+b", name)}
+    vector = model_extensions["V"]
+    if not selected:
+        if zvl:
+            raise ValueError("Zvl extensions require a Zve or V profile")
+        vector["support_level"] = "Disabled"
+        return set()
+    for name in selected:
+        if extensions[name] != VECTOR_BASE_VERSIONS[name]:
+            raise ValueError(f"{name} needs a Sail mapping for version {extensions[name]}")
+    profile = next(name for name in VECTOR_CLOSURES if name in selected)
+    missing = VECTOR_CLOSURES[profile] - selected
+    if missing:
+        raise ValueError(f"{profile} UDB closure is missing {sorted(missing)}")
+    vlen_exp = power_of_two_exp("VLEN", params.get("VLEN"))
+    elen_exp = power_of_two_exp("ELEN", params.get("ELEN"))
+    if params.get("SEW_MIN") != 8:
+        raise ValueError("Sail vector projection requires SEW_MIN=8")
+    if profile == "V" and vlen_exp < 7:
+        raise ValueError("V requires VLEN of at least 128 bits")
+    if profile in {"V", "Zve64x", "Zve64f", "Zve64d"} and elen_exp < 6:
+        raise ValueError(f"{profile} requires ELEN of at least 64 bits")
+    if profile in {"Zve32x", "Zve32f"} and elen_exp < 5:
+        raise ValueError(f"{profile} requires ELEN of at least 32 bits")
+    required_zvl = {f"Zvl{1 << exponent}b" for exponent in range(5, vlen_exp + 1)}
+    missing_zvl = required_zvl - zvl
+    if missing_zvl:
+        raise ValueError(f"VLEN={params['VLEN']} requires {sorted(missing_zvl)}")
+    for name in zvl:
+        length = int(name[3:-1])
+        if extensions[name] != "1.0.0":
+            raise ValueError(f"{name} needs a Sail mapping for version {extensions[name]}")
+        if length <= 0 or length & (length - 1) or length > params["VLEN"]:
+            raise ValueError(f"{name} is inconsistent with VLEN={params['VLEN']}")
+    if "Zvbb" in names and "Zvkb" not in names:
+        raise ValueError("Zvbb UDB closure is missing Zvkb")
+    vill = params.get("VILL_SET_ON_RESERVED_VTYPE")
+    if type(vill) is not bool:
+        raise ValueError("VILL_SET_ON_RESERVED_VTYPE must be Boolean")
+    if params.get("HW_MSTATUS_VS_DIRTY_UPDATE") != "precise":
+        raise ValueError("Sail vector projection requires precise VS dirty updates")
+    for name, expected in VECTOR_PARAMETER_VALUES.items():
+        if params.get(name) != expected:
+            raise ValueError(f"Sail vector projection requires {name}={expected!r}")
+    vector["support_level"] = {
+        "V": "Full",
+        "Zve64d": "Float_double",
+        "Zve64f": "Float_single",
+        "Zve32f": "Float_single",
+        "Zve64x": "Integer",
+        "Zve32x": "Integer",
+    }[profile]
+    vector["vlen_exp"] = vlen_exp
+    vector["elen_exp"] = elen_exp
+    max_index_eew = params["MXLEN"] if params["VECTOR_LS_INDEX_MAX_EEW"] == "XLEN" else int(params["VECTOR_LS_INDEX_MAX_EEW"])
+    vector["max_index_eew_exp"] = power_of_two_exp("VECTOR_LS_INDEX_MAX_EEW", max_index_eew)
+    vector["vl_use_ceil"] = False
+    vector["reserved_behavior"]["illegal_vtype"] = "IllegalVtype_SetVill" if vill else "IllegalVtype_Illegal"
+    vector["reserved_behavior"]["vstart_out_of_bounds"] = "Vstart_Ignore"
+    vector["vstart"]["zero_required"].update(arith=False, scalar_move=False)
+    return selected | zvl
+
+
 def sail_config(default, udb, origin, size):
     """Project modeled UDB settings; surface remaining model/platform gaps in ACT."""
     params = udb["params"]
@@ -41,15 +157,15 @@ def sail_config(default, udb, origin, size):
     if params["M_MODE_ENDIANNESS"] != "little":
         raise ValueError("initial ACT adapter requires little-endian M mode")
     model_extensions = default["extensions"]
-    if extensions.keys() & {"V", "Stateen", "Smstateen", "Ssstateen"}:
-        raise ValueError("vector and state-enable configurations need an expanded Sail projection")
-    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm"} - RESERVATION_BOUNDS.keys()
+    if extensions.keys() & {"Stateen", "Smstateen", "Ssstateen"}:
+        raise ValueError("state-enable configurations need an expanded Sail projection")
+    vector_extensions = project_vector(model_extensions, extensions, params)
+    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm"} - RESERVATION_BOUNDS.keys() - vector_extensions
     if unknown:
         raise ValueError(f"extensions need Sail mapping: {sorted(unknown)}")
     for name, options in model_extensions.items():
         if "supported" in options:
             options["supported"] = name in extensions
-    model_extensions["V"]["support_level"] = "Disabled"
     for name in ("Smstateen", "Ssstateen"):
         model_extensions["Stateen"][name]["supported"] = False
     base = default["base"]

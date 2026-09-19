@@ -10,14 +10,15 @@ constant-stride segment, indexed segment, and unit-stride fault-only-first
 addressing, plus mask-register and whole-register loads and stores and
 whole-register moves. The default profile is `VectorProfile.None` with a
 separate default VLEN of 128 bits. Every enabled profile advertises its implied
-Zve closure and exact `Zvl<N>b`. Zve32 profiles select ELEN=32; Zve64 profiles
-and V select ELEN=64. FP32 profiles require scalar FP support, while Zve64d and
+Zve closure and cumulative `Zvl<N>b` closure through its selected VLEN. Zve32
+profiles select ELEN=32; Zve64 profiles and V select ELEN=64. FP32 profiles
+require scalar FP support, while Zve64d and
 V require scalar D. RV5Stage currently integrates these profiles only with
 RV64 and supports scalar FP there only as D, so every FP-capable vector profile
 uses the RV64D scalar specialization. Only V advertises `V 1.0` and `misa.V`;
 it does not imply Zvbb. Selecting `VectorExtension.Zvbb` independently enables
 the ratified vector basic bit-manipulation instruction set for any enabled
-vector profile.
+vector profile and advertises its required `Zvkb` subset.
 Every enabled RV5Stage vector profile also advertises `Zvkt`; this is the core's
 intrinsic data-independent execution-latency contract, not another
 `VectorExtension` selection. The exact architectural scope and control-operand

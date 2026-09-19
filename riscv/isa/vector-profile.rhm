@@ -22,6 +22,7 @@ enum VectorExtension
 def DefaultVectorProfile = VectorProfile.None
 def NoVectorExtensions :: List.of(VectorExtension) = []
 def DefaultVectorExtensions = NoVectorExtensions
+def VectorLengthExtensionLengths = [32, 64] ++ VectorLengths
 
 fun validate_vector_extensions(profile :: VectorProfile,
                                extensions :: List.of(VectorExtension)):
@@ -80,8 +81,14 @@ fun vector_profile_elen(profile :: VectorProfile) :: VectorSEW:
 fun vector_profile_elen_bits(profile :: VectorProfile) :: PosInt:
   vector_element_bits(vector_profile_elen(profile))
 
-fun vector_length_extension_name(vlen :: VectorLength) :: String:
+fun vector_length_extension_name(vlen :: PosInt) :: String:
   "zvl" ++ String.from_int(vlen) ++ "b"
+
+fun vector_length_extension_lengths(vlen :: VectorLength) :: NonemptyList.of(PosInt):
+  VectorLengthExtensionLengths.filter(~keep: fun (minimum): minimum <= vlen)
+
+fun vector_length_extension_names(vlen :: VectorLength) :: NonemptyList.of(String):
+  vector_length_extension_lengths(vlen).map(vector_length_extension_name)
 
 fun vector_profile_isa_extensions(profile :: VectorProfile,
                                   vlen :: VectorLength,
@@ -95,8 +102,8 @@ fun vector_profile_isa_extensions(profile :: VectorProfile,
       def integer64_extensions = if vector_profile_supports_integer64(profile) | ["zve64x"] | []
       def fp64_extensions = if vector_profile_supports_integer64(profile) && vector_profile_supports_fp32(profile) | ["zve64f"] | []
       def double_extensions = if vector_profile_supports_fp64(profile) | ["zve64d"] | []
-      def selected_extensions = (if vector_extension_enabled(extensions, VectorExtension.Zvfhmin) | ["zvfhmin"] | []) ++ (if vector_extension_enabled(extensions, VectorExtension.Zvfh) | ["zvfh"] | []) ++ (if vector_extension_enabled(extensions, VectorExtension.Zvbb) | ["zvbb"] | [])
-      base_extensions ++ fp32_extensions ++ integer64_extensions ++ fp64_extensions ++ double_extensions ++ selected_extensions ++ [vector_length_extension_name(vlen)]
+      def selected_extensions = (if vector_extension_enabled(extensions, VectorExtension.Zvfhmin) | ["zvfhmin"] | []) ++ (if vector_extension_enabled(extensions, VectorExtension.Zvfh) | ["zvfh"] | []) ++ (if vector_extension_enabled(extensions, VectorExtension.Zvbb) | ["zvkb", "zvbb"] | [])
+      base_extensions ++ fp32_extensions ++ integer64_extensions ++ fp64_extensions ++ double_extensions ++ selected_extensions ++ vector_length_extension_names(vlen)
 
 export:
   VectorProfile
@@ -117,5 +124,8 @@ export:
   vector_profile_is_v
   vector_profile_elen
   vector_profile_elen_bits
+  VectorLengthExtensionLengths
   vector_length_extension_name
+  vector_length_extension_lengths
+  vector_length_extension_names
   vector_profile_isa_extensions

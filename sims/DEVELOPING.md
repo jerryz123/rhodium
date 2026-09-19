@@ -225,6 +225,13 @@ model mismatches must surface as build or execution failures, not suite exclusio
 Use ACT's keep-going mode to attempt every selected build even when others fail;
 the generation command still returns failure if any build fails.
 
+Project enabled vector profiles into Sail's native vector configuration from
+the UDB `VLEN`, `ELEN`, reserved-vtype behavior, and VS-dirty contract. Validate
+the implied Zve and cumulative Zvl closure before generating results, and keep
+optional vector extensions as ordinary Sail feature switches. Profile closure
+belongs to the owning RISC-V/core generators; the ACT adapter must diagnose a
+missing implication rather than silently synthesize one.
+
 `arch-test/build.py` invokes the upstream CLI with its required Sail version
 set to 0.14; the pinned ACT still requires 0.13.1. This keeps the upstream
 version check active without modifying the submodule. Remove this compatibility

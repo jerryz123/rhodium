@@ -22,6 +22,12 @@ check:
   vector_extensions_support_zvfhmin(zvfh) ~is #true
   vector_extensions_support_zvfh(zvfh) ~is #true
   validate_vector_extensions(VectorProfile.Zve32x, zvfh) ~throws ""
+  vector_profile_isa_extensions(VectorProfile.V, 128).contains("zvl32b") ~is #true
+  vector_profile_isa_extensions(VectorProfile.V, 128).contains("zvl64b") ~is #true
+  vector_profile_isa_extensions(VectorProfile.V, 128).contains("zvl128b") ~is #true
+  vector_profile_isa_extensions(VectorProfile.V, 128).contains("zvl256b") ~is #false
+  vector_profile_isa_extensions(VectorProfile.V, 256).contains("zvl256b") ~is #true
+  vector_profile_isa_extensions(VectorProfile.V, 128, zvbb).contains("zvkb") ~is #true
   vector_profile_isa_extensions(VectorProfile.V, 128, zvbb).contains("zvbb") ~is #true
   vector_profile_isa_extensions(VectorProfile.Zve32x, 128, zvbb).contains("zvbb") ~is #true
   vector_extensions_support_zvbb(zvbb) ~is #true

@@ -86,7 +86,19 @@ check:
   rv64_vector_full_half_yaml.contains("{ name: \"Zfh\", version: \"= 1.0.0\" }") ~is #true
   rv64_vector_full_half_yaml.contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
   rv64_vector_bitmanip_yaml.contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
+  rv64_vector_bitmanip_yaml.contains("{ name: \"Zvkb\", version: \"= 1.0.0\" }") ~is #true
   rv64_vector_bitmanip_yaml.contains("{ name: \"Zvkt\", version: \"= 1.0.0\" }") ~is #true
+  rv64_vector_bitmanip_yaml.contains("{ name: \"Zvl32b\", version: \"= 1.0.0\" }") ~is #true
+  rv64_vector_bitmanip_yaml.contains("{ name: \"Zvl64b\", version: \"= 1.0.0\" }") ~is #true
+  rv64_vector_bitmanip_yaml.contains("{ name: \"Zvl128b\", version: \"= 1.0.0\" }") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  FOLLOW_VTYPE_RESET_RECOMMENDATION: true") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  RESERVED_VSET_X0X0_VILL_SET: \"never\"") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX: \"VLMAX\"") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  VECTOR_FF_SEG_EXCEPTION_PARTIAL_LOAD: \"custom\"") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  VECTOR_LS_MISALIGNED_LEGAL: false") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  VECTOR_LS_SEG_PARTIAL_ACCESS: true") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR: \"copy\"") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  VSSTATUS_VS_EXISTS: false") ~is #true
   rv64_yaml.contains("{ name: \"Zvkt\",") ~is #false
   rv64_yaml.contains("{ name: \"Zkt\", version: \"= 1.0.1\" }") ~is #true
   rv64_yaml.contains("{ name: \"Zihintntl\", version: \"= 1.0.0\" }") ~is #true

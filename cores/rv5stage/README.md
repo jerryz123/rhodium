@@ -35,15 +35,15 @@ ordered VRF/flag completion. RV64 vectors also share the iterative integer
 multiplier/divider for SEW8/16/32/64 `.vv` and `.vx` operations, with independent
 arbitration and WB-authorized completion ownership. `VectorProfile` selects
 one of the five standard Zve profiles or complete V 1.0, advertises its implied
-Zve closure and matching `Zvl<N>b` minimum length, and constrains ELEN and FP
+Zve closure and cumulative `Zvl<N>b` minimum lengths, and constrains ELEN and FP
 legality accordingly. Only `VectorProfile.V` advertises `V` and sets `misa.V`.
 `profile.vector_extensions` independently enables `Zvfhmin`, which admits only
 the standard F16-to-F32 widening and F32-to-F16 narrowing conversions, or full
 `Zvfh`, which admits the standard FP vector surface at SEW=16 plus its six
 SEW=8 widening/narrowing integer conversions. `Zvbb` independently enables
 the vector basic bit-manipulation operations through the shared packed SIMD
-datapath. The default remains `VectorProfile.None` with no orthogonal vector
-extensions.
+datapath while advertising the required `Zvkb` subset. The default remains
+`VectorProfile.None` with no orthogonal vector extensions.
 
 ## At a glance
 

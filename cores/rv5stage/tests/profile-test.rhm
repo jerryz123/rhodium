@@ -44,6 +44,8 @@ check:
   RVCoreProfile(~xlen: XLen.X64).vector_length ~is 128
   RVCoreProfile(~xlen: XLen.X64, ~vector_length: 65536).vector_length ~is 65536
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("v") ~is #true
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvl32b") ~is #true
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvl64b") ~is #true
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvl128b") ~is #true
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvkt") ~is #true
   RVCoreProfile(~xlen: XLen.X64).isa_extensions.contains("zvkt") ~is #false
@@ -59,6 +61,7 @@ check:
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)) ~throws "Zvfh requires scalar Zfhmin or Zfh"
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)).isa_extensions.contains("zvfh") ~is #true
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)).isa_extensions.contains("zvbb") ~is #true
+  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)).isa_extensions.contains("zvkb") ~is #true
   RVCoreProfile(~xlen: XLen.X64, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)) ~throws "enabled vector profile"
   RV5StageExtensions().ssnpm ~is #false
   RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)).extensions.ssnpm ~is #true
