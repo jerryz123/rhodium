@@ -408,11 +408,12 @@ tests are selected by the same UDB extension and parameter constraints as all
 other tests, without a separate harness exclusion.
 Generation attempts all selected tests even if some fail, and reports an overall
 failure in that case. `arch-test-run` can exercise the ELFs that did build.
-The full DUT device and PMA map is not modeled for this stage. Sail retains
-the reference-only interrupt devices required by ACT; DUT interrupt hooks
-fail if invoked. Build, reference-model, and DUT failures in newly selected suites
-are surfaced normally, not silently excluded; they need diagnosis before claiming
-coverage.
+The full DUT device and PMA map is not modeled for this stage. Sail retains its
+reference interrupt devices, while the DUT macros use SimpleSoC's ACLINT and
+direct UART/PLIC MMIO; the checked-in zero-PMP configuration permits those
+physical accesses from every tested privilege. Build, reference-model, and DUT
+failures in newly selected suites are surfaced normally, not silently excluded;
+they need diagnosis before claiming coverage.
 
 The runner translates confirmed HTIF completion into ACT's `RVCP-SUMMARY`
 protocol. Console printing macros are empty, so failures currently report

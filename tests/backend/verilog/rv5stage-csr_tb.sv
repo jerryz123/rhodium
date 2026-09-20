@@ -43,6 +43,7 @@ module rv5stage_csr_tb;
   localparam logic [11:0] CSR_FFLAGS = 12'h001;
   localparam logic [11:0] CSR_FRM = 12'h002;
   localparam logic [11:0] CSR_FCSR = 12'h003;
+  localparam logic [11:0] CSR_SENVCFG = 12'h10a;
   localparam logic [11:0] CSR_STVEC = 12'h105;
   localparam logic [11:0] CSR_SSTATUS = 12'h100;
   localparam logic [11:0] CSR_SCOUNTEREN = 12'h106;
@@ -57,6 +58,7 @@ module rv5stage_csr_tb;
   localparam logic [11:0] CSR_MIE = 12'h304;
   localparam logic [11:0] CSR_MTVEC = 12'h305;
   localparam logic [11:0] CSR_MCOUNTEREN = 12'h306;
+  localparam logic [11:0] CSR_MENVCFG = 12'h30a;
   localparam logic [11:0] CSR_MSCRATCH = 12'h340;
   localparam logic [11:0] CSR_MEPC = 12'h341;
   localparam logic [11:0] CSR_MCAUSE = 12'h342;
@@ -344,6 +346,31 @@ module rv5stage_csr_tb;
   initial begin
     reset_dut();
 
+    // WARL fields follow the configured privilege profile: UIE is absent,
+    // reserved MPP=2 is legalized, and C makes instruction misalignment
+    // impossible while the standard software-check causes remain delegatable.
+    csr_access(CSR_WRITE, CSR_MSTATUS, 64'h1001, RV64_MSTATUS_FIXED);
+    csr_access(CSR_SET, CSR_MSTATUS, 64'h0, RV64_MSTATUS_FIXED);
+    csr_access(CSR_WRITE, CSR_MEDELEG, ~64'd0, 64'h0);
+    csr_access(CSR_SET, CSR_MEDELEG, 64'h0, 64'hcb3fe);
+    reset_dut();
+
+    // M-mode may inject every supervisor pending class through mip, but the
+    // supervisor sip alias may modify only its software-pending bit.
+    csr_access(CSR_WRITE, CSR_MIDELEG, 64'h222, 64'h0);
+    csr_access(CSR_WRITE, CSR_SIP, ~64'd0, 64'h0);
+    csr_access(CSR_SET, CSR_SIP, 64'h0, 64'h2);
+    csr_access(CSR_WRITE, CSR_MIP, 64'h0, 64'h2);
+    reset_dut();
+
+    // FIOM is retained because this profile supports paged virtual memory;
+    // the core's fences already serialize all older memory and device work.
+    csr_access(CSR_WRITE, CSR_MENVCFG, 64'h1, 64'h0);
+    csr_access(CSR_SET, CSR_MENVCFG, 64'h0, 64'h1);
+    csr_access(CSR_WRITE, CSR_SENVCFG, 64'h1, 64'h0);
+    csr_access(CSR_SET, CSR_SENVCFG, 64'h0, 64'h1);
+    reset_dut();
+
     // PMM is independent of CMO fields; read-only accesses and no-op writes do
     // not restart the pipeline, and PMM changes never flush translation state.
     assert (pointer_masking == 0 && !pointer_masking_changed) else $fatal(1, "PMM reset");
@@ -551,27 +578,27 @@ module rv5stage_csr_tb;
     $display("RV5Stage CSR and privilege transitions passed");
     reset_dut();
     assert (cbo_zero_enabled) else $fatal(1, "M mode must allow CBO.ZERO");
-    csr_access(CSR_WRITE, 12'h30a, ~64'd0, 64'd0);
-    csr_access(CSR_SET, 12'h30a, 64'd0, 64'h80);
-    csr_access(CSR_WRITE, 12'h10a, ~64'd0, 64'd0);
-    csr_access(CSR_SET, 12'h10a, 64'd0, 64'h300000080);
+    csr_access(CSR_WRITE, CSR_MENVCFG, ~64'd0, 64'd0);
+    csr_access(CSR_SET, CSR_MENVCFG, 64'd0, 64'h81);
+    csr_access(CSR_WRITE, CSR_SENVCFG, ~64'd0, 64'd0);
+    csr_access(CSR_SET, CSR_SENVCFG, 64'd0, 64'h300000081);
     enter_supervisor(64'd0);
     assert (cbo_zero_enabled) else $fatal(1, "M CBZE did not enable S mode");
-    csr_access(CSR_WRITE, 12'h10a, 64'd0, 64'h300000080);
+    csr_access(CSR_WRITE, CSR_SENVCFG, 64'd0, 64'h300000081);
     assert (cbo_zero_enabled) else $fatal(1, "S CBZE must not restrict S mode");
     csr_access(CSR_WRITE, CSR_SEPC, 64'h300, 64'd0);
     system_action(SYSTEM_SRET, 64'd0, 64'h300);
     assert (privilege == PRIVILEGE_U && !cbo_zero_enabled)
       else $fatal(1, "U mode must require S CBZE");
     reset_dut();
-    csr_access(CSR_WRITE, 12'h30a, 64'h80, 64'd0);
-    csr_access(CSR_WRITE, 12'h10a, 64'h80, 64'd0);
+    csr_access(CSR_WRITE, CSR_MENVCFG, 64'h80, 64'd0);
+    csr_access(CSR_WRITE, CSR_SENVCFG, 64'h80, 64'd0);
     csr_access(CSR_WRITE, CSR_MEPC, 64'h300, 64'd0);
     system_action(SYSTEM_MRET, 64'd0, 64'h300);
     assert (privilege == PRIVILEGE_U && cbo_zero_enabled)
       else $fatal(1, "both CBZE bits did not enable U mode");
     reset_dut();
-    csr_access(CSR_WRITE, 12'h10a, 64'h80, 64'd0);
+    csr_access(CSR_WRITE, CSR_SENVCFG, 64'h80, 64'd0);
     enter_supervisor(64'd0);
     assert (!cbo_zero_enabled) else $fatal(1, "S mode must require M CBZE");
     $finish;

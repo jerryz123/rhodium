@@ -180,14 +180,15 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def zero = bits(0, width)
-  def mstatus_write_mask = bits(0x7e19bb, width)
-  def sstatus_write_mask = bits(0xc0133, width)
+  def mstatus_write_mask = bits(0x7e19ba, width)
+  def sstatus_write_mask = bits(0xc0132, width)
   def mstatus_fixed = if xlen == XLen.X32 | zero | bits(0xa00000000, width)
   def sstatus_fixed = if xlen == XLen.X32 | zero | bits(0x200000000, width)
-  def medeleg_mask = bits(exception_mask(DelegatableExceptionCauses), width)
+  def medeleg_mask = bits(if compressed_enabled | 0xcb3fe | 0xcb3ff, width)
   def mideleg_mask = bits(0x222, width)
   def interrupt_enable_mask = bits(0xaaa, width)
   def supervisor_interrupt_mask = bits(0x222, width)
+  def supervisor_software_interrupt_mask = bits(0x2, width)
   def counter_enable_mask = bits(0x7, width)
   def tvec_mask = !bits(0x3, width)
   def epc_mask = if compressed_enabled | !bits(0x1, width) | !bits(0x3, width)
@@ -244,6 +245,14 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
                  enabled :: Bool):
     mux(enabled, original ||| mask, original & !mask)
 
+  fun legalize_mstatus(value :: Bits(width)) :~ Bits(width):
+    def masked = state.mstatus.masked_merge(value, mstatus_write_mask)
+    def mpp = masked[11..13]
+    (masked & !mpp_mask) ||| (mux(mpp === bits(2, 2), bits(0, 2), mpp).zext(width) << 11)
+
+  fun fiom_field(value :: Bits(width)) :~ Bits(width):
+    value & bits(1, width)
+
   def fp_status_value = fp_csrs.status.zext(width) << 13
   def fp_status_dirty = fp_csrs.status === bits(3, 2)
   def vector_status_value = vector_csrs.status.zext(width) << 9
@@ -288,7 +297,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Senvcfg:
       read: state.senvcfg
       write value:
-        state.senvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz) ||| pointer_mask_envcfg_fields(xlen, value, ~enabled: core_profile.extensions.ssnpm)
+        state.senvcfg <== fiom_field(value) ||| cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz) ||| pointer_mask_envcfg_fields(xlen, value, ~enabled: core_profile.extensions.ssnpm)
     storage CsrId.Sscratch: state.sscratch
     csr CsrId.Sepc:
       read: state.sepc
@@ -299,7 +308,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Sip:
       read: interrupt_pending & state.mideleg
       write value:
-        state.mip <== state.mip.masked_merge(value, state.mideleg & supervisor_interrupt_mask)
+        state.mip <== state.mip.masked_merge(value, state.mideleg & supervisor_software_interrupt_mask)
     csr CsrId.Satp:
       read: state.satp
       write value:
@@ -321,7 +330,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Mstatus:
       read: mstatus_value
       write value:
-        state.mstatus <== state.mstatus.masked_merge(value, mstatus_write_mask)
+        state.mstatus <== legalize_mstatus(value)
     read CsrId.Misa: misa_value
     csr CsrId.Medeleg:
       read: state.medeleg
@@ -346,7 +355,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Menvcfg:
       read: state.menvcfg
       write value:
-        state.menvcfg <== cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz)
+        state.menvcfg <== fiom_field(value) ||| cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz)
     storage CsrId.Mscratch: state.mscratch
     csr CsrId.Mepc:
       read: state.mepc

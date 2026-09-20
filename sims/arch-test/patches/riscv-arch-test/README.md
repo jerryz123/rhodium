@@ -38,6 +38,8 @@ upstream independently:
    coverage model.
 10. `0010-size-exceptions-sm-trap-signatures.patch` sizes each delegation-walk
     trap region for the complete expanded exception sequence.
+11. `0011-guard-mcountinhibit-initialization.patch` skips common setup and
+    generated CSR coverpoints when UDB reports that the optional CSR is absent.
 
 The first three patches expand capability while retaining ACT's existing active
 suite inventory, the fourth makes the complete vector inventory visible to

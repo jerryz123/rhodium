@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sun, 20 Sep 2026 00:30:00 -0700
+Subject: [PATCH] Honor optional mcountinhibit
+
+MCOUNTINHIBIT_IMPLEMENTED already describes whether the CSR exists, but common
+setup and unconditional Sm coverpoints access it even when the parameter is
+false. That makes the tests trap instead of exercising their applicable
+coverage.
+
+Use the generated UDB Boolean define to initialize and test the CSR only when
+present. Counter access and wraparound coverage remains enabled independently.
+
+---
+ generators/testgen/src/testgen/priv/extensions/Sm.py | 18 ++++++++++++++++--
+ tests/env/rvtest_setup.h                             |  7 +++----
+ 2 files changed, 19 insertions(+), 6 deletions(-)
+
+diff --git a/generators/testgen/src/testgen/priv/extensions/Sm.py b/generators/testgen/src/testgen/priv/extensions/Sm.py
+--- a/generators/testgen/src/testgen/priv/extensions/Sm.py
++++ b/generators/testgen/src/testgen/priv/extensions/Sm.py
+@@ -681,7 +681,11 @@ def _generate_mcsr_tests(test_data: TestData, test_chunks: list) -> None:
+ 
+     for csr in csrm:
+         tc = test_data.new_test_chunk(test_chunks)
++        if csr[0] == "mcountinhibit":
++            tc.code.append("#ifdef UDB_MCOUNTINHIBIT_IMPLEMENTED")
+         tc.code.extend(csr_access_test(test_data, csr, covergroup, coverpoint))
++        if csr[0] == "mcountinhibit":
++            tc.code.append("#endif")
+ 
+     tc = test_data.new_test_chunk(test_chunks)
+     tc.code.append("\n#ifdef SM1P12P0_OR_LATER_SUPPORTED")
+@@ -751,7 +755,11 @@ def _generate_mcsr_tests(test_data: TestData, test_chunks: list) -> None:
+         if csr[0] in SM_VADDR_CSRS:
+             continue  # skip the virtual-address CSRs; they are walked in addr_csr_tests
+         tc = test_data.new_test_chunk(test_chunks)
++        if csr[0] == "mcountinhibit":
++            tc.code.append("#ifdef UDB_MCOUNTINHIBIT_IMPLEMENTED")
+         tc.code.extend(csr_walk_test(test_data, csr, covergroup, coverpoint))
++        if csr[0] == "mcountinhibit":
++            tc.code.append("#endif")
+ 
+     tc.code.append("\n#ifdef SM1P12P0_OR_LATER_SUPPORTED")
+     warl_fields = [("cbie", 4, 2, 0b10), ("pmm", 32, 2, 0b01)]
+@@ -1313,6 +1321,7 @@ def _generate_mcsr_cntr_tests(test_data: TestData) -> list[str]:
+     lines.append("#endif")
+ 
+     r1, r2 = test_data.int_regs.get_registers(2)
++    lines.append("#ifdef UDB_MCOUNTINHIBIT_IMPLEMENTED")
+ 
+     ######################################
+     coverpoint = "cp_inhibit_mcycle"
+@@ -1335,7 +1344,6 @@ def _generate_mcsr_cntr_tests(test_data: TestData) -> list[str]:
+             write_sigupd(r2, test_data),
+         ]
+     )
+-
+     ######################################
+     coverpoint = "cp_inhibit_minstret"
+     ######################################
+@@ -1357,6 +1365,7 @@ def _generate_mcsr_cntr_tests(test_data: TestData) -> list[str]:
+             write_sigupd(r2, test_data),
+         ]
+     )
++    lines.append("#endif")
+ 
+     ######################################
+     coverpoint = "cp_mtime_write"
+@@ -1398,7 +1407,13 @@ def _generate_mcsr_cntr_tests(test_data: TestData) -> list[str]:
+     r_val, r_val2, r_temp, r_counter = test_data.int_regs.get_registers(4)
+ 
+     # Re-enable all counters before trying to wrap them!
+-    lines.append("csrw mcountinhibit, x0    # Clear inhibit register")
++    lines.extend(
++        [
++            "#ifdef UDB_MCOUNTINHIBIT_IMPLEMENTED",
++            "csrw mcountinhibit, x0    # Clear inhibit register",
++            "#endif",
++        ]
++    )
+ 
+     ######################################
+     coverpoint = "cp_mcycle_wraparound"
+diff --git a/tests/env/rvtest_setup.h b/tests/env/rvtest_setup.h
+--- a/tests/env/rvtest_setup.h
++++ b/tests/env/rvtest_setup.h
+@@ -1061,10 +1061,9 @@
+       #endif
+ 
+       // Enable all performance counters if they exist
+-      // This is reserved if mcountinhibit is not implemented, and might trap or have unspecified behavior
+-      //   *** need to define a UDB parameter MCOUNTINHIBIT_IMPLEMENTED to determine whether mcountinhibit is implemented
+-      //   see https://github.com/riscv/riscv-isa-manual/issues/2964
+-      csrw mcountinhibit, zero
++      #ifdef UDB_MCOUNTINHIBIT_IMPLEMENTED
++        csrw mcountinhibit, zero
++      #endif
+ 
+       // Initialize counter event selectors to 0.  They must be implemented.
+       csrw mhpmevent3, zero
+-- 
+2.39.5 (Apple Git-154)

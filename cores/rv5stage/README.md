@@ -944,7 +944,10 @@ containing `rs1`. It uses the ordinary store-translation path, with no scalar
 alignment requirement or register result. M-mode may always execute it;
 S-mode requires `menvcfg.CBZE`, and U-mode requires both `menvcfg.CBZE` and
 `senvcfg.CBZE`. These bit-7 fields reset to zero and are read-only zero when
-the extension is disabled. Other environment-configuration fields remain zero.
+the extension is disabled. `menvcfg.FIOM` and `senvcfg.FIOM` are writable; the
+core's fully serializing fences already order both memory and device accesses,
+and device PMA entries do not permit atomics. Other environment-configuration
+fields remain zero.
 The original virtual address is retained for store page/access faults.
 
 The PMA router requires write permission and explicit block-zero support
