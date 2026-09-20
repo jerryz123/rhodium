@@ -65,7 +65,7 @@ benchmark-elfs: program-target
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
 
 coremark-elf: program-target
-	@test "$(SOC)" = simple || (echo 'CoreMark currently supports SOC=simple only' >&2; exit 2)
+	@test "$(SOC)" = single-core-rv5stage-soc || (echo 'CoreMark currently supports SOC=single-core-rv5stage-soc only' >&2; exit 2)
 	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
 	  --output "$(PROGRAM_BUILD_ROOT)/coremark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)"
