@@ -14,8 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from program_target import (elf_architecture, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 
-BENCHMARKS = ('median', 'qsort', 'rsort', 'towers', 'vvadd', 'memcpy',
-              'multiply', 'mm', 'dhrystone', 'spmv')
+SCALAR_BENCHMARKS = ('median', 'qsort', 'rsort', 'towers', 'vvadd', 'memcpy',
+                     'multiply', 'mm', 'dhrystone', 'spmv')
+VECTOR_BENCHMARKS = ('vec-memcpy', 'vec-daxpy', 'vec-sgemm', 'vec-strcmp')
 FLAGS = ('-U_FORTIFY_SOURCE -DPREALLOCATE=0 -mcmodel=medany -static -std=gnu99 '
          '-O2 -ffast-math -fno-common -fno-builtin-printf '
          '-fno-tree-loop-distribute-patterns -Wno-implicit-int '
@@ -43,6 +44,11 @@ def smoke_selection(target):
         raise ValueError('ISA smoke requires an RV64 I target')
     selected = [value for extension, value in SMOKE_GROUPS.items() if extension in target['extensions']]
     return [group for group, _ in selected], [f'{group}-p-{test}' for group, tests in selected for test in tests]
+
+
+def benchmark_selection(target, mode):
+    vector = VECTOR_BENCHMARKS if mode == 'target' and 'v' in target['extensions'] else ()
+    return SCALAR_BENCHMARKS + vector
 
 
 def check_elf_memory(elf, regions, require_executable_entry=True):
@@ -138,7 +144,8 @@ def main():
         if target:
             exclusions['other instruction groups'] = 'Outside the fixed capability-filtered ISA smoke subset.'
     else:
-        names = [name + '.riscv' for name in BENCHMARKS]
+        benchmarks = benchmark_selection(target, args.benchmark_mode)
+        names = [name + '.riscv' for name in benchmarks]
         if args.benchmark_mode == 'baseline' and target['xlen'] != 64:
             parser.error('the benchmark baseline is defined only for RV64')
         march = target['march'] if args.benchmark_mode == 'target' else BASELINE_MARCH
@@ -146,9 +153,11 @@ def main():
         compiler_arch = probe_compiler(compiler, march, mabi, build)
         command = ['make', '--no-print-directory', '-f', str(source / 'benchmarks/Makefile'),
                    f'XLEN={target["xlen"]}', f'src_dir={source / "benchmarks"}', f'RISCV_GCC={compiler}',
-                   f'RISCV_MARCH={march}', f'RISCV_GCC_OPTS={FLAGS} -mabi={mabi}',
+                   f'RISCV_MARCH={march}', f'RISCV_VMARCH={march}', f'RISCV_GCC_OPTS={FLAGS} -mabi={mabi}',
                    f'RISCV_LINK_OPTS=-static -nostdlib -nostartfiles -lm -lgcc -T {source / "benchmarks/common/test.ld"}']
-        exclusions = {'mt-*': 'Requires multiple active harts.', 'vec-*': 'Requires V.', 'pmp': 'Requires PMP.'}
+        exclusions = {'mt-*': 'Requires multiple active harts.', 'pmp': 'Requires PMP.'}
+        if args.benchmark_mode != 'target' or 'v' not in target['extensions']:
+            exclusions['vec-*'] = 'Requires target-native V compilation.'
     if not names or len(names) != len(set(names)):
         raise RuntimeError('upstream selection is empty or contains duplicate tests')
     stamp = build / 'built.json'

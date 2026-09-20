@@ -303,16 +303,17 @@ suites. The existing runner executes every selected test even after failures.
 TiledSoC boots only hart 0: this is mesh-backed memory coverage, not a
 multihart coherence test. ACT and benchmarks remain SimpleSoC-only.
 
-Benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`, `multiply`,
-`mm`, `dhrystone`, and `spmv`. By default, their GNU `-march` and `-mabi`
-options are derived from the exact SimpleSoC core profile. This target-native
-mode lets the compiler use every extension that the concrete system advertises;
-it does not imply that every benchmark contains an instruction from every
-extension. Use `BENCHMARK_MODE=baseline` to reproduce the former
-`rv64imafdc_zicsr_zifencei`/`lp64d` compiler target for historical comparisons.
-Multihart and PMP benchmarks require capabilities outside this platform. The
-default SimpleSoC profile advertises V with VLEN 128, but the current benchmark
-catalog does not yet include a vector workload.
+Scalar benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`,
+`multiply`, `mm`, `dhrystone`, and `spmv`. Target-native builds also select the
+upstream `vec-memcpy`, `vec-daxpy`, `vec-sgemm`, and `vec-strcmp` workloads when
+the concrete SoC advertises V. Their GNU `-march` and `-mabi` options are derived
+from the exact core profile. This mode lets the compiler use every extension
+that the concrete system advertises; it does not imply that every benchmark
+contains an instruction from every extension. Use `BENCHMARK_MODE=baseline` to
+reproduce the former `rv64imafdc_zicsr_zifencei`/`lp64d` compiler target for
+historical comparisons.
+Baseline mode selects only scalar workloads. Multihart and PMP benchmarks
+require capabilities outside this platform.
 These are compatibility selections, not a list of tests proven to pass. Any
 selected workload failure fails its suite; there are no expected-failure masks.
 

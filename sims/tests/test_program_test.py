@@ -66,6 +66,14 @@ class ProgramBuildTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'RV64'):
             self.builder.smoke_selection(target)
 
+    def test_benchmark_selection_follows_vector_capability_and_mode(self):
+        target = program_target()
+        self.assertEqual(self.builder.benchmark_selection(target, 'target'), self.builder.SCALAR_BENCHMARKS)
+        target['extensions'].append('v')
+        self.assertEqual(self.builder.benchmark_selection(target, 'target'),
+                         self.builder.SCALAR_BENCHMARKS + self.builder.VECTOR_BENCHMARKS)
+        self.assertEqual(self.builder.benchmark_selection(target, 'baseline'), self.builder.SCALAR_BENCHMARKS)
+
     def test_elf_footprint_uses_memory_size_and_checks_entry(self):
         base = 0x80000000
         with tempfile.TemporaryDirectory() as directory:
@@ -204,7 +212,8 @@ class ProgramBuildTest(unittest.TestCase):
             (source / 'env/p').mkdir(parents=True)
             (source / 'env/p/link.ld').touch()
             target = program_target()
-            target['march'] = 'rv64im_zba_zicond'
+            target['extensions'].append('v')
+            target['march'] = 'rv64imv_zba_zicond'
             target_path = root / 'target.json'
             target_path.write_text(json.dumps(target))
             make_commands = []
@@ -219,7 +228,7 @@ class ProgramBuildTest(unittest.TestCase):
             def run(command, **kwargs):
                 if command[0] == 'make':
                     make_commands.append(command)
-                    for name in builder.BENCHMARKS:
+                    for name in builder.benchmark_selection(target, 'target'):
                         (kwargs['cwd'] / (name + '.riscv')).write_bytes(b'ELF')
                 return subprocess.CompletedProcess(command, 0)
 
@@ -240,13 +249,16 @@ class ProgramBuildTest(unittest.TestCase):
                     patch.object(builder, 'check_elf_memory', return_value=[]):
                 builder.main()
             self.assertEqual(len(make_commands), 1)
-            self.assertIn('RISCV_MARCH=rv64im_zba_zicond', make_commands[0])
+            self.assertIn('RISCV_MARCH=rv64imv_zba_zicond', make_commands[0])
+            self.assertIn('RISCV_VMARCH=rv64imv_zba_zicond', make_commands[0])
             self.assertIn('RISCV_GCC_OPTS=' + builder.FLAGS + ' -mabi=lp64', make_commands[0])
             manifest = json.loads((output / 'manifest.json').read_text())
             self.assertEqual(manifest['target'], target)
             self.assertEqual(manifest['target_fingerprint'], target_fingerprint(target))
             self.assertEqual(manifest['benchmark_mode'], 'target')
             self.assertEqual(manifest['compiler_arch'], 'normalized-arch')
+            self.assertEqual(len(manifest['tests']), len(builder.SCALAR_BENCHMARKS + builder.VECTOR_BENCHMARKS))
+            self.assertNotIn('vec-*', manifest['exclusions'])
             self.assertTrue((output / 'instruction-report.json').is_file())
 
 
