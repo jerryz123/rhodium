@@ -4,6 +4,7 @@
 module rv5stage_dcache_tb;
   `include "tests/backend/verilog/rv5stage-amo-reference.svh"
   typedef struct packed {
+    logic [7:0] byte_mask;
     logic [63:0] address;
     logic [3:0] access;
     logic [3:0] atomic;
@@ -150,10 +151,10 @@ module rv5stage_dcache_tb;
 
   task automatic stage_pipeline_store(input logic [63:0] address, value, input logic [1:0] size=3);
     pipeline_in='0;
-    pipeline_lookup_in='{valid:1,bits:'{address:address ^ virtual_page_xor,access:MEMORY_STORE,width:size,unsigned_0:0,data:value}};
+    pipeline_lookup_in='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (size))) - 1) << ((address ^ virtual_page_xor) % 8)),address:address ^ virtual_page_xor,access:MEMORY_STORE,width:size,unsigned_0:0,data:value}};
     tick();
     pipeline_lookup_in='0;
-    pipeline_in.request='{valid:1,bits:'{address:address,access:MEMORY_STORE,width:size,unsigned_0:0,data:value}};
+    pipeline_in.request='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (size))) - 1) << ((address) % 8)),address:address,access:MEMORY_STORE,width:size,unsigned_0:0,data:value}};
     #1;
     assert(pipeline_out.response.valid && pipeline_out.response.bits.outcome==PIPE_STORE_HIT)
       else $fatal(1,"owned store did not resolve in MEM: %0d",pipeline_out.response.bits.outcome);
@@ -166,9 +167,9 @@ module rv5stage_dcache_tb;
                                 input bit overlap,
                                 input logic [63:0] expected);
     stage_pipeline_store(store_address,value,store_size);
-    pipeline_lookup_in='{valid:1,bits:'{address:load_address ^ virtual_page_xor,access:MEMORY_LOAD,width:load_size,unsigned_0:1,data:0}};
+    pipeline_lookup_in='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (load_size))) - 1) << ((load_address ^ virtual_page_xor) % 8)),address:load_address ^ virtual_page_xor,access:MEMORY_LOAD,width:load_size,unsigned_0:1,data:0}};
     tick();
-    pipeline_in.request='{valid:1,bits:'{address:load_address,access:MEMORY_LOAD,width:load_size,unsigned_0:1,data:0}};
+    pipeline_in.request='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (load_size))) - 1) << ((load_address) % 8)),address:load_address,access:MEMORY_LOAD,width:load_size,unsigned_0:1,data:0}};
     pipeline_in.commit=1;
     #1;
     assert(pipeline_out.commit_ready && !core_out.drained) else $fatal(1,"WB store authorization/drain boundary");
@@ -185,10 +186,10 @@ module rv5stage_dcache_tb;
   task automatic check_pipeline_load(input logic [63:0] address,
                                       input bit permitted, expected_hit,
                                       input logic [63:0] value=0);
-    pipeline_lookup_in='{valid:1'b1,bits:'{address:address ^ virtual_page_xor,access:MEMORY_LOAD,width:2'd3,unsigned_0:1'b0,data:'0}};
+    pipeline_lookup_in='{valid:1'b1,bits:'{byte_mask:8'(((1 << (1 << (2'd3))) - 1) << ((address ^ virtual_page_xor) % 8)),address:address ^ virtual_page_xor,access:MEMORY_LOAD,width:2'd3,unsigned_0:1'b0,data:'0}};
     tick();
     pipeline_lookup_in='0;
-    pipeline_in.request='{valid:permitted,bits:'{address:address,access:MEMORY_LOAD,width:2'd3,unsigned_0:1'b0,data:'0}};
+    pipeline_in.request='{valid:permitted,bits:'{byte_mask:8'(((1 << (1 << (2'd3))) - 1) << ((address) % 8)),address:address,access:MEMORY_LOAD,width:2'd3,unsigned_0:1'b0,data:'0}};
     #1;
     assert((pipeline_out.response.valid && pipeline_out.response.bits.outcome==PIPE_LOAD_HIT)==expected_hit)
       else $fatal(1,"speculative MEM hit mismatch at %h",address);
@@ -205,10 +206,10 @@ module rv5stage_dcache_tb;
                                  input logic [2:0] outcome,
                                  input logic [63:0] value=0,
                                  input logic [3:0] operation=MEMORY_LOAD);
-    pipeline_lookup_in='{valid:1,bits:'{address:address ^ virtual_page_xor,access:operation,width:3,unsigned_0:0,data:0}};
+    pipeline_lookup_in='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((address ^ virtual_page_xor) % 8)),address:address ^ virtual_page_xor,access:operation,width:3,unsigned_0:0,data:0}};
     tick();
     pipeline_lookup_in='0;
-    pipeline_in.request='{valid:1,bits:'{address:address,access:operation,width:3,unsigned_0:0,data:0}};
+    pipeline_in.request='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((address) % 8)),address:address,access:operation,width:3,unsigned_0:0,data:0}};
     #1;
     assert(pipeline_out.response.valid && pipeline_out.response.bits.outcome==outcome)
       else $fatal(1,"hit-under-miss outcome at %h: got %0d expected %0d",address,pipeline_out.response.bits.outcome,outcome);
@@ -220,9 +221,9 @@ module rv5stage_dcache_tb;
   endtask
 
   task automatic stream_under_miss;
-    pipeline_lookup_in='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+    pipeline_lookup_in='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((PREFETCH_READ_ADDRESS ^ virtual_page_xor) % 8)),address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
     tick();
-    pipeline_in.request='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+    pipeline_in.request='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((PREFETCH_READ_ADDRESS) % 8)),address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
     repeat(12) begin
       #1;
       assert(pipeline_out.response.valid && pipeline_out.response.bits.outcome==PIPE_LOAD_HIT && pipeline_out.response.bits.data==LINE[63:0])
@@ -327,7 +328,7 @@ module rv5stage_dcache_tb;
       end
       assert (core_out.request.ready)
         else $fatal(1, "L1D did not accept a core request");
-      core_in.request.bits = '{address: address,
+      core_in.request.bits = '{byte_mask:8'(((1 << (1 << (size))) - 1) << ((address) % 8)),address: address,
                                access: access,
                                atomic: atomic,
                                width: size,
@@ -1415,9 +1416,9 @@ module rv5stage_dcache_tb;
       chi_in.requester_responses.ready=0;
       return_line(THIRD_ADDRESS,THIRD_LINE,store_miss!=0 ? 3'b010 : 3'b001,1);
       stream_under_miss(); // Full line buffered, CompAck backpressured.
-      pipeline_lookup_in='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      pipeline_lookup_in='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((PREFETCH_READ_ADDRESS ^ virtual_page_xor) % 8)),address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
       tick();
-      pipeline_in.request='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      pipeline_in.request='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((PREFETCH_READ_ADDRESS) % 8)),address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
       grant_rsp_credit(); tick(); accept_comp_ack();
       replies=0; blocked=0; resumed=0;
       repeat(24) begin
@@ -1451,9 +1452,9 @@ module rv5stage_dcache_tb;
       accept_request(READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
       chi_in.requester_responses.ready=0;
       return_line(THIRD_ADDRESS,THIRD_LINE,3'b001,1);
-      pipeline_lookup_in='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      pipeline_lookup_in='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((PREFETCH_READ_ADDRESS ^ virtual_page_xor) % 8)),address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
       tick();
-      pipeline_in.request='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      pipeline_in.request='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((PREFETCH_READ_ADDRESS) % 8)),address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
       grant_rsp_credit(); tick(); accept_comp_ack(); simultaneous=0;
       repeat(8) begin
         #1;
@@ -1499,7 +1500,7 @@ module rv5stage_dcache_tb;
     // for the unrelated refill. Once invalidated, that load must replay.
     send_snoop(PREFETCH_READ_ADDRESS,12'h07f);
     for(int cycle=0;!tx_rsp_pending && cycle<32;cycle++) begin
-      pipeline_lookup_in='{valid:1,bits:'{address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
+      pipeline_lookup_in='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((PREFETCH_READ_ADDRESS ^ virtual_page_xor) % 8)),address:PREFETCH_READ_ADDRESS ^ virtual_page_xor,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
       tick();
     end
     pipeline_lookup_in='0;

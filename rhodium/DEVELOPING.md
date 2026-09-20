@@ -177,6 +177,11 @@ and accepted shared-service queues; it additionally imports named integer
 register-write and FP contracts, vector mask-scan controls, pure FP profiles,
 and public HardFloat rounding types. `vector/scoreboard.rhdl` and
 `vector/load-response.rhdl` import Flow for ownership and completion events.
+`vector/packed-memory.rhdl` imports the vector bundles, VRF and ownership
+contracts, footprint arithmetic, vector decode/ISA geometry, public bit helpers,
+and Flow. `vector/pipeline.rhdl` composes it with the existing execution engine
+and imports the reusable load/store byte-mask helper. `vector/execute.rhdl`
+imports public ready-valid types for its shared SIMD alignment client.
 `vector/memory.rhdl` imports Flow for fixed-cycle attempts and acceptance, the
 named D-cache protocols and memory operations, and RISC-V trap/pointer-masking
 adapters. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU

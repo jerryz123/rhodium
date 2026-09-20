@@ -51,4 +51,5 @@ fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageV
 
 export:
   RV5StageVectorFootprint
+  vector_field_extent
   vector_footprint

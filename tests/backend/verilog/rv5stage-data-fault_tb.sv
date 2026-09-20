@@ -23,6 +23,7 @@ module rv5stage_data_fault_tb;
     ready_t response;
   } instruction_out_t;
   typedef struct packed {
+    logic [7:0] byte_mask;
     logic [63:0] address;
     logic [3:0] access;
     logic [3:0] atomic;

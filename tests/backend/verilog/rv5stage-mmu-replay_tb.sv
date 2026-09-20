@@ -28,6 +28,7 @@ module rv5stage_mmu_replay_tb;
     physical_instruction_req_bits_t bits;
   } physical_instruction_req_t;
   typedef struct packed {
+    logic [7:0] byte_mask;
     logic [63:0] address;
     logic [3:0] access;
     logic [3:0] atomic;
@@ -169,6 +170,7 @@ module rv5stage_mmu_replay_tb;
     data_in.request.bits.access = management_operation != 0 ? management_operation : zero_request ? 4'd6 : 4'(MEMORY_LOAD);
     data_in.request.bits.atomic = '0;
     data_in.request.bits.width = MEMORY_DOUBLE;
+    data_in.request.bits.byte_mask = '1;
     data_in.request.bits.unsigned_0 = 1'b1;
     data_in.request.bits.data = '0;
     data_in.request.bits.writeback = memory_integer(5'd7);
@@ -329,7 +331,7 @@ module rv5stage_mmu_replay_tb;
                                      input logic [2:0] expected_outcome=PIPE_LOAD_HIT,
                                      input logic [3:0] operation=MEMORY_LOAD);
     @(negedge clock);
-    pipeline_in.request='{valid:1'b1,bits:'{address:address,access:operation,width:2'd3,unsigned_0:1'b0,data:'0}};
+    pipeline_in.request='{valid:1'b1,bits:'{byte_mask:8'(((1 << (1 << (2'd3))) - 1) << ((address) % 8)),address:address,access:operation,width:2'd3,unsigned_0:1'b0,data:'0}};
     #1;
     assert(pipeline_lookup_out.valid && pipeline_lookup_out.bits.address==address && !pipeline_memory_out.request.valid)
       else $fatal(1,"EX index did not precede registered translation");

@@ -7,9 +7,10 @@ import:
   "../../rhodium/event/main.rhm" open
   "../../rhodium/backend/circt.rhm".emit_circt
 def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageVectorTrace(1)), EventInstrumentationConfig(~partial: #true))
+def launch_site = traced.manifest.sites.find(fun (site): site.label == "vector/launch")
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace vector_sites {\n" ++ String.join(
   for List (label in ["launch", "issue", "complete", "issue.stall"], name in ["launch", "issue", "complete", "stall"]):
-    def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == ("vector/" ++ label))
+    def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == ("vector/" ++ label) && traced.manifest.sites[index].instance_path == launch_site.instance_path)
     unless matches.length() == 1 | error("expected one vector trace site: " ++ label)
     "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
   ""

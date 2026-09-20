@@ -42,7 +42,12 @@ void check_parent(Ref child, Ref parent) {
     if(!equal(edge.first,parent)) fail("wrong occurrence parent");
     ++count;
   }
-  if(count!=1 || rheg::graph().nodes.at(child).ancestry_unknown) fail("missing or incomplete parent");
+  if(count!=1 || rheg::graph().nodes.at(child).ancestry_unknown) {
+    std::fprintf(stderr,"child %u:%llu parent %u:%llu count %u unknown %u\n",
+      child.site,(unsigned long long)child.sequence,parent.site,(unsigned long long)parent.sequence,
+      count,unsigned(rheg::graph().nodes.at(child).ancestry_unknown));
+    fail("missing or incomplete parent");
+  }
 }
 }
 extern "C" void vector_trace_bind() { rheg::graph().bind_manifest(rheg_generated::manifest()); }

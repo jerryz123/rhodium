@@ -43,6 +43,7 @@ module rv5stage_icache_coherence_tb;
     host_in.request.bits.address = 64'(address);
     host_in.request.bits.access = write ? 2 : 1;
     host_in.request.bits.width = 3;
+    host_in.request.bits.byte_mask = 8'hff;
     host_in.request.bits.data = value;
     host_in.request.bits.writeback = write ? 9'b0 : 9'h080;
     host_in.request.valid = 1;

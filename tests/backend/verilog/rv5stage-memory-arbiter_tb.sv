@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_memory_arbiter_tb;
-  typedef struct packed { logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic unsigned_0; logic [63:0] data; logic [8:0] writeback; logic [2:0] locality; } request_t;
+  typedef struct packed { logic [7:0] byte_mask; logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic unsigned_0; logic [63:0] data; logic [8:0] writeback; logic [2:0] locality; } request_t;
   typedef struct packed { logic valid; request_t bits; } request_flow_t;
   typedef struct packed { request_flow_t request; } data_request_t;
   typedef struct packed { logic access_fault; logic [63:0] data; logic [8:0] writeback; } response_t;
   typedef struct packed { logic valid; response_t bits; } response_flow_t;
   typedef struct packed { logic request_ready, request_fault, request_access_fault; response_flow_t response; logic drained, reservation_valid; } data_response_t;
-  typedef struct packed { logic [63:0] address; logic [3:0] access; logic [1:0] width; logic unsigned_0; logic [63:0] data; } lookup_t;
+  typedef struct packed { logic [7:0] byte_mask; logic [63:0] address; logic [3:0] access; logic [1:0] width; logic unsigned_0; logic [63:0] data; } lookup_t;
   typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;
   typedef struct packed { lookup_flow_t request; logic commit; } pipeline_request_t;
   typedef struct packed { logic [2:0] outcome, reason; logic [63:0] data; } result_t;
@@ -30,8 +30,8 @@ module rv5stage_memory_arbiter_tb;
     tick(); tick(); @(negedge clock); reset = 0;
 
     // Both attempt a lookup. Scalar wins; vector receives replay one cycle later.
-    scalar_pipeline_in.request = '{valid:1, bits:'{address:64'h100, access:4'd2, width:2'd3, unsigned_0:1, data:64'h11}};
-    vector_pipeline_in.request = '{valid:1, bits:'{address:64'h200, access:4'd2, width:2'd3, unsigned_0:1, data:64'h22}};
+    scalar_pipeline_in.request = '{valid:1, bits:'{byte_mask:8'(((1 << (1 << (2'd3))) - 1) << ((64'h100) % 8)),address:64'h100, access:4'd2, width:2'd3, unsigned_0:1, data:64'h11}};
+    vector_pipeline_in.request = '{valid:1, bits:'{byte_mask:8'(((1 << (1 << (2'd3))) - 1) << ((64'h200) % 8)),address:64'h200, access:4'd2, width:2'd3, unsigned_0:1, data:64'h22}};
     #1; assert(pipeline_out.request.valid && pipeline_out.request.bits.address == 'h100) else $fatal(1,"lookup priority");
     tick();
     pipeline_in.response = '{valid:1, bits:'{outcome:3'd2, reason:0, data:64'h11}};

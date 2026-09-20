@@ -1,0 +1,87 @@
+#lang rhodium
+// Exposes certified beat scheduling, real VRF storage, and the shared SIMD alignment datapath.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../vector/packed-memory.rhdl" open
+  "../vector/bundles.rhdl" open
+  "../vector/register-file.rhdl" open
+  "../vector/execute.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen = XLen.X64):
+  def vlen = 128
+  input(base, vl, vstart, vtype): Bits(64)
+  input nf: Bits(3)
+  input eew: Bits(2)
+  input mode: VectorMemoryMode
+  input(store, masked, request_valid, issue_ready, retry, slow): Bool
+  input hit_data: Bits(64)
+  interface response(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
+  interface initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
+  interface written(Valid(VectorRegisterWrite(vlen)), ~role: producer)
+  output(request_ready, active, issued, retired): Bool
+  output token: RV5StageVectorToken(Bits(64), slots)
+  interface attempt(Valid(RV5StageVectorToken(Bits(64), slots)), ~role: producer)
+  inst engine(RV5StageVectorPackedMemory(xlen, vlen, Bits(64), slots))
+  inst registers(RV5StageVectorRegisterFile(vlen))
+  inst execute(RV5StageVectorExecute(vlen))
+  inst attempts(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
+  def control :: RV5StageVectorControl() = literal(RV5StageVectorControl(), 0)
+  engine.request.valid <== request_valid
+  engine.request.bits <== RV5StageVectorInstruction(xlen, Bits(64)):
+    context: bits(0x100, 64)
+    descriptor:
+      RV5StageVectorDescriptor(xlen):
+        pc: bits(0x100, xlen.width)
+        instruction: bits(0, 32)
+        state:
+          RiscvVectorState(xlen):
+            vl: vl[0..xlen.width]
+            vtype: vtype[0..xlen.width]
+            vstart: vstart[0..xlen.width]
+            vxrm: bits(0, 2)
+            vxsat: Bool(#false)
+        control: control.updated(~memory: Bool(#true), ~store: store, ~memory_data_eew: eew, ~memory_nf: nf, ~memory_mode: mode)
+        scalar: base[0..xlen.width]
+        floating_scalar: bits(0, 64)
+        stride: bits(0, xlen.width)
+        vd: bits(8, 5)
+        vs1: bits(0, 5)
+        vs2: bits(0, 5)
+        masked: masked
+  engine.issue |> gate_flow(issue_ready) |> to_valid() |> attempts.ingress
+  attempts.egress |> attempt
+  attempts.flush <== attempts.egress.valid & retry
+  (
+    attempts.egress |> map_valid(_token => RV5StageVectorCommit(xlen)):
+      pc: bits(0x100, xlen.width)
+      disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
+      slow: slow
+      data: hit_data[0..xlen.width]
+      cause: bits(0, xlen.width)
+      fault_address: bits(0, xlen.width)
+  ) |> engine.commit
+  response |> engine.completion
+  engine.reads <=> registers.reads
+  registers.results <=> engine.results
+  engine.mask_read |> registers.mask_read
+  registers.mask_result |> engine.mask_result
+  def Array(bank_write, observed_write) = engine.write |> fork_valid(2)
+  Array(initialize, bank_write) |> valid_arbiter() |> registers.write
+  observed_write |> written
+  engine.alignment |> execute.alignment
+  engine.aligned <== execute.aligned
+  execute.beat <== literal(RV5StageVectorBeat(vlen), 0)
+  execute.scan_carry <== bits(0, 64)
+  engine.memory_drained <== Bool(#true)
+  request_ready <== engine.request.ready
+  active <== engine.active
+  issued <== engine.issue.fire()
+  token <== engine.issue.bits
+  retired <== engine.retire.valid
+
+export RV5StageVectorPackedFixture

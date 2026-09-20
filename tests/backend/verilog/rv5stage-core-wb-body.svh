@@ -8,6 +8,7 @@ typedef struct packed { logic valid; logic [31:0] word; logic page_fault, access
 typedef struct packed { ready_t request; iresp_t response; } iin_t;
 typedef struct packed { logic flush, invalidate_all; ireq_t request; ready_t response; } iout_t;
 typedef struct packed {
+  logic [XLEN/8-1:0] byte_mask;
   logic [XLEN-1:0] address;
   logic [3:0] access;
   logic [3:0] atomic;

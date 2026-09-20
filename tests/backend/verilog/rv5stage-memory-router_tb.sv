@@ -3,6 +3,7 @@
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_memory_router_tb;
   typedef struct packed {
+    logic [3:0] byte_mask;
     logic [31:0] address;
     logic [3:0] access;
     logic [3:0] atomic;
@@ -65,6 +66,7 @@ module rv5stage_memory_router_tb;
   );
     core_in.request.valid = 1'b1;
     core_in.request.bits.address = address;
+    core_in.request.bits.byte_mask = 4'(((1 << (1 << core_in.request.bits.width)) - 1) << (address % 4));
     core_in.request.bits.access = access;
     core_in.request.bits.locality = 3'd4;
     core_in.request.bits.writeback = memory_vector(3'd5);

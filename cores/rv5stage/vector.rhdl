@@ -21,7 +21,7 @@ import:
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
-  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: False || String = #false):
@@ -53,7 +53,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   output(active, unrolling, pending, stores_pending): Bool
   output(certification_pending, loads_pending, fp_pending): Bool
 
-  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa))
+  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~trace_launch: #false))
   inst access(RV5StageVectorMemory(xlen, slots))
   reg store(~init: Bool(#false))
   reg captured_pointer_masking(PointerMaskControl())
@@ -63,18 +63,33 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   reg memory_macro(~init: Bool(#false))
   reg fp_macro(~init: Bool(#false))
   reg macro_pc(Bits(xlen.width))
+  reg pending_launch(~init: Bool(#false))
+  reg captured_rounding(RoundingMode)
   def footprint = vector_footprint(xlen, vlen, request.bits, pointer_masking)
   def needs_check = request.bits.control.memory & !footprint.empty & footprint.eligible
   def immediate_certificate = !request.bits.control.memory ||| footprint.empty
-  def Array(execution_request, launch_request) = request |> atomic_fork(2)
+  def admitted = request |> gate_flow(!execution.active & !waiting_retirement & !pending_launch) |> trace_event("vector/launch", ~fields: descriptor):
+    pc: descriptor.pc
+    instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): descriptor.instruction
+    vl(~format: "unsigned"): descriptor.state.vl
+    vstart(~format: "unsigned"): descriptor.state.vstart
+    sew(~format: "unsigned"): descriptor.state.vtype[3..6]
+    lmul: descriptor.state.vtype[0..3]
+  def Array(execution_request, launch_request) = admitted |> atomic_fork(2)
   def launch = launch_request |> to_valid()
   (
     execution_request |> map_flow(descriptor => RV5StageVectorInstruction(xlen, Bits(xlen.width))):
       context: descriptor.pc
       descriptor: descriptor
-  ) |> execution.request
+  ) |> pipe(1) |> gate_flow(!checking) |> execution.request
+  execution.packed_memory <== certified & memory_macro
+  when (request.fire()):
+    pending_launch <== Bool(#true)
+    captured_rounding <== rounding_mode
+  elsewhen (execution.request.fire()):
+    pending_launch <== Bool(#false)
   def Array(check_launch, compute_launch) = launch |> fork_valid(2)
-  check_launch |> filter_valid(_descriptor => needs_check) |> map_valid(_descriptor => footprint.range) |> to_decoupled() |> queue(1) |> precheck.request
+  check_launch |> filter_valid(_descriptor => needs_check) |> map_valid(_descriptor => footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| bits(xlen.width / 8 - 1, 64))) |> to_decoupled() |> queue(1) |> precheck.request
   precheck.release.valid <== execution.retire.valid ||| execution.fault_start.valid
   def early_compute = compute_launch |> filter_valid(_descriptor => immediate_certificate) |> map_valid(descriptor => descriptor.pc)
   def early_memory = precheck.response |> to_valid() |> filter_valid(safe => safe) |> map_valid(_safe => macro_pc)
@@ -126,7 +141,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   access.pointer_masking <== captured_pointer_masking
   // Only local rejection rewinds the allocated macro; younger scalar redirects do not cancel it.
   execution.cancel.valid <== Bool(#false)
-  execution.rounding_mode <== rounding_mode
+  execution.rounding_mode <== captured_rounding
   execution.memory_drained <== memory.drained
   execution.fp_request |> fp_request
   fp_result |> execution.fp_result
@@ -142,13 +157,13 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   execution.saturate |> saturate
   execution.scalar_result |> scalar_result
   execution.floating_result |> floating_result
-  active <== execution.active ||| waiting_retirement
+  active <== execution.active ||| waiting_retirement ||| pending_launch
   unrolling <== execution.unrolling
   pending <== execution.pending
-  stores_pending <== execution.stores_pending
+  stores_pending <== execution.stores_pending ||| (pending_launch & memory_macro & store)
   certification_pending <== waiting_retirement
-  loads_pending <== execution.active & memory_macro & !store
-  fp_pending <== execution.active & fp_macro
+  loads_pending <== (execution.active ||| pending_launch) & memory_macro & !store
+  fp_pending <== (execution.active ||| pending_launch) & fp_macro
 
 export:
   RV5StageVectorPipeline

@@ -629,14 +629,27 @@ Final completion clears `vstart`; inactive and tail bits remain undisturbed.
 ## Unit-stride memory
 
 The public RV64 vector path executes naturally aligned `vle8/16/32/64.v` and
-`vse8/16/32/64.v`, one element per micro-op. Encoded EEW determines both the
+`vse8/16/32/64.v`. Encoded EEW determines both the
 address increment and EMUL (`LMUL * EEW / SEW`); legality checks the effective
 group and rejects masked load overlap with `v0`. RV32 memory execution is not
 enabled. Masks suppress accesses and faults, and nonzero `vstart` preserves the
 prefix. Empty bodies still complete exactly one macro without memory effects.
 
-Elements use private address/lookup/acceptance stages that arbitrate for the scalar LSU.
-Warm loads can complete at one element per cycle. Stores cannot mutate the
+Certified contiguous accesses use aligned XLEN-sized LSU beats, with byte
+enables preserving masks, tails, and the pre-`vstart` prefix. This includes
+unit-stride segments, whole-register transfers, and packed-mask transfers.
+The certificate covers the aligned transport envelope within ordinary,
+idempotent, cacheable memory. Uncertified, strided, indexed, and fault-only-first
+operations retain elementwise execution and precise element fault reporting.
+This does not enable architecturally misaligned elements.
+
+The private address/lookup/acceptance stages arbitrate for the scalar LSU.
+Unmasked contiguous streams can offer one aligned word per cycle when read
+credits, completion slots, and the LSU permit it. The existing SIMD E64 rotator
+aligns memory words with 64-bit VRF rows; a masked carry merges boundary fragments.
+Segments additionally transpose memory bytes into their separate field groups.
+Masked and segmented store preparation can require multiple VRF read cycles.
+Stores cannot mutate the
 cache or devices before WB. Misses, translation misses, and uncached accesses
 use the ordinary authorized LSU service. Each accepted slow request carries a
 `RV5StageMemoryWriteback(n).Vector(slot)` identifying one of `n` reserved vector
@@ -645,7 +658,10 @@ uncached service preserve the union unchanged.
 
 Slots are reserved before issue. A hit and delayed response can complete
 different slots on the same edge; the single VRF write port drains completed
-slots in element order. One allocated macro owns the vector register bank until
+slots in request order. Raw data is buffered before alignment, so delayed
+responses may arrive out of order. A slot can release into the partial-row carry
+without waiting for its successor; a one-slot configuration therefore progresses.
+Final retirement waits for the last partial-row write. One allocated macro owns the vector register bank until
 these slots drain; younger vector instructions cannot introduce RAW/WAW hazards.
 The slot scoreboard distinguishes reservation, acceptance, and ordered release.
 A local replay rewinds only the unauthorized frontier,
@@ -653,6 +669,11 @@ without refetching the macro or reissuing accepted effects. Cancellation drops
 speculative slots but never erases accepted response ownership. Ordinary LSU
 faults are reported before acceptance, as in the scalar protocol; this does
 not introduce asynchronous ordinary-load error handling.
+
+Tracing uses `vector/issue` and `vector/complete` for both execution paths.
+The `packed` field identifies packed transport; its events also report
+`memory_bytes`, `store`, `byte_mask`, and `slot`. A completion marks a
+micro-op/beat, not completion of the whole vector instruction.
 
 A fault records its element in `vstart`, stops younger elements, and waits for
 older accepted data/VRF work before entering the precise trap at the macro PC.

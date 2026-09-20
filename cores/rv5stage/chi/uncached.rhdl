@@ -201,7 +201,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     request_opcode <== selected_opcode
     request_device <== selected_device
     write_data <== mux(command_zero, bits(0, 64), store_gen.data)
-    write_mask <== mux(command_zero, (!bits(0, 8)).into(Mask(8)), store_gen.mask)
+    write_mask <== mux(command_zero, !bits(0, 8), if xlen == XLen.X64 | command.byte_mask | command.byte_mask.zext(8) << (command.address[2].as_bits() ++ bits(0, 2))).into(Mask(8))
     zero_active <== select_data & command_zero
     zero_index <== bits(0, index_width(RV5StageCacheLineBytes / 8))
     state <== RV5StageUncachedState.Request

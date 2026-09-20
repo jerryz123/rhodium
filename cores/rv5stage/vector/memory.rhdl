@@ -42,6 +42,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def width = ex.bits.memory_width.into(MemoryWidth)
   def misaligned = access & !width.is_aligned(address)
   def request = RV5StageDataReq(xlen, slots):
+    byte_mask: ex.bits.byte_mask[0..xlen.width / 8]
     address: address
     access: mux(store, RV5StageMemoryOperation.Store, RV5StageMemoryOperation.Load)
     atomic: RiscvAtomicOperation.Swap
@@ -53,6 +54,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   (
     lookup_path |> filter_valid(_token => access & !misaligned & !recover)
       |> map_valid(_token => RV5StagePipelineReq(xlen)):
+           byte_mask: request.byte_mask
            address: request.address
            access: request.access
            width: request.width

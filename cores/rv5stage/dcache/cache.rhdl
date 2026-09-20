@@ -212,7 +212,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   s1_store_gen.width <== pipeline.request.bits.width
   s1_store_gen.value <== pipeline.request.bits.data
   stores.query_address <== pipeline.request.bits.address
-  stores.query_mask <== s1_store_gen.mask.as_bits()
+  stores.query_mask <== pipeline.request.bits.byte_mask
   def s1_probe_conflict = snoop_pending & (snoop.address[6..width] === pipeline.request.bits.address[6..width])
   def s1_read_matches = s1_read_valid & arrays.tags.response.valid & arrays.states.response.valid & (s1_store ||| arrays.data.response.valid) & (s1_read_address[0..12] === pipeline.request.bits.address[0..12])
   wire s1_outcome: RV5StagePipelineOutcome
@@ -255,7 +255,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         address: request.address
         way: s1_hit_way.index
         data: s1_store_gen.data
-        mask: s1_store_gen.mask.as_bits()
+        mask: pipeline.request.bits.byte_mask
         mark_dirty: !s1_state.is_dirty()
   ) |> s2_store_candidate.ingress
   // s2 / WB: authorize only the matching, still-owned store candidate.
@@ -496,7 +496,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   refill_store_gen.value <== mux(refill_access.is_atomic(), refill_atomic_alu.value, refill_request.data)
   refill_store_gen.width <== refill_request.width
   def refill_store_word_data = refill_store_gen.data.as_vec(Bits(8))
-  def refill_store_byte_mask = refill_store_gen.mask.into(Bits(word_bytes)).as_vec(Bool)
+  def refill_store_byte_mask = refill_request.byte_mask.as_vec(Bool)
   def refill_install_bytes = refill_words[refill_install_index].as_vec(Bits(8))
   def mutate_refill_word = refill_mutation & (refill_install_index === refill_word_index)
   def merged_refill_word = vec(
@@ -615,6 +615,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
       |> map_valid(payload):
         def hint = payload.into(CachePrefetchReq(width))
         def request = RV5StageDataReq(xlen, vector_completion_slots):
+          byte_mask: memory_byte_mask(xlen, hint.address, MemoryWidth.Byte)
           address: hint.address
           access: RV5StageMemoryOperation.Load
           atomic: RiscvAtomicOperation.Swap
@@ -673,7 +674,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def snoop_update_way_mask = rv5stage_cache_way_mask(cache, snoop_way)
   def full_byte_mask = (!bits(0, word_bytes)).into(Mask(word_bytes))
   def refill_lane_mask = rv5stage_cache_lane_mask(cache, refill_way, word_bytes, full_byte_mask)
-  def local_mutation_lane_mask = rv5stage_cache_lane_mask(cache, pending_mutation_way, word_bytes, mux(pending_zero, full_byte_mask, local_store_gen.mask))
+  def local_mutation_lane_mask = rv5stage_cache_lane_mask(cache, pending_mutation_way, word_bytes, mux(pending_zero, full_byte_mask, pending_mutation_request.byte_mask.into(Mask(word_bytes))))
   def line_write_bytes = mux(store_drain, stores.drain.bits.data.as_vec(Bits(8)), mux(local_mutation_commit, local_store_word_data, refill_install_data))
   def store_way_mask = rv5stage_cache_way_mask(cache, stores.drain.bits.way)
   def store_lane_mask = rv5stage_cache_lane_mask(cache, stores.drain.bits.way, word_bytes, stores.drain.bits.mask.into(Mask(word_bytes)))

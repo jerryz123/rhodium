@@ -123,6 +123,8 @@ must retain cross-word remnants and authorize destination writes itself.
 doubleword size contract used by the load/store generators. The generators do
 not suppress misaligned requests; invoke the helper or perform an equivalent
 check before issuing one.
+`memory_byte_mask(xlen, address, width)` returns the corresponding byte enables
+within the containing XLEN word. It does not split misaligned accesses.
 
 For both iterative engines, a request transfers only when `request.fire()` is
 true. The `Irrevocable` response may be backpressured and must be consumed with

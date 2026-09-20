@@ -25,6 +25,15 @@ hardware_enum MemoryWidth:
       ]
     )
 
+// Returns physical byte enables for a naturally aligned scalar within its word.
+fun memory_word_bytes(xlen :: XLen) :: PosInt:
+  xlen.width / 8
+
+fun memory_byte_mask(xlen :: XLen, address :: Bits(xlen.width), width :: MemoryWidth) :~ Bits(memory_word_bytes(xlen)):
+  def bytes = xlen.width / 8
+  def lanes = mux_lookup(width, ~default: !bits(0, bytes), [[MemoryWidth.Byte, bits(1, bytes)], [MemoryWidth.Half, bits(3, bytes)], [MemoryWidth.Word, bits(15, bytes)]])
+  lanes << address[0..alignment_bits(bytes)]
+
 // Selects one scalar from a returned beat and extends it to XLEN.
 circuit LoadGen(xlen :: XLen,
                 beat_bytes :: Pow2Int = 8):
@@ -99,6 +108,8 @@ circuit StoreGen(xlen :: XLen,
   mask <== (base_mask << offset).into(Mask(beat_bytes))
 
 export:
+  memory_byte_mask
+  memory_word_bytes
   MemoryWidth
   LoadGen
   StoreGen

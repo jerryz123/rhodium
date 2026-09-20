@@ -39,6 +39,7 @@ module rv5stage_lrsc_progress_tb;
     core_in[client].request.bits.address = address;
     core_in[client].request.bits.access = operation;
     core_in[client].request.bits.width = 3;
+    core_in[client].request.bits.byte_mask = 8'hff;
     core_in[client].request.bits.data = data;
     core_in[client].request.bits.writeback = operation == 2 ? 9'b0 : 9'h080;
     core_in[client].request.valid = 1;

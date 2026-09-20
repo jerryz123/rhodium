@@ -31,6 +31,8 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
   inst unroller(RV5StageVectorUnroller(xlen, vlen, Bits(xlen.width)))
   inst bank(RV5StageVectorRegisterFile(vlen))
   inst execute(RV5StageVectorExecute(vlen))
+  execute.alignment.valid <== Bool(#false)
+  execute.alignment.bits <== dont_care(RV5StageVectorAlignment())
   inst pipeline(ValidPipe(RV5StageVectorResultBeat(vlen), 3, ~flushable: #true))
   decode.instruction <== instruction
   legality.instruction <== instruction

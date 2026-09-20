@@ -35,6 +35,14 @@ requires XLEN to leave at least one tag bit above the line offset and set index.
 
 ## Core-facing protocol
 
+Both pipeline lookups and slow requests carry `byte_mask: Bits(XLEN / 8)`,
+positioned relative to the aligned XLEN word. Scalar callers derive it with
+`memory_byte_mask`; packed vector stores can select arbitrary lanes. The mask
+survives store buffering, refill merge, local mutation, and uncached routing.
+Data retains the ordinary width/address positioning convention; aligned
+full-width packed requests supply already positioned data. Load callers provide
+the accessed-byte mask for store-buffer hazard/forwarding checks.
+
 Slow requests and responses carry one `writeback: RV5StageMemoryWriteback(vector_completion_slots)`
 tagged union, preserved unchanged by the cache and adapters:
 

@@ -908,6 +908,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     rd: ex_input.bits.rd
     precision: ex_fp_execution_control.destination_precision
   def ex_data_request = RV5StageDataReq(xlen, vector_completion_slots):
+    byte_mask: memory_byte_mask(xlen, ex_memory_address, ex_input.bits.memory_width)
     address: ex_memory_address
     access: ex_memory_operation
     atomic: ex_input.bits.memory_atomic
@@ -929,6 +930,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // lookup itself cannot change the cache or initiate an external transaction.
   scalar_pipeline.request.valid <== ex_transfer & !ex_exception.valid & ex_memory_operation.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store)
   scalar_pipeline.request.bits <== RV5StagePipelineReq(xlen):
+    byte_mask: ex_data_request.byte_mask
     address: ex_memory_address
     access: ex_memory_operation
     width: ex_input.bits.memory_width

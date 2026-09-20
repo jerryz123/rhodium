@@ -323,6 +323,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     data_walk_access_fault ||| (data_forwarding_enabled & data_memory.request_access_fault)
   )
   def walker_data_request = walker_memory_request |> map_flow(address => RV5StageDataReq(xlen, vector_completion_slots)):
+    byte_mask: !bits(0, width / 8)
     address: if xlen == XLen.X32 | address[0..32] | address
     access: RV5StageMemoryOperation.Load
     atomic: RiscvAtomicOperation.Swap

@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the single-slot packed-vector replay and partial-row drain specialization.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../cores/rv5stage/tests/vector-packed-fixture.rhdl" open
+  "../../rhodium/frontend/kernel.rhm" as embedded
+  "../../rhodium/backend/circt.rhm".emit_circt
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageVectorPackedFixture(1))))

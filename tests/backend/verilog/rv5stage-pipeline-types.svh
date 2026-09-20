@@ -1,6 +1,7 @@
 // Defines the RV64 EX/MEM/WB cache protocol used by the direct cache and MMU benches.
 // SPDX-License-Identifier: Apache-2.0
 typedef struct packed {
+  logic [7:0] byte_mask;
   logic [63:0] address;
   logic [3:0] access;
   logic [1:0] width;

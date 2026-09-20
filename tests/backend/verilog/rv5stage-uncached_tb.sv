@@ -94,6 +94,7 @@ module rv5stage_uncached_tb;
     core_in.request.bits.request.address = 64'h0000_8000;
     core_in.request.bits.request.access = LOAD;
     core_in.request.bits.request.width = 2'd3;
+    core_in.request.bits.request.byte_mask = 8'hff;
     core_in.request.bits.device = 1'b1;
     #1;
     assert (core_out.request.ready && !instruction_out.request.ready && !chi_out.req.valid)
@@ -242,6 +243,7 @@ module rv5stage_uncached_tb;
     core_in.request.bits.request.address = 64'h8004;
     core_in.request.bits.request.access = 4'd2; // Store
     core_in.request.bits.request.width = 2'd2;
+    core_in.request.bits.request.byte_mask = 8'hf0;
     core_in.request.bits.request.data = 64'h12345678;
     core_in.request.bits.device = 1'b1;
     #1;

@@ -15,6 +15,11 @@ import:
 fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
   index_width(vlen + 1) + 3
 
+// A second client of the existing SIMD E64 rotate slot; no private barrel shifter.
+bundle RV5StageVectorAlignment():
+  data: Bits(64)
+  bytes: Bits(3)
+
 bundle RV5StageVectorDescriptor(xlen :: XLen):
   pc: Bits(xlen.width)
   instruction: Bits(32)
@@ -40,6 +45,7 @@ bundle RV5StageVectorCompressState(vlen :: VectorLength):
 
 // Local attempt stages retain macro context and memory metadata, not SIMD operands.
 bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2Int):
+  byte_mask: Bits(8)
   context: Context
   last: Bool
   truncate_on_fault: Bool
@@ -137,6 +143,7 @@ bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: Dat
   compress_state: RV5StageVectorCompressState(vlen)
 
 export:
+  RV5StageVectorAlignment
   vector_sequence_width
   RV5StageVectorDescriptor
   RV5StageVectorInstruction

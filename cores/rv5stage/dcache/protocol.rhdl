@@ -41,6 +41,7 @@ hardware_enum RV5StagePipelineReason:
   Ordered
 
 bundle RV5StagePipelineReq(xlen :: XLen):
+  byte_mask: Bits(memory_word_bytes(xlen))
   address: Bits(xlen.width)
   access: RV5StageMemoryOperation
   width: MemoryWidth
@@ -68,6 +69,7 @@ interface RV5StagePipelineAccess(xlen :: XLen):
     commit_ready: Bool
 
 bundle RV5StageDataReq(xlen :: XLen, vector_completion_slots :: Pow2Int):
+  byte_mask: Bits(memory_word_bytes(xlen))
   address: Bits(xlen.width)
   access: RV5StageMemoryOperation
   atomic: RiscvAtomicOperation

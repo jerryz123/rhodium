@@ -24,6 +24,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   output issue_tag: Bits(index_width(slots))
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  vector.packed_memory <== Bool(#false)
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
   decode.instruction <== instruction
   vector.request.valid <== request_valid

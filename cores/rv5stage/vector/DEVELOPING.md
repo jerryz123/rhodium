@@ -14,9 +14,44 @@ drain. The completion scoreboard is a bounded operation-owner table, not a
 multi-instruction renamer. Keep slot reservation, local acceptance, result
 arrival, and ordered release distinct.
 
+Certified contiguous macros select `packed-memory.rhdl` after the page check,
+before execution allocation. Its byte/field cursor maps aligned XLEN requests
+onto 64-bit VRF rows without an element-address multiplier. Ordinary unmasked
+stores pipeline two contributing VRF reads through a credited, replay-flushed
+queue; masked and segmented stores use the explicit row-gather schedule.
+Loads capture raw hit/delayed data in reserved slots and align only at ordered
+drain. A completed prefix and carry suffix can update on the same edge.
+Segment mapping remains explicit byte routing, separate from the rotator.
+The existing `execute.rhdl` instance arbitrates its SIMD E64 rotate slice between
+ordinary execution and the packed-memory alignment interface; there is no
+second barrel shifter or VRF.
+
+Packed retry restores the rejected beat's complete byte/field/address cursor,
+drops younger read preparation and reservations, and retains accepted responses
+and the partial-row carry. The aligned transport envelope must remain inside
+the MMU certificate. A false certificate selects the original elementwise
+unroller; never treat a failed precheck as an architectural fault.
+The `rv5stage-vector-packed`, `rv5stage-vector-packed-one-slot`, and
+`rv5stage-vector-packed-rv32` fixtures
+check byte-accurate loads/stores, every legal head offset, masks, segments,
+whole/mask transfers, replay, reordered returns, and sustained common-path issue.
+The real MMU/cache vector-memory fixture remains the integration boundary.
+
 ## Event ownership
 
-`pipeline.rhdl` owns the sparse launch, issue, and completion checkpoints.
+The parent `vector.rhdl` traces WB allocation before certificate waiting;
+`pipeline.rhdl` supplies the same launch checkpoint when used standalone.
+Elementwise issue/completion checkpoints remain in `pipeline.rhdl`.
+Both paths use the stable `vector/issue` and `vector/complete` labels, with a
+`packed` field distinguishing their beat geometry. Packed events additionally
+carry transport byte count, store direction, byte mask, and slot metadata.
+Site identity includes the instance path; consumers must not assume a label
+uniquely identifies a site. These are micro-op/beat milestones, not whole-vector
+instruction completion.
+In `packed-memory.rhdl`, retained macro
+ownership reaches each offer, the fixed attempt pipe reaches acceptance, and
+the accepted FIFO contract reaches ordered beat release. A completion denotes
+transfer into the masked row carry/write path, not raw response arrival.
 `unroller.rhdl` declares the retained descriptor's request-to-generated-beat
 relation at the pending queue ingress; the queue preserves that lineage through
 stalls and explicit flush. Capture on macro acceptance, preserve across retry,
@@ -197,7 +232,8 @@ same-edge replacement, and reset with both services holding results.
 The control fixtures cover RV32/RV64 legality and register-group alignment;
 the unroller and FP fixtures cover the shared beat/completion layout.
 
-Memory beats use their resolved data EEW and singleton element positions. Keep their
+Elementwise memory beats use their resolved data EEW and singleton element positions; certified
+packed beats carry an aligned transport width and an explicit byte mask. Keep their
 slot identifier in the `RV5StageMemoryWriteback.Vector` variant, and propagate
 the complete union opaquely through the LSU.
 The unroller owns full attempted and locally accepted memory element bases.

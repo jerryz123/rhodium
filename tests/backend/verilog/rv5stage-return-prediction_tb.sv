@@ -9,6 +9,7 @@ module rv5stage_return_prediction_tb;
   typedef struct packed { ready_t request; instruction_resp_t response; } instruction_in_t;
   typedef struct packed { logic flush, invalidate_all; instruction_req_t request; ready_t response; } instruction_out_t;
   typedef struct packed {
+    logic [7:0] byte_mask;
     logic [63:0] address;
     logic [3:0] access, atomic;
     logic [1:0] width;

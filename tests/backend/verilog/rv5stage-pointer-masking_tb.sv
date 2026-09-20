@@ -8,6 +8,7 @@ module rv5stage_pointer_masking_tb;
   typedef struct packed { ready_t request; instruction_resp_t response; } instruction_in_t;
   typedef struct packed { logic flush; logic invalidate_all; instruction_req_t request; ready_t response; } instruction_out_t;
   typedef struct packed {
+    logic [7:0] byte_mask;
     logic [63:0] address;
     logic [3:0] access;
     logic [3:0] atomic;
