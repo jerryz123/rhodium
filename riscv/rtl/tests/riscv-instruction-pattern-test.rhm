@@ -1,0 +1,18 @@
+#lang rhombus
+// Checks that both integer catalogs retain their exact encodings through the Rhodium adapter.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../examples/riscv/instruction-pattern.rhdl" as fixture
+
+check:
+  fixture.rv32_add_pattern.value_bits ~is 0x00000033
+  fixture.rv32_add_pattern.care_bits ~is 0xFE00707F
+  fixture.rv32_add_pattern.value_bits ~is fixture.rv64_add_pattern.value_bits
+  fixture.rv32_add_pattern.care_bits ~is fixture.rv64_add_pattern.care_bits
+  fixture.rv32_slli_pattern.value_bits ~is 0x00001013
+  fixture.rv32_slli_pattern.care_bits ~is 0xFE00707F
+  fixture.rv64_slli_pattern.value_bits ~is 0x00001013
+  fixture.rv64_slli_pattern.care_bits ~is 0xFC00707F
+  fixture.rv64_slli_pattern.subsumes(fixture.rv32_slli_pattern) ~is #true
+  fixture.rv32_slli_pattern.subsumes(fixture.rv64_slli_pattern) ~is #false

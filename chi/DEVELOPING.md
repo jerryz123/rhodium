@@ -72,7 +72,7 @@ the pure bridge, and search/enumeration failure propagation.
 | Facade | [`main.rhdl`](main.rhdl) | Public exports for the supported package surface |
 | Cache maintenance | [`transactions/cache-maintenance.rhdl`](transactions/cache-maintenance.rhdl) | One dataless requester composed with retry control; cache arrays and downstream completion remain Home-owned |
 | Host coverage | [`tests/`](tests/) | Protocol models, parameters, routing plans, and invalid connections |
-| Backend coverage | [`../tests/backend/`](../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) | CIRCT fixtures and Verilator benches |
+| External-tool coverage | [`tests/circt/`](tests/circt/) | CIRCT fixtures and Verilator benches |
 
 ## Extend a protocol layer
 
@@ -125,9 +125,9 @@ The backend protocol group covers CHI flit, link, monitor, transaction, Home,
 RAM, NoC, router, and fragmenter paths:
 
 ```sh
-bash tests/backend/run-circt.sh --group protocols
+bash tools/testing/circt/run.sh --group protocols
 ```
 
 That group also includes nearby NoC and device fixtures. Use the backend test
-[`DEVELOPING.md`](../tests/backend/DEVELOPING.md) to select narrower modes and
+[`DEVELOPING.md`](../tools/testing/circt/DEVELOPING.md) to select narrower modes and
 maintain checked-in artifacts.

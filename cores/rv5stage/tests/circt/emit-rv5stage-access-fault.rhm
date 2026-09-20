@@ -1,0 +1,13 @@
+#lang rhombus
+// Emits CIRCT MLIR for RV5Stage's precise instruction-access-fault scenario.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../riscv/isa/xlen.rhm".XLen
+  "../../../../cores/rv5stage/tests/core-fixture.rhdl".RV5StageCoreFixture
+  "../../../../cores/rv5stage/profile.rhm".RV5StageConfig
+
+def design = embedded.run_elaboration(fun (): RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64), ~reset_address: 0x100))
+print(emit_circt(design))

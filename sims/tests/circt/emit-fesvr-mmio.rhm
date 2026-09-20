@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the host CHI engine with coherent RAM and exact-width device services.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../sims/tests/fesvr-mmio-fixture.rhdl".ordinary
+print(emit_circt(ordinary().design))

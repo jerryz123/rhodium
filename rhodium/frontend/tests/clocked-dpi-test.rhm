@@ -1,0 +1,66 @@
+#lang rhombus
+// Checks concise ambient and explicit clocked DPI calls over the public simulation IR.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/rtl/clocked-dpi.rhdl" as fixture
+  "clocked-dpi-options.rhdl" as options_fixture
+  "clocked-dpi-invalid.rhdl" as invalid
+
+def module_def = fixture.design.modules[0]
+def register = module_def.operations.find(
+  fun (operation): operation.opcode == "sim.dpi_register" && operation.attribute("dpi_import").name == "rhodium_step_pair"
+)
+def call = module_def.operations.find(
+  fun (operation): operation.opcode == "sim.dpi_call"
+)
+def explicit_design = embedded.run_elaboration(
+  fun (): fixture.ExplicitClockedDPI()
+)
+def explicit_module = explicit_design.modules[0]
+def explicit_register = explicit_module.operations.find(
+  fun (operation): operation.opcode == "sim.dpi_register"
+)
+def always_design = embedded.run_elaboration(
+  fun (): fixture.AlwaysClockedDPI()
+)
+def always_module = always_design.modules[0]
+def always_register = always_module.operations.find(
+  fun (operation): operation.opcode == "sim.dpi_register"
+)
+def always_enable = always_module.find_operation(always_register.operands[1].defining_op_id)
+def option_module = options_fixture.design.modules[0]
+def option_registers = option_module.operations.filter(
+  ~keep: fun (operation): operation.opcode == "sim.dpi_register"
+)
+
+check:
+  fixture.design.dpi_imports.length() ~is 2
+  call.results.length() ~is 0
+  call.operands[1] === module_def.find_input("enable").value ~is #true
+  register.operands[0] === module_def.find_input("clock").value ~is #true
+  register.operands[1] === module_def.find_input("enable").value ~is #true
+  register.operands[1].type.packed_width() ~is 1
+  register.operands[2] === module_def.find_input("value").value ~is #true
+  register.results.length() ~is 2
+  register.results[0].name ~is "dpi_doubled"
+  register.results[1].name ~is "dpi_incremented"
+  type_equal(register.results[0].type, Bits(8)) ~is #true
+  type_equal(register.results[1].type, Bits(8)) ~is #true
+  explicit_register.operands[0] === explicit_module.find_input("clock").value ~is #true
+  always_enable.opcode ~is "rtl.constant"
+  always_enable.attribute("value") ~is 1
+  option_registers.length() ~is 2
+  (for all (operation in option_registers):
+     operation.operands[0] === option_module.find_input("clock").value && operation.operands[1] === option_module.find_input("enable").value) ~is #true
+  verify_design(fixture.design) ~is #void
+  verify_design(explicit_design) ~is #void
+  verify_design(always_design) ~is #void
+  verify_design(options_fixture.design) ~is #void
+  embedded.run_elaboration(fun (): invalid.SingularBinding()) ~throws "single dpi_reg binding"
+  embedded.run_elaboration(fun (): invalid.WrongResultCount()) ~throws "binding count"
+  embedded.run_elaboration(fun (): invalid.ConditionalProcedure()) ~throws "DPI call is not supported inside when"
+  embedded.run_elaboration(fun (): invalid.ConditionalRegister()) ~throws "DPI register is not supported inside when"
+  embedded.run_elaboration(fun (): invalid.ConditionalRegisters()) ~throws "DPI register is not supported inside when"

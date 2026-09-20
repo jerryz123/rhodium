@@ -1,0 +1,16 @@
+#lang rhombus
+// Emits the feature-enabled scalar core for CBO.ZERO retirement and fault tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../riscv/isa/xlen.rhm".XLen
+  "../../../../cores/rv5stage/tests/core-fixture.rhdl".RV5StageCoreFixture
+  "../../../../cores/rv5stage/profile.rhm" open
+
+def design = embedded.run_elaboration(fun (): RV5StageCoreFixture(RV5StageConfig(
+  ~xlen: XLen.X64,
+  ~extensions: RV5StageExtensions(~zicboz: #true)
+), ~reset_address: 0x100))
+print(emit_circt(design))

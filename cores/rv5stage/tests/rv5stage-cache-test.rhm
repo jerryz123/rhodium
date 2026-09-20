@@ -1,0 +1,62 @@
+#lang rhombus
+// Checks that RV5Stage's XLEN-wide cache arrays lower through the CIRCT backend.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../cores/rv5stage/cache.rhdl" open
+  "../../../cores/rv5stage/icache/cache.rhdl" as l1i
+  "../../../cores/rv5stage/dcache/cache.rhdl" as l1d
+  "../../../cores/rv5stage/tests/params.rhdl" as test_params
+
+def config = test_params.test_rv5stage_chi_config
+
+def instruction_design = embedded.run_elaboration(
+  fun (): l1i.RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(8, 1), ~chi: config)
+)
+def data_design = embedded.run_elaboration(
+  fun (): l1d.RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(8, 1), ~chi: config)
+)
+// Thirty-two 64-byte lines make the intended 2 KiB RV32 private-cache shape.
+def rv32_instruction_design = embedded.run_elaboration(
+  fun (): l1i.RV5StageL1ICache(XLen.X32, RV5StageCacheConfig(32, 1), ~chi: config)
+)
+def associative_instruction_design = embedded.run_elaboration(
+  fun (): l1i.RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(8, 2), ~chi: config)
+)
+def rv32_data_design = embedded.run_elaboration(
+  fun (): l1d.RV5StageL1DCache(XLen.X32, RV5StageCacheConfig(32, 1), ~chi: config)
+)
+def associative_data_design = embedded.run_elaboration(
+  fun (): l1d.RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(8, 2), ~chi: config)
+)
+def instruction_circt = emit_circt(instruction_design)
+def data_circt = emit_circt(data_design)
+def rv32_instruction_circt = emit_circt(rv32_instruction_design)
+def rv32_data_circt = emit_circt(rv32_data_design)
+def associative_instruction_circt = emit_circt(associative_instruction_design)
+def associative_data_circt = emit_circt(associative_data_design)
+
+check:
+  instruction_circt.contains("seq.firmem") ~is #true
+  instruction_circt.contains("seq.firmem.read_write_port") ~is #true
+  instruction_circt.contains("hw.array_get") ~is #true
+  data_circt.contains("seq.firmem") ~is #true
+  data_circt.contains("mask") ~is #true
+  data_circt.contains("hw.array_get") ~is #true
+  instruction_circt.contains("!seq.firmem<64 x 64, mask 8>") ~is #true
+  associative_instruction_circt.contains("!seq.firmem<64 x 128, mask 16>") ~is #true
+  associative_data_circt.contains("!seq.firmem<64 x 128, mask 16>") ~is #true
+  data_circt.contains("!seq.firmem<64 x 64, mask 8>") ~is #true
+  rv32_instruction_circt.contains("!seq.firmem<512 x 32, mask 4>") ~is #true
+  rv32_data_circt.contains("!seq.firmem<512 x 32, mask 4>") ~is #true
+  instruction_circt.contains("!seq.firmem<8 x 512") ~is #false
+  data_circt.contains("!seq.firmem<8 x 512") ~is #false
+  instruction_circt.contains("rtl.sync_memory") ~is #false
+  data_circt.contains("rtl.sync_memory") ~is #false
+  rv32_instruction_circt.contains("rtl.sync_memory") ~is #false
+  rv32_data_circt.contains("rtl.sync_memory") ~is #false
+  rv32_data_circt.contains("seq.firmem") ~is #true
+  rv32_data_circt.contains("!hw.struct<access_fault: i1, data: i32, writeback: i9>") ~is #true

@@ -1,9 +1,0 @@
-#lang rhombus
-// Emits CIRCT IR for the reusable RISC-V floating-point policy fixture.
-// SPDX-License-Identifier: Apache-2.0
-
-import:
-  "../../rhodium/backend/circt.rhm" open
-  "../frontend/riscv-floating-point-fixture.rhdl" as fixture
-
-print(emit_circt(fixture.design))

@@ -1,0 +1,70 @@
+#lang rhombus
+// Checks lexical child generators, specialization, laziness, and sync propagation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../examples/rtl/nested-circuit.rhdl" as example
+  "nested-circuit.rhdl" as fixture
+
+def example_top = example.design.modules[0]
+def example_child = example.design.modules[1]
+def design = fixture.design
+def top = design.modules[0]
+def parents = design.modules.filter(
+  ~keep: fun (module_def): module_def.name.starts_with("LocalParent")
+)
+def children = design.modules.filter(
+  ~keep: fun (module_def): module_def.name.starts_with("LocalChild")
+)
+def sync_design = fixture.sync_design
+def sync_parent = sync_design.modules[0]
+def sync_child = sync_design.modules[1]
+def sync_instance = sync_parent.operations.find(
+  fun (operation): operation.opcode == "rtl.instance"
+)
+def sync_register = sync_child.operations.find(
+  fun (operation): operation.opcode == "rtl.register_reset"
+)
+
+check:
+  example.design.modules.map(fun (module_def): module_def.name) ~is [
+    "Incrementer", "Increment"
+  ]
+  example_top.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.instance"
+  ).length() ~is 1
+  example_child.find_input("value_in").type.width ~is 8
+  verify_design(example.design) ~is #void
+
+  design.modules.map(fun (module_def): module_def.name) ~is [
+    "SpecializedParents",
+    "LocalParent",
+    "LocalChild",
+    "LocalParent_1",
+    "LocalChild_1"
+  ]
+  design.modules.find(
+    fun (module_def): module_def.name.starts_with("UnusedChild")
+  ) ~is #false
+  parents.map(fun (module_def): module_def.find_input("value_in").type.width) ~is [8, 16]
+  children.map(fun (module_def): module_def.find_input("value_in").type.width) ~is [8, 16]
+  top.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.instance"
+  ).length() ~is 2
+  (for all (parent in parents):
+     parent.operations.filter(
+       ~keep: fun (operation): operation.opcode == "rtl.instance"
+     ).length() == 1) ~is #true
+  verify_design(design) ~is #void
+
+  sync_design.modules.map(fun (module_def): module_def.name) ~is [
+    "SyncParent", "SyncChild"
+  ]
+  sync_parent.inputs.map(fun (port): port.name) ~is ["clock", "reset", "enable"]
+  sync_child.inputs.map(fun (port): port.name) ~is ["clock", "reset", "enable"]
+  sync_instance.places[0].driver === sync_parent.find_input("clock").value ~is #true
+  sync_instance.places[1].driver === sync_parent.find_input("reset").value ~is #true
+  sync_register.operands[0] === sync_child.find_input("clock").value ~is #true
+  sync_register.operands[1] === sync_child.find_input("reset").value ~is #true
+  verify_design(sync_design) ~is #void

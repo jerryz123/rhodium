@@ -15,7 +15,7 @@ and ordinary RTL/DPI instrumentation.
 | `runtime/` | Fixed C ABI, order-independent collection, validation, snapshots and occurrence JSON |
 | `perfetto/` | C++ native encoder, private JSON parser and instruction decoder, standalone converter |
 | `tests/` | Collector, exporter, parser, and native importer contracts |
-| `tests/backend/` | Compiler/RTL integration fixtures, owned outside RHEG |
+| `rhodium/event/tests/circt/` | Compiler/RTL integration fixtures, owned by the event package |
 
 Keep the collector standard-library-only. Preserve namespace `rheg`, the fixed
 `rheg_*` ABI, and `rhodium-event-*` format identifiers. Presentation changes must

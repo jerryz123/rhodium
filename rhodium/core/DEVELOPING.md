@@ -93,13 +93,13 @@ become a false positive.
 
 | File | Owns | Focused evidence |
 |---|---|---|
-| [`types.rhm`](types.rhm) | Open type capabilities, built-in types, equality, packing, and selector widths | [`types-test.rhm`](../../tests/core/types-test.rhm), [`signed-test.rhm`](../../tests/core/signed-test.rhm), [`shift-test.rhm`](../../tests/core/shift-test.rhm) |
-| [`ir.rhm`](ir.rhm) | Public objects, collections, ownership indexes, lookup, and `DesignElaboration` | [`verify-test.rhm`](../../tests/core/verify-test.rhm), [`dpi-test.rhm`](../../tests/core/dpi-test.rhm) |
-| [`builder.rhm`](builder.rhm) | Legal construction, naming, aggregate-drive canonicalization, state, resources, and hierarchy | [`wire-test.rhm`](../../tests/core/wire-test.rhm), [`memory-test.rhm`](../../tests/core/memory-test.rhm), [`sync-memory-test.rhm`](../../tests/core/sync-memory-test.rhm) |
-| [`ops.rhm`](ops.rhm) | Opcode registry, categories, arities, type-rule names, and printer forms | Operation-specific tests under [`tests/core`](../../tests/core/) |
-| [`verify.rhm`](verify.rhm) | Schema, ownership, use-def, driver, resource, state, instance, assertion, DPI, and crossing checks | [`verify-test.rhm`](../../tests/core/verify-test.rhm), [`assert-test.rhm`](../../tests/core/assert-test.rhm), [`cdc-test.rhm`](../../tests/core/cdc-test.rhm) |
-| [`dependencies.rhm`](dependencies.rhm) | Leaf-sensitive combinational dependencies and hierarchical cycle detection | Hierarchy and aggregate-cycle cases in [`verify-test.rhm`](../../tests/core/verify-test.rhm) |
-| [`printer.rhm`](printer.rhm) | Deterministic textual IR | Exact operation-form checks across [`tests/core`](../../tests/core/) |
+| [`types.rhm`](types.rhm) | Open type capabilities, built-in types, equality, packing, and selector widths | [`types-test.rhm`](../../rhodium/core/tests/types-test.rhm), [`signed-test.rhm`](../../rhodium/core/tests/signed-test.rhm), [`shift-test.rhm`](../../rhodium/core/tests/shift-test.rhm) |
+| [`ir.rhm`](ir.rhm) | Public objects, collections, ownership indexes, lookup, and `DesignElaboration` | [`verify-test.rhm`](../../rhodium/core/tests/verify-test.rhm), [`dpi-test.rhm`](../../rhodium/core/tests/dpi-test.rhm) |
+| [`builder.rhm`](builder.rhm) | Legal construction, naming, aggregate-drive canonicalization, state, resources, and hierarchy | [`wire-test.rhm`](../../rhodium/core/tests/wire-test.rhm), [`memory-test.rhm`](../../rhodium/core/tests/memory-test.rhm), [`sync-memory-test.rhm`](../../rhodium/core/tests/sync-memory-test.rhm) |
+| [`ops.rhm`](ops.rhm) | Opcode registry, categories, arities, type-rule names, and printer forms | Operation-specific tests under [`tests/`](tests/) |
+| [`verify.rhm`](verify.rhm) | Schema, ownership, use-def, driver, resource, state, instance, assertion, DPI, and crossing checks | [`verify-test.rhm`](../../rhodium/core/tests/verify-test.rhm), [`assert-test.rhm`](../../rhodium/core/tests/assert-test.rhm), [`cdc-test.rhm`](../../rhodium/core/tests/cdc-test.rhm) |
+| [`dependencies.rhm`](dependencies.rhm) | Leaf-sensitive combinational dependencies and hierarchical cycle detection | Hierarchy and aggregate-cycle cases in [`verify-test.rhm`](../../rhodium/core/tests/verify-test.rhm) |
+| [`printer.rhm`](printer.rhm) | Deterministic textual IR | Exact operation-form checks across [`tests/`](tests/) |
 | [`main.rhm`](main.rhm) | Public core re-exports | Import coverage through all core tests |
 
 ## Focused validation
@@ -116,6 +116,6 @@ Choose the smallest test file or files matching the contract changed:
   the focused semantic test.
 
 Run Rhombus tests with the repository test runner and a fresh
-`PLTCOMPILEDROOTS`, as described by the owning [test guide](../../tests/README.md).
+`PLTCOMPILEDROOTS`, as described by the owning [test guide](../../tools/testing/README.md).
 Reserve frontend, backend, and full-suite validation for changes that actually
 cross those boundaries.

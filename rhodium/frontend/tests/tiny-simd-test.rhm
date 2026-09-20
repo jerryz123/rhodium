@@ -1,0 +1,87 @@
+#lang rhombus
+// Checks TinySIMD host specialization, generated hierarchy, memory, and typed datapath structure.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/rtl/tiny-simd.rhdl" as fixture
+
+fun module_named(design, name):
+  design.modules.find(fun (module_def): module_def.name == name)
+
+fun operations(module_def, opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+def top = module_named(fixture.design, "TinySIMD")
+def lane = module_named(fixture.design, "Lane")
+def no_multiply_top = module_named(fixture.no_multiply_design, "TinySIMD")
+def no_multiply_lane = module_named(fixture.no_multiply_design, "Lane")
+def three_lane_design = embedded.run_elaboration(
+  fun (): fixture.TinySIMD(fixture.EngineConfig(3, 5, 4, #false))
+)
+def three_lane_top = module_named(three_lane_design, "TinySIMD")
+def program = top.memories[0]
+def lane_lookup = operations(lane, "rtl.mux_lookup").find(
+  fun (operation): operation.attribute("keys", []) == [0, 1, 2, 3, 8]
+)
+def no_multiply_lookup = operations(no_multiply_lane, "rtl.mux_lookup").find(
+  fun (operation): operation.attribute("keys", []) == [0, 1, 2, 3]
+)
+
+check:
+  fixture.showcase_config.lanes ~is 2
+  fixture.showcase_config.width ~is 8
+  fixture.showcase_config.program_depth ~is 4
+  fixture.showcase_config.enable_multiply ~is #true
+  fixture.design.modules.length() ~is 2
+  top.inputs.map(fun (port): port.name) ~is ["clock", "reset", "load_seed", "step", "seeds", "loader_in"]
+  top.outputs.map(fun (port): port.name) ~is ["results", "pc_out", "loader_out"]
+  type_equal(top.find_input("seeds").type, VectorType(2, Bits(8))) ~is #true
+  type_equal(top.find_output("results").type, VectorType(2, Bits(8))) ~is #true
+  type_equal(top.find_output("pc_out").type, Bits(2)) ~is #true
+  program.depth ~is 4
+  type_equal(program.element_type, Bits(12)) ~is #true
+  operations(top, "rtl.memory_read_async").length() ~is 1
+  operations(top, "rtl.memory_write").length() ~is 1
+  operations(top, "rtl.instance").length() ~is 2
+  operations(top, "rtl.eq").length() ~is 0
+  operations(top, "rtl.ult").length() ~is 0
+  operations(top, "rtl.not").length() ~is 0
+  operations(lane, "rtl.mul").length() ~is 1
+  operations(no_multiply_lane, "rtl.mul").length() ~is 0
+  lane_lookup.attribute("keys") ~is [0, 1, 2, 3, 8]
+  no_multiply_lookup.attribute("keys") ~is [0, 1, 2, 3]
+  bits_type(lane_lookup.operands[0].type) ~is #true
+  lane_lookup.operands[0].type.width ~is 4
+  operations(lane, "rtl.shl").length() ~is 1
+  operations(lane, "rtl.add").length() ~is 1
+  operations(lane, "rtl.zext").length() ~is 4
+  operations(lane, "rtl.extract").length() ~is 2
+  operations(no_multiply_lane, "rtl.zext").length() ~is 2
+  operations(no_multiply_lane, "rtl.extract").length() ~is 1
+  operations(lane, "rtl.xor").length() ~is 1
+  operations(lane, "rtl.register_reset").length() ~is 1
+  operations(no_multiply_top, "rtl.instance").length() ~is 2
+  operations(three_lane_top, "rtl.instance").length() ~is 3
+  three_lane_top.memories[0].depth ~is 4
+  type_equal(three_lane_top.find_output("results").type,
+             VectorType(3, Bits(5))) ~is #true
+  type_equal(three_lane_top.find_output("pc_out").type, Bits(2)) ~is #true
+  verify_design(fixture.design) ~is #void
+  verify_design(fixture.no_multiply_design) ~is #void
+  verify_design(three_lane_design) ~is #void
+  fixture.EngineConfig(0, 8, 4, #true) ~throws "PosInt"
+  fixture.EngineConfig(2, 0, 4, #true) ~throws "PosInt"
+  fixture.EngineConfig(2, 8, 0, #true) ~throws "Pow2Int"
+  fixture.EngineConfig(2, 8, 1, #true) ~throws "program depth must be at least two"
+  fixture.EngineConfig(2, 8, 3, #true) ~throws "Pow2Int"
+  fixture.EngineConfig(2, "wide", 4, #true) ~throws "argument does not satisfy annotation"
+  embedded.run_elaboration(
+    fun (): fixture.TinySIMD("config")
+  ) ~throws "argument does not satisfy annotation"
+  embedded.run_elaboration(
+    fun (): fixture.Lane(8, "multiply")
+  ) ~throws "argument does not satisfy annotation"

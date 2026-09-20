@@ -21,7 +21,7 @@ search_production_sources() {
   local pattern="$1"
   if command -v rg >/dev/null 2>&1; then
     rg -n "$pattern" cores --glob '*.rhm' --glob '*.rhdl' \
-      --glob '!tests/**' --glob '!*/tests/**'
+      --glob '!**/tests/**'
   else
     find cores -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
       ! -path '*/tests/*' -exec grep -nHE "$pattern" {} +

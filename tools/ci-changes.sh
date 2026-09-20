@@ -197,7 +197,7 @@ classify_path() {
   # Workloads follow the complete SimpleSoC dependency closure independently
   # of host/CIRCT grouping. More specific suite paths must precede broad roots.
   case "$path" in
-    *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes|tests/emacs/*|tools/emacs/*) ;;
+    *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes|tools/emacs/*) ;;
     sims/program-test/isa.mk) program_isa=true ;;
     sims/arch-test/*|sims/tests/test_arch_test.py|riscv/riscv-arch-test|riscv/riscv-arch-test/*|tools/write-riscv-udb-config.rhm)
       program_arch=true ;;
@@ -207,7 +207,7 @@ classify_path() {
       mark_all_programs ;;
   esac
   case "$path" in
-    tests/emacs/*|tools/emacs/*)
+    tools/emacs/*)
       ;;
     *.rhm|*.rhdl)
       # Every maintained Rhombus source participates in annotation hygiene.
@@ -221,7 +221,7 @@ classify_path() {
     sram/*|vlsi/sim/*|vlsi/designs/mini-soc/sky130/*)
       simulation=true
       ;;
-    tests/emacs/*|tools/emacs/*|vlsi/*)
+    tools/emacs/*|vlsi/*)
       # Optional integrations have no functional CI; Rhombus files still run
       # repository-wide source hygiene through the classification above.
       ;;
@@ -241,6 +241,12 @@ classify_path() {
       host_hygiene=true
       mark_all_circt
       mark_all_examples
+      ;;
+    tools/testing/circt/*)
+      mark_all_circt
+      ;;
+    tools/testing/run-negative.rkt)
+      mark_all_host
       ;;
     tools/run-racket-tests.sh)
       mark_all_host
@@ -297,13 +303,6 @@ classify_path() {
       host_backend=true
       mark_all_circt
       simulation=true
-      ;;
-    tests/core/*|tests/analysis/*|tests/frontend/*)
-      host_foundation=true
-      ;;
-    tests/backend/*)
-      host_backend=true
-      mark_all_circt
       ;;
     examples/rtl/*)
       mark_example_rtl

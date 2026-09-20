@@ -16,4 +16,4 @@ if [[ ! -x "$circt_opt" ]]; then
 fi
 
 cd "$repo_dir"
-CIRCT_OPT="$circt_opt" bash tests/backend/run-circt.sh --group rfpl --golden-only
+CIRCT_OPT="$circt_opt" bash tools/testing/circt/run.sh --group rfpl --golden-only

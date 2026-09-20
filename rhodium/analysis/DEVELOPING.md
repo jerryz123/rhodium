@@ -72,7 +72,7 @@ The focused ownership is:
 Run the analysis batch through the repository wrapper:
 
 ```sh
-env -u PLTCOMPILEDROOTS tools/run-racket-tests.sh tests/analysis/*-test.rhm
+tools/run-racket-tests.sh rhodium/analysis/tests/*-test.rhm
 ```
 
 The wrapper creates a fresh compiled root when none is supplied. Run broader

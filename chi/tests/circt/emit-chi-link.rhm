@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits CIRCT MLIR for the transparent RN-I credited-link adapter fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../chi/tests/link-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.rni_design))

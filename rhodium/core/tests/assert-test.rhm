@@ -1,0 +1,71 @@
+#lang rhombus
+// Checks construction, verification, and printing of clocked assertion IR.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Checked")
+  def condition = builder.input(module_def, "condition", Bits(1))
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def guard = builder.input(module_def, "guard", Bits(1))
+  def assertion = builder.assert(module_def,
+                                 condition,
+                                 clock,
+                                 reset,
+                                 guard,
+                                 "condition_holds")
+  builder.finish(module_def)
+  check:
+    assertion.opcode ~is "verif.assert"
+    assertion.operands ~is [condition, clock, reset, guard]
+    assertion.results ~is []
+    assertion.places ~is []
+    assertion.attribute("label") ~is "condition_holds"
+    verify_design(design) ~is #void
+    dump_ir(design).contains(
+      "verif.assert %condition clock %clock reset %reset guard %guard label condition_holds"
+    ) ~is #true
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadAssertions")
+  def condition = builder.input(module_def, "condition", Bits(1))
+  def wide = builder.input(module_def, "wide", Bits(2))
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def guard = builder.input(module_def, "guard", Bits(1))
+  check:
+    builder.assert(module_def, wide, clock, reset, guard) ~throws "condition must be a one-bit"
+    builder.assert(module_def, condition, condition, reset, guard) ~throws "clock must be Clock"
+    builder.assert(module_def, condition, clock, condition, guard) ~throws "reset must be Reset"
+    builder.assert(module_def, condition, clock, reset, wide) ~throws "guard must be a one-bit"
+    builder.assert(module_def, condition, clock, reset, guard, "bad label") ~throws "AsciiIdentifier"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedAssertion")
+  def condition = builder.input(module_def, "condition", Bits(1))
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def guard = builder.input(module_def, "guard", Bits(1))
+  def operation_id = design.fresh_id()
+  def operation = Operation(operation_id,
+                            "verif.assert",
+                            module_def,
+                            [condition, clock, reset, guard],
+                            [],
+                            [],
+                            {"label": 42})
+  for (operand in operation.operands):
+    operand.add_user(operation_id)
+  module_def.add_operation(operation)
+  builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "assert label must be an ASCII identifier"

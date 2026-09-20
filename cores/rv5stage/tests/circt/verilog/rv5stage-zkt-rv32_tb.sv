@@ -1,0 +1,6 @@
+// Checks data-independent integer timing in the RV32 None specialization.
+// SPDX-License-Identifier: Apache-2.0
+module rv5stage_zkt_rv32_tb;
+  localparam int W = 32;
+`include "cores/rv5stage/tests/circt/verilog/rv5stage-zkt-body.svh"
+endmodule

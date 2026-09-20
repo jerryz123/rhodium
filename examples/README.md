@@ -318,5 +318,5 @@ Verilator.
 
 Reference naming, catalog maintenance, and the validation workflow are in the
 [example contributor guide](DEVELOPING.md#maintain-generated-verilog). The
-[backend test developer guide](../tests/backend/DEVELOPING.md#verilog-references)
+[backend test developer guide](../tools/testing/circt/DEVELOPING.md#verilog-references)
 owns exact comparison and update mechanics.

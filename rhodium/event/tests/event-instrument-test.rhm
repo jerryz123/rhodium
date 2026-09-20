@@ -1,0 +1,384 @@
+#lang rhombus
+// Checks immutable instrumentation, exact stage plans, observed controls, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("json/main.rkt").#{string->jsexpr} as parse_json
+  "../../../rhodium/event/main.rhm" open
+  "../../../rhodium/core/ir.rhm".Module
+  "../../../rhodium/core/verify.rhm".verify_design
+  "../../../rhodium/backend/circt.rhm".emit_circt
+  "event-instrument-fixture.rhdl" as fixture
+  "event-graph-fixture.rhdl" as static_fixture
+  "event-pipeline-fixture.rhdl" as pipeline_fixture
+  "event-elastic-fixture.rhdl" as elastic_fixture
+  "event-queue-fixture.rhdl" as queue_fixture
+  "event-arbiter-fixture.rhdl" as arbiter_fixture
+  "event-crossbar-fixture.rhdl" as crossbar_fixture
+  "event-demux-fixture.rhdl" as demux_fixture
+  "event-atomic-fork-fixture.rhdl" as fork_fixture
+  "event-broadcast-fixture.rhdl" as broadcast_fixture
+  "event-join-fixture.rhdl" as join_fixture
+  "event-stall-fixture.rhdl" as stall_fixture
+  "event-retained-fixture.rhdl" as retained_fixture
+
+for (intrinsic in [#true, #false]):
+  def logical = retained_fixture.retained(intrinsic, ~region: "")
+  def original = emit_circt(logical.design)
+  def retained = instrument_events(logical, EventInstrumentationConfig(~partial: #true))
+  check:
+    emit_circt(logical.design) ~is original
+    retained.manifest.dependencies.length() ~is 1
+    retained.manifest.dependencies[0].latency_cycles ~is #false
+    verify_design(retained.instrumented.design) ~is #void
+fun retained_stage_count(plan):
+  cond
+  | plan is_a EventTracePipeline:
+      plan.stages.filter(~keep: fun (stage): stage is_a EventTraceRetained).length() + retained_stage_count(plan.input)
+  | plan is_a EventTraceSelection:
+      for values(count = 0) (input in plan.inputs): count + retained_stage_count(input)
+  | ~else: 0
+for (region in ["region", "internal", "checkpoint", "disjoint"]):
+  def logical = retained_fixture.retained(~region: region)
+  def original = emit_circt(logical.design)
+  def traced = instrument_events(logical, EventInstrumentationConfig(~partial: #true))
+  def edges = traced.manifest.dependencies
+  def labels = edges.map(fun (edge): [traced.manifest.site(edge.parent).label, traced.manifest.site(edge.child).label]).sort(fun (a, b): a[0] < b[0])
+  check:
+    emit_circt(logical.design) ~is original
+    labels ~is (if region == "checkpoint" | [["accepted", "mapped"], ["mapped", "attempt"]] | [["accepted", "attempt"]])
+    traced.manifest.gaps.map(fun (gap): traced.manifest.site(gap.site).label).sort() ~is (if region == "disjoint" | ["attempt", "independent"] | ["attempt"])
+    (for any (edge in edges): edge.transform_path.find(fun (path): path.ends_with(":map")) != #false) ~is #true
+    (for values(count = 0) (site in traced.manifest.sites): count + retained_stage_count(traced.manifest.trace_plans[site.id])) ~is 1
+    verify_design(traced.instrumented.design) ~is #void
+def linked_contracts = instrument_events(retained_fixture.contract_links())
+check:
+  linked_contracts.manifest.dependencies.length() ~is 1
+  linked_contracts.manifest.dependencies[0].latency_cycles ~is 0
+  linked_contracts.manifest.dependencies[0].transform_path.filter(~keep: fun (path): path.contains("/contract:")).length() ~is 2
+  infer_event_manifest(retained_fixture.retained(~region: "summary")) ~throws "overlaps internal trace topology"
+  retained_fixture.invalid("missing") ~throws "requires declared storage controls"
+  retained_fixture.invalid("width") ~throws "local one-bit"
+  retained_fixture.invalid("duplicate") ~throws "already declared"
+  retained_fixture.invalid("outputs") ~throws "retained trace requires one input and one ordered route per output"
+  retained_fixture.invalid("inputs") ~throws "retained trace requires one input and one ordered route per output"
+  retained_fixture.invalid("routes") ~throws "retained trace requires one input and one ordered route per output"
+  instrument_events(retained_fixture.multi_output()).manifest.dependencies.length() ~is 2
+  instrument_events(retained_fixture.multi_output(#true)) ~throws "uncertified fanout"
+  instrument_events(retained_fixture.retained()) ~throws "annotated ancestor on every input"
+
+def stall_before = emit_circt(stall_fixture.stalled.design)
+def stalled = instrument_events(stall_fixture.stalled)
+check:
+  emit_circt(stall_fixture.stalled.design) ~is stall_before
+  stall_before.contains("rheg_node") ~is #false
+  emit_circt(stalled.instrumented.design).contains("sim.func.dpi.call @rheg_edge") ~is #true
+
+def chain = instrument_events(fixture.checkpoint_chain).manifest
+check:
+  chain.dependencies.map(fun (edge): [chain.site(edge.parent).label, chain.site(edge.child).label, edge.latency_cycles]) ~is [["first", "second", 0], ["second", "third", 0]]
+
+def before = emit_circt(fixture.runtime.design)
+def result = instrument_events(fixture.runtime)
+def after = emit_circt(fixture.runtime.design)
+def emitted = emit_circt(result.instrumented.design)
+def opaque = instrument_events(fixture.opaque_boundary(), EventInstrumentationConfig(~partial: #true))
+def valid_chain = instrument_events(fixture.valid_checkpoint_chain).manifest
+def converted = instrument_events(pipeline_fixture.valid_conversion)
+def nested_channels = instrument_events(pipeline_fixture.nested_channels)
+def private_reset = instrument_events(pipeline_fixture.private_reset(#false))
+def adapter_contract = instrument_events(pipeline_fixture.adapter_contract())
+def explicit_edges = instrument_events(retained_fixture.trace_edges())
+def flushed = instrument_events(pipeline_fixture.flush_pipeline)
+check:
+  flushed.manifest.dependencies.map(fun (edge): edge.latency_cycles).sort() ~is [1, 3]
+  (for all (edge in flushed.manifest.dependencies): for all (stage in edge.trace_stages): stage.flush != #false) ~is #true
+  pipeline_fixture.bad_flush("width") ~throws "trace flush must be local one-bit data"
+  pipeline_fixture.bad_flush("foreign") ~throws "trace controls must belong to their owner"
+for (intrinsic in [#true, #false]):
+  for (wrapped in [#true, #false]):
+    def named = instrument_events(pipeline_fixture.named_contracts(intrinsic, wrapped))
+    def edges = named.manifest.dependencies
+    check:
+      edges.map(fun (edge): [named.manifest.site(edge.parent).label, named.manifest.site(edge.child).label]) ~is [["before0", "after0"], ["before1", "after1"]]
+      edges.map(fun (edge): edge.trace_stages.length()) ~is [1, 1]
+      edges.map(fun (edge): edge.trace_stages[0].instance_path) ~is [["EventNamedContracts", "storage"], ["EventNamedContracts", "storage"]]
+      edges[0].trace_stages[0].advance === edges[1].trace_stages[0].advance ~is #false
+check:
+  explicit_edges.manifest.dependencies.length() ~is 2
+  explicit_edges.manifest.dependencies.map(fun (edge): edge.trace_stages.length()) ~is [1, 1]
+  explicit_edges.manifest.dependencies.map(fun (edge): edge.trace_stages[0] is_a EventTraceRetained) ~is [#true, #true]
+  emit_circt(explicit_edges.instrumented.design).contains("sim.func.dpi.call @rheg_edge") ~is #true
+  adapter_contract.manifest.dependencies[0].latency_cycles ~is 1
+  adapter_contract.manifest.dependencies[0].trace_stages[0].instance_path ~is ["EventAdapterContract", "storage"]
+  pipeline_fixture.invalid_contract("foreign") ~throws "trace controls must belong to their owner"
+  pipeline_fixture.invalid_contract("duplicate-boundary") ~throws "competing interface contracts"
+  pipeline_fixture.invalid_contract("duplicate-inline") ~throws "competing interface transforms"
+  pipeline_fixture.invalid_contract("missing-name") ~throws "requires declared stage controls"
+  pipeline_fixture.invalid_contract("override") ~throws "competing trace contract"
+  infer_event_manifest(pipeline_fixture.invalid_contract("summary")) ~throws "overlaps internal trace topology"
+  private_reset.manifest.dependencies.length() ~is 1
+  instrument_events(pipeline_fixture.private_reset(#true)) ~throws "generated or opaque clock/reset"
+  nested_channels.manifest.dependencies.map(fun (edge): [nested_channels.manifest.site(edge.parent).label, nested_channels.manifest.site(edge.child).label, edge.latency_cycles]).sort(fun (a, b): a[0] < b[0]) ~is [["request", "response", 1], ["response", "completed", 0]]
+  converted.manifest.dependencies.length() ~is 2
+  converted.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [1, 1]
+  emit_circt(converted.instrumented.design).contains("sim.func.dpi.call @rheg_edge") ~is #true
+  instrument_events(fixture.opaque_boundary()) ~throws "opaque or disconnected boundary"
+  opaque.manifest.sites.map(fun (site): site.payload_width) ~is [73, 73]
+  emit_circt(opaque.instrumented.design).contains("sim.func.dpi.call @rheg_payload") ~is #true
+  opaque.manifest.gaps.length() ~is 1
+  opaque.manifest.site(opaque.manifest.gaps[0].site).label ~is "start"
+  opaque.manifest.gaps[0].reason ~is "opaque-boundary"
+  opaque.manifest.dependencies.map(fun (edge): [opaque.manifest.site(edge.parent).label, opaque.manifest.site(edge.child).label]) ~is [["start", "end"]]
+  valid_chain.dependencies.map(fun (edge): [valid_chain.site(edge.parent).label, valid_chain.site(edge.child).label]) ~is [["before", "start"], ["start", "end"]]
+  valid_chain.gaps.length() ~is 0
+  valid_chain.trace_plans[valid_chain.sites[0].id].site ~is #false
+  valid_chain.trace_plans[valid_chain.sites[0].id].unknown ~is #false
+
+fun child(module_def :: Module, name :: String):
+  module_def.operations.find(fun (op): op.opcode == "rtl.instance" && op.attribute("name") == name).attribute("module")
+fun has_trace_ports(module_def :: Module):
+  (module_def.inputs ++ module_def.outputs).find(fun (port): port.name.starts_with("__event_")) != #false
+def left_wrapper = child(result.instrumented.top, "left")
+def right_wrapper = child(result.instrumented.top, "right")
+def left_child = child(left_wrapper, "child")
+def right_child = child(right_wrapper, "child")
+def shared_mapper = child(left_child, "mapper")
+def shared_identity = child(shared_mapper, "identity")
+def original_mapper = child(child(child(fixture.runtime.top, "left"), "child"), "mapper")
+check:
+  before ~is after
+  result.original === fixture.runtime ~is #true
+  result.instrumented.design === fixture.runtime.design ~is #false
+  result.instrumented.top.inputs.map(fun (port): port.name) ~is fixture.runtime.top.inputs.map(fun (port): port.name)
+  result.instrumented.top.outputs.map(fun (port): port.name) ~is fixture.runtime.top.outputs.map(fun (port): port.name)
+  result.manifest.sites.length() ~is 8
+  result.manifest.sites.map(fun (site): site.label) ~is ["left-input", "left-output", "right-input", "right-output", "wide-input", "wide-output", "mapped", "mapped"]
+  result.manifest.dependencies.length() ~is 5
+  emitted.contains("sim.func.dpi.call @rheg_node") ~is #true
+  emitted.contains("sim.func.dpi.call @rheg_edge") ~is #true
+  emitted.contains("__event_in_") ~is #true
+  emitted.contains("__event_out_") ~is #true
+  instrument_events(static_fixture.linear).manifest.sites.length() ~is 3
+  instrument_events(static_fixture.forked).manifest.dependencies.length() ~is 2
+  instrument_events(static_fixture.merged).manifest.dependencies.length() ~is 2
+  instrument_events(fixture.wrong_domain()) ~throws "one clock and reset epoch"
+  fixture.bad_guard() ~throws "trace guard must be local one-bit data"
+  instrument_events(fixture.runtime, EventInstrumentationConfig("missing", "reset")) ~throws "top-level Clock"
+  parse_json(event_manifest_to_json(result.manifest)) != #false ~is #true
+  // Occurrence-specific IDs require distinct traced children and ancestor targets.
+  left_wrapper === right_wrapper ~is #false
+  left_child === right_child ~is #false
+  has_trace_ports(left_wrapper) ~is #true
+  has_trace_ports(right_wrapper) ~is #true
+  left_wrapper.values.find(fun (value): value.name.starts_with("__event_cycle") || value.name.starts_with("__event_sequence")) ~is #false
+  left_wrapper.operations.find(fun (op): op.opcode == "sim.dpi_call") ~is #false
+  // Repeated unchanged definitions, including nested/direct diamond sharing,
+  // are imported only once and acquire neither trace ports nor trace state.
+  child(right_child, "mapper") === shared_mapper ~is #true
+  child(result.instrumented.top, "identity") === shared_identity ~is #true
+  has_trace_ports(shared_mapper) ~is #false
+  has_trace_ports(shared_identity) ~is #false
+  shared_mapper.values.find(fun (value): value.name.starts_with("__event_")) ~is #false
+  shared_mapper.operations.length() ~is original_mapper.operations.length()
+  shared_mapper === original_mapper ~is #false
+  shared_mapper.design === result.instrumented.design ~is #true
+  shared_identity.design === result.instrumented.design ~is #true
+  shared_mapper.name ~is original_mapper.name
+
+def pipeline_before = emit_circt(pipeline_fixture.pipeline.design)
+def pipeline = instrument_events(pipeline_fixture.pipeline)
+check:
+  pipeline.manifest.sites.map(fun (site): site.label) ~is ["accepted", "completed", "middle"]
+  pipeline.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [1, 3]
+  result.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0, 0, 0, 0, 0]
+  infer_event_manifest(static_fixture.linear).dependencies.map(fun (edge): edge.latency_cycles) ~is [#false, #false]
+  event_manifest_to_json(pipeline.manifest).contains("\"latency_cycles\":3") ~is #true
+  emit_circt(pipeline_fixture.pipeline.design) ~is pipeline_before
+  pipeline_fixture.bad_latency_count() ~throws "PosInt"
+  pipeline_fixture.bad_latency_shape() ~throws "exactly one input and output"
+
+def elastic_before = emit_circt(elastic_fixture.elastic.design)
+def elastic = instrument_events(elastic_fixture.elastic)
+def elastic_left = child(elastic.instrumented.top, "left")
+def elastic_right = child(elastic.instrumented.top, "right")
+check:
+  elastic.manifest.sites.map(fun (site): site.label) ~is ["accepted", "completed", "middle", "accepted", "completed", "middle"]
+  elastic.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [#false, #false, #false, #false]
+  elastic.manifest.dependencies.map(fun (edge): edge.trace_stages.length()) ~is [1, 3, 1, 3]
+  elastic.manifest.dependencies[1].trace_stages.map(fun (stage): stage.instance_path.take(2)) ~is [["EventElastic", "left"], ["EventElastic", "left"], ["EventElastic", "left"]]
+  elastic.manifest.dependencies[3].trace_stages.map(fun (stage): stage.instance_path.take(2)) ~is [["EventElastic", "right"], ["EventElastic", "right"], ["EventElastic", "right"]]
+  emit_circt(elastic_fixture.elastic.design) ~is elastic_before
+  emit_circt(elastic.instrumented.design).contains("__event_control_") ~is #true
+  elastic_left === elastic_right ~is #false
+  child(elastic.instrumented.top, "gold_left") === child(elastic.instrumented.top, "gold_right") ~is #true
+  has_trace_ports(child(elastic.instrumented.top, "gold_left")) ~is #false
+  elastic_fixture.bad_width() ~throws "local one-bit data"
+  elastic_fixture.bad_count() ~throws "matching lengths"
+  elastic_fixture.missing_controls() ~throws "requires declared stage controls"
+
+def queue_before = emit_circt(queue_fixture.queued.design)
+def queued = instrument_events(queue_fixture.queued)
+def queue_stages = queued.manifest.dependencies.map(fun (edge): edge.trace_stages)
+check:
+  queued.manifest.sites.length() ~is 20
+  queued.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [#false, #false, #false, #false, #false, #false, #false, #false, #false, #false]
+  queue_stages.take(9).map(fun (stages): stages[0].depth) ~is [1, 1, 1, 1, 3, 3, 3, 3, 3]
+  queue_stages[9].map(fun (stage): stage is_a EventTraceQueue) ~is [#false, #true, #false, #true]
+  queue_stages[8][0].instance_path.take(3) ~is ["EventQueue", "lane8", "storage"]
+  emit_circt(queue_fixture.queued.design) ~is queue_before
+  child(queued.instrumented.top, "lane7") === child(queued.instrumented.top, "lane8") ~is #false
+  child(queued.instrumented.top, "gold7") === child(queued.instrumented.top, "gold8") ~is #true
+  has_trace_ports(child(child(queued.instrumented.top, "gold8"), "storage")) ~is #false
+  queue_fixture.bad_width() ~throws "required width"
+  queue_fixture.bad_enable() ~throws "required width"
+  queue_fixture.missing_controls() ~throws "requires declared storage controls"
+  queue_fixture.mismatched_instance() ~throws "must match the transform implementation"
+  queue_fixture.duplicate_controls() ~throws "already declared"
+
+def arbiter_before = emit_circt(arbiter_fixture.arbitrated.design)
+def arbitrated = instrument_events(arbiter_fixture.arbitrated)
+def completions = arbitrated.manifest.sites.filter(~keep: fun (site): site.label == "completed")
+def selection_plans = completions.map(fun (site): arbitrated.manifest.trace_plans[site.id])
+check:
+  arbitrated.manifest.sites.length() ~is 20
+  arbitrated.manifest.dependencies.length() ~is 15
+  arbitrated.manifest.dependencies.take(6).map(fun (edge): edge.latency_cycles) ~is [0, 0, 0, 0, 0, 0]
+  selection_plans[0] is_a EventTraceSelection ~is #true
+  selection_plans[1] is_a EventTraceSelection ~is #true
+  selection_plans[2].input.input is_a EventTraceSelection ~is #true
+  selection_plans[4].input.input.inputs[0].input is_a EventTraceSelection ~is #true
+  emit_circt(arbiter_fixture.arbitrated.design) ~is arbiter_before
+  child(arbitrated.instrumented.top, "lane2") === child(arbitrated.instrumented.top, "lane3") ~is #false
+  child(arbitrated.instrumented.top, "gold2") === child(arbitrated.instrumented.top, "gold3") ~is #true
+  has_trace_ports(child(child(arbitrated.instrumented.top, "gold3"), "network")) ~is #false
+  arbiter_fixture.bad_width() ~throws "local one-bit data"
+  arbiter_fixture.duplicate_controls() ~throws "already declared"
+  arbiter_fixture.missing_controls() ~throws "requires declared grants"
+  arbiter_fixture.mismatched_instance() ~throws "must match the transform implementation"
+  arbiter_fixture.bad_shape() ~throws "one grant and route per input"
+  instrument_events(arbiter_fixture.partial()) ~throws "annotated ancestor on every input path"
+
+def crossbar_before = emit_circt(crossbar_fixture.crossed.design)
+def crossed = instrument_events(crossbar_fixture.crossed)
+def crossbar_outputs = crossed.manifest.sites.filter(~keep: fun (site): site.label.starts_with("output"))
+check:
+  crossed.manifest.sites.length() ~is 10
+  crossed.manifest.dependencies.length() ~is 12
+  crossbar_outputs.map(fun (site): crossed.manifest.trace_plans[site.id] is_a EventTraceSelection) ~is [#true, #true, #true, #true]
+  emit_circt(crossbar_fixture.crossed.design) ~is crossbar_before
+  instrument_events(crossbar_fixture.partial()) ~throws "annotated ancestor on every input path"
+
+def demux_before = emit_circt(demux_fixture.routed.design)
+def routed = instrument_events(demux_fixture.routed)
+def branch_sites = routed.manifest.sites.filter(~keep: fun (site): site.label.starts_with("branch"))
+def routing_plans = branch_sites.map(fun (site): routed.manifest.trace_plans[site.id])
+check:
+  routed.manifest.sites.length() ~is 12
+  routed.manifest.dependencies.length() ~is 9
+  routed.manifest.dependencies.take(3).map(fun (edge): edge.latency_cycles) ~is [0, 0, 0]
+  routed.manifest.dependencies.map(fun (edge): edge.trace_stages) ~is [#false, #false, #false, #false, #false, #false, #false, #false, #false]
+  routing_plans.take(3).map(fun (plan): plan is_a EventTraceRouting) ~is [#true, #true, #true]
+  routing_plans.take(3).map(fun (plan): plan.output_index) ~is [0, 1, 2]
+  routing_plans[0].routing_id ~is routing_plans[2].routing_id
+  routing_plans[3].input is_a EventTraceRouting ~is #true
+  routing_plans[3].input.input is_a EventTracePipeline ~is #true
+  routing_plans[3].input.routing_id != routing_plans[6].input.routing_id ~is #true
+  emit_circt(demux_fixture.routed.design) ~is demux_before
+  child(routed.instrumented.top, "lane1") === child(routed.instrumented.top, "lane2") ~is #false
+  child(routed.instrumented.top, "gold1") === child(routed.instrumented.top, "gold2") ~is #true
+  has_trace_ports(child(child(routed.instrumented.top, "gold2"), "network")) ~is #false
+  instrument_events(demux_fixture.nested()).manifest.dependencies.length() ~is 3
+  instrument_events(demux_fixture.rejoined()).manifest.dependencies.length() ~is 2
+  demux_fixture.bad_width() ~throws "local one-bit data"
+  demux_fixture.bad_shape() ~throws "one predicate and route per output"
+  demux_fixture.bad_routes() ~throws "one predicate and route per output"
+  demux_fixture.foreign_controls() ~throws "local one-bit data"
+  instrument_events(demux_fixture.uncertified_fanout()) ~throws "uncertified fanout"
+  instrument_events(demux_fixture.singleton()).manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0]
+
+def fork_before = emit_circt(fork_fixture.replicated.design)
+def replicated = instrument_events(fork_fixture.replicated)
+def fork_sites = replicated.manifest.sites.filter(~keep: fun (site): site.label.starts_with("branch"))
+def fork_plans = fork_sites.map(fun (site): replicated.manifest.trace_plans[site.id])
+check:
+  replicated.manifest.sites.length() ~is 12
+  replicated.manifest.dependencies.length() ~is 9
+  replicated.manifest.dependencies.take(3).map(fun (edge): edge.latency_cycles) ~is [0, 0, 0]
+  replicated.manifest.dependencies.map(fun (edge): edge.trace_stages) ~is [#false, #false, #false, #false, #false, #false, #false, #false, #false]
+  fork_plans.take(3).map(fun (plan): plan is_a EventTraceReplication) ~is [#true, #true, #true]
+  fork_plans.take(3).map(fun (plan): plan.output_index) ~is [0, 1, 2]
+  fork_plans[0].replication_id ~is fork_plans[2].replication_id
+  fork_plans[0].input === fork_plans[2].input ~is #true
+  fork_plans[3].input is_a EventTraceReplication ~is #true
+  fork_plans[3].input.input is_a EventTracePipeline ~is #true
+  fork_plans[3].input.replication_id != fork_plans[6].input.replication_id ~is #true
+  emit_circt(fork_fixture.replicated.design) ~is fork_before
+  child(replicated.instrumented.top, "lane1") === child(replicated.instrumented.top, "lane2") ~is #false
+  child(replicated.instrumented.top, "gold1") === child(replicated.instrumented.top, "gold2") ~is #true
+  has_trace_ports(child(child(replicated.instrumented.top, "gold2"), "network")) ~is #false
+  instrument_events(fork_fixture.nested()).manifest.dependencies.length() ~is 3
+  instrument_events(fork_fixture.routed(#true)).manifest.dependencies.length() ~is 3
+  instrument_events(fork_fixture.routed(#false)).manifest.dependencies.length() ~is 3
+  instrument_events(fork_fixture.rejoined()).manifest.dependencies.length() ~is 2
+  instrument_events(fork_fixture.singleton()).manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0]
+  fork_fixture.bad_count() ~throws "PosInt"
+  fork_fixture.bad_shape() ~throws "one ordered route per output"
+  fork_fixture.bad_routes() ~throws "one ordered route per output"
+
+def broadcast_before = emit_circt(broadcast_fixture.replicated.design)
+def broadcasted = instrument_events(broadcast_fixture.replicated)
+def broadcast_sites = broadcasted.manifest.sites.filter(~keep: fun (site): site.label.starts_with("branch"))
+def broadcast_plans = broadcast_sites.map(fun (site): broadcasted.manifest.trace_plans[site.id])
+def broadcast_rejoined = instrument_events(broadcast_fixture.rejoined())
+def broadcast_registers = broadcast_rejoined.instrumented.top.operations.filter(
+  ~keep: fun (op): op.opcode == "rtl.register_reset" && op.attribute("name").starts_with("__event_parent_")
+)
+check:
+  broadcasted.manifest.sites.length() ~is 12
+  broadcasted.manifest.dependencies.length() ~is 9
+  broadcasted.manifest.dependencies.take(3).map(fun (edge): edge.latency_cycles) ~is [#false, #false, #false]
+  broadcasted.manifest.dependencies.map(fun (edge): edge.trace_stages) ~is [#false, #false, #false, #false, #false, #false, #false, #false, #false]
+  broadcast_plans.take(3).map(fun (plan): plan is_a EventTraceBroadcast) ~is [#true, #true, #true]
+  broadcast_plans.take(3).map(fun (plan): plan.output_index) ~is [0, 1, 2]
+  broadcast_plans[0].broadcast_id ~is broadcast_plans[2].broadcast_id
+  broadcast_plans[0].input === broadcast_plans[2].input ~is #true
+  broadcast_plans[3].input is_a EventTraceBroadcast ~is #true
+  broadcast_plans[3].input.input is_a EventTracePipeline ~is #true
+  broadcast_plans[3].input.broadcast_id != broadcast_plans[6].input.broadcast_id ~is #true
+  emit_circt(broadcast_fixture.replicated.design) ~is broadcast_before
+  child(broadcasted.instrumented.top, "lane1") === child(broadcasted.instrumented.top, "lane2") ~is #false
+  child(broadcasted.instrumented.top, "gold1") === child(broadcasted.instrumented.top, "gold2") ~is #true
+  has_trace_ports(child(child(broadcasted.instrumented.top, "gold2"), "network")) ~is #false
+  instrument_events(broadcast_fixture.nested()).manifest.dependencies.length() ~is 3
+  // Both routes have the same static transform path, so the manifest deduplicates them.
+  broadcast_rejoined.manifest.dependencies.length() ~is 1
+  broadcast_registers.length() ~is 1
+  instrument_events(broadcast_fixture.singleton()).manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [#false]
+  broadcast_fixture.bad_width() ~throws "local one-bit data"
+  broadcast_fixture.bad_accept() ~throws "local one-bit data"
+  broadcast_fixture.missing_controls() ~throws "requires declared storage controls"
+  broadcast_fixture.mismatched_instance() ~throws "must match the transform implementation"
+  broadcast_fixture.duplicate_controls() ~throws "already declared"
+  broadcast_fixture.bad_shape() ~throws "one ordered route and pending bit per output"
+  broadcast_fixture.bad_routes() ~throws "one ordered route and pending bit per output"
+
+def join_before = emit_circt(join_fixture.joined.design)
+def joined = instrument_events(join_fixture.joined)
+def join_completions = joined.manifest.sites.filter(~keep: fun (site): site.label.starts_with("completed"))
+def join_plans = join_completions.map(fun (site): joined.manifest.trace_plans[site.id])
+def checkpoint = joined.manifest.sites.find(fun (site): site.label == "joined")
+def joined_simple = instrument_events(static_fixture.merged)
+def simple_join_site = joined_simple.manifest.sites.find(fun (site): site.label == "joined")
+check:
+  joined.manifest.sites.map(fun (site): site.label) ~is ["root0", "root1", "root2", "completed0", "completed1", "root0", "root1", "root2", "completed0", "completed1", "root0", "root1", "root2", "joined", "completed0", "completed1", "root0", "root1", "root2", "completed0", "completed1", "occurrences", "paired"]
+  join_plans.map(event_trace_capacity) ~is [5, 5, 4, 4, 2, 2, 4, 4]
+  event_trace_capacity(joined.manifest.trace_plans[checkpoint.id]) ~is 2
+  joined_simple.manifest.trace_plans[simple_join_site.id] is_a EventTraceJoin ~is #true
+  joined_simple.manifest.dependencies.map(fun (edge): edge.latency_cycles) ~is [0, 0]
+  joined_simple.manifest.dependencies.map(fun (edge): edge.trace_stages) ~is [#false, #false]
+  emit_circt(join_fixture.joined.design) ~is join_before
+  join_fixture.bad_count() ~throws "PosInt"
+  join_fixture.bad_shape() ~throws "one ordered route per input"
+  join_fixture.bad_routes() ~throws "one ordered route per input"
+  instrument_events(join_fixture.partial()) ~throws "annotated ancestor on every input path"

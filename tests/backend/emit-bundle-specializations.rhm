@@ -1,9 +1,0 @@
-#lang rhombus
-// Emits CIRCT MLIR for colliding concrete specializations of one bundle name.
-// SPDX-License-Identifier: Apache-2.0
-
-import:
-  "../../rhodium/backend/circt.rhm" open
-  "../../examples/rtl/bundle.rhdl" as bundle_fixture
-
-print(emit_circt(bundle_fixture.specialization_design))

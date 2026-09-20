@@ -159,7 +159,7 @@ entry point for configured stages. Individual stage modules should specify
 only their connected result shape with `InterfaceTransformResult`.
 
 When adding or changing a configured stage, extend
-[`std-flow-static.rhdl`](../tests/frontend/std-flow-static.rhdl) and its
+[`std-flow-static.rhdl`](../flow/tests/std-flow-static.rhdl) and its
 loader test so `use_static` covers direct endpoint fields, endpoint-array
 indexing or destructuring, disconnected handle sides, and reuse where
 applicable. A runtime elaboration test alone cannot catch lost expansion-time
@@ -169,7 +169,7 @@ field information.
 
 The extraction retains the current test and example locations and runner
 names. Compiler-facing composition and static-information tests remain in
-[`tests/frontend`](../tests/frontend/); executable flow examples remain in
+[`tests/`](tests/); executable flow examples remain in
 [`examples/std`](../examples/std/). The `std` backend group and `examples-std`
 target cover both foundational standard modules and flow.
 
@@ -177,7 +177,7 @@ Use one fresh compiled root for a focused batch as required by
 [`AGENTS.md`](../AGENTS.md#verification). The wrappers create one when omitted:
 
 ```sh
-tools/run-racket-tests.sh tests/frontend/std-flow-test.rhm tests/frontend/std-flow-chain-test.rhm tests/frontend/std-flow-static-test.rhm
+tools/run-racket-tests.sh flow/tests/std-flow-test.rhm flow/tests/std-flow-chain-test.rhm flow/tests/std-flow-static-test.rhm
 make examples-std
 make check-boundaries
 bash tools/check-ci-changes.sh
@@ -186,14 +186,14 @@ bash tools/check-ci-changes.sh
 For cycle-visible behavior, select the relevant existing fixtures:
 
 ```sh
-FIXTURES='queue-options shift-queue rr-arbiter packet-rr-arbiter selective-atomic-fork selective-join state-flow' bash tests/backend/run-circt.sh
+FIXTURES='queue-options shift-queue rr-arbiter packet-rr-arbiter selective-atomic-fork selective-join state-flow' bash tools/testing/circt/run.sh
 ```
 
-The [backend guide](../tests/backend/README.md) owns fixture selection and
+The [backend guide](../tools/testing/circt/README.md) owns fixture selection and
 toolchain requirements. Credited, flit, control-only, valid-only, and event
 fixtures provide additional coverage when those contracts change.
 Use `make ci-circt-std-test` for the complete shared library backend group.
-Use `FIXTURE=event-offer bash tests/backend/run-circt.sh` for best-effort offer
+Use `FIXTURE=event-offer bash tools/testing/circt/run.sh` for best-effort offer
 conversion and qualified transfer/stall lineage; its scoreboard checks exact
 current-attempt parents, rejected/replayed offers, reset, and unchanged wiring.
 Preserve example-owned Verilog references unless generated hardware changes

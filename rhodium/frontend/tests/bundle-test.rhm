@@ -1,0 +1,112 @@
+#lang rhombus
+// Checks bundle syntax as a frontend layer over canonical core record semantics.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bundle.rhm" as bundles
+  "../../../examples/rtl/bundle.rhdl" as bundle_fixture
+  "hardware-literal-fixture.rhdl" as literal_fixture
+
+def pipeline_design = bundle_fixture.design
+def pipeline = pipeline_design.modules[0]
+def pair_type = bundle_fixture.Pair(Bits(8))
+def pair_type_family = bundle_fixture.Pair
+def indirect_pair_type = pair_type_family(Bits(8))
+def pair_arguments = pair_type_family.specialization_arguments(pair_type)
+def structural_pair_type = RecordType([
+  RecordField("left", Bits(8)),
+  RecordField("right", Bits(8))
+])
+def selected = pipeline.operations.find(
+  fun (operation): operation.opcode == "rtl.mux_lookup"
+)
+def state = pipeline.operations.find(
+  fun (operation): operation.opcode == "rtl.register_reset"
+)
+def swap_design = embedded.run_elaboration(fun (): bundle_fixture.Swap(8))
+def swap = swap_design.modules[0]
+def nested_design = embedded.run_elaboration(fun (): bundle_fixture.NestedSwap(8))
+def nested = nested_design.modules[0]
+def hierarchy_design = embedded.run_elaboration(fun (): bundle_fixture.BundleHierarchy(8))
+def hierarchy = hierarchy_design.modules.find(
+  fun (module_def): module_def.name.starts_with("BundleHierarchy")
+)
+def hierarchy_instance = hierarchy.operations.find(
+  fun (operation): operation.opcode == "rtl.instance"
+)
+def cast_module = bundle_fixture.cast_design.modules[0]
+def casts = cast_module.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.cast"
+)
+def pipeline_literal_cast = pipeline.operations.find(
+  fun (operation):
+    operation.opcode == "rtl.cast" && type_equal(operation.results[0].type, pair_type)
+)
+def pipeline_literal_constant = pipeline.find_operation(
+  pipeline_literal_cast.operands[0].defining_op_id
+)
+def swap_ir = dump_ir(swap_design)
+
+check:
+  record_type(pair_type) ~is #true
+  pair_type is_a bundles.BundleType ~is #true
+  pair_type_family is_a Function ~is #true
+  pair_type.preferred_name ~is "Pair"
+  type_equal(indirect_pair_type, pair_type) ~is #true
+  pair_arguments.length() ~is 1
+  type_equal(pair_arguments[0], Bits(8)) ~is #true
+  type_equal(structural_pair_type, pair_type) ~is #true
+  pair_type_family.specialization_arguments(structural_pair_type) ~is #false
+  pair_type_family.require_specialization(structural_pair_type) ~throws "expected a Pair specialization"
+  pair_type.fields.map(fun (field): field.name) ~is ["left", "right"]
+  type_equal(pipeline.find_input("direct").type, pair_type) ~is #true
+  type_equal(pipeline.find_output("result").type, pair_type) ~is #true
+  type_equal(selected.results[0].type, pair_type) ~is #true
+  type_equal(state.results[0].type, pair_type) ~is #true
+  type_equal(state.places[0].type, pair_type) ~is #true
+  pipeline.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_create"
+  ).length() ~is 0
+  pipeline_literal_constant.opcode ~is "rtl.constant"
+  pipeline_literal_constant.attribute("value") ~is 0
+  type_equal(pipeline_literal_constant.results[0].type, Bits(16)) ~is #true
+  swap.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_get"
+  ).length() ~is 2
+  swap.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_create"
+  ).length() ~is 1
+  swap.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.drive"
+  ).length() ~is 1
+  record_type(nested.find_input("source").type.field("payload").type) ~is #true
+  nested.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_create"
+  ).length() ~is 2
+  hierarchy_instance.places.length() ~is 1
+  type_equal(hierarchy_instance.places[0].type, pair_type) ~is #true
+  type_equal(hierarchy_instance.results[0].type, pair_type) ~is #true
+  casts.length() ~is 2
+  type_equal(casts[0].operands[0].type, pair_type) ~is #true
+  type_equal(casts[0].results[0].type, Bits(16)) ~is #true
+  type_equal(casts[1].operands[0].type, Bits(16)) ~is #true
+  type_equal(casts[1].results[0].type, pair_type) ~is #true
+  swap_ir.contains("record<left: bits<8>, right: bits<8>>") ~is #true
+  swap_ir.contains("rtl.record_get %source.right") ~is #true
+  swap_ir.contains("rtl.record_create {left:") ~is #true
+  verify_design(pipeline_design) ~is #void
+  verify_design(swap_design) ~is #void
+  verify_design(nested_design) ~is #void
+  verify_design(hierarchy_design) ~is #void
+  verify_design(bundle_fixture.cast_design) ~is #void
+  embedded.run_elaboration(
+    fun (): literal_fixture.MissingBundleField()
+  ) ~throws "literal must supply every record field exactly once"
+  embedded.run_elaboration(
+    fun (): literal_fixture.DuplicateBundleField()
+  ) ~throws "literal must supply every record field exactly once"
+  embedded.run_elaboration(
+    fun (): literal_fixture.WrongBundleFieldType()
+  ) ~throws "literal field right has the wrong hardware type"

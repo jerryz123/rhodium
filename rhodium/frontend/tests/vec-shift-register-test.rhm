@@ -1,0 +1,28 @@
+#lang rhombus
+// Checks vector-register element updates, priority selection, and implicit hold.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../examples/rtl/vec-shift-register.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def register_operation = module_def.operations.find(
+  fun (operation): operation.opcode == "rtl.register"
+)
+def muxes = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
+)
+
+check:
+  module_def.name ~is "VecShiftRegister"
+  module_def.inputs.map(fun (port): port.name) ~is ["clock", "reset", "ins", "load", "shift"]
+  type_equal(register_operation.results[0].type,
+             VectorType(4, Bits(4))) ~is #true
+  register_operation.places[0].driver != #false ~is #true
+  muxes.length() ~is 8
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.vector_create"
+  ).length() ~is 1
+  type_equal(module_def.find_output("out").type, Bits(4)) ~is #true
+  verify_design(fixture.design) ~is #void

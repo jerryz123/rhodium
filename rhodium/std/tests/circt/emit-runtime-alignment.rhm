@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits bounded runtime alignment checks across address and exponent widths.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../std-bits-fixture.rhdl" as fixture
+
+print(emit_circt(embedded.run_elaboration(fun (): fixture.RuntimeAlignmentFixture())))

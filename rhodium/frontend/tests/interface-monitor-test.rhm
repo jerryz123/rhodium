@@ -1,0 +1,53 @@
+#lang rhombus
+// Checks explicit endpoint monitors, read-only observations, roles, and unmonitored endpoints.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/rtl/interface-monitor.rhdl" as example
+  "interface-monitor-fixture.rhdl" as fixture
+
+fun elaborate(circuit):
+  embedded.run_elaboration(fun (): circuit())
+
+fun assertions(module_def):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == "verif.assert"
+  )
+
+def producer_design = example.design
+def consumer_design = elaborate(fixture.MonitoredConsumer)
+def unmonitored_design = elaborate(fixture.UnmonitoredProducer)
+def array_design = elaborate(fixture.MonitoredProducerArray)
+def refined_design = elaborate(fixture.RefinedMonitoredProducer)
+def producer = producer_design.modules[0]
+def consumer = consumer_design.modules[0]
+def unmonitored = unmonitored_design.modules[0]
+def array = array_design.modules[0]
+def refined = refined_design.modules[0]
+check:
+  producer.inputs.map(fun (port): port.name) ~is [
+    "clock", "reset", "stream_in"
+  ]
+  producer.outputs.map(fun (port): port.name) ~is [
+    "stream_out"
+  ]
+  assertions(producer).map(
+    fun (operation): operation.attribute("label")
+  ) ~is ["producer_ready_requires_valid"]
+  assertions(consumer).map(
+    fun (operation): operation.attribute("label")
+  ) ~is ["consumer_ready_requires_valid"]
+  assertions(unmonitored) ~is []
+  assertions(array).map(
+    fun (operation): operation.attribute("label")
+  ) ~is ["producer_ready_requires_valid", "producer_ready_requires_valid"]
+  assertions(refined).map(
+    fun (operation): operation.attribute("label")
+  ) ~is ["producer_ready_requires_valid"]
+  verify_design(producer_design) ~is #void
+  verify_design(consumer_design) ~is #void
+  verify_design(unmonitored_design) ~is #void
+  verify_design(array_design) ~is #void
+  verify_design(refined_design) ~is #void

@@ -486,7 +486,7 @@ must remain a miss, and an intervening dirty line must retain its authoritative
 value. The inclusive outer cache may invalidate that L1 copy while allocating
 the hinted line, so this SoC test does not require the resident probe to hit;
 the L1 no-replacement property is covered by
-`tests/backend/verilog/rv5stage-dcache_tb.sv`. Do not weaken the NTL check to
+`cores/rv5stage/tests/circt/verilog/rv5stage-dcache_tb.sv`. Do not weaken the NTL check to
 data-only checks: ignoring NTL preserves architectural values and would
 otherwise pass. The payload selects S-mode Sv39 data
 translation through MPRV while executing in M-mode; test addresses are virtual

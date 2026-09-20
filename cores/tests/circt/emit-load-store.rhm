@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits CIRCT IR for the reusable load/store lane-generation fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../cores/tests/load-store-fixture.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.LoadStoreFixture(XLen.X64))
+print(emit_circt(design))

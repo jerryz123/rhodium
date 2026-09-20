@@ -1,0 +1,66 @@
+#lang rhombus
+// Checks core single-driver wires, readability, aggregate assembly, and failures.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+check:
+  schema_for("rtl.wire").type_rule ~is "hardware_wire"
+  schema_for("rtl.wire").print_form ~is "wire"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ScalarWire")
+  def source = builder.input(module_def, "source", Bits(8))
+  def result = builder.output(module_def, "result", Bits(8))
+  def temporary = builder.wire(module_def, "temporary", Bits(8))
+  def early_read = builder.read(temporary)
+  builder.drive(result, early_read)
+  builder.drive(temporary, source)
+  builder.finish(module_def)
+  check:
+    temporary is_a Place ~is #true
+    builder.read(temporary) === early_read ~is #true
+    early_read.module_def.find_operation(early_read.defining_op_id).opcode ~is "rtl.wire"
+    dump_ir(design).contains("%temporary, &temporary = rtl.wire bits<8>") ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("VectorWire")
+  def element_type = Bits(4)
+  def type = VectorType(2, element_type)
+  def first = builder.input(module_def, "first", element_type)
+  def second = builder.input(module_def, "second", element_type)
+  def result = builder.output(module_def, "result", type)
+  def temporary = builder.wire(module_def, "temporary", type)
+  def early_read = builder.read(temporary)
+  builder.drive(result, early_read)
+  builder.drive(builder.project_vector(temporary, 0), first)
+  builder.drive(builder.project_vector(temporary, 1), second)
+  builder.finish(module_def)
+  def assembled = temporary.driver
+  check:
+    assembled.module_def.find_operation(assembled.defining_op_id).opcode ~is "rtl.vector_create"
+    temporary.driver === assembled ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("WireFailures")
+  def source = builder.input(module_def, "source", Bits(4))
+  def other = builder.input(module_def, "other", Bits(4))
+  def scalar = builder.wire(module_def, "scalar", Bits(4))
+  def partial = builder.wire(module_def, "partial", VectorType(2, Bits(4)))
+  def scalar_read = builder.read(scalar)
+  builder.drive(scalar, source)
+  check:
+    scalar_read.module_def.find_operation(scalar_read.defining_op_id).opcode ~is "rtl.wire"
+    builder.drive(scalar, other) ~throws "already has a driver"
+  builder.drive(builder.project_vector(partial, 0), source)
+  check:
+    builder.finish(module_def) ~throws "incomplete element-wise drivers"

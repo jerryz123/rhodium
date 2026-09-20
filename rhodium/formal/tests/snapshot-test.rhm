@@ -1,0 +1,152 @@
+#lang rhombus
+// Checks immutable formal snapshots, scalar representations, aggregates, and operation metadata.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/formal/snapshot.rhm" open
+  lib("racket/base.rkt") as rkt
+
+def design = Design()
+def builder = Builder(design)
+def adder = builder.module("SnapshotAdder")
+def a = builder.input(adder, "a", Bits(8))
+def b = builder.input(adder, "b", Bits(8))
+def sum = builder.output(adder, "sum", Bits(8))
+builder.drive(sum,
+              builder.add(adder, a, b, "value",
+                          Location("snapshot-input.rhm", 42, 7),
+                          Origin("test", "snapshot metadata")))
+def finished_adder = builder.finish(adder)
+def snapshot = formal_snapshot(finished_adder)
+def modules = rkt.#{hash-ref}(snapshot, "modules")
+def module_snapshot = modules[0]
+def inputs = rkt.#{hash-ref}(module_snapshot, "inputs")
+def outputs = rkt.#{hash-ref}(module_snapshot, "outputs")
+def operations = rkt.#{hash-ref}(module_snapshot, "operations")
+def add_operation:
+  operations.find(
+    fun (operation): rkt.#{hash-ref}(operation, "opcode") == "rtl.add"
+  )
+
+check:
+  rkt.#{hash-ref}(snapshot, "version") ~is 1
+  rkt.#{hash-ref}(snapshot, "top") ~is finished_adder.id
+  modules.length() ~is 1
+  rkt.#{hash-ref}(module_snapshot, "name") ~is "SnapshotAdder"
+  rkt.#{hash-ref}(inputs[0], "name") ~is "a"
+  rkt.#{hash-ref}(rkt.#{hash-ref}(inputs[0], "type"), "kind") ~is "flat"
+  rkt.#{hash-ref}(rkt.#{hash-ref}(inputs[0], "type"), "width") ~is 8
+  rkt.#{hash-ref}(outputs[0], "name") ~is "sum"
+  rkt.#{hash-ref}(outputs[0], "driver") is_a Int ~is #true
+  rkt.#{hash-ref}(add_operation, "location") ~is "snapshot-input.rhm:42:7"
+  rkt.#{hash-ref}(add_operation, "origin") ~is "test: snapshot metadata"
+  rkt.#{equal?}(snapshot, formal_snapshot(finished_adder)) ~is #true
+  formal_snapshot(design) ~throws "must identify an explicit top module"
+
+class Token():
+  implements ScalarDataType
+  override method describe(): "token"
+  override method type_equal(other): other is_a Token
+  override method packed_width(): 7
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ScalarSnapshot")
+  def source = builder.input(module_def, "source", Token())
+  def result = builder.output(module_def, "result", Bits(7))
+  builder.drive(result, builder.cast(module_def, source, Bits(7)))
+  def snapshot = formal_snapshot(builder.finish(module_def))
+  def module_data = rkt.#{hash-ref}(snapshot, "modules")[0]
+  def input_data = rkt.#{hash-ref}(module_data, "inputs")[0]
+  def type_data = rkt.#{hash-ref}(input_data, "type")
+  check:
+    rkt.#{hash-ref}(type_data, "kind") ~is "flat"
+    rkt.#{hash-ref}(type_data, "text") ~is "token"
+    rkt.#{hash-ref}(type_data, "width") ~is 7
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("IncompleteSnapshot")
+  builder.output(module_def, "result", Bits(1))
+  check:
+    formal_snapshot(module_def) ~throws "completed module"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ForwardWireSnapshot")
+  def source = builder.input(module_def, "source", Bits(3))
+  def result = builder.output(module_def, "result", Bits(3))
+  def forward = builder.wire(module_def, "forward", Bits(3))
+  def early_read = builder.read(forward)
+  builder.drive(result, early_read)
+  builder.drive(forward, source)
+  def finished = builder.finish(module_def)
+  def snapshot = formal_snapshot(finished)
+  def module_data = rkt.#{hash-ref}(snapshot, "modules")[0]
+  def places = rkt.#{hash-ref}(module_data, "places")
+  def forward_place:
+    places.find(fun (place): rkt.#{hash-ref}(place, "name") == "forward")
+  check:
+    rkt.#{hash-ref}(forward_place, "driver") ~is source.id
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def record_type = RecordType([RecordField("tag", Bits(2)),
+                                RecordField("payload", Bits(5))])
+  def vector_type = VectorType(3, Bits(4))
+  def module_def = builder.module("AggregateSnapshot")
+  def record_input = builder.input(module_def, "record_input", record_type)
+  def vector_input = builder.input(module_def, "vector_input", vector_type)
+  def record_output = builder.output(module_def, "record_output", record_type)
+  def vector_output = builder.output(module_def, "vector_output", vector_type)
+  builder.drive(record_output, record_input)
+  builder.drive(vector_output, vector_input)
+  def finished = builder.finish(module_def)
+  def snapshot = formal_snapshot(finished)
+  def module_data = rkt.#{hash-ref}(snapshot, "modules")[0]
+  def inputs = rkt.#{hash-ref}(module_data, "inputs")
+  def record_data = rkt.#{hash-ref}(inputs[0], "type")
+  def vector_data = rkt.#{hash-ref}(inputs[1], "type")
+  check:
+    rkt.#{hash-ref}(record_data, "kind") ~is "record"
+    rkt.#{hash-ref}(record_data, "width") ~is 7
+    rkt.#{hash-ref}(rkt.#{hash-ref}(record_data, "fields")[0], "name") ~is "tag"
+    rkt.#{hash-ref}(vector_data, "kind") ~is "vector"
+    rkt.#{hash-ref}(vector_data, "length") ~is 3
+    rkt.#{hash-ref}(rkt.#{hash-ref}(vector_data, "element_type"), "width") ~is 4
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("DecodeSnapshot")
+  def selector = builder.input(module_def, "selector", Bits(3))
+  def result = builder.output(module_def, "result", Bits(2))
+  def decoded:
+    builder.decode(module_def,
+                   selector,
+                   Bits(3),
+                   Bits(2),
+                   [[0b000, 0b011, 0b01, 0b11],
+                    [0b001, 0b011, 0b10, 0b11]],
+                   0b11,
+                   0b11)
+  builder.drive(result, decoded)
+  def snapshot = formal_snapshot(builder.finish(module_def))
+  def operations = rkt.#{hash-ref}(rkt.#{hash-ref}(snapshot, "modules")[0],
+                                   "operations")
+  def decode_operation:
+    operations.find(fun (operation): rkt.#{hash-ref}(operation, "opcode") == "rtl.decode")
+  def attributes = rkt.#{hash-ref}(decode_operation, "attributes")
+  def expected_cases = [[0b000, 0b011, 0b01, 0b11],
+                        [0b001, 0b011, 0b10, 0b11]]
+  def expected_pair_cases:
+    PairList[& expected_cases.map(fun (row): PairList[& row])]
+  check:
+    rkt.#{hash-ref}(attributes, "cases") ~is expected_pair_cases
+    rkt.#{hash-ref}(attributes, "default_value") ~is 0b11
+    rkt.#{hash-ref}(attributes, "default_care") ~is 0b11

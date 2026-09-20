@@ -1,0 +1,69 @@
+#lang rhombus
+// Verifies signed arithmetic capability operations, typing, printing, and rejection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+class TestSigned(width):
+  implements SignedArithmeticType
+
+  override method describe():
+    "test-sint<" ++ to_string(width) ++ ">"
+
+  override method type_equal(other):
+    other is_a TestSigned && width == other.width
+
+  override method packed_width():
+    width
+
+  override method with_bit_width(new_width):
+    TestSigned(new_width)
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("SignedCore")
+  def left = builder.input(module_def, "left", TestSigned(8))
+  def right = builder.input(module_def, "right", TestSigned(8))
+  def amount = builder.input(module_def, "amount", Bits(3))
+  def sum = builder.add(module_def, left, right, "sum")
+  def difference = builder.sub(module_def, left, right, "difference")
+  def product = builder.mul(module_def, left, right, "product")
+  def shifted_left = builder.shl(module_def, left, amount, "shifted_left")
+  def shifted_right = builder.shrs(module_def, left, amount, "shifted_right")
+  def less = builder.slt(module_def, left, right, "less")
+  def widened = builder.sext(module_def, left, 12, "widened")
+  builder.finish(module_def)
+  def printed = dump_ir(design)
+
+  check:
+    arithmetic_type(left.type) ~is #true
+    signed_arithmetic_type(left.type) ~is #true
+    type_equal(sum.type, TestSigned(8)) ~is #true
+    type_equal(difference.type, TestSigned(8)) ~is #true
+    type_equal(product.type, TestSigned(8)) ~is #true
+    type_equal(shifted_left.type, TestSigned(8)) ~is #true
+    type_equal(shifted_right.type, TestSigned(8)) ~is #true
+    type_equal(less.type, Bits(1)) ~is #true
+    type_equal(widened.type, TestSigned(12)) ~is #true
+    printed.contains("%shifted_right = rtl.shrs %left, %amount : test-sint<8>") ~is #true
+    printed.contains("%less = rtl.slt %left, %right : bits<1>") ~is #true
+    printed.contains("%widened = rtl.sext %left to test-sint<12>") ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadSignedCore")
+  def signed8 = builder.input(module_def, "signed8", TestSigned(8))
+  def signed4 = builder.input(module_def, "signed4", TestSigned(4))
+  def bits8 = builder.input(module_def, "bits8", Bits(8))
+  def amount = builder.input(module_def, "amount", Bits(3))
+
+  check:
+    builder.add(module_def, signed8, signed4) ~throws "same arithmetic type and width"
+    builder.add(module_def, signed8, bits8) ~throws "same arithmetic type and width"
+    builder.shrs(module_def, bits8, amount) ~throws "SignedArithmeticType"
+    builder.slt(module_def, signed8, signed4) ~throws "same signed arithmetic type and width"
+    builder.sext(module_def, signed8, 8) ~throws "larger than the source width"

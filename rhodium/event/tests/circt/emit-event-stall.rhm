@@ -1,0 +1,11 @@
+#lang rhombus
+// Emits stall instrumentation and its matching manifest for public-interface scoreboarding.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../../rhodium/event/main.rhm" open
+  "../event-stall-fixture.rhdl" as fixture
+export event_manifest_cpp
+def traced = instrument_events(fixture.stalled)
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
+print(emit_circt(traced.instrumented.design))

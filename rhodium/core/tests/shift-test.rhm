@@ -1,0 +1,65 @@
+#lang rhombus
+// Verifies fixed-width logical shift construction, printing, and malformed-IR rejection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Shifts")
+  def value = builder.input(module_def, "value", Bits(8))
+  def amount = builder.input(module_def, "amount", Bits(3))
+  def left = builder.shl(module_def, value, amount, "left")
+  def right = builder.shru(module_def, value, amount, "right")
+  builder.finish(module_def)
+  def printed = dump_ir(design)
+
+  check:
+    type_equal(left.type, Bits(8)) ~is #true
+    type_equal(right.type, Bits(8)) ~is #true
+    module_def.find_operation(left.defining_op_id).opcode ~is "rtl.shl"
+    module_def.find_operation(right.defining_op_id).opcode ~is "rtl.shru"
+    combinational_opcode("rtl.shl") ~is #true
+    combinational_opcode("rtl.shru") ~is #true
+    value.users().length() ~is 2
+    amount.users().length() ~is 2
+    printed.contains("%left = rtl.shl %value, %amount : bits<8>") ~is #true
+    printed.contains("%right = rtl.shru %value, %amount : bits<8>") ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadShifts")
+  def value = builder.input(module_def, "value", Bits(8))
+  def clock = builder.input(module_def, "clock", Clock)
+
+  check:
+    builder.shl(module_def, value, clock) ~throws "shift amount must be Bits"
+    builder.shru(module_def, clock, value) ~throws "shifted value must be Bits"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedShift")
+  def value = builder.input(module_def, "value", Bits(8))
+  def amount = builder.input(module_def, "amount", Bits(3))
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(4), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.shl",
+                            module_def,
+                            [value, amount],
+                            [result],
+                            [],
+                            {"name": "result"})
+  value.add_user(operation_id)
+  amount.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  builder.finish(module_def)
+
+  check:
+    verify_design(design) ~throws "shifted value and result must have exactly the same ArithmeticType"

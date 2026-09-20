@@ -1,0 +1,173 @@
+#lang rhombus
+// Covers fixed synchronous-memory ports, ownership, typing, printing, and verification.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("SyncMemoryCore")
+  def clock = builder.input(module_def, "clock", Clock)
+  def read_address = builder.input(module_def, "read_address", Bits(2))
+  def read_enable = builder.input(module_def, "read_enable", Bits(1))
+  def write_address = builder.input(module_def, "write_address", Bits(2))
+  def write_data = builder.input(module_def, "write_data", Bits(8))
+  def write_enable = builder.input(module_def, "write_enable", Bits(1))
+  def read_data = builder.output(module_def, "read_data", Bits(8))
+  def storage = builder.sync_memory(module_def,
+                                    "storage",
+                                    4,
+                                    Bits(8),
+                                    clock)
+  builder.drive(storage.read_port.address, read_address)
+  builder.drive(storage.read_port.enable, read_enable)
+  builder.drive(storage.write_port.address, write_address)
+  builder.drive(storage.write_port.data, write_data)
+  builder.drive(storage.write_port.enable, write_enable)
+  builder.drive(read_data, storage.read_port.data)
+  builder.finish(module_def)
+  check:
+    storage.operation.opcode ~is "rtl.sync_memory"
+    storage.operation.places.length() ~is 5
+    storage.operation.results.length() ~is 1
+    storage.read_ports.length() ~is 1
+    storage.write_ports.length() ~is 1
+    storage.read_write_ports.length() ~is 0
+    storage.read_port.data.type.width ~is 8
+    dump_ir(design).contains("rtl.sync_memory @storage depth 4 clock %clock") ~is #true
+    dump_ir(design).contains("read(address &storage.read.address") ~is #true
+    dump_ir(design).contains("write(address &storage.write.address") ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("SyncMemoryReadWriteCore")
+  def clock = builder.input(module_def, "clock", Clock)
+  def address = builder.input(module_def, "address", Bits(2))
+  def enable = builder.input(module_def, "enable", Bits(1))
+  def write = builder.input(module_def, "write", Bits(1))
+  def write_data = builder.input(module_def, "write_data", Bits(8))
+  def read_data = builder.output(module_def, "read_data", Bits(8))
+  def storage = builder.sync_memory(module_def,
+                                    "storage",
+                                    4,
+                                    Bits(8),
+                                    clock,
+                                    #false,
+                                    #false,
+                                    #true)
+  builder.drive(storage.read_write_port.address, address)
+  builder.drive(storage.read_write_port.enable, enable)
+  builder.drive(storage.read_write_port.write, write)
+  builder.drive(storage.read_write_port.write_data, write_data)
+  builder.drive(read_data, storage.read_write_port.read_data)
+  builder.finish(module_def)
+  check:
+    storage.read_ports.length() ~is 0
+    storage.write_ports.length() ~is 0
+    storage.read_write_ports.length() ~is 1
+    storage.operation.places.length() ~is 4
+    storage.operation.results.length() ~is 1
+    dump_ir(design).contains("read_write(address &storage.read_write.address") ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadSyncMemory")
+  def clock = builder.input(module_def, "clock", Clock)
+  def not_clock = builder.input(module_def, "not_clock", Bits(1))
+  check:
+    builder.sync_memory(module_def, "empty", 4, Bits(8), clock, #false, #false) ~throws "requires a read, write, or read-write port"
+    builder.sync_memory(module_def, "mixed", 4, Bits(8), clock, #true, #false, #true) ~throws "cannot be combined"
+    builder.sync_memory(module_def, "bad_depth", 0, Bits(8), clock) ~throws "PosInt"
+    builder.sync_memory(module_def, "bad_clock", 4, Bits(8), not_clock) ~throws "clock must be Clock"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("UndrivenSyncMemory")
+  def clock = builder.input(module_def, "clock", Clock)
+  def storage = builder.sync_memory(module_def,
+                                    "storage",
+                                    4,
+                                    Bits(8),
+                                    clock,
+                                    #true,
+                                    #false)
+  builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "storage.read.address is undriven"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MaskedSyncMemoryCore")
+  def clock = builder.input(module_def, "clock", Clock)
+  def read_address = builder.input(module_def, "read_address", Bits(2))
+  def read_enable = builder.input(module_def, "read_enable", Bits(1))
+  def write_address = builder.input(module_def, "write_address", Bits(2))
+  def write_data = builder.input(module_def, "write_data", Bits(32))
+  def write_mask = builder.input(module_def, "write_mask", Bits(4))
+  def write_enable = builder.input(module_def, "write_enable", Bits(1))
+  def read_data = builder.output(module_def, "read_data", Bits(32))
+  def storage = builder.sync_memory(module_def,
+                                    "storage",
+                                    4,
+                                    Bits(32),
+                                    clock,
+                                    #true,
+                                    #true,
+                                    #false,
+                                    8)
+  builder.drive(storage.read_port.address, read_address)
+  builder.drive(storage.read_port.enable, read_enable)
+  builder.drive(storage.write_port.address, write_address)
+  builder.drive(storage.write_port.data, write_data)
+  builder.drive(storage.write_port.enable, write_enable)
+  builder.drive(storage.write_port.mask, write_mask)
+  builder.drive(read_data, storage.read_port.data)
+  builder.finish(module_def)
+  check:
+    storage.mask_granularity ~is 8
+    storage.write_port.mask.type.width ~is 4
+    storage.operation.places.length() ~is 6
+    dump_ir(design).contains("mask_granularity 8") ~is #true
+    dump_ir(design).contains("mask &storage.write.mask") ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadMaskedSyncMemory")
+  def clock = builder.input(module_def, "clock", Clock)
+  def bit_masked = builder.sync_memory(module_def, "bit_masked", 4, Bits(13), clock,
+                                       #false, #true, #false, 1)
+  check:
+    bit_masked.write_port.mask.type.width ~is 13
+    builder.sync_memory(module_def, "zero", 4, Bits(32), clock,
+                        #true, #true, #false, 0) ~throws "PosInt"
+    builder.sync_memory(module_def, "uneven", 4, Bits(10), clock,
+                        #true, #true, #false, 4) ~throws "must divide"
+    builder.sync_memory(module_def, "read_only", 4, Bits(32), clock,
+                        #true, #false, #false, 8) ~throws "write-capable"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("UndrivenMaskedSyncMemory")
+  def clock = builder.input(module_def, "clock", Clock)
+  def address = builder.input(module_def, "address", Bits(2))
+  def enable = builder.input(module_def, "enable", Bits(1))
+  def data = builder.input(module_def, "data", Bits(32))
+  def storage = builder.sync_memory(module_def, "storage", 4, Bits(32), clock,
+                                    #false, #true, #false, 8)
+  builder.drive(storage.write_port.address, address)
+  builder.drive(storage.write_port.data, data)
+  builder.drive(storage.write_port.enable, enable)
+  builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "storage.write.mask is undriven"

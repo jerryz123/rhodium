@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits CIRCT MLIR for the independently routed CHI SNP-plane fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../chi/tests/snp-noc-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.snp_noc_design))

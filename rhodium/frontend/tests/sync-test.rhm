@@ -1,0 +1,136 @@
+#lang rhombus
+// Checks sync-circuit expansion, propagation, scoped resets, resetless state, and explicit IR equivalence.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/analysis/clocking.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/rtl/sync-counter.rhdl" as implicit_fixture
+  "../../../examples/lop/counter-composed.rhdl" as composed_example
+  "sync-composed.rhdl" as composed_fixture
+  "sync-explicit.rhdl" as explicit_fixture
+
+def implicit_design = implicit_fixture.design
+def top = implicit_design.modules.find(
+  fun (module_def): module_def.name == "CounterTop"
+)
+def child = implicit_design.modules.find(
+  fun (module_def): module_def.name == "Counter"
+)
+def instance = top.operations.find(
+  fun (operation): operation.opcode == "rtl.instance"
+)
+def register = child.operations.find(
+  fun (operation): operation.opcode == "rtl.register_reset"
+)
+
+def resetless_design = embedded.run_elaboration(
+  fun (): implicit_fixture.ResetlessCounter(4)
+)
+def resetless = resetless_design.modules[0]
+
+def override_design = embedded.run_elaboration(
+  fun (): implicit_fixture.ExplicitClockTop(4)
+)
+def override_top = override_design.modules.find(
+  fun (module_def): module_def.name == "ExplicitClockTop"
+)
+def override_instance = override_top.operations.find(
+  fun (operation): operation.opcode == "rtl.instance"
+)
+
+def local_reset_design = embedded.run_elaboration(
+  fun (): composed_fixture.LocalResetCounter()
+)
+def local_reset_module = local_reset_design.modules[0]
+def local_reset_summary = summarize_module_clocking(
+  local_reset_module,
+  local_reset_module.find_input("reset").value
+)
+def local_reset_register = local_reset_module.operations.find(
+  fun (operation): operation.opcode == "rtl.register_reset"
+)
+def local_reset_cast = local_reset_module.find_operation(
+  local_reset_register.operands[1].defining_op_id
+)
+def local_reset_or = local_reset_module.find_operation(
+  local_reset_cast.operands[0].defining_op_id
+)
+def ambient_reset_cast = local_reset_module.find_operation(
+  local_reset_or.operands[0].defining_op_id
+)
+def scoped_reset_cast = local_reset_module.find_operation(
+  local_reset_or.operands[1].defining_op_id
+)
+
+def local_reset_child_design = embedded.run_elaboration(
+  fun (): composed_fixture.LocalResetChildTop()
+)
+def local_reset_child_top = local_reset_child_design.modules.find(
+  fun (module_def): module_def.name == "LocalResetChildTop"
+)
+def local_reset_child_instance = local_reset_child_top.find_instance("counter")
+def child_reset_cast = local_reset_child_top.find_operation(
+  local_reset_child_instance.places[1].driver.defining_op_id
+)
+def child_reset_or = local_reset_child_top.find_operation(
+  child_reset_cast.operands[0].defining_op_id
+)
+def child_ambient_reset_cast = local_reset_child_top.find_operation(
+  child_reset_or.operands[0].defining_op_id
+)
+def child_scoped_reset_cast = local_reset_child_top.find_operation(
+  child_reset_or.operands[1].defining_op_id
+)
+
+def explicit_nested_design = embedded.run_elaboration(
+  fun (): composed_fixture.ExplicitNestedBoundary()
+)
+def explicit_nested_parent = explicit_nested_design.modules.find(
+  fun (module_def): module_def.name == "ExplicitNestedBoundary"
+)
+def explicit_nested_child = explicit_nested_design.modules.find(
+  fun (module_def): module_def.name == "ExplicitChild"
+)
+def explicit_nested_instance = explicit_nested_parent.find_instance("child")
+def explicit_nested_register = explicit_nested_child.operations.find(
+  fun (operation): operation.opcode == "rtl.register_reset"
+)
+
+check:
+  dump_ir(implicit_design) ~is dump_ir(explicit_fixture.design)
+  dump_ir(composed_example.design) ~is dump_ir(explicit_fixture.design)
+  top.inputs.map(fun (port): port.name) ~is ["clock", "reset"]
+  child.inputs.map(fun (port): port.name) ~is ["clock", "reset"]
+  register.operands[0] === child.find_input("clock").value ~is #true
+  register.operands[1] === child.find_input("reset").value ~is #true
+  instance.places[0].driver === top.find_input("clock").value ~is #true
+  instance.places[1].driver === top.find_input("reset").value ~is #true
+  resetless.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.register"
+  ).length() ~is 1
+  resetless.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.register_reset"
+  ).length() ~is 0
+  override_instance.places[0].driver === override_top.find_input("source_clock").value ~is #true
+  override_instance.places[1].driver === override_top.find_input("source_reset").value ~is #true
+  local_reset_summary is_a SingleClock ~is #true
+  local_reset_cast.opcode ~is "rtl.cast"
+  local_reset_or.opcode ~is "rtl.or"
+  ambient_reset_cast.operands[0] === local_reset_module.find_input("reset").value ~is #true
+  scoped_reset_cast.operands[0] === local_reset_module.find_input("local_reset").value ~is #true
+  local_reset_child_instance.places[0].driver === local_reset_child_top.find_input("clock").value ~is #true
+  child_reset_or.opcode ~is "rtl.or"
+  child_ambient_reset_cast.operands[0] === local_reset_child_top.find_input("reset").value ~is #true
+  child_scoped_reset_cast.operands[0] === local_reset_child_top.find_input("local_reset").value ~is #true
+  explicit_nested_register.operands[0] === explicit_nested_child.find_input("clock").value ~is #true
+  explicit_nested_register.operands[1] === explicit_nested_child.find_input("reset").value ~is #true
+  explicit_nested_instance.places[0].driver === explicit_nested_parent.find_input("child_clock").value ~is #true
+  explicit_nested_instance.places[1].driver === explicit_nested_parent.find_input("child_reset").value ~is #true
+  verify_design(implicit_design) ~is #void
+  verify_design(resetless_design) ~is #void
+  verify_design(override_design) ~is #void
+  verify_design(local_reset_design) ~is #void
+  verify_design(local_reset_child_design) ~is #void
+  verify_design(explicit_nested_design) ~is #void

@@ -1,0 +1,23 @@
+#lang rhombus
+// Checks bang inversion lowering, widths, nominal Bool retention, and verification.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "inversion-fixture.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def inversions = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.not"
+)
+
+check:
+  inversions.length() ~is 2
+  type_equal(module_def.find_output("bits_out").type, Bits(8)) ~is #true
+  bool.bool_type(module_def.find_output("bool_out").type) ~is #true
+  type_equal(inversions[0].operands[0].type,
+             inversions[0].results[0].type) ~is #true
+  type_equal(inversions[1].operands[0].type,
+             inversions[1].results[0].type) ~is #true
+  verify_design(fixture.design) ~is #void

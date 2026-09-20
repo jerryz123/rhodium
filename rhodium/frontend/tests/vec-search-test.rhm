@@ -1,0 +1,42 @@
+#lang rhombus
+// Checks host-pattern vector construction, registered indexing, and lookup default.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus.bits.(<<) as <<
+  "../../../rhodium/core/main.rhm" open
+  "../../../examples/rtl/vec-search.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def pattern_cast = module_def.operations.find(
+  fun (operation):
+    operation.opcode == "rtl.cast" && vector_type(operation.results[0].type)
+)
+def pattern_constant = module_def.find_operation(pattern_cast.operands[0].defining_op_id)
+def lookup = module_def.operations.find(
+  fun (operation): operation.opcode == "rtl.mux_lookup"
+)
+
+fun packed_nibbles(items):
+  def mutable packed = 0
+  for (value in items, index in 0..items.length()):
+    packed := packed + (value << (index * 4))
+  packed
+
+check:
+  fixture.search_pattern ~is [0, 4, 15, 14, 2, 5, 13]
+  module_def.name ~is "VecSearch"
+  module_def.inputs.map(fun (port): port.name) ~is ["clock", "reset"]
+  type_equal(module_def.find_output("out").type, Bits(4)) ~is #true
+  type_equal(pattern_cast.results[0].type, VectorType(7, Bits(4))) ~is #true
+  pattern_constant.opcode ~is "rtl.constant"
+  type_equal(pattern_constant.results[0].type, Bits(28)) ~is #true
+  pattern_constant.attribute("value") ~is packed_nibbles(fixture.search_pattern)
+  lookup.attribute("keys") ~is [0, 1, 2, 3, 4, 5, 6]
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.register_reset"
+  ).length() ~is 1
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.add"
+  ).length() ~is 1
+  verify_design(fixture.design) ~is #void

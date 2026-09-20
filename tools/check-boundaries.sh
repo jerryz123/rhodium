@@ -10,6 +10,18 @@ search_sources() {
   local pattern="$1"
   shift
   if command -v rg >/dev/null 2>&1; then
+    rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl' --glob '*.rkt' --glob '!**/tests/**'
+  else
+    find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' -o -name '*.rkt' \) \
+      ! -path '*/tests/*' \
+      -exec grep -nHE "$pattern" {} +
+  fi
+}
+
+search_test_sources() {
+  local pattern="$1"
+  shift
+  if command -v rg >/dev/null 2>&1; then
     rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl' --glob '*.rkt'
   else
     find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' -o -name '*.rkt' \) \
@@ -23,6 +35,19 @@ fail_matches() {
   local directory="$3"
   local matches
   matches="$(search_sources "$pattern" "$directory" || true)"
+  if [[ -n "$matches" ]]; then
+    echo "$description" >&2
+    echo "$matches" >&2
+    exit 1
+  fi
+}
+
+fail_test_matches() {
+  local description="$1"
+  local pattern="$2"
+  local directory="$3"
+  local matches
+  matches="$(search_test_sources "$pattern" "$directory" || true)"
   if [[ -n "$matches" ]]; then
     echo "$description" >&2
     echo "$matches" >&2
@@ -80,7 +105,7 @@ while IFS= read -r flow_file; do
     echo "flow may import only existing flow and std modules through the public language: $flow_file imports $dependency" >&2
     exit 1
   done < <(sed -n 's/.*lib("\([^\"]*\)").*/\1/p' "$flow_file")
-done < <(find flow -type f \( -name '*.rhdl' -o -name '*.rhm' \) | sort)
+done < <(find flow -type f \( -name '*.rhdl' -o -name '*.rhm' \) ! -path '*/tests/*' | sort)
 fail_matches "the flow facade must aggregate existing bindings without defining behavior" \
   '^[[:space:]]*(def|fun|class|interface|operator|expr\.|defn\.|annot\.|dot\.|reducer\.|circuit|sync_circuit|bundle)' flow/main.rhdl
 fail_matches "Rhodium packages must not import the external CHI domain library" \
@@ -141,14 +166,14 @@ while IFS= read -r library_file; do
       exit 1
     fi
   done < <(sed -n 's/.*lib("\([^\"]*\.rhdl\)").*/\1/p' "$library_file")
-done < <(find rhodium/std flow -type f -name '*.rhdl' | sort)
+done < <(find rhodium/std flow -type f -name '*.rhdl' ! -path '*/tests/*' | sort)
 
-fail_matches "core tests must not import analysis or backend modules" \
-  '^[[:space:]]+"[^"]*(analysis|backend)/' tests/core
-fail_matches "analysis tests must not import frontend, backend, formal, or standard-library modules" \
-  '^[[:space:]]+"[^"]*(frontend|backend|formal|std)/' tests/analysis
-fail_matches "frontend tests must not import backend modules" \
-  '^[[:space:]]+"[^"]*backend/' tests/frontend
+fail_test_matches "core tests must not import analysis or backend modules" \
+  '^[[:space:]]+"[^"]*(analysis|backend)/' rhodium/core/tests
+fail_test_matches "analysis tests must not import frontend, backend, formal, or standard-library modules" \
+  '^[[:space:]]+"[^"]*(frontend|backend|formal|std)/' rhodium/analysis/tests
+fail_test_matches "frontend tests must not import backend modules" \
+  '^[[:space:]]+"[^"]*backend/' rhodium/frontend/tests
 
 unexpected_top_level="$(find rhodium -maxdepth 1 -type f \
   ! -name 'README.md' ! -name 'DEVELOPING.md' ! -name 'CLOCKING_PLAN.md' \
@@ -160,6 +185,7 @@ if [[ -n "$unexpected_top_level" ]]; then
 fi
 
 unexpected_racket="$(find rhodium -type f -name '*.rkt' \
+  ! -path '*/tests/*' \
   ! -path 'rhodium/main.rkt' \
   ! -path 'rhodium/base/main.rkt' \
   ! -path 'rhodium/base/lang/reader.rkt' \
@@ -171,7 +197,7 @@ if [[ -n "$unexpected_racket" ]]; then
 fi
 
 unexpected_rtl_sources="$(find . -path './.git' -prune -o -type f -name '*.rhdl' \
-  ! -path './examples/*' ! -path './tests/frontend/*' ! -path './tests/formal/*' \
+  ! -path './examples/*' ! -path './rhodium/*/tests/*' \
   ! -path './rhodium/std/*' ! -path './flow/*' ! -path './riscv/rtl/*' \
   ! -path './noc/rtl/*' \
   ! -path './devices/*' \

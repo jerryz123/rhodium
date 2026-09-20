@@ -1,0 +1,94 @@
+#lang rhodium
+// Builds scalar, aggregate, and extension-defined host patterns for focused tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/decode/pattern.rhdl") open
+  "../../frontend/tests/hardware-literal-fixture.rhdl" as literals
+
+def bits_pattern = Pattern(
+  ~value: bits(0b1010, 4),
+  ~care: bits(0b1100, 4)
+)
+
+def bool_pattern = Pattern(
+  ~value: Bool(#true),
+  ~care: Bool(#true)
+)
+
+def enum_pattern = Pattern(
+  ~value: literals.Mode.Run,
+  ~care: literal(literals.Mode, 1)
+)
+
+def one_hot_pattern = Pattern(
+  ~value: literals.Grant(2),
+  ~care: literal(literals.Grant, 0b1111)
+)
+
+def nibble_pattern = Pattern(
+  ~value: literals.NibbleLiteral(0b1010),
+  ~care: literal(literals.Nibble(), 0b1100)
+)
+
+def pair_care = literals.Pair():
+  left: bits(0b1111, 4)
+  right: bits(0, 4)
+def lane_care = vec(bits(0b1111, 4), bits(0b1000, 4))
+def aggregate_care = literals.Aggregate():
+  pair: pair_care
+  lanes: lane_care
+
+def aggregate_pattern = Pattern(
+  ~value: literals.aggregate_initial,
+  ~care: aggregate_care
+)
+
+def concise_pair_pattern = pattern(literals.Pair()):
+  left: bits(0b1010, 4)
+  right: _
+
+def partial_pair_pattern = partial_pattern(literals.Pair()):
+  left: bits(0b1010, 4)
+
+def concise_lanes_pattern = pattern(Vec(2, Bits(4)), [bits(0b0100, 4), _])
+
+def concise_aggregate_pattern = pattern(literals.Aggregate()):
+  pair: concise_pair_pattern
+  lanes: pattern(Vec(2, Bits(4)), [bits(0b0100, 4), _])
+
+def concise_exact_bits = pattern(Bits(4), bits(0b1010, 4))
+def concise_wildcard_bits = pattern(Bits(4), _)
+
+def matching_pair = literals.Pair():
+  left: bits(0b1010, 4)
+  right: bits(0b1111, 4)
+def matching_lanes = vec(bits(0b0100, 4), bits(0b0111, 4))
+def aggregate_match = literals.Aggregate():
+  pair: matching_pair
+  lanes: matching_lanes
+
+def missing_pair = literals.Pair():
+  left: bits(0b1011, 4)
+  right: bits(0b0011, 4)
+def missing_lanes = vec(bits(0b0100, 4), bits(0b0101, 4))
+def aggregate_miss = literals.Aggregate():
+  pair: missing_pair
+  lanes: missing_lanes
+
+export:
+  bits_pattern
+  bool_pattern
+  enum_pattern
+  one_hot_pattern
+  nibble_pattern
+  aggregate_care
+  aggregate_pattern
+  concise_pair_pattern
+  partial_pair_pattern
+  concise_lanes_pattern
+  concise_aggregate_pattern
+  concise_exact_bits
+  concise_wildcard_bits
+  aggregate_match
+  aggregate_miss

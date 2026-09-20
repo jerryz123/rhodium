@@ -79,7 +79,7 @@ cycle-visible boundaries. Include `rv5stage-core-rv32f` and
 `rv5stage-core-rv64d` when imports, payloads, profile specialization, or
 scalar-core integration change. Run `make check-boundaries` after moving
 modules or changing dependency direction. The backend fixture
-[`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) owns runner modes and
+[`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) owns runner modes and
 artifact policy.
 
 For shared execution changes, select `rv5stage-fp-service` together with

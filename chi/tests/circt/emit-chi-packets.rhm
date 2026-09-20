@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits the cross-width CHI packet-layout and monitored RV5Stage constructor regression.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../cores/rv5stage/tests/chi-packet-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

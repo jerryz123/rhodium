@@ -1,0 +1,128 @@
+#lang rhombus
+// Checks assumption-proved one-hot mux equivalence across flat, aggregate, and hierarchical designs.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/formal/main.rhm" open
+
+fun selected_value(builder, module_def, selector, choices, implementation):
+  if implementation == "reference"
+  | builder.mux_lookup(module_def,
+                       selector,
+                       choices[0],
+                       [[1, choices[0]], [2, choices[1]], [4, choices[2]]])
+  | builder.onehot_mux(
+      module_def,
+      builder.cast(module_def, selector, Bits(3)),
+      if implementation == "defect"
+      | [choices[1], choices[0], choices[2]]
+      | choices
+    )
+
+fun flat_module(name, implementation):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module(name)
+  def selector = builder.input(top, "selector", Bits(3))
+  def a = builder.input(top, "a", Bits(4))
+  def b = builder.input(top, "b", Bits(4))
+  def c = builder.input(top, "c", Bits(4))
+  def result = builder.output(top, "result", Bits(4))
+  builder.drive(result, selected_value(builder, top, selector, [a, b, c], implementation))
+  builder.finish(top)
+
+def flat_reference = flat_module("FlatOneHotReference", "reference")
+def flat_candidate = flat_module("FlatOneHotCandidate", "candidate")
+def flat_defect = flat_module("FlatOneHotDefect", "defect")
+def onehot_query = FormalQuery([FormalOneHotAssumption("selector")])
+def flat_result = check_equivalent(flat_reference, flat_candidate, onehot_query)
+def defect_result = check_equivalent(flat_reference, flat_defect, onehot_query)
+def defect_selector:
+  defect_result.assignments.find(fun (assignment): assignment.port == "selector")
+def missing_assumption = check_equivalent(flat_reference, flat_candidate)
+def insufficient_assumption:
+  check_equivalent(flat_reference,
+                   flat_candidate,
+                   FormalQuery([FormalInputAssumption("selector", 1, 1)]))
+def exact_assumption:
+  check_equivalent(flat_reference,
+                   flat_candidate,
+                   FormalQuery([FormalInputAssumption("selector", 1)]))
+def contradictory_assumptions:
+  check_equivalent(flat_reference,
+                   flat_candidate,
+                   FormalQuery([FormalOneHotAssumption("selector"),
+                                FormalInputAssumption("selector", 0)]))
+
+fun aggregate_module(name, implementation):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module(name)
+  def pair_type = RecordType([RecordField("left", Bits(3)),
+                              RecordField("right", Bits(2))])
+  def selector = builder.input(top, "selector", Bits(3))
+  def a = builder.input(top, "a", pair_type)
+  def b = builder.input(top, "b", pair_type)
+  def c = builder.input(top, "c", pair_type)
+  def result = builder.output(top, "result", pair_type)
+  builder.drive(result, selected_value(builder, top, selector, [a, b, c], implementation))
+  builder.finish(top)
+
+def aggregate_result:
+  check_equivalent(aggregate_module("AggregateOneHotReference", "reference"),
+                   aggregate_module("AggregateOneHotCandidate", "candidate"),
+                   onehot_query)
+
+fun hierarchical_module(name):
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("OneHotLeaf")
+  def child_selector = builder.input(child, "selector", Bits(3))
+  def child_a = builder.input(child, "a", Bits(4))
+  def child_b = builder.input(child, "b", Bits(4))
+  def child_c = builder.input(child, "c", Bits(4))
+  def child_result = builder.output(child, "result", Bits(4))
+  builder.drive(child_result,
+                builder.onehot_mux(child,
+                                   child_selector,
+                                   [child_a, child_b, child_c]))
+  builder.finish(child)
+
+  def top = builder.module(name)
+  def selector = builder.input(top, "selector", Bits(3))
+  def a = builder.input(top, "a", Bits(4))
+  def b = builder.input(top, "b", Bits(4))
+  def c = builder.input(top, "c", Bits(4))
+  def result = builder.output(top, "result", Bits(4))
+  def leaf = builder.instance(top, child, "leaf")
+  builder.drive(leaf.input("selector"), selector)
+  builder.drive(leaf.input("a"), a)
+  builder.drive(leaf.input("b"), b)
+  builder.drive(leaf.input("c"), c)
+  builder.drive(result, leaf.output("result"))
+  builder.finish(top)
+
+def hierarchy_result:
+  check_equivalent(flat_reference,
+                   hierarchical_module("HierarchicalOneHot"),
+                   onehot_query)
+def hierarchy_unsupported:
+  check_equivalent(flat_reference, hierarchical_module("UnprovedHierarchicalOneHot"))
+
+check:
+  flat_result.equivalent() ~is #true
+  flat_result.assumptions.length() ~is 1
+  flat_result.assumptions[0] is_a FormalOneHotAssumption ~is #true
+  defect_result.counterexample() ~is #true
+  defect_selector.packed_value == 1 || defect_selector.packed_value == 2 || defect_selector.packed_value == 4 ~is #true
+  missing_assumption.unsupported() ~is #true
+  missing_assumption.diagnostic.opcode ~is "rtl.onehot_mux"
+  missing_assumption.diagnostic.message.contains("do not prove") ~is #true
+  insufficient_assumption.unsupported() ~is #true
+  exact_assumption.equivalent() ~is #true
+  contradictory_assumptions.vacuous() ~is #true
+  aggregate_result.equivalent() ~is #true
+  hierarchy_result.equivalent() ~is #true
+  hierarchy_unsupported.unsupported() ~is #true
+  hierarchy_unsupported.diagnostic.module_path.contains("leaf") ~is #true

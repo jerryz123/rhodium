@@ -534,7 +534,7 @@ Run from the repository root with one fresh compiled root:
 ```sh
 export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh riscv/tests/vector-test.rhm
-FIXTURE=rv5stage-vector bash tests/backend/run-circt.sh --simulate-only
+FIXTURE=rv5stage-vector bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries
 ```
 

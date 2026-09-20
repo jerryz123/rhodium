@@ -1,0 +1,109 @@
+#lang rhombus
+// Emits CIRCT for aggregate, masked, and depth-one memory lowering cases.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/core/main.rhm" open
+  "../../../../rhodium/backend/circt.rhm" open
+
+def design = Design()
+def builder = Builder(design)
+def module_def = builder.module("AggregateMemory")
+def element_type = RecordType([RecordField("left", Bits(4)),
+                               RecordField("right", Bits(4))])
+def clock = builder.input(module_def, "clock", Clock)
+def address = builder.input(module_def, "address", Bits(2))
+def write_data = builder.input(module_def, "write_data", element_type)
+def write_enable = builder.input(module_def, "write_enable", Bits(1))
+def read_data = builder.output(module_def, "read_data", element_type)
+def storage = builder.memory(module_def, "storage", 4, element_type)
+def read_value = builder.memory_read_async(module_def, storage, address)
+def write = builder.memory_write(module_def,
+                                 storage,
+                                 address,
+                                 write_data,
+                                 clock,
+                                 write_enable)
+builder.drive(read_data, read_value)
+def finished = builder.finish(module_def)
+
+def read_only_module = builder.module("ReadOnlyMemory")
+def read_only_address = builder.input(read_only_module, "address", Bits(1))
+def read_only_data = builder.output(read_only_module, "read_data", Bits(8))
+def read_only_storage = builder.memory(read_only_module, "storage", 2, Bits(8))
+def read_only_value = builder.memory_read_async(read_only_module,
+                                                read_only_storage,
+                                                read_only_address)
+builder.drive(read_only_data, read_only_value)
+def read_only_finished = builder.finish(read_only_module)
+
+def sync_module = builder.module("SyncAggregateMemory")
+def sync_clock = builder.input(sync_module, "clock", Clock)
+def sync_address = builder.input(sync_module, "address", Bits(2))
+def sync_enable = builder.input(sync_module, "enable", Bits(1))
+def sync_write = builder.input(sync_module, "write", Bits(1))
+def sync_write_data = builder.input(sync_module,
+                                    "write_data",
+                                    element_type)
+def sync_write_mask = builder.input(sync_module, "write_mask", Bits(2))
+def sync_read_data = builder.output(sync_module,
+                                    "read_data",
+                                    element_type)
+def sync_storage = builder.sync_memory(sync_module,
+                                       "sync_storage",
+                                       4,
+                                       element_type,
+                                       sync_clock,
+                                       #false,
+                                       #false,
+                                       #true,
+                                       4)
+builder.drive(sync_storage.read_write_port.address, sync_address)
+builder.drive(sync_storage.read_write_port.enable, sync_enable)
+builder.drive(sync_storage.read_write_port.write, sync_write)
+builder.drive(sync_storage.read_write_port.write_data, sync_write_data)
+builder.drive(sync_storage.read_write_port.write_mask, sync_write_mask)
+builder.drive(sync_read_data, sync_storage.read_write_port.read_data)
+def sync_finished = builder.finish(sync_module)
+
+// Rhodium keeps both author-facing addresses at Bits(1). CIRCT's hlmem operation
+// uses i0 for its sole physical address, while firmem retains the i1 port.
+def singleton_module = builder.module("SingletonMemories")
+def singleton_clock = builder.input(singleton_module, "clock", Clock)
+def singleton_address = builder.input(singleton_module, "address", Bits(1))
+def singleton_write = builder.input(singleton_module, "write", Bits(1))
+def singleton_write_data = builder.input(singleton_module, "write_data", Bits(8))
+def singleton_enable = builder.input(singleton_module, "enable", Bits(1))
+def singleton_async_data = builder.output(singleton_module, "async_data", Bits(8))
+def singleton_sync_data = builder.output(singleton_module, "sync_data", Bits(8))
+def singleton_async_storage = builder.memory(singleton_module,
+                                             "async_storage",
+                                             1,
+                                             Bits(8))
+def singleton_async_value = builder.memory_read_async(singleton_module,
+                                                      singleton_async_storage,
+                                                      singleton_address)
+def singleton_async_write = builder.memory_write(singleton_module,
+                                                 singleton_async_storage,
+                                                 singleton_address,
+                                                 singleton_write_data,
+                                                 singleton_clock,
+                                                 singleton_enable)
+def singleton_sync_storage = builder.sync_memory(singleton_module,
+                                                 "sync_storage",
+                                                 1,
+                                                 Bits(8),
+                                                 singleton_clock,
+                                                 #false,
+                                                 #false,
+                                                 #true)
+builder.drive(singleton_sync_storage.read_write_port.address, singleton_address)
+builder.drive(singleton_sync_storage.read_write_port.enable, singleton_enable)
+builder.drive(singleton_sync_storage.read_write_port.write, singleton_write)
+builder.drive(singleton_sync_storage.read_write_port.write_data, singleton_write_data)
+builder.drive(singleton_async_data, singleton_async_value)
+builder.drive(singleton_sync_data, singleton_sync_storage.read_write_port.read_data)
+def singleton_finished = builder.finish(singleton_module)
+
+verify_design(design)
+print(emit_circt(design))

@@ -69,8 +69,8 @@ Choose the lowest package that owns the behavior before editing:
 | Example catalog or generated example Verilog | [`examples/DEVELOPING.md`](examples/DEVELOPING.md) |
 | Comparison evidence or rubric | [`docs/comparisons/DEVELOPING.md`](docs/comparisons/DEVELOPING.md) |
 | Package graph or allowed dependency direction | [`rhodium/DEVELOPING.md`](rhodium/DEVELOPING.md) |
-| Test placement, CI ownership, or validation infrastructure | [`tests/DEVELOPING.md`](tests/DEVELOPING.md) |
-| CIRCT fixture, Verilator bench, or exact Verilog reference | [`tests/backend/DEVELOPING.md`](tests/backend/DEVELOPING.md) |
+| Test placement, CI ownership, or validation infrastructure | [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) |
+| CIRCT fixture, Verilator bench, or exact Verilog reference | [`tools/testing/circt/DEVELOPING.md`](tools/testing/circt/DEVELOPING.md) |
 
 Every documented directory keeps its public contracts in `README.md` and its
 implementation architecture, source ownership, extension workflows, and
@@ -131,7 +131,7 @@ moving a module or changing dependency direction.
 3. Change the narrowest layer that owns the behavior. Keep reusable processor
    components, domain models, SoC policy, simulation policy, and backend policy
    in their existing packages.
-4. Follow the test-quality policy in [`tests/DEVELOPING.md`](tests/DEVELOPING.md):
+4. Follow the test-quality policy in [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md):
    prefer observable end-to-end behavior, and do not add a module-local test
    merely to prove that a circuit elaborates or passes `verify_design`.
 5. Update the owning public contract only when observable behavior changes;
@@ -140,9 +140,9 @@ moving a module or changing dependency direction.
 
 ## Validate at the owning boundary
 
-The [test runner guide](tests/README.md) maps change areas to focused commands
+The [test runner guide](tools/testing/README.md) maps change areas to focused commands
 and explains when CIRCT, Verilator, formal, or aggregate checks are useful. The
-[test developer guide](tests/DEVELOPING.md) owns test placement, isolated
+[test developer guide](tools/testing/DEVELOPING.md) owns test placement, isolated
 compiled roots, CI classification, fixtures, and checked-in artifacts.
 
 Start with the smallest owning target. Add `make check-boundaries` for package
@@ -175,7 +175,7 @@ test-authoring and change-validation detail belongs in DEVELOPING.
 
 Generated Verilog references are version-specific reviewed artifacts, not a
 general build product. Follow
-[`tests/backend/DEVELOPING.md`](tests/backend/DEVELOPING.md) before changing
+[`tools/testing/circt/DEVELOPING.md`](tools/testing/circt/DEVELOPING.md) before changing
 them. Other generated Racket, CIRCT, Verilator, simulation, and physical-flow
 outputs remain untracked.
 

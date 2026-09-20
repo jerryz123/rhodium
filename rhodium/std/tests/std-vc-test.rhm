@@ -1,0 +1,28 @@
+#lang rhombus
+// Checks generic virtual-channel flow composition independently of NoC types.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "std-vc.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.VcRoundTrip())
+
+fun module_named(name):
+  design.modules.find(fun (module_def): module_def.name == name)
+
+fun assertion_labels(module_def):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == "verif.assert"
+  ).map(fun (operation): operation.attribute("label"))
+
+check:
+  module_named("VcRoundTrip") is_a Module ~is #true
+  module_named("VcLinkSource") is_a Module ~is #true
+  module_named("VcLinkDestination") is_a Module ~is #true
+  module_named("VcMux") is_a Module ~is #true
+  module_named("VcDemux") is_a Module ~is #true
+  module_named("RRArbiter") is_a Module ~is #true
+  assertion_labels(module_named("VcDemux")) ~is ["vc_flow_index_in_range"]
+  verify_design(design) ~is #void

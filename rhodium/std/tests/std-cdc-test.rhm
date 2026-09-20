@@ -1,0 +1,24 @@
+#lang rhombus
+// Checks the public SyncLevel circuit, standard clocking profile, and retained evidence.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/analysis/clocking.rhm" open
+  "../../../examples/clocking/sync-level.rhdl" as fixture
+
+def synchronizer = fixture.design.modules.find(
+  fun (module_def): module_def.name == "SyncLevel"
+)
+def evidence = synchronizer.operations.find(
+  fun (operation): operation.opcode == "cdc.sync_level"
+)
+def registers = synchronizer.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.register"
+)
+
+check:
+  evidence.operands.drop(2) ~is registers.map(fun (operation): operation.results[0])
+  registers.length() ~is 2
+  verify_design(fixture.design) ~is #void
+  fixture.clocked.summary is_a DesignTemporalSummary ~is #true

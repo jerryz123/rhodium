@@ -1,0 +1,443 @@
+#lang rhombus
+// Checks scalar capabilities, canonical packed widths, and aggregate type boundaries.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+class ExtensionType(name):
+  implements DataType
+  override method describe(): "extension<" ++ name ++ ">"
+  override method type_equal(other):
+    other is_a ExtensionType && name == other.name
+  override method packed_width(): #false
+
+class ExtensionBits(name):
+  implements BitwiseType
+  override method describe(): "extension-bits<" ++ name ++ ">"
+  override method type_equal(other):
+    other is_a ExtensionBits && name == other.name
+  override method packed_width(): 1
+
+class InvalidExtensionBits(width):
+  implements BitwiseType
+  override method describe(): "invalid-extension-bits"
+  override method type_equal(other):
+    other is_a InvalidExtensionBits && width == other.width
+  override method packed_width(): width
+
+class ExtensionScalar(name, width):
+  implements ScalarDataType
+  override method describe(): "extension-scalar<" ++ name ++ ">"
+  override method type_equal(other):
+    other is_a ExtensionScalar && name == other.name && width == other.width
+  override method packed_width(): width
+
+class PackedExtension(width):
+  implements DataType
+  override method describe(): "packed-extension"
+  override method type_equal(other):
+    other is_a PackedExtension && width == other.width
+  override method packed_width(): width
+
+def bits8 = Bits(8)
+def another_bits8 = Bits(8)
+def bits4 = Bits(4)
+def extension = ExtensionType("packet")
+def same_extension = ExtensionType("packet")
+def other_extension = ExtensionType("control")
+def extension_bits = ExtensionBits("flag")
+def same_extension_bits = ExtensionBits("flag")
+def zero_width_extension = InvalidExtensionBits(0)
+def negative_width_extension = InvalidExtensionBits(-1)
+def noninteger_width_extension = InvalidExtensionBits("wide")
+
+// Width alone confers neither scalar identity nor arithmetic/bitwise operations.
+def scalar = ExtensionScalar("token", 8)
+check:
+  scalar_data_type(scalar) ~is #true
+  scalar_width(scalar) ~is 8
+  scalar.packed_width() ~is 8
+  bitwise_type(scalar) ~is #false
+  arithmetic_type(scalar) ~is #false
+  arithmetic_type(extension_bits) ~is #false
+  type_equal(scalar, ExtensionScalar("token", 8)) ~is #true
+  type_equal(scalar, ExtensionScalar("other", 8)) ~is #false
+  type_equal(scalar, Bits(8)) ~is #false
+  cast_compatible(scalar, Bits(8)) ~is #true
+  packable_type(PackedExtension(8)) ~is #true
+  scalar_width(PackedExtension(8)) ~is #false
+  scalar_width(Clock) ~is #false
+  scalar_width(Reset) ~is #false
+  scalar_width(extension) ~is #false
+  packable_type(extension) ~is #false
+  cast_compatible(extension, extension) ~is #false
+
+for (width in [0, -1, "wide", 1/2, #true, #false]):
+  def invalid = ExtensionScalar("invalid", width)
+  def record = RecordType([RecordField("value", invalid)])
+  def vector = VectorType(2, invalid)
+  for (type in [invalid, InvalidExtensionBits(width), record, vector]):
+    check:
+      scalar_width(type) ~is #false
+      type_well_formed(type) ~is #false
+      packable_type(type) ~is #false
+      cast_compatible(type, type) ~is #false
+      cast_compatible(type, Bits(1)) ~is #false
+      cast_compatible(Bits(1), type) ~is #false
+  check:
+    record.packed_width() ~is #false
+    vector.packed_width() ~is #false
+  // Opaque DataType is valid, but all non-false malformed widths are rejected.
+  def packed = PackedExtension(width)
+  check:
+    type_well_formed(packed) ~is (width == #false)
+    packable_type(packed) ~is #false
+    cast_compatible(packed, packed) ~is #false
+    RecordType([RecordField("value", packed)]).packed_width() ~is #false
+    VectorType(2, packed).packed_width() ~is #false
+
+check:
+  bits8 is_a HardwareType ~is #true
+  hardware_type(bits8) ~is #true
+  type_well_formed(bits8) ~is #true
+  bits_type(bits8) ~is #true
+  type_equal(bits8, Bits(1)) ~is #false
+  type_equal(Bits(1), Bits(1)) ~is #true
+  clock_type(Clock) ~is #true
+  reset_type(Reset) ~is #true
+  scalar_data_type(bits8) ~is #true
+  bitwise_type(bits8) ~is #true
+  arithmetic_type(bits8) ~is #true
+  signed_arithmetic_type(bits8) ~is #false
+  data_type(Clock) ~is #false
+  data_type(Reset) ~is #false
+  data_type(extension_bits) ~is #true
+  scalar_data_type(extension_bits) ~is #true
+  bitwise_type(extension_bits) ~is #true
+  scalar_width(extension_bits) ~is 1
+  scalar_width(zero_width_extension) ~is #false
+  scalar_width(negative_width_extension) ~is #false
+  scalar_width(noninteger_width_extension) ~is #false
+  type_well_formed(zero_width_extension) ~is #false
+  type_well_formed(negative_width_extension) ~is #false
+  type_well_formed(noninteger_width_extension) ~is #false
+  type_equal(extension_bits, same_extension_bits) ~is #true
+  type_equal(extension_bits, Bits(1)) ~is #false
+  type_equal(Clock, Clock) ~is #true
+  type_equal(Reset, Reset) ~is #true
+  type_equal(bits8, another_bits8) ~is #true
+  type_equal(bits8, bits4) ~is #false
+  hardware_type(extension) ~is #true
+  type_well_formed(extension) ~is #true
+  bits_type(extension) ~is #false
+  type_equal(extension, same_extension) ~is #true
+  type_equal(extension, other_extension) ~is #false
+  type_equal(extension, bits8) ~is #false
+  count_index_width(1) ~is 1
+  count_index_width(2) ~is 1
+  count_index_width(3) ~is 2
+  count_index_width(256) ~is 8
+  type_well_formed(
+    RecordType([RecordField("invalid", zero_width_extension)])
+  ) ~is #false
+  schema_for("rtl.add").type_rule ~is "arithmetic_same_type_binary"
+  schema_for("rtl.mul").type_rule ~is "arithmetic_same_type_binary"
+  schema_for("rtl.shrs").type_rule ~is "signed_arithmetic_shift"
+  schema_for("rtl.slt").type_rule ~is "signed_arithmetic_compare"
+  schema_for("rtl.sext").type_rule ~is "signed_arithmetic_sext"
+  schema_for("rtl.ult").type_rule ~is "bits_same_width_compare"
+  schema_for("rtl.mux_lookup").type_rule ~is "data_mux_lookup"
+  schema_for("rtl.onehot_mux").type_rule ~is "onehot_mux"
+  schema_for("rtl.register").type_rule ~is "data_register"
+  schema_for("rtl.register_reset").type_rule ~is "data_register_reset"
+  schema_for("rtl.cast").type_rule ~is "packed_cast"
+  schema_for("rtl.drive").type_rule ~is "type_equal_drive"
+  schema_for("rtl.record_create").type_rule ~is "record_create"
+  schema_for("rtl.record_get").print_form ~is "record_get"
+  schema_for("rtl.vector_create").type_rule ~is "vector_create"
+  schema_for("rtl.vector_get").print_form ~is "vector_get"
+  schema_for("rtl.vector_index").type_rule ~is "vector_index"
+  schema_for("rtl.vector_inject").print_form ~is "vector_inject"
+  schema_for("rtl.vector_write_set").type_rule ~is "vector_write_set"
+
+def pair8 = RecordType([RecordField("left", Bits(8)),
+                        RecordField("right", Bits(8))])
+def another_pair8 = RecordType([RecordField("left", Bits(8)),
+                                RecordField("right", Bits(8))])
+def named_pair8 = RecordType([RecordField("left", Bits(8)),
+                              RecordField("right", Bits(8))],
+                             "Pair")
+def reversed_pair8 = RecordType([RecordField("right", Bits(8)),
+                                 RecordField("left", Bits(8))])
+def nested_pair = RecordType([RecordField("payload", pair8),
+                              RecordField("valid", Bits(1))])
+def opaque_record = RecordType([RecordField("payload", extension)])
+def vector4x8 = VectorType(4, Bits(8))
+def another_vector4x8 = VectorType(4, Bits(8))
+def vector2x8 = VectorType(2, Bits(8))
+def nested_vector = VectorType(2, pair8)
+
+check:
+  record_type(pair8) ~is #true
+  data_type(pair8) ~is #true
+  scalar_data_type(pair8) ~is #false
+  scalar_width(pair8) ~is #false
+  scalar_width(vector4x8) ~is #false
+  scalar_width(RecordType([RecordField("bit", Bits(1))])) ~is #false
+  scalar_width(VectorType(1, Bits(1))) ~is #false
+  bitwise_type(pair8) ~is #false
+  bits8.packed_width() ~is 8
+  pair8.packed_width() ~is 16
+  nested_pair.packed_width() ~is 17
+  Clock.packed_width() ~is 1
+  Reset.packed_width() ~is 1
+  extension.packed_width() ~is #false
+  opaque_record.packed_width() ~is #false
+  type_well_formed(opaque_record) ~is #true
+  type_well_formed(VectorType(2, extension)) ~is #true
+  packable_type(pair8) ~is #true
+  cast_compatible(pair8, Bits(16)) ~is #true
+  cast_compatible(pair8, Bits(15)) ~is #false
+  cast_compatible(Clock, extension_bits) ~is #true
+  type_well_formed(nested_pair) ~is #true
+  type_equal(pair8, another_pair8) ~is #true
+  type_equal(pair8, named_pair8) ~is #true
+  named_pair8.preferred_name ~is "Pair"
+  type_equal(pair8, reversed_pair8) ~is #false
+  pair8.field("left").type.width ~is 8
+  vector_type(vector4x8) ~is #true
+  data_type(vector4x8) ~is #true
+  type_well_formed(nested_vector) ~is #true
+  vector4x8.packed_width() ~is 32
+  nested_vector.packed_width() ~is 32
+  type_equal(vector4x8, another_vector4x8) ~is #true
+  type_equal(vector4x8, vector2x8) ~is #false
+  VectorType(0, Bits(1)) ~throws "PosInt"
+  VectorType(2, Clock) ~throws "DataType"
+  RecordType([]) ~throws "NonemptyList.of(RecordField)"
+  RecordType([RecordField("value", Bits(1)),
+              RecordField("value", Bits(1))]) ~throws "unique"
+  RecordType([RecordField("value", Bits(1))], "not-valid") ~throws "ASCII identifier"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("InvalidExtensionWidths")
+  for (width in [0, -1, "wide", 1/2, #true]):
+    check:
+      builder.input(module_def, "invalid", PackedExtension(width)) ~throws "well-formed HardwareType"
+  check:
+    builder.input(module_def, "zero", zero_width_extension) ~throws "well-formed HardwareType"
+    builder.input(module_def, "negative", negative_width_extension) ~throws "well-formed HardwareType"
+    builder.input(module_def, "noninteger", noninteger_width_extension) ~throws "well-formed HardwareType"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ScalarCapabilities")
+  def value = builder.input(module_def, "value", scalar)
+  def converted = builder.cast(module_def, value, Bits(8))
+  check:
+    type_equal(converted.type, Bits(8)) ~is #true
+    builder.add(module_def, value, value) ~throws "same arithmetic type and width"
+    builder.bit_and(module_def, value, value) ~throws "bitwise"
+    builder.cast(module_def, value, ExtensionScalar("invalid", 0)) ~throws "cast"
+  builder.finish(module_def)
+  verify_design(design)
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("LayeredType")
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def select = builder.input(module_def, "select", Bits(1))
+  def raw_control = builder.input(module_def, "raw_control", Bits(1))
+  def extension_control = builder.input(module_def, "extension_control", extension_bits)
+  def lookup_select = builder.input(module_def, "lookup_select", Bits(2))
+  def source = builder.input(module_def, "source", extension)
+  def alternate = builder.input(module_def, "alternate", same_extension)
+  def target = builder.output(module_def, "target", same_extension)
+  def selected = builder.mux_lookup(module_def, select, source, [[1, alternate]])
+  def converted_flat = builder.cast(module_def, raw_control, extension_bits)
+  def converted_clock = builder.cast(module_def, raw_control, Clock)
+  def converted_reset = builder.cast(module_def, raw_control, Reset)
+  def converted_bits = builder.cast(module_def, converted_reset, Bits(1))
+  def inverted = builder.bit_not(module_def, extension_control)
+  def combined = builder.bit_and(module_def, extension_control, converted_flat)
+  def lookup = builder.mux_lookup(module_def,
+                                  lookup_select,
+                                  source,
+                                  [[2, alternate], [0, selected]])
+  def state = builder.register(module_def,
+                               "state",
+                               same_extension,
+                               clock,
+                               reset,
+                               source)
+  builder.drive(state.next, lookup)
+  builder.drive(target, state.current)
+  check:
+    builder.add(module_def, source, source) ~throws "same arithmetic type and width"
+    lookup.module_def.find_operation(lookup.defining_op_id).attribute("keys") ~is [0, 2]
+    lookup.module_def.find_operation(lookup.defining_op_id).opcode ~is "rtl.mux_lookup"
+    type_equal(converted_flat.type, extension_bits) ~is #true
+    clock_type(converted_clock.type) ~is #true
+    reset_type(converted_reset.type) ~is #true
+    type_equal(converted_bits.type, Bits(1)) ~is #true
+    type_equal(inverted.type, extension_bits) ~is #true
+    type_equal(combined.type, extension_bits) ~is #true
+  def finished = builder.finish(module_def)
+  verify_design(design)
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Records")
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def select = builder.input(module_def, "select", Bits(1))
+  def left = builder.input(module_def, "left", Bits(8))
+  def right = builder.input(module_def, "right", Bits(8))
+  def output = builder.output(module_def, "output", pair8)
+  def initial = builder.record_create(module_def,
+                                      pair8,
+                                      [["right", right], ["left", left]],
+                                      "initial")
+  def initial_left = builder.record_get(module_def, initial, "left", "initial_left")
+  def packed = builder.cast(module_def, initial, Bits(16), "packed")
+  def unpacked = builder.cast(module_def, packed, pair8, "unpacked")
+  def alternate = builder.record_create(module_def,
+                                        pair8,
+                                        [["left", right], ["right", left]],
+                                        "alternate")
+  def selected = builder.mux_lookup(module_def,
+                                    select,
+                                    initial,
+                                    [[1, alternate]],
+                                    "selected")
+  def state = builder.register(module_def,
+                               "state",
+                               pair8,
+                               clock,
+                               reset,
+                               initial)
+  builder.drive(state.next, selected)
+  builder.drive(builder.project(output, "left"),
+                builder.record_get(module_def, state.current, "right"))
+  builder.drive(builder.project(output, "right"), initial_left)
+  def finished = builder.finish(module_def)
+  check:
+    output.driver.type.type_equal(pair8) ~is #true
+    packed.type.type_equal(Bits(16)) ~is #true
+    unpacked.type.type_equal(pair8) ~is #true
+    module_def.operations.filter(
+      ~keep: fun (operation): operation.opcode == "rtl.record_create"
+    ).length() ~is 3
+    module_def.operations.filter(
+      ~keep: fun (operation): operation.opcode == "rtl.drive" && operation.places[0] === output
+    ).length() ~is 1
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Vectors")
+  def element_type = Bits(4)
+  def vector_type = VectorType(2, element_type)
+  def first = builder.input(module_def, "first", element_type)
+  def second = builder.input(module_def, "second", element_type)
+  def index = builder.input(module_def, "index", Bits(1))
+  def output = builder.output(module_def, "output", vector_type)
+  def initial = builder.vector_create(module_def,
+                                      vector_type,
+                                      [first, second],
+                                      "initial")
+  def selected = builder.vector_get(module_def, initial, 1, "selected")
+  def dynamic = builder.vector_index(module_def, initial, index, "dynamic")
+  def injected = builder.vector_inject(module_def,
+                                       initial,
+                                       index,
+                                       first,
+                                       "injected")
+  def enables = builder.vector_create(module_def,
+                                      VectorType(2, Bits(1)),
+                                      [index, index],
+                                      "enables")
+  def indices = builder.vector_create(module_def,
+                                      VectorType(2, Bits(1)),
+                                      [index, index],
+                                      "indices")
+  def elements = builder.vector_create(module_def,
+                                       VectorType(2, element_type),
+                                       [first, second],
+                                       "elements")
+  def written = builder.vector_write_set(module_def,
+                                         initial,
+                                         enables,
+                                         indices,
+                                         elements,
+                                         "written")
+  def packed = builder.cast(module_def, initial, Bits(8), "packed")
+  def restored = builder.cast(module_def, packed, vector_type, "restored")
+  builder.drive(builder.project_vector(output, 0), first)
+  builder.drive(builder.project_vector(output, 1), second)
+  builder.finish(module_def)
+  check:
+    type_equal(selected.type, element_type) ~is #true
+    type_equal(dynamic.type, element_type) ~is #true
+    type_equal(injected.type, vector_type) ~is #true
+    type_equal(written.type, vector_type) ~is #true
+    type_equal(output.driver.type, vector_type) ~is #true
+    type_equal(restored.type, vector_type) ~is #true
+    module_def.operations.filter(
+      ~keep: fun (operation): operation.opcode == "rtl.vector_create"
+    ).length() ~is 5
+    dump_ir(design).contains("rtl.vector_get %initial[1]") ~is #true
+    dump_ir(design).contains("rtl.vector_index %initial[%index]") ~is #true
+    dump_ir(design).contains("rtl.vector_inject %initial[%index] = %first") ~is #true
+    dump_ir(design).contains("rtl.vector_write_set %initial enables %enables indices %indices elements %elements") ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadVectors")
+  def wide = builder.input(module_def, "wide", Bits(4))
+  def narrow = builder.input(module_def, "narrow", Bits(2))
+  def exact_index = builder.input(module_def, "exact_index", Bits(1))
+  def pair = VectorType(2, Bits(4))
+  def value = builder.vector_create(module_def, pair, [wide, wide])
+  def enables = builder.vector_create(module_def,
+                                      VectorType(2, Bits(1)),
+                                      [exact_index, exact_index])
+  def indices = builder.vector_create(module_def,
+                                      VectorType(2, Bits(1)),
+                                      [exact_index, exact_index])
+  def elements = builder.vector_create(module_def,
+                                       VectorType(2, Bits(4)),
+                                       [wide, wide])
+  check:
+    builder.vector_create(module_def, pair, [wide]) ~throws "exactly one value"
+    builder.vector_create(module_def, pair, [wide, narrow]) ~throws "wrong hardware type"
+    builder.vector_get(module_def, wide, 0) ~throws "must have a VectorType"
+    builder.vector_get(module_def,
+                       builder.vector_create(module_def, pair, [wide, wide]),
+                       2) ~throws "0 <= index < vector length"
+    builder.vector_index(module_def, value, narrow) ~throws "wrong Bits width"
+    builder.vector_inject(module_def, value, exact_index, narrow) ~throws "wrong hardware type"
+    builder.vector_write_set(module_def,
+                             value,
+                             builder.vector_create(module_def,
+                                                   VectorType(1, Bits(1)),
+                                                   [exact_index]),
+                             indices,
+                             elements) ~throws "indices have the wrong vector type"
+    builder.vector_write_set(module_def,
+                             value,
+                             enables,
+                             indices,
+                             builder.vector_create(module_def,
+                                                   VectorType(2, Bits(2)),
+                                                   [narrow, narrow])) ~throws "elements have the wrong vector type"

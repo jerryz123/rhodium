@@ -1,0 +1,19 @@
+#lang rhombus
+// Checks escape-certified router lowering and fallback-mask preservation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../noc/rtl/tests/escape-router-fixture.rhdl" as fixture
+
+def circt = emit_circt(fixture.design)
+
+check:
+  fixture.plan.rows.find(
+    fun (row): row.target_mask == 0b11 && row.fallback_mask == 0b10
+  ) != #false ~is #true
+  circt.contains("hw.module @EscapeRouterFixture") ~is #true
+  circt.contains("hw.module @RouterAllocator") ~is #true
+  circt.contains("hw.module @OutputGreedyRoundRobinMatcher") ~is #true
+  circt.contains("fallback_mask") ~is #true
+  circt ~is emit_circt(fixture.design)

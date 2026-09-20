@@ -1,0 +1,18 @@
+#lang rhombus
+// Emits CIRCT MLIR for the pipelined-hit RV5Stage data cache fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../../../cores/rv5stage/cache.rhdl" open
+  "../../../../cores/rv5stage/dcache/cache.rhdl" as cache
+  "../../../../cores/rv5stage/tests/params.rhdl" as test_params
+
+def design = embedded.run_elaboration(
+  fun (): cache.RV5StageL1DCache(XLen.X64,
+                                 RV5StageCacheConfig(4, 2),
+                                 ~chi: test_params.test_rv5stage_chi_config)
+)
+print(emit_circt(design))

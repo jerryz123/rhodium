@@ -76,7 +76,7 @@ M/S/U privilege and both xenvcfg controls, RV32/RV64 WARL images, all Sv39 acces
 classes and low PTE permission/A/D combinations, and physical attributes.
 Include `rv5stage-csr`, `rv5stage-zicboz`, and `rv5stage-mmu-replay` when shared
 CSR or translation behavior changes. These fixtures check behavior, not IR
-shape; use the [backend guide](../../tests/backend/DEVELOPING.md) for invocation.
+shape; use the [backend guide](../../tools/testing/circt/DEVELOPING.md) for invocation.
 
 From the repository root, run:
 

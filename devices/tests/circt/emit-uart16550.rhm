@@ -1,0 +1,14 @@
+#lang rhombus
+// Emits CIRCT MLIR for the FIFO-equipped CHI UART behavioral fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../chi/main.rhdl" as chi
+  "../../../devices/uart16550.rhdl" as uart
+
+def design = embedded.run_elaboration(
+  fun (): uart.Uart16550(uart.Uart16550Config(chi.CHIFlitParams(), 16))
+)
+print(emit_circt(design))

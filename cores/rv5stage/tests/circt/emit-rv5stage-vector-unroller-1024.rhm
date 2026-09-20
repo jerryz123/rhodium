@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits a VLEN1024 unroller to exercise valid gather indices beyond eight bits.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../../../cores/rv5stage/tests/vector-unroller-fixture.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.RV5StageVectorUnrollerFixture(XLen.X64, 1024))
+print(emit_circt(design))

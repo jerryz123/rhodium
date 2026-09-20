@@ -1,0 +1,60 @@
+#lang rhombus
+// Checks fixed-latency synchronous RAM wrapper shapes and host parameters.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/std/read-write.rhdl" as read_write
+  "../../../rhodium/std/sync-ram.rhdl" as ram
+
+def single_lane_design = embedded.run_elaboration(
+  fun (): ram.SyncRam1RW(8, Bits(16), 1)
+)
+def single_lane = single_lane_design.modules[0]
+def four_lane_design = embedded.run_elaboration(
+  fun (): ram.SyncRam1RW(4, Bits(8), 4)
+)
+def four_lane = four_lane_design.modules[0]
+def generic_port = read_write.ReadWritePort(2, Bits(8), 2)
+
+fun operation(module_def, opcode):
+  module_def.operations.find(fun (candidate): candidate.opcode == opcode)
+
+check:
+  single_lane.name ~is "SyncRam1RW"
+  single_lane.inputs.map(fun (input): input.name) ~is ["clock", "reset", "port_in"]
+  single_lane.outputs.map(fun (output): output.name) ~is ["port_out"]
+  single_lane.find_input("port_in").type.fields.map(fun (field): field.name) ~is ["request"]
+  single_lane.find_output("port_out").type.fields.map(fun (field): field.name) ~is ["response"]
+  operation(single_lane, "rtl.sync_memory").attribute("depth") ~is 8
+  operation(single_lane, "rtl.sync_memory").attribute("mask_granularity") ~is 16
+  operation(single_lane, "rtl.register_reset").attribute("name") ~is "response_valid"
+  single_lane.operations.filter(~keep: fun (candidate): candidate.opcode == "verif.assert").length() ~is 0
+  verify_design(single_lane_design) ~is #void
+
+  four_lane.name ~is "SyncRam1RW"
+  operation(four_lane, "rtl.sync_memory").attribute("depth") ~is 4
+  operation(four_lane, "rtl.sync_memory").attribute("mask_granularity") ~is 8
+  operation(four_lane, "rtl.sync_memory").places.find(
+    fun (place): place.name == "storage.read_write.write_mask"
+  ).type.width ~is 4
+  four_lane.find_input("port_in").type.field("request").type.field("bits").type.field("mask").type.width ~is 4
+  verify_design(four_lane_design) ~is #void
+
+  generic_port.name ~is "ReadWritePort"
+  generic_port.members.map(fun (member): member.name) ~is ["request", "response"]
+  generic_port.members.map(fun (member): member.type.name) ~is ["Valid", "Valid"]
+  generic_port.members.find(fun (member): member.name == "request").type.members.find(
+    fun (member): member.name == "bits"
+  ).type.field("address").type.width ~is 2
+  generic_port.members.find(fun (member): member.name == "response").type.members.find(
+    fun (member): member.name == "bits"
+  ).type.packed_width() ~is 16
+
+  embedded.run_elaboration(
+    fun (): ram.SyncRam1RW(0, Bits(8), 1)
+  ) ~throws "PosInt"
+  embedded.run_elaboration(
+    fun (): ram.SyncRam1RW(4, Bits(8), 0)
+  ) ~throws "PosInt"

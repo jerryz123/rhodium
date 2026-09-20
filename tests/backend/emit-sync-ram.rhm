@@ -1,9 +1,0 @@
-#lang rhombus
-// Emits CIRCT MLIR for the fixed-latency masked synchronous RAM example.
-// SPDX-License-Identifier: Apache-2.0
-
-import:
-  "../../rhodium/backend/circt.rhm" open
-  "../../examples/std/sync-ram.rhdl" as fixture
-
-print(emit_circt(fixture.design))

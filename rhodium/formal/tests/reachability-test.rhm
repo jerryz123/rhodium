@@ -1,0 +1,158 @@
+#lang rhombus
+// Checks public output reachability, witness replay, assumptions, aggregates, hierarchy, and fail-closed cases.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/formal/main.rhm" open
+
+fun add_module(name):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module(name)
+  def a = builder.input(top, "a", Bits(4))
+  def b = builder.input(top, "b", Bits(4))
+  def sum = builder.output(top, "sum", Bits(4))
+  builder.drive(sum, builder.add(top, a, b))
+  builder.finish(top)
+
+def add = add_module("ReachableAdd")
+def sum_five_target = FormalOutputPattern("sum", 5)
+def reachable_sum = check_reachable(add, sum_five_target)
+def elaboration_reachable:
+  check_reachable(DesignElaboration(add.design, add), sum_five_target)
+def reachable_a = reachable_sum.assignments.find(fun (entry): entry.port == "a")
+def reachable_b = reachable_sum.assignments.find(fun (entry): entry.port == "b")
+def partial_sum:
+  check_reachable(add, FormalOutputPattern("sum", 0b1000, 0b1100))
+def assumed_sum:
+  check_reachable(add,
+                  sum_five_target,
+                  FormalQuery([FormalInputAssumption("a", 1)]))
+def assumed_a = assumed_sum.assignments.find(fun (entry): entry.port == "a")
+def assumed_b = assumed_sum.assignments.find(fun (entry): entry.port == "b")
+def constrained_unreachable:
+  check_reachable(add,
+                  sum_five_target,
+                  FormalQuery([FormalInputAssumption("a", 1),
+                               FormalInputAssumption("b", 1)]))
+def vacuous_sum:
+  check_reachable(add,
+                  sum_five_target,
+                  FormalQuery([FormalInputAssumption("a", 0),
+                               FormalInputAssumption("a", 1)]))
+
+fun aggregate_module():
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("ReachableAggregate")
+  def pair_type = RecordType([RecordField("high", Bits(2)),
+                              RecordField("low", Bits(2))])
+  def high = builder.input(top, "high", Bits(2))
+  def low = builder.input(top, "low", Bits(2))
+  def pair = builder.output(top, "pair", pair_type)
+  builder.drive(pair,
+                builder.record_create(top,
+                                      pair_type,
+                                      [["high", high], ["low", low]]))
+  builder.finish(top)
+
+def aggregate_reachable:
+  check_reachable(aggregate_module(), FormalOutputPattern("pair", 0b1001))
+def aggregate_high:
+  aggregate_reachable.assignments.find(fun (entry): entry.port == "high")
+def aggregate_low:
+  aggregate_reachable.assignments.find(fun (entry): entry.port == "low")
+
+fun hierarchical_add():
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("ReachableAddLeaf")
+  def child_a = builder.input(child, "a", Bits(4))
+  def child_b = builder.input(child, "b", Bits(4))
+  def child_sum = builder.output(child, "sum", Bits(4))
+  builder.drive(child_sum, builder.add(child, child_a, child_b))
+  builder.finish(child)
+
+  def top = builder.module("ReachableAddHierarchy")
+  def a = builder.input(top, "a", Bits(4))
+  def b = builder.input(top, "b", Bits(4))
+  def sum = builder.output(top, "sum", Bits(4))
+  def leaf = builder.instance(top, child, "leaf")
+  builder.drive(leaf.input("a"), a)
+  builder.drive(leaf.input("b"), b)
+  builder.drive(sum, leaf.output("sum"))
+  builder.finish(top)
+
+def hierarchical_reachable:
+  check_reachable(hierarchical_add(), FormalOutputPattern("sum", 6))
+
+fun onehot_module():
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("ReachableOneHot")
+  def selector = builder.input(top, "selector", Bits(3))
+  def a = builder.input(top, "a", Bits(4))
+  def b = builder.input(top, "b", Bits(4))
+  def c = builder.input(top, "c", Bits(4))
+  def result = builder.output(top, "result", Bits(4))
+  builder.drive(result, builder.onehot_mux(top, selector, [a, b, c]))
+  builder.finish(top)
+
+def onehot = onehot_module()
+def onehot_reachable:
+  check_reachable(onehot,
+                  FormalOutputPattern("result", 7),
+                  FormalQuery([FormalOneHotAssumption("selector")]))
+def onehot_selector:
+  onehot_reachable.assignments.find(fun (entry): entry.port == "selector")
+def onehot_unsupported:
+  check_reachable(onehot, FormalOutputPattern("result", 7))
+
+def free_design = Design()
+def free_builder = Builder(free_design)
+def free_module = free_builder.module("UnreachableFree")
+def free_result = free_builder.output(free_module, "result", Bits(4))
+free_builder.drive(free_result, free_builder.dont_care(free_module, Bits(4)))
+def finished_free = free_builder.finish(free_module)
+def unsupported_reachability:
+  check_reachable(finished_free, FormalOutputPattern("result", 0))
+
+check:
+  reachable_sum.reachable() ~is #true
+  elaboration_reachable.reachable() ~is #true
+  reachable_sum.target === sum_five_target ~is #true
+  reachable_sum.assignments.length() ~is 2
+  reachable_sum.output.port ~is "sum"
+  reachable_sum.output.packed_value ~is 5
+  ((reachable_a.packed_value + reachable_b.packed_value) bits.and 0b1111) ~is 5
+  reachable_sum.describe().contains("sum = 5") ~is #true
+  partial_sum.reachable() ~is #true
+  (partial_sum.output.packed_value bits.and 0b1100) ~is 0b1000
+  assumed_sum.reachable() ~is #true
+  assumed_sum.assumptions.length() ~is 1
+  assumed_a.packed_value ~is 1
+  ((assumed_a.packed_value + assumed_b.packed_value) bits.and 0b1111) ~is 5
+  constrained_unreachable.unreachable() ~is #true
+  constrained_unreachable.assignments.length() ~is 0
+  constrained_unreachable.output ~is #false
+  vacuous_sum.vacuous() ~is #true
+  vacuous_sum.describe().contains("unsatisfiable") ~is #true
+  aggregate_reachable.reachable() ~is #true
+  aggregate_reachable.output.packed_value ~is 0b1001
+  aggregate_high.packed_value ~is 0b10
+  aggregate_low.packed_value ~is 0b01
+  hierarchical_reachable.reachable() ~is #true
+  onehot_reachable.reachable() ~is #true
+  onehot_selector.packed_value == 1 || onehot_selector.packed_value == 2 || onehot_selector.packed_value == 4 ~is #true
+  onehot_unsupported.unsupported() ~is #true
+  onehot_unsupported.diagnostic.opcode ~is "rtl.onehot_mux"
+  unsupported_reachability.unsupported() ~is #true
+  unsupported_reachability.diagnostic.opcode ~is "rtl.dont_care"
+  check_reachable(add, "not-a-target") ~throws "must be a FormalOutputPattern"
+  check_reachable(add, sum_five_target, "not-a-query") ~throws "must be a FormalQuery"
+  check_reachable(add, FormalOutputPattern("missing", 0)) ~throws "unknown output"
+  check_reachable(add, FormalOutputPattern("sum", 16)) ~throws "invalid packed pattern"
+  check_reachable(add, FormalOutputPattern("sum", 8, 0b0111)) ~throws "invalid packed pattern"
+  check_reachable(add, FormalOutputPattern("sum", 0, #true)) ~throws "invalid care mask"
+  check_reachable(add.design, sum_five_target) ~throws "must identify an explicit top module"

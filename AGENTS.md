@@ -66,7 +66,7 @@ artifacts. This file contains the mandatory rules that apply to every change.
   Rhodium imports change, and run `make check-boundaries` after moving or adding
   modules or changing dependency direction.
 - Follow [`cores/DEVELOPING.md`](cores/DEVELOPING.md) for reusable-versus-named
-  processor ownership and [`tests/DEVELOPING.md`](tests/DEVELOPING.md) for test
+  processor ownership and [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) for test
   placement, fixtures, CI, and checked-in artifacts.
 - Keep public behavior and contracts in `README.md`; keep implementation
   architecture, source ownership, extension workflows, and contributor

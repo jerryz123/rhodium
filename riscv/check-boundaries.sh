@@ -11,9 +11,9 @@ search_sources() {
   local file_glob="$2"
   shift 2
   if command -v rg >/dev/null 2>&1; then
-    rg -n "$pattern" "$@" --glob "$file_glob"
+    rg -n "$pattern" "$@" --glob "$file_glob" --glob '!**/tests/**'
   else
-    find "$@" -type f -name "$file_glob" -exec grep -nHE "$pattern" {} +
+    find "$@" -type f -name "$file_glob" ! -path '*/tests/*' -exec grep -nHE "$pattern" {} +
   fi
 }
 

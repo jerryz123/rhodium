@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits CIRCT MLIR for the two-hart ACLINT behavioral fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../chi/main.rhdl" as chi
+  "../../../devices/aclint.rhdl" as aclint
+
+def design = embedded.run_elaboration(fun (): aclint.Aclint(aclint.AclintConfig(chi.CHIFlitParams(), 2)))
+print(emit_circt(design))

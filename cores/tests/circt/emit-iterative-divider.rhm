@@ -1,0 +1,11 @@
+#lang rhombus
+// Emits CIRCT MLIR for the reusable eight-bit iterative divider fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../cores/divider.rhdl" as divider
+
+def design = embedded.run_elaboration(fun (): divider.IterativeDivider(8))
+print(emit_circt(design))

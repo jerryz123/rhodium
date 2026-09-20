@@ -1,0 +1,158 @@
+#lang rhombus
+// Checks nominal enums, runtime validity, switch keys, literals, state, and composition.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../rhodium/frontend/layers/enum.rhm" as enum
+  "../../../rhodium/frontend/layers/one-hot.rhm" as one_hot
+  "../../../rhodium/frontend/support/mux-lookup.rhm" as mux_support
+  "../../../examples/rtl/enum-state.rhdl" as fixture
+  "../../../examples/rtl/bit-utilities.rhdl" as valid_example
+  "enum-valid-fixture.rhdl" as valid_fixture
+  "enum-composed.rhdl" as composed_fixture
+  "../../../examples/rtl/one-hot-enum.rhdl" as one_hot_fixture
+
+def design = fixture.design
+def module_def = design.modules[0]
+def register = module_def.operations.find(
+  fun (operation): operation.opcode == "rtl.register_reset"
+)
+def equalities = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.eq"
+)
+def state_lookup = module_def.operations.find(
+  fun (operation): operation.opcode == "rtl.mux_lookup"
+)
+def constants = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.constant"
+)
+def idle_key = fixture.State.Idle
+
+def lookup_design = fixture.lookup_design
+def lookup_module = lookup_design.modules[0]
+def expression_lookup = lookup_module.operations.find(
+  fun (operation): operation.opcode == "rtl.mux_lookup"
+)
+
+fun literal_encoding(module_def, value):
+  def operation = module_def.find_operation(value.defining_op_id)
+  if operation.opcode == "rtl.cast"
+  | literal_encoding(module_def, operation.operands[0])
+  | operation.attribute("value")
+
+def opcode_design = embedded.run_elaboration(fun (): fixture.OpcodeDecoder())
+def opcode_module = opcode_design.modules[0]
+def opcode_equality = opcode_module.operations.find(
+  fun (operation): operation.opcode == "rtl.eq"
+)
+def opcode_lookup = opcode_module.operations.find(
+  fun (operation): operation.opcode == "rtl.mux_lookup"
+)
+def one_hot_design = one_hot_fixture.design
+def one_hot_module = one_hot_design.modules[0]
+def one_hot_mux = one_hot_module.operations.find(
+  fun (operation): operation.opcode == "rtl.onehot_mux"
+)
+def validity_module = valid_example.enum_validity_design.modules[0]
+def validity_equalities = validity_module.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.eq"
+)
+def validity_ors = validity_module.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.or"
+)
+def validity_constants = validity_module.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.constant"
+)
+
+check:
+  enum.enum_type(fixture.State) ~is #true
+  enum.enum_type(fixture.Opcode) ~is #true
+  enum.enum_type(one_hot_fixture.ResultSelect) ~is #true
+  enum.enum_width(fixture.State) ~is 2
+  enum.enum_width(fixture.Opcode) ~is 4
+  enum.enum_members(fixture.State) ~is ["Idle", "Running", "Done"]
+  fixture.State.names() ~is enum.enum_names(fixture.State)
+  fixture.State.names() ~is ["Idle", "Running", "Done"]
+  fixture.State.values().map(fun (value): value.packed_value()) ~is [0, 1, 2]
+  (for all (value in fixture.State.values()): type_equal(value.literal_type(), fixture.State)) ~is #true
+  composed_fixture.State.names() ~is ["Idle", "Running", "Done"]
+  composed_fixture.State.values().map(fun (value): value.packed_value()) ~is [0, 1, 2]
+  enum.enum_values(Bits(2)) ~throws "expected a hardware enum type"
+  enum.enum_names(Bits(2)) ~throws "expected a hardware enum type"
+  enum.enum_encoding(fixture.State, "Idle") ~is 0
+  enum.enum_encoding(fixture.State, "Running") ~is 1
+  enum.enum_encoding(fixture.State, "Done") ~is 2
+  enum.enum_encoding(fixture.Opcode, "Load") ~is 8
+  enum.enum_width(one_hot_fixture.ResultSelect) ~is 6
+  enum.enum_members(one_hot_fixture.ResultSelect) ~is [
+    "Arithmetic",
+    "Shift",
+    "Compare",
+    "Xor",
+    "Or",
+    "And"
+  ]
+  one_hot_fixture.ResultSelect.values().map(fun (member): member.packed_value()) ~is [1, 2, 4, 8, 16, 32]
+  one_hot_fixture.ResultSelect.Arithmetic is_a mux_support.MuxLookupKey ~is #true
+  one_hot_fixture.ResultSelect is_a mux_support.OneHotSelectorType ~is #true
+  type_equal(one_hot_fixture.ResultSelect, one_hot.OneHot(6)) ~is #false
+  idle_key is_a mux_support.MuxLookupKey ~is #true
+  type_equal(fixture.State, composed_fixture.State) ~is #false
+  type_equal(register.results[0].type, fixture.State) ~is #true
+  type_equal(register.places[0].type, fixture.State) ~is #true
+  type_equal(module_def.find_output("state_out").type, fixture.State) ~is #true
+  equalities.length() ~is 0
+  state_lookup.attribute("keys") ~is [0, 1, 2]
+  bits_type(state_lookup.operands[0].type) ~is #true
+  state_lookup.operands[0].type.width ~is 2
+  type_equal(state_lookup.operands[1].type, fixture.State) ~is #true
+  (for all (case_value in state_lookup.operands.drop(2)):
+     type_equal(case_value.type, fixture.State)) ~is #true
+  type_equal(state_lookup.results[0].type, fixture.State) ~is #true
+  constants.map(fun (operation): operation.attribute("value")) ~is [0, 1, 2, 0, 0]
+  expression_lookup.attribute("keys") ~is state_lookup.attribute("keys")
+  expression_lookup.operands.drop(1).map(
+    fun (value): literal_encoding(lookup_module, value)
+  ) ~is [0, 1, 2, 0]
+  state_lookup.operands.drop(1).map(
+    fun (value): literal_encoding(module_def, value)
+  ) ~is [0, 1, 2, 0]
+  type_equal(opcode_module.find_input("opcode").type, fixture.Opcode) ~is #true
+  opcode_equality.operands[0].type.width ~is 4
+  opcode_equality.operands[1].type.width ~is 4
+  opcode_lookup.attribute("keys") ~is [0, 1, 8]
+  opcode_lookup.operands[0].type.width ~is 4
+  type_equal(opcode_lookup.results[0].type, fixture.Opcode) ~is #true
+  type_equal(one_hot_module.find_input("select").type,
+             one_hot_fixture.ResultSelect) ~is #true
+  one_hot_mux.operands.length() ~is 7
+  type_equal(one_hot_mux.operands[0].type, Bits(6)) ~is #true
+  one_hot_mux.operands.drop(1).map(fun (value): value.name) ~is [
+    "arithmetic_result",
+    "shift_result",
+    "compare_result",
+    "xor_result",
+    "or_result",
+    "and_result"
+  ]
+  (for all (choice in one_hot_mux.operands.drop(1)):
+     type_equal(choice.type, Bits(8))) ~is #true
+  type_equal(one_hot_mux.results[0].type, Bits(8)) ~is #true
+  validity_equalities.length() ~is 12
+  validity_ors.length() ~is 0
+  validity_constants.map(
+    fun (operation): operation.attribute("value")
+  ) ~is [0, 3, 7, 0, 0, 1, 2, 3, 0, 1, 2, 0]
+  bool.bool_type(validity_module.find_output("sparse_valid").type) ~is #true
+  verify_design(valid_example.enum_validity_design) ~is #void
+  embedded.run_elaboration(
+    fun (): valid_fixture.InvalidEnumValidity()
+  ) ~throws "enum_valid operand must have a hardware enum type"
+  verify_design(design) ~is #void
+  verify_design(lookup_design) ~is #void
+  verify_design(composed_fixture.design) ~is #void
+  verify_design(opcode_design) ~is #void
+  verify_design(one_hot_design) ~is #void

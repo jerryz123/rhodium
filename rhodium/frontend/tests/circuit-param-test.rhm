@@ -1,0 +1,28 @@
+#lang rhombus
+// Checks automatic specialization reuse with identity and structural equality.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "circuit-param.rhdl" as fixture
+
+def design = fixture.design
+def top = design.modules[0]
+def leaves = design.modules.drop(1)
+def first = top.find_instance("first")
+def second = top.find_instance("second")
+def different = top.find_instance("different")
+def nominal_first = top.find_instance("nominal_first")
+def nominal_second = top.find_instance("nominal_second")
+def nominal_distinct = top.find_instance("nominal_distinct")
+
+check:
+  design.modules.map(fun (module_def): module_def.name) ~is [
+    "CircuitParamHierarchy", "ConfiguredLeaf", "ConfiguredLeaf_1", "NominalLeaf", "NominalLeaf_1"
+  ]
+  leaves.map(fun (module_def): module_def.find_output("value").type.width) ~is [8, 16, 4, 4]
+  first.attribute("module") === second.attribute("module") ~is #true
+  first.attribute("module") === different.attribute("module") ~is #false
+  nominal_first.attribute("module") === nominal_second.attribute("module") ~is #true
+  nominal_first.attribute("module") === nominal_distinct.attribute("module") ~is #false
+  verify_design(design) ~is #void

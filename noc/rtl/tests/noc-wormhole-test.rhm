@@ -1,0 +1,30 @@
+#lang rhombus
+// Checks deterministic CIRCT lowering of a hierarchical wormhole network.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../noc/rtl/tests/wormhole-fixture.rhdl" as fixture
+
+def circt = emit_circt(fixture.design)
+
+check:
+  fixture.source_config.input_buffer_depth ~is 2
+  fixture.transit_config.input_buffer_depth ~is 2
+  fixture.destination_config.input_buffer_depth ~is 2
+  fixture.network_plan.link_connections.length() ~is 2
+  circt.contains("hw.module @WormholeNetworkFixture") ~is #true
+  circt.contains("hw.module @WormholeSourceSubsystem") ~is #true
+  circt.contains("hw.module @WormholeTransitSubsystem") ~is #true
+  circt.contains("hw.module @WormholeDestinationSubsystem") ~is #true
+  circt.contains("hw.module @WormholeRouter") ~is #true
+  circt.contains("hw.module @VcMux") ~is #true
+  circt.contains("hw.module @VcDemux") ~is #true
+  circt.contains("hw.module @RRArbiter") ~is #true
+  circt.contains("hw.module @RouterAllocator") ~is #true
+  circt.contains("hw.module @OutputGreedyRoundRobinMatcher") ~is #true
+  circt.contains("hw.module @GrantCrossbar") ~is #true
+  circt.contains("seq.hlmem") ~is #true
+  circt.contains("seq.firreg") ~is #true
+  circt.contains("verif.clocked_assert") ~is #true
+  circt ~is emit_circt(fixture.design)

@@ -401,7 +401,7 @@ modules.
 `.rkt` is restricted to reader shims and the Rosette engine whose solver-aided
 language requires a Racket module boundary.
 
-The equivalence tests under [`../tests/frontend/`](../tests/frontend/) and
-[`../tests/backend/`](../tests/backend/) check that direct core construction,
+The equivalence tests under [`frontend/tests/`](frontend/tests/) and
+[`backend/tests/`](backend/tests/) check that direct core construction,
 kernel construction, explicit layer composition, and the standard language
 produce the same public IR and CIRCT representation.

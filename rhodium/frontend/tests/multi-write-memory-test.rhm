@@ -1,0 +1,22 @@
+#lang rhombus
+// Checks that independent memory writes become same-clock physical write ports.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../examples/rtl/multi-write-memory.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def memory = module_def.memories[0]
+def writes = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.memory_write"
+)
+
+check:
+  writes.length() ~is 2
+  (for all (write in writes): write.attribute("memory") === memory) ~is #true
+  (for all (write in writes):
+     write.operands[2] === module_def.find_input("clock").value) ~is #true
+  writes[0].operands[0].name ~is "first_address"
+  writes[1].operands[0].name ~is "second_address"
+  verify_design(fixture.design) ~is #void

@@ -25,7 +25,7 @@ longest-prefix selection among registered configurations.
 | Concern | Owner |
 |---|---|
 | Customization, checkout discovery, registration, dispatch, labeling, and font lock | [`rhodium-mode.el`](rhodium-mode.el) |
-| ERT coverage and mocked Racket Mode surface | [`../../tests/emacs/rhodium-mode-test.el`](../../tests/emacs/rhodium-mode-test.el) |
+| ERT coverage and mocked Racket Mode surface | [`../../tools/emacs/tests/rhodium-mode-test.el`](../../tools/emacs/tests/rhodium-mode-test.el) |
 | User installation and troubleshooting | [`README.md`](README.md) |
 
 ## Change the integration

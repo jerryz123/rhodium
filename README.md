@@ -90,7 +90,7 @@ Run all canonical examples:
 make examples
 ```
 
-The [test runner guide](tests/README.md) explains the available validation
+The [test runner guide](tools/testing/README.md) explains the available validation
 levels. Contributor setup and change validation are in
 [`DEVELOPING.md`](DEVELOPING.md#validate-at-the-owning-boundary).
 
@@ -207,8 +207,8 @@ SystemVerilog.
   SystemVerilog generation
 - [`rhodium/formal/README.md`](rhodium/formal/README.md) — Rosette equivalence,
   reachability, and output properties
-- [`tests/README.md`](tests/README.md) and
-  [`tests/DEVELOPING.md`](tests/DEVELOPING.md) — running validation and
+- [`tools/testing/README.md`](tools/testing/README.md) and
+  [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) — running validation and
   maintaining the test architecture
 
 ### Explore hardware libraries and systems

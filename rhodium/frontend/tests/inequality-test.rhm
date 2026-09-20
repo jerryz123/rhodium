@@ -1,0 +1,32 @@
+#lang rhombus
+// Checks typed hardware inequality lowering, result types, and verification.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "inequality-fixture.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def equalities = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.eq"
+)
+def negations = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.not"
+)
+fun defining_without_cast(value):
+  def operation = module_def.find_operation(value.defining_op_id)
+  if operation.opcode == "rtl.cast"
+  | defining_without_cast(operation.operands[0])
+  | operation
+
+check:
+  bool.bool_type(module_def.find_output("bits_differ").type) ~is #true
+  bool.bool_type(module_def.find_output("states_differ").type) ~is #true
+  equalities.length() ~is 2
+  negations.length() ~is 2
+  (for all (negation in negations):
+     defining_without_cast(negation.operands[0]).opcode == "rtl.eq") ~is #true
+  (for all (negation in negations):
+     bool.bool_type(negation.results[0].type)) ~is #true
+  verify_design(fixture.design) ~is #void

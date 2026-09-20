@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits the reusable CMO permission and translation-policy integration fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../riscv-cmo-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

@@ -151,7 +151,7 @@ make -C socs config-test
 For tiled streaming adapters, run the focused behavioral fixtures:
 
 ```sh
-FIXTURES='tiled-time tiled-distribution' bash tests/backend/run-circt.sh --simulate-only
+FIXTURES='tiled-time tiled-distribution' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 These cover stalled time packets, latest-snapshot coalescing, complete timestamp
@@ -166,7 +166,7 @@ belong to the executable smoke tests in
 For execution of the generated polling ROM, run:
 
 ```sh
-FIXTURE=rv5stage-io-boot bash tests/backend/run-circt.sh --simulate-only
+FIXTURE=rv5stage-io-boot bash tools/testing/circt/run.sh --simulate-only
 ```
 
 This cores-group CI fixture checks delayed entry publication, uncached fetch

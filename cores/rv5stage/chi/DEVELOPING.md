@@ -122,5 +122,5 @@ line engines through stalls, reordered packets, ROM reads, and pending reset.
 Include the composed RV5Stage or SoC owner when configuration or
 external endpoint integration changes. Run `make check-boundaries` after
 moving modules or changing dependency direction. The backend fixture
-[`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) owns runner modes and
+[`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) owns runner modes and
 artifact policy.

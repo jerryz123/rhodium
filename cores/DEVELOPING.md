@@ -102,7 +102,7 @@ both widening halves, compaction masks, and enable remapping against independent
 per-element models:
 
 ```sh
-FIXTURE=simd-alu bash tests/backend/run-circt.sh --simulate-only
+FIXTURE=simd-alu bash tools/testing/circt/run.sh --simulate-only
 ```
 
 Pure host contracts can use the package tests directly. Cycle-visible behavior
@@ -111,7 +111,7 @@ is owned by the matching backend fixtures:
 ```sh
 tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
 FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier iterative-divider' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 Pass several paths to one invocation when a contract spans components. The

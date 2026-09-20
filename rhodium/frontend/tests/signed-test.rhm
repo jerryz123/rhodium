@@ -1,0 +1,49 @@
+#lang rhombus
+// Checks SInt literals, signed operator lowering, result types, and host fallback.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/standard.rhm" as frontend
+  "../../../rhodium/frontend/support/hardware-literal.rhm".PackedLiteral
+  "../../../examples/rtl/signed-integers.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+
+fun operations(opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+check:
+  frontend.sint_type(frontend.SInt(8)) ~is #true
+  arithmetic_type(frontend.SInt(8)) ~is #true
+  signed_arithmetic_type(frontend.SInt(8)) ~is #true
+  type_equal(frontend.SInt(8).with_bit_width(12), frontend.SInt(12)) ~is #true
+  frontend.sint(-1, 8) is_a PackedLiteral ~is #true
+  frontend.sint(-128, 8).packed_value() ~is 128
+  frontend.sint(-1, 8).packed_value() ~is 255
+  frontend.sint(127, 8).packed_value() ~is 127
+  frontend.sint(-129, 8) ~throws "fit the declared signed width"
+  frontend.sint(128, 8) ~throws "fit the declared signed width"
+  frontend.SInt(0) ~throws "PosInt"
+
+  operations("rtl.add").length() ~is 1
+  operations("rtl.sub").length() ~is 1
+  operations("rtl.mul").length() ~is 1
+  operations("rtl.shl").length() ~is 1
+  operations("rtl.shrs").length() ~is 2
+  operations("rtl.slt").length() ~is 4
+  operations("rtl.sext").length() ~is 1
+  operations("rtl.trunc").length() ~is 1
+  type_equal(operations("rtl.add")[0].results[0].type, frontend.SInt(8)) ~is #true
+  type_equal(operations("rtl.shrs")[0].results[0].type, frontend.SInt(8)) ~is #true
+  type_equal(operations("rtl.sext")[0].results[0].type, frontend.SInt(12)) ~is #true
+  type_equal(module_def.find_output("narrowed").type, frontend.SInt(4)) ~is #true
+  operations("rtl.constant").find(
+    fun (operation): operation.attribute("value") == 255
+  ) != #false ~is #true
+  verify_design(fixture.design) ~is #void
+
+  3 frontend.(<) 4 ~is #true
+  4 frontend.(>>) 1 ~is 2

@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits selected-output event tracing alongside unannotated functional references.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../../rhodium/event/main.rhm".instrument_events
+  "../event-demux-fixture.rhdl" as fixture
+
+print(emit_circt(instrument_events(fixture.routed).instrumented.design))

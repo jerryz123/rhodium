@@ -1,0 +1,782 @@
+#lang rhombus
+// Covers builder rejection and whole-design verification of malformed Rhodium IR.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+check:
+  Bits(0) ~throws "PosInt"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadWidth")
+  check:
+    builder.input(module_def, "a", "not a type") ~throws "expected a well-formed HardwareType"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadConnectionType")
+  def source = builder.input(module_def, "source", Bits(4))
+  def target = builder.output(module_def, "target", Bits(8))
+  check:
+    builder.drive(target, source) ~throws "same hardware type"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadConstant")
+  check:
+    builder.constant(module_def, Bits(4), 16) ~throws "does not fit bits<4>"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadAdd")
+  def a = builder.input(module_def, "a", Bits(4))
+  def b = builder.input(module_def, "b", Bits(8))
+  check:
+    builder.add(module_def, a, b) ~throws "same arithmetic type and width"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadCombinationalWidths")
+  def select = builder.input(module_def, "select", Bits(1))
+  def four_bits = builder.input(module_def, "four_bits", Bits(4))
+  def eight_bits = builder.input(module_def, "eight_bits", Bits(8))
+  check:
+    builder.bit_and(module_def, four_bits, eight_bits) ~throws "same bitwise type"
+    builder.bit_or(module_def, four_bits, eight_bits) ~throws "same bitwise type"
+    builder.bit_xor(module_def, four_bits, eight_bits) ~throws "same bitwise type"
+    builder.mul(module_def, four_bits, eight_bits) ~throws "same arithmetic type and width"
+    builder.sub(module_def, four_bits, eight_bits) ~throws "same arithmetic type and width"
+    builder.eq(module_def, four_bits, eight_bits) ~throws "same Bits width"
+    builder.ult(module_def, four_bits, eight_bits) ~throws "same Bits width"
+    builder.mux_lookup(module_def, select, four_bits, [[1, eight_bits]]) ~throws "same DataType"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadWidthChangingOperations")
+  def four_bits = builder.input(module_def, "four_bits", Bits(4))
+  def eight_bits = builder.input(module_def, "eight_bits", Bits(8))
+  check:
+    builder.concat(module_def, four_bits) ~throws "List.of(Value)"
+    builder.concat(module_def, [four_bits]) ~throws "at least two operands"
+    builder.extract(module_def, eight_bits, "five", 2) ~throws "Nat"
+    builder.extract(module_def, eight_bits, 8, 2) ~throws "0 <= low <= high < source width"
+    builder.extract(module_def, eight_bits, 2, 5) ~throws "0 <= low <= high < source width"
+    builder.zext(module_def, eight_bits, 8) ~throws "larger than the source width"
+    builder.zext(module_def, eight_bits, 4) ~throws "larger than the source width"
+    builder.trunc(module_def, eight_bits, 8) ~throws "smaller than the source width"
+    builder.trunc(module_def, four_bits, 8) ~throws "smaller than the source width"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadCast")
+  def source = builder.input(module_def, "source", Bits(8))
+  def nine_bit_record = RecordType([RecordField("payload", Bits(4)),
+                                    RecordField("metadata", Bits(5))])
+  check:
+    builder.cast(module_def, source, Bits(7)) ~throws "same canonical packed width"
+    builder.cast(module_def, source, nine_bit_record) ~throws "same canonical packed width"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedCast")
+  def source = builder.input(module_def, "source", Bits(8))
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(7), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.cast",
+                            module_def,
+                            [source],
+                            [result],
+                            [],
+                            {"name": "result"})
+  source.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  def finished = builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "same canonical packed width"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadMuxLookup")
+  def selector = builder.input(module_def, "selector", Bits(2))
+  def value = builder.input(module_def, "value", Bits(4))
+  def clock = builder.input(module_def, "clock", Clock)
+  check:
+    builder.mux_lookup(module_def, selector, value, []) ~throws ""
+    builder.mux_lookup(module_def, selector, value, [["zero", value]]) ~throws "host natural"
+    builder.mux_lookup(module_def, selector, value, [[4, value]]) ~throws "does not fit"
+    builder.mux_lookup(module_def, selector, value, [[1, value], [1, value]]) ~throws "unique"
+    builder.mux_lookup(module_def, clock, value, [[0, value]]) ~throws "selector must be Bits"
+    builder.mux_lookup(module_def, selector, clock, [[0, clock]]) ~throws "DataType"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedExtract")
+  def operand = builder.input(module_def, "operand", Bits(8))
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(3), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.extract",
+                            module_def,
+                            [operand],
+                            [result],
+                            [],
+                            {"name": "result", "high": 5, "low": 2})
+  operand.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  def finished = builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "extract result width does not match its indices"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedMuxLookup")
+  def selector = builder.input(module_def, "selector", Bits(2))
+  def default_value = builder.input(module_def, "default_value", Bits(4))
+  def first = builder.input(module_def, "first", Bits(4))
+  def second = builder.input(module_def, "second", Bits(4))
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(4), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.mux_lookup",
+                            module_def,
+                            [selector, default_value, first, second],
+                            [result],
+                            [],
+                            {"name": "result", "keys": [1, 0]})
+  for (operand in operation.operands):
+    operand.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  def finished = builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "unique and increasing"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedConcat")
+  def left = builder.input(module_def, "left", Bits(4))
+  def right = builder.input(module_def, "right", Bits(4))
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(7), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.concat",
+                            module_def,
+                            [left, right],
+                            [result],
+                            [],
+                            {"name": "result"})
+  left.add_user(operation_id)
+  right.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  def finished = builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "sum of its operand widths"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedExtension")
+  def operand = builder.input(module_def, "operand", Bits(8))
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(4), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.zext",
+                            module_def,
+                            [operand],
+                            [result],
+                            [],
+                            {"name": "result", "target_width": 4})
+  operand.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  def finished = builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "larger than the source width"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedTruncation")
+  def operand = builder.input(module_def, "operand", Bits(4))
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(8), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.trunc",
+                            module_def,
+                            [operand],
+                            [result],
+                            [],
+                            {"name": "result", "target_width": 8})
+  operand.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  def finished = builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "smaller than the source width"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Undriven")
+  def output = builder.output(module_def, "out", Bits(1))
+  def finished = builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "place out is undriven"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MultipleDrive")
+  def a = builder.input(module_def, "a", Bits(8))
+  def b = builder.input(module_def, "b", Bits(8))
+  def sum = builder.output(module_def, "sum", Bits(8))
+  def result = builder.add(module_def, a, b)
+  builder.drive(sum, result)
+  check:
+    builder.drive(sum, result) ~throws "already has a driver"
+    builder.drive(a, b) ~throws "Place"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ReadBeforeDrive")
+  def output = builder.output(module_def, "out", Bits(1))
+  check:
+    builder.read(output) ~throws "must be driven before it is read"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def left = builder.module("Left")
+  def right = builder.module("Right")
+  def source = builder.input(left, "source", Bits(1))
+  def target = builder.output(right, "target", Bits(1))
+  check:
+    builder.drive(target, source) ~throws "different module"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadClock")
+  def clock = builder.input(module_def, "clock", Bits(2))
+  def real_clock = builder.input(module_def, "real_clock", Clock)
+  check:
+    builder.register(module_def, "state", Bits(8), clock) ~throws "clock must be Clock"
+    builder.register(module_def, "clock_state", Clock, real_clock) ~throws "expected a DataType"
+
+block:
+  def design = Design()
+  def module_def = Module(design, design.fresh_id(), "Cycle")
+  design.add_module(module_def)
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(8), module_def, operation_id)
+  def add_operation = Operation(operation_id,
+                                "rtl.add",
+                                module_def,
+                                [result, result],
+                                [result],
+                                [],
+                                {"name": "result"})
+  result.add_user(operation_id)
+  result.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(add_operation)
+  module_def.finished := #true
+  check:
+    verify_design(design) ~throws "combinational cycle reaches value result"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("IdentityCycleChild")
+  def child_input = builder.input(child, "a", Bits(1))
+  def child_output = builder.output(child, "y", Bits(1))
+  builder.drive(child_output, child_input)
+  def finished_child = builder.finish(child)
+  def top = builder.module("IdentityCycleTop")
+  def instance = builder.instance(top, child, "u")
+  builder.drive(instance.input("a"), instance.output("y"))
+  def finished_top = builder.finish(top)
+  check:
+    verify_module(top) ~throws "combinational cycle reaches value u.y"
+    verify_design(design) ~throws "combinational cycle reaches value u.y"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("RingChild")
+  def child_input = builder.input(child, "a", Bits(1))
+  def child_output = builder.output(child, "y", Bits(1))
+  builder.drive(child_output, child_input)
+  def finished_child = builder.finish(child)
+  def top = builder.module("RingTop")
+  def left = builder.instance(top, child, "left")
+  def right = builder.instance(top, child, "right")
+  builder.drive(left.input("a"), right.output("y"))
+  builder.drive(right.input("a"), left.output("y"))
+  def finished_top = builder.finish(top)
+  check:
+    verify_design(design) ~throws "combinational cycle reaches value left.y"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("SelectiveChild")
+  def used = builder.input(child, "used", Bits(1))
+  def unused = builder.input(child, "unused", Bits(1))
+  def child_output = builder.output(child, "y", Bits(1))
+  builder.drive(child_output, used)
+  def finished_child = builder.finish(child)
+  def top = builder.module("SelectiveTop")
+  def instance = builder.instance(top, child, "u")
+  def zero = builder.constant(top, Bits(1), 0)
+  builder.drive(instance.input("used"), zero)
+  builder.drive(instance.input("unused"), instance.output("y"))
+  def finished_top = builder.finish(top)
+  check:
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def pair_type = RecordType([RecordField("left", Bits(1)),
+                              RecordField("right", Bits(1))])
+  def child = builder.module("FieldSelectiveChild")
+  def child_input = builder.input(child, "input", pair_type)
+  def child_output = builder.output(child, "output", pair_type)
+  def child_left = builder.record_get(child, child_input, "left")
+  def zero = builder.constant(child, Bits(1), 0)
+  builder.drive(
+    child_output,
+    builder.record_create(child,
+                          pair_type,
+                          [["left", child_left], ["right", zero]])
+  )
+  builder.finish(child)
+  def top = builder.module("FieldSelectiveTop")
+  def instance = builder.instance(top, child, "u")
+  def top_zero = builder.constant(top, Bits(1), 0)
+  def output_left = builder.record_get(top,
+                                       instance.output("output"),
+                                       "left")
+  builder.drive(builder.project(instance.input("input"), "left"), top_zero)
+  builder.drive(builder.project(instance.input("input"), "right"), output_left)
+  builder.finish(top)
+  check:
+    // The feedback reaches an input field that cannot affect output.left.
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def pair_type = RecordType([RecordField("left", Bits(1)),
+                              RecordField("right", Bits(1))])
+  def child = builder.module("FieldCycleChild")
+  def child_input = builder.input(child, "input", pair_type)
+  def child_output = builder.output(child, "output", pair_type)
+  def child_left = builder.record_get(child, child_input, "left")
+  def child_right = builder.record_get(child, child_input, "right")
+  builder.drive(
+    child_output,
+    builder.record_create(child,
+                          pair_type,
+                          [["left", child_left], ["right", child_right]])
+  )
+  builder.finish(child)
+  def top = builder.module("FieldCycleTop")
+  def instance = builder.instance(top, child, "u")
+  def zero = builder.constant(top, Bits(1), 0)
+  def output_left = builder.record_get(top,
+                                       instance.output("output"),
+                                       "left")
+  builder.drive(builder.project(instance.input("input"), "left"), output_left)
+  builder.drive(builder.project(instance.input("input"), "right"), zero)
+  builder.finish(top)
+  check:
+    verify_design(design) ~throws "combinational cycle reaches value u.output.left"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def pair_type = RecordType([RecordField("left", Bits(1)),
+                              RecordField("right", Bits(1))])
+  def child = builder.module("CrossFieldCycleChild")
+  def child_input = builder.input(child, "input", pair_type)
+  def child_output = builder.output(child, "output", pair_type)
+  def child_left = builder.record_get(child, child_input, "left")
+  def child_right = builder.record_get(child, child_input, "right")
+  builder.drive(
+    child_output,
+    builder.record_create(child,
+                          pair_type,
+                          [["left", child_right], ["right", child_left]])
+  )
+  builder.finish(child)
+  def top = builder.module("CrossFieldCycleTop")
+  def instance = builder.instance(top, child, "u")
+  def zero = builder.constant(top, Bits(1), 0)
+  def output_left = builder.record_get(top,
+                                       instance.output("output"),
+                                       "left")
+  builder.drive(builder.project(instance.input("input"), "left"), zero)
+  builder.drive(builder.project(instance.input("input"), "right"), output_left)
+  builder.finish(top)
+  check:
+    verify_design(design) ~throws "combinational cycle reaches value u.output.left"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def pair_type = RecordType([RecordField("left", Bits(1)),
+                              RecordField("right", Bits(1))])
+  def pair_vector_type = VectorType(2, pair_type)
+  def leaf = builder.module("NestedFieldLeaf")
+  def leaf_input = builder.input(leaf, "input", pair_vector_type)
+  def leaf_output = builder.output(leaf, "output", pair_vector_type)
+  def rebuilt_pairs:
+    for List (index in 0..2):
+      def element = builder.vector_get(leaf, leaf_input, index)
+      builder.record_create(
+        leaf,
+        pair_type,
+        [["left", builder.record_get(leaf, element, "left")],
+         ["right", builder.record_get(leaf, element, "right")]]
+      )
+  builder.drive(leaf_output,
+                builder.vector_create(leaf, pair_vector_type, rebuilt_pairs))
+  builder.finish(leaf)
+  def wrapper = builder.module("NestedFieldWrapper")
+  def wrapper_input = builder.input(wrapper, "input", pair_vector_type)
+  def wrapper_output = builder.output(wrapper, "output", pair_vector_type)
+  def inner = builder.instance(wrapper, leaf, "inner")
+  builder.drive(inner.input("input"), wrapper_input)
+  builder.drive(wrapper_output, inner.output("output"))
+  builder.finish(wrapper)
+  def top = builder.module("NestedFieldTop")
+  def outer = builder.instance(top, wrapper, "outer")
+  def zero = builder.constant(top, Bits(1), 0)
+  def output_element = builder.vector_get(top,
+                                          outer.output("output"),
+                                          0)
+  def output_left = builder.record_get(top, output_element, "left")
+  for (index in 0..2):
+    def input_element = builder.project_vector(outer.input("input"), index)
+    builder.drive(builder.project(input_element, "left"), zero)
+    builder.drive(
+      builder.project(input_element, "right"),
+      if index == 1 | output_left | zero
+    )
+  builder.finish(top)
+  check:
+    // Nested output[0].left cannot depend on the feedback at input[1].right.
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def pair_type = RecordType([RecordField("left", Bits(1)),
+                              RecordField("right", Bits(1))])
+  def child = builder.module("ConservativeCastChild")
+  def child_input = builder.input(child, "input", pair_type)
+  def child_output = builder.output(child, "output", pair_type)
+  def packed = builder.cast(child, child_input, Bits(2))
+  builder.drive(child_output, builder.cast(child, packed, pair_type))
+  builder.finish(child)
+  def top = builder.module("ConservativeCastTop")
+  def instance = builder.instance(top, child, "u")
+  def zero = builder.constant(top, Bits(1), 0)
+  def output_left = builder.record_get(top,
+                                       instance.output("output"),
+                                       "left")
+  builder.drive(builder.project(instance.input("input"), "left"), zero)
+  builder.drive(builder.project(instance.input("input"), "right"), output_left)
+  builder.finish(top)
+  check:
+    // A representation-changing cast conservatively mixes aggregate leaves.
+    verify_design(design) ~throws "combinational cycle reaches value u.output.left"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def pair_type = RecordType([RecordField("left", Bits(1)),
+                              RecordField("right", Bits(1))])
+  def module_def = builder.module("DeadFieldCycle")
+  def temporary = builder.wire(module_def, "temporary", pair_type)
+  def temporary_value = builder.read(temporary)
+  def temporary_left = builder.record_get(module_def, temporary_value, "left")
+  def zero = builder.constant(module_def, Bits(1), 0)
+  builder.drive(builder.project(temporary, "left"), temporary_left)
+  builder.drive(builder.project(temporary, "right"), zero)
+  builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "combinational cycle reaches value temporary.left"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("RegisteredChild")
+  def child_clock = builder.input(child, "clock", Clock)
+  def child_input = builder.input(child, "a", Bits(1))
+  def child_output = builder.output(child, "y", Bits(1))
+  def state = builder.register(child, "state", Bits(1), child_clock)
+  builder.drive(state.next, child_input)
+  builder.drive(child_output, state.current)
+  def finished_child = builder.finish(child)
+  def top = builder.module("RegisteredTop")
+  def top_clock = builder.input(top, "clock", Clock)
+  def instance = builder.instance(top, child, "u")
+  builder.drive(instance.input("clock"), top_clock)
+  builder.drive(instance.input("a"), instance.output("y"))
+  def finished_top = builder.finish(top)
+  check:
+    verify_module(top) ~is #void
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def leaf = builder.module("NestedCycleLeaf")
+  def leaf_input = builder.input(leaf, "a", Bits(1))
+  def leaf_output = builder.output(leaf, "y", Bits(1))
+  builder.drive(leaf_output, leaf_input)
+  def finished_leaf = builder.finish(leaf)
+  def wrapper = builder.module("NestedCycleWrapper")
+  def wrapper_input = builder.input(wrapper, "a", Bits(1))
+  def wrapper_output = builder.output(wrapper, "y", Bits(1))
+  def inner = builder.instance(wrapper, leaf, "inner")
+  builder.drive(inner.input("a"), wrapper_input)
+  builder.drive(wrapper_output, inner.output("y"))
+  def finished_wrapper = builder.finish(wrapper)
+  def top = builder.module("NestedCycleTop")
+  def outer = builder.instance(top, wrapper, "outer")
+  builder.drive(outer.input("a"), outer.output("y"))
+  def finished_top = builder.finish(top)
+  check:
+    verify_design(design) ~throws "combinational cycle reaches value outer.y"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Names")
+  def a = builder.input(module_def, "a", Bits(8))
+  check:
+    builder.constant(module_def, Bits(8), 0, "a") ~throws "duplicate hardware name a"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("NameChild")
+  builder.finish(child)
+  def top = builder.module("InstanceNames")
+  def first = builder.suggested_instance(top, child, "adder")
+  def second = builder.suggested_instance(top, child, "adder")
+  def reserved = builder.instance(top, child, "adder_2")
+  def fourth = builder.suggested_instance(top, child, "adder")
+  check:
+    first.operation.attribute("name") ~is "adder"
+    second.operation.attribute("name") ~is "adder_1"
+    reserved.operation.attribute("name") ~is "adder_2"
+    fourth.operation.attribute("name") ~is "adder_3"
+    builder.instance(top, child, "adder") ~throws "duplicate instance name adder"
+  builder.finish(top)
+  check:
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("ForgedNameChild")
+  builder.finish(child)
+  def top = builder.module("ForgedInstanceNames")
+  def first = Operation(design.fresh_id(),
+                        "rtl.instance",
+                        top,
+                        [],
+                        [],
+                        [],
+                        {"name": "same", "module": child})
+  def second = Operation(design.fresh_id(),
+                         "rtl.instance",
+                         top,
+                         [],
+                         [],
+                         [],
+                         {"name": "same", "module": child})
+  top.add_operation(first)
+  top.add_operation(second)
+  builder.finish(top)
+  check:
+    verify_design(design) ~throws "instance name same is not unique"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("Child")
+  def child_in = builder.input(child, "in", Bits(1))
+  def child_out = builder.output(child, "out", Bits(1))
+  builder.drive(child_out, child_in)
+  def finished_child = builder.finish(child)
+  def top = builder.module("Top")
+  def instance = builder.instance(top, child, "u")
+  def top_out = builder.output(top, "out", Bits(1))
+  builder.drive(top_out, instance.output("out"))
+  def finished_top = builder.finish(top)
+  check:
+    verify_design(design) ~throws "place u.in is undriven"
+
+block:
+  def source_design = Design()
+  def source_builder = Builder(source_design)
+  def source_module = source_builder.module("Source")
+  def foreign_value = source_builder.input(source_module, "value", Bits(1))
+  def target_design = Design()
+  def target_builder = Builder(target_design)
+  def target_module = target_builder.module("Target")
+  def target = target_builder.output(target_module, "target", Bits(1))
+  check:
+    source_module.id ~is target_module.id
+    (source_module === target_module) ~is #false
+    target_builder.drive(target, foreign_value) ~throws "different module"
+
+block:
+  def source_design = Design()
+  def source_builder = Builder(source_design)
+  def child = source_builder.module("Child")
+  def child_input = source_builder.input(child, "input", Bits(1))
+  def child_output = source_builder.output(child, "output", Bits(1))
+  source_builder.drive(child_output, child_input)
+  def finished_child = source_builder.finish(child)
+  def target_design = Design()
+  def target_builder = Builder(target_design)
+  def top = target_builder.module("Top")
+  check:
+    child.id ~is top.id
+    target_builder.instance(top, child, "u") ~throws "different design"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Membership")
+  def real = builder.input(module_def, "real", Bits(1))
+  def forged = Value(design.fresh_id(), "forged", Bits(1), module_def, real.defining_op_id)
+  check:
+    builder.add(module_def, real, forged) ~throws "different module"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  check:
+    builder.module("Bad.Name") ~throws "AsciiIdentifier"
+    builder.module("__rhodium_internal") ~throws "reserved"
+
+block:
+  def design = Design()
+  def module_def = Module(design, design.fresh_id(), "MissingAttribute")
+  design.add_module(module_def)
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "constant", Bits(1), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.constant",
+                            module_def,
+                            [],
+                            [result],
+                            [],
+                            {"name": "constant"})
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  module_def.finished := #true
+  check:
+    verify_design(design) ~throws "requires attribute value"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("IncompleteRecordDrive")
+  def pair_type = RecordType([RecordField("left", Bits(8)),
+                              RecordField("right", Bits(8))])
+  def source = builder.input(module_def, "source", Bits(8))
+  def target = builder.output(module_def, "target", pair_type)
+  builder.drive(builder.project(target, "left"), source)
+  check:
+    builder.finish(module_def) ~throws "incomplete field-wise drivers"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MixedRecordDrive")
+  def pair_type = RecordType([RecordField("left", Bits(8)),
+                              RecordField("right", Bits(8))])
+  def left = builder.input(module_def, "left", Bits(8))
+  def right = builder.input(module_def, "right", Bits(8))
+  def whole = builder.record_create(module_def,
+                                    pair_type,
+                                    [["left", left], ["right", right]])
+  def target = builder.output(module_def, "target", pair_type)
+  builder.drive(builder.project(target, "left"), left)
+  check:
+    builder.drive(target, whole) ~throws "cannot mix"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadRecordConstruction")
+  def pair_type = RecordType([RecordField("left", Bits(8)),
+                              RecordField("right", Bits(8))])
+  def value = builder.input(module_def, "value", Bits(8))
+  def narrow = builder.input(module_def, "narrow", Bits(4))
+  check:
+    builder.record_create(module_def,
+                          pair_type,
+                          [["left", value]]) ~throws "exactly one value"
+    builder.record_create(module_def,
+                          pair_type,
+                          [["left", value], ["left", value]]) ~throws "unique"
+    builder.record_create(module_def,
+                          pair_type,
+                          [["left", value], ["missing", value]]) ~throws "no field named missing"
+    builder.record_create(module_def,
+                          pair_type,
+                          [["left", value], ["right", narrow]]) ~throws "wrong hardware type"
+    builder.record_get(module_def, value, "left") ~throws "must have a RecordType"
+    builder.record_get(module_def,
+                       builder.record_create(module_def,
+                                             pair_type,
+                                             [["left", value], ["right", value]]),
+                       "missing") ~throws "no field named missing"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("AtomicNestedRecordDrive")
+  def pair_type = RecordType([RecordField("left", Bits(8)),
+                              RecordField("right", Bits(8))])
+  def envelope_type = RecordType([RecordField("payload", pair_type),
+                                  RecordField("tag", Bits(2))])
+  def value = builder.input(module_def, "value", Bits(8))
+  def target = builder.output(module_def, "target", envelope_type)
+  def payload = builder.project(target, "payload")
+  builder.drive(builder.project(payload, "left"), value)
+  builder.drive(builder.project(payload, "right"), value)
+  check:
+    builder.finish(module_def) ~throws "incomplete field-wise drivers"
+    module_def.operations.filter(
+      ~keep: fun (operation): operation.opcode == "rtl.record_create"
+    ).length() ~is 0

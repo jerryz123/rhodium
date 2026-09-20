@@ -1,0 +1,54 @@
+#lang rhombus
+// Proves core, kernel, composed-base, and standard adders construct the same public IR.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../examples/lop/adder-core.rhm" as core_fixture
+  "../../../examples/lop/adder-kernel.rhm" as kernel_fixture
+  "../../../examples/lop/adder-composed.rhdl" as composed_fixture
+  "../../../examples/lop/adder-standard.rhdl" as standard_fixture
+  "../../../examples/lop/width-ops-kernel.rhm" as width_kernel_fixture
+  "../../../examples/rtl/width-ops.rhdl" as width_standard_fixture
+
+def core_ir = dump_ir(core_fixture.design)
+def kernel_ir = dump_ir(kernel_fixture.design)
+def composed_ir = dump_ir(composed_fixture.design)
+def standard_ir = dump_ir(standard_fixture.design)
+def core_module = core_fixture.design.modules[0]
+def kernel_module = kernel_fixture.design.modules[0]
+def composed_module = composed_fixture.design.modules[0]
+def standard_module = standard_fixture.design.modules[0]
+def core_interface = core_module.inputs.map(
+  fun (port): [port.name, port.type.describe()]
+)
+def standard_interface = standard_module.outputs.map(
+  fun (port): [port.name, port.type.describe()]
+)
+def core_opcodes = core_module.operations.map(fun (operation): operation.opcode)
+def kernel_opcodes = kernel_module.operations.map(fun (operation): operation.opcode)
+def composed_opcodes = composed_module.operations.map(fun (operation): operation.opcode)
+def standard_opcodes = standard_module.operations.map(fun (operation): operation.opcode)
+def width_kernel_ir = dump_ir(width_kernel_fixture.design)
+def width_standard_ir = dump_ir(width_standard_fixture.design)
+
+check:
+  verify_design(core_fixture.design) ~is #void
+  verify_design(kernel_fixture.design) ~is #void
+  verify_design(composed_fixture.design) ~is #void
+  verify_design(standard_fixture.design) ~is #void
+  core_ir ~is kernel_ir
+  kernel_ir ~is composed_ir
+  composed_ir ~is standard_ir
+  core_interface ~is [["a", "bits<8>"], ["b", "bits<8>"]]
+  standard_interface ~is [["sum", "bits<8>"]]
+  core_opcodes ~is kernel_opcodes
+  kernel_opcodes ~is composed_opcodes
+  composed_opcodes ~is standard_opcodes
+  core_module.operations[3].origin.kind ~is "add"
+  kernel_module.operations[3].origin.kind ~is "embedded add"
+  composed_module.operations[3].origin.kind ~is "embedded add"
+  standard_module.operations[3].origin.kind ~is "embedded add"
+  verify_design(width_kernel_fixture.design) ~is #void
+  verify_design(width_standard_fixture.design) ~is #void
+  width_standard_ir ~is width_kernel_ir

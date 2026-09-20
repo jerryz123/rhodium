@@ -1,0 +1,16 @@
+#lang rhombus
+// Checks CIRCT lowering of reset-suppressed assertions with activation guards.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../frontend/tests/assertion-fixture.rhdl" as fixture
+
+def circt = emit_circt(fixture.design)
+
+check:
+  circt.contains("comb.xor %reset") ~is #true
+  circt.contains("comb.and") ~is #true
+  circt.contains("verif.clocked_assert %condition if %__rhodium_assert_") ~is #true
+  circt.contains("posedge %clock label \"always_holds\" : i1") ~is #true
+  circt.contains("posedge %clock label \"request_holds\" : i1") ~is #true

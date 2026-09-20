@@ -1,0 +1,13 @@
+#lang rhombus
+// Checks that distinct conditional bundle specializations lower to distinct CIRCT types.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../frontend/tests/conditional-bundle-fixture.rhdl" as fixture
+
+def circt = emit_circt(fixture.shapes_design)
+
+check:
+  circt.contains("hw.typedecl @OptionalPacket") ~is #true
+  circt.contains("hw.typedecl @OptionalPacket_1") ~is #true

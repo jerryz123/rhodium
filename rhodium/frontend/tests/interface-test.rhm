@@ -1,0 +1,198 @@
+#lang rhombus
+// Checks interface identity, orientation, nesting, bulk connection, and instance reconstruction.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../rhodium/frontend/layers/interface.rhm" open
+  "field-dependency.rhdl" as field_dependency_fixture
+  "../../../examples/rtl/interface-transform.rhdl" as transform_fixture
+  "../../../examples/rtl/interface.rhdl" as interface_fixture
+  "../../../examples/rtl/interface-specialization.rhdl" as specialization_example
+  "../../../examples/rtl/nested-interface.rhdl" as nested_fixture
+  "interface-semantics.rhdl" as semantics_fixture
+
+def adapter_design = interface_fixture.design
+def adapter = adapter_design.modules[0]
+def source_design = embedded.run_elaboration(fun (): interface_fixture.ReadyValidSource(8))
+def source = source_design.modules[0]
+def hierarchy_design = embedded.run_elaboration(
+  fun (): interface_fixture.ReadyValidHierarchy(8)
+)
+def hierarchy = hierarchy_design.modules.find(
+  fun (module_def): module_def.name.starts_with("ReadyValidHierarchy")
+)
+def hierarchy_instance = hierarchy.operations.find(
+  fun (operation): operation.opcode == "rtl.instance"
+)
+def nested_adapter_design = nested_fixture.design
+def nested_adapter = nested_adapter_design.modules[0]
+def nested_member_design = embedded.run_elaboration(
+  fun (): nested_fixture.NestedMemberAdapter(8)
+)
+def nested_member_adapter = nested_member_design.modules[0]
+def deep_nested_design = embedded.run_elaboration(
+  fun (): nested_fixture.DeepNestedAdapter(8)
+)
+def deep_nested_adapter = deep_nested_design.modules[0]
+def nested_source_design = embedded.run_elaboration(
+  fun (): nested_fixture.NestedInterfaceSource(8)
+)
+def nested_source = nested_source_design.modules[0]
+def nested_hierarchy_design = embedded.run_elaboration(
+  fun (): nested_fixture.NestedInterfaceHierarchy(8)
+)
+def nested_hierarchy = nested_hierarchy_design.modules.find(
+  fun (module_def): module_def.name.starts_with("NestedInterfaceHierarchy")
+)
+def nested_hierarchy_instance = nested_hierarchy.operations.find(
+  fun (operation): operation.opcode == "rtl.instance"
+)
+def field_dependency_design = field_dependency_fixture.design
+def field_dependency_hierarchy = field_dependency_design.modules.find(
+  fun (module_def): module_def.name.starts_with("FieldSelectiveHierarchy")
+)
+def field_dependency_instance = field_dependency_hierarchy.operations.find(
+  fun (operation): operation.opcode == "rtl.instance"
+)
+def transform_design = transform_fixture.design
+def transform_module = transform_design.modules[0]
+def transform_boundary_design = transform_fixture.boundary_design
+def detached_terminal_design = transform_fixture.detached_terminal_design
+
+check:
+  adapter.inputs.map(fun (port): port.name) ~is ["ingress_in", "egress_in"]
+  adapter.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
+  adapter.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.drive"
+  ).length() ~is 2
+  source.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_create"
+  ).length() ~is 1
+  source.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_get"
+  ).length() ~is 1
+  hierarchy_instance.places.length() ~is 3
+  hierarchy_instance.results.length() ~is 2
+  hierarchy.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.drive"
+  ).length() ~is 5
+  nested_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in", "egress_in"]
+  nested_adapter.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
+  nested_adapter.find_input("ingress_in").type.field("command").type.field("valid").type === bool.Bool ~is #true
+  nested_adapter.find_output("ingress_out").type.field("command").type.field("ready").type === bool.Bool ~is #true
+  nested_adapter.find_input("ingress_in").type.field("response").type.field("ready").type === bool.Bool ~is #true
+  nested_adapter.find_output("ingress_out").type.field("response").type.field("valid").type === bool.Bool ~is #true
+  nested_member_adapter.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.drive"
+  ).length() ~is 2
+  deep_nested_adapter.find_input("peripheral_in").type.field("control").type.field("command").type.field("bits").type.width ~is 8
+  nested_source.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_create"
+  ).length() ~is 3
+  nested_source.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_get"
+  ).length() ~is 6
+  nested_hierarchy_instance.places.length() ~is 5
+  nested_hierarchy_instance.results.length() ~is 5
+  field_dependency_instance.places.length() ~is 3
+  field_dependency_instance.results.length() ~is 2
+  verify_design(adapter_design) ~is #void
+  verify_design(source_design) ~is #void
+  verify_design(hierarchy_design) ~is #void
+  verify_design(nested_adapter_design) ~is #void
+  verify_design(nested_member_design) ~is #void
+  verify_design(deep_nested_design) ~is #void
+  verify_design(nested_source_design) ~is #void
+  verify_design(nested_hierarchy_design) ~is #void
+  verify_design(field_dependency_design) ~is #void
+  transform_module.inputs.map(fun (port): port.name) ~is [
+    "commands_in",
+    "renamed_in",
+    "event_in"
+  ]
+  transform_module.outputs.map(fun (port): port.name) ~is [
+    "commands_out",
+    "renamed_out",
+    "copies_0_out",
+    "copies_1_out"
+  ]
+  verify_design(transform_design) ~is #void
+  verify_design(transform_boundary_design) ~is #void
+  verify_design(detached_terminal_design) ~is #void
+  semantics_fixture.ReverseOnly().provider_role ~is "sender"
+  specialization_example.CapacityLink(4, 8).specialization_arguments ~is [4, 8]
+  specialization_example.CapacityLink(4, 8).connection_compatibility.role ~is "producer"
+  verify_design(semantics_fixture.local_nominal_design) ~is #void
+  verify_design(semantics_fixture.exact_reverse_design) ~is #void
+  verify_design(semantics_fixture.compatible_reverse_design) ~is #void
+  verify_design(specialization_example.design) ~is #void
+  verify_design(specialization_example.reversed_design) ~is #void
+  verify_design(semantics_fixture.compatible_specialization_arrays_design) ~is #void
+  verify_design(specialization_example.nested_design) ~is #void
+  verify_design(semantics_fixture.compatible_endpoint_support_design) ~is #void
+  verify_design(semantics_fixture.provider_policy_forwarding_design) ~is #void
+  verify_design(semantics_fixture.consumer_policy_forwarding_design) ~is #void
+  verify_design(semantics_fixture.nested_policy_forwarding_design) ~is #void
+  verify_design(semantics_fixture.array_policy_forwarding_design) ~is #void
+  embedded.run_elaboration(
+    fun (): semantics_fixture.MismatchedPolicyForwarding()
+  ) ~throws "hierarchy forwarding requires the exact interface specialization"
+  embedded.run_elaboration(
+    fun (): semantics_fixture.SameOriginPolicyConnection()
+  ) ~throws "interface endpoints have incompatible roles"
+  embedded.run_elaboration(
+    fun (): semantics_fixture.ForeignNominalCollision()
+  ) ~throws "argument does not satisfy annotation"
+  embedded.run_elaboration(
+    fun (): semantics_fixture.ForeignNominalBulkCollision()
+  ) ~throws "does not support"
+
+block:
+  def payload = RecordType([RecordField("payload", Bits(8))])
+  def first = InterfaceType(
+    "First",
+    ["producer", "consumer"],
+    [InterfaceDirection("producer", "consumer", payload)]
+  )
+  def refined = InterfaceType(
+    "Refined",
+    ["producer", "consumer"],
+    [InterfaceMember("ready", bool.Bool, "consumer", "producer")],
+    first
+  )
+  check:
+    InterfaceType("BadRoles",
+                  ["producer", "producer"],
+                  [InterfaceMember("payload", Bits(8), "producer", "consumer")]) ~throws "two distinct roles"
+    InterfaceType("DuplicateMember",
+                  ["producer", "consumer"],
+                  [InterfaceMember("payload", Bits(8), "producer", "consumer"),
+                   InterfaceMember("payload", Bits(8), "consumer", "producer")]) ~throws "member names must be unique"
+    refined.parent === first ~is #true
+    refined.members.map(fun (member): member.name) ~is ["payload", "ready"]
+    InterfaceType("BadParent",
+                  ["producer", "consumer"],
+                  [],
+                  "not an interface") ~throws "parent must be an InterfaceType"
+    InterfaceType("ChangedRoles",
+                  ["source", "sink"],
+                  [],
+                  first) ~throws "roles must match"
+    InterfaceType("DuplicateInheritedMember",
+                  ["producer", "consumer"],
+                  [InterfaceMember("payload", Bits(8), "producer", "consumer")],
+                  first) ~throws "member names must be unique"
+    InterfaceType("BadSupportedShape",
+                  ["producer", "consumer"],
+                  [InterfaceMember("other", Bits(8), "producer", "consumer")],
+                  #false,
+                  [InterfaceSupport("producer", first)]) ~throws "supported interface members"
+    InterfaceType("BadCompatibilityRole",
+                  ["producer", "consumer"],
+                  [InterfaceMember("payload", Bits(8), "producer", "consumer")],
+                  ~connection_compatibility:
+                    InterfaceCompatibility("consumer", fun (_, _): #true)) ~throws "compatibility role must match"
+    first.complementary_role("producer") ~is "consumer"

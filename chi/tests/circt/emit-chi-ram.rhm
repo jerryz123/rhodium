@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits CIRCT MLIR for the initial non-coherent CHI RAM fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../examples/chi/ram.rhdl" as fixture
+
+print(emit_circt(fixture.ram_design))

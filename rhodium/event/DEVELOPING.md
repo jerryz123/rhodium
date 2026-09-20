@@ -329,7 +329,7 @@ make event-runtime-test
 Host tests cover static inference, malformed contracts, capture packing and
 rejection, capacity bounds, JSON/C++ agreement, hierarchy identity, unchanged
 original CIRCT emission, and sharing of nested/diamond definitions. Preserve
-`use_static` capture-binder checks in `tests/frontend/std-flow-static-test.rhm`.
+`use_static` capture-binder checks in `flow/tests/std-flow-static-test.rhm`.
 
 Runtime scoreboards must derive expected identities from **public transfers**,
 not observed internal controls, trace vectors, or payload matching. Use repeated

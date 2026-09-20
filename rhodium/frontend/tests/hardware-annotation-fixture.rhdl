@@ -1,0 +1,118 @@
+#lang rhodium
+// Exercises checked hardware-type annotations across the standard type surface.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/types.rhm".BitwiseType
+
+// Models a scalar type supplied by an extension library. The declaration owns
+// its descriptor implementation and exact hardware-value annotation.
+hardware_type Nibble(width :: PosInt):
+  implements BitwiseType
+  width: width
+  describe: "nibble<" ++ to_string(width) ++ ">"
+
+bundle Pair(T):
+  left: T
+  right: T
+
+hardware_enum Flag(~width: 1):
+  Low = 0
+  High = 1
+
+fun checked_bits(width, value :: Bits(width)) :: Bits(width):
+  value
+
+fun checked_bool(value :: Bool) :: Bool:
+  value
+
+fun checked_vector(n, T, value :: Vec(n, T)) :: Vec(n, T):
+  value
+
+fun checked_pair(T, value :: Pair(T)) :: Pair(T):
+  value
+
+fun checked_flag(value :: Flag) :: Flag:
+  value
+
+fun checked_clock(value :: Clock) :: Clock:
+  value
+
+fun checked_reset(value :: Reset) :: Reset:
+  value
+
+fun checked_extension_type(value :: Nibble(4)) :: Nibble(4):
+  value.as_bits().into(Nibble(4))
+
+fun checked_extension_family(value :: Nibble) :~ Nibble(value.type.width):
+  value
+
+fun extension_identity(value :: Nibble) :~ Nibble(value.type.width):
+  value
+
+fun checked_any_bits(value :: Bits):
+  value
+
+fun checked_packable(value :: Hardware.packable):
+  value
+
+circuit HardwareAnnotations(width):
+  input clock: Clock
+  input reset: Reset
+  input bits_in: Bits(width)
+  input bool_in: Bool
+  input vector_in: Vec(2, Bits(width))
+  input pair_in: Pair(Bits(width))
+  input flag_in: Flag
+  input nibble_in: Nibble(4)
+  output bits_out: Bits(width)
+  output bool_out: Bool
+  output vector_out: Vec(2, Bits(width))
+  output pair_left: Bits(width)
+  output flag_out: Flag
+  output nibble_out: Nibble(4)
+
+  // Calling these helpers checks Clock and Reset even though the resulting
+  // domain values need no additional wiring in this combinational fixture.
+  def checked_clock_value = checked_clock(clock)
+  def checked_reset_value = checked_reset(reset)
+  def checked_bits_value = checked_any_bits(bits_in)
+  def checked_pair_value = checked_packable(pair_in)
+
+  bits_out <== checked_bits(width, bits_in)
+  bool_out <== checked_bool(bool_in)
+  vector_out <== checked_vector(2, Bits(width), vector_in)
+  pair_left <== checked_pair(Bits(width), pair_in).left
+  flag_out <== checked_flag(flag_in)
+  nibble_out <== checked_extension_family(checked_extension_type(nibble_in)).extension_identity().extension_identity()
+
+fun wrong_width(value) :: Bits(8):
+  value
+
+circuit WrongWidth():
+  input source: Bits(4)
+  output result: Bits(4)
+  result <== wrong_width(source)
+
+circuit WrongBitsCategory():
+  input source: Bool
+  def checked = checked_any_bits(source)
+
+circuit WrongPackableCategory():
+  input source: Clock
+  def checked = checked_packable(source)
+
+circuit WrongExtensionFamily():
+  input source: Bits(4)
+  def checked = checked_extension_family(source)
+
+def design = elaborate(HardwareAnnotations(4))
+
+export:
+  Nibble
+  HardwareAnnotations
+  WrongWidth
+  WrongBitsCategory
+  WrongPackableCategory
+  WrongExtensionFamily
+  design

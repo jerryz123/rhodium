@@ -1,0 +1,46 @@
+#lang rhombus
+// Checks Mask typing, operations, conversions, indexing, and rejection of numeric behavior.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "mask-fixture.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.MaskFixture())
+def module_def = design.modules[0]
+
+fun operation_count(opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  ).length()
+
+check:
+  bool.mask_type(fixture.Mask4) ~is #true
+  bool.mask_width(fixture.Mask4) ~is 4
+  fixture.Mask4.describe() ~is "mask<4>"
+  type_equal(fixture.Mask4, bool.Mask(4)) ~is #true
+  type_equal(fixture.Mask4, Bits(4)) ~is #false
+  fixture.Mask4(0b0101).packed_value() ~is 5
+  (for all (name in ["literal", "from_bits", "from_exact", "from_optional",
+                     "union", "intersection", "difference", "complement",
+                     "shifted"]):
+     type_equal(module_def.find_output(name).type, fixture.Mask4)) ~is #true
+  bool.bool_type(module_def.find_output("lane_two").type) ~is #true
+  type_equal(module_def.find_output("packed").type, Bits(4)) ~is #true
+  bool.maybe_one_hot_type(module_def.find_output("selected").type) ~is #true
+  operation_count("rtl.or") >= 1 ~is #true
+  operation_count("rtl.and") >= 1 ~is #true
+  operation_count("rtl.xor") >= 1 ~is #true
+  operation_count("rtl.not") >= 1 ~is #true
+  verify_design(design) ~is #void
+
+  bool.Mask(0) ~throws "PosInt"
+  bool.mask_width(Bits(4)) ~throws "expected a Mask type"
+  fixture.Mask4(16) ~throws "does not fit mask<4>"
+  embedded.run_elaboration(fun (): fixture.ShiftMask()) ~throws "ArithmeticType"
+  embedded.run_elaboration(fun (): fixture.RightShiftMask()) ~throws "shifted value must be Bits"
+  embedded.run_elaboration(fun (): fixture.AddMask()) ~throws "arithmetic type"
+  embedded.run_elaboration(fun (): fixture.WrongMaskWidth()) ~throws "same canonical packed width"
+  embedded.run_elaboration(fun (): fixture.ImplicitBitsMask()) ~throws "exactly the same hardware type"

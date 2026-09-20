@@ -1,0 +1,38 @@
+#lang rhombus
+// Checks inferred Bits and Vec shapes, identity casts, ordering, and validation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "as-bits-fixture.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def casts = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.cast"
+)
+
+check:
+  casts.length() ~is 5
+  record_type(casts[0].operands[0].type) ~is #true
+  casts[0].results[0].type.width ~is 4
+  vector_type(casts[1].operands[0].type) ~is #true
+  casts[1].results[0].type.width ~is 6
+  type_equal(casts[2].operands[0].type, Bits(2)) ~is #true
+  type_equal(casts[2].results[0].type, VectorType(2, bool.Bool)) ~is #true
+  type_equal(casts[3].operands[0].type, VectorType(2, bool.Bool)) ~is #true
+  type_equal(casts[3].results[0].type, Bits(2)) ~is #true
+  type_equal(casts[4].operands[0].type, Bits(6)) ~is #true
+  type_equal(casts[4].results[0].type, VectorType(2, Bits(3))) ~is #true
+  module_def.find_output("pair_bits").place.driver === casts[0].results[0] ~is #true
+  module_def.find_output("lane_bits").place.driver === casts[1].results[0] ~is #true
+  module_def.find_output("raw_bits").place.driver === module_def.find_input("raw").value ~is #true
+  module_def.find_output("bool_lanes").place.driver === casts[2].results[0] ~is #true
+  module_def.find_output("round_trip").place.driver === casts[3].results[0] ~is #true
+  module_def.find_output("restored_lanes").place.driver === casts[4].results[0] ~is #true
+  module_def.find_output("same_lanes").place.driver === module_def.find_input("lanes").value ~is #true
+  verify_design(fixture.design) ~is #void
+  verify_design(embedded.run_elaboration(fun (): fixture.ComparisonAsBits())) ~is #void
+  embedded.run_elaboration(fun (): fixture.ControlAsBits()) ~throws "value must have a packable DataType"
+  embedded.run_elaboration(fun (): fixture.UnevenAsVec()) ~throws "evenly divisible"

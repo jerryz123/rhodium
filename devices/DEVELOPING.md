@@ -53,7 +53,7 @@ Rhodium logic; do not put DPI calls in a SoC.
 | Rhodium PTY adapter | [`uart-dpi.rhdl`](uart-dpi.rhdl) |
 | PTY ABI and host implementation | [`dpi/uart_dpi.h`](dpi/uart_dpi.h), [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) |
 | Host image, configuration, parameter, and ABI checks | [`tests/`](tests/) |
-| CIRCT emitters and Verilator benches | [`../tests/backend/`](../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
+| CIRCT emitters and Verilator benches | [`tests/circt/`](tests/circt/) |
 
 ## Add or change a device
 
@@ -89,10 +89,10 @@ Verilator, run:
 
 ```sh
 FIXTURES='bootrom boot-address aclint plic uart16550 uart-dpi' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 These fixtures cover transactions, registers, interrupts, serial pins, and the
 DPI boundary. The backend test
-[`DEVELOPING.md`](../tests/backend/DEVELOPING.md) owns runner modes, toolchain
+[`DEVELOPING.md`](../tools/testing/circt/DEVELOPING.md) owns runner modes, toolchain
 requirements, and artifact policy.

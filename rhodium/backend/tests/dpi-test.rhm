@@ -1,0 +1,18 @@
+#lang rhombus
+// Checks CIRCT lowering for a mandatory-clock enabled DPI declaration and call.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../examples/rtl/clocked-dpi.rhdl" as fixture
+
+def circt = emit_circt(fixture.design)
+
+check:
+  circt.contains("sim.func.dpi @rhodium_trace(in %value : i8)") ~is #true
+  circt.contains("sim.func.dpi @rhodium_step_pair(in %value : i8, out doubled : i8, return incremented : i8)") ~is #true
+  circt.contains("seq.to_clock %clock") ~is #true
+  circt.contains("sim.func.dpi.call @rhodium_trace(%value) clock") ~is #true
+  circt.contains(", %__rhodium_value_18 = sim.func.dpi.call @rhodium_step_pair(%value) clock") ~is #true
+  circt.contains("enable %enable : (i8) -> ()") ~is #true
+  circt.contains("enable %enable : (i8) -> (i8, i8)") ~is #true

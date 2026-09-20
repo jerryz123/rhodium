@@ -32,14 +32,15 @@ package README defines the public contract; the example demonstrates it.
 3. Add the example to the matching catalog section in [README.md](README.md)
    and to the owning example target in the root [`Makefile`](../Makefile).
 4. If the program exports a concrete design, add or update its manifest entry
-   in [`../tests/backend/run-circt.sh`](../tests/backend/run-circt.sh). Generic
+   in [`../tools/testing/circt/run.sh`](../tools/testing/circt/run.sh). Generic
    circuit generators need a concrete elaboration before they can own one exact
    reference.
 5. Run the owning example group before the complete non-formal catalog.
 
 Keep valid authoring programs here. Intentional frontend failures belong under
-[`../tests/frontend/invalid/`](../tests/frontend/invalid/), and backend-only
-integration shapes belong in [`../tests/backend/`](../tests/backend/DEVELOPING.md).
+[`../rhodium/frontend/tests/invalid/`](../rhodium/frontend/tests/invalid/), and
+backend-only integration shapes belong under the owning package's `tests/circt/`
+directory as described in the [CIRCT guide](../tools/testing/circt/DEVELOPING.md).
 
 ## Maintain generated Verilog
 
@@ -49,7 +50,7 @@ change. The backend manifest owns export names, CIRCT grouping, optional
 Verilator tops, and reference eligibility.
 
 Do not hand-edit a reference to hide an unexplained diff. Follow the
-[backend reference workflow](../tests/backend/DEVELOPING.md#verilog-references),
+[backend reference workflow](../tools/testing/circt/DEVELOPING.md#verilog-references),
 use the pinned CIRCT version, update only the affected fixture, and review the
 example-source diff. Generated MLIR, temporary SystemVerilog, Verilator build
 trees, and logs remain untracked.
@@ -71,5 +72,5 @@ the Rosette-backed group remains separate as `make examples-formal`.
 When author-visible compiler behavior changes, run its owning frontend or core
 test. When emitted hardware behavior changes, run the smallest applicable
 backend simulation; an example does not need a separate host test merely to
-prove that it elaborates. The [test guide](../tests/README.md) explains how to
+prove that it elaborates. The [test guide](../tools/testing/README.md) explains how to
 select that depth.

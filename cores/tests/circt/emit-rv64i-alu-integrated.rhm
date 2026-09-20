@@ -1,0 +1,11 @@
+#lang rhombus
+// Emits CIRCT MLIR for integrated RV64I instruction decoding and ALU execution.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/cores/decoded-alu.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.DecodedALU())
+print(emit_circt(design))

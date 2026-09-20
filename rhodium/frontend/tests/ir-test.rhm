@@ -1,0 +1,157 @@
+#lang rhombus
+// Exercises public IR relationships primarily through canonical frontend designs.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/lop/adder-standard.rhdl" as adder_fixture
+  "../../../examples/rtl/alu.rhdl" as alu_fixture
+  "../../../examples/rtl/width-ops.rhdl" as width_fixture
+  "../../../examples/rtl/counter.rhdl" as counter_fixture
+  "../../../examples/rtl/multiply.rhdl" as multiply_fixture
+  "../../../examples/rtl/hierarchy.rhdl" as hierarchy_fixture
+
+def adder_design = adder_fixture.design
+def adder = adder_design.modules[0]
+def a = adder.find_input("a").value
+def b = adder.find_input("b").value
+def sum = adder.find_output("sum").place
+def result = sum.driver
+
+check:
+  adder_design.modules.length() ~is 1
+  adder.operations.length() ~is 5
+  a.type.width ~is 8
+  b.type.width ~is 8
+  result.type.width ~is 8
+  a.users().length() ~is 1
+  b.users().length() ~is 1
+  adder_design.walk().length() ~is 5
+  sum.driver === result ~is #true
+  adder.design === adder_design ~is #true
+  result.module_def === adder ~is #true
+  adder.operations[0].opcode ~is "rtl.input_port"
+  schema_for("rtl.add").required_attributes ~is ["name"]
+  verify_design(adder_design) ~is #void
+
+def counter_design = counter_fixture.design
+def counter = counter_design.modules[0]
+def register_operation = counter.operations.find(
+  fun (operation): operation.opcode == "rtl.register_reset"
+)
+def next_operation = counter.find_operation(register_operation.places[0].driver.defining_op_id)
+def total = counter.find_output("tot").place
+
+check:
+  register_operation.results[0].type.width ~is 8
+  register_operation.attribute("name") ~is "x"
+  register_operation.places[0].type.width ~is 8
+  next_operation.opcode ~is "rtl.mux_lookup"
+  total.driver.id ~is register_operation.results[0].id
+  counter.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.add"
+  ).length() ~is 1
+  counter.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.ult"
+  ).length() ~is 1
+  counter.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.zext"
+  ).length() ~is 3
+  counter.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.extract"
+  ).length() ~is 1
+  verify_design(counter_design) ~is #void
+
+def multiply_design = multiply_fixture.design
+def multiply = multiply_design.modules[0]
+def multiply_operation = multiply.operations.find(
+  fun (operation): operation.opcode == "rtl.mul"
+)
+
+check:
+  multiply_operation.results[0].type.width ~is 8
+  multiply.find_output("product").place.driver === multiply_operation.results[0] ~is #true
+  multiply_operation.origin.kind ~is "embedded mul"
+  dump_ir(multiply_design).contains("rtl.mul") ~is #true
+  verify_design(multiply_design) ~is #void
+
+def alu_design = alu_fixture.design
+def alu = alu_design.modules[0]
+def alu_lookup = alu.operations.find(
+  fun (operation): operation.opcode == "rtl.mux_lookup"
+)
+
+check:
+  alu.find_input("a").name ~is "a"
+  alu.find_input("b").name ~is "b"
+  alu.find_input("op").name ~is "op"
+  alu.find_output("result").type.width ~is 8
+  bool.bool_type(alu.find_output("equal").type) ~is #true
+  alu.operations.filter(~keep: fun (operation): operation.opcode == "rtl.mux_lookup").length() ~is 1
+  alu.operations.filter(~keep: fun (operation): operation.opcode == "rtl.eq").length() ~is 1
+  alu.operations.filter(~keep: fun (operation): operation.opcode == "rtl.cast").length() ~is 1
+  alu_lookup.attribute("keys") ~is [0, 1, 2, 3, 4]
+  alu_lookup.operands.length() ~is 7
+  alu_lookup.origin.kind ~is "embedded mux lookup"
+  alu.operations.find(fun (operation): operation.opcode == "rtl.and").origin.kind ~is "embedded and"
+  alu.operations.find(fun (operation): operation.opcode == "rtl.or").origin.kind ~is "embedded or"
+  alu.operations.find(fun (operation): operation.opcode == "rtl.xor").origin.kind ~is "embedded xor"
+  alu.operations.find(fun (operation): operation.opcode == "rtl.not") != #false ~is #true
+  alu.operations.find(fun (operation): operation.opcode == "rtl.eq") != #false ~is #true
+  verify_design(alu_design) ~is #void
+
+def alu5_design = embedded.run_elaboration(fun (): alu_fixture.ALU(5))
+def alu5 = alu5_design.modules[0]
+
+check:
+  alu5.name ~is "ALU"
+  alu5.find_input("a").type.width ~is 5
+  alu5.find_output("result").type.width ~is 5
+  verify_design(alu5_design) ~is #void
+
+def width_design = width_fixture.design
+def width_module = width_design.modules[0]
+def joined = width_module.find_output("joined").place.driver
+def middle = width_module.find_output("middle").place.driver
+def widened = width_module.find_output("widened").place.driver
+def narrowed = width_module.find_output("narrowed").place.driver
+
+check:
+  width_module.name ~is "WidthOps8"
+  joined.type.width ~is 12
+  middle.type.width ~is 4
+  widened.type.width ~is 12
+  narrowed.type.width ~is 4
+  joined.module_def.find_operation(joined.defining_op_id).operands.length() ~is 2
+  middle.module_def.find_operation(middle.defining_op_id).attribute("high") ~is 5
+  middle.module_def.find_operation(middle.defining_op_id).attribute("low") ~is 2
+  verify_design(width_design) ~is #void
+
+def hierarchy_design = hierarchy_fixture.design
+def child = hierarchy_design.modules.find(fun (module_def): module_def.name == "Adder")
+def top = hierarchy_design.modules.find(fun (module_def): module_def.name == "TwoAdders")
+def instances = top.operations.filter(~keep: fun (operation): operation.opcode == "rtl.instance")
+
+check:
+  hierarchy_design.modules.length() ~is 2
+  instances.length() ~is 2
+  instances[0].attribute("module") === child ~is #true
+  instances[1].attribute("module") === child ~is #true
+  instances[0].places[0].driver.name ~is "a"
+  instances[1].places[1].driver.name ~is "c"
+  verify_design(hierarchy_design) ~is #void
+
+// Direct construction remains here to test the Builder API as a lower layer.
+def builder_design = Design()
+def builder = Builder(builder_design)
+def builder_module = builder.module("BuilderAdder")
+def builder_a = builder.input(builder_module, "a", Bits(1))
+def builder_out = builder.output(builder_module, "out", Bits(1))
+builder.drive(builder_out, builder_a)
+def finished_builder_module = builder.finish(builder_module)
+
+check:
+  builder.read(builder_out) === builder_a ~is #true
+  verify_design(builder_design) ~is #void

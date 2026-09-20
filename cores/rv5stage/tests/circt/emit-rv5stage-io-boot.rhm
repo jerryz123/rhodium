@@ -1,0 +1,13 @@
+#lang rhombus
+// Emits a complete RV64 core and the real generated polling ROM for CHI boot testing.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../socs/tests/polling-boot-fixture.rhdl".RV5StagePollingBoot
+
+def design = embedded.run_elaboration(
+  fun (): RV5StagePollingBoot()
+)
+print(emit_circt(design))

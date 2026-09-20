@@ -1,0 +1,94 @@
+#lang rhombus
+// Checks credited protocol identity, adapter structure, monitors, and invalid configurations.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../flow/main.rhdl" as std
+  "../../../examples/std/credited-transport.rhdl" as example
+  "std-credited.rhdl" as fixture
+
+def credited = std.Credited(Bits(8), 2)
+def refined = std.credited_protocol_type(example.RefinedCredited8())
+def monitor_top = example.monitor_design.modules[0]
+def sender = fixture.sender_design.modules.find(
+  fun (module_def): module_def.name == "CreditSender"
+)
+def buffer = fixture.buffer_design.modules.find(
+  fun (module_def): module_def.name == "CreditBuffer"
+)
+
+fun operations(module_def, opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+fun assertion_labels(module_def):
+  operations(module_def, "verif.assert").map(
+    fun (operation): operation.attribute("label")
+  )
+
+check:
+  credited.name ~is "Credited"
+  credited.roles ~is ["transmitter", "receiver"]
+  credited.provider_role ~is "transmitter"
+  credited.members.map(fun (member): member.name) ~is [
+    "valid", "bits", "credit"
+  ]
+  credited.specialization_arguments[1] ~is 2
+  std.check_credited is_a Function ~is #true
+  credited.directions.length() ~is 2
+  refined.specialization_arguments[1] ~is 2
+  refined.members.find(fun (member): member.name == "bits").type.width ~is 8
+
+  assertion_labels(monitor_top) ~is [
+    "credited_transfer_has_credit",
+    "credited_grant_within_limit",
+    "credited_balance_in_range"
+  ]
+  operations(monitor_top, "rtl.register_reset").length() ~is 1
+
+  sender != #false ~is #true
+  sender.find_output("link_out").type.field("valid").type === bool.Bool ~is #true
+  sender.find_input("link_in").type.field("credit").type === bool.Bool ~is #true
+  sender.find_output("credit_count").type.width ~is 2
+  operations(sender, "rtl.instance").length() ~is 1
+
+  buffer != #false ~is #true
+  buffer.find_output("link_out").type.field("credit").type === bool.Bool ~is #true
+  buffer.find_output("count").type.width ~is 2
+  buffer.find_output("reserved").type.width ~is 2
+  assertion_labels(buffer) ~is [
+    "credit_buffer_reserved_slot_available",
+    "credit_buffer_occupancy_reserved",
+    "credited_transfer_has_credit",
+    "credited_grant_within_limit",
+    "credited_balance_in_range"
+  ]
+
+  verify_design(example.monitor_design) ~is #void
+  verify_design(fixture.sender_design) ~is #void
+  verify_design(fixture.buffer_design) ~is #void
+  verify_design(example.design) ~is #void
+  verify_design(example.chained_design) ~is #void
+
+  embedded.run_elaboration(
+    fun (): fixture.InvalidCreditLimit()
+  ) ~throws "PosInt"
+  embedded.run_elaboration(
+    fun (): fixture.InvalidSenderLimit()
+  ) ~throws "PosInt"
+  embedded.run_elaboration(
+    fun (): fixture.InvalidBufferDepth()
+  ) ~throws "PosInt"
+  embedded.run_elaboration(
+    fun (): fixture.MismatchedCreditLimits()
+  ) ~throws "does not support"
+  embedded.run_elaboration(
+    fun (): fixture.WrongCreditBufferProtocol()
+  ) ~throws "requires a Credited protocol"
+  embedded.run_elaboration(
+    fun (): fixture.WrongCreditBufferLimit()
+  ) ~throws "depth must match the protocol credit limit"

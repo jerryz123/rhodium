@@ -1,0 +1,37 @@
+#lang rhombus
+// Checks priority-encoder result types, compositional lowering, and aggregate packing.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../examples/rtl/priority-encoder.rhdl" as fixture
+
+def five_module = fixture.five_design.modules[0]
+def shapes_module = fixture.shapes_design.modules[0]
+
+check:
+  type_equal(five_module.find_output("selected_index").type, Bits(3)) ~is #true
+  type_equal(five_module.find_output("selected_oh").type, bool.MaybeOneHot(5)) ~is #true
+  type_equal(five_module.find_output("selected_two_index").type, Bits(1)) ~is #true
+  type_equal(five_module.find_output("selected_two_oh").type, bool.MaybeOneHot(2)) ~is #true
+  type_equal(five_module.find_output("selected_single_index").type, Bits(1)) ~is #true
+  type_equal(five_module.find_output("selected_single_oh").type, bool.MaybeOneHot(1)) ~is #true
+  type_equal(shapes_module.find_output("flags_index").type, Bits(3)) ~is #true
+  type_equal(shapes_module.find_output("flags_oh").type, bool.MaybeOneHot(5)) ~is #true
+  type_equal(shapes_module.find_output("single_index").type, Bits(1)) ~is #true
+  type_equal(shapes_module.find_output("single_oh").type, bool.MaybeOneHot(1)) ~is #true
+  five_module.operations.find(
+    fun (operation): operation.opcode == "rtl.priority_encoder"
+  ) ~is #false
+  five_module.operations.find(
+    fun (operation): operation.opcode == "rtl.onehot_mux"
+  ) ~is #false
+  five_module.operations.find(
+    fun (operation): operation.opcode == "rtl.extract"
+  ) is_a Operation ~is #true
+  five_module.operations.find(
+    fun (operation): operation.opcode == "rtl.concat"
+  ) is_a Operation ~is #true
+  verify_design(fixture.five_design) ~is #void
+  verify_design(fixture.shapes_design) ~is #void

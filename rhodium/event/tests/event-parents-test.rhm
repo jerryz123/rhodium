@@ -1,0 +1,43 @@
+#lang rhombus
+// Checks upstream-parent selection, ordinary topology certification, and unchanged functional emission.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../rhodium/event/main.rhm" open
+  "../../../rhodium/backend/circt.rhm".emit_circt
+  "event-parents-fixture.rhdl" as fixture
+
+def logical = fixture.selected()
+def before = emit_circt(logical.design)
+def traced = instrument_events(logical)
+def m = traced.manifest
+fun labels(edges): edges.map(fun (e): m.site(e.parent).label ++ "->" ++ m.site(e.child).label)
+check:
+  emit_circt(logical.design) ~is before
+  labels(m.dependencies).sort() ~is ["middle->both", "middle->cache", "root->both", "root->both", "root->cache", "root->middle", "root->wb", "root->wb"].sort()
+  event_trace_capacity(m.trace_plans[m.sites.find(fun (s): s.label == "both").id]) ~is 2
+  fixture.selected("empty") ~throws "selected parents must not be empty"
+  fixture.selected("duplicate") ~throws "duplicate selected parent"
+  fixture.selected("endpoint") ~throws "annotated local checkpoint endpoint"
+  instrument_events(fixture.selected("fanout")) ~throws "uncertified fanout"
+  infer_event_manifest(fixture.sibling()) ~throws "selected parent is not upstream"
+def repeated = instrument_events(fixture.repeated()).manifest
+check:
+  repeated.sites.length() ~is 10
+  (for all (edge in repeated.dependencies): repeated.site(edge.parent).instance_path == repeated.site(edge.child).instance_path) ~is #true
+
+def qualified = fixture.qualified()
+def qualified_before = emit_circt(qualified.design)
+def selected = instrument_events(qualified).manifest
+check:
+  emit_circt(qualified.design) ~is qualified_before
+  emit_circt(fixture.qualified("unbound").design) ~is qualified_before
+  selected.dependencies.map(fun (e): selected.site(e.parent).label ++ "->" ++ selected.site(e.child).label).sort() ~is ["root->middle", "root->wb", "middle->cache", "root->both", "middle->both"].sort()
+  event_trace_capacity(selected.trace_plans[selected.sites.find(fun (s): s.label == "both").id]) ~is 2
+  fixture.qualified("empty") ~throws "selected parents must not be empty"
+  fixture.qualified("duplicate") ~throws "duplicate selected parent"
+  fixture.qualified("parent") ~throws "selected parent must be an annotated local checkpoint endpoint"
+  fixture.qualified("child") ~throws "child must be an annotated local checkpoint endpoint"
+  fixture.qualified("rebind") ~throws "event parents are already bound"
+  fixture.qualified("mixed") ~throws "event parents are already bound"
+  fixture.qualified("conditional") ~throws "event parent selection is not supported inside"
+  fixture.invalid_qualification() ~throws "argument does not satisfy annotation"

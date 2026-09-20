@@ -1,0 +1,19 @@
+#lang rhombus
+// Emits trained and fallback fetch prediction with exact event-lineage instrumentation.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../cores/rv5stage/profile.rhm" open
+  "../../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../rhodium/event/main.rhm" open
+  "../../../../riscv/isa/c.rhm".CCompressedExtensions
+  "../../../../riscv/isa/fp-profile.rhm" open
+  "../../../../riscv/isa/xlen.rhm".XLen
+  "../../../../cores/rv5stage/tests/fetch-fixture.rhdl".RV5StageFetchFixture
+def logical = embedded.run_elaboration_with_top(fun (): RV5StageFetchFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)), ~btb_entries: 4))
+def traced = instrument_events(logical, EventInstrumentationConfig(~partial: #true))
+def site_constants = for List (site in traced.manifest.sites, index in 0..traced.manifest.sites.length()):
+  "inline constexpr unsigned " ++ site.label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace test_sites {\n" ++ String.join(site_constants, "") ++ "}\n"
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

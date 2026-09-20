@@ -1,0 +1,21 @@
+#lang rhombus
+// Checks deterministic CIRCT lowering of a site-selected shared router family.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../noc/rtl/tests/router-family-fixture.rhdl" as fixture
+
+def circt = emit_circt(fixture.design)
+
+check:
+  circt.contains("hw.module @RouterFamilyFixture") ~is #true
+  circt.contains("hw.module @SimpleRouterFamily") ~is #true
+  circt.contains("\"source\" @SimpleRouterFamily") ~is #true
+  circt.contains("\"hub\" @SimpleRouterFamily") ~is #true
+  circt.contains("!hw.struct<site_key: i2, route_key: i2, origin_key: i2>") ~is #true
+  circt.contains("comb.icmp eq") ~is #true
+  circt.contains("comb.mux") ~is #true
+  circt.contains("rtl.decode") ~is #false
+  circt.contains("verif.clocked_assert") ~is #true
+  circt ~is emit_circt(fixture.design)

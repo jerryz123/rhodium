@@ -1,0 +1,56 @@
+#lang rhombus
+// Checks standard scoreboard interfaces, state, lookup, assertions, and bounds.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../rhodium/std/scoreboard.rhdl" as scoreboard
+  "std-scoreboard.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): scoreboard.Scoreboard(8))
+def module_def = design.modules[0]
+def nonpower_design = embedded.run_elaboration(fun (): scoreboard.Scoreboard(3))
+def single_design = embedded.run_elaboration(fun (): scoreboard.Scoreboard(1))
+def lookup_module = fixture.lookup_design.modules[0]
+def nonpower_lookup_module = fixture.nonpower_lookup_design.modules[0]
+def single_lookup_module = fixture.single_lookup_design.modules[0]
+
+fun operations(module_def, opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+check:
+  module_def.inputs.map(fun (port): port.name) ~is [
+    "clock", "reset", "set_in", "clear_in"
+  ]
+  module_def.outputs.map(fun (port): port.name) ~is ["busy"]
+  module_def.find_input("set_in").type.field("valid").type.packed_width() ~is 1
+  module_def.find_input("set_in").type.field("bits").type.width ~is 3
+  module_def.find_input("clear_in").type.field("bits").type.width ~is 3
+  bool.mask_type(module_def.find_output("busy").type) ~is #true
+  bool.mask_width(module_def.find_output("busy").type) ~is 8
+  operations(module_def, "rtl.register_reset").map(
+    fun (operation): operation.attribute("name")
+  ) ~is ["state"]
+  operations(module_def, "verif.assert").map(
+    fun (operation): operation.attribute("label")
+  ) ~is [
+    "scoreboard_set_index_in_range",
+    "scoreboard_set_free",
+    "scoreboard_clear_index_in_range",
+    "scoreboard_clear_busy"
+  ]
+  operations(lookup_module, "rtl.vector_index").length() ~is 1
+  operations(nonpower_lookup_module, "rtl.mux_lookup").length() ~is 1
+  operations(single_lookup_module, "rtl.mux_lookup").length() ~is 1
+  verify_design(design) ~is #void
+  verify_design(nonpower_design) ~is #void
+  verify_design(single_design) ~is #void
+  verify_design(fixture.lookup_design) ~is #void
+  verify_design(fixture.nonpower_lookup_design) ~is #void
+  verify_design(fixture.single_lookup_design) ~is #void
+  embedded.run_elaboration(fun (): scoreboard.Scoreboard(0)) ~throws "PosInt"
+  embedded.run_elaboration(fun (): fixture.BadScoreboardLookup()) ~throws "Bits(index_width(entries))"

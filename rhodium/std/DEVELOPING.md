@@ -35,8 +35,8 @@ Use these placement rules when adding code:
 
 Tests and examples are outside the package. Put executable authoring examples
 under [`../../examples/std/`](../../examples/std/) and compiler-facing host
-tests under [`../../tests/frontend/`](../../tests/frontend/). CIRCT fixtures
-and Verilator benches belong under [`../../tests/backend/`](../../tests/backend/).
+tests under [`tests/`](tests/). CIRCT fixtures and Verilator benches belong
+under [`tests/circt/`](tests/circt/).
 
 ## Architecture and ownership
 
@@ -128,9 +128,9 @@ The standard library is covered at three levels:
 
 | Coverage | Location | What it should prove |
 |---|---|---|
-| Compiler-facing host | [`tests/frontend/std-*-test.rhm`](../../tests/frontend/) plus decode and pattern tests | Static information, exact public types, pure host policy, protocol compatibility, and invalid uses |
+| Compiler-facing host | [`tests/`](tests/) | Static information, exact public types, pure host policy, protocol compatibility, and invalid uses |
 | Executable examples | [`examples/std/`](../../examples/std/) | Public import paths and realistic authoring composition |
-| CIRCT and Verilator | Emitters and benches under [`tests/backend/`](../../tests/backend/) | Lowering and cycle-visible behavior for stateful or backend-sensitive components |
+| CIRCT and Verilator | Emitters and benches under [`tests/circt/`](tests/circt/) | Lowering and cycle-visible behavior for stateful or backend-sensitive components |
 
 Prefer a focused test and its fixture. Representative ownership is:
 
@@ -181,8 +181,8 @@ Run Racket and Rhombus through the repository wrapper, which creates the
 required isolated compiled root. For example:
 
 ```sh
-tools/run-racket-tests.sh tests/frontend/std-ready-valid-test.rhm
-tools/run-racket-tests.sh tests/frontend/decode-test.rhm
+tools/run-racket-tests.sh rhodium/std/tests/std-ready-valid-test.rhm
+tools/run-racket-tests.sh rhodium/std/tests/decode-test.rhm
 ```
 
 Validate all standard-library examples after changing a public import or
@@ -195,7 +195,7 @@ make examples-std
 Run `make check-boundaries` after adding or moving a module or changing direct
 imports. Use `make frontend-test` when a change spans several standard-library
 families or shared interface semantics. For backend-sensitive changes, select
-the corresponding fixture through [`tests/backend/run-circt.sh`](../../tests/backend/run-circt.sh);
+the corresponding fixture through [`tools/testing/circt/run.sh`](../../tools/testing/circt/run.sh);
 the CI grouping for the complete standard-library backend set is:
 
 ```sh

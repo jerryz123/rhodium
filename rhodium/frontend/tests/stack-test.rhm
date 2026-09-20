@@ -1,0 +1,36 @@
+#lang rhombus
+// Checks the stack example's memory, pointer, conditions, and registered output.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../examples/rtl/stack.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def memory = module_def.memories[0]
+
+fun operations(opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+def write = operations("rtl.memory_write")[0]
+def write_enable_mux = module_def.find_operation(write.operands[3].defining_op_id)
+
+check:
+  module_def.name ~is "Stack"
+  module_def.inputs.map(fun (port): port.name) ~is ["clock", "reset", "push", "pop", "en", "data_in"]
+  module_def.outputs.map(fun (port): port.name) ~is ["data_out"]
+  memory.name ~is "stack_mem"
+  memory.depth ~is 4
+  type_equal(memory.element_type, Bits(32)) ~is #true
+  operations("rtl.memory_read_async").length() ~is 1
+  operations("rtl.memory_write").length() ~is 1
+  write_enable_mux.opcode ~is "rtl.mux_lookup"
+  type_equal(write.operands[3].type, Bits(1)) ~is #true
+  operations("rtl.register_reset").length() ~is 2
+  operations("rtl.ult").length() ~is 2
+  operations("rtl.add").length() ~is 1
+  operations("rtl.sub").length() ~is 2
+  operations("rtl.extract").length() ~is 2
+  verify_design(fixture.design) ~is #void

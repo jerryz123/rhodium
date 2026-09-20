@@ -1,0 +1,42 @@
+#lang rhodium
+// Defines monitor edge cases that remain test-only beside the canonical example.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../examples/rtl/interface-monitor.rhdl" open
+
+interface RefinedMonitoredWordStream() refines MonitoredWordStream(8)
+
+sync_circuit MonitoredConsumer():
+  interface stream(MonitoredWordStream(8), ~role: consumer)
+
+  stream.ready <== Bool(#false)
+  monitor_word_stream(stream.observe(), "consumer")
+
+sync_circuit UnmonitoredProducer():
+  interface stream(MonitoredWordStream(8), ~role: producer)
+
+  stream.valid <== Bool(#false)
+  stream.bits <== bits(0, 8)
+
+sync_circuit MonitoredProducerArray():
+  interface streams[2](MonitoredWordStream(8), ~role: producer)
+
+  for (index in 0..2):
+    streams[index].valid <== Bool(#false)
+    streams[index].bits <== bits(0, 8)
+    monitor_word_stream(streams[index].observe(), "producer")
+
+sync_circuit RefinedMonitoredProducer():
+  interface stream(RefinedMonitoredWordStream(), ~role: producer)
+
+  stream.valid <== Bool(#false)
+  stream.bits <== bits(0, 8)
+  monitor_word_stream(stream.observe(), "producer")
+
+export:
+  RefinedMonitoredWordStream
+  MonitoredConsumer
+  UnmonitoredProducer
+  MonitoredProducerArray
+  RefinedMonitoredProducer

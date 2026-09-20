@@ -1,0 +1,75 @@
+#lang rhombus
+// Checks ambient, explicit, and priority-guarded assertions in the public IR.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "assertion-composed.rhdl" as composed
+  "assertion-fixture.rhdl" as fixture
+
+def ambient = fixture.design.modules[0]
+def assertions = ambient.operations.filter(
+  ~keep: fun (operation): operation.opcode == "verif.assert"
+)
+def always_assert = assertions.find(
+  fun (operation): operation.attribute("label", #false) == "always_holds"
+)
+def request_assert = assertions.find(
+  fun (operation): operation.attribute("label", #false) == "request_holds"
+)
+def always_guard = ambient.find_operation(always_assert.operands[3].defining_op_id)
+def request_guard = ambient.find_operation(request_assert.operands[3].defining_op_id)
+def priority_design = embedded.run_elaboration(
+  fun (): fixture.PriorityAssertions()
+)
+def priority = priority_design.modules[0]
+def priority_assertions = priority.operations.filter(
+  ~keep: fun (operation): operation.opcode == "verif.assert"
+)
+fun assertion_with_label(assertions, label):
+  assertions.find(
+    fun (operation): operation.attribute("label", #false) == label
+  )
+def first_guard = priority.find_operation(
+  assertion_with_label(priority_assertions, "first_holds").operands[3].defining_op_id
+)
+def second_guard = priority.find_operation(
+  assertion_with_label(priority_assertions, "second_holds").operands[3].defining_op_id
+)
+def fallback_guard = priority.find_operation(
+  assertion_with_label(priority_assertions, "fallback_holds").operands[3].defining_op_id
+)
+def explicit_design = embedded.run_elaboration(
+  fun (): fixture.ExplicitAssertion()
+)
+def explicit = explicit_design.modules[0]
+def explicit_assert = explicit.operations.find(
+  fun (operation): operation.opcode == "verif.assert"
+)
+
+check:
+  assertions.length() ~is 2
+  always_assert.operands[0] === ambient.find_input("condition").value ~is #true
+  always_assert.operands[1] === ambient.find_input("clock").value ~is #true
+  always_assert.operands[2] === ambient.find_input("reset").value ~is #true
+  always_guard.opcode ~is "rtl.constant"
+  always_guard.attribute("value") ~is 1
+  request_assert.operands[0] === ambient.find_input("request_condition").value ~is #true
+  request_guard.opcode ~is "rtl.cast"
+  request_guard.operands[0] === ambient.find_input("request").value ~is #true
+  priority_assertions.length() ~is 3
+  first_guard.opcode ~is "rtl.cast"
+  second_guard.opcode ~is "rtl.and"
+  fallback_guard.opcode ~is "rtl.and"
+  explicit_assert.operands[0] === explicit.find_input("condition").value ~is #true
+  explicit_assert.operands[1] === explicit.find_input("clock").value ~is #true
+  explicit_assert.operands[2] === explicit.find_input("reset").value ~is #true
+  explicit_assert.attribute("label", #false) ~is #false
+  verify_design(fixture.design) ~is #void
+  verify_design(priority_design) ~is #void
+  verify_design(explicit_design) ~is #void
+  composed.design.modules[0].operations.find(
+    fun (operation): operation.opcode == "verif.assert"
+  ).attribute("label") ~is "composed_holds"
+  verify_design(composed.design) ~is #void

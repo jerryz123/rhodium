@@ -1,0 +1,73 @@
+#lang rhombus
+// Checks explicit packed top-input assumptions, vacuity, validation, and counterexample preservation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/formal/main.rhm" open
+
+fun arithmetic_module(name, opcode):
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module(name)
+  def a = builder.input(module_def, "a", Bits(4))
+  def b = builder.input(module_def, "b", Bits(4))
+  def result = builder.output(module_def, "result", Bits(4))
+  builder.drive(result,
+                if opcode == "add"
+                | builder.add(module_def, a, b)
+                | builder.sub(module_def, a, b))
+  builder.finish(module_def)
+
+def add = arithmetic_module("AssumedAdd", "add")
+def subtract = arithmetic_module("AssumedSubtract", "sub")
+def unconstrained_result = check_equivalent(add, subtract)
+def zero_b = FormalInputAssumption("b", 0)
+def zero_low_bits_b = FormalInputAssumption("b", 0, 0b0111)
+def one_b = FormalInputAssumption("b", 1)
+def odd_b = FormalInputAssumption("b", 1, 0b0001)
+def zero_result = check_equivalent(add, subtract, FormalQuery([zero_b]))
+def partial_result = check_equivalent(add, subtract, FormalQuery([zero_low_bits_b]))
+def one_result = check_equivalent(add, subtract, FormalQuery([one_b]))
+def partial_counterexample = check_equivalent(add, subtract, FormalQuery([odd_b]))
+def vacuous_result:
+  check_equivalent(add,
+                   subtract,
+                   FormalQuery([FormalInputAssumption("b", 0),
+                                FormalInputAssumption("b", 1)]))
+def assumed_b:
+  one_result.assignments.find(fun (assignment): assignment.port == "b")
+def partially_assumed_b:
+  partial_counterexample.assignments.find(fun (assignment): assignment.port == "b")
+
+check:
+  unconstrained_result.counterexample() ~is #true
+  zero_result.equivalent() ~is #true
+  zero_result.assumptions.length() ~is 1
+  partial_result.equivalent() ~is #true
+  one_result.counterexample() ~is #true
+  one_result.assumptions.length() ~is 1
+  one_result.assumptions[0].port ~is "b"
+  assumed_b.packed_value ~is 1
+  partial_counterexample.counterexample() ~is #true
+  (partially_assumed_b.packed_value bits.and 1) ~is 1
+  vacuous_result.vacuous() ~is #true
+  vacuous_result.describe().contains("unsatisfiable") ~is #true
+  vacuous_result.assignments.length() ~is 0
+  vacuous_result.differences.length() ~is 0
+  check_equivalent(add, subtract, "not-a-query") ~throws "must be a FormalQuery"
+  check_equivalent(add,
+                   subtract,
+                   FormalQuery(["not-an-assumption"])) ~throws "must be a FormalInputAssumption"
+  check_equivalent(add,
+                   subtract,
+                   FormalQuery([FormalInputAssumption("missing", 0)])) ~throws "unknown input"
+  check_equivalent(add,
+                   subtract,
+                   FormalQuery([FormalInputAssumption("b", 16)])) ~throws "invalid packed pattern"
+  check_equivalent(add,
+                   subtract,
+                   FormalQuery([FormalInputAssumption("b", 8, 0b0111)])) ~throws "invalid packed pattern"
+  check_equivalent(add,
+                   subtract,
+                   FormalQuery([FormalInputAssumption("b", 0, #true)])) ~throws "invalid care mask"

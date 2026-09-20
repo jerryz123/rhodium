@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits CIRCT MLIR for the serialized mixed-requester CHI HN-F fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../chi/tests/coherent-home-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.coherent_home_design))

@@ -1,0 +1,14 @@
+#lang rhombus
+// Emits CIRCT MLIR for the reusable RV64 word/doubleword atomic ALU fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../../../riscv/rtl/atomic.rhdl" as atomic
+
+def design = embedded.run_elaboration(
+  fun (): atomic.RiscvAtomicALU(XLen.X64)
+)
+print(emit_circt(design))

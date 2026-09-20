@@ -36,7 +36,7 @@ importing the instruction-cache package.
 | Clean and dirty snoop transaction lifetime | [`../chi/snoop.rhdl`](../chi/snoop.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
 | Host configuration and protocol metadata | [`../tests/dcache-test.rhm`](../tests/dcache-test.rhm), [`../tests/transaction-engines-test.rhm`](../tests/transaction-engines-test.rhm) |
-| CIRCT/Verilator fixtures | [`../../../tests/backend/`](../../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
+| CIRCT/Verilator fixtures | [`../tests/circt/`](../tests/circt/) |
 
 ## Change the cache
 
@@ -170,13 +170,13 @@ Test cache, transaction, and atomic behavior through compiled fixtures:
 
 ```sh
 FIXTURES='rv5stage-store-buffer rv5stage-load-hit riscv-atomic rv5stage-dcache rv5stage-dcache-rv32 rv5stage-lrsc-progress rv5stage-memory-router rv5stage-io-mshr' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 Use the parent [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) for
 complete-core integration. Backend fixture names include `rv5stage-dcache` and
 `rv5stage-dcache-rv32`; use the backend test
-[`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) for CIRCT and Verilator
+[`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) for CIRCT and Verilator
 modes. Repository wrappers provide a fresh compiled root.
 
 The RV64 cache bench covers cold and shared-hit LR ownership, a probe offered

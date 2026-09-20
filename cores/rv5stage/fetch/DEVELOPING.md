@@ -33,7 +33,7 @@ on execution-owned payloads.
 
 The core may consume fetch and predictor protocols and use the RAS classifier
 when resolving an instruction. Tests remain under [`../tests/`](../tests/), and
-backend emitters remain under [`../../../tests/backend/`](../../../tests/backend/).
+external-tool emitters remain under [`../tests/circt/`](../tests/circt/).
 Do not add root-level forwarding modules for old paths; update consumers as one
 move so the directory boundary remains visible.
 

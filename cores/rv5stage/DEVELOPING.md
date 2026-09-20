@@ -432,7 +432,7 @@ guarantee](README.md#lrsc-eventuality-ziccrse) is:
 
 ```sh
 FIXTURES='rv5stage-lrsc-core-progress rv5stage-lrsc-core-progress-predicted rv5stage-lrsc-core-progress-rv32' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 It executes sixteen-instruction constrained LR.W/SC.W and RV64 LR.D/SC.D loops through RV5Stage,
@@ -531,8 +531,8 @@ RV64 integer timing fixtures:
 
 ```sh
 export PLTCOMPILEDROOTS="$(mktemp -d)"
-tools/run-racket-tests.sh riscv/tests/zkt-test.rhm tests/backend/rv5stage-zkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
-FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64' bash tests/backend/run-circt.sh --simulate-only
+tools/run-racket-tests.sh riscv/tests/zkt-test.rhm cores/rv5stage/tests/rv5stage-zkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
+FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64' bash tools/testing/circt/run.sh --simulate-only
 bash socs/tests/run-device-tree.sh
 ```
 
@@ -560,8 +560,8 @@ vector timing checks:
 
 ```sh
 export PLTCOMPILEDROOTS="$(mktemp -d)"
-tools/run-racket-tests.sh riscv/tests/zvkt-test.rhm riscv/tests/gnu-toolchain-test.rhm tests/backend/rv5stage-zvkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
-FIXTURE=rv5stage-zvkt bash tests/backend/run-circt.sh --simulate-only
+tools/run-racket-tests.sh riscv/tests/zvkt-test.rhm riscv/tests/gnu-toolchain-test.rhm cores/rv5stage/tests/rv5stage-zvkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
+FIXTURE=rv5stage-zvkt bash tools/testing/circt/run.sh --simulate-only
 bash socs/tests/run-device-tree.sh
 ```
 
@@ -604,7 +604,7 @@ For WB-owned Zawrs waiting and the cache-owned reservation observation path:
 
 ```sh
 FIXTURES='rv5stage-zawrs rv5stage-wfi rv5stage-dcache rv5stage-memory-router rv5stage-mmu-replay' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 The WRS bench checks retirement deltas through CSRs, original trap PC/value,
@@ -620,9 +620,9 @@ For Zihpm CSR catalogs, profile claims, and access semantics, run:
 
 ```sh
 export PLTCOMPILEDROOTS="$(mktemp -d)"
-tools/run-racket-tests.sh riscv/tests/csr-test.rhm tests/frontend/riscv-csr-bank-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm
+tools/run-racket-tests.sh riscv/tests/csr-test.rhm riscv/rtl/tests/riscv-csr-bank-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm
 FIXTURES='rv5stage-zihpm-rv32 rv5stage-zihpm-rv64 rv5stage-csr' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 The two Zihpm benches share an XLEN-parameterized sweep of every HPM slot,
@@ -634,7 +634,7 @@ For data IO-MSHR admission, ordering, and shared RN-I contention, run:
 
 ```sh
 FIXTURES='rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 The router fixture covers RV32 permission rejection and cached/uncached
@@ -660,7 +660,7 @@ and self-snooped cache fixtures:
 export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh cores/rv5stage/tests/zicbom-test.rhm cores/rv5stage/tests/rv5stage-test.rhm cores/rv5stage/tests/udb-test.rhm
 FIXTURES='rv5stage-zicbom rv5stage-csr rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 Keep retirement context in the core, reusable xenvcfg policy in `riscv/rtl`,
@@ -675,7 +675,7 @@ For WB authorization and scalar/FP integration, run:
 
 ```sh
 FIXTURES='rv5stage-core rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-zicboz rv5stage-interrupt rv5stage-wfi' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 The RV32F/RV64D benches exercise rejected memory dispatch, committed prefetches,
@@ -689,7 +689,7 @@ both XLEN SRAM sequences as well as the one-completion uncached sequence:
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/zicboz-test.rhm
 FIXTURES='rv5stage-zicboz rv5stage-csr rv5stage-memory-router rv5stage-mmu-replay rv5stage-dcache rv5stage-dcache-rv32 rv5stage-uncached' \
-  bash tests/backend/run-circt.sh --simulate-only
+  bash tools/testing/circt/run.sh --simulate-only
 ```
 
 The scalar fixture covers request rejection/replay, fence drain ordering,
@@ -710,11 +710,11 @@ select the narrowest backend fixture. Exercise WB-stage fault classification
 or WFI control flow specifically with:
 
 ```sh
-FIXTURE=rv5stage-data-fault bash tests/backend/run-circt.sh
-FIXTURE=rv5stage-wfi bash tests/backend/run-circt.sh
+FIXTURE=rv5stage-data-fault bash tools/testing/circt/run.sh
+FIXTURE=rv5stage-wfi bash tools/testing/circt/run.sh
 ```
 
-The backend test [`DEVELOPING.md`](../../tests/backend/DEVELOPING.md) owns
+The backend test [`DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md) owns
 fixture modes, tool discovery, and artifacts. SoC integration belongs to
 [`../../socs/DEVELOPING.md`](../../socs/DEVELOPING.md), and executable target
 coverage belongs to [`../../sims/DEVELOPING.md`](../../sims/DEVELOPING.md).

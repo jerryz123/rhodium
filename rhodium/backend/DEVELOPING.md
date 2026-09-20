@@ -59,7 +59,7 @@ different shapes request one name. Whole-design collection must happen before
 module text when a declaration or alias has design-wide scope.
 
 Generated SystemVerilog references are owned by canonical examples and the
-[backend test maintenance guide](../../tests/backend/DEVELOPING.md#verilog-references).
+[backend test maintenance guide](../../tools/testing/circt/DEVELOPING.md#verilog-references).
 Never update a reference before explaining the backend change that produced
 the diff.
 
@@ -72,10 +72,10 @@ backend-specific policy without invoking external tools:
 make backend-test
 ```
 
-Use the [backend test guide](../../tests/backend/README.md) to select the
+Use the [backend test guide](../../tools/testing/circt/README.md) to select the
 smallest CIRCT or Verilator fixture when external behavior can change. Fixture,
 bench, DPI companion, and exact-reference changes follow
-[`tests/backend/DEVELOPING.md`](../../tests/backend/DEVELOPING.md).
+[`tools/testing/circt/DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md).
 
 Run `make check-boundaries` after import or file-ownership changes. Every direct
 Racket or Rhombus invocation must use a fresh `PLTCOMPILEDROOTS`; repository

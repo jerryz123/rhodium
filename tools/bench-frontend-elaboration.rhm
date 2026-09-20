@@ -5,7 +5,7 @@
 import:
   rhombus/cmdline open
   "../rhodium/frontend/kernel.rhm" as embedded
-  "../tests/frontend/collection-elaboration-benchmark.rhdl" as benchmark
+  "../rhodium/frontend/tests/collection-elaboration-benchmark.rhdl" as benchmark
   lib("racket/base.rkt") as rkt
 
 def arguments = current_command_line()

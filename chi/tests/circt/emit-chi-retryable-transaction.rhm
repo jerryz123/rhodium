@@ -1,0 +1,25 @@
+#lang rhombus
+// Emits CIRCT MLIR for the declarative retryable CHI transaction controller.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  lib("chi/main.rhdl") open
+
+def profile = response_profile("retryable_transaction_fixture"):
+  retryable
+  milestone dbid
+  milestone completion
+  response [CHIRspOpcode.DBIDResp, CHIRspOpcode.DBIDRespOrd]:
+    completes [dbid]
+  response [CHIRspOpcode.Comp]:
+    completes [completion]
+  response [CHIRspOpcode.CompDBIDResp]:
+    completes [dbid, completion]
+
+def design = embedded.run_elaboration(
+  fun (): CHIRetryableTransactionControl(CHIFlitParams(), profile)
+)
+
+print(emit_circt(design))

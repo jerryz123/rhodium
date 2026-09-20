@@ -1,0 +1,308 @@
+#lang rhombus
+// Defines shared core-only designs for Rosette-to-CIRCT differential validation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+export:
+  shift_reference
+  shift_candidate
+  shift_defect
+  aggregate_reference
+  aggregate_candidate
+  aggregate_defect
+  hierarchy_reference
+  hierarchy_candidate
+  hierarchy_defect
+  decode_reference
+  decode_candidate
+  decode_defect
+  onehot_reference
+  onehot_candidate
+  onehot_defect
+  differential_design
+
+fun onehot_selected(builder, module_def, selector, choices, implementation):
+  if implementation == "reference"
+  | builder.mux_lookup(module_def,
+                       selector,
+                       choices[0],
+                       [[1, choices[0]], [2, choices[1]], [4, choices[2]]])
+  | builder.onehot_mux(module_def,
+                       selector,
+                       if implementation == "defect"
+                       | [choices[1], choices[0], choices[2]]
+                       | choices)
+
+fun build_onehot_module(name, implementation):
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module(name)
+  def selector = builder.input(module_def, "selector", Bits(3))
+  def a = builder.input(module_def, "a", Bits(4))
+  def b = builder.input(module_def, "b", Bits(4))
+  def c = builder.input(module_def, "c", Bits(4))
+  def result = builder.output(module_def, "result", Bits(4))
+  builder.drive(result,
+                onehot_selected(builder, module_def, selector, [a, b, c], implementation))
+  builder.finish(module_def)
+
+fun decoded_value(builder, module_def, selector, implementation):
+  def one = builder.constant(module_def, Bits(3), 0b001)
+  def two = builder.constant(module_def, Bits(3), 0b010)
+  def default_value = builder.constant(module_def, Bits(3), 0b111)
+  if implementation == "reference"
+  | builder.mux_lookup(module_def,
+                       selector,
+                       default_value,
+                       [[0b000, one], [0b100, one],
+                        [0b001, two], [0b101, two]])
+  | builder.decode(module_def,
+                   selector,
+                   Bits(3),
+                   Bits(3),
+                   [[0b000, 0b011,
+                     if implementation == "defect" | 0b011 | 0b001,
+                     0b111],
+                    [0b001, 0b011, 0b010, 0b111]],
+                   0b111,
+                   0b111)
+
+fun build_decode_module(name, implementation):
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module(name)
+  def selector = builder.input(module_def, "selector", Bits(3))
+  def result = builder.output(module_def, "result", Bits(3))
+  builder.drive(result, decoded_value(builder, module_def, selector, implementation))
+  builder.finish(module_def)
+
+fun shifted_by_constants(builder, module_def, value, amount):
+  def zero = builder.constant(module_def, Bits(3), 0)
+  def amount0 = builder.constant(module_def, Bits(4), 0)
+  def amount1 = builder.constant(module_def, Bits(4), 1)
+  def amount2 = builder.constant(module_def, Bits(4), 2)
+  def left:
+    builder.mux_lookup(
+      module_def,
+      amount,
+      zero,
+      [[0, builder.shl(module_def, value, amount0)],
+       [1, builder.shl(module_def, value, amount1)],
+       [2, builder.shl(module_def, value, amount2)]]
+    )
+  def right:
+    builder.mux_lookup(
+      module_def,
+      amount,
+      zero,
+      [[0, builder.shru(module_def, value, amount0)],
+       [1, builder.shru(module_def, value, amount1)],
+       [2, builder.shru(module_def, value, amount2)]]
+    )
+  [left, right]
+
+fun build_shift_module(name, implementation):
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module(name)
+  def value = builder.input(module_def, "value", Bits(3))
+  def amount = builder.input(module_def, "amount", Bits(4))
+  def left = builder.output(module_def, "left", Bits(3))
+  def right = builder.output(module_def, "right", Bits(3))
+  match implementation
+  | "reference":
+      builder.drive(left, builder.shl(module_def, value, amount))
+      builder.drive(right, builder.shru(module_def, value, amount))
+  | "candidate":
+      def shifted = shifted_by_constants(builder, module_def, value, amount)
+      builder.drive(left, shifted[0])
+      builder.drive(right, shifted[1])
+  | "defect":
+      builder.drive(left, builder.shru(module_def, value, amount))
+      builder.drive(right, builder.shru(module_def, value, amount))
+  builder.finish(module_def)
+
+fun aggregate_values(builder, module_def, high, low, element0, element1, element2,
+                     swap_record):
+  def record_type = RecordType([RecordField("high", Bits(2)),
+                                RecordField("low", Bits(2))])
+  def vector_type = VectorType(3, Bits(2))
+  def record_value:
+    builder.record_create(
+      module_def,
+      record_type,
+      if swap_record
+      | [["high", low], ["low", high]]
+      | [["high", high], ["low", low]]
+    )
+  def vector_value:
+    builder.vector_create(module_def, vector_type, [element0, element1, element2])
+  [builder.cast(module_def, record_value, Bits(4)),
+   builder.record_get(module_def, record_value, "high"),
+   builder.cast(module_def, vector_value, Bits(6)),
+   builder.vector_get(module_def, vector_value, 1)]
+
+fun build_aggregate_module(name, implementation):
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module(name)
+  def high = builder.input(module_def, "high", Bits(2))
+  def low = builder.input(module_def, "low", Bits(2))
+  def element0 = builder.input(module_def, "element0", Bits(2))
+  def element1 = builder.input(module_def, "element1", Bits(2))
+  def element2 = builder.input(module_def, "element2", Bits(2))
+  def record_bits = builder.output(module_def, "record_bits", Bits(4))
+  def record_high = builder.output(module_def, "record_high", Bits(2))
+  def vector_bits = builder.output(module_def, "vector_bits", Bits(6))
+  def vector_one = builder.output(module_def, "vector_one", Bits(2))
+  if implementation == "reference"
+  | block:
+      builder.drive(record_bits, builder.concat(module_def, [high, low]))
+      builder.drive(record_high, high)
+      builder.drive(vector_bits,
+                    builder.concat(module_def, [element2, element1, element0]))
+      builder.drive(vector_one, element1)
+  | block:
+      def aggregate_outputs:
+        aggregate_values(builder, module_def, high, low,
+                         element0, element1, element2,
+                         implementation == "defect")
+      builder.drive(record_bits, aggregate_outputs[0])
+      builder.drive(record_high, aggregate_outputs[1])
+      builder.drive(vector_bits, aggregate_outputs[2])
+      builder.drive(vector_one, aggregate_outputs[3])
+  builder.finish(module_def)
+
+fun add_pair_child(builder, design, name):
+  def child = builder.module(name)
+  def left = builder.input(child, "left", Bits(4))
+  def right = builder.input(child, "right", Bits(4))
+  def sum = builder.output(child, "sum", Bits(4))
+  def difference = builder.output(child, "difference", Bits(4))
+  builder.drive(sum, builder.add(child, left, right))
+  builder.drive(difference, builder.sub(child, left, right))
+  builder.finish(child)
+
+fun build_hierarchy_module(name, implementation):
+  def design = Design()
+  def builder = Builder(design)
+  def child:
+    if implementation == "reference"
+    | #false
+    | add_pair_child(builder, design, name ++ "Child")
+  def module_def = builder.module(name)
+  def left = builder.input(module_def, "left", Bits(4))
+  def right = builder.input(module_def, "right", Bits(4))
+  def sum = builder.output(module_def, "sum", Bits(4))
+  def difference = builder.output(module_def, "difference", Bits(4))
+  if implementation == "reference"
+  | block:
+      builder.drive(sum, builder.add(module_def, left, right))
+      builder.drive(difference, builder.sub(module_def, left, right))
+  | block:
+      def instance = builder.instance(module_def, child, "pair")
+      builder.drive(instance.input("left"), if implementation == "defect" | right | left)
+      builder.drive(instance.input("right"), if implementation == "defect" | left | right)
+      builder.drive(sum, instance.output("sum"))
+      builder.drive(difference, instance.output("difference"))
+  builder.finish(module_def)
+
+fun build_differential_design():
+  def design = Design()
+  def builder = Builder(design)
+  def child = add_pair_child(builder, design, "FormalDifferentialPairOps")
+  def top = builder.module("FormalDifferentialDut")
+
+  def shift_value = builder.input(top, "shift_value", Bits(3))
+  def shift_amount = builder.input(top, "shift_amount", Bits(4))
+  def high = builder.input(top, "high", Bits(2))
+  def low = builder.input(top, "low", Bits(2))
+  def element0 = builder.input(top, "element0", Bits(2))
+  def element1 = builder.input(top, "element1", Bits(2))
+  def element2 = builder.input(top, "element2", Bits(2))
+  def pair_left = builder.input(top, "pair_left", Bits(4))
+  def pair_right = builder.input(top, "pair_right", Bits(4))
+  def decode_selector = builder.input(top, "decode_selector", Bits(3))
+  def onehot_selector = builder.input(top, "onehot_selector", Bits(3))
+  def onehot_a = builder.input(top, "onehot_a", Bits(4))
+  def onehot_b = builder.input(top, "onehot_b", Bits(4))
+  def onehot_c = builder.input(top, "onehot_c", Bits(4))
+
+  def shift_left = builder.output(top, "shift_left", Bits(3))
+  def shift_right = builder.output(top, "shift_right", Bits(3))
+  def shift_defect = builder.output(top, "shift_defect", Bits(3))
+  def record_bits = builder.output(top, "record_bits", Bits(4))
+  def record_high = builder.output(top, "record_high", Bits(2))
+  def vector_bits = builder.output(top, "vector_bits", Bits(6))
+  def vector_one = builder.output(top, "vector_one", Bits(2))
+  def record_defect = builder.output(top, "record_defect", Bits(4))
+  def pair_sum = builder.output(top, "pair_sum", Bits(4))
+  def pair_difference = builder.output(top, "pair_difference", Bits(4))
+  def pair_defect = builder.output(top, "pair_defect", Bits(4))
+  def decode_reference_result = builder.output(top, "decode_reference", Bits(3))
+  def decode_candidate_result = builder.output(top, "decode_candidate", Bits(3))
+  def decode_defect_result = builder.output(top, "decode_defect", Bits(3))
+  def onehot_reference_result = builder.output(top, "onehot_reference", Bits(4))
+  def onehot_candidate_result = builder.output(top, "onehot_candidate", Bits(4))
+  def onehot_defect_result = builder.output(top, "onehot_defect", Bits(4))
+
+  def shifted = shifted_by_constants(builder, top, shift_value, shift_amount)
+  builder.drive(shift_left, shifted[0])
+  builder.drive(shift_right, shifted[1])
+  builder.drive(shift_defect, builder.shru(top, shift_value, shift_amount))
+
+  def aggregates:
+    aggregate_values(builder, top, high, low, element0, element1, element2, #false)
+  def defective_aggregates:
+    aggregate_values(builder, top, high, low, element0, element1, element2, #true)
+  builder.drive(record_bits, aggregates[0])
+  builder.drive(record_high, aggregates[1])
+  builder.drive(vector_bits, aggregates[2])
+  builder.drive(vector_one, aggregates[3])
+  builder.drive(record_defect, defective_aggregates[0])
+
+  def correct_pair = builder.instance(top, child, "correct_pair")
+  def defective_pair = builder.instance(top, child, "defective_pair")
+  builder.drive(correct_pair.input("left"), pair_left)
+  builder.drive(correct_pair.input("right"), pair_right)
+  builder.drive(defective_pair.input("left"), pair_right)
+  builder.drive(defective_pair.input("right"), pair_left)
+  builder.drive(pair_sum, correct_pair.output("sum"))
+  builder.drive(pair_difference, correct_pair.output("difference"))
+  builder.drive(pair_defect, defective_pair.output("difference"))
+  builder.drive(decode_reference_result,
+                decoded_value(builder, top, decode_selector, "reference"))
+  builder.drive(decode_candidate_result,
+                decoded_value(builder, top, decode_selector, "candidate"))
+  builder.drive(decode_defect_result,
+                decoded_value(builder, top, decode_selector, "defect"))
+  builder.drive(onehot_reference_result,
+                onehot_selected(builder, top, onehot_selector,
+                                [onehot_a, onehot_b, onehot_c], "reference"))
+  builder.drive(onehot_candidate_result,
+                onehot_selected(builder, top, onehot_selector,
+                                [onehot_a, onehot_b, onehot_c], "candidate"))
+  builder.drive(onehot_defect_result,
+                onehot_selected(builder, top, onehot_selector,
+                                [onehot_a, onehot_b, onehot_c], "defect"))
+  builder.finish(top)
+  design
+
+def shift_reference = build_shift_module("FormalShiftReference", "reference")
+def shift_candidate = build_shift_module("FormalShiftCandidate", "candidate")
+def shift_defect = build_shift_module("FormalShiftDefect", "defect")
+def aggregate_reference = build_aggregate_module("FormalAggregateReference", "reference")
+def aggregate_candidate = build_aggregate_module("FormalAggregateCandidate", "candidate")
+def aggregate_defect = build_aggregate_module("FormalAggregateDefect", "defect")
+def hierarchy_reference = build_hierarchy_module("FormalHierarchyReference", "reference")
+def hierarchy_candidate = build_hierarchy_module("FormalHierarchyCandidate", "candidate")
+def hierarchy_defect = build_hierarchy_module("FormalHierarchyDefect", "defect")
+def decode_reference = build_decode_module("FormalDecodeReference", "reference")
+def decode_candidate = build_decode_module("FormalDecodeCandidate", "candidate")
+def decode_defect = build_decode_module("FormalDecodeDefect", "defect")
+def onehot_reference = build_onehot_module("FormalOneHotReference", "reference")
+def onehot_candidate = build_onehot_module("FormalOneHotCandidate", "candidate")
+def onehot_defect = build_onehot_module("FormalOneHotDefect", "defect")
+def differential_design = build_differential_design()

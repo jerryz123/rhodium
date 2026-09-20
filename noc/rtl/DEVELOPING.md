@@ -30,7 +30,8 @@ wiring. NoC RTL owns only reusable realization of the supplied plan.
 | Single-beat and uniform-family routers, physical-slot binding, and unused-local closure | [`router.rhdl`](router.rhdl) |
 | Wormhole reservation and switching | [`wormhole-router.rhdl`](wormhole-router.rhdl) |
 | Backend fixture designs | [`tests/`](tests/) |
-| CIRCT runner and Verilator benches | [`../../tests/backend/`](../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
+| CIRCT emitters and Verilator benches | [`tests/circt/`](tests/circt/) |
+| Shared CIRCT runner | [`../../tools/testing/circt/`](../../tools/testing/circt/DEVELOPING.md) |
 
 ## Change a hardware realization
 
@@ -61,12 +62,12 @@ The backend protocol group owns route-computer, router, assembled-network,
 wormhole, escape-router, and router-family CIRCT/Verilator fixtures:
 
 ```sh
-bash tests/backend/run-circt.sh --group protocols
+bash tools/testing/circt/run.sh --group protocols
 ```
 
 That group also includes CHI and device fixtures and is broader than this
 directory. Use the backend test
-[`DEVELOPING.md`](../../tests/backend/DEVELOPING.md) to select verification,
+[`DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md) to select verification,
 simulation, or golden-reference modes. Repository test wrappers provide a
 fresh `PLTCOMPILEDROOTS`; direct Racket or Rhombus runs must do the same.
 

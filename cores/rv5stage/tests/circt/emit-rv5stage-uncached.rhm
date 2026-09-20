@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits CIRCT MLIR for RV5Stage's shared instruction/data uncached RN-I engine.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../cores/rv5stage/chi/uncached.rhdl".RV5StageUncached
+  "../../../../cores/rv5stage/tests/params.rhdl".test_rv5stage_uncached_config
+  "../../../../riscv/isa/xlen.rhm".XLen
+
+def design = embedded.run_elaboration(
+  fun (): RV5StageUncached(XLen.X64, test_rv5stage_uncached_config)
+)
+print(emit_circt(design))

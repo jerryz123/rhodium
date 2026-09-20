@@ -1,0 +1,295 @@
+#lang rhombus
+// Checks leaf-sensitive temporal provenance, sink reports, and hierarchy substitution.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/analysis/clocking.rhm" open
+
+fun local_sink(summary, name):
+  summary.sinks.find(
+    fun (sink): sink.instance_path.length() == 0 && sink.operation.attribute("name", #false) == name
+  )
+
+fun nested_sink(summary, instance_name, name):
+  summary.sinks.find(
+    fun (sink):
+      sink.instance_path.length() == 1 && sink.instance_path[0].attribute("name") == instance_name && sink.operation.attribute("name", #false) == name
+  )
+
+fun named_input(sink, name, path = []):
+  sink.inputs.find(
+    fun (input): input.name == name && input.path == path
+  )
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def unfinished = builder.module("UnfinishedTemporalModule")
+  check:
+    summarize_module_temporal(unfinished) ~throws "module must be finished"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("DirectTemporalSources")
+  def clock_a = builder.input(module_def, "clock_a", Clock)
+  def clock_b = builder.input(module_def, "clock_b", Clock)
+  def external = builder.input(module_def, "external", Bits(8))
+  def zero = builder.constant(module_def, Bits(8), 0, "zero")
+  def source = builder.register(module_def, "source", Bits(8), clock_a)
+  def other = builder.register(module_def, "other", Bits(8), clock_b)
+  def same_sink = builder.register(module_def, "same_sink", Bits(8), clock_a)
+  def foreign_sink = builder.register(module_def, "foreign_sink", Bits(8), clock_b)
+  def unknown_sink = builder.register(module_def, "unknown_sink", Bits(8), clock_a)
+  def multi_sink = builder.register(module_def, "multi_sink", Bits(8), clock_a)
+  def static_sink = builder.register(module_def, "static_sink", Bits(8), clock_a)
+  builder.drive(source.next, source.current)
+  builder.drive(other.next, other.current)
+  builder.drive(same_sink.next, builder.add(module_def, source.current, zero))
+  builder.drive(foreign_sink.next, source.current)
+  builder.drive(unknown_sink.next, external)
+  builder.drive(multi_sink.next, builder.add(module_def, source.current, other.current))
+  builder.drive(static_sink.next, zero)
+  builder.finish(module_def)
+  verify_design(design)
+  def summary = summarize_module_temporal(module_def)
+  def same_input = named_input(local_sink(summary, "same_sink"), "next")
+  def foreign_input = named_input(local_sink(summary, "foreign_sink"), "next")
+  def unknown_input = named_input(local_sink(summary, "unknown_sink"), "next")
+  def multi_input = named_input(local_sink(summary, "multi_sink"), "next")
+  def static_input = named_input(local_sink(summary, "static_sink"), "next")
+  check:
+    same_input.classification is_a SameClock ~is #true
+    same_input.origins.length() ~is 1
+    same_input.origins[0] is_a StateProvenance ~is #true
+    foreign_input.classification is_a ForeignClock ~is #true
+    unknown_input.classification is_a UnknownInput ~is #true
+    unknown_input.origins[0] is_a ExternalProvenance ~is #true
+    multi_input.classification is_a MultiClockFanIn ~is #true
+    multi_input.classification.clocks.length() ~is 2
+    static_input.classification is_a StaticInput ~is #true
+    static_input.origins[0] is_a StaticProvenance ~is #true
+    dump_temporal_report(summary).contains("next: foreign_clock") ~is #true
+    dump_temporal_report(summary).contains("next: multi_clock_fan_in") ~is #true
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("AggregateTemporalSources")
+  def clock = builder.input(module_def, "clock", Clock)
+  def external = builder.input(module_def, "external", Bits(8))
+  def state = builder.register(module_def, "state", Bits(8), clock)
+  builder.drive(state.next, state.current)
+  def pair_type = RecordType([RecordField("state", Bits(8)),
+                              RecordField("external", Bits(8))])
+  def pair = builder.record_create(module_def,
+                                   pair_type,
+                                   [["state", state.current],
+                                    ["external", external]],
+                                   "pair")
+  def vector_type = VectorType(2, Bits(8))
+  def vector = builder.vector_create(module_def,
+                                     vector_type,
+                                     [state.current, external],
+                                     "vector")
+  def packed = builder.cast(module_def, pair, Bits(16), "packed")
+  def pair_output = builder.output(module_def, "pair_output", pair_type)
+  def vector_output = builder.output(module_def, "vector_output", vector_type)
+  def packed_output = builder.output(module_def, "packed_output", Bits(16))
+  builder.drive(pair_output, pair)
+  builder.drive(vector_output, vector)
+  builder.drive(packed_output, packed)
+  builder.finish(module_def)
+  verify_design(design)
+  def summary = summarize_module_temporal(module_def)
+  def pair_index = 0
+  def vector_index = 1
+  def packed_index = 2
+  def pair_state = summary.output_leaves.find(
+    fun (leaf): leaf.output_index == pair_index && leaf.path == ["state"]
+  )
+  def pair_external = summary.output_leaves.find(
+    fun (leaf): leaf.output_index == pair_index && leaf.path == ["external"]
+  )
+  def vector_state = summary.output_leaves.find(
+    fun (leaf): leaf.output_index == vector_index && leaf.path == [0]
+  )
+  def vector_external = summary.output_leaves.find(
+    fun (leaf): leaf.output_index == vector_index && leaf.path == [1]
+  )
+  def packed_leaf = summary.output_leaves.find(
+    fun (leaf): leaf.output_index == packed_index && leaf.path == []
+  )
+  check:
+    pair_state.origins[0] is_a StateProvenance ~is #true
+    pair_external.origins[0] is_a ExternalProvenance ~is #true
+    vector_state.origins[0] is_a StateProvenance ~is #true
+    vector_external.origins[0] is_a ExternalProvenance ~is #true
+    packed_leaf.origins.length() ~is 2
+    packed_leaf.origins.find(fun (origin): origin is_a StateProvenance) != #false ~is #true
+    packed_leaf.origins.find(fun (origin): origin is_a ExternalProvenance) != #false ~is #true
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("AsyncMemoryTemporalSources")
+  def clock_a = builder.input(module_def, "clock_a", Clock)
+  def clock_b = builder.input(module_def, "clock_b", Clock)
+  def address = builder.constant(module_def, Bits(2), 0, "address")
+  def data = builder.input(module_def, "data", Bits(8))
+  def enable = builder.input(module_def, "enable", Bits(1))
+  def written = builder.memory(module_def, "written", 4, Bits(8))
+  def unwritten = builder.memory(module_def, "unwritten", 4, Bits(8))
+  builder.memory_write(module_def, written, address, data, clock_b, enable)
+  def foreign_read = builder.memory_read_async(module_def, written, address)
+  def unknown_read = builder.memory_read_async(module_def, unwritten, address)
+  def foreign_sink = builder.register(module_def,
+                                      "foreign_memory_sink",
+                                      Bits(8),
+                                      clock_a)
+  def unknown_sink = builder.register(module_def,
+                                      "unknown_memory_sink",
+                                      Bits(8),
+                                      clock_a)
+  builder.drive(foreign_sink.next, foreign_read)
+  builder.drive(unknown_sink.next, unknown_read)
+  builder.finish(module_def)
+  verify_design(design)
+  def summary = summarize_module_temporal(module_def)
+  def foreign_input = named_input(local_sink(summary,
+                                             "foreign_memory_sink"),
+                                  "next")
+  def unknown_input = named_input(local_sink(summary,
+                                             "unknown_memory_sink"),
+                                  "next")
+  check:
+    foreign_input.classification is_a ForeignClock ~is #true
+    foreign_input.origins[0].operation.opcode ~is "rtl.memory_read_async"
+    unknown_input.classification is_a UnknownClock ~is #true
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("TemporalChild")
+  def child_clock = builder.input(child, "clock", Clock)
+  def child_data = builder.input(child, "data", Bits(8))
+  def child_output = builder.output(child, "out", Bits(8))
+  def child_state = builder.register(child, "child_state", Bits(8), child_clock)
+  builder.drive(child_state.next, child_data)
+  builder.drive(child_output, child_state.current)
+  builder.finish(child)
+
+  def parent = builder.module("TemporalParent")
+  def clock_a = builder.input(parent, "clock_a", Clock)
+  def clock_b = builder.input(parent, "clock_b", Clock)
+  def external = builder.input(parent, "external", Bits(8))
+  def output = builder.output(parent, "out", Bits(8))
+  def first = builder.instance(parent, child, "first")
+  builder.drive(first.input("clock"), clock_a)
+  builder.drive(first.input("data"), external)
+  def second = builder.instance(parent, child, "second")
+  builder.drive(second.input("clock"), clock_b)
+  builder.drive(second.input("data"), first.output("out"))
+  def foreign_sink = builder.register(parent, "foreign_sink", Bits(8), clock_a)
+  def multi_sink = builder.register(parent, "multi_sink", Bits(8), clock_a)
+  builder.drive(foreign_sink.next, second.output("out"))
+  builder.drive(multi_sink.next,
+                builder.add(parent, first.output("out"), second.output("out")))
+  builder.drive(output, second.output("out"))
+  builder.finish(parent)
+  verify_design(design)
+  def summary = summarize_module_temporal(parent)
+  def first_child_input = named_input(
+    nested_sink(summary, "first", "child_state"),
+    "next"
+  )
+  def second_child_input = named_input(
+    nested_sink(summary, "second", "child_state"),
+    "next"
+  )
+  def foreign_input = named_input(local_sink(summary, "foreign_sink"), "next")
+  def multi_input = named_input(local_sink(summary, "multi_sink"), "next")
+  def output_origin = summary.output_leaves[0].origins[0]
+  check:
+    first_child_input.classification is_a UnknownInput ~is #true
+    second_child_input.classification is_a ForeignClock ~is #true
+    second_child_input.origins[0].instance_path[0] === first.operation ~is #true
+    foreign_input.classification is_a ForeignClock ~is #true
+    foreign_input.origins[0].instance_path[0] === second.operation ~is #true
+    multi_input.classification is_a MultiClockFanIn ~is #true
+    multi_input.origins.length() ~is 2
+    multi_input.origins[0].operation === multi_input.origins[1].operation ~is #true
+    !(multi_input.origins[0].instance_path[0] === multi_input.origins[1].instance_path[0]) ~is #true
+    output_origin.instance_path[0] === second.operation ~is #true
+    dump_temporal_report(summary).contains("sink second.child_state rtl.register clock %clock_b") ~is #true
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def procedure = builder.dpi_import("temporal_trace", ["value"], [Bits(8)])
+  def function = builder.dpi_import("temporal_step",
+                                    ["value"],
+                                    [Bits(8)],
+                                    "result",
+                                    Bits(8))
+  def module_def = builder.module("TemporalSinkInventory")
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def address = builder.input(module_def, "address", Bits(2))
+  def data = builder.input(module_def, "data", Bits(8))
+  def enable = builder.input(module_def, "enable", Bits(1))
+  def zero = builder.constant(module_def, Bits(8), 0, "zero")
+  def state = builder.register(module_def, "state", Bits(8), clock, reset, zero)
+  builder.drive(state.next, data)
+  def memory = builder.memory(module_def, "memory", 4, Bits(8))
+  builder.memory_write(module_def, memory, address, data, clock, enable)
+  def sync_memory = builder.sync_memory(module_def,
+                                        "sync_memory",
+                                        4,
+                                        Bits(8),
+                                        clock,
+                                        #false,
+                                        #true)
+  builder.drive(sync_memory.write_port.address, address)
+  builder.drive(sync_memory.write_port.data, data)
+  builder.drive(sync_memory.write_port.enable, enable)
+  builder.assert(module_def, enable, clock, reset, enable)
+  builder.dpi_call(module_def, procedure, [data], clock, enable)
+  builder.dpi_register(module_def,
+                       "dpi_state",
+                       function,
+                       [data],
+                       clock,
+                       enable)
+  builder.finish(module_def)
+  verify_design(design)
+  def summary = summarize_module_temporal(module_def)
+  check:
+    summary.sinks.map(fun (sink): sink.kind) ~is [
+      "rtl.register_reset",
+      "rtl.memory_write",
+      "rtl.sync_memory",
+      "verif.assert",
+      "sim.dpi_call",
+      "sim.dpi_register"
+    ]
+    local_sink(summary, "state").inputs.map(fun (input): input.name) ~is [
+      "next",
+      "reset",
+      "reset_value"
+    ]
+    summary.sinks.find(fun (sink): sink.kind == "rtl.memory_write").inputs.map(
+      fun (input): input.name
+    ) ~is ["address", "data", "enable"]
+    summary.sinks.find(fun (sink): sink.kind == "rtl.sync_memory").inputs.map(
+      fun (input): input.name
+    ) ~is ["sync_memory.write.address",
+           "sync_memory.write.data",
+           "sync_memory.write.enable"]
+    summary.sinks.find(fun (sink): sink.kind == "verif.assert").inputs.map(
+      fun (input): input.name
+    ) ~is ["condition", "reset", "guard"]
+    summary.sinks.find(fun (sink): sink.kind == "sim.dpi_call").inputs.map(
+      fun (input): input.name
+    ) ~is ["enable", "input0"]

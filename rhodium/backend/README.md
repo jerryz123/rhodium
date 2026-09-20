@@ -177,6 +177,6 @@ and differ only in whether the CIRCT call returns SSA results.
 
 Contributor ownership and the backend change workflow are in
 [`DEVELOPING.md`](DEVELOPING.md#validation). Commands and fixture selection are
-in the [backend test guide](../../tests/backend/README.md); exact-reference and
+in the [backend test guide](../../tools/testing/circt/README.md); exact-reference and
 fixture maintenance are in its
-[`DEVELOPING.md`](../../tests/backend/DEVELOPING.md).
+[`DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md).

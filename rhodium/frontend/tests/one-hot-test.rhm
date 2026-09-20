@@ -1,0 +1,108 @@
+#lang rhombus
+// Checks OneHot typing, index conversion, mux selection, casts, and invalid uses.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/one-hot.rhm" as one_hot
+  "../../../rhodium/frontend/support/mux-lookup.rhm" as mux_support
+  "../../../examples/rtl/one-hot.rhdl" as fixture
+  "one-hot-invalid.rhdl" as invalid
+
+def design = fixture.design
+def module_def = design.modules[0]
+def onehot_mux = module_def.operations.find(
+  fun (operation): operation.opcode == "rtl.onehot_mux"
+)
+def equality = module_def.operations.find(
+  fun (operation): operation.opcode == "rtl.eq"
+)
+def list_design = embedded.run_elaboration(fun (): invalid.ListMux())
+def list_module = list_design.modules[0]
+def list_onehot_mux = list_module.operations.find(
+  fun (operation): operation.opcode == "rtl.onehot_mux"
+)
+def aggregate_design = embedded.run_elaboration(fun (): invalid.AggregateMux())
+def aggregate_module = aggregate_design.modules[0]
+def aggregate_onehot_mux = aggregate_module.operations.find(
+  fun (operation): operation.opcode == "rtl.onehot_mux"
+)
+def keyed_aggregate_design = embedded.run_elaboration(fun (): invalid.KeyedAggregateMux())
+def keyed_aggregate_module = keyed_aggregate_design.modules[0]
+def keyed_aggregate_onehot_mux = keyed_aggregate_module.operations.find(
+  fun (operation): operation.opcode == "rtl.onehot_mux"
+)
+def dynamic_design = embedded.run_elaboration(fun (): invalid.DynamicOneHot())
+def dynamic_module = dynamic_design.modules[0]
+def dynamic_shift = dynamic_module.operations.find(
+  fun (operation): operation.opcode == "rtl.shl"
+)
+def dynamic_cast = dynamic_module.operations.find(
+  fun (operation): operation.opcode == "rtl.cast"
+)
+def dynamic_mux_design = embedded.run_elaboration(fun (): invalid.DynamicOneHotMux())
+def dynamic_mux_module = dynamic_mux_design.modules[0]
+def dynamic_onehot_mux = dynamic_mux_module.operations.find(
+  fun (operation): operation.opcode == "rtl.onehot_mux"
+)
+
+check:
+  one_hot.one_hot_type(fixture.Grant) ~is #true
+  one_hot.one_hot_width(fixture.Grant) ~is 4
+  fixture.Grant.describe() ~is "onehot<4>"
+  type_equal(fixture.Grant, one_hot.OneHot(4)) ~is #true
+  type_equal(fixture.Grant, Bits(4)) ~is #false
+  fixture.Grant(0) is_a mux_support.MuxLookupKey ~is #true
+  one_hot.OneHot(4)(3) is_a mux_support.MuxLookupKey ~is #true
+  type_equal(module_def.find_input("current").type, fixture.Grant) ~is #true
+  type_equal(module_def.find_output("next_grant").type, fixture.Grant) ~is #true
+  type_equal(module_def.find_output("current_bits").type, Bits(4)) ~is #true
+  onehot_mux.operands.length() ~is 5
+  type_equal(onehot_mux.operands[0].type, Bits(4)) ~is #true
+  (for all (case_value in onehot_mux.operands.drop(1)):
+     type_equal(case_value.type, fixture.Grant)) ~is #true
+  type_equal(onehot_mux.results[0].type, fixture.Grant) ~is #true
+  type_equal(equality.operands[0].type, Bits(4)) ~is #true
+  type_equal(equality.operands[1].type, Bits(4)) ~is #true
+  verify_design(design) ~is #void
+  list_onehot_mux.operands.length() ~is 5
+  type_equal(list_onehot_mux.operands[0].type, Bits(4)) ~is #true
+  type_equal(list_onehot_mux.results[0].type, Bits(8)) ~is #true
+  verify_design(list_design) ~is #void
+  record_type(aggregate_onehot_mux.results[0].type) ~is #true
+  type_equal(aggregate_onehot_mux.results[0].type, invalid.Pair()) ~is #true
+  aggregate_module.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_get"
+  ).length() ~is 1
+  verify_design(aggregate_design) ~is #void
+  record_type(keyed_aggregate_onehot_mux.results[0].type) ~is #true
+  type_equal(keyed_aggregate_onehot_mux.results[0].type, invalid.Pair()) ~is #true
+  keyed_aggregate_module.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_get"
+  ).length() ~is 1
+  verify_design(keyed_aggregate_design) ~is #void
+  type_equal(dynamic_module.find_output("result").type, one_hot.OneHot(4)) ~is #true
+  type_equal(dynamic_shift.operands[0].type, Bits(4)) ~is #true
+  type_equal(dynamic_shift.operands[1].type, Bits(2)) ~is #true
+  type_equal(dynamic_cast.results[0].type, one_hot.OneHot(4)) ~is #true
+  verify_design(dynamic_design) ~is #void
+  dynamic_onehot_mux.operands.length() ~is 5
+  type_equal(dynamic_onehot_mux.results[0].type, Bits(8)) ~is #true
+  verify_design(dynamic_mux_design) ~is #void
+
+  one_hot.OneHot(0) ~throws "PosInt"
+  one_hot.one_hot_width(Bits(4)) ~throws "expected a OneHot type"
+  fixture.Grant(-1) ~throws "Nat"
+  fixture.Grant(4) ~throws "literal index must satisfy 0 <= index < width"
+  embedded.run_elaboration(fun (): invalid.NonOneHotSelector()) ~throws "mux: no such field or method"
+  embedded.run_elaboration(fun (): invalid.NonBitsOneHot()) ~throws "index must be Bits"
+  embedded.run_elaboration(fun (): invalid.NonListChoices()) ~throws "List"
+  embedded.run_elaboration(fun (): invalid.TooFewChoices()) ~throws "choice count must equal the one-hot selector width"
+  embedded.run_elaboration(fun (): invalid.TooManyChoices()) ~throws "choice count must equal the one-hot selector width"
+  embedded.run_elaboration(fun (): invalid.MixedChoices()) ~throws "one-hot mux choices must have exactly the same DataType"
+  embedded.run_elaboration(fun (): invalid.ForeignMuxKey()) ~throws "one-hot mux lookup keys must belong to the selector's OneHot type"
+  embedded.run_elaboration(fun (): invalid.IntegerMuxKey()) ~throws "one-hot mux lookup keys must belong to the selector's OneHot type"
+  embedded.run_elaboration(fun (): invalid.BitwiseOneHot()) ~throws "operands must have exactly the same bitwise type"
+  embedded.run_elaboration(fun (): invalid.WrongDrive()) ~throws "exactly the same hardware type"
+  embedded.run_elaboration(fun (): invalid.WrongAnnotation()) ~throws "argument does not satisfy annotation"

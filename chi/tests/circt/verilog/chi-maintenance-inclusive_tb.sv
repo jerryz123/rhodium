@@ -1,0 +1,7 @@
+// Runs the common maintenance contract against the inclusive Home.
+// SPDX-License-Identifier: Apache-2.0
+module chi_maintenance_inclusive_tb;
+  `define MAINTENANCE_HOME CHIInclusiveHNF
+  localparam bit INCLUSIVE = 1;
+  `include "chi/tests/circt/verilog/chi-maintenance-home-body.svh"
+endmodule

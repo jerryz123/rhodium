@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits tagged integer services for cycle-visible ownership validation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../cores/rv5stage/tests/integer-execution-fixture.rhdl" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../rhodium/backend/circt.rhm" open
+
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageIntegerExecutionFixture())))

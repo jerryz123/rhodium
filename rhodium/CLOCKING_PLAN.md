@@ -327,13 +327,13 @@ rhodium/std/cdc/handshake.rhdl       # later
 rhodium/std/cdc/event.rhdl           # later
 rhodium/std/cdc/async-fifo.rhdl      # later
 
-tests/analysis/clocking-test.rhm
-tests/analysis/clocking-provenance-test.rhm
-tests/analysis/clocking-environment-test.rhm
-tests/frontend/clocking-fixture.rhdl
-tests/frontend/clocking-test.rhm
-tests/frontend/invalid/*clocking*.rhdl
-tests/backend/clocking-test.rhm
+rhodium/analysis/tests/clocking-test.rhm
+rhodium/analysis/tests/clocking-provenance-test.rhm
+rhodium/analysis/tests/clocking-environment-test.rhm
+rhodium/frontend/tests/clocking-standard.rhdl
+rhodium/frontend/tests/clocking-test.rhm
+rhodium/frontend/tests/invalid/*clocking*.rhdl
+rhodium/frontend/tests/clocking-test.rhm
 ```
 
 `rhodium/core/dependencies.rhm` owns the leaf-sensitive dependency semantics
@@ -589,9 +589,9 @@ The first enforceable release is complete when all of the following hold:
 ## Verification workflow
 
 - Add focused analysis tests before frontend syntax or backend lowering.
-- Mirror intrinsic IR checks under `tests/core/`, optional analysis under
-  `tests/analysis/`, and supported authoring and lowering under
-  `tests/frontend/` and `tests/backend/`.
+- Keep intrinsic IR checks under `rhodium/core/tests/`, optional analysis under
+  `rhodium/analysis/tests/`, and supported authoring and lowering under
+  `rhodium/frontend/tests/` and `rhodium/backend/tests/`.
 - Test aggregate leaves and hierarchy explicitly; do not rely only on scalar,
   flat examples.
 - Test standard-library crossing circuits semantically and structurally.

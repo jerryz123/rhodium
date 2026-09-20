@@ -1,0 +1,36 @@
+#lang rhombus
+// Checks the FIR example's generated delay line, signed MAC structure, and width policy.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/standard.rhm" as frontend
+  "../../../examples/rtl/fir-filter.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+
+fun operations(opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+check:
+  module_def.name ~is "FirFilter"
+  module_def.inputs.map(fun (port): port.name) ~is ["clock", "reset", "sample"]
+  type_equal(module_def.find_input("sample").type, frontend.SInt(8)) ~is #true
+  type_equal(module_def.find_output("filtered").type, frontend.SInt(13)) ~is #true
+  operations("rtl.register_reset").length() ~is 1
+  type_equal(
+    operations("rtl.register_reset")[0].results[0].type,
+    VectorType(3, frontend.SInt(8))
+  ) ~is #true
+  operations("rtl.mul").length() ~is 4
+  operations("rtl.add").length() ~is 3
+  verify_design(fixture.design) ~is #void
+  embedded.run_elaboration(
+    fun (): fixture.FirFilter(8, 3, [1])
+  ) ~throws "expected at least two coefficients"
+  embedded.run_elaboration(
+    fun (): fixture.FirFilter(8, 3, [1, 4])
+  ) ~throws "fit the declared signed width"

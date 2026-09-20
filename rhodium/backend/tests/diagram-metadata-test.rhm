@@ -1,0 +1,15 @@
+#lang rhombus
+// Checks that logical diagram metadata is invisible to CIRCT lowering.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../diagram/tests/diagram-fixture.rhdl" as fixture
+
+def circt = emit_circt(fixture.logical.design)
+
+check:
+  circt.contains("hw.module @DiagramFlow") ~is #true
+  circt.contains("rhodium.interface.") ~is #false
+  circt.contains("rhodium.sync-circuit") ~is #false
+  circt.contains("transform:") ~is #false

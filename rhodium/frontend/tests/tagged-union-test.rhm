@@ -1,0 +1,73 @@
+#lang rhombus
+// Checks shared enum tags, nominal union values, construction, and typed views.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/comb.rhm".bits
+  "../../../rhodium/frontend/layers/enum.rhm" as enum
+  "../../../rhodium/frontend/layers/tagged-union.rhm" as union
+  "../../../rhodium/frontend/support/hardware-literal.rhm".HardwareLiteral
+  "../../../rhodium/frontend/support/mux-lookup.rhm".OneHotSelectorType
+  "../../../examples/rtl/tagged-union.rhdl" as fixture
+  "../../../examples/rtl/nested-tagged-union.rhdl" as nested_fixture
+
+def design = fixture.design
+def module_def = design.modules[0]
+def union_type = fixture.Request
+def tag_type = union_type.tag_type
+def extracts = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.extract"
+)
+def equalities = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.eq"
+)
+def concats = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.concat"
+)
+def nested_module = nested_fixture.design.modules[0]
+check:
+  union_type.variants ~is ["Idle", "Read", "Write"]
+  union_type.payload_width ~is 16
+  union_type.packed_width() ~is 18
+  enum.enum_type(tag_type) ~is #true
+  enum.enum_width(tag_type) ~is 2
+  tag_type.names() ~is ["Idle", "Read", "Write"]
+  tag_type.values().map(fun (member): member.packed_value()) ~is [0, 1, 2]
+  fixture.Request.Read.tag is_a HardwareLiteral ~is #true
+  type_equal(fixture.Request.Read.tag.literal_type(), tag_type) ~is #true
+  fixture.Request.Read.tag.packed_value() ~is 1
+  enum.enum_width(fixture.ExplicitRequest.tag_type) ~is 4
+  enum.enum_encoding(fixture.ExplicitRequest.tag_type, "Idle") ~is 3
+  enum.enum_encoding(fixture.ExplicitRequest.tag_type, "Read") ~is 9
+  fixture.OneHotRequest.tag_type is_a OneHotSelectorType ~is #true
+  enum.enum_width(fixture.OneHotRequest.tag_type) ~is 2
+  fixture.OneHotRequest.Data.tag.packed_value() ~is 2
+  type_equal(fixture.Option(Bits(8)), fixture.Option(Bits(8))) ~is #true
+  type_equal(fixture.Option(Bits(8)), fixture.Option(Bits(16))) ~is #false
+  fixture.Option(Bits(8)).Some(bits(0xA5, 8)).packed_value() ~is 0x1A5
+  fixture.Request.Idle is_a HardwareLiteral ~is #true
+  fixture.Request.Idle.packed_value() ~is 0
+  fixture.read_request is_a HardwareLiteral ~is #true
+  fixture.read_request.packed_value() ~is 0x1005A
+  type_equal(fixture.read_request.literal_type(), union_type) ~is #true
+  type_equal(module_def.find_input("request").type, union_type) ~is #true
+  type_equal(module_def.find_output("request_tag").type, tag_type) ~is #true
+  type_equal(module_def.find_output("read_payload").type, Bits(8)) ~is #true
+  type_equal(module_def.find_output("write_address").type, Bits(8)) ~is #true
+  type_equal(module_def.find_output("rebuilt_write").type, union_type) ~is #true
+  equalities.length() ~is 3
+  extracts.length() >= 5 ~is #true
+  concats.length() ~is 1
+  verify_design(design) ~is #void
+  nested_fixture.InnerMessage.packed_width() ~is 9
+  nested_fixture.OuterMessage.packed_width() ~is 10
+  nested_fixture.nested_literal.packed_value() ~is 0x33C
+  type_equal(nested_fixture.nested_literal.literal_type(),
+             nested_fixture.OuterMessage) ~is #true
+  type_equal(nested_module.find_input("message").type,
+             nested_fixture.OuterMessage) ~is #true
+  type_equal(nested_module.find_output("nested_word").type, Bits(8)) ~is #true
+  type_equal(nested_module.find_output("rebuilt").type,
+             nested_fixture.OuterMessage) ~is #true
+  verify_design(nested_fixture.design) ~is #void

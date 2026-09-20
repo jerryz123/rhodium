@@ -30,7 +30,7 @@ separation.
 | Complete-line RAM/ROM reads with retained region mode | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
 | Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
-| CIRCT/Verilator fixture | [`../../../tests/backend/`](../../../tests/backend/DEVELOPING.md#fixture-and-artifact-ownership) |
+| CIRCT/Verilator fixture | [`../tests/circt/`](../tests/circt/) |
 
 ## Change the cache
 
@@ -91,5 +91,5 @@ Test cache snapshots, refill, invalidation, and access-error behavior in the com
 `rv5stage-icache` fixture. Use the parent
 [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) when a change crosses
 refill, snoop, MMU, Fetch, or complete-core integration, and use the backend test
-[`DEVELOPING.md`](../../../tests/backend/DEVELOPING.md) for CIRCT and Verilator
+[`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) for CIRCT and Verilator
 modes. Repository wrappers provide a fresh compiled root.

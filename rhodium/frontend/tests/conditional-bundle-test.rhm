@@ -1,0 +1,59 @@
+#lang rhombus
+// Checks conditional bundle shapes, packing, construction, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "conditional-bundle-fixture.rhdl" as fixture
+
+def plain = fixture.OptionalPacket(#false, #false)
+def tag_only = fixture.OptionalPacket(#true, #false)
+def metadata_only = fixture.OptionalPacket(#false, #true)
+def full = fixture.OptionalPacket(#true, #true)
+def width_zero = fixture.WidthOptional(0)
+def width_eight = fixture.WidthOptional(8)
+def shapes = fixture.shapes_design.modules[0]
+def construction = fixture.construction_design.modules[0]
+
+fun field_names(type):
+  type.fields.map(fun (field): field.name)
+
+check:
+  field_names(plain) ~is ["payload", "parity"]
+  field_names(tag_only) ~is ["payload", "tag", "parity"]
+  field_names(metadata_only) ~is ["payload", "parity", "source", "sequence"]
+  field_names(full) ~is ["payload", "tag", "parity", "source", "sequence"]
+  field_names(width_zero) ~is ["present"]
+  field_names(width_eight) ~is ["present", "payload"]
+  plain.packed_width() ~is 9
+  tag_only.packed_width() ~is 13
+  metadata_only.packed_width() ~is 17
+  full.packed_width() ~is 21
+  fixture.plain_literal.packed_value() ~is 0x14b
+  fixture.tagged_literal.packed_value() ~is 0x14b772
+  shapes.find_input("plain").type.packed_width() ~is 9
+  shapes.find_input("tagged").type.packed_width() ~is 21
+  construction.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_create"
+  ).length() ~is 2
+  verify_design(fixture.shapes_design) ~is #void
+  verify_design(fixture.construction_design) ~is #void
+  embedded.run_elaboration(
+    fun (): fixture.InvalidConditionalBundleCondition()
+  ) ~throws "Boolean"
+  embedded.run_elaboration(
+    fun (): fixture.EmptyConditionalBundle()
+  ) ~throws "bundle specialization must contain at least one field"
+  embedded.run_elaboration(
+    fun (): fixture.DuplicatePresentConditionalField()
+  ) ~throws "record field names must be unique"
+  embedded.run_elaboration(
+    fun (): fixture.AbsentConditionalProjection()
+  ) ~throws "no field named"
+  embedded.run_elaboration(
+    fun (): fixture.SuppliedAbsentConditionalField()
+  ) ~throws "literal must supply every record field exactly once"
+  embedded.run_elaboration(
+    fun (): fixture.MissingPresentConditionalField()
+  ) ~throws "literal must supply every record field exactly once"

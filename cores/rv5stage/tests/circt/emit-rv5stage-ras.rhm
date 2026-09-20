@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits a three-entry RV5Stage return-address stack for wraparound and recovery tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../../cores/rv5stage/tests/ras-fixture.rhdl".design
+
+print(emit_circt(design))

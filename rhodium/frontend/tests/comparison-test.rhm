@@ -1,0 +1,43 @@
+#lang rhombus
+// Checks unsigned comparison syntax, lowering shape, typing, and host fallback.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/standard.rhm" as frontend
+  "../../../examples/rtl/unsigned-comparisons.rhdl" as comparison_fixture
+
+def module_def = comparison_fixture.design.modules[0]
+def comparisons = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.ult"
+)
+def negations = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.not"
+)
+def conversions = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.cast"
+)
+
+check:
+  comparisons.length() ~is 4
+  negations.length() ~is 2
+  conversions.length() ~is 4
+  comparisons[0].operands[0].name ~is "a"
+  comparisons[0].operands[1].name ~is "b"
+  comparisons[1].operands[0].name ~is "b"
+  comparisons[1].operands[1].name ~is "a"
+  comparisons[2].operands[0].name ~is "b"
+  comparisons[2].operands[1].name ~is "a"
+  comparisons[3].operands[0].name ~is "a"
+  comparisons[3].operands[1].name ~is "b"
+  comparisons[0].results[0].type ~is Bits(1)
+  module_def.find_output("lt").type ~is frontend.Bool
+  module_def.find_output("gt").type ~is frontend.Bool
+  module_def.find_output("le").type ~is frontend.Bool
+  module_def.find_output("ge").type ~is frontend.Bool
+  verify_design(comparison_fixture.design) ~is #void
+  3 frontend.(<) 4 ~is #true
+  4 frontend.(>) 3 ~is #true
+  3 frontend.(<=) 3 ~is #true
+  4 frontend.(>=) 5 ~is #false
+  "alpha" frontend.(<) "beta" ~is #true

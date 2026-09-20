@@ -1,0 +1,80 @@
+#lang rhombus
+// Verifies core one-hot mux construction, printing, aggregate typing, and rejection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("OneHotCore")
+  def selector = builder.input(module_def, "selector", Bits(3))
+  def a = builder.input(module_def, "a", Bits(8))
+  def b = builder.input(module_def, "b", Bits(8))
+  def c = builder.input(module_def, "c", Bits(8))
+  def result = builder.onehot_mux(module_def, selector, [a, b, c], "selected")
+  builder.finish(module_def)
+  def operation = module_def.find_operation(result.defining_op_id)
+
+  check:
+    operation.opcode ~is "rtl.onehot_mux"
+    operation.operands ~is [selector, a, b, c]
+    type_equal(result.type, Bits(8)) ~is #true
+    combinational_opcode("rtl.onehot_mux") ~is #true
+    dump_ir(design).contains(
+      "%selected = rtl.onehot_mux %selector [%a, %b, %c] : bits<8>"
+    ) ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("AggregateOneHotCore")
+  def pair_type = RecordType([RecordField("left", Bits(8)),
+                              RecordField("right", Bits(8))])
+  def selector = builder.input(module_def, "selector", Bits(2))
+  def left = builder.input(module_def, "left", pair_type)
+  def right = builder.input(module_def, "right", pair_type)
+  def result = builder.onehot_mux(module_def, selector, [left, right])
+  builder.finish(module_def)
+
+  check:
+    type_equal(result.type, pair_type) ~is #true
+    verify_design(design) ~is #void
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("BadOneHotCore")
+  def selector = builder.input(module_def, "selector", Bits(2))
+  def byte = builder.input(module_def, "byte", Bits(8))
+  def nibble = builder.input(module_def, "nibble", Bits(4))
+
+  check:
+    builder.onehot_mux(module_def, selector, [byte]) ~throws "choice count must equal selector width"
+    builder.onehot_mux(module_def, selector, [byte, nibble]) ~throws "exactly the same DataType"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("MalformedOneHotCore")
+  def selector = builder.input(module_def, "selector", Bits(2))
+  def choice = builder.input(module_def, "choice", Bits(8))
+  def operation_id = design.fresh_id()
+  def result = Value(design.fresh_id(), "result", Bits(8), module_def, operation_id)
+  def operation = Operation(operation_id,
+                            "rtl.onehot_mux",
+                            module_def,
+                            [selector, choice],
+                            [result],
+                            [],
+                            {"name": "result"})
+  selector.add_user(operation_id)
+  choice.add_user(operation_id)
+  module_def.add_value(result)
+  module_def.add_operation(operation)
+  builder.finish(module_def)
+
+  check:
+    verify_design(design) ~throws "choice count must equal selector width"

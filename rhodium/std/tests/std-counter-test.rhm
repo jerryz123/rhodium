@@ -1,0 +1,45 @@
+#lang rhombus
+// Checks the standard bounded counter's widths, state, outputs, and validation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/std/counter.rhdl" as counter
+
+def counter_one_design = embedded.run_elaboration(
+  fun (): counter.Counter(1)
+)
+def counter_one = counter_one_design.modules[0]
+def counter_ten_design = embedded.run_elaboration(
+  fun (): counter.Counter(10)
+)
+def counter_ten = counter_ten_design.modules[0]
+
+fun operations(module_def, opcode):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == opcode
+  )
+
+check:
+  counter_one.inputs.map(fun (port): port.name) ~is [
+    "clock", "reset", "enable"
+  ]
+  counter_one.outputs.map(fun (port): port.name) ~is ["value", "wrap"]
+  counter_one.find_output("value").type.width ~is 1
+  counter_ten.find_output("value").type.width ~is 4
+  operations(counter_ten, "rtl.register_reset").length() ~is 1
+  operations(counter_ten, "rtl.add").length() ~is 1
+  operations(counter_ten, "rtl.eq").length() ~is 1
+  operations(counter_ten, "rtl.mux_lookup").length() ~is 2
+  operations(counter_one, "verif.assert").map(
+    fun (operation): operation.attribute("label")
+  ) ~is ["counter_state_in_range"]
+  operations(counter_ten, "verif.assert").map(
+    fun (operation): operation.attribute("label")
+  ) ~is ["counter_state_in_range"]
+  verify_design(counter_one_design) ~is #void
+  verify_design(counter_ten_design) ~is #void
+  embedded.run_elaboration(fun (): counter.Counter(0)) ~throws "PosInt"
+  embedded.run_elaboration(fun (): counter.Counter(-1)) ~throws "PosInt"
+  embedded.run_elaboration(fun (): counter.Counter("ten")) ~throws "argument does not satisfy annotation"

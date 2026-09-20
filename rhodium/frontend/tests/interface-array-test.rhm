@@ -1,0 +1,117 @@
+#lang rhombus
+// Checks interface arrays, generic handles and sinks, hierarchy, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/rtl/interface-array.rhdl" as example
+  "interface-array.rhdl" as fixture
+
+def array_design = embedded.run_elaboration(fun (): example.InterfaceArrayAdapter(3))
+def array_module = array_design.modules[0]
+def indexed_design = embedded.run_elaboration(
+  fun (): fixture.IndexedInterfaceArrayAdapter(3)
+)
+def parenthesized_design = embedded.run_elaboration(
+  fun (): example.InterfaceSequenceAdapter()
+)
+def parenthesized_module = parenthesized_design.modules[0]
+def hierarchy_design = embedded.run_elaboration(
+  fun (): example.InterfaceArrayHierarchy(3)
+)
+def type_once_design = embedded.run_elaboration(
+  fun (): fixture.InterfaceArrayTypeOnce(3)
+)
+def handle_design = embedded.run_elaboration(
+  fun (): example.GenericHandleChain()
+)
+def handle_ends_design = embedded.run_elaboration(
+  fun (): fixture.InterfaceHandleEnds()
+)
+def handle_ends_module = handle_ends_design.modules[0]
+def parallel_handle_design = embedded.run_elaboration(
+  fun (): example.ParallelHandleChain()
+)
+def parallel_sink_design = embedded.run_elaboration(
+  fun (): example.ParallelSinkChain()
+)
+def composed_sink_design = embedded.run_elaboration(
+  fun (): fixture.ComposedInterfaceSinkAdapter()
+)
+def hierarchy_module = hierarchy_design.modules.find(
+  fun (module_def): module_def.name.starts_with("InterfaceArrayHierarchy")
+)
+def hierarchy_instance = hierarchy_module.operations.find(
+  fun (operation): operation.opcode == "rtl.instance"
+)
+
+check:
+  array_module.inputs.map(fun (port): port.name) ~is [
+    "ingress_0_in", "ingress_1_in", "ingress_2_in",
+    "egress_0_in", "egress_1_in", "egress_2_in"
+  ]
+  array_module.outputs.map(fun (port): port.name) ~is [
+    "ingress_0_out", "ingress_1_out", "ingress_2_out",
+    "egress_0_out", "egress_1_out", "egress_2_out"
+  ]
+  array_module.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.drive"
+  ).length() ~is 6
+  hierarchy_instance.places.length() ~is 6
+  hierarchy_instance.results.length() ~is 6
+  hierarchy_module.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.drive"
+  ).length() ~is 12
+  verify_design(array_design) ~is #void
+  verify_design(indexed_design) ~is #void
+  parenthesized_module.inputs.map(fun (port): port.name) ~is [
+    "ingress0_in", "ingress1_in", "egress_0_in", "egress_1_in"
+  ]
+  parenthesized_module.outputs.map(fun (port): port.name) ~is [
+    "ingress0_out", "ingress1_out", "egress_0_out", "egress_1_out"
+  ]
+  parenthesized_module.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.drive"
+  ).length() ~is 4
+  verify_design(parenthesized_design) ~is #void
+  verify_design(hierarchy_design) ~is #void
+  verify_design(handle_design) ~is #void
+  verify_design(handle_ends_design) ~is #void
+  verify_design(parallel_handle_design) ~is #void
+  verify_design(parallel_sink_design) ~is #void
+  verify_design(composed_sink_design) ~is #void
+  verify_design(example.generic_handle_design) ~is #void
+  verify_design(example.parallel_handle_design) ~is #void
+  verify_design(example.parallel_sink_design) ~is #void
+  handle_design.modules[0].operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.instance"
+  ).length() ~is 0
+  handle_ends_module.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.wire"
+  ).length() ~is 1
+  handle_ends_module.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.instance"
+  ).length() ~is 0
+  type_once_design.modules[0].inputs.length() ~is 6
+  embedded.run_elaboration(
+    fun (): fixture.ParenthesizedInterfaceArrayLengthMismatch()
+  ) ~throws "must have the same length"
+  embedded.run_elaboration(
+    fun (): fixture.ParenthesizedInterfaceArrayNamedMember()
+  ) ~throws "cannot use named refinement members"
+  embedded.run_elaboration(
+    fun (): fixture.ReusedInterfaceHandle()
+  ) ~throws "can be consumed only once"
+  embedded.run_elaboration(
+    fun (): fixture.ReusedInterfaceSink()
+  ) ~throws "an interface sink can be consumed only once"
+  embedded.run_elaboration(
+    fun (): fixture.MixedParallelInterfacePaths()
+  ) ~throws "requires all handles or all sinks"
+  embedded.run_elaboration(
+    fun (): fixture.ParallelInterfaceSinkLengthMismatch()
+  ) ~throws "must have the same length"
+  embedded.run_elaboration(
+    fun (): fixture.InterfaceSinkTypeMismatch()
+  ) ~throws "does not support the peer interface contract"

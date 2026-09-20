@@ -1,0 +1,128 @@
+#lang rhombus
+// Checks dependency inference and safe JSON/C++ runtime manifest serialization.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("json/main.rkt").#{string->jsexpr} as parse_json
+  "../../../rhodium/event/main.rhm" open
+  "event-graph-fixture.rhdl" as fixture
+  "event-offer-fixture.rhdl" as offer
+  "event-retained-fixture.rhdl" as retained_fixture
+
+fun dependency_labels(manifest :: EventManifest):
+  manifest.dependencies.map(
+    fun (dependency):
+      manifest.site(dependency.parent).label ++ "->" ++ manifest.site(dependency.child).label
+  )
+
+def linear = infer_event_manifest(fixture.linear)
+def linear_labels = dependency_labels(linear)
+def forked = infer_event_manifest(fixture.forked)
+def merged = infer_event_manifest(fixture.merged)
+def valid = infer_event_manifest(fixture.valid)
+def hierarchical = infer_event_manifest(fixture.hierarchical)
+def explicit_edges = infer_event_manifest(retained_fixture.trace_edges())
+def hierarchy_inside = hierarchical.sites.filter(
+  ~keep: fun (site): site.label == "inside"
+)
+def json = event_manifest_to_json(linear)
+def cpp = event_manifest_to_cpp(linear)
+def captures = infer_event_manifest(fixture.captures)
+def enum_captures = infer_event_manifest(fixture.enum_captures)
+def unusual_label = "quote\" slash\\ newline\n tab\t null\u0000 bell\u0007 λ )rhdl0"
+def unusual = EventManifest(linear.logical, [
+  EventSite("odd", unusual_label, "mod", ["top"], 0, "Valid", #false, #false, "<unknown>")
+], [])
+
+check:
+  offer.invalid("protocol") ~throws "Valid-flow chaining requires a Valid endpoint"
+  offer.invalid("stronger") ~throws "provider interface does not support the peer interface contract"
+  offer.invalid("qualification") ~throws "argument does not satisfy annotation"
+  dependency_labels(infer_event_manifest(offer.offered)) ~is ["attempt->admitted", "attempt->admitted.stall"]
+  enum_captures.sites[0].payload_width ~is 14
+  enum_captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding, field.label]) ~is [
+    ["operation", 7, 7, "enum", #true], ["observed", 7, 0, "enum", #false]
+  ]
+  enum_captures.sites[0].fields[0].symbols ~is [{"name": "Read", "value": "2"}, {"name": "Write", "value": "5"}]
+  event_manifest_to_json(enum_captures).contains("\"label\":true") ~is #true
+  event_manifest_to_cpp(enum_captures).contains("{{2ULL,\"Read\"},{5ULL,\"Write\"}},true") ~is #true
+  fixture.invalid_captures("enum") ~throws "enum capture requires"
+  fixture.invalid_captures("enum-wide") ~throws "enum capture requires"
+  fixture.invalid_captures("enum-labels") ~throws "at most one capture"
+  fixture.invalid_captures("enum-symbols") ~throws "symbols must match"
+  fixture.invalid_captures("label-format") ~throws "label selection requires"
+  captures.sites.map(fun (site): site.payload_width) ~is [102, #false]
+  captures.sites[0].fields.map(fun (field): [field.name, field.width, field.offset, field.encoding]) ~is [
+    ["pc", 64, 38, "hex"], ["instruction", 32, 6, "riscv"],
+    ["fault", 1, 5, "bool"], ["low", 5, 0, "unsigned"]
+  ]
+  dependency_labels(captures) ~is ["selected->identity-only"]
+  captures.sites[0].fields[1].isa ~is "rv64im"
+  captures.sites[0].fields[1].pc ~is "pc"
+  event_manifest_to_json(captures).contains("\"isa\":\"rv64im\"") ~is #true
+  event_manifest_to_cpp(captures).contains("\"riscv\",\"rv64im\",\"pc\"") ~is #true
+  fixture.invalid_captures("riscv-width") ~throws "RISC-V capture requires"
+  fixture.invalid_captures("riscv-isa") ~throws "RISC-V capture requires"
+  fixture.invalid_captures("riscv-pc") ~throws "PC must reference"
+  fixture.invalid_captures("riscv-pc-width") ~throws "PC must reference"
+  fixture.invalid_captures("metadata") ~throws "ISA and PC options require"
+  fixture.invalid_captures("duplicate") ~throws "duplicate capture"
+  fixture.invalid_captures("aggregate") ~throws "scalar DataType"
+  fixture.invalid_captures("cycle") ~throws "reserved capture field name: cycle"
+  fixture.invalid_captures("sequence") ~throws "reserved capture field name: sequence"
+  fixture.invalid_captures("ancestry_unknown") ~throws "reserved capture field name: ancestry_unknown"
+  fixture.invalid_captures("bool") ~throws "one bit"
+  fixture.invalid_captures("float") ~throws "unsupported capture format"
+  linear.sites.map(fun (site): site.label) ~is ["accepted", "issued", "completed"]
+  linear.sites.map(fun (site): site.local_site) ~is [0, 1, 2]
+  linear.sites.map(fun (site): site.payload_type) ~is ["bits<8>", "bits<8>", "bits<8>"]
+  linear.sites.map(fun (site): site.payload_width) ~is [8, 8, 8]
+  linear_labels ~is ["accepted->issued", "issued->completed"]
+  linear.dependencies[0].transform_path.length() ~is 2
+  linear.dependencies[0].transform_path[0].contains(":map") ~is #true
+  linear.dependencies[0].transform_path[1].contains(":pipe") ~is #true
+  linear.dependencies[1].transform_path.length() ~is 1
+  linear.dependencies[1].transform_path[0].contains(":queue") ~is #true
+  dependency_labels(forked) ~is ["fork-root->left", "fork-root->right"]
+  dependency_labels(merged) ~is ["left->joined", "right->joined"]
+  merged.dependencies.map(
+    fun (dependency): dependency.transform_path[0].contains(":zip")
+  ) ~is [#true, #true]
+  valid.sites.length() ~is 1
+  valid.sites[0].label ~is "observed"
+  valid.sites[0].protocol ~is "Valid<bits<8>>"
+  valid.dependencies.length() ~is 0
+  hierarchical.sites.length() ~is 6
+  hierarchy_inside.length() ~is 2
+  hierarchy_inside.map(fun (site): site.instance_path) ~is [
+    ["EventHierarchy", "left_child"],
+    ["EventHierarchy", "right_child"]
+  ]
+  dependency_labels(hierarchical).length() ~is 4
+  "before-left->inside" in dependency_labels(hierarchical) ~is #true
+  "inside->after-left" in dependency_labels(hierarchical) ~is #true
+  "before-right->inside" in dependency_labels(hierarchical) ~is #true
+  "inside->after-right" in dependency_labels(hierarchical) ~is #true
+  dependency_labels(explicit_edges) ~is ["parent->child", "parent->sibling"]
+  explicit_edges.dependencies.map(fun (edge): edge.transform_path) ~is [["trace-edge:owner"], ["trace-edge:owner"]]
+  explicit_edges.dependencies.map(fun (edge): edge.trace_stages.length()) ~is [1, 1]
+  explicit_edges.dependencies.map(fun (edge): edge.trace_stages[0] is_a EventTraceRetained) ~is [#true, #true]
+  json.contains("\"format\":\"rhodium-event-graph\"") ~is #true
+  json.contains("\"top\":\"EventLinear\"") ~is #true
+  json.contains("\"parent\":\"EventLinear/event:0\"") ~is #true
+  parse_json(json) != #false ~is #true
+  parse_json(event_manifest_to_json(unusual)) != #false ~is #true
+  cpp ~is event_manifest_to_cpp(linear)
+  cpp.contains(json) ~is #true
+  cpp.contains("{8,8,8}, {{0,1},{1,2}}") ~is #true
+  event_manifest_to_cpp(unusual).contains(event_manifest_to_json(unusual)) ~is #true
+  event_manifest_to_cpp(unusual).contains("R\"rhdl1(") ~is #true
+  event_manifest_to_cpp(EventManifest(linear.logical, [], [])) ~throws "nonempty"
+  event_manifest_to_cpp(EventManifest(linear.logical, [linear.sites[0], linear.sites[0]], [])) ~throws "duplicate"
+  event_manifest_to_cpp(EventManifest(linear.logical, linear.sites, [EventDependency("missing", linear.sites[0].id, [])])) ~throws "unknown site"
+  infer_event_manifest(fixture.opaque) ~throws "transform without a trace model"
+  retained_fixture.trace_edges("missing-scope") ~throws "requires one retained-storage declaration"
+  retained_fixture.trace_edges("duplicate") ~throws "duplicate trace edge"
+  infer_event_manifest(retained_fixture.trace_edges("unannotated")) ~throws "annotated event outputs"
+  fixture.elaborate_empty_event() ~throws "event label must not be empty"
+  fixture.elaborate_duplicate_event() ~throws "event label must be unique"

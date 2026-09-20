@@ -1,0 +1,18 @@
+#lang rhombus
+// Checks CIRCT lowering for fixed one-cycle synchronous-memory ports.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../examples/rtl/sync-memory.rhdl" as fixture
+
+def circt = emit_circt(fixture.design)
+
+check:
+  circt.contains("seq.firmem 1, 1, undefined, undefined") ~is #true
+  circt.contains("seq.firmem.read_port") ~is #true
+  circt.contains("enable %read_enable") ~is #true
+  circt.contains("seq.firmem.write_port") ~is #true
+  circt.contains("enable %write_enable") ~is #true
+  circt.contains("seq.hlmem") ~is #false
+  circt.contains("rtl.sync_memory") ~is #false

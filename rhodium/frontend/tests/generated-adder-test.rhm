@@ -1,0 +1,50 @@
+#lang rhombus
+// Checks host-Array instance generation and vector-wire carry chaining in the n-bit adder.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/hierarchy.rhm".InstanceArray
+  "../../../examples/rtl/generated-adder.rhdl" as fixture
+
+def design = fixture.design
+def top = design.modules.find(fun (module_def): module_def.name == "Adder")
+def child = design.modules.find(fun (module_def): module_def.name == "FullAdder")
+def instances = top.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.instance"
+)
+def wires = top.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.wire"
+)
+def vector_creates = top.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.vector_create"
+)
+def carry_wire = wires[0]
+def carry_assembly = top.find_operation(
+  carry_wire.places[0].driver.defining_op_id
+)
+def cout_cast = top.find_operation(
+  top.find_output("Cout").place.driver.defining_op_id
+)
+def cout_read = top.find_operation(cout_cast.operands[0].defining_op_id)
+def instance_names = ["adder", "adder_1", "adder_2", "adder_3",
+                      "adder_4", "adder_5", "adder_6", "adder_7"]
+
+check:
+  design.modules.length() ~is 2
+  instances.length() ~is 8
+  instances.map(fun (operation): operation.attribute("name")) ~is instance_names
+  (for all (operation in instances): operation.attribute("module") === child) ~is #true
+  wires.map(fun (operation): operation.attribute("name")) ~is ["carry", "sum"]
+  wires[0].places[0].type.length ~is 9
+  wires[1].places[0].type.length ~is 8
+  vector_creates.length() ~is 2
+  type_equal(top.find_output("Sum").place.driver.type, Bits(8)) ~is #true
+  cout_cast.opcode ~is "rtl.cast"
+  cout_read.opcode ~is "rtl.vector_get"
+  cout_read.attribute("index") ~is 8
+  cout_read.operands[0] === carry_wire.results[0] ~is #true
+  carry_assembly.opcode ~is "rtl.vector_create"
+  carry_assembly.operands[8] === instances[7].results[1] ~is #true
+  verify_design(design) ~is #void
+  (for InstanceArray (value in [#false]): value) ~throws "InstancePorts"

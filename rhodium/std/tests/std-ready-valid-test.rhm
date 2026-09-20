@@ -1,0 +1,167 @@
+#lang rhombus
+// Checks standard valid interfaces, directions, nominal identity, and bulk connection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../rhodium/frontend/layers/interface.rhm" open
+  "../../../rhodium/std/ready-valid.rhdl" as std
+  "../../../flow/ready-valid-support.rhdl" as ready_valid_support
+  "../../../examples/std/ready-valid-compatibility.rhdl" as example
+  "std-ready-valid.rhdl" as fixture
+
+def pulse_type = std.Pulse()
+def valid_type = std.Valid(Bits(8))
+def decoupled_ctrl_type = std.DecoupledCtrl()
+def irrevocable_ctrl_type = std.IrrevocableCtrl()
+def decoupled_type = std.Decoupled(Bits(8))
+def irrevocable_type = std.Irrevocable(Bits(8))
+
+def valid_design = embedded.run_elaboration(fun (): fixture.ValidAdapter())
+def valid_adapter = valid_design.modules[0]
+def pulse_design = embedded.run_elaboration(fun (): fixture.PulseAdapter())
+def pulse_adapter = pulse_design.modules[0]
+def valid_to_pulse_design = embedded.run_elaboration(
+  fun (): fixture.ValidToPulse()
+)
+def valid_to_pulse = valid_to_pulse_design.modules[0]
+def decoupled_design = embedded.run_elaboration(fun (): fixture.DecoupledAdapter())
+def decoupled_adapter = decoupled_design.modules[0]
+def irrevocable_design = embedded.run_elaboration(fun (): fixture.IrrevocableAdapter())
+def irrevocable_adapter = irrevocable_design.modules[0]
+def decoupled_ctrl_design = embedded.run_elaboration(
+  fun (): fixture.DecoupledCtrlAdapter()
+)
+def irrevocable_ctrl_design = embedded.run_elaboration(
+  fun (): fixture.IrrevocableCtrlAdapter()
+)
+def decoupled_fire_design = embedded.run_elaboration(fun (): fixture.DecoupledFire())
+def decoupled_fire = decoupled_fire_design.modules[0]
+def irrevocable_fire_design = embedded.run_elaboration(
+  fun (): fixture.IrrevocableFire()
+)
+def irrevocable_fire = irrevocable_fire_design.modules[0]
+def nested_fire_design = embedded.run_elaboration(fun (): fixture.NestedFire())
+def nested_fire = nested_fire_design.modules[0]
+def compatibility_design = example.design
+def reversed_compatible_design = embedded.run_elaboration(
+  fun (): fixture.ReversedCompatibleSpelling()
+)
+def irrevocable_ctrl_to_decoupled_ctrl_design = embedded.run_elaboration(
+  fun (): fixture.IrrevocableCtrlToDecoupledCtrl()
+)
+def transitive_control_design = embedded.run_elaboration(
+  fun (): fixture.TransitiveCtrlCompatibility()
+)
+def refined_helpers_design = embedded.run_elaboration(
+  fun (): fixture.RefinedProtocolHelpers()
+)
+def impostor_decoupled = InterfaceType(
+  "Decoupled",
+  ["producer", "consumer"],
+  [
+    InterfaceMember("valid", bool.Bool, "producer", "consumer"),
+    InterfaceMember("ready", bool.Bool, "consumer", "producer"),
+    InterfaceMember("bits", Bits(8), "producer", "consumer")
+  ],
+  ~provider_role: "producer"
+)
+def remapped_stable_protocol = ready_valid_support.flow_protocol_with_payload(
+  fixture.StableBuffered8(),
+  Bits(16)
+)
+
+check:
+  pulse_type.name ~is "Pulse"
+  pulse_type.roles ~is ["producer", "consumer"]
+  pulse_type.members.map(fun (member): member.name) ~is ["valid"]
+  valid_type.name ~is "Valid"
+  valid_type.roles ~is ["producer", "consumer"]
+  valid_type.members.map(fun (member): member.name) ~is ["valid", "bits"]
+  valid_type.parent.name ~is "Pulse"
+  valid_type.directions.length() ~is 1
+  decoupled_ctrl_type.members.map(fun (member): member.name) ~is ["valid", "ready"]
+  decoupled_ctrl_type.parent ~is #false
+  irrevocable_ctrl_type.members.map(fun (member): member.name) ~is ["valid", "ready"]
+  irrevocable_ctrl_type.parent.name ~is "DecoupledCtrl"
+  decoupled_type.name ~is "Decoupled"
+  decoupled_type.members.map(fun (member): member.name) ~is ["valid", "ready", "bits"]
+  decoupled_type.parent.name ~is "DecoupledCtrl"
+  decoupled_type.directions.length() ~is 2
+  irrevocable_type.name ~is "Irrevocable"
+  irrevocable_type.members.map(fun (member): member.name) ~is ["valid", "ready", "bits"]
+  irrevocable_type.parent.name ~is "IrrevocableCtrl"
+  irrevocable_type.parent.parent.name ~is "DecoupledCtrl"
+  irrevocable_type.supported_types.map(fun (type): type.name) ~is ["Decoupled"]
+  irrevocable_type.directions.length() ~is 2
+  interface_type_supports(fixture.Buffered8(), std.Decoupled(Bits(8))) ~is #true
+  interface_type_supports(fixture.BufferedValid8(), std.Pulse()) ~is #true
+  interface_type_supports(fixture.BufferedPulse(), std.Pulse()) ~is #true
+  interface_type_supports(fixture.Alternate8(), std.Decoupled(Bits(8))) ~is #true
+  interface_type_supports(impostor_decoupled, std.Decoupled(Bits(8))) ~is #false
+  std.decoupled_protocol_type(impostor_decoupled) ~is #false
+  ready_valid_support.flow_protocol_type(fixture.Buffered8()).identity === decoupled_type.identity ~is #true
+  ready_valid_support.flow_payload_type(fixture.Buffered8()).width ~is 8
+  ready_valid_support.flow_protocol_type(fixture.Alternate8()).identity === decoupled_type.identity ~is #true
+  ready_valid_support.flow_protocol_type(fixture.StableBuffered8()).identity === irrevocable_type.identity ~is #true
+  ready_valid_support.valid_flow_protocol_type(fixture.BufferedValid8()).identity === valid_type.identity ~is #true
+  remapped_stable_protocol.identity === std.Irrevocable(Bits(16)).identity ~is #true
+  remapped_stable_protocol.members.find(
+    fun (member): member.name == "bits"
+  ).type.width ~is 16
+  ready_valid_support.flow_protocol_type(impostor_decoupled) ~throws "requires a Decoupled or Irrevocable protocol"
+  valid_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in"]
+  valid_adapter.outputs.map(fun (port): port.name) ~is ["egress_out"]
+  pulse_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in"]
+  pulse_adapter.outputs.map(fun (port): port.name) ~is ["egress_out"]
+  valid_to_pulse.inputs.map(fun (port): port.name) ~is ["ingress_in"]
+  valid_to_pulse.outputs.map(fun (port): port.name) ~is ["egress_out"]
+  decoupled_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in", "egress_in"]
+  decoupled_adapter.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
+  irrevocable_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in", "egress_in"]
+  irrevocable_adapter.outputs.map(fun (port): port.name) ~is ["ingress_out", "egress_out"]
+  valid_adapter.find_input("ingress_in").type.field("valid").type === bool.Bool ~is #true
+  valid_adapter.find_input("ingress_in").type.field("bits").type.width ~is 8
+  decoupled_adapter.find_output("ingress_out").type.field("ready").type === bool.Bool ~is #true
+  decoupled_ctrl_design.modules[0].find_input("ingress_in").type.field("valid").type === bool.Bool ~is #true
+  irrevocable_ctrl_design.modules[0].find_output("ingress_out").type.field("ready").type === bool.Bool ~is #true
+  decoupled_fire.find_output("transferred").type === bool.Bool ~is #true
+  decoupled_fire.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.and"
+  ).length() ~is 1
+  irrevocable_fire.find_output("transferred").type === bool.Bool ~is #true
+  irrevocable_fire.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.and"
+  ).length() ~is 1
+  nested_fire.find_output("transferred").type === bool.Bool ~is #true
+  nested_fire.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.and"
+  ).length() ~is 1
+  verify_design(valid_design) ~is #void
+  verify_design(pulse_design) ~is #void
+  verify_design(valid_to_pulse_design) ~is #void
+  verify_design(decoupled_design) ~is #void
+  verify_design(irrevocable_design) ~is #void
+  verify_design(nested_fire_design) ~is #void
+  verify_design(decoupled_ctrl_design) ~is #void
+  verify_design(irrevocable_ctrl_design) ~is #void
+  verify_design(decoupled_fire_design) ~is #void
+  verify_design(irrevocable_fire_design) ~is #void
+  verify_design(compatibility_design) ~is #void
+  verify_design(reversed_compatible_design) ~is #void
+  verify_design(irrevocable_ctrl_to_decoupled_ctrl_design) ~is #void
+  verify_design(transitive_control_design) ~is #void
+  verify_design(refined_helpers_design) ~is #void
+  embedded.run_elaboration(fun (): fixture.MismatchedAdapter()) ~throws "does not support"
+  embedded.run_elaboration(fun (): fixture.UnsupportedFire()) ~throws "argument does not satisfy annotation"
+  embedded.run_elaboration(fun (): fixture.RefinedIsNotExact()) ~throws "argument does not satisfy annotation"
+  embedded.run_elaboration(fun (): fixture.WrongMergeParent()) ~throws "does not support"
+  embedded.run_elaboration(fun (): fixture.MissingMergeMember()) ~throws "requires every refinement member"
+  embedded.run_elaboration(fun (): fixture.ExtraMergeMember()) ~throws "exactly one unmatched field"
+  embedded.run_elaboration(fun (): fixture.WrongMergeMemberType()) ~throws "member types do not match"
+  embedded.run_elaboration(fun (): fixture.WrongSplitMemberDirection()) ~throws "driveable hardware place"
+  embedded.run_elaboration(fun (): fixture.ValidIsNotReadyValidCompatible()) ~throws "does not support"
+  embedded.run_elaboration(fun (): fixture.UnsafeCtrlStrengthening()) ~throws "does not support"
+  embedded.run_elaboration(fun (): fixture.PayloadIsNotCtrl()) ~throws "control-flow chaining requires"

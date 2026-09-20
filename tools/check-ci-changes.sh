@@ -100,7 +100,7 @@ check_field tools/install-riscv-toolchain.sh programs true
 check_field .github/workflows/ci.yml programs true
 check_no_jobs flow/README.md
 check_no_jobs flow/DEVELOPING.md
-check_no_jobs tests/backend/README.md
+check_no_jobs tools/testing/circt/README.md
 check_no_jobs sram/README.md
 check_no_jobs vlsi/sim/README.md
 check_no_jobs tools/emacs/rhodium-mode.el
@@ -121,8 +121,8 @@ check_matrix_entry rheg/tests/event-collector-test.cpp circt_matrix ci-circt-lan
 check_field rhodium/event/analyze.rhm simulation true
 check_field rheg/runtime/rheg.cc simulation true
 check_field rheg/perfetto/rheg_perfetto.cc simulation true
-check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-foundation-test
-check_matrix_entry tests/analysis/clocking-test.rhm host_matrix ci-host-hygiene-test
+check_matrix_entry rhodium/analysis/tests/clocking-test.rhm host_matrix ci-host-foundation-test
+check_matrix_entry rhodium/analysis/tests/clocking-test.rhm host_matrix ci-host-hygiene-test
 check_matrix_entry flow/main.rhdl host_matrix ci-host-cores-test
 check_matrix_entry flow/main.rhdl host_matrix ci-host-socs-test
 check_matrix_entry flow/main.rhdl host_matrix ci-host-hygiene-test
@@ -146,8 +146,8 @@ if [[ "$(classification_for flow/queue.rhdl)" != "$(classification_for rhodium/s
   exit 1
 fi
 check_matrix_entry support/annotations.rhm host_matrix ci-host-foundation-test
-check_matrix_entry tests/frontend/conditional-fixture.rhdl host_matrix ci-host-foundation-test
-check_matrix_entry tests/frontend/invalid/bad-width.rhdl host_matrix ci-host-foundation-test
+check_matrix_entry rhodium/frontend/tests/conditional-fixture.rhdl host_matrix ci-host-foundation-test
+check_matrix_entry rhodium/frontend/tests/invalid/bad-width.rhdl host_matrix ci-host-foundation-test
 check_matrix_entry noc/rtl/router.rhdl host_matrix ci-host-models-test
 check_matrix_entry noc/rtl/router.rhdl host_matrix ci-host-socs-test
 check_matrix_entry noc/rtl/router.rhdl circt_matrix ci-circt-protocols-test
@@ -203,12 +203,16 @@ check_field tools/run-racket-tests.sh host true
 check_field tools/run-racket-tests.sh circt false
 check_field tools/run-racket-tests.sh examples true
 check_field tools/run-racket-tests.sh simulation true
+check_field tools/testing/run-negative.rkt host true
+check_field tools/testing/run-negative.rkt circt false
+check_field tools/testing/circt/load-example.rkt host false
+check_field tools/testing/circt/load-example.rkt circt true
 check_matrix_entry tools/check-parameter-annotations.rkt host_matrix ci-host-hygiene-test
 check_matrix_entry tools/parameter-annotation-scope.txt host_matrix ci-host-hygiene-test
 check_matrix_entry tools/check-license-headers.sh host_matrix ci-host-hygiene-test
 check_matrix_entry .githooks/pre-commit host_matrix ci-host-hygiene-test
 check_matrix_entry socs/check-boundaries.sh host_matrix ci-host-hygiene-test
-check_field tests/backend/verilog/adder_tb.sv circt true
+check_field rhodium/backend/tests/circt/verilog/adder_tb.sv circt true
 check_field sims/fesvr/direct_mem_htif.cc simulation true
 check_field sims/TestDriver.v simulation true
 check_field sram/map-memories.py simulation true
@@ -248,7 +252,7 @@ fi
 
 while IFS= read -r path; do
   case "$path" in
-    tests/emacs/*|tools/emacs/*)
+    tools/emacs/*)
       continue
       ;;
     vlsi/*)

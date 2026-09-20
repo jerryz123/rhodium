@@ -45,8 +45,8 @@ flowchart LR
 | [`json.rhm`](json.rhm) | Deterministic stable JSON serialization |
 | [`dot.rhm`](dot.rhm) | Port-anchored diagnostic DOT rendering |
 | [`main.rhm`](main.rhm) | Public re-export surface |
-| [`../../tests/frontend/diagram-test.rhm`](../../tests/frontend/diagram-test.rhm) | Model, hierarchy, JSON, DOT, protocol, implicit-control, and transparent-link coverage |
-| [`../../tests/backend/diagram-metadata-test.rhm`](../../tests/backend/diagram-metadata-test.rhm) | Proof that inspection metadata is absent from CIRCT output |
+| [`../../rhodium/diagram/tests/diagram-test.rhm`](../../rhodium/diagram/tests/diagram-test.rhm) | Model, hierarchy, JSON, DOT, protocol, implicit-control, and transparent-link coverage |
+| [`../../rhodium/backend/tests/diagram-metadata-test.rhm`](../../rhodium/backend/tests/diagram-metadata-test.rhm) | Proof that inspection metadata is absent from CIRCT output |
 
 ## Change extraction or formats
 
@@ -102,7 +102,7 @@ When metadata ownership or backend isolation changes, also run:
 diagram_compiled_root="$(mktemp -d)"
 trap 'rm -rf "$diagram_compiled_root"' EXIT
 PLTCOMPILEDROOTS="$diagram_compiled_root" \
-  tools/run-racket-tests.sh tests/backend/diagram-metadata-test.rhm
+  tools/run-racket-tests.sh rhodium/backend/tests/diagram-metadata-test.rhm
 ```
 
 The focused target covers extraction, model, JSON, DOT, and package boundaries.

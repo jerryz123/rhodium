@@ -1,0 +1,15 @@
+#lang rhombus
+// Checks that an explicit endpoint monitor reaches CIRCT assertion IR.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/rtl/interface-monitor.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.MonitoredProducer())
+def circt = emit_circt(design)
+
+check:
+  circt.contains("verif.clocked_assert") ~is #true
+  circt.contains("label \"producer_ready_requires_valid\"") ~is #true

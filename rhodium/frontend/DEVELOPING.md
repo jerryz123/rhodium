@@ -134,12 +134,12 @@ confirm that the change belongs in the frontend. Then preserve these seams:
 
 | Concern | Primary implementation | Focused coverage |
 |---|---|---|
-| Profiles and common circuit forms | [`foundation.rhm`](foundation.rhm), [`standard.rhm`](standard.rhm), [`../language.rhm`](../language.rhm), [`../base/language.rhm`](../base/language.rhm) | [`../../tests/frontend/frontend-test.rhm`](../../tests/frontend/frontend-test.rhm), [`../../tests/frontend/lop-equivalence-test.rhm`](../../tests/frontend/lop-equivalence-test.rhm) |
-| Elaboration context and construction | [`kernel.rhm`](kernel.rhm) | [`../../tests/frontend/ir-test.rhm`](../../tests/frontend/ir-test.rhm), [`../../tests/frontend/elaboration-result-test.rhm`](../../tests/frontend/elaboration-result-test.rhm) |
-| Generator parameters and specialization | [`kernel.rhm`](kernel.rhm), [`support/generator-parameters.rhm`](support/generator-parameters.rhm) | [`../../tests/frontend/circuit-param-test.rhm`](../../tests/frontend/circuit-param-test.rhm), [`../../tests/frontend/generator-parameters-test.rhm`](../../tests/frontend/generator-parameters-test.rhm), [`../../tests/frontend/nested-circuit-test.rhm`](../../tests/frontend/nested-circuit-test.rhm) |
-| Hardware annotations, fields, and methods | [`support/fields.rhm`](support/fields.rhm), [`support/hardware-types.rhm`](support/hardware-types.rhm), [`support/hardware-methods.rhm`](support/hardware-methods.rhm) | [`../../tests/frontend/hardware-annotation-test.rhm`](../../tests/frontend/hardware-annotation-test.rhm), [`../../tests/frontend/width-method-test.rhm`](../../tests/frontend/width-method-test.rhm), [`../../tests/frontend/into-test.rhm`](../../tests/frontend/into-test.rhm) |
-| Deferred literal descriptions | [`support/hardware-literal.rhm`](support/hardware-literal.rhm) | [`../../tests/frontend/hardware-literal-test.rhm`](../../tests/frontend/hardware-literal-test.rhm), [`../../tests/frontend/dont-care-test.rhm`](../../tests/frontend/dont-care-test.rhm) |
-| Invalid profile and construction uses | Language readers, foundation, kernel, and layers | [`../../tests/frontend/invalid/`](../../tests/frontend/invalid/), [`../../tests/frontend/run-negative-cases.rktd`](../../tests/frontend/run-negative-cases.rktd) |
+| Profiles and common circuit forms | [`foundation.rhm`](foundation.rhm), [`standard.rhm`](standard.rhm), [`../language.rhm`](../language.rhm), [`../base/language.rhm`](../base/language.rhm) | [`tests/frontend-test.rhm`](tests/frontend-test.rhm), [`tests/lop-equivalence-test.rhm`](tests/lop-equivalence-test.rhm) |
+| Elaboration context and construction | [`kernel.rhm`](kernel.rhm) | [`../../rhodium/frontend/tests/ir-test.rhm`](../../rhodium/frontend/tests/ir-test.rhm), [`../../rhodium/frontend/tests/elaboration-result-test.rhm`](../../rhodium/frontend/tests/elaboration-result-test.rhm) |
+| Generator parameters and specialization | [`kernel.rhm`](kernel.rhm), [`support/generator-parameters.rhm`](support/generator-parameters.rhm) | [`../../rhodium/frontend/tests/circuit-param-test.rhm`](../../rhodium/frontend/tests/circuit-param-test.rhm), [`../../rhodium/frontend/tests/generator-parameters-test.rhm`](../../rhodium/frontend/tests/generator-parameters-test.rhm), [`../../rhodium/frontend/tests/nested-circuit-test.rhm`](../../rhodium/frontend/tests/nested-circuit-test.rhm) |
+| Hardware annotations, fields, and methods | [`support/fields.rhm`](support/fields.rhm), [`support/hardware-types.rhm`](support/hardware-types.rhm), [`support/hardware-methods.rhm`](support/hardware-methods.rhm) | [`../../rhodium/frontend/tests/hardware-annotation-test.rhm`](../../rhodium/frontend/tests/hardware-annotation-test.rhm), [`../../rhodium/frontend/tests/width-method-test.rhm`](../../rhodium/frontend/tests/width-method-test.rhm), [`../../rhodium/frontend/tests/into-test.rhm`](../../rhodium/frontend/tests/into-test.rhm) |
+| Deferred literal descriptions | [`support/hardware-literal.rhm`](support/hardware-literal.rhm) | [`../../rhodium/frontend/tests/hardware-literal-test.rhm`](../../rhodium/frontend/tests/hardware-literal-test.rhm), [`../../rhodium/std/tests/dont-care-test.rhm`](../../rhodium/std/tests/dont-care-test.rhm) |
+| Invalid profile and construction uses | Language readers, foundation, kernel, and layers | [`tests/invalid/`](tests/invalid/), [`tests/run-negative-cases.rktd`](tests/run-negative-cases.rktd) |
 
 ## Validation
 
@@ -151,9 +151,9 @@ negative cases. For example:
 
 ```sh
 tools/run-racket-tests.sh \
-  tests/frontend/circuit-param-test.rhm \
-  tests/frontend/generator-parameters-test.rhm
-bash tests/frontend/run-negative.sh
+  rhodium/frontend/tests/circuit-param-test.rhm \
+  rhodium/frontend/tests/generator-parameters-test.rhm
+bash rhodium/frontend/tests/run-negative.sh
 ```
 
 Also run:

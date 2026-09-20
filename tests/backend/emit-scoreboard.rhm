@@ -1,9 +1,0 @@
-#lang rhombus
-// Emits CIRCT MLIR for the standard single-set, single-clear scoreboard fixture.
-// SPDX-License-Identifier: Apache-2.0
-
-import:
-  "../../rhodium/backend/circt.rhm" open
-  "../../examples/std/scoreboard.rhdl" as example
-
-print(emit_circt(example.design))

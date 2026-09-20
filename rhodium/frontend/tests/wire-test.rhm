@@ -1,0 +1,34 @@
+#lang rhombus
+// Checks concise wires, vector element assembly, readability, and diagnostics.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../examples/rtl/wire.rhdl" as fixture
+  "wire-invalid-fixture.rhdl" as invalid
+
+def module_def = fixture.design.modules[0]
+def wires = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.wire"
+)
+def vector_creates = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.vector_create"
+)
+
+check:
+  wires.length() ~is 1
+  wires[0].attribute("name") ~is "staged"
+  type_equal(wires[0].places[0].type, VectorType(4, bool.Bool)) ~is #true
+  type_equal(wires[0].results[0].type, VectorType(4, bool.Bool)) ~is #true
+  vector_creates.length() ~is 1
+  module_def.find_output("sum").place.driver === wires[0].results[0] ~is #true
+  verify_design(fixture.design) ~is #void
+  verify_design(
+    embedded.run_elaboration(fun (): invalid.ForwardWire())
+  ) ~is #void
+  embedded.run_elaboration(fun (): invalid.UndrivenWire()) ~throws "place temporary is undriven"
+  embedded.run_elaboration(fun (): invalid.MultipleWireDrivers()) ~throws "already has a driver"
+  embedded.run_elaboration(fun (): invalid.PartialVectorWire()) ~throws "incomplete element-wise drivers"
+  embedded.run_elaboration(fun (): invalid.MixedVectorWire()) ~throws "cannot mix whole-value and element-wise drivers"

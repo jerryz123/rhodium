@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits the composed data IO-MSHR and instruction/data RN-I contention fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../cores/rv5stage/tests/io-mshr-fixture.rhdl".RV5StageIOMSHRFixture
+
+// Slot fifteen exercises metadata beyond the old three-bit tag on the RN-I path.
+def design = embedded.run_elaboration(fun (): RV5StageIOMSHRFixture(~vector_completion_slots: 16))
+print(emit_circt(design))

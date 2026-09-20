@@ -1,0 +1,64 @@
+#lang rhombus
+// Checks embedded #lang rhodium elaboration and user-library layering.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/standard.rhm" as frontend
+  "../../../examples/lop/adder-standard.rhdl" as adder_fixture
+  "../../../examples/lop/adder-kernel.rhm" as kernel_fixture
+  "../../../examples/rtl/layered-adder.rhdl" as layered_fixture
+  "../../../examples/rtl/host-parameters.rhdl" as host_parameter_fixture
+
+def design = adder_fixture.design
+def add_operation = design.modules[0].operations.find(
+  fun (operation): operation.opcode == "rtl.add"
+)
+def kernel_design = kernel_fixture.design
+def kernel_module = kernel_design.modules[0]
+def kernel_add = kernel_module.operations.find(
+  fun (operation): operation.opcode == "rtl.add"
+)
+def layered_design = layered_fixture.design
+def layered_module = layered_design.modules[0]
+def layered_adds = layered_module.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.add"
+)
+def layered_mux = layered_module.operations.find(
+  fun (operation): operation.opcode == "rtl.mux_lookup"
+)
+def host_parameter_wrapper = host_parameter_fixture.design.modules[0]
+def host_parameter_module = host_parameter_fixture.design.modules[1]
+
+check:
+  design.modules.length() ~is 1
+  design.modules[0].name ~is "Adder"
+  design.modules[0].inputs[0].type.width ~is 8
+  design.modules[0].outputs[0].type.width ~is 8
+  add_operation.origin.kind ~is "embedded add"
+  verify_design(design) ~is #void
+  kernel_module.name ~is "Adder"
+  kernel_module.find_input("a").type.width ~is 8
+  kernel_module.find_output("sum").place.driver === kernel_add.results[0] ~is #true
+  kernel_add.origin.kind ~is "embedded add"
+  verify_design(kernel_design) ~is #void
+  layered_module.name ~is "LayeredAdder"
+  frontend.bool_type(layered_module.find_input("bypass").type) ~is #true
+  layered_adds.length() ~is 3
+  layered_adds[0].origin.kind ~is "embedded add"
+  layered_module.find_operation(layered_mux.operands[0].defining_op_id).opcode ~is "rtl.cast"
+  layered_module.find_operation(layered_mux.operands[0].defining_op_id).operands[0].name ~is "bypass"
+  layered_mux.attribute("keys") ~is [1]
+  layered_mux.origin.kind ~is "embedded mux"
+  layered_module.find_output("sum").place.driver === layered_mux.results[0] ~is #true
+  verify_design(layered_design) ~is #void
+  host_parameter_module.name ~is "HostParameterized"
+  host_parameter_module.find_input("x").type.width ~is 8
+  host_parameter_module.find_output("y").type.width ~is 8
+  host_parameter_wrapper.name ~is "HostWrapper"
+  host_parameter_wrapper.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.instance"
+  ).length() ~is 1
+  verify_design(host_parameter_fixture.design) ~is #void
+  6 frontend.(*) 3 ~is 18
+  frontend.(!) #true ~is #false

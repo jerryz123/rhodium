@@ -1,0 +1,50 @@
+#lang rhombus
+// Checks MaybeOneHot typing, compact literals, methods, total muxing, and invalid uses.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
+  "maybe-one-hot-fixture.rhdl" as fixture
+
+def design = embedded.run_elaboration(fun (): fixture.MaybeOneHotFixture())
+def module_def = design.modules[0]
+def onehot_muxes = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.onehot_mux"
+)
+
+check:
+  bool.maybe_one_hot_type(fixture.Maybe3) ~is #true
+  bool.maybe_one_hot_width(fixture.Maybe3) ~is 3
+  fixture.Maybe3.describe() ~is "maybe-onehot<3>"
+  type_equal(fixture.Maybe3, bool.MaybeOneHot(3)) ~is #true
+  type_equal(fixture.Maybe3, Bits(3)) ~is #false
+  fixture.Maybe3().packed_value() ~is 0
+  fixture.Maybe3(1).packed_value() ~is 2
+  type_equal(module_def.find_output("selection").type, fixture.Maybe3) ~is #true
+  type_equal(module_def.find_output("masked").type, fixture.Maybe3) ~is #true
+  bool.bool_type(module_def.find_output("valid").type) ~is #true
+  bool.bool_type(module_def.find_output("lane_one").type) ~is #true
+  bool.bool_type(module_def.find_output("supplied_lane_two").type) ~is #true
+  type_equal(module_def.find_output("supplied_bits").type, Bits(3)) ~is #true
+  type_equal(module_def.find_output("index").type, Bits(2)) ~is #true
+  onehot_muxes.length() ~is 2
+  onehot_muxes.filter(~keep: fun (operation): operation.operands.length() == 5).length() ~is 1
+  onehot_muxes.filter(~keep: fun (operation): operation.operands.length() == 4).length() ~is 1
+  (for all (onehot_mux in onehot_muxes):
+     type_equal(onehot_mux.results[0].type, Bits(8))) ~is #true
+  verify_design(design) ~is #void
+
+  bool.MaybeOneHot(0) ~throws "PosInt"
+  bool.maybe_one_hot_width(Bits(3)) ~throws "expected a MaybeOneHot type"
+  fixture.Maybe3(-1) ~throws "Nat"
+  fixture.Maybe3(3) ~throws "literal index must satisfy 0 <= index < width"
+  embedded.run_elaboration(fun (): fixture.ExactSelectorWithDefault()) ~throws "selector with a default must have a MaybeOneHot type"
+  embedded.run_elaboration(fun (): fixture.MaybeSelectorWithoutDefault()) ~throws "selector without a default must have an exactly-one selector type"
+  embedded.run_elaboration(fun (): fixture.BitsSelectorWithoutDefault()) ~throws "mux: no such field or method"
+  embedded.run_elaboration(fun (): fixture.WrongMaybeChoiceCount()) ~throws "choice count must equal the MaybeOneHot width"
+  embedded.run_elaboration(fun (): fixture.WrongMaybeMaskWidth()) ~throws "mask must have a matching Mask type"
+  embedded.run_elaboration(fun (): fixture.WrongMaybeMaskType()) ~throws "mask must have a matching Mask type"
+  embedded.run_elaboration(fun (): fixture.BitwiseMaybeOneHot()) ~throws "operands must have exactly the same bitwise type"
+  embedded.run_elaboration(fun (): fixture.WrongMaybeDrive()) ~throws "exactly the same hardware type"

@@ -1,0 +1,21 @@
+#lang rhombus
+// Checks that hardware conjunction binds more tightly than hardware disjunction.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "bitwise-precedence-fixture.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def disjunction = module_def.find_operation(
+  module_def.find_output("result").place.driver.defining_op_id
+)
+def conjunction = module_def.find_operation(
+  disjunction.operands[1].defining_op_id
+)
+
+check:
+  disjunction.opcode ~is "rtl.or"
+  conjunction.opcode ~is "rtl.and"
+  type_equal(disjunction.results[0].type, Bits(8)) ~is #true
+  verify_design(fixture.design) ~is #void

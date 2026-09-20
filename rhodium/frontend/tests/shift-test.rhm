@@ -1,0 +1,62 @@
+#lang rhombus
+// Checks shift operator elaboration, provenance, result widths, and host-integer fallback.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as kernel
+  "../../../rhodium/frontend/layers/comb.rhm" as comb
+  "../../../examples/rtl/shifts.rhdl" as fixture
+  "host-shift-fixture.rhdl" as host_fixture
+
+def module_def = fixture.design.modules[0]
+def shifts = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.shl" || operation.opcode == "rtl.shru"
+)
+def host_module = host_fixture.design.modules[0]
+
+fun shift_operation(operation):
+  match operation.opcode
+  | "rtl.shl": #true
+  | "rtl.shru": #true
+  | "rtl.shrs": #true
+  | ~else: #false
+
+def host_shifts = host_module.operations.filter(
+  ~keep: shift_operation
+)
+def host_shift_constants = host_module.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.constant"
+)
+
+check:
+  shifts.length() ~is 6
+  shifts.filter(~keep: fun (operation): operation.opcode == "rtl.shl").length() ~is 3
+  shifts.filter(~keep: fun (operation): operation.opcode == "rtl.shru").length() ~is 3
+  shifts[0].operands[0].type.width ~is 8
+  shifts[0].operands[1].type.width ~is 3
+  shifts[2].operands[1].type.width ~is 12
+  shifts[0].results[0].type.width ~is 8
+  shifts[2].results[0].type.width ~is 8
+  shifts[0].origin.kind ~is "embedded shl"
+  shifts[1].origin.kind ~is "embedded shru"
+  shifts[4].operands[1].type.width ~is 2
+  shifts[5].operands[1].type.width ~is 2
+  8 comb.(<<) 2 ~is 32
+  8 comb.(>>) 2 ~is 2
+  verify_design(fixture.design) ~is #void
+
+  host_shifts.length() ~is 7
+  host_shifts[0].operands[1].type.width ~is 1
+  host_shifts[1].operands[1].type.width ~is 2
+  host_shifts[2].operands[1].type.width ~is 2
+  host_shifts[3].operands[1].type.width ~is 3
+  host_shifts[4].opcode ~is "rtl.shrs"
+  host_shifts[4].operands[1].type.width ~is 2
+  host_shift_constants.map(
+    fun (operation): operation.attribute("value")
+  ) ~is [0, 3, 3, 3, 3, 3]
+  verify_design(host_fixture.design) ~is #void
+  kernel.run_elaboration(
+    fun (): host_fixture.NegativeHostShift()
+  ) ~throws "shift amount must be a host natural number or hardware Bits"

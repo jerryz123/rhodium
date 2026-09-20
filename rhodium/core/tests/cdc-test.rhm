@@ -1,0 +1,79 @@
+#lang rhombus
+// Checks durable sync-level crossing evidence and its structural core invariants.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("ValidSyncLevelEvidence")
+  def clock = builder.input(module_def, "clock", Clock)
+  def level = builder.input(module_def, "level", Bits(1))
+  def synchronized = builder.output(module_def, "synchronized", Bits(1))
+  def stage0 = builder.register(module_def, "stage0", Bits(1), clock)
+  def stage1 = builder.register(module_def, "stage1", Bits(1), clock)
+  builder.drive(stage0.next, level)
+  builder.drive(stage1.next, stage0.current)
+  builder.drive(synchronized, stage1.current)
+  def evidence = builder.sync_level_crossing(module_def,
+                                             level,
+                                             clock,
+                                             [stage0, stage1])
+  builder.finish(module_def)
+  check:
+    evidence.opcode ~is "cdc.sync_level"
+    evidence.operands ~is [level, clock, stage0.current, stage1.current]
+    verify_design(design) ~is #void
+    dump_ir(design).contains(
+      "cdc.sync_level %level to %clock stages [%stage0, %stage1] promise stable_level"
+    ) ~is #true
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("InvalidSyncLevelFanout")
+  def clock = builder.input(module_def, "clock", Clock)
+  def level = builder.input(module_def, "level", Bits(1))
+  def leaked = builder.output(module_def, "leaked", Bits(1))
+  def stage0 = builder.register(module_def, "stage0", Bits(1), clock)
+  def stage1 = builder.register(module_def, "stage1", Bits(1), clock)
+  builder.drive(stage0.next, level)
+  builder.drive(stage1.next, stage0.current)
+  builder.drive(leaked, stage0.current)
+  builder.sync_level_crossing(module_def, level, clock, [stage0, stage1])
+  builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "intermediate stages must not have functional fanout"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("InvalidSyncLevelClock")
+  def destination_clock = builder.input(module_def, "destination_clock", Clock)
+  def other_clock = builder.input(module_def, "other_clock", Clock)
+  def level = builder.input(module_def, "level", Bits(1))
+  def stage0 = builder.register(module_def, "stage0", Bits(1), destination_clock)
+  def stage1 = builder.register(module_def, "stage1", Bits(1), other_clock)
+  builder.drive(stage0.next, level)
+  builder.drive(stage1.next, stage0.current)
+  builder.sync_level_crossing(module_def,
+                              level,
+                              destination_clock,
+                              [stage0, stage1])
+  builder.finish(module_def)
+  check:
+    verify_design(design) ~throws "stages must use the destination clock"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("InvalidSyncLevelShape")
+  def clock = builder.input(module_def, "clock", Clock)
+  def wide = builder.input(module_def, "wide", Bits(2))
+  def bit = builder.input(module_def, "bit", Bits(1))
+  def stage = builder.register(module_def, "stage", Bits(1), clock)
+  check:
+    builder.sync_level_crossing(module_def, bit, clock, [stage]) ~throws "at least two register stages"
+    builder.sync_level_crossing(module_def, wide, clock, [stage, stage]) ~throws "source must be Bits(1)"

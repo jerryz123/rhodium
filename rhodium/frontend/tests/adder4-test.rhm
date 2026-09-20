@@ -1,0 +1,36 @@
+#lang rhombus
+// Checks the frontend-authored four-bit ripple-carry hierarchy.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../examples/rtl/adder4.rhdl" as fixture
+
+def design = fixture.design
+def top = design.modules.find(fun (module_def): module_def.name == "Adder4")
+def child = design.modules.find(fun (module_def): module_def.name == "FullAdder")
+def instances = top.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.instance"
+)
+def extracts = top.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.extract"
+)
+def casts = top.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.cast"
+)
+def concatenation = top.operations.find(
+  fun (operation): operation.opcode == "rtl.concat"
+)
+
+check:
+  design.modules.length() ~is 2
+  instances.length() ~is 4
+  (for all (instance in instances): instance.attribute("module") === child) ~is #true
+  extracts.length() ~is 8
+  casts.length() ~is 14
+  concatenation.operands.length() ~is 4
+  top.find_output("Sum").place.driver === concatenation.results[0] ~is #true
+  instances[1].places[2].driver === instances[0].results[1] ~is #true
+  instances[2].places[2].driver === instances[1].results[1] ~is #true
+  instances[3].places[2].driver === instances[2].results[1] ~is #true
+  verify_design(design) ~is #void

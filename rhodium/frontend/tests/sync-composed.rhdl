@@ -1,0 +1,51 @@
+#lang rhodium/base
+// Defines nested reset scopes for focused sync-circuit composition tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/layers/comb.rhm") open
+  lib("rhodium/frontend/layers/sequential.rhm") open
+  lib("rhodium/frontend/layers/hierarchy.rhm") open
+  lib("rhodium/frontend/layers/sync.rhm") open
+  "../../../examples/lop/counter-composed.rhdl".Counter
+
+sync_circuit LocalResetCounter():
+  input local_reset: Reset
+  output count: Bits(1)
+
+  reset_when(local_reset):
+    def zero = bits(0, 1)
+    reg state(Bits(1), ~init: zero)
+    state <== state + bits(1, 1)
+    count <== state
+
+sync_circuit LocalResetChildTop():
+  input local_reset: Reset
+  output count: Bits(1)
+
+  def CounterModule = Counter(1)
+  inst counter(CounterModule, ~reset_when: local_reset)
+  count <== counter.count
+
+sync_circuit ExplicitNestedBoundary():
+  input child_clock: Clock
+  input child_reset: Reset
+  output count: Bits(1)
+
+  circuit ExplicitChild():
+    input clock: Clock
+    input reset: Reset
+    output count: Bits(1)
+    reg state(Bits(1), ~clock: clock, ~reset: reset, ~init: bits(0, 1))
+    state <== state + bits(1, 1)
+    count <== state
+
+  inst child(ExplicitChild())
+  child.clock <== child_clock
+  child.reset <== child_reset
+  count <== child.count
+
+export:
+  LocalResetCounter
+  LocalResetChildTop
+  ExplicitNestedBoundary

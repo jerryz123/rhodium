@@ -10,7 +10,7 @@ The parent owns package-wide boundaries; this guide owns component extension and
 Keep stateless packet rules below engines and monitors. This directory does not own transaction allocation, memory storage, or network topology.
 
 Keep tests and authoring fixtures in [`../tests/`](../tests/), and behavioral
-benches in [`tests/backend/`](../../tests/backend/DEVELOPING.md).
+benches in [`../tests/circt/`](../tests/circt/).
 For source moves, update direct consumers, package documentation, and build/CI
 paths together. Run `make check-boundaries` and the affected host and behavioral
 checks with a fresh isolated compiled root. Directory boundaries do not add RTL

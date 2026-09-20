@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits the production RV64 vector pipeline for reduction and scalar-move transaction tests.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../cores/rv5stage/tests/vector-reduction-fixture.rhdl" open
+  "../../../../riscv/isa/xlen.rhm" open
+def design = embedded.run_elaboration(fun (): RV5StageVectorReductionFixture(XLen.X64, 128))
+print(emit_circt(design))

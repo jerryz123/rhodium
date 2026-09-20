@@ -376,7 +376,7 @@ Verilog the formal semantics.
 
 ### Focused commands
 
-Implementation will add a `tests/formal/` mirror and a focused target:
+Implementation uses package-owned `rhodium/formal/tests/` and a focused target:
 
 ```sh
 make formal-test
@@ -461,7 +461,7 @@ Files:
 - `tools/check-boundaries.sh`
 - `Makefile`
 - `rhodium/README.md`
-- `tests/README.md`
+- `tools/testing/README.md`
 
 Tasks:
 
@@ -496,7 +496,7 @@ Checkpoint:
 Files:
 
 - `rhodium/formal/snapshot.rhm`
-- `tests/formal/snapshot-test.rhm`
+- `rhodium/formal/tests/snapshot-test.rhm`
 
 The snapshot is an internal language-boundary format, not a second public IR.
 It will carry a schema version so incompatible engine and adapter revisions
@@ -560,7 +560,7 @@ Checkpoint:
 Files:
 
 - `rhodium/formal/engine.rkt`
-- `tests/formal/preflight-test.rkt`
+- `rhodium/formal/tests/preflight-test.rkt`
 
 Preflight runs before symbolic inputs or a solver are created. It validates
 the snapshot version, strict interfaces, packed widths, operation coverage,
@@ -596,7 +596,7 @@ Checkpoint:
 Files:
 
 - `rhodium/formal/engine.rkt`
-- `tests/formal/operation-test.rkt`
+- `rhodium/formal/tests/operation-test.rkt`
 
 Implement one evaluator that accepts concrete or symbolic Rosette bitvectors.
 Do not create separate concrete and symbolic semantic dispatchers.
@@ -644,7 +644,7 @@ Checkpoint:
 Files:
 
 - `rhodium/formal/engine.rkt`
-- `tests/formal/hierarchy-test.rhm`
+- `rhodium/formal/tests/hierarchy-test.rhm`
 
 Tasks:
 
@@ -679,7 +679,7 @@ Checkpoint:
 Files:
 
 - `rhodium/formal/engine.rkt`
-- `tests/formal/query-test.rkt`
+- `rhodium/formal/tests/query-test.rkt`
 
 Tasks:
 
@@ -719,7 +719,7 @@ Checkpoint:
 Files:
 
 - `rhodium/formal/main.rhm`
-- `tests/formal/api-test.rhm`
+- `rhodium/formal/tests/api-test.rhm`
 
 The public wrapper owns exact Rhodium type checking and converts the plain engine
 result into these conceptual objects:
@@ -787,8 +787,8 @@ Checkpoint:
 
 Files:
 
-- `tests/formal/equivalence-test.rhm`
-- focused fixtures under `tests/formal/`
+- `rhodium/formal/tests/equivalence-test.rhm`
+- focused fixtures under `rhodium/formal/tests/`
 - `rhodium/formal/README.md`
 - the owning architecture and test documents listed earlier
 
@@ -932,7 +932,7 @@ Implementation will update:
 - `rhodium/README.md` with the formal consumer in the authoritative package graph;
 - the root `README.md` with one concise optional-formal-engine link and status
   item;
-- `tests/README.md` with `tests/formal/` and `make formal-test`;
+- `tools/testing/README.md` with `rhodium/formal/tests/` and `make formal-test`;
 - `tools/check-boundaries.sh` with the formal dependency direction and narrow
   Racket-module exception; and
 - `rhodium/formal/README.md` with the supported semantic matrix and examples.

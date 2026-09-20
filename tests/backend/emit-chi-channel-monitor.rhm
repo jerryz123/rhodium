@@ -1,9 +1,0 @@
-#lang rhombus
-// Emits the two-ended ready-valid CHI monitor behavior fixture.
-// SPDX-License-Identifier: Apache-2.0
-
-import:
-  "../../rhodium/backend/circt.rhm" open
-  "../../chi/tests/channel-monitor-fixture.rhdl" as fixture
-
-print(emit_circt(fixture.design))

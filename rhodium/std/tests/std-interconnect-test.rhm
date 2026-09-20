@@ -1,0 +1,103 @@
+#lang rhombus
+// Checks generic host sets, stripe geometry, and transfer-containment argument contracts.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/std/interconnect.rhdl" as interconnect
+  "std-interconnect-fixture.rhdl" as fixture
+
+def ids = interconnect.IdRange(2, 6)
+def touching_ids = interconnect.IdRange(6, 8)
+def overlapping_ids = interconnect.IdRange(5, 9)
+def address = interconnect.AddressSet(0x8000, 0x0fff)
+def adjacent_address = interconnect.AddressSet(0x9000, 0x0fff)
+def overlapping_address = interconnect.AddressSet(0x8800, 0x07ff)
+def transfers = interconnect.TransferSizes(4, 64)
+def allocated = interconnect.allocate_id_ranges([
+  interconnect.IdRange(2, 6),
+  interconnect.IdRange(0, 2)
+])
+def match_module = fixture.design.modules[0]
+
+check:
+  fixture.transfer_range_design(Bits(3), 8) ~throws "Bits"
+  fixture.transfer_range_design(VectorType(4, Bits(1)), 8) ~throws "Bits"
+  fixture.transfer_range_design(Bits(4), 17) ~throws "window must fit"
+  fixture.transfer_range_design(Bits(4), 0) ~throws "PosInt"
+
+// Compare striped ownership and dense projection against byte arithmetic.
+for (banks in [1, 2, 4, 8]):
+  for (stripe in [1, 16, 64, 256]):
+    def layout = interconnect.StripedAddressLayout(256, stripe, banks)
+    check:
+      layout.total_bytes ~is 256 * banks
+      layout.fits_unsigned_width(11) ~is #true
+      layout.fits_unsigned_width(7) ~is #false
+    for (offset in 0..layout.total_bytes):
+      def bank = (offset div stripe) mod banks
+      def dense = (offset div (stripe * banks)) * stripe + (offset mod stripe)
+      check:
+        layout.address_set(0x8000, bank).contains(0x8000 + offset) ~is #true
+        layout.project(0x8000 + offset, 0x8000, bank, ~local_base: 0x1000) ~is 0x1000 + dense
+
+check:
+  interconnect.StripedAddressLayout(64, 128, 2) ~throws "must not exceed"
+  interconnect.StripedAddressLayout(256, 64, 3) ~throws "Pow2Int"
+  interconnect.StripedAddressLayout(256, 64, 4).address_set(64, 0) ~throws "aligned"
+  interconnect.StripedAddressLayout(256, 64, 4).address_set(0, 4) ~throws "bank count"
+  interconnect.StripedAddressLayout(256, 64, 4).project(64, 0, 0) ~throws "outside"
+  fixture.projection_design(interconnect.StripedAddressLayout(256, 64, 4), 9) ~throws "must fit the address width"
+
+check:
+  ids.start ~is 2
+  ids.end ~is 6
+  ids.size ~is 4
+  ids.contains(2) ~is #true
+  ids.contains(5) ~is #true
+  ids.contains(6) ~is #false
+  ids.overlaps(overlapping_ids) ~is #true
+  ids.overlaps(touching_ids) ~is #false
+  ids.fits_unsigned_width(2) ~is #false
+  ids.fits_unsigned_width(3) ~is #true
+  interconnect.IdRange(0, 1).fits_unsigned_width(0) ~is #true
+  interconnect.IdRange(1, 2).fits_unsigned_width(0) ~is #false
+  allocated.map(fun (mapping): mapping.global) ~is [
+    interconnect.IdRange(0, 4),
+    interconnect.IdRange(4, 6)
+  ]
+  allocated[0].map(3) ~is 1
+  allocated[0].unmap(2) ~is 4
+  address.contains(0x8000) ~is #true
+  address.contains(0x8abc) ~is #true
+  address.contains(0x9000) ~is #false
+  address.overlaps(overlapping_address) ~is #true
+  address.overlaps(adjacent_address) ~is #false
+  address.fits_unsigned_width(15) ~is #false
+  address.fits_unsigned_width(16) ~is #true
+  interconnect.AddressSet(0, 0).fits_unsigned_width(0) ~is #true
+  interconnect.AddressSet(1, 0).fits_unsigned_width(0) ~is #false
+  transfers.contains(4) ~is #true
+  transfers.contains(32) ~is #true
+  transfers.contains(3) ~is #false
+  transfers.contains(128) ~is #false
+  transfers.contains_all(interconnect.TransferSizes(8, 32)) ~is #true
+  transfers.contains_all(interconnect.TransferSizes(1, 32)) ~is #false
+  transfers.contains_all(interconnect.TransferSizes(8, 128)) ~is #false
+  match_module.outputs.map(fun (output): output.name) ~is [
+    "single", "multiple", "empty"
+  ]
+  match_module.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.and"
+  ).length() ~is 3
+  verify_design(fixture.design) ~is #void
+  interconnect.IdRange(-1, 2) ~throws "Nat"
+  interconnect.IdRange(2, 2) ~throws "greater than start"
+  interconnect.IdRangeMap(interconnect.IdRange(0, 1),
+                          interconnect.IdRange(0, 2)) ~throws "same size"
+  interconnect.allocate_id_ranges([]) ~throws "NonemptyList.of(IdRange)"
+  interconnect.allocate_id_ranges([ids, "bad"]) ~throws "NonemptyList.of(IdRange)"
+  interconnect.AddressSet(0x8001, 0x0fff) ~throws "zeroes in every variable"
+  interconnect.TransferSizes(3, 8) ~throws "Pow2Int"
+  interconnect.TransferSizes(4, 6) ~throws "Pow2Int"
+  interconnect.TransferSizes(8, 4) ~throws "must not exceed"

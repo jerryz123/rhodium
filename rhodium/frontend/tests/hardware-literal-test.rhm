@@ -1,0 +1,94 @@
+#lang rhombus
+// Checks generic literal shadows, recursive packing, and literal circuit parameters.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as kernel
+  "../../../rhodium/frontend/support/hardware-literal.rhm" open
+  "hardware-literal-fixture.rhdl" as fixture
+
+def module_def = fixture.design.modules[0]
+def constants = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.constant"
+)
+def casts = module_def.operations.filter(
+  ~keep: fun (operation): operation.opcode == "rtl.cast"
+)
+def aggregate_cast = casts.find(
+  fun (operation): type_equal(operation.results[0].type, fixture.Aggregate())
+)
+def aggregate_constant = module_def.find_operation(
+  aggregate_cast.operands[0].defining_op_id
+)
+
+check:
+  scalar_data_type(fixture.Nibble()) ~is #true
+  scalar_width(fixture.Nibble()) ~is 4
+  bitwise_type(fixture.Nibble()) ~is #false
+  arithmetic_type(fixture.Nibble()) ~is #false
+  scalar_data_type(fixture.ExplicitScalar()) ~is #true
+  bitwise_type(fixture.ExplicitScalar()) ~is #false
+  bitwise_type(fixture.BitwiseNibble()) ~is #true
+  arithmetic_type(fixture.BitwiseNibble()) ~is #false
+  type_equal(fixture.Nibble(), fixture.Nibble()) ~is #true
+  type_equal(fixture.Nibble(), fixture.ExplicitScalar()) ~is #false
+  type_equal(fixture.CustomWidth(4), fixture.CustomWidth(4)) ~is #true
+  type_equal(fixture.CustomWidth(4), fixture.CustomWidth(5)) ~is #false
+  scalar_width(fixture.CustomWidth(4)) ~is 4
+  type_well_formed(fixture.CustomWidth(0)) ~is #false
+  type_well_formed(fixture.CustomWidth("wide")) ~is #false
+  type_well_formed(fixture.CustomWidth(#false)) ~is #false
+
+  fixture.bits_initial is_a HardwareLiteral ~is #true
+  fixture.bool_initial is_a HardwareLiteral ~is #true
+  fixture.mode_initial is_a HardwareLiteral ~is #true
+  fixture.grant_initial is_a HardwareLiteral ~is #true
+  fixture.nibble_initial is_a HardwareLiteral ~is #true
+  fixture.raw_nibble_initial is_a HardwareLiteral ~is #true
+  fixture.pair_initial is_a HardwareLiteral ~is #true
+  fixture.reordered_pair_initial is_a HardwareLiteral ~is #true
+  fixture.dynamic_pair_initial is_a HardwareLiteral ~is #true
+  fixture.lanes_initial is_a HardwareLiteral ~is #true
+  fixture.aggregate_initial is_a HardwareLiteral ~is #true
+  fixture.bits_initial is_a PackedLiteral ~is #true
+  fixture.bool_initial is_a PackedLiteral ~is #true
+  fixture.raw_nibble_initial is_a PackedLiteral ~is #true
+
+  type_equal(fixture.nibble_initial.literal_type(), fixture.Nibble()) ~is #true
+  fixture.nibble_initial.packed_value() ~is 10
+  type_equal(fixture.raw_nibble_initial.literal_type(), fixture.Nibble()) ~is #true
+  fixture.raw_nibble_initial.packed_value() ~is 5
+  fixture.pair_initial.packed_value() ~is 0xA3
+  fixture.reordered_pair_initial.packed_value() ~is 0x89
+  fixture.dynamic_pair_initial.packed_value() ~is 0x67
+  fixture.lanes_initial.packed_value() ~is 0x54
+  fixture.aggregate_initial.packed_value() ~is 0xA354
+
+  packed_literal(Bits(4), 16) ~throws "does not fit bits<4>"
+  packed_literal(Clock, 0) ~throws "DataType"
+
+  module_def.name ~is "LiteralParameters"
+  constants.map(fun (operation): operation.attribute("value")) ~is [9, 1, 1, 4, 10, 5, 0xA354]
+  casts.length() ~is 6
+  aggregate_constant.opcode ~is "rtl.constant"
+  aggregate_constant.attribute("value") ~is 0xA354
+  type_equal(aggregate_constant.results[0].type, Bits(16)) ~is #true
+  type_equal(aggregate_cast.results[0].type, fixture.Aggregate()) ~is #true
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.record_create"
+  ).length() ~is 0
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.vector_create"
+  ).length() ~is 0
+  verify_design(fixture.design) ~is #void
+
+  kernel.run_elaboration(
+    fun (): fixture.LiteralParameters(fixture.bits_initial,
+                                      fixture.bool_initial,
+                                      fixture.mode_initial,
+                                      fixture.grant_initial,
+                                      fixture.nibble_initial,
+                                      fixture.raw_nibble_initial,
+                                      fixture.aggregate_initial)
+  ) is_a Design ~is #true

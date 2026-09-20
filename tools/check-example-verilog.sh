@@ -31,8 +31,8 @@ while IFS= read -r source_file; do
   source_has_golden=false
   while IFS= read -r design_export; do
     manifest_prefix="|$source_file|$design_export|"
-    manifest_count="$(grep -Fc "$manifest_prefix" tests/backend/run-circt.sh || true)"
-    manifest_entry="$(grep -F "$manifest_prefix" tests/backend/run-circt.sh || true)"
+    manifest_count="$(grep -Fc "$manifest_prefix" tools/testing/circt/run.sh || true)"
+    manifest_entry="$(grep -F "$manifest_prefix" tools/testing/circt/run.sh || true)"
     if [[ "$manifest_count" != 1 ]]; then
       echo "$source_file: $design_export requires exactly one backend manifest entry" >&2
       status=1
@@ -64,7 +64,7 @@ while IFS= read -r source_file; do
 
   while IFS= read -r reference_export; do
     reference_manifest_count="$(
-      grep -F "|$source_file|" tests/backend/run-circt.sh \
+      grep -F "|$source_file|" tools/testing/circt/run.sh \
         | grep -Fc "|$reference_export'" || true
     )"
     if [[ "$reference_manifest_count" != 1 ]]; then

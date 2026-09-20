@@ -1,0 +1,176 @@
+#lang rhombus
+// Checks universal output properties, violating witnesses, assumptions, aggregates, hierarchy, and fail-closed cases.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/formal/main.rhm" open
+
+fun constant_module(name, value):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module(name)
+  def result = builder.output(top, "result", Bits(4))
+  builder.drive(result, builder.constant(top, Bits(4), value))
+  builder.finish(top)
+
+def constant_seven = constant_module("PropertyConstantSeven", 7)
+def seven_target = FormalOutputPattern("result", 7)
+def proved_constant = check_output_property(constant_seven, seven_target)
+def elaboration_proved:
+  check_output_property(DesignElaboration(constant_seven.design, constant_seven),
+                        seven_target)
+def constant_counterexample:
+  check_output_property(constant_seven, FormalOutputPattern("result", 8))
+def partial_constant:
+  check_output_property(constant_module("PropertyPartialConstant", 0b1010),
+                        FormalOutputPattern("result", 0b1000, 0b1100))
+
+fun add_module():
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("PropertyAdd")
+  def a = builder.input(top, "a", Bits(4))
+  def b = builder.input(top, "b", Bits(4))
+  def sum = builder.output(top, "sum", Bits(4))
+  builder.drive(sum, builder.add(top, a, b))
+  builder.finish(top)
+
+def add = add_module()
+def assumed_add:
+  check_output_property(add,
+                        FormalOutputPattern("sum", 5),
+                        FormalQuery([FormalInputAssumption("a", 1),
+                                     FormalInputAssumption("b", 4)]))
+def add_counterexample:
+  check_output_property(add, FormalOutputPattern("sum", 0, 0b1000))
+def property_a:
+  add_counterexample.assignments.find(fun (entry): entry.port == "a")
+def property_b:
+  add_counterexample.assignments.find(fun (entry): entry.port == "b")
+def vacuous_add:
+  check_output_property(add,
+                        FormalOutputPattern("sum", 5),
+                        FormalQuery([FormalInputAssumption("a", 0),
+                                     FormalInputAssumption("a", 1)]))
+
+fun aggregate_module():
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("PropertyAggregate")
+  def pair_type = RecordType([RecordField("high", Bits(2)),
+                              RecordField("low", Bits(2))])
+  def high = builder.constant(top, Bits(2), 0b10)
+  def low = builder.constant(top, Bits(2), 0b01)
+  def pair = builder.output(top, "pair", pair_type)
+  builder.drive(pair,
+                builder.record_create(top,
+                                      pair_type,
+                                      [["high", high], ["low", low]]))
+  builder.finish(top)
+
+def aggregate_proved:
+  check_output_property(aggregate_module(), FormalOutputPattern("pair", 0b1001))
+
+fun hierarchical_constant():
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("PropertyConstantLeaf")
+  def child_result = builder.output(child, "result", Bits(4))
+  builder.drive(child_result, builder.constant(child, Bits(4), 7))
+  builder.finish(child)
+
+  def top = builder.module("PropertyConstantHierarchy")
+  def result = builder.output(top, "result", Bits(4))
+  def leaf = builder.instance(top, child, "leaf")
+  builder.drive(result, leaf.output("result"))
+  builder.finish(top)
+
+def hierarchy_proved:
+  check_output_property(hierarchical_constant(), seven_target)
+
+fun onehot_module():
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("PropertyOneHot")
+  def selector = builder.input(top, "selector", Bits(3))
+  def a = builder.input(top, "a", Bits(4))
+  def b = builder.input(top, "b", Bits(4))
+  def c = builder.input(top, "c", Bits(4))
+  def result = builder.output(top, "result", Bits(4))
+  builder.drive(result, builder.onehot_mux(top, selector, [a, b, c]))
+  builder.finish(top)
+
+def onehot = onehot_module()
+def onehot_query = FormalQuery([FormalOneHotAssumption("selector")])
+def proved_onehot:
+  check_output_property(onehot,
+                        FormalOutputPattern("result", 7),
+                        FormalQuery([FormalOneHotAssumption("selector"),
+                                     FormalInputAssumption("a", 7),
+                                     FormalInputAssumption("b", 7),
+                                     FormalInputAssumption("c", 7)]))
+def onehot_counterexample:
+  check_output_property(onehot, FormalOutputPattern("result", 7), onehot_query)
+def property_selector:
+  onehot_counterexample.assignments.find(fun (entry): entry.port == "selector")
+def unsupported_onehot:
+  check_output_property(onehot, FormalOutputPattern("result", 7))
+
+def free_design = Design()
+def free_builder = Builder(free_design)
+def free_module = free_builder.module("PropertyFree")
+def free_result = free_builder.output(free_module, "result", Bits(4))
+free_builder.drive(free_result, free_builder.dont_care(free_module, Bits(4)))
+def finished_free = free_builder.finish(free_module)
+def unsupported_property:
+  check_output_property(finished_free, FormalOutputPattern("result", 0))
+
+def unknown_property:
+  FormalPropertyResult("unknown",
+                       seven_target,
+                       [],
+                       #false,
+                       FormalDiagnostic("Synthetic", #false, #false, #false, #false,
+                                        "solver returned unknown"))
+
+check:
+  proved_constant.proved() ~is #true
+  elaboration_proved.proved() ~is #true
+  proved_constant.target === seven_target ~is #true
+  proved_constant.assignments.length() ~is 0
+  proved_constant.output ~is #false
+  proved_constant.describe() ~is "proved"
+  constant_counterexample.counterexample() ~is #true
+  constant_counterexample.assignments.length() ~is 0
+  constant_counterexample.output.port ~is "result"
+  constant_counterexample.output.packed_value ~is 7
+  constant_counterexample.describe().contains("result = 7") ~is #true
+  partial_constant.proved() ~is #true
+  assumed_add.proved() ~is #true
+  assumed_add.assumptions.length() ~is 2
+  add_counterexample.counterexample() ~is #true
+  add_counterexample.assignments.length() ~is 2
+  ((property_a.packed_value + property_b.packed_value) bits.and 0b1111) ~is add_counterexample.output.packed_value
+  (add_counterexample.output.packed_value bits.and 0b1000) != 0 ~is #true
+  vacuous_add.vacuous() ~is #true
+  vacuous_add.describe().contains("unsatisfiable") ~is #true
+  aggregate_proved.proved() ~is #true
+  hierarchy_proved.proved() ~is #true
+  proved_onehot.proved() ~is #true
+  onehot_counterexample.counterexample() ~is #true
+  onehot_counterexample.output.packed_value != 7 ~is #true
+  property_selector.packed_value == 1 || property_selector.packed_value == 2 || property_selector.packed_value == 4 ~is #true
+  unsupported_onehot.unsupported() ~is #true
+  unsupported_onehot.diagnostic.opcode ~is "rtl.onehot_mux"
+  unsupported_property.unsupported() ~is #true
+  unsupported_property.diagnostic.opcode ~is "rtl.dont_care"
+  unknown_property.unknown() ~is #true
+  unknown_property.describe().contains("solver returned unknown") ~is #true
+  check_output_property(add, "not-a-target") ~throws "must be a FormalOutputPattern"
+  check_output_property(add, FormalOutputPattern("sum", 7), "not-a-query") ~throws "must be a FormalQuery"
+  check_output_property(add, FormalOutputPattern("missing", 0)) ~throws "unknown output"
+  check_output_property(add, FormalOutputPattern("sum", 16)) ~throws "invalid packed pattern"
+  check_output_property(add, FormalOutputPattern("sum", 8, 0b0111)) ~throws "invalid packed pattern"
+  check_output_property(add, FormalOutputPattern("sum", 0, #true)) ~throws "invalid care mask"
+  check_output_property(add.design, FormalOutputPattern("sum", 0)) ~throws "must identify an explicit top module"

@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits all width/option fragmenter variants for native-channel packet-preservation tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../chi/tests/fragmenter-metadata-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))

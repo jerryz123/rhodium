@@ -10,9 +10,9 @@ search_sources() {
   local pattern="$1"
   shift
   if command -v rg >/dev/null 2>&1; then
-    rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl'
+    rg -n "$pattern" "$@" --glob '*.rhm' --glob '*.rhdl' --glob '!**/tests/**'
   else
-    find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' \) \
+    find "$@" -type f \( -name '*.rhm' -o -name '*.rhdl' \) ! -path '*/tests/*' \
       -exec grep -nHE "$pattern" {} +
   fi
 }

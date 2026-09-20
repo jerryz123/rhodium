@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits optional-field CHI request rewrite and projector handshake coverage.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../chi/tests/request-update-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))
