@@ -11,6 +11,34 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
+// Merges two persistent completion sources without inserting payload storage.
+// Once an unaccepted completion is selected, its source remains selected until
+// transfer, preserving the output's Irrevocable contract.
+sync_circuit RV5StageFpCompletionArbiter(T :: DataType):
+  interface ingress[2](Irrevocable(T), ~role: consumer)
+  interface egress(Irrevocable(T), ~role: producer)
+
+  reg prefer_second(~init: Bool(#false))
+  reg locked(~init: Bool(#false))
+  reg owner_is_second(Bool)
+  def unlocked_is_second = mux(prefer_second, ingress[1].valid, !ingress[0].valid & ingress[1].valid)
+  def selected_is_second = mux(locked, owner_is_second, unlocked_is_second)
+  def selected_valid = mux(selected_is_second, ingress[1].valid, ingress[0].valid)
+
+  ingress[0].ready <== egress.ready & !selected_is_second
+  ingress[1].ready <== egress.ready & selected_is_second
+  egress.valid <== selected_valid
+  egress.bits <== mux(selected_is_second, ingress[1].bits, ingress[0].bits)
+  describe_interface_selection([selected_valid & !selected_is_second, selected_valid & selected_is_second])
+  describe_interface_contract(ingress, egress, "data", ~kind: "irrevocable-rr-arbiter", ~trace_model: interface_trace_selection())
+
+  when (selected_valid & egress.ready):
+    locked <== Bool(#false)
+    prefer_second <== !selected_is_second
+  elsewhen (selected_valid & !locked):
+    locked <== Bool(#true)
+    owner_is_second <== selected_is_second
+
 sync_circuit RV5StageFpExecutionService(
   xlen :: XLen,
   profile :: FloatingPointProfile,
@@ -46,12 +74,10 @@ sync_circuit RV5StageFpExecutionService(
     |> valid_pipe(2)
     |> fixed_responses.completion
 
-  inst completion_merge(RRArbiter(Result, 2))
+  inst completion_merge(RV5StageFpCompletionArbiter(Result))
   fixed_responses.response |> completion_merge.ingress[0]
   div_sqrt.completion |> completion_merge.ingress[1]
-  inst completed(Queue(Result, 2, ~pipe: #true))
-  completion_merge.egress |> completed.ingress
-  completed.egress |> result
+  completion_merge.egress |> result
 
   // Admission reserves completion space before launching nonstallable work.
   // Callers arbitrate authorized operands and retain their own destination state.

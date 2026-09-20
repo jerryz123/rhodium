@@ -77,11 +77,6 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     next_index=authorized_index=0;
     if(!owners.empty()) fail("macro replaced accepted work");
   }
-  // A returned value becomes drainable only after its sampling edge.
-  if(!owners.empty() && owners.front().done) {
-    expect(vector_sites::complete,completions++,owners.front().attempt.ref);
-    owners.pop_front(); ++late_count; ++complete_count;
-  }
   if(response) {
     bool found=false;
     for(auto& owner:owners) if(owner.attempt.tag==response_tag) {
@@ -90,6 +85,12 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
       owner.done=true; found=true; break;
     }
     if(!found) fail("response without an accepted slot");
+  }
+  // The ordered head bypasses completion storage when its response arrives;
+  // an older already-complete head drains on the same edge as before.
+  if(!owners.empty() && owners.front().done) {
+    expect(vector_sites::complete,completions++,owners.front().attempt.ref);
+    owners.pop_front(); ++late_count; ++complete_count;
   }
   if(bool(pipe[2])!=bool(commit || (cancel && pipe[2]))) fail("feedback latency changed");
   if(commit) {

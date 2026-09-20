@@ -616,9 +616,11 @@ using round-robin arbitration and an owner-tagged union. Scalar FPR state
 remains in its architectural adapter; only the WB `.vf` source snapshot crosses
 into the vector descriptor.
 Each vector element reserves a completion slot before issue. A bounded
-locally accepted request queue absorbs service backpressure, while slot exhaustion
-stops earlier issue, keeping MEM/WB feed-forward. Results can return out of
-order; masked VRF writes and exception-flag updates drain in element order.
+locally accepted request queue absorbs service backpressure and bypasses an
+empty queue directly into the shared service, while slot exhaustion stops
+earlier issue, keeping MEM/WB feed-forward. Results can return out of order;
+an arriving result for the ordered head drains immediately, while other results
+remain buffered for element-order masked VRF writes and exception-flag updates.
 Scalar and vector flag updates on the same cycle are ORed together.
 
 Cancellation discards speculative slots and private pipeline validity, but

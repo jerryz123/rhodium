@@ -37,8 +37,10 @@ has independent buffered format lanes.
 Completion arbitration is round-robin, including between format lanes, so
 continuous fixed work cannot starve a ready divide/sqrt result. Results may
 complete out of request order; callers must route them by their retained tags.
-Backpressure is lossless, but a stalled output can eventually fill the shared
-buffers and stop other callers. Progress requires downstream consumers to drain.
+The fixed and divide/sqrt response buffers arbitrate directly onto the result;
+there is no redundant post-arbitration queue. Backpressure is lossless, but a
+stalled output can eventually fill the source buffers and stop other callers.
+Progress requires downstream consumers to drain.
 
 The service has no architectural cancellation input: accepted work survives
 younger redirects. Synchronous reset discards pending work and results.

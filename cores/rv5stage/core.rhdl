@@ -201,7 +201,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       Array(
         wb_fp.execution_request |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_scalar_fp_tag, FpOwner(), request, FpOwner().Scalar(request.tag))),
         wb_vector_fp_request_link.right |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_vector_fp_tag, FpOwner(), request, FpOwner().Vector(request.tag)))
-      ) |> rr_arbiter() |> queue(2) |> wb_fp_execution.request
+      ) |> rr_arbiter() |> queue(2, ~flow: #true) |> wb_fp_execution.request
       (
         wb_fp_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(FpOwner().Vector).into(Bool))
           |> parallel(
