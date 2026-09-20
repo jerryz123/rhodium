@@ -1,5 +1,5 @@
 #lang rhodium
-// Streams packed integer, extension, or singleton memory/FP operands with ordered WB progress.
+// Retains the sole replayable vector descriptor and sequences ordinary operands beside packed-memory scheduling.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -28,6 +28,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     beat: RV5StageVectorBeat(vlen)
     in_range: Bool
   interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
+  input packed_memory: Bool
+  interface packed_done(Pulse(), ~role: consumer)
+  output retained: RV5StageVectorInstruction(xlen, Context)
   interface cancel(Pulse(), ~role: consumer)
   interface feedback(Valid(RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
   interface reads[3](Valid(Address), ~role: producer)
@@ -35,6 +38,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   interface mask_read(Valid(Bits(index_width(vector_chunks(vlen)))), ~role: producer)
   interface mask_result(Valid(Bits(64)), ~role: consumer)
   interface issue(Decoupled(MicroOp), ~role: producer)
+  input blocked_rows: Vec(vector_depth(vlen), Bool)
   output active: Bool
 
   reg occupied(~init: Bool(#false))
@@ -65,6 +69,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   inst pending(ShiftQueue(MicroOp, 2, ~pipe: #true, ~flushable: #true))
   inst packing(RV5StageVectorOperands(vlen))
   def descriptor = instruction.descriptor
+  retained <== instruction
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
   def whole_register_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
   def mask_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.Mask)
@@ -123,7 +128,6 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def beat_last = empty ||| ((end === limit) & last_field)
   // A vector gather's second read owns port zero in the index-response cycle.
   // The next index read can overlap the preceding data response, not its read.
-  def launch = occupied & !all_issued & !clear & !memory_setup_remaining.or_reduce() & !(gather_vector & context_pipe.egress.valid) & ((reserved < bits(2, 2)) ||| issue.fire())
   def source_chunk = mux(mask_logic ||| scan, cursor >> 6, cursor >> (bits(3, 2) - sew))
   def extension_source_chunk = cursor >> (bits(3, 2) - source_sew)
   def wide_source_chunk = cursor >> (bits(2, 2) - sew)
@@ -168,6 +172,14 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, descriptor.vs2, descriptor.vs1).zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
   def destination_address = (descriptor.vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
   def addresses = Array(first_address, second_address, destination_address)
+  // Older macros have captured every operand before this descriptor starts.
+  // Only their pending writes can block us; this macro's own writes cannot.
+  // Indexed gathers conservatively wait for older writes before their index
+  // read, since the dependent data read is a nonstallable second read stage.
+  def mask_address = (cursor >> 6)[0..index_width(vector_chunks(vlen))].zext(row_base_width)
+  def uses_mask = descriptor.masked ||| descriptor.control.carry_input ||| descriptor.control.mask_select
+  def sources_ready = empty ||| (!blocked_rows[first_address] & (!second_source ||| !blocked_rows[second_address]) & (!destination_source ||| !blocked_rows[destination_address]) & (!uses_mask ||| !blocked_rows[mask_address]) & (!gather_vector ||| !blocked_rows.as_bits().or_reduce()))
+  def launch = occupied & !packed_memory & !all_issued & !clear & sources_ready & !memory_setup_remaining.or_reduce() & !(gather_vector & context_pipe.egress.valid) & ((reserved < bits(2, 2)) ||| issue.fire())
   context_pipe.flush <== clear
   context_pipe.ingress.valid <== launch
   context_pipe.ingress.bits.slide_valid <== slide_valid
@@ -362,7 +374,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def authorized_event = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Authorized)
   // One admitted macro owns every generated beat, including fresh attempts
   // after retry. The existing pending queue carries that owner to issue.
-  def release_macro = occupied & (cancel.valid ||| fault ||| truncate ||| (authorized_event & feedback.bits.last))
+  def release_macro = occupied & (cancel.valid ||| fault ||| truncate ||| packed_done.valid ||| (authorized_event & feedback.bits.last))
   describe_interface_retained_storage(accepted, release_macro, occupied, ~name: "macro")
   describe_interface_contract(request, pending.ingress, "macro-beats", ~trace_model: interface_trace_retained(~name: "macro"))
   when (read_offer & !clear):
@@ -379,7 +391,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     assert(empty ||| ((feedback.bits.first <= authorized) & (feedback.bits.end > authorized)) ||| (compress & feedback.bits.last & (feedback.bits.first === feedback.bits.end) & (feedback.bits.end === authorized)), "vector_feedback_is_oldest_unauthorized_beat")
   when (retry & !cancel.valid):
     assert(feedback.bits.end <= limit, "vector_retry_stays_within_active_body")
-  when (cancel.valid ||| fault ||| truncate):
+  when (cancel.valid ||| fault ||| truncate ||| packed_done.valid):
     occupied <== Bool(#false)
     all_issued <== Bool(#false)
     memory_setup_remaining <== bits(0, index_width(vlen + 1))

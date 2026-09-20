@@ -169,6 +169,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   inst wb_csrs(RV5StageCsrFile(core_profile))
   def wb_vector_retirement_link :: Handle = interface_link(Valid(MemoryWriteback(xlen, vector_completion_slots)))
   wire wb_vector_active: Bool
+  wire wb_vector_available: Bool
   wire id_vector_legal: Bool
   wire wb_vector_certification_pending: Bool
   wire wb_vector_loads_pending: Bool
@@ -577,7 +578,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_vector_launch_in_flight = (ex_input.valid & ex_input.bits.vector_launch) ||| (mem_input.valid & mem_input.bits.vector_launch) ||| (wb_input.valid & wb_input.bits.vector_launch)
   // Certification releases independent scalar work before vector unrolling
   // finishes. Memory ordering and vector/state observers retain explicit barriers.
-  def id_vector_wait = id_vector_launch_in_flight ||| wb_vector_certification_pending ||| (wb_vector_active & (id_vector_instruction ||| core_serializing_operation(id_control.system, id_control.fence) ||| id_management)) ||| (wb_vector_loads_pending & id_memory_operation.needs_unique()) ||| (wb_vector_stores_pending & id_memory_operation.is_memory()) ||| ((wb_vector_fp_write_pending ||| wb_vector_fp_pending) & id_control.floating_point_valid)
+  def id_vector_wait = id_vector_launch_in_flight ||| wb_vector_certification_pending ||| (id_vector_instruction & (!wb_vector_available ||| wb_vector_integer_write_pending)) ||| (wb_vector_active & (core_serializing_operation(id_control.system, id_control.fence) ||| id_management)) ||| (wb_vector_loads_pending & id_memory_operation.needs_unique()) ||| (wb_vector_stores_pending & id_memory_operation.is_memory()) ||| ((wb_vector_fp_write_pending ||| wb_vector_fp_pending) & id_control.floating_point_valid)
   def id_hazard_reasons = RV5StageHazardReasons():
     deferred_dependency: id_deferred_dependency_hazard
     scoreboard_raw: id_scoreboard_raw_hazard
@@ -673,6 +674,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       id_vector_legality.vstart <== wb_csrs.vector_state.vstart
       id_vector_legal <== id_vector_legality.legal
       wb_vector_active <== wb_vector.active ||| wb_vector_integer_write_pending
+      wb_vector_available <== wb_vector.available
       wb_vector_certification_pending <== wb_vector.certification_pending
       wb_vector_loads_pending <== wb_vector.loads_pending
       wb_vector_fp_pending <== wb_vector.fp_pending
@@ -752,6 +754,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector_fp_update_link.left.valid <== Bool(#false)
       wb_vector_fp_update_link.left.bits <== bits(0, 5)
       wb_vector_active <== Bool(#false)
+      wb_vector_available <== Bool(#true)
       id_vector_legal <== Bool(#false)
       wb_vector_certification_pending <== Bool(#false)
       wb_vector_loads_pending <== Bool(#false)

@@ -96,12 +96,8 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   if(commit) {
     if(!pipe[2]) fail("feedback without issue");
     if(disposition==0) {
-      if(pipe[2]->memory) {
-        for(const auto& owner:owners) if(owner.attempt.tag==pipe[2]->tag) fail("live slot reused");
-        owners.push_back({*pipe[2],!slow || !pipe[2]->enabled,cycle+10+(3-pipe[2]->tag)*3});
-      } else {
-        expect(vector_sites::complete,completions++,pipe[2]->ref); ++complete_count;
-      }
+      for(const auto& owner:owners) if(owner.attempt.tag==pipe[2]->tag) fail("live slot reused");
+      owners.push_back({*pipe[2],!pipe[2]->memory || !slow || !pipe[2]->enabled,cycle+10+(3-pipe[2]->tag)*3});
       authorized_index=pipe[2]->index+1;
     } else if(disposition==1) { ++retry_count; next_index=authorized_index; }
     else if(disposition==2) ++fault_count;

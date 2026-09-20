@@ -8,11 +8,23 @@ Architectural geometry lives in `riscv/isa/vector.rhm`; these modules own the
 named core's physical chunk storage and adapters. Do not add instruction
 recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
 
-The allocation boundary remains single-macro: no younger vector instruction
-can read or overwrite the bank until the current macro and accepted results
-drain. The completion scoreboard is a bounded operation-owner table, not a
-multi-instruction renamer. Keep slot reservation, local acceptance, result
-arrival, and ordered release distinct.
+There is one replayable issue owner: `unroller.rhdl` retains the descriptor
+until its final beat receives non-replayable acceptance. Its packed-memory
+schedule consumes that same retained descriptor; it is not another unroller.
+Two bounded macro contexts allow accepted work to outlive issue ownership.
+Persistent completion slots retain route and macro identity across descriptor
+replacement. Keep allocation, final acceptance, result arrival, and drain distinct.
+
+Every ordinary beat, including immediate integer results, reserves a slot in
+one persistent ring. Packed beats share its allocation/acceptance/drain frontier;
+their layout and partial-row carry retain independent completion ownership.
+Replay restores only the current unauthorized suffix. Result routing uses the
+slot's route, never the current descriptor's route, and no launch resets the ring.
+All accepted operands are captured, so older issued instructions have no unread
+VRF sources. Older pending writes block reads by 64-bit row; `dependencies.rhdl`
+conservatively interlocks overlapping architectural destination groups. Gather's
+dependent second read waits for older writes before starting its nonstallable
+read pair. There is no renaming or interleaved instruction unrolling.
 
 Certified contiguous macros select `packed-memory.rhdl` after the page check,
 before execution allocation. Its byte/field cursor maps aligned XLEN requests
@@ -22,9 +34,11 @@ queue; masked and segmented stores use the explicit row-gather schedule.
 Loads capture raw hit/delayed data in reserved slots and align only at ordered
 drain. A completed prefix and carry suffix can update on the same edge.
 Segment mapping remains explicit byte routing, separate from the rotator.
-The existing `execute.rhdl` instance arbitrates its SIMD E64 rotate slice between
-ordinary execution and the packed-memory alignment interface; there is no
-second barrel shifter or VRF.
+The existing `execute.rhdl` instance shares its SIMD E64 rotate slice between
+ordinary execution and packed alignment. Fixed-cycle execution/store preparation
+has priority over buffered load alignment. Ordered completion and final carry
+flush arbitrate the sole VRF write port without lossy Valid arbitration; there
+is no second barrel shifter or VRF.
 
 Packed retry restores the rejected beat's complete byte/field/address cursor,
 drops younger read preparation and reservations, and retains accepted responses
@@ -58,16 +72,16 @@ stalls and explicit flush. Capture on macro acceptance, preserve across retry,
 and release only on the actual occupied-to-idle conditions. Never use the PC or
 the replayable operation index as an occurrence identity.
 
-Immediate completion follows the operand/result pipes and successful local
-authorization. Deferred acceptance writes the real result-entry array at
+Every ordinary completion follows successful local authorization into the
+real result-entry array at
 `wb_tag`; ordered drain reads `head` only after its response has completed.
 These accepted entries have FIFO ownership despite out-of-order result arrival,
 so the existing queue-storage contract carries their issue references using
 the original write/read controls. Speculative reservations are not captures;
 retry does not clear accepted owners. No trace model is asserted for arbitrary
 indexed response traversal. There is deliberately no response-arrival event.
-The immediate and drained flows merge before the completion checkpoint and
-feed the existing VRF write port, preserving its inactive payload selection.
+The ordered drained flow reaches the completion checkpoint and existing VRF
+write port. Immediate arithmetic uses the same owner storage as deferred results.
 
 `memory.rhdl` explicitly forks the lookup/context, request/decision, and
 feedback/outcome branches; the parent composition likewise forks compute
@@ -81,6 +95,10 @@ retries, fault/truncation, no-write completions, stalled issue, ordered drain,
 slot reuse, and pending reset. The multi-slot case returns younger responses
 first. Keep `rv5stage-vector-reduction`, `rv5stage-vector-config`, and the vector
 memory/FP/muldiv fixtures as functional regressions for the affected paths.
+`rv5stage-vector-overlap` independently delays FP and memory responses to check
+final-acceptance release, FP-to-store row chaining, route changes with old
+responses outstanding, final-beat replay, WAW admission, persistent slot wrap,
+and a canceled packed prefix whose partial-row carry still needs writeback.
 
 ## Implementation ownership
 
@@ -148,8 +166,8 @@ before admitting the macro to the unroller. A launch in EX/MEM/WB blocks younger
 Decode, so the context cannot be replaced and WB request readiness is reserved
 without making WB elastic. Keep issue occupancy distinct from accepted memory
 completion ownership.
-Younger scalar exceptions are retained until the full active macro drains,
-not merely its currently occupied completion slots. Interrupts and vector/state observers wait for both; scalar memory admission
+Younger scalar exceptions are retained until all active macro contexts drain,
+not merely the currently occupied completion slots. Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
 Scalar vector results join the buffered deferred GPR completion arbiter and
 reserve their destination at WB allocation; do not merge a late result with
@@ -259,10 +277,11 @@ the element base only after its final field. Unit stride steps the base by
 negative, zero, and overlapping strides. Indexed segments instead retain the
 scalar base and reread the current element's index for each field. Warm-up
 skips one whole segment per addition for nonindexed forms. Destination/source field groups start at
-`vd/vs3 + field * ceil(EMUL)`. A macro-local operation sequence,
-not the architectural element, selects completion slots and ordered drain, so
-several fields of one segment cannot alias the same slot. On retry, restore the
-operation sequence, element, field, and address checkpoints together. Fault
+`vd/vs3 + field * ceil(EMUL)`. A persistent ring, independent of the macro-local
+operation sequence or architectural element, selects completion slots and
+ordered drain. Several fields and outstanding macros cannot alias a live slot.
+On retry, restore the unauthorized allocation frontier alongside the operation
+sequence, element, field, and address checkpoints. Fault
 reporting remains element-granular because architectural `vstart` counts whole
 segments.
 The private pipeline retains destination mask/shift and element range; the
@@ -293,7 +312,7 @@ not expand the transfer into one LSU operation per mask bit. Loads into `v0`
 must pass through the sole bit-enabled write port so the general row and mask
 shadow stay atomic.
 
-Slot selection is the macro-local operation sequence modulo the configured depth. Depth one
+Slot selection is the persistent allocation frontier modulo the configured depth. Depth one
 must explicitly produce zero and hold the drain head at zero; `index_width(1)`
 still represents a one-bit hardware value. Keep the count on public token,
 completion, and data-protocol types, not just on the private register arrays.

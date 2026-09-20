@@ -83,6 +83,11 @@ invalidate translations or cancel accepted page-table response ownership.
    retains its two translations and authorization under a stable architectural
    context until execution releases them. CSR/privilege changes, SFENCE, traps,
    and interrupts cannot pass this owner. DTLB replacement can proceed normally.
+   Vector issue releases the window after its final non-replayable acceptance:
+   successful slow requests already crossed the combinational physical-address
+   mapping, and accepted lookup hits no longer consult translation. Delayed
+   responses retain slot ownership but do not retain or reuse the page window.
+   A subsequent macro can therefore certify while older responses drain.
    The `pipeline_vector` owner bit travels with the registered lookup; slow
    requests identify vector ownership through their existing writeback union.
    Never apply a window to a scalar request or recheck its pages through the

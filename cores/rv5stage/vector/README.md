@@ -74,7 +74,7 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 The optional event compiler observes three milestones, not numbered pipeline
 stages: `vector/launch` accepts a macro from scalar WB, `vector/issue` accepts
 one execution attempt, and `vector/complete` records an authorized beat's
-immediate completion or ordered deferred-result drain. One launch parents all
+ordered result drain. One launch parents all
 its issue occurrences; every completion inherits its exact issue occurrence.
 Retries create fresh issue occurrences, while rejected and flushed attempts
 have no completion. Masked and empty beats can complete without a VRF write.
@@ -107,7 +107,7 @@ final acceptance on the conservative path, a precise fault, or fault-only-first
 truncation to scalar retirement one cycle after the local decision. Non-memory
 macros and empty memory bodies certify at allocation. Contiguous unit-stride
 memory macros can certify after a page-level precheck of at most two 4 KiB
-pages. The MMU retains their translations until execution drains, independently
+pages. The MMU retains their translations until final non-replayable acceptance, independently
 of DTLB replacement; a covering superpage needs only one translation lookup.
 Certification requires natural element alignment, no address wrap, and full-page
 ordinary cacheable read-idempotent PMA coverage with the required permissions.
@@ -133,10 +133,19 @@ only successful local acceptance emits `saturate: Pulse`; retry and fault
 cannot set `vxsat`.
 The CSR bank ORs that pulse into sticky `vxsat`, with an explicit CSR write on
 the same edge taking priority. `retire: Pulse` updates architectural vector
-retirement state at certification, or final drain on the conservative path;
+retirement state at certification, or successful final acceptance on the conservative path;
 `execution_done: Pulse` always reports completed execution. `active` includes accepted memory completion
 ownership; `unrolling` reports the separate issue/authorization lifetime.
 Integer results use fixed-cycle pairing; slow memory uses tagged completions.
+
+One unroller retains each instruction until every beat has received
+non-replayable acceptance. It then accepts the next instruction while older
+results may still be outstanding. Two bounded macro contexts retain drain and
+architectural-state ownership. A dependent consumer waits for each needed
+64-bit VRF row, rather than the entire older instruction; overlapping destination
+groups conservatively interlock. All operands must be captured at acceptance.
+The unroller never alternates between instructions or delegates replay to an
+accepted service queue. Packed and ordinary memory share this ownership rule.
 
 `RV5StageConfig(~vector_completion_slots: n)` configures the memory completion
 window independently of VLEN; `n` must be a positive power of two and defaults
@@ -198,7 +207,7 @@ zero, and overlapping strides need no special case, and `vstart` warm-up uses
 one addition per skipped segment. Each field maps to the next EMUL-sized
 register group. Decode enforces aligned field groups, `ceil(EMUL) * NFIELDS <= 8`,
 and no register wrap past `v31`. Masking applies to the whole segment.
-Completion slots use a separate macro-local operation sequence, so fields at
+Completion slots use a persistent allocation sequence across macros, so fields at
 the same element can remain outstanding and still drain in issue order. Retry
 restores both element and field cursors plus the authorized address. A fault
 reports the containing segment through `vstart`; fields already performed in
@@ -255,12 +264,12 @@ destination group.
 
 The vector pipeline's private execution stage uses
 [`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its result
-registers retain packed data until the matching local acceptance permits the VRF
-write. An exclusive end position advances even for masked-off elements. The
-final authorized beat retires the macro, advances architectural PC, and consumes
-an NTL hint. Integer retirement clears `vstart` and marks VS Dirty immediately;
-memory waits for its final ordered completion. Interrupt entry waits for the
-macro to drain. A zero-length body or `vstart >= vl` emits one empty
+registers retain packed data until matching local acceptance transfers ownership
+to the ordered completion backend. An exclusive end position advances even for
+masked-off elements. The final authorized beat releases the sole unroller, not
+the pending results. Architectural retirement follows the certification/outcome
+contract above; interrupt entry waits for all macro contexts to drain.
+A zero-length body or `vstart >= vl` emits one empty
 completion beat, with no register write.
 
 At the low-level unroller boundary, issued and authorized positions are
@@ -625,7 +634,8 @@ Scalar and vector flag updates on the same cycle are ORed together.
 
 Cancellation discards speculative slots and private pipeline validity, but
 authorized requests and their result ownership survive until drained. CSR
-observers, subsequent vector instructions, and interrupts wait for this tail.
+observers and interrupts wait for this tail. Subsequent vector instructions
+wait for issue ownership and actual register dependencies instead.
 Final completion clears `vstart`; inactive and tail bits remain undisturbed.
 
 ## Unit-stride memory
@@ -663,8 +673,9 @@ different slots on the same edge; the single VRF write port drains completed
 slots in request order. Raw data is buffered before alignment, so delayed
 responses may arrive out of order. A slot can release into the partial-row carry
 without waiting for its successor; a one-slot configuration therefore progresses.
-Final retirement waits for the last partial-row write. One allocated macro owns the vector register bank until
-these slots drain; younger vector instructions cannot introduce RAW/WAW hazards.
+Execution completion waits for the last partial-row write. Accepted entries and
+the partial-row carry retain their ownership after the unroller is released.
+Younger vector instructions use row-level RAW and group-level WAW interlocks.
 The slot scoreboard distinguishes reservation, acceptance, and ordered release.
 A local replay rewinds only the unauthorized frontier,
 without refetching the macro or reissuing accepted effects. Cancellation drops

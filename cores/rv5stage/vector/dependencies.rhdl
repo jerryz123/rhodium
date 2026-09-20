@@ -1,0 +1,37 @@
+#lang rhodium
+// Computes conservative architectural destination groups for vector WAW admission.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "../decode/vector-ctrl.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
+
+fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageVectorDescriptor(xlen)) :~ Bits(32):
+  def control = descriptor.control
+  def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
+  def memory = control.memory
+  def fp_service = control.floating_point & control.fp_service
+  def whole = memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
+  def mask = memory & (control.memory_mode === VectorMemoryMode.Mask)
+  def indexed = control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedOrdered, VectorMemoryAddressing.IndexedUnordered)
+  def memory_eew = mux(indexed, geometry.sew, control.memory_data_eew)
+  def widened = (control.integer ||| control.multiply_divide ||| fp_service) & control.widening
+  def exponent = geometry.lmul.into(SInt(3)).sext(5) + mux(memory, memory_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5)), widened.as_bits().zext(5).into(SInt(5)))
+  def group = bits(1, 6) << mux(exponent < SInt(5)(0), bits(0, 3), exponent.as_bits()[0..3])
+  def fields = control.memory_nf.zext(6) + bits(1, 6)
+  // Field count is a small constant-selected sum, never a hardware multiplier.
+  fun extent_for(n :: Nat) :~ Bits(6):
+    def mutable total :: Bits(6) = group
+    for (_ in 0..n):
+      total := total + group
+    total
+  def extent = mux_lookup(control.memory_nf, ~default: group, for List (n in 1..8): [n, extent_for(n)])
+  def singleton = mask ||| (control.integer & (control.mask_destination ||| control.reduction ||| control.element_move)) ||| (fp_service & (control.mask_destination ||| control.reduction)) ||| (control.floating_point & !control.fp_service & control.element_move)
+  def count = mux(whole, fields, mux(control.integer & control.whole_register_move, control.whole_register_count.zext(6), mux(singleton, bits(1, 6), mux(memory, extent, group))))
+  def writes = !(memory & control.store) & !(control.integer & control.scalar_destination) & !(control.floating_point & control.floating_scalar_destination)
+  vec(for List (r in 0..32): writes & (bits(r, 6) >= descriptor.vd.zext(6)) & (bits(r, 6) < descriptor.vd.zext(6) + count)).as_bits()
+
+export vector_destination_registers

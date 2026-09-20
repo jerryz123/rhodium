@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits cross-instruction vector issue and completion ownership with independently delayed services.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../vector-overlap-fixture.rhdl" open
+  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/backend/circt.rhm").emit_circt
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageVectorOverlap())))

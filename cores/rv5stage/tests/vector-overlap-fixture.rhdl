@@ -1,0 +1,85 @@
+#lang rhodium
+// Exposes one production unroller and delayed services for cross-instruction overlap checks.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../vector/pipeline.rhdl" open
+  "../vector/bundles.rhdl" open
+  "../decode/core-ctrl.rhdl" open
+  "../fp/bundles.rhdl" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/vector-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorOverlap():
+  def xlen = XLen.X64
+  def slots = 8
+  input instruction: Bits(32)
+  input(vl, vtype, scalar, hit_data): Bits(64)
+  input(request_valid, packed_memory, retry, slow, cancel): Bool
+  interface response(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
+  interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
+  interface fp_result(Irrevocable(RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
+  interface attempt(Valid(RV5StageVectorToken(Bits(64), slots)), ~role: producer)
+  output(request_ready, active, issued, issue_finished, retired): Bool
+  inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
+  inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  inst tokens(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
+  decode.instruction <== instruction
+  vector.request.valid <== request_valid
+  vector.request.bits <== RV5StageVectorInstruction(xlen, Bits(64)):
+    context: scalar
+    descriptor:
+      RV5StageVectorDescriptor(xlen):
+        pc: scalar
+        instruction: instruction
+        state:
+          RiscvVectorState(xlen):
+            vl: vl
+            vtype: vtype
+            vstart: bits(0, 64)
+            vxrm: bits(0, 2)
+            vxsat: Bool(#false)
+        control: decode.control.vector
+        scalar: scalar
+        floating_scalar: bits(0, 64)
+        stride: bits(8, 64)
+        vd: instruction[7..12]
+        vs1: instruction[15..20]
+        vs2: instruction[20..25]
+        masked: !instruction[25].into(Bool)
+  vector.packed_memory <== packed_memory
+  vector.issue |> to_valid() |> tokens.ingress
+  def Array(observed, feedback) = tokens.egress |> fork_valid(2)
+  observed |> attempt
+  tokens.flush <== cancel ||| (tokens.egress.valid & retry)
+  vector.cancel.valid <== cancel
+  (
+    feedback |> filter_valid(_token => !cancel) |> map_valid(token => RV5StageVectorCommit(xlen)):
+      pc: token.context
+      disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
+      slow: slow & token.memory & token.enabled
+      data: hit_data
+      cause: bits(0, 64)
+      fault_address: bits(0, 64)
+  ) |> vector.commit
+  response |> vector.completion
+  vector.memory_drained <== Bool(#true)
+  vector.rounding_mode <== literal(vector.rounding_mode.type, 0)
+  vector.fp_request |> fp_request
+  fp_result |> vector.fp_result
+  vector.multiply_request.ready <== Bool(#false)
+  vector.multiply_result.valid <== Bool(#false)
+  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
+  vector.divide_request.ready <== Bool(#false)
+  vector.divide_result.valid <== Bool(#false)
+  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  request_ready <== vector.request.ready
+  active <== vector.active
+  issued <== vector.issue.fire()
+  issue_finished <== vector.issue_done.valid
+  retired <== vector.retire.valid
+
+export RV5StageVectorOverlap

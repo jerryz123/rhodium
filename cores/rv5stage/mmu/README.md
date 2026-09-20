@@ -52,6 +52,9 @@ until release, drain before traps/interrupts or serialization, and use pinned
 mappings only for the owning macro. The pipeline owner bit is captured alongside
 each lookup; slow-service ownership uses the existing vector writeback tag.
 DTLB replacement by scalar work does not invalidate the retained mappings.
+The vector caller releases after final non-replayable acceptance, once every
+accepted request owns its physical address. Delayed responses may outlive that
+release; they must not consult a subsequent macro's window.
 
 ## Request flow
 
