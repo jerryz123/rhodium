@@ -15,7 +15,7 @@ module rv5stage_ntl_tb;
   logic [63:0] time_counter = 0, hart_id = 0, mstatus, satp;
   logic [1:0] privilege;
   logic translation_flush;
-  RV5StageInterrupts interrupts;
+  RiscvInterrupts interrupts;
   iin_t instruction_access_in;
   iout_t instruction_access_out;
   din_t data_access_in;

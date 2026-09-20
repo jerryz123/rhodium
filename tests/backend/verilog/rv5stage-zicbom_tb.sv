@@ -12,7 +12,7 @@ module rv5stage_zicbom_tb;
   typedef struct packed { dreq_t request; } dout_t;
   logic clock = 0, reset = 1;
   logic [63:0] time_counter = 0, hart_id = 0;
-  RV5StageInterrupts interrupts;
+  RiscvInterrupts interrupts;
   iin_t instruction_access_in;
   iout_t instruction_access_out;
   din_t data_access_in;
