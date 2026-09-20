@@ -841,18 +841,18 @@ fun verify_design_structure(design :: Design):
     | fail("duplicate module name " ++ module_def.name)
     verify_module_structure(module_def)
   def entity_ids = MutableSet{}
-  fun verify_unique_id(entity :: DpiImport || Module || Operation || Value || Place || Memory):
-    when entity.id in entity_ids
-    | fail("duplicate IR id " ++ to_string(entity.id))
-    entity_ids.add(entity.id)
+  fun verify_unique_id(id :: Nat):
+    when id in entity_ids
+    | fail("duplicate IR id " ++ to_string(id))
+    entity_ids.add(id)
   for (dpi_import in design.dpi_imports):
-    verify_unique_id(dpi_import)
+    verify_unique_id(dpi_import.id)
   for (module_def in design.modules):
-    verify_unique_id(module_def)
-    for (operation in module_def.operations): verify_unique_id(operation)
-    for (value in module_def.values): verify_unique_id(value)
-    for (place in module_def.places): verify_unique_id(place)
-    for (memory in module_def.memories): verify_unique_id(memory)
+    verify_unique_id(module_def.id)
+    for (operation in module_def.operations): verify_unique_id(operation.id)
+    for (value in module_def.values): verify_unique_id(value.id)
+    for (place in module_def.places): verify_unique_id(place.id)
+    for (memory in module_def.memories): verify_unique_id(memory.id)
   #void
 
 // Checks whole-design combinational cycles after structural verification has

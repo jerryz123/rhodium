@@ -28,9 +28,6 @@ class ValueLeaf(value :: Value, path :: List.of(String || Nat))
 class ValueDependencySummary(value :: Value,
                              path :: List.of(String || Nat),
                              input_leaves :: List.of(InputLeaf))
-class ValueDependencyBits(value :: Value,
-                          path :: List.of(String || Nat),
-                          input_bits :: Nat)
 class IndexedValueLeaf(value :: Value, leaf_index :: Nat)
 class LeafLayout(paths :: List.of(List.of(String || Nat)),
                  indices_by_path :: MutableMap)
@@ -76,7 +73,7 @@ fun equal_index(items :: List.of(String), item :: String):
     | result := index
   result
 
-fun leaf_paths(type :: HardwareType):
+fun leaf_paths(type :: HardwareType) :: List.of(List.of(String || Nat)):
   cond
   | record_type(type):
       def result = MutableList[]
@@ -101,7 +98,7 @@ fun describe_value_path(value :: Value,
   result
 
 fun place_at_path(place :: Place,
-                  path :: List.of(String || Nat)):
+                  path :: List.of(String || Nat)) :: maybe(Place):
   if path.length() == 0
   | place
   | block:
@@ -112,70 +109,89 @@ fun place_at_path(place :: Place,
 // A projected leaf has its own whole-value driver; otherwise the root driver
 // is followed with the requested path.
 fun place_leaf_driver(place :: Place,
-                      path :: List.of(String || Nat)):
+                      path :: List.of(String || Nat)) :: ValueLeaf:
   def projected_place = place_at_path(place, path)
-  if projected_place && projected_place.driver
-  | ValueLeaf(projected_place.driver, [])
+  if projected_place?.driver
+  | ValueLeaf(projected_place!!.driver, [])
   | ValueLeaf(place.driver, path)
 
 // Visits direct dependency leaves through one shared opcode dispatch. Public
 // path-valued queries and the verifier's indexed walk supply their own sinks.
-fun visit_direct_operation_dependencies(
+fun visit_present_operation_dependencies(
       value :: Value,
       path :: List.of(String || Nat),
-      operation :: False || Operation,
+      operation :: Operation,
       add_operand :: Function.of_arity(2),
       add_whole :: Function.of_arity(1)):
+  use_static
+  def opcode = operation.opcode
+  def operands = operation.operands
+  def places = operation.places
   cond
-  | operation && operation.opcode == "rtl.wire":
-      def driver = place_leaf_driver(operation.places[0], path)
+  | opcode == "rtl.wire":
+      def driver = place_leaf_driver(places[0], path)
       add_operand(driver.value, driver.path)
       #true
-  | operation && combinational_opcode(operation.opcode):
+  | combinational_opcode(opcode):
       cond
-      | operation.opcode == "rtl.record_create" && path.length() > 0:
+      | opcode == "rtl.record_create" && path.length() > 0:
           def field_index = equal_index(operation.attribute("fields"), path[0])
-          add_operand(operation.operands[field_index], path.drop(1))
-      | operation.opcode == "rtl.record_get":
-          add_operand(operation.operands[0],
+          add_operand(operands[field_index], path.drop(1))
+      | opcode == "rtl.record_get":
+          add_operand(operands[0],
                       [operation.attribute("field")] ++ path)
-      | operation.opcode == "rtl.vector_create" && path.length() > 0:
-          add_operand(operation.operands[path[0]], path.drop(1))
-      | operation.opcode == "rtl.vector_get":
-          add_operand(operation.operands[0],
+      | opcode == "rtl.vector_create" && path.length() > 0:
+          add_operand(operands[path[0]], path.drop(1))
+      | opcode == "rtl.vector_get":
+          add_operand(operands[0],
                       [operation.attribute("index")] ++ path)
-      | operation.opcode == "rtl.vector_index":
-          add_whole(operation.operands[0])
-          add_whole(operation.operands[1])
-      | operation.opcode == "rtl.vector_inject" && path.length() > 0:
-          add_operand(operation.operands[0], path)
-          add_whole(operation.operands[1])
-          add_operand(operation.operands[2], path.drop(1))
-      | operation.opcode == "rtl.vector_write_set" && path.length() > 0:
-          add_operand(operation.operands[0], path)
-          add_whole(operation.operands[1])
-          add_whole(operation.operands[2])
-          for (port_index in 0..operation.operands[3].type.length):
-            add_operand(operation.operands[3],
+      | opcode == "rtl.vector_index":
+          add_whole(operands[0])
+          add_whole(operands[1])
+      | opcode == "rtl.vector_inject" && path.length() > 0:
+          add_operand(operands[0], path)
+          add_whole(operands[1])
+          add_operand(operands[2], path.drop(1))
+      | opcode == "rtl.vector_write_set" && path.length() > 0:
+          add_operand(operands[0], path)
+          add_whole(operands[1])
+          add_whole(operands[2])
+          def ports_type :: VectorType = operands[3].type
+          for (port_index in 0..ports_type.length):
+            add_operand(operands[3],
                         [port_index] ++ path.drop(1))
-      | operation.opcode == "rtl.mux_lookup":
-          add_whole(operation.operands[0])
-          for (operand in operation.operands.drop(1)):
+      | opcode == "rtl.mux_lookup":
+          add_whole(operands[0])
+          for (operand in operands.drop(1)):
             add_operand(operand, path)
-      | operation.opcode == "rtl.cast":
-          add_whole(operation.operands[0])
+      | opcode == "rtl.cast":
+          add_whole(operands[0])
       | ~else:
-          for (operand in operation.operands):
+          for (operand in operands):
             add_whole(operand)
       #true
   | ~else:
       #false
 
+fun visit_direct_operation_dependencies(
+      value :: Value,
+      path :: List.of(String || Nat),
+      operation :: maybe(Operation),
+      add_operand :: Function.of_arity(2),
+      add_whole :: Function.of_arity(1)):
+  if operation is_a Operation
+  | visit_present_operation_dependencies(value,
+                                         path,
+                                         operation,
+                                         add_operand,
+                                         add_whole)
+  | #false
+
 // Computes direct upstream leaves when the defining operation is already
 // available, allowing analyses to reuse their own operation indexes.
 fun direct_operation_dependencies(value :: Value,
                                   path :: List.of(String || Nat),
-                                  operation :: False || Operation):
+                                  operation :: maybe(Operation)):
   def dependencies = MutableList[]
 
   fun add_operand(operand :: Value,
@@ -211,7 +227,8 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
   scalar_indices_by_path[[]] := 0
   def scalar_leaf_layout = LeafLayout([[]], scalar_indices_by_path)
 
-  fun leaf_layout(type :: HardwareType):
+  fun leaf_layout(type :: HardwareType) :: LeafLayout:
+    use_static
     if !record_type(type) && !vector_type(type)
     | scalar_leaf_layout
     | block:
@@ -235,24 +252,25 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
     | leaf_index
     | fail("invalid aggregate leaf path")
 
-  fun false_slots(count :: Nat):
+  fun false_slots(count :: Nat) :: MutableList:
     def result = MutableList[]
     for (_ in 0..count): result.add(#false)
     result
 
   fun indexed_place_leaf_driver(place :: Place,
-                                leaf_index :: Nat):
+                                leaf_index :: Nat) :: IndexedValueLeaf:
+    use_static
     def layout = leaf_layout(place.type)
     def path = layout.paths[leaf_index]
     def projected_place = place_at_path(place, path)
-    if projected_place && projected_place.driver
-    | IndexedValueLeaf(projected_place.driver, 0)
+    if projected_place?.driver
+    | IndexedValueLeaf(projected_place!!.driver, 0)
     | IndexedValueLeaf(place.driver, leaf_index)
 
   fun indexed_direct_operation_dependencies(
         value :: Value,
         leaf_index :: Nat,
-        operation :: False || Operation):
+        operation :: maybe(Operation)) :: maybe(List):
     def dependencies = MutableList[]
     def path = leaf_layout(value.type).paths[leaf_index]
 
@@ -277,7 +295,7 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
     | dependencies.snapshot()
     | #false
 
-  fun summarize_module(module_def :: Module):
+  fun summarize_module(module_def :: Module) :: ModuleDependencySummary:
     def cached = module_summaries.get(module_def, #false)
     if cached
     | cached
@@ -297,7 +315,7 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
             def leaf_index = input_leaves.length()
             input_leaves.add(InputLeaf(input_index, path))
 
-        fun input_leaves_for_bits(input_bits :: Nat):
+        fun input_leaves_for_bits(input_bits :: Nat) :: List.of(InputLeaf):
           def result = MutableList[]
           for (input_leaf in input_leaves,
                leaf_index in 0..input_leaves.length()):
@@ -305,7 +323,8 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
             | result.add(input_leaf)
           result.snapshot()
 
-        fun state_for(value :: Value):
+        fun state_for(value :: Value) :: ValueDependencyState:
+          use_static
           def existing = value_states.get(value, #false)
           if existing
           | existing
@@ -321,12 +340,13 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
 
         fun summarize_value(value :: Value,
                             leaf_index :: Nat,
-                            via_operation :: False || Operation = #false):
+                            via_operation :: maybe(Operation) = #false) :: Nat:
+          use_static
           def state = state_for(value)
           def path = state.layout.paths[leaf_index]
           def cached_value = state.summaries[leaf_index]
           if cached_value
-          | cached_value.input_bits
+          | cached_value
           | block:
               def active_index = state.active_indices[leaf_index]
               when active_index is_a Nat
@@ -334,7 +354,7 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
                 def cycle = active_values.snapshot().drop(active_index) ++ [repeated]
                 def cycle_path = String.join(
                   cycle.map(
-                    fun (candidate):
+                    fun (candidate :: ValueDependencySummary):
                       describe_value_path(candidate.value, candidate.path)
                   ),
                   " -> "
@@ -348,12 +368,12 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
                   cycle_path
                 )
                 if via_operation
-                | fail_operation(via_operation, message)
+                | fail_operation(via_operation!!, message)
                 | fail(message)
               def active_summary = ValueDependencySummary(value, path, [])
               state.active_indices[leaf_index] := active_values.length()
               active_values.add(active_summary)
-              def operation = module_def.find_operation(value.defining_op_id)
+              def operation :: maybe(Operation) = module_def.find_operation(value.defining_op_id)
               def input_leaf_offset = input_leaf_offsets.get(value, #false)
               def direct_dependencies = indexed_direct_operation_dependencies(
                 value,
@@ -364,24 +384,25 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
                 cond
                 | input_leaf_offset is_a Nat:
                     1 << (input_leaf_offset + leaf_index)
-                | direct_dependencies is_a List:
+                | direct_dependencies:
                     def mutable dependencies = 0
-                    for (dependency in direct_dependencies):
+                    for (dependency :: IndexedValueLeaf in direct_dependencies!!):
                       dependencies := dependencies bits.or summarize_value(
                         dependency.value,
                         dependency.leaf_index,
                         operation
                       )
                     dependencies
-                | operation && operation.opcode == "rtl.instance":
-                    def child = operation.attribute("module")
+                | operation?.opcode == "rtl.instance":
+                    def instance_operation = operation!!
+                    def child = instance_operation.attribute("module")
                     def child_summary = summarize_module(child)
-                    def output_index = identity_index(operation.results, value)
+                    def output_index = identity_index(instance_operation.results, value)
                     def mutable dependencies = 0
                     def output_leaf = child_summary.output_leaf_dependencies[output_index][leaf_index]
                     for (input_leaf in output_leaf.input_leaves):
-                      def input_place = operation.places[input_leaf.input_index]
-                      def drive_operation = module_def.find_drive_to(input_place.id)
+                      def input_place = instance_operation.places[input_leaf.input_index]
+                      def drive_operation :: maybe(Operation) = module_def.find_drive_to(input_place.id)
                       def input_leaf_index = leaf_index_for(
                         leaf_layout(input_place.type),
                         input_leaf.path
@@ -398,8 +419,7 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
                     0
               active_values.delete(active_values.length() - 1)
               state.active_indices[leaf_index] := #false
-              def summary = ValueDependencyBits(value, path, input_bits)
-              state.summaries[leaf_index] := summary
+              state.summaries[leaf_index] := input_bits
               input_bits
 
         // Visit every leaf of dead values too: an unobservable combinational
