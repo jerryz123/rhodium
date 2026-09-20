@@ -74,15 +74,15 @@ fun place_snapshot(place :: Place):
            "name", place.name,
            "type", type_snapshot(place.type),
            "owner_operation", place.owner_op_id,
-           "driver", if place.driver | place.driver.id | #false)
+           "driver", place.driver?.id)
 
 fun port_snapshot(port :: Port):
   rkt.hash("name", port.name,
            "direction", port.direction,
            "type", type_snapshot(port.type),
-           "value", if port.value | port.value.id | #false,
-           "place", if port.place | port.place.id | #false,
-           "driver", if port.place && port.place.driver | port.place.driver.id | #false)
+           "value", port.value?.id,
+           "place", port.place?.id,
+           "driver", port.place?.driver?.id)
 
 fun operation_attributes_snapshot(operation :: Operation):
   match operation.opcode

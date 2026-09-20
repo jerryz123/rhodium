@@ -67,9 +67,7 @@ fun credited_base_protocol(protocol :: InterfaceType):
   if local_base
   | local_base
   | block:
-      if protocol.parent
-      | credited_base_protocol(protocol.parent)
-      | #false
+      protocol.parent ?> credited_base_protocol
 
 // Normalizes the canonical interface and its refinements.
 fun credited_protocol_type(protocol :: InterfaceType):

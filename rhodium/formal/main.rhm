@@ -211,17 +211,16 @@ fun entry_value(entry :: ReadableMap, key :: String):
   rkt.#{hash-ref}(entry, key)
 
 fun optional_string(value :: maybe(String)):
-  if value | to_string(value) | #false
+  value ?> to_string
 
 fun convert_diagnostic(raw :: maybe(ReadableMap)):
-  if raw
-  | FormalDiagnostic(optional_string(entry_value(raw, "module_path")),
+  raw ?> fun (raw):
+    FormalDiagnostic(optional_string(entry_value(raw, "module_path")),
                      optional_string(entry_value(raw, "opcode")),
                      entry_value(raw, "operation_id"),
                      optional_string(entry_value(raw, "location")),
                      optional_string(entry_value(raw, "origin")),
                      to_string(entry_value(raw, "message")))
-  | #false
 
 fun convert_engine_result(raw :: satisfying(engine.formal_engine_result),
                           left_top :: Module,

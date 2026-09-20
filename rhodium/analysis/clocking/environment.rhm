@@ -199,7 +199,7 @@ fun input_timing(environment :: TemporalEnvironment,
                  input :: Value,
                  path :: List.of(String || Nat)):
   def contract = contract_for(environment, input, path)
-  if contract | contract.timing | UnknownInputTiming()
+  contract?.timing || UnknownInputTiming()
 
 fun root_top_control(top :: Module, reference :: ControlReference):
   reference.instance_path.length() == 0 && valid_top_clock(top, reference.value)

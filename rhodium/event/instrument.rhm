@@ -156,7 +156,7 @@ fun instrument_events(logical :: DesignElaboration,
 
   def mutable occurrences = []
   fun expand(original :: Module, path :: List.of(String), parent :: maybe(Occurrence), instance :: maybe(Operation)):
-    def occurrence = Occurrence(original, path, occurrences.length(), if parent | parent.ordinal | #false, instance)
+    def occurrence = Occurrence(original, path, occurrences.length(), parent?.ordinal, instance)
     occurrences := occurrences ++ [occurrence]
     for (op in original.operations):
       when op.opcode == "rtl.instance"
@@ -336,8 +336,8 @@ fun instrument_events(logical :: DesignElaboration,
     for (site in local_sites):
       def flow_block = view.module(occurrence.original.name).blocks.find(
         fun (candidate): candidate.event_annotation && candidate.event_annotation.site_index == site.local_site
-      )
-      def annotation = flow_block.event_annotation
+      )!!
+      def annotation = flow_block.event_annotation!!
       unless annotation.valid
       | error(~who: #'instrument_events, "event requires explicit transfer controls: " ++ site.id)
       when site.kind == "stall" && !annotation.ready
@@ -375,7 +375,7 @@ fun instrument_events(logical :: DesignElaboration,
       def id = builder.constant(module_def, Bits(32), site_ids[site.id])
       def sequence = sequences[site.id]
       def fire = fires[site.id]
-      def width = if annotation.payload | annotation.payload.type.packed_width() | 0
+      def width = annotation.payload?.type?.packed_width() || 0
       unless width is_a Nat
       | error(~who: #'instrument_events, "event payload requires a canonical packed width: " ++ site.id)
       builder.dpi_call(module_def, node_dpi, [id, sequence, cycle, builder.constant(module_def, Bits(32), width)], clock, fire)

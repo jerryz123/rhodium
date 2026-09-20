@@ -597,9 +597,7 @@ fun summarize_module_temporal(module_def :: Module):
               make_place_sink_inputs("next",
                                      operation.places[0],
                                      destination_clock,
-                                     if crossing
-                                     | CrossingReference([], crossing)
-                                     | #false)
+                                     crossing ?> CrossingReference([], _))
           | "rtl.register_reset":
               def next_inputs = make_place_sink_inputs("next",
                                                        operation.places[0],

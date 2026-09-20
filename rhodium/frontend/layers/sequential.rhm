@@ -40,8 +40,8 @@ fun declare_register(name :: String,
   | register_form_error()
   when clock && ((reset && !init) || (!reset && init))
   | register_form_error()
-  def next_value = if next | kernel.read(next) | #false
-  def init_value = if init | kernel.read(init) | #false
+  def next_value = next ?> kernel.read
+  def init_value = init ?> kernel.read
   def state_type:
     cond
     | type: type

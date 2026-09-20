@@ -75,7 +75,7 @@ class UpDownNodeOrder(node :: NodeRef,
   method describe():
     String.append(node.describe(), ": depth=", to_string(depth),
                   ", rank=", to_string(rank), ", parent=",
-                  (if parent | parent.describe() | "root"))
+                  (parent?.describe() || "root"))
 
 fun find_node_order(orders :: List.of(UpDownNodeOrder), node :: NodeRef):
   orders.find(fun (order): node_ref_equal(order.node, node))

@@ -122,7 +122,7 @@ class RectangularMesh(width :: PosInt,
   method outgoing_link(node :: NodeRef, direction :: MeshDirection):
     def coordinate = coordinate_of(node)
     def found = find_outgoing_mesh_link(link_bindings, coordinate, direction)
-    if found | found.ref | #false
+    found?.ref
 
   method inverse_link(ref :: LinkRef):
     def found = find_mesh_link_by_ref(link_bindings, ref)

@@ -174,7 +174,7 @@ class InterfaceType(name :: String,
     | unless connection_compatibility.role == provider_role
       | error(~who: #'InterfaceType,
               "interface compatibility role must match the provider role")
-    def mutable members = if parent | parent.members | []
+    def mutable members = parent?.members || []
     for (declaration in declarations):
       cond
       | declaration is_a InterfaceMember:
@@ -473,7 +473,7 @@ class InterfaceWindowStorage(module_def :: Module, depth :: PosInt,
                              enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
                              selected :: NonemptyList.of(Value), name :: String, live :: maybe(Value) = #false):
   implements ModuleMetadataPayload
-  method controls(): [enqueue, release_count, count, flush] ++ selected ++ (if live | [live] | [])
+  method controls(): [enqueue, release_count, count, flush] ++ selected ++ ((live ?> List) || [])
 class InterfaceTraceWindow(instance :: maybe(Instance), storage :: InterfaceWindowStorage)
 class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
@@ -537,7 +537,7 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
   // immediate child. Occurrence expansion resolves this once for all models.
   method owner_path():
     def instance = this.elastic_instance() || this.retained_instance() || this.queue_instance() || this.window_instance() || this.selection_instance() || this.broadcast_instance()
-    if instance | [instance.operation.attribute("name")] | []
+    (instance ?> (fun (instance): [instance.operation.attribute("name")])) || []
 
 class InterfaceTransformGroup(module_def :: Module,
                               kind :: String,
@@ -976,15 +976,14 @@ fun endpoint_for_instance(instance :: Instance, name :: String):
   def group = module_interface_groups(instance.module_def).find(
     fun (candidate): candidate.name == name
   )
-  if group | endpoint_for_group(instance, group) | #false
+  group ?> endpoint_for_group(instance, _)
 
 fun endpoint_array_for_instance(instance :: Instance, name :: String):
   def group = module_interface_array_groups(instance.module_def).find(
     fun (candidate): candidate.name == name
   )
-  if group
-  | Array(& group.groups.map(fun (element_group): endpoint_for_group(instance, element_group)))
-  | #false
+  group ?> fun (group):
+    Array(& group.groups.map(fun (element_group): endpoint_for_group(instance, element_group)))
 
 fun interface_member(value :: InterfaceEndpoint || HardwareEntity,
                      name :: String):
@@ -1734,7 +1733,7 @@ fun interface_trace_passthrough():
 // Certifies zero-storage, non-inventing, one-to-one transfer. An optional
 // guard is the original filter predicate, not a reconstructed selection policy.
 fun interface_trace_combinational(~guard: guard :: maybe(HardwareEntity) = #false):
-  def value = if guard | kernel.read(guard) | #false
+  def value = guard ?> kernel.read
   when value && (!(value.module_def === kernel.active_module()) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
   | error(~who: #'interface_trace_combinational, "trace guard must be local one-bit data")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceCombinational(value))
@@ -1742,7 +1741,7 @@ fun interface_trace_combinational(~guard: guard :: maybe(HardwareEntity) = #fals
 // Every surviving output transfer corresponds to the input exactly this many
 // cycles earlier. No backpressure, clock enable, or variable latency is allowed.
 fun interface_trace_fixed_latency(cycles :: PosInt, ~flush: flush :: maybe(HardwareEntity) = #false):
-  def value = if flush | kernel.read(flush) | #false
+  def value = flush ?> kernel.read
   when value && (!(value.module_def === kernel.active_module()) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
   | error(~who: #'interface_trace_fixed_latency, "trace flush must be local one-bit data")
   InterfaceTraceModel([InterfaceTraceRoute(0, 0)], InterfaceTraceFixedLatency(cycles, value))
@@ -1761,7 +1760,7 @@ fun describe_interface_retained_storage(capture :: HardwareEntity, release :: Ha
 fun interface_trace_retained(instance :: maybe(Instance) = #false, ~name: name :: String = "data", ~outputs: output_count :: PosInt = 1):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_retained, "retained implementation must be a local instance")
-  def owner = if instance | instance.module_def | kernel.active_module()
+  def owner = instance?.module_def || kernel.active_module()
   def declarations = owner.metadata_for(interface_retained_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_retained, "retained implementation requires declared storage controls")
@@ -1824,7 +1823,7 @@ fun describe_interface_elastic_stages(advances :: NonemptyList.of(HardwareEntity
 fun interface_trace_elastic(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_elastic, "elastic trace implementation must be a local instance")
-  def owner = if instance | instance.module_def | kernel.active_module()
+  def owner = instance?.module_def || kernel.active_module()
   def declarations = owner.metadata_for(interface_elastic_stages_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_elastic, "elastic trace implementation requires declared stage controls")
@@ -1854,7 +1853,7 @@ fun describe_interface_queue_storage(depth :: PosInt,
 fun interface_trace_queue(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_queue, "queue trace implementation must be a local instance")
-  def owner = if instance | instance.module_def | kernel.active_module()
+  def owner = instance?.module_def || kernel.active_module()
   def declarations = owner.metadata_for(interface_queue_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_queue, "queue trace implementation requires declared storage controls")
@@ -1880,12 +1879,12 @@ fun describe_interface_window_storage(depth :: PosInt, enqueue :: HardwareEntity
   module_def.add_metadata(interface_window_storage_namespace,
                           InterfaceWindowStorage(module_def, depth, signal(enqueue, 1), signal(release_count, width),
                                                  signal(count, width), signal(flush, 1), selected.map(fun (value): signal(value, 1)), name,
-                                                 if live | signal(live, 1) | #false))
+                                                 live ?> signal(_, 1)))
 
 fun interface_trace_window(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_window, "window trace implementation must be a local instance")
-  def owner = if instance | instance.module_def | kernel.active_module()
+  def owner = instance?.module_def || kernel.active_module()
   def declarations = owner.metadata_for(interface_window_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_window, "window trace implementation requires declared storage controls")
@@ -1907,7 +1906,7 @@ fun describe_interface_selection(grants :: NonemptyList.of(HardwareEntity), ~nam
 fun interface_trace_selection(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_selection, "selection trace implementation must be a local instance")
-  def owner = if instance | instance.module_def | kernel.active_module()
+  def owner = instance?.module_def || kernel.active_module()
   def declarations = owner.metadata_for(interface_selection_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_selection, "selection trace implementation requires declared grants")
@@ -1950,7 +1949,7 @@ fun describe_interface_broadcast_storage(accept :: HardwareEntity, pending :: No
 fun interface_trace_buffered_broadcast(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_buffered_broadcast, "broadcast trace implementation must be a local instance")
-  def owner = if instance | instance.module_def | kernel.active_module()
+  def owner = instance?.module_def || kernel.active_module()
   def declarations = owner.metadata_for(interface_broadcast_storage_namespace).filter(~keep: fun (declaration): declaration.name == name)
   unless declarations.length() == 1
   | error(~who: #'interface_trace_buffered_broadcast, "broadcast trace implementation requires declared storage controls")
@@ -2062,7 +2061,7 @@ fun describe_interface_transform(handle :: Handle,
     when control_instance
     | unless implementation && control_instance === implementation
       | error(~who: #'describe_interface_transform, "trace model must match the transform implementation")
-    def owner = if control_instance | control_instance.module_def | module_def
+    def owner = control_instance?.module_def || module_def
     def mutable controls = []
     def mutable widths = []
     cond
@@ -2213,9 +2212,7 @@ fun describe_interface_event(handle :: Handle,
       | error(~who: #'describe_interface_event, "RISC-V capture PC must reference a hex/unsigned field of ISA XLEN width")
   def existing = module_interface_events(module_def)
   def selected_parents:
-    if parents
-    | selected_event_parents(module_def, parents, #'describe_interface_event)
-    | #false
+    parents ?> selected_event_parents(module_def, _, #'describe_interface_event)
   def labels = if stalls | [label, label ++ ".stall"] | [label]
   when existing.find(fun (event): labels.find(fun (name): name == event.label || (event.stalls && name == (event.label ++ ".stall"))))
   | error(~who: #'describe_interface_event,
@@ -2223,7 +2220,7 @@ fun describe_interface_event(handle :: Handle,
   def payload_value:
     if payload
     | block:
-        def value = kernel.read(payload, location)
+        def value = kernel.read(payload!!, location)
         unless value.module_def === module_def
         | error(~who: #'describe_interface_event,
                 "event payload must belong to the annotated module")
@@ -2242,7 +2239,7 @@ fun describe_interface_event(handle :: Handle,
                                  [declared.name, field.value])
   def site_index = existing.length()
   fun transfer_value(signal :: maybe(HardwareEntity)):
-    def value = if signal | kernel.read(signal, location) | #false
+    def value = signal ?> kernel.read(_, location)
     when value && (!(value.module_def === module_def) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
     | error(~who: #'describe_interface_event, "event transfer controls must be local one-bit data")
     value
@@ -2403,7 +2400,7 @@ fun finish_ejected_interface(source :: InterfaceType || InterfaceEndpoint || Int
             "an interface handle can be consumed only once")
   | #void
   def handle_ends:
-    if handle | interface_provider_end(handle) | #false
+    handle ?> interface_provider_end
   def interface_endpoint:
     cond
     | source is_a InterfaceEndpoint: source

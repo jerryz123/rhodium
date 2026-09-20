@@ -51,7 +51,7 @@ class HopDistances(topology :: Topology,
     require_node(topology, #'distance, "source", source)
     require_node(topology, #'distance, "destination", destination)
     def entry = find_entry(entries, source, destination)
-    if entry | entry.hops | #false
+    entry?.hops
 
   method reachable(source :: NodeId, destination :: NodeId):
     distance(source, destination) != #false

@@ -1124,8 +1124,8 @@ fun reg(name :: AsciiIdentifier,
                            name,
                            type,
                            read(clock, location),
-                           if reset | read(reset, location) | #false,
-                           if reset_value | read(reset_value, location) | #false,
+                           reset ?> read(_, location),
+                           reset_value ?> read(_, location),
                            location,
                            Origin("embedded register", name))
 
@@ -1476,20 +1476,18 @@ fun resolve_conditional_branches(
                                            resource,
                                            port_index)
       def fallback_address:
-        if fallback_write | fallback_write.address | representative.address
+        fallback_write?.address || representative.address
       def fallback_data:
-        if fallback_write | fallback_write.data | representative.data
+        fallback_write?.data || representative.data
       def fallback_enable:
-        if fallback_write
-        | cast(fallback_write.enable, Bits(1), #false, location)
-        | disabled
+        (fallback_write ?> fun (write): cast(write.enable, Bits(1), #false, location)) || disabled
       def branch_writes:
         for List (branch_result in branch_results):
           memory_write_at(branch_result, resource, port_index)
       def selected_address = select_values(
         branch_writes.map(
           fun (write):
-            if write | write.address | #false
+            write?.address
         ),
         fallback_address,
         Origin(origin_description ++ " memory address", resource.name)
@@ -1497,7 +1495,7 @@ fun resolve_conditional_branches(
       def selected_data = select_values(
         branch_writes.map(
           fun (write):
-            if write | write.data | #false
+            write?.data
         ),
         fallback_data,
         Origin(origin_description ++ " memory data", resource.name)
@@ -1505,9 +1503,7 @@ fun resolve_conditional_branches(
       def selected_enable = select_values(
         branch_writes.map(
           fun (write):
-            if write
-            | cast(write.enable, Bits(1), #false, location)
-            | disabled
+            (write ?> fun (write): cast(write.enable, Bits(1), #false, location)) || disabled
         ),
         fallback_enable,
         Origin(origin_description ++ " memory enable", resource.name)
@@ -1561,11 +1557,11 @@ fun resolve_conditional_branches(
                                            register,
                                            port_index)
       def fallback_index:
-        if fallback_write | fallback_write.index | representative.index
+        fallback_write?.index || representative.index
       def fallback_data:
-        if fallback_write | fallback_write.data | representative.data
+        fallback_write?.data || representative.data
       def fallback_enable:
-        if fallback_write | fallback_write.enable | disabled
+        fallback_write?.enable || disabled
       def branch_writes:
         for List (branch_result in branch_results):
           vector_write_at(branch_result, register, port_index)
@@ -1581,7 +1577,7 @@ fun resolve_conditional_branches(
       def selected_index = select_write_value(
         branch_writes.map(
           fun (write):
-            if write | write.index | #false
+            write?.index
         ),
         fallback_index,
         Origin(origin_description ++ " vector write index", register.next.name)
@@ -1589,7 +1585,7 @@ fun resolve_conditional_branches(
       def selected_data = select_write_value(
         branch_writes.map(
           fun (write):
-            if write | write.data | #false
+            write?.data
         ),
         fallback_data,
         Origin(origin_description ++ " vector write data", register.next.name)
@@ -1597,7 +1593,7 @@ fun resolve_conditional_branches(
       def selected_enable = select_values(
         branch_writes.map(
           fun (write):
-            if write | write.enable | disabled
+            write?.enable || disabled
         ),
         fallback_enable,
         Origin(origin_description ++ " vector write enable", register.next.name)
@@ -1622,9 +1618,7 @@ fun conditional_chain(branches :: NonemptyList.of(List),
     for List (branch in branches):
       collect_conditional_branch(branch[1], "when", location)
   def otherwise_result:
-    if otherwise_body
-    | collect_conditional_branch(otherwise_body, "when", location)
-    | #false
+    otherwise_body ?> collect_conditional_branch(_, "when", location)
   fun select_values(branch_values :: List.of(maybe(Value)),
                     fallback :: Value,
                     origin :: Origin):
@@ -1688,9 +1682,7 @@ fun switch_chain(selector :: HardwareEntity,
     for List (case in cases):
       collect_conditional_branch(case[1], "switch", location)
   def otherwise_result:
-    if otherwise_body
-    | collect_conditional_branch(otherwise_body, "switch", location)
-    | #false
+    otherwise_body ?> collect_conditional_branch(_, "switch", location)
   fun select_values(branch_values :: List.of(maybe(Value)),
                     fallback :: Value,
                     origin :: Origin):

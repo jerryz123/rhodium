@@ -632,9 +632,7 @@ fun diagram_module(module_def :: Module,
       | [DiagramPort("combo", "combo", "input", "data")]
       | []
     def child_module:
-      if transform.implementation
-      | transform.implementation.module_def.name
-      | #false
+      transform.implementation ?> fun (implementation): implementation.module_def.name
     def behavior:
       cond
       | transform.contract_name: module_behavior(module_def)
@@ -676,7 +674,7 @@ fun diagram_module(module_def :: Module,
                    behavior,
                    transform.trace_model,
                    event_annotation,
-                   if transform.implementation | transform.implementation.operation.attribute("name") | #false,
+                   transform.implementation ?> fun (implementation): implementation.operation.attribute("name"),
                    delegate_ports)
     ]
     terminals := terminals ++ input_built[1] ++ output_built[1]

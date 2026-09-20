@@ -170,9 +170,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
 
         if flow_block.event_annotation
         | block:
-            def annotation = flow_block.event_annotation
+            def annotation = flow_block.event_annotation!!
             def site_id = occurrence_prefix(instance_path) ++ "/event:" ++ to_string(annotation.site_index)
-            def mutable capture_offset = if annotation.payload | annotation.payload.type.packed_width() | 0
+            def mutable capture_offset = annotation.payload?.type?.packed_width() || 0
             def captures = for List (field in annotation.fields):
               def width = field.value.type.packed_width()
               capture_offset := capture_offset - width
@@ -183,8 +183,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  instance_path,
                                  annotation.site_index,
                                  input_ports[0].protocol,
-                                 if annotation.payload | annotation.payload.type.describe() | #false,
-                                 if annotation.payload | annotation.payload.type.packed_width() | #false,
+                                 annotation.payload?.type?.describe(),
+                                 annotation.payload?.type?.packed_width(),
                                  annotation.location.describe(),
                                  captures,
                                  if annotation.residency_storage() | "residency" | "transfer")
@@ -286,7 +286,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
         unless child
         | error(~who: #'infer_event_manifest,
                 "event analysis cannot find child module " ++ instance_block.child_module)
-        def child_path = instance_path ++ [if instance_block.implementation_name | instance_block.implementation_name | instance_block.label]
+        def child_path = instance_path ++ [instance_block.implementation_name || instance_block.label]
         expand(child, child_path)
         def mutable child_boundary_ports = []
         for (child_block in child.blocks):
@@ -298,7 +298,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               ]
         for (parent_port in instance_block.ports):
           def matched = child_boundary_ports.find(
-            fun (entry): entry[0] == (if instance_block.delegate_ports | instance_block.delegate_ports.get(parent_port.id, #false) | parent_port.name)
+            fun (entry): entry[0] == (instance_block.delegate_ports?.get(parent_port.id, #false) || parent_port.name)
           )
           when matched
           | def parent_terminal = terminal_id(instance_path, instance_block.id, parent_port.id)
