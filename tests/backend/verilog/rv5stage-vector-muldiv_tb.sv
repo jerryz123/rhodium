@@ -198,8 +198,8 @@ module rv5stage_vector_muldiv_tb;
     source_mask = '1 >> (64-width);
     destination_mask = op >= 'h3c ? '1 >> (64-2*width) : source_mask;
     signed_a = $signed({64'b0,a & source_mask}); signed_b = $signed({64'b0,b & source_mask});
-    if ((op == 'h3d || op == 'h3f) && a[width-1]) signed_a -= 128'sd1 << width;
-    if ((op == 'h3d || op == 'h3e) && b[width-1]) signed_b -= 128'sd1 << width;
+    if ((op == 'h3d || op == 'h3e) && a[width-1]) signed_a -= 128'sd1 << width;
+    if ((op == 'h3d || op == 'h3f) && b[width-1]) signed_b -= 128'sd1 << width;
     product = signed_a * signed_b;
     case (op)
       'h29: result = signed_a + signed_b * $signed({64'b0,addend & source_mask});

@@ -990,8 +990,8 @@ def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++
   def fractional = VectorFractionalMultiplyInstructions.contains(instruction)
   def widened = (VectorWideningMultiplyInstructions ++ VectorWideningMultiplyAccumulateInstructions).contains(instruction)
   def accumulate = (VectorMultiplyAccumulateInstructions ++ VectorWideningMultiplyAccumulateInstructions).contains(instruction)
-  def signed_left = fractional || [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VWMULSU_VV, VWMULSU_VX, VWMUL_VV, VWMUL_VX, VWMACC_VV, VWMACC_VX, VWMACCSU_VV, VWMACCSU_VX].contains(instruction)
-  def signed_right = fractional || [VMULH_VV, VMULH_VX, VWMUL_VV, VWMUL_VX, VWMACC_VV, VWMACC_VX, VWMACCUS_VX].contains(instruction)
+  def signed_left = fractional || [VMULH_VV, VMULH_VX, VMULHSU_VV, VMULHSU_VX, VWMULSU_VV, VWMULSU_VX, VWMUL_VV, VWMUL_VX, VWMACC_VV, VWMACC_VX, VWMACCUS_VX].contains(instruction)
+  def signed_right = fractional || [VMULH_VV, VMULH_VX, VWMUL_VV, VWMUL_VX, VWMACC_VV, VWMACC_VX, VWMACCSU_VV, VWMACCSU_VX].contains(instruction)
   DecodeCase(
     instruction_pattern(instruction),
     partial_pattern(RV5StageVectorControl()):

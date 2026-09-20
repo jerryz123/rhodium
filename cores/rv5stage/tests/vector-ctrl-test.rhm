@@ -317,8 +317,8 @@ for (instruction in VectorWideningMultiplyAccumulateInstructions, index in 0..7)
     value(decoded, "multiply_accumulate") ~is 1
     value(decoded, "multiply_destination") ~is 0
     value(decoded, "multiply_subtract") ~is 0
-    value(decoded, "left_signed") ~is (if index >= 2 && index < 6 | 1 | 0)
-    value(decoded, "right_signed") ~is (if index == 2 || index == 3 || index == 6 | 1 | 0)
+    value(decoded, "left_signed") ~is (if index == 2 || index == 3 || index == 6 | 1 | 0)
+    value(decoded, "right_signed") ~is (if index >= 2 && index < 6 | 1 | 0)
     value(care, "multiply_result") ~is 0
     value(decoded, "operand") ~is (if index mod 2 == 0 && index < 6 | VectorOperandMode.Vector.packed_value() | VectorOperandMode.Scalar.packed_value())
 

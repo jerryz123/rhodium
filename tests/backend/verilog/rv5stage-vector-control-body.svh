@@ -343,6 +343,13 @@
     assert (decoded_valid && legal == (XLEN == 64) && widening && !divide && !left_signed && !right_signed && multiply_result == 3) else $fatal(1, "unsigned widening multiply decode");
     instruction = 32'hee916457; #1; // vwmul.vx v8,v9,x2, unmasked; high-source overlap
     assert (decoded_valid && legal == (XLEN == 64) && widening && left_signed && right_signed && operand == 1) else $fatal(1, "signed widening multiply decode");
+    instruction = 32'hffd0a157; #1; // vwmaccsu.vv v2,v1,v29
+    assert (decoded_valid && widening && !left_signed && right_signed) else $fatal(1, "signed-unsigned widening MAC vector decode");
+    instruction = 32'hff836057; #1; // vwmaccsu.vx v0,x6,v24
+    assert (decoded_valid && widening && !left_signed && right_signed) else $fatal(1, "signed-unsigned widening MAC scalar decode");
+    instruction = 32'hfb866057; #1; // vwmaccus.vx v0,x12,v24
+    assert (decoded_valid && widening && left_signed && !right_signed) else $fatal(1, "unsigned-signed widening MAC scalar decode");
+    instruction = 32'hee916457; #1;
     instruction[24:20] = 8; #1;
     assert (!legal) else $fatal(1, "widening multiply accepted low-source overlap");
     instruction[24:20] = 16; instruction[11:7] = 9; #1;
