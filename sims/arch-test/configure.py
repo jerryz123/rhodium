@@ -14,6 +14,43 @@ def bits(value, width=64):
     return {"len": width, "value": hex(value)}
 
 
+def encoded_integer(value):
+    return int(value["value"], 0)
+
+
+def validate_access_fault_region(config, params, address, size):
+    """Validate an optional platform hole used by architectural fault tests."""
+    if (address is None) != (size is None):
+        raise ValueError("access-fault address and size must be provided together")
+    if address is None:
+        return
+    if type(address) is not int or address < 0 or type(size) is not int or size <= 0:
+        raise ValueError("access-fault region must have a natural address and positive size")
+    required = max(128, math.ceil(2 * params.get("VLEN", 0) / 8))
+    if size < required:
+        raise ValueError(f"access-fault region must contain at least {required} bytes")
+    limit = 1 << params["PHYS_ADDR_WIDTH"]
+    end = address + size
+    if end > limit:
+        raise ValueError("access-fault region must fit the physical address width")
+    for region in config["memory"]["regions"]:
+        region_base = encoded_integer(region["base"])
+        region_end = region_base + encoded_integer(region["size"])
+        if address < region_end and region_base < end:
+            raise ValueError("access-fault region overlaps a modeled Sail memory region")
+
+
+def render_rvmodel_macros(template, access_fault_address):
+    """Render the DUT macro header with its optional platform fault address."""
+    marker = "// @RVMODEL_ACCESS_FAULT_ADDRESS@"
+    if template.count(marker) != 1:
+        raise ValueError("rvmodel macro template must contain one access-fault marker")
+    definition = "" if access_fault_address is None else (
+        f"#define RVMODEL_ACCESS_FAULT_ADDRESS {hex(access_fault_address)}"
+    )
+    return template.replace(marker, definition)
+
+
 RESERVATION_BOUNDS = {"Za64rs": 6, "Za128rs": 7}
 VECTOR_BASE_VERSIONS = {
     "V": "1.0.0",
@@ -251,6 +288,8 @@ def main():
     parser.add_argument("--sail", required=True)
     for name in ("ram-origin", "ram-bytes", "test-base"):
         parser.add_argument("--" + name, type=lambda value: int(value, 0), required=True)
+    for name in ("access-fault-address", "access-fault-bytes"):
+        parser.add_argument("--" + name, type=lambda value: int(value, 0))
     args = parser.parse_args()
     if args.ram_bytes <= 0 or not args.ram_origin <= args.test_base < args.ram_origin + args.ram_bytes:
         parser.error("test entry must lie in a nonempty RAM window")
@@ -265,13 +304,17 @@ def main():
     default = pyjson5.decode(subprocess.check_output([sail, "--print-default-config"], text=True))
     udb = YAML(typ="safe").load(args.udb)
     config = sail_config(default, udb, args.ram_origin, args.ram_bytes)
+    validate_access_fault_region(config, udb["params"], args.access_fault_address, args.access_fault_bytes)
     args.output.mkdir(parents=True, exist_ok=True)
     source = Path(__file__).resolve().parent
     linker = (source / "link.ld.in").read_text()
     for key, value in (("RAM_ORIGIN", args.ram_origin), ("RAM_BYTES", args.ram_bytes), ("TEST_BASE", args.test_base)):
         linker = linker.replace("@" + key + "@", hex(value))
     (args.output / "link.ld").write_text(linker)
-    shutil.copyfile(source / "rvmodel_macros.h", args.output / "rvmodel_macros.h")
+    macros = render_rvmodel_macros(
+        (source / "rvmodel_macros.h").read_text(), args.access_fault_address
+    )
+    (args.output / "rvmodel_macros.h").write_text(macros)
     (args.output / "sail.json").write_text("// Configures Sail for the selected UDB target.\n" + json.dumps(config, indent=2) + "\n")
     subprocess.run([sail, "--config", str(args.output / "sail.json"), "--validate-config"], check=True)
     act = test_config(args.name, args.compiler, args.objdump, sail, args.udb)

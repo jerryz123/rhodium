@@ -25,6 +25,7 @@ ACT_ELF_DIR = $(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs
 ACT_RUN_ELF_DIR = $(if $(filter 1,$(ACT_SHARDS)),$(ACT_ELF_DIR),$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/shards/$(ACT_SHARD)/elfs)
 ACT_TIMEOUT ?= 300
 ACT_MAX_CYCLES ?= 10000000
+ACT_ACCESS_FAULT_OPTIONS = $(if $(ACT_ACCESS_FAULT_ADDRESS),--access-fault-address $(ACT_ACCESS_FAULT_ADDRESS)) $(if $(ACT_ACCESS_FAULT_BYTES),--access-fault-bytes $(ACT_ACCESS_FAULT_BYTES))
 ACT_SIMULATOR = $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(BUILD_ROOT)/$(ACT_SOC)/obj/VTestDriver)
 ACT_PLATFORM := $(CURDIR)/arch-test/configs/$(ACT_CONFIGURATION).mk
 -include $(ACT_PLATFORM)
@@ -41,7 +42,8 @@ arch-test-config:
 	$(MAKE) -C $(REPO_DIR) riscv-udb-config RISCV_UDB_CONFIGURATION=$(ACT_UDB_CONFIGURATION) RISCV_UDB_OUTPUT=$(ACT_CONFIG_DIR)/udb.yaml
 	$(ACT_PYTHON) arch-test/configure.py --udb $(ACT_CONFIG_DIR)/udb.yaml --output $(ACT_CONFIG_DIR) \
 	  --name $(ACT_CONFIGURATION) --compiler $(RISCV_CC) --objdump $(ACT_OBJDUMP) --sail $(ACT_SAIL) \
-	  --ram-origin $(ACT_RAM_ORIGIN) --ram-bytes $(ACT_RAM_BYTES) --test-base $(ACT_TEST_BASE)
+	  --ram-origin $(ACT_RAM_ORIGIN) --ram-bytes $(ACT_RAM_BYTES) --test-base $(ACT_TEST_BASE) \
+	  $(ACT_ACCESS_FAULT_OPTIONS)
 
 arch-test-tests: arch-test-source
 	rm -rf "$(ACT_TEST_DIR)"

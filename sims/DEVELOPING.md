@@ -209,8 +209,12 @@ transaction distinction when checking expected traffic.
 
 The ACT flow is included from `arch-test/Makefile.inc`. Each
 `arch-test/configs/<name>.mk` selects a UDB catalog entry, a simulator, and the
-platform RAM window. Add future platforms through these entries; processor
-extension policy stays in the owning core's UDB projection. The common
+platform RAM window. A platform that supports architectural access faults also
+declares its unmapped fault-test window there; `configure.py` validates that the
+window is large enough for scalar and vector tests, fits the physical address
+width, and does not overlap a Sail memory region before publishing
+`RVMODEL_ACCESS_FAULT_ADDRESS`. Add future platforms through these entries;
+processor extension policy stays in the owning core's UDB projection. The common
 `configure.py` writes generated UDB consumer files, using the pinned Sail
 default schema and explicit UDB mappings. Reject unsupported architecture
 shapes before producing reference results. Always give ACT the full test

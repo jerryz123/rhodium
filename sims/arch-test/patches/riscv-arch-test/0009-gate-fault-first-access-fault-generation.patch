@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sat, 19 Sep 2026 18:00:00 -0700
+Subject: [PATCH] Gate fault-first access-fault generation
+
+RVMODEL_ACCESS_FAULT_ADDRESS is an optional DUT capability. The matching
+coverage model already excludes the fault-dependent coverpoint when the macro
+is absent, but canonical test generation emits an unconditional LI using the
+undefined name. GAS then rejects the symbolic operand in LI's constant-only
+implementation.
+
+Guard the generated fault-dependent test chunk with the same capability macro.
+DUTs that publish a fault region continue to exercise the coverpoint, while
+other DUTs retain valid fault-only-first tests without claiming access-fault
+coverage.
+
+---
+ .../testgen/src/testgen/coverpoints/vector/cp_custom_vls.py    | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py b/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
+index 429dc5e7..46928e60 100644
+--- a/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
++++ b/generators/testgen/src/testgen/coverpoints/vector/cp_custom_vls.py
+@@ -121,6 +121,9 @@ def make_cp_custom_ffLS(instr_name: str, instr_type: str, coverpoint: str, test_
+         tc.code.insert(0, f"#ifdef {ifdef}")
+         tc.code.append("#endif")
+ 
++    tc.code.insert(0, "#ifdef RVMODEL_ACCESS_FAULT_ADDRESS")
++    tc.code.append("#endif")
++
+     tc = test_data.end_test_chunk()
+ 
+     test_data.int_regs.return_register(check_reg)
+-- 
+2.50.1

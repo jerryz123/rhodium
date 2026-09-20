@@ -33,6 +33,9 @@ upstream independently:
    source fixtures at the effective source EEW used by their setup loads.
 8. `0008-reserve-vfmv-broadcast-destination-group.patch` reserves the complete
    LMUL-sized destination of `vfmv.v.f` so its checker cannot overwrite it.
+9. `0009-gate-fault-first-access-fault-generation.patch` gates the generated
+   fault-dependent vector-load chunk with the same optional DUT macro as its
+   coverage model.
 
 The first three patches expand capability while retaining ACT's existing active
 suite inventory, the fourth makes the complete vector inventory visible to

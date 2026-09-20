@@ -1,7 +1,9 @@
-// Terminates self-checking ACT payloads through the simulator's coherent HTIF mailboxes.
+// Templates the DUT macros used by ACT payloads and coverage monitors.
 // SPDX-License-Identifier: Apache-2.0
 #ifndef RHODIUM_ACT_RVMODEL_MACROS_H
 #define RHODIUM_ACT_RVMODEL_MACROS_H
+
+// @RVMODEL_ACCESS_FAULT_ADDRESS@
 
 #define RVMODEL_DATA_SECTION \
   .pushsection .tohost,"aw",@progbits; \

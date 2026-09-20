@@ -64,7 +64,9 @@ def sail_default():
         },
         "memory": {"asidlen": 16, "pmp": {}, "misaligned": {"exceptions": {}}, "regions": [
             {"attributes": {"mem_type": "MainMemory", "cacheable": True, "supports_cbo_zero": False}},
-            {"attributes": {"mem_type": "IO", "cacheable": False, "supports_cbo_zero": True}},
+            {"base": {"len": 64, "value": "0x2000000"},
+             "size": {"len": 64, "value": "0x10000000"},
+             "attributes": {"mem_type": "IO", "cacheable": False, "supports_cbo_zero": True}},
         ]},
         "platform": {"reservation": {"reservation_set_size_exp": 3}, "cache_block_size_exp": 9},
     }
@@ -167,6 +169,29 @@ class ArchTestConfigTest(unittest.TestCase):
         self.assertEqual(config["base"]["mstatus"]["vs_legal_states"], "ExtContext_FourState")
         for name in ("Zvfh", "Zvkb", "Zvbb", "Zvkt"):
             self.assertIs(config["extensions"][name]["supported"], True)
+
+    def test_access_fault_region_is_unmapped_sized_and_rendered(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        udb = vector_udb()
+        config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+        validate = configure["validate_access_fault_region"]
+        validate(config, udb["params"], 0, 0x1000)
+        rendered = configure["render_rvmodel_macros"](
+            "before\n// @RVMODEL_ACCESS_FAULT_ADDRESS@\nafter\n", 0
+        )
+        self.assertEqual(rendered, "before\n#define RVMODEL_ACCESS_FAULT_ADDRESS 0x0\nafter\n")
+        self.assertEqual(
+            configure["render_rvmodel_macros"]("// @RVMODEL_ACCESS_FAULT_ADDRESS@\n", None), "\n"
+        )
+        for address, size, message in (
+            (0, None, "provided together"),
+            (0, 127, "at least 128 bytes"),
+            (0x02000000, 0x1000, "overlaps"),
+            (0x80000000, 0x1000, "overlaps"),
+            (1 << 44, 0x1000, "physical address width"),
+        ):
+            with self.subTest(address=address, size=size), self.assertRaisesRegex(ValueError, message):
+                validate(config, udb["params"], address, size)
 
     def test_vector_projection_rejects_inconsistent_profiles(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
