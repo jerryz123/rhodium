@@ -11,6 +11,8 @@ import:
   "../../../riscv/isa/trap.rhm" open
   "../../../riscv/rtl/trap.rhdl" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
+  "../../../riscv/rtl/atomic.rhdl" open
+  "../../../riscv/rtl/zihintntl.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
@@ -41,13 +43,13 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def misaligned = access & !width.is_aligned(address)
   def request = RV5StageDataReq(xlen, slots):
     address: address
-    access: mux(store, MemoryOperation.Store, MemoryOperation.Load)
-    atomic: RV5StageAtomicOperation.Swap
+    access: mux(store, RV5StageMemoryOperation.Store, RV5StageMemoryOperation.Load)
+    atomic: RiscvAtomicOperation.Swap
     width: width
     unsigned: Bool(#true)
     data: ex.bits.store_data[0..xlen.width]
     writeback: RV5StageMemoryWriteback(slots).Vector(ex.bits.completion_tag)
-    locality: RV5StageMemoryLocality.Default
+    locality: RiscvMemoryLocality.Default
   (
     lookup_path |> filter_valid(_token => access & !misaligned & !recover)
       |> map_valid(_token => RV5StagePipelineReq(xlen)):

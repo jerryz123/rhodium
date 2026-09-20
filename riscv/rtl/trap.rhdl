@@ -1,13 +1,49 @@
 #lang rhodium
-// Converts architectural synchronous exception causes into typed hardware values.
+// Materializes synchronous exception causes, selection, and delegation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/trap.rhm" open
+  "../isa/xlen.rhm" open
+  "privilege.rhdl".PrivilegeMode
+
+bundle RiscvTrapDecision(xlen :: XLen):
+  valid: Bool
+  cause: Bits(xlen.width)
+  value: Bits(xlen.width)
+  to_supervisor: Bool
 
 fun exception_cause_bits(cause :: ExceptionCause,
                          width :: PosInt) :~ Bits(width):
   bits(exception_code(cause), width)
 
+fun resolve_riscv_trap(xlen :: XLen,
+                       explicit_valid :: Bool,
+                       explicit_cause :: Bits(xlen.width),
+                       explicit_value :: Bits(xlen.width),
+                       generated_valid :: Bool,
+                       generated_cause :: Bits(xlen.width),
+                       generated_value :: Bits(xlen.width),
+                       privilege :: PrivilegeMode,
+                       medeleg :: Bits(xlen.width)) :~ RiscvTrapDecision(xlen):
+  def valid = explicit_valid ||| generated_valid
+  def cause = mux(explicit_valid, explicit_cause, generated_cause)
+  def delegated = mux_lookup(
+    cause,
+    ~default: Bool(#false),
+    DelegatableExceptionCauses.map(
+      fun (candidate):
+        def code = exception_code(candidate)
+        [code, medeleg[code].into(Bool)]
+    )
+  )
+  RiscvTrapDecision(xlen):
+    valid: valid
+    cause: cause
+    value: mux(explicit_valid, explicit_value, generated_value)
+    to_supervisor: valid & (privilege =/= PrivilegeMode.Machine) & delegated
+
 export:
+  RiscvTrapDecision
   exception_cause_bits
+  resolve_riscv_trap

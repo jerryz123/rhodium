@@ -9,5 +9,5 @@ import:
   "../../cores/rv5stage/tests/core-fixture.rhdl" as core
   "../../cores/rv5stage/profile.rhm" open
 
-def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintpause: #true)), ~reset_address: 0))
+def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintpause: #true)), ~reset_address: 0))
 print(emit_circt(design))

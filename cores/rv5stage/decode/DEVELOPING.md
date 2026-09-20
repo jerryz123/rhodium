@@ -9,8 +9,9 @@ extension, source navigation, and focused validation.
 
 ## Architecture and dependency boundary
 
-Each component file owns its decoder-facing bundle and every case that
-populates that column. Component files do not import sibling control modules;
+Reusable component mappings live in [`../../riscv/`](../../riscv/README.md).
+Each RV5Stage adapter here owns the cases that extend one reusable relation
+across the core's complete selected catalog. Component files do not import sibling control modules;
 [`core-ctrl.rhdl`](core-ctrl.rhdl) is the only composition boundary. The parent
 [`cores/check-boundaries.sh`](../../check-boundaries.sh) enforces this split.
 
@@ -23,19 +24,19 @@ execution and retirement behavior.
 
 | File | Owned control |
 |---|---|
-| [`alu-ctrl.rhdl`](alu-ctrl.rhdl) | ALU result selection and modifiers for base integer, B, Zicond, address-generation, and unused-result cases |
+| [`../../riscv/alu-decode.rhdl`](../../riscv/alu-decode.rhdl), [`alu-ctrl.rhdl`](alu-ctrl.rhdl) | Reusable I/B/Zicond ALU mapping; RV5Stage catalog completion and optional CBO/Zawrs rows |
 | [`operand-ctrl.rhdl`](operand-ctrl.rhdl) | Integer register use, ALU operand routing, and immediate format |
-| [`branch-ctrl.rhdl`](branch-ctrl.rhdl) | Branch-resolver mode and JALR target selection |
+| [`../../riscv/branch-decode.rhdl`](../../riscv/branch-decode.rhdl), [`branch-ctrl.rhdl`](branch-ctrl.rhdl) | Reusable branch-resolver mapping; RV5Stage catalog completion and optional rows |
 | [`mem-ctrl.rhdl`](mem-ctrl.rhdl) | Load, store, LR/SC, and AMO operation, width, atomic operation, and load extension |
-| [`multiply-ctrl.rhdl`](multiply-ctrl.rhdl) | Multiplier signedness plus high-result and word-result selection |
-| [`divide-ctrl.rhdl`](divide-ctrl.rhdl) | Divider signedness plus quotient/remainder and word-result selection |
+| [`../../riscv/multiply-decode.rhdl`](../../riscv/multiply-decode.rhdl), [`multiply-ctrl.rhdl`](multiply-ctrl.rhdl) | Reusable Zmmul controls; RV5Stage catalog completion |
+| [`../../riscv/divide-decode.rhdl`](../../riscv/divide-decode.rhdl), [`divide-ctrl.rhdl`](divide-ctrl.rhdl) | Reusable M divide controls; RV5Stage catalog completion |
 | [`writeback-ctrl.rhdl`](writeback-ctrl.rhdl) | Scalar architectural write enable and result source |
 | [`system-ctrl.rhdl`](system-ctrl.rhdl) | Zicsr operation, ECALL, EBREAK, WFI, MRET, SRET, and decode-only WRS.NTO/WRS.STO actions |
 | [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | FENCE, FENCE.I, and SFENCE.VMA actions |
 | [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE and NTL selectors, separate from fence/system serialization |
 | [`fp-ctrl.rhdl`](fp-ctrl.rhdl) | FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
 | [`vector-ctrl.rhdl`](vector-ctrl.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |
-| [`decode-support.rhdl`](decode-support.rhdl) | Catalog-independent case construction, exclusion, exact-pattern comparison, and component lookup helpers |
+| [`../../../riscv/rtl/decode.rhdl`](../../../riscv/rtl/decode.rhdl) | Catalog-independent RISC-V case construction, exclusion, exact-pattern comparison, and component lookup helpers |
 | [`core-ctrl.rhdl`](core-ctrl.rhdl) | `RV5StageControl`, core-row composition, scalar controls for FP rows, profile validation, and the integrated decoder circuit |
 
 ALU and operand relations use each XLEN catalog's own immediate-shift

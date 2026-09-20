@@ -12,6 +12,7 @@ import:
   "../decode/vector-ctrl.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
@@ -36,7 +37,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
         pc: bits(0x100, xlen.width)
         instruction: instruction
         state:
-          RV5StageVectorState(xlen):
+          RiscvVectorState(xlen):
             vl: vl
             vtype: vtype
             vstart: vstart

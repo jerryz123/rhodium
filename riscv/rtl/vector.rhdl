@@ -25,6 +25,13 @@ bundle RiscvVectorConfiguration(xlen :: XLen, vlen :: VectorLength):
   vl: Bits(index_width(vlen + 1))
   illegal: Bool
 
+bundle RiscvVectorState(xlen :: XLen):
+  vl: Bits(xlen.width)
+  vtype: Bits(xlen.width)
+  vstart: Bits(xlen.width)
+  vxrm: Bits(2)
+  vxsat: Bool
+
 fun vector_type(xlen :: XLen, vlen :: VectorLength, value :: Bits(xlen.width), ~elen: elen :: VectorSEW = VectorSEW.E64) :~ RiscvVectorType(xlen, vlen):
   def count_width = index_width(vlen + 1)
   def cases = for List (encoding in 0..64):
@@ -54,5 +61,6 @@ export:
   RiscvVectorType
   RiscvVectorConfigRequest
   RiscvVectorConfiguration
+  RiscvVectorState
   vector_type
   vector_configure

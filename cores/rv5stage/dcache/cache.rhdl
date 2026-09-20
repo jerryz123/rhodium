@@ -16,6 +16,8 @@ import:
   "../chi/writeback.rhdl" open
   "../../load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/atomic.rhdl" open
+  "../../../riscv/rtl/zihintntl.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/read-write.rhdl") open
   lib("flow/main.rhdl") open
@@ -100,10 +102,10 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   reg s1_read_valid(~init: Bool(#false))
   reg s1_read_address(Bits(width))
   inst local_store_gen(StoreGen(xlen, word_bytes))
-  inst local_atomic_alu(RV5StageAtomicALU(xlen))
+  inst local_atomic_alu(RiscvAtomicALU(xlen))
   inst refill_load_gen(LoadGen(xlen, word_bytes))
   inst refill_store_gen(StoreGen(xlen, word_bytes))
-  inst refill_atomic_alu(RV5StageAtomicALU(xlen))
+  inst refill_atomic_alu(RiscvAtomicALU(xlen))
   inst refill(RV5StageLineRefill(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width, config))
   inst snoop(RV5StageDataSnoop(width, config))
   inst writeback(RV5StageLineWriteback(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width, config, 1))
@@ -185,7 +187,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def snoop_lookup_start = snoop.lookup.valid
 
   // s0 / EX: admit a virtual page-offset read without reserving a transaction.
-  def s0_load = pipeline_lookup.valid & (pipeline_lookup.bits.access === MemoryOperation.Load)
+  def s0_load = pipeline_lookup.valid & (pipeline_lookup.bits.access === RV5StageMemoryOperation.Load)
   def s0_miss_set_clear = s0_load & (pipeline_lookup.bits.address[offset_width..(offset_width + set_width)] =/= miss_set)
   def s0_read_issue = pipeline_lookup.valid & (hit_path_available ||| (hit_under_miss & s0_miss_set_clear)) & !snoop_lookup_start & !snoop_metadata_pending & !snoop.update.valid & !store_state_write & !(store_drain & s0_load)
   s1_read_valid <== s0_read_issue
@@ -196,7 +198,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // Return combinational hit data for the core's MEM/WB register: no second
   // cache result/response register is inserted on this ordinary load path.
   def s1_array_words = arrays.data.response.bits.as_bits().as_vec(Bits(width))
-  def s1_store = pipeline.request.bits.access === MemoryOperation.Store
+  def s1_store = pipeline.request.bits.access === RV5StageMemoryOperation.Store
   def s1_set = pipeline.request.bits.address[offset_width..(offset_width + set_width)]
   def s1_tag = pipeline.request.bits.address[(offset_width + set_width)..width]
   def s1_tag_matches = vec(for List (way in 0..ways): valid_lines[s1_set][way] & (arrays.tags.response.bits[way] === s1_tag))
@@ -215,7 +217,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s1_read_matches = s1_read_valid & arrays.tags.response.valid & arrays.states.response.valid & (s1_store ||| arrays.data.response.valid) & (s1_read_address[0..12] === pipeline.request.bits.address[0..12])
   wire s1_outcome: RV5StagePipelineOutcome
   wire s1_reason: RV5StagePipelineReason
-  def s1_miss_set_clear = (pipeline.request.bits.access === MemoryOperation.Load) & (s1_set =/= miss_set)
+  def s1_miss_set_clear = (pipeline.request.bits.access === RV5StageMemoryOperation.Load) & (s1_set =/= miss_set)
   when (!(hit_path_available ||| (hit_under_miss & s1_miss_set_clear))):
     s1_outcome <== RV5StagePipelineOutcome.Replay
     s1_reason <== mux(snoop_pending, RV5StagePipelineReason.Probe, RV5StagePipelineReason.Miss)
@@ -270,7 +272,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   core.request_access_fault <== Bool(#false)
 
   def maintenance_active = !maintenance.command.ready
-  def Array(ordinary_requests, management_requests) = service_requests.egress |> demux_flow(2, request => request.access.into(MemoryOperation).is_cache_management().as_bits())
+  def Array(ordinary_requests, management_requests) = service_requests.egress |> demux_flow(2, request => request.access.into(RV5StageMemoryOperation).is_cache_management().as_bits())
   def management_waiting = management_requests.valid
   def management_address = rv5stage_chi_address(management_requests.bits.address.align_down(RV5StageCacheLineBytes), p)
   def management_home = config.home_map.lookup(management_address)
@@ -280,8 +282,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
          address: management_address
          opcode: mux_lookup(
            request.access, ~default: CHIReqOpcode.MakeInvalid,
-           [[MemoryOperation.CacheBlockClean, CHIReqOpcode.CleanShared],
-            [MemoryOperation.CacheBlockFlush, CHIReqOpcode.CleanInvalid]]
+           [[RV5StageMemoryOperation.CacheBlockClean, CHIReqOpcode.CleanShared],
+            [RV5StageMemoryOperation.CacheBlockFlush, CHIReqOpcode.CleanInvalid]]
          )
          snoop_me: Bool(#true)
          home_id: management_home.node_id
@@ -345,7 +347,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s4_zero = s4_valid & !s4_prefetch & s4_access.is_cache_block_zero()
   def s4_atomic = s4_valid & !s4_prefetch & s4_access.is_atomic()
   def s4_sc = s4_valid & !s4_prefetch & s4_access.is_store_conditional()
-  def s4_lr = s4_load & (s4_access === MemoryOperation.LoadReserved)
+  def s4_lr = s4_load & (s4_access === RV5StageMemoryOperation.LoadReserved)
   def s4_reservation_matches = reservation_valid & (reservation_address === s4_request.address) & (reservation_width === s4_request.width)
   def s4_sc_authorized = s4_reservation_matches & s4_hit & s4_state.is_unique()
   def s4_mutation = s4_store ||| s4_zero ||| s4_atomic ||| (s4_sc & s4_sc_authorized)
@@ -357,7 +359,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // from architectural intent; LR, mutations, and prefetches still allocate.
   fun bypass_allocation(result :: RV5StageL1DResolved(xlen, way_width, vector_completion_slots)):
     def lookup = result.lookup.into(RV5StageL1DLookup(xlen, vector_completion_slots))
-    !lookup.prefetch & !result.hit & (lookup.request.access === MemoryOperation.Load) & (lookup.request.locality =/= RV5StageMemoryLocality.Default)
+    !lookup.prefetch & !result.hit & (lookup.request.access === RV5StageMemoryOperation.Load) & (lookup.request.locality =/= RiscvMemoryLocality.Default)
   def s4_bypass_refill = bypass_allocation(s4_result.egress.bits)
   def s4_dirty_victim = s4_needs_refill & !s4_bypass_refill & !s4_prefetch & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
   def s4_word = s4_result.egress.bits.word
@@ -393,7 +395,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         def bypass = bypass_allocation(result)
         RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width):
           line_address: lookup.request.address.as_bits().align_down(RV5StageCacheLineBytes)
-          opcode: mux(lookup.prefetch_write ||| lookup.request.access.into(MemoryOperation).needs_unique() ||| (lookup.request.access === MemoryOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
+          opcode: mux(lookup.prefetch_write ||| lookup.request.access.into(RV5StageMemoryOperation).needs_unique() ||| (lookup.request.access === RV5StageMemoryOperation.LoadReserved), CHIReqOpcode.ReadUnique, CHIReqOpcode.ReadClean)
           context: transaction_context(result, !result.hit & !bypass, !bypass)
   )
   def s4_victim_address = s4_result.egress.bits.victim_address
@@ -417,7 +419,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     writeback.completion
       |> map_flow(result => RV5StageLineRefillCommand(RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots), width)):
         line_address: result.context.request.address.as_bits().align_down(RV5StageCacheLineBytes)
-        opcode: mux(result.context.prefetch_write ||| result.context.request.access.into(MemoryOperation).needs_unique() ||| (result.context.request.access === MemoryOperation.LoadReserved),
+        opcode: mux(result.context.prefetch_write ||| result.context.request.access.into(RV5StageMemoryOperation).needs_unique() ||| (result.context.request.access === RV5StageMemoryOperation.LoadReserved),
                     CHIReqOpcode.ReadUnique,
                     CHIReqOpcode.ReadClean)
         context: result.context
@@ -446,8 +448,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def install_refill = complete_refill & refill_context.install
   when complete_refill:
     assert(!refill.completion.bits.pass_dirty, "l1d_refill_not_dirty")
-    assert(!refill_context.request.access.into(MemoryOperation).is_store_conditional(), "l1d_sc_never_refills")
-    when (refill_context.request.access === MemoryOperation.LoadReserved):
+    assert(!refill_context.request.access.into(RV5StageMemoryOperation).is_store_conditional(), "l1d_sc_never_refills")
+    when (refill_context.request.access === RV5StageMemoryOperation.LoadReserved):
       assert(refill.completion.bits.state === CHIResponseState.Unique, "l1d_lr_refill_owned")
   def refill_request = refill_context.request
   def refill_prefetch = refill_context.prefetch
@@ -458,7 +460,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def refill_word_index = refill_request.address[word_offset_width..offset_width]
   def refill_words = refill.completion.bits.line.as_bits().as_vec(Bits(width))
   def service_load_request :: RV5StageDataReq(xlen, vector_completion_slots) = mux(refill.completion.valid, refill_request, s4_request)
-  def service_load_unsigned = mux(service_load_request.access === MemoryOperation.Load, service_load_request.unsigned, Bool(#false))
+  def service_load_unsigned = mux(service_load_request.access === RV5StageMemoryOperation.Load, service_load_request.unsigned, Bool(#false))
   def refilled_word = refill_words[refill_word_index]
   service_load_gen.address <== service_load_request.address
   service_load_gen.data <== mux(refill.completion.valid, refilled_word, s4_word)
@@ -475,7 +477,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def local_mutation_complete = local_mutation_commit & (!pending_zero ||| (pending_zero_index === bits(words_per_line - 1, word_index_width)))
   local_atomic_alu.old_value <== pending_mutation_old_value
   local_atomic_alu.operand <== pending_mutation_request.data
-  local_atomic_alu.memory_width <== pending_mutation_request.width
+  local_atomic_alu.word <== pending_mutation_request.width === MemoryWidth.Word
   local_atomic_alu.operation <== pending_mutation_request.atomic
   local_store_gen.address <== pending_mutation_request.address
   local_store_gen.value <== mux(pending_mutation_access.is_atomic(), local_atomic_alu.value, pending_mutation_request.data)
@@ -488,7 +490,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   refill_load_gen.unsigned_load <== Bool(#false)
   refill_atomic_alu.old_value <== refill_load_gen.value
   refill_atomic_alu.operand <== refill_request.data
-  refill_atomic_alu.memory_width <== refill_request.width
+  refill_atomic_alu.word <== refill_request.width === MemoryWidth.Word
   refill_atomic_alu.operation <== refill_request.atomic
   refill_store_gen.address <== refill_request.address
   refill_store_gen.value <== mux(refill_access.is_atomic(), refill_atomic_alu.value, refill_request.data)
@@ -614,13 +616,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         def hint = payload.into(CachePrefetchReq(width))
         def request = RV5StageDataReq(xlen, vector_completion_slots):
           address: hint.address
-          access: MemoryOperation.Load
-          atomic: RV5StageAtomicOperation.Swap
+          access: RV5StageMemoryOperation.Load
+          atomic: RiscvAtomicOperation.Swap
           width: MemoryWidth.Byte
           unsigned: Bool(#true)
           data: bits(0, width)
           writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
-          locality: RV5StageMemoryLocality.Default
+          locality: RiscvMemoryLocality.Default
         RV5StageL1DLookup(xlen, vector_completion_slots):
           request: request
           prefetch: Bool(#true)
@@ -748,7 +750,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   when (s4_refill_path.fire() ||| eviction_gather_start):
     assert(!miss_active, "l1d_single_miss_owner")
     miss_active <== Bool(#true)
-    miss_allows_hits <== !s4_prefetch & s4_access.is_one_of(MemoryOperation.Load, MemoryOperation.Store)
+    miss_allows_hits <== !s4_prefetch & s4_access.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store)
     miss_set <== s4_set
   elsewhen complete_refill:
     miss_active <== Bool(#false)
@@ -808,8 +810,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def reservation_line_address = reservation_address.align_down(RV5StageCacheLineBytes)
   def s4_line_address = s4_request.address.align_down(RV5StageCacheLineBytes)
   def pending_mutation_line_address = pending_mutation_request.address.align_down(RV5StageCacheLineBytes)
-  def completing_lr = s4_load_hit & (s4_access === MemoryOperation.LoadReserved) ||| (
-    install_refill & (refill_access === MemoryOperation.LoadReserved)
+  def completing_lr = s4_load_hit & (s4_access === RV5StageMemoryOperation.LoadReserved) ||| (
+    install_refill & (refill_access === RV5StageMemoryOperation.LoadReserved)
   )
   def s4_reservation_clear = s4_path.fire() & !local_mutation_capture & (
     s4_sc ||| ((s4_store ||| s4_zero ||| s4_atomic) & (s4_line_address === reservation_line_address))

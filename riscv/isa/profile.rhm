@@ -1,0 +1,69 @@
+#lang rhombus
+// Defines normalized RISC-V ISA claims and their architectural MISA projection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus.bits.(<<) as <<
+  "xlen.rhm".XLen
+
+enum MisaExtension
+| A
+| B
+| C
+| D
+| F
+| I
+| M
+| S
+| U
+| V
+
+fun misa_extension_index(extension :: MisaExtension) :: Nat:
+  match extension
+  | MisaExtension.A: 0
+  | MisaExtension.B: 1
+  | MisaExtension.C: 2
+  | MisaExtension.D: 3
+  | MisaExtension.F: 5
+  | MisaExtension.I: 8
+  | MisaExtension.M: 12
+  | MisaExtension.S: 18
+  | MisaExtension.U: 20
+  | MisaExtension.V: 21
+
+fun pack_misa_extensions(extensions :: List.of(MisaExtension)) :: Nat:
+  def mutable result = 0
+  for (extension in extensions):
+    result := result bits.or (1 << misa_extension_index(extension))
+  result
+
+class RiscvIsaProfile(xlen :: XLen,
+                      isa_extensions :: NonemptyList.of(String),
+                      misa_extensions :: List.of(MisaExtension)):
+  constructor (xlen :: XLen,
+               isa_extensions :: NonemptyList.of(String),
+               misa_extensions :: List.of(MisaExtension)):
+    for (extension in isa_extensions):
+      when isa_extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
+      | error(~who: #'RiscvIsaProfile, "extension names must be unique")
+    for (extension in misa_extensions):
+      when misa_extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
+      | error(~who: #'RiscvIsaProfile, "MISA extensions must be unique")
+    super(xlen, isa_extensions, misa_extensions)
+
+  property isa_base :: String:
+    if xlen == XLen.X32 | "rv32i" | "rv64i"
+
+  property misa_extension_bits :: Nat:
+    pack_misa_extensions(misa_extensions)
+
+  property misa_value :: Nat:
+    if xlen == XLen.X32
+    | (1 << 30) + misa_extension_bits
+    | (2 << 62) + misa_extension_bits
+
+export:
+  MisaExtension
+  misa_extension_index
+  pack_misa_extensions
+  RiscvIsaProfile

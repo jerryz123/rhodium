@@ -43,9 +43,9 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   def physical = physical_map.lookup(first_address, last_address)
   def request_reads = operation.is_load() ||| operation.is_atomic()
   def request_writes = operation.needs_unique()
-  def request_is_atomic = operation.is_one_of(MemoryOperation.LoadReserved,
-                                              MemoryOperation.StoreConditional,
-                                              MemoryOperation.Atomic)
+  def request_is_atomic = operation.is_one_of(RV5StageMemoryOperation.LoadReserved,
+                                              RV5StageMemoryOperation.StoreConditional,
+                                              RV5StageMemoryOperation.Atomic)
   def ordinary_permitted = physical.mapped & (!request_reads ||| physical.readable) & (
     !request_writes ||| physical.writable
   ) & (!request_is_atomic ||| physical.atomic) & (!zero_block ||| physical.cache_block_zero)

@@ -129,6 +129,14 @@ true. The `Irrevocable` response may be backpressured and must be consumed with
 `response.fire()`. This interface deliberately leaves queueing, cancellation,
 destination tracking, and writeback policy outside the reusable block.
 
+## Map RISC-V instructions onto components
+
+[`riscv/`](riscv/README.md) contains reusable decode relations that map the
+pure architectural catalogs onto the ALU, branch resolver, multiplier, and
+divider above. These modules define component-facing controls and standalone
+relations, but not a complete core catalog or pipeline policy. Named cores
+compose them with their own supported extension set.
+
 ## Add or inspect a named core
 
 A named core owns its decode, datapath, architectural state, pipeline policy,

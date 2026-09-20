@@ -12,7 +12,7 @@ import:
   "../../cores/rv5stage/profile.rhm" open
   "../../rhodium/event/main.rhm" open
 
-def traced = instrument_events(embedded.run_elaboration_with_top(fun (): core.RV5StageCoreFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: 128), ~reset_address: 0)), EventInstrumentationConfig(~partial: #true))
+def traced = instrument_events(embedded.run_elaboration_with_top(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: 128), ~reset_address: 0)), EventInstrumentationConfig(~partial: #true))
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace vector_core_sites {\n" ++ String.join(
   for List (label in ["core/s5.wb", "vector/launch"], name in ["wb", "launch"]):
     def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)

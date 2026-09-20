@@ -1,9 +1,8 @@
 #lang rhombus
-// Defines RV5Stage's immutable architectural and cache specialization profile.
+// Defines RV5Stage capability validation and immutable microarchitectural configuration.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  rhombus.bits.(<<) as <<
   lib("rhodium/core/types.rhm").count_index_width
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -12,6 +11,7 @@ import:
   lib("riscv/isa/vector-profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector.rhm").VectorLength
+  lib("riscv/isa/profile.rhm") open
 
 def RV5StageCacheLineBytes :: Pow2Int = 64
 
@@ -71,7 +71,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
   method compressed_misa_c(xlen :: XLen) :: Boolean:
     compressed_extensions_report_misa_c(xlen, floating_point, compressed)
 
-  method names(xlen :: XLen, _mmu_mode :: RV5StageMmuMode) :: NonemptyList.of(String):
+  method names(xlen :: XLen) :: NonemptyList.of(String):
     def mutable single_letter = ["i", "m", "a"]
     when floating_point_supports_f(floating_point)
     | single_letter := single_letter ++ ["f"]
@@ -160,14 +160,14 @@ fun rv5stage_execution_half_precision(half_precision :: HalfPrecisionProfile,
   | half_precision_supports_zfhmin(half_precision) || vector_extensions_support_zvfhmin(vector_extensions): HalfPrecisionProfile.Zfhmin
   | ~else: HalfPrecisionProfile.None
 
-class RVCoreProfile(xlen :: XLen,
-                    extensions :: RV5StageExtensions,
-                    mmu_mode :: RV5StageMmuMode,
-                    cache_geometry :: RV5StageCacheGeometry,
-                    vector :: VectorProfile,
-                    vector_extensions :: List.of(VectorExtension),
-                    vector_length :: VectorLength,
-                    vector_completion_slots :: Pow2Int):
+class RV5StageConfig(xlen :: XLen,
+                     extensions :: RV5StageExtensions,
+                     mmu_mode :: RV5StageMmuMode,
+                     cache_geometry :: RV5StageCacheGeometry,
+                     vector :: VectorProfile,
+                     vector_extensions :: List.of(VectorExtension),
+                     vector_length :: VectorLength,
+                     vector_completion_slots :: Pow2Int):
   implements StableCircuitParam
 
   constructor (~xlen: xlen :: XLen,
@@ -186,31 +186,25 @@ class RVCoreProfile(xlen :: XLen,
     )
     extensions.compressed_misa_c(xlen)
     when xlen == XLen.X32 && extensions.ssnpm
-    | error(~who: #'RVCoreProfile, "Ssnpm requires RV64")
+    | error(~who: #'RV5StageConfig, "Ssnpm requires RV64")
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
-    | error(~who: #'RVCoreProfile, "RV32 profiles support only Bare translation")
+    | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
     super(xlen, extensions, mmu_mode, cache_geometry, vector, vector_extensions, vector_length, vector_completion_slots)
 
-  property isa_base :: String:
-    if xlen == XLen.X32 | "rv32i" | "rv64i"
-
-  property isa_extensions :: NonemptyList.of(String):
+  property isa_profile :: RiscvIsaProfile:
     def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)
-    extensions.names(xlen, mmu_mode) ++ selected_vector ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
-
-  property misa_extension_bits :: Nat:
-    def fixed = (1 << 0) + (1 << 1) + (1 << 8) + (1 << 12) + (1 << 18) + (1 << 20)
-    def fp = if floating_point_supports_f(extensions.floating_point) | 1 << 5 | 0
-    def double = if floating_point_supports_d(extensions.floating_point) | 1 << 3 | 0
-    def compressed = if extensions.compressed_misa_c(xlen) | 1 << 2 | 0
-    def vector_bit = if vector_profile_is_v(vector) | 1 << 21 | 0
-    fixed + fp + double + compressed + vector_bit
-
-  property misa_value :: Nat:
-    if xlen == XLen.X32
-    | (1 << 30) + misa_extension_bits
-    | (2 << 62) + misa_extension_bits
+    def names = extensions.names(xlen) ++ selected_vector ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
+    def mutable misa = [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U]
+    when floating_point_supports_f(extensions.floating_point)
+    | misa := misa ++ [MisaExtension.F]
+    when floating_point_supports_d(extensions.floating_point)
+    | misa := misa ++ [MisaExtension.D]
+    when extensions.compressed_misa_c(xlen)
+    | misa := misa ++ [MisaExtension.C]
+    when vector_profile_is_v(vector)
+    | misa := misa ++ [MisaExtension.V]
+    RiscvIsaProfile(xlen, names, misa)
 
 export:
   RV5StageCacheLineBytes
@@ -218,7 +212,7 @@ export:
   RV5StageMmuMode
   RV5StageExtensions
   RV5StageCacheGeometry
-  RVCoreProfile
+  RV5StageConfig
   rv5stage_floating_point_profile_supported
   check_rv5stage_floating_point_profile
   check_rv5stage_vector_profile

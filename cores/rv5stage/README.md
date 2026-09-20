@@ -772,10 +772,11 @@ specialized core definition to be stamped at multiple placements.
 
 ### Generator parameters
 
-[`profile.rhm`](profile.rhm) defines the immutable `RVCoreProfile` host
-model: XLEN, effective ISA extensions, MMU mode, and independent instruction
-and data cache geometry. It validates supported combinations, derives the
-canonical ISA extension list and `misa` value, and is the sole architectural
+[`profile.rhm`](profile.rhm) defines the immutable `RV5StageConfig` host
+model: XLEN, supported extensions, MMU mode, and independent instruction and
+data cache geometry. It validates supported combinations and projects a pure
+[`RiscvIsaProfile`](../../riscv/isa/profile.rhm) containing the normalized ISA
+extension list and `misa` value. The RV5Stage configuration remains the sole
 specialization input to `RV5Stage` and `RV5StageCore`.
 
 | Parameter | Meaning |
@@ -830,14 +831,14 @@ The reusable transformation is documented in the
 
 ### UDB configuration
 
-[`udb.rhm`](udb.rhm) projects an `RVCoreProfile` into a Unified Database fully
+[`udb.rhm`](udb.rhm) projects an `RV5StageConfig` into a Unified Database fully
 configured architecture. The profile selects XLEN, FP, compressed, and MMU
 extensions. The projection adds the core's fixed architectural behavior,
 including U/S/M privilege, direct-only `mtvec` and `stvec`, read-only `misa`,
 no PMP or HPM counters, trapping misaligned accesses, exact-address-and-width
 LR/SC reservations, and the implemented base counters. Physical address width
 and PMA granularity remain explicit inputs because they are properties of the
-core's integration rather than `RVCoreProfile`.
+core's integration rather than `RV5StageConfig`.
 
 The projection declares `S` and `Sm` 1.12, matching the environment-configuration
 CSRs and trap-return behavior. `mconfigptr` reads as zero (no configuration
@@ -992,7 +993,7 @@ Accepted FP state changes mark FS Dirty, and `misa` reports the selected C, F,
 and D features.
 
 The core consumes controller-independent interrupt levels defined by
-[`interrupt.rhdl`](interrupt.rhdl). CSR state combines them with writable
+[`riscv/rtl/interrupt.rhdl`](../../riscv/rtl/interrupt.rhdl). CSR state combines them with writable
 pending bits and applies enables, delegation, privilege, and architectural
 priority. Reusable 64-bit `mcycle` and `minstret` state supplies Zicntr views;
 `minstret` advances only when an instruction reaches WB without a synchronous

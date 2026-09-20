@@ -50,6 +50,13 @@ if [[ -n "$component_domain_imports" ]]; then
   exit 1
 fi
 
+riscv_mapping_named_core_imports="$(search_sources '^[[:space:]]+"[^" ]*rv5stage/' cores/riscv || true)"
+if [[ -n "$riscv_mapping_named_core_imports" ]]; then
+  echo "reusable RISC-V component mappings must not import named cores" >&2
+  echo "$riscv_mapping_named_core_imports" >&2
+  exit 1
+fi
+
 component_control_imports="$(search_sources '^[[:space:]]+"(alu|operand|branch|mem|writeback|system)-ctrl\.rhdl"' \
   cores/rv5stage/decode/alu-ctrl.rhdl \
   cores/rv5stage/decode/operand-ctrl.rhdl \

@@ -8,12 +8,12 @@ import:
   "packet.rhdl" open
   "scan.rhdl" open
   "protocol.rhdl" open
-  "../profile.rhm".RVCoreProfile
+  "../profile.rhm".RV5StageConfig
   "../icache/protocol.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageFrontend(core_profile :: RVCoreProfile, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
+sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
   def xlen = core_profile.xlen
   def packet_capacity :: PosInt = 5
   interface control(RV5StageFrontendControl(xlen), ~role: frontend)

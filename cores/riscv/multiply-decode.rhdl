@@ -1,0 +1,82 @@
+#lang rhodium
+// Maps RV32 and RV64 Zmmul instructions onto the shared multiplier.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../multiplier.rhdl" open
+  "../../riscv/rtl/decode.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/isa/rv32i.rhm" as rv32
+  "../../riscv/isa/rv64i.rhm" open
+  "../../riscv/isa/m.rhm" open
+  "../../riscv/isa/zmmul.rhm" open
+  "../../riscv/rtl/instruction-pattern.rhdl" open
+  lib("rhodium/std/decode.rhdl") open
+
+bundle RiscvMultiplyControl():
+  mode: MultiplierMode()
+  high_result: Bool
+  word_result: Bool
+
+def signed_signed = pattern(MultiplierMode()):
+  left_signed: Bool(#true)
+  right_signed: Bool(#true)
+
+def signed_unsigned = pattern(MultiplierMode()):
+  left_signed: Bool(#true)
+  right_signed: Bool(#false)
+
+def unsigned_unsigned = pattern(MultiplierMode()):
+  left_signed: Bool(#false)
+  right_signed: Bool(#false)
+
+def RV32ZmmulControlCases = decode_groups(
+  RiscvMultiplyControl(),
+  ~input: instruction_pattern
+):
+  [MUL]:
+    high_result: Bool(#false)
+    word_result: Bool(#false)
+
+  [MULH]:
+    mode: signed_signed
+    high_result: Bool(#true)
+    word_result: Bool(#false)
+
+  [MULHSU]:
+    mode: signed_unsigned
+    high_result: Bool(#true)
+    word_result: Bool(#false)
+
+  [MULHU]:
+    mode: unsigned_unsigned
+    high_result: Bool(#true)
+    word_result: Bool(#false)
+
+def RV64ZmmulControlCases = RV32ZmmulControlCases ++ decode_groups(
+  RiscvMultiplyControl(),
+  ~input: instruction_pattern
+):
+  [MULW]:
+    high_result: Bool(#false)
+    word_result: Bool(#true)
+
+def RV32ZmmulControlDecode = ValidDecodeGen(RV32ZmmulControlCases)
+def RV64ZmmulControlDecode = ValidDecodeGen(RV64ZmmulControlCases)
+
+circuit RiscvMultiplyInstructionDecoder(xlen :: XLen):
+  input instruction: Bits(32)
+  output valid: Bool
+  output control: RiscvMultiplyControl()
+
+  def decoded :: DecodeResult(RiscvMultiplyControl()) = if xlen == XLen.X32 | RV32ZmmulControlDecode(instruction) | RV64ZmmulControlDecode(instruction)
+  valid <== decoded.valid
+  control <== decoded.value
+
+export:
+  RiscvMultiplyControl
+  RV32ZmmulControlCases
+  RV64ZmmulControlCases
+  RV32ZmmulControlDecode
+  RV64ZmmulControlDecode
+  RiscvMultiplyInstructionDecoder

@@ -42,7 +42,7 @@ cacheable coherent RAM.
 All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
 non-caching RN-F port for coherent RAM and non-snooping MMIO access.
 Each author-facing SoC parameter object owns one
-`RVCoreProfile`, and the same profile specializes the instantiated core and its
+`RV5StageConfig`, and the same profile specializes the instantiated core and its
 architectural description. `SimpleSoC` defaults to RV64D, V 1.0 with VLEN 128,
 and the full C composition; its device tree and UDB configuration advertise
 `V`, the implied Zve32x/Zve32f/Zve64x/Zve64f/Zve64d closure, `Zfh`, `Zvfh`,
@@ -52,7 +52,7 @@ integer-only RV64 with 2 KiB direct-mapped L1s, and
 `TiledSoC` to integer-only RV64 with the C composition. SimpleSoC and TiledSoC
 also enable Zcmop; MiniSoC keeps compressed instructions disabled. All three select Sv39;
 Zicbop and Zicboz are enabled in each default profile. SimpleSoC also enables
-scalar `Zfh`, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee `Zvkt`; Zfa remains disabled. Supply an alternate `RVCoreProfile` through the owning SoC parameter
+scalar `Zfh`, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee `Zvkt`; Zfa remains disabled. Supply an alternate `RV5StageConfig` through the owning SoC parameter
 object to change those selections.
 Zicboz-capable CPU nodes advertise `riscv,cboz-block-size = 64`; normal RAM
 permits block zero, while ROM and peripheral regions reject it.
@@ -64,7 +64,7 @@ containing RX, TX, and interrupt signals.
 
 [`description.rhm`](description.rhm) defines the immutable
 `RiscvSoCDescription` consumed by architecture-facing generators. It combines
-the model and compatible strings, hart IDs and `RVCoreProfile`, clock and
+the model and compatible strings, hart IDs and `RV5StageConfig`, clock and
 timebase frequencies, architectural memory regions, BootROM layout, ACLINT,
 an optional PLIC, and an optional UART. The PLIC description identifies every
 source and orders machine and supervisor contexts for each hart. Address regions retain their originating `AddressSet`,
@@ -284,7 +284,7 @@ def layout = tile_grid:
 ```
 
 `TiledSoCConfig` combines that immutable `TileGrid` with `TiledNodeIds`,
-`StripedMemory`, `LLCGeometry`, an `RVCoreProfile`, `SoCClockConfig`, the boot
+`StripedMemory`, `LLCGeometry`, an `RV5StageConfig`, `SoCClockConfig`, the boot
 configuration, and the CHI flit parameters. The public
 `TiledSoC(config)` circuit accepts this author value directly. Its private
 compiler derives mesh coordinates, occurrence ordering, endpoint IDs, CHI

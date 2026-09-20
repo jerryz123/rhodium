@@ -39,7 +39,7 @@ fun mini_soc_system_params(ram :: CHIRamParams,
   )
 
 class MiniSoCParams(ram :: CHIRamParams,
-                    core_profile :: RVCoreProfile,
+                    core_profile :: RV5StageConfig,
                     clocks :: SoCClockConfig,
                     boot :: SoCBootConfig):
   implements StableCircuitParam
@@ -52,7 +52,7 @@ class MiniSoCParams(ram :: CHIRamParams,
                        clocks)
 
   constructor (ram :: CHIRamParams,
-               ~core_profile: core_profile :: RVCoreProfile = mini_soc_core_profile,
+               ~core_profile: core_profile :: RV5StageConfig = mini_soc_core_profile,
                ~clocks: clocks :: SoCClockConfig = mini_soc_clocks,
                ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: ram.base_address)):
     unless core_profile.xlen == XLen.X64

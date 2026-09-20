@@ -1,13 +1,13 @@
 #lang rhodium
-// Maps base control transfers and disabled extension cases to branch controls.
+// Extends reusable RISC-V branch mappings across RV5Stage's complete instruction catalog.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../riscv/branch-decode.rhdl" open
+  "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
-  "decode-support.rhdl" open
-  "../../branch-resolver.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/m.rhm" open
@@ -20,100 +20,21 @@ import:
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
-bundle BranchControl():
-  resolver: BranchResolverControl()
-  target_from_rs1: Bool
-
-fun equality_resolver(invert :: Boolean):
-  partial_pattern(BranchResolverControl()):
-    enable: Bool(#true)
-    unconditional: Bool(#false)
-    compare_equal: Bool(#true)
-    invert: Bool(invert)
-
-fun less_resolver(signed_mode :: Boolean, invert :: Boolean):
-  partial_pattern(BranchResolverControl()):
-    enable: Bool(#true)
-    unconditional: Bool(#false)
-    compare_equal: Bool(#false)
-    signed_mode: Bool(signed_mode)
-    invert: Bool(invert)
-
-def unconditional_resolver = partial_pattern(BranchResolverControl()):
-  enable: Bool(#true)
-  unconditional: Bool(#true)
-
-def disabled_resolver = partial_pattern(BranchResolverControl()):
-  enable: Bool(#false)
-
-def branch_instructions = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
-def branching_instructions = [JAL, JALR] ++ branch_instructions
-fun branch_cases(instructions :: List.of(InstructionSpec)):
-  decode_groups(
-    BranchControl(),
-    ~input: instruction_pattern
-  ):
-    [JAL]:
-      resolver: unconditional_resolver
-      target_from_rs1: Bool(#false)
-
-    [JALR]:
-      resolver: unconditional_resolver
-      target_from_rs1: Bool(#true)
-
-    [BEQ]:
-      resolver: equality_resolver(#false)
-      target_from_rs1: Bool(#false)
-
-    [BNE]:
-      resolver: equality_resolver(#true)
-      target_from_rs1: Bool(#false)
-
-    [BLT]:
-      resolver: less_resolver(#true, #false)
-      target_from_rs1: Bool(#false)
-
-    [BGE]:
-      resolver: less_resolver(#true, #true)
-      target_from_rs1: Bool(#false)
-
-    [BLTU]:
-      resolver: less_resolver(#false, #false)
-      target_from_rs1: Bool(#false)
-
-    [BGEU]:
-      resolver: less_resolver(#false, #true)
-      target_from_rs1: Bool(#false)
-
-    group excluding_instructions(instructions, branching_instructions):
-      resolver: disabled_resolver
-
-def RV32IBranchCases = branch_cases(rv32.RV32IInstructions)
-def RV64IBranchCases = branch_cases(RV64IInstructions)
 def RV32RV5StageBranchCases = branch_cases(
   rv32.RV32IInstructions ++ RV32MInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions
 )
 def RV64RV5StageBranchCases = branch_cases(
   RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions
 )
-def RV32IBranchDecode = ValidDecodeGen(RV32IBranchCases)
-def RV64IBranchDecode = ValidDecodeGen(RV64IBranchCases)
-
-def no_branch = partial_pattern(BranchControl()):
+def no_branch = partial_pattern(RiscvBranchControl()):
   resolver: disabled_resolver
 def ZicbozBranchCases = instruction_cases(ZicbozInstructions, no_branch)
 def ZicbomBranchCases = instruction_cases(ZicbomInstructions, no_branch)
-
 def ZawrsBranchCases = instruction_cases(ZawrsInstructions, no_branch)
 
 export:
   ZawrsBranchCases
   ZicbomBranchCases
   ZicbozBranchCases
-  BranchControl
-  RV32IBranchCases
-  RV64IBranchCases
   RV32RV5StageBranchCases
   RV64RV5StageBranchCases
-  RV32IBranchDecode
-  RV64IBranchDecode

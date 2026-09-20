@@ -10,47 +10,50 @@ import:
   "../../../riscv/isa/zca.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/rtl/csr.rhdl" open
   "../../branch-resolver.rhdl" open
   "../../cache-prefetch.rhdl" open
   "../decode/core-ctrl.rhdl" open
+  "../memory.rhdl" open
   "../decode/vector-ctrl.rhdl" open
   "../decode/hint-ctrl.rhdl" open
   "../decode/fence-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/branch-ctrl.rhdl" open
+  "../../riscv/branch-decode.rhdl" open
   "../decode/writeback-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open
 
-def hints = [HintOperation.NtlP1, HintOperation.NtlPall, HintOperation.NtlS1, HintOperation.NtlAll]
+def hints = [RV5StageHintOperation.NtlP1, RV5StageHintOperation.NtlPall, RV5StageHintOperation.NtlS1, RV5StageHintOperation.NtlAll]
 def compressed_words = [0x900a, 0x900e, 0x9012, 0x9016]
 
 for (instruction in ZihintntlInstructions, hint in hints, compressed_word in compressed_words):
   def expected = partial_pattern(RV5StageControl()):
     hint: hint
     operand:
-      partial_pattern(OperandControl()):
+      partial_pattern(RV5StageOperandControl()):
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
     branch:
-      partial_pattern(BranchControl()):
+      partial_pattern(RiscvBranchControl()):
         resolver:
           partial_pattern(BranchResolverControl()):
             enable: Bool(#false)
     memory:
-      partial_pattern(MemoryControl()):
-        access: MemoryOperation.None
+      partial_pattern(RV5StageMemoryControl()):
+        access: RV5StageMemoryOperation.None
     prefetch: CachePrefetchOperation.None
     writeback:
-      partial_pattern(WritebackControl()):
+      partial_pattern(RV5StageWritebackControl()):
         enable: Bool(#false)
     system:
-      partial_pattern(SystemControl()):
-        csr: CsrOperation.None
-        action: SystemOperation.None
+      partial_pattern(RV5StageSystemControl()):
+        csr: RiscvCsrOperation.None
+        action: RV5StageSystemOperation.None
     fence:
-      pattern(FenceControl()):
-        action: FenceOperation.None
+      pattern(RV5StageFenceControl()):
+        action: RV5StageFenceOperation.None
     floating_point_valid: Bool(#false)
     vector: NoVectorControl
   def row = ZihintntlCoreControlCases.find(fun (candidate): candidate.input.matches(bits(instruction.encode([]), 32)))

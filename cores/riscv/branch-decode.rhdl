@@ -1,0 +1,92 @@
+#lang rhodium
+// Maps base RISC-V control transfers onto the shared branch resolver.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../riscv/rtl/decode.rhdl" open
+  "../branch-resolver.rhdl" open
+  "../../riscv/isa/rv32i.rhm" as rv32
+  "../../riscv/isa/rv64i.rhm" open
+  lib("rhodium/std/decode.rhdl") open
+
+bundle RiscvBranchControl():
+  resolver: BranchResolverControl()
+  target_from_rs1: Bool
+
+fun equality_resolver(invert :: Boolean):
+  partial_pattern(BranchResolverControl()):
+    enable: Bool(#true)
+    unconditional: Bool(#false)
+    compare_equal: Bool(#true)
+    invert: Bool(invert)
+
+fun less_resolver(signed_mode :: Boolean, invert :: Boolean):
+  partial_pattern(BranchResolverControl()):
+    enable: Bool(#true)
+    unconditional: Bool(#false)
+    compare_equal: Bool(#false)
+    signed_mode: Bool(signed_mode)
+    invert: Bool(invert)
+
+def unconditional_resolver = partial_pattern(BranchResolverControl()):
+  enable: Bool(#true)
+  unconditional: Bool(#true)
+
+def disabled_resolver = partial_pattern(BranchResolverControl()):
+  enable: Bool(#false)
+
+def branch_instructions = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
+def branching_instructions = [JAL, JALR] ++ branch_instructions
+fun branch_cases(instructions :: List.of(InstructionSpec)):
+  decode_groups(
+    RiscvBranchControl(),
+    ~input: instruction_pattern
+  ):
+    [JAL]:
+      resolver: unconditional_resolver
+      target_from_rs1: Bool(#false)
+
+    [JALR]:
+      resolver: unconditional_resolver
+      target_from_rs1: Bool(#true)
+
+    [BEQ]:
+      resolver: equality_resolver(#false)
+      target_from_rs1: Bool(#false)
+
+    [BNE]:
+      resolver: equality_resolver(#true)
+      target_from_rs1: Bool(#false)
+
+    [BLT]:
+      resolver: less_resolver(#true, #false)
+      target_from_rs1: Bool(#false)
+
+    [BGE]:
+      resolver: less_resolver(#true, #true)
+      target_from_rs1: Bool(#false)
+
+    [BLTU]:
+      resolver: less_resolver(#false, #false)
+      target_from_rs1: Bool(#false)
+
+    [BGEU]:
+      resolver: less_resolver(#false, #true)
+      target_from_rs1: Bool(#false)
+
+    group excluding_instructions(instructions, branching_instructions):
+      resolver: disabled_resolver
+
+def RV32IBranchCases = branch_cases(rv32.RV32IInstructions)
+def RV64IBranchCases = branch_cases(RV64IInstructions)
+def RV32IBranchDecode = ValidDecodeGen(RV32IBranchCases)
+def RV64IBranchDecode = ValidDecodeGen(RV64IBranchCases)
+
+export:
+  RiscvBranchControl
+  branch_cases
+  disabled_resolver
+  RV32IBranchCases
+  RV64IBranchCases
+  RV32IBranchDecode
+  RV64IBranchDecode

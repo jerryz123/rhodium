@@ -10,6 +10,7 @@ import:
   "../../simd-alu.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
 
 fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
   index_width(vlen + 1) + 3
@@ -17,7 +18,7 @@ fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
 bundle RV5StageVectorDescriptor(xlen :: XLen):
   pc: Bits(xlen.width)
   instruction: Bits(32)
-  state: RV5StageVectorState(xlen)
+  state: RiscvVectorState(xlen)
   control: RV5StageVectorControl()
   scalar: Bits(xlen.width)
   floating_scalar: Bits(64)

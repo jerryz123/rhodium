@@ -14,16 +14,20 @@ Before adding a component, decide who owns its policy:
 - Put an execution or data-shaping block directly under `cores/` only when its
   interface is useful to more than one processor and it does not depend on an
   instruction catalog, named core, backend, example, or test.
+- Put reusable mappings from RISC-V instruction catalogs onto those shared
+  components under `cores/riscv/`. These mappings may depend on `riscv/` and
+  root `cores/` components, but not on any named core.
 - Put instruction decode, architectural state, pipeline policy, adapters, and
   integrated tests under `cores/<name>/`.
 - Put direct tests for a reusable component in [`tests/`](tests/). Put a named
   core's tests under its own `tests/` directory.
 
 A reusable component may use the closed RISC-V `XLen` configuration when its
-contract is specifically RV32/RV64, but instruction catalogs and field models
-remain named-core policy. Named cores may depend on reusable blocks, Rhodium
-libraries, pure RISC-V ISA/RTL support, and shared protocol libraries, but
-never on another named core.
+contract is specifically RV32/RV64. Reusable component mappings under
+`cores/riscv/` may consume architectural instruction catalogs, while complete
+extension selection remains named-core policy. Named cores may depend on
+reusable blocks, those mappings, Rhodium libraries, pure RISC-V ISA/RTL
+support, and shared protocol libraries, but never on another named core.
 
 ## Dependency direction
 
@@ -32,11 +36,14 @@ flowchart LR
   Consumers["backends, examples,<br/>and tests"] --> Named["named cores<br/>cores/name/"]
   Consumers --> Reusable["reusable components<br/>cores/*.rhdl"]
   Named --> Reusable
+  Named --> Mapping["RISC-V component mappings<br/>cores/riscv/"]
+  Mapping --> Reusable
+  Mapping --> Riscv
   Named --> Riscv["RISC-V ISA and RTL"]
   Named --> Protocols["shared protocol libraries"]
   Named --> Rhodium["Rhodium language, std, and flow"]
   Reusable --> Rhodium
-  Reusable -->|"ALU and load/store only"| Xlen["RISC-V XLen"]
+  Reusable -->|"width-specialized components"| Xlen["RISC-V XLen"]
 ```
 
 Production code must not reverse an arrow toward consumers. Neither reusable

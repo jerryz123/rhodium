@@ -17,6 +17,7 @@ import:
   "../decode/core-ctrl.rhdl" as controls
   "../decode/operand-ctrl.rhdl" as operands
   "../decode/mem-ctrl.rhdl" as memory
+  "../memory.rhdl" as core_memory
   "../decode/writeback-ctrl.rhdl" as writeback
   "../../alu.rhdl" as alu
 
@@ -39,23 +40,23 @@ def expected_prefetch_r = partial_pattern(controls.RV5StageControl()):
     partial_pattern(alu.AluControl()):
       result_select: alu.AluResultSelect.Adder
   operand:
-    pattern(operands.OperandControl()):
+    pattern(operands.RV5StageOperandControl()):
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
       left: operands.OperandASelect.Register
       right: operands.OperandBSelect.Immediate
-      immediate: operands.ImmediateSelect.Prefetch
+      immediate: operands.RV5StageImmediateSelect.Prefetch
   memory:
-    partial_pattern(memory.MemoryControl()):
-      access: memory.MemoryOperation.None
+    partial_pattern(memory.RV5StageMemoryControl()):
+      access: core_memory.RV5StageMemoryOperation.None
   prefetch: CachePrefetchOperation.Read
   writeback:
-    partial_pattern(writeback.WritebackControl()):
+    partial_pattern(writeback.RV5StageWritebackControl()):
       enable: Bool(#false)
 def expected_disabled_prefetch = partial_pattern(controls.RV5StageControl()):
   prefetch: CachePrefetchOperation.None
   writeback:
-    partial_pattern(writeback.WritebackControl()):
+    partial_pattern(writeback.RV5StageWritebackControl()):
       enable: Bool(#true)
 def decoder64_design = embedded.run_elaboration(
   fun (): controls.RV5StageInstructionDecoder(XLen.X64, ~zicbop: #true)
@@ -63,7 +64,7 @@ def decoder64_design = embedded.run_elaboration(
 def decoder32_design = embedded.run_elaboration(
   fun (): controls.RV5StageInstructionDecoder(XLen.X32, ~zicbop: #true)
 )
-def core_profile = RVCoreProfile(
+def core_profile = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~zicbop: #true)
 )
@@ -71,7 +72,7 @@ def core_design = embedded.run_elaboration(fun (): core.RV5StageCore(core_profil
 def core_module = core_design.modules.find(fun (module_def): module_def.name == "RV5StageCore")
 
 check:
-  core_profile.isa_extensions.contains("zicbop") ~is #true
+  core_profile.isa_profile.isa_extensions.contains("zicbop") ~is #true
   controls.rv5stage_instructions(
     XLen.X64,
     FloatingPointProfile.None,

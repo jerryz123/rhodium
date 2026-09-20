@@ -3,10 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "profile.rhm".RVCoreProfile
+  "profile.rhm".RV5StageConfig
   "decode/fence-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
-  "interrupt.rhdl" open
   "vector/csr.rhdl" open
   "../../riscv/rtl/vector.rhdl" open
   "../../riscv/isa/c.rhm" open
@@ -30,8 +29,8 @@ bundle RV5StageCsrCommit(xlen :: XLen):
   pc: Bits(xlen.width)
   instruction: Bits(32)
   rd: Bits(5)
-  system: SystemControl()
-  fence: FenceControl()
+  system: RV5StageSystemControl()
+  fence: RV5StageFenceControl()
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
@@ -61,35 +60,9 @@ bundle RV5StageCsrState(xlen :: XLen):
   stval: Bits(xlen.width)
   satp: Bits(xlen.width)
 
-bundle RV5StageTrapDecision(xlen :: XLen):
-  valid: Bool
-  cause: Bits(xlen.width)
-  value: Bits(xlen.width)
-  to_supervisor: Bool
-
-bundle RV5StageInterruptDecision(xlen :: XLen):
-  valid: Bool
-  cause: Bits(xlen.width)
-  to_supervisor: Bool
-
 bundle RV5StageFpCsrWrite():
   address: Bits(12)
   value: Bits(8)
-
-def RV5StageDelegatableExceptions = [
-  ExceptionCause.InstructionAddressMisaligned,
-  ExceptionCause.InstructionAccessFault,
-  ExceptionCause.IllegalInstruction,
-  ExceptionCause.Breakpoint,
-  ExceptionCause.LoadAddressMisaligned,
-  ExceptionCause.LoadAccessFault,
-  ExceptionCause.StoreAddressMisaligned,
-  ExceptionCause.StoreAccessFault,
-  ExceptionCause.EnvironmentCallFromUser,
-  ExceptionCause.InstructionPageFault,
-  ExceptionCause.LoadPageFault,
-  ExceptionCause.StorePageFault
-]
 
 fun resolve_rv5stage_trap(xlen :: XLen,
                           commit_valid :: Bool,
@@ -97,30 +70,30 @@ fun resolve_rv5stage_trap(xlen :: XLen,
                           privilege :: PrivilegeMode,
                           mstatus :: Bits(xlen.width),
                           csr_access_legal :: Bool,
-                          medeleg :: Bits(xlen.width)) :~ RV5StageTrapDecision(xlen):
+                          medeleg :: Bits(xlen.width)) :~ RiscvTrapDecision(xlen):
   def width = xlen.width
   def zero = bits(0, width)
-  def csr_commit = commit_valid & (operation.system.csr =/= CsrOperation.None)
+  def csr_commit = commit_valid & (operation.system.csr =/= RiscvCsrOperation.None)
   def illegal_csr = csr_commit & !csr_access_legal
   def supervisor = privilege === PrivilegeMode.Supervisor
   def less_than_machine = privilege =/= PrivilegeMode.Machine
-  def illegal_mret = (operation.system.action === SystemOperation.Mret) & less_than_machine
-  def illegal_sret = (operation.system.action === SystemOperation.Sret) & (
+  def illegal_mret = (operation.system.action === RV5StageSystemOperation.Mret) & less_than_machine
+  def illegal_sret = (operation.system.action === RV5StageSystemOperation.Sret) & (
     (privilege === PrivilegeMode.User) ||| (supervisor & mstatus[22].into(Bool))
   )
-  def illegal_wfi = (operation.system.action === SystemOperation.Wfi) & (
+  def illegal_wfi = (operation.system.action === RV5StageSystemOperation.Wfi) & (
     (privilege === PrivilegeMode.User) ||| (supervisor & mstatus[21].into(Bool))
   )
-  def illegal_sfence_vma = (operation.fence.action === FenceOperation.AddressTranslation) & (
+  def illegal_sfence_vma = (operation.fence.action === RV5StageFenceOperation.AddressTranslation) & (
     (privilege === PrivilegeMode.User) ||| (supervisor & mstatus[20].into(Bool))
   )
   def illegal_privileged_operation = commit_valid & (
     illegal_mret ||| illegal_sret ||| illegal_wfi ||| illegal_sfence_vma
   )
   def explicit_exception = commit_valid & operation.exception_valid
-  def ecall = commit_valid & (operation.system.action === SystemOperation.Ecall)
-  def ebreak = commit_valid & (operation.system.action === SystemOperation.Ebreak)
-  def trap_event = explicit_exception ||| illegal_csr ||| illegal_privileged_operation ||| ecall ||| ebreak
+  def ecall = commit_valid & (operation.system.action === RV5StageSystemOperation.Ecall)
+  def ebreak = commit_valid & (operation.system.action === RV5StageSystemOperation.Ebreak)
+  def generated_exception = illegal_csr ||| illegal_privileged_operation ||| ecall ||| ebreak
   def ecall_cause = mux_lookup(
     privilege,
     ~default: exception_cause_bits(ExceptionCause.EnvironmentCallFromMachine, width),
@@ -139,88 +112,18 @@ fun resolve_rv5stage_trap(xlen :: XLen,
       exception_cause_bits(ExceptionCause.IllegalInstruction, width)
     )
   )
-  def cause = mux(explicit_exception, operation.exception_cause, generated_cause)
   def instruction = if width == 32 | operation.instruction | operation.instruction.zext(width)
-  def value = mux(
+  resolve_riscv_trap(
+    xlen,
     explicit_exception,
+    operation.exception_cause,
     operation.exception_value,
-    mux(illegal_csr ||| illegal_privileged_operation, instruction, zero)
+    generated_exception,
+    generated_cause,
+    mux(illegal_csr ||| illegal_privileged_operation, instruction, zero),
+    privilege,
+    medeleg
   )
-  def delegated = mux_lookup(
-    cause,
-    ~default: Bool(#false),
-    RV5StageDelegatableExceptions.map(
-      fun (candidate):
-        def code = exception_code(candidate)
-        [code, medeleg[code].into(Bool)]
-    )
-  )
-  RV5StageTrapDecision(xlen):
-    valid: trap_event
-    cause: cause
-    value: value
-    to_supervisor: trap_event & (privilege =/= PrivilegeMode.Machine) & delegated
-
-fun resolve_rv5stage_interrupt(xlen :: XLen,
-                               pending :: Bits(xlen.width),
-                               enabled :: Bits(xlen.width),
-                               delegated :: Bits(xlen.width),
-                               mstatus :: Bits(xlen.width),
-                               privilege :: PrivilegeMode) :~ RV5StageInterruptDecision(xlen):
-  def width = xlen.width
-  def machine_globally_enabled = (privilege =/= PrivilegeMode.Machine) ||| mstatus[3].into(Bool)
-  def supervisor_globally_enabled = (privilege === PrivilegeMode.User) ||| (
-    (privilege === PrivilegeMode.Supervisor) & mstatus[1].into(Bool)
-  )
-  fun candidate(cause :: InterruptCause) :~ Bool:
-    def code = interrupt_code(cause)
-    def to_supervisor = delegated[code].into(Bool)
-    pending[code].into(Bool) & enabled[code].into(Bool) & mux(
-      to_supervisor,
-      supervisor_globally_enabled,
-      machine_globally_enabled
-    )
-  def machine_external = candidate(InterruptCause.MachineExternal)
-  def machine_software = candidate(InterruptCause.MachineSoftware)
-  def machine_timer = candidate(InterruptCause.MachineTimer)
-  def supervisor_external = candidate(InterruptCause.SupervisorExternal)
-  def supervisor_software = candidate(InterruptCause.SupervisorSoftware)
-  def supervisor_timer = candidate(InterruptCause.SupervisorTimer)
-  def valid = machine_external ||| machine_software ||| machine_timer ||| supervisor_external ||| supervisor_software ||| supervisor_timer
-  def cause = mux(
-    machine_external,
-    interrupt_cause_bits(InterruptCause.MachineExternal, width),
-    mux(
-      machine_software,
-      interrupt_cause_bits(InterruptCause.MachineSoftware, width),
-      mux(
-        machine_timer,
-        interrupt_cause_bits(InterruptCause.MachineTimer, width),
-        mux(
-          supervisor_external,
-          interrupt_cause_bits(InterruptCause.SupervisorExternal, width),
-          mux(
-            supervisor_software,
-            interrupt_cause_bits(InterruptCause.SupervisorSoftware, width),
-            interrupt_cause_bits(InterruptCause.SupervisorTimer, width)
-          )
-        )
-      )
-    )
-  )
-  def to_supervisor = mux_lookup(
-    cause[0..4],
-    ~default: Bool(#false),
-    [
-      [interrupt_code(InterruptCause.SupervisorSoftware), delegated[interrupt_code(InterruptCause.SupervisorSoftware)].into(Bool)],
-      [interrupt_code(InterruptCause.SupervisorTimer), delegated[interrupt_code(InterruptCause.SupervisorTimer)].into(Bool)],
-      [interrupt_code(InterruptCause.SupervisorExternal), delegated[interrupt_code(InterruptCause.SupervisorExternal)].into(Bool)]
-    ]
-  )
-  RV5StageInterruptDecision(xlen):
-    valid: valid
-    cause: cause
-    to_supervisor: valid & to_supervisor
 
 sync_circuit RV5StageDisabledFpCsrs():
   interface write(Valid(RV5StageFpCsrWrite()), ~role: consumer)
@@ -270,7 +173,7 @@ sync_circuit RV5StageFpCsrs():
   frm <== frm_state
   status <== status_state
 
-sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
+sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def xlen = core_profile.xlen
   def profile = core_profile.extensions.floating_point
   def compressed_extensions = core_profile.extensions.compressed
@@ -281,7 +184,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def sstatus_write_mask = bits(0xc0133, width)
   def mstatus_fixed = if xlen == XLen.X32 | zero | bits(0xa00000000, width)
   def sstatus_fixed = if xlen == XLen.X32 | zero | bits(0x200000000, width)
-  def medeleg_mask = bits(exception_mask(RV5StageDelegatableExceptions), width)
+  def medeleg_mask = bits(exception_mask(DelegatableExceptionCauses), width)
   def mideleg_mask = bits(0x222, width)
   def interrupt_enable_mask = bits(0xaaa, width)
   def supervisor_interrupt_mask = bits(0x222, width)
@@ -289,9 +192,9 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def tvec_mask = !bits(0x3, width)
   def epc_mask = if compressed_enabled | !bits(0x1, width) | !bits(0x3, width)
   def mpp_mask = bits(0x1800, width)
-  def misa_value = bits(core_profile.misa_value, width)
+  def misa_value = bits(core_profile.isa_profile.misa_value, width)
 
-  input interrupts: RV5StageInterrupts()
+  input interrupts: RiscvInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
   input interrupt_boundary: Bool
@@ -310,7 +213,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   output frm: Bits(3)
   output fp_enabled: Bool
   output vector_enabled: Bool
-  output vector_state: RV5StageVectorState(xlen)
+  output vector_state: RiscvVectorState(xlen)
   interface vector_retire(Pulse(), ~role: consumer)
   interface vector_saturate(Pulse(), ~role: consumer)
   interface vector_fault_start(Valid(Bits(xlen.width)), ~role: consumer)
@@ -353,7 +256,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def timeh_value = if xlen == XLen.X32 | time_counter[32..64] | zero
   def instret_value = if xlen == XLen.X32 | counters.instret[0..32] | counters.instret
   def instreth_value = if xlen == XLen.X32 | counters.instret[32..64] | zero
-  def interrupt_pending = rv5stage_interrupt_pending(xlen, interrupts) ||| state.mip
+  def interrupt_pending = riscv_interrupt_pending(xlen, interrupts) ||| state.mip
   def csr = commit.bits.csr_address
   def bank = csr_bank(csr, ~default: zero):
     read CsrId.Fflags: fp_csrs.fflags.zext(width)
@@ -478,7 +381,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def vector_access_enabled = vector_csrs.status.or_reduce()
   def csr_recognized = bank.recognized & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
   def csr_read_value = bank.read_value
-  def write_requested = csr_write_requested(commit.bits.system.csr, commit.bits.instruction[15..20])
+  def write_requested = riscv_csr_write_requested(commit.bits.system.csr, commit.bits.instruction[15..20])
   def csr_read_only = csr[10..12] === bits(3, 2)
   def required_privilege = csr[8..10]
   def privilege_bits = privilege_state.into(Bits(2))
@@ -504,8 +407,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   def csr_access_legal = csr_recognized & !(
     privilege_bits < required_privilege
   ) & !(write_requested & csr_read_only) & !satp_restricted & (!counter_csr ||| counter_access_enabled)
-  def csr_commit = commit.valid & (commit.bits.system.csr =/= CsrOperation.None)
-  def vector_config_commit = commit.valid & (commit.bits.system.action === SystemOperation.VectorConfig)
+  def csr_commit = commit.valid & (commit.bits.system.csr =/= RiscvCsrOperation.None)
+  def vector_config_commit = commit.valid & (commit.bits.system.action === RV5StageSystemOperation.VectorConfig)
   def illegal_vector_config = vector_config_commit & (!vector_access_enabled ||| vector_csrs.configuration_illegal)
   def checked_commit = commit.bits.updated(
     ~exception_valid: commit.bits.exception_valid ||| illegal_vector_config,
@@ -513,7 +416,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     ~exception_value: mux(commit.bits.exception_valid, commit.bits.exception_value, if width == 32 | commit.bits.instruction | commit.bits.instruction.zext(width))
   )
   def synchronous_trap = resolve_rv5stage_trap(xlen, commit.valid, checked_commit, privilege_state, state.mstatus, csr_access_legal, state.medeleg)
-  def interrupt = resolve_rv5stage_interrupt(
+  def interrupt = resolve_riscv_interrupt(
     xlen,
     interrupt_pending,
     state.mie,
@@ -522,7 +425,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     privilege_state
   )
   def interrupt_take = interrupt_boundary & !synchronous_trap.valid & interrupt.valid
-  def trap = RV5StageTrapDecision(xlen):
+  def trap = RiscvTrapDecision(xlen):
     valid: synchronous_trap.valid ||| interrupt_take
     cause: mux(synchronous_trap.valid, synchronous_trap.cause, interrupt.cause)
     value: mux(synchronous_trap.valid, synchronous_trap.value, zero)
@@ -537,9 +440,9 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     commit.bits.system.csr,
     ~default: csr_read_value,
     [
-      [CsrOperation.Write, commit.bits.csr_source],
-      [CsrOperation.Set, csr_read_value ||| commit.bits.csr_source],
-      [CsrOperation.Clear, csr_read_value & !commit.bits.csr_source]
+      [RiscvCsrOperation.Write, commit.bits.csr_source],
+      [RiscvCsrOperation.Set, csr_read_value ||| commit.bits.csr_source],
+      [RiscvCsrOperation.Clear, csr_read_value & !commit.bits.csr_source]
     ]
   )
   def csr_write = csr_commit & csr_access_legal & write_requested
@@ -560,7 +463,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
     value: csr_replacement[0..8]
   fp_csrs.status_write.valid <== csr_write & csr.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
   fp_csrs.status_write.bits <== csr_replacement[13..15]
-  def sfence_vma_commit = commit.valid & (commit.bits.fence.action === FenceOperation.AddressTranslation)
+  def sfence_vma_commit = commit.valid & (commit.bits.fence.action === RV5StageFenceOperation.AddressTranslation)
   translation_flush <== (sfence_vma_commit & !synchronous_trap.valid) ||| (
     csr_write & (csr === csr_bits(CsrId.Satp))
   )
@@ -573,8 +476,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   counters.machine_write.bits <== RiscvCounterWrite(xlen):
     address: csr
     value: csr_replacement
-  def mret = commit.valid & !trap.valid & (commit.bits.system.action === SystemOperation.Mret)
-  def sret = commit.valid & !trap.valid & (commit.bits.system.action === SystemOperation.Sret)
+  def mret = commit.valid & !trap.valid & (commit.bits.system.action === RV5StageSystemOperation.Mret)
+  def sret = commit.valid & !trap.valid & (commit.bits.system.action === RV5StageSystemOperation.Sret)
   def mret_privilege = mux_lookup(
     state.mstatus[11..13],
     ~default: PrivilegeMode.User,
@@ -630,7 +533,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RVCoreProfile):
   writeback_valid <== !trap.valid & ((csr_commit & csr_access_legal) ||| vector_config_commit) & commit.bits.rd.or_reduce()
   writeback_value <== mux(vector_config_commit, vector_csrs.configuration_vl, csr_read_value)
   interrupt_request <== interrupt.valid
-  wfi_retired <== commit.valid & (commit.bits.system.action === SystemOperation.Wfi) & !synchronous_trap.valid
+  wfi_retired <== commit.valid & (commit.bits.system.action === RV5StageSystemOperation.Wfi) & !synchronous_trap.valid
   wfi_wake <== or_reduce(interrupt_pending & state.mie)
   privilege <== privilege_state
   mstatus <== mstatus_value
@@ -674,8 +577,5 @@ export:
   PrivilegeMode
   RV5StageCsrCommit
   RV5StageCsrState
-  RV5StageTrapDecision
-  RV5StageInterruptDecision
   RV5StageCsrFile
-  resolve_rv5stage_interrupt
   resolve_rv5stage_trap

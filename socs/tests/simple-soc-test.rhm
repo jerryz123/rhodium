@@ -25,10 +25,10 @@ for (cache in [description.core_profile.cache_geometry.instruction,
     cache.capacity_bytes ~is 16384
 check:
   soc.simple_soc_core_profile.extensions.zicbop ~is #true
-  soc.simple_soc_core_profile.isa_extensions.contains("zvfh") ~is #true
-  soc.simple_soc_core_profile.isa_extensions.contains("zvbb") ~is #true
-  soc.simple_soc_core_profile.isa_extensions.contains("zvkb") ~is #true
-  soc.simple_soc_core_profile.isa_extensions.contains("zvkt") ~is #true
+  soc.simple_soc_core_profile.isa_profile.isa_extensions.contains("zvfh") ~is #true
+  soc.simple_soc_core_profile.isa_profile.isa_extensions.contains("zvbb") ~is #true
+  soc.simple_soc_core_profile.isa_profile.isa_extensions.contains("zvkb") ~is #true
+  soc.simple_soc_core_profile.isa_profile.isa_extensions.contains("zvkt") ~is #true
   soc.simple_soc_core_profile.extensions.half_precision ~is HalfPrecisionProfile.Zfh
   soc.simple_soc_topology.injections ~is []
   soc.simple_soc_topology.ejections ~is []

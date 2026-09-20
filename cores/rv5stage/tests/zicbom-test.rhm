@@ -9,13 +9,14 @@ import:
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/model/formats.rhm" open
   "../profile.rhm" open
+  "../memory.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/mem-ctrl.rhdl" open
   "../decode/writeback-ctrl.rhdl" open
   "../../alu.rhdl" open
 
-for (entry in [[CBO_INVAL, MemoryOperation.CacheBlockInvalidate], [CBO_CLEAN, MemoryOperation.CacheBlockClean], [CBO_FLUSH, MemoryOperation.CacheBlockFlush]]):
+for (entry in [[CBO_INVAL, RV5StageMemoryOperation.CacheBlockInvalidate], [CBO_CLEAN, RV5StageMemoryOperation.CacheBlockClean], [CBO_FLUSH, RV5StageMemoryOperation.CacheBlockFlush]]):
   def expected = partial_pattern(RV5StageControl()):
     alu:
       partial_pattern(AluControl()):
@@ -23,17 +24,17 @@ for (entry in [[CBO_INVAL, MemoryOperation.CacheBlockInvalidate], [CBO_CLEAN, Me
         subtract: Bool(#false)
         word: Bool(#false)
     operand:
-      pattern(OperandControl()):
+      pattern(RV5StageOperandControl()):
         uses_rs1: Bool(#true)
         uses_rs2: Bool(#false)
         left: OperandASelect.Register
         right: OperandBSelect.Immediate
-        immediate: ImmediateSelect.None
+        immediate: RV5StageImmediateSelect.None
     memory:
-      partial_pattern(MemoryControl()):
+      partial_pattern(RV5StageMemoryControl()):
         access: entry[1]
     writeback:
-      partial_pattern(WritebackControl()):
+      partial_pattern(RV5StageWritebackControl()):
         enable: Bool(#false)
     floating_point_valid: Bool(#false)
   for (source in 0..32):
@@ -43,10 +44,10 @@ for (entry in [[CBO_INVAL, MemoryOperation.CacheBlockInvalidate], [CBO_CLEAN, Me
       expected.subsumes(row.output) ~is #true
 
 for (xlen in [XLen.X32, XLen.X64]):
-  def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~zicbom: #true))
+  def profile = RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~zicbom: #true))
   def instructions = rv5stage_instructions(xlen, FloatingPointProfile.None, HalfPrecisionProfile.None, ~zicbom: #true)
   check:
-    profile.isa_extensions.contains("zicbom") ~is #true
+    profile.isa_profile.isa_extensions.contains("zicbom") ~is #true
   for (cbo in ZicbomInstructions):
     check:
       instructions.filter(~keep: fun (instruction): instruction.name == cbo.name).length() ~is 1

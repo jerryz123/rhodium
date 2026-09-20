@@ -42,7 +42,7 @@ fun zkt_compressed_probe_word(instruction :: CompressedInstructionSpec, ~nop: no
 
 class ZktProgram(words :: NonemptyList.of(Nat), probes :: NonemptyList.of(String))
 
-fun zkt_program(profile :: RVCoreProfile) :: ZktProgram:
+fun zkt_program(profile :: RV5StageConfig) :: ZktProgram:
   def xlen = profile.xlen
   def fp = profile.extensions.floating_point
   def instructions = rv5stage_instructions(xlen, fp, profile.extensions.half_precision)

@@ -12,6 +12,6 @@ import:
   "../../cores/rv5stage/tests/fetch-fixture.rhdl" open
 
 def design = embedded.run_elaboration(
-  fun (): RV5StageFetchFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)))
+  fun (): RV5StageFetchFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)))
 )
 print(emit_circt(design))

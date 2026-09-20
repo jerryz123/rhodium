@@ -16,10 +16,11 @@ libraries, and the public HardFloat package. They must not import Rhodium
 implementation layers, backends, concrete cores, examples, or tests.
 
 Keep representation conversion and architecture-wide reusable policy here.
-Keep instruction selection, generated control, register files, privilege
-transitions, scheduling, execution composition, and retirement in a concrete
-core. [`../check-boundaries.sh`](../check-boundaries.sh) enforces this package
-direction.
+Reusable mappings from instruction catalogs to shared processor components
+belong in `cores/riscv/`; complete instruction selection, register files,
+privilege-state storage, scheduling, execution composition, and retirement
+belong in a concrete core. [`../check-boundaries.sh`](../check-boundaries.sh)
+enforces this package direction.
 
 ## Implementation map
 
@@ -28,12 +29,15 @@ direction.
 | Encoding-to-pattern conversion | [`instruction-pattern.rhdl`](instruction-pattern.rhdl) |
 | Field and immediate materialization | [`instruction-fields.rhdl`](instruction-fields.rhdl) |
 | Compressed expansion | [`compressed.rhdl`](compressed.rhdl) |
-| CSR values and bank construction | [`csr.rhdl`](csr.rhdl) |
-| Stateless vector type/configuration rules | [`vector.rhdl`](vector.rhdl); composed behavior validated by the RV5Stage vector-control fixtures |
+| CSR values, operations, and bank construction | [`csr.rhdl`](csr.rhdl) |
+| RISC-V decode-relation helpers | [`decode.rhdl`](decode.rhdl) |
+| Vector architectural values and stateless configuration rules | [`vector.rhdl`](vector.rhdl); storage remains core-owned |
+| Atomic operation values and update datapath | [`atomic.rhdl`](atomic.rhdl) |
+| Zihintntl architectural locality selector | [`zihintntl.rhdl`](zihintntl.rhdl) |
 | CMO privilege, WARL, and physical permission policy | [`cmo.rhdl`](cmo.rhdl) |
 | Effective explicit-access privilege and pointer masking | [`privilege.rhdl`](privilege.rhdl), [`pointer-masking.rhdl`](pointer-masking.rhdl) |
 | Base architectural counters | [`counters.rhdl`](counters.rhdl) |
-| Trap and interrupt cause conversion | [`trap.rhdl`](trap.rhdl), [`interrupt.rhdl`](interrupt.rhdl) |
+| Trap and interrupt selection, delegation, pending values, and cause conversion | [`trap.rhdl`](trap.rhdl), [`interrupt.rhdl`](interrupt.rhdl) |
 | Physical-memory attributes | [`pma.rhdl`](pma.rhdl) |
 | Sv39 combinational helpers | [`sv39.rhdl`](sv39.rhdl) |
 | RISC-V floating-point policy | [`floating-point.rhdl`](floating-point.rhdl) |

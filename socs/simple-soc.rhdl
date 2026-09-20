@@ -57,7 +57,7 @@ def simple_soc_memory_service = CHISubordinateServiceParams(
 // Couples the external-memory fabric contract with the inclusive LLC geometry
 // selected by the complete SimpleSoC composition.
 class SimpleSoCParams(fabric :: SingleCoreSystemParams,
-                      core_profile :: RVCoreProfile,
+                      core_profile :: RV5StageConfig,
                       clocks :: SoCClockConfig,
                       llc_sets :: Pow2Int,
                       llc_ways :: PosInt):
@@ -75,7 +75,7 @@ class SimpleSoCParams(fabric :: SingleCoreSystemParams,
                        clocks)
 
   constructor (fabric :: SingleCoreSystemParams,
-               ~core_profile: core_profile :: RVCoreProfile = simple_soc_core_profile,
+               ~core_profile: core_profile :: RV5StageConfig = simple_soc_core_profile,
                ~clocks: clocks :: SoCClockConfig = simple_soc_clocks,
                ~llc_sets: llc_sets :: Pow2Int,
                ~llc_ways: llc_ways :: PosInt):

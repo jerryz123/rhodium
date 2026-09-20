@@ -19,6 +19,8 @@ import:
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/privilege.rhdl".effective_data_privilege
+  "../../../riscv/rtl/atomic.rhdl" open
+  "../../../riscv/rtl/zihintntl.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -90,7 +92,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // fall back instead of observing a translation belonging to another token.
   def load_virtual_address = if xlen == XLen.X32 | load_request.egress.bits.address.zext(64) | load_request.egress.bits.address
   dtlb.virtual_address <== mux(data.request.valid, data_virtual_address, load_virtual_address)
-  def pipeline_is_store = load_request.egress.bits.access === MemoryOperation.Store
+  def pipeline_is_store = load_request.egress.bits.access === RV5StageMemoryOperation.Store
   dtlb.access <== mux(data.request.valid, data_access_kind, mux(pipeline_is_store, Sv39Access.Store, Sv39Access.Load))
   dtlb.privilege <== data_privilege
   dtlb.sum <== sum
@@ -300,13 +302,13 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   )
   def walker_data_request = walker_memory_request |> map_flow(address => RV5StageDataReq(xlen, vector_completion_slots)):
     address: if xlen == XLen.X32 | address[0..32] | address
-    access: MemoryOperation.Load
-    atomic: RV5StageAtomicOperation.Swap
+    access: RV5StageMemoryOperation.Load
+    atomic: RiscvAtomicOperation.Swap
     width: MemoryWidth.Double
     unsigned: Bool(#true)
     data: bits(0, width)
     writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
-    locality: RV5StageMemoryLocality.Default
+    locality: RiscvMemoryLocality.Default
   // Local faults consume the core attempt; unresolved translations and walker
   // ownership block it. Neither case may issue a physical request.
   def core_data_request = (

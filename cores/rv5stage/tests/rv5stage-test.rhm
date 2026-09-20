@@ -18,7 +18,7 @@ def params = test_params.test_rv5stage_chi_params
 def extensions = core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true)
 def rv64_design = embedded.run_elaboration(
   fun (): rv5stage.RV5Stage(
-    core_profile.RVCoreProfile(
+    core_profile.RV5StageConfig(
       ~xlen: XLen.X64,
       ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)),
       ~mmu_mode: core_profile.RV5StageMmuMode.Sv39
@@ -28,7 +28,7 @@ def rv64_design = embedded.run_elaboration(
   )
 )
 def rv32_design = embedded.run_elaboration(
-  fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X32, ~extensions: extensions), ~chi: config, ~reset_address: 0)
+  fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32, ~extensions: extensions), ~chi: config, ~reset_address: 0)
 )
 def rv64 = rv64_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def rv32 = rv32_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
@@ -44,7 +44,7 @@ for ([attributes, diagnostic] in [
   )])
   check:
     embedded.run_elaboration(
-      fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X64, ~extensions: extensions), ~chi: restricted, ~reset_address: 0)
+      fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64, ~extensions: extensions), ~chi: restricted, ~reset_address: 0)
     ) ~throws diagnostic
 
 // Ziccrse is independent of fetch/AMO advertisements, but still needs LR/SC
@@ -60,7 +60,7 @@ for (attributes in [
   for (xlen in [XLen.X32, XLen.X64]):
     check:
       embedded.run_elaboration(
-        fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: xlen, ~extensions: core_profile.RV5StageExtensions(~ziccrse: #true)), ~chi: restricted, ~reset_address: 0)
+        fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen, ~extensions: core_profile.RV5StageExtensions(~ziccrse: #true)), ~chi: restricted, ~reset_address: 0)
       ) ~throws "Ziccrse"
 
 check:
@@ -77,7 +77,7 @@ check:
   rv32.find_output("dmem_out").type.field("request_data").type.field("bits").type.field("data").type.width ~is 128
   embedded.run_elaboration(
     fun (): rv5stage.RV5Stage(
-      core_profile.RVCoreProfile(
+      core_profile.RV5StageConfig(
         ~xlen: XLen.X32,
         ~cache_geometry: core_profile.RV5StageCacheGeometry(
           ~instruction: cache.RV5StageCacheConfig(268435456, 1)
@@ -88,13 +88,13 @@ check:
     )
   ) ~throws "VIPT"
   embedded.run_elaboration(
-    fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: 64), ~chi: config, ~reset_address: 0)
+    fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: 64), ~chi: config, ~reset_address: 0)
   ) ~throws "XLen"
   embedded.run_elaboration(
-    fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X32), ~chi: config, ~reset_address: 0x100000000)
+    fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32), ~chi: config, ~reset_address: 0x100000000)
   ) ~throws "fit XLEN"
   embedded.run_elaboration(
-    fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~compressed: compressed_extensions(CompressedExtension.Zca))), ~chi: config, ~reset_address: 1)
+    fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~compressed: compressed_extensions(CompressedExtension.Zca))), ~chi: config, ~reset_address: 1)
   ) ~throws "instruction aligned"
   chi.RV5StageCHIParams(config, 1, 3) ~throws "distinct"
   chi.RV5StageCHIParams(config, 128, 3) ~throws "fit"
@@ -102,8 +102,8 @@ check:
 for (xlen in [XLen.X32, XLen.X64]):
   check:
     embedded.run_elaboration(
-      fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: xlen), ~chi: config, ~reset_address: 0x10000000000000000)
+      fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen), ~chi: config, ~reset_address: 0x10000000000000000)
     ) ~throws "fit XLEN"
     embedded.run_elaboration(
-      fun (): rv5stage.RV5Stage(core_profile.RVCoreProfile(~xlen: xlen), ~chi: config, ~reset_address: 2)
+      fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: xlen), ~chi: config, ~reset_address: 2)
     ) ~throws "instruction aligned"

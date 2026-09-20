@@ -18,7 +18,7 @@ Neighboring FENCE encodings retain their original controls. Disabled profiles
 continue to decode the word as FENCE.
 
 The standalone decoder's `~zihintntl: #true` option overlays the four exact NTL
-words on ADD, selecting `HintOperation.NtlP1`, `NtlPall`, `NtlS1`, or `NtlAll`.
+words on ADD, selecting `RV5StageHintOperation.NtlP1`, `NtlPall`, `NtlS1`, or `NtlAll`.
 These rows have no register operands, register writes, branch, memory, prefetch,
 system, or fence effects. Neighboring ADD/SUB words and disabled-decoder
 specializations retain the base controls. C/Zca already expands the compressed
@@ -56,12 +56,12 @@ instruction catalogs before hardware is generated:
 | RV64 Zve32f/Zve64f/Zve64d/V | The selected scalar rows plus the complete vector rows; runtime legality enforces the profile's ELEN and FP widths |
 
 This low-level decoder parameter selects rows; it is not by itself an
-architectural claim. `RVCoreProfile` validates RV5Stage's supported XLEN and
+architectural claim. `RV5StageConfig` validates RV5Stage's supported XLEN and
 scalar-FP dependencies before a complete core can advertise a vector profile.
 
 Enabling Zicbop overlays its three prefetch rows on any of these selections.
 Zicboz instead appends one ordinary composed row: rs1 address generation,
-`MemoryOperation.CacheBlockZero`, and no architectural register write.
+`RV5StageMemoryOperation.CacheBlockZero`, and no architectural register write.
 The standard decode library subtracts those exact regions from the broad
 `ORI` row, preserving one unordered decode relation. When disabled, the same
 encodings retain their ordinary legal `ORI x0` hint meaning.
@@ -138,8 +138,8 @@ instantiate that circuit beside the core decoder.
 `RV5StageInstructionDecoder(..., ~zawrs: #true)` and the matching
 `rv5stage_instructions(..., ~zawrs: #true)` selection append the two exact
 `WRS.NTO`/`WRS.STO` rows. `ZawrsCoreControlCases` composes the ordinary
-component-owned columns; `ZawrsSystemCases` selects `SystemOperation.WrsNto`
-or `SystemOperation.WrsSto`. Both classify as serializing system operations,
+component-owned columns; `ZawrsSystemCases` selects `RV5StageSystemOperation.WrsNto`
+or `RV5StageSystemOperation.WrsSto`. Both classify as serializing system operations,
 use no explicit integer operands, and disable register writes,
 memory requests, branches, prefetch, FP execution, and fence actions. Inactive
 datapath controls remain don't-cares. The rows join the same single decoder,

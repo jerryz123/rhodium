@@ -179,7 +179,7 @@ address; instruction fetch and walker-generated PTE addresses remain unmasked.
    Translation is enabled only when that effective privilege is not Machine
    and RV64 `satp.MODE` selects Sv39.
 2. Ordinary loads and LR use an Sv39 load permission check. Stores, SC, and AMOs
-   use a store check because their `MemoryOperation` requires unique ownership.
+   use a store check because their `RV5StageMemoryOperation` requires unique ownership.
 3. A DTLB miss keeps `request.ready` low. The core's feed-forward WB stage does
    not hold the request: the attempt starts the walker, becomes an ordered replay
    token, squashes younger work, and is refetched from its original PC. A Fetch
@@ -324,7 +324,7 @@ returns the walker to Idle without publishing a completion.
 | L1 cache hit, miss, refill, coherence, or replacement behavior | Not a translation fault source | The cache subsystem; both cache protocols leave translation and PMA faults to their callers |
 
 The parent core converts the MMU's page/access signals at WB into the exact
-exception cause. `MemoryOperation.store_fault_class()` selects store-class causes
+exception cause. `RV5StageMemoryOperation.store_fault_class()` selects store-class causes
 for stores, atomics, and cache-block operations; Load and LR use load-class causes.
 Management requests use `Sv39Access.CacheManagement` rather than the Store
 access class: they require A, ignore D, and admit read or write permission.

@@ -1,0 +1,28 @@
+#lang rhombus
+// Checks normalized ISA extension claims and their architectural MISA projection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/profile.rhm" open
+  "../isa/xlen.rhm".XLen
+
+def rv32 = RiscvIsaProfile(
+  XLen.X32,
+  ["i", "m", "a"],
+  [MisaExtension.I, MisaExtension.M, MisaExtension.A]
+)
+def rv64 = RiscvIsaProfile(
+  XLen.X64,
+  ["i", "m", "a", "f", "d", "c"],
+  [MisaExtension.I, MisaExtension.M, MisaExtension.A, MisaExtension.F, MisaExtension.D, MisaExtension.C]
+)
+
+check:
+  rv32.isa_base ~is "rv32i"
+  rv32.misa_extension_bits ~is 0x1101
+  rv32.misa_value ~is 0x40001101
+  rv64.isa_base ~is "rv64i"
+  rv64.misa_extension_bits ~is 0x112d
+  rv64.misa_value ~is 0x800000000000112d
+  RiscvIsaProfile(XLen.X64, ["i", "i"], [MisaExtension.I]) ~throws "unique"
+  RiscvIsaProfile(XLen.X64, ["i"], [MisaExtension.I, MisaExtension.I]) ~throws "unique"

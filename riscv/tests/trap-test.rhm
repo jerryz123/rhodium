@@ -19,3 +19,4 @@ check:
     ExceptionCause.Breakpoint,
     ExceptionCause.EnvironmentCallFromUser
   ]) ~is 0x10c
+  exception_mask(DelegatableExceptionCauses) ~is 0xb1ff

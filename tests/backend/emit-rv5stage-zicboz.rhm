@@ -9,7 +9,7 @@ import:
   "../../cores/rv5stage/tests/core-fixture.rhdl".RV5StageCoreFixture
   "../../cores/rv5stage/profile.rhm" open
 
-def design = embedded.run_elaboration(fun (): RV5StageCoreFixture(RVCoreProfile(
+def design = embedded.run_elaboration(fun (): RV5StageCoreFixture(RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~zicboz: #true)
 ), ~reset_address: 0x100))

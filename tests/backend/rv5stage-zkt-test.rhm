@@ -11,7 +11,7 @@ import:
 
 for (xlen in [XLen.X32, XLen.X64]):
   for (fp in [FloatingPointProfile.None, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D]):
-    def program = zkt_program(RVCoreProfile(
+    def program = zkt_program(RV5StageConfig(
       ~xlen: xlen,
       ~extensions: RV5StageExtensions(~floating_point: fp, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb))
     ))

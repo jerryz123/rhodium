@@ -48,14 +48,17 @@ Dependency enforcement and extension workflow are documented in
 | [`instruction-fields.rhdl`](instruction-fields.rhdl) | `instruction_field`, `immediate_bits`, `instruction_immediate` | Materialize descriptor-owned slices and extended immediates |
 | [`compressed.rhdl`](compressed.rhdl) | `RiscvCompressedExpansion`, `RiscvCompressedExpander`, `compressed_selector_cases` | Recognize legal C encodings and emit canonical 32-bit instructions |
 | [`mop.rhdl`](mop.rhdl) | `resolve_mop_decode_cases` | Compatibility name for the standard decode-overlay operation |
-| [`csr.rhdl`](csr.rhdl) | `CsrBank`, `csr_bits`, `csr_bank` | Convert `CsrId` and define exact-key CSR recognition, reads, and writes |
-| [`vector.rhdl`](vector.rhdl) | `vector_type`, `vector_configure` | Profile-selected ELEN=32/64 vtype legality, vill normalization, AVL clamping, and reserved keep-VL checks; no architectural state |
+| [`decode.rhdl`](decode.rhdl) | `instruction_cases`, `component_output`, and relation helpers | Build catalog-independent RISC-V decode relations over typed patterns |
+| [`csr.rhdl`](csr.rhdl) | `RiscvCsrOperation`, `CsrBank`, `csr_bits`, `csr_bank` | Define CSR operation intent and exact-key CSR recognition, reads, and writes |
+| [`vector.rhdl`](vector.rhdl) | `RiscvVectorState`, `vector_type`, `vector_configure` | Define the architectural vector-state value and profile-selected vtype legality; no state storage |
+| [`atomic.rhdl`](atomic.rhdl) | `RiscvAtomicOperation`, `RiscvAtomicALU` | Implement reusable RV32/RV64 AMO update semantics |
+| [`zihintntl.rhdl`](zihintntl.rhdl) | `RiscvMemoryLocality` | Carry the architectural NTL selector independently of cache policy |
 | [`cmo.rhdl`](cmo.rhdl) | `CboManagementOperation`, `CboInvalidateMode`, `CboManagementPermission`, and `cbo_*`/`cmo_*` helpers | M/S/U CMO permission, invalidate-to-flush conversion, xenvcfg WARL fields, and physical permission |
 | [`privilege.rhdl`](privilege.rhdl) | `PrivilegeMode`, `effective_data_privilege` | Shared M/S/U values and MPRV/MPP selection for explicit accesses |
 | [`pointer-masking.rhdl`](pointer-masking.rhdl) | `PointerMaskMode`, `PointerMaskControl`, and pointer-mask helpers | RV64 Ssnpm WARL controls and explicit-address normalization |
 | [`counters.rhdl`](counters.rhdl) | `RiscvCounterWrite`, `RiscvBaseCounters` | Reusable 64-bit `mcycle` and `minstret` state for RV32/RV64 |
-| [`trap.rhdl`](trap.rhdl) | `exception_cause_bits` | Convert architectural synchronous causes to width-specialized hardware |
-| [`interrupt.rhdl`](interrupt.rhdl) | `interrupt_cause_bits` | Convert architectural interrupt causes to `xcause` values |
+| [`trap.rhdl`](trap.rhdl) | `RiscvTrapDecision`, `resolve_riscv_trap`, `exception_cause_bits` | Select and delegate synchronous exceptions without owning state |
+| [`interrupt.rhdl`](interrupt.rhdl) | `RiscvInterrupts`, `resolve_riscv_interrupt`, `interrupt_cause_bits` | Materialize pending bits and standard M/S priority and delegation without owning state |
 | [`pma.rhdl`](pma.rhdl) | `RiscvPhysicalMemoryAttributes`, `RiscvPhysicalMemoryRegion`, `RiscvPhysicalMemoryMap`, `RiscvPhysicalMemoryLookup` | Validate host-authored regions and perform hardware access lookup |
 | [`sv39.rhdl`](sv39.rhdl) | `Sv39Access`, `Sv39Pte`, `Sv39Translation`, and `sv39_*` helpers | Materialize Sv39 geometry, demand permission, and A/D-independent prefetch permission as typed hardware |
 | [`floating-point.rhdl`](floating-point.rhdl) | `FloatSignOperation`, `RiscvRoundingMode`, Zfa immediate constants, and `riscv_*` helpers | Apply RISC-V policy around HardFloat values |
@@ -180,9 +183,10 @@ implicit PTE accesses, branch targets, or software CSR values. Hardware address
 faults must retain the transformed address for `xtval`.
 
 [`trap.rhdl`](trap.rhdl) and [`interrupt.rhdl`](interrupt.rhdl) convert pure
-architectural causes to caller-selected widths. The interrupt form sets the
-top `xcause` bit. Cause selection, pending sources, priority, delegation, and
-privilege transitions remain core policy.
+architectural causes to caller-selected widths and select standard trap and
+interrupt decisions from caller-supplied state. They own no registers or
+retirement boundary. Concrete cores still own CSR storage, privilege
+transitions, interrupt sampling, and the precise commit point.
 
 [`pma.rhdl`](pma.rhdl) defines stable host parameters for nonoverlapping
 physical-memory regions and their read, write, execute, cacheable, atomic,

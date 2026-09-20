@@ -72,7 +72,7 @@ fun check_dependency(top, output_name, output_path, input_name, input_path, expe
   unless found == expected
   | error(~who: #'fetch_admission, "unexpected combinational dependency: " ++ input_name ++ " -> " ++ output_name)
 
-def fetch = embedded.run_elaboration_with_top(fun (): RV5StageFrontend(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
+def fetch = embedded.run_elaboration_with_top(fun (): RV5StageFrontend(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
 for (path in [["request", "valid"], ["request", "bits", "address"]]):
   check_dependency(fetch.top, "memory_out", path, "packets_in", ["ready"])
 check_dependency(fetch.top, "memory_out", ["request", "valid"], "control_in", ["active"], #true)

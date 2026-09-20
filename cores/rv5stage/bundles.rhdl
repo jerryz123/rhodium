@@ -9,6 +9,10 @@ import:
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
   "../../riscv/rtl/vector.rhdl" open
+  "../../riscv/rtl/atomic.rhdl" open
+  "../riscv/branch-decode.rhdl" open
+  "../riscv/multiply-decode.rhdl" open
+  "../riscv/divide-decode.rhdl" open
   "decode/vector-ctrl.rhdl" open
   "../alu.rhdl" open
   "../branch-resolver.rhdl" open
@@ -82,22 +86,22 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int):
   operand_right: OperandBSelect
   branch_control: BranchResolverControl()
   target_from_rs1: Bool
-  memory_operation: MemoryOperation
+  memory_operation: RV5StageMemoryOperation
   prefetch_operation: CachePrefetchOperation
-  memory_atomic: RV5StageAtomicOperation
+  memory_atomic: RiscvAtomicOperation
   memory_width: MemoryWidth
   memory_unsigned: Bool
-  multiply_control: RV5StageMultiplyControl()
-  divide_control: RV5StageDivideControl()
+  multiply_control: RiscvMultiplyControl()
+  divide_control: RiscvDivideControl()
   floating_point_valid: Bool
   floating_point_control: RV5StageFloatingPointControl()
   floating_point_rounding_mode_valid: Bool
   floating_point_rounding_mode: RoundingMode
   writeback_enable: Bool
-  writeback_source: WritebackSelect
-  system: SystemControl()
-  fence: FenceControl()
-  hint: HintOperation
+  writeback_source: RV5StageWritebackSelect
+  system: RV5StageSystemControl()
+  fence: RV5StageFenceControl()
+  hint: RV5StageHintOperation
   illegal: Bool
   instruction_page_fault: Bool
   instruction_access_fault: Bool
@@ -128,15 +132,15 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
   fp_compute: Bool
   fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
   prefetch: CachePrefetchReq(xlen.width)
-  writeback_source: WritebackSelect
+  writeback_source: RV5StageWritebackSelect
   writeback_enable: Bool
   rd: Bits(5)
   result: Bits(xlen.width)
   multiply_issue: RV5StageMultiplyIssue(xlen)
   divide_issue: RV5StageDivideIssue(xlen)
-  system: SystemControl()
-  fence: FenceControl()
-  hint: HintOperation
+  system: RV5StageSystemControl()
+  fence: RV5StageFenceControl()
+  hint: RV5StageHintOperation
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)
@@ -157,15 +161,15 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
   fp_compute: Bool
   fp_issue: RV5StageFpIssue(xlen, if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D, Bits(xlen.width))
   prefetch: CachePrefetchReq(xlen.width)
-  writeback_source: WritebackSelect
+  writeback_source: RV5StageWritebackSelect
   write_enable: Bool
   rd: Bits(5)
   value: Bits(xlen.width)
   multiply_issue: RV5StageMultiplyIssue(xlen)
   divide_issue: RV5StageDivideIssue(xlen)
-  system: SystemControl()
-  fence: FenceControl()
-  hint: HintOperation
+  system: RV5StageSystemControl()
+  fence: RV5StageFenceControl()
+  hint: RV5StageHintOperation
   csr_address: Bits(12)
   csr_source: Bits(xlen.width)
   vector_config: RiscvVectorConfigRequest(xlen)

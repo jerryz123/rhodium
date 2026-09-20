@@ -11,7 +11,7 @@ import:
   "../../rhodium/std/bits.rhdl".Pow2Int
   "../../rhodium/std/interconnect.rhdl".AddressSet
   "../../rhodium/frontend/foundation.rhm".StableCircuitParam
-  "../../cores/rv5stage/profile.rhm".RVCoreProfile
+  "../../cores/rv5stage/profile.rhm".RV5StageConfig
   "../boot.rhdl" open
   "../description.rhm" open
   "../peripherals.rhdl".SoCPlatformParams
@@ -208,7 +208,7 @@ class TiledSoCConfig(layout :: TileGrid,
                      node_ids :: TiledNodeIds,
                      memory :: StripedMemory,
                      llc :: LLCGeometry,
-                     core_profile :: RVCoreProfile,
+                     core_profile :: RV5StageConfig,
                      clocks :: SoCClockConfig,
                      flit :: CHIFlitParams,
                      boot :: SoCBootConfig):
@@ -250,7 +250,7 @@ class TiledSoCConfig(layout :: TileGrid,
                ~node_ids: node_ids :: TiledNodeIds,
                ~memory: memory :: StripedMemory,
                ~llc: llc :: LLCGeometry,
-               ~core_profile: core_profile :: RVCoreProfile,
+               ~core_profile: core_profile :: RV5StageConfig,
                ~clocks: clocks :: SoCClockConfig,
                ~flit: flit :: CHIFlitParams = CHIFlitParams(),
                ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory.base)):

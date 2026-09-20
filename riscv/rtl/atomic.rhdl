@@ -1,0 +1,54 @@
+#lang rhodium
+// Defines reusable RISC-V atomic operations and their integer update datapath.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl") open
+
+hardware_enum RiscvAtomicOperation:
+  Swap
+  Add
+  Xor
+  And
+  Or
+  Min
+  Max
+  MinUnsigned
+  MaxUnsigned
+
+circuit RiscvAtomicALU(xlen :: XLen):
+  def width = xlen.width
+
+  input old_value: Bits(width)
+  input operand: Bits(width)
+  input word: Bool
+  input operation: RiscvAtomicOperation
+  output value: Bits(width)
+
+  def word_operation = if xlen == XLen.X64 | word | Bool(#false)
+  def left = if xlen == XLen.X64 | mux(word_operation, old_value[0..32].zext(64), old_value) | old_value
+  def right = if xlen == XLen.X64 | mux(word_operation, operand[0..32].zext(64), operand) | operand
+  def unsigned_less = left < right
+  def left_sign = if xlen == XLen.X64 | mux(word_operation, left[31].into(Bool), left[63].into(Bool)) | left[31].into(Bool)
+  def right_sign = if xlen == XLen.X64 | mux(word_operation, right[31].into(Bool), right[63].into(Bool)) | right[31].into(Bool)
+  def signed_less = mux(left_sign ^ right_sign, left_sign, unsigned_less)
+  def selected_value :: Bits(width) = mux_lookup(
+    operation,
+    ~default: right,
+    [
+      [RiscvAtomicOperation.Add, left + right],
+      [RiscvAtomicOperation.Xor, left ^ right],
+      [RiscvAtomicOperation.And, left & right],
+      [RiscvAtomicOperation.Or, left ||| right],
+      [RiscvAtomicOperation.Min, mux(signed_less, left, right)],
+      [RiscvAtomicOperation.Max, mux(signed_less, right, left)],
+      [RiscvAtomicOperation.MinUnsigned, mux(unsigned_less, left, right)],
+      [RiscvAtomicOperation.MaxUnsigned, mux(unsigned_less, right, left)]
+    ]
+  )
+  value <== if xlen == XLen.X64 | mux(word_operation, selected_value[0..32].zext(64), selected_value) | selected_value
+
+export:
+  RiscvAtomicOperation
+  RiscvAtomicALU

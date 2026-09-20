@@ -6,7 +6,7 @@ import:
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
-  "decode-support.rhdl" open
+  "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/m.rhm" open
@@ -32,7 +32,7 @@ hardware_enum OperandBSelect:
   Register
   Immediate
 
-hardware_enum ImmediateSelect:
+hardware_enum RV5StageImmediateSelect:
   None
   I
   S
@@ -42,19 +42,19 @@ hardware_enum ImmediateSelect:
   Prefetch
   method decode(select, instruction :: Bits(32), width :: PosInt) :: Bits(width):
     mux_lookup(select, ~default: bits(0, width)):
-      ImmediateSelect.I: instruction_immediate(riscv_fields.IImmediate, instruction, width)
-      ImmediateSelect.S: instruction_immediate(riscv_fields.SImmediate, instruction, width)
-      ImmediateSelect.B: instruction_immediate(riscv_fields.BImmediate, instruction, width)
-      ImmediateSelect.U: instruction_immediate(riscv_fields.UImmediate, instruction, width)
-      ImmediateSelect.J: instruction_immediate(riscv_fields.JImmediate, instruction, width)
-      ImmediateSelect.Prefetch: instruction_immediate(riscv_fields.PrefetchImmediate, instruction, width)
+      RV5StageImmediateSelect.I: instruction_immediate(riscv_fields.IImmediate, instruction, width)
+      RV5StageImmediateSelect.S: instruction_immediate(riscv_fields.SImmediate, instruction, width)
+      RV5StageImmediateSelect.B: instruction_immediate(riscv_fields.BImmediate, instruction, width)
+      RV5StageImmediateSelect.U: instruction_immediate(riscv_fields.UImmediate, instruction, width)
+      RV5StageImmediateSelect.J: instruction_immediate(riscv_fields.JImmediate, instruction, width)
+      RV5StageImmediateSelect.Prefetch: instruction_immediate(riscv_fields.PrefetchImmediate, instruction, width)
 
-bundle OperandControl():
+bundle RV5StageOperandControl():
   uses_rs1: Bool
   uses_rs2: Bool
   left: OperandASelect
   right: OperandBSelect
-  immediate: ImmediateSelect
+  immediate: RV5StageImmediateSelect
 
 def shared_immediate_alu = [ADDI, SLTI, SLTIU, XORI, ORI, ANDI]
 def shared_register_alu = [ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND]
@@ -68,7 +68,7 @@ fun operand_cases(immediate_alu :: List.of(InstructionSpec),
                   stores :: List.of(InstructionSpec)):
   def register_immediate = loads ++ immediate_alu
   decode_groups(
-    OperandControl(),
+    RV5StageOperandControl(),
     ~input: instruction_pattern
   ):
     [LUI]:
@@ -76,43 +76,43 @@ fun operand_cases(immediate_alu :: List.of(InstructionSpec),
       uses_rs2: Bool(#false)
       left: OperandASelect.Zero
       right: OperandBSelect.Immediate
-      immediate: ImmediateSelect.U
+      immediate: RV5StageImmediateSelect.U
 
     [AUIPC]:
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
       left: OperandASelect.Pc
       right: OperandBSelect.Immediate
-      immediate: ImmediateSelect.U
+      immediate: RV5StageImmediateSelect.U
 
     [JAL]:
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
-      immediate: ImmediateSelect.J
+      immediate: RV5StageImmediateSelect.J
 
     [JALR]:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
-      immediate: ImmediateSelect.I
+      immediate: RV5StageImmediateSelect.I
 
     group register_immediate:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#false)
       left: OperandASelect.Register
       right: OperandBSelect.Immediate
-      immediate: ImmediateSelect.I
+      immediate: RV5StageImmediateSelect.I
 
     group branch_instructions:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#true)
-      immediate: ImmediateSelect.B
+      immediate: RV5StageImmediateSelect.B
 
     group stores:
       uses_rs1: Bool(#true)
       uses_rs2: Bool(#true)
       left: OperandASelect.Register
       right: OperandBSelect.Immediate
-      immediate: ImmediateSelect.S
+      immediate: RV5StageImmediateSelect.S
 
     group register_alu:
       uses_rs1: Bool(#true)
@@ -136,40 +136,40 @@ def RV64IOperandCases = operand_cases(
   shared_loads ++ [LWU, LD],
   shared_stores ++ [SD]
 )
-def register_operands = partial_pattern(OperandControl()):
+def register_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#true)
   left: OperandASelect.Register
   right: OperandBSelect.Register
-def register_immediate_operands = partial_pattern(OperandControl()):
+def register_immediate_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
-  immediate: ImmediateSelect.I
-def unary_register_operands = partial_pattern(OperandControl()):
+  immediate: RV5StageImmediateSelect.I
+def unary_register_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
-def atomic_operands = pattern(OperandControl()):
+def atomic_operands = pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#true)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
-  immediate: ImmediateSelect.None
-def load_reserved_operands = pattern(OperandControl()):
+  immediate: RV5StageImmediateSelect.None
+def load_reserved_operands = pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
-  immediate: ImmediateSelect.None
-def csr_register_operands = partial_pattern(OperandControl()):
+  immediate: RV5StageImmediateSelect.None
+def csr_register_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
-def csr_immediate_operands = partial_pattern(OperandControl()):
+def csr_immediate_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#false)
   uses_rs2: Bool(#false)
-def no_operands = partial_pattern(OperandControl()):
+def no_operands = partial_pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#false)
   uses_rs2: Bool(#false)
 def RV5StageSystemOperandCases = combine_case_groups([
@@ -230,8 +230,8 @@ export:
   ZicbozOperandCases
   OperandASelect
   OperandBSelect
-  ImmediateSelect
-  OperandControl
+  RV5StageImmediateSelect
+  RV5StageOperandControl
   RV32IOperandCases
   RV64IOperandCases
   RV32RV5StageOperandCases

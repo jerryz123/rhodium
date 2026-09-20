@@ -18,8 +18,10 @@ import:
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/rtl/vector.rhdl" open
+  "../../riscv/rtl/zihintntl.rhdl" open
   "decode/operand-ctrl.rhdl" open
   "decode/branch-ctrl.rhdl" open
+  "../riscv/branch-decode.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/fence-ctrl.rhdl" open
   "decode/hint-ctrl.rhdl" open
@@ -27,9 +29,9 @@ import:
   "decode/writeback-ctrl.rhdl" open
   "bundles.rhdl" open
   "csr.rhdl" open
-  "profile.rhm".RVCoreProfile
+  "profile.rhm".RV5StageConfig
   "profile.rhm".rv5stage_execution_half_precision
-  "interrupt.rhdl" open
+  "../../riscv/rtl/interrupt.rhdl" open
   "multiply.rhdl" open
   "integer-execution.rhdl" open
   "vector/muldiv.rhdl" open
@@ -61,7 +63,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
-sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_address :: Nat):
+sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_address :: Nat):
   def xlen = core_profile.xlen
   def extensions = core_profile.extensions
   def profile = extensions.floating_point
@@ -80,7 +82,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def vector_completion_slots = core_profile.vector_completion_slots
   def vector_enabled = vector_profile_enabled(core_profile.vector)
   def vector_length = core_profile.vector_length
-  def trace_isa = "rv" ++ to_string(width) ++ String.join(core_profile.isa_extensions.filter(~keep: fun (name): name.length() == 1), "") ++ "_" ++ String.join(core_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
+  def trace_isa = "rv" ++ to_string(width) ++ String.join(core_profile.isa_profile.isa_extensions.filter(~keep: fun (name): name.length() == 1), "") ++ "_" ++ String.join(core_profile.isa_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
@@ -92,7 +94,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   | error(~who: #'RV5StageCore, "reset address must be instruction aligned")
   def reset_pc = bits(reset_address, width)
 
-  input interrupts: RV5StageInterrupts()
+  input interrupts: RiscvInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
   interface frontend_control(RV5StageFrontendControl(xlen), ~role: core)
@@ -114,11 +116,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def zero = bits(0, width)
   fun core_instruction_value(instruction :: Bits(32)):
     if width == 32 | instruction | instruction.zext(width)
-  fun core_deferred_writeback(source :: WritebackSelect):
-    source.is_one_of(WritebackSelect.Memory, WritebackSelect.Multiply, WritebackSelect.Divide)
-  fun core_serializing_operation(system :: SystemControl(), fence :: FenceControl()) :~ Bool:
+  fun core_deferred_writeback(source :: RV5StageWritebackSelect):
+    source.is_one_of(RV5StageWritebackSelect.Memory, RV5StageWritebackSelect.Multiply, RV5StageWritebackSelect.Divide)
+  fun core_serializing_operation(system :: RV5StageSystemControl(), fence :: RV5StageFenceControl()) :~ Bool:
     system.is_system_operation() ||| fence.is_fence_operation()
-  fun core_data_exception(operation :: MemoryOperation,
+  fun core_data_exception(operation :: RV5StageMemoryOperation,
                           address :: Bits(width),
                           store_cause :: ExceptionCause,
                           load_cause :: ExceptionCause):
@@ -266,12 +268,12 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   reg wb_reservation_wait_count(~init: bits(0, 12))
   def wb_reservation_wait_wake = !scalar_data.reservation_valid ||| wb_csrs.wfi_wake
   def wb_reservation_wait_expired = and_reduce(wb_reservation_wait_count)
-  def wb_reservation_wait_short = wb_reservation_wait_instruction.system.action === SystemOperation.WrsSto
+  def wb_reservation_wait_short = wb_reservation_wait_instruction.system.action === RV5StageSystemOperation.WrsSto
   def wb_reservation_wait_tw = (wb_csrs.privilege =/= PrivilegeMode.Machine) & wb_csrs.mstatus[21].into(Bool)
   def wb_reservation_wait_timeout = wb_reservation_wait_expired & (wb_reservation_wait_short ||| wb_reservation_wait_tw)
   def wb_reservation_wait_done = wb_reservation_wait_pending & (wb_reservation_wait_wake ||| wb_reservation_wait_timeout)
   def wb_reservation_wait_illegal = wb_reservation_wait_done & !wb_reservation_wait_wake & !wb_reservation_wait_short & wb_reservation_wait_tw
-  def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_maintenance_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & wb_input.bits.system.action.is_one_of(SystemOperation.WrsNto, SystemOperation.WrsSto)
+  def wb_reservation_wait_accept = Bool(zawrs_enabled) & wb_input.valid & !wb_maintenance_pending & !wb_reservation_wait_pending & !wb_pending_exception_valid & !wb_input.bits.replay & !wb_input.bits.exception_valid & wb_input.bits.system.action.is_one_of(RV5StageSystemOperation.WrsNto, RV5StageSystemOperation.WrsSto)
   when wb_reservation_wait_accept:
     wb_reservation_wait_count <== bits(0, 12)
   elsewhen (wb_reservation_wait_pending & !wb_reservation_wait_done & !wb_reservation_wait_expired):
@@ -320,7 +322,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def wb_to_id_scoreboard_clear_link :: Handle = interface_link(Valid(Bits(5)))
   wb_to_id_scoreboard_set_link.right |> wb_scoreboard.set
   wb_to_id_scoreboard_clear_link.right |> wb_scoreboard.clear
-  def fence_i_commit = wb_commit_valid & !wb_commit_bits.exception_valid & wb_offer_bits.fence.into(FenceControl()).is_instruction_fence()
+  def fence_i_commit = wb_commit_valid & !wb_commit_bits.exception_valid & wb_offer_bits.fence.into(RV5StageFenceControl()).is_instruction_fence()
   translation_flush <== wb_csrs.translation_flush
   // Restart after a PMM change to discard younger context and queued prefetches,
   // without conflating pointer policy with translation invalidation.
@@ -359,7 +361,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def if_pause_cycle_limit = 16
   reg if_pause_cycles(~init: bits(0, index_width(if_pause_cycle_limit + 1)))
   def if_pause_active = or_reduce(if_pause_cycles)
-  def if_pause_commit = wb_commit_valid & !wb_commit_bits.exception_valid & (wb_commit_bits.hint === HintOperation.Pause)
+  def if_pause_commit = wb_commit_valid & !wb_commit_bits.exception_valid & (wb_commit_bits.hint === RV5StageHintOperation.Pause)
   when (wb_csrs.redirect.valid ||| wb_csrs.interrupt_request):
     if_pause_cycles <== bits(0, index_width(if_pause_cycle_limit + 1))
   elsewhen if_pause_commit:
@@ -410,16 +412,16 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_immediate = id_control.operand.immediate.decode(id_instruction, width)
   wb_csrs.cbo_operation <== mux_lookup(
     id_control.memory.access, ~default: CboManagementOperation.Invalidate,
-    [[MemoryOperation.CacheBlockClean, CboManagementOperation.Clean],
-     [MemoryOperation.CacheBlockFlush, CboManagementOperation.Flush]]
+    [[RV5StageMemoryOperation.CacheBlockClean, CboManagementOperation.Clean],
+     [RV5StageMemoryOperation.CacheBlockFlush, CboManagementOperation.Flush]]
   )
   def id_management = id_control.memory.access.is_cache_management()
   def id_cbo_permission :: CboManagementPermission() = wb_csrs.cbo_permission
-  def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), MemoryOperation.CacheBlockFlush, id_control.memory.access)
+  def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), RV5StageMemoryOperation.CacheBlockFlush, id_control.memory.access)
   def id_vector_instruction = id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide
   def id_vector_requires_start_zero = id_control.vector.reduction ||| (id_control.vector.integer & (id_control.vector.compress ||| (id_control.vector.scan & !id_control.vector.scan_control.index)))
   def id_illegal = (id_vector_requires_start_zero & wb_csrs.vector_state.vstart.or_reduce()) ||| id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_service & id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > bits(4, 3)))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & (!id_vector_legal ||| !wb_csrs.vector_enabled)) ||| (
-    (id_control.system.action === SystemOperation.VectorConfig) & !wb_csrs.vector_enabled
+    (id_control.system.action === RV5StageSystemOperation.VectorConfig) & !wb_csrs.vector_enabled
   ) ||| (
     id_control.memory.access.is_cache_block_zero() & !wb_csrs.cbo_zero_enabled
   ) ||| (id_management & !id_cbo_permission.permitted) ||| (
@@ -435,8 +437,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   id_registers.read_address_2 <== id_rs2
   // Decode selects the registered data source that will be present in EX's
   // next cycle. Live MEM faults, replay, and redirects never select operands.
-  def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & !ex_input.bits.writeback_source.is_one_of(WritebackSelect.Csr, WritebackSelect.Vector)
-  def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & !mem_input.bits.writeback_source.is_one_of(WritebackSelect.Csr, WritebackSelect.Vector)
+  def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & !ex_input.bits.writeback_source.is_one_of(RV5StageWritebackSelect.Csr, RV5StageWritebackSelect.Vector)
+  def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & !mem_input.bits.writeback_source.is_one_of(RV5StageWritebackSelect.Csr, RV5StageWritebackSelect.Vector)
   fun id_operand(index :: Bits(5), register_value :: Bits(width)):
     def id_from_memory = index.or_reduce() & id_ex_bypass_available & (ex_input.bits.rd === index)
     def id_from_writeback = index.or_reduce() & id_mem_bypass_available & (mem_input.bits.rd === index)
@@ -526,11 +528,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_wb_fp_reservation_pending = wb.valid & (wb_offer_bits.fp_compute ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)))
   def id_older_fp_reservation_pending = id_ex_fp_reservation_pending ||| id_mem_fp_reservation_pending ||| id_wb_fp_reservation_pending
   def id_vector_fp_destination_hazard = id_control.vector.floating_point & id_control.vector.floating_scalar_destination & (id_fp_register_busy(id_rd) ||| !wb_fp.drained ||| id_older_fp_reservation_pending)
-  def id_ex_serializing = ex_input.valid & (core_serializing_operation(ex_input.bits.system, ex_input.bits.fence) ||| ex_input.bits.memory_operation.into(MemoryOperation).is_cache_management())
-  def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence) ||| mem_input.bits.data_request.access.into(MemoryOperation).is_cache_management())
+  def id_ex_serializing = ex_input.valid & (core_serializing_operation(ex_input.bits.system, ex_input.bits.fence) ||| ex_input.bits.memory_operation.into(RV5StageMemoryOperation).is_cache_management())
+  def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence) ||| mem_input.bits.data_request.access.into(RV5StageMemoryOperation).is_cache_management())
   def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence)
-  def id_pause_in_flight = (ex_input.valid & (ex_input.bits.hint === HintOperation.Pause)) ||| (mem_input.valid & (mem_input.bits.hint === HintOperation.Pause)) ||| (wb.valid & (wb_offer_bits.hint === HintOperation.Pause))
-  def id_serializing_in_flight = id_ex_serializing ||| id_mem_serializing ||| id_wb_serializing ||| wb_maintenance_pending ||| wb_reservation_wait_pending ||| wb_reservation_wait_accept ||| (wb_input.valid & wb_input.bits.data_request.access.into(MemoryOperation).is_cache_management())
+  def id_pause_in_flight = (ex_input.valid & (ex_input.bits.hint === RV5StageHintOperation.Pause)) ||| (mem_input.valid & (mem_input.bits.hint === RV5StageHintOperation.Pause)) ||| (wb.valid & (wb_offer_bits.hint === RV5StageHintOperation.Pause))
+  def id_serializing_in_flight = id_ex_serializing ||| id_mem_serializing ||| id_wb_serializing ||| wb_maintenance_pending ||| wb_reservation_wait_pending ||| wb_reservation_wait_accept ||| (wb_input.valid & wb_input.bits.data_request.access.into(RV5StageMemoryOperation).is_cache_management())
   def id_wb_commit_deferred = wb_commit_valid & core_deferred_writeback(
     wb_commit_bits.writeback_source
   ) & wb_commit_bits.write_enable
@@ -540,19 +542,19 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   ) ||| wb_deferred_results_pending ||| wb_to_id_scoreboard_set_link.right.valid ||| (ex_input.valid & ex_input.bits.floating_point_valid) ||| (mem_input.valid & mem_input.bits.fp_compute) ||| (wb.valid & wb_offer_bits.fp_compute)
   // Include older accesses not yet accepted by the LSU: drained alone can
   // still be true while a block zero (or scalar store) is in Execute/Memory.
-  def id_older_memory_in_flight = (ex_input.valid & ex_input.bits.memory_operation.into(MemoryOperation).is_memory()) ||| (mem_input.valid & mem_input.bits.data_request_valid) ||| (wb.valid & wb_offer_bits.data_request_valid)
+  def id_older_memory_in_flight = (ex_input.valid & ex_input.bits.memory_operation.into(RV5StageMemoryOperation).is_memory()) ||| (mem_input.valid & mem_input.bits.data_request_valid) ||| (wb.valid & wb_offer_bits.data_request_valid)
   def id_serializing_waits_for_older = (core_serializing_operation(id_control.system, id_control.fence) ||| id_management) & (id_deferred_state_pending ||| id_older_memory_in_flight ||| !scalar_data.drained)
-  def id_needs_multiplier = (id_control.writeback.source === WritebackSelect.Multiply) & id_control.writeback.enable & id_rd.or_reduce()
-  def id_ex_has_multiply = ex_input.valid & (ex_input.bits.writeback_source === WritebackSelect.Multiply) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()
-  def id_mem_has_multiply = mem_input.valid & (mem_input.bits.writeback_source === WritebackSelect.Multiply) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
-  def wb_commit_has_multiply = wb_commit_valid & (wb_commit_bits.writeback_source === WritebackSelect.Multiply) & wb_commit_bits.write_enable & wb_commit_bits.rd.or_reduce()
+  def id_needs_multiplier = (id_control.writeback.source === RV5StageWritebackSelect.Multiply) & id_control.writeback.enable & id_rd.or_reduce()
+  def id_ex_has_multiply = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()
+  def id_mem_has_multiply = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
+  def wb_commit_has_multiply = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Multiply) & wb_commit_bits.write_enable & wb_commit_bits.rd.or_reduce()
   def id_multiply_resource_hazard = id_needs_multiplier & !id_fault & (
     !wb_multiplier.available ||| id_ex_has_multiply ||| id_mem_has_multiply ||| wb_commit_has_multiply
   )
-  def id_needs_divider = (id_control.writeback.source === WritebackSelect.Divide) & id_control.writeback.enable & id_rd.or_reduce()
-  def id_ex_has_divide = ex_input.valid & (ex_input.bits.writeback_source === WritebackSelect.Divide) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()
-  def id_mem_has_divide = mem_input.valid & (mem_input.bits.writeback_source === WritebackSelect.Divide) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
-  def wb_commit_has_divide = wb_commit_valid & (wb_commit_bits.writeback_source === WritebackSelect.Divide) & wb_commit_bits.write_enable & wb_commit_bits.rd.or_reduce()
+  def id_needs_divider = (id_control.writeback.source === RV5StageWritebackSelect.Divide) & id_control.writeback.enable & id_rd.or_reduce()
+  def id_ex_has_divide = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()
+  def id_mem_has_divide = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
+  def wb_commit_has_divide = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Divide) & wb_commit_bits.write_enable & wb_commit_bits.rd.or_reduce()
   def id_divide_resource_hazard = id_needs_divider & !id_fault & (
     !wb_divider.available ||| id_ex_has_divide ||| id_mem_has_divide ||| wb_commit_has_divide
   )
@@ -794,7 +796,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     ex_input.bits.pc + ex_input.bits.immediate
   )
   def ex_redirect_aligned = ex_redirect_target.is_aligned(instruction_alignment)
-  def ex_memory_operation = mux(ex_input.bits.vector_launch, MemoryOperation.None, ex_input.bits.memory_operation)
+  def ex_memory_operation = mux(ex_input.bits.vector_launch, RV5StageMemoryOperation.None, ex_input.bits.memory_operation)
   def ex_memory_address = if extensions.ssnpm | apply_pointer_mask(xlen, ex_alu.result, ex_input.bits.pointer_masking) | ex_alu.result
   def ex_memory_aligned = ex_memory_operation.is_cache_block() ||| ex_input.bits.memory_width.is_aligned(ex_memory_address)
   def ex_is_memory = ex_memory_operation.is_memory()
@@ -843,8 +845,8 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def ex_result = mux_lookup(
     ex_input.bits.writeback_source,
     ~default: ex_alu.result,
-    [[WritebackSelect.Zero, zero],
-     [WritebackSelect.SequentialPc, ex_input.bits.sequential_pc]]
+    [[RV5StageWritebackSelect.Zero, zero],
+     [RV5StageWritebackSelect.SequentialPc, ex_input.bits.sequential_pc]]
   )
   def ex_multiply_issue = RV5StageMultiplyIssue(xlen):
     left: ex_forwarded_rs1
@@ -902,11 +904,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
           RV5StageMemoryWriteback(vector_completion_slots).Integer(ex_input.bits.rd),
           RV5StageMemoryWriteback(vector_completion_slots).Ack)
     )
-    locality: RV5StageMemoryLocality.Default
+    locality: RiscvMemoryLocality.Default
 
   // Both ordinary operations use EX/MEM lookup. Only WB authorizes a store;
   // lookup itself cannot change the cache or initiate an external transaction.
-  scalar_pipeline.request.valid <== ex_transfer & !ex_exception.valid & ex_memory_operation.is_one_of(MemoryOperation.Load, MemoryOperation.Store)
+  scalar_pipeline.request.valid <== ex_transfer & !ex_exception.valid & ex_memory_operation.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store)
   scalar_pipeline.request.bits <== RV5StagePipelineReq(xlen):
     address: ex_memory_address
     access: ex_memory_operation
@@ -974,7 +976,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def Array(mem_access_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_prediction_path) = mem_live |> fork_valid(4)
   // Observe only memory instructions without filtering the stage's valid flow.
   def mem_access = mem_access_path
-    |> trace_valid_event("dcache/s1.access", ~when: mem_access_path.bits.data_request.access.into(MemoryOperation).is_memory(), ~fields: operation):
+    |> trace_valid_event("dcache/s1.access", ~when: mem_access_path.bits.data_request.access.into(RV5StageMemoryOperation).is_memory(), ~fields: operation):
          pc: operation.pc
          instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
          address: operation.data_request.address
@@ -1002,7 +1004,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
     fp_compute: operation.fp_compute
     fp_issue: operation.fp_issue
     prefetch: operation.prefetch
-    writeback_source: mux(mem_load_hit, WritebackSelect.Alu, operation.writeback_source)
+    writeback_source: mux(mem_load_hit, RV5StageWritebackSelect.Alu, operation.writeback_source)
     write_enable: operation.writeback_enable & !operation.exception_valid & !operation.replay
     rd: operation.rd
     value: mux(mem_load_hit, scalar_pipeline.response.bits.data, operation.result)
@@ -1025,17 +1027,17 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // Device reads, misses, and mutations cannot acquire effects speculatively.
   // In-order WB associates NTL with exactly one successor, not one memory
   // access. Rejected dispatch and pipeline replay leave this state untouched.
-  reg wb_pending_locality(~init: RV5StageMemoryLocality.Default)
+  reg wb_pending_locality(~init: RiscvMemoryLocality.Default)
   def wb_retiring_locality = mux_lookup(
     wb_commit_bits.hint,
-    ~default: RV5StageMemoryLocality.Default,
-    [[HintOperation.NtlP1, RV5StageMemoryLocality.P1],
-     [HintOperation.NtlPall, RV5StageMemoryLocality.Pall],
-     [HintOperation.NtlS1, RV5StageMemoryLocality.S1],
-     [HintOperation.NtlAll, RV5StageMemoryLocality.All]]
+    ~default: RiscvMemoryLocality.Default,
+    [[RV5StageHintOperation.NtlP1, RiscvMemoryLocality.P1],
+     [RV5StageHintOperation.NtlPall, RiscvMemoryLocality.Pall],
+     [RV5StageHintOperation.NtlS1, RiscvMemoryLocality.S1],
+     [RV5StageHintOperation.NtlAll, RiscvMemoryLocality.All]]
   )
   when (wb_csrs.redirect.valid):
-    wb_pending_locality <== RV5StageMemoryLocality.Default
+    wb_pending_locality <== RiscvMemoryLocality.Default
   elsewhen (wb_macro_retire & !wb_commit_bits.exception_valid):
     wb_pending_locality <== wb_retiring_locality
   def wb_attempt = wb_input.valid & !wb_maintenance_pending & !wb_reservation_wait_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !wb_offer_bits.replay & !wb_offer_bits.exception_valid
@@ -1053,7 +1055,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   // Observe the MEM result at its real WB capture, including hits and replay.
   // Admission qualifies continuation, not whether the S2 response is recorded.
   def wb_memory_response = wb_memory_path
-    |> trace_valid_event("dcache/s2.resp", ~parents: [mem_access], ~when: wb_memory_path.bits.data_request.access.into(MemoryOperation).is_memory(), ~fields: operation):
+    |> trace_valid_event("dcache/s2.resp", ~parents: [mem_access], ~when: wb_memory_path.bits.data_request.access.into(RV5StageMemoryOperation).is_memory(), ~fields: operation):
          pc: operation.pc
          instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
          address: operation.data_request.address
@@ -1063,7 +1065,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
          admitted: wb_memory_accepted
   def wb_memory_offer = wb_memory_response |> filter_valid(_operation => wb_memory_attempt & wb_fp_load_ready)
     |> map_valid(operation => operation.data_request.updated(
-         ~locality: mux(operation.data_request.access.into(MemoryOperation).is_one_of(MemoryOperation.Load, MemoryOperation.Store), wb_pending_locality, RV5StageMemoryLocality.Default)
+         ~locality: mux(operation.data_request.access.into(RV5StageMemoryOperation).is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store), wb_pending_locality, RiscvMemoryLocality.Default)
        ))
   // Request validity must not depend on admission or fault-status feedback.
   wb_memory_offer |> offer_decoupled() |> scalar_data.request
@@ -1074,7 +1076,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def wb_access_fault = (wb_attempt & (wb_offer_bits.cache_outcome === RV5StagePipelineOutcome.AccessFault)) ||| (scalar_data.request.valid & !wb_page_fault & scalar_data.request_access_fault) ||| (wb_maintenance_done & scalar_data.response.bits.access_fault)
   wb_data_fault <== wb_page_fault ||| wb_access_fault
   wb_memory_accepted <== scalar_data.request.fire() & !wb_data_fault
-  wb_maintenance_accepted <== wb_memory_accepted & wb_offer_bits.data_request.access.into(MemoryOperation).is_cache_management()
+  wb_maintenance_accepted <== wb_memory_accepted & wb_offer_bits.data_request.access.into(RV5StageMemoryOperation).is_cache_management()
   wb_memory_replay <== wb_memory_attempt & (!wb_fp_load_ready ||| (!wb_data_fault & !scalar_data.request.ready))
   def wb_fp_replay = wb_fp.issue.valid & !wb_fp.issue.ready
   def wb_deferred_fp_load_completion = scalar_data.response.valid & scalar_data.response.bits.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)
@@ -1170,13 +1172,13 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
 
   def wb_normal_write = (
     wb_register_path
-      |> filter_valid(committed => !committed.replay & (committed.writeback_source =/= WritebackSelect.Vector) & !core_deferred_writeback(committed.writeback_source) & (
+      |> filter_valid(committed => !committed.replay & (committed.writeback_source =/= RV5StageWritebackSelect.Vector) & !core_deferred_writeback(committed.writeback_source) & (
           committed.write_enable
-        ) & ((committed.writeback_source =/= WritebackSelect.Csr) ||| wb_csrs.writeback_valid))
+        ) & ((committed.writeback_source =/= RV5StageWritebackSelect.Csr) ||| wb_csrs.writeback_valid))
       |> map_valid(committed => RegisterFileWrite(xlen)):
           address: committed.rd
           data: mux(
-            committed.writeback_source === WritebackSelect.Csr,
+            committed.writeback_source === RV5StageWritebackSelect.Csr,
             wb_csrs.writeback_value,
             committed.value
           )
@@ -1187,7 +1189,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   (
     wb_multiply_path
       |> filter_valid(committed => !committed.replay & (
-          committed.writeback_source === WritebackSelect.Multiply
+          committed.writeback_source === RV5StageWritebackSelect.Multiply
         ) & committed.write_enable & committed.rd.or_reduce())
       |> map_valid(_committed => wb_input.bits.multiply_issue)
   ) |> wb_multiplier.issue
@@ -1196,7 +1198,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   (
     wb_divide_path
       |> filter_valid(committed => !committed.replay & (
-          committed.writeback_source === WritebackSelect.Divide
+          committed.writeback_source === RV5StageWritebackSelect.Divide
         ) & committed.write_enable & committed.rd.or_reduce())
       |> map_valid(_committed => wb_input.bits.divide_issue)
   ) |> wb_divider.issue

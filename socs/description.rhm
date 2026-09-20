@@ -143,7 +143,7 @@ fun mmu_type(mode :: RV5StageMmuMode):
   | RV5StageMmuMode.Sv39: "riscv,sv39"
 
 fun cpu_node(hart :: Nat,
-             profile :: RVCoreProfile,
+             profile :: RV5StageConfig,
              clocks :: SoCClockConfig):
   def instruction_cache = profile.cache_geometry.instruction
   def data_cache = profile.cache_geometry.data
@@ -154,8 +154,8 @@ fun cpu_node(hart :: Nat,
      DeviceTreeProperty("status", DeviceTreeString("okay")),
      DeviceTreeProperty("compatible", DeviceTreeString("riscv")),
      DeviceTreeProperty("clock-frequency", DeviceTreeU32(clocks.clock_frequency_hz)),
-     DeviceTreeProperty("riscv,isa-base", DeviceTreeString(profile.isa_base)),
-     DeviceTreeProperty("riscv,isa-extensions", DeviceTreeStringList(profile.isa_extensions)),
+     DeviceTreeProperty("riscv,isa-base", DeviceTreeString(profile.isa_profile.isa_base)),
+     DeviceTreeProperty("riscv,isa-extensions", DeviceTreeStringList(profile.isa_profile.isa_extensions)),
      DeviceTreeProperty("mmu-type", DeviceTreeString(mmu_type(profile.mmu_mode))),
      DeviceTreeProperty("i-cache-block-size", DeviceTreeU32(RV5StageCacheLineBytes)),
      DeviceTreeProperty("i-cache-sets", DeviceTreeU32(instruction_cache.sets)),
@@ -177,7 +177,7 @@ fun cpu_node(hart :: Nat,
   )
 
 fun cpus_node(harts :: NonemptyList.of(Nat),
-              profile :: RVCoreProfile,
+              profile :: RV5StageConfig,
               clocks :: SoCClockConfig):
   DeviceTreeNode(
     "cpus",
@@ -271,7 +271,7 @@ fun require_unique_strings(strings :: NonemptyList.of(NonemptyString), who :: Sy
     unless strings.filter(~keep: fun (candidate): candidate == value).length() == 1
     | error(~who: who, "compatible strings must be unique")
 
-fun require_unique_harts(harts :: NonemptyList.of(Nat), profile :: RVCoreProfile):
+fun require_unique_harts(harts :: NonemptyList.of(Nat), profile :: RV5StageConfig):
   for (hart in harts):
     unless hart < (1 << profile.xlen.width)
     | error(~who: #'RiscvSoCDescription, "hart ID must fit XLEN")
@@ -288,7 +288,7 @@ fun require_disjoint_regions(regions :: NonemptyList.of(SoCAddressRegion)):
 class RiscvSoCDescription(model :: NonemptyString,
                           compatible :: NonemptyList.of(NonemptyString),
                           harts :: NonemptyList.of(Nat),
-                          core_profile :: RVCoreProfile,
+                          core_profile :: RV5StageConfig,
                           clocks :: SoCClockConfig,
                           memory_regions :: NonemptyList.of(SoCAddressRegion),
                           boot :: RiscvBootLayout,
@@ -300,7 +300,7 @@ class RiscvSoCDescription(model :: NonemptyString,
   constructor (~model: model :: NonemptyString,
                ~compatible: compatible :: NonemptyList.of(NonemptyString),
                ~harts: harts :: NonemptyList.of(Nat),
-               ~core_profile: core_profile :: RVCoreProfile,
+               ~core_profile: core_profile :: RV5StageConfig,
                ~clocks: clocks :: SoCClockConfig,
                ~memory_regions: memory_regions :: NonemptyList.of(SoCAddressRegion),
                ~boot: boot :: RiscvBootLayout,

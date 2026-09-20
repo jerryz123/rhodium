@@ -1,13 +1,99 @@
 #lang rhodium
-// Converts architectural interrupt causes into typed xcause hardware values.
+// Materializes standard M/S interrupt inputs, pending bits, priority, and delegation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/interrupt.rhm" open
+  "../isa/xlen.rhm" open
+  "privilege.rhdl".PrivilegeMode
+  lib("rhodium/std/bits.rhdl") open
+
+bundle RiscvInterrupts():
+  supervisor_software: Bool
+  machine_software: Bool
+  supervisor_timer: Bool
+  machine_timer: Bool
+  supervisor_external: Bool
+  machine_external: Bool
+
+bundle RiscvInterruptDecision(xlen :: XLen):
+  valid: Bool
+  cause: Bits(xlen.width)
+  to_supervisor: Bool
+
+fun riscv_interrupt_pending(xlen :: XLen,
+                            interrupts :: RiscvInterrupts()) :~ Bits(xlen.width):
+  pack_fields(xlen.width, [
+    [interrupt_code(InterruptCause.SupervisorSoftware), interrupts.supervisor_software],
+    [interrupt_code(InterruptCause.MachineSoftware), interrupts.machine_software],
+    [interrupt_code(InterruptCause.SupervisorTimer), interrupts.supervisor_timer],
+    [interrupt_code(InterruptCause.MachineTimer), interrupts.machine_timer],
+    [interrupt_code(InterruptCause.SupervisorExternal), interrupts.supervisor_external],
+    [interrupt_code(InterruptCause.MachineExternal), interrupts.machine_external]
+  ])
 
 fun interrupt_cause_bits(cause :: InterruptCause,
                          width :: PosInt) :~ Bits(width):
   bits((1 bits.(<<) (width - 1)) bits.or interrupt_code(cause), width)
 
+fun resolve_riscv_interrupt(xlen :: XLen,
+                            pending :: Bits(xlen.width),
+                            enabled :: Bits(xlen.width),
+                            delegated :: Bits(xlen.width),
+                            mstatus :: Bits(xlen.width),
+                            privilege :: PrivilegeMode) :~ RiscvInterruptDecision(xlen):
+  def width = xlen.width
+  def machine_globally_enabled = (privilege =/= PrivilegeMode.Machine) ||| mstatus[3].into(Bool)
+  def supervisor_globally_enabled = (privilege === PrivilegeMode.User) ||| ((privilege === PrivilegeMode.Supervisor) & mstatus[1].into(Bool))
+  fun candidate(cause :: InterruptCause) :~ Bool:
+    def code = interrupt_code(cause)
+    def to_supervisor = delegated[code].into(Bool)
+    pending[code].into(Bool) & enabled[code].into(Bool) & mux(to_supervisor, supervisor_globally_enabled, machine_globally_enabled)
+  def machine_external = candidate(InterruptCause.MachineExternal)
+  def machine_software = candidate(InterruptCause.MachineSoftware)
+  def machine_timer = candidate(InterruptCause.MachineTimer)
+  def supervisor_external = candidate(InterruptCause.SupervisorExternal)
+  def supervisor_software = candidate(InterruptCause.SupervisorSoftware)
+  def supervisor_timer = candidate(InterruptCause.SupervisorTimer)
+  def valid = machine_external ||| machine_software ||| machine_timer ||| supervisor_external ||| supervisor_software ||| supervisor_timer
+  def cause = mux(
+    machine_external,
+    interrupt_cause_bits(InterruptCause.MachineExternal, width),
+    mux(
+      machine_software,
+      interrupt_cause_bits(InterruptCause.MachineSoftware, width),
+      mux(
+        machine_timer,
+        interrupt_cause_bits(InterruptCause.MachineTimer, width),
+        mux(
+          supervisor_external,
+          interrupt_cause_bits(InterruptCause.SupervisorExternal, width),
+          mux(
+            supervisor_software,
+            interrupt_cause_bits(InterruptCause.SupervisorSoftware, width),
+            interrupt_cause_bits(InterruptCause.SupervisorTimer, width)
+          )
+        )
+      )
+    )
+  )
+  def to_supervisor = mux_lookup(
+    cause[0..4],
+    ~default: Bool(#false),
+    [
+      [interrupt_code(InterruptCause.SupervisorSoftware), delegated[interrupt_code(InterruptCause.SupervisorSoftware)].into(Bool)],
+      [interrupt_code(InterruptCause.SupervisorTimer), delegated[interrupt_code(InterruptCause.SupervisorTimer)].into(Bool)],
+      [interrupt_code(InterruptCause.SupervisorExternal), delegated[interrupt_code(InterruptCause.SupervisorExternal)].into(Bool)]
+    ]
+  )
+  RiscvInterruptDecision(xlen):
+    valid: valid
+    cause: cause
+    to_supervisor: valid & to_supervisor
+
 export:
+  RiscvInterrupts
+  RiscvInterruptDecision
+  riscv_interrupt_pending
   interrupt_cause_bits
+  resolve_riscv_interrupt

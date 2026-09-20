@@ -23,7 +23,7 @@ import:
   lib("noc/rtl/router.rhdl") open
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   lib("cores/rv5stage/profile.rhm") open
-  lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
+  lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("cores/rv5stage/chi/foundation.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl") open
@@ -104,7 +104,7 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
 
   method description(model :: NonemptyString,
                      compatible :: NonemptyList.of(NonemptyString),
-                     core_profile :: RVCoreProfile,
+                     core_profile :: RV5StageConfig,
                      clocks :: SoCClockConfig):
     RiscvSoCDescription(
       ~model: model,
@@ -240,7 +240,7 @@ fun populate_single_core(params :: SingleCoreSystemParams,
   uart.tx <== uart_device.tx
   uart.interrupt <== uart_device.interrupt
   plic.sources <== vec([uart_device.interrupt])
-  rv5stage.interrupts <== RV5StageInterrupts():
+  rv5stage.interrupts <== RiscvInterrupts():
     supervisor_software: Bool(#false)
     machine_software: aclint.machine_software[0]
     supervisor_timer: Bool(#false)

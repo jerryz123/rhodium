@@ -6,13 +6,14 @@ import:
   "../multiplier.rhdl" open
   "integer-execution.rhdl" open
   "decode/multiply-ctrl.rhdl" open
+  "../riscv/multiply-decode.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
 bundle RV5StageMultiplyIssue(xlen :: XLen):
   left: Bits(xlen.width)
   right: Bits(xlen.width)
-  control: RV5StageMultiplyControl()
+  control: RiscvMultiplyControl()
   rd: Bits(5)
 
 bundle RV5StageMultiplyCompletion(xlen :: XLen):

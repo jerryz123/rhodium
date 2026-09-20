@@ -11,7 +11,7 @@ focused validation.
 ## Architecture and dependency boundary
 
 RV5Stage may depend on public Rhodium libraries, the pure RISC-V model and RTL
-adapter, reusable components directly under `cores/`, HardFloat, and shared
+adapter, reusable components and RISC-V mappings under `cores/`, HardFloat, and shared
 CHI libraries. It must not import another named core, a backend, examples, or
 tests. The parent [`check-boundaries.sh`](../check-boundaries.sh) enforces these
 rules plus fetch/predictor placement, decode-column, and cache-package
@@ -25,7 +25,7 @@ each other; share external transaction machinery through the CHI package.
 
 | Area | Ownership |
 |---|---|
-| [`profile.rhm`](profile.rhm) | Immutable ISA, MMU, and cache specialization description |
+| [`profile.rhm`](profile.rhm) | Immutable RV5Stage extension, MMU, cache, vector, and completion configuration; projects a pure `RiscvIsaProfile` |
 | [`udb.rhm`](udb.rhm) | Exact-version UDB extension closure and fixed RV5Stage architectural parameter claims |
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
@@ -38,7 +38,7 @@ each other; share external transaction machinery through the CHI package.
 | [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Scalar/vector LSU lookup ownership, store-commit timing, transaction arbitration, and tagged response routing |
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in RV64 Zve/V WB-launched unroller, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
-| [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |
+| [`csr.rhdl`](csr.rhdl) | RV5Stage privileged-state storage and commit policy over reusable RISC-V CSR, trap, and interrupt semantics |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
 | [`cache.rhdl`](cache.rhdl) | Shared cache geometry and replacement helpers |
@@ -372,7 +372,7 @@ stalls and reason flags without counting observers as transfer fanout.
 
 ## Maintain the UDB projection
 
-Keep selectable extension membership derived from `RVCoreProfile`. Keep fixed
+Keep selectable extension membership derived from `RV5StageConfig`. Keep fixed
 CSR, trap, alignment, counter, PMP, and LR/SC facts in `udb.rhm`, and pass
 physical address width and PMA granularity from the integration boundary. When
 one of those behaviors changes, update its RTL owner and UDB claim together.

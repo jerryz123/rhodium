@@ -10,7 +10,7 @@ import:
   "../../riscv/isa/interrupt.rhm".InterruptCause
   "../../riscv/isa/xlen.rhm".XLen
 
-def profile = RVCoreProfile(
+def profile = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~zicboz: #true, ~zawrs: #true, ~zihintpause: #true),
   ~mmu_mode: RV5StageMmuMode.Sv39

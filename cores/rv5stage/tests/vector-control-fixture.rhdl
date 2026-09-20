@@ -5,7 +5,7 @@
 import:
   "../csr.rhdl" open
   "../profile.rhm" open
-  "../interrupt.rhdl" open
+  "../../../riscv/rtl/interrupt.rhdl" open
   "../decode/core-ctrl.rhdl" open
   "../decode/vector-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open
@@ -29,7 +29,7 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   output(decoded_valid, base_decoded_valid, legal, full_half_legal, writeback_valid, redirect_valid): Bool
   output writeback_value: Bits(xlen.width)
   output mstatus: Bits(xlen.width)
-  output state: RV5StageVectorState(xlen)
+  output state: RiscvVectorState(xlen)
   output(configuration, operand): Bits(2)
   output arithmetic_mode: Bits(3)
   output multiply_result: Bits(2)
@@ -37,7 +37,7 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   output(mask_destination, carry_input, extension, extension_signed, mask_result_select, invert_comparison, swap_operands, widening, narrowing, fp_zvfhmin_e16, fp_zvfh_e8, rounding, clip, clip_unsigned, wide_vs2, left_signed, right_signed, subtract, divide, remainder): Bool
   inst decoder(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions))
   inst base_decoder(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
-  inst csrs(RV5StageCsrFile(RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions, ~vector_length: vlen)))
+  inst csrs(RV5StageCsrFile(RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions, ~vector_length: vlen)))
   inst legality(RV5StageVectorLegality(xlen, vlen, VectorProfile.V, selected_vector_extensions))
   inst full_half_legality(RV5StageVectorLegality(xlen, vlen, VectorProfile.V, full_half_vector_extensions))
   decoder.instruction <== instruction
@@ -79,7 +79,7 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   subtract <== decoder.control.vector.alu.subtract
   divide <== decoder.control.vector.divide
   remainder <== decoder.control.vector.remainder
-  csrs.interrupts <== literal(RV5StageInterrupts(), 0)
+  csrs.interrupts <== literal(RiscvInterrupts(), 0)
   csrs.hart_id <== bits(0, xlen.width)
   csrs.time_counter <== bits(0, 64)
   csrs.vector_retire.valid <== Bool(#false)

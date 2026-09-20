@@ -8,7 +8,7 @@ import:
   "../profile.rhm" open
   "../icache/protocol.rhdl" open
   "../dcache/protocol.rhdl" open
-  "../interrupt.rhdl" open
+  "../../../riscv/rtl/interrupt.rhdl" open
   "../csr.rhdl".PrivilegeMode
   "../../cache-prefetch.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -88,9 +88,9 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
     elsewhen (frontend_admitted & completed_match):
       completed <== Bool(#false)
 
-sync_circuit RV5StageCoreFixture(profile :: RVCoreProfile, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
+sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
   def xlen = profile.xlen
-  input interrupts: RV5StageInterrupts()
+  input interrupts: RiscvInterrupts()
   input hart_id: Bits(xlen.width)
   input time_counter: Bits(64)
   interface instruction_access(RV5StageTestInstructionAccess(xlen), ~role: requester)

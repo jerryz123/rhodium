@@ -1,6 +1,6 @@
-// Verifies every RV5Stage AMO function for RV64 doubleword and word operands.
+// Verifies every reusable RISC-V AMO function for RV64 doubleword and word operands.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_atomic_tb;
+module riscv_atomic_tb;
   localparam logic [1:0] WORD = 2'd2;
   localparam logic [1:0] DOUBLE = 2'd3;
   localparam logic [3:0] SWAP = 4'd0;
@@ -15,11 +15,11 @@ module rv5stage_atomic_tb;
 
   logic [63:0] old_value;
   logic [63:0] operand;
-  logic [1:0] memory_width;
+  logic word;
   logic [3:0] operation;
   logic [63:0] value;
 
-  RV5StageAtomicALU dut (.*);
+  RiscvAtomicALU dut (.*);
 
   task automatic check_atomic(
     input logic [3:0] selected_operation,
@@ -30,14 +30,14 @@ module rv5stage_atomic_tb;
   );
     begin
       operation = selected_operation;
-      memory_width = selected_width;
+      word = selected_width == WORD;
       old_value = selected_old;
       operand = selected_operand;
       #1;
       assert (value == expected)
         else $fatal(1,
                     "atomic result mismatch op=%0d width=%0d old=%h operand=%h got=%h expected=%h",
-                    operation, memory_width, old_value, operand, value, expected);
+                    operation, selected_width, old_value, operand, value, expected);
     end
   endtask
 
@@ -54,7 +54,7 @@ module rv5stage_atomic_tb;
     check_atomic(ADD, WORD, 64'h00000000ffffffff, 64'h2, 64'h1);
     check_atomic(MIN, WORD, 64'h00000000fffffffe, 64'h3, 64'h00000000fffffffe);
     check_atomic(MAXU, WORD, 64'h00000000fffffffe, 64'h3, 64'h00000000fffffffe);
-    $display("RV5Stage atomic ALU simulation passed");
+    $display("RISC-V atomic ALU simulation passed");
     $finish;
   end
 endmodule

@@ -62,9 +62,9 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   def idle = state === RV5StageUncachedState.Idle
   def command :: RV5StageDataReq(xlen, vector_completion_slots) = core.request.bits.request
   def command_access = command.access
-  def command_supported = command_access.is_one_of(MemoryOperation.Load,
-                                                   MemoryOperation.Store,
-                                                   MemoryOperation.CacheBlockZero)
+  def command_supported = command_access.is_one_of(RV5StageMemoryOperation.Load,
+                                                   RV5StageMemoryOperation.Store,
+                                                   RV5StageMemoryOperation.CacheBlockZero)
   def command_zero = command_access.is_cache_block_zero()
   def zero_last = zero_index === bits(RV5StageCacheLineBytes / 8 - 1, index_width(RV5StageCacheLineBytes / 8))
   def instruction_command = instruction.request.bits

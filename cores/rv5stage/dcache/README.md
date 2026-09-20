@@ -118,7 +118,7 @@ or reuse a read result owned by another request. An outstanding miss still keeps
 `drained` false; fences and ordered IO retain their existing completion rules.
 This is not a multi-MSHR cache, miss merging, or store hit-under-miss.
 
-Requests carry `locality: RV5StageMemoryLocality` (`Default`, `P1`, `Pall`,
+Requests carry `locality: RiscvMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). Lookup, retained mutation, dirty-victim eviction, and refill
 context retain the complete request. This is architectural intent, independent
 of cache policy. Non-default selectors bypass L1 allocation on ordinary integer
@@ -260,7 +260,7 @@ selected way, and old value in a one-entry mutation register. On the following
 edge it updates the selected byte lanes and sets UniqueDirty without emitting
 REQ or DAT traffic; an AMO returns the captured value from before that update.
 
-`MemoryOperation.CacheBlockZero` carries the original address and no result
+`RV5StageMemoryOperation.CacheBlockZero` carries the original address and no result
 destination. A Unique hit writes zeros to every XLEN word while blocking
 lookups and snoops for that bounded SRAM interval. A shared hit or miss uses
 `ReadUnique`, including ordinary dirty-victim writeback, then installs zeros

@@ -1,0 +1,86 @@
+#lang rhodium
+// Maps RV32 and RV64 integer divide/remainder instructions onto a divider.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../riscv/rtl/decode.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  "../../riscv/isa/rv32i.rhm" as rv32
+  "../../riscv/isa/rv64i.rhm" open
+  "../../riscv/isa/m.rhm" open
+  "../../riscv/isa/zmmul.rhm" open
+  "../../riscv/rtl/instruction-pattern.rhdl" open
+  lib("rhodium/std/decode.rhdl") open
+
+bundle RiscvDivideControl():
+  signed_mode: Bool
+  remainder: Bool
+  word_result: Bool
+
+def RV32MDivideControlCases = decode_groups(
+  RiscvDivideControl(),
+  ~input: instruction_pattern
+):
+  [DIV]:
+    signed_mode: Bool(#true)
+    remainder: Bool(#false)
+    word_result: Bool(#false)
+
+  [DIVU]:
+    signed_mode: Bool(#false)
+    remainder: Bool(#false)
+    word_result: Bool(#false)
+
+  [REM]:
+    signed_mode: Bool(#true)
+    remainder: Bool(#true)
+    word_result: Bool(#false)
+
+  [REMU]:
+    signed_mode: Bool(#false)
+    remainder: Bool(#true)
+    word_result: Bool(#false)
+
+def RV64MDivideControlCases = RV32MDivideControlCases ++ decode_groups(
+  RiscvDivideControl(),
+  ~input: instruction_pattern
+):
+  [DIVW]:
+    signed_mode: Bool(#true)
+    remainder: Bool(#false)
+    word_result: Bool(#true)
+
+  [DIVUW]:
+    signed_mode: Bool(#false)
+    remainder: Bool(#false)
+    word_result: Bool(#true)
+
+  [REMW]:
+    signed_mode: Bool(#true)
+    remainder: Bool(#true)
+    word_result: Bool(#true)
+
+  [REMUW]:
+    signed_mode: Bool(#false)
+    remainder: Bool(#true)
+    word_result: Bool(#true)
+
+def RV32MDivideControlDecode = ValidDecodeGen(RV32MDivideControlCases)
+def RV64MDivideControlDecode = ValidDecodeGen(RV64MDivideControlCases)
+
+circuit RiscvDivideInstructionDecoder(xlen :: XLen):
+  input instruction: Bits(32)
+  output valid: Bool
+  output control: RiscvDivideControl()
+
+  def decoded :: DecodeResult(RiscvDivideControl()) = if xlen == XLen.X32 | RV32MDivideControlDecode(instruction) | RV64MDivideControlDecode(instruction)
+  valid <== decoded.valid
+  control <== decoded.value
+
+export:
+  RiscvDivideControl
+  RV32MDivideControlCases
+  RV64MDivideControlCases
+  RV32MDivideControlDecode
+  RV64MDivideControlDecode
+  RiscvDivideInstructionDecoder

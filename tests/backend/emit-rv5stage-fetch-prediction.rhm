@@ -10,7 +10,7 @@ import:
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
   "../../cores/rv5stage/tests/fetch-fixture.rhdl".RV5StageFetchFixture
-def logical = embedded.run_elaboration_with_top(fun (): RV5StageFetchFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)), ~btb_entries: 4))
+def logical = embedded.run_elaboration_with_top(fun (): RV5StageFetchFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions)), ~btb_entries: 4))
 def traced = instrument_events(logical, EventInstrumentationConfig(~partial: #true))
 def site_constants = for List (site in traced.manifest.sites, index in 0..traced.manifest.sites.length()):
   "inline constexpr unsigned " ++ site.label.replace("/", "_").replace(".", "_") ++ " = " ++ to_string(index) ++ ";\n"

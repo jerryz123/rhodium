@@ -6,16 +6,17 @@ import:
   "zkt-program.rhm" open
   "core-fixture.rhdl" open
   "../profile.rhm" open
-  "../interrupt.rhdl" open
+  "../../../riscv/rtl/interrupt.rhdl" open
   "../multiply.rhdl" open
   "../decode/multiply-ctrl.rhdl" open
+  "../../riscv/multiply-decode.rhdl" open
   "../register-file.rhdl" open
   "../icache/protocol.rhdl" open
   "../dcache/protocol.rhdl" open
   "../csr.rhdl".PrivilegeMode
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageZkt(profile :: RVCoreProfile):
+sync_circuit RV5StageZkt(profile :: RV5StageConfig):
   def width = profile.xlen.width
   interface instruction_access(RV5StageTestInstructionAccess(profile.xlen), ~role: requester)
   interface data_access(RV5StageDataAccess(profile.xlen, profile.vector_completion_slots), ~role: requester)
@@ -30,7 +31,7 @@ sync_circuit RV5StageZkt(profile :: RVCoreProfile):
   input multiply_issue: Bool
   input multiply_left: Bits(width)
   input multiply_right: Bits(width)
-  input multiply_control: RV5StageMultiplyControl()
+  input multiply_control: RiscvMultiplyControl()
   input load_valid: Bool
   input load_value: Bits(width)
   input completion_ready: Bool
@@ -65,7 +66,7 @@ sync_circuit RV5StageZkt(profile :: RVCoreProfile):
   completion_value <== completions.egress.bits.data
   completion_chosen <== completions.chosen
   inst core(RV5StageCoreFixture(profile, ~reset_address: 0x10000))
-  core.interrupts <== bits(0, 6).into(RV5StageInterrupts())
+  core.interrupts <== bits(0, 6).into(RiscvInterrupts())
   core.hart_id <== bits(0, width)
   core.time_counter <== bits(0, 64)
   core.instruction_access <=> instruction_access

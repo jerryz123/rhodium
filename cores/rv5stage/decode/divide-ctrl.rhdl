@@ -1,13 +1,13 @@
 #lang rhodium
-// Defines RV5Stage's RV32 and RV64 integer divide/remainder control relation.
+// Extends reusable M-extension divide mappings across RV5Stage's instruction catalog.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../riscv/divide-decode.rhdl" open
+  "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
-  "decode-support.rhdl" open
-  "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/m.rhm" open
@@ -19,63 +19,9 @@ import:
   "../../../riscv/isa/zifencei.rhm" open
   "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
-  "../../../riscv/rtl/instruction-pattern.rhdl" open
   lib("rhodium/std/decode.rhdl") open
 
-bundle RV5StageDivideControl():
-  signed_mode: Bool
-  remainder: Bool
-  word_result: Bool
-
-def RV32MDivideControlCases = decode_groups(
-  RV5StageDivideControl(),
-  ~input: instruction_pattern
-):
-  [DIV]:
-    signed_mode: Bool(#true)
-    remainder: Bool(#false)
-    word_result: Bool(#false)
-
-  [DIVU]:
-    signed_mode: Bool(#false)
-    remainder: Bool(#false)
-    word_result: Bool(#false)
-
-  [REM]:
-    signed_mode: Bool(#true)
-    remainder: Bool(#true)
-    word_result: Bool(#false)
-
-  [REMU]:
-    signed_mode: Bool(#false)
-    remainder: Bool(#true)
-    word_result: Bool(#false)
-
-def RV64MDivideControlCases = RV32MDivideControlCases ++ decode_groups(
-  RV5StageDivideControl(),
-  ~input: instruction_pattern
-):
-  [DIVW]:
-    signed_mode: Bool(#true)
-    remainder: Bool(#false)
-    word_result: Bool(#true)
-
-  [DIVUW]:
-    signed_mode: Bool(#false)
-    remainder: Bool(#false)
-    word_result: Bool(#true)
-
-  [REMW]:
-    signed_mode: Bool(#true)
-    remainder: Bool(#true)
-    word_result: Bool(#true)
-
-  [REMUW]:
-    signed_mode: Bool(#false)
-    remainder: Bool(#true)
-    word_result: Bool(#true)
-
-def unused_divide = pattern(RV5StageDivideControl(), _)
+def unused_divide = pattern(RiscvDivideControl(), _)
 def RV32RV5StageDivideCases = instruction_cases(
   rv32.RV32IInstructions ++ RV32ZmmulInstructions ++ RV32AInstructions ++ RV32BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   unused_divide
@@ -84,33 +30,13 @@ def RV64RV5StageDivideCases = instruction_cases(
   RV64IInstructions ++ RV64ZmmulInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions,
   unused_divide
 ) ++ RV64MDivideControlCases
-
-def RV32MDivideControlDecode = ValidDecodeGen(RV32MDivideControlCases)
-def RV64MDivideControlDecode = ValidDecodeGen(RV64MDivideControlCases)
-
-circuit RV5StageDivideInstructionDecoder(xlen :: XLen):
-  input instruction: Bits(32)
-  output valid: Bool
-  output control: RV5StageDivideControl()
-
-  def decoded :: DecodeResult(RV5StageDivideControl()) = if xlen == XLen.X32 | RV32MDivideControlDecode(instruction) | RV64MDivideControlDecode(instruction)
-  valid <== decoded.valid
-  control <== decoded.value
-
 def ZicbozDivideCases = instruction_cases(ZicbozInstructions, unused_divide)
 def ZicbomDivideCases = instruction_cases(ZicbomInstructions, unused_divide)
-
 def ZawrsDivideCases = instruction_cases(ZawrsInstructions, unused_divide)
 
 export:
   ZawrsDivideCases
   ZicbomDivideCases
   ZicbozDivideCases
-  RV5StageDivideControl
-  RV32MDivideControlCases
-  RV64MDivideControlCases
   RV32RV5StageDivideCases
   RV64RV5StageDivideCases
-  RV32MDivideControlDecode
-  RV64MDivideControlDecode
-  RV5StageDivideInstructionDecoder

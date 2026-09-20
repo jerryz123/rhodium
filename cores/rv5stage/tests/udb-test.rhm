@@ -10,7 +10,7 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm".XLen
 
-def rv64_double = RVCoreProfile(
+def rv64_double = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(
     ~floating_point: FloatingPointProfile.D,
@@ -32,7 +32,7 @@ def rv64_yaml = rv5stage_udb_configuration(
 ).to_yaml()
 
 def rv64_vector_half_yaml = rv5stage_udb_configuration(
-  RVCoreProfile(
+  RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D),
     ~vector: VectorProfile.V,
@@ -44,7 +44,7 @@ def rv64_vector_half_yaml = rv5stage_udb_configuration(
 ).to_yaml()
 
 def rv64_vector_full_half_yaml = rv5stage_udb_configuration(
-  RVCoreProfile(
+  RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh),
     ~vector: VectorProfile.V,
@@ -56,7 +56,7 @@ def rv64_vector_full_half_yaml = rv5stage_udb_configuration(
 ).to_yaml()
 
 def rv64_vector_bitmanip_yaml = rv5stage_udb_configuration(
-  RVCoreProfile(
+  RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D),
     ~vector: VectorProfile.V,
@@ -73,7 +73,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   for (fetch in [#false, #true]):
     for (atomic in [#false, #true]):
       for (eventual in [#false, #true]):
-        def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~ziccif: fetch, ~ziccamoa: atomic, ~ziccrse: eventual))
+        def profile = RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~ziccif: fetch, ~ziccamoa: atomic, ~ziccrse: eventual))
         def yaml = rv5stage_udb_configuration(profile, "memory-guarantees", "Selected main-memory guarantees", 32).to_yaml()
         check:
           yaml.contains("{ name: \"Ziccif\", version: \"= 1.0.0\" }") ~is fetch
@@ -131,7 +131,7 @@ check:
   rv64_yaml.contains("  LRSC_FAIL_ON_NON_EXACT_LRSC: true") ~is #true
   rv64_yaml.contains("  MSTATUS_FS_LEGAL_VALUES: [0, 1, 2, 3]") ~is #true
 
-def rv32_integer = RVCoreProfile(~xlen: XLen.X32)
+def rv32_integer = RV5StageConfig(~xlen: XLen.X32)
 def rv32_yaml = rv5stage_udb_configuration(
   rv32_integer,
   "rhodium-rv5stage-rv32",

@@ -9,8 +9,8 @@ import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/noc/noc-router.rhdl") open
   lib("cores/rv5stage/chi/foundation.rhdl") open
-  lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
-  lib("cores/rv5stage/profile.rhm").RVCoreProfile
+  lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
+  lib("cores/rv5stage/profile.rhm").RV5StageConfig
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   "../time.rhdl" open
   "../distribution.rhdl" open
@@ -18,7 +18,7 @@ import:
 class RV5StageTileParams(rv5stage :: RV5StageCHIConfig,
                          router :: CHIRouterParams,
                          hart_count :: PosInt,
-                         core_profile :: RVCoreProfile):
+                         core_profile :: RV5StageConfig):
   implements StableCircuitParam
 
 bundle RV5StageTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
@@ -46,7 +46,7 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams, ~reset_address: reset_ad
   inst router(CHIRouter(router_params))
 
   rv5stage.chi_identity <== identity.chi
-  rv5stage.interrupts <== RV5StageInterrupts():
+  rv5stage.interrupts <== RiscvInterrupts():
     supervisor_software: Bool(#false)
     machine_software: interrupt_replica.current.machine_software
     supervisor_timer: Bool(#false)

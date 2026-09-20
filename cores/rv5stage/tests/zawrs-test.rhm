@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../../riscv/rtl/csr.rhdl" open
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../rhodium/std/decode.rhdl" open
@@ -12,9 +13,11 @@ import:
   "../../branch-resolver.rhdl" open
   "../../cache-prefetch.rhdl" open
   "../decode/core-ctrl.rhdl" open
+  "../memory.rhdl" open
   "../decode/vector-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
   "../decode/branch-ctrl.rhdl" open
+  "../../riscv/branch-decode.rhdl" open
   "../decode/mem-ctrl.rhdl" open
   "../decode/writeback-ctrl.rhdl" open
   "../decode/system-ctrl.rhdl" open
@@ -25,33 +28,33 @@ check:
   ZawrsCoreControlCases.length() ~is 2
   ZawrsSystemCases.length() ~is 2
 
-for (instruction in ZawrsInstructions, action in [SystemOperation.WrsNto, SystemOperation.WrsSto]):
+for (instruction in ZawrsInstructions, action in [RV5StageSystemOperation.WrsNto, RV5StageSystemOperation.WrsSto]):
   def row = ZawrsCoreControlCases.find(fun (candidate): candidate.input.matches(bits(instruction.encode([]), 32)))
   def expected = partial_pattern(RV5StageControl()):
     operand:
-      partial_pattern(OperandControl()):
+      partial_pattern(RV5StageOperandControl()):
         uses_rs1: Bool(#false)
         uses_rs2: Bool(#false)
     branch:
-      partial_pattern(BranchControl()):
+      partial_pattern(RiscvBranchControl()):
         resolver:
           partial_pattern(BranchResolverControl()):
             enable: Bool(#false)
     memory:
-      partial_pattern(MemoryControl()):
-        access: MemoryOperation.None
+      partial_pattern(RV5StageMemoryControl()):
+        access: RV5StageMemoryOperation.None
     prefetch: CachePrefetchOperation.None
     writeback:
-      partial_pattern(WritebackControl()):
+      partial_pattern(RV5StageWritebackControl()):
         enable: Bool(#false)
     system:
-      partial_pattern(SystemControl()):
-        csr: CsrOperation.None
+      partial_pattern(RV5StageSystemControl()):
+        csr: RiscvCsrOperation.None
         action: action
     fence:
-      pattern(FenceControl()):
-        action: FenceOperation.None
-    hint: HintOperation.None
+      pattern(RV5StageFenceControl()):
+        action: RV5StageFenceOperation.None
+    hint: RV5StageHintOperation.None
     floating_point_valid: Bool(#false)
     vector: NoVectorControl
   check:

@@ -12,7 +12,7 @@ import:
   "../../cores/rv5stage/profile.rhm" open
 
 def design = embedded.run_elaboration(
-  fun (): csr.RV5StageCsrFile(RVCoreProfile(
+  fun (): csr.RV5StageCsrFile(RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(
       ~floating_point: FloatingPointProfile.D,

@@ -9,7 +9,7 @@ import:
   "../../../riscv/isa/zbb.rhm" as zbb
   "../../../riscv/isa/zicond.rhm" as zicond
   "../../alu.rhdl" as alu
-  "../decode/alu-ctrl.rhdl" as controls
+  "../alu-decode.rhdl" as controls
 
 fun control_for(cases, instruction):
   cases.find(

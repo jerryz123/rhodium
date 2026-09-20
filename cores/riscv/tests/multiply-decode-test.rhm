@@ -7,7 +7,7 @@ import:
   "../../../rhodium/std/decode/pattern.rhdl" open
   "../../../riscv/isa/zmmul.rhm" open
   "../../multiplier.rhdl" as multiplier
-  "../decode/multiply-ctrl.rhdl" as controls
+  "../multiply-decode.rhdl" as controls
 
 fun control_for(cases, instruction):
   cases.find(
@@ -20,13 +20,13 @@ def mulh = control_for(controls.RV64ZmmulControlCases, MULH)
 def mulhsu = control_for(controls.RV64ZmmulControlCases, MULHSU)
 def mulhu = control_for(controls.RV64ZmmulControlCases, MULHU)
 def mulw = control_for(controls.RV64ZmmulControlCases, MULW)
-def expected_mul = partial_pattern(controls.RV5StageMultiplyControl()):
+def expected_mul = partial_pattern(controls.RiscvMultiplyControl()):
   high_result: bool.Bool(#false)
   word_result: bool.Bool(#false)
 def expected_mulh_mode = pattern(multiplier.MultiplierMode()):
   left_signed: bool.Bool(#true)
   right_signed: bool.Bool(#true)
-def expected_mulh = partial_pattern(controls.RV5StageMultiplyControl()):
+def expected_mulh = partial_pattern(controls.RiscvMultiplyControl()):
   mode: expected_mulh_mode
   high_result: bool.Bool(#true)
   word_result: bool.Bool(#false)
@@ -34,10 +34,10 @@ def expected_mulh = partial_pattern(controls.RV5StageMultiplyControl()):
 check:
   controls.RV32ZmmulControlCases.length() ~is 4
   controls.RV64ZmmulControlCases.length() ~is 5
-  controls.RV5StageMultiplyControl().fields.map(fun (field): field.name) ~is [
+  controls.RiscvMultiplyControl().fields.map(fun (field): field.name) ~is [
     "mode", "high_result", "word_result"
   ]
-  controls.RV5StageMultiplyControl().field("mode").type.type_equal(multiplier.MultiplierMode()) ~is #true
+  controls.RiscvMultiplyControl().field("mode").type.type_equal(multiplier.MultiplierMode()) ~is #true
   mul.care_bits ~is expected_mul.care_bits
   mulh.value_bits ~is expected_mulh.value_bits
   mulhsu.value_bits != mulh.value_bits ~is #true

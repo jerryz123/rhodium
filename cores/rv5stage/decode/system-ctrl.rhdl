@@ -6,7 +6,7 @@ import:
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
-  "decode-support.rhdl" open
+  "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/m.rhm" open
@@ -17,16 +17,11 @@ import:
   "../../../riscv/isa/zifencei.rhm" open
   "../../../riscv/isa/zimop.rhm" open
   "../../../riscv/isa/privileged.rhm" open
+  "../../../riscv/rtl/csr.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
-hardware_enum CsrOperation:
-  None
-  Write
-  Set
-  Clear
-
-hardware_enum SystemOperation:
+hardware_enum RV5StageSystemOperation:
   None
   Ecall
   Ebreak
@@ -37,56 +32,51 @@ hardware_enum SystemOperation:
   WrsSto
   VectorConfig
 
-bundle SystemControl():
-  csr: CsrOperation
+bundle RV5StageSystemControl():
+  csr: RiscvCsrOperation
   immediate: Bool
-  action: SystemOperation
+  action: RV5StageSystemOperation
 
   method is_system_operation(control) :: Bool:
-    (control.csr =/= CsrOperation.None) ||| (
-      control.action =/= SystemOperation.None
+    (control.csr =/= RiscvCsrOperation.None) ||| (
+      control.action =/= RV5StageSystemOperation.None
     )
 
-def no_system = partial_pattern(SystemControl()):
-  csr: CsrOperation.None
-  action: SystemOperation.None
+def no_system = partial_pattern(RV5StageSystemControl()):
+  csr: RiscvCsrOperation.None
+  action: RV5StageSystemOperation.None
 
-fun csr_control(operation :: CsrOperation, immediate :: Boolean):
-  pattern(SystemControl()):
+fun csr_control(operation :: RiscvCsrOperation, immediate :: Boolean):
+  pattern(RV5StageSystemControl()):
     csr: operation
     immediate: Bool(immediate)
-    action: SystemOperation.None
+    action: RV5StageSystemOperation.None
 
-fun system_control(operation :: SystemOperation):
-  partial_pattern(SystemControl()):
-    csr: CsrOperation.None
+fun system_control(operation :: RV5StageSystemOperation):
+  partial_pattern(RV5StageSystemControl()):
+    csr: RiscvCsrOperation.None
     action: operation
 
-fun csr_write_requested(operation :: CsrOperation, source_specifier :: Bits(5)) :~ Bool:
-  (operation === CsrOperation.Write) ||| (
-    operation.is_one_of(CsrOperation.Set, CsrOperation.Clear) & source_specifier.or_reduce()
-  )
-
 def ZicsrSystemCases = combine_case_groups([
-  instruction_cases([CSRRW], csr_control(CsrOperation.Write, #false)),
-  instruction_cases([CSRRS], csr_control(CsrOperation.Set, #false)),
-  instruction_cases([CSRRC], csr_control(CsrOperation.Clear, #false)),
-  instruction_cases([CSRRWI], csr_control(CsrOperation.Write, #true)),
-  instruction_cases([CSRRSI], csr_control(CsrOperation.Set, #true)),
-  instruction_cases([CSRRCI], csr_control(CsrOperation.Clear, #true))
+  instruction_cases([CSRRW], csr_control(RiscvCsrOperation.Write, #false)),
+  instruction_cases([CSRRS], csr_control(RiscvCsrOperation.Set, #false)),
+  instruction_cases([CSRRC], csr_control(RiscvCsrOperation.Clear, #false)),
+  instruction_cases([CSRRWI], csr_control(RiscvCsrOperation.Write, #true)),
+  instruction_cases([CSRRSI], csr_control(RiscvCsrOperation.Set, #true)),
+  instruction_cases([CSRRCI], csr_control(RiscvCsrOperation.Clear, #true))
 ])
 
 def PrivilegedSystemCases = combine_case_groups([
-  instruction_cases([MRET], system_control(SystemOperation.Mret)),
-  instruction_cases([SRET], system_control(SystemOperation.Sret)),
-  instruction_cases([WFI], system_control(SystemOperation.Wfi)),
+  instruction_cases([MRET], system_control(RV5StageSystemOperation.Mret)),
+  instruction_cases([SRET], system_control(RV5StageSystemOperation.Sret)),
+  instruction_cases([WFI], system_control(RV5StageSystemOperation.Wfi)),
   instruction_cases([SFENCE_VMA], no_system)
 ])
 
 fun base_system_cases(instructions :: List.of(InstructionSpec)):
   combine_case_groups([
-    instruction_cases([ECALL], system_control(SystemOperation.Ecall)),
-    instruction_cases([EBREAK], system_control(SystemOperation.Ebreak)),
+    instruction_cases([ECALL], system_control(RV5StageSystemOperation.Ecall)),
+    instruction_cases([EBREAK], system_control(RV5StageSystemOperation.Ebreak)),
     instruction_cases(excluding_instructions(instructions, [ECALL, EBREAK]), no_system)
   ])
 
@@ -105,18 +95,16 @@ def ZicbozSystemCases = instruction_cases(ZicbozInstructions, no_system)
 def ZicbomSystemCases = instruction_cases(ZicbomInstructions, no_system)
 
 def ZawrsSystemCases = combine_case_groups([
-  instruction_cases([WRS_NTO], system_control(SystemOperation.WrsNto)),
-  instruction_cases([WRS_STO], system_control(SystemOperation.WrsSto))
+  instruction_cases([WRS_NTO], system_control(RV5StageSystemOperation.WrsNto)),
+  instruction_cases([WRS_STO], system_control(RV5StageSystemOperation.WrsSto))
 ])
 
 export:
   ZawrsSystemCases
   ZicbomSystemCases
   ZicbozSystemCases
-  CsrOperation
-  csr_write_requested
-  SystemOperation
-  SystemControl
+  RV5StageSystemOperation
+  RV5StageSystemControl
   RV32ISystemCases
   RV64ISystemCases
   RV32RV5StageSystemCases

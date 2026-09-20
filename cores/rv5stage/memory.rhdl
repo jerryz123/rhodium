@@ -1,21 +1,11 @@
 #lang rhodium
-// Defines RV5Stage's semantic memory operations and local atomic-update datapath.
+// Defines RV5Stage-specific memory transactions and their classification helpers.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../load-store.rhdl" open
-  "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
 
-// Architectural intent, independent of a cache's allocation/replacement policy.
-hardware_enum RV5StageMemoryLocality:
-  Default
-  P1
-  Pall
-  S1
-  All
-
-hardware_enum MemoryOperation:
+hardware_enum RV5StageMemoryOperation:
   None
   Load
   Store
@@ -28,23 +18,23 @@ hardware_enum MemoryOperation:
   CacheBlockFlush
 
   method is_memory(operation) :: Bool:
-    operation =/= MemoryOperation.None
+    operation =/= RV5StageMemoryOperation.None
 
   method is_load(operation) :: Bool:
-    operation.is_one_of(MemoryOperation.Load,
-                        MemoryOperation.LoadReserved)
+    operation.is_one_of(RV5StageMemoryOperation.Load,
+                        RV5StageMemoryOperation.LoadReserved)
 
   method is_store(operation) :: Bool:
-    operation === MemoryOperation.Store
+    operation === RV5StageMemoryOperation.Store
 
   method is_atomic(operation) :: Bool:
-    operation === MemoryOperation.Atomic
+    operation === RV5StageMemoryOperation.Atomic
 
   method is_cache_block_zero(operation) :: Bool:
-    operation === MemoryOperation.CacheBlockZero
+    operation === RV5StageMemoryOperation.CacheBlockZero
 
   method is_cache_management(operation) :: Bool:
-    operation.is_one_of(MemoryOperation.CacheBlockInvalidate, MemoryOperation.CacheBlockClean, MemoryOperation.CacheBlockFlush)
+    operation.is_one_of(RV5StageMemoryOperation.CacheBlockInvalidate, RV5StageMemoryOperation.CacheBlockClean, RV5StageMemoryOperation.CacheBlockFlush)
 
   method is_cache_block(operation) :: Bool:
     operation.is_cache_block_zero() ||| operation.is_cache_management()
@@ -53,70 +43,24 @@ hardware_enum MemoryOperation:
     operation.needs_unique() ||| operation.is_cache_management()
 
   method is_store_conditional(operation) :: Bool:
-    operation === MemoryOperation.StoreConditional
+    operation === RV5StageMemoryOperation.StoreConditional
 
   method needs_unique(operation) :: Bool:
-    operation.is_one_of(MemoryOperation.Store,
-                        MemoryOperation.StoreConditional,
-                        MemoryOperation.Atomic,
-                        MemoryOperation.CacheBlockZero)
+    operation.is_one_of(RV5StageMemoryOperation.Store,
+                        RV5StageMemoryOperation.StoreConditional,
+                        RV5StageMemoryOperation.Atomic,
+                        RV5StageMemoryOperation.CacheBlockZero)
 
   method returns_old_value(operation) :: Bool:
-    operation.is_one_of(MemoryOperation.Load,
-                        MemoryOperation.LoadReserved,
-                        MemoryOperation.Atomic)
+    operation.is_one_of(RV5StageMemoryOperation.Load,
+                        RV5StageMemoryOperation.LoadReserved,
+                        RV5StageMemoryOperation.Atomic)
 
   method returns_result(operation) :: Bool:
-    operation.is_one_of(MemoryOperation.Load,
-                        MemoryOperation.LoadReserved,
-                        MemoryOperation.StoreConditional,
-                        MemoryOperation.Atomic)
-
-hardware_enum RV5StageAtomicOperation:
-  Swap
-  Add
-  Xor
-  And
-  Or
-  Min
-  Max
-  MinUnsigned
-  MaxUnsigned
-
-circuit RV5StageAtomicALU(xlen :: XLen):
-  def width = xlen.width
-
-  input old_value: Bits(width)
-  input operand: Bits(width)
-  input memory_width: MemoryWidth
-  input operation: RV5StageAtomicOperation
-  output value: Bits(width)
-
-  def word_operation = if xlen == XLen.X64 | memory_width === MemoryWidth.Word | Bool(#false)
-  def left = if xlen == XLen.X64 | mux(word_operation, old_value[0..32].zext(64), old_value) | old_value
-  def right = if xlen == XLen.X64 | mux(word_operation, operand[0..32].zext(64), operand) | operand
-  def unsigned_less = left < right
-  def left_sign = if xlen == XLen.X64 | mux(word_operation, left[31].into(Bool), left[63].into(Bool)) | left[31].into(Bool)
-  def right_sign = if xlen == XLen.X64 | mux(word_operation, right[31].into(Bool), right[63].into(Bool)) | right[31].into(Bool)
-  def signed_less = mux(left_sign ^ right_sign, left_sign, unsigned_less)
-  def selected_value :: Bits(width) = mux_lookup(
-    operation,
-    ~default: right,
-    [
-      [RV5StageAtomicOperation.Add, left + right],
-      [RV5StageAtomicOperation.Xor, left ^ right],
-      [RV5StageAtomicOperation.And, left & right],
-      [RV5StageAtomicOperation.Or, left ||| right],
-      [RV5StageAtomicOperation.Min, mux(signed_less, left, right)],
-      [RV5StageAtomicOperation.Max, mux(signed_less, right, left)],
-      [RV5StageAtomicOperation.MinUnsigned, mux(unsigned_less, left, right)],
-      [RV5StageAtomicOperation.MaxUnsigned, mux(unsigned_less, right, left)]
-    ]
-  )
-  value <== if xlen == XLen.X64 | mux(word_operation, selected_value[0..32].zext(64), selected_value) | selected_value
+    operation.is_one_of(RV5StageMemoryOperation.Load,
+                        RV5StageMemoryOperation.LoadReserved,
+                        RV5StageMemoryOperation.StoreConditional,
+                        RV5StageMemoryOperation.Atomic)
 
 export:
-  RV5StageMemoryLocality
-  MemoryOperation
-  RV5StageAtomicOperation
-  RV5StageAtomicALU
+  RV5StageMemoryOperation

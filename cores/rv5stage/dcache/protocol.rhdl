@@ -7,6 +7,8 @@ import:
   "../memory.rhdl" open
   "../fp/types.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/atomic.rhdl" open
+  "../../../riscv/rtl/zihintntl.rhdl" open
   "../../load-store.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open
 
@@ -40,7 +42,7 @@ hardware_enum RV5StagePipelineReason:
 
 bundle RV5StagePipelineReq(xlen :: XLen):
   address: Bits(xlen.width)
-  access: MemoryOperation
+  access: RV5StageMemoryOperation
   width: MemoryWidth
   unsigned: Bool
   data: Bits(xlen.width)
@@ -67,13 +69,13 @@ interface RV5StagePipelineAccess(xlen :: XLen):
 
 bundle RV5StageDataReq(xlen :: XLen, vector_completion_slots :: Pow2Int):
   address: Bits(xlen.width)
-  access: MemoryOperation
-  atomic: RV5StageAtomicOperation
+  access: RV5StageMemoryOperation
+  atomic: RiscvAtomicOperation
   width: MemoryWidth
   unsigned: Bool
   data: Bits(xlen.width)
   writeback: RV5StageMemoryWriteback(vector_completion_slots)
-  locality: RV5StageMemoryLocality
+  locality: RiscvMemoryLocality
 
 bundle RV5StageDataResp(xlen :: XLen, vector_completion_slots :: Pow2Int):
   // Management retains retirement context for delayed faults. Other current

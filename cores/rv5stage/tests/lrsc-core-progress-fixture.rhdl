@@ -5,7 +5,7 @@
 import:
   "../rv5stage.rhdl".RV5Stage
   "../profile.rhm" open
-  "../interrupt.rhdl".RV5StageInterrupts
+  "../../../riscv/rtl/interrupt.rhdl".RiscvInterrupts
   "../dcache/cache.rhdl" open
   "../dcache/protocol.rhdl" open
   "../chi/foundation.rhdl" open
@@ -37,14 +37,14 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
   rv32 <== Bool(xlen == XLen.X32)
   predicted <== Bool(btb_entries > 0)
 
-  def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions), ~mmu_mode: (if xlen == XLen.X32 | RV5StageMmuMode.Bare | RV5StageMmuMode.Sv39), ~cache_geometry: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(32, 1), ~data: RV5StageCacheConfig(32, 1)))
+  def profile = RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions), ~mmu_mode: (if xlen == XLen.X32 | RV5StageMmuMode.Bare | RV5StageMmuMode.Sv39), ~cache_geometry: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(32, 1), ~data: RV5StageCacheConfig(32, 1)))
   inst cpu(RV5Stage(profile, ~chi: config, ~reset_address: 0x1000, ~btb_entries: btb_entries))
   inst loader(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(2, 1), ~chi: config))
   inst home_node(CHIInclusiveHNF(CHIInclusiveHNFConfig(home_config, StripedAddressLayout(65536, 64, 1), ~sets: 2, ~ways: 2)))
   inst ram(CHIRam(ram_config))
   cpu.hart_id <== bits(0, xlen.width)
   cpu.time_counter <== bits(0, 64)
-  cpu.interrupts <== RV5StageInterrupts():
+  cpu.interrupts <== RiscvInterrupts():
     supervisor_software: Bool(#false)
     machine_software: Bool(#false)
     supervisor_timer: Bool(#false)

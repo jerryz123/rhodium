@@ -110,7 +110,7 @@ check:
     ~node_ids: tiled.default_tiled_soc_config.node_ids,
     ~memory: tiled.default_tiled_soc_config.memory,
     ~llc: tiled.default_tiled_soc_config.llc,
-    ~core_profile: profile.RVCoreProfile(~xlen: XLen.X32),
+    ~core_profile: profile.RV5StageConfig(~xlen: XLen.X32),
     ~clocks: tiled.default_tiled_soc_config.clocks
   ) ~throws "RV64"
 

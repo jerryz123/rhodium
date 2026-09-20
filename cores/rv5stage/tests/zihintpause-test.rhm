@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../../riscv/rtl/csr.rhdl" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   lib("rhodium/std/decode.rhdl") open
   "../../../riscv/isa/zihintpause.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../decode/core-ctrl.rhdl" open
+  "../memory.rhdl" open
   "../decode/hint-ctrl.rhdl" open
   "../decode/fence-ctrl.rhdl" open
   "../decode/operand-ctrl.rhdl" open
@@ -17,30 +19,30 @@ import:
   "../decode/system-ctrl.rhdl" open
 
 def pause_control = partial_pattern(RV5StageControl()):
-  hint: HintOperation.Pause
+  hint: RV5StageHintOperation.Pause
   memory:
-    partial_pattern(MemoryControl()):
-      access: MemoryOperation.None
+    partial_pattern(RV5StageMemoryControl()):
+      access: RV5StageMemoryOperation.None
   floating_point_valid: Bool(#false)
   fence:
-    pattern(FenceControl()):
-      action: FenceOperation.None
+    pattern(RV5StageFenceControl()):
+      action: RV5StageFenceOperation.None
   operand:
-    partial_pattern(OperandControl()):
+    partial_pattern(RV5StageOperandControl()):
       uses_rs1: Bool(#false)
       uses_rs2: Bool(#false)
   writeback:
-    partial_pattern(WritebackControl()):
+    partial_pattern(RV5StageWritebackControl()):
       enable: Bool(#false)
   system:
-    partial_pattern(SystemControl()):
-      csr: CsrOperation.None
-      action: SystemOperation.None
+    partial_pattern(RV5StageSystemControl()):
+      csr: RiscvCsrOperation.None
+      action: RV5StageSystemOperation.None
 def fence_control = partial_pattern(RV5StageControl()):
-  hint: HintOperation.None
+  hint: RV5StageHintOperation.None
   fence:
-    pattern(FenceControl()):
-      action: FenceOperation.Memory
+    pattern(RV5StageFenceControl()):
+      action: RV5StageFenceOperation.Memory
 
 for (base in [RV32RV5StageControlCases, RV64RV5StageControlCases]):
   def cases = overlay_decode_cases(base, ZihintpauseCoreControlCases)

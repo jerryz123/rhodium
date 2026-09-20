@@ -2,7 +2,7 @@
 // Defines nonarchitectural execution hints separately from fences and system operations.
 // SPDX-License-Identifier: Apache-2.0
 
-hardware_enum HintOperation:
+hardware_enum RV5StageHintOperation:
   None
   Pause
   NtlP1
@@ -11,4 +11,4 @@ hardware_enum HintOperation:
   NtlAll
 
 export:
-  HintOperation
+  RV5StageHintOperation

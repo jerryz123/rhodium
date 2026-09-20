@@ -4,7 +4,7 @@
 
 import:
   lib("rhodium/std/bits.rhdl").Pow2Int
-  "../memory.rhdl".MemoryOperation
+  "../memory.rhdl".RV5StageMemoryOperation
   "../uncached-protocol.rhdl" open
   "../../../riscv/isa/xlen.rhm".XLen
   lib("rhodium/std/ready-valid.rhdl") open
@@ -24,7 +24,7 @@ sync_circuit RV5StageIOMSHR(xlen :: XLen, ~vector_completion_slots: vector_compl
   def queued = state === RV5StageIOMSHRState.Queued
   def active = state === RV5StageIOMSHRState.Active
   def operation = core.request.bits.request.access
-  def supported = operation.is_one_of(MemoryOperation.Load, MemoryOperation.Store, MemoryOperation.CacheBlockZero)
+  def supported = operation.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store, RV5StageMemoryOperation.CacheBlockZero)
 
   // Admission depends on this data slot, not the shared engine's fetch owner.
   // Unsupported requests fault before admission and cannot acquire the slot.

@@ -9,7 +9,7 @@ import:
   "../../../riscv/rtl/floating-point.rhdl".FloatSignOperation
   "../decode/vector-ctrl.rhdl" open
   "../decode/core-ctrl.rhdl" open
-  "../decode/writeback-ctrl.rhdl".WritebackSelect
+  "../decode/writeback-ctrl.rhdl".RV5StageWritebackSelect
   "../fp/types.rhdl" open
   "../vector/bundles.rhdl" open
   "../../simd-alu.rhdl" open
@@ -50,7 +50,7 @@ check:
   value(control(VFNCVT_XU_F_W), "fp_zvfh_e8") ~is 1
   value(control(VMV_S_X), "element_move") ~is 1
   value(field(core_control(VMV_X_S), "writeback"), "enable") ~is 1
-  value(field(core_control(VMV_X_S), "writeback"), "source") ~is WritebackSelect.Vector.packed_value()
+  value(field(core_control(VMV_X_S), "writeback"), "source") ~is RV5StageWritebackSelect.Vector.packed_value()
   value(field(core_control(VMV_S_X), "operand"), "uses_rs1") ~is 1
   value(field(core_control(VMV_X_S), "operand"), "uses_rs1") ~is 0
   VectorControlCases.length() ~is VectorVInstructions.length()

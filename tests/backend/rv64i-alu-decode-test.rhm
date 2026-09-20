@@ -5,7 +5,7 @@
 import:
   "../../rhodium/backend/circt.rhm" open
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../../cores/rv5stage/decode/alu-ctrl.rhdl" as controls
+  "../../cores/riscv/alu-decode.rhdl" as controls
 
 def design = embedded.run_elaboration(
   fun (): controls.RV64IAluInstructionDecoder()

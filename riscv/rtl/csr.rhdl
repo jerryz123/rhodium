@@ -6,6 +6,18 @@ import:
   rhombus/meta open
   "../isa/csr.rhm" open
 
+hardware_enum RiscvCsrOperation:
+  None
+  Write
+  Set
+  Clear
+
+fun riscv_csr_write_requested(operation :: RiscvCsrOperation,
+                              source_specifier :: Bits(5)) :~ Bool:
+  (operation === RiscvCsrOperation.Write) ||| (
+    operation.is_one_of(RiscvCsrOperation.Set, RiscvCsrOperation.Clear) & source_specifier.or_reduce()
+  )
+
 class CsrBank(recognized :: Hardware.packable,
               read_value :: Hardware.packable,
               writer :: Function.of_arity(1)):
@@ -91,6 +103,8 @@ expr.macro 'csr_bank($selector, ~default: $default_value): $clause; ...':
    )'
 
 export:
+  RiscvCsrOperation
+  riscv_csr_write_requested
   CsrBank
   csr_bits
   csr_bank

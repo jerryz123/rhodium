@@ -6,7 +6,7 @@ import:
   "../cache-prefetch.rhdl" open
   "core.rhdl" open
   "fetch/frontend.rhdl" open
-  "interrupt.rhdl" open
+  "../../riscv/rtl/interrupt.rhdl" open
   "chi/foundation.rhdl" open
   "profile.rhm" open
   "cache.rhdl" open
@@ -81,7 +81,7 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
       snoops |> cache.field("snoops")
   | #void
 
-sync_circuit RV5Stage(profile :: RVCoreProfile,
+sync_circuit RV5Stage(profile :: RV5StageConfig,
                       ~reset_address: reset_address :: Nat,
                       ~chi: config :: RV5StageCHIConfig,
                       ~btb_entries: btb_entries :: Nat = 32,
@@ -103,7 +103,7 @@ sync_circuit RV5Stage(profile :: RVCoreProfile,
     | error(~who: #'RV5Stage, "Ziccrse requires readable, writable, atomic-capable, read-idempotent cacheable coherent memory")
 
   input chi_identity: RV5StageCHIIdentity(p)
-  input interrupts: RV5StageInterrupts()
+  input interrupts: RiscvInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)
   interface imem(CHIRNIChannels(p), ~role: node)

@@ -5,11 +5,11 @@
 import:
   lib("chi/protocol/channels.rhdl") open
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
-  lib("cores/rv5stage/profile.rhm").RVCoreProfile
+  lib("cores/rv5stage/profile.rhm").RV5StageConfig
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIConfig
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
-  lib("cores/rv5stage/interrupt.rhdl").RV5StageInterrupts
+  lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("cores/rv5stage/tests/params.rhdl").test_rv5stage_uncached_config
   lib("devices/bootrom-image.rhm").riscv_bootrom_image
   lib("riscv/isa/xlen.rhm").XLen
@@ -33,9 +33,9 @@ sync_circuit RV5StagePollingBoot():
   def words = for List (index in 0..(image.size_bytes / 4)):
     bits(image.bytes[index * 4] + (image.bytes[index * 4 + 1] << 8) + (image.bytes[index * 4 + 2] << 16) + (image.bytes[index * 4 + 3] << 24), 32)
   boot_words <== vec(words)
-  inst core(RV5Stage(RVCoreProfile(~xlen: XLen.X64), ~chi: config, ~reset_address: 0xc000))
+  inst core(RV5Stage(RV5StageConfig(~xlen: XLen.X64), ~chi: config, ~reset_address: 0xc000))
   core.hart_id <== hart_id
-  core.interrupts <== RV5StageInterrupts():
+  core.interrupts <== RiscvInterrupts():
     supervisor_software: Bool(#false)
     machine_software: Bool(#false)
     supervisor_timer: Bool(#false)

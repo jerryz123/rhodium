@@ -6,7 +6,7 @@ import:
   "bpd/protocol.rhdl" open
   "packet.rhdl" open
   "protocol.rhdl" open
-  "../profile.rhm".RVCoreProfile
+  "../profile.rhm".RV5StageConfig
   "../decode/core-ctrl.rhdl".rv5stage_instructions
   "../../../riscv/isa/c.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
@@ -20,7 +20,7 @@ bundle RV5StageFetchParcel(xlen :: XLen):
   halfword: Bits(16)
   prediction: RV5StagePrediction(xlen)
 
-sync_circuit RV5StageInstructionBuffer(core_profile :: RVCoreProfile):
+sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   def xlen = core_profile.xlen
   def extensions = core_profile.extensions
   def profile = extensions.floating_point

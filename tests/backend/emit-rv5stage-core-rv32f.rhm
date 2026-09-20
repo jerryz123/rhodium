@@ -11,7 +11,7 @@ import:
   "../../riscv/isa/xlen.rhm" open
 
 def design = embedded.run_elaboration(
-  fun (): RV5StageCoreFixture(RVCoreProfile(
+  fun (): RV5StageCoreFixture(RV5StageConfig(
     ~xlen: XLen.X32,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F, ~zicbop: #true)
   ), ~reset_address: 0x100)

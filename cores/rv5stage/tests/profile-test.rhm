@@ -9,11 +9,11 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm".XLen
 
-def rv64_integer = RVCoreProfile(
+def rv64_integer = RV5StageConfig(
   ~xlen: XLen.X64,
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
-def rv64_double = RVCoreProfile(
+def rv64_double = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(
     ~floating_point: FloatingPointProfile.D,
@@ -21,7 +21,7 @@ def rv64_double = RVCoreProfile(
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
-def rv32_half = RVCoreProfile(
+def rv32_half = RV5StageConfig(
   ~xlen: XLen.X32,
   ~extensions: RV5StageExtensions(
     ~floating_point: FloatingPointProfile.F,
@@ -34,63 +34,63 @@ def rv32_half = RVCoreProfile(
 )
 
 check:
-  RVCoreProfile(~xlen: XLen.X64).vector_completion_slots ~is 8
-  RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 1).vector_completion_slots ~is 1
-  RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 16).vector_completion_slots ~is 16
-  RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 0) ~throws "Pow2Int"
-  RVCoreProfile(~xlen: XLen.X64, ~vector_completion_slots: 3) ~throws "Pow2Int"
-  RVCoreProfile(~xlen: XLen.X64).vector ~is VectorProfile.None
-  RVCoreProfile(~xlen: XLen.X64).vector_extensions ~is NoVectorExtensions
-  RVCoreProfile(~xlen: XLen.X64).vector_length ~is 128
-  RVCoreProfile(~xlen: XLen.X64, ~vector_length: 65536).vector_length ~is 65536
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("v") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvl32b") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvl64b") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvl128b") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_extensions.contains("zvkt") ~is #true
-  RVCoreProfile(~xlen: XLen.X64).isa_extensions.contains("zvkt") ~is #false
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)).isa_extensions.contains("zvfhmin") ~is #true
+  RV5StageConfig(~xlen: XLen.X64).vector_completion_slots ~is 8
+  RV5StageConfig(~xlen: XLen.X64, ~vector_completion_slots: 1).vector_completion_slots ~is 1
+  RV5StageConfig(~xlen: XLen.X64, ~vector_completion_slots: 16).vector_completion_slots ~is 16
+  RV5StageConfig(~xlen: XLen.X64, ~vector_completion_slots: 0) ~throws "Pow2Int"
+  RV5StageConfig(~xlen: XLen.X64, ~vector_completion_slots: 3) ~throws "Pow2Int"
+  RV5StageConfig(~xlen: XLen.X64).vector ~is VectorProfile.None
+  RV5StageConfig(~xlen: XLen.X64).vector_extensions ~is NoVectorExtensions
+  RV5StageConfig(~xlen: XLen.X64).vector_length ~is 128
+  RV5StageConfig(~xlen: XLen.X64, ~vector_length: 65536).vector_length ~is 65536
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_profile.isa_extensions.contains("v") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_profile.isa_extensions.contains("zvl32b") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_profile.isa_extensions.contains("zvl64b") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_profile.isa_extensions.contains("zvl128b") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_profile.isa_extensions.contains("zvkt") ~is #true
+  RV5StageConfig(~xlen: XLen.X64).isa_profile.isa_extensions.contains("zvkt") ~is #false
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)).isa_profile.isa_extensions.contains("zvfhmin") ~is #true
   rv5stage_execution_half_precision(HalfPrecisionProfile.None, vector_extensions(VectorExtension.Zvfhmin)) ~is HalfPrecisionProfile.Zfhmin
   rv5stage_execution_half_precision(HalfPrecisionProfile.Zfh, NoVectorExtensions) ~is HalfPrecisionProfile.Zfh
   rv5stage_execution_half_precision(HalfPrecisionProfile.Zfhmin, vector_extensions(VectorExtension.Zvfh)) ~is HalfPrecisionProfile.Zfh
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).misa_extension_bits ~is 0x34112b
-  RVCoreProfile(~xlen: XLen.X64, ~vector_length: 192) ~throws "VectorLength"
-  RVCoreProfile(~xlen: XLen.X64, ~vector: VectorProfile.V) ~throws "require scalar D"
-  RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F), ~vector: VectorProfile.V) ~throws "require RV64"
-  RVCoreProfile(~xlen: XLen.X64, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)) ~throws ""
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)) ~throws "Zvfh requires scalar Zfhmin or Zfh"
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)).isa_extensions.contains("zvfh") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)).isa_extensions.contains("zvbb") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)).isa_extensions.contains("zvkb") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)) ~throws "enabled vector profile"
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V).isa_profile.misa_extension_bits ~is 0x34112b
+  RV5StageConfig(~xlen: XLen.X64, ~vector_length: 192) ~throws "VectorLength"
+  RV5StageConfig(~xlen: XLen.X64, ~vector: VectorProfile.V) ~throws "require scalar D"
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F), ~vector: VectorProfile.V) ~throws "require RV64"
+  RV5StageConfig(~xlen: XLen.X64, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)) ~throws ""
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)) ~throws "Zvfh requires scalar Zfhmin or Zfh"
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)).isa_profile.isa_extensions.contains("zvfh") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)).isa_profile.isa_extensions.contains("zvbb") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)).isa_profile.isa_extensions.contains("zvkb") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)) ~throws "enabled vector profile"
   RV5StageExtensions().ssnpm ~is #false
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)).extensions.ssnpm ~is #true
-  RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~ssnpm: #true)) ~throws "RV64"
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)).extensions.ssnpm ~is #true
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~ssnpm: #true)) ~throws "RV64"
   RV5StageExtensions().ziccrse ~is #false
   RV5StageExtensions().zihintntl ~is #false
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_extensions.contains("zihintntl") ~is #true
-  RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_extensions.contains("zihintntl") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintntl: #true)).misa_value ~is rv64_integer.misa_value
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_profile.isa_extensions.contains("zihintntl") ~is #true
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_profile.isa_extensions.contains("zihintntl") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintntl: #true)).isa_profile.misa_value ~is rv64_integer.isa_profile.misa_value
   RV5StageExtensions().zihintpause ~is #false
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintpause: #true)).isa_extensions.contains("zihintpause") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintpause: #true)).misa_value ~is rv64_integer.misa_value
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintpause: #true)).isa_profile.isa_extensions.contains("zihintpause") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zihintpause: #true)).isa_profile.misa_value ~is rv64_integer.isa_profile.misa_value
   RV5StageExtensions().zawrs ~is #false
-  RVCoreProfile(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~zawrs: #true)).isa_extensions.contains("zawrs") ~is #true
-  RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zawrs: #true)).misa_value ~is rv64_integer.misa_value
-  rv64_integer.isa_base ~is "rv64i"
-  rv64_integer.isa_extensions ~is [
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~zawrs: #true)).isa_profile.isa_extensions.contains("zawrs") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~zawrs: #true)).isa_profile.misa_value ~is rv64_integer.isa_profile.misa_value
+  rv64_integer.isa_profile.isa_base ~is "rv64i"
+  rv64_integer.isa_profile.isa_extensions ~is [
     "i", "m", "a", "b", "za64rs", "zba", "zbb", "zbs", "zic64b",
     "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"
   ]
-  rv64_integer.misa_extension_bits ~is 0x141103
-  rv64_integer.misa_value ~is 0x8000000000141103
-  rv64_double.isa_extensions ~is [
+  rv64_integer.isa_profile.misa_extension_bits ~is 0x141103
+  rv64_integer.isa_profile.misa_value ~is 0x8000000000141103
+  rv64_double.isa_profile.isa_extensions ~is [
     "i", "m", "a", "f", "d", "c", "b", "za64rs", "zba", "zbb", "zbs", "zic64b",
     "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"
   ]
-  rv64_double.misa_value ~is 0x800000000014112f
-  rv32_half.isa_base ~is "rv32i"
-  rv32_half.isa_extensions ~is [
+  rv64_double.isa_profile.misa_value ~is 0x800000000014112f
+  rv32_half.isa_profile.isa_base ~is "rv32i"
+  rv32_half.isa_profile.isa_extensions ~is [
     "i", "m", "a", "f", "b", "za64rs", "zba", "zbb", "zbs", "zca", "zcb", "zcf",
     "zfa", "zfhmin", "zic64b", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"
   ]
@@ -102,12 +102,12 @@ for (xlen in [XLen.X32, XLen.X64]):
   for (fetch in [#false, #true]):
     for (atomic in [#false, #true]):
       for (eventual in [#false, #true]):
-        def profile = RVCoreProfile(~xlen: xlen, ~extensions: RV5StageExtensions(~ziccif: fetch, ~ziccamoa: atomic, ~ziccrse: eventual))
+        def profile = RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~ziccif: fetch, ~ziccamoa: atomic, ~ziccrse: eventual))
         check:
-          profile.isa_extensions.contains("ziccif") ~is fetch
-          profile.isa_extensions.contains("ziccamoa") ~is atomic
-          profile.isa_extensions.contains("ziccrse") ~is eventual
-          profile.misa_value ~is RVCoreProfile(~xlen: xlen).misa_value
+          profile.isa_profile.isa_extensions.contains("ziccif") ~is fetch
+          profile.isa_profile.isa_extensions.contains("ziccamoa") ~is atomic
+          profile.isa_profile.isa_extensions.contains("ziccrse") ~is eventual
+          profile.isa_profile.misa_value ~is RV5StageConfig(~xlen: xlen).isa_profile.misa_value
 
 check:
   RV5StageCacheLineBytes ~is 64
@@ -117,19 +117,19 @@ check:
   RV5StageCacheConfig(64, 3).capacity_bytes ~is 12288
   RV5StageCacheConfig(128, 1) ~throws "VIPT"
   RV5StageCacheConfig(128, 4) ~throws "VIPT"
-  RVCoreProfile(
+  RV5StageConfig(
     ~xlen: XLen.X32,
     ~mmu_mode: RV5StageMmuMode.Sv39
   ) ~throws "RV32"
-  RVCoreProfile(
+  RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F)
   ) ~throws "supports only disabled FP"
-  RVCoreProfile(
+  RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~zfa: #true)
   ) ~throws "supports only disabled FP"
-  RVCoreProfile(
+  RV5StageConfig(
     ~xlen: XLen.X32,
     ~extensions: RV5StageExtensions(
       ~compressed: [CompressedExtension.Zcb]

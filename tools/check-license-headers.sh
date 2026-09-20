@@ -20,7 +20,7 @@ list_paths() {
   if [[ "$source" == index ]]; then
     git -C "$repo_dir" diff --cached --name-only --diff-filter=ACMR -z
   else
-    git -C "$repo_dir" ls-files -z
+    git -C "$repo_dir" ls-files --cached --others --exclude-standard -z
   fi
 }
 
@@ -47,6 +47,7 @@ while IFS= read -r -d '' path; do
   if [[ "$source" == index ]]; then
     header="$(git -C "$repo_dir" show ":$path" | sed -n '1,12p')"
   else
+    [[ -e "$repo_dir/$path" ]] || continue
     header="$(sed -n '1,12p' "$repo_dir/$path")"
   fi
 

@@ -6,7 +6,7 @@ import:
   "../../../rhodium/frontend/layers/bool.rhm" as bool
   "../../../rhodium/std/decode/pattern.rhdl" open
   "../../../riscv/isa/m.rhm" open
-  "../decode/divide-ctrl.rhdl" as controls
+  "../divide-decode.rhdl" as controls
 
 fun control_for(cases, instruction):
   cases.find(
@@ -20,11 +20,11 @@ def rem = control_for(controls.RV64MDivideControlCases, REM)
 def remu = control_for(controls.RV64MDivideControlCases, REMU)
 def divw = control_for(controls.RV64MDivideControlCases, DIVW)
 def divuw = control_for(controls.RV64MDivideControlCases, DIVUW)
-def expected_div = pattern(controls.RV5StageDivideControl()):
+def expected_div = pattern(controls.RiscvDivideControl()):
   signed_mode: bool.Bool(#true)
   remainder: bool.Bool(#false)
   word_result: bool.Bool(#false)
-def expected_remu = pattern(controls.RV5StageDivideControl()):
+def expected_remu = pattern(controls.RiscvDivideControl()):
   signed_mode: bool.Bool(#false)
   remainder: bool.Bool(#true)
   word_result: bool.Bool(#false)
@@ -32,7 +32,7 @@ def expected_remu = pattern(controls.RV5StageDivideControl()):
 check:
   controls.RV32MDivideControlCases.length() ~is 4
   controls.RV64MDivideControlCases.length() ~is 8
-  controls.RV5StageDivideControl().fields.map(fun (field): field.name) ~is [
+  controls.RiscvDivideControl().fields.map(fun (field): field.name) ~is [
     "signed_mode", "remainder", "word_result"
   ]
   div.value_bits ~is expected_div.value_bits

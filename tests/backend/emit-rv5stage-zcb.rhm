@@ -12,7 +12,7 @@ import:
 
 def zcb_extensions = compressed_extensions(CompressedExtension.Zca, CompressedExtension.Zcb)
 def design = embedded.run_elaboration(
-  fun (): core.RV5StageCoreFixture(RVCoreProfile(
+  fun (): core.RV5StageCoreFixture(RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~compressed: zcb_extensions)
   ), ~reset_address: 0x100000000)

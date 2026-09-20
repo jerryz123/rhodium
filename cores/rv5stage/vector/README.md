@@ -3,7 +3,7 @@
 
 # RV64 vector path
 
-The opt-in `RVCoreProfile(~vector: profile, ~vector_length: vlen)` enables one
+The opt-in `RV5StageConfig(~vector: profile, ~vector_length: vlen)` enables one
 of the standard Zve profiles or V 1.0, vector CSR state, and RV64 vector memory
 operations using unit-stride, constant-stride, indexed, unit-stride segment,
 constant-stride segment, indexed segment, and unit-stride fault-only-first
@@ -118,7 +118,7 @@ reports the completed last beat. `active` includes accepted memory completion
 ownership; `unrolling` reports the separate issue/authorization lifetime.
 Integer results use fixed-cycle pairing; slow memory uses tagged completions.
 
-`RVCoreProfile(~vector_completion_slots: n)` configures the memory completion
+`RV5StageConfig(~vector_completion_slots: n)` configures the memory completion
 window independently of VLEN; `n` must be a positive power of two and defaults
 to eight. Standalone `RV5StageVectorPipeline` accepts the same keyword.
 Storage depth and tag width derive from this count, with a one-bit zero index

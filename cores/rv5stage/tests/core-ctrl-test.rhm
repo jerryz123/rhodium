@@ -25,15 +25,18 @@ import:
   "../../../riscv/isa/d.rhm" as d
   "../../../riscv/isa/v.rhm" as vector_isa
   "../../../riscv/rtl/instruction-pattern.rhdl" open
+  "../../../riscv/rtl/csr.rhdl" as csr_controls
+  "../../../riscv/rtl/atomic.rhdl" open
+  "../memory.rhdl" as core_memory
   "../../alu.rhdl" as alu
   "../../branch-resolver.rhdl" as branches
   "../../load-store.rhdl" as load_store
-  "../decode/alu-ctrl.rhdl" as alu_controls
+  "../../riscv/alu-decode.rhdl" as alu_controls
   "../decode/operand-ctrl.rhdl" as operand_controls
-  "../decode/branch-ctrl.rhdl" as branch_controls
+  "../../riscv/branch-decode.rhdl" as branch_controls
   "../decode/mem-ctrl.rhdl" as memory_controls
   "../decode/writeback-ctrl.rhdl" as writeback_controls
-  "../decode/divide-ctrl.rhdl" as divide_controls
+  "../../riscv/divide-decode.rhdl" as divide_controls
   "../decode/system-ctrl.rhdl" as system_controls
   "../decode/fence-ctrl.rhdl" as fence_controls
   "../decode/core-ctrl.rhdl" as controls
@@ -150,13 +153,13 @@ fun guarded_payloads_are_sparse(control :: Pattern) :: Boolean:
   def branch_resolver = field_pattern(branch, "resolver")
   def memory = field_pattern(control, "memory")
   def memory_access = field_pattern(memory, "access")
-  def memory_inactive = memory_access.value_bits == memory_controls.MemoryOperation.None.packed_value()
+  def memory_inactive = memory_access.value_bits == core_memory.RV5StageMemoryOperation.None.packed_value()
   def writeback = field_pattern(control, "writeback")
   def writeback_enable = field_pattern(writeback, "enable")
   def writeback_inactive = writeback_enable.value_bits == 0
   def system = field_pattern(control, "system")
   def system_csr = field_pattern(system, "csr")
-  def csr_inactive = system_csr.value_bits == system_controls.CsrOperation.None.packed_value()
+  def csr_inactive = system_csr.value_bits == csr_controls.RiscvCsrOperation.None.packed_value()
   def floating_point_valid = field_pattern(control, "floating_point_valid")
   def floating_point_inactive = floating_point_valid.value_bits == 0
   def vector = field_pattern(control, "vector")
@@ -185,15 +188,15 @@ def vector_load_control = control_for_instruction(controls.VectorCoreControlCase
 def vector_store_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VSE64_V)
 def vector_config_control = control_for_instruction(controls.VectorCoreControlCases, vector_isa.VSETVLI)
 
-def addi_operand = operand_controls.OperandControl():
+def addi_operand = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#false)
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Immediate
-  immediate: operand_controls.ImmediateSelect.I
-def lbu_memory = memory_controls.MemoryControl():
-  access: memory_controls.MemoryOperation.Load
-  atomic: memory_controls.RV5StageAtomicOperation.Swap
+  immediate: operand_controls.RV5StageImmediateSelect.I
+def lbu_memory = memory_controls.RV5StageMemoryControl():
+  access: core_memory.RV5StageMemoryOperation.Load
+  atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Byte
   unsigned: bool.Bool(#true)
 fun resolver_value(enable, unconditional, compare_equal, signed_mode, invert):
@@ -205,7 +208,7 @@ fun resolver_value(enable, unconditional, compare_equal, signed_mode, invert):
     invert: bool.Bool(invert)
 fun branch_value(enable, unconditional, compare_equal,
                  signed_mode, invert, target_from_rs1):
-  branch_controls.BranchControl():
+  branch_controls.RiscvBranchControl():
     resolver: resolver_value(
       enable, unconditional, compare_equal, signed_mode, invert
     )
@@ -219,101 +222,101 @@ def blt_branch = branch_value(#true, #false, #false, #true, #false, #false)
 def bge_branch = branch_value(#true, #false, #false, #true, #true, #false)
 def bltu_branch = branch_value(#true, #false, #false, #false, #false, #false)
 def bgeu_branch = branch_value(#true, #false, #false, #false, #true, #false)
-def load_writeback = writeback_controls.WritebackControl():
+def load_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
-  source: writeback_controls.WritebackSelect.Memory
-def multiply_writeback = writeback_controls.WritebackControl():
+  source: writeback_controls.RV5StageWritebackSelect.Memory
+def multiply_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
-  source: writeback_controls.WritebackSelect.Multiply
-def divide_writeback = writeback_controls.WritebackControl():
+  source: writeback_controls.RV5StageWritebackSelect.Multiply
+def divide_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
-  source: writeback_controls.WritebackSelect.Divide
-def bitmanip_writeback = writeback_controls.WritebackControl():
+  source: writeback_controls.RV5StageWritebackSelect.Divide
+def bitmanip_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
-  source: writeback_controls.WritebackSelect.Alu
-def zero_writeback = writeback_controls.WritebackControl():
+  source: writeback_controls.RV5StageWritebackSelect.Alu
+def zero_writeback = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#true)
-  source: writeback_controls.WritebackSelect.Zero
-def ecall_system = system_controls.SystemControl():
-  csr: system_controls.CsrOperation.None
+  source: writeback_controls.RV5StageWritebackSelect.Zero
+def ecall_system = system_controls.RV5StageSystemControl():
+  csr: csr_controls.RiscvCsrOperation.None
   immediate: bool.Bool(#false)
-  action: system_controls.SystemOperation.Ecall
-def wfi_system = system_controls.SystemControl():
-  csr: system_controls.CsrOperation.None
+  action: system_controls.RV5StageSystemOperation.Ecall
+def wfi_system = system_controls.RV5StageSystemControl():
+  csr: csr_controls.RiscvCsrOperation.None
   immediate: bool.Bool(#false)
-  action: system_controls.SystemOperation.Wfi
-def csrrw_system = system_controls.SystemControl():
-  csr: system_controls.CsrOperation.Write
+  action: system_controls.RV5StageSystemOperation.Wfi
+def csrrw_system = system_controls.RV5StageSystemControl():
+  csr: csr_controls.RiscvCsrOperation.Write
   immediate: bool.Bool(#false)
-  action: system_controls.SystemOperation.None
-def csrrsi_system = system_controls.SystemControl():
-  csr: system_controls.CsrOperation.Set
+  action: system_controls.RV5StageSystemOperation.None
+def csrrsi_system = system_controls.RV5StageSystemControl():
+  csr: csr_controls.RiscvCsrOperation.Set
   immediate: bool.Bool(#true)
-  action: system_controls.SystemOperation.None
-def memory_fence = fence_controls.FenceControl():
-  action: fence_controls.FenceOperation.Memory
-def instruction_fence = fence_controls.FenceControl():
-  action: fence_controls.FenceOperation.Instruction
-def address_translation_fence = fence_controls.FenceControl():
-  action: fence_controls.FenceOperation.AddressTranslation
-def jal_operand_a = operand_controls.OperandControl():
+  action: system_controls.RV5StageSystemOperation.None
+def memory_fence = fence_controls.RV5StageFenceControl():
+  action: fence_controls.RV5StageFenceOperation.Memory
+def instruction_fence = fence_controls.RV5StageFenceControl():
+  action: fence_controls.RV5StageFenceOperation.Instruction
+def address_translation_fence = fence_controls.RV5StageFenceControl():
+  action: fence_controls.RV5StageFenceOperation.AddressTranslation
+def jal_operand_a = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
   left: operand_controls.OperandASelect.Zero
   right: operand_controls.OperandBSelect.Register
-  immediate: operand_controls.ImmediateSelect.J
-def jal_operand_b = operand_controls.OperandControl():
+  immediate: operand_controls.RV5StageImmediateSelect.J
+def jal_operand_b = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Immediate
-  immediate: operand_controls.ImmediateSelect.J
-def add_operand_a = operand_controls.OperandControl():
+  immediate: operand_controls.RV5StageImmediateSelect.J
+def add_operand_a = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#true)
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Register
-  immediate: operand_controls.ImmediateSelect.None
-def add_operand_b = operand_controls.OperandControl():
+  immediate: operand_controls.RV5StageImmediateSelect.None
+def add_operand_b = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#true)
   uses_rs2: bool.Bool(#true)
   left: operand_controls.OperandASelect.Register
   right: operand_controls.OperandBSelect.Register
-  immediate: operand_controls.ImmediateSelect.I
-def no_operand_sources = operand_controls.OperandControl():
+  immediate: operand_controls.RV5StageImmediateSelect.I
+def no_operand_sources = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
   left: operand_controls.OperandASelect.Zero
   right: operand_controls.OperandBSelect.Register
-  immediate: operand_controls.ImmediateSelect.None
+  immediate: operand_controls.RV5StageImmediateSelect.None
 def no_branch_a = branch_value(#false, #false, #false, #false, #false, #false)
 def no_branch_b = branch_value(#false, #true, #true, #true, #true, #true)
-def store_memory_a = memory_controls.MemoryControl():
-  access: memory_controls.MemoryOperation.Store
-  atomic: memory_controls.RV5StageAtomicOperation.Swap
+def store_memory_a = memory_controls.RV5StageMemoryControl():
+  access: core_memory.RV5StageMemoryOperation.Store
+  atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#false)
-def store_memory_b = memory_controls.MemoryControl():
-  access: memory_controls.MemoryOperation.Store
-  atomic: memory_controls.RV5StageAtomicOperation.Max
+def store_memory_b = memory_controls.RV5StageMemoryControl():
+  access: core_memory.RV5StageMemoryOperation.Store
+  atomic: RiscvAtomicOperation.Max
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#true)
-def amoadd_memory = memory_controls.MemoryControl():
-  access: memory_controls.MemoryOperation.Atomic
-  atomic: memory_controls.RV5StageAtomicOperation.Add
+def amoadd_memory = memory_controls.RV5StageMemoryControl():
+  access: core_memory.RV5StageMemoryOperation.Atomic
+  atomic: RiscvAtomicOperation.Add
   width: load_store.MemoryWidth.Word
   unsigned: bool.Bool(#false)
-def lr_memory = memory_controls.MemoryControl():
-  access: memory_controls.MemoryOperation.LoadReserved
-  atomic: memory_controls.RV5StageAtomicOperation.Swap
+def lr_memory = memory_controls.RV5StageMemoryControl():
+  access: core_memory.RV5StageMemoryOperation.LoadReserved
+  atomic: RiscvAtomicOperation.Swap
   width: load_store.MemoryWidth.Double
   unsigned: bool.Bool(#false)
-def no_writeback_a = writeback_controls.WritebackControl():
+def no_writeback_a = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#false)
-  source: writeback_controls.WritebackSelect.Alu
-def no_writeback_b = writeback_controls.WritebackControl():
+  source: writeback_controls.RV5StageWritebackSelect.Alu
+def no_writeback_b = writeback_controls.RV5StageWritebackControl():
   enable: bool.Bool(#false)
-  source: writeback_controls.WritebackSelect.Memory
+  source: writeback_controls.RV5StageWritebackSelect.Memory
 
 check:
   alu_controls.RV64IAluCases.length() ~is 28

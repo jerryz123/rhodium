@@ -1,10 +1,10 @@
 #lang rhodium
-// Provides catalog-independent case-list helpers for RV5Stage's control decoders.
+// Provides catalog-independent case-list helpers for RISC-V control decoders.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../riscv/rtl/instruction-pattern.rhdl" open
-  "../../../riscv/model/instruction.rhm".InstructionSpec
+  "instruction-pattern.rhdl" open
+  "../model/instruction.rhm".InstructionSpec
   lib("rhodium/std/decode.rhdl") open
 
 fun instruction_cases(instructions :: List.of(InstructionSpec), output :: Pattern):

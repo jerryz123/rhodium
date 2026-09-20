@@ -8,7 +8,13 @@ import:
   "../../branch-resolver.rhdl" open
   "../../load-store.rhdl" open
   "../../cache-prefetch.rhdl" open
-  "decode-support.rhdl" open
+  "../memory.rhdl" open
+  "../../../riscv/rtl/decode.rhdl" open
+  "../../../riscv/rtl/csr.rhdl" open
+  "../../riscv/alu-decode.rhdl" open
+  "../../riscv/branch-decode.rhdl" open
+  "../../riscv/multiply-decode.rhdl" open
+  "../../riscv/divide-decode.rhdl" open
   "alu-ctrl.rhdl" open
   "operand-ctrl.rhdl" open
   "branch-ctrl.rhdl" open
@@ -51,16 +57,16 @@ import:
 
 bundle RV5StageControl():
   alu: AluControl()
-  operand: OperandControl()
-  branch: BranchControl()
-  memory: MemoryControl()
+  operand: RV5StageOperandControl()
+  branch: RiscvBranchControl()
+  memory: RV5StageMemoryControl()
   prefetch: CachePrefetchOperation
-  multiply: RV5StageMultiplyControl()
-  divide: RV5StageDivideControl()
-  writeback: WritebackControl()
-  system: SystemControl()
-  fence: FenceControl()
-  hint: HintOperation
+  multiply: RiscvMultiplyControl()
+  divide: RiscvDivideControl()
+  writeback: RV5StageWritebackControl()
+  system: RV5StageSystemControl()
+  fence: RV5StageFenceControl()
+  hint: RV5StageHintOperation
   floating_point_valid: Bool
   floating_point: RV5StageFloatingPointControl()
   vector: RV5StageVectorControl()
@@ -69,19 +75,19 @@ bundle RV5StageControl():
 // Payload fields remain free behind that discriminator.
 def scalar_address_alu = component_output(RV64IAluCases, instruction_pattern(ADD))
 def unused_scalar_alu = pattern(AluControl(), _)
-def inactive_branch_control = partial_pattern(BranchControl()):
+def inactive_branch_control = partial_pattern(RiscvBranchControl()):
   resolver:
     partial_pattern(BranchResolverControl()):
       enable: Bool(#false)
-def inactive_memory_control = partial_pattern(MemoryControl()):
-  access: MemoryOperation.None
-def inactive_writeback_control = partial_pattern(WritebackControl()):
+def inactive_memory_control = partial_pattern(RV5StageMemoryControl()):
+  access: RV5StageMemoryOperation.None
+def inactive_writeback_control = partial_pattern(RV5StageWritebackControl()):
   enable: Bool(#false)
-def inactive_system_control = partial_pattern(SystemControl()):
-  csr: CsrOperation.None
-  action: SystemOperation.None
-def inactive_fence_control = pattern(FenceControl()):
-  action: FenceOperation.None
+def inactive_system_control = partial_pattern(RV5StageSystemControl()):
+  csr: RiscvCsrOperation.None
+  action: RV5StageSystemOperation.None
+def inactive_fence_control = pattern(RV5StageFenceControl()):
+  action: RV5StageFenceOperation.None
 
 // Ordinary host code adds independently authored control columns to one row
 // per instruction. The selected ISA still elaborates to one decode table.
@@ -111,7 +117,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec),
           writeback: component_output(writeback_cases, input)
           system: component_output(system_cases, input)
           fence: component_output(fence_cases, input)
-          hint: HintOperation.None
+          hint: RV5StageHintOperation.None
           floating_point_valid: Bool(#false)
           floating_point: pattern(RV5StageFloatingPointControl(), _)
           vector: NoVectorControl
@@ -131,9 +137,9 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
         ~keep: fun (operand): operand.role == "source" && operand.bank == RegisterBank.Integer
       )
       def immediate = cond
-      | load: ImmediateSelect.I
-      | store: ImmediateSelect.S
-      | ~else: ImmediateSelect.None
+      | load: RV5StageImmediateSelect.I
+      | store: RV5StageImmediateSelect.S
+      | ~else: RV5StageImmediateSelect.None
       def memory_width = cond
       | double: MemoryWidth.Double
       | half_load || [zfhmin.FSH].contains(instruction): MemoryWidth.Half
@@ -141,25 +147,25 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
       def alu_control = if memory | scalar_address_alu | unused_scalar_alu
       def operand_control:
         if memory
-        | pattern(OperandControl()):
+        | pattern(RV5StageOperandControl()):
             uses_rs1: Bool(#true)
             uses_rs2: Bool(#false)
             left: OperandASelect.Register
             right: OperandBSelect.Immediate
             immediate: immediate
-        | partial_pattern(OperandControl()):
+        | partial_pattern(RV5StageOperandControl()):
             uses_rs1: Bool(!integer_sources.is_empty())
             uses_rs2: Bool(#false)
       def memory_control:
         cond
         | load:
-            partial_pattern(MemoryControl()):
-              access: MemoryOperation.Load
+            partial_pattern(RV5StageMemoryControl()):
+              access: RV5StageMemoryOperation.Load
               width: memory_width
               unsigned: Bool(#true)
         | store:
-            partial_pattern(MemoryControl()):
-              access: MemoryOperation.Store
+            partial_pattern(RV5StageMemoryControl()):
+              access: RV5StageMemoryOperation.Store
               width: memory_width
         | ~else: inactive_memory_control
       DecodeCase(
@@ -170,12 +176,12 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
           branch: inactive_branch_control
           memory: memory_control
           prefetch: CachePrefetchOperation.None
-          multiply: pattern(RV5StageMultiplyControl(), _)
-          divide: pattern(RV5StageDivideControl(), _)
+          multiply: pattern(RiscvMultiplyControl(), _)
+          divide: pattern(RiscvDivideControl(), _)
           writeback: inactive_writeback_control
           system: inactive_system_control
           fence: inactive_fence_control
-          hint: HintOperation.None
+          hint: RV5StageHintOperation.None
           floating_point_valid: Bool(#true)
           floating_point: component_output(floating_point_cases, input)
           vector: NoVectorControl
@@ -183,12 +189,12 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
 
 // Zicbop refines three ORI-to-x0 regions. Complete override rows are formed
 // after the ordinary scalar control columns have been composed.
-def zicbop_operand_control = pattern(OperandControl()):
+def zicbop_operand_control = pattern(RV5StageOperandControl()):
   uses_rs1: Bool(#true)
   uses_rs2: Bool(#false)
   left: OperandASelect.Register
   right: OperandBSelect.Immediate
-  immediate: ImmediateSelect.Prefetch
+  immediate: RV5StageImmediateSelect.Prefetch
 
 fun zicbop_operation(instruction :: InstructionSpec):
   cond
@@ -205,24 +211,24 @@ def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions)
       branch: inactive_branch_control
       memory: inactive_memory_control
       prefetch: zicbop_operation(instruction)
-      multiply: pattern(RV5StageMultiplyControl(), _)
-      divide: pattern(RV5StageDivideControl(), _)
+      multiply: pattern(RiscvMultiplyControl(), _)
+      divide: pattern(RiscvDivideControl(), _)
       writeback: inactive_writeback_control
       system: inactive_system_control
       fence: inactive_fence_control
-      hint: HintOperation.None
+      hint: RV5StageHintOperation.None
       floating_point_valid: Bool(#false)
       floating_point: pattern(RV5StageFloatingPointControl(), _)
       vector: NoVectorControl
   )
 
 // Hint overlays preserve intent without introducing register use or architectural effects.
-fun hint_control_case(instruction :: InstructionSpec, hint :: HintOperation):
+fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperation):
   DecodeCase(
     instruction_pattern(instruction),
     partial_pattern(RV5StageControl()):
       operand:
-        partial_pattern(OperandControl()):
+        partial_pattern(RV5StageOperandControl()):
           uses_rs1: Bool(#false)
           uses_rs2: Bool(#false)
       branch: inactive_branch_control
@@ -235,7 +241,7 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: HintOperation):
       floating_point_valid: Bool(#false)
       vector: NoVectorControl
   )
-def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, HintOperation.Pause)]
+def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, RV5StageHintOperation.Pause)]
 
 // Scalar effects for vector rows live only at this composition boundary.
 fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
@@ -255,42 +261,42 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
     def input = instruction_pattern(instruction)
     def operand_control:
       if memory
-      | partial_pattern(OperandControl()):
+      | partial_pattern(RV5StageOperandControl()):
           uses_rs1: Bool(#true)
           uses_rs2: Bool(strided)
           left: OperandASelect.Register
           right: OperandBSelect.Immediate
-      | partial_pattern(OperandControl()):
+      | partial_pattern(RV5StageOperandControl()):
           uses_rs1: Bool(!sources.is_empty())
           uses_rs2: Bool(instruction == vector_isa.VSETVL)
     def memory_control:
       cond
       | !memory: inactive_memory_control
       | store:
-          partial_pattern(MemoryControl()):
-            access: MemoryOperation.Store
+          partial_pattern(RV5StageMemoryControl()):
+            access: RV5StageMemoryOperation.Store
             width: memory_width
       | ~else:
-          partial_pattern(MemoryControl()):
-            access: MemoryOperation.Load
+          partial_pattern(RV5StageMemoryControl()):
+            access: RV5StageMemoryOperation.Load
             width: memory_width
             unsigned: Bool(#true)
     def writeback_control:
       cond
       | configuration:
-          partial_pattern(WritebackControl()):
+          partial_pattern(RV5StageWritebackControl()):
             enable: Bool(#true)
-            source: WritebackSelect.Csr
+            source: RV5StageWritebackSelect.Csr
       | scalar_destination:
-          partial_pattern(WritebackControl()):
+          partial_pattern(RV5StageWritebackControl()):
             enable: Bool(#true)
-            source: WritebackSelect.Vector
+            source: RV5StageWritebackSelect.Vector
       | ~else: inactive_writeback_control
     def system_control:
       if configuration
-      | partial_pattern(SystemControl()):
-          csr: CsrOperation.None
-          action: SystemOperation.VectorConfig
+      | partial_pattern(RV5StageSystemControl()):
+          csr: RiscvCsrOperation.None
+          action: RV5StageSystemOperation.VectorConfig
       | inactive_system_control
     DecodeCase(
       input,
@@ -303,7 +309,7 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
         writeback: writeback_control
         system: system_control
         fence: inactive_fence_control
-        hint: HintOperation.None
+        hint: RV5StageHintOperation.None
         floating_point_valid: Bool(#false)
         vector: component_output(vector_controls, input)
     )
@@ -311,10 +317,10 @@ def VectorCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstruc
 def VectorIntegerCoreControlCases = vector_core_control_cases(vector_isa.VectorVInstructions.filter(~keep: fun (instruction): !vector_isa.VectorFloatingPointInstructions.contains(instruction)), VectorControlCases)
 def VectorZvbbCoreControlCases = vector_core_control_cases(vector_bitmanip.ZvbbInstructions, VectorZvbbCases)
 def ZihintntlCoreControlCases = [
-  hint_control_case(NTL_P1, HintOperation.NtlP1),
-  hint_control_case(NTL_PALL, HintOperation.NtlPall),
-  hint_control_case(NTL_S1, HintOperation.NtlS1),
-  hint_control_case(NTL_ALL, HintOperation.NtlAll)
+  hint_control_case(NTL_P1, RV5StageHintOperation.NtlP1),
+  hint_control_case(NTL_PALL, RV5StageHintOperation.NtlPall),
+  hint_control_case(NTL_S1, RV5StageHintOperation.NtlS1),
+  hint_control_case(NTL_ALL, RV5StageHintOperation.NtlAll)
 ]
 
 // Reservation waits retain retirement context in the core.

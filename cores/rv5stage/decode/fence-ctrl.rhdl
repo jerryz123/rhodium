@@ -6,7 +6,7 @@ import:
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
-  "decode-support.rhdl" open
+  "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/m.rhm" open
@@ -19,32 +19,32 @@ import:
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
-hardware_enum FenceOperation:
+hardware_enum RV5StageFenceOperation:
   None
   Memory
   Instruction
   AddressTranslation
 
-bundle FenceControl():
-  action: FenceOperation
+bundle RV5StageFenceControl():
+  action: RV5StageFenceOperation
 
   method is_fence_operation(control) :: Bool:
-    control.action =/= FenceOperation.None
+    control.action =/= RV5StageFenceOperation.None
 
   method is_instruction_fence(control) :: Bool:
-    control.action === FenceOperation.Instruction
+    control.action === RV5StageFenceOperation.Instruction
 
   method is_address_translation_fence(control) :: Bool:
-    control.action === FenceOperation.AddressTranslation
+    control.action === RV5StageFenceOperation.AddressTranslation
 
-def no_fence = pattern(FenceControl()):
-  action: FenceOperation.None
-def memory_fence = pattern(FenceControl()):
-  action: FenceOperation.Memory
-def instruction_fence = pattern(FenceControl()):
-  action: FenceOperation.Instruction
-def address_translation_fence = pattern(FenceControl()):
-  action: FenceOperation.AddressTranslation
+def no_fence = pattern(RV5StageFenceControl()):
+  action: RV5StageFenceOperation.None
+def memory_fence = pattern(RV5StageFenceControl()):
+  action: RV5StageFenceOperation.Memory
+def instruction_fence = pattern(RV5StageFenceControl()):
+  action: RV5StageFenceOperation.Instruction
+def address_translation_fence = pattern(RV5StageFenceControl()):
+  action: RV5StageFenceOperation.AddressTranslation
 
 fun base_fence_cases(instructions :: List.of(InstructionSpec)):
   instruction_cases([FENCE], memory_fence) ++ instruction_cases(
@@ -78,8 +78,8 @@ export:
   ZawrsFenceCases
   ZicbomFenceCases
   ZicbozFenceCases
-  FenceOperation
-  FenceControl
+  RV5StageFenceOperation
+  RV5StageFenceControl
   RV32IFenceCases
   RV64IFenceCases
   RV32RV5StageFenceCases

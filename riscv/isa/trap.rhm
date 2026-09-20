@@ -18,6 +18,21 @@ enum ExceptionCause
 | LoadPageFault
 | StorePageFault
 
+def DelegatableExceptionCauses = [
+  ExceptionCause.InstructionAddressMisaligned,
+  ExceptionCause.InstructionAccessFault,
+  ExceptionCause.IllegalInstruction,
+  ExceptionCause.Breakpoint,
+  ExceptionCause.LoadAddressMisaligned,
+  ExceptionCause.LoadAccessFault,
+  ExceptionCause.StoreAddressMisaligned,
+  ExceptionCause.StoreAccessFault,
+  ExceptionCause.EnvironmentCallFromUser,
+  ExceptionCause.InstructionPageFault,
+  ExceptionCause.LoadPageFault,
+  ExceptionCause.StorePageFault
+]
+
 fun exception_code(cause :: ExceptionCause) :: Nat:
   match cause
   | ExceptionCause.InstructionAddressMisaligned: 0
@@ -43,5 +58,6 @@ fun exception_mask(causes :: List.of(ExceptionCause)) :: Nat:
 
 export:
   ExceptionCause
+  DelegatableExceptionCauses
   exception_code
   exception_mask

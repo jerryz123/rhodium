@@ -24,7 +24,7 @@ def example_chi_config = RV5StageCHIConfig(
      example_home
    )]
 )
-def example_profile = RVCoreProfile(
+def example_profile = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(
     ~compressed: compressed_extensions(CompressedExtension.Zca, CompressedExtension.Zcb)

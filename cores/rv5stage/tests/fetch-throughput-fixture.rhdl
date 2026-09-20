@@ -29,7 +29,7 @@ sync_circuit RV5StageFetchThroughput():
   output(trace_admit, trace_clear, trace_kill, trace_outcome, trace_replay): Bool
   output trace_address: Bits(64)
   interface chi(CHIRNIChannels(test_rv5stage_flit), ~role: node)
-  inst fetch(RV5StageFetchFixture(RVCoreProfile(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
+  inst fetch(RV5StageFetchFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
   inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))

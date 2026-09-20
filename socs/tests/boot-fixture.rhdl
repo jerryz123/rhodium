@@ -6,7 +6,7 @@ import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/link.rhdl").CHINodeKind
   lib("chi/protocol/fabric.rhdl").CHIHomeParams
-  lib("cores/rv5stage/profile.rhm").RVCoreProfile
+  lib("cores/rv5stage/profile.rhm").RV5StageConfig
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("riscv/isa/xlen.rhm").XLen
   lib("socs/boot.rhdl") open
@@ -20,7 +20,7 @@ def description = RiscvSoCDescription(
   ~model: "Rhodium boot fixture",
   ~compatible: ["rhodium,boot-fixture"],
   ~harts: [0, 1, 2, 3],
-  ~core_profile: RVCoreProfile(~xlen: XLen.X64),
+  ~core_profile: RV5StageConfig(~xlen: XLen.X64),
   ~clocks: SoCClockConfig(
     ~clock_frequency_hz: 100000000,
     ~timebase_frequency_hz: 1000000

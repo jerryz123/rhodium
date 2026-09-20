@@ -6,7 +6,7 @@ import:
   "../../../riscv/isa/zawrs.rhm" open
   "../../../riscv/isa/zicboz.rhm" open
   "../../../riscv/isa/zicbom.rhm" open
-  "decode-support.rhdl" open
+  "../../../riscv/rtl/decode.rhdl" open
   "../../../riscv/isa/rv32i.rhm" as rv32
   "../../../riscv/isa/rv64i.rhm" open
   "../../../riscv/isa/m.rhm" open
@@ -20,7 +20,7 @@ import:
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
-hardware_enum WritebackSelect:
+hardware_enum RV5StageWritebackSelect:
   Alu
   Memory
   SequentialPc
@@ -30,32 +30,32 @@ hardware_enum WritebackSelect:
   Zero
   Vector
 
-bundle WritebackControl():
+bundle RV5StageWritebackControl():
   enable: Bool
-  source: WritebackSelect
+  source: RV5StageWritebackSelect
 
-def alu_writeback = pattern(WritebackControl()):
+def alu_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
-  source: WritebackSelect.Alu
-def memory_writeback = pattern(WritebackControl()):
+  source: RV5StageWritebackSelect.Alu
+def memory_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
-  source: WritebackSelect.Memory
-def link_writeback = pattern(WritebackControl()):
+  source: RV5StageWritebackSelect.Memory
+def link_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
-  source: WritebackSelect.SequentialPc
-def multiply_writeback = pattern(WritebackControl()):
+  source: RV5StageWritebackSelect.SequentialPc
+def multiply_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
-  source: WritebackSelect.Multiply
-def divide_writeback = pattern(WritebackControl()):
+  source: RV5StageWritebackSelect.Multiply
+def divide_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
-  source: WritebackSelect.Divide
-def csr_writeback = pattern(WritebackControl()):
+  source: RV5StageWritebackSelect.Divide
+def csr_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
-  source: WritebackSelect.Csr
-def zero_writeback = pattern(WritebackControl()):
+  source: RV5StageWritebackSelect.Csr
+def zero_writeback = pattern(RV5StageWritebackControl()):
   enable: Bool(#true)
-  source: WritebackSelect.Zero
-def no_writeback = partial_pattern(WritebackControl()):
+  source: RV5StageWritebackSelect.Zero
+def no_writeback = partial_pattern(RV5StageWritebackControl()):
   enable: Bool(#false)
 
 def shared_immediate_alu = [ADDI, SLTI, SLTIU, XORI, ORI, ANDI]
@@ -125,8 +125,8 @@ export:
   ZawrsWritebackCases
   ZicbomWritebackCases
   ZicbozWritebackCases
-  WritebackSelect
-  WritebackControl
+  RV5StageWritebackSelect
+  RV5StageWritebackControl
   RV32IWritebackCases
   RV64IWritebackCases
   RV32RV5StageWritebackCases

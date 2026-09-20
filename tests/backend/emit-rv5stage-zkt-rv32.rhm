@@ -11,7 +11,7 @@ import:
   "../../cores/rv5stage/profile.rhm" open
   "../../cores/rv5stage/tests/zkt.rhdl" open
 
-def profile = RVCoreProfile(
+def profile = RV5StageConfig(
   ~xlen: XLen.X32,
   ~extensions: RV5StageExtensions(
     ~floating_point: FloatingPointProfile.None,

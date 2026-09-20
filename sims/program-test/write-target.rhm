@@ -21,11 +21,11 @@ def description :: RiscvSoCDescription = match name
 | ~else: error(~who: #'write_program_target, "expected simple, mini, or tiled")
 def compiler_target = gnu_isa_target(
   description.core_profile.xlen,
-  description.core_profile.isa_extensions
+  description.core_profile.isa_profile.isa_extensions
 )
 
 // ISA extension names are canonical identifiers from the core profile.
-def extensions = String.join(description.core_profile.isa_extensions.map(fun (extension :: String): "\"" ++ extension ++ "\""), ",")
+def extensions = String.join(description.core_profile.isa_profile.isa_extensions.map(fun (extension :: String): "\"" ++ extension ++ "\""), ",")
 def region_strings = for List (region in description.memory_regions):
   "{\"base\":" ++ to_string(region.base) ++ ",\"size\":" ++ to_string(region.size_bytes) ++ "}"
 def regions = String.join(region_strings, ",")
