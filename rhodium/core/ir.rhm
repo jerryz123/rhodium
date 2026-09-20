@@ -57,20 +57,24 @@ class.together:
               type :: HardwareType,
               module_def :: Module,
               defining_op_id :: Nat,
-              mutable user_ids :: List.of(Nat) = []):
+              user_ids_seed :: List.of(Nat) = []):
     implements HardwareEntity
-    private field user_index_complete = user_ids.length() == 0
+    // Trusted after checked seed ingress; add_user is the only mutation path.
+    private field _user_ids :~ List.of(Nat) = user_ids_seed
+    private field user_index_complete = user_ids_seed.length() == 0
     private field user_id_set = MutableSet{}
+
+    property user_ids: _user_ids
 
     property module_id: module_def.id
     property design: module_def.design
 
     method add_user(operation_id :: Nat):
-      user_ids := [operation_id] ++ user_ids
+      _user_ids := [operation_id] ++ _user_ids
       user_id_set.add(operation_id)
 
     method users():
-      user_ids
+      _user_ids
 
     method has_user(operation_id :: Nat):
       if user_index_complete
@@ -90,8 +94,12 @@ class.together:
               mutable driver :: False || Value = #false,
               parent :: False || Place = #false,
               projection_key :: False || String || Nat = #false,
-              mutable projected_places :: List.of(Place) = []):
+              projected_places_seed :: List.of(Place) = []):
     implements HardwareEntity
+    // Trusted after checked seed ingress; projection helpers preserve membership and order.
+    private field _projected_places :~ List.of(Place) = projected_places_seed
+    property projected_places: _projected_places
+
     property module_id: module_def.id
     property design: module_def.design
 
@@ -99,9 +107,18 @@ class.together:
       parent is_a Place
 
     method projected_place(key :: String || Nat):
-      projected_places.find(
+      _projected_places.find(
         fun (candidate): candidate.projection_key == key
       )
+
+    method add_projected_place(projected :: Place):
+      _projected_places := _projected_places ++ [projected]
+
+    method clear_projected_places():
+      _projected_places := []
+
+    method replace_projected_places(projected :: List.of(Place)):
+      _projected_places := projected
 
     method ref():
       "&" ++ name
@@ -232,16 +249,24 @@ class.together:
   class Module(design :: Design,
                id :: Nat,
                name :: String,
-               mutable operations :: List.of(Operation) = [],
-               mutable inputs :: List.of(Port) = [],
-               mutable outputs :: List.of(Port) = [],
-               mutable values :: List.of(Value) = [],
-               mutable places :: List.of(Place) = [],
-               mutable memories :: List.of(Memory) = [],
-               mutable metadata :: List.of(ModuleMetadata) = [],
+               operations_seed :: List.of(Operation) = [],
+               inputs_seed :: List.of(Port) = [],
+               outputs_seed :: List.of(Port) = [],
+               values_seed :: List.of(Value) = [],
+               places_seed :: List.of(Place) = [],
+               memories_seed :: List.of(Memory) = [],
+               metadata_seed :: List.of(ModuleMetadata) = [],
                mutable finished :: Boolean = #false):
-    private field collections_finished = operations.length() != 0 || inputs.length() != 0 || outputs.length() != 0 || values.length() != 0 || places.length() != 0 || memories.length() != 0
-    private field indexes_complete = operations.length() == 0 && inputs.length() == 0 && outputs.length() == 0 && values.length() == 0 && places.length() == 0 && memories.length() == 0
+    // Trusted after checked seed ingress; add_* and finish_collections are the only mutations.
+    private field _operations :~ List.of(Operation) = operations_seed
+    private field _inputs :~ List.of(Port) = inputs_seed
+    private field _outputs :~ List.of(Port) = outputs_seed
+    private field _values :~ List.of(Value) = values_seed
+    private field _places :~ List.of(Place) = places_seed
+    private field _memories :~ List.of(Memory) = memories_seed
+    private field _metadata :~ List.of(ModuleMetadata) = metadata_seed
+    private field collections_finished = operations_seed.length() != 0 || inputs_seed.length() != 0 || outputs_seed.length() != 0 || values_seed.length() != 0 || places_seed.length() != 0 || memories_seed.length() != 0
+    private field indexes_complete = operations_seed.length() == 0 && inputs_seed.length() == 0 && outputs_seed.length() == 0 && values_seed.length() == 0 && places_seed.length() == 0 && memories_seed.length() == 0
     private field operations_by_id = MutableMap{}
     private field operation_set = MutableSet.by(===){}
     private field values_by_id = MutableMap{}
@@ -259,10 +284,18 @@ class.together:
     private field memory_write_clock_consistency = MutableMap.by(===){}
     private field sync_crossing_use_counts = MutableMap.by(===){}
 
+    property operations: _operations
+    property inputs: _inputs
+    property outputs: _outputs
+    property values: _values
+    property places: _places
+    property memories: _memories
+    property metadata: _metadata
+
     method add_operation(operation :: Operation):
       unless operation.module_def === this
       | error(~who: #'add_operation, "operation belongs to a different module")
-      operations := if collections_finished | operations ++ [operation] | [operation] ++ operations
+      _operations := if collections_finished | _operations ++ [operation] | [operation] ++ _operations
       unless operations_by_id.has_key(operation.id)
       | operations_by_id[operation.id] := operation
       operation_set.add(operation)
@@ -292,7 +325,7 @@ class.together:
     method add_value(value :: Value):
       unless value.module_def === this
       | error(~who: #'add_value, "value belongs to a different module")
-      values := if collections_finished | values ++ [value] | [value] ++ values
+      _values := if collections_finished | _values ++ [value] | [value] ++ _values
       unless values_by_id.has_key(value.id)
       | values_by_id[value.id] := value
       value_set.add(value)
@@ -301,7 +334,7 @@ class.together:
     method add_place(place :: Place):
       unless place.module_def === this
       | error(~who: #'add_place, "place belongs to a different module")
-      places := if collections_finished | places ++ [place] | [place] ++ places
+      _places := if collections_finished | _places ++ [place] | [place] ++ _places
       unless places_by_id.has_key(place.id)
       | places_by_id[place.id] := place
       place_set.add(place)
@@ -310,7 +343,7 @@ class.together:
     method add_memory(memory :: Memory):
       unless memory.module_def === this
       | error(~who: #'add_memory, "memory belongs to a different module")
-      memories := if collections_finished | memories ++ [memory] | [memory] ++ memories
+      _memories := if collections_finished | _memories ++ [memory] | [memory] ++ _memories
       unless memories_by_id.has_key(memory.id)
       | memories_by_id[memory.id] := memory
       memory_set.add(memory)
@@ -321,70 +354,70 @@ class.together:
       | error(~who: #'add_metadata,
               "cannot attach metadata to finished module " ++ name)
       def entry = ModuleMetadata(namespace, payload)
-      metadata := metadata ++ [entry]
+      _metadata := _metadata ++ [entry]
       entry
 
     method metadata_for(namespace :: String):
-      metadata.filter(
+      _metadata.filter(
         ~keep: fun (entry): entry.namespace == namespace
       ).map(fun (entry): entry.payload)
 
     method add_input(port :: Port):
-      inputs := if collections_finished | inputs ++ [port] | [port] ++ inputs
+      _inputs := if collections_finished | _inputs ++ [port] | [port] ++ _inputs
       unless inputs_by_name.has_key(port.name)
       | inputs_by_name[port.name] := port
 
     method add_output(port :: Port):
-      outputs := if collections_finished | outputs ++ [port] | [port] ++ outputs
+      _outputs := if collections_finished | _outputs ++ [port] | [port] ++ _outputs
       unless outputs_by_name.has_key(port.name)
       | outputs_by_name[port.name] := port
 
     method finish_collections():
       unless collections_finished
-      | operations := operations.reverse()
-        inputs := inputs.reverse()
-        outputs := outputs.reverse()
-        values := values.reverse()
-        places := places.reverse()
-        memories := memories.reverse()
+      | _operations := _operations.reverse()
+        _inputs := _inputs.reverse()
+        _outputs := _outputs.reverse()
+        _values := _values.reverse()
+        _places := _places.reverse()
+        _memories := _memories.reverse()
         collections_finished := #true
 
     method find_operation(id :: Nat):
-      if indexes_complete | operations_by_id.get(id, #false) | operations_by_id.get(id, #false) || operations.find(fun (operation): operation.id == id)
+      if indexes_complete | operations_by_id.get(id, #false) | operations_by_id.get(id, #false) || _operations.find(fun (operation): operation.id == id)
 
     method find_value(id :: Nat):
-      if indexes_complete | values_by_id.get(id, #false) | values_by_id.get(id, #false) || values.find(fun (value): value.id == id)
+      if indexes_complete | values_by_id.get(id, #false) | values_by_id.get(id, #false) || _values.find(fun (value): value.id == id)
 
     method find_place(id :: Nat):
-      if indexes_complete | places_by_id.get(id, #false) | places_by_id.get(id, #false) || places.find(fun (place): place.id == id)
+      if indexes_complete | places_by_id.get(id, #false) | places_by_id.get(id, #false) || _places.find(fun (place): place.id == id)
 
     method find_memory(id :: Nat):
-      if indexes_complete | memories_by_id.get(id, #false) | memories_by_id.get(id, #false) || memories.find(fun (memory): memory.id == id)
+      if indexes_complete | memories_by_id.get(id, #false) | memories_by_id.get(id, #false) || _memories.find(fun (memory): memory.id == id)
 
     method find_input(name :: String):
-      if indexes_complete | inputs_by_name.get(name, #false) | inputs_by_name.get(name, #false) || inputs.find(fun (port): port.name == name)
+      if indexes_complete | inputs_by_name.get(name, #false) | inputs_by_name.get(name, #false) || _inputs.find(fun (port): port.name == name)
 
     method find_output(name :: String):
-      if indexes_complete | outputs_by_name.get(name, #false) | outputs_by_name.get(name, #false) || outputs.find(fun (port): port.name == name)
+      if indexes_complete | outputs_by_name.get(name, #false) | outputs_by_name.get(name, #false) || _outputs.find(fun (port): port.name == name)
 
     method find_instance(name :: String):
       if indexes_complete
       | instances_by_name.get(name, #false)
-      | instances_by_name.get(name, #false) || operations.find(
+      | instances_by_name.get(name, #false) || _operations.find(
           fun (operation): operation.opcode == "rtl.instance" && operation.attribute("name", #false) == name
         )
 
     method find_drive_to(place_id :: Nat):
       if indexes_complete
       | drives_by_place_id.get(place_id, #false)
-      | drives_by_place_id.get(place_id, #false) || operations.find(
+      | drives_by_place_id.get(place_id, #false) || _operations.find(
           fun (operation): operation.opcode == "rtl.drive" && operation.places.length() == 1 && operation.places[0].id == place_id
         )
 
     method hardware_name_used(name :: String):
       if indexes_complete
       | name in hardware_names
-      | name in hardware_names || values.find(fun (value): value.name == name) || places.find(fun (place): place.name == name) || memories.find(fun (memory): memory.name == name) || operations.find(
+      | name in hardware_names || _values.find(fun (value): value.name == name) || _places.find(fun (place): place.name == name) || _memories.find(fun (memory): memory.name == name) || _operations.find(
           fun (operation): operation.opcode == "rtl.sync_memory" && operation.attribute("name", #false) == name
         )
 
@@ -392,7 +425,7 @@ class.together:
       if indexes_complete || memory_write_clocks.has_key(memory)
       | memory_write_clock_consistency.get(memory, #true)
       | block:
-          def writes = operations.filter(
+          def writes = _operations.filter(
             ~keep: fun (operation): operation.opcode == "rtl.memory_write" && operation.attribute("memory", #false) === memory
           )
           writes.length() < 2 || (for all (write in writes): write.operands[2] === writes[0].operands[2])
@@ -400,35 +433,41 @@ class.together:
     method sync_crossing_use_count(stage :: Value):
       if indexes_complete || sync_crossing_use_counts.has_key(stage)
       | sync_crossing_use_counts.get(stage, 0)
-      | operations.filter(
+      | _operations.filter(
           ~keep: fun (operation): operation.opcode == "cdc.sync_level" && operation.operands.drop(2).find(fun (candidate): candidate === stage)
         ).length()
 
     method owns_operation(operation :: Operation):
-      if indexes_complete | operation in operation_set | operation in operation_set || operations.find(fun (candidate): candidate === operation)
+      if indexes_complete | operation in operation_set | operation in operation_set || _operations.find(fun (candidate): candidate === operation)
 
     method owns_value(value :: Value):
-      if indexes_complete | value in value_set | value in value_set || values.find(fun (candidate): candidate === value)
+      if indexes_complete | value in value_set | value in value_set || _values.find(fun (candidate): candidate === value)
 
     method owns_place(place :: Place):
-      if indexes_complete | place in place_set | place in place_set || places.find(fun (candidate): candidate === place)
+      if indexes_complete | place in place_set | place in place_set || _places.find(fun (candidate): candidate === place)
 
     method owns_memory(memory :: Memory):
-      if indexes_complete | memory in memory_set | memory in memory_set || memories.find(fun (candidate): candidate === memory)
+      if indexes_complete | memory in memory_set | memory in memory_set || _memories.find(fun (candidate): candidate === memory)
 
     method walk():
-      operations
+      _operations
 
-  class Design(mutable modules :: List.of(Module) = [],
+  class Design(modules_seed :: List.of(Module) = [],
                mutable next_id :: Nat = 0,
-               mutable dpi_imports :: List.of(DpiImport) = []):
-    private field collections_finished = modules.length() != 0 || dpi_imports.length() != 0
-    private field indexes_complete = modules.length() == 0 && dpi_imports.length() == 0
+               dpi_imports_seed :: List.of(DpiImport) = []):
+    // Trusted after checked seed ingress; add_* and finish_collections are the only mutations.
+    private field _modules :~ List.of(Module) = modules_seed
+    private field _dpi_imports :~ List.of(DpiImport) = dpi_imports_seed
+    private field collections_finished = modules_seed.length() != 0 || dpi_imports_seed.length() != 0
+    private field indexes_complete = modules_seed.length() == 0 && dpi_imports_seed.length() == 0
     private field modules_by_id = MutableMap{}
     private field module_set = MutableSet.by(===){}
     private field modules_by_name = MutableMap{}
     private field dpi_imports_by_name = MutableMap{}
     private field dpi_import_set = MutableSet.by(===){}
+
+    property modules: _modules
+    property dpi_imports: _dpi_imports
 
     method fresh_id():
       def id = next_id
@@ -438,7 +477,7 @@ class.together:
     method add_module(module_def :: Module):
       unless module_def.design === this
       | error(~who: #'add_module, "module belongs to a different design")
-      modules := if collections_finished | modules ++ [module_def] | [module_def] ++ modules
+      _modules := if collections_finished | _modules ++ [module_def] | [module_def] ++ _modules
       unless modules_by_id.has_key(module_def.id)
       | modules_by_id[module_def.id] := module_def
       module_set.add(module_def)
@@ -448,35 +487,35 @@ class.together:
     method add_dpi_import(dpi_import :: DpiImport):
       unless dpi_import.design === this
       | error(~who: #'add_dpi_import, "DPI import belongs to a different design")
-      dpi_imports := if collections_finished | dpi_imports ++ [dpi_import] | [dpi_import] ++ dpi_imports
+      _dpi_imports := if collections_finished | _dpi_imports ++ [dpi_import] | [dpi_import] ++ _dpi_imports
       unless dpi_imports_by_name.has_key(dpi_import.name)
       | dpi_imports_by_name[dpi_import.name] := dpi_import
       dpi_import_set.add(dpi_import)
 
     method finish_collections():
       unless collections_finished
-      | modules := modules.reverse()
-        dpi_imports := dpi_imports.reverse()
+      | _modules := _modules.reverse()
+        _dpi_imports := _dpi_imports.reverse()
         collections_finished := #true
 
     method find_dpi_import(name :: String):
-      if indexes_complete | dpi_imports_by_name.get(name, #false) | dpi_imports_by_name.get(name, #false) || dpi_imports.find(fun (dpi_import): dpi_import.name == name)
+      if indexes_complete | dpi_imports_by_name.get(name, #false) | dpi_imports_by_name.get(name, #false) || _dpi_imports.find(fun (dpi_import): dpi_import.name == name)
 
     method find_module(id :: Nat):
-      if indexes_complete | modules_by_id.get(id, #false) | modules_by_id.get(id, #false) || modules.find(fun (module_def): module_def.id == id)
+      if indexes_complete | modules_by_id.get(id, #false) | modules_by_id.get(id, #false) || _modules.find(fun (module_def): module_def.id == id)
 
     method find_module_named(name :: String):
-      if indexes_complete | modules_by_name.get(name, #false) | modules_by_name.get(name, #false) || modules.find(fun (module_def): module_def.name == name)
+      if indexes_complete | modules_by_name.get(name, #false) | modules_by_name.get(name, #false) || _modules.find(fun (module_def): module_def.name == name)
 
     method owns_module(module_def :: Module):
-      if indexes_complete | module_def in module_set | module_def in module_set || modules.find(fun (candidate): candidate === module_def)
+      if indexes_complete | module_def in module_set | module_def in module_set || _modules.find(fun (candidate): candidate === module_def)
 
     method owns_dpi_import(dpi_import :: DpiImport):
-      if indexes_complete | dpi_import in dpi_import_set | dpi_import in dpi_import_set || dpi_imports.find(fun (candidate): candidate === dpi_import)
+      if indexes_complete | dpi_import in dpi_import_set | dpi_import in dpi_import_set || _dpi_imports.find(fun (candidate): candidate === dpi_import)
 
     method walk():
       def all_operations = MutableList[]
-      for (module_def in modules):
+      for (module_def in _modules):
         all_operations.append(module_def.operations)
       all_operations.snapshot()
 // Keeps address typing deterministic for arbitrary positive depths. Dynamic

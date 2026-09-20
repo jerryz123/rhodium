@@ -1,0 +1,36 @@
+#lang rhombus
+// Runs repeated Rhodium IR collection measurements in one warmed process.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/cmdline open
+  "../rhodium/core/main.rhm" open
+  lib("racket/base.rkt") as rkt
+
+def arguments = current_command_line()
+unless arguments.length() >= 1
+| error(~who: #'bench_ir_collections_batch,
+        "expected one or more insertion-count arguments")
+
+def run_once = fun (count_value, repetition):
+  def start = rkt.#{current-inexact-milliseconds}()
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("CollectionBenchmark")
+  for (index in 0..count_value):
+    builder.input(module_def, "value_" ++ to_string(index), Bits(1))
+    #void
+  def after_construction = rkt.#{current-inexact-milliseconds}()
+  def finished = builder.finish(module_def)
+  def after_finish = rkt.#{current-inexact-milliseconds}()
+  def verified = verify_design(design)
+  def after_verify = rkt.#{current-inexact-milliseconds}()
+  println("count=" ++ to_string(count_value) ++ " repetition=" ++ to_string(repetition) ++ " construction_ms=" ++ to_string(after_construction - start) ++ " finish_ms=" ++ to_string(after_finish - after_construction) ++ " verify_ms=" ++ to_string(after_verify - after_finish))
+
+for (count_text in arguments):
+  def count_value = rkt.#{string->number}(count_text)
+  unless count_value is_a Nat
+  | error(~who: #'bench_ir_collections_batch,
+          "insertion counts must be nonnegative integers")
+  for (repetition in 0..6):
+    run_once(count_value, repetition)

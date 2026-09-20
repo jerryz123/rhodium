@@ -1,0 +1,14 @@
+#lang rhodium
+// Defines the generated vector wiring circuit used by the frontend elaboration benchmark.
+// SPDX-License-Identifier: Apache-2.0
+
+circuit CollectionElaboration(n :: PosInt):
+  input source: Vec(n, Bool)
+  output sink: Vec(n, Bool)
+  wire staged: Vec(n, Bool)
+
+  sink <== staged
+  for (index in 0..n):
+    staged[index] <== source[index] ^ source[index]
+
+export CollectionElaboration

@@ -1446,7 +1446,7 @@ class Builder(design :: Design):
                               #false,
                               place,
                               field_name)
-        place.projected_places := place.projected_places ++ [projected]
+        place.add_projected_place(projected)
         projected
 
   method project_vector(place :: Place, index :: Nat):
@@ -1470,7 +1470,7 @@ class Builder(design :: Design):
                               #false,
                               place,
                               index)
-        place.projected_places := place.projected_places ++ [projected]
+        place.add_projected_place(projected)
         projected
 
   method assemble_aggregate_place(place :: Place,
@@ -1516,13 +1516,13 @@ class Builder(design :: Design):
     if assembled
     | block:
         def projections = place.projected_places
-        place.projected_places := []
+        place.clear_projected_places()
         this.drive(place,
                    assembled,
                    location,
                    Origin("aggregate place canonicalization", place.name))
         when preserve_projections
-        | place.projected_places := projections
+        | place.replace_projected_places(projections)
         assembled
     | #false
 
@@ -2017,7 +2017,7 @@ class Builder(design :: Design):
               place.driver := assembled
               assembled
           | assembled:
-              place.projected_places := []
+              place.clear_projected_places()
               this.drive(place,
                          assembled,
                          Location(),

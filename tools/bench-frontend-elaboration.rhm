@@ -1,0 +1,28 @@
+#lang rhombus
+// Measures repeated frontend elaboration of a generated vector wiring circuit.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/cmdline open
+  "../rhodium/frontend/kernel.rhm" as embedded
+  "../tests/frontend/collection-elaboration-benchmark.rhdl" as benchmark
+  lib("racket/base.rkt") as rkt
+
+def arguments = current_command_line()
+unless arguments.length() >= 1
+| error(~who: #'bench_frontend_elaboration,
+        "expected one or more circuit sizes")
+
+def run_once = fun (size, repetition):
+  def start = rkt.#{current-inexact-milliseconds}()
+  def design = embedded.run_elaboration(fun (): benchmark.CollectionElaboration(size))
+  def after_elaboration = rkt.#{current-inexact-milliseconds}()
+  println("size=" ++ to_string(size) ++ " repetition=" ++ to_string(repetition) ++ " elaboration_ms=" ++ to_string(after_elaboration - start) ++ " modules=" ++ to_string(design.modules.length()))
+
+for (size_text in arguments):
+  def size = rkt.#{string->number}(size_text)
+  unless size is_a PosInt
+  | error(~who: #'bench_frontend_elaboration,
+          "circuit sizes must be positive integers")
+  for (repetition in 0..6):
+    run_once(size, repetition)

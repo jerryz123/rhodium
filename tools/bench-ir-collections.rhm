@@ -1,0 +1,36 @@
+#lang rhombus
+// Measures fresh Rhodium IR collection construction and finalization at a chosen size.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/cmdline open
+  "../rhodium/core/main.rhm" open
+  lib("racket/base.rkt") as rkt
+
+def arguments = current_command_line()
+unless arguments.length() == 1
+| error(~who: #'bench_ir_collections,
+        "expected one insertion-count argument")
+
+def count_value = rkt.#{string->number}(arguments[0])
+unless count_value is_a Nat
+| error(~who: #'bench_ir_collections,
+        "insertion count must be a nonnegative integer")
+
+def start = rkt.#{current-inexact-milliseconds}()
+def design = Design()
+def builder = Builder(design)
+def module_def = builder.module("CollectionBenchmark")
+for (index in 0..count_value):
+  builder.input(module_def, "value_" ++ to_string(index), Bits(1))
+  #void
+def after_construction = rkt.#{current-inexact-milliseconds}()
+def finished = builder.finish(module_def)
+def after_finish = rkt.#{current-inexact-milliseconds}()
+def verified = verify_design(design)
+def after_verify = rkt.#{current-inexact-milliseconds}()
+
+println("count=" ++ to_string(count_value))
+println("construction_ms=" ++ to_string(after_construction - start))
+println("finish_ms=" ++ to_string(after_finish - after_construction))
+println("verify_ms=" ++ to_string(after_verify - after_finish))

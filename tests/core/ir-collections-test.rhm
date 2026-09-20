@@ -1,0 +1,94 @@
+#lang rhombus
+// Verifies trusted IR collection storage, checked ingress, ordering, snapshots, and projections.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../rhodium/core/main.rhm" open
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Collections")
+  def first = builder.input(module_def, "first", Bits(4))
+  def second = builder.input(module_def, "second", Bits(4))
+  def result = builder.add(module_def, first, second, "result")
+  def output = builder.output(module_def, "output", Bits(4))
+  builder.drive(output, result)
+
+  def operation_snapshot = module_def.operations
+  def value_snapshot = module_def.values
+  def place_snapshot = module_def.places
+  check:
+    module_def.inputs.map(fun (port): port.name) ~is ["second", "first"]
+    module_def.outputs.map(fun (port): port.name) ~is ["output"]
+    (module_def.find_value(result.id) === result) ~is #true
+    (module_def.find_operation(result.defining_op_id).id) ~is result.defining_op_id
+    (module_def.operations.length() > 0) ~is #true
+    (module_def.values.length() >= value_snapshot.length()) ~is #true
+    (module_def.places.length() >= place_snapshot.length()) ~is #true
+
+  def later = builder.constant(module_def, Bits(4), 3, "later")
+  check:
+    (operation_snapshot.length() < module_def.operations.length()) ~is #true
+    (value_snapshot.length() < module_def.values.length()) ~is #true
+    (module_def.find_value(later.id) === later) ~is #true
+
+  builder.finish(module_def)
+  def finished_operations = module_def.operations
+  def finished_values = module_def.values
+  module_def.finish_collections()
+  check:
+    module_def.inputs.map(fun (port): port.name) ~is ["first", "second"]
+    module_def.operations.map(fun (operation): operation.id) ~is finished_operations.map(fun (operation): operation.id)
+    module_def.values.map(fun (value): value.id) ~is finished_values.map(fun (value): value.id)
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Users")
+  def seeded = Value(design.fresh_id(),
+                     "seeded",
+                     Bits(1),
+                     module_def,
+                     0,
+                     [11, 12])
+  def input = builder.input(module_def, "input", Bits(1))
+  def operation = builder.bit_not(module_def, input, "not")
+  check:
+    seeded.user_ids ~is [11, 12]
+    input.user_ids.find(fun (operation_id): operation_id == operation.defining_op_id) ~is operation.defining_op_id
+    input.users().find(fun (operation_id): operation_id == operation.defining_op_id) ~is operation.defining_op_id
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Projection")
+  def record_type = RecordType([RecordField("left", Bits(4)),
+                                RecordField("right", Bits(4))])
+  def place = builder.wire(module_def, "pair", record_type)
+  def left = builder.project(place, "left")
+  def right = builder.project(place, "right")
+  check:
+    place.projected_places.map(fun (projected): projected.projection_key) ~is ["left", "right"]
+    (place.projected_place("left") === left) ~is #true
+    (place.projected_place("right") === right) ~is #true
+  def saved = place.projected_places
+  place.clear_projected_places()
+  check:
+    place.projected_places.length() ~is 0
+  place.replace_projected_places(saved)
+  check:
+    place.projected_places.map(fun (projected): projected.projection_key) ~is ["left", "right"]
+
+block:
+  def left_design = Design()
+  def left_builder = Builder(left_design)
+  def left_module = left_builder.module("Left")
+  def right_design = Design()
+  def right_builder = Builder(right_design)
+  def right_module = right_builder.module("Right")
+  def foreign = right_builder.input(right_module, "foreign", Bits(1))
+  check:
+    left_module.add_value(foreign) ~throws "different module"
+    left_module.values.length() ~is 0
+    (left_module.find_value(foreign.id) === #false) ~is #true
