@@ -123,12 +123,12 @@ class RecordType(fields :: NonemptyList.of(RecordField),
       ", "
     ) ++ ">"
 
-  override method type_equal(other :: HardwareType):
+  final override method type_equal(other :: HardwareType):
     if !record_type(other) || fields.length() != other.fields.length()
     | #false
     | for all (left_field in fields,
                right_field in other.fields):
-        left_field.name == right_field.name && left_field.type.type_equal(right_field.type) && right_field.type.type_equal(left_field.type)
+        left_field.name == right_field.name && structural_member_type_equal(left_field.type, right_field.type)
 
   override method packed_width():
     def mutable width = 0
@@ -149,7 +149,7 @@ class VectorType(length :: PosInt, element_type :: DataType):
     "vector<" ++ to_string(length) ++ " x " ++ element_type.describe() ++ ">"
 
   override method type_equal(other :: HardwareType):
-    vector_type(other) && length == other.length && element_type.type_equal(other.element_type) && other.element_type.type_equal(element_type)
+    vector_type(other) && length == other.length && structural_member_type_equal(element_type, other.element_type)
 
   override method packed_width():
     def element_width = checked_packed_width(element_type)
@@ -239,7 +239,27 @@ fun type_well_formed(type :~ matching(_)):
       type.packed_width() == #false || checked_packed_width(type) != #false
 
 fun type_equal(left :~ matching(_), right :~ matching(_)):
-  hardware_type(left) && hardware_type(right) && (left === right || (left.type_equal(right) && right.type_equal(left)))
+  cond
+  | !hardware_type(left) || !hardware_type(right): #false
+  | left === right: #true
+  | left is_a Bits:
+      right is_a Bits && left.width == right.width
+  | right is_a Bits: #false
+  | left is_a _ClockType: right is_a _ClockType
+  | right is_a _ClockType: #false
+  | left is_a _ResetType: right is_a _ResetType
+  | right is_a _ResetType: #false
+  | left is_a RecordType:
+      right is_a RecordType && left.type_equal(right)
+  | right is_a RecordType: #false
+  | left is_a VectorType:
+      right is_a VectorType && left.type_equal(right)
+  | right is_a VectorType: #false
+  | ~else:
+      left.type_equal(right) && right.type_equal(left)
+
+fun structural_member_type_equal(left :~ matching(_), right :~ matching(_)):
+  type_equal(left, right)
 
 fun bits_text(type :: Bits):
   "bits<" ++ to_string(type.width) ++ ">"

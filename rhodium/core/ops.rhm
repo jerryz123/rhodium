@@ -113,8 +113,10 @@ def schemas:
    OperationSchema("rtl.drive", "structural", 1, 0, 1,
                    [], "type_equal_drive", "drive")]
 
+def schemas_by_opcode = for Map (schema in schemas): values(schema.opcode, schema)
+
 fun schema_for(opcode :: String):
-  schemas.find(fun (schema): schema.opcode == opcode)
+  schemas_by_opcode.get(opcode, #false)
 
 fun combinational_opcode(opcode :: String):
   def schema = schema_for(opcode)

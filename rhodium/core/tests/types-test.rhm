@@ -40,6 +40,13 @@ class PackedExtension(width):
     other is_a PackedExtension && width == other.width
   override method packed_width(): width
 
+class AsymmetricExtension(accepts_other :: Boolean):
+  implements DataType
+  override method describe(): "asymmetric-extension"
+  override method type_equal(other):
+    other is_a AsymmetricExtension && accepts_other
+  override method packed_width(): #false
+
 def bits8 = Bits(8)
 def another_bits8 = Bits(8)
 def bits4 = Bits(4)
@@ -51,6 +58,8 @@ def same_extension_bits = ExtensionBits("flag")
 def zero_width_extension = InvalidExtensionBits(0)
 def negative_width_extension = InvalidExtensionBits(-1)
 def noninteger_width_extension = InvalidExtensionBits("wide")
+def accepting_extension = AsymmetricExtension(#true)
+def rejecting_extension = AsymmetricExtension(#false)
 
 // Width alone confers neither scalar identity nor arithmetic/bitwise operations.
 def scalar = ExtensionScalar("token", 8)
@@ -134,6 +143,10 @@ check:
   type_equal(extension, same_extension) ~is #true
   type_equal(extension, other_extension) ~is #false
   type_equal(extension, bits8) ~is #false
+  accepting_extension.type_equal(rejecting_extension) ~is #true
+  rejecting_extension.type_equal(accepting_extension) ~is #false
+  type_equal(accepting_extension, rejecting_extension) ~is #false
+  type_equal(rejecting_extension, accepting_extension) ~is #false
   count_index_width(1) ~is 1
   count_index_width(2) ~is 1
   count_index_width(3) ~is 2
@@ -160,6 +173,8 @@ check:
   schema_for("rtl.vector_index").type_rule ~is "vector_index"
   schema_for("rtl.vector_inject").print_form ~is "vector_inject"
   schema_for("rtl.vector_write_set").type_rule ~is "vector_write_set"
+  schema_for("not.an.opcode") ~is #false
+  combinational_opcode("not.an.opcode") ~is #false
 
 def pair8 = RecordType([RecordField("left", Bits(8)),
                         RecordField("right", Bits(8))])
@@ -177,6 +192,8 @@ def vector4x8 = VectorType(4, Bits(8))
 def another_vector4x8 = VectorType(4, Bits(8))
 def vector2x8 = VectorType(2, Bits(8))
 def nested_vector = VectorType(2, pair8)
+def accepting_record = RecordType([RecordField("value", accepting_extension)])
+def rejecting_record = RecordType([RecordField("value", rejecting_extension)])
 
 check:
   record_type(pair8) ~is #true
@@ -205,6 +222,8 @@ check:
   type_equal(pair8, named_pair8) ~is #true
   named_pair8.preferred_name ~is "Pair"
   type_equal(pair8, reversed_pair8) ~is #false
+  type_equal(accepting_record, rejecting_record) ~is #false
+  type_equal(rejecting_record, accepting_record) ~is #false
   pair8.field("left").type.width ~is 8
   vector_type(vector4x8) ~is #true
   data_type(vector4x8) ~is #true

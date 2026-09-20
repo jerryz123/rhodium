@@ -224,9 +224,10 @@ Clock selection is never an ordinary data mux.
 `RecordType` is an ordered, nonempty structural `DataType` with unique field
 names. Field names, order, and recursively equal field types participate in
 `type_equal`. An optional preferred declaration name is non-semantic metadata:
-it does not make structurally equal records distinct. A packable record has no
-padding. Its first declared field occupies the most-significant bits,
-recursively.
+it does not make structurally equal records distinct. `RecordType` subclasses
+retain this structural equality and may not replace it with nominal equality.
+A packable record has no padding. Its first declared field occupies the
+most-significant bits, recursively.
 
 `VectorType` has a positive host-known length and one recursively equal element
 `DataType`. A packable vector has no padding, and element zero occupies the
