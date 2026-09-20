@@ -18,6 +18,7 @@ circt_rfpl=false
 simulation=false
 program_isa=false
 program_benchmark=false
+program_coremark=false
 program_arch=false
 examples=false
 example_rtl=false
@@ -84,6 +85,7 @@ mark_all() {
 mark_all_programs() {
   program_isa=true
   program_benchmark=true
+  program_coremark=true
   program_arch=true
 }
 
@@ -172,7 +174,7 @@ emit_jobs() {
   [[ "$example_rv5stage" == true ]] && append_matrix_entry example_matrix '{"name":"RV5Stage","target":"examples-rv5stage"}'
 
   [[ "$program_arch" == true ]] && programs=true
-  for suite in isa benchmark; do
+  for suite in isa benchmark coremark; do
     local variable="program_$suite"
     if [[ "${!variable}" == true ]]; then
       programs=true
@@ -181,7 +183,7 @@ emit_jobs() {
   done
   echo "programs=$programs"
   echo "program_arch=$program_arch"
-  echo "program_native=$([[ "$program_isa" == true || "$program_benchmark" == true ]] && echo true || echo false)"
+  echo "program_native=$([[ "$program_isa" == true || "$program_benchmark" == true || "$program_coremark" == true ]] && echo true || echo false)"
   echo "program_matrix={\"include\":[$program_matrix]}"
   echo "host=$host"
   echo "host_matrix={\"include\":[$host_matrix]}"
@@ -199,6 +201,8 @@ classify_path() {
   case "$path" in
     *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes|tools/emacs/*) ;;
     sims/program-test/isa.mk) program_isa=true ;;
+    sims/program-test/build-coremark.py|sims/program-test/coremark-riscv-baremetal/*|sims/program-test/coremark|sims/program-test/coremark/*)
+      program_coremark=true ;;
     sims/arch-test/*|sims/tests/test_arch_test.py|riscv/riscv-arch-test|riscv/riscv-arch-test/*|tools/write-riscv-udb-config.rhm)
       program_arch=true ;;
     riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|sims/program-test/build.py)

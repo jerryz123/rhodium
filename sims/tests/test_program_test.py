@@ -16,7 +16,8 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'program-test'
 
 def program_target(soc='simple'):
     return dict(soc=soc, xlen=64, extensions=['i', 'm'], march='rv64im',
-                mabi='lp64', ram=[dict(base=0x80000000, size=0x10000)])
+                mabi='lp64', clock_frequency_hz=100000000,
+                ram=[dict(base=0x80000000, size=0x10000)])
 
 
 def target_fingerprint(target):
@@ -43,6 +44,36 @@ class ProgramTargetTest(unittest.TestCase):
         self.assertEqual(inventory['unknown_instruction_count'], 1)
         self.assertEqual(inventory['mnemonics'], {'addi': 1, 'c.li': 1, 'c.unimp': 1})
 
+    def test_target_requires_positive_clock_frequency(self):
+        target = program_target()
+        self.assertEqual(self.target.validate_target(target), target)
+        for value in (0, -1, '100000000'):
+            target['clock_frequency_hz'] = value
+            with self.assertRaisesRegex(ValueError, 'invalid program target'):
+                self.target.validate_target(target)
+
+
+class CoreMarkBuildTest(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location('coremark_build', SCRIPTS / 'build-coremark.py')
+        self.builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.builder)
+
+    def test_short_workload_checks_performance_seed_crcs(self):
+        self.assertEqual(self.builder.NAME, 'coremark.riscv')
+        self.assertIn('2K performance run parameters for coremark.', self.builder.REQUIRED_OUTPUT)
+        self.assertIn('[0]crclist       : 0xe714', self.builder.REQUIRED_OUTPUT)
+        self.assertIn('ERROR! list crc', self.builder.FORBIDDEN_OUTPUT)
+
+    def test_linker_template_uses_target_ram(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / 'link.ld.in'
+            output = root / 'link.ld'
+            template.write_text('origin=@RAM_ORIGIN@ length=@RAM_LENGTH@\n')
+            self.builder.write_linker(template, output, dict(base=0x80000000, size=0x20000))
+            self.assertEqual(output.read_text(), 'origin=0x80000000 length=0x20000\n')
+
 
 class ProgramBuildTest(unittest.TestCase):
     def setUp(self):
@@ -52,7 +83,8 @@ class ProgramBuildTest(unittest.TestCase):
 
     def test_smoke_selection_follows_capabilities_not_soc_name(self):
         target = dict(soc='mini', xlen=64, extensions=['i', 'm', 'a', 'zba', 'zbb', 'zbs', 'zicond', 'zicboz'],
-                      march='rv64ima_zba_zbb_zbs_zicond_zicboz', mabi='lp64', ram=[])
+                      march='rv64ima_zba_zbb_zbs_zicond_zicboz', mabi='lp64',
+                      clock_frequency_hz=100000000, ram=[])
         groups, names = self.builder.smoke_selection(target)
         self.assertEqual(len(names), 23)
         self.assertEqual(len(names), len(set(names)))
@@ -160,6 +192,7 @@ class ProgramBuildTest(unittest.TestCase):
             (source / 'env/p').mkdir(parents=True)
             (source / 'env/p/link.ld').touch()
             target = dict(soc='mini', xlen=64, extensions=['i'], march='rv64i', mabi='lp64',
+                          clock_frequency_hz=100000000,
                           ram=[dict(base=0x80000000, size=0x10000)])
             target_path = root / 'target.json'
             target_path.write_text(json.dumps(target))
@@ -263,7 +296,8 @@ class ProgramBuildTest(unittest.TestCase):
 
 
 class ProgramRunnerTest(unittest.TestCase):
-    def run_suite(self, bodies, timeout=3, corrupt=False, target=None, matching_metadata=True):
+    def run_suite(self, bodies, timeout=3, corrupt=False, target=None, matching_metadata=True,
+                  contracts=None):
         self.directory = tempfile.TemporaryDirectory(prefix='rhodium-program-test-')
         self.addCleanup(self.directory.cleanup)
         root = Path(self.directory.name)
@@ -277,7 +311,11 @@ class ProgramRunnerTest(unittest.TestCase):
         for name, body in bodies.items():
             elf = root / name
             elf.write_text(body)
-            tests.append(dict(name=name, elf=name, sha256='bad' if corrupt else hashlib.sha256(elf.read_bytes()).hexdigest()))
+            test = dict(name=name, elf=name,
+                        sha256='bad' if corrupt else hashlib.sha256(elf.read_bytes()).hexdigest())
+            if contracts and name in contracts:
+                test.update(contracts[name])
+            tests.append(test)
         manifest = root / 'manifest.json'
         manifest_data = dict(suite='test', tests=tests)
         command = [sys.executable, str(SCRIPTS / 'run.py'), '--manifest', str(manifest),
@@ -313,6 +351,24 @@ class ProgramRunnerTest(unittest.TestCase):
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual(results['summary']['passed'], 1)
         self.assertTrue((Path(self.directory.name) / 'results/junit.xml').is_file())
+
+    def test_manifest_output_contract_is_enforced(self):
+        bodies = {
+            'matched': "print('expected marker'); print('SoC harness simulation passed')",
+            'missing': "print('SoC harness simulation passed')",
+            'forbidden': "print('bad marker'); print('SoC harness simulation passed')",
+        }
+        contracts = {
+            'matched': dict(required_output=['expected marker'], forbidden_output=['bad marker']),
+            'missing': dict(required_output=['expected marker']),
+            'forbidden': dict(forbidden_output=['bad marker']),
+        }
+        process, results = self.run_suite(bodies, contracts=contracts)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(results['summary'], dict(passed=1, failed=2, timeout=0, error=0))
+        reasons = {result['name']: result.get('reason', '') for result in results['tests']}
+        self.assertIn('missing output', reasons['missing'])
+        self.assertIn('forbidden output', reasons['forbidden'])
 
     def test_wall_timeout(self):
         process, results = self.run_suite({'hang': 'import time; time.sleep(30)'}, timeout=0.1)

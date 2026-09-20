@@ -270,17 +270,18 @@ can access platform devices, including the boot-address register and UART.
 
 ## SimpleSoC software suites
 
-Run the pinned upstream ISA tests and benchmarks through the same FESVR-backed
+Run the pinned upstream ISA tests, benchmarks, and CoreMark through the same FESVR-backed
 SimpleSoC simulator used by architectural tests:
 
 ```sh
 make -C sims program-test-setup
 make -C sims isa-test SOC=simple
 make -C sims benchmark-test SOC=simple
+make -C sims coremark-test SOC=simple
 ```
 
 After also installing ACT dependencies below, `make -C sims program-test
-SOC=simple` runs all three suites. This aggregate stops if a suite fails;
+SOC=simple` runs all four suites. This aggregate stops if a suite fails;
 CI runs the suites independently so one failure does not suppress the others.
 
 The ISA adapter selects upstream physical-environment tests for RV64 I/M/A/F/D/C,
@@ -324,6 +325,16 @@ require capabilities outside this platform.
 These are compatibility selections, not a list of tests proven to pass. Any
 selected workload failure fails its suite; there are no expected-failure masks.
 
+`coremark-test` builds the pristine pinned EEMBC sources for the concrete RV64
+target and produces one `coremark.riscv` using the standard performance seeds.
+It defaults to one iteration and requires the known list, matrix, and state
+CRCs. CoreMark reports that this is shorter than its scoring duration; that is
+expected because this is a functional simulation workload, not a performance
+score. Override `COREMARK_ITERATIONS` to exercise a longer run. The port reads
+`mcycle`; its ticks-per-second, ISA flags, ABI, and RAM linker window come from
+the concrete SoC target descriptor. The upstream benchmark sources remain
+unmodified in the submodule.
+
 Use a bare-metal compiler with C headers and `libm`, not only an assembler.
 CI installs a checksum-pinned GCC/Newlib release via
 `bash tools/install-riscv-toolchain.sh` (x86-64 Linux); local builds accept
@@ -343,15 +354,15 @@ including tests following a failure. Empty selections and missing/modified ELFs
 are errors. Results include exact simulator commands for reruns.
 
 `PROGRAM_JOBS` defaults to one; `PROGRAM_TIMEOUT` defaults to 300 seconds per ELF.
-`PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks use
-`BENCHMARK_MAX_CYCLES=100000000`. These are initial safety budgets, including
-loading, not measured performance requirements. Override them when diagnosing
-timeouts. Benchmark CI checks correctness, never exact cycle counts.
+`PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks and CoreMark use 100
+million. These are safety budgets, including loading,
+not measured performance requirements. Override them when diagnosing timeouts.
+Benchmark CI checks correctness, never exact cycle counts.
 
-CI selects the three suites on pull requests and pushes to `main`; manual dispatch
-selects all three. ACT generates its full ELF inventory once, then partitions it
+CI selects ISA tests, benchmarks, CoreMark smoke, and ACT on pull requests and
+pushes to `main`; manual dispatch selects all four. ACT generates its full ELF inventory once, then partitions it
 across four execution jobs. Every job consumes the same exact-commit SimpleSoC
-executable. ISA/benchmark binaries and ACT reference products are cached by their
+executable. ISA/benchmark/CoreMark binaries and ACT reference products are cached by their
 build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
 

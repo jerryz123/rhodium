@@ -90,7 +90,7 @@ flowchart TD
     Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
     Compile --> SimpleBuild["Build SimpleSoC once<br/>exact-commit executable artifact"]
     SimpleBuild --> Simulation
-    SimpleBuild --> Programs["SimpleSoC software matrix<br/>ISA tests and benchmarks"]
+    SimpleBuild --> Programs["SimpleSoC software matrix<br/>ISA tests, benchmarks, and CoreMark"]
     Compile --> ActBuild["Generate all ACT ELFs once"]
     SimpleBuild --> ActRun["ACT execution<br/>four disjoint shards"]
     ActBuild --> ActRun
@@ -114,10 +114,10 @@ simulation change selection. Its separate build and bounded execution cannot
 consume the ordinary harness job's budget or skip downstream smoke coverage.
 Always retain its build/execution log, including on failure or cancellation.
 
-The software matrix independently selects ISA tests, benchmarks, and ACT. Shared
+The software matrix independently selects ISA tests, benchmarks, CoreMark, and ACT. Shared
 SimpleSoC dependencies (including CHI, NoC, devices, and RISC-V support) select all
-three; suite-only adapter/source changes select the owning lane. ACT configuration
-generation uses the exact compiled root; ISA/benchmark execution needs only the
+four; suite-only adapter/source changes select the owning lane. ACT configuration
+generation uses the exact compiled root; ISA/benchmark/CoreMark execution needs only the
 compiler and native simulator artifact. All software builds use the same pinned
 GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing
 the compiler or reference-model toolchain again. Four deterministic shards cover

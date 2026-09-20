@@ -30,5 +30,5 @@ def region_strings = for List (region in description.memory_regions):
   "{\"base\":" ++ to_string(region.base) ++ ",\"size\":" ++ to_string(region.size_bytes) ++ "}"
 def regions = String.join(region_strings, ",")
 filesystem.write_string(arguments[1],
-                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.core_profile.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"ram\":[" ++ regions ++ "]}\n",
+                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.core_profile.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"ram\":[" ++ regions ++ "]}\n",
                         ~exists: #'truncate)

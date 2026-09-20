@@ -11,3 +11,6 @@
 	path = riscv/riscv-arch-test
 	url = https://github.com/riscv/riscv-arch-test.git
 	branch = act4
+[submodule "sims/program-test/coremark"]
+	path = sims/program-test/coremark
+	url = https://github.com/eembc/coremark.git

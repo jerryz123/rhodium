@@ -21,6 +21,7 @@ def execute(test, simulator, root, output, timeout, cycles):
     log_path = output / (test['name'] + '.log')
     command = [str(simulator), '+permissive', f'+max-cycles={cycles}', '+permissive-off', str(elf)]
     status = 'error'
+    reason = None
     try:
         if hashlib.sha256(elf.read_bytes()).hexdigest() != test['sha256']:
             raise ValueError(f'ELF checksum mismatch: {elf}')
@@ -36,17 +37,31 @@ def execute(test, simulator, root, output, timeout, cycles):
                 process.wait()
                 status = 'timeout'
             else:
-                lines = log_path.read_text(errors='replace').splitlines()
+                text = log_path.read_text(errors='replace')
+                lines = text.splitlines()
                 if any('SoC harness simulation timed out' in line for line in lines):
                     status = 'timeout'
                 elif code == 0 and 'SoC harness simulation passed' in lines:
-                    status = 'passed'
+                    required = test.get('required_output', [])
+                    forbidden = test.get('forbidden_output', [])
+                    if (not isinstance(required, list) or not isinstance(forbidden, list)
+                            or any(not isinstance(marker, str) or not marker for marker in required + forbidden)):
+                        raise ValueError(f'{test["name"]}: invalid output contract')
+                    missing = [marker for marker in required if marker not in text]
+                    present = [marker for marker in forbidden if marker in text]
+                    if missing or present:
+                        status = 'failed'
+                        reason = f'missing output {missing}; forbidden output {present}'
+                    else:
+                        status = 'passed'
                 else:
                     status = 'failed'
     except (OSError, ValueError) as error:
         log_path.write_text(str(error) + '\n')
     result = dict(name=test['name'], status=status, seconds=time.monotonic() - started,
                   log=str(log_path), command=command)
+    if reason:
+        result['reason'] = reason
     print(f'{status}: {test["name"]}', flush=True)
     return result
 
@@ -97,7 +112,7 @@ def main():
         case = ET.SubElement(suite, 'testcase', name=result['name'], time=str(result['seconds']))
         if result['status'] != 'passed':
             ET.SubElement(case, 'failure' if result['status'] == 'failed' else 'error',
-                          message=result['status']).text = f'See {result["log"]}'
+                          message=result['status']).text = result.get('reason', f'See {result["log"]}')
     ET.ElementTree(suite).write(args.output / 'junit.xml', encoding='unicode')
     print(json.dumps(summary))
     return 0 if summary['passed'] == len(tests) else 1

@@ -22,7 +22,14 @@ the repository's Apache-2.0 license does not replace those terms:
 
 - `riscv/riscv-arch-test`
 - `riscv/riscv-isa-tests`
+- `sims/program-test/coremark`
 - `vlsi/double_wide_openframe`
+
+CoreMark is used only from its pinned upstream checkout. Its license, result
+reporting conditions, acceptable-use terms, and trademark notice remain in
+[`sims/program-test/coremark/LICENSE.md`](sims/program-test/coremark/LICENSE.md).
+Rhodium uses CoreMark as a short functional workload and does not report a
+benchmark score.
 
 External tools, PDK collateral, libraries, and workloads downloaded or supplied
 during setup and testing are not distributed as original Rhodium content. Their

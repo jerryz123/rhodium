@@ -10,7 +10,7 @@ import subprocess
 
 
 def validate_target(target):
-    required = {'soc', 'xlen', 'extensions', 'march', 'mabi', 'ram'}
+    required = {'soc', 'xlen', 'extensions', 'march', 'mabi', 'clock_frequency_hz', 'ram'}
     if not isinstance(target, dict) or not required <= set(target):
         raise ValueError(f'program target must contain {sorted(required)}')
     extensions = target['extensions']
@@ -20,6 +20,7 @@ def validate_target(target):
             or len(extensions) != len(set(extensions)) or 'i' not in extensions
             or not isinstance(target['march'], str) or not target['march'].startswith(f'rv{target["xlen"]}i')
             or not isinstance(target['mabi'], str) or not target['mabi']
+            or not isinstance(target['clock_frequency_hz'], int) or target['clock_frequency_hz'] <= 0
             or not isinstance(target['ram'], list) or not target['ram']
             or any(not isinstance(region, dict) or set(region) != {'base', 'size'}
                    or not isinstance(region['base'], int) or not isinstance(region['size'], int)

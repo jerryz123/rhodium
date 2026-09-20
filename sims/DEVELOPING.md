@@ -39,7 +39,7 @@ systems cannot reuse another system's generated RTL.
 | PTY transport and serial conversion reused by every harness | [`../devices/uart-dpi.rhdl`](../devices/uart-dpi.rhdl), [`../devices/dpi/uart_dpi.cc`](../devices/dpi/uart_dpi.cc) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
-| Upstream ISA/benchmark builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
+| Upstream ISA/benchmark/CoreMark builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
 ## Add or change a harness
@@ -329,9 +329,12 @@ arbitrary external fabric fairness.
 test inventories. `program-test/write-target.rhm` projects the concrete SoC
 profile through the pure RISC-V GNU adapter, while `build.py` owns benchmark
 selection, mode choice, compiler probing, ELF-attribute checks, and
-content-addressed ELF directories. Update selections for architecture or
+content-addressed ELF directories. `build-coremark.py` separately compiles the
+pristine CoreMark submodule with the Rhodium-owned RV64 port under
+`program-test/coremark-riscv-baremetal/`; do not make the architecture-neutral
+benchmark a RISC-V package dependency. Update selections for architecture or
 execution-environment compatibility, never to hide failures. Keep sources in
-the pinned submodule untouched. Compiler/source/adapter changes must invalidate
+each pinned submodule untouched. Compiler/source/adapter changes must invalidate
 binary reuse; regenerate the manifest on every build invocation.
 
 Target-native benchmark builds are the default. `baseline` is an explicit
@@ -355,8 +358,13 @@ The simulation CI job reuses its MiniSoC and TiledSoC executables for
 `isa-smoke`, attempts both targets even if one fails, and uploads independent
 results. Changes to the adapter or upstream ISA sources must select that job.
 
-`program-test/run.py` owns ISA/benchmark process-group deadlines and JSON/JUnit
-reporting. ACT retains upstream `run_tests.py`; `arch-test/report.py` checks its
+`program-test/run.py` owns ISA, benchmark, and CoreMark process-group deadlines,
+manifest-declared output contracts, and JSON/JUnit reporting. CoreMark needs
+output contracts because its upstream `main` returns zero after reporting
+validation errors. The short CoreMark workload uses the standard performance
+seeds and requires their exact algorithm CRCs; the expected minimum-duration
+warning does not make this functional simulation workload fail. ACT retains
+upstream `run_tests.py`; `arch-test/report.py` checks its
 summary against the full generated inventory. Never interpret an empty or partial
 suite as success, and preserve the upstream runner's nonzero status independently
 of reporting. Failed generation must stop before DUT execution.
