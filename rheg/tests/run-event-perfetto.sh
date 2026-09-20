@@ -16,6 +16,15 @@ fi
 cmake -S "$repo_dir/rheg/perfetto" -B "$stream_test_dir/build" "${cmake_options[@]}"
 cmake --build "$stream_test_dir/build" -j 4
 ctest --test-dir "$stream_test_dir/build" --output-on-failure
+"$stream_test_dir/build/rheg-perfetto" --tracks "$stream_test_dir/build/shared-tracks.pftrace.tracks.json" "$stream_test_dir/build/shared-tracks.pftrace.json" > "$stream_test_dir/shared-replay.pftrace"
+cmp "$stream_test_dir/build/shared-tracks.pftrace" "$stream_test_dir/shared-replay.pftrace"
+"$stream_test_dir/build/rheg-perfetto" --gzip --tracks "$stream_test_dir/build/shared-tracks.pftrace.tracks.json" "$stream_test_dir/build/shared-tracks.pftrace.json" > "$stream_test_dir/shared-replay.pftrace.gz"
+gzip -dc "$stream_test_dir/shared-replay.pftrace.gz" | cmp - "$stream_test_dir/shared-replay.pftrace"
+if "$stream_test_dir/build/rheg-perfetto" --tracks "$stream_test_dir/missing.json" "$stream_test_dir/build/shared-tracks.pftrace.json" > "$stream_test_dir/rejected.pftrace" 2> "$stream_test_dir/rejected.log"; then
+  echo 'Expected missing track configuration to fail' >&2
+  exit 1
+fi
+test ! -s "$stream_test_dir/rejected.pftrace"
 "$stream_test_dir/build/event-stream-test" "$stream_test_dir/snapshot.json" "$stream_test_dir/live.pftrace"
 "$stream_test_dir/build/rheg-perfetto" "$stream_test_dir/snapshot.json" > "$stream_test_dir/replay.pftrace"
 cmp "$stream_test_dir/live.pftrace" "$stream_test_dir/replay.pftrace"
@@ -37,6 +46,16 @@ assert_query() {
     exit 1
   fi
 }
+for suffix in '' .gz; do
+  file="$stream_test_dir/build/shared-tracks.pftrace$suffix"
+  assert_query "$file" "SELECT count(*)=6 AND sum(name='issue')=2 AND sum(name='complete')=2 AND sum(name='launch')=2 AS ok FROM track WHERE EXTRACT_ARG(source_arg_set_id,'description') IS NOT NULL"
+  assert_query "$file" "SELECT count(*)=16 AND sum(s.name='stall' AND s.dur=20)=4 AND sum(s.name!='stall' AND s.dur=10)=12 AND max(s.depth)=0 AS ok FROM slice s"
+  assert_query "$file" "SELECT count(*)=8 AND sum(EXTRACT_ARG(arg_set_id,'debug.packed'))=4 AND sum(EXTRACT_ARG(arg_set_id,'debug.address')=42)=2 AND sum(EXTRACT_ARG(arg_set_id,'debug.op_index')=42)=2 AND sum(EXTRACT_ARG(arg_set_id,'debug.destination')=42)=2 AND sum(EXTRACT_ARG(arg_set_id,'debug.byte_mask')=42)=2 AS ok FROM slice WHERE name IN ('issue','complete')"
+  assert_query "$file" "SELECT count(*)=4 AND sum(json_array_length(EXTRACT_ARG(source_arg_set_id,'description'),'$.sites')=CASE name WHEN 'issue' THEN 4 ELSE 2 END)=4 AND sum(json_type(EXTRACT_ARG(source_arg_set_id,'description'),'$.fields') IS NULL)=4 AS ok FROM track WHERE name IN ('issue','complete')"
+  assert_query "$file" "WITH expected(p,c) AS (VALUES(0,10),(0,30),(0,50),(50,60),(70,80),(80,90)) SELECT count(*)=12 AND sum(pt.parent_id=ct.parent_id)=12 AS ok FROM flow f JOIN slice p ON p.id=f.slice_out JOIN slice c ON c.id=f.slice_in JOIN track pt ON pt.id=p.track_id JOIN track ct ON ct.id=c.track_id JOIN expected e ON p.ts=e.p AND c.ts=e.c"
+  assert_query "$file" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
+done
+assert_query "$stream_test_dir/build/shared-tracks.pftrace.prefix" "SELECT count(*)=6 AND sum(name='stall' AND dur=20)=2 AND sum(name='stall' AND dur=-1)=2 AS ok FROM slice"
 assert_query "$stream_test_dir/build/qualified-labels.pftrace" "WITH expected(track,label) AS (VALUES('frontend.s0.request','request'),('backend.s0.request','request'),('plain','plain'),('trailing.','trailing.')) SELECT count(*)=4 AND count(DISTINCT s.track_id)=4 AND sum(s.name=e.label AND s.dur=10)=4 AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN expected e ON e.track=t.name"
 for suffix in '' .gz; do
   file="$stream_test_dir/build/hierarchy.pftrace$suffix"

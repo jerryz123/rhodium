@@ -83,9 +83,11 @@ struct Description {
   std::vector<Site> sites;
   std::vector<std::uint32_t> track_sites;
   std::vector<bool> shared_tracks;
+  std::vector<Site> track_displays;
+  std::set<std::uint32_t> grouped_tracks;
   std::map<std::uint32_t, Json> gaps;
 };
-Description describe(const Json& json) {
+Description describe(const Json& json, const PerfettoTrackGroups& track_groups = {}) {
   format(json, "rhodium-event-graph");
   Description result;
   result.manifest.json = json.dump();
@@ -141,6 +143,27 @@ Description describe(const Json& json) {
     }
   }
   result.shared_tracks.resize(result.sites.size(), false);
+  result.track_displays = result.sites;
+  std::map<std::uint32_t, std::uint32_t> grouped;
+  for (const auto& group : track_groups) {
+    require(group.sites.size() >= 2, "track group requires at least two transfer sites");
+    std::set<std::uint32_t> members;
+    for (const auto& id : group.sites) {
+      const auto site = ids.find(id);
+      require(site != ids.end(), "unknown track group site");
+      require(result.sites[site->second].kind == "transfer", "track group must name transfer sites, not stalls");
+      require(members.insert(site->second).second && !grouped.count(site->second), "duplicate track group site");
+    }
+    // Canonical UUID and descriptor ordering do not depend on option ordering.
+    const auto representative = *members.begin();
+    for (auto member : members) grouped.emplace(member, representative);
+    result.grouped_tracks.insert(representative);
+    result.shared_tracks[representative] = true;
+    auto& display = result.track_displays[representative];
+    display.label = group.label;
+    display.group.clear();
+    display_path(display, true);
+  }
   for (std::size_t i = 0; i < result.sites.size(); ++i) {
     const auto& site = result.sites[i];
     auto track = static_cast<std::uint32_t>(i);
@@ -149,8 +172,9 @@ Description describe(const Json& json) {
       require(observed != ids.end() && result.sites[observed->second].kind == "transfer",
               "stall must observe a transfer site");
       track = observed->second;
-      result.shared_tracks[track] = true;
     }
+    if (grouped.count(track)) track = grouped.at(track);
+    if (site.kind == "stall") result.shared_tracks[track] = true;
     result.track_sites.push_back(track);
   }
   require(json.at("dependencies").is_array(), "dependencies must be an array");
@@ -353,8 +377,9 @@ struct PerfettoWriter::Impl {
   bool finished = false;
   std::unique_ptr<GzipEncoder> gzip;
 
-  Impl(std::ostream& out, const Manifest& manifest, TraceTiming clock, PerfettoCompression compression)
-      : output(out), description(describe(parse(manifest.json))), timing(clock) {
+  Impl(std::ostream& out, const Manifest& manifest, TraceTiming clock, PerfettoCompression compression,
+       const PerfettoTrackGroups& track_groups)
+      : output(out), description(describe(parse(manifest.json), track_groups)), timing(clock) {
     require(timing.clock_frequency_hz != 0, "positive clock frequency required");
     require(description.manifest.payload_widths == manifest.payload_widths &&
             description.manifest.dependencies == manifest.dependencies &&
@@ -383,7 +408,7 @@ struct PerfettoWriter::Impl {
     std::map<std::string, std::uint64_t> groups;
     for (std::size_t i = 0; i < description.sites.size(); ++i) {
       if (description.track_sites[i] != i) continue;
-      for (auto path = description.sites[i].group; !path.empty(); path = parent_path(path))
+      for (auto path = description.track_displays[i].group; !path.empty(); path = parent_path(path))
         groups.emplace(path, 0);
     }
     auto next_track = root_track;
@@ -430,11 +455,17 @@ struct PerfettoWriter::Impl {
     for (std::size_t i = 0; i < description.sites.size(); ++i) {
       if (description.track_sites[i] != i) continue;
       std::string track, pkt;
-      const auto& display = description.sites[i];
+      const auto& display = description.track_displays[i];
       integer(track, 1, i + 1); integer(track, 5, display.group.empty() ? root_track : groups.at(display.group));
       bytes(track, 2, display.track_name); integer(track, 15, 2);
       auto site = site_description(i);
-      if (description.shared_tracks[i]) {
+      if (description.grouped_tracks.count(i)) {
+        // No representative schema: every original transfer and observer keeps
+        // its own identity, fields, and ancestry gaps in static metadata.
+        site = {{"label", display.label}, {"sites", Json::array()}};
+        for (std::size_t j = 0; j < description.sites.size(); ++j)
+          if (description.track_sites[j] == i) site["sites"].push_back(site_description(j));
+      } else if (description.shared_tracks[i]) {
         site["observations"] = Json::array();
         for (std::size_t j = 0; j < description.sites.size(); ++j)
           if (j != i && description.track_sites[j] == i)
@@ -640,11 +671,28 @@ struct PerfettoWriter::Impl {
   }
 };
 PerfettoWriter::PerfettoWriter(std::ostream& output, const Manifest& manifest, TraceTiming timing,
-                               PerfettoCompression compression)
-    : impl_(std::make_unique<Impl>(output, manifest, timing, compression)) {}
+                               PerfettoCompression compression, const PerfettoTrackGroups& track_groups)
+    : impl_(std::make_unique<Impl>(output, manifest, timing, compression, track_groups)) {}
 PerfettoWriter::~PerfettoWriter() = default;
 void PerfettoWriter::write(const CycleBatch& batch) { impl_->write(batch); }
 void PerfettoWriter::finish() { impl_->finish(); }
+
+PerfettoTrackGroups read_perfetto_track_groups(std::istream& input) {
+  const auto json = parse(input);
+  format(json, "rheg-perfetto-tracks");
+  require(json.size() == 3 && json.at("tracks").is_array(), "invalid track group configuration");
+  PerfettoTrackGroups groups;
+  std::set<std::string> sites;
+  for (const auto& group : json.at("tracks")) {
+    require(group.is_object() && group.size() == 2 && group.at("sites").is_array(), "invalid track group");
+    groups.push_back({group.at("label").get<std::string>(), group.at("sites").get<std::vector<std::string>>()});
+    require(groups.back().sites.size() >= 2, "track group requires at least two transfer sites");
+    Site display{}; display.label = groups.back().label; display_path(display, true);
+    for (const auto& id : groups.back().sites)
+      require(!id.empty() && sites.insert(id).second, "empty or duplicate track group site");
+  }
+  return groups;
+}
 
 Snapshot read_event_trace(std::istream& input) {
   const auto json = parse(input);
@@ -672,11 +720,12 @@ Snapshot read_event_trace(std::istream& input) {
   for (const auto& edge : occurrences.at("edges")) graph.record_edge(ref(edge.at("parent")), ref(edge.at("child")));
   return graph.snapshot();
 }
-void write_perfetto(std::ostream& output, const Snapshot& snapshot, PerfettoCompression compression) {
+void write_perfetto(std::ostream& output, const Snapshot& snapshot, PerfettoCompression compression,
+                    const PerfettoTrackGroups& track_groups) {
   require(snapshot.timing().has_value(), "Perfetto export requires timing");
   CycleBatch batch{0, snapshot.nodes(), snapshot.edges()};
   for (const auto& entry : batch.nodes) batch.cycle = std::max(batch.cycle, entry.second.cycle);
-  PerfettoWriter writer(output, snapshot.manifest(), *snapshot.timing(), compression);
+  PerfettoWriter writer(output, snapshot.manifest(), *snapshot.timing(), compression, track_groups);
   writer.write(batch);
   writer.finish();
 }

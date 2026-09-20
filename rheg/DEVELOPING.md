@@ -114,6 +114,15 @@ and emit parent-first custom descriptors with lexicographic child ordering.
 Groups carry no occurrences; group/leaf name collisions must not alias UUIDs.
 Resolve observers through `track_sites`, never their own display path. Keep full
 labels in static track descriptions; track names contain only the leaf.
+Explicit `PerfettoTrackGroups` generalize this mapping without altering the
+manifest or collector: resolve exact transfer IDs first, choose the lowest site
+index as the group's stable UUID representative, then attach all companions.
+Keep display overrides separate from site labels and schemas. Group option
+order must not affect bytes; unknown or multiply assigned sites must fail before
+output. A grouped descriptor lists complete original descriptions in `sites`,
+not a representative schema. Reuse the same-cycle occupancy check and
+site-qualified stall continuation rules for all members. Keep core-specific
+selection policy out of this library; the caller supplies the mapping explicitly.
 Default slice names use only the final dot-separated component of that leaf;
 retain the whole leaf if that component is empty. Apply this only to the site-label
 fallback, never to enum symbols or dotted instruction mnemonics. An explicit enum label field uses the compiler-supplied symbol table,
@@ -198,6 +207,7 @@ No Python package, launcher, or RPC server participates in these tests.
 | Streaming and replay | Byte-identical output, watermarks, every flushed prefix, delayed fanout and same-cycle joins with reversed site ordering; interning across batches and capacity fallback; terminal-start omission and possible-source retention |
 | Native display | One-cycle durations, fractional periods, N+1 overflow, track hierarchy/order, repeated labels without thread association, flow attachment, metadata even in empty traces and no parser errors |
 | Stall intervals | Stable-run coalescing across batch partitions; capture, parent-set, sequence, gap, transfer and finalization boundaries; open prefixes, exact durations and UINT64_MAX; graph preservation and collapsed parent arrows |
+| Shared tracks | Exact-site grouping, alternate modes and schemas, two instances, observer-site switches with equal captures, unchanged flow endpoints, collision atomicity, invalid configurations, and live/replay/gzip/CLI parity |
 | Disassembly | RV32/RV64, compressed/FP/CSR instructions, PC-relative targets and wraparound, `auipc`, unknown fallbacks, explicit aliases, ordinary fields named instruction, multi-instruction fallback and live/replay parity |
 | Failure handling | Strict JSON rejection, invalid batches, poisoned output streams, nonzero converter errors and empty/malformed inputs |
 | Compression | Gzip round-trip equality, live/replay import, multi-buffer incremental output, empty traces/batches, finalization and poisoned write/footer failures |

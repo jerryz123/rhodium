@@ -149,6 +149,13 @@ Open the resulting `.pftrace` in Perfetto. Traced builds live in
 (the default) neither instruments RTL nor links the optional exporter.
 Direct invocation of a traced binary requires `+rheg-trace=/absolute/path`.
 The same binary can run different target programs and trace destinations.
+Optionally set `RHEG_PERFETTO_TRACKS=/absolute/path/to/vector-tracks.json`
+when running the traced binary or `make ... TRACE=1`. The binding passes the
+[explicit shared-track configuration](../rheg/README.md#explicit-shared-tracks)
+to the common exporter; it never infers grouping from labels. Use exact site IDs
+from that build's descriptor. This combines mutually exclusive mode sites without
+changing RTL or lineage; changes to the configuration need no simulator rebuild.
+Existing simulator binaries must first be rebuilt with this binding version.
 Choose a filename ending in `.gz` to enable streaming gzip compression in the
 C++ exporter; other names retain raw protobuf output. Open the completed gzip
 file directly in Perfetto. Compression preserves all events, fields, and edges.

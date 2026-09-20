@@ -22,6 +22,7 @@ expect_failure() {
 }
 expect_failure '+rheg-trace=PATH is required' "$simulator" "$program"
 expect_failure 'cannot open trace output' "$simulator" "+rheg-trace=$driver_test_dir/missing/trace.pftrace" "$program"
+expect_failure 'cannot open track group configuration' env RHEG_PERFETTO_TRACKS="$driver_test_dir/missing.json" "$simulator" "+rheg-trace=$driver_test_dir/missing-config.pftrace" "$program"
 for suffix in .pftrace .pftrace.gz; do
   expect_failure 'SoC harness simulation timed out' "$simulator" "+rheg-trace=$driver_test_dir/timeout$suffix" +max-cycles=50 "$program"
   if [[ "$suffix" == *.gz ]]; then gzip -t "$driver_test_dir/timeout$suffix"; fi
@@ -31,4 +32,4 @@ for suffix in .pftrace .pftrace.gz; do
     exit 1
   fi
 done
-echo 'Trace driver missing-path, open-failure, and timeout-prefix checks passed'
+echo 'Trace driver missing-path, open-failure, missing-config, and timeout-prefix checks passed'

@@ -281,6 +281,67 @@ postprocessor, not a parser for the optional cycle-batch JSON log. Streaming
 passes typed batches directly to the writer, without JSON serialization or a
 helper process. Streaming and replay use identical uncompressed ordering and encoding.
 
+### Explicit shared tracks
+
+Distinct annotation sites stay on separate tracks by default, even when their
+labels match. For mutually exclusive modes of one logical facility, supply
+`PerfettoTrackGroups` as the fifth `PerfettoWriter` argument or fourth
+`write_perfetto` argument (after compression). Each group contains a display
+`label` and at least two exact transfer-site IDs. Stall companions automatically
+follow their transfer site. This changes only presentation, not graph identity,
+captures, or parent edges.
+
+Both APIs accept groups parsed by `read_perfetto_track_groups(input)`. The
+standalone converter accepts the same version-1 configuration with `--tracks`:
+
+```json
+{
+  "format": "rheg-perfetto-tracks",
+  "version": 1,
+  "tracks": [
+    {
+      "label": "vector/issue",
+      "sites": [
+        "SoCHarness/soc/rv5stage/core/wb_vector/execution/event:0",
+        "SoCHarness/soc/rv5stage/core/wb_vector/execution/packed/event:0"
+      ]
+    },
+    {
+      "label": "vector/complete",
+      "sites": [
+        "SoCHarness/soc/rv5stage/core/wb_vector/execution/event:1",
+        "SoCHarness/soc/rv5stage/core/wb_vector/execution/packed/event:1"
+      ]
+    }
+  ]
+}
+```
+
+These illustrative IDs must match the actual trace manifest; event indices can
+change between builds. There is no wildcard or global label-based merging.
+Name each instance's sites explicitly and use separate display paths such as
+`core0/vector/issue` and `core1/vector/issue` for multiple vector instances.
+Unlisted sites retain their original tracks. Unknown IDs, repeated membership,
+stall IDs, groups smaller than two sites, and empty hierarchy segments fail
+before trace output. Same-cycle collisions between any members, including
+stalls, reject the entire batch without advancing the writer. Sharing a track
+asserts exclusivity; it does not arbitrate or suppress events.
+
+```sh
+/tmp/rhodium-perfetto-build/rheg-perfetto --gzip --tracks vector-tracks.json snapshot.json > replay.pftrace.gz
+```
+
+Shared-track descriptions contain `label` plus a `sites` array with every
+original transfer and observation's complete description. They do not advertise
+one representative payload schema. Each slice is decoded with its originating
+site's schema; slice names retain the usual site-specific rules. A stall run
+ends when its originating site changes, even if captures and parents match.
+No extra per-occurrence bookkeeping is emitted. The simulator binding accepts
+this file through `RHEG_PERFETTO_TRACKS`; see the
+[simulator trace guide](../sims/README.md#export-simplesoc-events-to-perfetto).
+
+### Compression and encoding
+
 For live gzip compression, pass `rheg::PerfettoCompression::Gzip` as the fourth
 `PerfettoWriter` constructor argument; `write_perfetto` accepts the same option
 as its third argument. Uncompressed output remains the default. Compression runs
@@ -334,7 +395,8 @@ supply the instrumentation's event-cycle count, not an unrelated harness tick.
 
 Each transfer becomes a one-cycle slice spanning `[N, N+1)` on a track named
 with the leaf of its annotated transfer label, without a synthetic thread-ID suffix. Each
-transfer site retains a separate track even when labels repeat; its stall
+transfer site retains a separate track even when labels repeat, unless explicitly
+listed in a [shared-track group](#explicit-shared-tracks); its stall
 observations share that track. These are non-thread tracks
 grouped under a custom track named for the top-level design. Explicit labels use
 `/` to create nested groups: `x/y.b/c` places track `c` under groups `x` and `y.b`.
@@ -353,7 +415,7 @@ Labels without slashes keep their previous display. Empty path segments (`/x`,
 `x/`, or `x//y`) are rejected before output; there is no escaping or path normalization.
 Only explicit labels are parsed: legacy sites without a label keep their entire
 hardware ID as a flat track name. Display groups do not imply RTL hierarchy or
-graph dependencies. Repeated complete labels remain separate event tracks;
+graph dependencies. Repeated complete labels alone never merge event tracks;
 an event named `x` is distinct from the group used by `x/y`. Stall companions
 always use their transfer's track, regardless of their own label.
 Frequency and epoch are emitted once before occurrences as trace metadata,
@@ -361,7 +423,7 @@ available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and
 `cr-rheg.epoch_id`, with exact decimal `str_value` values. Even an empty trace
 or the first flushed prefix contains these values.
 
-Each event track's description is JSON containing numeric `site`, `site_id`, full `label`,
+Without an explicit shared-track group, each event track's description is JSON containing numeric `site`, `site_id`, full `label`,
 `source_location`, `payload_width`, `kind`, and, for named captures, the ordered
 `fields` layout of its transfer site. A shared track also has an `observations`
 array containing each companion's full site description, including `kind: "stall"`

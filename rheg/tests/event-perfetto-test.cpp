@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include <zlib.h>
+#include <algorithm>
 #include <array>
 #include <fstream>
 #include <iostream>
@@ -461,9 +462,130 @@ void stall_runs(const std::string& path) {
   terminal.write(batch(UINT64_MAX,{2,UINT64_MAX},8)); terminal.finish();
   std::ofstream last(path+".maximum",std::ios::binary); last << maximum.str(); last.close(); check(bool(last));
 }
+void shared_tracks(const std::string& path) {
+  // Two instances alternate modes. Stall captures deliberately match across a
+  // site change, including consecutive sequence numbers and the same parent.
+  Manifest descriptor;
+  std::ostringstream json;
+  json << R"({"format":"rhodium-event-graph","version":1,"top":"Modes","sites":[)";
+  const std::array<std::string,7> suffixes = {"launch","execution/issue","execution/issue.stall",
+      "execution/packed/issue","execution/packed/issue.stall","execution/complete","execution/packed/complete"};
+  PerfettoTrackGroups groups;
+  std::ostringstream config;
+  config << R"({"format":"rheg-perfetto-tracks","version":1,"tracks":[)";
+  for (unsigned core = 0; core < 2; ++core) {
+    const auto scope = "soc/core" + std::to_string(core) + "/vector/";
+    const auto display = "core" + std::to_string(core) + "/vector/";
+    for (unsigned s = 0; s < suffixes.size(); ++s) {
+      if (core || s) json << ',';
+      const bool stall = s == 2 || s == 4;
+      const bool packed = s == 3 || s == 6;
+      const unsigned width = !s ? 0 : stall ? 8 : packed ? 17 : 9;
+      const auto label = !s ? display + "launch" : s < 5 ? "vector/issue" : "vector/complete";
+      json << "{\"id\":\"" << scope << suffixes[s] << "\",\"label\":\"" << label << "\",\"payload_width\":" << width;
+      if (stall) json << ",\"kind\":\"stall\",\"observation_of\":\"" << scope << suffixes[s-1] << '"';
+      json << ",\"fields\":[";
+      std::vector<Field> fields;
+      if (s) {
+        const std::string field = stall ? "reason" : s == 1 ? "op_index" : s == 3 ? "address" : s == 5 ? "destination" : "byte_mask";
+        const auto bits = stall ? 8 : width-1;
+        if (!stall) {
+          fields.push_back({"packed",1,bits,"bool"});
+          json << "{\"name\":\"packed\",\"width\":1,\"offset\":" << bits << ",\"encoding\":\"bool\"},";
+        }
+        fields.push_back({field,bits,0,"unsigned"});
+        json << "{\"name\":\"" << field << "\",\"width\":" << bits << ",\"offset\":0,\"encoding\":\"unsigned\"}";
+      }
+      json << "]}";
+      descriptor.payload_widths.push_back(width); descriptor.fields.push_back(fields);
+    }
+    for (const auto& indices : {std::pair<unsigned,unsigned>{1,3}, {5,6}}) {
+      const auto label = display + (indices.first == 1 ? "issue" : "complete");
+      groups.push_back({label,{scope+suffixes[indices.first],scope+suffixes[indices.second]}});
+      if (groups.size() > 1) config << ',';
+      config << "{\"label\":\"" << label << "\",\"sites\":[\"" << groups.back().sites[0] << "\",\"" << groups.back().sites[1] << "\"]}";
+    }
+    for (unsigned child : {1,2,3,4}) descriptor.dependencies.emplace(core*7,core*7+child);
+    descriptor.dependencies.emplace(core*7+1,core*7+5);
+    descriptor.dependencies.emplace(core*7+3,core*7+6);
+  }
+  json << "],\"dependencies\":[";
+  bool first = true;
+  for (auto [parent,child] : descriptor.dependencies) {
+    if (!first) json << ',';
+    first = false;
+    json << "{\"parent\":\"soc/core" << parent/7 << "/vector/" << suffixes[parent%7]
+         << "\",\"child\":\"soc/core" << child/7 << "/vector/" << suffixes[child%7] << "\"}";
+  }
+  json << "]}"; descriptor.json = json.str(); config << "]}";
+  std::istringstream options(config.str()); groups = read_perfetto_track_groups(options);
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
+  std::ostringstream live, zipped;
+  PerfettoWriter writer(live,descriptor,{100000000},PerfettoCompression::None,groups);
+  PerfettoWriter gzip(zipped,descriptor,{100000000},PerfettoCompression::Gzip,groups);
+  const auto prefix = live.str();
+  for (auto other : {3U,2U,4U}) {
+    auto conflict = batch(0,{1,0},9);
+    conflict.nodes.emplace(Ref{other,0},Node{true,0,descriptor.payload_widths[other],{{0,42}}});
+    rejects([&] { writer.write(conflict); }, "multiple occurrences on a shared track");
+    check(live.str() == prefix, "group collision wrote output");
+  }
+  for (unsigned cycle = 0; cycle < 10; ++cycle) {
+    for (unsigned core = 0; core < 2; ++core) {
+      const auto base = core*7;
+      const unsigned s = cycle == 0 || cycle == 7 ? 0 : cycle <= 2 ? 2 : cycle <= 4 ? 4 : cycle == 5 ? 3 : cycle == 6 ? 6 : cycle == 8 ? 1 : 5;
+      const Ref ref{base+s, s == 0 ? unsigned(cycle == 7) : s == 2 || s == 4 ? cycle-1 : 0};
+      graph.record_node(ref,cycle,descriptor.payload_widths[ref.site]);
+      if (s) graph.record_payload(ref,0,(s == 3 || s == 6 ? 65536 : 0) | 42);
+      if (s) graph.record_edge({base+(s == 6 ? 3U : s == 5 ? 1U : 0U), cycle == 8 ? 1U : 0U},ref);
+    }
+    const auto settled = graph.finish_cycle(cycle);
+    writer.write(settled); gzip.write(settled);
+    if (cycle == 3) {
+      std::ofstream file(path+".prefix",std::ios::binary); file << live.str(); file.close(); check(bool(file));
+    }
+  }
+  writer.finish(); gzip.finish(); graph.end_stream();
+  const auto snapshot = graph.snapshot();
+  check(snapshot.nodes().size() == 20 && snapshot.edges().size() == 16, "grouping changed graph identity");
+  std::istringstream saved(snapshot.json()); std::ostringstream replay;
+  write_perfetto(replay,read_event_trace(saved),PerfettoCompression::None,groups);
+  check(replay.str() == live.str() && inflate_trace(zipped.str()) == live.str(), "grouped live/replay/gzip differ");
+  check(flow_counts(live.str()) == std::make_pair(8U,12U), "grouping changed lineage");
+  auto reversed = groups;
+  std::reverse(reversed.begin(),reversed.end());
+  for (auto& group : reversed) std::reverse(group.sites.begin(),group.sites.end());
+  std::ostringstream reordered; write_perfetto(reordered,snapshot,PerfettoCompression::None,reversed);
+  check(reordered.str() == live.str(), "track configuration order changed output");
+  for (const auto& [suffix,contents] : std::vector<std::pair<std::string,std::string>>{
+         {"",live.str()},{".gz",zipped.str()},{".json",snapshot.json()},{".tracks.json",config.str()}}) {
+    std::ofstream file(path+suffix,std::ios::binary); file << contents; file.close(); check(bool(file));
+  }
+  auto invalid = [&](const PerfettoTrackGroups& options, const char* diagnostic) {
+    for (auto mode : {PerfettoCompression::None,PerfettoCompression::Gzip}) {
+      std::ostringstream output;
+      rejects([&] { PerfettoWriter rejected(output,descriptor,{100000000},mode,options); },diagnostic);
+      check(output.str().empty(), "invalid grouping wrote a header");
+    }
+  };
+  invalid({{"issue",{groups[0].sites[0],"missing"}}},"unknown track group site");
+  invalid({{"issue",{groups[0].sites[0],groups[0].sites[0]}}},"duplicate track group site");
+  invalid({groups[0],groups[0]},"duplicate track group site");
+  invalid({{"issue",{groups[0].sites[0],groups[0].sites[0]+".stall"}}},"not stalls");
+  invalid({{"issue",{groups[0].sites[0]}}},"at least two");
+  invalid({{"vector//issue",groups[0].sites}},"empty hierarchy segment");
+  invalid({{"",groups[0].sites}},"empty hierarchy segment");
+  for (const auto& bad : {std::string("{}"), std::string(R"({"format":"rheg-perfetto-tracks","version":2,"tracks":[]})"),
+       std::string(R"({"format":"rheg-perfetto-tracks","version":1,"tracks":[{"label":"x","sites":["a","a"]}]})")}) {
+    bool rejected = false;
+    try { std::istringstream input(bad); read_perfetto_track_groups(input); } catch (const std::exception&) { rejected = true; }
+    check(rejected, "malformed track configuration accepted");
+  }
+}
 }
 int main(int argc, char** argv) {
   check(argc == 2);
+  shared_tracks(std::string(argv[1])+"/shared-tracks.pftrace");
   {
     auto descriptor = manifest();
     const auto ending = descriptor.json.rfind('}');

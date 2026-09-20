@@ -3,6 +3,7 @@
 #include "rheg_perfetto.h"
 #include "soc_events.h"
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -32,7 +33,13 @@ extern "C" int rheg_sim_open(const char* path) {
     const std::string_view name(path);
     const auto compression = name.size() >= 3 && name.substr(name.size() - 3) == ".gz"
         ? rheg::PerfettoCompression::Gzip : rheg::PerfettoCompression::None;
-    writer = std::make_unique<rheg::PerfettoWriter>(output, header.manifest(), *header.timing(), compression);
+    rheg::PerfettoTrackGroups groups;
+    if (const char* path = std::getenv("RHEG_PERFETTO_TRACKS")) {
+      std::ifstream config(path);
+      if (!config) throw std::runtime_error("cannot open track group configuration");
+      groups = rheg::read_perfetto_track_groups(config);
+    }
+    writer = std::make_unique<rheg::PerfettoWriter>(output, header.manifest(), *header.timing(), compression, groups);
   });
 }
 

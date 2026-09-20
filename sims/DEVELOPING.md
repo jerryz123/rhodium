@@ -100,6 +100,9 @@ and configured frequency alongside MLIR. The opt-in build links `rheg_dpi.cc`
 with the independent RHEG libraries. Do not duplicate collector or encoder
 logic in this adapter. The adapter selects gzip only for a `.gz` output suffix and calls
 the exporter's checked `finish()` before closing the file on exit or timeout.
+`RHEG_PERFETTO_TRACKS` optionally names an explicit shared-track configuration.
+Parse it with the common exporter API and pass it unchanged to the writer;
+do not duplicate membership, capture-schema, or collision logic in the binding.
 `TestDriver.v` releases reset and observes completion on
 falling edges; trace batches therefore follow all rising-edge callbacks.
 Bind descriptor and timing before callbacks, and flush the final settled cycle
@@ -127,7 +130,7 @@ same-cycle edge families, paired payload/sequence equality, exact configured
 timestamps, one-cycle transfers, continuous stall ranges, readable track labels,
 and importer errors.
 It loads `tests/event-tracks.sql` first: the `rheg_tracks` view exposes full
-annotation labels as `name` and local display names as `leaf_name`. Load that
+annotation labels (or explicit shared-track labels) as `name` and local display names as `leaf_name`. Load that
 preamble before running an individual `check-*-events.sql` query too. Groups have
 no event schema and are excluded from this view. Check visual parent chains and
 ordering against native `track`, not by assuming every event is a root child.
