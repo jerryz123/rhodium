@@ -69,6 +69,30 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 
 ## WB allocation and autonomous execution
 
+### Event tracing
+
+The optional event compiler observes three milestones, not numbered pipeline
+stages: `vector/launch` accepts a macro from scalar WB, `vector/issue` accepts
+one execution attempt, and `vector/complete` records an authorized beat's
+immediate completion or ordered deferred-result drain. One launch parents all
+its issue occurrences; every completion inherits its exact issue occurrence.
+Retries create fresh issue occurrences, while rejected and flushed attempts
+have no completion. Masked and empty beats can complete without a VRF write.
+Completion is distinct from scalar macro retirement.
+
+Launch captures PC, instruction, VL, VSTART, and encoded SEW/LMUL. Issue captures
+the macro-local operation index, exclusive element range, and last/empty flags;
+the operation index can repeat on retry and is not an event identity. Completion
+captures destination and VRF-write enable. Backpressure observations share the
+issue track. The trace carries ownership through existing storage; it does not
+infer register-data dependencies or add per-service events. Memory attempts
+continue through their existing Flow path toward the cache checkpoints, retaining
+partial-mode diagnostics at unmodeled boundaries.
+The core supplies its selected ISA for launch disassembly through `~trace_isa`;
+standalone vector pipelines default to the XLEN-appropriate IMAFDCV instruction set.
+
+### Execution ownership
+
 [`RV5StageVectorPipeline`](../vector.rhdl) contains the unroller, a vector bank
 with three general read ports and a dedicated `v0` mask shadow, packed SIMD
 execution, and private feed-forward operand/result registers.

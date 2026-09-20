@@ -360,6 +360,11 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   request.ready <== !occupied & !clear
   def accepted = request.fire()
   def authorized_event = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Authorized)
+  // One admitted macro owns every generated beat, including fresh attempts
+  // after retry. The existing pending queue carries that owner to issue.
+  def release_macro = occupied & (cancel.valid ||| fault ||| truncate ||| (authorized_event & feedback.bits.last))
+  describe_interface_retained_storage(accepted, release_macro, occupied, ~name: "macro")
+  describe_interface_contract(request, pending.ingress, "macro-beats", ~trace_model: interface_trace_retained(~name: "macro"))
   when (read_offer & !clear):
     assert(pending.ingress.ready, "vector_read_has_reserved_output_slot")
   when (gather_pipe.egress.valid & !clear):

@@ -34,6 +34,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   input pointer_masking: PointerMaskControl()
   wire recover: Bool
   def ex = issue |> to_valid() |> valid_pipe(1, ~flush: recover)
+  def Array(lookup_path, context_path) = ex |> fork_valid(2)
   def access = ex.bits.memory & ex.bits.enabled
   def address = apply_pointer_mask(xlen, ex.bits.address[0..xlen.width], pointer_masking)
   def width = ex.bits.memory_width.into(MemoryWidth)
@@ -48,7 +49,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
     writeback: RV5StageMemoryWriteback(slots).Vector(ex.bits.completion_tag)
     locality: RV5StageMemoryLocality.Default
   (
-    ex |> filter_valid(_token => access & !misaligned & !recover)
+    lookup_path |> filter_valid(_token => access & !misaligned & !recover)
       |> map_valid(_token => RV5StagePipelineReq(xlen)):
            address: request.address
            access: request.access
@@ -56,7 +57,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
            unsigned: request.unsigned
            data: request.data
   ) |> pipeline.request
-  def mem = ex |> map_valid(token => Lookup()):
+  def mem = context_path |> map_valid(token => Lookup()):
     token: token
     request: request
     misaligned: misaligned
@@ -66,13 +67,14 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
     outcome: mux(pipeline.response.valid, pipeline.response.bits.outcome, RV5StagePipelineOutcome.Slow)
     data: pipeline.response.bits.data
   def wb_context = wb |> valid_pipe(1, ~flush: recover)
+  def Array(request_path, decision_path) = wb_context |> fork_valid(2)
   def operation = wb_context.bits
   def token = operation.lookup.token
   def memory_operation = wb_context.valid & token.memory & token.enabled & !operation.lookup.misaligned
   def slow = memory_operation & (operation.outcome === RV5StagePipelineOutcome.Slow)
   def store_hit = memory_operation & (operation.outcome === RV5StagePipelineOutcome.StoreHit)
   pipeline.commit <== store_hit
-  wb_context |> filter_valid(_operation => slow) |> map_valid(operation => operation.lookup.request) |> offer_decoupled() |> memory.request
+  request_path |> filter_valid(_operation => slow) |> map_valid(operation => operation.lookup.request) |> offer_decoupled() |> memory.request
   def page_fault = memory_operation & ((operation.outcome === RV5StagePipelineOutcome.PageFault) ||| (slow & memory.request_fault))
   def access_fault = memory_operation & !page_fault & ((operation.outcome === RV5StagePipelineOutcome.AccessFault) ||| (slow & memory.request_access_fault))
   def fault = wb_context.valid & (operation.lookup.misaligned ||| page_fault ||| access_fault)
@@ -84,15 +86,16 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def page_cause = mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
   def access_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
   def alignment_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, xlen.width), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, xlen.width))
-  def decision = wb_context |> map_valid(operation => RV5StageVectorCommit(xlen)):
+  def decision = decision_path |> map_valid(operation => RV5StageVectorCommit(xlen)):
     pc: operation.lookup.token.context
     disposition: disposition
     slow: accepted
     data: operation.data
     cause: mux(page_fault, page_cause, mux(access_fault, access_cause, alignment_cause))
     fault_address: operation.lookup.request.address
-  decision |> feedback
-  decision |> filter_valid(event => (event.disposition =/= RV5StageVectorDisposition.Retry) & (token.last ||| fault)) |> outcome
+  def Array(feedback_path, outcome_path) = decision |> fork_valid(2)
+  feedback_path |> feedback
+  outcome_path |> filter_valid(event => (event.disposition =/= RV5StageVectorDisposition.Retry) & (token.last ||| fault)) |> outcome
   (
     memory.response |> map_valid(response => RV5StageVectorCompletion(xlen, slots)):
       tag: response.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload

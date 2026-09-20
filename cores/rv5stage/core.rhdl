@@ -651,7 +651,7 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   id_operation |> to_valid() |> id_ex_pipe.ingress
   if vector_enabled
   | block:
-      inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots))
+      inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots, ~trace_isa: trace_isa))
       reg wb_vector_context(DecodeExecute(xlen, vector_completion_slots))
       reg wb_vector_retirement(MemoryWriteback(xlen, vector_completion_slots))
       wb_fp.snapshot_read_address <== wb_vector_context.rs1

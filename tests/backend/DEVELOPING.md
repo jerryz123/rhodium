@@ -72,6 +72,15 @@ assertion benches, such as the RHEG collector for missing selected parents.
 The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, `event-join`, `event-stall`, and `event-offer` direct fixtures
 additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
+`event-vector` and `event-vector-one-slot` instrument the production vector
+execution engine. Their public-transfer oracle tracks launch/issue occurrences,
+fixed-cycle feedback, accepted slots, tagged returns, and ordered drain without
+reading generated metadata state. Equal-PC macros, retries after a prefix,
+fault/truncation, slot reuse, out-of-order returns, empty/store completions,
+stalls, and pending reset protect all three vector milestones.
+`rv5stage-vector-config` additionally instruments its existing real-core
+program and checks each launch against that cycle's scalar WB occurrence,
+while retaining its architectural signatures and exact VRF-write scoreboard.
 `event-window` additionally checks retained multi-entry contributions through
 downstream elastic storage against a public fill/release model. `event-frontend`
 runs the existing fetch bench against an instrumented production frontend;

@@ -28,7 +28,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
+sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: False || String = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def FpRequest = RV5StageFpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   def FpResult = RV5StageFpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
@@ -90,7 +90,15 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def clear = cancel.valid ||| retry ||| fault ||| truncating
   scoreboard.replay.valid <== clear
   completion |> loads.response
-  request |> gate_flow(!allocated.as_bits().or_reduce()) |> unroller.request
+  (
+    request |> gate_flow(!allocated.as_bits().or_reduce()) |> trace_event("vector/launch", ~fields: operation):
+      pc: operation.descriptor.pc
+      instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): operation.descriptor.instruction
+      vl(~format: "unsigned"): operation.descriptor.state.vl
+      vstart(~format: "unsigned"): operation.descriptor.state.vstart
+      sew(~format: "unsigned"): operation.descriptor.state.vtype[3..6]
+      lmul: operation.descriptor.state.vtype[0..3]
+  ) |> unroller.request
   cancel |> unroller.cancel
   unroller.reads <=> registers.reads
   registers.results <=> unroller.results
@@ -114,7 +122,13 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def deferred = unroller.issue.bits.beat.control.memory ||| unroller.issue.bits.beat.control.fp_service ||| unroller.issue.bits.beat.control.multiply_divide
   def fault_only_first = unroller.issue.bits.beat.control.memory & (unroller.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def available = !deferred ||| (!allocated[slot_index(unroller.issue.bits.beat.sequence)] & (!fault_only_first ||| !allocated.as_bits().or_reduce()))
-  def Array(token, operands) = unroller.issue |> gate_flow(available & !clear & !fold_inflight) |> atomic_fork(2)
+  def issued = unroller.issue |> trace_event("vector/issue", ~stalls: #true, ~fields: operation):
+    op_index(~format: "unsigned"): operation.beat.sequence
+    first(~format: "unsigned"): operation.beat.first
+    end(~format: "unsigned"): operation.beat.end
+    last: operation.beat.last
+    empty: operation.beat.empty
+  def Array(token, operands) = issued |> gate_flow(available & !clear & !fold_inflight) |> atomic_fork(2)
   (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
       context: operation.context
@@ -205,8 +219,19 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     assert(divide_operands.egress.valid & divide_authorized.ingress.ready, "vector_divide_wb_has_reserved_request_space")
   def drain_write = result.write.updated(~data: completion_data[head] << result.shift)
   def integer_write = successful & !(beat.memory ||| beat.floating_point ||| beat.multiply_divide) & beat.write.mask.or_reduce()
-  registers.write.valid <== integer_write ||| (drain & result.write.mask.or_reduce())
-  registers.write.bits <== mux(integer_write, beat.write, drain_write)
+  // Acceptance and drain are ordered even when service results arrive out of
+  // order. Trace the real entry writes/head reads, not response tag equality.
+  def Array(immediate_path, deferred_path) = wb_pipe.egress |> filter_valid(_beat => successful) |> fork_valid(2)
+  def immediate = immediate_path |> filter_valid(operation => !(operation.memory ||| operation.floating_point ||| operation.multiply_divide))
+  def accepted_results = deferred_path |> filter_valid(operation => operation.memory ||| operation.floating_point ||| operation.multiply_divide)
+  def drained = inject_flow(Valid(RV5StageVectorResultBeat(vlen)), ~valid: drain, ~bits: result.updated(~write: drain_write))
+  describe_interface_queue_storage(vector_completion_slots, deferred_commit, drain, head, wb_tag, authorized_slots[head], Bool(#false), ~name: "accepted-results")
+  describe_interface_contract(accepted_results, drained, "accepted-results", ~trace_model: interface_trace_queue(~name: "accepted-results"))
+  def finished = Array(immediate, drained) |> valid_arbiter() |> trace_valid_event("vector/complete", ~fields: operation):
+    destination(~format: "unsigned"): operation.destination
+    write_enabled: operation.write.mask.or_reduce()
+  assert(!(immediate.valid & drain), "vector_completion_routes_exclusive")
+  finished |> filter_valid(operation => operation.write.mask.or_reduce()) |> map_valid(_operation => mux(integer_write, beat.write, drain_write)) |> registers.write
   assert(!(integer_write & drain), "vector_integer_and_memory_write_owners_exclusive")
   fp_update.valid <== drain & result.fp_execute
   fp_update.bits <== completion_flags[head]

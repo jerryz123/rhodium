@@ -14,6 +14,41 @@ drain. The completion scoreboard is a bounded operation-owner table, not a
 multi-instruction renamer. Keep slot reservation, local acceptance, result
 arrival, and ordered release distinct.
 
+## Event ownership
+
+`pipeline.rhdl` owns the sparse launch, issue, and completion checkpoints.
+`unroller.rhdl` declares the retained descriptor's request-to-generated-beat
+relation at the pending queue ingress; the queue preserves that lineage through
+stalls and explicit flush. Capture on macro acceptance, preserve across retry,
+and release only on the actual occupied-to-idle conditions. Never use the PC or
+the replayable operation index as an occurrence identity.
+
+Immediate completion follows the operand/result pipes and successful local
+authorization. Deferred acceptance writes the real result-entry array at
+`wb_tag`; ordered drain reads `head` only after its response has completed.
+These accepted entries have FIFO ownership despite out-of-order result arrival,
+so the existing queue-storage contract carries their issue references using
+the original write/read controls. Speculative reservations are not captures;
+retry does not clear accepted owners. No trace model is asserted for arbitrary
+indexed response traversal. There is deliberately no response-arrival event.
+The immediate and drained flows merge before the completion checkpoint and
+feed the existing VRF write port, preserving its inactive payload selection.
+
+`memory.rhdl` explicitly forks the lookup/context, request/decision, and
+feedback/outcome branches; the parent composition likewise forks compute
+feedback from macro outcome. These synchronous Valid forks certify existing
+replication to cache service and retirement without adding storage or changing
+their predicates, payloads, or latency. Keep the vector/cache path visible to
+inference rather than adding another vector memory checkpoint.
+
+Run `event-vector` and `event-vector-one-slot` for exact public-transfer lineage,
+retries, fault/truncation, no-write completions, stalled issue, ordered drain,
+slot reuse, and pending reset. The multi-slot case returns younger responses
+first. Keep `rv5stage-vector-reduction`, `rv5stage-vector-config`, and the vector
+memory/FP/muldiv fixtures as functional regressions for the affected paths.
+
+## Implementation ownership
+
 The shared [`memory-arbiter.rhdl`](../memory-arbiter.rhdl) has separate Valid
 lookup and Decoupled transaction arbiters. A losing lookup gets an explicit
 Replay result in the response cycle. The winner's identity accompanies its

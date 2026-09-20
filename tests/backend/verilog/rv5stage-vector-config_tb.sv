@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_vector_config_tb;
+  import "DPI-C" function void vector_core_trace_bind();
+  import "DPI-C" function void vector_core_trace_finish();
   typedef struct packed {
     logic supervisor_software;
     logic machine_software;
@@ -168,6 +170,7 @@ module rv5stage_vector_config_tb;
             assert (data_access_out.request.bits.data == 204) else $fatal(1, "precise vector trap");
             assert (vector_writes == 46) else $fatal(1, "lost, duplicated, or squashed vector writes: %0d", vector_writes);
             assert (rejected_stores == 11) else $fatal(1, "each signature store must exercise exactly one replay");
+            #1; vector_core_trace_finish();
             $display("rv5stage vector configuration and integer pipeline passed");
             $finish;
           end
@@ -178,6 +181,7 @@ module rv5stage_vector_config_tb;
     end
   end
   initial begin
+    vector_core_trace_bind();
     interrupts = '0;
     repeat (4) @(posedge clock);
     @(negedge clock); reset = 0;

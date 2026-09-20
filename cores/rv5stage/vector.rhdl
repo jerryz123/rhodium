@@ -22,7 +22,7 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8):
+sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: False || String = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def Tag = Bits(index_width(slots))
   def MultiplyTag = RV5StageVectorMultiplyTag(slots)
@@ -48,7 +48,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   input pointer_masking: PointerMaskControl()
   output(active, unrolling, pending, stores_pending): Bool
 
-  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots))
+  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa))
   inst access(RV5StageVectorMemory(xlen, slots))
   reg store(~init: Bool(#false))
   reg captured_pointer_masking(PointerMaskControl())
@@ -70,10 +70,11 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
     fault_address: bits(0, xlen.width)
-  Array(compute_accept, access.feedback) |> valid_arbiter() |> execution.commit
+  def Array(compute_feedback, compute_retirement) = compute_accept |> fork_valid(2)
+  Array(compute_feedback, access.feedback) |> valid_arbiter() |> execution.commit
   assert(!(compute_accept.valid & access.feedback.valid), "vector_macro_has_one_execution_route")
   access.completion |> execution.completion
-  def compute_outcome = compute_accept |> filter_valid(_event => compute_wb.bits.last)
+  def compute_outcome = compute_retirement |> filter_valid(_event => compute_wb.bits.last)
   // LSU admission may depend on scalar requests. Register macro retirement so
   // its selection cannot feed scalar WB request formation in that same cycle.
   Array(compute_outcome, access.outcome) |> valid_arbiter() |> valid_pipe(1) |> outcome

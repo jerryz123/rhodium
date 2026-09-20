@@ -1,0 +1,87 @@
+#lang rhodium
+// Exposes production vector transfers for independent replay and completion-lineage tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../vector/pipeline.rhdl" open
+  "../vector/bundles.rhdl" open
+  "../vector/csr.rhdl" open
+  "../decode/core-ctrl.rhdl" open
+  "../../../riscv/isa/vector-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
+  def xlen = XLen.X64
+  input instruction: Bits(32)
+  input(vl, vstart, vtype): Bits(64)
+  input(request_valid, issue_ready, cancel, slow, response_valid): Bool
+  input disposition: RV5StageVectorDisposition
+  input response_tag: Bits(index_width(slots))
+  output(request_ready, active, issued, committed, last, enabled, memory): Bool
+  output issue_tag: Bits(index_width(slots))
+  inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
+  inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  inst tokens(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
+  decode.instruction <== instruction
+  vector.request.valid <== request_valid
+  vector.request.bits <== RV5StageVectorInstruction(xlen, Bits(64)):
+    context: bits(0x100, 64)
+    descriptor:
+      RV5StageVectorDescriptor(xlen):
+        pc: bits(0x100, 64)
+        instruction: instruction
+        state:
+          RV5StageVectorState(xlen):
+            vl: vl
+            vtype: vtype
+            vstart: vstart
+            vxrm: bits(0, 2)
+            vxsat: Bool(#false)
+        control: decode.control.vector
+        scalar: bits(0, 64)
+        floating_scalar: bits(0, 64)
+        stride: bits(0, 64)
+        vd: instruction[7..12]
+        vs1: instruction[15..20]
+        vs2: instruction[20..25]
+        masked: !instruction[25].into(Bool)
+  vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
+  def recovering = cancel ||| (tokens.egress.valid & (disposition =/= RV5StageVectorDisposition.Authorized))
+  tokens.flush <== recovering
+  vector.cancel.valid <== cancel
+  (
+    tokens.egress |> filter_valid(_token => !cancel) |> map_valid(token => RV5StageVectorCommit(xlen)):
+      pc: bits(0x100, 64)
+      disposition: disposition
+      slow: slow & token.enabled
+      data: bits(0, 64)
+      cause: bits(0, 64)
+      fault_address: bits(0, 64)
+  ) |> vector.commit
+  vector.completion.valid <== response_valid
+  vector.completion.bits <== RV5StageVectorCompletion(xlen, slots):
+    tag: response_tag
+    data: bits(0, 64)
+  vector.memory_drained <== Bool(#true)
+  vector.rounding_mode <== literal(vector.rounding_mode.type, 0)
+  vector.fp_request.ready <== Bool(#false)
+  vector.fp_result.valid <== Bool(#false)
+  vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)
+  vector.multiply_request.ready <== Bool(#false)
+  vector.multiply_result.valid <== Bool(#false)
+  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
+  vector.divide_request.ready <== Bool(#false)
+  vector.divide_result.valid <== Bool(#false)
+  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  request_ready <== vector.request.ready
+  active <== vector.active
+  issued <== vector.issue.fire()
+  committed <== vector.commit.valid
+  issue_tag <== vector.issue.bits.completion_tag
+  last <== vector.issue.bits.last
+  enabled <== vector.issue.bits.enabled
+  memory <== vector.issue.bits.memory
+
+export RV5StageVectorTrace
