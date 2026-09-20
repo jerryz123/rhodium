@@ -9,3 +9,4 @@
 0007-align-vector-fp-wide-source-data.patch
 0008-reserve-vfmv-broadcast-destination-group.patch
 0009-gate-fault-first-access-fault-generation.patch
+0010-size-exceptions-sm-trap-signatures.patch

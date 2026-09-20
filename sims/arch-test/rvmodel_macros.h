@@ -21,10 +21,15 @@
 #define RVMODEL_IO_INIT(_R1, _R2, _R3)
 #define RVMODEL_IO_WRITE_STR(_R1, _R2, _R3, _STR_PTR)
 
-// ACT requires these definitions even for I tests. Unexpected use must fail;
-// real interrupt generation and timing belong to a later privileged adapter.
+// SimpleSoC's ACLINT exposes hart 0's timer compare and the shared time counter.
+// Its architectural timebase advances every clock cycle.
 #define RVMODEL_INTERRUPT_LATENCY 1
-#define RVMODEL_TIMER_INT_SOON_DELAY 1
+#define RVMODEL_MTIMECMP_ADDRESS 0x02004000
+#define RVMODEL_MTIME_ADDRESS 0x0200bff8
+#define RVMODEL_MAX_CYCLES_PER_TIMER_TICK 1
+#define RVMODEL_TIMER_INT_SOON_DELAY 5000
+
+// SimpleSoC does not yet provide model-controlled software or external sources.
 #define RVMODEL_SET_MEXT_INT(_R1, _R2) RVMODEL_HALT_FAIL
 #define RVMODEL_CLR_MEXT_INT(_R1, _R2) RVMODEL_HALT_FAIL
 #define RVMODEL_SET_MSW_INT(_R1, _R2) RVMODEL_HALT_FAIL

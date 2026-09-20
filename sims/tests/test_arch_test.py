@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 
 RUNNER = Path(__file__).resolve().parents[1] / "arch-test" / "run.py"
 SOURCE_PREPARER = RUNNER.with_name("prepare-source.py")
+RVMODEL_MACROS = RUNNER.with_name("rvmodel_macros.h")
 VECTOR_PARAMETERS = {
     "FOLLOW_VTYPE_RESET_RECOMMENDATION": True,
     "IMPRECISE_VECTOR_TRAP_SETTABLE": False,
@@ -192,6 +193,16 @@ class ArchTestConfigTest(unittest.TestCase):
         ):
             with self.subTest(address=address, size=size), self.assertRaisesRegex(ValueError, message):
                 validate(config, udb["params"], address, size)
+
+    def test_simple_soc_timer_macros_match_aclint(self):
+        macros = RVMODEL_MACROS.read_text()
+        for definition in (
+            "#define RVMODEL_MTIMECMP_ADDRESS 0x02004000",
+            "#define RVMODEL_MTIME_ADDRESS 0x0200bff8",
+            "#define RVMODEL_MAX_CYCLES_PER_TIMER_TICK 1",
+            "#define RVMODEL_TIMER_INT_SOON_DELAY 5000",
+        ):
+            self.assertIn(definition, macros)
 
     def test_vector_projection_rejects_inconsistent_profiles(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
