@@ -1,10 +1,11 @@
 #lang rhodium
-// Adapts the reusable iterative multiplier to RV5Stage's deferred-writeback protocol.
+// Adapts the selected reusable multiplier to RV5Stage's deferred-writeback protocol.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../multiplier.rhdl" open
   "integer-execution.rhdl" open
+  "profile.rhm".RV5StageMultiplierKind
   "decode/multiply-ctrl.rhdl" open
   "../riscv/multiply-decode.rhdl" open
   "../../riscv/isa/xlen.rhm" open
@@ -70,12 +71,12 @@ sync_circuit RV5StageMultiplyScalar(xlen :: XLen):
         value: selected_result
   ) |> completion
 
-sync_circuit RV5StageMultiplier(xlen :: XLen):
+sync_circuit RV5StageMultiplier(xlen :: XLen, kind :: RV5StageMultiplierKind):
   interface issue(Valid(RV5StageMultiplyIssue(xlen)), ~role: consumer)
   interface completion(Irrevocable(RV5StageMultiplyCompletion(xlen)), ~role: producer)
   output available: Bool
   inst scalar(RV5StageMultiplyScalar(xlen))
-  inst execution(RV5StageMultiplyService(xlen.width, RV5StageMultiplyTag()))
+  inst execution(RV5StageMultiplyService(kind, xlen.width, RV5StageMultiplyTag()))
   issue |> scalar.issue
   scalar.execution_request |> execution.request
   execution.result |> scalar.execution_result

@@ -50,7 +50,9 @@ and the full C composition; its device tree and UDB configuration advertise
 `misa.V` from that same profile. `MiniRV5StageSoC` defaults to
 integer-only RV64 with 2 KiB direct-mapped L1s, and
 `TiledRV5StageSoC` to integer-only RV64 with the C composition. SingleCoreRV5StageSoC and TiledRV5StageSoC
-also enable Zcmop; MiniRV5StageSoC keeps compressed instructions disabled. All three select Sv39;
+also select the feed-forward pipelined integer multiplier, while MiniRV5StageSoC
+selects the compact iterative multiplier. They enable Zcmop; MiniRV5StageSoC
+keeps compressed instructions disabled. All three select Sv39;
 Zicbop and Zicboz are enabled in each default profile. SingleCoreRV5StageSoC also enables
 scalar `Zfh`, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee `Zvkt`; Zfa remains disabled. Supply an alternate `RV5StageConfig` through the owning SoC parameter
 object to change those selections.

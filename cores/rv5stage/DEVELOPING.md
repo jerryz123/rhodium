@@ -209,9 +209,9 @@ repair, and precise continuation faults.
 
 Mul/div dispatch validity comes from authorized commit, but operand payloads
 come directly from the normal WB pipeline token. Retained CMO and WRS retirement
-contexts must not select arithmetic operands. The reusable multiplier captures
-raw operands before its magnitude-preparation cycle; keep that register boundary
-between WB selection and full-width negation.
+contexts must not select arithmetic operands. Both reusable multiplier
+implementations capture raw operands before full-width magnitude preparation;
+keep that register boundary between WB selection and full-width negation.
 Scalar adapters reserve a one-entry request queue in ID, enqueue at WB, and
 expose tagged requests/results without owning an execution unit. The standalone
 wrappers compose those adapters with one service; the core instead arbitrates

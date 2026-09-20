@@ -1,9 +1,13 @@
 #lang rhodium
-// Implements a width-generic iterative signed or unsigned integer multiplier.
+// Implements width-generic iterative and pipelined signed or unsigned integer multipliers.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open
+
+def PipelinedMultiplierStages :: PosInt = 5
 
 bundle MultiplierMode():
   left_signed: Bool
@@ -13,6 +17,27 @@ bundle MultiplierRequest(width :: PosInt):
   left: Bits(width)
   right: Bits(width)
   mode: MultiplierMode()
+
+bundle PipelinedMultiplierOperands(width :: PosInt):
+  left: Bits(width)
+  right: Bits(width)
+  negate: Bool
+
+bundle PipelinedMultiplierPartials(width :: PosInt):
+  low_low: Bits(width)
+  low_high: Bits(width)
+  high_low: Bits(width)
+  high_high: Bits(width)
+  negate: Bool
+
+bundle PipelinedMultiplierReduction(width :: PosInt):
+  first: Bits(width * 2)
+  second: Bits(width * 2)
+  negate: Bool
+
+bundle PipelinedMultiplierMagnitude(width :: PosInt):
+  product: Bits(width * 2)
+  negate: Bool
 
 // Captures one request, prepares magnitudes for one cycle, then consumes one
 // multiplier bit per cycle. The double-width response stays stable under backpressure;
@@ -79,7 +104,48 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   elsewhen response_fire:
     response_valid <== Bool(#false)
 
+// Five feed-forward stages accept one operation per cycle while partitioning
+// the full product into half-width multipliers and two levels of wide arithmetic.
+sync_circuit PipelinedMultiplier(width :: Pow2Int):
+  unless width >= 2
+  | error(~who: #'PipelinedMultiplier, "width must be at least two")
+  def half_width = width / 2
+  def product_width = width * 2
+
+  interface request(Valid(MultiplierRequest(width)), ~role: consumer)
+  interface response(Valid(Bits(product_width)), ~role: producer)
+
+  def operands = request |> map_valid(operation):
+    def left_negative = operation.mode.left_signed & operation.left[width - 1].into(Bool)
+    def right_negative = operation.mode.right_signed & operation.right[width - 1].into(Bool)
+    PipelinedMultiplierOperands(width):
+      left: mux(left_negative, -operation.left, operation.left)
+      right: mux(right_negative, -operation.right, operation.right)
+      negate: left_negative ^ right_negative
+  def prepared = operands |> valid_pipe(1)
+  def partials = prepared |> map_valid(operation => PipelinedMultiplierPartials(width)):
+    low_low: operation.left[0..half_width] *& operation.right[0..half_width]
+    low_high: operation.left[0..half_width] *& operation.right[half_width..width]
+    high_low: operation.left[half_width..width] *& operation.right[0..half_width]
+    high_high: operation.left[half_width..width] *& operation.right[half_width..width]
+    negate: operation.negate
+  def multiplied = partials |> valid_pipe(1)
+  def reductions = multiplied |> map_valid(operation => PipelinedMultiplierReduction(width)):
+    first: operation.low_low.zext(product_width) + (operation.low_high.zext(product_width) << half_width)
+    second: (operation.high_low.zext(product_width) << half_width) + (operation.high_high.zext(product_width) << width)
+    negate: operation.negate
+  def reduced = reductions |> valid_pipe(1)
+  def magnitudes = reduced |> map_valid(operation => PipelinedMultiplierMagnitude(width)):
+    product: operation.first + operation.second
+    negate: operation.negate
+  def summed = magnitudes |> valid_pipe(1)
+  def signed = summed |> map_valid(operation):
+    mux(operation.negate, -operation.product, operation.product)
+  signed |> valid_pipe(1) |> response
+
 export:
   MultiplierMode
   MultiplierRequest
+  PipelinedMultiplierStages
   IterativeMultiplier
+  PipelinedMultiplier

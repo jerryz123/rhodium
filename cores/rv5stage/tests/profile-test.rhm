@@ -34,6 +34,8 @@ def rv32_half = RV5StageConfig(
 )
 
 check:
+  RV5StageConfig(~xlen: XLen.X64).multiplier ~is RV5StageMultiplierKind.Iterative
+  RV5StageConfig(~xlen: XLen.X64, ~multiplier: RV5StageMultiplierKind.Pipelined).multiplier ~is RV5StageMultiplierKind.Pipelined
   RV5StageConfig(~xlen: XLen.X64).vector_completion_slots ~is 8
   RV5StageConfig(~xlen: XLen.X64, ~vector_completion_slots: 1).vector_completion_slots ~is 1
   RV5StageConfig(~xlen: XLen.X64, ~vector_completion_slots: 16).vector_completion_slots ~is 16

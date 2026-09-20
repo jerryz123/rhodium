@@ -36,9 +36,10 @@ completion slots, precise element restart, and fault-only-first VL truncation. T
 `~vector_completion_slots` selects a power-of-two depth, default eight,
 independently of VLEN. RV64D also shares scalar FP execution for same-width
 FP32/FP64 vector add, subtract, and multiply, with locally accepted operands and
-ordered VRF/flag completion. RV64 vectors also share the iterative integer
-multiplier/divider for SEW8/16/32/64 `.vv` and `.vx` operations, with independent
-arbitration and reserved completion ownership. `VectorProfile` selects
+ordered VRF/flag completion. RV64 vectors also share the profile-selected
+integer multiplier and iterative divider for SEW8/16/32/64 `.vv` and `.vx`
+operations, with independent arbitration and reserved completion ownership.
+`VectorProfile` selects
 one of the five standard Zve profiles or complete V 1.0, advertises its implied
 Zve closure and cumulative `Zvl<N>b` minimum lengths, and constrains ELEN and FP
 legality accordingly. Only `VectorProfile.V` advertises `V` and sets `misa.V`.
@@ -160,9 +161,10 @@ device trees advertise `zkt`; the UDB projection includes the exact version.
 
 Implemented instructions in the [architectural Zkt scope](../../riscv/isa/zkt.rhm)
 have operand-independent execution latency. The ALU is combinational; multiply
-uses a fixed capture/preparation/iteration sequence without operand-based early
-exit. Forwarding, scoreboards, issue, and completion arbitration depend on
-instruction/register metadata and availability, not arithmetic operand values.
+uses the fixed, operand-independent latency of the profile-selected iterative
+or pipelined implementation. Forwarding, scoreboards, issue, and completion
+arbitration depend on instruction/register metadata and availability, not
+arithmetic operand values.
 
 This does **not** promise identical elapsed cycles under different environments:
 fetch stalls, older work, and completion contention may delay execution. The
@@ -187,8 +189,8 @@ data operands. The guarantee includes data in masked-off, pre-`vstart`, and tail
 elements. `vl`, `vtype`, the execution mask, immediates, and the specification's
 explicit gather/slide index operands remain control inputs and may affect
 latency. The packed integer datapath is combinational; multiply uses the same
-fixed-iteration service qualified by Zkt; the unroller schedules from decoded
-metadata and architectural vector control rather than result data.
+profile-selected fixed-latency service qualified by Zkt; the unroller schedules
+from decoded metadata and architectural vector control rather than result data.
 
 The contract covers only the instructions named by Zvkt. In particular, vector
 memory, general FP arithmetic, divide/remainder, saturating/averaging/fixed-point
@@ -801,6 +803,7 @@ specialization input to `RV5Stage` and `RV5StageCore`.
 | `profile.vector_completion_slots` | Power-of-two capacity for deferred vector memory and execution completions; defaults to eight |
 | `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
 | `profile.cache_geometry` | Independent L1I and L1D set and way geometry |
+| `profile.multiplier` | `Iterative` by default, or a five-stage feed-forward `Pipelined` implementation; both provide operand-independent timing |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |
 
 All supported compressed-extension selections include Zca and permit two-byte

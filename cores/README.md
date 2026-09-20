@@ -34,6 +34,7 @@ architectural result selection.
 | [`CachePrefetchReq(address_width)`](cache-prefetch.rhdl) | Address plus instruction, read, or write intent, transported over `Valid` | Best effort; no acceptance, completion, or fault channel | A reusable core-to-memory-hierarchy prefetch event | ISA decode, translation, permission checks, cache policy, and dropping under contention |
 | [`plru_replacement_way`, `plru_touch`](cache-replacement.rhdl) | Host `ways`, per-way valid bits, and nominal `PLRUState(ways)` | Combinational selection and next-state calculation; supports arbitrary positive associativity by padding the tree | Lowest-invalid preference, padded tree traversal, and touched-way state update | State storage, reset, and the policy for which accesses count as touches |
 | [`IterativeMultiplier(width)`](multiplier.rhdl) | `Decoupled(MultiplierRequest)` to an `Irrevocable` double-width product | One request at a time; one magnitude-preparation cycle after capture, then one multiplier bit per cycle; response stays stable until accepted; may replace a response as it is consumed | Signed/unsigned magnitude handling and the complete product | Low/high/word projection and architectural destination |
+| [`PipelinedMultiplier(width)`](multiplier.rhdl) | Power-of-two width of at least two; `Valid(MultiplierRequest)` to a `Valid` double-width product | Five feed-forward stages; accepts and advances one request per cycle with fixed latency and no backpressure | Signed/unsigned magnitude handling, four half-width partial products, reduction, and the complete product | Admission credits, result buffering, low/high/word projection, and architectural destination |
 | [`IterativeDivider(width)`](divider.rhdl) | `Decoupled(DividerRequest)` to an `Irrevocable(DividerResponse)` | One request at a time; trivial operands complete directly, otherwise leading-zero quotient work is skipped before resolving one remaining bit per cycle and finalizing signs; response stays stable until accepted; may replace a response as it is consumed | Quotient, remainder, divide-by-zero, and fixed-width signed-overflow behavior | Quotient/remainder/word projection and architectural destination |
 
 ### Packed SIMD integer ALU
@@ -118,7 +119,7 @@ through the number of physical lanes. Selection bits above the active lane count
 are ignored. It is a stateless word-local primitive; a vector implementation
 must retain cross-word remnants and authorize destination writes itself.
 
-### Scalar memory and iterative engines
+### Scalar memory and multicycle engines
 
 `MemoryWidth.is_aligned(address)` checks the same byte, halfword, word, or
 doubleword size contract used by the load/store generators. The generators do
@@ -127,10 +128,12 @@ check before issuing one.
 `memory_byte_mask(xlen, address, width)` returns the corresponding byte enables
 within the containing XLEN word. It does not split misaligned accesses.
 
-For both iterative engines, a request transfers only when `request.fire()` is
-true. The `Irrevocable` response may be backpressured and must be consumed with
-`response.fire()`. This interface deliberately leaves queueing, cancellation,
-destination tracking, and writeback policy outside the reusable block.
+The iterative multiplier and divider transfer requests on `request.fire()` and
+hold their `Irrevocable` responses until `response.fire()`. The pipelined
+multiplier instead consumes every asserted `Valid` request and produces the
+corresponding `Valid` response exactly five cycles later. It has no readiness
+path: a caller that needs backpressure must reserve result capacity before
+launch and buffer the fixed-latency responses outside the reusable block.
 
 ## Map RISC-V instructions onto components
 

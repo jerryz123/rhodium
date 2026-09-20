@@ -4,6 +4,7 @@
 
 import:
   "../integer-execution.rhdl" open
+  "../profile.rhm".RV5StageMultiplierKind
   "../../multiplier.rhdl" open
   "../../divider.rhdl" open
   lib("flow/main.rhdl") open
@@ -13,7 +14,7 @@ sync_circuit RV5StageIntegerExecutionFixture():
   interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(128), Bits(8))), ~role: producer)
   interface divide_request(Decoupled(RV5StageExecutionRequest(DividerRequest(64), Bits(8))), ~role: consumer)
   interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(64), Bits(8))), ~role: producer)
-  inst multiply(RV5StageMultiplyService(64, Bits(8)))
+  inst multiply(RV5StageMultiplyService(RV5StageMultiplierKind.Pipelined, 64, Bits(8)))
   inst divide(RV5StageDivideService(64, Bits(8)))
   multiply_request |> multiply.request
   multiply.result |> multiply_result

@@ -110,7 +110,7 @@ is owned by the matching backend fixtures:
 
 ```sh
 tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
-FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier iterative-divider' \
+FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' \
   bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=cache-replacement bash tools/testing/circt/run.sh --simulate-only
 ```

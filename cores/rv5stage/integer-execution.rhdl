@@ -1,10 +1,11 @@
 #lang rhodium
-// Carries opaque ownership through the shared iterative integer execution services.
+// Carries opaque ownership through the selected shared integer execution services.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../multiplier.rhdl" open
   "../divider.rhdl" open
+  "profile.rhm".RV5StageMultiplierKind
   lib("flow/main.rhdl") open
 
 bundle RV5StageExecutionRequest(Operands :: DataType, Tag :: DataType):
@@ -25,7 +26,7 @@ fun integer_result_with_tag(Value :: DataType, From :: DataType, To :: DataType,
     tag: tag
     value: result.value
 
-sync_circuit RV5StageMultiplyService(width :: PosInt, Tag :: DataType):
+sync_circuit RV5StageIterativeMultiplyService(width :: PosInt, Tag :: DataType):
   interface request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
   interface result(Irrevocable(RV5StageExecutionResult(Bits(width * 2), Tag)), ~role: producer)
   inst execution(IterativeMultiplier(width))
@@ -38,6 +39,40 @@ sync_circuit RV5StageMultiplyService(width :: PosInt, Tag :: DataType):
       tag: owner
       value: value
   ) |> result
+
+sync_circuit RV5StagePipelinedMultiplyService(width :: PosInt, Tag :: DataType):
+  def capacity = PipelinedMultiplierStages + 1
+  def count_width = index_width(capacity + 1)
+  def Result = RV5StageExecutionResult(Bits(width * 2), Tag)
+  interface request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
+  interface result(Irrevocable(Result), ~role: producer)
+  inst execution(PipelinedMultiplier(width))
+  inst completed(Queue(Result, capacity))
+  reg outstanding(~init: bits(0, count_width))
+  completed.egress |> result
+  def capacity_available = (outstanding =/= bits(capacity, count_width)) ||| result.fire()
+  def launched = request |> gate_flow(capacity_available) |> to_valid()
+  def Array(operand_path, owner_path) = launched |> fork_valid(2)
+  operand_path |> map_valid(operation => operation.operands) |> execution.request
+  def owner = owner_path |> map_valid(operation => operation.tag) |> valid_pipe(PipelinedMultiplierStages)
+  def completion = execution.response |> map_valid(value):
+    RV5StageExecutionResult(Bits(width * 2), Tag):
+      tag: owner.bits
+      value: value
+  completion |> to_decoupled() |> completed.ingress
+  assert(execution.response.valid === owner.valid)
+  when (launched.valid & !result.fire()):
+    outstanding <== outstanding + bits(1, count_width)
+  elsewhen (result.fire() & !launched.valid):
+    outstanding <== outstanding - bits(1, count_width)
+
+sync_circuit RV5StageMultiplyService(kind :: RV5StageMultiplierKind, width :: PosInt, Tag :: DataType):
+  interface request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
+  interface result(Irrevocable(RV5StageExecutionResult(Bits(width * 2), Tag)), ~role: producer)
+  def Service = if kind == RV5StageMultiplierKind.Iterative | RV5StageIterativeMultiplyService(width, Tag) | RV5StagePipelinedMultiplyService(width, Tag)
+  inst selected(Service)
+  request |> selected.request
+  selected.result |> result
 
 sync_circuit RV5StageDivideService(width :: PosInt, Tag :: DataType):
   interface request(Decoupled(RV5StageExecutionRequest(DividerRequest(width), Tag)), ~role: consumer)

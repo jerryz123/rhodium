@@ -40,7 +40,7 @@ sync_circuit RV5StageZkt(profile :: RV5StageConfig):
   output completion_valid: Bool
   output completion_value: Bits(width)
   output completion_chosen: Bits(2)
-  inst multiplier(RV5StageMultiplier(profile.xlen))
+  inst multiplier(RV5StageMultiplier(profile.xlen, profile.multiplier))
   inst completions(Arbiter(RegisterFileWrite(profile.xlen), 4))
   multiplier.issue.valid <== multiply_issue
   multiplier.issue.bits <== RV5StageMultiplyIssue(profile.xlen):

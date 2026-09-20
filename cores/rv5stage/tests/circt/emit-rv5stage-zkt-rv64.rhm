@@ -13,6 +13,7 @@ import:
 
 def profile = RV5StageConfig(
   ~xlen: XLen.X64,
+  ~multiplier: RV5StageMultiplierKind.Pipelined,
   ~extensions: RV5StageExtensions(
     ~floating_point: FloatingPointProfile.None,
     ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb)

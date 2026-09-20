@@ -543,11 +543,14 @@ high-part-only overlap policy as widening add/sub, including fractional LMUL.
 The source SEW remains in the multiplier tag while the WB-owned destination
 metadata independently carries doubled EEW, address, and mask placement.
 
-Scalar and vector clients share one iterative multiplier and one iterative
-divider through independent round-robin request arbiters. An opaque owner tag
-routes each held result back to its client. Each scalar adapter has one reserved
-WB request slot, so vector contention cannot steal an ID admission reservation.
-Scalar GPR completion still uses the ordinary deferred writeback arbiter.
+Scalar and vector clients share the profile-selected multiplier and one
+iterative divider through independent round-robin request arbiters. The
+iterative multiplier retains one request; the five-stage pipelined multiplier
+advances every launched request without backpressure. Its service reserves one
+of six result-buffer entries before launch and pipelines the opaque owner tag
+beside the operands. Each scalar adapter has one reserved WB request slot, so
+vector contention cannot steal an ID admission reservation. Scalar GPR
+completion still uses the ordinary deferred writeback arbiter.
 
 Vector elements reserve completion slots before issue, enter request queues
 only at local acceptance, and drain through the single masked VRF write port

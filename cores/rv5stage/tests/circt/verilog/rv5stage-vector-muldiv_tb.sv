@@ -273,7 +273,7 @@ module rv5stage_vector_muldiv_tb;
           address += 128;
         end
       end
-      // Fractional multiply reuses the shared iterative multiplier, then
+      // Fractional multiply reuses the shared integer multiplier, then
       // rounds its full product and reports delayed saturation at ordered drain.
       for (int round_mode = 0; round_mode < 4; round_mode++) begin
         write_vector_csr('h009,0); write_vector_csr('h00a,round_mode);

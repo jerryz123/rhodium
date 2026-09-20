@@ -36,6 +36,10 @@ enum RV5StageMmuMode
 | Bare
 | Sv39
 
+enum RV5StageMultiplierKind
+| Iterative
+| Pipelined
+
 class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          half_precision :: HalfPrecisionProfile,
                          zfa :: Boolean,
@@ -164,6 +168,7 @@ class RV5StageConfig(xlen :: XLen,
                      extensions :: RV5StageExtensions,
                      mmu_mode :: RV5StageMmuMode,
                      cache_geometry :: RV5StageCacheGeometry,
+                     multiplier :: RV5StageMultiplierKind,
                      vector :: VectorProfile,
                      vector_extensions :: List.of(VectorExtension),
                      vector_length :: VectorLength,
@@ -174,6 +179,7 @@ class RV5StageConfig(xlen :: XLen,
                ~extensions: extensions :: RV5StageExtensions = RV5StageExtensions(),
                ~mmu_mode: mmu_mode :: RV5StageMmuMode = RV5StageMmuMode.Bare,
                ~cache_geometry: cache_geometry :: RV5StageCacheGeometry = RV5StageCacheGeometry(),
+               ~multiplier: multiplier :: RV5StageMultiplierKind = RV5StageMultiplierKind.Iterative,
                ~vector: vector :: VectorProfile = DefaultVectorProfile,
                ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions,
                ~vector_length: vector_length :: VectorLength = 128,
@@ -190,7 +196,7 @@ class RV5StageConfig(xlen :: XLen,
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
-    super(xlen, extensions, mmu_mode, cache_geometry, vector, vector_extensions, vector_length, vector_completion_slots)
+    super(xlen, extensions, mmu_mode, cache_geometry, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
 
   property isa_profile :: RiscvIsaProfile:
     def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)
@@ -210,6 +216,7 @@ export:
   RV5StageCacheLineBytes
   RV5StageCacheConfig
   RV5StageMmuMode
+  RV5StageMultiplierKind
   RV5StageExtensions
   RV5StageCacheGeometry
   RV5StageConfig
