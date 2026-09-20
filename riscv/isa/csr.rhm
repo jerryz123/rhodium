@@ -1,6 +1,9 @@
 #lang rhombus
-// Defines architectural CSR identifiers and their canonical 12-bit addresses.
+// Defines architectural CSR identifiers, addresses, and named register fields.
 // SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../model/fields.rhm".BitField
 
 enum CsrId
 | Fflags
@@ -472,6 +475,50 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Mhpmevent30: 0x33e
   | CsrId.Mhpmevent31: 0x33f
 
+// CSR address encoding fields.
+def CsrAddressPrivilege = BitField("csr-address.privilege", 9, 8)
+def CsrAddressReadOnly = BitField("csr-address.read-only", 11, 10)
+
+def FcsrFlags = BitField("fcsr.fflags", 4, 0)
+def FcsrRoundingMode = BitField("fcsr.frm", 7, 5)
+
+// Shared status-register fields. SD occupies the most-significant XLEN bit and
+// is therefore materialized by the width-aware RTL adapter.
+def MstatusSIE = BitField("mstatus.SIE", 1, 1)
+def MstatusMIE = BitField("mstatus.MIE", 3, 3)
+def MstatusUPIE = BitField("mstatus.UPIE", 4, 4)
+def MstatusSPIE = BitField("mstatus.SPIE", 5, 5)
+def MstatusMPIE = BitField("mstatus.MPIE", 7, 7)
+def MstatusSPP = BitField("mstatus.SPP", 8, 8)
+def MstatusVS = BitField("mstatus.VS", 10, 9)
+def MstatusMPP = BitField("mstatus.MPP", 12, 11)
+def MstatusFS = BitField("mstatus.FS", 14, 13)
+def MstatusMPRV = BitField("mstatus.MPRV", 17, 17)
+def MstatusSUM = BitField("mstatus.SUM", 18, 18)
+def MstatusMXR = BitField("mstatus.MXR", 19, 19)
+def MstatusTVM = BitField("mstatus.TVM", 20, 20)
+def MstatusTW = BitField("mstatus.TW", 21, 21)
+def MstatusTSR = BitField("mstatus.TSR", 22, 22)
+def MstatusUXL = BitField("mstatus.UXL", 33, 32)
+def MstatusSXL = BitField("mstatus.SXL", 35, 34)
+
+def EnvcfgFIOM = BitField("xenvcfg.FIOM", 0, 0)
+def CounterenCY = BitField("xcounteren.CY", 0, 0)
+def CounterenTM = BitField("xcounteren.TM", 1, 1)
+def CounterenIR = BitField("xcounteren.IR", 2, 2)
+def Satp64PPN = BitField("satp.PPN", 43, 0)
+def Satp64ASID = BitField("satp.ASID", 59, 44)
+def Satp64Mode = BitField("satp.MODE", 63, 60)
+
+def ExtensionStatusDirty :: Nat = 3
+def XLen64Encoding :: Nat = 2
+
+fun csr_fields_mask(fields :: List.of(BitField)) :: Nat:
+  def mutable mask = 0
+  for (field in fields):
+    mask := mask bits.or field.mask()
+  mask
+
 export:
   CsrId
   CsrIds
@@ -481,3 +528,34 @@ export:
   MachineHpmCounterHighIds
   MachineHpmEventIds
   csr_address
+  CsrAddressPrivilege
+  CsrAddressReadOnly
+  FcsrFlags
+  FcsrRoundingMode
+  MstatusSIE
+  MstatusMIE
+  MstatusUPIE
+  MstatusSPIE
+  MstatusMPIE
+  MstatusSPP
+  MstatusVS
+  MstatusMPP
+  MstatusFS
+  MstatusMPRV
+  MstatusSUM
+  MstatusMXR
+  MstatusTVM
+  MstatusTW
+  MstatusTSR
+  MstatusUXL
+  MstatusSXL
+  EnvcfgFIOM
+  CounterenCY
+  CounterenTM
+  CounterenIR
+  Satp64PPN
+  Satp64ASID
+  Satp64Mode
+  ExtensionStatusDirty
+  XLen64Encoding
+  csr_fields_mask

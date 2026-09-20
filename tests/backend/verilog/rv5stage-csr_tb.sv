@@ -266,6 +266,28 @@ module rv5stage_csr_tb;
     clear_commit();
   endtask
 
+  task automatic explicit_exception(
+    input logic [63:0] cause,
+    input logic [63:0] pc,
+    input logic [63:0] expected_target,
+    input logic [1:0] expected_privilege
+  );
+    @(negedge clock);
+    clear_commit();
+    commit_in.valid = 1'b1;
+    commit_in.bits.pc = pc;
+    commit_in.bits.exception_valid = 1'b1;
+    commit_in.bits.exception_cause = cause;
+    #1;
+    assert (redirect_out.valid && redirect_out.bits == expected_target)
+      else $fatal(1, "exception cause %0d selected the wrong trap target", cause);
+    @(posedge clock);
+    #1;
+    clear_commit();
+    assert (privilege == expected_privilege)
+      else $fatal(1, "exception cause %0d entered the wrong privilege mode", cause);
+  endtask
+
   task automatic privileged_action(
     input logic [3:0] system_operation,
     input logic [1:0] fence_operation,
@@ -353,6 +375,20 @@ module rv5stage_csr_tb;
     csr_access(CSR_SET, CSR_MSTATUS, 64'h0, RV64_MSTATUS_FIXED);
     csr_access(CSR_WRITE, CSR_MEDELEG, ~64'd0, 64'h0);
     csr_access(CSR_SET, CSR_MEDELEG, 64'h0, 64'hcb3fe);
+    reset_dut();
+
+    // The architectural cause catalog also drives trap delegation; the
+    // writable S-mode ECALL, software-check, and hardware-error bits must not
+    // become mask-only state that the trap resolver ignores.
+    csr_access(CSR_WRITE, CSR_MEDELEG, (64'd1 << 9) | (64'd1 << 18) | (64'd1 << 19), 64'h0);
+    csr_access(CSR_WRITE, CSR_STVEC, 64'h200, 64'h0);
+    enter_supervisor(64'h0);
+    system_action(SYSTEM_ECALL, 64'h40, 64'h200);
+    csr_access(CSR_SET, CSR_SCAUSE, 64'h0, 64'd9);
+    explicit_exception(64'd18, 64'h44, 64'h200, PRIVILEGE_S);
+    csr_access(CSR_SET, CSR_SCAUSE, 64'h0, 64'd18);
+    explicit_exception(64'd19, 64'h48, 64'h200, PRIVILEGE_S);
+    csr_access(CSR_SET, CSR_SCAUSE, 64'h0, 64'd19);
     reset_dut();
 
     // M-mode may inject every supervisor pending class through mip, but the

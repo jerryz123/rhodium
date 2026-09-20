@@ -18,6 +18,8 @@ import:
   "vector.rhdl" open
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/vector-profile.rhm" open
+  "../../riscv/isa/csr.rhm".MstatusTW
+  "../../riscv/rtl/csr.rhdl".csr_flag
   "../../riscv/rtl/vector.rhdl" open
   "../../riscv/rtl/zihintntl.rhdl" open
   "decode/operand-ctrl.rhdl" open
@@ -276,7 +278,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_reservation_wait_wake = !scalar_data.reservation_valid ||| wb_csrs.wfi_wake
   def wb_reservation_wait_expired = and_reduce(wb_reservation_wait_count)
   def wb_reservation_wait_short = wb_reservation_wait_instruction.system.action === RV5StageSystemOperation.WrsSto
-  def wb_reservation_wait_tw = (wb_csrs.privilege =/= PrivilegeMode.Machine) & wb_csrs.mstatus[21].into(Bool)
+  def wb_reservation_wait_tw = (wb_csrs.privilege =/= PrivilegeMode.Machine) & csr_flag(wb_csrs.mstatus, MstatusTW)
   def wb_reservation_wait_timeout = wb_reservation_wait_expired & (wb_reservation_wait_short ||| wb_reservation_wait_tw)
   def wb_reservation_wait_done = wb_reservation_wait_pending & (wb_reservation_wait_wake ||| wb_reservation_wait_timeout)
   def wb_reservation_wait_illegal = wb_reservation_wait_done & !wb_reservation_wait_wake & !wb_reservation_wait_short & wb_reservation_wait_tw

@@ -4,6 +4,7 @@
 
 import:
   rhombus/meta open
+  "../model/fields.rhm".BitField
   "../isa/csr.rhm" open
 
 hardware_enum RiscvCsrOperation:
@@ -26,6 +27,58 @@ class CsrBank(recognized :: Hardware.packable,
 
 fun csr_bits(id :: CsrId) :~ Bits(12):
   bits(csr_address(id), 12)
+
+fun checked_csr_field_width(value :: Bits,
+                            field :: BitField,
+                            who :: Symbol):
+  def width = value.type.packed_width()
+  unless field.high < width
+  | error(~who: who, "CSR field must fit the packed value")
+  width
+
+fun csr_field(value :: Bits,
+              field :: BitField) :~ Bits(field.width):
+  checked_csr_field_width(value, field, #'csr_field)
+  value[field.low..(field.high + 1)]
+
+fun csr_flag(value :: Bits,
+             field :: BitField) :~ Bool:
+  unless field.width == 1
+  | error(~who: #'csr_flag, "CSR flag must be a one-bit field")
+  csr_field(value, field).into(Bool)
+
+fun csr_field_value(field :: BitField,
+                    value :: Bits(field.width),
+                    width :: PosInt) :~ Bits(width):
+  unless field.high < width
+  | error(~who: #'csr_field_value, "CSR field must fit the result width")
+  value.zext(width) << field.low
+
+fun csr_field_replace(original :: Bits,
+                      field :: BitField,
+                      replacement :: Bits(field.width)) :~ Bits(original.type.packed_width()):
+  def width = checked_csr_field_width(original, field, #'csr_field_replace)
+  def mask = bits(field.mask(), width)
+  (original & !mask) ||| csr_field_value(field, replacement, width)
+
+fun csr_flag_replace(original :: Bits,
+                     field :: BitField,
+                     enabled :: Bool) :~ Bits(original.type.packed_width()):
+  unless field.width == 1
+  | error(~who: #'csr_flag_replace, "CSR flag must be a one-bit field")
+  csr_field_replace(original, field, mux(enabled, bits(1, 1), bits(0, 1)))
+
+fun csr_keep_fields(value :: Bits,
+                    fields :: List.of(BitField)) :~ Bits(value.type.packed_width()):
+  def width = value.type.packed_width()
+  for (field in fields):
+    unless field.high < width
+    | error(~who: #'csr_keep_fields, "CSR field must fit the packed value")
+  value & bits(csr_fields_mask(fields), width)
+
+fun mstatus_sd_value(width :: PosInt,
+                     dirty :: Bool) :~ Bits(width):
+  mux(dirty, bits(1 bits.(<<) (width - 1), width), bits(0, width))
 
 fun build_csr_bank(selector :: Bits(12),
                    default_value :: Hardware.packable,
@@ -107,4 +160,11 @@ export:
   riscv_csr_write_requested
   CsrBank
   csr_bits
+  csr_field
+  csr_flag
+  csr_field_value
+  csr_field_replace
+  csr_flag_replace
+  csr_keep_fields
+  mstatus_sd_value
   csr_bank

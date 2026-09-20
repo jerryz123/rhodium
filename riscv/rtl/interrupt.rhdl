@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../isa/csr.rhm" open
   "../isa/interrupt.rhm" open
   "../isa/xlen.rhm" open
+  "csr.rhdl".csr_flag
   "privilege.rhdl".PrivilegeMode
   lib("rhodium/std/bits.rhdl") open
 
@@ -43,8 +45,8 @@ fun resolve_riscv_interrupt(xlen :: XLen,
                             mstatus :: Bits(xlen.width),
                             privilege :: PrivilegeMode) :~ RiscvInterruptDecision(xlen):
   def width = xlen.width
-  def machine_globally_enabled = (privilege =/= PrivilegeMode.Machine) ||| mstatus[3].into(Bool)
-  def supervisor_globally_enabled = (privilege === PrivilegeMode.User) ||| ((privilege === PrivilegeMode.Supervisor) & mstatus[1].into(Bool))
+  def machine_globally_enabled = (privilege =/= PrivilegeMode.Machine) ||| csr_flag(mstatus, MstatusMIE)
+  def supervisor_globally_enabled = (privilege === PrivilegeMode.User) ||| ((privilege === PrivilegeMode.Supervisor) & csr_flag(mstatus, MstatusSIE))
   fun candidate(cause :: InterruptCause) :~ Bool:
     def code = interrupt_code(cause)
     def to_supervisor = delegated[code].into(Bool)

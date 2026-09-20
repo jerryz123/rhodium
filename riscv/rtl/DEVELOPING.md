@@ -29,13 +29,13 @@ enforces this package direction.
 | Encoding-to-pattern conversion | [`instruction-pattern.rhdl`](instruction-pattern.rhdl) |
 | Field and immediate materialization | [`instruction-fields.rhdl`](instruction-fields.rhdl) |
 | Compressed expansion | [`compressed.rhdl`](compressed.rhdl) |
-| CSR values, operations, and bank construction | [`csr.rhdl`](csr.rhdl) |
+| CSR field materialization, values, operations, and bank construction | [`csr.rhdl`](csr.rhdl) |
 | RISC-V decode-relation helpers | [`decode.rhdl`](decode.rhdl) |
 | Vector architectural values and stateless configuration rules | [`vector.rhdl`](vector.rhdl); storage remains core-owned |
 | Atomic operation values and update datapath | [`atomic.rhdl`](atomic.rhdl) |
 | Zihintntl architectural locality selector | [`zihintntl.rhdl`](zihintntl.rhdl) |
 | CMO privilege, WARL, and physical permission policy | [`cmo.rhdl`](cmo.rhdl) |
-| Effective explicit-access privilege and pointer masking | [`privilege.rhdl`](privilege.rhdl), [`pointer-masking.rhdl`](pointer-masking.rhdl) |
+| Status trap/return transitions, effective explicit-access privilege, and pointer masking | [`privilege.rhdl`](privilege.rhdl), [`pointer-masking.rhdl`](pointer-masking.rhdl) |
 | Base architectural counters | [`counters.rhdl`](counters.rhdl) |
 | Trap and interrupt selection, delegation, pending values, and cause conversion | [`trap.rhdl`](trap.rhdl), [`interrupt.rhdl`](interrupt.rhdl) |
 | Physical-memory attributes | [`pma.rhdl`](pma.rhdl) |

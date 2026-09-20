@@ -17,6 +17,9 @@ import:
   "../dcache/protocol.rhdl" open
   "../../load-store.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/csr.rhm" open
+  "../../../riscv/isa/sv39.rhm".Sv39Mode
+  "../../../riscv/rtl/csr.rhdl" open
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/privilege.rhdl".effective_data_privilege
@@ -63,14 +66,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   pipeline.request |> pipeline_lookup
   def pipeline_owner = pipeline.request |> map_valid(_request => pipeline_vector) |> valid_pipe(1)
 
-  def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | satp[60..64] === bits(8, 4)
-  def root_ppn = if xlen == XLen.X32 | bits(0, 44) | satp[0..44]
+  def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | csr_field(satp, Satp64Mode) === bits(Sv39Mode, Satp64Mode.width)
+  def root_ppn = if xlen == XLen.X32 | bits(0, Satp64PPN.width) | csr_field(satp, Satp64PPN)
   def supervisor_or_user = privilege =/= PrivilegeMode.Machine
   def instruction_translation_enabled = satp_sv39 & supervisor_or_user
   def data_privilege = effective_data_privilege(xlen, privilege, mstatus)
   def data_translation_enabled = satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)
-  def sum = if xlen == XLen.X32 | Bool(#false) | mstatus[18].into(Bool)
-  def mxr = if xlen == XLen.X32 | Bool(#false) | mstatus[19].into(Bool)
+  def sum = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusSUM)
+  def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
   def instruction_head = instruction_s1.egress
   def instruction_address = instruction_head.bits.address
   def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address

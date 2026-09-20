@@ -13,12 +13,15 @@ import:
   "../../riscv/isa/fp-profile.rhm" open
   "../../riscv/isa/vector-profile.rhm" open
   "../../riscv/isa/interrupt.rhm" open
+  "../../riscv/isa/sv39.rhm".Sv39Mode
   "../../riscv/isa/trap.rhm" open
   "../../riscv/isa/xlen.rhm" open
+  "../../riscv/model/formats.rhm" as riscv_fields
   "../../riscv/rtl/csr.rhdl" open
   "../../riscv/rtl/cmo.rhdl" open
   "../../riscv/rtl/counters.rhdl" open
   "../../riscv/rtl/interrupt.rhdl" open
+  "../../riscv/rtl/instruction-fields.rhdl".instruction_field
   "../../riscv/rtl/trap.rhdl" open
   "../../riscv/rtl/privilege.rhdl" open
   "../../riscv/rtl/pointer-masking.rhdl" open
@@ -79,13 +82,13 @@ fun resolve_rv5stage_trap(xlen :: XLen,
   def less_than_machine = privilege =/= PrivilegeMode.Machine
   def illegal_mret = (operation.system.action === RV5StageSystemOperation.Mret) & less_than_machine
   def illegal_sret = (operation.system.action === RV5StageSystemOperation.Sret) & (
-    (privilege === PrivilegeMode.User) ||| (supervisor & mstatus[22].into(Bool))
+    (privilege === PrivilegeMode.User) ||| (supervisor & csr_flag(mstatus, MstatusTSR))
   )
   def illegal_wfi = (operation.system.action === RV5StageSystemOperation.Wfi) & (
-    (privilege === PrivilegeMode.User) ||| (supervisor & mstatus[21].into(Bool))
+    (privilege === PrivilegeMode.User) ||| (supervisor & csr_flag(mstatus, MstatusTW))
   )
   def illegal_sfence_vma = (operation.fence.action === RV5StageFenceOperation.AddressTranslation) & (
-    (privilege === PrivilegeMode.User) ||| (supervisor & mstatus[20].into(Bool))
+    (privilege === PrivilegeMode.User) ||| (supervisor & csr_flag(mstatus, MstatusTVM))
   )
   def illegal_privileged_operation = commit_valid & (
     illegal_mret ||| illegal_sret ||| illegal_wfi ||| illegal_sfence_vma
@@ -153,21 +156,21 @@ sync_circuit RV5StageFpCsrs():
   def write_fcsr = write.valid & (write.bits.address === csr_bits(CsrId.Fcsr))
 
   when write_fcsr:
-    fflags_state <== write.bits.value[0..5]
+    fflags_state <== csr_field(write.bits.value, FcsrFlags)
   elsewhen write_fflags:
-    fflags_state <== write.bits.value[0..5]
+    fflags_state <== csr_field(write.bits.value, FcsrFlags)
   elsewhen (update.valid):
     fflags_state <== fflags_state ||| update.bits
 
   when write_fcsr:
-    frm_state <== write.bits.value[5..8]
+    frm_state <== csr_field(write.bits.value, FcsrRoundingMode)
   elsewhen write_frm:
-    frm_state <== write.bits.value[0..3]
+    frm_state <== write.bits.value[0..FcsrRoundingMode.width]
 
   when (status_write.valid):
     status_state <== status_write.bits
   elsewhen (write.valid ||| update.valid):
-    status_state <== bits(3, 2)
+    status_state <== bits(ExtensionStatusDirty, MstatusFS.width)
 
   fflags <== fflags_state
   frm <== frm_state
@@ -180,19 +183,31 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def zero = bits(0, width)
-  def mstatus_write_mask = bits(0x7e19ba, width)
-  def sstatus_write_mask = bits(0xc0132, width)
-  def mstatus_fixed = if xlen == XLen.X32 | zero | bits(0xa00000000, width)
-  def sstatus_fixed = if xlen == XLen.X32 | zero | bits(0x200000000, width)
-  def medeleg_mask = bits(if compressed_enabled | 0xcb3fe | 0xcb3ff, width)
-  def mideleg_mask = bits(0x222, width)
-  def interrupt_enable_mask = bits(0xaaa, width)
-  def supervisor_interrupt_mask = bits(0x222, width)
-  def supervisor_software_interrupt_mask = bits(0x2, width)
-  def counter_enable_mask = bits(0x7, width)
-  def tvec_mask = !bits(0x3, width)
-  def epc_mask = if compressed_enabled | !bits(0x1, width) | !bits(0x3, width)
-  def mpp_mask = bits(0x1800, width)
+  def mstatus_writable_fields = [
+    MstatusSIE, MstatusMIE, MstatusUPIE, MstatusSPIE, MstatusMPIE,
+    MstatusSPP, MstatusMPP, MstatusMPRV, MstatusSUM, MstatusMXR,
+    MstatusTVM, MstatusTW, MstatusTSR
+  ]
+  def sstatus_writable_fields = [MstatusSIE, MstatusUPIE, MstatusSPIE, MstatusSPP, MstatusSUM, MstatusMXR]
+  def mstatus_write_mask = bits(csr_fields_mask(mstatus_writable_fields), width)
+  def sstatus_write_mask = bits(csr_fields_mask(sstatus_writable_fields), width)
+  def xlen64_encoding = bits(XLen64Encoding, MstatusUXL.width)
+  def rv64_uxl = if xlen == XLen.X32 | zero | csr_field_value(MstatusUXL, xlen64_encoding, width)
+  def rv64_sxl = if xlen == XLen.X32 | zero | csr_field_value(MstatusSXL, xlen64_encoding, width)
+  def mstatus_fixed = rv64_sxl ||| rv64_uxl
+  def sstatus_fixed = rv64_uxl
+  def medeleg_causes = DelegatableExceptionCauses.filter(
+    ~keep: fun (cause): (!compressed_enabled) || (cause != ExceptionCause.InstructionAddressMisaligned)
+  )
+  def medeleg_mask = bits(exception_mask(medeleg_causes), width)
+  def mideleg_mask = bits(interrupt_mask(SupervisorInterruptCauses), width)
+  def interrupt_enable_mask = bits(interrupt_mask(InterruptCauses), width)
+  def supervisor_interrupt_mask = bits(interrupt_mask(SupervisorInterruptCauses), width)
+  def supervisor_software_interrupt_mask = bits(interrupt_mask([InterruptCause.SupervisorSoftware]), width)
+  def counter_enable_fields = [CounterenCY, CounterenTM, CounterenIR]
+  def counter_enable_mask = bits(csr_fields_mask(counter_enable_fields), width)
+  def tvec_alignment = 4
+  def epc_alignment = if compressed_enabled | 2 | 4
   def misa_value = bits(core_profile.isa_profile.misa_value, width)
 
   input interrupts: RiscvInterrupts()
@@ -240,23 +255,19 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   vector_truncate |> vector_csrs.truncate
   fp_update |> fp_csrs.update
 
-  fun flag_value(original :: Bits(width),
-                 mask :: Bits(width),
-                 enabled :: Bool):
-    mux(enabled, original ||| mask, original & !mask)
-
   fun legalize_mstatus(value :: Bits(width)) :~ Bits(width):
     def masked = state.mstatus.masked_merge(value, mstatus_write_mask)
-    def mpp = masked[11..13]
-    (masked & !mpp_mask) ||| (mux(mpp === bits(2, 2), bits(0, 2), mpp).zext(width) << 11)
+    def mpp = csr_field(masked, MstatusMPP)
+    csr_field_replace(masked, MstatusMPP, mux(mpp === bits(2, MstatusMPP.width), bits(0, MstatusMPP.width), mpp))
 
   fun fiom_field(value :: Bits(width)) :~ Bits(width):
-    value & bits(1, width)
+    csr_keep_fields(value, [EnvcfgFIOM])
 
-  def fp_status_value = fp_csrs.status.zext(width) << 13
-  def fp_status_dirty = fp_csrs.status === bits(3, 2)
-  def vector_status_value = vector_csrs.status.zext(width) << 9
-  def status_dirty_value = mux(fp_status_dirty ||| (vector_csrs.status === bits(3, 2)), bits(1 << (width - 1), width), zero)
+  def fp_status_value = csr_field_value(MstatusFS, fp_csrs.status, width)
+  def fp_status_dirty = fp_csrs.status === bits(ExtensionStatusDirty, MstatusFS.width)
+  def vector_status_value = csr_field_value(MstatusVS, vector_csrs.status, width)
+  def vector_status_dirty = vector_csrs.status === bits(ExtensionStatusDirty, MstatusVS.width)
+  def status_dirty_value = mstatus_sd_value(width, fp_status_dirty ||| vector_status_dirty)
   def mstatus_value = state.mstatus ||| mstatus_fixed ||| fp_status_value ||| vector_status_value ||| status_dirty_value
   def sstatus_value = (state.mstatus & sstatus_write_mask) ||| sstatus_fixed ||| fp_status_value ||| vector_status_value ||| status_dirty_value
   def cycle_value = if xlen == XLen.X32 | counters.cycle[0..32] | counters.cycle
@@ -289,7 +300,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Stvec:
       read: state.stvec
       write value:
-        state.stvec <== value & tvec_mask
+        state.stvec <== align_down(value, tvec_alignment)
     csr CsrId.Scounteren:
       read: state.scounteren
       write value:
@@ -302,7 +313,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Sepc:
       read: state.sepc
       write value:
-        state.sepc <== value & epc_mask
+        state.sepc <== align_down(value, epc_alignment)
     storage CsrId.Scause: state.scause
     storage CsrId.Stval: state.stval
     csr CsrId.Sip:
@@ -313,8 +324,12 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
       read: state.satp
       write value:
         def satp_replacement = value.as_bits()
-        when (if xlen == XLen.X32 | Bool(#false) | satp_replacement[60..64].is_one_of(bits(0, 4), bits(8, 4))):
-          state.satp <== if xlen == XLen.X32 | zero | concat(satp_replacement[60..64], bits(0, 16), satp_replacement[0..44])
+        def satp_mode = if xlen == XLen.X32 | bits(0, Satp64Mode.width) | csr_field(satp_replacement, Satp64Mode)
+        def satp_mode_supported = if xlen == XLen.X32 | Bool(#false) | satp_mode.is_one_of(bits(0, Satp64Mode.width), bits(Sv39Mode, Satp64Mode.width))
+        def satp_ppn = if xlen == XLen.X32 | bits(0, Satp64PPN.width) | csr_field(satp_replacement, Satp64PPN)
+        def satp_value = if xlen == XLen.X32 | zero | csr_field_value(Satp64Mode, satp_mode, width) ||| csr_field_value(Satp64PPN, satp_ppn, width)
+        when satp_mode_supported:
+          state.satp <== satp_value
     read CsrId.Cycle: cycle_value
     read CsrId.Time: time_value
     read CsrId.Instret: instret_value
@@ -347,7 +362,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Mtvec:
       read: state.mtvec
       write value:
-        state.mtvec <== value & tvec_mask
+        state.mtvec <== align_down(value, tvec_alignment)
     csr CsrId.Mcounteren:
       read: state.mcounteren
       write value:
@@ -360,7 +375,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Mepc:
       read: state.mepc
       write value:
-        state.mepc <== value & epc_mask
+        state.mepc <== align_down(value, epc_alignment)
     storage CsrId.Mcause: state.mcause
     storage CsrId.Mtval: state.mtval
     csr CsrId.Mip:
@@ -390,9 +405,10 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def vector_access_enabled = vector_csrs.status.or_reduce()
   def csr_recognized = bank.recognized & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
   def csr_read_value = bank.read_value
-  def write_requested = riscv_csr_write_requested(commit.bits.system.csr, commit.bits.instruction[15..20])
-  def csr_read_only = csr[10..12] === bits(3, 2)
-  def required_privilege = csr[8..10]
+  def csr_source_specifier = instruction_field(riscv_fields.rs1, commit.bits.instruction)
+  def write_requested = riscv_csr_write_requested(commit.bits.system.csr, csr_source_specifier)
+  def csr_read_only = csr_field(csr, CsrAddressReadOnly) === bits(3, CsrAddressReadOnly.width)
+  def required_privilege = csr_field(csr, CsrAddressPrivilege)
   def privilege_bits = privilege_state.into(Bits(2))
   def cycle_csr = csr.is_one_of(csr_bits(CsrId.Cycle), csr_bits(CsrId.Cycleh))
   def time_csr = csr.is_one_of(csr_bits(CsrId.Time), csr_bits(CsrId.Timeh))
@@ -401,10 +417,12 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def counter_csr = cycle_csr ||| time_csr ||| instret_csr ||| hpm_csr
   def satp_restricted = (csr === csr_bits(CsrId.Satp)) & (
     privilege_state === PrivilegeMode.Supervisor
-  ) & state.mstatus[20].into(Bool)
+  ) & csr_flag(state.mstatus, MstatusTVM)
   // HPM counteren bits are hardwired zero; only the three base counters delegate.
-  def machine_counter_enabled = !hpm_csr & mux(cycle_csr, state.mcounteren[0].into(Bool), mux(time_csr, state.mcounteren[1].into(Bool), state.mcounteren[2].into(Bool)))
-  def supervisor_counter_enabled = !hpm_csr & mux(cycle_csr, state.scounteren[0].into(Bool), mux(time_csr, state.scounteren[1].into(Bool), state.scounteren[2].into(Bool)))
+  fun base_counter_enabled(counteren :: Bits(width)) :~ Bool:
+    mux(cycle_csr, csr_flag(counteren, CounterenCY), mux(time_csr, csr_flag(counteren, CounterenTM), csr_flag(counteren, CounterenIR)))
+  def machine_counter_enabled = !hpm_csr & base_counter_enabled(state.mcounteren)
+  def supervisor_counter_enabled = !hpm_csr & base_counter_enabled(state.scounteren)
   def counter_access_enabled = mux_lookup(
     privilege_state,
     ~default: machine_counter_enabled & supervisor_counter_enabled,
@@ -462,7 +480,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     address: csr
     value: csr_replacement
   vector_csrs.status_write.valid <== csr_write & !trap.valid & csr.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
-  vector_csrs.status_write.bits <== csr_replacement[9..11]
+  vector_csrs.status_write.bits <== csr_field(csr_replacement, MstatusVS)
   pointer_masking <== user_pointer_mask_control(xlen, privilege_state, mstatus_value, state.satp, state.senvcfg, ~enabled: core_profile.extensions.ssnpm)
   pointer_masking_changed <== Bool(core_profile.extensions.ssnpm) & csr_write & !trap.valid & (csr === csr_bits(CsrId.Senvcfg)) & (pointer_mask_mode(xlen, csr_replacement) =/= pointer_mask_mode(xlen, state.senvcfg))
   def fp_csr_write = csr_write & fp_csr
@@ -471,7 +489,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     address: csr
     value: csr_replacement[0..8]
   fp_csrs.status_write.valid <== csr_write & csr.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
-  fp_csrs.status_write.bits <== csr_replacement[13..15]
+  fp_csrs.status_write.bits <== csr_field(csr_replacement, MstatusFS)
   def sfence_vma_commit = commit.valid & (commit.bits.fence.action === RV5StageFenceOperation.AddressTranslation)
   translation_flush <== (sfence_vma_commit & !synchronous_trap.valid) ||| (
     csr_write & (csr === csr_bits(CsrId.Satp))
@@ -487,57 +505,13 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     value: csr_replacement
   def mret = commit.valid & !trap.valid & (commit.bits.system.action === RV5StageSystemOperation.Mret)
   def sret = commit.valid & !trap.valid & (commit.bits.system.action === RV5StageSystemOperation.Sret)
-  def mret_privilege = mux_lookup(
-    state.mstatus[11..13],
-    ~default: PrivilegeMode.User,
-    [
-      [1, PrivilegeMode.Supervisor],
-      [3, PrivilegeMode.Machine]
-    ]
-  )
-  def sret_privilege = mux(state.mstatus[8].into(Bool), PrivilegeMode.Supervisor, PrivilegeMode.User)
-  def supervisor_trap_status = flag_value(
-    flag_value(
-      flag_value(state.mstatus, bits(0x20, width), state.mstatus[1].into(Bool)),
-      bits(0x2, width),
-      Bool(#false)
-    ),
-    bits(0x100, width),
-    privilege_state === PrivilegeMode.Supervisor
-  )
-  def machine_trap_status = masked_merge(
-    flag_value(
-      flag_value(state.mstatus, bits(0x80, width), state.mstatus[3].into(Bool)),
-      bits(0x8, width),
-      Bool(#false)
-    ),
-    privilege_bits.zext(width) << 11,
-    mpp_mask
-  )
+  def mret_privilege = mstatus_mret_privilege(state.mstatus)
+  def sret_privilege = mstatus_sret_privilege(state.mstatus)
+  def supervisor_trap_status = mstatus_on_supervisor_trap(state.mstatus, privilege_state)
+  def machine_trap_status = mstatus_on_machine_trap(state.mstatus, privilege_state)
   def trap_mstatus = mux(trap.to_supervisor, supervisor_trap_status, machine_trap_status)
-  def mret_status = flag_value(
-    flag_value(
-      state.mstatus.masked_merge(zero, mpp_mask),
-      bits(0x8, width),
-      state.mstatus[7].into(Bool)
-    ),
-    bits(0x80, width),
-    Bool(#true)
-  )
-  def normalized_mret_status = mux(
-    mret_privilege === PrivilegeMode.Machine,
-    mret_status,
-    mret_status & !bits(0x20000, width)
-  )
-  def sret_status = flag_value(
-    flag_value(
-      flag_value(state.mstatus, bits(0x2, width), state.mstatus[5].into(Bool)),
-      bits(0x20, width),
-      Bool(#true)
-    ),
-    bits(0x100, width),
-    Bool(#false)
-  ) & !bits(0x20000, width)
+  def mret_status = mstatus_after_mret(state.mstatus)
+  def sret_status = mstatus_after_sret(state.mstatus)
 
   writeback_valid <== !trap.valid & ((csr_commit & csr_access_legal) ||| vector_config_commit) & commit.bits.rd.or_reduce()
   writeback_value <== mux(vector_config_commit, vector_csrs.configuration_vl, csr_read_value)
@@ -567,16 +541,16 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
 
   when (trap.valid & trap.to_supervisor):
     state.mstatus <== trap_mstatus
-    state.sepc <== trap_pc & epc_mask
+    state.sepc <== align_down(trap_pc, epc_alignment)
     state.scause <== trap.cause
     state.stval <== trap.value
   elsewhen (trap.valid):
     state.mstatus <== trap_mstatus
-    state.mepc <== trap_pc & epc_mask
+    state.mepc <== align_down(trap_pc, epc_alignment)
     state.mcause <== trap.cause
     state.mtval <== trap.value
   elsewhen mret:
-    state.mstatus <== normalized_mret_status
+    state.mstatus <== mret_status
   elsewhen sret:
     state.mstatus <== sret_status
   elsewhen csr_write:

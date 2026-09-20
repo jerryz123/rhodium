@@ -12,6 +12,8 @@ check:
   exception_code(ExceptionCause.IllegalInstruction) ~is 2
   exception_code(ExceptionCause.EnvironmentCallFromMachine) ~is 11
   exception_code(ExceptionCause.StorePageFault) ~is 15
+  exception_code(ExceptionCause.SoftwareCheck) ~is 18
+  exception_code(ExceptionCause.HardwareError) ~is 19
   exception_code(ExceptionCause.LoadAccessFault) ~is 5
   exception_code(ExceptionCause.StoreAccessFault) ~is 7
   exception_mask([
@@ -19,4 +21,4 @@ check:
     ExceptionCause.Breakpoint,
     ExceptionCause.EnvironmentCallFromUser
   ]) ~is 0x10c
-  exception_mask(DelegatableExceptionCauses) ~is 0xb1ff
+  exception_mask(DelegatableExceptionCauses) ~is 0xcb3ff

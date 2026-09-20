@@ -38,6 +38,18 @@ check:
   csr_address(CsrId.Mconfigptr) ~is 0xf15
   csr_address(CsrId.Mstatush) ~is 0x310
   csr_address(CsrId.Menvcfgh) ~is 0x31a
+  FcsrFlags.low ~is 0
+  FcsrFlags.width ~is 5
+  FcsrRoundingMode.low ~is 5
+  MstatusMPP.low ~is 11
+  MstatusMPP.width ~is 2
+  MstatusSXL.mask() ~is 0xc00000000
+  csr_fields_mask([MstatusSIE, MstatusMIE, MstatusUPIE, MstatusSPIE, MstatusMPIE, MstatusSPP, MstatusMPP, MstatusMPRV, MstatusSUM, MstatusMXR, MstatusTVM, MstatusTW, MstatusTSR]) ~is 0x7e19ba
+  csr_fields_mask([MstatusSIE, MstatusUPIE, MstatusSPIE, MstatusSPP, MstatusSUM, MstatusMXR]) ~is 0xc0132
+  csr_fields_mask([CounterenCY, CounterenTM, CounterenIR]) ~is 0x7
+  Satp64Mode.mask() ~is 0xf000000000000000
+  Satp64ASID.mask() ~is 0x0ffff00000000000
+  Satp64PPN.mask() ~is 0x00000fffffffffff
 
 for (family in [HpmCounterIds, HpmCounterHighIds, MachineHpmCounterIds, MachineHpmCounterHighIds, MachineHpmEventIds]):
   check:

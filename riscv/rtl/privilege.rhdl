@@ -1,19 +1,77 @@
 #lang rhodium
-// Defines typed M/S/U privilege values and effective privilege for explicit data accesses.
+// Defines typed privilege values and reusable mstatus privilege transitions.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../isa/csr.rhm" open
   "../isa/xlen.rhm" open
+  "csr.rhdl" open
 
 hardware_enum PrivilegeMode(~width: 2):
   User = 0
   Supervisor = 1
   Machine = 3
 
+fun mstatus_effective_mpp(mstatus :: Bits) :~ PrivilegeMode:
+  mux_lookup(
+    csr_field(mstatus, MstatusMPP).into(PrivilegeMode),
+    ~default: PrivilegeMode.Machine,
+    [
+      [PrivilegeMode.User, PrivilegeMode.User],
+      [PrivilegeMode.Supervisor, PrivilegeMode.Supervisor],
+      [PrivilegeMode.Machine, PrivilegeMode.Machine]
+    ]
+  )
+
+fun mstatus_mret_privilege(mstatus :: Bits) :~ PrivilegeMode:
+  mux_lookup(
+    csr_field(mstatus, MstatusMPP).into(PrivilegeMode),
+    ~default: PrivilegeMode.User,
+    [
+      [PrivilegeMode.Supervisor, PrivilegeMode.Supervisor],
+      [PrivilegeMode.Machine, PrivilegeMode.Machine]
+    ]
+  )
+
+fun mstatus_sret_privilege(mstatus :: Bits) :~ PrivilegeMode:
+  mux(csr_flag(mstatus, MstatusSPP), PrivilegeMode.Supervisor, PrivilegeMode.User)
+
 fun effective_data_privilege(xlen :: XLen, privilege :: PrivilegeMode, mstatus :: Bits(xlen.width)) :~ PrivilegeMode:
-  def mpp = mux_lookup(mstatus[11..13], ~default: PrivilegeMode.Machine, [[0, PrivilegeMode.User], [1, PrivilegeMode.Supervisor]])
-  mux((privilege === PrivilegeMode.Machine) & mstatus[17].into(Bool), mpp, privilege)
+  mux((privilege === PrivilegeMode.Machine) & csr_flag(mstatus, MstatusMPRV), mstatus_effective_mpp(mstatus), privilege)
+
+fun mstatus_on_supervisor_trap(mstatus :: Bits,
+                               privilege :: PrivilegeMode) :~ Bits(mstatus.type.packed_width()):
+  def with_spie = csr_flag_replace(mstatus, MstatusSPIE, csr_flag(mstatus, MstatusSIE))
+  def without_sie = csr_flag_replace(with_spie, MstatusSIE, Bool(#false))
+  csr_flag_replace(without_sie, MstatusSPP, privilege === PrivilegeMode.Supervisor)
+
+fun mstatus_on_machine_trap(mstatus :: Bits,
+                            privilege :: PrivilegeMode) :~ Bits(mstatus.type.packed_width()):
+  def with_mpie = csr_flag_replace(mstatus, MstatusMPIE, csr_flag(mstatus, MstatusMIE))
+  def without_mie = csr_flag_replace(with_mpie, MstatusMIE, Bool(#false))
+  csr_field_replace(without_mie, MstatusMPP, privilege.into(Bits(2)))
+
+fun mstatus_after_mret(mstatus :: Bits) :~ Bits(mstatus.type.packed_width()):
+  def return_privilege = mstatus_mret_privilege(mstatus)
+  def without_mpp = csr_field_replace(mstatus, MstatusMPP, PrivilegeMode.User.into(Bits(MstatusMPP.width)))
+  def with_mie = csr_flag_replace(without_mpp, MstatusMIE, csr_flag(mstatus, MstatusMPIE))
+  def with_mpie = csr_flag_replace(with_mie, MstatusMPIE, Bool(#true))
+  def retain_mprv = csr_flag(mstatus, MstatusMPRV) & (return_privilege === PrivilegeMode.Machine)
+  csr_flag_replace(with_mpie, MstatusMPRV, retain_mprv)
+
+fun mstatus_after_sret(mstatus :: Bits) :~ Bits(mstatus.type.packed_width()):
+  def with_sie = csr_flag_replace(mstatus, MstatusSIE, csr_flag(mstatus, MstatusSPIE))
+  def with_spie = csr_flag_replace(with_sie, MstatusSPIE, Bool(#true))
+  def without_spp = csr_flag_replace(with_spie, MstatusSPP, Bool(#false))
+  csr_flag_replace(without_spp, MstatusMPRV, Bool(#false))
 
 export:
   PrivilegeMode
+  mstatus_effective_mpp
+  mstatus_mret_privilege
+  mstatus_sret_privilege
   effective_data_privilege
+  mstatus_on_supervisor_trap
+  mstatus_on_machine_trap
+  mstatus_after_mret
+  mstatus_after_sret

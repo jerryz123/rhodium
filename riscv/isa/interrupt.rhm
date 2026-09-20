@@ -10,6 +10,21 @@ enum InterruptCause
 | SupervisorExternal
 | MachineExternal
 
+def InterruptCauses = [
+  InterruptCause.SupervisorSoftware,
+  InterruptCause.MachineSoftware,
+  InterruptCause.SupervisorTimer,
+  InterruptCause.MachineTimer,
+  InterruptCause.SupervisorExternal,
+  InterruptCause.MachineExternal
+]
+
+def SupervisorInterruptCauses = [
+  InterruptCause.SupervisorSoftware,
+  InterruptCause.SupervisorTimer,
+  InterruptCause.SupervisorExternal
+]
+
 fun interrupt_code(cause :: InterruptCause) :: Nat:
   match cause
   | InterruptCause.SupervisorSoftware: 1
@@ -19,6 +34,15 @@ fun interrupt_code(cause :: InterruptCause) :: Nat:
   | InterruptCause.SupervisorExternal: 9
   | InterruptCause.MachineExternal: 11
 
+fun interrupt_mask(causes :: List.of(InterruptCause)) :: Nat:
+  def mutable mask = 0
+  for (cause in causes):
+    mask := mask bits.or (1 bits.(<<) interrupt_code(cause))
+  mask
+
 export:
   InterruptCause
+  InterruptCauses
+  SupervisorInterruptCauses
   interrupt_code
+  interrupt_mask

@@ -38,6 +38,7 @@ architectural state, and retirement in concrete cores. The package-local
 | Compact-to-canonical bindings | [`model/expansion.rhm`](model/expansion.rhm) |
 | Pure-model facade | [`model/main.rhm`](model/main.rhm) |
 | Architectural catalogs and profiles | [`isa/`](isa/) |
+| CSR identifiers, addresses, and architectural fields | [`isa/csr.rhm`](isa/csr.rhm) |
 | Normalized ISA claims and MISA projection | [`isa/profile.rhm`](isa/profile.rhm), tested by [`tests/profile-test.rhm`](tests/profile-test.rhm) |
 | Pure vector geometry and data-overlap model | [`isa/vector.rhm`](isa/vector.rhm), tested by [`tests/vector-test.rhm`](tests/vector-test.rhm) |
 | Standard vector profile selection | [`isa/vector-profile.rhm`](isa/vector-profile.rhm) |

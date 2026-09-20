@@ -17,6 +17,8 @@ enum ExceptionCause
 | InstructionPageFault
 | LoadPageFault
 | StorePageFault
+| SoftwareCheck
+| HardwareError
 
 def DelegatableExceptionCauses = [
   ExceptionCause.InstructionAddressMisaligned,
@@ -28,9 +30,12 @@ def DelegatableExceptionCauses = [
   ExceptionCause.StoreAddressMisaligned,
   ExceptionCause.StoreAccessFault,
   ExceptionCause.EnvironmentCallFromUser,
+  ExceptionCause.EnvironmentCallFromSupervisor,
   ExceptionCause.InstructionPageFault,
   ExceptionCause.LoadPageFault,
-  ExceptionCause.StorePageFault
+  ExceptionCause.StorePageFault,
+  ExceptionCause.SoftwareCheck,
+  ExceptionCause.HardwareError
 ]
 
 fun exception_code(cause :: ExceptionCause) :: Nat:
@@ -49,6 +54,8 @@ fun exception_code(cause :: ExceptionCause) :: Nat:
   | ExceptionCause.InstructionPageFault: 12
   | ExceptionCause.LoadPageFault: 13
   | ExceptionCause.StorePageFault: 15
+  | ExceptionCause.SoftwareCheck: 18
+  | ExceptionCause.HardwareError: 19
 
 fun exception_mask(causes :: List.of(ExceptionCause)) :: Nat:
   def mutable mask = 0

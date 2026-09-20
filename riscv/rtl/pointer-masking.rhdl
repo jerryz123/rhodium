@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../isa/csr.rhm" open
   "../isa/xlen.rhm" open
   "../isa/pointer-masking.rhm" as isa
+  "csr.rhdl" open
   "privilege.rhdl" open
 
 hardware_enum PointerMaskMode(~width: 2):
@@ -34,8 +36,8 @@ fun user_pointer_mask_control(xlen :: XLen, privilege :: PrivilegeMode, mstatus 
   | block:
       def effective = effective_data_privilege(xlen, privilege, mstatus)
       PointerMaskControl():
-        mode: mux((effective === PrivilegeMode.User) & !mstatus[19].into(Bool), pointer_mask_mode(xlen, senvcfg), PointerMaskMode.Disabled)
-        virtual_address: (effective =/= PrivilegeMode.Machine) & (satp[60..64] =/= bits(0, 4))
+        mode: mux((effective === PrivilegeMode.User) & !csr_flag(mstatus, MstatusMXR), pointer_mask_mode(xlen, senvcfg), PointerMaskMode.Disabled)
+        virtual_address: (effective =/= PrivilegeMode.Machine) & csr_field(satp, Satp64Mode).or_reduce()
 
 fun apply_pointer_mask(xlen :: XLen, address :: Bits(xlen.width), control :: PointerMaskControl()) :~ Bits(xlen.width):
   if xlen == XLen.X32
