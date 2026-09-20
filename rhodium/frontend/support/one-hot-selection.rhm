@@ -26,7 +26,7 @@ interface MaybeOneHotSelectorType:
 // bit set is a caller precondition; invalid encodings have no result contract.
 fun build_one_hot_mux(selector :: HardwareEntity,
                       choices :: List.of(HardwareEntity),
-                      name :: False || AsciiIdentifier = #false,
+                      name :: maybe(AsciiIdentifier) = #false,
                       location :: Location = Location()) :~ HardwareFields:
   def value = kernel.read(selector, location)
   unless value.type is_a mux_support.OneHotSelectorType
@@ -52,7 +52,7 @@ fun build_one_hot_mux(selector :: HardwareEntity,
 fun build_maybe_one_hot_mux(selector :: HardwareEntity,
                             choices :: List.of(HardwareEntity),
                             default_value :: HardwareEntity,
-                            name :: False || AsciiIdentifier = #false,
+                            name :: maybe(AsciiIdentifier) = #false,
                             location :: Location = Location()) :~ HardwareFields:
   def value = kernel.read(selector, location)
   unless value.type is_a MaybeOneHotSelectorType
@@ -82,7 +82,7 @@ fun build_maybe_one_hot_mux(selector :: HardwareEntity,
 // the exact one-hot lowering path.
 fun build_keyed_one_hot_mux(selector :: HardwareEntity,
                             cases :: Map,
-                            mux_name :: False || AsciiIdentifier = #false,
+                            mux_name :: maybe(AsciiIdentifier) = #false,
                             location :: Location = Location()) :~ HardwareFields:
   def value = kernel.read(selector, location)
   unless value.type is_a mux_support.OneHotSelectorType

@@ -58,10 +58,10 @@ fun resize_immediate_value(value :: Nat,
 
 class InstructionExpansion(target :: InstructionSpec,
                            bindings :: List.of(InstructionFieldBinding),
-                           immediate :: False || Nat || ImmediateLayout):
+                           immediate :: maybe(Nat || ImmediateLayout)):
   constructor (target :: InstructionSpec,
                bindings :: List.of(InstructionFieldBinding),
-               immediate :~ False || Nat || ImmediateLayout = #false):
+               immediate :~ maybe(Nat || ImmediateLayout) = #false):
     def operand_fields = target.operands.map(fun (operand): operand.field)
     for (binding in bindings):
       unless operand_fields.contains(binding.target)

@@ -157,7 +157,7 @@ fun ambient_sync_memory(name :: AsciiIdentifier,
                         has_read :: Boolean,
                         has_write :: Boolean,
                         has_read_write :: Boolean,
-                        mask_granularity :: False || PosInt = #false,
+                        mask_granularity :: maybe(PosInt) = #false,
                         location :: Location = Location()):
   def domain = require_sync_domain(location)
   kernel.sync_memory(name,
@@ -171,7 +171,7 @@ fun ambient_sync_memory(name :: AsciiIdentifier,
                      location)
 
 fun ambient_assert(condition :~ HardwareEntity,
-                   label :: False || AsciiIdentifier = #false,
+                   label :: maybe(AsciiIdentifier) = #false,
                    location :: Location = Location()):
   def domain = require_sync_domain(location)
   kernel.assert(condition,
@@ -213,8 +213,8 @@ fun ambient_dpi_register_results(
 // never inferred to be synchronous from their port names or control types.
 fun instantiate(name :: AsciiIdentifier,
                 child :: Module || CircuitDefinition,
-                clock :: False || HardwareEntity = #false,
-                reset :: False || HardwareEntity = #false,
+                clock :: maybe(HardwareEntity) = #false,
+                reset :: maybe(HardwareEntity) = #false,
                 location :: Location = Location()):
   when clock || reset
   | reject_explicit_sync_control(location)

@@ -18,7 +18,7 @@ class InstructionSpec(name :: NonemptyString,
                       requirements :: NonemptyList.of(FieldConstraint),
                       encoding :: InstructionEncoding,
                       operands :: List.of(RegisterOperand),
-                      immediate :: False || ImmediateLayout,
+                      immediate :: maybe(ImmediateLayout),
                       encoding_fields :: List.of(BitField)):
   constructor (name :: NonemptyString,
                format :: InstructionFormat,
@@ -44,7 +44,7 @@ class InstructionSpec(name :: NonemptyString,
   // Assembles one complete instruction from values for every variable
   // register or auxiliary field plus the format-owned semantic immediate.
   method encode(fields :: List.of(FieldConstraint),
-                ~immediate: immediate_value :~ False || Int = #false):
+                ~immediate: immediate_value :~ maybe(Int) = #false):
     def supplied_fields = format.operands.map(fun (operand): operand.field) ++ (
       format.auxiliary_fields
     )

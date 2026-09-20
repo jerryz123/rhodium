@@ -71,7 +71,7 @@ fun validate_suitable_topology(lowered_topology :: LoweredTopology):
 class UpDownNodeOrder(node :: NodeRef,
                       depth :: Nat,
                       rank :: Nat,
-                      parent :: False || NodeRef):
+                      parent :: maybe(NodeRef)):
   method describe():
     String.append(node.describe(), ": depth=", to_string(depth),
                   ", rank=", to_string(rank), ", parent=",

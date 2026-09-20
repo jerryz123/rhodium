@@ -154,7 +154,7 @@ fun build_value_operation(design :: Design,
                           opcode :: String,
                           operands :: List.of(Value),
                           result_type :: HardwareType,
-                          name :: False || AsciiIdentifier,
+                          name :: maybe(AsciiIdentifier),
                           location :: Location,
                           origin :: Origin,
                           who :: Symbol,
@@ -184,7 +184,7 @@ fun build_arithmetic_same_type_binary(design :: Design,
                                       opcode :: String,
                                       left :: Value,
                                       right :: Value,
-                                      name :: False || AsciiIdentifier,
+                                      name :: maybe(AsciiIdentifier),
                                       location :: Location,
                                       origin :: Origin,
                                       who :: Symbol):
@@ -210,7 +210,7 @@ fun build_bitwise_same_type_binary(design :: Design,
                                    opcode :: String,
                                    left :: Value,
                                    right :: Value,
-                                   name :: False || AsciiIdentifier,
+                                   name :: maybe(AsciiIdentifier),
                                    location :: Location,
                                    origin :: Origin,
                                    who :: Symbol):
@@ -236,7 +236,7 @@ fun build_bits_shift(design :: Design,
                      opcode :: String,
                      value :: Value,
                      amount :: Value,
-                     name :: False || AsciiIdentifier,
+                     name :: maybe(AsciiIdentifier),
                      location :: Location,
                      origin :: Origin,
                      who :: Symbol):
@@ -263,7 +263,7 @@ fun build_arithmetic_shift(design :: Design,
                            opcode :: String,
                            value :: Value,
                            amount :: Value,
-                           name :: False || AsciiIdentifier,
+                           name :: maybe(AsciiIdentifier),
                            location :: Location,
                            origin :: Origin,
                            who :: Symbol):
@@ -290,7 +290,7 @@ fun build_signed_arithmetic_shift(design :: Design,
                                   opcode :: String,
                                   value :: Value,
                                   amount :: Value,
-                                  name :: False || AsciiIdentifier,
+                                  name :: maybe(AsciiIdentifier),
                                   location :: Location,
                                   origin :: Origin,
                                   who :: Symbol):
@@ -317,7 +317,7 @@ fun build_mux_lookup(design :: Design,
                      selector :: Value,
                      default_value :: Value,
                      cases :: NonemptyList.of(List),
-                     name :: False || AsciiIdentifier,
+                     name :: maybe(AsciiIdentifier),
                      location :: Location,
                      origin :: Origin,
                      who :: Symbol):
@@ -370,7 +370,7 @@ fun build_onehot_mux(design :: Design,
                      module_def :: Module,
                      selector :: Value,
                      choices :: List.of(Value),
-                     name :: False || AsciiIdentifier,
+                     name :: maybe(AsciiIdentifier),
                      location :: Location,
                      origin :: Origin,
                      who :: Symbol):
@@ -405,8 +405,8 @@ class Builder(design :: Design):
   method dpi_import(name :: AsciiIdentifier,
                     input_names :: NonemptyList.of(AsciiIdentifier),
                     input_types :: NonemptyList.of(ScalarDataType),
-                    result_name :: False || AsciiIdentifier = #false,
-                    result_type :: False || ScalarDataType = #false,
+                    result_name :: maybe(AsciiIdentifier) = #false,
+                    result_type :: maybe(ScalarDataType) = #false,
                     location :: Location = Location()):
     unless (!result_name && !result_type) || (result_name && result_type)
     | fail(#'dpi_import, "DPI result name and type must be supplied together")
@@ -488,7 +488,7 @@ class Builder(design :: Design):
                 clock :: Value,
                 reset :: Value,
                 guard :: Value,
-                label :: False || AsciiIdentifier = #false,
+                label :: maybe(AsciiIdentifier) = #false,
                 location :: Location = Location(),
                 origin :: Origin = Origin("clocked assertion")):
     ensure_module_in_design(design, module_def, #'assert)
@@ -739,7 +739,7 @@ class Builder(design :: Design):
   method constant(module_def :: Module,
                   type :: HardwareType,
                   integer :: Nat,
-                  name :: False || AsciiIdentifier = #false,
+                  name :: maybe(AsciiIdentifier) = #false,
                   location :: Location = Location(),
                   origin :: Origin = Origin("constant")):
     ensure_module_in_design(design, module_def, #'constant)
@@ -769,7 +769,7 @@ class Builder(design :: Design):
   // A don't-care is synthesis freedom, not a runtime four-state value.
   method dont_care(module_def :: Module,
                    type :: HardwareType,
-                   name :: False || AsciiIdentifier = #false,
+                   name :: maybe(AsciiIdentifier) = #false,
                    location :: Location = Location(),
                    origin :: Origin = Origin("don't care")):
     ensure_module_in_design(design, module_def, #'dont_care)
@@ -794,7 +794,7 @@ class Builder(design :: Design):
                 cases :: List.of(List),
                 default_value :: Nat,
                 default_care :: Nat,
-                name :: False || AsciiIdentifier = #false,
+                name :: maybe(AsciiIdentifier) = #false,
                 location :: Location = Location(),
                 origin :: Origin = Origin("decode")):
     ensure_module_in_design(design, module_def, #'decode)
@@ -851,7 +851,7 @@ class Builder(design :: Design):
   method add(module_def :: Module,
              left :: Value,
              right :: Value,
-             name :: False || AsciiIdentifier = #false,
+             name :: maybe(AsciiIdentifier) = #false,
              location :: Location = Location(),
              origin :: Origin = Origin("add")):
     build_arithmetic_same_type_binary(design,
@@ -867,7 +867,7 @@ class Builder(design :: Design):
   method mul(module_def :: Module,
              left :: Value,
              right :: Value,
-             name :: False || AsciiIdentifier = #false,
+             name :: maybe(AsciiIdentifier) = #false,
              location :: Location = Location(),
              origin :: Origin = Origin("mul")):
     build_arithmetic_same_type_binary(design,
@@ -882,7 +882,7 @@ class Builder(design :: Design):
 
   method bit_not(module_def :: Module,
                  operand :: Value,
-                 name :: False || AsciiIdentifier = #false,
+                 name :: maybe(AsciiIdentifier) = #false,
                  location :: Location = Location(),
                  origin :: Origin = Origin("not")):
     ensure_module_in_design(design, module_def, #'bit_not)
@@ -903,7 +903,7 @@ class Builder(design :: Design):
   method bit_and(module_def :: Module,
                  left :: Value,
                  right :: Value,
-                 name :: False || AsciiIdentifier = #false,
+                 name :: maybe(AsciiIdentifier) = #false,
                  location :: Location = Location(),
                  origin :: Origin = Origin("and")):
     build_bitwise_same_type_binary(design, module_def, "rtl.and", left, right,
@@ -912,7 +912,7 @@ class Builder(design :: Design):
   method bit_or(module_def :: Module,
                 left :: Value,
                 right :: Value,
-                name :: False || AsciiIdentifier = #false,
+                name :: maybe(AsciiIdentifier) = #false,
                 location :: Location = Location(),
                 origin :: Origin = Origin("or")):
     build_bitwise_same_type_binary(design, module_def, "rtl.or", left, right,
@@ -921,7 +921,7 @@ class Builder(design :: Design):
   method bit_xor(module_def :: Module,
                  left :: Value,
                  right :: Value,
-                 name :: False || AsciiIdentifier = #false,
+                 name :: maybe(AsciiIdentifier) = #false,
                  location :: Location = Location(),
                  origin :: Origin = Origin("xor")):
     build_bitwise_same_type_binary(design, module_def, "rtl.xor", left, right,
@@ -930,7 +930,7 @@ class Builder(design :: Design):
   method sub(module_def :: Module,
              left :: Value,
              right :: Value,
-             name :: False || AsciiIdentifier = #false,
+             name :: maybe(AsciiIdentifier) = #false,
              location :: Location = Location(),
              origin :: Origin = Origin("sub")):
     build_arithmetic_same_type_binary(design, module_def, "rtl.sub", left, right,
@@ -939,7 +939,7 @@ class Builder(design :: Design):
   method shl(module_def :: Module,
              value :: Value,
              amount :: Value,
-             name :: False || AsciiIdentifier = #false,
+             name :: maybe(AsciiIdentifier) = #false,
              location :: Location = Location(),
              origin :: Origin = Origin("shl")):
     build_arithmetic_shift(design, module_def, "rtl.shl", value, amount,
@@ -948,7 +948,7 @@ class Builder(design :: Design):
   method shru(module_def :: Module,
               value :: Value,
               amount :: Value,
-              name :: False || AsciiIdentifier = #false,
+              name :: maybe(AsciiIdentifier) = #false,
               location :: Location = Location(),
               origin :: Origin = Origin("shru")):
     build_bits_shift(design, module_def, "rtl.shru", value, amount,
@@ -957,7 +957,7 @@ class Builder(design :: Design):
   method shrs(module_def :: Module,
               value :: Value,
               amount :: Value,
-              name :: False || AsciiIdentifier = #false,
+              name :: maybe(AsciiIdentifier) = #false,
               location :: Location = Location(),
               origin :: Origin = Origin("shrs")):
     build_signed_arithmetic_shift(design, module_def, "rtl.shrs", value, amount,
@@ -966,7 +966,7 @@ class Builder(design :: Design):
   method eq(module_def :: Module,
             left :: Value,
             right :: Value,
-            name :: False || AsciiIdentifier = #false,
+            name :: maybe(AsciiIdentifier) = #false,
             location :: Location = Location(),
             origin :: Origin = Origin("eq")):
     ensure_module_in_design(design, module_def, #'eq)
@@ -988,7 +988,7 @@ class Builder(design :: Design):
   method ult(module_def :: Module,
              left :: Value,
              right :: Value,
-             name :: False || AsciiIdentifier = #false,
+             name :: maybe(AsciiIdentifier) = #false,
              location :: Location = Location(),
              origin :: Origin = Origin("ult")):
     ensure_module_in_design(design, module_def, #'ult)
@@ -1010,7 +1010,7 @@ class Builder(design :: Design):
   method slt(module_def :: Module,
              left :: Value,
              right :: Value,
-             name :: False || AsciiIdentifier = #false,
+             name :: maybe(AsciiIdentifier) = #false,
              location :: Location = Location(),
              origin :: Origin = Origin("slt")):
     ensure_module_in_design(design, module_def, #'slt)
@@ -1033,7 +1033,7 @@ class Builder(design :: Design):
                     selector :: Value,
                     default_value :: Value,
                     cases :: NonemptyList.of(List),
-                    name :: False || AsciiIdentifier = #false,
+                    name :: maybe(AsciiIdentifier) = #false,
                     location :: Location = Location(),
                     origin :: Origin = Origin("mux_lookup")):
     build_mux_lookup(design,
@@ -1049,7 +1049,7 @@ class Builder(design :: Design):
   method onehot_mux(module_def :: Module,
                     selector :: Value,
                     choices :: List.of(Value),
-                    name :: False || AsciiIdentifier = #false,
+                    name :: maybe(AsciiIdentifier) = #false,
                     location :: Location = Location(),
                     origin :: Origin = Origin("onehot_mux")):
     build_onehot_mux(design,
@@ -1064,7 +1064,7 @@ class Builder(design :: Design):
   method cast(module_def :: Module,
               value :: Value,
               target_type :: HardwareType,
-              name :: False || AsciiIdentifier = #false,
+              name :: maybe(AsciiIdentifier) = #false,
               location :: Location = Location(),
               origin :: Origin = Origin("cast")):
     ensure_module_in_design(design, module_def, #'cast)
@@ -1086,7 +1086,7 @@ class Builder(design :: Design):
 
   method concat(module_def :: Module,
                 operands :: List.of(Value),
-                name :: False || AsciiIdentifier = #false,
+                name :: maybe(AsciiIdentifier) = #false,
                 location :: Location = Location(),
                 origin :: Origin = Origin("concat")):
     ensure_module_in_design(design, module_def, #'concat)
@@ -1113,7 +1113,7 @@ class Builder(design :: Design):
                  value :: Value,
                  high :: Nat,
                  low :: Nat,
-                 name :: False || AsciiIdentifier = #false,
+                 name :: maybe(AsciiIdentifier) = #false,
                  location :: Location = Location(),
                  origin :: Origin = Origin("extract")):
     ensure_module_in_design(design, module_def, #'extract)
@@ -1138,7 +1138,7 @@ class Builder(design :: Design):
   method zext(module_def :: Module,
               value :: Value,
               target_width :: PosInt,
-              name :: False || AsciiIdentifier = #false,
+              name :: maybe(AsciiIdentifier) = #false,
               location :: Location = Location(),
               origin :: Origin = Origin("zext")):
     ensure_module_in_design(design, module_def, #'zext)
@@ -1162,7 +1162,7 @@ class Builder(design :: Design):
   method sext(module_def :: Module,
               value :: Value,
               target_width :: PosInt,
-              name :: False || AsciiIdentifier = #false,
+              name :: maybe(AsciiIdentifier) = #false,
               location :: Location = Location(),
               origin :: Origin = Origin("sext")):
     ensure_module_in_design(design, module_def, #'sext)
@@ -1189,7 +1189,7 @@ class Builder(design :: Design):
   method trunc(module_def :: Module,
                value :: Value,
                target_width :: PosInt,
-               name :: False || AsciiIdentifier = #false,
+               name :: maybe(AsciiIdentifier) = #false,
                location :: Location = Location(),
                origin :: Origin = Origin("trunc")):
     ensure_module_in_design(design, module_def, #'trunc)
@@ -1213,7 +1213,7 @@ class Builder(design :: Design):
   method record_create(module_def :: Module,
                        type :: RecordType,
                        field_values :: List.of(List),
-                       name :: False || AsciiIdentifier = #false,
+                       name :: maybe(AsciiIdentifier) = #false,
                        location :: Location = Location(),
                        origin :: Origin = Origin("record_create")):
     ensure_module_in_design(design, module_def, #'record_create)
@@ -1261,7 +1261,7 @@ class Builder(design :: Design):
   method record_get(module_def :: Module,
                     record :: Value,
                     field_name :: AsciiIdentifier,
-                    name :: False || AsciiIdentifier = #false,
+                    name :: maybe(AsciiIdentifier) = #false,
                     location :: Location = Location(),
                     origin :: Origin = Origin("record_get")):
     ensure_module_in_design(design, module_def, #'record_get)
@@ -1286,7 +1286,7 @@ class Builder(design :: Design):
   method vector_create(module_def :: Module,
                        type :: VectorType,
                        elements :: List.of(Value),
-                       name :: False || AsciiIdentifier = #false,
+                       name :: maybe(AsciiIdentifier) = #false,
                        location :: Location = Location(),
                        origin :: Origin = Origin("vector_create")):
     ensure_module_in_design(design, module_def, #'vector_create)
@@ -1312,7 +1312,7 @@ class Builder(design :: Design):
   method vector_get(module_def :: Module,
                     vector :: Value,
                     index :: Nat,
-                    name :: False || AsciiIdentifier = #false,
+                    name :: maybe(AsciiIdentifier) = #false,
                     location :: Location = Location(),
                     origin :: Origin = Origin("vector_get")):
     ensure_module_in_design(design, module_def, #'vector_get)
@@ -1338,7 +1338,7 @@ class Builder(design :: Design):
   method vector_index(module_def :: Module,
                       vector :: Value,
                       index :: Value,
-                      name :: False || AsciiIdentifier = #false,
+                      name :: maybe(AsciiIdentifier) = #false,
                       location :: Location = Location(),
                       origin :: Origin = Origin("vector_index")):
     ensure_module_in_design(design, module_def, #'vector_index)
@@ -1365,7 +1365,7 @@ class Builder(design :: Design):
                        vector :: Value,
                        index :: Value,
                        element :: Value,
-                       name :: False || AsciiIdentifier = #false,
+                       name :: maybe(AsciiIdentifier) = #false,
                        location :: Location = Location(),
                        origin :: Origin = Origin("vector_inject")):
     ensure_module_in_design(design, module_def, #'vector_inject)
@@ -1396,7 +1396,7 @@ class Builder(design :: Design):
                           enables :: Value,
                           indices :: Value,
                           elements :: Value,
-                          name :: False || AsciiIdentifier = #false,
+                          name :: maybe(AsciiIdentifier) = #false,
                           location :: Location = Location(),
                           origin :: Origin = Origin("vector_write_set")):
     ensure_module_in_design(design, module_def, #'vector_write_set)
@@ -1565,7 +1565,7 @@ class Builder(design :: Design):
   method memory_read_async(module_def :: Module,
                            memory :: Memory,
                            address :: Value,
-                           name :: False || AsciiIdentifier = #false,
+                           name :: maybe(AsciiIdentifier) = #false,
                            location :: Location = Location(),
                            origin :: Origin = Origin("memory read")):
     ensure_module_in_design(design, module_def, #'memory_read_async)
@@ -1644,7 +1644,7 @@ class Builder(design :: Design):
                      has_read :: Boolean = #true,
                      has_write :: Boolean = #true,
                      has_read_write :: Boolean = #false,
-                     mask_granularity :: False || PosInt = #false,
+                     mask_granularity :: maybe(PosInt) = #false,
                      location :: Location = Location(),
                      origin :: Origin = Origin("synchronous memory", name)):
     ensure_module_in_design(design, module_def, #'sync_memory)
@@ -1812,8 +1812,8 @@ class Builder(design :: Design):
                   name :: AsciiIdentifier,
                   type :~ DataType,
                   clock :: Value,
-                  reset :: False || Value = #false,
-                  reset_value :: False || Value = #false,
+                  reset :: maybe(Value) = #false,
+                  reset_value :: maybe(Value) = #false,
                   location :: Location = Location(),
                   origin :: Origin = Origin("register", name)):
     ensure_module_in_design(design, module_def, #'register)

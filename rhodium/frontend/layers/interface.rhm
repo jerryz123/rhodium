@@ -140,20 +140,20 @@ class InterfaceType(name :: String,
                     roles :: List.of(String),
                     members :: NonemptyList.of(InterfaceMember),
                     provider_role :: String,
-                    parent :~ False || InterfaceType = #false,
+                    parent :~ maybe(InterfaceType) = #false,
                     supported_contracts :: List.of(InterfaceSupport) = [],
                     specialization_arguments :: List = [],
-                    connection_compatibility :: False || InterfaceCompatibility = #false):
+                    connection_compatibility :: maybe(InterfaceCompatibility) = #false):
   implements InterfaceMemberType
   constructor (name :: String,
                roles :: List.of(String),
                declarations :: List,
-               parent :~ False || InterfaceType = #false,
+               parent :~ maybe(InterfaceType) = #false,
                supported_contracts :: List.of(InterfaceSupport) = [],
-               ~provider_role: supplied_provider_role :: False || String = #false,
+               ~provider_role: supplied_provider_role :: maybe(String) = #false,
                ~identity: identity :: InterfaceIdentity = InterfaceIdentity(),
                ~specialization_arguments: specialization_arguments :: List = [],
-               ~connection_compatibility: connection_compatibility :: False || InterfaceCompatibility = #false):
+               ~connection_compatibility: connection_compatibility :: maybe(InterfaceCompatibility) = #false):
     unless roles.length() == 2 && roles[0] != roles[1]
     | error(~who: #'InterfaceType, "interfaces require exactly two distinct roles")
     def provider_role = supplied_provider_role || roles[0]
@@ -436,21 +436,21 @@ class InterfaceTraceRoute(input_index :: Nat, output_index :: Nat)
 
 // Certifies combinational transfer separately from possible static routes.
 // Absence of this contract never implies zero-latency runtime propagation.
-class InterfaceTraceCombinational(guard :: False || Value = #false)
+class InterfaceTraceCombinational(guard :: maybe(Value) = #false)
 
 // Certifies fixed latency for survivors, with synchronous reset and optional flush.
-class InterfaceTraceFixedLatency(cycles :: PosInt, flush :: False || Value = #false)
+class InterfaceTraceFixedLatency(cycles :: PosInt, flush :: maybe(Value) = #false)
 
 class InterfaceElasticStage(advance :: Value, valid :: Value)
 class InterfaceElasticStages(module_def :: Module, stages :: NonemptyList.of(InterfaceElasticStage), name :: String = "data"):
   implements ModuleMetadataPayload
-class InterfaceTraceElastic(instance :: False || Instance, stages :: NonemptyList.of(InterfaceElasticStage))
+class InterfaceTraceElastic(instance :: maybe(Instance), stages :: NonemptyList.of(InterfaceElasticStage))
 
 // One transaction owner may emit repeatedly until release; outputs do not pop it.
 class InterfaceRetainedStorage(module_def :: Module, capture :: Value, release :: Value, active :: Value, name :: String):
   implements ModuleMetadataPayload
   method controls(): [capture, release, active]
-class InterfaceTraceRetained(instance :: False || Instance, storage :: InterfaceRetainedStorage)
+class InterfaceTraceRetained(instance :: maybe(Instance), storage :: InterfaceRetainedStorage)
 // Connects two annotated route occurrences through one retained transaction
 // storage declaration without adding a functional interface connection.
 class InterfaceTraceEdge(module_def :: Module,
@@ -466,18 +466,18 @@ class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
                             stored_valid :: Value, bypass :: Value, name :: String = "data"):
   implements ModuleMetadataPayload
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
-class InterfaceTraceQueue(instance :: False || Instance, storage :: InterfaceQueueStorage)
+class InterfaceTraceQueue(instance :: maybe(Instance), storage :: InterfaceQueueStorage)
 
 // Ordered retained entries support repeated reads and multi-entry contributions.
 class InterfaceWindowStorage(module_def :: Module, depth :: PosInt,
                              enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
-                             selected :: NonemptyList.of(Value), name :: String, live :: False || Value = #false):
+                             selected :: NonemptyList.of(Value), name :: String, live :: maybe(Value) = #false):
   implements ModuleMetadataPayload
   method controls(): [enqueue, release_count, count, flush] ++ selected ++ (if live | [live] | [])
-class InterfaceTraceWindow(instance :: False || Instance, storage :: InterfaceWindowStorage)
+class InterfaceTraceWindow(instance :: maybe(Instance), storage :: InterfaceWindowStorage)
 class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
-class InterfaceTraceSelection(instance :: False || Instance, grants :: NonemptyList.of(Value))
+class InterfaceTraceSelection(instance :: maybe(Instance), grants :: NonemptyList.of(Value))
 class InterfaceTraceRouting(predicates :: NonemptyList.of(Value))
 // Zero-storage replication: every output transfers exactly when the input does.
 class InterfaceTraceAtomicFork(output_count :: PosInt)
@@ -487,10 +487,10 @@ class InterfaceTraceAtomicJoin(input_count :: PosInt)
 class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
   method controls(): [accept] ++ pending
-class InterfaceTraceBufferedBroadcast(instance :: False || Instance, storage :: InterfaceBroadcastStorage)
+class InterfaceTraceBufferedBroadcast(instance :: maybe(Instance), storage :: InterfaceBroadcastStorage)
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
-                          dynamic :: False || InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceRetained || InterfaceTraceQueue || InterfaceTraceWindow || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin = #false):
+                          dynamic :: maybe(InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceRetained || InterfaceTraceQueue || InterfaceTraceWindow || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin) = #false):
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
@@ -544,9 +544,9 @@ class InterfaceTransformGroup(module_def :: Module,
                               input :: InterfaceEndpoint || Array,
                               output :: InterfaceEndpoint || Array,
                               properties :: Map,
-                              implementation :: False || Instance,
-                              trace_model :: False || InterfaceTraceModel = #false,
-                              contract_name :: False || String = #false):
+                              implementation :: maybe(Instance),
+                              trace_model :: maybe(InterfaceTraceModel) = #false,
+                              contract_name :: maybe(String) = #false):
   implements ModuleMetadataPayload
 class InterfaceEventField(name :: String, value :: Value, encoding :: String,
                           isa :: String = "", pc :: String = "",
@@ -554,7 +554,7 @@ class InterfaceEventField(name :: String, value :: Value, encoding :: String,
 
 // Capture expressions are local observations, independent of lineage metadata.
 fun event_field(name :: String, value :: HardwareEntity,
-                ~format: encoding :: False || String = #false,
+                ~format: encoding :: maybe(String) = #false,
                 ~isa: isa :: String = "", ~pc: pc :: String = "",
                 ~label: label :: Boolean = #false,
                 ~location: location :: Location = Location()) :: InterfaceEventField:
@@ -590,14 +590,14 @@ class InterfaceEventGroup(module_def :: Module,
                           label :: String,
                           input :: InterfaceEndpoint,
                           output :: InterfaceEndpoint,
-                          payload :: False || Value,
+                          payload :: maybe(Value),
                           location :: Location,
-                          valid :: False || Value = #false,
-                          ready :: False || Value = #false,
+                          valid :: maybe(Value) = #false,
+                          ready :: maybe(Value) = #false,
                           fields :: List.of(InterfaceEventField) = [],
                           stalls :: Boolean = #false,
-                          mutable parents :: False || List.of(Nat) = #false,
-                          residency :: False || String = #false):
+                          mutable parents :: maybe(List.of(Nat)) = #false,
+                          residency :: maybe(String) = #false):
   implements ModuleMetadataPayload
   // Resolve after elaboration so the storage declaration may follow its input.
   method residency_storage():
@@ -682,8 +682,8 @@ fun interface_type_equal(left :: InterfaceType, right :: InterfaceType):
         left_member.name == right_member.name && left_member.from_role == right_member.from_role && left_member.to_role == right_member.to_role && interface_member_type_equal(left_member.type, right_member.type)
     )
 
-fun interface_parent_equal(left :: False || InterfaceType,
-                           right :: False || InterfaceType):
+fun interface_parent_equal(left :: maybe(InterfaceType),
+                           right :: maybe(InterfaceType)):
   if left || right
   | left is_a InterfaceType && right is_a InterfaceType && interface_type_equal(left, right)
   | #true
@@ -1733,7 +1733,7 @@ fun interface_trace_passthrough():
 
 // Certifies zero-storage, non-inventing, one-to-one transfer. An optional
 // guard is the original filter predicate, not a reconstructed selection policy.
-fun interface_trace_combinational(~guard: guard :: False || HardwareEntity = #false):
+fun interface_trace_combinational(~guard: guard :: maybe(HardwareEntity) = #false):
   def value = if guard | kernel.read(guard) | #false
   when value && (!(value.module_def === kernel.active_module()) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
   | error(~who: #'interface_trace_combinational, "trace guard must be local one-bit data")
@@ -1741,7 +1741,7 @@ fun interface_trace_combinational(~guard: guard :: False || HardwareEntity = #fa
 
 // Every surviving output transfer corresponds to the input exactly this many
 // cycles earlier. No backpressure, clock enable, or variable latency is allowed.
-fun interface_trace_fixed_latency(cycles :: PosInt, ~flush: flush :: False || HardwareEntity = #false):
+fun interface_trace_fixed_latency(cycles :: PosInt, ~flush: flush :: maybe(HardwareEntity) = #false):
   def value = if flush | kernel.read(flush) | #false
   when value && (!(value.module_def === kernel.active_module()) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
   | error(~who: #'interface_trace_fixed_latency, "trace flush must be local one-bit data")
@@ -1758,7 +1758,7 @@ fun describe_interface_retained_storage(capture :: HardwareEntity, release :: Ha
     value
   module_def.add_metadata(interface_retained_storage_namespace, InterfaceRetainedStorage(module_def, signal(capture), signal(release), signal(active), name))
 
-fun interface_trace_retained(instance :: False || Instance = #false, ~name: name :: String = "data", ~outputs: output_count :: PosInt = 1):
+fun interface_trace_retained(instance :: maybe(Instance) = #false, ~name: name :: String = "data", ~outputs: output_count :: PosInt = 1):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_retained, "retained implementation must be a local instance")
   def owner = if instance | instance.module_def | kernel.active_module()
@@ -1821,7 +1821,7 @@ fun describe_interface_elastic_stages(advances :: NonemptyList.of(HardwareEntity
     InterfaceElasticStage(signal(advance), signal(valid))
   module_def.add_metadata(interface_elastic_stages_namespace, InterfaceElasticStages(module_def, stages, name))
 
-fun interface_trace_elastic(instance :: False || Instance = #false, ~name: name :: String = "data"):
+fun interface_trace_elastic(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_elastic, "elastic trace implementation must be a local instance")
   def owner = if instance | instance.module_def | kernel.active_module()
@@ -1851,7 +1851,7 @@ fun describe_interface_queue_storage(depth :: PosInt,
                                                 signal(read_address, address_width), signal(write_address, address_width),
                                                 signal(stored_valid, 1), signal(bypass, 1), name))
 
-fun interface_trace_queue(instance :: False || Instance = #false, ~name: name :: String = "data"):
+fun interface_trace_queue(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_queue, "queue trace implementation must be a local instance")
   def owner = if instance | instance.module_def | kernel.active_module()
@@ -1865,7 +1865,7 @@ fun interface_trace_queue(instance :: False || Instance = #false, ~name: name ::
 fun describe_interface_window_storage(depth :: PosInt, enqueue :: HardwareEntity,
                                       release_count :: HardwareEntity, count :: HardwareEntity, flush :: HardwareEntity,
                                       selected :: NonemptyList.of(HardwareEntity), ~name: name :: String = "data",
-                                      ~live: live :: False || HardwareEntity = #false):
+                                      ~live: live :: maybe(HardwareEntity) = #false):
   def module_def = kernel.active_module()
   unless name != "" && !module_def.metadata_for(interface_window_storage_namespace).find(fun (declaration): declaration.name == name)
   | error(~who: #'describe_interface_window_storage, "window storage controls already declared")
@@ -1882,7 +1882,7 @@ fun describe_interface_window_storage(depth :: PosInt, enqueue :: HardwareEntity
                                                  signal(count, width), signal(flush, 1), selected.map(fun (value): signal(value, 1)), name,
                                                  if live | signal(live, 1) | #false))
 
-fun interface_trace_window(instance :: False || Instance = #false, ~name: name :: String = "data"):
+fun interface_trace_window(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_window, "window trace implementation must be a local instance")
   def owner = if instance | instance.module_def | kernel.active_module()
@@ -1904,7 +1904,7 @@ fun describe_interface_selection(grants :: NonemptyList.of(HardwareEntity), ~nam
     value
   module_def.add_metadata(interface_selection_namespace, InterfaceSelection(module_def, grant_values, name))
 
-fun interface_trace_selection(instance :: False || Instance = #false, ~name: name :: String = "data"):
+fun interface_trace_selection(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_selection, "selection trace implementation must be a local instance")
   def owner = if instance | instance.module_def | kernel.active_module()
@@ -1947,7 +1947,7 @@ fun describe_interface_broadcast_storage(accept :: HardwareEntity, pending :: No
     value
   module_def.add_metadata(interface_broadcast_storage_namespace, InterfaceBroadcastStorage(module_def, signal(accept), pending.map(signal), name))
 
-fun interface_trace_buffered_broadcast(instance :: False || Instance = #false, ~name: name :: String = "data"):
+fun interface_trace_buffered_broadcast(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_buffered_broadcast, "broadcast trace implementation must be a local instance")
   def owner = if instance | instance.module_def | kernel.active_module()
@@ -2044,9 +2044,9 @@ fun interface_shapes_overlap(left :: InterfaceEndpoint || Array, right :: Interf
 fun describe_interface_transform(handle :: Handle,
                                  kind :: String,
                                  properties :: Map = {},
-                                 implementation :: False || Instance = #false,
-                                 ~trace_model: trace_model :: False || InterfaceTraceModel = #false,
-                                 ~contract_name: contract_name :: False || String = #false) :: Handle:
+                                 implementation :: maybe(Instance) = #false,
+                                 ~trace_model: trace_model :: maybe(InterfaceTraceModel) = #false,
+                                 ~contract_name: contract_name :: maybe(String) = #false) :: Handle:
   def module_def = kernel.active_module()
   when implementation && !(implementation.operation.module_def === module_def)
   | error(~who: #'describe_interface_transform,
@@ -2175,13 +2175,13 @@ fun describe_interface_event_parents(child :: InterfaceEndpoint, parents :: List
 // retaining a dedicated metadata record for compiler consumers.
 fun describe_interface_event(handle :: Handle,
                              label :: String,
-                             ~parents: parents :: False || List.of(InterfaceEndpoint) = #false,
+                             ~parents: parents :: maybe(List.of(InterfaceEndpoint)) = #false,
                              ~stalls: stalls :: Boolean = #false,
-                             ~residency: residency :: False || String = #false,
-                             ~payload: payload :: False || HardwareEntity = #false,
+                             ~residency: residency :: maybe(String) = #false,
+                             ~payload: payload :: maybe(HardwareEntity) = #false,
                              ~fields: fields :: List.of(InterfaceEventField) = [],
-                             ~valid: valid :: False || HardwareEntity = #false,
-                             ~ready: ready :: False || HardwareEntity = #false,
+                             ~valid: valid :: maybe(HardwareEntity) = #false,
+                             ~ready: ready :: maybe(HardwareEntity) = #false,
                              ~location: location :: Location = Location()) :: Handle:
   unless label != ""
   | error(~who: #'describe_interface_event, "event label must not be empty")
@@ -2241,7 +2241,7 @@ fun describe_interface_event(handle :: Handle,
                                for List (field in fields, declared in record_fields):
                                  [declared.name, field.value])
   def site_index = existing.length()
-  fun transfer_value(signal :: False || HardwareEntity):
+  fun transfer_value(signal :: maybe(HardwareEntity)):
     def value = if signal | kernel.read(signal, location) | #false
     when value && (!(value.module_def === module_def) || !scalar_data_type(value.type) || scalar_width(value.type) != 1)
     | error(~who: #'describe_interface_event, "event transfer controls must be local one-bit data")

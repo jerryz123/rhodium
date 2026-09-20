@@ -80,7 +80,7 @@ fun build_tagged_union_type(schema :: VariantSchema):
 fun make_automatic_tagged_union(name :: AsciiIdentifier,
                                 identity :: VariantIdentity,
                                 members :: NonemptyList.of(List),
-                                requested_width :: False || PosInt = #false):
+                                requested_width :: maybe(PosInt) = #false):
   build_tagged_union_type(
     make_automatic_variant_schema(name, identity, members, requested_width)
   )
@@ -88,7 +88,7 @@ fun make_automatic_tagged_union(name :: AsciiIdentifier,
 fun make_explicit_tagged_union(name :: AsciiIdentifier,
                                identity :: VariantIdentity,
                                members :: NonemptyList.of(List),
-                               requested_width :: False || PosInt = #false):
+                               requested_width :: maybe(PosInt) = #false):
   build_tagged_union_type(
     make_explicit_variant_schema(name, identity, members, requested_width)
   )
@@ -111,7 +111,7 @@ fun union_member(type :: TaggedUnionType, member_name :: String):
 
 fun materialize_union_bits(type :: TaggedUnionType,
                            member :: VariantMember,
-                           payload :: False || HardwareEntity,
+                           payload :: maybe(HardwareEntity),
                            location :: Location):
   def tag_bits = kernel.literal(Bits(type.schema.width), member.encoding, #false, location)
   if type.payload_width == 0

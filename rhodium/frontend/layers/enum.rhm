@@ -25,7 +25,7 @@ export:
 
 fun make_automatic_enum(name :: AsciiIdentifier,
                         member_names :: NonemptyList.of(AsciiIdentifier),
-                        requested_width :: False || PosInt = #false):
+                        requested_width :: maybe(PosInt) = #false):
   enum_type_from_schema(
     make_automatic_variant_schema(
       name,
@@ -37,7 +37,7 @@ fun make_automatic_enum(name :: AsciiIdentifier,
 
 fun make_explicit_enum(name :: AsciiIdentifier,
                        members :: NonemptyList.of(List),
-                       requested_width :: False || PosInt = #false):
+                       requested_width :: maybe(PosInt) = #false):
   enum_type_from_schema(
     make_explicit_variant_schema(
       name,

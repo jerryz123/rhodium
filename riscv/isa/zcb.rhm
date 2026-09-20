@@ -46,7 +46,7 @@ fun zcb_memory(name :: NonemptyString,
 fun zcb_unary(name :: NonemptyString,
               target :: InstructionSpec,
               operation :: Nat,
-              immediate :~ False || Nat = #false):
+              immediate :~ maybe(Nat) = #false):
   compressed_instruction(
     name,
     [zcb_funct6.constrain(0x27), zcb_funct5.constrain(operation), compressed_quadrant.constrain(1)],

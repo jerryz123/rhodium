@@ -68,7 +68,7 @@ interface EnvironmentClockRelationship
 
 class ClockUse(operation :: Operation,
                clock :: Value,
-               reset :: False || Value = #false)
+               reset :: maybe(Value) = #false)
 
 class ClockGroup(clock :: Value,
                  uses :: List.of(ClockUse))
@@ -110,15 +110,15 @@ class ControlReference(instance_path :: List.of(Operation),
 class StateProvenance(instance_path :: List.of(Operation),
                       operation :: Operation,
                       path :: List.of(String || Nat),
-                      clock :: False || ControlReference,
-                      reset :: False || ControlReference = #false):
+                      clock :: maybe(ControlReference),
+                      reset :: maybe(ControlReference) = #false):
   implements TemporalProvenance
 class CrossingReference(instance_path :: List.of(Operation),
                         operation :: Operation)
 class CrossedProvenance(crossing :: CrossingReference,
                         path :: List.of(String || Nat),
                         source_origins :: List.of(TemporalProvenance),
-                        destination_clock :: False || ControlReference):
+                        destination_clock :: maybe(ControlReference)):
   implements TemporalProvenance
 
 // A sink-input classification records what is known independently of whether
@@ -204,7 +204,7 @@ class TemporalSinkInput(name :: String,
                         path :: List.of(String || Nat),
                         origins :: List.of(TemporalProvenance),
                         classification :: SinkInputClassification,
-                        crossing :: False || CrossingReference = #false)
+                        crossing :: maybe(CrossingReference) = #false)
 class TemporalSink(instance_path :: List.of(Operation),
                    operation :: Operation,
                    kind :: String,

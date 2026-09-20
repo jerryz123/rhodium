@@ -37,16 +37,16 @@ class FormalDifference(port :: String,
                        left_value :: Nat,
                        right_value :: Nat)
 
-class FormalDiagnostic(module_path :: False || String,
-                       opcode :: False || String,
-                       operation_id :: False || Nat,
-                       location :: False || String,
-                       origin :: False || String,
+class FormalDiagnostic(module_path :: maybe(String),
+                       opcode :: maybe(String),
+                       operation_id :: maybe(Nat),
+                       location :: maybe(String),
+                       origin :: maybe(String),
                        message :: String)
 
 class FormalInputAssumption(port :: String,
                             value :: Nat,
-                            care :: False || Nat = #false):
+                            care :: maybe(Nat) = #false):
   implements FormalAssumption
 
 class FormalOneHotAssumption(port :: String):
@@ -54,7 +54,7 @@ class FormalOneHotAssumption(port :: String):
 
 class FormalOutputPattern(port :: String,
                           value :: Nat,
-                          care :: False || Nat = #false)
+                          care :: maybe(Nat) = #false)
 
 class FormalOutputWitness(port :: String,
                           type :: HardwareType,
@@ -65,7 +65,7 @@ class FormalQuery(assumptions :: List.of(FormalAssumption) = [])
 class FormalResult(status :: String,
                    assignments :: List.of(FormalAssignment) = [],
                    differences :: List.of(FormalDifference) = [],
-                   diagnostic :: False || FormalDiagnostic = #false,
+                   diagnostic :: maybe(FormalDiagnostic) = #false,
                    assumptions :: List.of(FormalAssumption) = []):
   method equivalent(): status == "equivalent"
   method counterexample(): status == "counterexample"
@@ -85,8 +85,8 @@ class FormalResult(status :: String,
 class FormalReachabilityResult(status :: String,
                                target :: FormalOutputPattern,
                                assignments :: List.of(FormalAssignment) = [],
-                               output :: False || FormalOutputWitness = #false,
-                               diagnostic :: False || FormalDiagnostic = #false,
+                               output :: maybe(FormalOutputWitness) = #false,
+                               diagnostic :: maybe(FormalDiagnostic) = #false,
                                assumptions :: List.of(FormalAssumption) = []):
   method reachable(): status == "reachable"
   method unreachable(): status == "unreachable"
@@ -109,8 +109,8 @@ class FormalReachabilityResult(status :: String,
 class FormalPropertyResult(status :: String,
                            target :: FormalOutputPattern,
                            assignments :: List.of(FormalAssignment) = [],
-                           output :: False || FormalOutputWitness = #false,
-                           diagnostic :: False || FormalDiagnostic = #false,
+                           output :: maybe(FormalOutputWitness) = #false,
+                           diagnostic :: maybe(FormalDiagnostic) = #false,
                            assumptions :: List.of(FormalAssumption) = []):
   method proved(): status == "proved"
   method counterexample(): status == "counterexample"
@@ -210,10 +210,10 @@ fun interface_diagnostic(top :: Module, message :: String):
 fun entry_value(entry :: ReadableMap, key :: String):
   rkt.#{hash-ref}(entry, key)
 
-fun optional_string(value :: False || String):
+fun optional_string(value :: maybe(String)):
   if value | to_string(value) | #false
 
-fun convert_diagnostic(raw :: False || ReadableMap):
+fun convert_diagnostic(raw :: maybe(ReadableMap)):
   if raw
   | FormalDiagnostic(optional_string(entry_value(raw, "module_path")),
                      optional_string(entry_value(raw, "opcode")),

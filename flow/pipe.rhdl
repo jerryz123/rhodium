@@ -147,7 +147,7 @@ fun pipe(stages :: PosInt)
       )
     )
 
-fun valid_pipe(stages :: PosInt, ~flush: flush :: False || Bool = #false)
+fun valid_pipe(stages :: PosInt, ~flush: flush :: maybe(Bool) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
     def T = valid_flow_payload_type(source)
@@ -166,7 +166,7 @@ fun valid_pipe(stages :: PosInt, ~flush: flush :: False || Bool = #false)
       )
     )
 
-fun valid_pipe_always_capture(stages :: PosInt, ~flush: flush :: False || Bool = #false)
+fun valid_pipe_always_capture(stages :: PosInt, ~flush: flush :: maybe(Bool) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
     def T = valid_flow_payload_type(source)

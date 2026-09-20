@@ -31,8 +31,8 @@ export:
   DesignElaboration
 
 class Location(path :: String = "<unknown>",
-               line :: False || PosInt = #false,
-               column :: False || Nat = #false):
+               line :: maybe(PosInt) = #false,
+               column :: maybe(Nat) = #false):
   method describe():
     if line
     | path ++ ":" ++ to_string(line) ++ (if column | ":" ++ to_string(column) | "")
@@ -87,18 +87,18 @@ class.together:
     method ref():
       "%" ++ name
 
-  class Place(id :: False || Nat,
+  class Place(id :: maybe(Nat),
               name :: String,
               type :: HardwareType,
               module_def :: Module,
               owner_op_id :: Nat,
-              driver_seed :: False || Value = #false,
-              parent :: False || Place = #false,
-              projection_key :: False || String || Nat = #false,
+              driver_seed :: maybe(Value) = #false,
+              parent :: maybe(Place) = #false,
+              projection_key :: maybe(String || Nat) = #false,
               projected_places_seed :: List.of(Place) = []):
     implements HardwareEntity
     // Trusted after checked seed ingress; projection helpers preserve membership and order.
-    private field _driver :~ False || Value = driver_seed
+    private field _driver :~ maybe(Value) = driver_seed
     private field _projected_places :~ List.of(Place) = projected_places_seed
     property driver: _driver
     property projected_places: _projected_places
@@ -147,7 +147,7 @@ class.together:
     property design: module_def.design
 
     method attribute(name :: String,
-                     default :: False || String || List = #false):
+                     default :: maybe(String || List) = #false):
       attributes.get(name, default)
 
   // Keeps ABI-relevant result direction distinct from ordinary hardware type:
@@ -194,13 +194,13 @@ class.together:
   class SyncMemoryWritePort(address :: Place,
                             data :: Place,
                             enable :: Place,
-                            mask :: False || Place = #false)
+                            mask :: maybe(Place) = #false)
   class SyncMemoryReadWritePort(address :: Place,
                                 enable :: Place,
                                 write :: Place,
                                 write_data :: Place,
                                 read_data :: Value,
-                                write_mask :: False || Place = #false)
+                                write_mask :: maybe(Place) = #false)
   class SyncMemory(operation :: Operation,
                    name :: String,
                    depth :: PosInt,
@@ -209,7 +209,7 @@ class.together:
                    read_ports :: List.of(SyncMemoryReadPort) = [],
                    write_ports :: List.of(SyncMemoryWritePort) = [],
                    read_write_ports :: List.of(SyncMemoryReadWritePort) = [],
-                   mask_granularity :: False || PosInt = #false):
+                   mask_granularity :: maybe(PosInt) = #false):
     property read_port:
       if read_ports.length() == 0 | #false | read_ports[0]
     property write_port:
@@ -220,8 +220,8 @@ class.together:
   class Port(name :: String,
              direction :: String,
              type :: HardwareType,
-             value :: False || Value = #false,
-             place :: False || Place = #false):
+             value :: maybe(Value) = #false,
+             place :: maybe(Place) = #false):
     implements HardwareEntity
 
   class Register(operation :: Operation, current :: Value, next :: Place):

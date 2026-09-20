@@ -35,7 +35,7 @@ class VariantIdentity()
 // families reuse the same tag schema without inventing a zero-width Unit type.
 class VariantMember(name :: AsciiIdentifier,
                     encoding :: Nat,
-                    payload_type :: False || DataType = #false)
+                    payload_type :: maybe(DataType) = #false)
 
 class VariantSchema(name :: String,
                     identity :: VariantIdentity,
@@ -43,8 +43,8 @@ class VariantSchema(name :: String,
                     width :: PosInt,
                     one_hot :: Boolean)
 
-fun payload_type_equal(left :: False || DataType,
-                       right :: False || DataType):
+fun payload_type_equal(left :: maybe(DataType),
+                       right :: maybe(DataType)):
   if !left || !right
   | left == #false && right == #false
   | type_equal(left, right)
@@ -71,7 +71,7 @@ fun required_variant_width(maximum_encoding :: Nat):
 fun validate_variant_specs(name :: String,
                            identity :: VariantIdentity,
                            specs :: NonemptyList.of(List),
-                           requested_width :: False || PosInt,
+                           requested_width :: maybe(PosInt),
                            ~one_hot: one_hot :: Boolean = #false):
   for (spec in specs):
     unless spec.length() == 3 && spec[0] is_a String && spec[1] is_a Nat
@@ -113,7 +113,7 @@ fun validate_variant_specs(name :: String,
 fun make_automatic_variant_schema(name :: String,
                                   identity :: VariantIdentity,
                                   members :: NonemptyList.of(List),
-                                  requested_width :: False || PosInt = #false):
+                                  requested_width :: maybe(PosInt) = #false):
   validate_variant_specs(
     name,
     identity,
@@ -125,7 +125,7 @@ fun make_automatic_variant_schema(name :: String,
 fun make_explicit_variant_schema(name :: String,
                                  identity :: VariantIdentity,
                                  members :: NonemptyList.of(List),
-                                 requested_width :: False || PosInt = #false):
+                                 requested_width :: maybe(PosInt) = #false):
   validate_variant_specs(name, identity, members, requested_width)
 
 fun make_one_hot_variant_schema(name :: String,

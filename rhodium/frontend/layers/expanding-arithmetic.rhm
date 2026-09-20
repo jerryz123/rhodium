@@ -30,7 +30,7 @@ fun widen_signed_operands(left_value :: Value,
 
 fun add_expanding(left :: HardwareEntity,
                   right :: HardwareEntity,
-                  name :: False || AsciiIdentifier = #false) :~ HardwareFields:
+                  name :: maybe(AsciiIdentifier) = #false) :~ HardwareFields:
   def left_value = read(left)
   def right_value = read(right)
   unless bits_type(left_value.type) && bits_type(right_value.type)
@@ -46,7 +46,7 @@ fun add_expanding(left :: HardwareEntity,
 
 fun mul_expanding(left :: HardwareEntity,
                   right :: HardwareEntity,
-                  name :: False || AsciiIdentifier = #false) :~ HardwareFields:
+                  name :: maybe(AsciiIdentifier) = #false) :~ HardwareFields:
   def left_value = read(left)
   def right_value = read(right)
   def unsigned_operands = bits_type(left_value.type) && bits_type(right_value.type)

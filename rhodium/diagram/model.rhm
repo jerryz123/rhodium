@@ -28,12 +28,12 @@ class DiagramBlock(id :: String,
                    kind :: String,
                    ports :: List.of(DiagramPort),
                    properties :: Map = {},
-                   child_module :: False || String = #false,
+                   child_module :: maybe(String) = #false,
                    behavior :: String = "combinational",
-                   trace_model :: False || InterfaceTraceModel = #false,
-                   event_annotation :: False || InterfaceEventGroup = #false,
-                   implementation_name :: False || String = #false,
-                   delegate_ports :: False || Map = #false)
+                   trace_model :: maybe(InterfaceTraceModel) = #false,
+                   event_annotation :: maybe(InterfaceEventGroup) = #false,
+                   implementation_name :: maybe(String) = #false,
+                   delegate_ports :: maybe(Map) = #false)
 
 class DiagramChannel(id :: String,
                      source_block :: String,

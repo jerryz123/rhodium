@@ -13,9 +13,9 @@ export:
   assert
 
 fun assert(condition :~ HardwareFields,
-           label :: False || String = #false,
-           ~clock: clock :: False || HardwareFields.of(Clock) = #false,
-           ~reset: reset :: False || HardwareFields.of(Reset) = #false):
+           label :: maybe(String) = #false,
+           ~clock: clock :: maybe(HardwareFields.of(Clock)) = #false,
+           ~reset: reset :: maybe(HardwareFields.of(Reset)) = #false):
   when clock || reset
   | reject_explicit_sync_control()
   if clock || reset

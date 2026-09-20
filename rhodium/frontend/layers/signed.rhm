@@ -52,7 +52,7 @@ fun sint_type(type :: HardwareType):
 // two's-complement image in the shared literal representation.
 fun SIntLiteral(type :: _SIntType,
                 value :: Int,
-                name :: False || AsciiIdentifier = #false):
+                name :: maybe(AsciiIdentifier) = #false):
   def minimum = -(1 << (type.width - 1))
   def maximum = (1 << (type.width - 1)) - 1
   unless minimum <= value && value <= maximum
@@ -66,7 +66,7 @@ fun SIntLiteral(type :: _SIntType,
 
 fun sint(value :: Int,
          width :: PosInt,
-         name :: False || AsciiIdentifier = #false):
+         name :: maybe(AsciiIdentifier) = #false):
   SIntLiteral(SInt(width), value, name)
 
 fun require_signed_value(entity :: HardwareEntity,
@@ -82,7 +82,7 @@ fun require_signed_value(entity :: HardwareEntity,
 // type at the smaller width; rtl.trunc itself remains a Bits representation op.
 fun strunc(entity :: HardwareEntity,
            target_width :: PosInt,
-           name :: False || AsciiIdentifier = #false,
+           name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()) :~ HardwareFields:
   def value = require_signed_value(entity, #'strunc, location)
   unless target_width < scalar_width(value.type)

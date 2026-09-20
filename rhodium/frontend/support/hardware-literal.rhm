@@ -44,7 +44,7 @@ interface HardwareLiteral:
 
 fun validate_literal_parts(type :: DataType,
                            value :: Nat,
-                           name :: False || String,
+                           name :: maybe(String),
                            location :: Location = Location()):
   unless type_well_formed(type)
   | kernel.frontend_fail("hardware literal type must be a well-formed DataType",
@@ -62,11 +62,11 @@ fun validate_literal_parts(type :: DataType,
 // same protocol while restricting their convenient constructors.
 class PackedLiteral(type :: DataType,
                     value :: Nat,
-                    name :: False || String = #false):
+                    name :: maybe(String) = #false):
   implements HardwareLiteral
   constructor (type :: DataType,
                value :: Nat,
-               name :: False || String = #false):
+               name :: maybe(String) = #false):
     validate_literal_parts(type, value, name)
     super(type, value, name)
 
@@ -76,7 +76,7 @@ class PackedLiteral(type :: DataType,
 
 fun packed_literal(type :: DataType,
                    value :: Nat,
-                   name :: False || String = #false):
+                   name :: maybe(String) = #false):
   PackedLiteral(type, value, name)
 
 fun require_hardware_literal(value :: HardwareLiteral,

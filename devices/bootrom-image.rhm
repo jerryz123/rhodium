@@ -59,7 +59,7 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
 fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
                         payload_address :: Nat = RiscvBootROMPayloadAddress,
                         ~device_tree_address: device_tree_address :: Nat = 0,
-                        ~boot_address_register: boot_address_register :: False || Nat = #false,
+                        ~boot_address_register: boot_address_register :: maybe(Nat) = #false,
                         ~xlen: xlen :: XLen = XLen.X64):
   unless reset_address mod 4 == 0
   | error(~who: #'riscv_bootrom_image, "reset address must be four-byte aligned")

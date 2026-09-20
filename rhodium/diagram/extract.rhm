@@ -214,7 +214,7 @@ fun grouped_port_names(groups :: List.of(InterfaceGroup)):
       | names := names ++ [binding.port_name]
   names
 
-fun implicit_sync_port(metadata :: False || SyncCircuitMetadata,
+fun implicit_sync_port(metadata :: maybe(SyncCircuitMetadata),
                        port_name :: String):
   metadata && (
     port_name == metadata.clock_port || port_name == metadata.reset_port

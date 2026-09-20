@@ -678,7 +678,7 @@ fun check_operation_types(module_def :: Module,
       #void
 
 fun increment_count(counts :: MutableMap,
-                    key :: False || String || Nat):
+                    key :: maybe(String || Nat)):
   counts[key] := counts.get(key, 0) + 1
 
 fun verify_module_structure(module_def :: Module):

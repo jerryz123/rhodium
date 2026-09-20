@@ -18,10 +18,10 @@ export:
   dump_temporal_report
 
 class ClockedOperationSpec(clock_operand :: Nat,
-                           reset_operand :: False || Nat = #false)
+                           reset_operand :: maybe(Nat) = #false)
 class UnclockedSequentialOperationSpec()
 class PendingResetUse(kind :: String,
-                      reset :: False || Value,
+                      reset :: maybe(Value),
                       mutable operations :: List.of(Operation) = [])
 class ValueProvenanceSummary(value :: Value,
                              path :: List.of(String || Nat),
@@ -84,8 +84,8 @@ fun add_clock_use(groups :: List.of(ClockGroup), use :: ClockUse):
       | group
   | groups ++ [ClockGroup(use.clock, [use])]
 
-fun reset_use_kind(reset :: False || Value,
-                   ambient_reset :: False || Value):
+fun reset_use_kind(reset :: maybe(Value),
+                   ambient_reset :: maybe(Value)):
   cond
   | !reset: "none"
   | ambient_reset && reset === ambient_reset: "ambient"
@@ -93,11 +93,11 @@ fun reset_use_kind(reset :: False || Value,
 
 fun same_pending_reset_use(pending :: PendingResetUse,
                            kind :: String,
-                           reset :: False || Value):
+                           reset :: maybe(Value)):
   pending.kind == kind && (kind == "none" || pending.reset === reset)
 
 fun summarize_reset_uses(clock_uses :: List.of(ClockUse),
-                         ambient_reset :: False || Value):
+                         ambient_reset :: maybe(Value)):
   def canonical_ambient_reset:
     if ambient_reset is_a Value
     | canonical_wire_value(ambient_reset)
@@ -122,7 +122,7 @@ fun summarize_reset_uses(clock_uses :: List.of(ClockUse),
     | "local": LocalReset(pending.reset, pending.operations)
 
 fun summarize_module_clocking(module_def :: Module,
-                              ambient_reset :: False || Value = #false):
+                              ambient_reset :: maybe(Value) = #false):
   unless module_def.finished
   | error(~who: #'summarize_module_clocking,
           "module must be finished before clock use is summarized")
@@ -167,7 +167,7 @@ fun summary_clock_groups(summary :: ModuleClockingSummary):
 
 fun verify_single_clock(module_def :: Module,
                         expected_clock :: Value,
-                        ambient_reset :: False || Value = #false):
+                        ambient_reset :: maybe(Value) = #false):
   unless expected_clock.module_def === module_def && clock_type(expected_clock.type)
   | error(~who: #'verify_single_clock,
           "expected clock must be a Clock value owned by the module")
@@ -201,8 +201,8 @@ fun same_control_reference(left :: ControlReference,
                            right :: ControlReference):
   left.value === right.value && same_instance_path(left.instance_path, right.instance_path)
 
-fun same_optional_control_reference(left :: False || ControlReference,
-                                    right :: False || ControlReference):
+fun same_optional_control_reference(left :: maybe(ControlReference),
+                                    right :: maybe(ControlReference)):
   (!left && !right) || same_control_reference(left, right)
 
 fun same_crossing_reference(left :: CrossingReference,
@@ -416,7 +416,7 @@ fun summarize_module_temporal(module_def :: Module):
         def active_values = MutableMap()
         def temporal_index = index_module_temporal(current_module)
 
-        fun bind_child_control(reference :: False || ControlReference,
+        fun bind_child_control(reference :: maybe(ControlReference),
                                instance_operation :: Operation):
           if !(reference is_a ControlReference)
           | #false
@@ -565,7 +565,7 @@ fun summarize_module_temporal(module_def :: Module):
         fun make_value_sink_inputs(name :: String,
                                    value :: Value,
                                    destination_clock :: ControlReference,
-                                   crossing :: False || CrossingReference = #false):
+                                   crossing :: maybe(CrossingReference) = #false):
           for List (path in leaf_paths(value.type)):
             def origins = summarize_value(value, path)
             TemporalSinkInput(name,
@@ -577,7 +577,7 @@ fun summarize_module_temporal(module_def :: Module):
         fun make_place_sink_inputs(name :: String,
                                    place :: Place,
                                    destination_clock :: ControlReference,
-                                   crossing :: False || CrossingReference = #false):
+                                   crossing :: maybe(CrossingReference) = #false):
           for List (path in leaf_paths(place.type)):
             def driver = place_leaf_driver(place, path)
             def origins = summarize_value(driver.value, driver.path)

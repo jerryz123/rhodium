@@ -42,19 +42,19 @@ class EventSite(id :: String,
                 instance_path :: List.of(String),
                 local_site :: Nat,
                 protocol :: String,
-                payload_type :: False || String,
-                payload_width :: False || PosInt,
+                payload_type :: maybe(String),
+                payload_width :: maybe(PosInt),
                 source_location :: String,
                 fields :: List.of(EventField) = [],
                 kind :: String = "transfer",
-                observation_of :: False || String = #false)
+                observation_of :: maybe(String) = #false)
 
 // Empty controls mean an unconditional one-cycle delay. Optional flush cancels
 // pending lineage at the edge; controls retain their original occurrence identity.
 class EventTraceStage(instance_path :: List.of(String) = [],
-                      advance :: False || Value = #false,
-                      valid :: False || Value = #false,
-                      flush :: False || Value = #false):
+                      advance :: maybe(Value) = #false,
+                      valid :: maybe(Value) = #false,
+                      flush :: maybe(Value) = #false):
   method controls(): (if advance | [advance, valid] | []) ++ (if flush | [flush] | [])
 
 class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
@@ -66,13 +66,13 @@ class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
 interface EventTracePlan
 class EventTraceWindow(instance_path :: List.of(String), depth :: PosInt,
                        enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
-                       selected :: NonemptyList.of(Value), live :: False || Value = #false):
+                       selected :: NonemptyList.of(Value), live :: maybe(Value) = #false):
   method controls(): [enqueue, release_count, count, flush] ++ selected ++ (if live | [live] | [])
 
 class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):
   method controls(): [capture, release, active]
 
-class EventTraceSource(site :: False || String, unknown :: False || String = #false, absent :: Boolean = #false):
+class EventTraceSource(site :: maybe(String), unknown :: maybe(String) = #false, absent :: Boolean = #false):
   implements EventTracePlan
 // Require a selected contribution only at its consuming checkpoint, not while
 // unrelated transactions traverse shared storage on a filtered-out branch.
@@ -80,7 +80,7 @@ class EventTraceRequire(input :: EventTracePlan):
   implements EventTracePlan
 // Occurrence-qualified back references are resolved once after graph discovery.
 // Acyclic paths keep their existing expression shape.
-class EventTraceLink(vertex :: String, mutable target :: False || EventTracePlan = #false):
+class EventTraceLink(vertex :: String, mutable target :: maybe(EventTracePlan) = #false):
   implements EventTracePlan
 class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)):
   implements EventTracePlan
@@ -194,8 +194,8 @@ fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
 class EventDependency(parent :: String,
                       child :: String,
                       transform_path :: List.of(String),
-                      latency_cycles :: False || Nat = #false,
-                      trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = #false)
+                      latency_cycles :: maybe(Nat) = #false,
+                      trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)) = #false)
 
 class EventTraceGap(site :: String, boundary :: String, reason :: String)
 
@@ -204,7 +204,7 @@ class EventManifest(logical :: DesignElaboration,
                     dependencies :: List.of(EventDependency),
                     trace_plans :: Map = {},
                     gaps :: List.of(EventTraceGap) = [],
-                    topology_dependencies :: False || List.of(EventDependency) = #false,
-                    topology_trace_plans :: False || Map = #false):
+                    topology_dependencies :: maybe(List.of(EventDependency)) = #false,
+                    topology_trace_plans :: maybe(Map) = #false):
   method site(id :: String):
     sites.find(fun (candidate): candidate.id == id)

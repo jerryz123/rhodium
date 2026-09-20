@@ -65,7 +65,7 @@ circuit CtrlArbiter(n :: PosInt):
 
 // A connected endpoint array supplies its input count. A disconnected
 // topology starts from a payload type and states the count in arbiter.
-fun arbiter(n :: False || PosInt = #false)
+fun arbiter(n :: maybe(PosInt) = #false)
   :: ((source :: FlowSource || Array) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):
     def inputs:
@@ -101,7 +101,7 @@ fun arbiter(n :: False || PosInt = #false)
 
 // A connected Valid endpoint array supplies its own input count. A
 // disconnected topology starts from a payload type and states the count once.
-fun valid_arbiter(n :: False || PosInt = #false)
+fun valid_arbiter(n :: maybe(PosInt) = #false)
   :: ((source :: FlowSource || Array) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):
     def inputs:

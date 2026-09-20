@@ -6,8 +6,8 @@ import:
   lib("rhodium/std/reduction.rhdl").tree_reduce
 
 class AndReductionNode(value :: Bool,
-                       left :: False || AndReductionNode,
-                       right :: False || AndReductionNode)
+                       left :: maybe(AndReductionNode),
+                       right :: maybe(AndReductionNode))
 
 bundle AndExclusionReduction(n :: PosInt):
   all: Bool

@@ -20,8 +20,8 @@ fun declare_sync_memory(name :: AsciiIdentifier,
                         has_read :: Boolean,
                         has_write :: Boolean,
                         has_read_write :: Boolean,
-                        ~clock: clock :: False || HardwareEntity = #false,
-                        ~mask_granularity: mask_granularity :: False || PosInt = #false):
+                        ~clock: clock :: maybe(HardwareEntity) = #false,
+                        ~mask_granularity: mask_granularity :: maybe(PosInt) = #false):
   when clock
   | reject_explicit_sync_control()
   when mask_granularity && !has_write && !has_read_write

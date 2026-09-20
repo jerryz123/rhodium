@@ -267,7 +267,7 @@ class CHIChannelCompilation(network :: NetworkCompilation,
 
 class CHIChannelCompilations(req :: CHIChannelCompilation,
                              rsp :: CHIChannelCompilation,
-                             snp :: False || CHIChannelCompilation,
+                             snp :: maybe(CHIChannelCompilation),
                              dat :: CHIChannelCompilation)
 
 fun uniform_chi_routing(policy :: RoutingPolicy) :: CHIChannelRouting:
@@ -355,7 +355,7 @@ fun require_unambiguous_routes(routes :: NonemptyList.of(CHICompiledRoute)):
 fun compile_chi_channel(topology :: TopologySpec,
                         route_specs :: NonemptyList.of(CHIChannelRouteSpec),
                         routing_policy :: RoutingPolicy,
-                        ~escape: escape_request :: False || EscapeValidationRequest = #false)
+                        ~escape: escape_request :: maybe(EscapeValidationRequest) = #false)
   :: CHIChannelCompilation:
   def injections = collect_injection_sites(route_specs)
   def ejections = collect_ejection_sites(route_specs)

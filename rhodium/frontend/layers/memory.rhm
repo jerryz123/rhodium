@@ -49,8 +49,8 @@ fun memory_index(memory :: Memory,
 fun frontend_memory_write(memory :: Memory,
                           address :: HardwareEntity,
                           data :: HardwareEntity,
-                          enable :: False || HardwareEntity = #false,
-                          clock :: False || HardwareEntity = #false):
+                          enable :: maybe(HardwareEntity) = #false,
+                          clock :: maybe(HardwareEntity) = #false):
   when clock
   | reject_explicit_sync_control()
   def resolved_enable:

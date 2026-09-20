@@ -131,7 +131,7 @@ fun exclusive_clocks(left :: HardwareEntity,
 // Core verification, not this declaration, proves the register-chain shape.
 fun sync_level_crossing(source :: HardwareEntity,
                         destination_clock_or_stages :: HardwareEntity || List.of(HardwareEntity),
-                        explicit_stages :: False || List.of(HardwareEntity) = #false):
+                        explicit_stages :: maybe(List.of(HardwareEntity)) = #false):
   kernel.reject_unsupported_conditional_effect(
     "sync-level crossing evidence",
     Location(),

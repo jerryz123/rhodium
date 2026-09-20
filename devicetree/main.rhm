@@ -191,7 +191,7 @@ interface DeviceTreeNodeValue:
   property name :: String
   property properties :: List.of(DeviceTreeProperty)
   property children :: List.of(DeviceTreeNodeValue)
-  property label :: False || DeviceTreeLabel
+  property label :: maybe(DeviceTreeLabel)
 
 fun duplicate_child(children :: List.of(DeviceTreeNodeValue), name :: String):
   children.filter(~keep: fun (child): child.name == name).length() > 1
@@ -199,7 +199,7 @@ fun duplicate_child(children :: List.of(DeviceTreeNodeValue), name :: String):
 class DeviceTreeNode(private node_name :: String,
                      private node_properties :: List.of(DeviceTreeProperty) = [],
                      private node_children :: List.of(DeviceTreeNodeValue) = [],
-                     private node_label :~ False || DeviceTreeLabel = #false):
+                     private node_label :~ maybe(DeviceTreeLabel) = #false):
   implements DeviceTreeNodeValue
   override property name: node_name
   override property properties: node_properties
@@ -208,7 +208,7 @@ class DeviceTreeNode(private node_name :: String,
   constructor (name :: String,
                properties :: List.of(DeviceTreeProperty) = [],
                children :: List.of(DeviceTreeNodeValue) = [],
-               ~label: label :~ False || DeviceTreeLabel = #false):
+               ~label: label :~ maybe(DeviceTreeLabel) = #false):
     when name != ""
     | validate_name(name, #'DeviceTreeNode)
     for (property in properties):

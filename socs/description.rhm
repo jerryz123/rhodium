@@ -55,13 +55,13 @@ class SoCAddressRegion(address_set :: AddressSet):
 class RiscvBootLayout(rom :: SoCAddressRegion,
                       reset_address :: Nat,
                       payload_address :: Nat,
-                      address_register :: False || SoCAddressRegion):
+                      address_register :: maybe(SoCAddressRegion)):
   implements StableCircuitParam
 
   constructor (~rom: rom :: SoCAddressRegion,
                ~reset_address: reset_address :: Nat,
                ~payload_address: payload_address :: Nat,
-               ~address_register: address_register :: False || SoCAddressRegion = #false):
+               ~address_register: address_register :: maybe(SoCAddressRegion) = #false):
     unless rom.contains(reset_address)
     | error(~who: #'RiscvBootLayout,
             "reset address must lie in the BootROM region")
@@ -250,8 +250,8 @@ fun uart_node(uart :: RiscvUartDescription,
 fun soc_node(harts :: NonemptyList.of(Nat),
              clocks :: SoCClockConfig,
              aclint :: RiscvAclintDescription,
-             plic :: False || RiscvPlicDescription,
-             uart :: False || RiscvUartDescription):
+             plic :: maybe(RiscvPlicDescription),
+             uart :: maybe(RiscvUartDescription)):
   def mutable children = [aclint_node(aclint, harts)]
   when plic is_a RiscvPlicDescription
   | children := children ++ [plic_node(plic)]
@@ -293,8 +293,8 @@ class RiscvSoCDescription(model :: NonemptyString,
                           memory_regions :: NonemptyList.of(SoCAddressRegion),
                           boot :: RiscvBootLayout,
                           aclint :: RiscvAclintDescription,
-                          plic :: False || RiscvPlicDescription,
-                          uart :: False || RiscvUartDescription):
+                          plic :: maybe(RiscvPlicDescription),
+                          uart :: maybe(RiscvUartDescription)):
   implements StableCircuitParam
 
   constructor (~model: model :: NonemptyString,
@@ -305,8 +305,8 @@ class RiscvSoCDescription(model :: NonemptyString,
                ~memory_regions: memory_regions :: NonemptyList.of(SoCAddressRegion),
                ~boot: boot :: RiscvBootLayout,
                ~aclint: aclint :: RiscvAclintDescription,
-               ~plic: plic :: False || RiscvPlicDescription = #false,
-               ~uart: uart :: False || RiscvUartDescription = #false):
+               ~plic: plic :: maybe(RiscvPlicDescription) = #false,
+               ~uart: uart :: maybe(RiscvUartDescription) = #false):
     require_unique_strings(compatible, #'RiscvSoCDescription)
     require_unique_harts(harts, core_profile)
     unless for any (region in memory_regions): region.contains(boot.payload_address)

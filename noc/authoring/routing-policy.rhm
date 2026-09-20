@@ -47,7 +47,7 @@ interface RoutingOrigin:
 class RoutingInjection(terminal :: InjectionRef, router :: NodeRef):
   implements RoutingOrigin
   constructor (terminal :: NodeRef || InjectionRef,
-               router :: NodeRef || False = #false):
+               router :: maybe(NodeRef) = #false):
     if terminal is_a NodeRef
     | super(InjectionRef(terminal.path), if router | router | terminal)
     | super(terminal, router)
@@ -71,8 +71,8 @@ class RoutingContext(route_class :: RouteClassSpec,
                origin :: RoutingOrigin,
                current_node :: NodeRef,
                candidate_vc :: VCRef,
-               source_router :: NodeRef || False = #false,
-               destination_router :: NodeRef || False = #false):
+               source_router :: maybe(NodeRef) = #false,
+               destination_router :: maybe(NodeRef) = #false):
     def resolved_source:
       if source_router | source_router | NodeRef(route_class.source.path)
     def resolved_destination:

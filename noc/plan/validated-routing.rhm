@@ -36,7 +36,7 @@ class RouteTableRow(route_class :: RouteClass,
                     origin :: Injection || HeldVC,
                     router_node :: NodeId,
                     allowed_vcs :: List.of(VCId),
-                    ejection_terminal :: False || EjectionTerminal):
+                    ejection_terminal :: maybe(EjectionTerminal)):
   opaque
   internal _RouteTableRow
   constructor ~none
@@ -235,7 +235,7 @@ fun finish_validated_routing(materialized :: MaterializedRouting,
   )
 
 fun compile_routing(problem :: RoutingProblem,
-                    ~escape: escape_request :~ False || EscapeValidationRequest = #false):
+                    ~escape: escape_request :~ maybe(EscapeValidationRequest) = #false):
   unless !escape_request || escape_request is_a EscapeValidationRequest
   | error(~who: #'compile_routing,
           "~escape must be an EscapeValidationRequest or #false")

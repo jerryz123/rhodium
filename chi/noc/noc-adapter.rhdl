@@ -140,7 +140,7 @@ class CHIChannelAdapterPlan(compilation :: CHIChannelCompilation,
 
 class CHIChannelAdapterPlans(req :: CHIChannelAdapterPlan,
                              rsp :: CHIChannelAdapterPlan,
-                             snp :: False || CHIChannelAdapterPlan,
+                             snp :: maybe(CHIChannelAdapterPlan),
                              dat :: CHIChannelAdapterPlan)
 
 fun compile_chi_noc_family_injection_config(
@@ -340,7 +340,7 @@ class CHINoCPlane(ingress :: Array, targets :: Array):
 class CHINoCPorts(req :: CHINoCPlane,
                   rsp :: CHINoCPlane,
                   dat :: CHINoCPlane,
-                  ~snp: snp :: False || CHINoCPlane = #false)
+                  ~snp: snp :: maybe(CHINoCPlane) = #false)
 
 // Attaches one RN-I endpoint to the requester-side NoC planes. The Home's
 // aggregate requester port is connected independently and exactly once.

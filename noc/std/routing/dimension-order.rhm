@@ -20,7 +20,7 @@ fun valid_dimension_order(dimensions :: List.of(String)):
 fun duplicate_name(names :: List, name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
-fun validate_vc_groups(mesh :: RectangularMesh, vc_groups :: False || List):
+fun validate_vc_groups(mesh :: RectangularMesh, vc_groups :: maybe(List)):
   unless !vc_groups || (vc_groups is_a List && vc_groups.length() > 0)
   | error(~who: #'dimension_order,
           "dimension-order VC groups must be #false or a nonempty List")
@@ -54,11 +54,11 @@ fun direction_toward(axis :: String,
 
 class DimensionOrderPolicy(mesh :: RectangularMesh,
                            dimensions :: List.of(String),
-                           vc_groups :: False || NonemptyList.of(String)):
+                           vc_groups :: maybe(NonemptyList.of(String))):
   implements RoutingPolicy
   constructor (mesh :: RectangularMesh,
                dimensions :: List.of(String),
-               vc_groups :: False || List = #false):
+               vc_groups :: maybe(List) = #false):
     unless valid_dimension_order(dimensions)
     | error(~who: #'dimension_order,
             "dimension order must be ['x', 'y'] or ['y', 'x']")
@@ -102,13 +102,13 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
 
 fun dimension_order(mesh :: RectangularMesh,
                     dimensions :: List.of(String),
-                    ~vc_groups: vc_groups :: False || List = #false):
+                    ~vc_groups: vc_groups :: maybe(List) = #false):
   DimensionOrderPolicy(mesh, dimensions, vc_groups)
 
 fun xy_dimension_order(mesh :: RectangularMesh,
-                       ~vc_groups: vc_groups :: False || List = #false):
+                       ~vc_groups: vc_groups :: maybe(List) = #false):
   dimension_order(mesh, ["x", "y"], ~vc_groups: vc_groups)
 
 fun yx_dimension_order(mesh :: RectangularMesh,
-                       ~vc_groups: vc_groups :: False || List = #false):
+                       ~vc_groups: vc_groups :: maybe(List) = #false):
   dimension_order(mesh, ["y", "x"], ~vc_groups: vc_groups)

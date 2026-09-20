@@ -17,14 +17,14 @@ import:
 
 class CHIRouterFamilyConfigs(req :: SimpleRouterFamilyConfig,
                              rsp :: SimpleRouterFamilyConfig,
-                             snp :: False || SimpleRouterFamilyConfig,
+                             snp :: maybe(SimpleRouterFamilyConfig),
                              dat :: SimpleRouterFamilyConfig,
                              physical :: RouterFamilyPhysicalPlan):
   implements StableCircuitParam
 
   constructor (req :: SimpleRouterFamilyConfig,
                rsp :: SimpleRouterFamilyConfig,
-               snp :: False || SimpleRouterFamilyConfig,
+               snp :: maybe(SimpleRouterFamilyConfig),
                dat :: SimpleRouterFamilyConfig,
                physical :: RouterFamilyPhysicalPlan):
     physical.require_match(req.router_family_plan)

@@ -142,7 +142,7 @@ interface HardwareVariantType:
                                variant :: HardwareVariant,
                                location :: Location)
 
-class HardwareVariantView(valid :: Value, payload :: False || Value)
+class HardwareVariantView(valid :: Value, payload :: maybe(Value))
 
 annot.macro 'HardwareFields':
   def result_infos = statinfo_meta.and(
@@ -389,7 +389,7 @@ annot.macro 'HardwareIntoFunction':
 fun hardware_as_bits(value :: HardwareEntity,
                      who :: Symbol,
                      role :: String,
-                     name :: False || AsciiIdentifier = #false,
+                     name :: maybe(AsciiIdentifier) = #false,
                      location :: Location = Location()) :~ HardwareFields:
   def source = kernel.read(value, location)
   def width = source.type.packed_width()
@@ -412,7 +412,7 @@ fun hardware_append(left :: HardwareEntity,
 // inferring the vector length from the requested element representation.
 fun hardware_as_vec(value :: HardwareEntity,
                     element_type :: DataType,
-                    name :: False || AsciiIdentifier = #false,
+                    name :: maybe(AsciiIdentifier) = #false,
                     location :: Location = Location()) :~ HardwareFields:
   def source = kernel.read(value, location)
   def source_width = source.type.packed_width()
@@ -482,7 +482,7 @@ fun hardware_vector_map(value :: HardwareEntity,
 // available to subsequent receiver-owned operations.
 fun hardware_zero_extend(value :: HardwareEntity,
                          target_width :: PosInt,
-                         name :: False || AsciiIdentifier = #false,
+                         name :: maybe(AsciiIdentifier) = #false,
                          location :: Location = Location()) :~ HardwareFields:
   def source = kernel.read(value, location)
   unless bits_type(source.type)
@@ -494,7 +494,7 @@ fun hardware_zero_extend(value :: HardwareEntity,
 // while keeping the receiver's static method surface.
 fun hardware_sign_extend(value :: HardwareEntity,
                          target_width :: PosInt,
-                         name :: False || AsciiIdentifier = #false,
+                         name :: maybe(AsciiIdentifier) = #false,
                          location :: Location = Location()) :~ HardwareFields:
   def source = kernel.read(value, location)
   unless signed_arithmetic_type(source.type)
@@ -570,14 +570,14 @@ meta:
     | 'zext':
         preserve_receiver_surface(
           'fun (target_width :: PosInt,
-                name :: False || AsciiIdentifier = #false) :~ HardwareFields:
+                name :: maybe(AsciiIdentifier) = #false) :~ HardwareFields:
              hardware_zero_extend($left, target_width, name)',
           left
         )
     | 'sext':
         preserve_receiver_surface(
           'fun (target_width :: PosInt,
-                name :: False || AsciiIdentifier = #false) :~ HardwareFields:
+                name :: maybe(AsciiIdentifier) = #false) :~ HardwareFields:
              hardware_sign_extend($left, target_width, name)',
           left
         )

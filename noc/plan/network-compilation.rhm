@@ -50,7 +50,7 @@ fun compile_network(topology :: TopologySpec,
                     terminal_placement :: TerminalPlacement,
                     route_specs :: NonemptyList.of(RouteClassSpec),
                     routing_policy :: RoutingPolicy,
-                    ~escape: escape_request :: False || EscapeValidationRequest = #false)
+                    ~escape: escape_request :: maybe(EscapeValidationRequest) = #false)
   :: NetworkCompilation:
   def attached_topology :: TopologySpec = attach_terminal_placement(
     topology,

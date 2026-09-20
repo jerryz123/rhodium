@@ -96,11 +96,11 @@ def Reset = _ResetType()
 class RecordField(name :: AsciiIdentifier, type :: DataType)
 
 class RecordType(fields :: NonemptyList.of(RecordField),
-                 preferred_name :: False || AsciiIdentifier = #false):
+                 preferred_name :: maybe(AsciiIdentifier) = #false):
   implements DataType
   nonfinal
   constructor (fields :: NonemptyList.of(RecordField),
-               preferred_name :~ False || AsciiIdentifier = #false):
+               preferred_name :~ maybe(AsciiIdentifier) = #false):
     unless !preferred_name || preferred_name is_a AsciiIdentifier
     | error(~who: #'RecordType,
             "preferred name must be an ASCII identifier or #false")

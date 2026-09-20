@@ -230,7 +230,7 @@ fun bind(target :: BitField, source :: ExpansionValueSource):
 
 fun expansion(target :: InstructionSpec,
               bindings :: List.of(InstructionFieldBinding),
-              immediate :~ False || Nat || ImmediateLayout = #false):
+              immediate :~ maybe(Nat || ImmediateLayout) = #false):
   InstructionExpansion(target, bindings, immediate)
 
 fun compressed_encoding(requirements :: NonemptyList.of(FieldConstraint)):

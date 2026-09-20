@@ -85,7 +85,7 @@ class AuthoredDependencyCycle(normalized_cycle :: DependencyCycle,
 class AuthoredRoutingFailure(kind :: String,
                              route_class :: RouteClassRef,
                              origin :: RoutingOrigin,
-                             candidate_vc :: False || VCRef,
+                             candidate_vc :: maybe(VCRef),
                              rule_names :: List.of(String)):
   method describe():
     def candidate:
@@ -102,7 +102,7 @@ class AuthoredRoutingFailure(kind :: String,
 class AuthoredRoutingCompilation(
       result :: ValidatedRouting || DependencyCycle || EscapeClosureViolation || MissingEscapeEntry || MissingEscapeRoute,
       lowering :: RoutingPolicyLowering,
-      diagnostic :: False || AuthoredDependencyCycle || AuthoredRoutingFailure):
+      diagnostic :: maybe(AuthoredDependencyCycle || AuthoredRoutingFailure)):
   method decision_provenance(): lowering.decisions
 
 fun symbolic_origin(lowered_topology :: LoweredTopology,
@@ -177,7 +177,7 @@ fun materialized_result(result :: ValidatedRouting || DependencyCycle || EscapeC
 
 fun compile_authored_routing(lowered_routes :: LoweredRouteClasses,
                              policy :: RoutingPolicy,
-                             ~escape: escape_request :: False || EscapeValidationRequest = #false):
+                             ~escape: escape_request :: maybe(EscapeValidationRequest) = #false):
   def lowering = lower_routing_policy_with_evidence(lowered_routes, policy)
   def result = compile_routing(
     RoutingProblem(

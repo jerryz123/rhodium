@@ -23,7 +23,7 @@ class EventInstrumentedElaboration(original :: DesignElaboration,
                                    instrumented :: DesignElaboration,
                                    manifest :: EventManifest)
 class Occurrence(original :: Module, path :: List.of(String), ordinal :: Nat,
-                 parent :: False || Nat, instance :: False || Operation,
+                 parent :: maybe(Nat), instance :: maybe(Operation),
                  mutable children :: List = [])
 class TraceControl(path :: List.of(String), value :: Value, index :: Nat,
                    mutable consumers :: List = [])
@@ -155,7 +155,7 @@ fun instrument_events(logical :: DesignElaboration,
                     | error(~who: #'instrument_events, "tracing does not support uncertified fanout at " ++ site.id)
 
   def mutable occurrences = []
-  fun expand(original :: Module, path :: List.of(String), parent :: False || Occurrence, instance :: False || Operation):
+  fun expand(original :: Module, path :: List.of(String), parent :: maybe(Occurrence), instance :: maybe(Operation)):
     def occurrence = Occurrence(original, path, occurrences.length(), if parent | parent.ordinal | #false, instance)
     occurrences := occurrences ++ [occurrence]
     for (op in original.operations):

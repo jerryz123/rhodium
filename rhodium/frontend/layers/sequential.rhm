@@ -25,11 +25,11 @@ fun register_form_error():
   )
 
 fun declare_register(name :: String,
-                     type :: False || DataType = #false,
-                     ~next: next :: False || HardwareFields = #false,
-                     ~clock: clock :: False || HardwareFields.of(Clock) = #false,
-                     ~reset: reset :: False || HardwareFields.of(Reset) = #false,
-                     ~init: init :: False || HardwareFields = #false):
+                     type :: maybe(DataType) = #false,
+                     ~next: next :: maybe(HardwareFields) = #false,
+                     ~clock: clock :: maybe(HardwareFields.of(Clock)) = #false,
+                     ~reset: reset :: maybe(HardwareFields.of(Reset)) = #false,
+                     ~init: init :: maybe(HardwareFields) = #false):
   when clock || reset
   | reject_explicit_sync_control()
   when type && next

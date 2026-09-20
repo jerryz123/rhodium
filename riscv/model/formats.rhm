@@ -175,13 +175,13 @@ fun fields_mask(fields :: List.of(BitField), who :: Symbol):
 
 class InstructionFormat(name :: NonemptyString,
                         operands :: List.of(RegisterOperand),
-                        immediate :: False || ImmediateLayout,
+                        immediate :: maybe(ImmediateLayout),
                         auxiliary_fields :: List.of(BitField),
                         variable_fields :: List.of(BitField),
                         variable_mask :: Nat):
   constructor (name :: NonemptyString,
                operands :: List.of(RegisterOperand),
-               immediate :~ False || ImmediateLayout = #false,
+               immediate :~ maybe(ImmediateLayout) = #false,
                auxiliary_fields :: List.of(BitField) = []):
     unless !immediate || immediate is_a ImmediateLayout
     | error(~who: #'InstructionFormat,

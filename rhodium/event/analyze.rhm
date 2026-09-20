@@ -13,14 +13,14 @@ export:
 
 class FlowArc(source :: String,
               destination :: String,
-              transform :: False || String = #false,
-              latency_cycles :: False || Nat = 0,
-              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = [])
+              transform :: maybe(String) = #false,
+              latency_cycles :: maybe(Nat) = 0,
+              trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)) = [])
 
 class EventCandidate(site :: EventSite,
                      transform_path :: List.of(String),
-                     latency_cycles :: False || Nat,
-                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow))
+                     latency_cycles :: maybe(Nat),
+                     trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)))
 class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String))
 class FlowRouting(instance_path :: List.of(String), routing_id :: String, predicates :: List,
                   input :: String, output_index :: Nat)
@@ -102,9 +102,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
 
   fun add_arc(source :: String,
               destination :: String,
-              transform :: False || String = #false,
-              latency_cycles :: False || Nat = 0,
-              trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = []):
+              transform :: maybe(String) = #false,
+              latency_cycles :: maybe(Nat) = 0,
+              trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)) = []):
     incoming[destination] := incoming.get(destination, []) ++ [
       FlowArc(source, destination, transform, latency_cycles, trace_stages)
     ]
@@ -316,9 +316,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
   fun nearest_events(vertex :: String,
                      visiting :: List.of(String) = [],
                      reverse_transform_path :: List.of(String) = [],
-                     latency_cycles :: False || Nat = 0,
-                     trace_stages :: False || List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow) = [],
-                     wanted :: False || String = #false):
+                     latency_cycles :: maybe(Nat) = 0,
+                     trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)) = [],
+                     wanted :: maybe(String) = #false):
     def event = event_by_output.get(vertex, #false)
     cond
     | event && (!wanted || event.id == wanted): [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
@@ -356,7 +356,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
 
   // Discover each reachable vertex once. Cyclic regions have finitely many
   // nearest sites but infinitely many walks: retain a witness, not every lap.
-  fun discover_nearest(vertex :: String, wanted :: False || String = #false):
+  fun discover_nearest(vertex :: String, wanted :: maybe(String) = #false):
     def colors = MutableMap{}
     def mutable cyclic = #false
     def mutable candidates = []
@@ -425,7 +425,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   gaps := gaps.filter(~keep: fun (gap): !(gap.site in inferred_roots))
   for (edge in explicit_edges):
     explicit_plans[edge.child] := EventTracePipeline(EventTraceSource(edge.parent), [edge.stage])
-  fun trace_plan(vertex :: String, visiting :: List.of(String) = [], wanted :: False || String = #false):
+  fun trace_plan(vertex :: String, visiting :: List.of(String) = [], wanted :: maybe(String) = #false):
     def key = [vertex, wanted]
     cond
     | vertex in visiting:

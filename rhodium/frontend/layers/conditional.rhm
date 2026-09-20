@@ -16,7 +16,7 @@ export:
 
 fun build_switch(selector :~ HardwareEntity,
                  cases :: NonemptyList.of(List),
-                 otherwise_body :: False || Function.of_arity(0) = #false):
+                 otherwise_body :: maybe(Function.of_arity(0)) = #false):
   unless selector is_a HardwareEntity
   | kernel.frontend_fail("switch selector must be a hardware value")
   for (case in cases):

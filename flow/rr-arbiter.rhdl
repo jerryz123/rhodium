@@ -71,7 +71,7 @@ sync_circuit CtrlRRArbiter(n :: PosInt):
 
 // A connected endpoint array supplies its own input count. A disconnected
 // topology starts from a payload type and states the count once in rr_arbiter.
-fun rr_arbiter(n :: False || PosInt = #false)
+fun rr_arbiter(n :: maybe(PosInt) = #false)
   :: ((source :: FlowSource || Array) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):
     def inputs:

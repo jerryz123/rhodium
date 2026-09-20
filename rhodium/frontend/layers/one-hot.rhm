@@ -134,7 +134,7 @@ expr.macro 'OneHot($(width :: expr_meta.Parsed))':
 // Converts every encoding of Bits(n) into one of the 2^n lanes, so the result
 // preserves the exactly-one invariant without an out-of-range case.
 fun build_one_hot(index :: HardwareEntity,
-                  name :: False || AsciiIdentifier = #false,
+                  name :: maybe(AsciiIdentifier) = #false,
                   location :: Location = Location()) :~ HardwareFields:
   def index_value = kernel.read(index, location)
   unless bits_type(index_value.type)

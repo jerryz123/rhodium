@@ -68,7 +68,7 @@ sync_circuit ShiftQueue(T :: DataType,
 fun shift_queue(depth :: PosInt,
                 ~pipe: pipe_enabled :: Boolean = #false,
                 ~flow: flow_enabled :: Boolean = #false,
-                ~flush: flush :: False || Bool = #false)
+                ~flush: flush :: maybe(Bool) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
     def T = flow_payload_type(source)

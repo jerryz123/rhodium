@@ -10,9 +10,9 @@ export:
 
 class OperationSchema(opcode :: String,
                       kind :: String,
-                      operand_count :: False || Nat,
-                      result_count :: False || Nat,
-                      place_count :: False || Nat,
+                      operand_count :: maybe(Nat),
+                      result_count :: maybe(Nat),
+                      place_count :: maybe(Nat),
                       required_attributes :: List.of(String),
                       type_rule :: String,
                       print_form :: String)
