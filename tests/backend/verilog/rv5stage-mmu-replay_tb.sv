@@ -1,4 +1,4 @@
-// Verifies MMU translation, accepted-walk survival across fetch recovery, faults, and prefetches.
+// Verifies MMU translation, surviving walks, faults, prefetches, and retained vector page authorization.
 // SPDX-License-Identifier: Apache-2.0
 `include "tests/backend/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_mmu_replay_tb;
@@ -139,7 +139,19 @@ module rv5stage_mmu_replay_tb;
   logic manual_pte_valid = 0;
   logic [63:0] manual_pte_data = 0;
   integer manual_pte_requests = 0;
+  bit vector_phase = 0, vector_superpage = 0, vector_bad_second = 0, vector_no_dirty = 0;
+  logic [63:0] vector_scalar_address = 0;
+  integer vector_pte_requests = 0;
 
+  logic pipeline_vector = 0;
+  typedef struct packed {logic [63:0] first, last; logic store;} range_t;
+  typedef struct packed {logic valid; range_t bits;} range_request_t;
+  typedef struct packed {logic valid;} pulse_t;
+  typedef struct packed {logic valid, bits;} check_response_t;
+  typedef struct packed {range_request_t request; pulse_t release_0; ready_t response;} precheck_in_t;
+  typedef struct packed {ready_t request; check_response_t response;} precheck_out_t;
+  precheck_in_t vector_precheck_in = '0;
+  precheck_out_t vector_precheck_out;
   RV5StageMmu dut (.*);
   always #5 clock = ~clock;
 
@@ -153,6 +165,7 @@ module rv5stage_mmu_replay_tb;
     instruction_in.request.bits.address = instruction_address;
     data_in.request.valid = data_request_valid;
     data_in.request.bits.address = (page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS) + (zero_request || management_operation != 0 ? 64'd63 : 64'd0);
+    if (vector_phase) data_in.request.bits.address = vector_scalar_address;
     data_in.request.bits.access = management_operation != 0 ? management_operation : zero_request ? 4'd6 : 4'(MEMORY_LOAD);
     data_in.request.bits.atomic = '0;
     data_in.request.bits.width = MEMORY_DOUBLE;
@@ -205,7 +218,19 @@ module rv5stage_mmu_replay_tb;
         if (!data_request_valid)
           assert (data_lookup_out.bits == data_memory_out.request.bits.address)
             else $fatal(1, "PTW read did not supply a physical lookup index");
-        if (detached_walk_phase) begin
+        if (vector_phase) begin
+          if (data_memory_out.request.bits.writeback == 0) begin
+            vector_pte_requests <= vector_pte_requests + 1;
+            pte_response_valid <= 1;
+            case (data_memory_out.request.bits.address)
+              64'h1000: pte_response_data <= vector_superpage ? 64'hcf : LEVEL_2_POINTER;
+              64'h2000: pte_response_data <= LEVEL_1_POINTER;
+              64'h3020: pte_response_data <= vector_no_dirty ? 64'h2047 : 64'h20c7; // VA 0x4000 -> PA 0x8000, RWA[D].
+              64'h3028: pte_response_data <= vector_bad_second ? 64'd0 : 64'h28c7; // Nonadjacent PA.
+              default: pte_response_data <= 64'h40c7;
+            endcase
+          end
+        end else if (detached_walk_phase) begin
           assert (data_memory_out.request.bits.writeback[8:7] == 0)
             else $fatal(1, "detached walk emitted a core data transaction");
           manual_pte_requests <= manual_pte_requests + 1;
@@ -334,6 +359,39 @@ module rv5stage_mmu_replay_tb;
   task automatic tick;
     @(posedge clock);
     #1;
+  endtask
+
+  task automatic release_window;
+    @(negedge clock); vector_precheck_in.release_0.valid = 1;
+    tick();
+    @(negedge clock); vector_precheck_in.release_0.valid = 0;
+  endtask
+
+  task automatic clear_translations;
+    @(negedge clock); invalidate_all = 1;
+    tick();
+    @(negedge clock); invalidate_all = 0;
+  endtask
+
+  task automatic certify_range(input logic [63:0] first_address, last_address,
+                               input bit store, expected_safe, input int expected_ptes);
+    int before_ptes;
+    before_ptes = vector_pte_requests;
+    @(negedge clock);
+    vector_precheck_in.request = '{valid:1, bits:'{first:first_address,last:last_address,store:store}};
+    do tick(); while (!vector_precheck_out.response.valid && !vector_precheck_out.request.ready);
+    @(negedge clock); vector_precheck_in.request.valid = 0;
+    wait(vector_precheck_out.response.valid);
+    repeat(3) begin
+      tick();
+      assert(vector_precheck_out.response.valid && vector_precheck_out.response.bits == expected_safe)
+        else $fatal(1,"vector precheck changed while stalled or gave wrong permission");
+    end
+    assert(vector_pte_requests - before_ptes == expected_ptes && !data_out.request_fault && !data_out.request_access_fault)
+      else $fatal(1,"page precheck used %0d PTE reads, expected %0d, or leaked an architectural fault", vector_pte_requests-before_ptes, expected_ptes);
+    @(negedge clock); vector_precheck_in.response.ready = 1;
+    tick();
+    @(negedge clock); vector_precheck_in.response.ready = 0;
   endtask
 
   // Model frontend-owned replay explicitly. The MMU never reissues S0 itself.
@@ -885,6 +943,59 @@ module rv5stage_mmu_replay_tb;
     for (int flush_at = 0; flush_at < 6; flush_at++) finish_detached_walk(flush_at);
     finish_detached_walk(3, 1); // Fault discovered after an earlier redirect.
     finish_detached_walk(5, 1); // Redirect coincides with fault completion.
+    detached_walk_phase = 0;
+    instruction_phase = 0;
+    instruction_translation_phase = 0;
+    vector_phase = 1;
+    memory_ready = 1;
+    memory_idle = 1;
+    page_fault_phase = 0;
+    management_operation = 0;
+    zero_request = 0;
+    clear_translations();
+    certify_range(64'h4fc0, 64'h503f, 1, 1, 6);
+    pipeline_vector = 1;
+    check_load_pipeline(64'h4ff8, 1, 64'h8ff8);
+    check_load_pipeline(64'h5000, 1, 64'ha000);
+    pipeline_vector = 0;
+    // Evict both source DTLB entries using unrelated scalar demand walks.
+    for (int page = 16; page < 26; page++) begin
+      @(negedge clock);
+      vector_scalar_address = 64'(page) << 12;
+      data_request_valid = 1;
+      tick();
+      @(negedge clock); data_request_valid = 0;
+      wait(!data_out.drained);
+      wait(data_out.drained);
+      repeat(2) tick();
+    end
+    check_load_pipeline(64'h4000, 0, 0, PIPE_SLOW);
+    pipeline_vector = 1;
+    check_load_pipeline(64'h4ff8, 1, 64'h8ff8);
+    check_load_pipeline(64'h5000, 1, 64'ha000);
+    pipeline_vector = 0;
+    release_window();
+    clear_translations();
+    vector_superpage = 1;
+    certify_range(64'h4fc0, 64'h503f, 0, 1, 1);
+    pipeline_vector = 1;
+    check_load_pipeline(64'h5000, 1, 64'h5000);
+    pipeline_vector = 0;
+    release_window();
+    clear_translations();
+    vector_superpage = 0;
+    vector_bad_second = 1;
+    certify_range(64'h4fc0, 64'h503f, 0, 0, 6);
+    release_window();
+    // A failed conservative precheck is not a trap. Its valid first page remains reusable.
+    check_load_pipeline(64'h4fc0, 1, 64'h8fc0);
+    clear_translations();
+    vector_no_dirty = 1;
+    certify_range(64'h4000, 64'h40ff, 0, 1, 3);
+    release_window();
+    // A TLB hit still checks this macro's store permission, including D.
+    certify_range(64'h4000, 64'h40ff, 1, 0, 0);
+    release_window();
     $display("RV5Stage frontend-owned ITLB replay, detached walks, DTLB demand, faults, and pipelined prefetch translation passed");
     $finish;
   end

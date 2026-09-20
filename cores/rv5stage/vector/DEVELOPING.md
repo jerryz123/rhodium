@@ -74,6 +74,13 @@ position, and ordered authorization progress. `execute.rhdl` is combinational:
 it adapts the beat to the shared SIMD unit and packs its result, not a separate
 pipeline stage. The parent [`vector.rhdl`](../vector.rhdl) composes the execution
 engine, memory attempt pipeline, macro ownership, and retirement outcome.
+[`precheck.rhdl`](precheck.rhdl) computes a conservative contiguous byte footprint
+using shifts and constant field-count sums, never an element-address multiplier.
+It includes whole-register and packed-mask geometry, `vstart`, segment fields,
+pointer normalization, alignment, and overflow. The parent freezes attempts
+while the MMU's page certificate is pending. A false certificate is fallback,
+not a fault: element masking and exact first-fault semantics remain in memory
+execution. See [MMU ownership](../mmu/DEVELOPING.md) for pinned translations.
 [`pipeline.rhdl`](pipeline.rhdl) owns the unroller/VRF/SIMD composition and shared
 service operands. An atomic fork couples local attempt admission to operand
 capture; both paths have three fixed stages and meet at local acceptance.
@@ -88,10 +95,14 @@ on one edge before the shared ordered VRF write port drains them.
 Configuration follows ordinary serializing system instructions through
 `core.rhdl`. Vector micro-ops do not traverse scalar EX/MEM/WB. The private
 pipeline supplies its own nonstallable feedback and asserts result alignment.
-Only the final local acceptance updates scalar retirement/PC/NTL macro state;
-the macro outcome crosses one register before scalar retirement selection, so
+Certification updates scalar retirement/PC/NTL macro state once for an early
+retired macro; the conservative path still uses final local acceptance.
+The macro outcome crosses one register before scalar retirement selection, so
 LSU fault/admission cannot feed back into scalar request formation. Local retry
-feedback remains same-cycle. Vector CSR completion waits for VRF drain. An allocated macro is older than
+feedback remains same-cycle. Certified execution cannot later fault; assert that
+only authorization or retry feedback occurs. Retain execution ownership until
+VRF/shared-service/memory drain independently of architectural retirement.
+Vector CSR observers wait for this drain. An allocated macro is older than
 subsequent scalar redirects and must not be canceled by them.
 The original vector macro crosses the scalar pipeline as a side-effect-free
 launch token. Resolve its scalar, base, and stride operands through the ordinary
@@ -102,8 +113,15 @@ before admitting the macro to the unroller. A launch in EX/MEM/WB blocks younger
 Decode, so the context cannot be replaced and WB request readiness is reserved
 without making WB elastic. Keep issue occupancy distinct from accepted memory
 completion ownership.
-Interrupts and vector/state observers wait for both; scalar memory admission
+Younger scalar exceptions are retained until the full active macro drains,
+not merely its currently occupied completion slots. Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
+Scalar vector results join the buffered deferred GPR completion arbiter and
+reserve their destination at WB allocation; do not merge a late result with
+normal scalar WB using a lossy Valid selector. FPR results keep their existing
+reservation path. Keep vector FP/CSR observers behind pending flag updates.
+The deferred GPR queue remains part of core macro ownership until its entry
+writes back; another macro cannot overrun the single queued scalar result.
 Keep every public `VectorProfile` claim coupled to its ELEN/FP legality, implied
 Zve closure, selected VLEN, UDB parameters, and SoC architectural description.
 Only full V may set `misa.V`.
@@ -525,8 +543,13 @@ constant-stride, and indexed segment operations, field/register mapping, additiv
 backpressure, ordinary and segmented fault-only-first truncation, an
 element-zero fault-only-first precise trap, and an indexed segmented Sv39
 page-boundary fault repaired and restarted from `vstart`. It also requires
-warm-hit throughput, hits completing ahead of a delayed miss, scalar-load
-overlap with a vector-load tail, and both asymmetric scalar/store barriers. Keep ordinary
+warm-hit throughput, hits completing ahead of a delayed miss, a scalar hit
+during certified vector unrolling, scalar-load overlap with a vector-load tail,
+and both asymmetric scalar/store barriers. The configuration bench checks
+scalar WB before the last packed vector beat, younger precise exceptions,
+and exact traced WB-to-launch ownership. Use `rv5stage-mmu-replay` for pinned
+split-page/superpage translations, permission failure, and DTLB replacement.
+Keep ordinary
 scalar and RV32F/RV64D core regressions when shared LSU metadata changes.
 The control fixtures sweep EEW/SEW/EMUL and destination alignment independently.
 The `rv5stage-vector-memory-one-slot` and

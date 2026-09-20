@@ -25,7 +25,12 @@ as a side-effect-free launch token, then WB starts a separate
 [`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
 SIMD datapath, and vector bank. The allocated macro unrolls autonomously through
 local feed-forward execution and memory stages; scalar stages do not carry its
-micro-ops. RV64 vector memory arbitrates for scalar LSU lookup and dispatch across unit-stride,
+micro-ops. Nonfaulting certification lets independent scalar instructions retire
+while the macro executes in the background. Contiguous one- or two-page memory
+ranges use retained page translations; other memory forms keep precise
+element-wise execution. See the [vector ownership contract](vector/README.md#execution-ownership)
+for certification, deferred destinations, and scalar ordering barriers.
+RV64 vector memory arbitrates for scalar LSU lookup and dispatch across unit-stride,
 strided, indexed, segmented, and fault-only-first forms, with tagged
 completion slots, precise element restart, and fault-only-first VL truncation. The host profile's
 `~vector_completion_slots` selects a power-of-two depth, default eight,

@@ -10,6 +10,7 @@ import:
   "../dcache/protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../csr.rhdl".PrivilegeMode
+  "../mmu/protocol.rhdl" open
   "../../cache-prefetch.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
@@ -88,7 +89,7 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
     elsewhen (frontend_admitted & completed_match):
       completed <== Bool(#false)
 
-sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
+sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: reset_address :: Nat, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6, ~vector_translation: vector_translation :: Boolean = #false):
   def xlen = profile.xlen
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(xlen.width)
@@ -110,6 +111,16 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   memory.memory |> instruction_access
   core.data_access |> data_access
   core.pipeline_access |> pipeline_access
+  if vector_translation
+  | block:
+      output pipeline_vector: Bool
+      interface vector_precheck(RV5StageVectorPrecheck(), ~role: requester)
+      pipeline_vector <== core.pipeline_vector
+      core.vector_precheck |> vector_precheck
+  | block:
+      // This architectural word-memory model has no translation certificate.
+      // Reject the optimization and retain exact element execution.
+      core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
   core.prefetch |> prefetch
   core.interrupts <== interrupts
   core.hart_id <== hart_id

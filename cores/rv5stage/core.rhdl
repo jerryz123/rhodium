@@ -11,6 +11,7 @@ import:
   "../cache-prefetch.rhdl" open
   "memory.rhdl" open
   "memory-arbiter.rhdl" open
+  "mmu/protocol.rhdl" open
   "decode/core-ctrl.rhdl" open
   "decode/vector-ctrl.rhdl" open
   "vector/bundles.rhdl" open
@@ -101,6 +102,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   interface packets(Decoupled(RV5StageFetchPacket(xlen)), ~role: consumer)
   interface data_access(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface pipeline_access(RV5StagePipelineAccess(xlen), ~role: requester)
+  output pipeline_vector: Bool
+  interface vector_precheck(RV5StageVectorPrecheck(), ~role: requester)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
   output privilege: PrivilegeMode
   output mstatus: Bits(width)
@@ -108,6 +111,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   output translation_flush: Bool
 
   inst memory_ports(RV5StageMemoryArbiter(xlen, vector_completion_slots))
+  pipeline_vector <== memory_ports.pipeline_vector
   memory_ports.memory <=> data_access
   memory_ports.pipeline <=> pipeline_access
   def scalar_data = memory_ports.scalar
@@ -164,8 +168,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_vector_retirement_link :: Handle = interface_link(Valid(MemoryWriteback(xlen, vector_completion_slots)))
   wire wb_vector_active: Bool
   wire id_vector_legal: Bool
-  wire wb_vector_unrolling: Bool
-  wire wb_vector_pending: Bool
+  wire wb_vector_certification_pending: Bool
+  wire wb_vector_loads_pending: Bool
+  wire wb_vector_fp_pending: Bool
+  wire wb_vector_integer_write_pending: Bool
+  def wb_vector_reserve_link :: Handle = interface_link(Valid(Bits(5)))
   wire wb_vector_stores_pending: Bool
   wire wb_vector_fp_write_pending: Bool
   wire ex_vector_resolved_rs1: Bits(width)
@@ -320,7 +327,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def mem_to_if_redirect_link :: Handle = interface_link(Valid(Bits(width)))
   def wb_to_id_scoreboard_set_link :: Handle = interface_link(Valid(Bits(5)))
   def wb_to_id_scoreboard_clear_link :: Handle = interface_link(Valid(Bits(5)))
-  wb_to_id_scoreboard_set_link.right |> wb_scoreboard.set
+  Array(wb_to_id_scoreboard_set_link.right, wb_vector_reserve_link.right) |> valid_arbiter() |> wb_scoreboard.set
   wb_to_id_scoreboard_clear_link.right |> wb_scoreboard.clear
   def fence_i_commit = wb_commit_valid & !wb_commit_bits.exception_valid & wb_offer_bits.fence.into(RV5StageFenceControl()).is_instruction_fence()
   translation_flush <== wb_csrs.translation_flush
@@ -566,9 +573,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_fp_store_resource_hazard = id_fp_store & !id_fault & wb.valid & wb_offer_bits.fp_compute
   def id_local_resource_hazard = id_multiply_resource_hazard ||| id_divide_resource_hazard ||| id_fp_store_resource_hazard
   def id_vector_launch_in_flight = (ex_input.valid & ex_input.bits.vector_launch) ||| (mem_input.valid & mem_input.bits.vector_launch) ||| (wb_input.valid & wb_input.bits.vector_launch)
-  // Independent scalar work may pass a load tail; stores and vector/state
-  // observers wait. Store ordering extends through the LSU's ordered drain.
-  def id_vector_wait = id_vector_launch_in_flight ||| wb_vector_unrolling ||| (wb_vector_active & (id_vector_instruction ||| core_serializing_operation(id_control.system, id_control.fence) ||| id_memory_operation.needs_unique())) ||| (wb_vector_stores_pending & id_memory_operation.is_memory()) ||| (wb_vector_fp_write_pending & id_control.floating_point_valid)
+  // Certification releases independent scalar work before vector unrolling
+  // finishes. Memory ordering and vector/state observers retain explicit barriers.
+  def id_vector_wait = id_vector_launch_in_flight ||| wb_vector_certification_pending ||| (wb_vector_active & (id_vector_instruction ||| core_serializing_operation(id_control.system, id_control.fence) ||| id_management)) ||| (wb_vector_loads_pending & id_memory_operation.needs_unique()) ||| (wb_vector_stores_pending & id_memory_operation.is_memory()) ||| ((wb_vector_fp_write_pending ||| wb_vector_fp_pending) & id_control.floating_point_valid)
   def id_hazard_reasons = RV5StageHazardReasons():
     deferred_dependency: id_deferred_dependency_hazard
     scoreboard_raw: id_scoreboard_raw_hazard
@@ -663,9 +670,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       id_vector_legality.vtype <== wb_csrs.vector_state.vtype
       id_vector_legality.vstart <== wb_csrs.vector_state.vstart
       id_vector_legal <== id_vector_legality.legal
-      wb_vector_active <== wb_vector.active
-      wb_vector_unrolling <== wb_vector.unrolling
-      wb_vector_pending <== wb_vector.pending
+      wb_vector_active <== wb_vector.active ||| wb_vector_integer_write_pending
+      wb_vector_certification_pending <== wb_vector.certification_pending
+      wb_vector_loads_pending <== wb_vector.loads_pending
+      wb_vector_fp_pending <== wb_vector.fp_pending
+      wb_vector.precheck |> vector_precheck
       wb_vector_stores_pending <== wb_vector.stores_pending
       wb_vector_fp_write_pending <== wb_vector_active & wb_vector_context.vector_control.floating_scalar_destination
       wb_vector.multiply_request |> wb_vector_multiply_request_link.left
@@ -693,6 +702,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
              vs2: wb_vector_context.rs2
              masked: !wb_vector_context.instruction[25].into(Bool)
       wb_vector_launch |> to_decoupled() |> wb_vector.request
+      wb_vector_launch |> filter_valid(descriptor => descriptor.control.integer & descriptor.control.scalar_destination & descriptor.vd.or_reduce()) |> map_valid(descriptor => descriptor.vd) |> wb_vector_reserve_link.left
       wb_vector_launch |> filter_valid(descriptor => descriptor.control.floating_scalar_destination) |> map_valid(descriptor => descriptor.vd) |> to_decoupled() |> wb_fp.vector_reserve
       wb_vector.floating_result |> wb_fp.vector_write
       when (wb_vector_launch.valid):
@@ -741,8 +751,15 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector_fp_update_link.left.bits <== bits(0, 5)
       wb_vector_active <== Bool(#false)
       id_vector_legal <== Bool(#false)
-      wb_vector_unrolling <== Bool(#false)
-      wb_vector_pending <== Bool(#false)
+      wb_vector_certification_pending <== Bool(#false)
+      wb_vector_loads_pending <== Bool(#false)
+      wb_vector_fp_pending <== Bool(#false)
+      wb_vector_reserve_link.left.valid <== Bool(#false)
+      wb_vector_reserve_link.left.bits <== bits(0, 5)
+      vector_precheck.request.valid <== Bool(#false)
+      vector_precheck.request.bits <== dont_care(RV5StageVectorRange())
+      vector_precheck.response.ready <== Bool(#true)
+      vector_precheck.release.valid <== Bool(#false)
       wb_vector_stores_pending <== Bool(#false)
       wb_vector_fp_write_pending <== Bool(#false)
       wb_fp.vector_reserve.valid <== Bool(#false)
@@ -1135,9 +1152,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // Retirement and architectural side effects. Older authorized work must
   // finish before entering a precise trap. Younger
   // speculative pipeline occupancy is not outstanding architectural work.
-  def wb_current_exception_wait = wb_commit_valid & wb_commit_bits.exception_valid & (wb_deferred_results_pending ||| wb_vector_pending ||| !scalar_data.drained)
+  def wb_current_exception_wait = wb_commit_valid & wb_commit_bits.exception_valid & (wb_deferred_results_pending ||| wb_vector_active ||| !scalar_data.drained)
   def wb_architectural_commit = mux(wb_pending_exception_valid, wb_pending_exception, wb_commit_bits)
-  def wb_pending_exception_ready = wb_pending_exception_valid & !wb_deferred_results_pending & !wb_vector_pending & scalar_data.drained
+  def wb_pending_exception_ready = wb_pending_exception_valid & !wb_deferred_results_pending & !wb_vector_active & scalar_data.drained
   wb_csrs.interrupt_boundary <== !wb_vector_active & !wb_maintenance_pending & !wb_reservation_wait_pending & !wb_reservation_wait_accept & !wb_pending_exception_valid & !ex_input.valid & !mem_input.valid & !wb.valid & !wb_deferred_results_pending & scalar_data.drained
   wb_csrs.interrupt_pc <== mux(wb_commit_replay,
                                wb_commit_bits.pc,
@@ -1183,7 +1200,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
             committed.value
           )
   )
-  Array(wb_normal_write, wb_vector_scalar_result_link.right) |> valid_arbiter() |> wb_commit_write
+  wb_normal_write |> wb_commit_write
 
   // Retirement authorizes issue; retained maintenance/WRS context never selects arithmetic operands.
   (
@@ -1213,7 +1230,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // Deferred completion. Loads and arithmetic complete outside the ordered
   // pipeline. Each candidate carries its semantic source, so routing does not
   // depend on the arbiter's structural input index.
-  inst wb_completion_arbiter(Arbiter(RV5StageDeferredCompletion(xlen), 4))
+  inst wb_completion_arbiter(Arbiter(RV5StageDeferredCompletion(xlen), 5))
   fun wb_tag_completion(source :: RV5StageCompletionSource):
     map_flow(~stable: #true, completion):
       RV5StageDeferredCompletion(xlen):
@@ -1250,6 +1267,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
           address: completion.rd
           data: completion.integer_value
   ) |> wb_tag_completion(RV5StageCompletionSource.FpInteger) |> wb_completion_arbiter.ingress[3]
+  def wb_vector_integer_completion = wb_vector_scalar_result_link.right |> filter_valid(write => write.address.or_reduce()) |> to_decoupled() |> queue(1)
+  wb_vector_integer_write_pending <== wb_vector_integer_completion.valid
+  wb_vector_integer_completion |> wb_tag_completion(RV5StageCompletionSource.VectorInteger) |> wb_completion_arbiter.ingress[4]
   def Array(
     wb_completed_register_write,
     wb_completed_integer_scoreboard_clear,

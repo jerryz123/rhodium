@@ -30,7 +30,7 @@ request unaccepted; the core retains its hint across replay.
 | Translation modes | RV64 Bare or Sv39; RV32 always Bare |
 | Translation caches | Separate eight-entry, fully associative ITLB and DTLB |
 | Page sizes | 4 KiB, 2 MiB, and 1 GiB Sv39 leaves |
-| Miss service | One shared, serialized, non-speculative walk; instruction misses have priority |
+| Miss service | One shared, serialized walk; pending WB vector prechecks precede instruction misses, which precede ordinary data misses |
 | Page-table traffic | One 64-bit physical load at a time through the ordinary data-memory path |
 | Data-miss recovery | A miss starts the walker and leaves the WB request unaccepted; the core refetches it through ordered replay |
 | Permission policy | Recheck access kind, current effective privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit |
@@ -38,6 +38,20 @@ request unaccepted; the core retains its hint across replay.
 | Invalidation | Whole-ITLB and whole-DTLB invalidation; any active walk and correlated fault are canceled |
 | Address-space identity | ASID zero only; no ASID-tagged lookup or selective invalidation |
 | A/D policy | Svade: missing `A`, or missing `D` for a write-like access, causes a page fault |
+
+`vector_precheck` certifies a nonspeculative macro's contiguous one- or two-page
+range without accessing its data. A successful response retains its physical
+page mappings and checked permissions separately from the DTLB until `release`.
+A covering superpage needs one lookup; otherwise each page is checked once.
+Only ordinary cacheable, read-idempotent, full-page PMA coverage is eligible.
+Failure requests conservative element-wise execution, not an architectural
+trap. This preserves masking and exact fault ownership.
+
+The core must keep privilege, translation, and protection context unchanged
+until release, drain before traps/interrupts or serialization, and use pinned
+mappings only for the owning macro. The pipeline owner bit is captured alongside
+each lookup; slow-service ownership uses the existing vector writeback tag.
+DTLB replacement by scalar work does not invalidate the retained mappings.
 
 ## Request flow
 

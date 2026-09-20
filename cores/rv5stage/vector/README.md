@@ -102,9 +102,28 @@ attempt pipeline. Vector micro-ops never re-enter scalar Decode, EX, MEM, or WB.
 The memory path shares the scalar LSU through a fixed-cycle lookup arbiter and
 a separate transaction arbiter; returned union tags retain response ownership.
 
-`outcome: Valid(RV5StageVectorCommit(xlen))` reports final acceptance, a precise
-fault, or fault-only-first truncation to scalar retirement one cycle after the
-local decision. This register separates LSU admission from scalar WB selection. Internal retries
+`outcome: Valid(RV5StageVectorCommit(xlen))` reports nonfaulting certification,
+final acceptance on the conservative path, a precise fault, or fault-only-first
+truncation to scalar retirement one cycle after the local decision. Non-memory
+macros and empty memory bodies certify at allocation. Contiguous unit-stride
+memory macros can certify after a page-level precheck of at most two 4 KiB
+pages. The MMU retains their translations until execution drains, independently
+of DTLB replacement; a covering superpage needs only one translation lookup.
+Certification requires natural element alignment, no address wrap, and full-page
+ordinary cacheable read-idempotent PMA coverage with the required permissions.
+It never accesses the vector data itself. Failed prechecks, larger ranges,
+indexed/strided operations, and fault-only-first operations use the existing
+element-wise path. In particular, a conservative check of a masked-off page
+must not create an architectural exception.
+
+After certification, independent scalar work can execute and retire while
+the vector unroller remains active. Vector/state observers, fences, translation
+changes, and trap/interrupt entry wait for drain. Younger scalar stores wait
+for vector loads or stores; younger scalar loads wait for vector stores.
+Deferred scalar destinations retain their GPR/FPR scoreboard reservations.
+Younger scalar FP work also waits for outstanding vector FP state updates.
+
+The outcome register separates LSU admission from scalar WB selection. Internal retries
 do not retire the macro or restart scalar fetch. Rejection flushes younger
 unaccepted vector stages and restores the unroller's accepted checkpoint.
 Accepted requests, their destination metadata, and their responses survive.
@@ -113,8 +132,9 @@ A saturating or clipping beat reports saturation with its private result, but
 only successful local acceptance emits `saturate: Pulse`; retry and fault
 cannot set `vxsat`.
 The CSR bank ORs that pulse into sticky `vxsat`, with an explicit CSR write on
-the same edge taking priority. `retire: Pulse`
-reports the completed last beat. `active` includes accepted memory completion
+the same edge taking priority. `retire: Pulse` updates architectural vector
+retirement state at certification, or final drain on the conservative path;
+`execution_done: Pulse` always reports completed execution. `active` includes accepted memory completion
 ownership; `unrolling` reports the separate issue/authorization lifetime.
 Integer results use fixed-cycle pairing; slow memory uses tagged completions.
 
@@ -136,7 +156,7 @@ from result completion, and accepted side effects must never be retried.
 scalar/configuration snapshot. The original macro crosses ID/EX, EX/MEM, and
 MEM/WB without executing scalar side effects; EX forwarding resolves its scalar
 base and stride before WB launches the unroller. Younger instructions wait in
-Decode from launch admission until the last locally accepted beat, while older scalar
+Decode from launch admission until certification or conservative final acceptance, while older scalar
 instructions can finish or squash the launch normally.
 Three synchronous general VRF reads supply `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
@@ -636,9 +656,10 @@ not introduce asynchronous ordinary-load error handling.
 
 A fault records its element in `vstart`, stops younger elements, and waits for
 older accepted data/VRF work before entering the precise trap at the macro PC.
-Successful final completion clears `vstart`. Younger independent scalar work
-may pass a vector load's completion tail, but scalar stores and vector/CSR
-state observers wait. Younger scalar loads and stores wait for an older vector
+Successful certification clears `vstart` early; conservative execution clears
+it on final completion. Independent scalar work may pass certified unrolling
+as well as a vector load's completion tail, but scalar stores and vector/CSR
+state observers retain their ordering barriers. Younger scalar loads and stores wait for an older vector
 store's ordered LSU drain. Interrupt entry waits for vector completion.
 
 ## Register bank

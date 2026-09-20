@@ -6,6 +6,8 @@ import:
   "vector/bundles.rhdl" open
   "vector/pipeline.rhdl" open
   "vector/memory.rhdl" open
+  "vector/precheck.rhdl" open
+  "mmu/protocol.rhdl" open
   "vector/muldiv.rhdl" open
   "integer-execution.rhdl" open
   "dcache/protocol.rhdl" open
@@ -31,6 +33,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
   interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
   interface outcome(Valid(RV5StageVectorCommit(xlen)), ~role: producer)
+  interface precheck(RV5StageVectorPrecheck(), ~role: requester)
   interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
   interface fp_result(Irrevocable(RV5StageFpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
   interface multiply_request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
@@ -41,26 +44,48 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
   interface truncate(Valid(Bits(xlen.width)), ~role: producer)
   interface retire(Pulse(), ~role: producer)
+  interface execution_done(Pulse(), ~role: producer)
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   input rounding_mode: RoundingMode
   input pointer_masking: PointerMaskControl()
   output(active, unrolling, pending, stores_pending): Bool
+  output(certification_pending, loads_pending, fp_pending): Bool
 
   inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa))
   inst access(RV5StageVectorMemory(xlen, slots))
   reg store(~init: Bool(#false))
   reg captured_pointer_masking(PointerMaskControl())
+  reg checking(~init: Bool(#false))
+  reg certified(~init: Bool(#false))
+  reg waiting_retirement(~init: Bool(#false))
+  reg memory_macro(~init: Bool(#false))
+  reg fp_macro(~init: Bool(#false))
+  reg macro_pc(Bits(xlen.width))
+  def footprint = vector_footprint(xlen, vlen, request.bits, pointer_masking)
+  def needs_check = request.bits.control.memory & !footprint.empty & footprint.eligible
+  def immediate_certificate = !request.bits.control.memory ||| footprint.empty
+  def Array(execution_request, launch_request) = request |> atomic_fork(2)
+  def launch = launch_request |> to_valid()
   (
-    request |> map_flow(descriptor => RV5StageVectorInstruction(xlen, Bits(xlen.width))):
+    execution_request |> map_flow(descriptor => RV5StageVectorInstruction(xlen, Bits(xlen.width))):
       context: descriptor.pc
       descriptor: descriptor
   ) |> execution.request
-  when (request.fire()):
-    store <== request.bits.control.store & request.bits.control.memory
-    captured_pointer_masking <== pointer_masking
-  def Array(compute, memory_issue) = execution.issue |> demux_flow(2, operation => operation.memory.as_bits())
+  def Array(check_launch, compute_launch) = launch |> fork_valid(2)
+  check_launch |> filter_valid(_descriptor => needs_check) |> map_valid(_descriptor => footprint.range) |> to_decoupled() |> queue(1) |> precheck.request
+  precheck.release.valid <== execution.retire.valid ||| execution.fault_start.valid
+  def early_compute = compute_launch |> filter_valid(_descriptor => immediate_certificate) |> map_valid(descriptor => descriptor.pc)
+  def early_memory = precheck.response |> to_valid() |> filter_valid(safe => safe) |> map_valid(_safe => macro_pc)
+  def early_outcome = Array(early_compute, early_memory) |> valid_arbiter() |> map_valid(pc => RV5StageVectorCommit(xlen)):
+    pc: pc
+    disposition: RV5StageVectorDisposition.Authorized
+    slow: Bool(#false)
+    data: bits(0, xlen.width)
+    cause: bits(0, xlen.width)
+    fault_address: bits(0, xlen.width)
+  def Array(compute, memory_issue) = execution.issue |> gate_flow(!checking) |> demux_flow(2, operation => operation.memory.as_bits())
   memory_issue |> access.issue
   def compute_wb = compute |> to_valid() |> valid_pipe(3)
   def compute_accept = compute_wb |> map_valid(operation => RV5StageVectorCommit(xlen)):
@@ -77,7 +102,24 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def compute_outcome = compute_retirement |> filter_valid(_event => compute_wb.bits.last)
   // LSU admission may depend on scalar requests. Register macro retirement so
   // its selection cannot feed scalar WB request formation in that same cycle.
-  Array(compute_outcome, access.outcome) |> valid_arbiter() |> valid_pipe(1) |> outcome
+  def final_outcome = Array(compute_outcome, access.outcome) |> valid_arbiter() |> filter_valid(_event => !certified)
+  Array(early_outcome, final_outcome) |> valid_arbiter() |> valid_pipe(1) |> outcome
+  when (request.fire()):
+    store <== request.bits.control.store & request.bits.control.memory
+    captured_pointer_masking <== pointer_masking
+    checking <== needs_check
+    certified <== immediate_certificate
+    waiting_retirement <== Bool(#true)
+    memory_macro <== request.bits.control.memory
+    fp_macro <== request.bits.control.floating_point
+    macro_pc <== request.bits.pc
+  elsewhen (precheck.response.fire()):
+    checking <== Bool(#false)
+    certified <== precheck.response.bits
+  elsewhen (outcome.valid):
+    waiting_retirement <== Bool(#false)
+  when (certified & access.feedback.valid):
+    assert(access.feedback.bits.disposition.is_one_of(RV5StageVectorDisposition.Authorized, RV5StageVectorDisposition.Retry), "certified_vector_cannot_fault")
   access.pipeline <=> pipeline
   access.memory <=> memory
   access.store <== store
@@ -95,14 +137,18 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   execution.fp_update |> fp_update
   execution.fault_start |> fault_start
   execution.truncate |> truncate
-  execution.retire |> retire
+  retire.valid <== mux(certified, outcome.valid, execution.retire.valid)
+  execution.retire |> execution_done
   execution.saturate |> saturate
   execution.scalar_result |> scalar_result
   execution.floating_result |> floating_result
-  active <== execution.active
+  active <== execution.active ||| waiting_retirement
   unrolling <== execution.unrolling
   pending <== execution.pending
   stores_pending <== execution.stores_pending
+  certification_pending <== waiting_retirement
+  loads_pending <== execution.active & memory_macro & !store
+  fp_pending <== execution.active & fp_macro
 
 export:
   RV5StageVectorPipeline

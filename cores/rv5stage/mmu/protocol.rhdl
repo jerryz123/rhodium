@@ -30,6 +30,36 @@ bundle RV5StageTranslationResult():
   fault: Bool
   access_fault: Bool
 
+// One nonspeculative macro owns the checked range until release. A false
+// response selects exact element execution; it is never an architectural fault.
+bundle RV5StageVectorRange():
+  first: Bits(64)
+  last: Bits(64)
+  store: Bool
+
+bundle RV5StagePageProbeRequest():
+  address: Bits(64)
+  store: Bool
+
+interface RV5StagePageProbe():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(RV5StagePageProbeRequest())
+  responder -> requester:
+    response: Valid(RV5StageTranslationResult())
+
+interface RV5StageVectorPrecheck():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(RV5StageVectorRange())
+    release: Pulse()
+  responder -> requester:
+    response: Irrevocable(Bool)
+
 interface RV5StagePageTableMemory():
   role requester
   role responder
@@ -46,3 +76,7 @@ export:
   RV5StageTranslationRequest
   RV5StageTranslationResult
   RV5StagePageTableMemory
+  RV5StageVectorRange
+  RV5StageVectorPrecheck
+  RV5StagePageProbeRequest
+  RV5StagePageProbe

@@ -43,6 +43,7 @@ hardware_enum RV5StageBypassStage(~encoding: one_hot):
 // Identifies the producer of a deferred completion. Keeping this nominal on
 // the payload avoids coupling scoreboard routing to an arbiter index.
 hardware_enum RV5StageCompletionSource:
+  VectorInteger
   IntegerLoad
   Multiply
   Divide

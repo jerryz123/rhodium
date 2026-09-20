@@ -32,6 +32,7 @@ routed response arrives while it is waiting.
 | [`protocol.rhdl`](protocol.rhdl) | Translation request/result bundles, fetch-fault metadata, and walker memory interface |
 | [`tlb.rhdl`](tlb.rhdl) | Fully associative demand/probe matching, permission recheck, physical-address construction, refill, and invalidation |
 | [`walker.rhdl`](walker.rhdl) | Serialized three-level PTE fetch, structural and permission checks, cancellation, and completion |
+| [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
 | [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, physical checks, and shared data-port ownership |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |
@@ -78,6 +79,20 @@ invalidate translations or cancel accepted page-table response ownership.
    invalidation and from clearing an already-latched instruction fault.
 5. Recheck current privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit; do
    not cache a prior permission decision.
+   The explicit exception is a certified vector macro: `vector-window.rhdl`
+   retains its two translations and authorization under a stable architectural
+   context until execution releases them. CSR/privilege changes, SFENCE, traps,
+   and interrupts cannot pass this owner. DTLB replacement can proceed normally.
+   The `pipeline_vector` owner bit travels with the registered lookup; slow
+   requests identify vector ownership through their existing writeback union.
+   Never apply a window to a scalar request or recheck its pages through the
+   replaceable DTLB. Assert that every authorized vector request is inside it.
+   Page probes reuse the demand DTLB and serialized walker, including ordinary
+   A/D checks; unsuccessful probes reply false rather than populating the
+   architectural fault latch. They never issue data accesses. A matching
+   superpage supplies both adjacent page translations from one result.
+   Whole-page PMA checks exclude devices, non-idempotent memory, and subpage
+   maps. Failed conservative coverage selects element-wise execution.
 6. Keep prefetch probes non-faulting and independent of walker ownership; they
    may use Bare translation or an existing TLB entry but must not check A/D.
    Keep address, operation, and validity registered on both sides of the probe;
@@ -108,6 +123,10 @@ Instruction recovery is exercised during the initial drain, stalled PTE request,
 request acceptance, delayed response, response arrival, and completion. Refetch
 must reuse a successful detached fill without additional PTE traffic; detached
 faults must neither escape nor block the next walk.
+The same fixture certifies split pages with noncontiguous physical mappings,
+checks held responses, replaces DTLB entries while a vector window remains
+live, verifies one-walk superpage coverage, and rejects a second-page fault
+without reporting a trap from the precheck.
 It checks prefetch latency and back-to-back
 throughput, TLB selection and rejection, Bare/PMA behavior, and synchronous
 cancellation at either stage on flush, invalidation, context change, and reset.

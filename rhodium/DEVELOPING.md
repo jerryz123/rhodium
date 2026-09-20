@@ -182,6 +182,12 @@ named D-cache protocols and memory operations, and RISC-V trap/pointer-masking
 adapters. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU
 arbitration and tagged response routing, plus public `std/bits.rhdl` for
 completion geometry. No memory adapter imports a cache implementation.
+`vector/precheck.rhdl` imports vector descriptor/control types, the named MMU
+precheck protocol, pure vector/XLEN geometry, and the public pointer-mask
+adapter. `mmu/vector-window.rhdl` imports that MMU protocol, public RISC-V PMA
+descriptors, and Flow; it imports no vector implementation. The MMU protocol
+owns the range/probe interfaces, keeping dependency direction from vector to
+translation contracts rather than from translation into vector execution.
 `vector/fp.rhdl` imports those FP bundles and decode
 controls plus RISC-V FP boxing helpers and HardFloat types to adapt packed
 elements, without adding a reverse dependency from FP to vector. Scalar

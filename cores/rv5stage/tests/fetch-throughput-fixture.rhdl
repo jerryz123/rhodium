@@ -31,6 +31,11 @@ sync_circuit RV5StageFetchThroughput():
   interface chi(CHIRNIChannels(test_rv5stage_flit), ~role: node)
   inst fetch(RV5StageFetchFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~compressed: CCompressedExtensions))))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
+  mmu.pipeline_vector <== Bool(#false)
+  mmu.vector_precheck.request.valid <== Bool(#false)
+  mmu.vector_precheck.request.bits <== dont_care(mmu.vector_precheck.request.bits.type)
+  mmu.vector_precheck.release.valid <== Bool(#false)
+  mmu.vector_precheck.response.ready <== Bool(#true)
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
   inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
   fetch.control.active <== active

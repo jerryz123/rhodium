@@ -1,0 +1,89 @@
+#lang rhodium
+// Retains two macro-owned page translations and certifies ordinary cacheable memory coverage.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "protocol.rhdl" open
+  "../../../riscv/rtl/pma.rhdl" open
+  lib("flow/main.rhdl") open
+
+hardware_enum RV5StageVectorWindowState:
+  Idle
+  Request
+  Response
+  Complete
+  Owned
+
+sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
+  interface check(RV5StageVectorPrecheck(), ~role: responder)
+  interface translation(RV5StagePageProbe(), ~role: requester)
+  input addresses: Vec(2, Bits(64))
+  output physical_addresses: Vec(2, Bits(64))
+  output hits: Vec(2, Bool)
+  output owned: Bool
+  reg state(~init: RV5StageVectorWindowState.Idle)
+  reg span(RV5StageVectorRange())
+  reg second(~init: Bool(#false))
+  reg first_ppn(Bits(44))
+  reg last_ppn(Bits(44))
+  reg safe(~init: Bool(#false))
+  def first_page = span.first[12..64]
+  def last_page = span.last[12..64]
+  def split = first_page =/= last_page
+  check.request.ready <== state === RV5StageVectorWindowState.Idle
+  check.response.valid <== state === RV5StageVectorWindowState.Complete
+  check.response.bits <== safe
+  translation.request.valid <== state === RV5StageVectorWindowState.Request
+  translation.request.bits <== RV5StagePageProbeRequest():
+    address: mux(second, span.last, span.first)
+    store: span.store
+  owned <== (state === RV5StageVectorWindowState.Owned) & safe
+  for (index in 0..2):
+    def address = addresses[index]
+    def page = address[12..64]
+    hits[index] <== owned & (address >= span.first) & (address <= span.last) & ((page === first_page) ||| (page === last_page))
+    physical_addresses[index] <== (mux(page === first_page, first_ppn, last_ppn) ++ address[0..12]).zext(64)
+
+  fun permitted_page(address :: Bits(64)) :~ Bool:
+    def mutable permitted = Bool(#false)
+    for (region in physical_map.regions):
+      def attributes = region.attributes
+      // Requiring every page-offset bit in the AddressSet avoids falsely
+      // certifying a sparse map from endpoint membership alone.
+      if (region.address_set.mask bits.and 4095) == 4095 && attributes.cacheable && (!attributes.device) && attributes.read_idempotent
+      | permitted := permitted ||| (region.address_set.matches(address) & mux(span.store, Bool(attributes.writable), Bool(attributes.readable)))
+      | #void
+    def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].or_reduce()
+    permitted & fits
+
+  def result = translation.response.bits
+  def same_leaf = mux_lookup(result.level, ~default: Bool(#false), [[1, span.first[21..64] === span.last[21..64]], [2, span.first[30..64] === span.last[30..64]]])
+  def result_page = (result.physical_address[12..56] ++ bits(0, 12)).zext(64)
+  def next_page = result_page + bits(4096, 64)
+  def success = !result.fault & !result.access_fault & permitted_page(result_page)
+  def needs_second = success & !second & split & !same_leaf
+  when (check.release.valid):
+    state <== RV5StageVectorWindowState.Idle
+    safe <== Bool(#false)
+  elsewhen (check.request.fire()):
+    span <== check.request.bits
+    second <== Bool(#false)
+    safe <== Bool(#false)
+    state <== RV5StageVectorWindowState.Request
+  elsewhen (translation.request.fire()):
+    state <== RV5StageVectorWindowState.Response
+  elsewhen (translation.response.valid):
+    assert(state === RV5StageVectorWindowState.Response, "vector_page_result_has_owner")
+    when (!second):
+      first_ppn <== result.physical_address[12..56]
+    safe <== success & (second ||| !split ||| (same_leaf & permitted_page(next_page)))
+    state <== mux(needs_second, RV5StageVectorWindowState.Request, RV5StageVectorWindowState.Complete)
+    when (second ||| (success & split & same_leaf)):
+      last_ppn <== mux(second, result.physical_address[12..56], next_page[12..56])
+    when needs_second:
+      second <== Bool(#true)
+  elsewhen (check.response.fire()):
+    state <== RV5StageVectorWindowState.Owned
+
+export:
+  RV5StageVectorWindow

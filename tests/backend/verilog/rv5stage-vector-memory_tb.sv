@@ -55,6 +55,8 @@ module rv5stage_vector_memory_tb;
   int pc = 0, expected_count = 0, signatures = 0, cycles = 0;
   int hits = 0, warm_run = 0, longest_warm_run = 0, rejections = 0;
   int overlapping_hits = 0, scalar_overlap = 0, redirected_tail = 0;
+  int certified_overlap = 0;
+  logic vector_unrolling, vector_certifying, scalar_overlap_lookup = 0;
   int refills = 0, copybacks = 0, fault_signature = 0, fault_reset_signature = 0, whole_fault_signature = 0, whole_fault_reset_signature = 0, mask_fault_signature = 0, mask_fault_reset_signature = 0, device_elements = 0;
   bit instruction_valid = 0, uncached_pending = 0, returning = 0, writing_back = 0;
   logic [31:0] instruction_word;
@@ -186,11 +188,13 @@ module rv5stage_vector_memory_tb;
         instruction_word <= program_words[int'(instruction_out.request.bits.address / 4) % 4096];
       end
       if (load_hit) begin
+        if (scalar_overlap_lookup && vector_unrolling && !vector_certifying) certified_overlap <= certified_overlap + 1;
         if (returning && line_address == 64'h1540) overlapping_hits <= overlapping_hits + 1;
         hits <= hits + 1;
         warm_run <= warm_run + 1;
         if (warm_run + 1 > longest_warm_run) longest_warm_run <= warm_run + 1;
       end else warm_run <= 0;
+      scalar_overlap_lookup <= load_issue && load_address == 64'h13f8;
       if (resumed && load_issue)
         assert (load_address != 64'h4ff0 && load_address != 64'h4ff8)
           else $fatal(1, "fault restart repeated an authorized prefix element");
@@ -250,10 +254,10 @@ module rv5stage_vector_memory_tb;
           if (signatures == fault_reset_signature || signatures == whole_fault_reset_signature || signatures == mask_fault_reset_signature) resumed <= 0;
           if (signatures == fault_signature + 3 || signatures == whole_fault_signature + 3 || signatures == mask_fault_signature + 3) resumed <= 1;
           if (signatures + 1 == expected_count) begin
-            assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && redirected_tail > 0 && rejections > 8 && device_elements == 4)
-              else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
-            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/mask/whole-register/fault-only-first/masked/EEW/vstart/device/fault restart passed",
-                     COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
+            assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && certified_overlap > 0 && scalar_overlap > 0 && redirected_tail > 0 && rejections > 8 && device_elements == 4)
+              else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d certified_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap,certified_overlap);
+            $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills, %0d certified scalar overlaps; strided/indexed/segmented/mask/whole-register/fault-only-first/masked/EEW/vstart/device/fault restart passed",
+                     COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills,certified_overlap);
             $finish;
           end
         end
@@ -281,7 +285,16 @@ module rv5stage_vector_memory_tb;
       emit(vmem(1,sew,16,9));
       check_memory('h2000+sew*256,16<<sew,values);
       // Warm-cache vector loads must sustain one element per cycle.
+      if (sew == 3) begin
+        write_word('h13f8, 64'h12345);
+        li(10,'h13f8); emit({12'b0,5'd10,3'b011,5'd7,7'h03}); emit(32'h0ff0000f);
+      end
       emit(vmem(0,sew,8,8));
+      if (sew == 3) begin
+        // A warm scalar hit must proceed during certified vector unrolling,
+        // not merely after the macro's last attempt was authorized.
+        emit({12'b0,5'd10,3'b011,5'd7,7'h03});
+      end
     end
     // Cold first element followed by seven resident elements: complete hits
     // ahead of an older delayed miss, then drain the tagged results in order.
@@ -599,3 +612,12 @@ module rv5stage_vector_memory_tb;
     reset=0;
   end
 endmodule
+
+// Observe the public macro lifetime rather than generated internal registers.
+module vector_memory_lifetime_observer(input logic unrolling, certification_pending);
+  always_comb begin
+    rv5stage_vector_memory_tb.vector_unrolling = unrolling;
+    rv5stage_vector_memory_tb.vector_certifying = certification_pending;
+  end
+endmodule
+bind RV5StageVectorPipeline vector_memory_lifetime_observer lifetime_observer(.unrolling(unrolling), .certification_pending(certification_pending));

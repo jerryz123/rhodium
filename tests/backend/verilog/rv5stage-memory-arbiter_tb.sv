@@ -19,7 +19,7 @@ module rv5stage_memory_arbiter_tb;
   data_response_t scalar_out, vector_out, memory_in;
   pipeline_request_t scalar_pipeline_in, vector_pipeline_in, pipeline_out;
   pipeline_response_t scalar_pipeline_out, vector_pipeline_out, pipeline_in;
-  RV5StageMemoryArbiter dut(.*);
+  RV5StageMemoryArbiter dut(.pipeline_vector(), .*);
   always #5 clock = ~clock;
   task automatic tick;
     @(posedge clock); #1;

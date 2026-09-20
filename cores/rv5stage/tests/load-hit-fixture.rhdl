@@ -33,7 +33,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   output transaction: RV5StageDataReq(XLen.X64, vector_completion_slots)
   output(demand_attempt, demand_fire, cache_fire): Bool
   output cache_address: Bits(64)
-  inst core(RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~mmu_mode: RV5StageMmuMode.Sv39, ~vector: vector_profile, ~vector_length: vlen, ~vector_completion_slots: vector_completion_slots), ~reset_address: 0))
+  inst core(RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~mmu_mode: RV5StageMmuMode.Sv39, ~vector: vector_profile, ~vector_length: vlen, ~vector_completion_slots: vector_completion_slots), ~reset_address: 0, ~vector_translation: #true))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_uncached_config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst router(RV5StageMemoryRouter(XLen.X64, test_rv5stage_uncached_config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst cache(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(32, 2), ~chi: test_rv5stage_uncached_config, ~vector_completion_slots: vector_completion_slots))
@@ -49,6 +49,8 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   core.data_access.drained <== mmu.data.drained
   core.data_access.reservation_valid <== mmu.data.reservation_valid
   core.pipeline_access |> mmu.pipeline
+  mmu.pipeline_vector <== core.pipeline_vector
+  core.vector_precheck |> mmu.vector_precheck
   mmu.pipeline_lookup |> cache.pipeline_lookup
   mmu.pipeline_memory |> cache.pipeline
   mmu.data_lookup |> cache.virtual_lookup

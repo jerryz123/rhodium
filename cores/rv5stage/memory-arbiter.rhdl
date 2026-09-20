@@ -16,6 +16,7 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   interface scalar_pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
   interface vector_pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
+  output pipeline_vector: Bool
   inst requests(Arbiter(RV5StageDataReq(xlen, slots), 2))
   Array(scalar.request, vector.request) <=> requests.ingress
   requests.egress |> memory.request
@@ -38,6 +39,7 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   Array(scalar_pipeline.request, vector_pipeline.request) <=> lookups.ingress
   lookups.egress |> pipeline.request
   def lookup_vector = lookups.chosen === bits(1, 1)
+  pipeline_vector <== lookup_vector
   def scalar_result = scalar_pipeline.request |> map_valid(_request => !lookup_vector) |> valid_pipe(1)
   def vector_result = vector_pipeline.request |> map_valid(_request => lookup_vector) |> valid_pipe(1)
   def store_owner = lookups.egress |> map_valid(_request => lookup_vector) |> valid_pipe(2)

@@ -65,6 +65,7 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   output hit: Bool
   output fault: Bool
   output physical_address: Bits(56)
+  output translation: RV5StageTranslationResult()
   output probe_hit: Bool
   output probe_fault: Bool
   output probe_physical_address: Bits(56)
@@ -86,6 +87,20 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   hit <== !enabled ||| selected_hit
   fault <== enabled & selected_hit & !selected_pte.sv39_permission_valid(access, privilege === PrivilegeMode.User, privilege === PrivilegeMode.Supervisor, sum, mxr)
   physical_address <== mux(enabled, sv39_physical_address(virtual_address, selected_pte, selected.level), virtual_address[0..56])
+  translation <== RV5StageTranslationResult():
+    virtual_address: virtual_address
+    physical_address: physical_address
+    ppn: mux(enabled, selected.ppn, virtual_address[12..56])
+    level: mux(enabled, selected.level, bits(0, 2))
+    user: selected.user
+    read: selected.read
+    write: selected.write
+    execute: selected.execute
+    global_mapping: selected.global_mapping
+    accessed: selected.accessed
+    dirty: selected.dirty
+    fault: fault
+    access_fault: !enabled & virtual_address[56..64].or_reduce()
 
   def probe_matches = vec(
     for List (index in 0..entry_count):

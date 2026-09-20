@@ -56,6 +56,7 @@ module rv5stage_vector_config_tb;
   logic response_valid = 0;
   logic reject_store = 1;
   logic [31:0] response_word;
+  logic scalar_during_vector = 0;
 
   integer cycles = 0, stores = 0, vector_writes = 0, rejected_stores = 0;
   RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
@@ -114,12 +115,22 @@ module rv5stage_vector_config_tb;
       188: return 32'h0287b457; // must not write
       192: return 32'h00307157; // vsetvli x2,x0,e8,m8: 128 elements
       196: return 32'h2e840457; // sixteen packed beats through all private stages
-      200: return 32'h0280b457; // in-place vadd.vi v8,v8,1
-      204: return 32'h00218057; // illegal masked destination v0
+      200: return 32'h00100513; // independent scalar result during background execution
+      204: return 32'h04a03423; // sd x10,72(x0), while the older integer vector still writes
+      208: return 32'h0080006f; // younger redirect must preserve the active vector
+      212: return 32'h0287b457; // squashed
+      216: return 32'h0280b457; // in-place vadd.vi v8,v8,1
+      220: return 32'hffffffff; // younger scalar exception must drain the active vector
+      224: return 32'h00218057; // illegal masked destination v0, after returning
       256: return 32'h342021f3; // mcause
-      260: return 32'h04303423; // illegal-instruction cause
-      264: return 32'h341021f3; // mepc
-      268: return 32'h04303823; // precise fault PC
+      260: return 32'h34102273; // mepc -> x4
+      264: return 32'hf3820293; // addi x5,x4,-200
+      268: return 32'h00229293; // cause signature address = (mepc-200)*4
+      272: return 32'h0032b023; // sd x3,0(x5)
+      276: return 32'h0042b423; // sd x4,8(x5)
+      280: return 32'h00420213; // skip faulting instruction
+      284: return 32'h34121073; // csrw mepc,x4
+      288: return 32'h30200073; // mret
       default: return 32'h0000006f;
     endcase
   endfunction
@@ -165,11 +176,18 @@ module rv5stage_vector_config_tb;
           5: assert (data_access_out.request.bits.data == 2) else $fatal(1, "vector beats overcounted minstret");
           6,8: assert (data_access_out.request.bits.data == 0) else $fatal(1, "arithmetic did not clear vstart");
           7: assert (data_access_out.request.bits.data[10:9] == 3 && data_access_out.request.bits.data[63]) else $fatal(1, "vector writes did not dirty VS");
-          9: assert (data_access_out.request.bits.data == 2) else $fatal(1, "illegal vector group must trap");
-          10: begin
-            assert (data_access_out.request.bits.data == 204) else $fatal(1, "precise vector trap");
+          9: begin
+            assert (data_access_out.request.bits.data == 1 && scalar_during_vector)
+              else $fatal(1, "independent scalar result did not commit during vector unrolling");
+          end
+          10,12: assert (data_access_out.request.bits.data == 2 && vector_writes == 46) else $fatal(1, "illegal instruction must trap after older vector execution drains");
+          11: begin
+            assert (data_access_out.request.bits.data == 220) else $fatal(1, "precise vector trap");
             assert (vector_writes == 46) else $fatal(1, "lost, duplicated, or squashed vector writes: %0d", vector_writes);
-            assert (rejected_stores == 11) else $fatal(1, "each signature store must exercise exactly one replay");
+          end
+          13: begin
+            assert (data_access_out.request.bits.data == 224) else $fatal(1, "precise illegal vector group trap");
+            assert (vector_writes == 46 && rejected_stores == 14) else $fatal(1, "illegal vector group wrote state or store replay count changed");
             #1; vector_core_trace_finish();
             $display("rv5stage vector configuration and integer pipeline passed");
             $finish;
@@ -187,6 +205,18 @@ module rv5stage_vector_config_tb;
     @(negedge clock); reset = 0;
   end
 endmodule
+
+// Observe the public macro lifetime while a scalar signature commits.
+module vector_core_scalar_observer(input logic clock, reset, input logic [69:0] writes_0_in);
+  always @(posedge clock) begin
+    if (!reset && writes_0_in[69] && writes_0_in[68:64] == 10 && writes_0_in[63:0] == 1) begin
+      assert (rv5stage_vector_config_tb.vector_writes >= 14 && rv5stage_vector_config_tb.vector_writes < 30)
+        else $fatal(1, "scalar WB waited for the last vector beat");
+      rv5stage_vector_config_tb.scalar_during_vector = 1;
+    end
+  end
+endmodule
+bind RV5StageRegisterFile vector_core_scalar_observer scalar_observer(.clock(clock), .reset(reset), .writes_0_in(writes_0_in));
 
 // Bind an observer to the reusable VRF's public write port, never its storage.
 module vector_core_write_observer(input logic clock, reset, input logic [134:0] write_in);

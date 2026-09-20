@@ -129,6 +129,8 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   frontend.memory |> mmu.instruction
   core.data_access |> mmu.data
   core.pipeline_access |> mmu.pipeline
+  mmu.pipeline_vector <== core.pipeline_vector
+  core.vector_precheck |> mmu.vector_precheck
   mmu.pipeline_lookup |> l1d.pipeline_lookup
   mmu.pipeline_memory |> l1d.pipeline
   mmu.instruction_lookup |> l1i.virtual_lookup
