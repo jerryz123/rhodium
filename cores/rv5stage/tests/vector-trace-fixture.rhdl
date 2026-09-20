@@ -9,6 +9,7 @@ import:
   "../decode/core-ctrl.rhdl" open
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
@@ -33,7 +34,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
         pc: bits(0x100, 64)
         instruction: instruction
         state:
-          RV5StageVectorState(xlen):
+          RiscvVectorState(xlen):
             vl: vl
             vtype: vtype
             vstart: vstart
