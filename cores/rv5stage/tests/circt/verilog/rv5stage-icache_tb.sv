@@ -442,24 +442,25 @@ module rv5stage_icache_tb;
     expect_instruction(32'h11111111);
     send_core_request(COLLIDE_B_ADDRESS);
     expect_instruction(32'hb1b1b1b1);
-    // With both ways occupied, the round-robin pointer replaces the first
-    // way. The second colliding line remains a hit while the original misses.
+    // Touch A last so tree PLRU replaces B instead of the first installed way.
+    send_core_request(ADDRESS);
+    expect_instruction(32'h11111111);
     send_core_request(COLLIDE_C_ADDRESS);
     accept_read_request(COLLIDE_C_ADDRESS);
     return_line(COLLIDE_C_ADDRESS, LINE_C);
     accept_comp_ack();
     expect_instruction(32'hc1c1c1c1);
-    send_core_request(COLLIDE_B_ADDRESS);
-    expect_instruction(32'hb1b1b1b1);
+    send_core_request(ADDRESS);
+    expect_instruction(32'h11111111);
     send_core_request(COLLIDE_C_ADDRESS);
     expect_instruction(32'hc1c1c1c1);
     grant_req_credit();
     grant_rsp_credit();
-    send_core_request(ADDRESS);
-    accept_read_request(ADDRESS);
-    return_line(ADDRESS, LINE);
+    send_core_request(COLLIDE_B_ADDRESS);
+    accept_read_request(COLLIDE_B_ADDRESS);
+    return_line(COLLIDE_B_ADDRESS, LINE_B);
     accept_comp_ack();
-    expect_instruction(32'h11111111);
+    expect_instruction(32'hb1b1b1b1);
 
     // One virtual address can resolve to different physical pages. Both tags
     // must coexist without a false hit, and switching back must recover A.

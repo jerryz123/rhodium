@@ -32,12 +32,16 @@ def rv32_data_design = embedded.run_elaboration(
 def associative_data_design = embedded.run_elaboration(
   fun (): l1d.RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(8, 2), ~chi: config)
 )
+def three_way_data_design = embedded.run_elaboration(
+  fun (): l1d.RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(8, 3), ~chi: config)
+)
 def instruction_circt = emit_circt(instruction_design)
 def data_circt = emit_circt(data_design)
 def rv32_instruction_circt = emit_circt(rv32_instruction_design)
 def rv32_data_circt = emit_circt(rv32_data_design)
 def associative_instruction_circt = emit_circt(associative_instruction_design)
 def associative_data_circt = emit_circt(associative_data_design)
+def three_way_data_circt = emit_circt(three_way_data_design)
 
 check:
   instruction_circt.contains("seq.firmem") ~is #true
@@ -49,6 +53,7 @@ check:
   instruction_circt.contains("!seq.firmem<64 x 64, mask 8>") ~is #true
   associative_instruction_circt.contains("!seq.firmem<64 x 128, mask 16>") ~is #true
   associative_data_circt.contains("!seq.firmem<64 x 128, mask 16>") ~is #true
+  three_way_data_circt.contains("!seq.firmem<64 x 192, mask 24>") ~is #true
   data_circt.contains("!seq.firmem<64 x 64, mask 8>") ~is #true
   rv32_instruction_circt.contains("!seq.firmem<512 x 32, mask 4>") ~is #true
   rv32_data_circt.contains("!seq.firmem<512 x 32, mask 4>") ~is #true

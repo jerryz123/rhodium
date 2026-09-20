@@ -22,7 +22,7 @@ Contributors changing the L1I implementation should read
 | Core protocol | S1 `Valid` physical resolutions and S2 `Valid` word/fault/replay outcomes |
 | Miss policy | One blocking line acquisition: retry-aware `ReadOnce` for coherent RAM, `ReadNoSnp` for immutable ROM |
 | Response storage | Completed-word storage and replay belong to the frontend |
-| Allocation | Lowest invalid way, otherwise per-set round robin |
+| Allocation | Lowest invalid way, otherwise per-set tree PLRU |
 | Prefetch | Demand-priority Valid event; a miss launches ordinary `ReadOnce` refill without a response |
 
 `RV5StageL1ICache(xlen, cache, ~chi: config)` accepts physical resolutions only
@@ -95,7 +95,10 @@ uncached. The integrated MMU still restricts instruction prefetch to coherent RA
 Installation writes one XLEN word per cycle—eight writes for RV64 or sixteen
 for RV32—and publishes the tag and valid bit only on the final
 word. Allocation selects the lowest invalid way before using the set's
-round-robin pointer; a successful installation advances that pointer.
+tree-PLRU victim. Every admitted resident hit and successful installation marks
+its way most recently used. Prefetch hits participate; discarded or failed
+refills and non-allocating events do not. Non-power-of-two associativities use a
+padded tree whose unused leaves are never eligible victims.
 
 ## Flush and architectural invalidation
 
@@ -105,8 +108,8 @@ The two controls deliberately have different residency effects:
 |---|---|---|---|
 | `s1_kill` | Kill only the younger S1 lookup | Preserve ownership and fault consumer | Preserve |
 | `flush` | Kill old lookup stages and retained fault; preserve a simultaneous replacement lookup | Drain and install, but discard a detached consumer's error | Preserve |
-| `invalidate_all` | Apply all flush behavior while permitting a simultaneous replacement lookup | Drain without installing or returning the pre-invalidation line | Invalidate all ways and reset replacement pointers |
-| Reset | Clear lookup, fault, refill-tracking, and installation state | Reset transaction state | Invalidate all ways and reset replacement pointers |
+| `invalidate_all` | Apply all flush behavior while permitting a simultaneous replacement lookup | Drain without installing or returning the pre-invalidation line | Invalidate all ways and reset replacement state |
+| Reset | Clear lookup, fault, refill-tracking, and installation state | Reset transaction state | Invalidate all ways and reset replacement state |
 
 The parent core implements `FENCE.I` by first waiting for L1D quiescence, then
 asserting this local `invalidate_all` control and redirecting Fetch. A

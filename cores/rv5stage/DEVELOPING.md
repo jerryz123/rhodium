@@ -31,6 +31,7 @@ each other; share external transaction machinery through the CHI package.
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
+| [`../cache-replacement.rhdl`](../cache-replacement.rhdl) | Reusable invalid-first padded tree-PLRU selection and state update |
 | [`fetch/DEVELOPING.md`](fetch/DEVELOPING.md) | Fetch protocols, frontend sequencing, instruction assembly, BTB, and RAS |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
@@ -41,7 +42,7 @@ each other; share external transaction machinery through the CHI package.
 | [`csr.rhdl`](csr.rhdl) | RV5Stage privileged-state storage and commit policy over reusable RISC-V CSR, trap, and interrupt semantics |
 | [`mmu/DEVELOPING.md`](mmu/DEVELOPING.md) | TLBs, demand translation, best-effort prefetch probes, and page-table walking |
 | [`instruction-memory-router.rhdl`](instruction-memory-router.rhdl), [`memory-router.rhdl`](memory-router.rhdl), [`uncached-protocol.rhdl`](uncached-protocol.rhdl) | Physical-region routing, data IO-MSHR composition, and the shared uncached protocol |
-| [`cache.rhdl`](cache.rhdl) | Shared cache geometry and replacement helpers |
+| [`cache.rhdl`](cache.rhdl) | Shared RV5Stage cache geometry and way/lane masks |
 | [`chi/DEVELOPING.md`](chi/DEVELOPING.md) | Physical-region/Home policy, RN identity, cache transaction engines, and the shared uncached RN-I implementation |
 | [`icache/DEVELOPING.md`](icache/DEVELOPING.md), [`dcache/DEVELOPING.md`](dcache/DEVELOPING.md) | Private cache implementation and validation |
 | [`tests/`](tests/) | Decode, configuration, public specialization, and invalid-use checks |
@@ -417,6 +418,12 @@ The JSON targets interactive renderers; the compact DOT view links child
 modules by name instead of flattening them.
 
 ## Focused validation
+
+For shared replacement-policy changes, run `cache-replacement`,
+`rv5stage-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32`. The standalone
+fixture covers four-way tree ordering, invalid-way priority, and a padded
+three-way tree; the cache fixtures cover access and installation updates in
+their real pipelines.
 
 For the EX/MEM/WB load path, run `rv5stage-load-hit`, `rv5stage-mmu-replay`,
 `rv5stage-dcache`, `rv5stage-dcache-rv32`, and `rv5stage-core`. The integrated

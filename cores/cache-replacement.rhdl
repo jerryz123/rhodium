@@ -1,0 +1,82 @@
+#lang rhodium
+// Defines reusable invalid-first padded tree-PLRU replacement helpers.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+
+// Pad to a power-of-two leaf count while keeping padded leaves ineligible.
+fun plru_leaf_count(ways :: PosInt) :: Pow2Int:
+  fun loop(leaves :: Pow2Int):
+    if leaves >= ways | leaves | loop(leaves * 2)
+  loop(1)
+
+// Direct-mapped users retain one unused bit because hardware widths are positive.
+fun plru_state_width(ways :: PosInt) :: PosInt:
+  def nodes = plru_leaf_count(ways) - 1
+  if nodes == 0 | 1 | nodes
+
+// Keep the tree encoding private while retaining associativity in type checks.
+hardware_type PLRUState(ways :: PosInt):
+  width: plru_state_width(ways)
+  type_key: [ways]
+  describe: "plru-state<" ++ to_string(ways) ++ ">"
+
+fun plru_initial_state(ways :: PosInt) :~ PLRUState(ways):
+  bits(0, plru_state_width(ways)).into(PLRUState(ways))
+
+fun plru_victim(ways :: PosInt,
+                state :: PLRUState(ways)) :: Bits(index_width(ways)):
+  def state_bits = state.as_bits()
+  fun select(node :: Nat, first :: Nat, count :: PosInt):
+    if count == 1
+    | bits(first, index_width(ways))
+    | block:
+        def half = count div 2
+        def split = first + half
+        if split >= ways
+        | select(node * 2 + 1, first, half)
+        | mux(state_bits[node].into(Bool),
+              select(node * 2 + 2, split, half),
+              select(node * 2 + 1, first, half))
+  select(0, 0, plru_leaf_count(ways))
+
+fun plru_touch(ways :: PosInt,
+               state :: PLRUState(ways),
+               way :: Bits(index_width(ways))) :~ PLRUState(ways):
+  def mutable updated :: Vec(plru_state_width(ways), Bool) = state.as_bits().as_vec(Bool)
+  fun update(node :: Nat, first :: Nat, count :: PosInt, selected :: Bool):
+    if count > 1
+    | block:
+        def half = count div 2
+        def split = first + half
+        def right_selected:
+          if split < ways
+          | selected & !(way < bits(split, index_width(ways)))
+          | Bool(#false)
+        def replacement = mux(selected, !right_selected, updated[node])
+        updated := vec(
+          for List (index in 0..plru_state_width(ways)):
+            if index == node | replacement | updated[index]
+        )
+        update(node * 2 + 1, first, half, selected & !right_selected)
+        if split < ways
+        | update(node * 2 + 2, split, half, right_selected)
+        | #void
+    | #void
+  update(0, 0, plru_leaf_count(ways), Bool(#true))
+  updated.as_bits().into(PLRUState(ways))
+
+// Prefer the lowest invalid way before falling back to the tree-PLRU victim.
+fun plru_replacement_way(ways :: PosInt,
+                         valid :: Vec(ways, Bool),
+                         state :: PLRUState(ways)) :: Bits(index_width(ways)):
+  def invalid = vec(for List (index in 0..ways): !valid[index])
+  def first_invalid = priority_encoder_oh(invalid)
+  mux(first_invalid.valid, first_invalid.index, plru_victim(ways, state))
+
+export:
+  PLRUState
+  plru_initial_state
+  plru_touch
+  plru_replacement_way

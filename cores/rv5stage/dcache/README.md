@@ -21,7 +21,7 @@ Contributors changing the L1D implementation should read
 | Core throughput | One uncontended load hit per cycle; owned store hits retire into four committed entries |
 | Core protocol | EX/MEM lookup and WB store authorization; ordered `Decoupled` slow transactions with `Valid` responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
-| Allocation | Lowest invalid way, otherwise per-set round robin |
+| Allocation | Lowest invalid way, otherwise per-set tree PLRU |
 | CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteBackFull` with `CopyBackWriteData`, nonallocating `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
 | Prefetch | Demand-priority Valid event; read intent uses `ReadClean`, write intent uses `ReadUnique`, and neither responds or mutates data |
 
@@ -311,7 +311,7 @@ instead selects completion without installation. The complete clean line is
 consumed after `CompAck`, using normal load lane extraction and destination
 metadata. [CHI permits silent eviction of a clean copy](https://documentation-service.arm.com/static/5f914ecbf86e16515cdc2b4d)
 (section 4.6): no data, tag, valid, or state array is written, no victim is
-drained, and replacement pointers are untouched. It does not explicitly clear
+drained, and replacement state is untouched. It does not explicitly clear
 a resident LR reservation, which is still subject to conflicting accesses and coherence events.
 Younger authorized slow requests remain ordered behind
 the transaction and reread their retained lookups afterward; independent
@@ -423,10 +423,13 @@ pressure, and competing LR/SC requesters on complete systems.
 
 ## Replacement and deliberate limits
 
-Allocation selects the lowest invalid way before using the set's round-robin
-pointer. Installing a newly allocated line advances that pointer. Ownership
-acquisition for an existing SharedClean line retains its way and does not
-advance replacement state.
+Allocation selects the lowest invalid way before using the set's tree-PLRU
+victim. Every admitted resident access and newly allocated installation marks
+its way most recently used. Ownership acquisition for an existing SharedClean
+line retains and touches its way; its later refill installation does not touch
+the state a second time. Prefetch hits participate, while snoops, invalidation,
+failed refills, and non-allocating misses do not. Non-power-of-two
+associativities use a padded tree whose unused leaves are never eligible victims.
 
 - Prefetches are not buffered, cannot run under a miss, and may delay a later
   demand once an admitted miss or ownership acquisition has launched.

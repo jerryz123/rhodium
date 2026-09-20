@@ -4,6 +4,7 @@
 
 import:
   "../../cache-prefetch.rhdl" open
+  "../../cache-replacement.rhdl" open
   "protocol.rhdl" open
   "arrays.rhdl" open
   "store-buffer.rhdl" open
@@ -131,8 +132,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   reg valid_lines(~init: vec(
     for List (_set in 0..sets): bits(0, ways).as_vec(Bool)
   ))
-  reg replacement_ways(~init: vec(
-    for List (_set in 0..sets): bits(0, way_width)
+  reg replacement_state(~init: vec(
+    for List (_set in 0..sets): plru_initial_state(ways)
   ))
   reg snoop_way(~init: bits(0, way_width))
   // Fixed microarchitectural budget, not an ISA promise about cycle counts.
@@ -322,7 +323,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     for List (way in 0..ways): arrays.states.response.bits[way],
     ~default: CHICacheState.Invalid
   ).into(CHICacheState)
-  def s3_allocation_way = rv5stage_cache_replacement_way(cache, s3_valids, replacement_ways[s3_set])
+  def s3_allocation_way = plru_replacement_way(ways, s3_valids, replacement_state[s3_set])
   def s3_word = s3_hit_way.mux(
     for List (way in 0..ways): s1_array_words[way],
     ~default: bits(0, width)
@@ -888,10 +889,24 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
       valid_lines[refill_set].updated(refill_way, Bool(#true))
     )
 
-  when (install_refill & refill_context.allocation):
-    replacement_ways <== replacement_ways.updated(
+  def pipeline_replacement_touch = pipeline.request.valid & s1_outcome.is_one_of(
+    RV5StagePipelineOutcome.LoadHit,
+    RV5StagePipelineOutcome.StoreHit
+  )
+  def transaction_replacement_touch = s4_path.fire() & s4_hit
+  def replacement_touch = pipeline_replacement_touch ||| transaction_replacement_touch
+  def replacement_touch_set = mux(pipeline_replacement_touch, s1_set, s4_set)
+  def replacement_touch_way = mux(pipeline_replacement_touch, s1_hit_way.index, s4_result.egress.bits.hit_way)
+  assert(!(replacement_touch & install_refill), "l1d_replacement_update_unique")
+  when replacement_touch:
+    replacement_state <== replacement_state.updated(
+      replacement_touch_set,
+      plru_touch(ways, replacement_state[replacement_touch_set], replacement_touch_way)
+    )
+  elsewhen (install_refill & refill_context.allocation):
+    replacement_state <== replacement_state.updated(
       refill_set,
-      rv5stage_cache_next_way(cache, refill_way)
+      plru_touch(ways, replacement_state[refill_set], refill_way)
     )
 
   // CHI transport: array order is the existing fixed-priority policy.

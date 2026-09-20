@@ -30,6 +30,7 @@ importing the instruction-cache package.
 | Parameterized committed-store capacity, physical-byte/probe comparisons, FIFO order, and bounded age | [`store-buffer.rhdl`](store-buffer.rhdl) |
 | Shared pipeline decisions, SRAM scheduling, prefetch admission, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
+| Reusable invalid-first tree-PLRU policy | [`../../cache-replacement.rhdl`](../../cache-replacement.rhdl) |
 | Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
 | Ownership acquisition and partial writes | [`../chi/write-unique.rhdl`](../chi/write-unique.rhdl) |
 | Dirty-victim drain | [`../chi/writeback.rhdl`](../chi/writeback.rhdl) |
@@ -132,7 +133,7 @@ parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
    victim before reusing its way. Capture the cache's install disposition in
    transaction context separately from architectural locality and new-way
    allocation. A non-allocating load must complete from the acknowledged clean
-   transaction buffer without SRAM writes, victim handling, replacement-pointer
+   transaction buffer without SRAM writes, victim handling, replacement-state
    movement, or reservation invalidation.
 4. Preserve explicit SRAM ownership and priority among core lookup, line
    gather, refill installation, and snoop service.

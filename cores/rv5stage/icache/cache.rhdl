@@ -4,6 +4,7 @@
 
 import:
   "../../cache-prefetch.rhdl" open
+  "../../cache-replacement.rhdl" open
   "protocol.rhdl" open
   "../cache.rhdl" open
   "../chi/foundation.rhdl" open
@@ -75,8 +76,8 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   reg valid_lines(~init: vec(
     for List (_set in 0..sets): bits(0, ways).as_vec(Bool)
   ))
-  reg replacement_ways(~init: vec(
-    for List (_set in 0..sets): bits(0, way_width)
+  reg replacement_state(~init: vec(
+    for List (_set in 0..sets): plru_initial_state(ways)
   ))
   reg refill_live(~init: Bool(#false))
   reg refill_installable(~init: Bool(#false))
@@ -149,7 +150,7 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
   def retained_error = refill_error_valid & !array_context.prefetch & (refill_error_address.align_down(RV5StageCacheLineBytes) === lookup_address.align_down(RV5StageCacheLineBytes))
   def resolved_context = RV5StageL1IRefillContext(width, way_width):
     address: lookup_address
-    way: rv5stage_cache_replacement_way(cache, lookup_valids, replacement_ways[lookup_set])
+    way: plru_replacement_way(ways, lookup_valids, replacement_state[lookup_set])
     prefetch: array_context.prefetch
   def resolved_lookup = RV5StageL1IResolved(width, way_width):
     context: resolved_context
@@ -243,14 +244,20 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
     )
 
   when (core.invalidate_all):
-    replacement_ways <== vec(
-      for List (_set in 0..sets): bits(0, way_width)
+    replacement_state <== vec(
+      for List (_set in 0..sets): plru_initial_state(ways)
     )
   elsewhen install:
-    replacement_ways <== replacement_ways.updated(
+    replacement_state <== replacement_state.updated(
       completion_set,
-      rv5stage_cache_next_way(cache, completion_way)
+      plru_touch(ways, replacement_state[completion_set], completion_way)
     )
+  elsewhen (lookup_issue & line_hit):
+    replacement_state <== replacement_state.updated(
+      lookup_set,
+      plru_touch(ways, replacement_state[lookup_set], lookup_selection.index)
+    )
+  assert(!(install & lookup_issue & line_hit), "l1i_replacement_update_unique")
 
   when (core.invalidate_all):
     refill_installing <== Bool(#false)

@@ -778,8 +778,8 @@ module rv5stage_dcache_tb;
     expect_core_response(STORE_DATA, WRITEBACK_INTEGER_KIND, 5'd11);
 
     // A second colliding line occupies the invalid way without evicting the
-    // dirty first line. A third collision then selects that round-robin victim
-    // and drains all eight 64-bit beats before issuing its ReadClean.
+    // dirty first line. Resident hits below leave that dirty line least recent,
+    // so a third allocating collision drains it before issuing ReadClean.
     dirty_line = LINE;
     dirty_line[3 * 64 +: 64] = 64'hffeeddcc_bbaa9989;
     dirty_line[5 * 64 +: 64] = STORE_DATA;
@@ -801,8 +801,8 @@ module rv5stage_dcache_tb;
     // Both colliding ways are resident, one dirty and reserved. Every NTL
     // selector reads the third line coherently without replacing either way.
     // Repeating that miss proves the transient copy was never installed.
-    // An odd number of misses also detects accidental movement of the two-way
-    // replacement pointer when the later default miss chooses its victim.
+    // The bypass misses do not change PLRU state; each resident hit touches A
+    // then EVICT, leaving the dirty A line as the later default miss's victim.
     for (int attempt = 0; attempt < 5; attempt++) begin
       automatic logic [2:0] locality = 3'(1 + attempt % 4);
       send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 0, 5'd23, 3'(locality), 2'd2);
@@ -846,7 +846,7 @@ module rv5stage_dcache_tb;
       assert (!tx_req_pending && !tx_dat_pending)
         else $fatal(1, "NTL miss changed a resident line");
     end
-    // Default policy still chooses the original dirty round-robin victim.
+    // Tree PLRU chooses the original dirty victim after EVICT was touched last.
     send_core_request(THIRD_ADDRESS, MEMORY_LOAD, ATOMIC_SWAP, 64'd0, 5'd17);
     accept_request(WRITE_BACK_FULL, ADDRESS, 12'd1, 6'd6, 1'b1, 4'd0);
     send_response(COMP_DBID_RESP, 12'd1, 12'h055, 4'd0);
@@ -1487,6 +1487,7 @@ module rv5stage_dcache_tb;
     prepare_hit_under_miss();
     send_core_request(ADDRESS,MEMORY_STORE,ATOMIC_SWAP,STORE_DATA,0);
     expect_core_response(0,WRITEBACK_ACK_KIND,0);
+    check_pipeline_load(EVICT_ADDRESS,1,1,EVICT_LINE[63:0]);
     dirty_line=LINE; dirty_line[63:0]=STORE_DATA;
     send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2);
     accept_request(WRITE_BACK_FULL,ADDRESS,1,6,1,0);
@@ -1568,6 +1569,7 @@ module rv5stage_dcache_tb;
     prepare_hit_under_miss();
     send_core_request(ADDRESS,MEMORY_STORE,ATOMIC_SWAP,STORE_DATA,0);
     expect_core_response(0,WRITEBACK_ACK_KIND,0);
+    check_pipeline_load(EVICT_ADDRESS,1,1,EVICT_LINE[63:0]);
     dirty_line=LINE; dirty_line[63:0]=STORE_DATA;
     send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,2);
     accept_request(WRITE_BACK_FULL,ADDRESS,1,6,1,0);

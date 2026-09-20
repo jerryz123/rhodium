@@ -98,7 +98,7 @@ integration_fixtures=(
   nested-bundle aggregate-memory one-hot-aggregate priority-encoder
   chi-noc-adapter
   chi-response-profile
-  rv32i-alu rv64i-alu-integrated simd-alu load-store-rv32-word bit-manip bit-manip-rv32
+  rv32i-alu rv64i-alu-integrated simd-alu load-store-rv32-word bit-manip bit-manip-rv32 cache-replacement
   credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask runtime-alignment transfer-range
   fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
   rv5stage-core rv5stage-branch-prediction rv5stage-ras rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
@@ -241,7 +241,7 @@ fixture_in_group() {
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
-    cores-components:simd-alu|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
+    cores-components:cache-replacement|cores-components:simd-alu|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
       return 0
       ;;
     cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-integer-execution|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
@@ -828,6 +828,7 @@ direct_fixture_specs=(
   'bit-manip-rv32|bit_manip_rv32_tb'
   'iterative-multiplier|iterative_multiplier_tb'
   'iterative-divider|iterative_divider_tb'
+  'cache-replacement|cache_replacement_tb'
   'riscv-counters-rv32|riscv_counters_rv32_tb'
   'riscv-floating-point|riscv_floating_point_tb'
   'riscv-compressed|riscv_compressed_tb'

@@ -1,0 +1,34 @@
+#lang rhodium
+// Exposes four-way and padded three-way tree-PLRU state for behavioral validation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../cache-replacement.rhdl" open
+
+sync_circuit CacheReplacementFixture():
+  input valid_four: Bits(4)
+  input touch_four_valid: Bool
+  input touch_four_way: Bits(2)
+  output victim_four: Bits(2)
+  output state_four: Bits(3)
+  input valid_three: Bits(3)
+  input touch_three_valid: Bool
+  input touch_three_way: Bits(2)
+  output victim_three: Bits(2)
+  output state_three: Bits(3)
+
+  reg four_state(~init: plru_initial_state(4))
+  reg three_state(~init: plru_initial_state(3))
+
+  victim_four <== plru_replacement_way(4, valid_four.as_vec(Bool), four_state)
+  state_four <== four_state.as_bits()
+  victim_three <== plru_replacement_way(3, valid_three.as_vec(Bool), three_state)
+  state_three <== three_state.as_bits()
+
+  when touch_four_valid:
+    four_state <== plru_touch(4, four_state, touch_four_way)
+  when touch_three_valid:
+    three_state <== plru_touch(3, three_state, touch_three_way)
+
+export:
+  CacheReplacementFixture

@@ -1,0 +1,10 @@
+#lang rhombus
+// Emits CIRCT MLIR for reusable arbitrary-associativity tree-PLRU validation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../cache-replacement-fixture.rhdl".CacheReplacementFixture
+
+print(emit_circt(embedded.run_elaboration(fun (): CacheReplacementFixture())))

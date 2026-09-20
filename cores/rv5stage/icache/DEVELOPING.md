@@ -27,6 +27,7 @@ separation.
 | Core-facing request and response bundles | [`protocol.rhdl`](protocol.rhdl) |
 | Demand-priority lookup, best-effort prefetch admission, arrays, S2 outcomes, refill installation, replacement, flush, invalidation | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
+| Reusable invalid-first tree-PLRU policy | [`../../cache-replacement.rhdl`](../../cache-replacement.rhdl) |
 | Complete-line RAM/ROM reads with retained region mode | [`../chi/line-read.rhdl`](../chi/line-read.rhdl) |
 | Core/MMU/CHI integration | [`../rv5stage.rhdl`](../rv5stage.rhdl) |
 | Host configuration and public protocol coverage | [`../tests/icache-test.rhm`](../tests/icache-test.rhm) |
