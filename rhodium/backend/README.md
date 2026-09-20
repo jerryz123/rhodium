@@ -27,9 +27,10 @@ SystemVerilog generation.
 
 [`circt.rhm`](circt.rhm) exports two functions:
 
-- `emit_circt(design)` is the whole-design API. It calls `verify_design`,
-  collects design-wide record aliases and DPI declarations, emits every
-  `hw.module`, and wraps the result in a builtin MLIR `module`.
+- `emit_circt(design)` is the whole-design API. It calls `verify_design`, which
+  reuses a successful prior verification of the same sealed design, collects
+  design-wide record aliases and DPI declarations, emits every `hw.module`,
+  and wraps the result in a builtin MLIR `module`.
 - `emit_module_circt(module_def)` emits one `hw.module`. It does not run design
   verification or establish the design-wide record-alias scope, so callers
   producing a complete design should use `emit_circt`.

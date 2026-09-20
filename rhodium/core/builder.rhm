@@ -1977,7 +1977,7 @@ class Builder(design :: Design):
     | fail(#'drive, "place " ++ place.name ++ " already has a driver")
     when ancestor_has_driver(place) || place.projected_places.find(place_has_staged_driver)
     | fail(#'drive, "aggregate places cannot mix whole-value and element-wise drivers")
-    place.driver := value
+    place.set_driver(value)
     unless place.projected()
     | def operation_id = design.fresh_id()
       def operation = Operation(operation_id,
@@ -2014,7 +2014,7 @@ class Builder(design :: Design):
           def assembled = this.assemble_aggregate_place(place)
           cond
           | assembled && place.projected():
-              place.driver := assembled
+              place.set_driver(assembled)
               assembled
           | assembled:
               place.clear_projected_places()
@@ -2048,5 +2048,5 @@ class Builder(design :: Design):
             ~preserve_projections: owner && owner.opcode == "rtl.wire"
           )
     module_def.finish_collections()
-    module_def.finished := #true
+    module_def.mark_finished()
     module_def

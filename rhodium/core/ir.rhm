@@ -70,6 +70,7 @@ class.together:
     property design: module_def.design
 
     method add_user(operation_id :: Nat):
+      design.assert_mutable()
       _user_ids := [operation_id] ++ _user_ids
       user_id_set.add(operation_id)
 
@@ -91,13 +92,15 @@ class.together:
               type :: HardwareType,
               module_def :: Module,
               owner_op_id :: Nat,
-              mutable driver :: False || Value = #false,
+              driver_seed :: False || Value = #false,
               parent :: False || Place = #false,
               projection_key :: False || String || Nat = #false,
               projected_places_seed :: List.of(Place) = []):
     implements HardwareEntity
     // Trusted after checked seed ingress; projection helpers preserve membership and order.
+    private field _driver :~ False || Value = driver_seed
     private field _projected_places :~ List.of(Place) = projected_places_seed
+    property driver: _driver
     property projected_places: _projected_places
 
     property module_id: module_def.id
@@ -112,13 +115,20 @@ class.together:
       )
 
     method add_projected_place(projected :: Place):
+      design.assert_mutable()
       _projected_places := _projected_places ++ [projected]
 
     method clear_projected_places():
+      design.assert_mutable()
       _projected_places := []
 
     method replace_projected_places(projected :: List.of(Place)):
+      design.assert_mutable()
       _projected_places := projected
+
+    method set_driver(driver :: Value):
+      design.assert_mutable()
+      _driver := driver
 
     method ref():
       "&" ++ name
@@ -256,8 +266,8 @@ class.together:
                places_seed :: List.of(Place) = [],
                memories_seed :: List.of(Memory) = [],
                metadata_seed :: List.of(ModuleMetadata) = [],
-               mutable finished :: Boolean = #false):
-    // Trusted after checked seed ingress; add_* and finish_collections are the only mutations.
+               finished_seed :: Boolean = #false):
+    // Trusted after checked seed ingress; mutation is seal-aware and method-owned.
     private field _operations :~ List.of(Operation) = operations_seed
     private field _inputs :~ List.of(Port) = inputs_seed
     private field _outputs :~ List.of(Port) = outputs_seed
@@ -265,6 +275,7 @@ class.together:
     private field _places :~ List.of(Place) = places_seed
     private field _memories :~ List.of(Memory) = memories_seed
     private field _metadata :~ List.of(ModuleMetadata) = metadata_seed
+    private field _finished :~ Boolean = finished_seed
     private field collections_finished = operations_seed.length() != 0 || inputs_seed.length() != 0 || outputs_seed.length() != 0 || values_seed.length() != 0 || places_seed.length() != 0 || memories_seed.length() != 0
     private field indexes_complete = operations_seed.length() == 0 && inputs_seed.length() == 0 && outputs_seed.length() == 0 && values_seed.length() == 0 && places_seed.length() == 0 && memories_seed.length() == 0
     private field operations_by_id = MutableMap{}
@@ -291,8 +302,10 @@ class.together:
     property places: _places
     property memories: _memories
     property metadata: _metadata
+    property finished: _finished
 
     method add_operation(operation :: Operation):
+      design.assert_mutable()
       unless operation.module_def === this
       | error(~who: #'add_operation, "operation belongs to a different module")
       _operations := if collections_finished | _operations ++ [operation] | [operation] ++ _operations
@@ -323,6 +336,7 @@ class.together:
           sync_crossing_use_counts[stage] := sync_crossing_use_counts.get(stage, 0) + 1
 
     method add_value(value :: Value):
+      design.assert_mutable()
       unless value.module_def === this
       | error(~who: #'add_value, "value belongs to a different module")
       _values := if collections_finished | _values ++ [value] | [value] ++ _values
@@ -332,6 +346,7 @@ class.together:
       hardware_names.add(value.name)
 
     method add_place(place :: Place):
+      design.assert_mutable()
       unless place.module_def === this
       | error(~who: #'add_place, "place belongs to a different module")
       _places := if collections_finished | _places ++ [place] | [place] ++ _places
@@ -341,6 +356,7 @@ class.together:
       hardware_names.add(place.name)
 
     method add_memory(memory :: Memory):
+      design.assert_mutable()
       unless memory.module_def === this
       | error(~who: #'add_memory, "memory belongs to a different module")
       _memories := if collections_finished | _memories ++ [memory] | [memory] ++ _memories
@@ -350,7 +366,8 @@ class.together:
       hardware_names.add(memory.name)
 
     method add_metadata(namespace :: String, payload :: ModuleMetadataPayload):
-      when finished
+      design.assert_mutable()
+      when _finished
       | error(~who: #'add_metadata,
               "cannot attach metadata to finished module " ++ name)
       def entry = ModuleMetadata(namespace, payload)
@@ -363,11 +380,13 @@ class.together:
       ).map(fun (entry): entry.payload)
 
     method add_input(port :: Port):
+      design.assert_mutable()
       _inputs := if collections_finished | _inputs ++ [port] | [port] ++ _inputs
       unless inputs_by_name.has_key(port.name)
       | inputs_by_name[port.name] := port
 
     method add_output(port :: Port):
+      design.assert_mutable()
       _outputs := if collections_finished | _outputs ++ [port] | [port] ++ _outputs
       unless outputs_by_name.has_key(port.name)
       | outputs_by_name[port.name] := port
@@ -381,6 +400,10 @@ class.together:
         _places := _places.reverse()
         _memories := _memories.reverse()
         collections_finished := #true
+
+    method mark_finished():
+      design.assert_mutable()
+      _finished := #true
 
     method find_operation(id :: Nat):
       if indexes_complete | operations_by_id.get(id, #false) | operations_by_id.get(id, #false) || _operations.find(fun (operation): operation.id == id)
@@ -455,7 +478,7 @@ class.together:
   class Design(modules_seed :: List.of(Module) = [],
                mutable next_id :: Nat = 0,
                dpi_imports_seed :: List.of(DpiImport) = []):
-    // Trusted after checked seed ingress; add_* and finish_collections are the only mutations.
+    // Trusted after checked seed ingress; semantic mutation is seal-aware and method-owned.
     private field _modules :~ List.of(Module) = modules_seed
     private field _dpi_imports :~ List.of(DpiImport) = dpi_imports_seed
     private field collections_finished = modules_seed.length() != 0 || dpi_imports_seed.length() != 0
@@ -465,9 +488,18 @@ class.together:
     private field modules_by_name = MutableMap{}
     private field dpi_imports_by_name = MutableMap{}
     private field dpi_import_set = MutableSet.by(===){}
+    private field _sealed = #false
 
     property modules: _modules
     property dpi_imports: _dpi_imports
+    property sealed: _sealed
+
+    method assert_mutable():
+      when _sealed
+      | error(~who: #'Design, "cannot mutate a sealed design")
+
+    method seal():
+      _sealed := #true
 
     method fresh_id():
       def id = next_id
@@ -475,6 +507,7 @@ class.together:
       id
 
     method add_module(module_def :: Module):
+      assert_mutable()
       unless module_def.design === this
       | error(~who: #'add_module, "module belongs to a different design")
       _modules := if collections_finished | _modules ++ [module_def] | [module_def] ++ _modules
@@ -485,6 +518,7 @@ class.together:
       | modules_by_name[module_def.name] := module_def
 
     method add_dpi_import(dpi_import :: DpiImport):
+      assert_mutable()
       unless dpi_import.design === this
       | error(~who: #'add_dpi_import, "DPI import belongs to a different design")
       _dpi_imports := if collections_finished | _dpi_imports ++ [dpi_import] | [dpi_import] ++ _dpi_imports

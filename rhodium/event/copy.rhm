@@ -73,7 +73,7 @@ fun copy_module(builder :: Builder,
       target.add_operation(replacement)
   for (place in original.places):
     when place.driver
-    | places[place.id].driver := value_map[place.driver.id]
+    | places[place.id].set_driver(value_map[place.driver.id])
   for (port in original.inputs):
     target.add_input(Port(port.name, port.direction, port.type, value_map[port.value.id]))
   for (port in original.outputs):

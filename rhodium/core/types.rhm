@@ -239,7 +239,7 @@ fun type_well_formed(type :~ matching(_)):
       type.packed_width() == #false || checked_packed_width(type) != #false
 
 fun type_equal(left :~ matching(_), right :~ matching(_)):
-  hardware_type(left) && hardware_type(right) && left.type_equal(right) && right.type_equal(left)
+  hardware_type(left) && hardware_type(right) && (left === right || (left.type_equal(right) && right.type_equal(left)))
 
 fun bits_text(type :: Bits):
   "bits<" ++ to_string(type.width) ++ ">"

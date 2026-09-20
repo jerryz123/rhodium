@@ -299,9 +299,12 @@ block:
   result.add_user(operation_id)
   module_def.add_value(result)
   module_def.add_operation(add_operation)
-  module_def.finished := #true
+  module_def.mark_finished()
   check:
+    verify_design_structure(design) ~is #void
+    verify_design_combinational(design) ~throws "combinational cycle reaches value result"
     verify_design(design) ~throws "combinational cycle reaches value result"
+    design.sealed ~is #false
 
 block:
   def design = Design()
@@ -549,6 +552,9 @@ block:
   check:
     verify_module(top) ~is #void
     verify_design(design) ~is #void
+    design.sealed ~is #true
+    verify_design(design) ~is #void
+    top.add_value(Value(design.fresh_id(), "late", Bits(1), top, 0)) ~throws "cannot mutate a sealed design"
 
 block:
   def design = Design()
@@ -702,7 +708,7 @@ block:
                             {"name": "constant"})
   module_def.add_value(result)
   module_def.add_operation(operation)
-  module_def.finished := #true
+  module_def.mark_finished()
   check:
     verify_design(design) ~throws "requires attribute value"
 

@@ -57,10 +57,11 @@ flowchart LR
     Module -->|owns| Resource["Memory resources"]
     Value -->|one rtl.drive| Place
     Module --> Finish["Builder.finish(module)"]
-    Finish --> Verify["verify_design(design)"]
+    Finish --> Verify["verify_design(design)<br/>structure + combinational"]
+    Verify --> Seal["sealed verified Design"]
   end
 
-  Verify --> Elaboration["DesignElaboration(design, top)"]
+  Seal --> Elaboration["DesignElaboration(design, top)"]
   Elaboration --> Consumers["backend, formal, analysis,<br/>diagram, and physical views"]
 ```
 
@@ -80,8 +81,10 @@ already finished by the time the core design is verified.
 Each completed module is one dataflow graph. `Builder.finish` closes a module
 and canonicalizes complete aggregate drives. `verify_design` checks the whole
 design, including cross-module ownership and hierarchical combinational
-dependencies. `DesignElaboration` then pairs that design with an explicit,
-finished top module for downstream consumers.
+dependencies, then seals it against semantic mutation. Repeated
+`verify_design` calls on the same sealed design reuse that successful result.
+`DesignElaboration` pairs the design with an explicit, finished top module for
+downstream consumers.
 
 ### Values, places, and binding
 
@@ -507,6 +510,13 @@ The Builder and whole-design verifier enforce:
 The frontend separately rejects active recursive generator elaboration,
 runtime hardware circuit parameters, and hardware-controlled host computation.
 Compilation verifies every completed design before lowering.
+
+`verify_design_structure` runs the ownership, schema, type, driver, resource,
+and identity checks without certifying the design. After that succeeds,
+`verify_design_combinational` can run the hierarchical cycle check separately.
+`verify_design` remains the normal public entry point: it composes both phases,
+seals the design only after both succeed, and reuses that result for later
+consumers. A failed phase leaves the design unsealed.
 
 ## Implementation map
 

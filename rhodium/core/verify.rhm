@@ -11,7 +11,11 @@ import:
 
 export:
   verify_design
+  verify_design_structure
+  verify_design_combinational
   verify_module
+
+def verified_designs = WeakMutableSet.by(===){}
 
 fun fail(message :: String):
   error(~who: #'verify, message)
@@ -789,7 +793,7 @@ fun verify_module(module_def :: Module):
   visit(module_def)
   verify_combinational_cycles(reachable_modules.snapshot())
 
-fun verify_design(design :: Design):
+fun verify_design_structure(design :: Design):
   design.finish_collections()
   def dpi_name_counts = MutableMap{}
   def module_name_counts = MutableMap{}
@@ -849,5 +853,18 @@ fun verify_design(design :: Design):
     for (value in module_def.values): verify_unique_id(value)
     for (place in module_def.places): verify_unique_id(place)
     for (memory in module_def.memories): verify_unique_id(memory)
+  #void
+
+// Checks whole-design combinational cycles after structural verification has
+// established that ownership, operations, ports, and drivers are well formed.
+fun verify_design_combinational(design :: Design):
   verify_combinational_cycles(design.modules)
+  #void
+
+fun verify_design(design :: Design):
+  unless design in verified_designs
+  | verify_design_structure(design)
+    verify_design_combinational(design)
+    design.seal()
+    verified_designs.add(design)
   #void

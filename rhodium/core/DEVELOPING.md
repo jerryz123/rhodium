@@ -80,9 +80,18 @@ Keep checks at the narrowest layer that has enough information:
   usable.
 - `verify_module` checks completed module structure and bindings.
 - `verify_design` checks design ownership, cross-module references, unique
-  identities, and hierarchical cycles.
+  identities, and hierarchical cycles, then seals the successfully verified
+  design so downstream consumers can reuse the result.
+- `verify_design_structure` and `verify_design_combinational` expose the two
+  profiling and diagnostic phases without independently certifying a design.
 - Optional policy or reporting that can be derived from verified IR belongs in
   `analysis/`, not in the mandatory core verifier.
+
+All semantic mutation paths must call `Design.assert_mutable`. Adding a new
+mutable IR field or collection therefore requires both a seal-aware mutation
+method and a test that post-verification mutation is rejected. The verifier's
+private weak identity set is the certification authority; `Design.sealed`
+alone does not prove that verification succeeded.
 
 Diagnostics should identify the owned operation, value, place, resource, or
 module responsible for the violation. When dependency behavior changes, cover
