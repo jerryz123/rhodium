@@ -931,8 +931,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   // Both ordinary operations use EX/MEM lookup. Only WB authorizes a store;
   // lookup itself cannot change the cache or initiate an external transaction.
-  scalar_pipeline.request.valid <== ex_transfer & !ex_exception.valid & ex_memory_operation.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store)
-  scalar_pipeline.request.bits <== RV5StagePipelineReq(xlen):
+  def ex_lookup_payload = RV5StagePipelineReq(xlen):
     byte_mask: ex_data_request.byte_mask
     address: ex_memory_address
     access: ex_memory_operation
@@ -987,7 +986,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     |> trace_valid_event("core/s3.execute", ~fields: operation):
          pc: operation.pc
          instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
-  ex_traced |> map_valid(_operation => ex_payload) |> ex_mem_pipe.ingress
+  def Array(ex_context_path, ex_lookup_path) = ex_traced |> fork_valid(2)
+  ex_context_path |> map_valid(_operation => ex_payload) |> ex_mem_pipe.ingress
+  ex_lookup_path |> filter_valid(_operation => !ex_exception.valid & ex_memory_operation.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store))
+    |> map_valid(_operation => ex_lookup_payload) |> scalar_pipeline.request
 
   // Stage 4: MEM resolves the parallel DTLB/tag/data lookup. Capture successful load
   // data at the ordinary MEM/WB boundary, alongside pure integer results.
@@ -996,15 +998,16 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
     cache_outcome(~format: "enum"): mem_cache_outcome
     cache_reason(~format: "enum"): mux(scalar_pipeline.response.valid, scalar_pipeline.response.bits.reason, RV5StagePipelineReason.None)
-  trace_parents(wb_input, [mem_live])
-  def Array(mem_access_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_prediction_path) = mem_live |> fork_valid(4)
-  // Observe only memory instructions without filtering the stage's valid flow.
-  def mem_access = mem_access_path
-    |> trace_valid_event("dcache/s1.access", ~when: mem_access_path.bits.data_request.access.into(RV5StageMemoryOperation).is_memory(), ~fields: operation):
-         pc: operation.pc
-         instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
-         address: operation.data_request.address
-         access(~format: "enum"): operation.data_request.access
+  def Array(mem_context_path, mem_to_if_exception_path, mem_to_if_replay_path, mem_prediction_path) = mem_live |> fork_valid(4)
+  def Array(mem_capture, missing_response) = mem_context_path |> fork_valid(2)
+  def returned = scalar_pipeline.response |> filter_valid(_result => mem_stage_valid)
+  def absent = missing_response |> filter_valid(_operation => !scalar_pipeline.response.valid)
+    |> map_valid(_operation => scalar_pipeline.response.bits)
+  def memory_result = Array(returned, absent) |> valid_arbiter()
+  // Pair the current instruction and its optional same-cycle LSU result before
+  // the existing MEM/WB register. Non-memory instructions use the local fallback.
+  def mem_with_result = Array(mem_capture |> to_decoupled(), memory_result |> to_decoupled()) |> zip_flow(operation, response):
+    operation.updated(~result: mux(mem_load_hit, response.data, operation.result))
   mem_to_if_exception_path |> filter_valid(operation => operation.exception_valid)
     |> map_valid(operation => operation.pc) |> mem_to_if_exception_link.left
   mem_to_if_replay_path |> filter_valid(operation => operation.replay ||| mem_cache_replay)
@@ -1015,7 +1018,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     |> map_valid(operation => operation.resume_pc) |> mem_to_if_redirect_link.left
   // Nonbranches also train: they remove a stale prediction at this PC.
   mem_training_path |> filter_valid(operation => !operation.vector_launch) |> map_valid(operation => operation.branch_update) |> frontend_control.branch_update
-  def mem_to_wb = mem_access |> map_valid(operation => MemoryWriteback(xlen, vector_completion_slots)):
+  def mem_to_wb = mem_with_result |> to_valid() |> map_valid(operation => MemoryWriteback(xlen, vector_completion_slots)):
     vector_launch: operation.vector_launch
     pc: operation.pc
     resume_pc: operation.resume_pc
@@ -1031,7 +1034,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     writeback_source: mux(mem_load_hit, RV5StageWritebackSelect.Alu, operation.writeback_source)
     write_enable: operation.writeback_enable & !operation.exception_valid & !operation.replay
     rd: operation.rd
-    value: mux(mem_load_hit, scalar_pipeline.response.bits.data, operation.result)
+    value: operation.result
     multiply_issue: operation.multiply_issue
     divide_issue: operation.divide_issue
     system: operation.system
@@ -1076,10 +1079,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wire wb_data_fault: Bool
   wire wb_memory_replay: Bool
   wire wb_memory_response_replay: Bool
-  // Observe the MEM result at its real WB capture, including hits and replay.
+  // Observe the scalar cache response at its existing MEM/WB capture.
   // Admission qualifies continuation, not whether the S2 response is recorded.
   def wb_memory_response = wb_memory_path
-    |> trace_valid_event("dcache/s2.resp", ~parents: [mem_access], ~when: wb_memory_path.bits.data_request.access.into(RV5StageMemoryOperation).is_memory(), ~fields: operation):
+    |> trace_valid_event("dcache/s2.resp", ~when: wb_memory_path.bits.data_request.access.into(RV5StageMemoryOperation).is_memory(), ~fields: operation):
          pc: operation.pc
          instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
          address: operation.data_request.address

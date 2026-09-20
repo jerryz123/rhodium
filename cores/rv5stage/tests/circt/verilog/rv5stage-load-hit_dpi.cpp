@@ -1,4 +1,4 @@
-// Checks independent MEM-to-WB and S1-to-S2 ownership through shared pipeline storage.
+// Checks shared cache resolution and dual instruction/result ownership through caller storage.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
 #include "rv5stage-load-hit_manifest.h"
@@ -24,10 +24,10 @@ constexpr std::array<std::uint64_t, 6> miss_addresses{0x1000,0x1100,0x1200,0x130
 [[noreturn]] void fail(const char* message) { std::fprintf(stderr,"dcache trace: %s at cycle %llu\n",message,(unsigned long long)cycle); std::abort(); }
 bool equal(rheg::Ref a, rheg::Ref b) { return a.site==b.site && a.sequence==b.sequence; }
 std::uint64_t field(rheg::Ref ref, const char* name) { return rheg::graph().field(ref,name).unsigned_value(); }
-rheg::Ref parent_of(rheg::Ref child) {
+rheg::Ref parent_of(rheg::Ref child, std::optional<unsigned> site=std::nullopt) {
   if(rheg::graph().nodes.at(child).ancestry_unknown) fail("incomplete demand ancestry");
   std::optional<rheg::Ref> result;
-  for(const auto& edge:rheg::graph().edges) if(equal(edge.second,child)) {
+  for(const auto& edge:rheg::graph().edges) if(equal(edge.second,child) && (!site || edge.first.site==*site)) {
     if(result) fail("multiple parents");
     result=edge.first;
   }
@@ -35,7 +35,7 @@ rheg::Ref parent_of(rheg::Ref child) {
   return *result;
 }
 void check_core_parent(rheg::Ref child, unsigned site, unsigned delay=0) {
-  auto parent=parent_of(child);
+  auto parent=parent_of(child,site);
   if(parent.site!=site || rheg::graph().nodes.at(parent).cycle+delay!=cycle ||
      rheg::graph().nodes.at(child).cycle!=cycle) fail("core stage alignment");
   for(const auto* name:{"pc","instruction"})
@@ -62,39 +62,51 @@ extern "C" void demand_check(unsigned done) {
   if(resetting) return;
   const rheg::Ref wb{demand_sites::wb,writebacks};
   if(graph.nodes.count(wb)) {
-    auto parent=parent_of(wb);
+    auto parent=parent_of(wb,demand_sites::mem);
     check_core_parent(wb,demand_sites::mem,1);
+    for(const auto& edge:graph.edges) if(equal(edge.second,wb) && edge.first.site!=demand_sites::mem) {
+      if(edge.first.site==demand_sites::ex) {
+        if(!equal(edge.first,parent_of(parent))) fail("local LSU result belongs to a different instruction");
+      } else if(edge.first.site!=demand_sites::access || graph.nodes.at(edge.first).cycle+1!=cycle ||
+                !equal(parent_of(edge.first),parent_of(parent))) fail("WB paired the wrong cache response");
+    }
     if(!writebacks_by_parent.emplace(parent,wb).second) fail("duplicate WB for predecessor");
     ++writebacks;
   }
   const rheg::Ref access{demand_sites::access,accesses};
   if(graph.nodes.count(access)) {
-    check_core_parent(access,demand_sites::mem);
+    auto origin=parent_of(access);
+    if(origin.site!=demand_sites::ex || graph.nodes.at(origin).cycle+1!=cycle ||
+       graph.nodes.at(access).cycle!=cycle) fail("cache resolution is not aligned to EX plus one");
     ++accesses;
   }
   const rheg::Ref response{demand_sites::response,responses};
   if(graph.nodes.count(response)) {
-    check_core_parent(response,demand_sites::access,1);
+    check_core_parent(response,demand_sites::wb);
     auto prior=parent_of(response);
-    auto wb_sibling=writebacks_by_parent.find(parent_of(prior));
+    auto wb_sibling=writebacks_by_parent.find(parent_of(prior,demand_sites::mem));
     if(wb_sibling==writebacks_by_parent.end() || graph.nodes.at(wb_sibling->second).cycle!=cycle)
-      fail("S2 has no same-cycle WB sibling");
+      fail("memory result has no same-cycle WB parent");
     for(const auto* name:{"pc","instruction"})
-      if(field(wb_sibling->second,name)!=field(response,name)) fail("S2/WB capture mismatch");
-    if(field(prior,"address")!=field(response,"address")) fail("S1/S2 address capture");
-    if(bool(field(response,"admitted"))!=accepted) fail("S2 admission differs from public transfer");
+      if(field(wb_sibling->second,name)!=field(response,name)) fail("result/WB capture mismatch");
+    if(field(response,"outcome")==1 || field(response,"outcome")==2) {
+      auto cache=parent_of(prior,demand_sites::access);
+      if(field(cache,"address")!=field(response,"address") || field(cache,"outcome")!=field(response,"outcome"))
+        fail("cache hit capture mismatch");
+    }
+    if(bool(field(response,"admitted"))!=accepted) fail("result admission differs from public transfer");
     if(accepted && (field(response,"fault") || field(response,"replay"))) fail("admitted fault or replay");
     if(accepted) ++admissions;
     if(field(response,"replay")) ++replays;
     if(field(response,"outcome")==1 || field(response,"outcome")==2) ++hits;
     if(cache_accepted) pending.push_back({response,cache_address,cycle});
     ++responses;
-  } else if(accepted) fail("accepted request without S2");
+  } else if(accepted) fail("accepted request without captured result");
   const rheg::Ref lookup{demand_sites::lookup,lookups};
   if(graph.nodes.count(lookup)) {
     if(pending.empty()) fail("lookup without an accepted cache request");
     auto request=pending.front(); pending.pop_front();
-    if(!equal(parent_of(lookup),request.parent)) fail("cache queue lost S2 identity");
+    if(!equal(parent_of(lookup),request.parent)) fail("cache queue lost caller result identity");
     if(graph.nodes.at(lookup).cycle!=cycle || cycle<request.cycle+1) fail("S3 latency");
     if(field(lookup,"address")!=request.address || field(lookup,"prefetch")) fail("lookup payload");
     advancing.push_back({lookup,request.address,cycle});
@@ -138,7 +150,7 @@ extern "C" void demand_check(unsigned done) {
   if(done) {
     if(!pending.empty() || !advancing.empty() || refills!=6 || resolutions!=6 || lookups!=6 ||
        !rejected || !hits || !replays || !launching.empty() || attempts!=12 || retries!=6) fail("missing drain, miss, hit, rejection, or retry coverage");
-    std::printf("D-cache S1/S2 core alignment and S2 -> S3 -> S4 lineage passed (%llu responses, %llu admissions, %llu rejected attempts)\n",
+    std::printf("Shared cache -> WB and caller result -> S3 -> S4 lineage passed (%llu responses, %llu admissions, %llu rejected attempts)\n",
                 (unsigned long long)responses,(unsigned long long)admissions,(unsigned long long)rejected);
     for(std::uint64_t sequence=0; sequence<refills; ++sequence)
       if(!graph.nodes.at({demand_sites::refill,sequence}).end_cycle) fail("refill did not release");

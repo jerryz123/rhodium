@@ -279,12 +279,13 @@ to the later successful fetch that observes it.
 
 ### D-cache stages
 
-Each numbered D-cache stage has one transfer event:
+Cache events describe shared resolution and the caller's response capture:
 
 | Label | Observation |
 | --- | --- |
-| `dcache/s1.access` | Memory instruction at core MEM; captures PC, instruction, effective address, and access kind. |
-| `dcache/s2.resp` | Captured result at core WB, one cycle after S1; captures PC, instruction, effective address, outcome, fault, replay, and slow-path `admitted`. |
+| `dcache/s1.access` | Shared physical-tag/data resolution; captures physical address, access kind, width, byte mask, outcome, and reason. Scalar and vector lookups use the same site. |
+| `dcache/s2.resp` | Scalar response captured at WB; captures PC, instruction, effective address, outcome, fault, replay, and slow-path `admitted`. |
+| `vector/memory.result` | Vector adapter's captured decision; captures PC, effective address, completion slot, outcome, fault, replay, and slow-path `admitted`. |
 | `dcache/s3.lookup` | Retained slow-path lookup advances; captures physical address, access kind, and prefetch status. |
 | `dcache/s4.resolve` | Lookup result one cycle after S3; captures physical address, prefetch, hit, and direct-refill command acceptance. |
 
@@ -292,20 +293,26 @@ The slash selects the `dcache` display group; tracks retain the dotted leaf
 names such as `s1.access`. See the [display contract](../../rheg/README.md#perfetto-display-and-queries)
 for hierarchy, slice naming, and querying full labels.
 
-S1 is a same-cycle child of core MEM on the memory instruction's path into
-MEM/WB. S2 inherits that S1 occurrence one cycle later. Core WB explicitly
-selects MEM as its parent for every instruction, across the same storage.
-S1/S2 observation is qualified for memory instructions without filtering the
-functional pipeline. S2 selects S1 across the intervening WB checkpoint;
-WB is not S2's parent.
-Hits, faults, and replays remain visible at S2; only admitted cacheable slow
-requests continue from S2 through
+S1 returns a combinational result in the MEM cycle; there is no cache-owned
+load-response register. Its ancestry follows
+the selected scalar EX or vector issue through arbitration and translation.
+The caller pairs the response with its instruction/beat context before its
+existing result register. Scalar WB therefore retains MEM ancestry and, when
+present, the shared cache occurrence (or EX ownership of a local LSU outcome);
+`dcache/s2.resp` follows WB in that same cycle, observing the existing scalar
+capture rather than adding a cache register or a separate core result event.
+Vector result capture similarly retains issue and cache ancestry.
+Masked vector beats produce no memory-result event. Arbitration losses,
+translation faults, and uncached accesses can produce caller results without
+a cache event. Cache physical addresses need not equal caller virtual addresses.
+Hits, faults, and replays remain visible at caller capture; only admitted cacheable slow
+requests continue from that capture through
 MMU translation, physical routing, the service queue, and S3 into S4.
-Queueing and rereads make S2-to-S3 latency variable. S3 stalls share its track
+Queueing and rereads make capture-to-S3 latency variable. S3 stalls share its track
 as continuous slices named `stall`; the feed-forward stages have no synthetic
 ready signal.
 
-Admission is an S2 field, not a later pipeline stage. Likewise, S4's
+Admission is a caller-result field, not a later pipeline stage. Likewise, S4's
 `refill_accepted` records direct refill-command acceptance in that cycle;
 `refill_opcode` and `refill_address` are meaningful only when it is true.
 There is no separate same-cycle demand or refill stage.

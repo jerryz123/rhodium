@@ -170,16 +170,24 @@ Select stages through track names, not mnemonic slice names, and check full
 disassembly separately from the mnemonic. Generic display/schema rules belong
 to [RHEG](../rheg/DEVELOPING.md#perfetto-encoding), not this adapter.
 Memory pairs explicitly retain raw capture for their payload-equality checks.
-The D-cache stage checks in `tests/check-demand-events.sql` pair S1 and S2
-through their direct occurrence edge and require one-cycle correspondence, plus a
-same-cycle WB sibling with matching instruction captures. They check
-admitted S2 ancestry into S3, one-cycle S3-to-S4 advancement, and S4 refill
-acceptance fields. Keep effective S1/S2 addresses separate from physical S3/S4
-addresses; translation need not preserve their numeric value. Direct S4 refill
+The D-cache stage checks in `tests/check-demand-events.sql` follow scalar EX
+into shared S1 resolution one cycle later, then the returned cache occurrence
+into WB alongside its independent MEM parent. The caller-owned
+`dcache/s2.resp` follows WB in the same cycle with matching instruction
+captures; admitted results parent S3. They also check one-cycle S3-to-S4
+advancement and S4 refill acceptance fields. Keep caller effective addresses
+separate from physical cache addresses; translation need not preserve their
+numeric value. Direct S4 refill
 acceptance must reach refill residency on the same cycle, then TXREQ with matching
 opcode/line address; retries may produce multiple children of one residency.
 Writeback residency separately parents its requests, data, and post-eviction
 refill. Its incoming gather ancestry remains explicitly unknown.
+For a vector-memory workload such as vec-daxpy, additionally load
+`tests/check-vector-memory-events.sql` after the track preamble. It requires
+scalar and vector traffic on one cache-resolution site, vector load/store hits,
+issue-to-cache timing, one-cycle return capture, identical issue occurrence
+parents on both paths, and admitted vector continuation into S3. It is not a
+requirement on the scalar-only smoke or workloads without vector memory.
 Restrict those pipeline checks to transfer sites. `tests/check-stall-events.sql`
 requires real Decode backpressure, matching capture layouts, the exact
 Boolean hazard fields, and admitted S2 parents for Decode stalls.

@@ -96,8 +96,11 @@ write port. Immediate arithmetic uses the same owner storage as deferred results
 feedback/outcome branches; the parent composition likewise forks compute
 feedback from macro outcome. These synchronous Valid forks certify existing
 replication to cache service and retirement without adding storage or changing
-their predicates, payloads, or latency. Keep the vector/cache path visible to
-inference rather than adding another vector memory checkpoint.
+their predicates, payloads, or latency. Pair the optional LSU response with the
+same-cycle lookup context before the existing decision pipe; a context-owned
+fallback preserves absent responses and no join may add a wait. Observe its
+registered result as `vector/memory.result`, qualified for enabled memory beats.
+The shared cache owns `dcache/s1.access`; do not duplicate it in this adapter.
 
 Run `event-vector` and `event-vector-one-slot` for exact public-transfer lineage,
 retries, fault/truncation, no-write completions, stalled issue, ordered drain,

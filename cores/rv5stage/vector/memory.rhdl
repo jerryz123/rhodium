@@ -1,5 +1,5 @@
 #lang rhodium
-// Drives feed-forward vector memory attempts and returns ordered acceptance, replay, or fault feedback.
+// Captures vector memory decisions with shared cache lineage and ordered recovery feedback.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,7 +23,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
     request: RV5StageDataReq(xlen, slots)
     misaligned: Bool
   bundle Decision():
-    lookup: Lookup()
+    request_context: Lookup()
     outcome: RV5StagePipelineOutcome
     data: Bits(xlen.width)
   interface issue(Decoupled(Token), ~role: consumer)
@@ -66,37 +66,54 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
     request: request
     misaligned: misaligned
   def mem_context = mem |> valid_pipe(1, ~flush: recover)
-  def wb = mem_context |> map_valid(lookup => Decision()):
-    lookup: lookup
-    outcome: mux(pipeline.response.valid, pipeline.response.bits.outcome, RV5StagePipelineOutcome.Slow)
-    data: pipeline.response.bits.data
-  def wb_context = wb |> valid_pipe(1, ~flush: recover)
-  def Array(request_path, decision_path) = wb_context |> fork_valid(2)
+  def Array(context_capture, missing_response) = mem_context |> fork_valid(2)
+  def returned = pipeline.response |> filter_valid(_result => mem_context.valid)
+  def absent = missing_response |> filter_valid(_lookup => !pipeline.response.valid)
+    |> map_valid(_lookup => pipeline.response.bits.updated(~outcome: RV5StagePipelineOutcome.Slow))
+  def result = Array(returned, absent) |> valid_arbiter()
+  // Both operands are available in this cycle; the join adds no storage or wait.
+  def wb = Array(context_capture |> to_decoupled(), result |> to_decoupled()) |> zip_flow(lookup, response):
+    Decision():
+      request_context: lookup
+      outcome: response.outcome
+      data: response.data
+  def wb_context = wb |> to_valid() |> valid_pipe(1, ~flush: recover)
   def operation = wb_context.bits
-  def token = operation.lookup.token
-  def memory_operation = wb_context.valid & token.memory & token.enabled & !operation.lookup.misaligned
+  def token = operation.request_context.token
+  def memory_operation = wb_context.valid & token.memory & token.enabled & !operation.request_context.misaligned
   def slow = memory_operation & (operation.outcome === RV5StagePipelineOutcome.Slow)
   def store_hit = memory_operation & (operation.outcome === RV5StagePipelineOutcome.StoreHit)
   pipeline.commit <== store_hit
-  request_path |> filter_valid(_operation => slow) |> map_valid(operation => operation.lookup.request) |> offer_decoupled() |> memory.request
   def page_fault = memory_operation & ((operation.outcome === RV5StagePipelineOutcome.PageFault) ||| (slow & memory.request_fault))
   def access_fault = memory_operation & !page_fault & ((operation.outcome === RV5StagePipelineOutcome.AccessFault) ||| (slow & memory.request_access_fault))
-  def fault = wb_context.valid & (operation.lookup.misaligned ||| page_fault ||| access_fault)
+  def fault = wb_context.valid & (operation.request_context.misaligned ||| page_fault ||| access_fault)
   def retry = memory_operation & !fault & ((operation.outcome === RV5StagePipelineOutcome.Replay) ||| (slow & !memory.request.ready) ||| (store_hit & !pipeline.commit_ready))
-  def accepted = memory.request.fire() & !fault
+  // The outgoing offer below is exactly the live Slow decision. Compute its
+  // admission before annotating/forking that decision, without reading an undriven output.
+  def accepted = slow & memory.request.ready & !fault
   def truncate = fault & token.truncate_on_fault
   recover <== retry ||| fault
   def disposition = mux(retry, RV5StageVectorDisposition.Retry, mux(truncate, RV5StageVectorDisposition.Truncate, mux(fault, RV5StageVectorDisposition.Fault, RV5StageVectorDisposition.Authorized)))
   def page_cause = mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
   def access_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
   def alignment_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, xlen.width), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, xlen.width))
+  def response_capture = wb_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
+    pc: decision.request_context.token.context
+    address: decision.request_context.request.address
+    slot(~format: "unsigned"): decision.request_context.token.completion_tag
+    outcome(~format: "enum"): decision.outcome
+    fault: fault
+    replay: retry
+    admitted: accepted
+  def Array(request_path, decision_path) = response_capture |> fork_valid(2)
+  request_path |> filter_valid(_operation => slow) |> map_valid(operation => operation.request_context.request) |> offer_decoupled() |> memory.request
   def decision = decision_path |> map_valid(operation => RV5StageVectorCommit(xlen)):
-    pc: operation.lookup.token.context
+    pc: operation.request_context.token.context
     disposition: disposition
     slow: accepted
     data: operation.data
     cause: mux(page_fault, page_cause, mux(access_fault, access_cause, alignment_cause))
-    fault_address: operation.lookup.request.address
+    fault_address: operation.request_context.request.address
   def Array(feedback_path, outcome_path) = decision |> fork_valid(2)
   feedback_path |> feedback
   outcome_path |> filter_valid(event => (event.disposition =/= RV5StageVectorDisposition.Retry) & (token.last ||| fault)) |> outcome

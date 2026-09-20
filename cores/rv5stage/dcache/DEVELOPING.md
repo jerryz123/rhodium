@@ -79,8 +79,14 @@ them. S3 observes lookup advancement before its gate, with a stall companion;
 S4 observes all admitted demand or prefetch resolutions one cycle later.
 Direct refill acceptance and command fields are captured on S4, before
 arbitration with post-eviction work, not on a separate numbered stage.
-S1/MEM and S2/WB observations belong to the core, where fast responses and
-instruction identity are retained. The refill engine declares retained ownership
+The shared `dcache/s1.access` checkpoint belongs on physical resolution before
+the response/store-candidate fork. Capture outcome and reason there for both
+scalar and vector traffic. L1D returns load results combinationally in S1;
+the scalar `dcache/s2.resp` annotation observes the existing caller-owned WB
+capture outside this module, not a new cache register or a fake S2 delay.
+Translation faults and arbitration losses may produce S2 responses without S1
+cache accesses.
+The refill engine declares retained ownership
 from command acceptance through completion; its resident checkpoint carries S4
 ancestry through the final arbiter and parents each request attempt. Writeback
 residency similarly parents copyback requests/data and post-eviction refill

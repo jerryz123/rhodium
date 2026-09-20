@@ -62,9 +62,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1, ~flushable: #true))
   inst instruction_s2(ValidPipeAlwaysCapture(RV5StageFetchResult(), 1), ~reset_when: instruction.flush)
   inst load_request(ValidPipeAlwaysCapture(RV5StagePipelineReq(xlen), 1))
-  pipeline.request |> load_request.ingress
-  pipeline.request |> pipeline_lookup
-  def pipeline_owner = pipeline.request |> map_valid(_request => pipeline_vector) |> valid_pipe(1)
+  def Array(load_context, virtual_lookup, owner_context) = pipeline.request |> fork_valid(3)
+  load_context |> load_request.ingress
+  virtual_lookup |> pipeline_lookup
+  def pipeline_owner = owner_context |> map_valid(_request => pipeline_vector) |> valid_pipe(1)
 
   def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | csr_field(satp, Satp64Mode) === bits(Sv39Mode, Satp64Mode.width)
   def root_ppn = if xlen == XLen.X32 | bits(0, Satp64PPN.width) | csr_field(satp, Satp64PPN)
@@ -192,13 +193,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_translation_fault = !load_pinned & dtlb.fault
   def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable)
   def pipeline_cacheable = load_physical.cacheable & !load_physical.device & (pipeline_is_store ||| load_physical.read_idempotent)
-  pipeline_memory.request.valid <== load_request.egress.valid & !pipeline_blocked & load_translation_hit & !load_translation_fault & pipeline_permitted & pipeline_cacheable
-  pipeline_memory.request.bits <== load_request.egress.bits.updated(~address: load_address)
+  def Array(physical_request, local_result) = load_request.egress |> fork_valid(2)
+  def cache_eligible = !pipeline_blocked & load_translation_hit & !load_translation_fault & pipeline_permitted & pipeline_cacheable
+  physical_request |> filter_valid(_request => cache_eligible)
+    |> map_valid(request => request.updated(~address: load_address)) |> pipeline_memory.request
   // WB owns squash and serialization. Rechecking its derived flush here would
   // feed fence/trap drain back into the very store authorization being drained.
   pipeline_memory.commit <== pipeline.commit
   pipeline.commit_ready <== pipeline_memory.commit_ready
-  pipeline.response.valid <== load_request.egress.valid
   wire pipeline_outcome: RV5StagePipelineOutcome
   when pipeline_blocked:
     pipeline_outcome <== RV5StagePipelineOutcome.Replay
@@ -214,10 +216,16 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     pipeline_outcome <== pipeline_memory.response.bits.outcome
   otherwise:
     pipeline_outcome <== RV5StagePipelineOutcome.Replay
-  pipeline.response.bits <== RV5StagePipelineResult(xlen):
+  def pipeline_result = RV5StagePipelineResult(xlen):
     outcome: pipeline_outcome
     reason: mux(pipeline_blocked, mux(ordered_busy, RV5StagePipelineReason.Ordered, RV5StagePipelineReason.Translation), mux(!load_translation_hit, RV5StagePipelineReason.Translation, mux(!pipeline_cacheable, RV5StagePipelineReason.Ordered, pipeline_memory.response.bits.reason)))
     data: pipeline_memory.response.bits.data
+  def use_cache_result = cache_eligible & pipeline_memory.response.valid
+  def cache_result = pipeline_memory.response |> filter_valid(_response => cache_eligible & load_request.egress.valid)
+    |> map_valid(_response => pipeline_result)
+  def translation_result = local_result |> filter_valid(_request => !use_cache_result)
+    |> map_valid(_request => pipeline_result)
+  Array(cache_result, translation_result) |> valid_arbiter() |> pipeline.response
   def can_start_walk = !walk_active & !fault_valid
   def instruction_miss = instruction_s1_valid & instruction_translation_enabled & !itlb.hit
   def data_miss = data.request.valid & !data_pinned & data_translation_enabled & !dtlb.hit

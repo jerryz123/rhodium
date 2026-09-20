@@ -311,20 +311,27 @@ captured Boolean reason terms aligned with `pipeline_hazard`; do not impose
 priority on simultaneous reasons. Keep WB arrival distinct
 from architectural retirement and deferred completion.
 
-Keep `dcache/s1.access` directly on the existing path into MEM/WB, with `~when`
-qualifying only memory observations. Do not split/merge the functional flow to
-make an event selective. Declare WB on the pipe output before its ordinary
-retirement/FP/request consumer fork. Bind `trace_parents(wb_input, [mem_live])`
-after MEM is declared; this metadata-only binding avoids a declaration-order
-wire. The request branch observes `dcache/s2.resp` with `~parents: [mem_access]`
-and matching memory qualification. Inference carries S1 across existing MEM/WB
-storage and past WB while carrying MEM independently into WB; neither checkpoint
-needs a new observation branch or a different functional route.
-Select by access kind, not the slow-request valid bit, so fast hits and replays
-remain visible. Do not add registers or override intrinsic storage
-contracts to describe S1-to-S2 separately: ordinary Flow infers transport. WB uses `offer_decoupled()`
-after S2 for the Valid-to-Decoupled slow request. Record nonfaulting admission
-in S2 without feeding readiness/fault status into functional request validity.
+Keep `dcache/s1.access` inside L1D on physical lookup resolution, before the
+response/store-candidate fork. It is shared by scalar and vector requesters;
+capture cache fields, not instruction metadata the cache does not own.
+Fork scalar EX into instruction context and lookup flows. The shared LSU
+arbiter routes returned lineage only to the selected requester; losing lookups
+produce local replay from their own retained context. MMU similarly chooses
+cache-return lineage or its local translation/fault outcome. Preserve inactive
+payload values and all original qualification predicates.
+At scalar MEM and vector decision capture, pair context with the optional
+same-cycle response using a combinational Flow join. A context-derived fallback
+supplies the absent response, so the join cannot wait, drop a context, or add
+storage. Filter responses for killed contexts before the checked conversion.
+WB inherits MEM and available cache ancestry through the existing register;
+do not override its parents to discard either contribution.
+`dcache/s2.resp` observes the scalar response at WB before slow-request qualification.
+Its annotation stays at the existing caller-owned capture in `core.rhdl`,
+but its display group is `dcache`; do not add a duplicate core result event.
+`vector/memory.result` observes the adapter's registered decision. Qualify
+memory observations without filtering functional tokens. Hits, faults, and
+replays remain visible even without cache access. Record nonfaulting admission
+without feeding readiness/fault status into functional request validity.
 The cache's named queue, S3 elastic pipe, and S4 always-capture register carry
 their own trace models. Observe S3 before its advance gate (including stalls)
 and S4 before its hit/transaction demux. Capture direct refill acceptance and
@@ -333,8 +340,8 @@ certify the gather FSM as a pipe.
 Walker and admitted prefetch checkpoints infer available ancestry just like
 demand checkpoints; unmodeled source state remains unknown in partial mode.
 `rv5stage-load-hit` instruments the actual core/MMU/router/cache composition;
-its DPI scoreboard checks S1/MEM and S2/WB alignment, one-cycle S1/S2
-correspondence, public admission against S2 fields, FIFO ancestry through
+its DPI scoreboard checks EX-to-cache timing, independent MEM/cache parents at
+WB, same-cycle caller capture, public admission against result fields, FIFO ancestry through
 S3/S4, exact miss PCs and direct refill addresses, and S4 ownership across
 backpressured CHI attempts, RetryAck, and PCrdGrant. Refill owns the scoped
 command-to-attempt contract before its Flow request mapper; unmodeled engine

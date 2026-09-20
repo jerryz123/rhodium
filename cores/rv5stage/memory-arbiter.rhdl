@@ -1,5 +1,5 @@
 #lang rhodium
-// Shares LSU ports while retaining fixed-cycle lookup/store ownership and routing tagged responses.
+// Shares LSU ports and carries selected lookup lineage through fixed-cycle response routing.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -36,20 +36,30 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   // A losing Valid lookup receives an explicit replay in its response cycle.
   // Ownership travels for two cycles, through the retained store candidate.
   inst lookups(ValidArbiter(RV5StagePipelineReq(xlen), 2))
-  Array(scalar_pipeline.request, vector_pipeline.request) <=> lookups.ingress
-  lookups.egress |> pipeline.request
+  def Array(scalar_lookup, scalar_context) = scalar_pipeline.request |> fork_valid(2)
+  def Array(vector_lookup, vector_context) = vector_pipeline.request |> fork_valid(2)
+  Array(scalar_lookup, vector_lookup) <=> lookups.ingress
+  def Array(selected_lookup, selected_owner) = lookups.egress |> fork_valid(2)
+  selected_lookup |> pipeline.request
   def lookup_vector = lookups.chosen === bits(1, 1)
   pipeline_vector <== lookup_vector
-  def scalar_result = scalar_pipeline.request |> map_valid(_request => !lookup_vector) |> valid_pipe(1)
-  def vector_result = vector_pipeline.request |> map_valid(_request => lookup_vector) |> valid_pipe(1)
-  def store_owner = lookups.egress |> map_valid(_request => lookup_vector) |> valid_pipe(2)
+  def scalar_result = scalar_context |> map_valid(_request => !lookup_vector) |> valid_pipe(1)
+  def vector_result = vector_context |> map_valid(_request => lookup_vector) |> valid_pipe(1)
+  def store_owner = selected_owner |> map_valid(_request => lookup_vector) |> valid_pipe(2)
   def replay = RV5StagePipelineResult(xlen):
     outcome: RV5StagePipelineOutcome.Replay
     reason: RV5StagePipelineReason.ArrayPort
     data: bits(0, xlen.width)
   def selected_result = mux(pipeline.response.valid, pipeline.response.bits, replay.updated(~outcome: RV5StagePipelineOutcome.Slow))
-  scalar_result |> map_valid(selected => mux(selected, selected_result, replay)) |> scalar_pipeline.response
-  vector_result |> map_valid(selected => mux(selected, selected_result, replay)) |> vector_pipeline.response
+  def Array(scalar_return, vector_return) = pipeline.response |> fork_valid(2)
+  def scalar_bits = mux(scalar_result.bits, selected_result, replay)
+  def vector_bits = mux(vector_result.bits, selected_result, replay)
+  def scalar_selected = scalar_return |> filter_valid(_response => scalar_result.valid & scalar_result.bits) |> map_valid(_response => scalar_bits)
+  def vector_selected = vector_return |> filter_valid(_response => vector_result.valid & vector_result.bits) |> map_valid(_response => vector_bits)
+  def scalar_local = scalar_result |> filter_valid(selected => !selected ||| !pipeline.response.valid) |> map_valid(_selected => scalar_bits)
+  def vector_local = vector_result |> filter_valid(selected => !selected ||| !pipeline.response.valid) |> map_valid(_selected => vector_bits)
+  Array(scalar_selected, scalar_local) |> valid_arbiter() |> scalar_pipeline.response
+  Array(vector_selected, vector_local) |> valid_arbiter() |> vector_pipeline.response
   pipeline.commit <== store_owner.valid & mux(store_owner.bits, vector_pipeline.commit, scalar_pipeline.commit)
   scalar_pipeline.commit_ready <== store_owner.valid & !store_owner.bits & pipeline.commit_ready
   vector_pipeline.commit_ready <== store_owner.valid & store_owner.bits & pipeline.commit_ready

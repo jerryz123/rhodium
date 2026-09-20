@@ -182,13 +182,16 @@ The trace also includes the frontend's S0 → S1 → S2 and core's Decode → Ex
 → WB stage events. See the [core tracing contract](../cores/rv5stage/README.md#pipeline-event-tracing)
 for transfer predicates, squash behavior, payloads, and the distinction between
 WB arrival and retirement. These pipeline events inherit accepted S0 occurrences through
-the buffered packet/parcel assembly path; they are
-not connected through unmodeled cache/MMU transactions to the memory checkpoints.
+the buffered packet/parcel assembly path. Scalar and vector lookups converge on
+the cache-owned `dcache/s1.access` track; caller capture is separately visible as
+`dcache/s2.resp` or `vector/memory.result`. Dependencies follow modeled
+arbitration, translation, and storage; unsupported paths retain explicit ancestry gaps.
 
 It also includes the [private-cache outer CHI channels](../cores/rv5stage/README.md#private-cache-outer-traffic)
 as `icache/chi.*` and `dcache/chi.*` labels, including request, response, refill-data,
 writeback-data, and snoop transfers. These use compact named control fields,
-not full cache-line payloads, and do not infer transaction ancestry.
+not full cache-line payloads. Transaction ancestry follows declared Flow/storage
+contracts, never matching transaction IDs or addresses.
 
 Slash-separated annotations form collapsible groups: `core/s2.decode` appears as
 `s2.decode` under `core`, and `dcache/chi.txreq` as `chi.txreq` under `dcache`.

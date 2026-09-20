@@ -70,6 +70,11 @@ invalidate translations or cancel accepted page-table response ownership.
    Forward WB authorization and readiness unchanged; WB owns squash and
    serialization. Do not reconnect drain-derived flush to store authorization.
    Never use relaxed prefetch A/D permissions or start a speculative data walk.
+   Fork lookup context explicitly between early virtual indexing, translation,
+   and requester ownership. Use filtered/mapped physical-request flows; route
+   cache-return ancestry only when the cache supplied the selected outcome.
+   Local faults, contention, and absent-response fallbacks retain translation
+   context instead. Do not infer response ownership from matching addresses.
 4. Preserve exclusive walker ownership from miss acceptance through completion,
    including the two-observation data-path drain and the single response-owner
    bit. Ordinary fetch recovery detaches the instruction consumer without

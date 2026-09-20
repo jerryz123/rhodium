@@ -91,8 +91,12 @@ the operation index can repeat on retry and is not an event identity. Completion
 captures destination and VRF-write enable. Backpressure observations share the
 issue track. The trace carries ownership through existing storage; it does not
 infer register-data dependencies or add per-service events. Memory attempts
-continue through their existing Flow path toward the cache checkpoints, retaining
-partial-mode diagnostics at unmodeled boundaries.
+continue through the shared LSU to the single cache-owned `dcache/s1.access`
+checkpoint. `vector/memory.result` observes the existing registered decision
+one cycle after cache resolution, retaining issue and cache ancestry. It records
+hits, replay, faults, and slow-request admission, but not masked-off beats.
+Arbitration/translation failures have no cache parent. Partial-mode diagnostics
+remain at unmodeled boundaries.
 The core supplies its selected ISA for residency disassembly through `~trace_isa`;
 standalone vector pipelines default to the XLEN-appropriate IMAFDCV instruction set.
 

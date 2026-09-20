@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements staged L1D hits, flow-based transaction transport, and coherent miss service.
+// Implements and traces shared L1D lookup resolution, transaction transport, and coherent miss service.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -240,8 +240,16 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   otherwise:
     s1_outcome <== mux(s1_store, RV5StagePipelineOutcome.StoreHit, RV5StagePipelineOutcome.LoadHit)
     s1_reason <== RV5StagePipelineReason.None
+  def resolved_access = pipeline.request |> trace_valid_event("dcache/s1.access", ~fields: request):
+    address: request.address
+    access(~format: "enum"): request.access
+    width(~format: "enum"): request.width
+    byte_mask: request.byte_mask
+    outcome(~format: "enum"): s1_outcome
+    reason(~format: "enum"): s1_reason
+  def Array(response_path, store_candidate_path) = resolved_access |> fork_valid(2)
   (
-    pipeline.request |> map_valid(_request => RV5StagePipelineResult(xlen)):
+    response_path |> map_valid(_request => RV5StagePipelineResult(xlen)):
       outcome: s1_outcome
       reason: s1_reason
       data: s1_load_gen.value
@@ -249,7 +257,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   when (pipeline.request.valid & miss_active & (s1_outcome === RV5StagePipelineOutcome.LoadHit)):
     assert(miss_allows_hits & s1_miss_set_clear & s1_read_matches, "l1d_hit_under_miss_isolated")
   (
-    pipeline.request
+    store_candidate_path
       |> filter_valid(_request => s1_outcome === RV5StagePipelineOutcome.StoreHit)
       |> map_valid(request => RV5StageStoreBufferEntry(xlen, way_width, word_bytes)):
         address: request.address
