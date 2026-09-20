@@ -412,14 +412,19 @@ module rv5stage_vector_fp_tb;
     expect_store('h2788, 'h40800000, 2); expect_store('h278c, 'h3f000000, 2);
     expect_store('h2790, 'h3f000000, 2); expect_store('h2794, 'h40000000, 2);
     expect_store('h2798, 'h40400000, 2); expect_store('h279c, 'h40800000, 2);
-    // vfmv.f.s is independent of vl and immediately feeds a younger scalar
-    // observer only after its WB-owned FPR reservation has completed.
+    // vfmv.f.s waits for older scalar execution and load reservations even
+    // when they write different FPRs, then feeds a younger scalar observer.
+    emit('h0010f2d3); // fadd.s f5,f1,f1,dyn
     vset(2, 0); vec('h10, 9, 8, 0, 0, 1); // vfmv.f.s f9,v8
     emit(32'('he2000053 | (9 << 15) | (3 << 7))); // fmv.x.d x3,f9
     li(10, 'h27a0); emit('h00353023); expect_store('h27a0, 'hffffffff3f800000, 3);
-    emit('h0080006f); vec('h10, 9, 9, 0, 0, 1); // squashed vector-to-FPR write
+    li(10, 'h10b8); emit('h00053307); // fld f6,0(x10)
+    vec('h10, 9, 8, 0, 0, 1);
     emit(32'('he2000053 | (9 << 15) | (3 << 7)));
     li(10, 'h27a8); emit('h00353023); expect_store('h27a8, 'hffffffff3f800000, 3);
+    emit('h0080006f); vec('h10, 9, 9, 0, 0, 1); // squashed vector-to-FPR write
+    emit(32'('he2000053 | (9 << 15) | (3 << 7)));
+    li(10, 'h27e8); emit('h00353023); expect_store('h27e8, 'hffffffff3f800000, 3);
     memory_words[64] = 'h000000007f800001; vset(2, 1); vload(18, 'h1200, 2);
     vset(2, 0); vec('h10, 10, 18, 0, 0, 1); // a moved signaling-NaN payload is not canonicalized
     emit(32'('he2000053 | (10 << 15) | (3 << 7)));

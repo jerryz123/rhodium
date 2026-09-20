@@ -510,7 +510,11 @@ sync_circuit RV5StageCore(core_profile :: RVCoreProfile, ~reset_address: reset_a
   def id_fp_destination_hazard = id_control.floating_point_valid & (
     id_control.floating_point.registers.destination === RV5StageFloatDestination.FloatingPoint
   ) & id_fp_register_busy(id_rd)
-  def id_vector_fp_destination_hazard = id_control.vector.floating_point & id_control.vector.floating_scalar_destination & (id_fp_register_busy(id_rd) ||| !wb_fp.drained)
+  def id_ex_fp_reservation_pending = ex_input.valid & ex_input.bits.floating_point_valid & ((ex_input.bits.floating_point_control.execution.unit =/= RV5StageFloatUnit.Memory) ||| !ex_input.bits.floating_point_control.execution.memory_write)
+  def id_mem_fp_reservation_pending = mem_input.valid & (mem_input.bits.fp_compute ||| (mem_input.bits.data_request_valid & mem_input.bits.data_request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)))
+  def id_wb_fp_reservation_pending = wb.valid & (wb_offer_bits.fp_compute ||| (wb_offer_bits.data_request_valid & wb_offer_bits.data_request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool)))
+  def id_older_fp_reservation_pending = id_ex_fp_reservation_pending ||| id_mem_fp_reservation_pending ||| id_wb_fp_reservation_pending
+  def id_vector_fp_destination_hazard = id_control.vector.floating_point & id_control.vector.floating_scalar_destination & (id_fp_register_busy(id_rd) ||| !wb_fp.drained ||| id_older_fp_reservation_pending)
   def id_ex_serializing = ex_input.valid & (core_serializing_operation(ex_input.bits.system, ex_input.bits.fence) ||| ex_input.bits.memory_operation.into(MemoryOperation).is_cache_management())
   def id_mem_serializing = mem_input.valid & (core_serializing_operation(mem_input.bits.system, mem_input.bits.fence) ||| mem_input.bits.data_request.access.into(MemoryOperation).is_cache_management())
   def id_wb_serializing = wb_commit_valid & core_serializing_operation(wb_offer_bits.system, wb_offer_bits.fence)
